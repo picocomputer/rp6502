@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2022 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+.program hello
+
+.wrap_target
+    wait 1 gpio 21
+    set pins 1
+    wait 0 gpio 21
+    set pins 0
+.wrap
