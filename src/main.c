@@ -44,6 +44,7 @@ int main()
         hid_task();
         mon_task();
         term_task();
+        vga_task();
     }
 
     return 0;

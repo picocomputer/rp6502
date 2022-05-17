@@ -6,6 +6,7 @@
 
 #include "hid.h"
 #include "ansi.h"
+#include "vga.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -27,11 +28,14 @@ static struct
     tuh_hid_report_info_t report_info[MAX_REPORT];
 } hid_info[CFG_TUH_HID];
 
+#define KEY_REPEAT_DELAY 500000
+#define KEY_REPEAT_RATE 30000
 static absolute_time_t key_repeat_timer = {0};
 static hid_keyboard_report_t key_prev_report = {0, 0, {0}};
 static char key_queue[8];
 static uint8_t key_queue_in = 0;
 static uint8_t key_queue_out = 0;
+static bool terminal_visible = true;
 
 static void hid_queue_key_str(const char *str)
 {
@@ -39,9 +43,10 @@ static void hid_queue_key_str(const char *str)
         key_queue[++key_queue_in & 7] = *str++;
 }
 
-static void hid_queue_key(uint8_t modifier, uint8_t keycode, uint64_t repeat_delay_us)
+static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
-    key_repeat_timer = delayed_by_us(get_absolute_time(), repeat_delay_us);
+    key_repeat_timer = delayed_by_us(get_absolute_time(),
+                                     initial_press ? KEY_REPEAT_DELAY : KEY_REPEAT_RATE);
     modifier = ((modifier & 0xf0) >> 4) | (modifier & 0x0f); // merge modifiers to left
     static char const keycode_to_ascii[128][2] = {HID_KEYCODE_TO_ASCII};
     char ch = keycode_to_ascii[keycode][modifier & KEYBOARD_MODIFIER_LEFTSHIFT ? 1 : 0];
@@ -58,6 +63,18 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, uint64_t repeat_del
     }
     if (ch)
         key_queue[++key_queue_in & 7] = ch;
+    else if (initial_press)
+        switch (keycode)
+        {
+        case HID_KEY_DELETE:
+            if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
+                vga_terminal(terminal_visible = !terminal_visible);
+            break;
+        case HID_KEY_SCROLL_LOCK:
+        case HID_KEY_PAUSE:
+            vga_terminal(terminal_visible = !terminal_visible);
+            break;
+        }
     else
         switch (keycode)
         {
@@ -155,7 +172,7 @@ static void hid_kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_repo
                     held = true;
             }
             if (!held)
-                hid_queue_key(report->modifier, keycode, 500000);
+                hid_queue_key(report->modifier, keycode, true);
         }
     }
     prev_dev_addr = dev_addr;
@@ -238,7 +255,7 @@ void hid_task()
             uint8_t keycode = key_prev_report.keycode[5 - i];
             if (keycode)
             {
-                hid_queue_key(key_prev_report.modifier, keycode, 30000);
+                hid_queue_key(key_prev_report.modifier, keycode, false);
                 return;
             }
         }
@@ -247,9 +264,9 @@ void hid_task()
 }
 
 // This works, but not through a USB hub.
-static void hid_set_scroll_lock()
+static void hid_set_leds()
 {
-    static uint8_t leds = KEYBOARD_LED_SCROLLLOCK;
+    static uint8_t hid_leds = KEYBOARD_LED_SCROLLLOCK;
     for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
     {
         for (uint8_t inst = 0; inst < CFG_TUH_HID; inst++)
@@ -257,7 +274,7 @@ static void hid_set_scroll_lock()
             uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, inst);
             if (HID_ITF_PROTOCOL_KEYBOARD == itf_protocol)
             {
-                tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &leds, sizeof(leds));
+                tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &hid_leds, sizeof(hid_leds));
             }
         }
     }
