@@ -16,7 +16,7 @@
 // implementation first.
 
 #define TERM_WIDTH 80
-#define TERM_HEIGHT 30
+#define TERM_HEIGHT 32
 #define TERM_MEM_SIZE (TERM_WIDTH * TERM_HEIGHT * 2)
 #define TERM_WORD_WRAP 1
 static int term_x = 0, term_y = 0;
@@ -440,11 +440,15 @@ void term_task()
     }
 }
 
-void term_render(struct scanvideo_scanline_buffer *dest)
+void term_render(struct scanvideo_scanline_buffer *dest, uint16_t height)
 {
     // renders 80 columns into 640 pixels with 16 fg/bg colors
     // requires PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
     int line = scanvideo_scanline_number(dest->scanline_id);
+    while (height <= term_y * 16) {
+        line += 16;
+        height += 16;
+    }
     const uint8_t *font_line = &term_font_data[(line & 15) * 96 - 32];
     line = line / 16 + term_y_offset;
     if (line >= TERM_HEIGHT)

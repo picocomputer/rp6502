@@ -75,6 +75,23 @@ static const scanvideo_timing_t vga_timing_1280x1024_60_dmt = {
     .v_total = 1066,
     .v_sync_polarity = 1};
 
+static const scanvideo_timing_t vga_timing_1280x1024_tall_60_dmt = {
+    // half clock rate, effective 2 xscale
+    .clock_freq = 54000000,
+
+    .h_active = 640,
+    .v_active = 1024,
+
+    .h_front_porch = 24,
+    .h_pulse = 56,
+    .h_total = 844,
+    .h_sync_polarity = 0,
+
+    .v_front_porch = 1,
+    .v_pulse = 3,
+    .v_total = 1066,
+    .v_sync_polarity = 1};
+
 static const scanvideo_timing_t vga_timing_1280x1024_wide_60_dmt = {
     // half clock rate, effective 2 xscale
     .clock_freq = 54000000,
@@ -158,6 +175,14 @@ static const scanvideo_mode_t vga_mode_640x480_sxga = {
     .xscale = 1,
     .yscale = 2};
 
+static const scanvideo_mode_t vga_mode_640x512_sxga = {
+    .default_timing = &vga_timing_1280x1024_tall_60_dmt,
+    .pio_program = &video_24mhz_composable,
+    .width = 640,
+    .height = 512,
+    .xscale = 1,
+    .yscale = 2};
+
 static const scanvideo_mode_t vga_mode_320x180_sxga = {
     .default_timing = &vga_timing_1280x1024_wide_60_dmt,
     .pio_program = &video_24mhz_composable,
@@ -220,7 +245,7 @@ static void __not_in_flash_func(vga_render_terminal)()
     for (int i = 0; i < 480; i++)
     {
         scanline_buffer = scanvideo_begin_scanline_generation(true);
-        term_render(scanline_buffer);
+        term_render(scanline_buffer, vga_mode_current->height);
         scanvideo_end_scanline_generation(scanline_buffer);
     }
 }
@@ -302,10 +327,10 @@ static void __not_in_flash_func(vga_render_loop)()
 static void vga_find_mode()
 {
     // terminal_selected mode goes first
-    if (vga_terminal_selected || vga_resolution_selected == vga_640_480)
+    if (vga_terminal_selected)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_640x480_sxga;
+            vga_mode_selected = &vga_mode_640x512_sxga;
         else
             vga_mode_selected = &vga_mode_640x480;
     }
@@ -316,14 +341,12 @@ static void vga_find_mode()
         else
             vga_mode_selected = &vga_mode_320x240;
     }
-    else if (vga_resolution_selected == vga_640_360)
+    else if (vga_resolution_selected == vga_640_480)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_640x360_sxga;
-        else if (vga_display_selected == vga_hd)
-            vga_mode_selected = &vga_mode_640x360_hd;
+            vga_mode_selected = &vga_mode_640x480_sxga;
         else
-            vga_mode_selected = &vga_mode_640x360;
+            vga_mode_selected = &vga_mode_640x480;
     }
     else if (vga_resolution_selected == vga_320_180)
     {
@@ -333,6 +356,15 @@ static void vga_find_mode()
             vga_mode_selected = &vga_mode_320x180_hd;
         else
             vga_mode_selected = &vga_mode_320x180;
+    }
+    else if (vga_resolution_selected == vga_640_360)
+    {
+        if (vga_display_selected == vga_sxga)
+            vga_mode_selected = &vga_mode_640x360_sxga;
+        else if (vga_display_selected == vga_hd)
+            vga_mode_selected = &vga_mode_640x360_hd;
+        else
+            vga_mode_selected = &vga_mode_640x360;
     }
     // trigger only if change detected
     if ((vga_mode_selected != vga_mode_current) ||

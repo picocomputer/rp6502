@@ -62,8 +62,11 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             ch = 0;
     }
     if (ch)
+    {
         key_queue[++key_queue_in & 7] = ch;
-    else if (initial_press)
+        return;
+    }
+    if (initial_press)
         switch (keycode)
         {
         case HID_KEY_DELETE:
@@ -95,19 +98,18 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             vga_terminal(terminal_visible = !terminal_visible);
             break;
         }
-    else
-        switch (keycode)
-        {
-        case HID_KEY_ARROW_RIGHT:
-            hid_queue_key_str(ANSI_KEY_ARROW_RIGHT);
-            break;
-        case HID_KEY_ARROW_LEFT:
-            hid_queue_key_str(ANSI_KEY_ARROW_LEFT);
-            break;
-        case HID_KEY_DELETE:
-            hid_queue_key_str(ANSI_KEY_DELETE);
-            break;
-        }
+    switch (keycode)
+    {
+    case HID_KEY_ARROW_RIGHT:
+        hid_queue_key_str(ANSI_KEY_ARROW_RIGHT);
+        break;
+    case HID_KEY_ARROW_LEFT:
+        hid_queue_key_str(ANSI_KEY_ARROW_LEFT);
+        break;
+    case HID_KEY_DELETE:
+        hid_queue_key_str(ANSI_KEY_DELETE);
+        break;
+    }
 }
 
 static int hid_stdio_in_chars(char *buf, int length)
