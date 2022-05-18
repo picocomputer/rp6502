@@ -68,10 +68,30 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         {
         case HID_KEY_DELETE:
             if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
-                vga_terminal(terminal_visible = !terminal_visible);
+                vga_terminal(terminal_visible = true);
+            break;
+        case HID_KEY_F5:
+            vga_resolution(vga_320_240);
+            break;
+        case HID_KEY_F6:
+            vga_resolution(vga_640_480);
+            break;
+        case HID_KEY_F7:
+            vga_resolution(vga_320_180);
+            break;
+        case HID_KEY_F8:
+            vga_resolution(vga_640_360);
+            break;
+        case HID_KEY_F10:
+            vga_display(vga_sd);
+            break;
+        case HID_KEY_F11:
+            vga_display(vga_hd);
+            break;
+        case HID_KEY_F12:
+            vga_display(vga_sxga);
             break;
         case HID_KEY_SCROLL_LOCK:
-        case HID_KEY_PAUSE:
             vga_terminal(terminal_visible = !terminal_visible);
             break;
         }

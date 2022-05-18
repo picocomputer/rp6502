@@ -9,27 +9,22 @@
 
 #include <stdbool.h>
 
-// The Picocomputer only supports 60Hz VGA and HDMI video.
-// (There already exists 6502 hardware for 15kHz video.)
-// Inexpensive VGA to HDMI converters will work perfectly
+// The Picocomputer supports analog VGA output.
+// Inexpensive VGA to HDMI converters work perfectly
 // on all resolutions without any framebuffer lag.
-
-// By default, only SD output with letterboxing is selected.
-// If you're using a wide monitor and don't want windowboxing
-// on the wide resolutions, enable HD output.
-// If you have a 1280x1024 SXGA panel that stretches everything
-// to 5:4 (all of them), you're welcome.
 
 // Display resolution. Note that choosing vga_hd will only
 // activate 720p output on 320x180 and 640x380 resolutions.
+// If you have a 1280x1024 SXGA panel that stretches everything
+// to 5:4 (which is all of them), you're welcome.
 typedef enum
 {
-    vga_sd, // 640x480 (480p)
-    vga_hd, // 1280x720 (720p)
+    vga_sd,   // 640x480 (480p) default
+    vga_hd,   // 1280x720 (720p)
     vga_sxga, // 1280x1024 (5:4)
 } vga_display_t;
 
-// Integer scaled to display resolution and vertically centered
+// Internal resolution, before scaling for display.
 typedef enum
 {
     vga_320_240,

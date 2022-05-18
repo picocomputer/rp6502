@@ -11,10 +11,18 @@
 #include "pico/scanvideo.h"
 #include "pico/scanvideo/composable_scanline.h"
 #include "hardware/dma.h"
+#include "hardware/clocks.h"
 
 static mutex_t vga_mutex;
+static vga_display_t vga_display_current;
+static vga_display_t vga_display_selected;
+static vga_resolution_t vga_resolution_current;
+static vga_resolution_t vga_resolution_selected;
+static bool vga_terminal_current;
+static bool vga_terminal_selected;
 static scanvideo_mode_t const *vga_mode_current;
 static scanvideo_mode_t const *vga_mode_selected;
+static bool vga_mode_switch_triggered;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
@@ -228,55 +236,108 @@ static void __not_in_flash_func(vga_render_320_240)()
     }
 }
 
+static void __not_in_flash_func(vga_render_640_480)()
+{
+    struct scanvideo_scanline_buffer *scanline_buffer;
+    for (int i = 0; i < 480; i++)
+    {
+        scanline_buffer = scanvideo_begin_scanline_generation(true);
+        vga_render_color_bar(scanline_buffer);
+        scanvideo_end_scanline_generation(scanline_buffer);
+    }
+}
+
+static void __not_in_flash_func(vga_render_320_180)()
+{
+    struct scanvideo_scanline_buffer *scanline_buffer;
+    for (int i = 0; i < 180; i++)
+    {
+        scanline_buffer = scanvideo_begin_scanline_generation(true);
+        vga_render_color_bar(scanline_buffer);
+        scanvideo_end_scanline_generation(scanline_buffer);
+    }
+}
+
+static void __not_in_flash_func(vga_render_640_360)()
+{
+    struct scanvideo_scanline_buffer *scanline_buffer;
+    for (int i = 0; i < 360; i++)
+    {
+        scanline_buffer = scanvideo_begin_scanline_generation(true);
+        vga_render_color_bar(scanline_buffer);
+        scanvideo_end_scanline_generation(scanline_buffer);
+    }
+}
+
 static void __not_in_flash_func(vga_render_loop)()
 {
     while (true)
     {
-        if (vga_mode_selected == vga_mode_current)
+        if (!vga_mode_switch_triggered)
         {
             mutex_enter_blocking(&vga_mutex);
-            if (vga_mode_current == &vga_mode_640x480)
+            if (vga_terminal_current)
                 vga_render_terminal();
             else
-                vga_render_320_240();
-            // if (vga_terminal_current)
-            //     vga_render_terminal();
-            // else
-            //     switch (vga_res_current)
-            //     {
-            //     case vga_320_240:
-            //         vga_render_320_240();
-            //         break;
-            //     }
+                switch (vga_resolution_current)
+                {
+                case vga_320_240:
+                    vga_render_320_240();
+                    break;
+                case vga_640_480:
+                    vga_render_640_480();
+                    break;
+                case vga_320_180:
+                    vga_render_320_180();
+                    break;
+                case vga_640_360:
+                    vga_render_640_360();
+                    break;
+                }
             mutex_exit(&vga_mutex);
         }
     }
 }
 
-// void vga_resolution(vga_resolution_t mode)
-// {
-//     static vga_resolution_t vga_res_current;
-//     static vga_resolution_t vga_res_selected;
-//     vga_res_selected = mode;
-// }
-
-// void vga_display(vga_display_t display)
-// {
-//     static vga_display_t vga_display_current;
-//     static vga_display_t vga_display_selected;
-//     vga_display_selected = display;
-// }
-
-void vga_terminal(bool show)
+static void vga_find_mode()
 {
-    // static bool vga_terminal_current;
-    // static bool vga_terminal_selected;
-    // vga_terminal_selected = show;
-
-    if (vga_mode_current == &vga_mode_640x480)
-        vga_mode_selected = &vga_mode_320x240;
-    else
-        vga_mode_selected = &vga_mode_640x480;
+    // terminal_selected mode goes first
+    if (vga_terminal_selected || vga_resolution_selected == vga_640_480)
+    {
+        if (vga_display_selected == vga_sxga)
+            vga_mode_selected = &vga_mode_640x480_sxga;
+        else
+            vga_mode_selected = &vga_mode_640x480;
+    }
+    else if (vga_resolution_selected == vga_320_240)
+    {
+        if (vga_display_selected == vga_sxga)
+            vga_mode_selected = &vga_mode_320x240_sxga;
+        else
+            vga_mode_selected = &vga_mode_320x240;
+    }
+    else if (vga_resolution_selected == vga_640_360)
+    {
+        if (vga_display_selected == vga_sxga)
+            vga_mode_selected = &vga_mode_640x360_sxga;
+        else if (vga_display_selected == vga_hd)
+            vga_mode_selected = &vga_mode_640x360_hd;
+        else
+            vga_mode_selected = &vga_mode_640x360;
+    }
+    else if (vga_resolution_selected == vga_320_180)
+    {
+        if (vga_display_selected == vga_sxga)
+            vga_mode_selected = &vga_mode_320x180_sxga;
+        else if (vga_display_selected == vga_hd)
+            vga_mode_selected = &vga_mode_320x180_hd;
+        else
+            vga_mode_selected = &vga_mode_320x180;
+    }
+    // trigger only if change detected
+    if ((vga_mode_selected != vga_mode_current) ||
+        (vga_terminal_selected != vga_terminal_current))
+        vga_mode_switch_triggered = true;
 }
 
 static void vga_set()
@@ -299,24 +360,60 @@ static void vga_set()
         if (pio_sm_is_claimed(pio0, sm))
             pio_sm_unclaim(pio0, sm);
 
-    // begin regular scanvideo setup
-    set_sys_clock_khz(126000, true);
+    // begin scanvideo setup with clock setup
+    uint32_t clk = vga_mode_selected->default_timing->clock_freq;
+    if (clk == 25200000)
+        clk = 126000000; // *5
+    else if (clk == 54000000)
+        clk = 162000000; // *3
+    else if (clk == 37125000)
+        clk = 148500000; // *4
+    assert(clk >= 125000000 && clk <= 166000000);
+    if (clk != clock_get_hz(clk_sys))
+    {
+        set_sys_clock_khz(clk / 1000, true);
+#if LIB_PICO_STDIO_UART
+        stdio_uart_init();
+#endif
+    }
+
+    // These two calls are the main scanvideo startup
     scanvideo_setup(vga_mode_selected);
     scanvideo_timing_enable(true);
+
+    // Swap in the new config
     vga_mode_current = vga_mode_selected;
-    // #if LIB_PICO_STDIO_UART
-    //     // correct for any clock change
-    //     stdio_uart_init();
-    // #endif
+    vga_display_current = vga_display_selected;
+    vga_resolution_current = vga_resolution_selected;
+    vga_terminal_current = vga_terminal_selected;
+}
+
+void vga_display(vga_display_t display)
+{
+    vga_display_selected = display;
+    vga_find_mode();
+}
+
+void vga_resolution(vga_resolution_t mode)
+{
+    vga_resolution_selected = mode;
+    vga_find_mode();
+}
+
+void vga_terminal(bool show)
+{
+    vga_terminal_selected = show;
+    vga_find_mode();
 }
 
 void vga_task()
 {
-    if (vga_mode_selected != vga_mode_current)
+    if (vga_mode_switch_triggered)
     {
         if (!mutex_try_enter(&vga_mutex, 0))
             return;
         vga_set();
+        vga_mode_switch_triggered = false;
         mutex_exit(&vga_mutex);
     }
 }
@@ -324,7 +421,10 @@ void vga_task()
 void vga_init()
 {
     mutex_init(&vga_mutex);
-    vga_mode_selected = &vga_mode_640x480;
+    vga_display(vga_sd);
+    vga_resolution(vga_320_240);
+    vga_terminal(true);
     vga_set();
+    vga_mode_switch_triggered = false;
     multicore_launch_core1(vga_render_loop);
 }
