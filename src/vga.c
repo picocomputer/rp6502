@@ -28,16 +28,13 @@ static scanvideo_mode_t const *vga_mode_current;
 static scanvideo_mode_t const *vga_mode_selected;
 static bool vga_mode_switch_triggered;
 
-// Scanvideo library front porch has an off by one bug.
-// Values increased here to compensate for now.
-
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
 
     .h_active = 640,
     .v_active = 480,
 
-    .h_front_porch = 17,
+    .h_front_porch = 16,
     .h_pulse = 96,
     .h_total = 800,
     .h_sync_polarity = 1,
@@ -53,7 +50,7 @@ static const scanvideo_timing_t vga_timing_640x480_wide_60_cea = {
     .h_active = 640,
     .v_active = 360,
 
-    .h_front_porch = 17,
+    .h_front_porch = 16,
     .h_pulse = 96,
     .h_total = 800,
     .h_sync_polarity = 1,
@@ -71,7 +68,7 @@ static const scanvideo_timing_t vga_timing_1280x1024_60_dmt = {
     .h_active = 640,
     .v_active = 960,
 
-    .h_front_porch = 25,
+    .h_front_porch = 24,
     .h_pulse = 56,
     .h_total = 844,
     .h_sync_polarity = 0,
@@ -89,7 +86,7 @@ static const scanvideo_timing_t vga_timing_1280x1024_tall_60_dmt = {
     .h_active = 640,
     .v_active = 1024,
 
-    .h_front_porch = 25,
+    .h_front_porch = 24,
     .h_pulse = 56,
     .h_total = 844,
     .h_sync_polarity = 0,
@@ -106,7 +103,7 @@ static const scanvideo_timing_t vga_timing_1280x1024_wide_60_dmt = {
     .h_active = 640,
     .v_active = 720,
 
-    .h_front_porch = 25,
+    .h_front_porch = 24,
     .h_pulse = 56,
     .h_total = 844,
     .h_sync_polarity = 0,
@@ -124,7 +121,7 @@ static const scanvideo_timing_t vga_timing_1280x720_60_cea = {
     .h_active = 640,
     .v_active = 720,
 
-    .h_front_porch = 56,
+    .h_front_porch = 55,
     .h_pulse = 20,
     .h_total = 825,
     .h_sync_polarity = 1,
