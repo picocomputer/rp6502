@@ -6,6 +6,7 @@
 
 #include "hid.h"
 #include "ansi.h"
+#include "dm65.h"
 #include "vga.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
@@ -73,6 +74,18 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
                 vga_terminal(terminal_visible = true);
             break;
+        case HID_KEY_F1:
+            dm65_set_clk(1);
+            break;
+        case HID_KEY_F2:
+            dm65_set_clk(2);
+            break;
+        case HID_KEY_F3:
+            dm65_set_clk(4);
+            break;
+        case HID_KEY_F4:
+            dm65_set_clk(8);
+            break;
         case HID_KEY_F5:
             vga_resolution(vga_320_240);
             break;
@@ -84,6 +97,9 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         case HID_KEY_F8:
             vga_resolution(vga_640_360);
+            break;
+        case HID_KEY_F9:
+            //nop
             break;
         case HID_KEY_F10:
             vga_display(vga_sd);

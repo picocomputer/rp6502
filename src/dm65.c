@@ -30,3 +30,10 @@ void dm65_init()
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_enabled(pio, sm, true);
 }
+
+void dm65_set_clk(int mhz)
+{
+    int div = 48 / mhz;
+    assert(!(48 % div)); // even divisions only
+    clock_gpio_init(21, clk_usb, div);
+}
