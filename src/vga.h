@@ -8,6 +8,7 @@
 #define _VGA_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // The Picocomputer supports analog VGA output.
 // Inexpensive VGA to HDMI converters work perfectly
@@ -32,6 +33,9 @@ typedef enum
     vga_320_180,
     vga_640_360,
 } vga_resolution_t;
+
+#define VGA_MEM_SIZE 65536
+extern uint8_t vga_memory[VGA_MEM_SIZE];
 
 void vga_display(vga_display_t display);
 void vga_resolution(vga_resolution_t mode);

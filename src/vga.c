@@ -14,9 +14,7 @@
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 
-#define VGA_MEM_SIZE 65536
 uint8_t vga_memory[VGA_MEM_SIZE];
-
 static mutex_t vga_mutex;
 static vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
