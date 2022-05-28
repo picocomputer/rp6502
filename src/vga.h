@@ -14,10 +14,10 @@
 // Inexpensive VGA to HDMI converters work perfectly
 // on all resolutions without any framebuffer lag.
 
-// Display resolution. Note that choosing vga_hd will only
-// activate 720p output on 320x180 and 640x380 resolutions.
-// If you have a 1280x1024 SXGA panel that stretches everything
-// to 5:4 (which is all of them), you're welcome.
+// Display type. Choose SD for 4:3 displays,
+// HD for 16:9 displays, and SXGA for 5:4 displays.
+// Note that choosing vga_hd will only activate 720p
+// output on 320x180 and 640x380 resolutions.
 typedef enum
 {
     vga_sd,   // 640x480 (480p) default

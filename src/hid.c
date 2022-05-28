@@ -22,15 +22,15 @@ static stdio_driver_t hid_stdio_app = {
 #endif
 };
 
-#define MAX_REPORT 4
+#define HID_MAX_REPORT 4
 static struct
 {
     uint8_t report_count;
-    tuh_hid_report_info_t report_info[MAX_REPORT];
+    tuh_hid_report_info_t report_info[HID_MAX_REPORT];
 } hid_info[CFG_TUH_HID];
 
-#define KEY_REPEAT_DELAY 500000
-#define KEY_REPEAT_RATE 30000
+#define HID_REPEAT_DELAY 500000
+#define HID_REPEAT_RATE 30000
 static absolute_time_t key_repeat_timer = {0};
 static hid_keyboard_report_t key_prev_report = {0, 0, {0}};
 static char key_queue[8];
@@ -47,7 +47,7 @@ static void hid_queue_key_str(const char *str)
 static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     key_repeat_timer = delayed_by_us(get_absolute_time(),
-                                     initial_press ? KEY_REPEAT_DELAY : KEY_REPEAT_RATE);
+                                     initial_press ? HID_REPEAT_DELAY : HID_REPEAT_RATE);
     modifier = ((modifier & 0xf0) >> 4) | (modifier & 0x0f); // merge modifiers to left
     static char const keycode_to_ascii[128][2] = {HID_KEYCODE_TO_ASCII};
     char ch = keycode_to_ascii[keycode][modifier & KEYBOARD_MODIFIER_LEFTSHIFT ? 1 : 0];
@@ -75,16 +75,16 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 vga_terminal(terminal_visible = true);
             break;
         case HID_KEY_F1:
-            dm65_set_clk(1);
+            dm65_set_clk_mhz(1);
             break;
         case HID_KEY_F2:
-            dm65_set_clk(2);
+            dm65_set_clk_mhz(2);
             break;
         case HID_KEY_F3:
-            dm65_set_clk(4);
+            dm65_set_clk_mhz(4);
             break;
         case HID_KEY_F4:
-            dm65_set_clk(8);
+            dm65_set_clk_mhz(8);
             break;
         case HID_KEY_F5:
             vga_resolution(vga_320_240);
@@ -257,7 +257,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     if (itf_protocol == HID_ITF_PROTOCOL_NONE)
     {
         hid_info[instance].report_count =
-            tuh_hid_parse_report_descriptor(hid_info[instance].report_info, MAX_REPORT, desc_report, desc_len);
+            tuh_hid_parse_report_descriptor(hid_info[instance].report_info, HID_MAX_REPORT, desc_report, desc_len);
     }
 
     const char *protocol_str[] = {"None", "Keyboard", "Mouse"};

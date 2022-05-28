@@ -8,6 +8,6 @@
 #define _DM65_H_
 
 void dm65_init();
-void dm65_set_clk(int mhz);
+void dm65_set_clk_mhz(int mhz);
 
 #endif /* _DM65_H_ */

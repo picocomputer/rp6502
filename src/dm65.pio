@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-.program hello
+.program dm65
 
 .wrap_target
     wait 1 gpio 21

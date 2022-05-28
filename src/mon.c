@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
-#define BUFLEN 80
-static uint8_t mon_buf[BUFLEN];
+#define MON_BUF_SIZE 80
+static uint8_t mon_buf[MON_BUF_SIZE];
 static uint8_t mon_buflen = 0;
 static uint8_t mon_bufpos = 0;
 static ansi_state_t mon_ansi_state = ansi_state_C0;
@@ -150,7 +150,7 @@ static void mon_state_C0(char ch)
         mon_enter();
     else if (ch == '\33')
         mon_ansi_state = ansi_state_Fe;
-    else if (ch >= 32 && ch < 127 && mon_bufpos < BUFLEN - 1)
+    else if (ch >= 32 && ch < 127 && mon_bufpos < MON_BUF_SIZE - 1)
     {
         putchar(ch);
         mon_buf[mon_bufpos] = ch;
