@@ -3,7 +3,7 @@
 The RP6502 is an 8-bit computer with VGA, Audio, and USB. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is a $4/€4 Raspberry Pi Pico.
 
 Join me on YouTube as I develop this project.
-https://www.youtube.com/channel/UCocXSwUnoj6ct_eLECtHwIg
+https://www.youtube.com/channel/UC7kMjECYMyiSgFfiAm6c55w
 
 
 ## Dev Setup Notes
