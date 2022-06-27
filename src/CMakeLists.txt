@@ -27,16 +27,16 @@ target_compile_definitions(rp6502 PRIVATE
 )
 
 pico_generate_pio_header(rp6502
-    ${CMAKE_CURRENT_LIST_DIR}/dm65.pio
+    ${CMAKE_CURRENT_LIST_DIR}/ria.pio
 )
 
 target_sources(rp6502 PRIVATE
-    dm65.c
     hid_ps4.c
     hid.c
     main.c
     mon.c
     msc.c
+    ria.c
     term.c
     vga.c
 )

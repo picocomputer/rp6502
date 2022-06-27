@@ -5,6 +5,7 @@
  */
 
 #include "vga.h"
+#include "ria.h"
 #include "term.h"
 #include "string.h"
 #include "pico/stdlib.h"
@@ -14,7 +15,6 @@
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 
-uint8_t vga_memory[VGA_MEM_SIZE];
 static mutex_t vga_mutex;
 static vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
@@ -319,11 +319,11 @@ void vga_render_mono_haxscii(scanvideo_scanline_buffer_t *dest)
         0x0D88 | (0x0D88 << 16)};
 
     int line = scanvideo_scanline_number(dest->scanline_id);
-    const uint8_t *font_base = &vga_memory[0x1000] + (line & 7);
+    const uint8_t *font_base = &vram[0x1000] + (line & 7);
 
     int columns = vga_mode_current->width / 8;
 
-    uint8_t *term_ptr = vga_memory + columns * (line / 8);
+    uint8_t *term_ptr = vram + columns * (line / 8);
     uint32_t *buf = dest->data;
     for (int i = 0; i < columns; i++)
     {
@@ -567,19 +567,19 @@ void vga_task()
 void vga_memory_init()
 {
     // Thought provoking scaffolding
-    strcpy(&vga_memory[45], "**** PICOCOMPUTER 6502 V1 ****");
-    strcpy(&vga_memory[121], "64K RAM SYSTEM  53248 BASIC BYTES FREE");
-    strcpy(&vga_memory[200], "READY");
-    vga_memory[240] = 32 + 128;
+    strcpy(&vram[45], "**** PICOCOMPUTER 6502 V1 ****");
+    strcpy(&vram[121], "64K RAM SYSTEM  53248 BASIC BYTES FREE");
+    strcpy(&vram[200], "READY");
+    vram[240] = 32 + 128;
     // Rotate font as we copy it into video memory
     for (int i = 0; i < 1024; i += 8)
         for (int x = 0; x < 8; x++)
             for (int y = 0; y < 8; y++)
-                vga_memory[0x1000 + i + y] =
-                    (vga_memory[0x1000 + i + y] << 1) | ((haxscii[i + x] & (0x01 << y)) >> y);
+                vram[0x1000 + i + y] =
+                    (vram[0x1000 + i + y] << 1) | ((haxscii[i + x] & (0x01 << y)) >> y);
     // PETSCII 128-255 are inverse
     for (int i = 0; i < 1024; i += 1)
-        vga_memory[0x1400 + i] = ~vga_memory[0x1000 + i];
+        vram[0x1400 + i] = ~vram[0x1000 + i];
 }
 
 void vga_init()

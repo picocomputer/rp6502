@@ -19,4 +19,5 @@
   "files.associations": {
     "*.h": "c"
   },
+  "cortex-debug.registerUseNaturalFormat": true,
 }

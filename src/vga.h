@@ -34,9 +34,6 @@ typedef enum
     vga_640_360,
 } vga_resolution_t;
 
-#define VGA_MEM_SIZE 65536
-extern uint8_t vga_memory[VGA_MEM_SIZE];
-
 void vga_display(vga_display_t display);
 void vga_resolution(vga_resolution_t mode);
 void vga_terminal(bool show);

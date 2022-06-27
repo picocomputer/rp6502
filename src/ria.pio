@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-.program dm65
+.program ria_addr_data
 
+pull
+mov x osr
 .wrap_target
-    wait 1 gpio 21
-    set pins 1
-    wait 0 gpio 21
-    set pins 0
+mov isr x
+in pins 5
+out pins 8
 .wrap

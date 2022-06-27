@@ -6,7 +6,7 @@
 
 #include "mon.h"
 #include "ansi.h"
-#include "vga.h"
+#include "ria.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 
@@ -67,7 +67,7 @@ static void mon_enter()
             if (addr < 0x10000)
                 printf(" ??");
             else
-                printf(" %02X", vga_memory[addr - 0x10000]);
+                printf(" %02X", vram[addr - 0x10000]);
             if (!(++addr & 0xF))
                 break;
         }
@@ -85,7 +85,7 @@ static void mon_enter()
         if (ch == ' ' || (i == mon_buflen - 1 && data < 0x100))
         {
             if (addr >= 0x10000 && data < 0x100)
-                vga_memory[addr++ - 0x10000] = data;
+                vram[addr++ - 0x10000] = data;
             data = 0x80000000;
         }
         else if (!is_hex(ch))

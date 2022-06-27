@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "dm65.h"
 #include "vga.h"
 #include "mon.h"
+#include "ria.h"
 #include "term.h"
 #include "hid.h"
 #include "pico/stdlib.h"
@@ -20,10 +20,13 @@ int main()
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
 
     // Bring up VGA and terminal
-    vga_init();
+    // vga_init();
     term_init();
 
-    // Serial monitor on (after VGA changes clock)
+    // Interface Adapter to W65C02S
+    ria_init();
+
+    // Serial monitor on (after any clock changes)
     stdio_init_all();
 
     // Hello, world.
@@ -34,17 +37,14 @@ int main()
     tusb_init();
     hid_init();
 
-    // DMA to 65C02 uses the PIO and a handful of 74HC logic
-    // chips for direct memory access and debugging.
-    dm65_init();
-
     while (1)
     {
         tuh_task();
         hid_task();
         mon_task();
         term_task();
-        vga_task();
+        ria_task();
+        // vga_task();
     }
 
     return 0;
