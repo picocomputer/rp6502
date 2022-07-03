@@ -27,9 +27,23 @@
 #ifndef _TUSB_CONFIG_H
 #define _TUSB_CONFIG_H
 
-#define CFG_TUSB_MCU (OPT_MCU_RP2040)
+#ifndef CFG_TUSB_MCU
+  #define CFG_TUSB_MCU OPT_MCU_RP2040
+#endif
 
 #define CFG_TUSB_RHPORT0_MODE   (OPT_MODE_HOST)
+
+#ifndef CFG_TUSB_OS
+#define CFG_TUSB_OS                 OPT_OS_NONE
+#endif
+
+#ifndef CFG_TUSB_MEM_SECTION
+#define CFG_TUSB_MEM_SECTION
+#endif
+
+#ifndef CFG_TUSB_MEM_ALIGN
+#define CFG_TUSB_MEM_ALIGN          __attribute__ ((aligned(4)))
+#endif
 
 #define CFG_TUH_ENUMERATION_BUFSIZE (256)
 
