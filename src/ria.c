@@ -9,13 +9,27 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
+#include "hardware/vreg.h"
 #include <stdio.h>
 
 // Rumbledethumps Interface Adapter for 6502/6800.
 
-// 120MHz clk_sys can run a 6502 at 2MHz. Overclock 240MHz for 4MHz.
-// Once we're off the breadbord, I think it's possible to
-// synchronize address bus reads with PHI2 and get to 8MHz.
+// Looking at scope timings, these are estimates:
+// 120MHz clk_sys can run a 6502 at 2MHz.
+// Pi Picos can easily overclock to 240MHz for 4MHz.
+// A more complex 360MHz overclock can reach the target 8MHz!
+
+// Overclocking experiments on the forums top out around 450MHz.
+// Passing about 300MHz requires a voltage boost:
+//   vreg_set_voltage(VREG_VOLTAGE_1_30);
+// The flash chip is 133MHz and should be divided more past 266MHz:
+//   pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
+//   target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
+//   pico_set_boot_stage2(rp6502 slower_boot2)
+
+// The current implementation is brute force emulation of asynchronous RAM.
+// I have some better ideas that will allow for a much lower clk_sys
+// but they need to be validated on a complete circuit.
 
 // Weird stuff I ran into while placing critical memory.
 // I think the Pi Pico SDK needs fixing but I'm not entirely sure.
@@ -99,34 +113,29 @@ void ria_init()
     int addr_chan = dma_claim_unused_channel(true);
     int data_chan = dma_claim_unused_channel(true);
 
-    // The address from PIO is first programmed into the data DMA.
-    dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
-    channel_config_set_read_increment(&addr_dma, false);
-    channel_config_set_chain_to(&addr_dma, data_chan);
-    dma_channel_configure(
-        addr_chan,                        // Channel to be configured
-        &addr_dma,                        // The configuration we just created
-        &dma_hw->ch[data_chan].read_addr, // The initial write address
-        &pio->rxf[addr_data_sm],          // The initial read address
-        1,                                // Number of transfers; in this case each is 1 byte.
-        false                             // Start immediately.
-    );
-
-    // Now move the requested memory data to PIO.
+    // Move the requested memory data to PIO.
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
     channel_config_set_transfer_data_size(&data_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&data_dma, addr_chan);
     dma_channel_configure(
-        data_chan,               // Channel to be configured
-        &data_dma,               // The configuration we just created
-        &pio->txf[addr_data_sm], // The initial write address
-        regs,                    // The initial read address
-        1,                       // Number of transfers; in this case each is 1 byte.
-        false                    // Start immediately.
-    );
+        data_chan,
+        &data_dma,
+        &pio->txf[addr_data_sm],
+        regs,
+        1,
+        false);
 
-    // Go!
-    dma_channel_start(addr_chan);
+    // Move address from PIO into the data DMA config.
+    dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
+    channel_config_set_read_increment(&addr_dma, false);
+    channel_config_set_chain_to(&addr_dma, data_chan);
+    dma_channel_configure(
+        addr_chan,
+        &addr_dma,
+        &dma_hw->ch[data_chan].read_addr,
+        &pio->rxf[addr_data_sm],
+        1,
+        true);
 
     // Temporary memory data so I can measure timing on scope
     regs[0] = 0;

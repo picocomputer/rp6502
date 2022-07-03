@@ -9,7 +9,7 @@
 pull
 mov x osr
 .wrap_target
-mov isr x
+mov isr x [4]
 in pins 5
 out pins 8
 .wrap
