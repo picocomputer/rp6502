@@ -9,7 +9,22 @@
 pull
 mov x osr
 .wrap_target
-mov isr x [4]
+mov isr x
+wait 0 gpio 21 [3] ; [3]=120MHz [6]=240MHz
 in pins 5
 out pins 8
+.wrap
+
+.program ria_addr_watch
+
+addr_changed:
+mov isr null
+in pins 5
+mov y isr
+push noblock
+.wrap_target
+mov isr null
+in pins 5
+mov x isr
+jmp x!=y addr_changed
 .wrap

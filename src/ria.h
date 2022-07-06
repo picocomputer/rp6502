@@ -18,6 +18,8 @@ extern uint8_t *const vram;
 
 void ria_init();
 void ria_task();
-void ria_set_phi2_mhz(int mhz);
+void ria_set_phi2_khz(uint32_t khz);
+void ria_reset_button();
+void ria_clock_button();
 
 #endif /* _RIA_H_ */

@@ -75,16 +75,16 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 vga_terminal(terminal_visible = true);
             break;
         case HID_KEY_F1:
-            //nop
+            ria_reset_button();
             break;
         case HID_KEY_F2:
-            //nop
+            ria_clock_button();
             break;
         case HID_KEY_F3:
-            //nop
+            // NOP
             break;
         case HID_KEY_F4:
-            //nop
+            // NOP
             break;
         case HID_KEY_F5:
             vga_resolution(vga_320_240);
@@ -99,7 +99,7 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             vga_resolution(vga_640_360);
             break;
         case HID_KEY_F9:
-            //nop
+            // NOP
             break;
         case HID_KEY_F10:
             vga_display(vga_sd);

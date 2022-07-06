@@ -10,7 +10,7 @@
 #include "term.h"
 #include "hid.h"
 #include "pico/stdlib.h"
-#include "_tinyusb/tusb.h"
+#include "tusb.h"
 
 int main()
 {

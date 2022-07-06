@@ -9,36 +9,19 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
-#include "hardware/vreg.h"
 #include <stdio.h>
 
-// Rumbledethumps Interface Adapter for 6502/6800.
+// Rumbledethumps Interface Adapter for WDC 6502.
+// Pi Pico sys clock of 120MHz can run a 6502 at 4MHz.
 
-// Looking at scope timings, these are estimates:
-// 120MHz clk_sys can run a 6502 at 2MHz.
-// Pi Picos can easily overclock to 240MHz for 4MHz.
-// A more complex 360MHz overclock can reach the target 8MHz!
+#define RIA_PIO pio1
+#define RIA_ADDR_PIN_BASE 2
+#define RIA_DATA_PIN_BASE 8
+#define RIA_PHI2_PIN 21
+#define RIA_RESB_PIN 22
 
-// Overclocking experiments on the forums top out around 450MHz.
-// Passing about 300MHz requires a voltage boost:
-//   vreg_set_voltage(VREG_VOLTAGE_1_30);
-// The flash chip is 133MHz and should be divided more past 266MHz:
-//   pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
-//   target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
-//   pico_set_boot_stage2(rp6502 slower_boot2)
-
-// The current implementation is brute force emulation of asynchronous RAM.
-// I have some better ideas that will allow for a much lower clk_sys
-// but they need to be validated on a complete circuit.
-
-// Weird stuff I ran into while placing critical memory.
-// I think the Pi Pico SDK needs fixing but I'm not entirely sure.
-// The uninitialized_ram() macro is supposed to handle vram,
-// but it doesn't match the linker script and only makes syntax errors.
-// The scratch_x() macro is supposed to handle regs,
-// but the program fails to launch for debug.
-// Debugging a 64KB array locks up. Since this happens too
-// easily with visual debuggers, the array is hacked up.
+extern volatile uint8_t regs[0x1F];
+asm(".equ regs, 0x20040000");
 
 #ifdef NDEBUG
 uint8_t vram[0xFFFF]
@@ -63,86 +46,154 @@ struct Vram
     uint8_t _D[0xFFF];
     uint8_t _E[0xFFF];
     uint8_t _F[0xFFF];
+    // this struct of 4KB segments is because
+    // a single 64KB array crashes my debugger
 } vram_blocks
     __attribute__((aligned(0x10000)))
     __attribute__((section(".uninitialized_data.vram")));
 uint8_t *const vram = (uint8_t *)&vram_blocks;
 #endif
 
-extern volatile uint8_t regs[0xFF];
-asm(".equ regs, 0x20040000");
-
-// Set clock for 6502 PHI2.
-void ria_set_phi2_mhz(int mhz)
-{
-    // Only GP21 can be used for this.
-    int div = 48 / mhz;
-    assert(mhz <= 8);    // 8MHz max
-    assert(!(48 % div)); // even divisions only
-    clock_gpio_init(21, clk_sys, div);
-}
+// address watcher for debug
+uint addr_watch_sm;
 
 void ria_init()
 {
+    // safety check for compiler alignment
+    assert(!((uintptr_t)regs & 0x1F));
+    assert(!((uintptr_t)vram & 0xFFFF));
+
     // 120MHz clk_sys allows 1,2,3,4,5,6,8 MHz PHI2.
     set_sys_clock_khz(120 * 1000, true);
 
-    // safety check for compiler alignment
-    assert(!((uintptr_t)vram & 0xFFFF));
-    assert(!((uintptr_t)regs & 0x1F));
+    // Begin reset
+    gpio_init(RIA_RESB_PIN);
+    gpio_set_dir(RIA_RESB_PIN, true);
 
-    static const PIO pio = pio1;
-    uint addr_data_sm = pio_claim_unused_sm(pio, true);
+#ifndef true
+    // Manual PHI2
+    gpio_init(RIA_PHI2_PIN);
+    gpio_set_dir(RIA_PHI2_PIN, true);
+#else
+    // Auto PHI2
+    ria_set_phi2_khz(4 * 1000);
+#endif
 
-    // This pio program pulls in a 5 bit address bus (32 bytes FFE0-FFFF)
-    // and shifts out an 8 bit data bus.
-    uint addr_data_offset = pio_add_program(pio, &ria_addr_data_program);
+    // Turn off Schmitt trigger for address input
+    for (int i = RIA_ADDR_PIN_BASE; i < RIA_ADDR_PIN_BASE + 5; i++)
+        gpio_set_input_hysteresis_enabled(i, false);
+
+    // PIO to pull in a 5 bit address bus and shift out an 8 bit data bus.
+    uint addr_data_sm = pio_claim_unused_sm(RIA_PIO, true);
+    uint addr_data_offset = pio_add_program(RIA_PIO, &ria_addr_data_program);
     pio_sm_config addr_data_config = ria_addr_data_program_get_default_config(addr_data_offset);
-    sm_config_set_in_pins(&addr_data_config, 2);
+    sm_config_set_in_pins(&addr_data_config, RIA_ADDR_PIN_BASE);
     sm_config_set_in_shift(&addr_data_config, false, true, 5);
-    pio_sm_set_consecutive_pindirs(pio, addr_data_sm, 2, 5, false);
-    sm_config_set_out_pins(&addr_data_config, 8, 8);
+    sm_config_set_out_pins(&addr_data_config, RIA_DATA_PIN_BASE, 8);
     sm_config_set_out_shift(&addr_data_config, true, true, 8);
-    for (int i = 8; i < 16; i++)
-        pio_gpio_init(pio, i);
-    pio_sm_set_consecutive_pindirs(pio, addr_data_sm, 8, 8, true);
-    pio_sm_init(pio, addr_data_sm, addr_data_offset, &addr_data_config);
-    pio_sm_put(pio, addr_data_sm, (uintptr_t)regs >> 5);
-    pio_sm_set_enabled(pio, addr_data_sm, true);
+    for (int i = RIA_DATA_PIN_BASE; i < RIA_DATA_PIN_BASE + 8; i++)
+        pio_gpio_init(RIA_PIO, i);
+    pio_sm_set_consecutive_pindirs(RIA_PIO, addr_data_sm, RIA_DATA_PIN_BASE, 8, true);
+    pio_sm_init(RIA_PIO, addr_data_sm, addr_data_offset, &addr_data_config);
+    pio_sm_put(RIA_PIO, addr_data_sm, (uintptr_t)regs >> 5);
+    pio_sm_set_enabled(RIA_PIO, addr_data_sm, true);
 
+    // PIO to watch changes on the address bus for debug in manual mode
+    addr_watch_sm = pio_claim_unused_sm(RIA_PIO, true);
+    uint addr_watch_offset = pio_add_program(RIA_PIO, &ria_addr_watch_program);
+    pio_sm_config addr_watch_config = ria_addr_watch_program_get_default_config(addr_watch_offset);
+    sm_config_set_in_pins(&addr_watch_config, RIA_ADDR_PIN_BASE);
+    sm_config_set_in_shift(&addr_watch_config, false, false, 5);
+    pio_sm_init(RIA_PIO, addr_watch_sm, addr_watch_offset, &addr_watch_config);
+    pio_sm_set_enabled(RIA_PIO, addr_watch_sm, true);
+    pio_sm_get_blocking(RIA_PIO, addr_watch_sm); // Eat first report
+
+    // Need both channels now to configure chain ping-pong
     int addr_chan = dma_claim_unused_channel(true);
     int data_chan = dma_claim_unused_channel(true);
 
-    // Move the requested memory data to PIO.
+    // DMA move the requested memory data to PIO for output
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
+    channel_config_set_high_priority(&data_dma, true);
+    channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_PIO, addr_data_sm, true));
     channel_config_set_transfer_data_size(&data_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&data_dma, addr_chan);
     dma_channel_configure(
         data_chan,
         &data_dma,
-        &pio->txf[addr_data_sm],
+        &RIA_PIO->txf[addr_data_sm],
         regs,
         1,
         false);
 
-    // Move address from PIO into the data DMA config.
+    // DMA move address from PIO into the data DMA config
     dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
+    channel_config_set_high_priority(&addr_dma, true);
+    channel_config_set_dreq(&addr_dma, pio_get_dreq(RIA_PIO, addr_data_sm, false));
     channel_config_set_read_increment(&addr_dma, false);
     channel_config_set_chain_to(&addr_dma, data_chan);
     dma_channel_configure(
         addr_chan,
         &addr_dma,
         &dma_hw->ch[data_chan].read_addr,
-        &pio->rxf[addr_data_sm],
+        &RIA_PIO->rxf[addr_data_sm],
         1,
         true);
 
-    // Temporary memory data so I can measure timing on scope
-    regs[0] = 0;
-    regs[8] = 0xff;
+    // Temporary memory data
+    for (int i = 0; i < 32; i++)
+        regs[i] = 0xEA; //       EA        NOP
+    regs[0x1B] = 0x4C;  // FFFB  4C FB FF  JMP $FFFB
+    regs[0x1C] = 0xFB;
+    regs[0x1D] = 0xFF;
+
+    // Exit reset unless clock is manual
+    if (gpio_get_function(RIA_PHI2_PIN) == GPIO_FUNC_GPCK)
+    {
+        gpio_put(RIA_RESB_PIN, true);
+    }
 }
 
 void ria_task()
 {
-    // No CPU needed!
+    // Print address changes when clock is manual
+    if (gpio_get_function(RIA_PHI2_PIN) != GPIO_FUNC_GPCK &&
+        !pio_sm_is_rx_fifo_empty(RIA_PIO, addr_watch_sm))
+    {
+        uint32_t addr = pio_sm_get(RIA_PIO, addr_watch_sm);
+        printf("Addr: 0x%X\n", addr | 0xFFE0);
+    }
+}
+
+// Set clock for 6502 PHI2.
+void ria_set_phi2_khz(uint32_t khz)
+{
+    assert(khz <= 8000); // 8MHz max
+    uint32_t clk = clock_get_hz(clk_sys);
+    uint32_t div = clk / (khz * 1000);
+    assert(!(clk % div)); // even divisions only
+    clock_gpio_init(RIA_PHI2_PIN, CLOCKS_CLK_GPOUT0_CTRL_AUXSRC_VALUE_CLK_SYS, div);
+}
+
+void ria_reset_button()
+{
+    printf("Reset\n");
+    gpio_put(RIA_RESB_PIN, false);
+    sleep_ms(1);
+    gpio_put(RIA_PHI2_PIN, true);
+    sleep_ms(1);
+    gpio_put(RIA_PHI2_PIN, false);
+    sleep_ms(1);
+    gpio_put(RIA_PHI2_PIN, true);
+    sleep_ms(1);
+    gpio_put(RIA_PHI2_PIN, false);
+    sleep_ms(1);
+    gpio_put(RIA_RESB_PIN, true);
+}
+
+void ria_clock_button()
+{
+    gpio_put(RIA_PHI2_PIN, true);
+    sleep_ms(1);
+    gpio_put(RIA_PHI2_PIN, false);
 }
