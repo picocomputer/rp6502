@@ -9,6 +9,7 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
+#include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
 
 // Rumbledethumps Interface Adapter for WDC 6502.
@@ -62,6 +63,11 @@ void ria_init()
     // safety check for compiler alignment
     assert(!((uintptr_t)regs & 0x1F));
     assert(!((uintptr_t)vram & 0xFFFF));
+
+    // Raise DMA above CPU on crossbar
+    bus_ctrl_hw->priority |=
+        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 
     // 120MHz clk_sys allows 1,2,3,4,5,6,8 MHz PHI2.
     set_sys_clock_khz(120 * 1000, true);
@@ -135,7 +141,7 @@ void ria_init()
     dma_channel_configure(
         addr_chan,
         &addr_dma,
-        &dma_hw->ch[data_chan].read_addr,
+        &dma_channel_hw_addr(data_chan)->read_addr,
         &RIA_PIO->rxf[addr_data_sm],
         1,
         true);
