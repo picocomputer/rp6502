@@ -64,11 +64,6 @@ void ria_init()
     assert(!((uintptr_t)regs & 0x1F));
     assert(!((uintptr_t)vram & 0xFFFF));
 
-    // Raise DMA above CPU on crossbar
-    bus_ctrl_hw->priority |=
-        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
-
     // 120MHz clk_sys allows 1,2,3,4,5,6,8 MHz PHI2.
     set_sys_clock_khz(120 * 1000, true);
 
@@ -85,9 +80,11 @@ void ria_init()
     ria_set_phi2_khz(4 * 1000);
 #endif
 
-    // Turn off Schmitt trigger for address input
-    for (int i = RIA_ADDR_PIN_BASE; i < RIA_ADDR_PIN_BASE + 5; i++)
+    // Turn off GPIO decorators that can delay address input
+    for (int i = RIA_ADDR_PIN_BASE; i < RIA_ADDR_PIN_BASE + 5; i++) {
         gpio_set_input_hysteresis_enabled(i, false);
+        hw_set_bits(&RIA_PIO->input_sync_bypass, 1u << i);
+    }
 
     // PIO to pull in a 5 bit address bus and shift out an 8 bit data bus.
     uint addr_data_sm = pio_claim_unused_sm(RIA_PIO, true);
@@ -113,6 +110,11 @@ void ria_init()
     pio_sm_init(RIA_PIO, addr_watch_sm, addr_watch_offset, &addr_watch_config);
     pio_sm_set_enabled(RIA_PIO, addr_watch_sm, true);
     pio_sm_get_blocking(RIA_PIO, addr_watch_sm); // Eat first report
+
+    // Raise DMA above CPU on crossbar
+    bus_ctrl_hw->priority |=
+        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 
     // Need both channels now to configure chain ping-pong
     int addr_chan = dma_claim_unused_channel(true);

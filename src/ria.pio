@@ -10,7 +10,7 @@ pull
 mov x osr
 .wrap_target
 mov isr x
-wait 0 gpio 21 [3] ; [3]=120MHz [6]=240MHz
+wait 0 gpio 21 [2] ; [2]=120MHz [5]=240MHz
 in pins 5
 out pins 8
 .wrap
