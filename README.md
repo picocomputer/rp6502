@@ -23,29 +23,30 @@ $ sudo openocd -f interface/picoprobe.cfg -f target/rp2040.cfg -s tcl
 $ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
 ```
 
-## Pi Pico - USB Host for Hub.
-| Pins | Description
-| - | -
-| 2 | STDIO UART
+## Pi Pico - Power, CDC, and PicoProbe.
+| #Pins | Description
+| -  | -
 | 17 | VGA - 640x480 32768 colors
-| 1 | PWM Audio
-| 1 | PHI2
-| 1 | RESB
-| 4 | PBUS
+| 2  | STDIO UART
+| 2  | SWD
+| 1  | PHI2
+| 1  | RESB
+| 3  | PBUS
 
-## Pi Pico - Power, USB CDC, and PicoProbe.
-| Pins | Description
-| - | -
-| 2 | STDIO UART
-| 2 | SWD
-| 8 | Data
-| 5 | Address
-| 1 | CS0
-| 1 | RWB
-| 1 | IRQB
-| 1 | PHI2
-| 1 | RESB
-| 4 | PBUS
+## Pi Pico - USB Host for Hub.
+| GP#   | Description
+| ----- | -
+|  0    | CS0
+|  1    | RWB
+|  2-9  | Data D0-D7
+| 10-14 | Address A0-A4
+| 15    | A16
+| 16-17 | STDIO UART
+| 18-19 | PWM Audio L-R
+| 20    | IRQB
+| 21    | PHI2
+| 22    | RESB
+| 26-28 | PBUS
 
 ## Memory Map
 

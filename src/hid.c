@@ -78,7 +78,7 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             ria_reset_button();
             break;
         case HID_KEY_F2:
-            ria_clock_button();
+            // NOP
             break;
         case HID_KEY_F3:
             // NOP

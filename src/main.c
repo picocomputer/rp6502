@@ -27,7 +27,7 @@ int main()
     ria_init();
 
     // Serial monitor on (after any clock changes)
-    stdio_init_all();
+    stdio_uart_init_full(uart0, 115200, 16, 17);
 
     // Hello, world.
     puts("\30\33[0m\f\nPicocomputer 6502 \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m\n");

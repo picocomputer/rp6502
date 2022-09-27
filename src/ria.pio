@@ -4,27 +4,42 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-.program ria_addr_data
+.program ria_read
 
-pull
-mov x osr
 .wrap_target
-mov isr x
+mov isr y ; cortex base address
 wait 0 gpio 21 [2] ; [2]=120MHz [5]=240MHz
 in pins 5
 out pins 8
 .wrap
 
-.program ria_addr_watch
 
-addr_changed:
-mov isr null
-in pins 5
-mov y isr
-push noblock
+.program ria_write
+.side_set 1
+
+nowrite:
+nop             side 0 [5]
 .wrap_target
-mov isr null
-in pins 5
-mov x isr
-jmp x!=y addr_changed
+mov osr !pins   side 0
+out x 2         side 0 ; reading is select==1 and write==1
+mov osr !isr    side 0
+jmp !x reading  side 0
+jmp go_lo       side 1 [12]
+reading:
+out pindirs 8   side 1 [12]
+go_lo:
+mov osr isr     side 1
+mov x pins      side 1
+out pindirs 8   side 0
+mov osr x       side 0
+out x 2         side 0 ; writing is select==1 and write==0
+jmp x-- jmpsub  side 0 ; subtract 1
+jmpsub:
+jmp x-- nowrite side 0
+out x 8         side 0
+mov isr y       side 0 ; cortex base address
+in osr 5        side 0 ; bus address
+push noblock    side 0
+mov isr x       side 0 ; bus data
+push noblock    side 0
 .wrap
