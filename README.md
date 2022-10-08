@@ -36,11 +36,11 @@ $ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
 ## Pi Pico - USB Host for Hub.
 | GP#   | Description
 | ----- | -
-|  0    | CS0
-|  1    | RWB
+|  0    | Chip Select
+|  1    | Write Enable
 |  2-9  | Data D0-D7
 | 10-14 | Address A0-A4
-| 15    | A16
+| 15    | Bank A16
 | 16-17 | STDIO UART
 | 18-19 | PWM Audio L-R
 | 20    | IRQB

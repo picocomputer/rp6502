@@ -12,13 +12,13 @@
 #include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
 
-// Rumbledethumps Interface Adapter for WDC 6502.
-// Pi Pico sys clock of 120MHz can run a 6502 at 4MHz.
+// Rumbledethumps Interface Adapter for WDC W65C02S.
+// Pi Pico sys clock of 120MHz will run 6502 at 4MHz.
 
 #define RIA_PIO pio1
 // Content of these 15 pins is bound to the PIO program structure.
 #define RIA_PIN_BASE 0
-#define RIA_CS0_PIN (RIA_PIN_BASE + 0)
+#define RIA_CS_PIN (RIA_PIN_BASE + 0)
 #define RIA_RWB_PIN (RIA_PIN_BASE + 1)
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10)
@@ -28,6 +28,11 @@
 #define RIA_PHI2_PIN 21
 #define RIA_RESB_PIN 22
 #define RIA_IRQB_PIN 28
+// Clock changes needs the UARTs retimed too, so we own this for now
+#define RIA_UART uart0
+#define RIA_UART_BAUD_RATE 115200
+#define RIA_UART_TX_PIN 16
+#define RIA_UART_RX_PIN 17
 
 extern volatile uint8_t regs[0x1F];
 asm(".equ regs, 0x20040000");
@@ -137,17 +142,43 @@ static void ria_read_init()
         true);
 }
 
+// Set the 6502 clock frequency. Returns true on success.
+// if a suitable PLL configuration is not available or the
+// chip select logic is too slow. (74AC or 74AHC recommended)
+bool ria_set_phi2_khz(uint32_t freq_khz)
+{
+    if (!freq_khz)
+        return false;
+    uint32_t sys_clk_khz = freq_khz * 30;
+    uint16_t clkdiv_int = 1;
+    uint8_t clkdiv_frac = 0;
+    if (sys_clk_khz < 120 * 1000)
+    {
+        // <=4MHz will always succeed but may have minor quantization and judder.
+        sys_clk_khz = 120 * 1000;
+        clkdiv_int = sys_clk_khz / 30 / freq_khz;
+        clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
+    }
+    // >4MHz will clock the Pi Pico past 120MHz and may fail but will never judder.
+    // Reference design will not hit 8MHz with 74HC logic, use 74AC or 74AHC.
+    if (!set_sys_clock_khz(sys_clk_khz, false))
+        return false;
+    pio_sm_set_clkdiv_int_frac(RIA_PIO, ria_write_sm, clkdiv_int, clkdiv_frac);
+    ria_stdio_init();
+    printf("Clocks: PHI2 = %.3f MHz; ", (float)freq_khz / 1000);
+    printf("sys_clock = %.3f MHz; ", (float)sys_clk_khz / 1000);
+    printf("clkdiv_int = %hd; clkdiv_frac = %d.\n", clkdiv_int, clkdiv_frac);
+    return true;
+}
+
 void ria_init()
 {
     // safety check for compiler alignment
     assert(!((uintptr_t)regs & 0x1F));
     assert(!((uintptr_t)vram & 0xFFFF));
 
-    // 120MHz clk_sys allows 1,2,3,4,5,6,8 MHz PHI2.
-    set_sys_clock_khz(120 * 1000, true);
-
-    // Turn off GPIO decorators that can delay address input
-    for (int i = RIA_ADDR_PIN_BASE; i < RIA_ADDR_PIN_BASE + 5; i++)
+    // Turn off GPIO decorators that can delay input
+    for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
     {
         gpio_set_input_hysteresis_enabled(i, false);
         hw_set_bits(&RIA_PIO->input_sync_bypass, 1u << i);
@@ -165,6 +196,7 @@ void ria_init()
     // Setup state machines
     ria_write_init();
     ria_read_init();
+    ria_set_phi2_khz(4000);
 
     // Temporary memory data
     for (int i = 0; i < 32; i++)
@@ -211,10 +243,44 @@ void ria_task()
     }
 }
 
+void ria_stdio_init()
+{
+    stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE, RIA_UART_TX_PIN, RIA_UART_RX_PIN);
+}
+
 void ria_reset_button()
 {
     printf("Reset\n");
     gpio_put(RIA_RESB_PIN, false);
     sleep_ms(1);
     gpio_put(RIA_RESB_PIN, true);
+}
+
+void ria_test_button()
+{
+    printf("Testing...\n");
+    sleep_ms(2);
+
+    uint32_t freqs[] = {1, 2, 1024, 2000, 3000, 4000, 5000, 6000, 7000, 8000,
+                        8100, 8200, 8300, 8400, 8500, 8600, 8700, 8800, 8900, 9000};
+    const int count = sizeof(freqs) / sizeof(freqs[0]);
+    for (int i = 0; i < count; i++)
+    {
+        gpio_put(RIA_RESB_PIN, false);
+        ria_set_phi2_khz(freqs[i]);
+        sleep_ms(3);
+        gpio_put(RIA_RESB_PIN, true);
+        sleep_ms(2);
+        if (freqs[i] < 50)
+            sleep_ms(50);
+        if (pio_sm_is_rx_fifo_empty(RIA_PIO, ria_write_sm))
+        {
+            printf("Fail.\n");
+            return;
+        }
+        pio_sm_get(RIA_PIO, ria_write_sm);
+        pio_sm_get(RIA_PIO, ria_write_sm);
+        sleep_ms(20);
+    }
+    printf("Success.\n");
 }

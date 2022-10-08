@@ -19,18 +19,22 @@ int main()
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
 
+    // Initialize UART for terminal
+    ria_stdio_init();
+
     // Bring up VGA and terminal
     // vga_init();
     term_init();
 
-    // Interface Adapter to W65C02S
-    ria_init();
-
-    // Serial monitor on (after any clock changes)
-    stdio_uart_init_full(uart0, 115200, 16, 17);
-
     // Hello, world.
     puts("\30\33[0m\f\nPicocomputer 6502 \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m\n");
+
+    // We want to flush the UART before ria_init() changes clocks,
+    // but stdio_flush() just drops the buffer.
+    sleep_ms(10); // 10ms is safe for 100 bytes.
+
+    // Interface Adapter to W65C02S
+    ria_init();
 
     // TinyUSB host support for keyboards,
     // mice, joysticks, and storage devices.

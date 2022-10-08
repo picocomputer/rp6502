@@ -7,6 +7,7 @@
 #ifndef _RIA_H_
 #define _RIA_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 // 64KB Virtual RAM
@@ -18,8 +19,9 @@ extern uint8_t *const vram;
 
 void ria_init();
 void ria_task();
-void ria_set_phi2_khz(uint32_t khz);
+bool ria_set_phi2_khz(uint32_t khz);
+void ria_stdio_init();
 void ria_reset_button();
-void ria_clock_button();
+void ria_test_button();
 
 #endif /* _RIA_H_ */
