@@ -435,7 +435,7 @@
       <elementAttributes>
         <entry>
           <string>NetName</string>
-          <string>CS1B</string>
+          <string>IORQ</string>
         </entry>
       </elementAttributes>
       <pos x="800" y="100"/>
@@ -449,7 +449,7 @@
         </entry>
         <entry>
           <string>NetName</string>
-          <string>CS1B</string>
+          <string>IORQ</string>
         </entry>
       </elementAttributes>
       <pos x="1020" y="20"/>
@@ -473,7 +473,7 @@
       <elementAttributes>
         <entry>
           <string>NetName</string>
-          <string>CS0</string>
+          <string>RREQ</string>
         </entry>
       </elementAttributes>
       <pos x="800" y="0"/>
@@ -501,7 +501,7 @@
         </entry>
         <entry>
           <string>NetName</string>
-          <string>CS0</string>
+          <string>RREQ</string>
         </entry>
       </elementAttributes>
       <pos x="1020" y="-100"/>
@@ -697,7 +697,7 @@
         </entry>
         <entry>
           <string>Description</string>
-          <string>CS0</string>
+          <string>CS</string>
         </entry>
       </elementAttributes>
       <pos x="1020" y="-120"/>
@@ -725,7 +725,7 @@
         </entry>
         <entry>
           <string>NetName</string>
-          <string>CS0</string>
+          <string>RREQ</string>
         </entry>
       </elementAttributes>
       <pos x="1020" y="60"/>
@@ -735,7 +735,7 @@
       <elementAttributes>
         <entry>
           <string>NetName</string>
-          <string>CS1</string>
+          <string>IORQB</string>
         </entry>
       </elementAttributes>
       <pos x="800" y="200"/>
@@ -749,7 +749,7 @@
         </entry>
         <entry>
           <string>NetName</string>
-          <string>CS1</string>
+          <string>IORQB</string>
         </entry>
       </elementAttributes>
       <pos x="1020" y="180"/>

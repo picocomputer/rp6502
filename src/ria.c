@@ -142,33 +142,34 @@ static void ria_read_init()
         true);
 }
 
-// Set the 6502 clock frequency. Returns true on success.
-// if a suitable PLL configuration is not available or the
-// chip select logic is too slow. (74AC or 74AHC recommended)
-bool ria_set_phi2_khz(uint32_t freq_khz)
+// Set the 6502 clock frequency. Returns 0 on failure.
+uint32_t ria_set_phi2_khz(uint32_t freq_khz)
 {
     if (!freq_khz)
-        return false;
+        return 0;
     uint32_t sys_clk_khz = freq_khz * 30;
     uint16_t clkdiv_int = 1;
     uint8_t clkdiv_frac = 0;
     if (sys_clk_khz < 120 * 1000)
     {
         // <=4MHz will always succeed but may have minor quantization and judder.
+        // <=4MHz resolution is limited by the divider's 8-bit fraction.
         sys_clk_khz = 120 * 1000;
         clkdiv_int = sys_clk_khz / 30 / freq_khz;
         clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
     }
-    // >4MHz will clock the Pi Pico past 120MHz and may fail but will never judder.
-    // Reference design will not hit 8MHz with 74HC logic, use 74AC or 74AHC.
+    // >4MHz will clock the Pi Pico past 120MHz and may fail but will not judder.
+    // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
     if (!set_sys_clock_khz(sys_clk_khz, false))
-        return false;
+        return 0;
     pio_sm_set_clkdiv_int_frac(RIA_PIO, ria_write_sm, clkdiv_int, clkdiv_frac);
     ria_stdio_init();
-    printf("Clocks: PHI2 = %.3f MHz; ", (float)freq_khz / 1000);
+    uint32_t phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
+    printf("Clock request %.3f MHz; ", (float)freq_khz / 1000);
+    printf("PHI2 = %.3f MHz; ", phi2_khz / 1000.f);
     printf("sys_clock = %.3f MHz; ", (float)sys_clk_khz / 1000);
     printf("clkdiv_int = %hd; clkdiv_frac = %d.\n", clkdiv_int, clkdiv_frac);
-    return true;
+    return phi2_khz;
 }
 
 void ria_init()
@@ -234,7 +235,6 @@ void ria_task()
     }
 
     // debug code to show writes
-    // to be replaced when DMA working
     if (!pio_sm_is_rx_fifo_empty(RIA_PIO, ria_write_sm))
     {
         uint32_t addr = pio_sm_get(RIA_PIO, ria_write_sm);
@@ -261,7 +261,15 @@ void ria_test_button()
     printf("Testing...\n");
     sleep_ms(2);
 
-    uint32_t freqs[] = {1, 2, 1024, 2000, 3000, 4000, 5000, 6000, 7000, 8000,
+    uint32_t freqs[] = {1,          // 1 kHz just because
+                        985,        // PAL Commodore 64
+                        1024,       // NTSC Commodore 64, Apple ][
+                        1190,       // Atari 2600
+                        1770,       // PAL Atari Computers (returns 1771)
+                        1790,       // NTSC Atari Computers
+                        2000, 3000, // BBC Micro
+                        4000, 5000, 6000, 7000,
+                        7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900, 8000,
                         8100, 8200, 8300, 8400, 8500, 8600, 8700, 8800, 8900, 9000};
     const int count = sizeof(freqs) / sizeof(freqs[0]);
     for (int i = 0; i < count; i++)

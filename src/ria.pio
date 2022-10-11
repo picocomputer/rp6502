@@ -14,60 +14,36 @@ in pins 5
 .wrap
 
 
-; Sets pindirs a bit late to accomodate slow glue logic
+; This tries to sets pindirs exactly on PHI2 up transition
+; but has to check again to accomodate slow glue logic.
+; Doing both costs an extra 6 (of 32) PIO instructions.
 .program ria_write
-.side_set 1
-
-nowrite:
-nop             side 0 [9]
-.wrap_target
-mov osr !pins   side 1 ; reading is select==1 and write==1
-out x 2         side 1
-jmp !x reading  side 1
-jmp go_lo       side 1 [9]
-reading:
-mov osr !isr    side 1
-out pindirs 8   side 1 [8]
-go_lo:
-mov osr isr     side 1
-mov x pins      side 1
-out pindirs 8   side 0
-mov osr x       side 0 ; writing is select==1 and write==0
-out x 2         side 0
-jmp x-- jmpsub  side 0 ; subtract 1
-jmpsub:
-jmp x-- nowrite side 0
-out x 8         side 0
-mov isr y       side 0 ; cortex base address
-in osr 5        side 0 ; bus address
-push noblock    side 0
-mov isr x       side 0 ; bus data
-push noblock    side 0 [4]
-.wrap
-
-
-; This sets pindirs exactly on PHI2 transitions.
-; Currently unused, but not ready to give up trying to
-; use it with or instead of the "late pindirs" version.
-.program ria_write_better
 .side_set 1
 
 nowrite:
 nop             side 0 [5]
 .wrap_target
-mov osr !pins   side 0
-out x 2         side 0 ; reading is select==1 and write==1
+mov osr !pins   side 0 ; reading is select==1 and write==1
+out x 2         side 0
 mov osr !isr    side 0
-jmp !x reading  side 0
-jmp go_lo       side 1 [12]
-reading:
-out pindirs 8   side 1 [12]
-go_lo:
+jmp !x reading1 side 0
+jmp hiz1        side 1
+reading1:
+out pindirs 8   side 1
+hiz1:
+mov osr !pins   side 1 ; reading is select==1 and write==1
+out x 2         side 1
+jmp !x reading2 side 1
+jmp hiz2        side 1 [8]
+reading2:
+mov osr !isr    side 1
+out pindirs 8   side 1 [7]
+hiz2:
 mov osr isr     side 1
 mov x pins      side 1
 out pindirs 8   side 0
-mov osr x       side 0
-out x 2         side 0 ; writing is select==1 and write==0
+mov osr x       side 0 ; writing is select==1 and write==0
+out x 2         side 0
 jmp x-- jmpsub  side 0 ; subtract 1
 jmpsub:
 jmp x-- nowrite side 0
