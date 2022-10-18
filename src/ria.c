@@ -88,6 +88,39 @@ static void ria_write_init()
     pio_sm_exec_wait_blocking(RIA_PIO, ria_write_sm, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(RIA_PIO, ria_write_sm, pio_encode_mov(pio_y, pio_osr));
     pio_sm_set_enabled(RIA_PIO, ria_write_sm, true);
+
+    // Need both channels now to configure chain ping-pong
+    int addr_chan = dma_claim_unused_channel(true);
+    int data_chan = dma_claim_unused_channel(true);
+
+    // DMA move the requested memory data to PIO for output
+    dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
+    channel_config_set_high_priority(&data_dma, true);
+    channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_PIO, ria_write_sm, false));
+    channel_config_set_read_increment(&data_dma, false);
+    channel_config_set_transfer_data_size(&data_dma, DMA_SIZE_8);
+    channel_config_set_chain_to(&data_dma, addr_chan);
+    dma_channel_configure(
+        data_chan,
+        &data_dma,
+        regs,                        // dst
+        &RIA_PIO->rxf[ria_write_sm], // src
+        1,
+        false);
+
+    // DMA move address from PIO into the data DMA config
+    dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
+    channel_config_set_high_priority(&addr_dma, true);
+    channel_config_set_dreq(&addr_dma, pio_get_dreq(RIA_PIO, ria_write_sm, false));
+    channel_config_set_read_increment(&addr_dma, false);
+    channel_config_set_chain_to(&addr_dma, data_chan);
+    dma_channel_configure(
+        addr_chan,
+        &addr_dma,
+        &dma_channel_hw_addr(data_chan)->write_addr, // dst
+        &RIA_PIO->rxf[ria_write_sm],                 // src
+        1,
+        true);
 }
 
 static void ria_read_init()
@@ -205,17 +238,29 @@ void ria_init()
     // Reset Vector $FFE0
     regs[0x1C] = 0xE0;
     regs[0x1D] = 0xFF;
-    // FFE0  A9 42     LDA #$42
-    // FFE2  8D F0 FF  STA $FFF0
-    // FFE5  4C E5 FF  JMP $FFE5
-    regs[0x00] = 0xA9;
-    regs[0x01] = 0x42;
-    regs[0x02] = 0x8D;
-    regs[0x03] = 0xF0;
-    regs[0x04] = 0xFF;
-    regs[0x05] = 0x4C;
-    regs[0x06] = 0xE5;
-    regs[0x07] = 0xFF;
+    // FFE0              * = $FFE0
+    // FFE0  AE FF FF    LDX $FFFF
+    // FFE3  E8          INX
+    // FFE4  8E 00 80    STX $8000
+    // FFE7  AC 00 80    LDY $8000
+    // FFEA  8C FF FF    STY $FFFF
+    // FFED  4C ED FF    JMP $FFED
+    regs[0x00] = 0xAE;
+    regs[0x01] = 0xFF;
+    regs[0x02] = 0xFF;
+    regs[0x03] = 0xE8;
+    regs[0x04] = 0x8E;
+    regs[0x05] = 0x00;
+    regs[0x06] = 0x80;
+    regs[0x07] = 0xAC;
+    regs[0x08] = 0x00;
+    regs[0x09] = 0x80;
+    regs[0x0a] = 0x8C;
+    regs[0x0b] = 0xFF;
+    regs[0x0c] = 0xFF;
+    regs[0x0d] = 0x4C;
+    regs[0x0e] = 0xED;
+    regs[0x0f] = 0xFF;
 
     // Leave reset
     gpio_put(RIA_RESB_PIN, true);
@@ -235,11 +280,11 @@ void ria_task()
     }
 
     // debug code to show writes
-    if (!pio_sm_is_rx_fifo_empty(RIA_PIO, ria_write_sm))
+    static uint8_t regff = 0xEA;
+    if (regs[31] != regff)
     {
-        uint32_t addr = pio_sm_get(RIA_PIO, ria_write_sm);
-        uint32_t data = pio_sm_get(RIA_PIO, ria_write_sm);
-        printf("Write: addr:0x%lX data:0x%02lX\n", addr, data);
+        printf("Write: $FFFF = $%02X\n", regs[31]);
+        regff = regs[31];
     }
 }
 
@@ -258,37 +303,4 @@ void ria_reset_button()
 
 void ria_test_button()
 {
-    printf("Testing...\n");
-    sleep_ms(2);
-
-    uint32_t freqs[] = {1,          // 1 kHz just because
-                        985,        // PAL Commodore 64
-                        1024,       // NTSC Commodore 64, Apple ][
-                        1190,       // Atari 2600
-                        1770,       // PAL Atari Computers (returns 1771)
-                        1790,       // NTSC Atari Computers
-                        2000, 3000, // BBC Micro
-                        4000, 5000, 6000, 7000,
-                        7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900, 8000,
-                        8100, 8200, 8300, 8400, 8500, 8600, 8700, 8800, 8900, 9000};
-    const int count = sizeof(freqs) / sizeof(freqs[0]);
-    for (int i = 0; i < count; i++)
-    {
-        gpio_put(RIA_RESB_PIN, false);
-        ria_set_phi2_khz(freqs[i]);
-        sleep_ms(3);
-        gpio_put(RIA_RESB_PIN, true);
-        sleep_ms(2);
-        if (freqs[i] < 50)
-            sleep_ms(50);
-        if (pio_sm_is_rx_fifo_empty(RIA_PIO, ria_write_sm))
-        {
-            printf("Fail.\n");
-            return;
-        }
-        pio_sm_get(RIA_PIO, ria_write_sm);
-        pio_sm_get(RIA_PIO, ria_write_sm);
-        sleep_ms(20);
-    }
-    printf("Success.\n");
 }
