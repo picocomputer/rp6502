@@ -70,6 +70,16 @@ uint8_t *const vram = (uint8_t *)&vram_blocks;
 
 int ria_write_sm;
 int ria_read_sm;
+uint32_t ria_phi2_khz;
+uint8_t ria_reset_ms;
+bool ria_halted;
+absolute_time_t ria_reset_timer;
+enum state
+{
+    halt,
+    reset,
+    run
+} ria_state;
 
 static void ria_write_init()
 {
@@ -175,64 +185,24 @@ static void ria_read_init()
         true);
 }
 
-// Set the 6502 clock frequency. Returns 0 on failure.
-uint32_t ria_set_phi2_khz(uint32_t freq_khz)
+static void ria_load_memcpy()
 {
-    if (!freq_khz)
-        return 0;
-    uint32_t sys_clk_khz = freq_khz * 30;
-    uint16_t clkdiv_int = 1;
-    uint8_t clkdiv_frac = 0;
-    if (sys_clk_khz < 120 * 1000)
-    {
-        // <=4MHz will always succeed but may have minor quantization and judder.
-        // <=4MHz resolution is limited by the divider's 8-bit fraction.
-        sys_clk_khz = 120 * 1000;
-        clkdiv_int = sys_clk_khz / 30 / freq_khz;
-        clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
-    }
-    // >4MHz will clock the Pi Pico past 120MHz and may fail but will not judder.
-    // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
-    if (!set_sys_clock_khz(sys_clk_khz, false))
-        return 0;
-    pio_sm_set_clkdiv_int_frac(RIA_PIO, ria_write_sm, clkdiv_int, clkdiv_frac);
-    ria_stdio_init();
-    uint32_t phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
-    printf("Clock request %.3f MHz; ", (float)freq_khz / 1000);
-    printf("PHI2 = %.3f MHz; ", phi2_khz / 1000.f);
-    printf("sys_clock = %.3f MHz; ", (float)sys_clk_khz / 1000);
-    printf("clkdiv_int = %hd; clkdiv_frac = %d.\n", clkdiv_int, clkdiv_frac);
-    return phi2_khz;
+    // FFE0                  * = $FFE0
+    // FFE0           START:
+    // FFE0  A2 10           LDX #$10
+    // FFE2           LOOP:
+    // FFE2  BD E0 FF        LDA $FFDF,X
+    // FFE5  9D 00 80        STA $7FFF,X
+    // FFE8  CA              DEX
+    // FFE9  D0 F7           BNE LOOP
+    // FFEB           END:
+    // FFEB  00              BRK
+    // FFEC  E0 FF           .WORD START
+    // FFEE  EB FF           .WORD END
 }
 
-void ria_init()
+static void ria_load_test_program_sram()
 {
-    // safety check for compiler alignment
-    assert(!((uintptr_t)regs & 0x1F));
-    assert(!((uintptr_t)vram & 0xFFFF));
-
-    // Turn off GPIO decorators that can delay input
-    for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
-    {
-        gpio_set_input_hysteresis_enabled(i, false);
-        hw_set_bits(&RIA_PIO->input_sync_bypass, 1u << i);
-    }
-
-    // Raise DMA above CPU on crossbar
-    bus_ctrl_hw->priority |=
-        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
-
-    // Begin reset
-    gpio_init(RIA_RESB_PIN);
-    gpio_set_dir(RIA_RESB_PIN, true);
-
-    // Setup state machines
-    ria_write_init();
-    ria_read_init();
-    ria_set_phi2_khz(4000);
-
-    // Temporary memory data
     for (int i = 0; i < 32; i++)
         regs[i] = 0xEA; // NOP
     // Reset Vector $FFE0
@@ -261,9 +231,45 @@ void ria_init()
     regs[0x0d] = 0x4C;
     regs[0x0e] = 0xED;
     regs[0x0f] = 0xFF;
+}
 
-    // Leave reset
-    gpio_put(RIA_RESB_PIN, true);
+void ria_stdio_init()
+{
+    stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE, RIA_UART_TX_PIN, RIA_UART_RX_PIN);
+}
+
+void ria_init()
+{
+    // safety check for compiler alignment
+    assert(!((uintptr_t)regs & 0x1F));
+    assert(!((uintptr_t)vram & 0xFFFF));
+
+    // Turn off GPIO decorators that can delay input
+    for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
+    {
+        gpio_set_input_hysteresis_enabled(i, false);
+        hw_set_bits(&RIA_PIO->input_sync_bypass, 1u << i);
+    }
+
+    // Raise DMA above CPU on crossbar
+    bus_ctrl_hw->priority |=
+        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
+
+    // drive reset pin
+    gpio_init(RIA_RESB_PIN);
+    gpio_set_dir(RIA_RESB_PIN, true);
+
+    // the inits
+    ria_write_init();
+    ria_read_init();
+    ria_set_phi2_khz(4000);
+    ria_set_reset_ms(0);
+    ria_halt();
+
+    // todo remove later
+    ria_load_test_program_sram();
+    ria_reset();
 }
 
 void ria_task()
@@ -279,6 +285,17 @@ void ria_task()
         printf("PIO fdebug: %lX\n", fdebug);
     }
 
+    // Reset timer
+    if (ria_state == reset)
+    {
+        absolute_time_t now = get_absolute_time();
+        if (absolute_time_diff_us(now, ria_reset_timer) < 0)
+        {
+            ria_state = run;
+            gpio_put(RIA_RESB_PIN, true);
+        }
+    }
+
     // debug code to show writes
     static uint8_t regff = 0xEA;
     if (regs[31] != regff)
@@ -288,17 +305,79 @@ void ria_task()
     }
 }
 
-void ria_stdio_init()
+// Set the 6502 clock frequency. Returns false on failure.
+bool ria_set_phi2_khz(uint32_t freq_khz)
 {
-    stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE, RIA_UART_TX_PIN, RIA_UART_RX_PIN);
+    if (!freq_khz)
+        return false;
+    uint32_t sys_clk_khz = freq_khz * 30;
+    uint16_t clkdiv_int = 1;
+    uint8_t clkdiv_frac = 0;
+    if (sys_clk_khz < 120 * 1000)
+    {
+        // <=4MHz will always succeed but may have minor quantization and judder.
+        // <=4MHz resolution is limited by the divider's 8-bit fraction.
+        sys_clk_khz = 120 * 1000;
+        clkdiv_int = sys_clk_khz / 30 / freq_khz;
+        clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
+    }
+    // >4MHz will clock the Pi Pico past 120MHz and may fail but will not judder.
+    // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
+    if (!set_sys_clock_khz(sys_clk_khz, false))
+        return false;
+    pio_sm_set_clkdiv_int_frac(RIA_PIO, ria_write_sm, clkdiv_int, clkdiv_frac);
+    ria_stdio_init();
+    ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
+    printf("Clock request %.3f MHz; ", (float)freq_khz / 1000);
+    printf("PHI2 = %.3f MHz; ", ria_phi2_khz / 1000.f);
+    printf("sys_clock = %.3f MHz; ", (float)sys_clk_khz / 1000);
+    printf("clkdiv_int = %hd; clkdiv_frac = %d.\n", clkdiv_int, clkdiv_frac);
+    return true;
+}
+
+// Return actual 6502 frequency adjusted for divider quantization.
+uint32_t ria_get_phi2_khz()
+{
+    return ria_phi2_khz;
+}
+
+// Specify a minimum time for reset low. 0=auto
+void ria_set_reset_ms(uint8_t ms)
+{
+    ria_reset_ms = ms;
+}
+
+// Return actual reset time. May be higher than requested
+// to guarantee the 6502 gets two clock cycles during reset.
+uint8_t ria_get_reset_ms()
+{
+    uint8_t reset_ms = ria_reset_ms;
+    if (ria_phi2_khz == 1)
+        reset_ms = 3;
+    if (ria_phi2_khz == 2)
+        reset_ms = 2;
+    return reset_ms;
+}
+
+void ria_halt()
+{
+    ria_state = halt;
+    gpio_put(RIA_RESB_PIN, false);
+    ria_reset_timer = delayed_by_us(get_absolute_time(),
+                                    (uint64_t)1000 * ria_get_reset_ms());
+}
+
+void ria_reset()
+{
+    if (ria_state != halt)
+        ria_halt();
+    ria_state = reset;
 }
 
 void ria_reset_button()
 {
     printf("Reset\n");
-    gpio_put(RIA_RESB_PIN, false);
-    sleep_ms(1);
-    gpio_put(RIA_RESB_PIN, true);
+    ria_reset();
 }
 
 void ria_test_button()
