@@ -24,7 +24,7 @@ static bool is_hex(uint8_t ch)
            ((ch >= 'a') && (ch <= 'f'));
 }
 
-static int to_int(uint8_t ch)
+static int hex_to_int(uint8_t ch)
 {
     if ((ch >= '0') && (ch <= '9'))
         return ch - '0';
@@ -34,34 +34,41 @@ static int to_int(uint8_t ch)
         return ch - 'a' + 10;
 }
 
-// Hello World: 100f0 48 65 6c 6c 6f 20 57 6f 72 6c 64 21
-static void mon_enter()
+static int strnicmp(const char *string1, const char *string2, int n)
 {
-    uint32_t addr = 0x80000000;
-    int i;
-    for (i = 0; i < mon_buflen; i++)
+    while (n--)
     {
-        uint8_t ch = mon_buf[i];
-        if (is_hex(ch))
-            addr = addr * 16 + to_int(ch);
-        else if (ch == ' ' && addr == 0x80000000)
-            continue;
-        else
-            break;
+        if (!*string1 && !*string2)
+            return 0;
+        int ch1 = *string1;
+        int ch2 = *string2;
+        if (ch1 >= 'a' && ch1 <= 'z')
+            ch1 -= 32;
+        if (ch2 >= 'a' && ch2 <= 'z')
+            ch2 -= 32;
+        int rc = ch1 - ch2;
+        if (rc)
+            return rc;
+        string1++;
+        string2++;
     }
-    for (; i < mon_buflen; i++)
-        if (mon_buf[i] != ' ')
-            break;
+    return 0;
+}
+
+// Commands that start with a hex address. Read or write memory.
+static void cmd_address(uint32_t addr, char *args, size_t len)
+{
+    // TODO rework for RIA
     if (addr > 0x1FFFF)
     {
-        printf("\n?Syntax error, invalid address\n");
+        printf("?invalid address\n");
         mon_buflen = mon_bufpos = 0;
         return;
     }
-    if (i == mon_buflen)
+    if (!len)
     {
         mon_buf[mon_buflen] = 0;
-        printf("\n%04X", addr);
+        printf("%04X:", addr);
         while (true)
         {
             if (addr < 0x10000)
@@ -72,30 +79,132 @@ static void mon_enter()
                 break;
         }
         printf("\n");
-        mon_buflen = mon_bufpos = 0;
         return;
     }
     uint32_t data = 0x80000000;
+    for (size_t i = 0; i < len; i++)
+    {
+        uint8_t ch = args[i];
+        if (is_hex(ch))
+            data = data * 16 + hex_to_int(ch);
+        else if (ch != ' ')
+        {
+            printf("?invalid data character\n");
+            break;
+        }
+        if (ch == ' ' || i == len - 1)
+        {
+            if (data < 0x100)
+            {
+                if (addr >= 0x10000 && data < 0x100)
+                    vram[addr++ - 0x10000] = data;
+                data = 0x80000000;
+            }
+            else
+            {
+                printf("?invalid data value\n");
+                break;
+            }
+            for (; i + 1 < len; i++)
+            {
+                if (args[i + 1] != ' ')
+                    break;
+            }
+        }
+    }
+}
+
+static void cmd_speed(uint8_t *args, size_t len)
+{
+    printf("TODO speed\n");
+}
+
+static void cmd_reset(uint8_t *args, size_t len)
+{
+    printf("TODO reset\n");
+}
+
+static void cmd_status(uint8_t *args, size_t len)
+{
+    printf("TODO status\n");
+}
+
+static void cmd_jmp(uint8_t *args, size_t len)
+{
+    printf("TODO jmp\n");
+}
+
+static void cmd_help(uint8_t *args, size_t len)
+{
+    printf("TODO help\n");
+}
+
+struct
+{
+    size_t cmd_len;
+    const char *cmd;
+    void (*func)(uint8_t *, size_t);
+} const COMMANDS[] = {
+    {5, "speed", cmd_speed},
+    {5, "reset", cmd_reset},
+    {5, "status", cmd_status},
+    {3, "jmp", cmd_jmp},
+    {4, "help", cmd_help},
+};
+const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+
+static void mon_enter()
+{
+    // find the cmd and args
+    size_t i;
+    for (i = 0; i < mon_buflen; i++)
+    {
+        if (mon_buf[i] != ' ')
+            break;
+    }
+    uint8_t *cmd = mon_buf + i;
+    uint32_t addr = 0;
+    bool is_maybe_addr = false;
+    bool is_not_addr = false;
     for (; i < mon_buflen; i++)
     {
         uint8_t ch = mon_buf[i];
         if (is_hex(ch))
-            data = data * 16 + to_int(ch);
-
-        if (ch == ' ' || (i == mon_buflen - 1 && data < 0x100))
         {
-            if (addr >= 0x10000 && data < 0x100)
-                vram[addr++ - 0x10000] = data;
-            data = 0x80000000;
+            is_maybe_addr = true;
+            addr = addr * 16 + hex_to_int(ch);
         }
-        else if (!is_hex(ch))
+        else if (is_maybe_addr && !is_not_addr && ch == ':')
         {
-            printf("\n?Syntax error, invalid data");
+            // optional colon "0000: 00 00"
+            i++;
             break;
         }
+        else if (ch == ' ')
+            break;
+        else
+            is_not_addr = true;
     }
-    printf("\n");
-    mon_buflen = mon_bufpos = 0;
+    size_t cmd_len = mon_buf + i - cmd;
+    for (; i < mon_buflen; i++)
+    {
+        if (mon_buf[i] != ' ')
+            break;
+    }
+    char *args = mon_buf + i;
+    size_t args_len = mon_buflen - i;
+
+    // dispatch command
+    if (is_maybe_addr && !is_not_addr)
+        return cmd_address(addr, args, args_len);
+    for (i = 0; i < COMMANDS_COUNT; i++)
+    {
+        if (cmd_len == COMMANDS[i].cmd_len)
+            if (!strnicmp(cmd, COMMANDS[i].cmd, cmd_len))
+                return COMMANDS[i].func(args, args_len);
+    }
+    if (cmd_len)
+        printf("?unknown command\n");
 }
 
 static void mon_forward(int count)
@@ -144,12 +253,16 @@ static void mon_backspace()
 
 static void mon_state_C0(char ch)
 {
-    if (ch == '\b' || ch == 127)
+    if (ch == '\33')
+        mon_ansi_state = ansi_state_Fe;
+    else if (ch == '\b' || ch == 127)
         mon_backspace();
     else if (ch == '\r')
+    {
+        printf("\n");
         mon_enter();
-    else if (ch == '\33')
-        mon_ansi_state = ansi_state_Fe;
+        mon_buflen = mon_bufpos = 0;
+    }
     else if (ch >= 32 && ch < 127 && mon_bufpos < MON_BUF_SIZE - 1)
     {
         putchar(ch);
@@ -208,7 +321,7 @@ static void mon_state_CSI(char ch)
 void mon_task()
 {
     int ch = getchar_timeout_us(0);
-    if (ch == ANSI_CANCEL) // cancel
+    if (ch == ANSI_CANCEL)
         mon_ansi_state = ansi_state_C0;
     else if (ch != PICO_ERROR_TIMEOUT)
         switch (mon_ansi_state)
