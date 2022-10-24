@@ -323,15 +323,13 @@ bool ria_set_phi2_khz(uint32_t freq_khz)
     }
     // >4MHz will clock the Pi Pico past 120MHz and may fail but will not judder.
     // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
+    uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
     if (!set_sys_clock_khz(sys_clk_khz, false))
         return false;
     pio_sm_set_clkdiv_int_frac(RIA_PIO, ria_write_sm, clkdiv_int, clkdiv_frac);
-    ria_stdio_init();
+    if (old_sys_clk_hz != clock_get_hz(clk_sys))
+        ria_stdio_init();
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
-    printf("Clock request %.3f MHz; ", (float)freq_khz / 1000);
-    printf("PHI2 = %.3f MHz; ", ria_phi2_khz / 1000.f);
-    printf("sys_clock = %.3f MHz; ", (float)sys_clk_khz / 1000);
-    printf("clkdiv_int = %hd; clkdiv_frac = %d.\n", clkdiv_int, clkdiv_frac);
     return true;
 }
 
@@ -352,10 +350,12 @@ void ria_set_reset_ms(uint8_t ms)
 uint8_t ria_get_reset_ms()
 {
     uint8_t reset_ms = ria_reset_ms;
-    if (ria_phi2_khz == 1)
+    if (ria_phi2_khz == 1 && reset_ms < 3)
         reset_ms = 3;
-    if (ria_phi2_khz == 2)
+    if (ria_phi2_khz == 2 && reset_ms < 2)
         reset_ms = 2;
+    if (!reset_ms)
+        reset_ms = 1;
     return reset_ms;
 }
 

@@ -9,6 +9,7 @@
 #include "ria.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "hardware/clocks.h"
 
 #define MON_BUF_SIZE 80
 static uint8_t mon_buf[MON_BUF_SIZE];
@@ -24,7 +25,7 @@ static bool is_hex(uint8_t ch)
            ((ch >= 'a') && (ch <= 'f'));
 }
 
-static int hex_to_int(uint8_t ch)
+static uint32_t to_int(uint8_t ch)
 {
     if ((ch >= '0') && (ch <= '9'))
         return ch - '0';
@@ -32,6 +33,53 @@ static int hex_to_int(uint8_t ch)
         return ch - 'A' + 10;
     if (ch - 'a' < 6)
         return ch - 'a' + 10;
+}
+
+// Expects a single argument in hex or decimal. e.g. 0x0, $0, 0
+// Returns negative value on failure.
+static int32_t arg_to_int32(const uint8_t *args, size_t len)
+{
+    size_t i;
+    for (i = 0; i < len; i++)
+    {
+        if (args[i] != ' ')
+            break;
+    }
+    int32_t base = 10;
+    int32_t value = 0;
+    if (i < len && args[i] == '$')
+    {
+        base = 16;
+        i++;
+    }
+    else if (i + 1 < len && args[i] == '0' &&
+             (args[i + 1] == 'x' || args[i + 1] == 'X'))
+    {
+        base = 16;
+        i += 2;
+    }
+    if (i == len)
+        return -1;
+    for (; i < len; i++)
+    {
+        uint8_t ch = args[i];
+        if (is_hex(ch))
+        {
+            int32_t i = to_int(ch);
+            if (i < base)
+            {
+                value = value * base + i;
+                if (value >= 0)
+                    continue;
+            }
+        }
+        for (; i < len; i++)
+        {
+            if (args[i] != ' ')
+                return -1;
+        }
+    }
+    return value;
 }
 
 static int strnicmp(const char *string1, const char *string2, int n)
@@ -56,7 +104,7 @@ static int strnicmp(const char *string1, const char *string2, int n)
 }
 
 // Commands that start with a hex address. Read or write memory.
-static void cmd_address(uint32_t addr, char *args, size_t len)
+static void cmd_address(uint32_t addr, const char *args, size_t len)
 {
     // TODO rework for RIA
     if (addr > 0x1FFFF)
@@ -86,7 +134,7 @@ static void cmd_address(uint32_t addr, char *args, size_t len)
     {
         uint8_t ch = args[i];
         if (is_hex(ch))
-            data = data * 16 + hex_to_int(ch);
+            data = data * 16 + to_int(ch);
         else if (ch != ' ')
         {
             printf("?invalid data character\n");
@@ -114,42 +162,84 @@ static void cmd_address(uint32_t addr, char *args, size_t len)
     }
 }
 
-static void cmd_speed(uint8_t *args, size_t len)
+static void cmd_speed(const uint8_t *args, size_t len)
 {
-    printf("TODO speed\n");
+    if (len)
+    {
+        int32_t i = arg_to_int32(args, len);
+        if (i < 0)
+        {
+            printf("?syntax error\n");
+            return;
+        }
+        if (i > 8000 || !ria_set_phi2_khz(i))
+        {
+            printf("?invalid frequency\n");
+            return;
+        }
+    }
+    printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
 }
 
-static void cmd_reset(uint8_t *args, size_t len)
+static void cmd_reset(const uint8_t *args, size_t len)
 {
-    printf("TODO reset\n");
+    if (len)
+    {
+        int32_t i = arg_to_int32(args, len);
+        if (i < 0)
+        {
+            printf("?syntax error\n");
+            return;
+        }
+        if (i > 255)
+        {
+            printf("?invalid duration\n");
+            return;
+        }
+        ria_set_reset_ms(i);
+    }
+    printf("RESB: %ld ms\n", ria_get_reset_ms());
 }
 
-static void cmd_status(uint8_t *args, size_t len)
-{
-    printf("TODO status\n");
-}
-
-static void cmd_jmp(uint8_t *args, size_t len)
+static void cmd_jmp(const uint8_t *args, size_t len)
 {
     printf("TODO jmp\n");
 }
 
-static void cmd_help(uint8_t *args, size_t len)
+static void cmd_status(const uint8_t *args, size_t len)
 {
-    printf("TODO help\n");
+    printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
+    printf("RESB: %ld ms\n", ria_get_reset_ms());
+    printf("RIA: %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
+    printf("VGA: 0.0 MHz\n");
+}
+
+static void cmd_help(const uint8_t *args, size_t len)
+{
+    printf(
+        "Commands:\n"
+        "HELP        - This help.\n"
+        "STATUS      - Show all settings.\n"
+        "SPEED (kHz) - Query or set PHI2 speed. This is the 6502 clock.\n"
+        "RESET (ms)  - Query or set RESB hold time. Set to 0 for auto.\n"
+        "JMP address - Start the 6502. Begin execution at SRAM address.\n"
+        "F000        - Read memory.\n"
+        "F000: 01 02 - Write memory. Colon optional.\n");
 }
 
 struct
 {
     size_t cmd_len;
     const char *cmd;
-    void (*func)(uint8_t *, size_t);
+    void (*func)(const uint8_t *, size_t);
 } const COMMANDS[] = {
     {5, "speed", cmd_speed},
     {5, "reset", cmd_reset},
-    {5, "status", cmd_status},
     {3, "jmp", cmd_jmp},
+    {6, "status", cmd_status},
     {4, "help", cmd_help},
+    {1, "h", cmd_help},
+    {1, "?", cmd_help},
 };
 const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
@@ -172,7 +262,7 @@ static void mon_enter()
         if (is_hex(ch))
         {
             is_maybe_addr = true;
-            addr = addr * 16 + hex_to_int(ch);
+            addr = addr * 16 + to_int(ch);
         }
         else if (is_maybe_addr && !is_not_addr && ch == ':')
         {
