@@ -7,6 +7,7 @@
 #include "ria.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
@@ -15,7 +16,6 @@
 // Rumbledethumps Interface Adapter for WDC W65C02S.
 // Pi Pico sys clock of 120MHz will run 6502 at 4MHz.
 
-#define RIA_PIO pio1
 // Content of these 15 pins is bound to the PIO program structure.
 #define RIA_PIN_BASE 0
 #define RIA_CS_PIN (RIA_PIN_BASE + 0)
@@ -33,6 +33,13 @@
 #define RIA_UART_BAUD_RATE 115200
 #define RIA_UART_TX_PIN 16
 #define RIA_UART_RX_PIN 17
+// Use both PIO blocks, constrained by address space
+#define RIA_ACTION_PIO pio0
+#define RIA_ACTION_SM 0
+#define RIA_WRITE_PIO pio1
+#define RIA_WRITE_SM 0
+#define RIA_READ_PIO pio1
+#define RIA_READ_SM 1
 
 extern volatile uint8_t regs[0x1F];
 asm(".equ regs, 0x20040000");
@@ -68,11 +75,8 @@ struct Vram
 uint8_t *const vram = (uint8_t *)&vram_blocks;
 #endif
 
-int ria_write_sm;
-int ria_read_sm;
 uint32_t ria_phi2_khz;
 uint8_t ria_reset_ms;
-bool ria_halted;
 absolute_time_t ria_reset_timer;
 enum state
 {
@@ -81,23 +85,57 @@ enum state
     run
 } ria_state;
 
+static void ria_action_loop()
+{
+    while (true)
+    {
+        // debug code to show writes
+        if (!pio_sm_is_rx_fifo_empty(RIA_ACTION_PIO, RIA_ACTION_SM))
+        {
+            uint32_t addr = pio_sm_get(RIA_ACTION_PIO, RIA_ACTION_SM);
+            uint32_t data = addr & 0xFF;
+            addr = (addr >> 8) & 0x1F;
+            switch (addr)
+            {
+            case 0x1F:
+                // if (uart_is_writable(uart0))
+                //     uart_get_hw(uart0)->dr = data; // uart_putc_raw
+                break;
+            }
+            printf("Action: addr:0x%lX data:0x%02lX\n", addr, data);
+        }
+    }
+}
+
+static void ria_action_init()
+{
+    // PIO to supply action loop with events
+    uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
+    pio_sm_config config = ria_action_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, RIA_PIN_BASE);
+    sm_config_set_in_shift(&config, false, false, 0);
+    pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
+    pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
+    // set variable read trigger
+    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0);
+}
+
 static void ria_write_init()
 {
-    // PIO to manage reading and writing
-    ria_write_sm = pio_claim_unused_sm(RIA_PIO, true);
-    uint offset = pio_add_program(RIA_PIO, &ria_write_program);
+    // PIO to manage PHI2 clock and 6502 writes
+    uint offset = pio_add_program(RIA_WRITE_PIO, &ria_write_program);
     pio_sm_config config = ria_write_program_get_default_config(offset);
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, false, false, 0);
     sm_config_set_out_pins(&config, RIA_DATA_PIN_BASE, 8);
     sm_config_set_sideset_pins(&config, RIA_PHI2_PIN);
-    pio_gpio_init(RIA_PIO, RIA_PHI2_PIN);
-    pio_sm_set_consecutive_pindirs(RIA_PIO, ria_write_sm, RIA_PHI2_PIN, 1, true);
-    pio_sm_init(RIA_PIO, ria_write_sm, offset, &config);
-    pio_sm_put(RIA_PIO, ria_write_sm, (uintptr_t)regs >> 5);
-    pio_sm_exec_wait_blocking(RIA_PIO, ria_write_sm, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(RIA_PIO, ria_write_sm, pio_encode_mov(pio_y, pio_osr));
-    pio_sm_set_enabled(RIA_PIO, ria_write_sm, true);
+    pio_gpio_init(RIA_WRITE_PIO, RIA_PHI2_PIN);
+    pio_sm_set_consecutive_pindirs(RIA_WRITE_PIO, RIA_WRITE_SM, RIA_PHI2_PIN, 1, true);
+    pio_sm_init(RIA_WRITE_PIO, RIA_WRITE_SM, offset, &config);
+    pio_sm_put(RIA_WRITE_PIO, RIA_WRITE_SM, (uintptr_t)regs >> 5);
+    pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_pull(false, true));
+    pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_mov(pio_y, pio_osr));
+    pio_sm_set_enabled(RIA_WRITE_PIO, RIA_WRITE_SM, true);
 
     // Need both channels now to configure chain ping-pong
     int addr_chan = dma_claim_unused_channel(true);
@@ -106,51 +144,50 @@ static void ria_write_init()
     // DMA move the requested memory data to PIO for output
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
     channel_config_set_high_priority(&data_dma, true);
-    channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_PIO, ria_write_sm, false));
+    channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_WRITE_PIO, RIA_WRITE_SM, false));
     channel_config_set_read_increment(&data_dma, false);
     channel_config_set_transfer_data_size(&data_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&data_dma, addr_chan);
     dma_channel_configure(
         data_chan,
         &data_dma,
-        regs,                        // dst
-        &RIA_PIO->rxf[ria_write_sm], // src
+        regs,                              // dst
+        &RIA_WRITE_PIO->rxf[RIA_WRITE_SM], // src
         1,
         false);
 
     // DMA move address from PIO into the data DMA config
     dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
     channel_config_set_high_priority(&addr_dma, true);
-    channel_config_set_dreq(&addr_dma, pio_get_dreq(RIA_PIO, ria_write_sm, false));
+    channel_config_set_dreq(&addr_dma, pio_get_dreq(RIA_WRITE_PIO, RIA_WRITE_SM, false));
     channel_config_set_read_increment(&addr_dma, false);
     channel_config_set_chain_to(&addr_dma, data_chan);
     dma_channel_configure(
         addr_chan,
         &addr_dma,
         &dma_channel_hw_addr(data_chan)->write_addr, // dst
-        &RIA_PIO->rxf[ria_write_sm],                 // src
+        &RIA_WRITE_PIO->rxf[RIA_WRITE_SM],           // src
         1,
         true);
 }
 
 static void ria_read_init()
 {
-    // PIO to pull in a 5 bit address bus and shift out an 8 bit data bus.
-    ria_read_sm = pio_claim_unused_sm(RIA_PIO, true);
-    uint offset = pio_add_program(RIA_PIO, &ria_read_program);
+    // PIO for 6502 reads
+    uint offset = pio_add_program(RIA_READ_PIO, &ria_read_program);
     pio_sm_config config = ria_read_program_get_default_config(offset);
     sm_config_set_in_pins(&config, RIA_ADDR_PIN_BASE);
     sm_config_set_in_shift(&config, false, true, 5);
     sm_config_set_out_pins(&config, RIA_DATA_PIN_BASE, 8);
     sm_config_set_out_shift(&config, true, true, 8);
     for (int i = RIA_DATA_PIN_BASE; i < RIA_DATA_PIN_BASE + 8; i++)
-        pio_gpio_init(RIA_PIO, i);
-    pio_sm_set_consecutive_pindirs(RIA_PIO, ria_read_sm, RIA_DATA_PIN_BASE, 8, true);
-    pio_sm_init(RIA_PIO, ria_read_sm, offset, &config);
-    pio_sm_put(RIA_PIO, ria_read_sm, (uintptr_t)regs >> 5);
-    pio_sm_exec_wait_blocking(RIA_PIO, ria_read_sm, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(RIA_PIO, ria_read_sm, pio_encode_mov(pio_y, pio_osr));
-    pio_sm_set_enabled(RIA_PIO, ria_read_sm, true);
+        pio_gpio_init(RIA_READ_PIO, i);
+    pio_sm_set_consecutive_pindirs(RIA_READ_PIO, RIA_READ_SM, RIA_DATA_PIN_BASE, 8, true);
+    pio_sm_init(RIA_READ_PIO, RIA_READ_SM, offset, &config);
+    pio_sm_put(RIA_READ_PIO, RIA_READ_SM, (uintptr_t)regs >> 5);
+    pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_pull(false, true));
+    pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_mov(pio_y, pio_osr));
+    pio_sm_set_enabled(RIA_READ_PIO, RIA_READ_SM, true);
 
     // Need both channels now to configure chain ping-pong
     int addr_chan = dma_claim_unused_channel(true);
@@ -159,28 +196,28 @@ static void ria_read_init()
     // DMA move the requested memory data to PIO for output
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
     channel_config_set_high_priority(&data_dma, true);
-    channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_PIO, ria_read_sm, true));
+    channel_config_set_dreq(&data_dma, pio_get_dreq(RIA_READ_PIO, RIA_READ_SM, true));
     channel_config_set_transfer_data_size(&data_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&data_dma, addr_chan);
     dma_channel_configure(
         data_chan,
         &data_dma,
-        &RIA_PIO->txf[ria_read_sm], // dst
-        regs,                       // src
+        &RIA_READ_PIO->txf[RIA_READ_SM], // dst
+        regs,                            // src
         1,
         false);
 
     // DMA move address from PIO into the data DMA config
     dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
     channel_config_set_high_priority(&addr_dma, true);
-    channel_config_set_dreq(&addr_dma, pio_get_dreq(RIA_PIO, ria_read_sm, false));
+    channel_config_set_dreq(&addr_dma, pio_get_dreq(RIA_READ_PIO, RIA_READ_SM, false));
     channel_config_set_read_increment(&addr_dma, false);
     channel_config_set_chain_to(&addr_dma, data_chan);
     dma_channel_configure(
         addr_chan,
         &addr_dma,
         &dma_channel_hw_addr(data_chan)->read_addr, // dst
-        &RIA_PIO->rxf[ria_read_sm],                 // src
+        &RIA_READ_PIO->rxf[RIA_READ_SM],            // src
         1,
         true);
 }
@@ -244,12 +281,16 @@ void ria_init()
     assert(!((uintptr_t)regs & 0x1F));
     assert(!((uintptr_t)vram & 0xFFFF));
 
-    // Turn off GPIO decorators that can delay input
+    // Turn off GPIO decorators that delay input
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
     {
         gpio_set_input_hysteresis_enabled(i, false);
-        hw_set_bits(&RIA_PIO->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio0->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio1->input_sync_bypass, 1u << i);
     }
+    gpio_set_input_hysteresis_enabled(RIA_PHI2_PIN, false);
+    hw_set_bits(&pio0->input_sync_bypass, 1u << RIA_PHI2_PIN);
+    hw_set_bits(&pio1->input_sync_bypass, 1u << RIA_PHI2_PIN);
 
     // Raise DMA above CPU on crossbar
     bus_ctrl_hw->priority |=
@@ -263,9 +304,12 @@ void ria_init()
     // the inits
     ria_write_init();
     ria_read_init();
+    ria_action_init();
     ria_set_phi2_khz(4000);
     ria_set_reset_ms(0);
     ria_halt();
+
+    multicore_launch_core1(ria_action_loop);
 
     // todo remove later
     ria_load_test_program_sram();
@@ -275,10 +319,11 @@ void ria_init()
 void ria_task()
 {
     // Report unexpected FIFO overflows and underflows
+    // TODO needs rework to support both PIOs
     static uint32_t fdebug = 0;
-    uint32_t masked_fdebug = RIA_PIO->fdebug;
+    uint32_t masked_fdebug = RIA_READ_PIO->fdebug;
     masked_fdebug &= 0x0F0F0F0F;                 // reserved
-    masked_fdebug &= ~(1 << (24 + ria_read_sm)); // expected
+    masked_fdebug &= ~(1 << (24 + RIA_READ_SM)); // expected
     if (fdebug != masked_fdebug)
     {
         fdebug = masked_fdebug;
@@ -326,7 +371,9 @@ bool ria_set_phi2_khz(uint32_t freq_khz)
     uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
     if (!set_sys_clock_khz(sys_clk_khz, false))
         return false;
-    pio_sm_set_clkdiv_int_frac(RIA_PIO, ria_write_sm, clkdiv_int, clkdiv_frac);
+    pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
+    pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
+    pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
         ria_stdio_init();
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);

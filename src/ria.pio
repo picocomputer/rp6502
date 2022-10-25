@@ -4,12 +4,46 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+; Action sends a FIFO message for every write.
+; It also sends a message for hard coded reads and one variable.
+; Pushing new address to out FIFO changes variable read address.
+.program ria_action
+
+
+.wrap_target
+pull_start:
+pull noblock
+start:
+mov x osr
+wait 1 gpio 21 [12] ; 12
+mov osr pins
+out y 1
+jmp !y pull_start
+out y 1
+mov isr osr
+jmp !y write
+out y 8
+out y 5
+jmp !y write
+jmp x!=y next
+jmp write
+next:
+pull noblock
+set x 0x1C ; TODO do we need more?
+jmp x!=y start
+mov x osr
+write:
+push noblock
+.wrap
+
+
+; Async ROM emulation but synced with PHI2.
 .program ria_read
 
 .wrap_target
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [3]
+wait 0 gpio 21 [6]
 in pins 5
 .wrap
 
