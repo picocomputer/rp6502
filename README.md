@@ -23,6 +23,47 @@ $ sudo openocd -f interface/picoprobe.cfg -f target/rp2040.cfg -s tcl
 $ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
 ```
 
+## Memory Map
+
+| Addr | Description
+| - | -
+| FFFE-FFFF | BRK/IRQB Vector
+| FFFC-FFFD | RESB Vector
+| FFFA-FFFB | NMIB Vector
+| FFF0-FFF9 | 10 bytes for fast load
+| FFE0-FFEF | 16 bytes for I/O TBD
+| FF10-FFDF | Unallocated for Expansion
+| FF00-FF0F | 6522 VIA
+| 0200-FEFF | Free RAM
+| 0100-01FF | Stack Page
+| 0000-00FF | Zero Page
+
+## Hello World
+Online assembler:
+https://www.masswerk.at/6502/assembler.html
+```
+.org $0200
+LDX #$00
+loop:
+LDA text,X
+INX
+STA $FFEE ; UART Tx
+CMP #$00
+BNE loop
+STA $FFEF ; Halt 6502
+text:
+.ASCII "Hello, World!"
+.BYTE $0D $0A $00
+```
+Once you have machine code, copy-paste it and jmp.
+```
+0200: A2 00 BD 10 02 E8 8D EE
+0208: FF C9 00 D0 F5 8D EF FF
+0210: 48 65 6C 6C 6F 2C 20 57
+0218: 6F 72 6C 64 21 0D 0A 00
+JMP $200
+```
+
 ## Pi Pico - Power, CDC, and PicoProbe.
 | #Pins | Description
 | -  | -
@@ -47,25 +88,3 @@ $ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
 | 21    | PHI2
 | 22    | RESB
 | 26-28 | PBUS
-
-## Memory Map
-
-| Addr | Description
-| - | -
-| FFFE-FFFF | BRK/IRQB
-| FFFC-FFFD | RESB
-| FFFA-FFFB | NMIB
-| FFF0-FFF9 | 10 bytes for fast load
-| FFE0-FFEF | 16 bytes for I/O TBD
-
-## Fast Load
-Self modifying RAM avoids some indirection. It's not much, so this may not
-happen if the resources are needed elsewhere, but it's worth trying for.
-```
-.org FFF0
-loop:
-LDA #00
-STA $0000
-BRA loop
-JMP $0000
-```

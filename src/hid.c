@@ -71,8 +71,11 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         switch (keycode)
         {
         case HID_KEY_DELETE:
-            if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
+            if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT)) {
+                key_queue_out = key_queue_in;
+                printf("CTRL-ALT-DEL\n");
                 ria_halt();
+            }
             break;
         case HID_KEY_F1:
             // NOP

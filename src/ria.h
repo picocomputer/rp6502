@@ -30,5 +30,6 @@ void ria_halt();
 void ria_reset();
 void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len);
 void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len);
+void ria_jmp(uint32_t addr);
 
 #endif /* _RIA_H_ */

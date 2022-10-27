@@ -207,7 +207,13 @@ static void cmd_reset(const uint8_t *args, size_t len)
 
 static void cmd_jmp(const uint8_t *args, size_t len)
 {
-    printf("TODO jmp\n");
+    int32_t addr = arg_to_int32(args, len);
+    if (!len || addr < 0 || addr > 0xFFFF)
+    {
+        printf("?invalid address\n");
+        return;
+    }
+    ria_jmp(addr);
 }
 
 static void cmd_status(const uint8_t *args, size_t len)

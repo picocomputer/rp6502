@@ -464,6 +464,15 @@ static inline void __not_in_flash_func(ria_action_ram_read)()
     }
 }
 
+void ria_jmp(uint32_t addr)
+{
+    ria_halt();
+    // Reset vector
+    regs[0x1C] = addr & 0xFF;
+    regs[0x1D] = addr >> 8;
+    ria_reset();
+}
+
 static void __not_in_flash_func(ria_action_loop)()
 {
     // In here we bypass the usual SDK calls as needed for performance.
@@ -484,9 +493,12 @@ static void __not_in_flash_func(ria_action_loop)()
                 case 0x17:
                     ria_action_ram_read();
                     break;
+                case 0x0E:
+                    if (uart_is_writable(uart0))
+                        uart_get_hw(uart0)->dr = data;
+                    break;
                 case 0x0F:
-                    // if (uart_is_writable(uart0))
-                    //     uart_get_hw(uart0)->dr = data;
+                    ria_halt();
                     break;
                 case 0x00:
                     break;
