@@ -72,13 +72,13 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         {
         case HID_KEY_DELETE:
             if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
-                vga_terminal(terminal_visible = true);
+                ria_halt();
             break;
         case HID_KEY_F1:
-            ria_reset_button();
+            // NOP
             break;
         case HID_KEY_F2:
-            ria_test_button();
+            // NOP
             break;
         case HID_KEY_F3:
             // NOP

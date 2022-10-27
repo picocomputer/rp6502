@@ -29,7 +29,7 @@ jmp x!=y next
 jmp write
 next:
 pull noblock
-set x 0x1C ; TODO do we need more?
+set x 0x0 ; TODO do we need more?
 jmp x!=y start
 mov x osr
 write:

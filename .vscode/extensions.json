@@ -1,7 +1,7 @@
 {
   "recommendations": [
+    "ms-vscode.cpptools-extension-pack",
     "marus25.cortex-debug",
-    "ms-vscode.cmake-tools",
-    "ms-vscode.cpptools"
+    "dan-c-underwood.arm"
   ]
 }

@@ -41,7 +41,7 @@
 #define RIA_READ_PIO pio1
 #define RIA_READ_SM 1
 
-extern volatile uint8_t regs[0x1F];
+extern uint8_t regs[0x20];
 asm(".equ regs, 0x20040000");
 
 #ifdef NDEBUG
@@ -78,47 +78,17 @@ uint8_t *const vram = (uint8_t *)&vram_blocks;
 uint32_t ria_phi2_khz;
 uint8_t ria_reset_ms;
 absolute_time_t ria_reset_timer;
-enum state
-{
+volatile enum state {
     halt,
     reset,
-    run
+    run,
+    done
 } ria_state;
+uint8_t *rw_buf;
+size_t rw_pos;
+size_t rw_end;
 
-static void ria_action_loop()
-{
-    while (true)
-    {
-        // debug code to show writes
-        if (!pio_sm_is_rx_fifo_empty(RIA_ACTION_PIO, RIA_ACTION_SM))
-        {
-            uint32_t addr = pio_sm_get(RIA_ACTION_PIO, RIA_ACTION_SM);
-            uint32_t data = addr & 0xFF;
-            addr = (addr >> 8) & 0x1F;
-            switch (addr)
-            {
-            case 0x1F:
-                // if (uart_is_writable(uart0))
-                //     uart_get_hw(uart0)->dr = data; // uart_putc_raw
-                break;
-            }
-            printf("Action: addr:0x%lX data:0x%02lX\n", addr, data);
-        }
-    }
-}
-
-static void ria_action_init()
-{
-    // PIO to supply action loop with events
-    uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
-    pio_sm_config config = ria_action_program_get_default_config(offset);
-    sm_config_set_in_pins(&config, RIA_PIN_BASE);
-    sm_config_set_in_shift(&config, false, false, 0);
-    pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
-    pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
-    // set variable read trigger
-    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0);
-}
+static void ria_action_loop();
 
 static void ria_write_init()
 {
@@ -222,52 +192,16 @@ static void ria_read_init()
         true);
 }
 
-static void ria_load_memcpy()
+static void ria_action_init()
 {
-    // FFE0                  * = $FFE0
-    // FFE0           START:
-    // FFE0  A2 10           LDX #$10
-    // FFE2           LOOP:
-    // FFE2  BD E0 FF        LDA $FFDF,X
-    // FFE5  9D 00 80        STA $7FFF,X
-    // FFE8  CA              DEX
-    // FFE9  D0 F7           BNE LOOP
-    // FFEB           END:
-    // FFEB  00              BRK
-    // FFEC  E0 FF           .WORD START
-    // FFEE  EB FF           .WORD END
-}
-
-static void ria_load_test_program_sram()
-{
-    for (int i = 0; i < 32; i++)
-        regs[i] = 0xEA; // NOP
-    // Reset Vector $FFE0
-    regs[0x1C] = 0xE0;
-    regs[0x1D] = 0xFF;
-    // FFE0              * = $FFE0
-    // FFE0  AE FF FF    LDX $FFFF
-    // FFE3  E8          INX
-    // FFE4  8E 00 80    STX $8000
-    // FFE7  AC 00 80    LDY $8000
-    // FFEA  8C FF FF    STY $FFFF
-    // FFED  4C ED FF    JMP $FFED
-    regs[0x00] = 0xAE;
-    regs[0x01] = 0xFF;
-    regs[0x02] = 0xFF;
-    regs[0x03] = 0xE8;
-    regs[0x04] = 0x8E;
-    regs[0x05] = 0x00;
-    regs[0x06] = 0x80;
-    regs[0x07] = 0xAC;
-    regs[0x08] = 0x00;
-    regs[0x09] = 0x80;
-    regs[0x0a] = 0x8C;
-    regs[0x0b] = 0xFF;
-    regs[0x0c] = 0xFF;
-    regs[0x0d] = 0x4C;
-    regs[0x0e] = 0xED;
-    regs[0x0f] = 0xFF;
+    // PIO to supply action loop with events
+    uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
+    pio_sm_config config = ria_action_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, RIA_PIN_BASE);
+    sm_config_set_in_shift(&config, false, false, 0);
+    pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
+    pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
+    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0);
 }
 
 void ria_stdio_init()
@@ -308,26 +242,27 @@ void ria_init()
     ria_set_phi2_khz(4000);
     ria_set_reset_ms(0);
     ria_halt();
-
     multicore_launch_core1(ria_action_loop);
-
-    // todo remove later
-    ria_load_test_program_sram();
-    ria_reset();
 }
 
 void ria_task()
 {
     // Report unexpected FIFO overflows and underflows
-    // TODO needs rework to support both PIOs
-    static uint32_t fdebug = 0;
-    uint32_t masked_fdebug = RIA_READ_PIO->fdebug;
-    masked_fdebug &= 0x0F0F0F0F;                 // reserved
-    masked_fdebug &= ~(1 << (24 + RIA_READ_SM)); // expected
-    if (fdebug != masked_fdebug)
+    uint32_t fdebug = pio0->fdebug;
+    uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
+    masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
+    if (masked_fdebug)
     {
-        fdebug = masked_fdebug;
-        printf("PIO fdebug: %lX\n", fdebug);
+        pio0->fdebug = 0xFF;
+        printf("pio0->fdebug: %lX\n", fdebug);
+    }
+    fdebug = pio1->fdebug;
+    masked_fdebug = fdebug & 0x0F0F0F0F;         // reserved
+    masked_fdebug &= ~(1 << (24 + RIA_READ_SM)); // expected
+    if (masked_fdebug)
+    {
+        pio1->fdebug = 0xFF;
+        printf("pio1->fdebug: %lX\n", fdebug);
     }
 
     // Reset timer
@@ -340,14 +275,11 @@ void ria_task()
             gpio_put(RIA_RESB_PIN, true);
         }
     }
+}
 
-    // debug code to show writes
-    static uint8_t regff = 0xEA;
-    if (regs[31] != regff)
-    {
-        printf("Write: $FFFF = $%02X\n", regs[31]);
-        regff = regs[31];
-    }
+bool ria_is_active()
+{
+    return (ria_state == reset) || (ria_state == run);
 }
 
 // Set the 6502 clock frequency. Returns false on failure.
@@ -406,6 +338,7 @@ uint8_t ria_get_reset_ms()
     return reset_ms;
 }
 
+// Stop the 6502
 void ria_halt()
 {
     ria_state = halt;
@@ -414,6 +347,7 @@ void ria_halt()
                                     (uint64_t)1000 * ria_get_reset_ms());
 }
 
+// Start or reset the 6502
 void ria_reset()
 {
     if (ria_state != halt)
@@ -421,12 +355,82 @@ void ria_reset()
     ria_state = reset;
 }
 
-void ria_reset_button()
+void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
 {
-    printf("Reset\n");
-    ria_reset();
+    //TODO Reading location 0xFFF7 triggers the action twice.
+    //     Perhaps handle regs like vram (which isn't done yet).
+    ria_halt();
+    // Reset vector
+    regs[0x1C] = 0xF0;
+    regs[0x1D] = 0xFF;
+    // Self-modifying fast load
+    // FFF0  AD 00 00  LDA $0000
+    // FFF3  8D F8 FF  STA $FFE0
+    // FFF6  80 F8     BRA $FFF6
+    // FFF8  80 FE     BRA $FFF8
+    regs[0x10] = 0xAD;
+    regs[0x11] = addr & 0xFF;
+    regs[0x12] = addr >> 8;
+    regs[0x13] = 0x8D;
+    regs[0x14] = 0xE0;
+    regs[0x15] = 0xFF;
+    regs[0x16] = 0x80;
+    regs[0x17] = 0xF8;
+    regs[0x18] = 0x80;
+    regs[0x19] = 0xFE;
+    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0x17);
+    rw_buf = buf;
+    rw_end = len;
+    rw_pos = 0;
+    if (rw_pos + 1 == rw_end)
+        regs[0x17] = 0x00;
+    if (rw_pos == rw_end)
+        ria_state = done;
+    else
+        ria_reset();
 }
 
-void ria_test_button()
+static void __not_in_flash_func(ria_action_ram_read)()
 {
+    // action for case 0x17:
+    if (rw_pos < rw_end)
+    {
+        // ((uint16_t *)&regs[0x11])[0] += 1; // does this optimize?
+        if (!++regs[0x11])
+            ++regs[0x12];
+        rw_buf[rw_pos++] = regs[0x0];
+        if (rw_pos == rw_end)
+            ria_state = done;
+        if (rw_pos + 1 == rw_end)
+            regs[0x17] = 0x00;
+    }
+}
+
+static void __not_in_flash_func(ria_action_loop)()
+{
+    // In here we bypass the usual SDK calls as needed for performance.
+    while (true)
+    {
+        if (!pio_sm_is_rx_fifo_empty(RIA_ACTION_PIO, RIA_ACTION_SM))
+        {
+            uint32_t addr = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
+            uint32_t data = addr & 0xFF;
+            addr = (addr >> 8) & 0x1F;
+            if (gpio_get(RIA_RESB_PIN))
+            {
+                switch (addr)
+                {
+                case 0x17:
+                    ria_action_ram_read();
+                    break;
+                case 0x0F:
+                    // if (uart_is_writable(uart0))
+                    //     uart_get_hw(uart0)->dr = data;
+                    break;
+                case 0x00:
+                    break;
+                }
+            }
+        }
+    }
 }

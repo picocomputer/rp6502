@@ -17,6 +17,14 @@ static uint8_t mon_buflen = 0;
 static uint8_t mon_bufpos = 0;
 static ansi_state_t mon_ansi_state = ansi_state_C0;
 static int mon_ansi_param;
+volatile enum state {
+    idle,
+    read,
+    write
+} mon_state;
+static uint8_t mon_rw_buf[MON_BUF_SIZE / 3];
+uint32_t mon_rw_addr;
+size_t mon_rw_len;
 
 static bool is_hex(uint8_t ch)
 {
@@ -107,7 +115,7 @@ static int strnicmp(const char *string1, const char *string2, int n)
 static void cmd_address(uint32_t addr, const char *args, size_t len)
 {
     // TODO rework for RIA
-    if (addr > 0x1FFFF)
+    if (addr > 0xFFFF)
     {
         printf("?invalid address\n");
         mon_buflen = mon_bufpos = 0;
@@ -115,18 +123,10 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     }
     if (!len)
     {
-        mon_buf[mon_buflen] = 0;
-        printf("%04X:", addr);
-        while (true)
-        {
-            if (addr < 0x10000)
-                printf(" ??");
-            else
-                printf(" %02X", vram[addr - 0x10000]);
-            if (!(++addr & 0xF))
-                break;
-        }
-        printf("\n");
+        mon_rw_addr = addr;
+        mon_rw_len = (addr | 0xF) - addr + 1;
+        mon_state = read;
+        ria_ram_read(mon_rw_addr, mon_rw_buf, mon_rw_len);
         return;
     }
     uint32_t data = 0x80000000;
@@ -410,24 +410,40 @@ static void mon_state_CSI(char ch)
 
 void mon_task()
 {
-    int ch = getchar_timeout_us(0);
-    if (ch == ANSI_CANCEL)
-        mon_ansi_state = ansi_state_C0;
-    else if (ch != PICO_ERROR_TIMEOUT)
-        switch (mon_ansi_state)
-        {
-        case ansi_state_C0:
-            mon_state_C0(ch);
-            break;
-        case ansi_state_Fe:
-            mon_state_Fe(ch);
-            break;
-        case ansi_state_SS3:
-            // all SS3 is nop
+    if (ria_is_active())
+        return;
+    if (mon_state == idle)
+    {
+        int ch = getchar_timeout_us(0);
+        if (ch == ANSI_CANCEL)
             mon_ansi_state = ansi_state_C0;
-            break;
-        case ansi_state_CSI:
-            mon_state_CSI(ch);
-            break;
+        else if (ch != PICO_ERROR_TIMEOUT)
+            switch (mon_ansi_state)
+            {
+            case ansi_state_C0:
+                mon_state_C0(ch);
+                break;
+            case ansi_state_Fe:
+                mon_state_Fe(ch);
+                break;
+            case ansi_state_SS3:
+                // all SS3 is nop
+                mon_ansi_state = ansi_state_C0;
+                break;
+            case ansi_state_CSI:
+                mon_state_CSI(ch);
+                break;
+            }
+        return;
+    }
+    if (mon_state == read)
+    {
+        mon_state = idle;
+        printf("%04X:", mon_rw_addr);
+        for (size_t i = 0; i < mon_rw_len; i++)
+        {
+            printf(" %02X", mon_rw_buf[i]);
         }
+        printf("\n");
+    }
 }
