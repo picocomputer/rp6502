@@ -114,7 +114,7 @@ static int strnicmp(const char *string1, const char *string2, int n)
 // Commands that start with a hex address. Read or write memory.
 static void cmd_address(uint32_t addr, const char *args, size_t len)
 {
-    // TODO rework for RIA
+    // TODO move address check to RIA
     if (addr > 0xFFFF)
     {
         printf("?invalid address\n");
@@ -130,6 +130,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         return;
     }
     uint32_t data = 0x80000000;
+    mon_rw_len = 0;
     for (size_t i = 0; i < len; i++)
     {
         uint8_t ch = args[i];
@@ -138,20 +139,19 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         else if (ch != ' ')
         {
             printf("?invalid data character\n");
-            break;
+            return;
         }
         if (ch == ' ' || i == len - 1)
         {
             if (data < 0x100)
             {
-                if (addr >= 0x10000 && data < 0x100)
-                    vram[addr++ - 0x10000] = data;
+                mon_rw_buf[mon_rw_len++] = data;
                 data = 0x80000000;
             }
             else
             {
                 printf("?invalid data value\n");
-                break;
+                return;
             }
             for (; i + 1 < len; i++)
             {
@@ -160,6 +160,10 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
             }
         }
     }
+    mon_rw_addr = addr;
+    mon_state = write;
+    ria_ram_write(mon_rw_addr, mon_rw_buf, mon_rw_len);
+    return;
 }
 
 static void cmd_speed(const uint8_t *args, size_t len)
@@ -445,5 +449,9 @@ void mon_task()
             printf(" %02X", mon_rw_buf[i]);
         }
         printf("\n");
+    }
+    if (mon_state == write)
+    {
+        mon_state = idle;
     }
 }

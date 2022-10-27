@@ -28,6 +28,7 @@ void ria_set_reset_ms(uint8_t ms);
 uint8_t ria_get_reset_ms();
 void ria_halt();
 void ria_reset();
+void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len);
 void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len);
 
 #endif /* _RIA_H_ */

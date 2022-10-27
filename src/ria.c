@@ -275,6 +275,12 @@ void ria_task()
             gpio_put(RIA_RESB_PIN, true);
         }
     }
+
+    if (ria_state == done)
+    {
+        pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0);
+        ria_halt();
+    }
 }
 
 bool ria_is_active()
@@ -355,10 +361,62 @@ void ria_reset()
     ria_state = reset;
 }
 
+void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
+{
+    // TODO Writing over the program has the obvious problem.
+    //      Do something about it when vram support is added.
+    ria_halt();
+    // Reset vector
+    regs[0x1C] = 0xF0;
+    regs[0x1D] = 0xFF;
+    // Self-modifying fast load
+    // FFF0  A9 00     LDA #$00
+    // FFF2  8D 00 00  STA $0000
+    // FFF5  80 F9     BRA $FFF0
+    // FFF7  80 FE     BRA $FFF7
+    regs[0x10] = 0xA9;
+    regs[0x11] = buf[0];
+    regs[0x12] = 0x8D;
+    regs[0x13] = addr & 0xFF;
+    regs[0x14] = addr >> 8;
+    regs[0x15] = 0x80;
+    regs[0x16] = 0xF9;
+    regs[0x17] = 0x80;
+    regs[0x18] = 0xFE;
+    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0x16);
+    rw_buf = buf;
+    rw_end = len;
+    rw_pos = 0;
+    if (rw_pos == rw_end)
+        ria_state = done;
+    else
+    {
+        if (++rw_pos == rw_end)
+            regs[0x16] = 0x00;
+        ria_reset();
+    }
+}
+
+static inline void __not_in_flash_func(ria_action_ram_write)()
+{
+    // action for case 0x16:
+    if (rw_pos < rw_end)
+    {
+        regs[0x11] = rw_buf[rw_pos++];
+        // ((uint16_t *)&regs[0x13])[0] += 1; // does this optimize?
+        if (!++regs[0x13])
+            ++regs[0x14];
+        if (rw_pos == rw_end)
+            regs[0x16] = 0x00;
+    }
+    else
+        ria_state = done;
+}
+
 void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
 {
-    //TODO Reading location 0xFFF7 triggers the action twice.
-    //     Perhaps handle regs like vram (which isn't done yet).
+    // TODO Reading location 0xFFF7 triggers the action twice.
+    //      Perhaps handle regs like vram (which isn't done yet).
     ria_halt();
     // Reset vector
     regs[0x1C] = 0xF0;
@@ -366,7 +424,7 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
     // Self-modifying fast load
     // FFF0  AD 00 00  LDA $0000
     // FFF3  8D F8 FF  STA $FFE0
-    // FFF6  80 F8     BRA $FFF6
+    // FFF6  80 F8     BRA $FFF0
     // FFF8  80 FE     BRA $FFF8
     regs[0x10] = 0xAD;
     regs[0x11] = addr & 0xFF;
@@ -390,7 +448,7 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
         ria_reset();
 }
 
-static void __not_in_flash_func(ria_action_ram_read)()
+static inline void __not_in_flash_func(ria_action_ram_read)()
 {
     // action for case 0x17:
     if (rw_pos < rw_end)
@@ -420,6 +478,9 @@ static void __not_in_flash_func(ria_action_loop)()
             {
                 switch (addr)
                 {
+                case 0x16:
+                    ria_action_ram_write();
+                    break;
                 case 0x17:
                     ria_action_ram_read();
                     break;
