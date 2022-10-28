@@ -43,6 +43,7 @@
 
 extern uint8_t regs[0x20];
 asm(".equ regs, 0x20040000");
+#define REGS(addr) regs[addr & 0x1F]
 
 #ifdef NDEBUG
 uint8_t vram[0xFFFF]
@@ -89,6 +90,14 @@ size_t rw_pos;
 size_t rw_end;
 
 static void ria_action_loop();
+
+// RIA action has one variable read address.
+// 0 to disable (0 is hardcoded, disables by duplication).
+static void ria_action_set_address(uint32_t addr)
+{
+
+    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, addr & 0x1F);
+}
 
 static void ria_write_init()
 {
@@ -201,7 +210,7 @@ static void ria_action_init()
     sm_config_set_in_shift(&config, false, false, 0);
     pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
     pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
-    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0);
+    ria_action_set_address(0);
 }
 
 void ria_stdio_init()
@@ -278,7 +287,7 @@ void ria_task()
 
     if (ria_state == done)
     {
-        pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0);
+        ria_action_set_address(0);
         ria_halt();
     }
 }
@@ -367,23 +376,25 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
     //      Do something about it when vram support is added.
     ria_halt();
     // Reset vector
-    regs[0x1C] = 0xF0;
-    regs[0x1D] = 0xFF;
+    REGS(0xFFFC) = 0xF0;
+    REGS(0xFFFD) = 0xFF;
     // Self-modifying fast load
     // FFF0  A9 00     LDA #$00
     // FFF2  8D 00 00  STA $0000
     // FFF5  80 F9     BRA $FFF0
-    // FFF7  80 FE     BRA $FFF7
-    regs[0x10] = 0xA9;
-    regs[0x11] = buf[0];
-    regs[0x12] = 0x8D;
-    regs[0x13] = addr & 0xFF;
-    regs[0x14] = addr >> 8;
-    regs[0x15] = 0x80;
-    regs[0x16] = 0xF9;
-    regs[0x17] = 0x80;
-    regs[0x18] = 0xFE;
-    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0x16);
+    // FFF7  EA        NOP
+    // FFF8  80 FE     BRA $FFF7
+    REGS(0xFFF0) = 0xA9;
+    REGS(0xFFF1) = buf[0];
+    REGS(0xFFF2) = 0x8D;
+    REGS(0xFFF3) = addr & 0xFF;
+    REGS(0xFFF4) = addr >> 8;
+    REGS(0xFFF5) = 0x80;
+    REGS(0xFFF6) = 0xF9;
+    REGS(0xFFF7) = 0xEA;
+    REGS(0xFFF8) = 0x80;
+    REGS(0xFFF9) = 0xFE;
+    ria_action_set_address(0xFFF6);
     rw_buf = buf;
     rw_end = len;
     rw_pos = 0;
@@ -392,7 +403,7 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
     else
     {
         if (++rw_pos == rw_end)
-            regs[0x16] = 0x00;
+            REGS(0xFFF6) = 0x00;
         ria_reset();
     }
 }
@@ -402,12 +413,12 @@ static inline void __not_in_flash_func(ria_action_ram_write)()
     // action for case 0x16:
     if (rw_pos < rw_end)
     {
-        regs[0x11] = rw_buf[rw_pos++];
-        // ((uint16_t *)&regs[0x13])[0] += 1; // does this optimize?
-        if (!++regs[0x13])
-            ++regs[0x14];
+        REGS(0xFFF1) = rw_buf[rw_pos++];
+        // ((uint16_t *)&REGS(0xFFF3))[0] += 1; // does this optimize?
+        if (!++REGS(0xFFF3))
+            ++REGS(0xFFF4);
         if (rw_pos == rw_end)
-            regs[0x16] = 0x00;
+            REGS(0xFFF6) = 0x00;
     }
     else
         ria_state = done;
@@ -419,29 +430,29 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
     //      Perhaps handle regs like vram (which isn't done yet).
     ria_halt();
     // Reset vector
-    regs[0x1C] = 0xF0;
-    regs[0x1D] = 0xFF;
+    REGS(0xFFFC) = 0xF0;
+    REGS(0xFFFD) = 0xFF;
     // Self-modifying fast load
     // FFF0  AD 00 00  LDA $0000
     // FFF3  8D F8 FF  STA $FFE0
     // FFF6  80 F8     BRA $FFF0
     // FFF8  80 FE     BRA $FFF8
-    regs[0x10] = 0xAD;
-    regs[0x11] = addr & 0xFF;
-    regs[0x12] = addr >> 8;
-    regs[0x13] = 0x8D;
-    regs[0x14] = 0xE0;
-    regs[0x15] = 0xFF;
-    regs[0x16] = 0x80;
-    regs[0x17] = 0xF8;
-    regs[0x18] = 0x80;
-    regs[0x19] = 0xFE;
-    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, 0x17);
+    REGS(0xFFF0) = 0xAD;
+    REGS(0xFFF1) = addr & 0xFF;
+    REGS(0xFFF2) = addr >> 8;
+    REGS(0xFFF3) = 0x8D;
+    REGS(0xFFF4) = 0xE0;
+    REGS(0xFFF5) = 0xFF;
+    REGS(0xFFF6) = 0x80;
+    REGS(0xFFF7) = 0xF8;
+    REGS(0xFFF8) = 0x80;
+    REGS(0xFFF9) = 0xFE;
+    ria_action_set_address(0xFFF7);
     rw_buf = buf;
     rw_end = len;
     rw_pos = 0;
     if (rw_pos + 1 == rw_end)
-        regs[0x17] = 0x00;
+        REGS(0xFFF7) = 0x00;
     if (rw_pos == rw_end)
         ria_state = done;
     else
@@ -453,14 +464,14 @@ static inline void __not_in_flash_func(ria_action_ram_read)()
     // action for case 0x17:
     if (rw_pos < rw_end)
     {
-        // ((uint16_t *)&regs[0x11])[0] += 1; // does this optimize?
-        if (!++regs[0x11])
-            ++regs[0x12];
-        rw_buf[rw_pos++] = regs[0x0];
+        // ((uint16_t *)&REGS(0xFFF1))[0] += 1; // does this optimize?
+        if (!++REGS(0xFFF1))
+            ++REGS(0xFFF2);
+        rw_buf[rw_pos++] = REGS(0xFFE0);
         if (rw_pos == rw_end)
             ria_state = done;
         if (rw_pos + 1 == rw_end)
-            regs[0x17] = 0x00;
+            REGS(0xFFF7) = 0x00;
     }
 }
 
@@ -468,8 +479,8 @@ void ria_jmp(uint32_t addr)
 {
     ria_halt();
     // Reset vector
-    regs[0x1C] = addr & 0xFF;
-    regs[0x1D] = addr >> 8;
+    REGS(0xFFFC) = addr & 0xFF;
+    REGS(0xFFFD) = addr >> 8;
     ria_reset();
 }
 
