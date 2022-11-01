@@ -27,7 +27,7 @@
 #define RIA_A16_PIN 15
 #define RIA_PHI2_PIN 21
 #define RIA_RESB_PIN 22
-#define RIA_IRQB_PIN 28
+#define RIA_IRQB_PIN 20
 // Clock changes needs the UARTs retimed too, so we own this for now
 #define RIA_UART uart0
 #define RIA_UART_BAUD_RATE 115200
@@ -244,6 +244,11 @@ void ria_init()
     gpio_init(RIA_RESB_PIN);
     gpio_set_dir(RIA_RESB_PIN, true);
 
+    // drive irq pin
+    gpio_init(RIA_IRQB_PIN);
+    gpio_put(RIA_IRQB_PIN, true);
+    gpio_set_dir(RIA_IRQB_PIN, true);
+
     // the inits
     ria_write_init();
     ria_read_init();
@@ -321,6 +326,9 @@ bool ria_set_phi2_khz(uint32_t freq_khz)
     pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
+    assert(RIA_WRITE_PIO == RIA_READ_PIO);
+    pio_clkdiv_restart_sm_mask(RIA_WRITE_PIO, (1 << RIA_WRITE_SM) | (1 << RIA_READ_SM));
+
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
         ria_stdio_init();
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);

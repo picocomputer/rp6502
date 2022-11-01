@@ -1,10 +1,12 @@
 # Rumbledethumps' Picocomputer 6502
 
-The RP6502 is an 8-bit computer with VGA, Audio, and USB. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is a $4/€4 Raspberry Pi Pico.
+The RP6502 is an 8-bit computer with VGA, Audio, and USB. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $4/€4 Raspberry Pi Pico.
 
-Join me on YouTube as I develop this project.
-https://www.youtube.com/channel/UC7kMjECYMyiSgFfiAm6c55w
+Learn how this works on YouTube:<br>
+https://youtube.com/playlist?list=PLvCRDUYedILfHDoD57Yj8BAXNmNJLVM2r
 
+Connect with other 6502 homebrew enthusiasts on Discord:<br>
+https://discord.gg/TC6X8kTr6d
 
 ## Dev Setup
 Standard Raspberry Pi Pico C SDK setup per the official docs; set PICO_SDK_PATH and PICO_EXTRAS_PATH, use cmake. The VSCode launch settings connect to a remote debug session. For example, I use a PicoProbe under WSL by passing the device to Linux with usbipd-win then bringing up a couple of terminals for the debugger and monitor.
@@ -38,53 +40,56 @@ $ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
 | 0100-01FF | Stack Page
 | 0000-00FF | Zero Page
 
-## Hello World
+## Examples
 Online assembler:
 https://www.masswerk.at/6502/assembler.html
 ```
-.org $0200
-LDX #$00
+.org $0200 ; Hello, World!
+LDX #$00   ; X = 0
 loop:
-LDA text,X
-INX
-STA $FFEE ; UART Tx
-CMP #$00
-BNE loop
-STA $FFEF ; Halt 6502
+LDA text,X ; A = text[X]
+STA $FFEE  ; UART Tx A
+INX        ; X = X + 1
+CMP #$00   ; if A - 0 ...
+BNE loop   ; ... != 0 goto loop
+STA $FFEF  ; Halt 6502
 text:
 .ASCII "Hello, World!"
 .BYTE $0D $0A $00
 ```
-Once you have machine code, copy-paste it and jmp.
 ```
-0200: A2 00 BD 10 02 E8 8D EE
-0208: FF C9 00 D0 F5 8D EF FF
+0200: A2 00 BD 10 02 8D EE FF
+0208: E8 C9 00 D0 F5 8D EF FF
 0210: 48 65 6C 6C 6F 2C 20 57
 0218: 6F 72 6C 64 21 0D 0A 00
 JMP $200
 ```
 
-## Pi Pico - Power, CDC, and PicoProbe.
-| #Pins | Description
-| -  | -
-| 17 | VGA - 640x480 32768 colors
-| 2  | STDIO UART
-| 2  | SWD
-| 1  | PHI2
-| 1  | RESB
-| 3  | PBUS
-
-## Pi Pico - USB Host for Hub.
-| GP#   | Description
-| ----- | -
-|  0    | Chip Select
-|  1    | Write Enable
-|  2-9  | Data D0-D7
-| 10-14 | Address A0-A4
-| 15    | Bank A16
-| 16-17 | STDIO UART
-| 18-19 | PWM Audio L-R
-| 20    | IRQB
-| 21    | PHI2
-| 22    | RESB
-| 26-28 | PBUS
+```
+* = $0200 ; 6522 Blink
+VIA_DDRA = $FF03
+VIA_ORA  = $FF01
+LDA #$FF
+STA VIA_DDRA
+loop:
+LDA #$00
+STA VIA_ORA
+JSR delay
+LDA #$FF
+STA VIA_ORA
+JSR delay
+JMP loop
+delay:
+DEY
+BNE delay
+DEX
+BNE delay
+RTS
+```
+```
+0200: A9 FF 8D 03 FF A9 00 8D
+0208: 01 FF 20 18 02 A9 FF 8D
+0210: 01 FF 20 18 02 4C 05 02
+0218: 88 D0 FD CA D0 FA 60
+jmp $200
+```

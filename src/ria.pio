@@ -43,7 +43,7 @@ push noblock
 .wrap_target
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [6]
+wait 0 gpio 21 [8]
 in pins 5
 .wrap
 
