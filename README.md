@@ -1,8 +1,10 @@
 # Rumbledethumps' Picocomputer 6502
 
-The RP6502 is an 8-bit computer with VGA, Audio, and USB. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $4/€4 Raspberry Pi Pico.
+The Picocomputer explores retro computing and game development by removing the barrier between real 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $4/€4 Raspberry Pi Pico.
 
-Learn how this works on YouTube:<br>
+This is the reference design. It is a 6502 with 64K of SRAM and an optional 6522. A pair of Raspberry Pi Picos are used for power, clocking, video, audio, and USB. It is programmed over USB. A filesystem is planned so it can be programmed with a USB flash drive.
+
+Learn how it works on YouTube:<br>
 https://youtube.com/playlist?list=PLvCRDUYedILfHDoD57Yj8BAXNmNJLVM2r
 
 Connect with other 6502 homebrew enthusiasts on Discord:<br>
