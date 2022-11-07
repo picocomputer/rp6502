@@ -11,13 +11,21 @@
 #include "hid.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
+#ifdef RASPBERRYPI_PICO_W
+#include "pico/cyw43_arch.h"
+#endif
 
 int main()
 {
     // Pi Pico LED on.
+#ifdef PICO_DEFAULT_LED_PIN
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
+#endif
+#ifdef RASPBERRYPI_PICO_W
+    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+#endif
 
     // Initialize UART for terminal
     ria_stdio_init();
