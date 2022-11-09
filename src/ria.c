@@ -17,22 +17,21 @@
 // Pi Pico sys clock of 120MHz will run 6502 at 4MHz.
 
 // Content of these 15 pins is bound to the PIO program structure.
-#define RIA_PIN_BASE 0
+#define RIA_PIN_BASE 6
 #define RIA_CS_PIN (RIA_PIN_BASE + 0)
 #define RIA_RWB_PIN (RIA_PIN_BASE + 1)
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10)
 // These pins may be freely moved around but PHI2 on 21 is strongly
 // recommended since no other pins support clock_gpio_init().
-#define RIA_A16_PIN 15
 #define RIA_PHI2_PIN 21
-#define RIA_RESB_PIN 22
-#define RIA_IRQB_PIN 20
+#define RIA_RESB_PIN 28
+#define RIA_IRQB_PIN 22
 // Clock changes needs the UARTs retimed too, so we own this for now
-#define RIA_UART uart0
+#define RIA_UART uart1
 #define RIA_UART_BAUD_RATE 115200
-#define RIA_UART_TX_PIN 16
-#define RIA_UART_RX_PIN 17
+#define RIA_UART_TX_PIN 4
+#define RIA_UART_RX_PIN 5
 // Use both PIO blocks, constrained by address space
 #define RIA_ACTION_PIO pio0
 #define RIA_ACTION_SM 0
@@ -513,8 +512,8 @@ static void __not_in_flash_func(ria_action_loop)()
                     ria_action_ram_read();
                     break;
                 case 0x0E:
-                    if (uart_is_writable(uart0))
-                        uart_get_hw(uart0)->dr = data;
+                    if (uart_is_writable(RIA_UART))
+                        uart_get_hw(RIA_UART)->dr = data;
                     break;
                 case 0x0F:
                     ria_halt();

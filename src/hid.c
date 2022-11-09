@@ -71,7 +71,8 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         switch (keycode)
         {
         case HID_KEY_DELETE:
-            if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT)) {
+            if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
+            {
                 key_queue_out = key_queue_in;
                 printf("CTRL-ALT-DEL\n");
                 ria_halt();
@@ -90,31 +91,31 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             // NOP
             break;
         case HID_KEY_F5:
-            vga_resolution(vga_320_240);
+            // NOP
             break;
         case HID_KEY_F6:
-            vga_resolution(vga_640_480);
+            // NOP
             break;
         case HID_KEY_F7:
-            vga_resolution(vga_320_180);
+            // NOP
             break;
         case HID_KEY_F8:
-            vga_resolution(vga_640_360);
+            // NOP
             break;
         case HID_KEY_F9:
             // NOP
             break;
         case HID_KEY_F10:
-            vga_display(vga_sd);
+            // NOP
             break;
         case HID_KEY_F11:
-            vga_display(vga_hd);
+            // NOP
             break;
         case HID_KEY_F12:
-            vga_display(vga_sxga);
+            // NOP
             break;
         case HID_KEY_SCROLL_LOCK:
-            vga_terminal(terminal_visible = !terminal_visible);
+            // NOP
             break;
         }
     switch (keycode)

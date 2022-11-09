@@ -30,10 +30,6 @@ int main()
     // Initialize UART for terminal
     ria_stdio_init();
 
-    // Bring up VGA and terminal
-    // vga_init();
-    term_init();
-
     // Hello, world.
     puts("\30\33[0m\f\nPicocomputer 6502 \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m\n");
 
@@ -54,9 +50,7 @@ int main()
         tuh_task();
         hid_task();
         mon_task();
-        term_task();
         ria_task();
-        // vga_task();
     }
 
     return 0;
