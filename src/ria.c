@@ -229,17 +229,20 @@ void ria_init()
     assert(!((uintptr_t)regs & 0x1F));
     assert(!((uintptr_t)vram & 0xFFFF));
 
-    // Turn off GPIO decorators that delay input
-    // Speculating possible future need
+    // Adjustments for GPIO. Speculating possible future needs.
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
     {
-        // gpio_set_input_hysteresis_enabled(i, false);
-        // hw_set_bits(&pio0->input_sync_bypass, 1u << i);
-        // hw_set_bits(&pio1->input_sync_bypass, 1u << i);
+        gpio_set_input_hysteresis_enabled(i, false);
+        hw_set_bits(&pio0->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio1->input_sync_bypass, 1u << i);
+        // gpio_set_drive_strength(i, GPIO_DRIVE_STRENGTH_12MA);
+        // gpio_set_slew_rate(i, GPIO_SLEW_RATE_SLOW);
     }
     // gpio_set_input_hysteresis_enabled(RIA_PHI2_PIN, false);
     // hw_set_bits(&pio0->input_sync_bypass, 1u << RIA_PHI2_PIN);
     // hw_set_bits(&pio1->input_sync_bypass, 1u << RIA_PHI2_PIN);
+    // gpio_set_drive_strength(RIA_PHI2_PIN, GPIO_DRIVE_STRENGTH_12MA);
+    // gpio_set_slew_rate(RIA_PHI2_PIN, GPIO_SLEW_RATE_FAST);
 
     // Raise DMA above CPU on crossbar
     bus_ctrl_hw->priority |=
