@@ -77,6 +77,7 @@ uint8_t *const vram = (uint8_t *)&vram_blocks;
 
 uint32_t ria_phi2_khz;
 uint8_t ria_reset_ms;
+uint8_t ria_caps;
 absolute_time_t ria_reset_timer;
 volatile enum state {
     halt,
@@ -87,6 +88,7 @@ volatile enum state {
 uint8_t *rw_buf;
 size_t rw_pos;
 size_t rw_end;
+volatile int ria_inchar;
 
 static void ria_action_loop();
 
@@ -216,6 +218,11 @@ void ria_stdio_init()
     stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE, RIA_UART_TX_PIN, RIA_UART_RX_PIN);
 }
 
+bool ria_is_active()
+{
+    return (ria_state == reset) || (ria_state == run);
+}
+
 void ria_init()
 {
     // safety check for compiler alignment
@@ -255,6 +262,7 @@ void ria_init()
     ria_action_init();
     ria_set_phi2_khz(4000);
     ria_set_reset_ms(0);
+    ria_set_caps(0);
     ria_halt();
     multicore_launch_core1(ria_action_loop);
 }
@@ -295,11 +303,20 @@ void ria_task()
         ria_action_set_address(0);
         ria_halt();
     }
-}
 
-bool ria_is_active()
-{
-    return (ria_state == reset) || (ria_state == run);
+    // Too expensive for action loop
+    if (ria_is_active() && ria_inchar < 0)
+    {
+        int ch = getchar_timeout_us(0);
+        if (ch > 0 && ria_get_caps())
+        {
+            if (ch >= 'A' && ch <= 'Z')
+                ch += 32;
+            else if (ch >= 'a' && ch <= 'z')
+                ch -= 32;
+        }
+        ria_inchar = ch;
+    }
 }
 
 // Set the 6502 clock frequency. Returns false on failure.
@@ -359,6 +376,16 @@ uint8_t ria_get_reset_ms()
     return reset_ms;
 }
 
+void ria_set_caps(bool inverted)
+{
+    ria_caps = inverted;
+}
+
+bool ria_get_caps()
+{
+    return ria_caps;
+}
+
 // Stop the 6502
 void ria_halt()
 {
@@ -373,6 +400,7 @@ void ria_reset()
 {
     if (ria_state != halt)
         ria_halt();
+    ria_inchar = -1;
     ria_state = reset;
 }
 
@@ -420,7 +448,6 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
 static inline void ria_action_ram_write()
 {
     // action for case 0x16:
-
     if (rw_pos < rw_end)
     {
         REGS(0xFFF1) = rw_buf[rw_pos];
@@ -525,10 +552,11 @@ static void ria_action_loop()
                     ria_halt();
                     break;
                 case 0x02:
-                    if (uart_is_readable(RIA_UART))
+                    if (ria_inchar >= 0)
                     {
                         status = status | 0b01000000;
-                        REGS(0xFFE2) = uart_get_hw(RIA_UART)->dr;
+                        REGS(0xFFE2) = ria_inchar;
+                        ria_inchar = -1;
                     }
                     else
                     {
@@ -550,10 +578,11 @@ static void ria_action_loop()
                         status = status | 0b10000000;
                     else
                         status = status & ~0b10000000;
-                    if (!(status & 0b10) && uart_is_readable(RIA_UART))
+                    if (!(status & 0b10) && ria_inchar >= 0)
                     {
                         status = status | 0b01000000;
-                        REGS(0xFFE2) = uart_get_hw(RIA_UART)->dr;
+                        REGS(0xFFE2) = ria_inchar;
+                        ria_inchar = -1;
                     }
                     REGS(0xFFE0) = status;
                     break;
