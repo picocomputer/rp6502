@@ -19,6 +19,7 @@ pico_generate_pio_header(rp6502_ria
 )
 
 target_sources(rp6502_ria PRIVATE
+    basic.c
     hid_ps4.c
     hid.c
     main.c
