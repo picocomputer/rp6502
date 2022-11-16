@@ -390,6 +390,7 @@ bool ria_get_caps()
 void ria_halt()
 {
     ria_state = halt;
+    ria_inchar = -1;
     gpio_put(RIA_RESB_PIN, false);
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     (uint64_t)1000 * ria_get_reset_ms());
@@ -524,11 +525,6 @@ void ria_jmp(uint32_t addr)
 static void ria_action_loop()
 {
     uint32_t status = 0;
-    if (uart_is_readable(RIA_UART))
-    {
-        status = 0b10;
-        REGS(0xFFE2) = uart_get_hw(RIA_UART)->dr;
-    }
 
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
