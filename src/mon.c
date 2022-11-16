@@ -20,9 +20,11 @@ static int mon_ansi_param;
 volatile enum state {
     idle,
     read,
-    write
-} mon_state;
-static uint8_t mon_rw_buf[MON_BUF_SIZE / 3];
+    write,
+    verify
+} mon_state = idle;
+static uint8_t mon_rw_buf[MON_BUF_SIZE / 2];
+static uint8_t mon_verify[MON_BUF_SIZE / 2];
 uint32_t mon_rw_addr;
 size_t mon_rw_len;
 
@@ -446,7 +448,7 @@ void mon_task()
             }
         return;
     }
-    if (mon_state == read)
+    else if (mon_state == read)
     {
         mon_state = idle;
         printf("%04X:", mon_rw_addr);
@@ -456,8 +458,31 @@ void mon_task()
         }
         printf("\n");
     }
-    if (mon_state == write)
+    else if (mon_state == write)
+    {
+        mon_state = verify;
+        ria_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
+    }
+    else if (mon_state == verify)
     {
         mon_state = idle;
+        for (size_t i = 0; i < mon_rw_len; i++)
+        {
+            // TODO preserve FFFC-FFFD reset vector in RIA (errors now)
+            // also #if this to disable and configure for different hardware
+            if (mon_rw_addr + i < 0xFF00 || mon_rw_addr + i >= 0xFFFA)
+            {
+                if (mon_rw_buf[i] != mon_verify[i])
+                {
+                    printf("%04X:", mon_rw_addr);
+                    for (size_t i = 0; i < mon_rw_len; i++)
+                    {
+                        printf(" %02X", mon_verify[i]);
+                    }
+                    printf(" ERROR ERROR ERROR\n");
+                    break;
+                }
+            }
+        }
     }
 }
