@@ -521,23 +521,18 @@ static void ria_action_loop()
                 case 0x17:
                     ria_action_ram_read();
                     break;
-                case 0x0E:
-                    if (uart_is_writable(RIA_UART))
-                        uart_get_hw(RIA_UART)->dr = data;
-                    break;
                 case 0x0F:
                     ria_halt();
                     break;
                 case 0x02:
-                    // REGS(0xFFE0) = status & ~0b10;
                     if (uart_is_readable(RIA_UART))
                     {
-                        status = status | 0b10;
+                        status = status | 0b01000000;
                         REGS(0xFFE2) = uart_get_hw(RIA_UART)->dr;
                     }
                     else
                     {
-                        status = status & ~0b10;
+                        status = status & ~0b01000000;
                         REGS(0xFFE2) = 0;
                     }
                     REGS(0xFFE0) = status;
@@ -545,19 +540,19 @@ static void ria_action_loop()
                 case 0x01:
                     uart_get_hw(RIA_UART)->dr = data;
                     if (uart_is_writable(RIA_UART))
-                        status = status | 0b01;
+                        status = status | 0b10000000;
                     else
-                        status = status & ~0b01;
+                        status = status & ~0b10000000;
                     REGS(0xFFE0) = status;
                     break;
                 case 0x00:
                     if (uart_is_writable(RIA_UART))
-                        status = status | 0b01;
+                        status = status | 0b10000000;
                     else
-                        status = status & ~0b01;
+                        status = status & ~0b10000000;
                     if (!(status & 0b10) && uart_is_readable(RIA_UART))
                     {
-                        status = status | 0b10;
+                        status = status | 0b01000000;
                         REGS(0xFFE2) = uart_get_hw(RIA_UART)->dr;
                     }
                     REGS(0xFFE0) = status;
