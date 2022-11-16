@@ -44,6 +44,12 @@ $ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
 | 0100-01FF | Stack Page
 | 0000-00FF | Zero Page
 
+Preliminary I/O registers (beta)<br>
+FFE0 - UART status, bit 7 Tx ready, bit 6 Rx ready<br>
+FFE1 - UART Tx<br>
+FFE2 - UART Rx<br>
+FFEF - Write anything here to stop 6502<br>
+
 ## Examples
 Online assembler:
 https://www.masswerk.at/6502/assembler.html
@@ -51,8 +57,10 @@ https://www.masswerk.at/6502/assembler.html
 .org $0200 ; Hello, World!
 LDX #$00   ; X = 0
 loop:
+BIT $FFE0  ; N = ready to send
+BPL loop   ; If N = 0 goto loop
 LDA text,X ; A = text[X]
-STA $FFEE  ; UART Tx A
+STA $FFE1  ; UART Tx A
 INX        ; X = X + 1
 CMP #$00   ; if A - 0 ...
 BNE loop   ; ... != 0 goto loop
@@ -62,10 +70,11 @@ text:
 .BYTE $0D $0A $00
 ```
 ```
-0200: A2 00 BD 10 02 8D EE FF
-0208: E8 C9 00 D0 F5 8D EF FF
-0210: 48 65 6C 6C 6F 2C 20 57
-0218: 6F 72 6C 64 21 0D 0A 00
+0200: A2 00 2C E0 FF 10 FB BD
+0208: 15 02 8D E1 FF E8 C9 00
+0210: D0 F0 8D EF FF 48 65 6C
+0218: 6C 6F 2C 20 57 6F 72 6C
+0220: 64 21 0D 0A 00
 JMP $200
 ```
 

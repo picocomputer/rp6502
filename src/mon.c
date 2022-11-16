@@ -7,11 +7,13 @@
 #include "mon.h"
 #include "ansi.h"
 #include "ria.h"
+#include "basic.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 
 #define MON_BUF_SIZE 80
+#define MON_RW_SIZE 1024
 static uint8_t mon_buf[MON_BUF_SIZE];
 static uint8_t mon_buflen = 0;
 static uint8_t mon_bufpos = 0;
@@ -20,9 +22,13 @@ static int mon_ansi_param;
 volatile enum state {
     idle,
     read,
-    write
-} mon_state;
-static uint8_t mon_rw_buf[MON_BUF_SIZE / 3];
+    write,
+    verify,
+    basic_load,
+    basic_verify
+} mon_state = idle;
+static uint8_t mon_readwrite[MON_RW_SIZE];
+static uint8_t mon_verify[MON_RW_SIZE];
 uint32_t mon_rw_addr;
 size_t mon_rw_len;
 
@@ -126,7 +132,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         mon_rw_addr = addr;
         mon_rw_len = (addr | 0xF) - addr + 1;
         mon_state = read;
-        ria_ram_read(mon_rw_addr, mon_rw_buf, mon_rw_len);
+        ria_ram_read(mon_rw_addr, mon_readwrite, mon_rw_len);
         return;
     }
     uint32_t data = 0x80000000;
@@ -145,7 +151,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         {
             if (data < 0x100)
             {
-                mon_rw_buf[mon_rw_len++] = data;
+                mon_readwrite[mon_rw_len++] = data;
                 data = 0x80000000;
             }
             else
@@ -162,7 +168,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     }
     mon_rw_addr = addr;
     mon_state = write;
-    ria_ram_write(mon_rw_addr, mon_rw_buf, mon_rw_len);
+    ria_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
     return;
 }
 
@@ -216,12 +222,40 @@ static void cmd_jmp(const uint8_t *args, size_t len)
     ria_jmp(addr);
 }
 
+static void cmd_caps(const uint8_t *args, size_t len)
+{
+    int32_t val = arg_to_int32(args, len);
+    if (len)
+    {
+        if (val < 0 || val > 1)
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+        ria_set_caps(!!val);
+    }
+    printf("CAPS: %s\n", ria_get_caps() ? "inverted" : "normal");
+}
+
 static void cmd_status(const uint8_t *args, size_t len)
 {
     printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
     printf("RESB: %ld ms\n", ria_get_reset_ms());
-    printf("RIA: %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
-    printf("VGA: 0.0 MHz\n");
+    printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
+    printf("CAPS: %s\n", ria_get_caps() ? "inverted" : "normal");
+}
+
+static void cmd_basic(const uint8_t *args, size_t len)
+{
+    // assert allows simpler code, this load code will be extended later
+    assert(!(BASIC_ROM_SIZE % MON_RW_SIZE));
+    mon_state = basic_load;
+    mon_rw_addr = BASIC_ROM_START;
+    mon_rw_len = MON_RW_SIZE;
+    uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
+    for (size_t i = 0; i < MON_RW_SIZE; i++)
+        mon_readwrite[i] = rompos[i];
+    ria_ram_write(mon_rw_addr, mon_readwrite, MON_RW_SIZE);
 }
 
 static void cmd_help(const uint8_t *args, size_t len)
@@ -229,7 +263,9 @@ static void cmd_help(const uint8_t *args, size_t len)
     printf(
         "Commands:\n"
         "HELP        - This help.\n"
+        "BASIC       - Start BASIC programming language.\n"
         "STATUS      - Show all settings.\n"
+        "CAPS (0|1)  - Invert caps while 6502 is running.\n"
         "SPEED (kHz) - Query or set PHI2 speed. This is the 6502 clock.\n"
         "RESET (ms)  - Query or set RESB hold time. Set to 0 for auto.\n"
         "JMP address - Start the 6502. Begin execution at SRAM address.\n"
@@ -243,8 +279,10 @@ struct
     const char *cmd;
     void (*func)(const uint8_t *, size_t);
 } const COMMANDS[] = {
+    {5, "basic", cmd_basic},
     {5, "speed", cmd_speed},
     {5, "reset", cmd_reset},
+    {4, "caps", cmd_caps},
     {3, "jmp", cmd_jmp},
     {6, "status", cmd_status},
     {4, "help", cmd_help},
@@ -446,18 +484,78 @@ void mon_task()
             }
         return;
     }
-    if (mon_state == read)
+    else if (mon_state == read)
     {
         mon_state = idle;
         printf("%04X:", mon_rw_addr);
         for (size_t i = 0; i < mon_rw_len; i++)
         {
-            printf(" %02X", mon_rw_buf[i]);
+            printf(" %02X", mon_readwrite[i]);
         }
         printf("\n");
     }
-    if (mon_state == write)
+    else if (mon_state == write)
+    {
+        mon_state = verify;
+        ria_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
+    }
+    else if (mon_state == verify)
     {
         mon_state = idle;
+        for (size_t i = 0; i < mon_rw_len; i++)
+        {
+            // TODO preserve FFFC-FFFD reset vector in RIA (errors now)
+            // also #if this to disable and configure for different hardware
+            if (mon_rw_addr + i < 0xFF00 || mon_rw_addr + i >= 0xFFFA)
+            {
+                if (mon_readwrite[i] != mon_verify[i])
+                {
+                    printf("%04X:", mon_rw_addr);
+                    for (size_t i = 0; i < mon_rw_len; i++)
+                    {
+                        printf(" %02X", mon_verify[i]);
+                    }
+                    printf(" ERROR ERROR ERROR\n");
+                    break;
+                }
+            }
+        }
+    }
+    else if (mon_state == basic_load)
+    {
+        mon_state = basic_verify;
+        ria_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
+    }
+    else if (mon_state == basic_verify)
+    {
+        mon_state = idle;
+        for (size_t i = 0; i < mon_rw_len; i++)
+        {
+            if (mon_rw_addr + i < 0xFF00)
+            {
+                if (mon_readwrite[i] != mon_verify[i])
+                {
+                    printf("Load error at %04X\n", mon_rw_addr + i);
+                    return;
+                }
+            }
+        }
+
+        mon_rw_addr += MON_RW_SIZE;
+        if (mon_rw_addr >= BASIC_ROM_START + BASIC_ROM_SIZE)
+        {
+            ria_jmp(BASIC_ROM_JMP);
+            return;
+        }
+
+        mon_rw_len = MON_RW_SIZE;
+        if (mon_rw_addr + MON_RW_SIZE >= BASIC_ROM_START + BASIC_ROM_SIZE)
+            mon_rw_len = MON_RW_SIZE - 0x100; // Avoid IO
+
+        mon_state = basic_load;
+        uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
+        for (size_t i = 0; i < mon_rw_len; i++)
+            mon_readwrite[i] = rompos[i];
+        ria_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
     }
 }

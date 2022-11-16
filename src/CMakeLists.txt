@@ -1,6 +1,7 @@
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
 pico_set_program_name(rp6502_ria "RP6502 RIA")
+pico_set_binary_type(rp6502_ria copy_to_ram)
 
 add_subdirectory(_tinyusb)
 target_include_directories(rp6502_ria PRIVATE _tinyusb)
@@ -18,6 +19,7 @@ pico_generate_pio_header(rp6502_ria
 )
 
 target_sources(rp6502_ria PRIVATE
+    basic.c
     hid_ps4.c
     hid.c
     main.c
@@ -30,6 +32,7 @@ target_sources(rp6502_ria PRIVATE
 add_executable(rp6502_vga)
 pico_add_extra_outputs(rp6502_vga)
 pico_set_program_name(rp6502_vga "RP6502 VGA")
+pico_set_binary_type(rp6502_vga copy_to_ram)
 
 target_include_directories(rp6502_vga PRIVATE probe)
 

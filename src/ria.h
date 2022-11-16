@@ -26,6 +26,8 @@ bool ria_set_phi2_khz(uint32_t freq_khz);
 uint32_t ria_get_phi2_khz();
 void ria_set_reset_ms(uint8_t ms);
 uint8_t ria_get_reset_ms();
+void ria_set_caps(bool inverted);
+bool ria_get_caps();
 void ria_halt();
 void ria_reset();
 void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len);

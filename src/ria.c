@@ -77,6 +77,7 @@ uint8_t *const vram = (uint8_t *)&vram_blocks;
 
 uint32_t ria_phi2_khz;
 uint8_t ria_reset_ms;
+uint8_t ria_caps;
 absolute_time_t ria_reset_timer;
 volatile enum state {
     halt,
@@ -87,6 +88,7 @@ volatile enum state {
 uint8_t *rw_buf;
 size_t rw_pos;
 size_t rw_end;
+volatile int ria_inchar;
 
 static void ria_action_loop();
 
@@ -94,7 +96,6 @@ static void ria_action_loop();
 // 0 to disable (0 is hardcoded, disables by duplication).
 static void ria_action_set_address(uint32_t addr)
 {
-
     pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, addr & 0x1F);
 }
 
@@ -217,6 +218,11 @@ void ria_stdio_init()
     stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE, RIA_UART_TX_PIN, RIA_UART_RX_PIN);
 }
 
+bool ria_is_active()
+{
+    return (ria_state == reset) || (ria_state == run);
+}
+
 void ria_init()
 {
     // safety check for compiler alignment
@@ -224,15 +230,16 @@ void ria_init()
     assert(!((uintptr_t)vram & 0xFFFF));
 
     // Turn off GPIO decorators that delay input
+    // Speculating possible future need
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
     {
-        gpio_set_input_hysteresis_enabled(i, false);
-        hw_set_bits(&pio0->input_sync_bypass, 1u << i);
-        hw_set_bits(&pio1->input_sync_bypass, 1u << i);
+        // gpio_set_input_hysteresis_enabled(i, false);
+        // hw_set_bits(&pio0->input_sync_bypass, 1u << i);
+        // hw_set_bits(&pio1->input_sync_bypass, 1u << i);
     }
-    gpio_set_input_hysteresis_enabled(RIA_PHI2_PIN, false);
-    hw_set_bits(&pio0->input_sync_bypass, 1u << RIA_PHI2_PIN);
-    hw_set_bits(&pio1->input_sync_bypass, 1u << RIA_PHI2_PIN);
+    // gpio_set_input_hysteresis_enabled(RIA_PHI2_PIN, false);
+    // hw_set_bits(&pio0->input_sync_bypass, 1u << RIA_PHI2_PIN);
+    // hw_set_bits(&pio1->input_sync_bypass, 1u << RIA_PHI2_PIN);
 
     // Raise DMA above CPU on crossbar
     bus_ctrl_hw->priority |=
@@ -241,6 +248,7 @@ void ria_init()
 
     // drive reset pin
     gpio_init(RIA_RESB_PIN);
+    gpio_put(RIA_IRQB_PIN, false);
     gpio_set_dir(RIA_RESB_PIN, true);
 
     // drive irq pin
@@ -254,6 +262,7 @@ void ria_init()
     ria_action_init();
     ria_set_phi2_khz(4000);
     ria_set_reset_ms(0);
+    ria_set_caps(0);
     ria_halt();
     multicore_launch_core1(ria_action_loop);
 }
@@ -294,11 +303,20 @@ void ria_task()
         ria_action_set_address(0);
         ria_halt();
     }
-}
 
-bool ria_is_active()
-{
-    return (ria_state == reset) || (ria_state == run);
+    // Too expensive for action loop
+    if (ria_is_active() && ria_inchar < 0)
+    {
+        int ch = getchar_timeout_us(0);
+        if (ch > 0 && ria_get_caps())
+        {
+            if (ch >= 'A' && ch <= 'Z')
+                ch += 32;
+            else if (ch >= 'a' && ch <= 'z')
+                ch -= 32;
+        }
+        ria_inchar = ch;
+    }
 }
 
 // Set the 6502 clock frequency. Returns false on failure.
@@ -319,15 +337,13 @@ bool ria_set_phi2_khz(uint32_t freq_khz)
     }
     // >4MHz will clock the Pi Pico past 120MHz and may fail but will not judder.
     // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
+    // TODO make this never fail (round up, 50k to 6650, 100k to 8000, test by 5s?)
     uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
     if (!set_sys_clock_khz(sys_clk_khz, false))
         return false;
     pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
-    assert(RIA_WRITE_PIO == RIA_READ_PIO);
-    pio_clkdiv_restart_sm_mask(RIA_WRITE_PIO, (1 << RIA_WRITE_SM) | (1 << RIA_READ_SM));
-
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
         ria_stdio_init();
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
@@ -346,7 +362,7 @@ void ria_set_reset_ms(uint8_t ms)
     ria_reset_ms = ms;
 }
 
-// Return actual reset time. May be higher than requested
+// Return calculated reset time. May be higher than requested
 // to guarantee the 6502 gets two clock cycles during reset.
 uint8_t ria_get_reset_ms()
 {
@@ -360,10 +376,21 @@ uint8_t ria_get_reset_ms()
     return reset_ms;
 }
 
+void ria_set_caps(bool inverted)
+{
+    ria_caps = inverted;
+}
+
+bool ria_get_caps()
+{
+    return ria_caps;
+}
+
 // Stop the 6502
 void ria_halt()
 {
     ria_state = halt;
+    ria_inchar = -1;
     gpio_put(RIA_RESB_PIN, false);
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     (uint64_t)1000 * ria_get_reset_ms());
@@ -374,14 +401,19 @@ void ria_reset()
 {
     if (ria_state != halt)
         ria_halt();
+    ria_inchar = -1;
     ria_state = reset;
 }
 
 void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
 {
-    // TODO Writing over the program has the obvious problem.
-    //      Do something about it when vram support is added.
     ria_halt();
+    ria_action_set_address(0xFFF6);
+    // forbidden area
+    while (len && (addr + len > 0xFFF0))
+        REGS(addr + len) = buf[--len];
+    if (!len)
+        return;
     // Reset vector
     REGS(0xFFFC) = 0xF0;
     REGS(0xFFFD) = 0xFF;
@@ -390,7 +422,7 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
     // FFF2  8D 00 00  STA $0000
     // FFF5  80 F9     BRA $FFF0
     // FFF7  EA        NOP
-    // FFF8  80 FE     BRA $FFF7
+    // FFF8  80 FE     BRA $FFF8
     REGS(0xFFF0) = 0xA9;
     REGS(0xFFF1) = buf[0];
     REGS(0xFFF2) = 0x8D;
@@ -401,7 +433,6 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
     REGS(0xFFF7) = 0xEA;
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
-    ria_action_set_address(0xFFF6);
     rw_buf = buf;
     rw_end = len;
     rw_pos = 0;
@@ -415,16 +446,16 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
     }
 }
 
-static inline void __not_in_flash_func(ria_action_ram_write)()
+static inline void ria_action_ram_write()
 {
     // action for case 0x16:
     if (rw_pos < rw_end)
     {
-        REGS(0xFFF1) = rw_buf[rw_pos++];
+        REGS(0xFFF1) = rw_buf[rw_pos];
         // ((uint16_t *)&REGS(0xFFF3))[0] += 1; // does this optimize?
         if (!++REGS(0xFFF3))
             ++REGS(0xFFF4);
-        if (rw_pos == rw_end)
+        if (++rw_pos == rw_end)
             REGS(0xFFF6) = 0x00;
     }
     else
@@ -434,27 +465,26 @@ static inline void __not_in_flash_func(ria_action_ram_write)()
 void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
 {
     // TODO Reading location 0xFFF7 triggers the action twice.
-    //      Perhaps handle regs like vram (which isn't done yet).
     ria_halt();
+    ria_action_set_address(0xFFF7);
     // Reset vector
     REGS(0xFFFC) = 0xF0;
     REGS(0xFFFD) = 0xFF;
     // Self-modifying fast load
     // FFF0  AD 00 00  LDA $0000
-    // FFF3  8D F8 FF  STA $FFE0
+    // FFF3  8D F8 FF  STA $FFFC
     // FFF6  80 F8     BRA $FFF0
     // FFF8  80 FE     BRA $FFF8
     REGS(0xFFF0) = 0xAD;
     REGS(0xFFF1) = addr & 0xFF;
     REGS(0xFFF2) = addr >> 8;
     REGS(0xFFF3) = 0x8D;
-    REGS(0xFFF4) = 0xE0;
+    REGS(0xFFF4) = 0xFC;
     REGS(0xFFF5) = 0xFF;
     REGS(0xFFF6) = 0x80;
     REGS(0xFFF7) = 0xF8;
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
-    ria_action_set_address(0xFFF7);
     rw_buf = buf;
     rw_end = len;
     rw_pos = 0;
@@ -466,7 +496,7 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
         ria_reset();
 }
 
-static inline void __not_in_flash_func(ria_action_ram_read)()
+static inline void ria_action_ram_read()
 {
     // action for case 0x17:
     if (rw_pos < rw_end)
@@ -474,8 +504,8 @@ static inline void __not_in_flash_func(ria_action_ram_read)()
         // ((uint16_t *)&REGS(0xFFF1))[0] += 1; // does this optimize?
         if (!++REGS(0xFFF1))
             ++REGS(0xFFF2);
-        rw_buf[rw_pos++] = REGS(0xFFE0);
-        if (rw_pos == rw_end)
+        rw_buf[rw_pos] = REGS(0xFFFC);
+        if (++rw_pos == rw_end)
             ria_state = done;
         if (rw_pos + 1 == rw_end)
             REGS(0xFFF7) = 0x00;
@@ -485,14 +515,17 @@ static inline void __not_in_flash_func(ria_action_ram_read)()
 void ria_jmp(uint32_t addr)
 {
     ria_halt();
+    ria_action_set_address(0xFFE2);
     // Reset vector
     REGS(0xFFFC) = addr & 0xFF;
     REGS(0xFFFD) = addr >> 8;
     ria_reset();
 }
 
-static void __not_in_flash_func(ria_action_loop)()
+static void ria_action_loop()
 {
+    uint32_t status = 0;
+
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
     {
@@ -511,14 +544,43 @@ static void __not_in_flash_func(ria_action_loop)()
                 case 0x17:
                     ria_action_ram_read();
                     break;
-                case 0x0E:
-                    if (uart_is_writable(RIA_UART))
-                        uart_get_hw(RIA_UART)->dr = data;
-                    break;
                 case 0x0F:
                     ria_halt();
                     break;
+                case 0x02:
+                    if (ria_inchar >= 0)
+                    {
+                        status = status | 0b01000000;
+                        REGS(0xFFE2) = ria_inchar;
+                        ria_inchar = -1;
+                    }
+                    else
+                    {
+                        status = status & ~0b01000000;
+                        REGS(0xFFE2) = 0;
+                    }
+                    REGS(0xFFE0) = status;
+                    break;
+                case 0x01:
+                    uart_get_hw(RIA_UART)->dr = data;
+                    if (uart_is_writable(RIA_UART))
+                        status = status | 0b10000000;
+                    else
+                        status = status & ~0b10000000;
+                    REGS(0xFFE0) = status;
+                    break;
                 case 0x00:
+                    if (uart_is_writable(RIA_UART))
+                        status = status | 0b10000000;
+                    else
+                        status = status & ~0b10000000;
+                    if (!(status & 0b10) && ria_inchar >= 0)
+                    {
+                        status = status | 0b01000000;
+                        REGS(0xFFE2) = ria_inchar;
+                        ria_inchar = -1;
+                    }
+                    REGS(0xFFE0) = status;
                     break;
                 }
             }
