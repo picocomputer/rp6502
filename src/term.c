@@ -212,13 +212,15 @@ static void term_out_ff()
 {
     term_ptr -= term_x * 2;
     term_ptr += (TERM_HEIGHT - term_y) * TERM_WIDTH * 2;
-    term_ptr -= TERM_MEM_SIZE;
     term_x = term_y = 0;
-
+    if (term_ptr >= term_memory + TERM_MEM_SIZE)
+    {
+        term_ptr -= TERM_MEM_SIZE;
+    }
     for (size_t i = 0; i < TERM_MEM_SIZE; i += 2)
     {
-        term_ptr[i] = ' ';
-        term_ptr[i + 1] = term_color;
+        term_memory[i] = ' ';
+        term_memory[i + 1] = term_color;
     }
 }
 
