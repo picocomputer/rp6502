@@ -31,6 +31,7 @@ static uint8_t mon_readwrite[MON_RW_SIZE];
 static uint8_t mon_verify[MON_RW_SIZE];
 uint32_t mon_rw_addr;
 size_t mon_rw_len;
+const char *const caps_labels[] = {"normal", "inverted", "forced"};
 
 static bool is_hex(uint8_t ch)
 {
@@ -227,14 +228,14 @@ static void cmd_caps(const uint8_t *args, size_t len)
     int32_t val = arg_to_int32(args, len);
     if (len)
     {
-        if (val < 0 || val > 1)
+        if (val < 0 || val > 2)
         {
             printf("?invalid argument\n");
             return;
         }
-        ria_set_caps(!!val);
+        ria_set_caps(val);
     }
-    printf("CAPS: %s\n", ria_get_caps() ? "inverted" : "normal");
+    printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
 }
 
 static void cmd_status(const uint8_t *args, size_t len)
@@ -242,7 +243,7 @@ static void cmd_status(const uint8_t *args, size_t len)
     printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
     printf("RESB: %ld ms\n", ria_get_reset_ms());
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
-    printf("CAPS: %s\n", ria_get_caps() ? "inverted" : "normal");
+    printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
 }
 
 static void cmd_basic(const uint8_t *args, size_t len)
@@ -262,21 +263,21 @@ static void cmd_help(const uint8_t *args, size_t len)
 {
     printf(
         "Commands:\n"
-        "HELP        - This help.\n"
-        "BASIC       - Start BASIC programming language.\n"
-        "STATUS      - Show all settings.\n"
-        "CAPS (0|1)  - Invert caps while 6502 is running.\n"
-        "SPEED (kHz) - Query or set PHI2 speed. This is the 6502 clock.\n"
-        "RESET (ms)  - Query or set RESB hold time. Set to 0 for auto.\n"
-        "JMP address - Start the 6502. Begin execution at SRAM address.\n"
-        "F000        - Read memory.\n"
-        "F000: 01 02 - Write memory. Colon optional.\n");
+        "HELP         - This help.\n"
+        "BASIC        - Start BASIC programming language.\n"
+        "STATUS       - Show all settings.\n"
+        "CAPS (0|1|2) - Invert or force caps while 6502 is running.\n"
+        "SPEED (kHz)  - Query or set PHI2 speed. This is the 6502 clock.\n"
+        "RESET (ms)   - Query or set RESB hold time. Set to 0 for auto.\n"
+        "JMP address  - Start the 6502. Begin execution at address.\n"
+        "F000         - Read memory.\n"
+        "F000: 01 02  - Write memory. Colon optional.\n");
 }
 
 struct
 {
     size_t cmd_len;
-    const char *cmd;
+    const char *const cmd;
     void (*func)(const uint8_t *, size_t);
 } const COMMANDS[] = {
     {5, "basic", cmd_basic},

@@ -311,11 +311,17 @@ void ria_task()
     if (ria_is_active() && ria_inchar < 0)
     {
         int ch = getchar_timeout_us(0);
-        if (ch > 0 && ria_get_caps())
+        switch (ria_get_caps())
         {
+        case 1:
             if (ch >= 'A' && ch <= 'Z')
+            {
                 ch += 32;
-            else if (ch >= 'a' && ch <= 'z')
+                break;
+            }
+            // fall through
+        case 2:
+            if (ch >= 'a' && ch <= 'z')
                 ch -= 32;
         }
         ria_inchar = ch;
@@ -379,12 +385,12 @@ uint8_t ria_get_reset_ms()
     return reset_ms;
 }
 
-void ria_set_caps(bool inverted)
+void ria_set_caps(uint8_t mode)
 {
-    ria_caps = inverted;
+    ria_caps = mode;
 }
 
-bool ria_get_caps()
+uint8_t ria_get_caps()
 {
     return ria_caps;
 }
