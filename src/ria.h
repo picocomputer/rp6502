@@ -31,6 +31,7 @@ uint32_t ria_get_reset_us();
 void ria_set_caps(uint8_t mode);
 uint8_t ria_get_caps();
 void ria_halt();
+void ria_reset();
 void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len);
 void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len);
 void ria_jmp(uint32_t addr);

@@ -240,6 +240,11 @@ static void cmd_jmp(const uint8_t *args, size_t len)
     ria_jmp(addr);
 }
 
+static void cmd_start(const uint8_t *args, size_t len)
+{
+    ria_reset();
+}
+
 static void status_caps()
 {
     const char *const caps_labels[] = {"normal", "inverted", "forced"};
@@ -293,6 +298,7 @@ static void cmd_help(const uint8_t *args, size_t len)
         "SPEED (kHz)  - Query or set PHI2 speed. This is the 6502 clock.\n"
         "RESET (ms)   - Query or set RESB hold time. Set to 0 for auto.\n"
         "JMP address  - Start the 6502. Begin execution at address.\n"
+        "START        - Start the 6502. Begin execution at ($FFFC).\n"
         "F000         - Read memory.\n"
         "F000: 01 02  - Write memory. Colon optional.\n");
 }
@@ -308,6 +314,7 @@ struct
     {5, "reset", cmd_reset},
     {4, "caps", cmd_caps},
     {3, "jmp", cmd_jmp},
+    {5, "start", cmd_start},
     {6, "status", cmd_status},
     {4, "help", cmd_help},
     {1, "h", cmd_help},
@@ -566,7 +573,7 @@ void mon_task()
         mon_rw_addr += MON_RW_SIZE;
         if (mon_rw_addr >= BASIC_ROM_START + BASIC_ROM_SIZE)
         {
-            ria_jmp(BASIC_ROM_JMP);
+            ria_reset();
             return;
         }
         mon_rw_len = MON_RW_SIZE;

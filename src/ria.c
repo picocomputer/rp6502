@@ -43,6 +43,7 @@
 
 extern uint8_t regs[0x20];
 #define REGS(addr) regs[addr & 0x1F]
+#define REGSW(addr) ((uint16_t *)&REGS(addr))[0]
 
 #ifdef NDEBUG
 uint8_t vram[0xFFFF]
@@ -85,6 +86,7 @@ static volatile enum state {
     run,
     done
 } ria_state;
+static uint16_t ria_reset_vec = 0;
 static volatile bool rw_in_progress = false;
 static uint8_t *rw_buf = 0;
 static size_t rw_pos;
@@ -103,17 +105,19 @@ static void ria_action_set_address(uint32_t addr)
 // Stop the 6502
 void ria_halt()
 {
+    gpio_put(RIA_RESB_PIN, false);
     rw_in_progress = false;
     ria_state = halt;
     ria_inchar = -1;
     REGS(0xFFE0) = 0;
-    gpio_put(RIA_RESB_PIN, false);
+    REGSW(0xFFFC) = ria_reset_vec;
+    ria_action_set_address(0xFFE2);
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     ria_get_reset_us());
 }
 
 // Start or reset the 6502
-static void ria_reset()
+void ria_reset()
 {
     if (ria_state != halt)
         ria_halt();
@@ -347,7 +351,6 @@ void ria_task()
 
     if (ria_state == done)
     {
-        ria_action_set_address(0);
         ria_halt();
     }
 
@@ -452,6 +455,7 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
             REGS(addr + len) = buf[len];
     while (len && (addr + len > 0xFF00))
         len--;
+    ria_reset_vec = REGSW(0xFFFC);
     if (!len)
         return;
     // Reset vector
@@ -493,7 +497,7 @@ static inline void ria_action_ram_write()
     if (rw_pos < rw_end)
     {
         REGS(0xFFF1) = rw_buf[rw_pos];
-        ((uint16_t *)&REGS(0xFFF3))[0] += 1;
+        REGSW(0xFFF3) += 1;
         if (++rw_pos == rw_end)
             REGS(0xFFF6) = 0x00;
     }
@@ -512,6 +516,7 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
     if (!len)
         return;
     // Reset vector
+    ria_reset_vec = REGSW(0xFFFC);
     REGS(0xFFFC) = 0xF0;
     REGS(0xFFFD) = 0xFF;
     // Self-modifying fast load
@@ -546,7 +551,7 @@ static inline void ria_action_ram_read()
     // action for case 0x17:
     if (rw_pos < rw_end)
     {
-        ((uint16_t *)&REGS(0xFFF1))[0] += 1;
+        REGSW(0xFFF1) += 1;
         rw_buf[rw_pos] = REGS(0xFFFC);
         if (++rw_pos == rw_end)
             ria_state = done;
@@ -558,10 +563,22 @@ static inline void ria_action_ram_read()
 void ria_jmp(uint32_t addr)
 {
     ria_halt();
-    ria_action_set_address(0xFFE2);
     // Reset vector
-    REGS(0xFFFC) = addr & 0xFF;
-    REGS(0xFFFD) = addr >> 8;
+    ria_reset_vec = REGSW(0xFFFC);
+    REGS(0xFFFC) = 0xF0;
+    REGS(0xFFFD) = 0xFF;
+    // RESB doesn't clear these
+    // FFF0  D8        CLD      ; clear decimal mode
+    // FFF1  A2 FF     LDX #$FF ; top of stack
+    // FFF3  9A        TXS      ; set the stack
+    // FFF4  4C 00 00  JMP $0000
+    REGS(0xFFF0) = 0xD8;
+    REGS(0xFFF1) = 0xA2;
+    REGS(0xFFF2) = 0xFF;
+    REGS(0xFFF3) = 0x9A;
+    REGS(0xFFF4) = 0x4C;
+    REGS(0xFFF5) = addr & 0xFF;
+    REGS(0xFFF6) = addr >> 8;
     ria_reset();
 }
 
