@@ -448,7 +448,6 @@ uint8_t ria_get_caps()
 void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
 {
     ria_halt();
-    ria_action_set_address(0xFFF6);
     // forbidden area
     while (len && (addr + len > 0xFFF0))
         if (addr + --len <= 0xFFFF)
@@ -477,6 +476,7 @@ void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len)
     REGS(0xFFF7) = 0xEA;
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
+    ria_action_set_address(0xFFF6);
     rw_in_progress = true;
     rw_buf = buf;
     rw_end = len;
@@ -508,7 +508,6 @@ static inline void ria_action_ram_write()
 void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
 {
     ria_halt();
-    ria_action_set_address(0xFFF7);
     // forbidden area
     while (len && (addr + len > 0xFFF0))
         if (addr + --len <= 0xFFFF)
@@ -534,6 +533,7 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
     REGS(0xFFF7) = 0xF8;
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
+    ria_action_set_address(0xFFF7);
     rw_in_progress = true;
     rw_buf = buf;
     rw_end = len;
