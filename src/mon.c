@@ -31,7 +31,6 @@ static uint8_t mon_readwrite[MON_RW_SIZE];
 static uint8_t mon_verify[MON_RW_SIZE];
 uint32_t mon_rw_addr;
 size_t mon_rw_len;
-const char *const caps_labels[] = {"normal", "inverted", "forced"};
 
 static bool is_hex(uint8_t ch)
 {
@@ -173,6 +172,11 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     return;
 }
 
+static void status_speed()
+{
+    printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
+}
+
 static void cmd_speed(const uint8_t *args, size_t len)
 {
     if (len)
@@ -189,7 +193,19 @@ static void cmd_speed(const uint8_t *args, size_t len)
             return;
         }
     }
-    printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
+    status_speed();
+}
+
+static void status_reset()
+{
+    uint8_t req_ms = ria_get_reset_ms();
+    uint8_t com_ms = ria_get_computed_reset_ms();
+    if (!req_ms)
+        printf("RESB: %ld ms (auto)\n", com_ms);
+    else if (req_ms == com_ms)
+        printf("RESB: %ld ms\n", com_ms, req_ms);
+    else
+        printf("RESB: %ld ms (%ld ms requested)\n", com_ms, req_ms);
 }
 
 static void cmd_reset(const uint8_t *args, size_t len)
@@ -209,7 +225,7 @@ static void cmd_reset(const uint8_t *args, size_t len)
         }
         ria_set_reset_ms(i);
     }
-    printf("RESB: %ld ms\n", ria_get_reset_ms());
+    status_reset();
 }
 
 static void cmd_jmp(const uint8_t *args, size_t len)
@@ -221,6 +237,12 @@ static void cmd_jmp(const uint8_t *args, size_t len)
         return;
     }
     ria_jmp(addr);
+}
+
+static void status_caps()
+{
+    const char *const caps_labels[] = {"normal", "inverted", "forced"};
+    printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
 }
 
 static void cmd_caps(const uint8_t *args, size_t len)
@@ -235,15 +257,15 @@ static void cmd_caps(const uint8_t *args, size_t len)
         }
         ria_set_caps(val);
     }
-    printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
+    status_caps();
 }
 
 static void cmd_status(const uint8_t *args, size_t len)
 {
-    printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
-    printf("RESB: %ld ms\n", ria_get_reset_ms());
+    status_speed();
+    status_reset();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
-    printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
+    status_caps();
 }
 
 static void cmd_basic(const uint8_t *args, size_t len)
@@ -505,8 +527,6 @@ void mon_task()
         mon_state = idle;
         for (size_t i = 0; i < mon_rw_len; i++)
         {
-            // TODO preserve FFFC-FFFD reset vector in RIA (errors now)
-            // also #if this to disable and configure for different hardware
             if (mon_rw_addr + i < 0xFF00 || mon_rw_addr + i >= 0xFFFA)
             {
                 if (mon_readwrite[i] != mon_verify[i])
@@ -548,11 +568,7 @@ void mon_task()
             ria_jmp(BASIC_ROM_JMP);
             return;
         }
-
         mon_rw_len = MON_RW_SIZE;
-        if (mon_rw_addr + MON_RW_SIZE >= BASIC_ROM_START + BASIC_ROM_SIZE)
-            mon_rw_len = MON_RW_SIZE - 0x100; // Avoid IO
-
         mon_state = basic_load;
         uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
         for (size_t i = 0; i < mon_rw_len; i++)

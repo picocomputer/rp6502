@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "hid.h"
 #include "ansi.h"
 #include "ria.h"
-#include "vga.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -74,48 +74,11 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
             {
                 key_queue_out = key_queue_in;
-                printf("CTRL-ALT-DEL\n");
-                ria_halt();
+                ria_stop();
             }
             break;
-        case HID_KEY_F1:
-            // NOP
-            break;
-        case HID_KEY_F2:
-            // NOP
-            break;
-        case HID_KEY_F3:
-            // NOP
-            break;
-        case HID_KEY_F4:
-            // NOP
-            break;
-        case HID_KEY_F5:
-            // NOP
-            break;
-        case HID_KEY_F6:
-            // NOP
-            break;
-        case HID_KEY_F7:
-            // NOP
-            break;
-        case HID_KEY_F8:
-            // NOP
-            break;
-        case HID_KEY_F9:
-            // NOP
-            break;
-        case HID_KEY_F10:
-            // NOP
-            break;
-        case HID_KEY_F11:
-            // NOP
-            break;
-        case HID_KEY_F12:
-            // NOP
-            break;
-        case HID_KEY_SCROLL_LOCK:
-            // NOP
+        case HID_KEY_CAPS_LOCK:
+            // TODO
             break;
         }
     switch (keycode)

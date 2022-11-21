@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "vga.h"
 #include "mon.h"
 #include "ria.h"
@@ -31,11 +32,9 @@ int main()
     ria_stdio_init();
 
     // Hello, world.
-    puts("\30\33[0m\f\nPicocomputer 6502 \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m\n");
-
-    // We want to flush the UART before ria_init() changes clocks,
-    // but stdio_flush() just drops the buffer.
-    sleep_ms(10); // 10ms is safe for 100 bytes.
+    puts("\30\33[0m\f\n" RP6502_NAME);
+    puts("\33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m 64K System\n");
+    ria_stdio_flush();
 
     // Interface Adapter to W65C02S
     ria_init();

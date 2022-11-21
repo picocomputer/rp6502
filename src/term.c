@@ -200,10 +200,11 @@ static void term_out_lf()
         {
             term_y_offset = 0;
         }
+        uint8_t *line_ptr = term_ptr - term_x * 2;
         for (size_t x = 0; x < TERM_WIDTH * 2; x += 2)
         {
-            term_ptr[x] = ' ';
-            term_ptr[x + 1] = term_color;
+            line_ptr[x] = ' ';
+            line_ptr[x + 1] = term_color;
         }
     }
 }
@@ -274,9 +275,9 @@ static void term_out_dch(int chars)
     uint8_t *tp = term_ptr;
     if (chars > TERM_WIDTH - term_x)
         chars = TERM_WIDTH - term_x;
-    for (int i = 0; i < TERM_WIDTH - term_x; i++)
+    for (int i = term_x; i < TERM_WIDTH; i++)
     {
-        if (term_x + i >= TERM_WIDTH)
+        if (chars + i >= TERM_WIDTH)
         {
             tp[0] = ' ';
             tp[1] = term_color;

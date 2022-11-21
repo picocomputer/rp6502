@@ -31,6 +31,9 @@
 
 #include "picoprobe_config.h"
 
+static absolute_time_t break_timer = {0};
+static bool break_en = false;
+
 void cdc_uart_init(void)
 {
     gpio_set_function(PICOPROBE_UART_TX, GPIO_FUNC_UART);
@@ -43,6 +46,12 @@ void cdc_task(void)
 {
     uint8_t rx_buf[MAX_UART_PKT];
     uint8_t tx_buf[MAX_UART_PKT];
+
+    if (break_en && absolute_time_diff_us(get_absolute_time(), break_timer) < 0)
+    {
+        break_en = false;
+        uart_set_break(PICOPROBE_UART_INTERFACE, false);
+    }
 
     // Consume uart fifo regardless even if not connected
     uint rx_len = 0;
@@ -74,8 +83,9 @@ void cdc_task(void)
     }
 }
 
-void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const *line_coding)
+void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms)
 {
-    picoprobe_info("New baud rate %d\n", line_coding->bit_rate);
-    uart_init(PICOPROBE_UART_INTERFACE, line_coding->bit_rate);
+    break_timer = delayed_by_us(get_absolute_time(), duration_ms * 1000);
+    break_en = true;
+    uart_set_break(PICOPROBE_UART_INTERFACE, true);
 }
