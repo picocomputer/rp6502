@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "mon.h"
 #include "ansi.h"
 #include "ria.h"
@@ -198,14 +199,14 @@ static void cmd_speed(const uint8_t *args, size_t len)
 
 static void status_reset()
 {
-    uint8_t req_ms = ria_get_reset_ms();
-    uint8_t com_ms = ria_get_computed_reset_ms();
-    if (!req_ms)
-        printf("RESB: %ld ms (auto)\n", com_ms);
-    else if (req_ms == com_ms)
-        printf("RESB: %ld ms\n", com_ms, req_ms);
+    uint8_t reset_ms = ria_get_reset_ms();
+    float reset_us = ria_get_reset_us();
+    if (!reset_ms)
+        printf("RESB: %.3f ms (auto)\n", reset_us / 1000.f);
+    else if (reset_ms * 1000 == reset_us)
+        printf("RESB: %ld ms\n", reset_ms);
     else
-        printf("RESB: %ld ms (%ld ms requested)\n", com_ms, req_ms);
+        printf("RESB: %.0f ms (%ld ms requested)\n", reset_us / 1000.f, reset_ms);
 }
 
 static void cmd_reset(const uint8_t *args, size_t len)
@@ -575,4 +576,15 @@ void mon_task()
             mon_readwrite[i] = rompos[i];
         ria_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
     }
+}
+
+// User requested stop by UART break or CTRL-ALT-DEL
+void mon_halt()
+{
+    ria_halt();
+    mon_state == idle;
+    mon_ansi_state = ansi_state_C0;
+    mon_buflen = 0;
+    mon_bufpos = 0;
+    puts("\30\33[0m\n" RP6502_NAME);
 }

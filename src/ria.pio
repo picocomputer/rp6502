@@ -61,9 +61,9 @@ mov osr !pins   side 0 ; reading is select==1 and write==1
 out x 2         side 0
 mov osr !isr    side 0
 jmp !x reading1 side 0
-jmp hiz1        side 1
+jmp hiz1        side 0
 reading1:
-out pindirs 8   side 1
+out pindirs 8   side 0
 hiz1:
 mov osr !pins   side 1 ; reading is select==1 and write==1
 out x 2         side 1
@@ -75,7 +75,7 @@ out pindirs 8   side 1 [7]
 hiz2:
 mov osr isr     side 1
 mov x pins      side 1
-out pindirs 8   side 0
+out pindirs 8   side 1
 mov osr x       side 0 ; writing is select==1 and write==0
 out x 2         side 0
 jmp x-- jmpsub  side 0 ; subtract 1

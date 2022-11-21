@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
+#include "mon.h"
 #include "ria.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
@@ -101,7 +101,7 @@ static void ria_action_set_address(uint32_t addr)
 }
 
 // Stop the 6502
-static void ria_halt()
+void ria_halt()
 {
     rw_in_progress = false;
     ria_state = halt;
@@ -109,7 +109,7 @@ static void ria_halt()
     REGS(0xFFE0) = 0;
     gpio_put(RIA_RESB_PIN, false);
     ria_reset_timer = delayed_by_us(get_absolute_time(),
-                                    (uint64_t)1000 * ria_get_computed_reset_ms());
+                                    ria_get_reset_us());
 }
 
 // Start or reset the 6502
@@ -120,13 +120,6 @@ static void ria_reset()
     ria_inchar = -1;
     REGS(0xFFE0) = 0;
     ria_state = reset;
-}
-
-// User requested halt by UART break or CTRL-ALT-DEL
-void ria_stop()
-{
-    ria_halt();
-    puts("\30\33[0m\n" RP6502_NAME);
 }
 
 static void ria_write_init()
@@ -338,7 +331,7 @@ void ria_task()
             ria_halt();
     }
     else if (break_detect)
-        ria_stop();
+        mon_halt();
     break_detect = current_break;
 
     // Reset timer
@@ -399,6 +392,7 @@ bool ria_set_phi2_khz(uint32_t freq_khz)
     // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
     // TODO make this never fail (round up, 50k to 6650, 100k to 8000, test by 5s?)
     uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
+    ria_stdio_flush();
     if (!set_sys_clock_khz(sys_clk_khz, false))
         return false;
     pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
@@ -422,8 +416,6 @@ void ria_set_reset_ms(uint8_t ms)
     ria_reset_ms = ms;
 }
 
-uint8_t ria_get_computed_reset_ms();
-
 uint8_t ria_get_reset_ms()
 {
     return ria_reset_ms;
@@ -431,16 +423,13 @@ uint8_t ria_get_reset_ms()
 
 // Return calculated reset time. May be higher than requested
 // to guarantee the 6502 gets two clock cycles during reset.
-uint8_t ria_get_computed_reset_ms()
+uint32_t ria_get_reset_us()
 {
-    uint8_t reset_ms = ria_reset_ms;
-    if (ria_phi2_khz == 1 && reset_ms < 3)
-        reset_ms = 3;
-    if (ria_phi2_khz == 2 && reset_ms < 2)
-        reset_ms = 2;
-    if (!reset_ms)
-        reset_ms = 1;
-    return reset_ms;
+    if (!ria_reset_ms)
+        return (2000001 / ria_get_phi2_khz() + 999) / 1000;
+    if (ria_phi2_khz == 1 && ria_reset_ms == 1)
+        return 2000;
+    return ria_reset_ms * 1000;
 }
 
 void ria_set_caps(uint8_t mode)
@@ -504,9 +493,7 @@ static inline void ria_action_ram_write()
     if (rw_pos < rw_end)
     {
         REGS(0xFFF1) = rw_buf[rw_pos];
-        // ((uint16_t *)&REGS(0xFFF3))[0] += 1; // does this optimize?
-        if (!++REGS(0xFFF3))
-            ++REGS(0xFFF4);
+        ((uint16_t *)&REGS(0xFFF3))[0] += 1;
         if (++rw_pos == rw_end)
             REGS(0xFFF6) = 0x00;
     }
@@ -559,9 +546,7 @@ static inline void ria_action_ram_read()
     // action for case 0x17:
     if (rw_pos < rw_end)
     {
-        // ((uint16_t *)&REGS(0xFFF1))[0] += 1; // does this optimize?
-        if (!++REGS(0xFFF1))
-            ++REGS(0xFFF2);
+        ((uint16_t *)&REGS(0xFFF1))[0] += 1;
         rw_buf[rw_pos] = REGS(0xFFFC);
         if (++rw_pos == rw_end)
             ria_state = done;
