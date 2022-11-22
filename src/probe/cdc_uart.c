@@ -24,11 +24,7 @@
  */
 
 #include <pico/stdlib.h>
-
-#include "../term.h"
-
 #include "tusb.h"
-
 #include "picoprobe_config.h"
 
 static absolute_time_t break_timer = {0};

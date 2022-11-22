@@ -11,13 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// 64KB Virtual RAM
-#ifdef NDEBUG
-extern uint8_t vram[0xFFFF];
-#else
-extern uint8_t *const vram;
-#endif
-
 void ria_stdio_init();
 void ria_stdio_flush();
 void ria_init();

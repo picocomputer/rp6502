@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "../term.h"
-#include "../vga.h"
+#include "term.h"
+#include "vga.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #include "probe.h"

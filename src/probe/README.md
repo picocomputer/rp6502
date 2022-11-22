@@ -2,8 +2,6 @@
 
 This has a few changes:
 
-main.c is replaced entirely with rp6502 variant.
-
 probe.c hardcoded pio0 changed to pio1 because pico-extras VGA
 decided to hardcode pio0 in a couple places.
 

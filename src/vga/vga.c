@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "vram.h"
 #include "vga.h"
-#include "ria.h"
 #include "term.h"
 #include "string.h"
 #include "pico/stdlib.h"
@@ -584,6 +584,9 @@ void vga_memory_init()
 
 void vga_init()
 {
+    // safety check for compiler alignment
+    assert(!((uintptr_t)vram & 0xFFFF));
+
     vga_memory_init();
     mutex_init(&vga_mutex);
     vga_display(vga_sd);

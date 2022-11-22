@@ -10,25 +10,6 @@ https://youtube.com/playlist?list=PLvCRDUYedILfHDoD57Yj8BAXNmNJLVM2r
 Connect with other 6502 homebrew enthusiasts on Discord:<br>
 https://discord.gg/TC6X8kTr6d
 
-## Dev Setup
-Standard Raspberry Pi Pico C SDK setup per the official docs; set PICO_SDK_PATH and PICO_EXTRAS_PATH, use cmake. The VSCode launch settings connect to a remote debug session. For example, I use a Picoprobe under WSL by passing the device to Linux with usbipd-win then bringing up a couple of terminals for the debugger and monitor.
-
-The Pi Pico VGA is also a Picoprobe for development and terminal use. Load a release build of rp6502_vga.uf2 on it with the BOOT SEL button. You can do the UF2 process with the RIA board too, or use the VGA/Picoprobe board to load it using OpenOCD.
-
-```
-PS> usbipd list
-BUSID  DEVICE
-7-4    USB Serial Device (COM6), Picoprobe
-
-PS> usbipd wsl attach --busid 7-4
-```
-```
-$ sudo openocd -f interface/picoprobe.cfg -f target/rp2040.cfg -s tcl
-```
-```
-$ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
-```
-
 ## Memory Map
 
 | Addr | Description
@@ -69,3 +50,25 @@ The PIX port will likely be "jumpered" into a high-speed graphics bus. However, 
 The Pico VGA is optional. Something to control the RIA over the UART Tx/Rx lines is still required. You might, for example, be developing a video system based on other hardware and prefer to have your video chip control the RIA.
 
 The 6522 is optional. You may need to pull-up IRQB/VIRQ if you omit this from the reference design. The GPIOs are not used for anything, but some software may not function without timers.
+
+## Dev Setup
+
+This is only for developing the Pi Pico software. For writing 6502 software, see the examples.
+
+Standard Raspberry Pi Pico C SDK setup per the official docs; set PICO_SDK_PATH and PICO_EXTRAS_PATH, use cmake. The VSCode launch settings connect to a remote debug session. For example, I use a Picoprobe under WSL by passing the device to Linux with usbipd-win then bringing up a couple of terminals for the debugger and monitor.
+
+The Pi Pico VGA is also a Picoprobe for development and terminal use. Load a release build of rp6502_vga.uf2 on it with the BOOT SEL button. You can do the UF2 process with the RIA board too, or use the VGA/Picoprobe board to load it using OpenOCD.
+
+```
+PS> usbipd list
+BUSID  DEVICE
+7-4    USB Serial Device (COM6), Picoprobe
+
+PS> usbipd wsl attach --busid 7-4
+```
+```
+$ sudo openocd -f interface/picoprobe.cfg -f target/rp2040.cfg -s tcl
+```
+```
+$ sudo minicom -c on -b 115200 -o -D /dev/ttyACM0
+```

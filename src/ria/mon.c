@@ -5,7 +5,7 @@
  */
 
 #include "mon.h"
-#include "ansi.h"
+#include "vga/ansi.h"
 #include "ria.h"
 #include "basic.h"
 #include <stdio.h>

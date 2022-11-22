@@ -45,37 +45,6 @@ extern uint8_t regs[0x20];
 #define REGS(addr) regs[addr & 0x1F]
 #define REGSW(addr) ((uint16_t *)&REGS(addr))[0]
 
-#ifdef NDEBUG
-uint8_t vram[0xFFFF]
-    __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.vram")));
-#else
-struct Vram
-{
-    uint8_t _0[0xFFF];
-    uint8_t _1[0xFFF];
-    uint8_t _2[0xFFF];
-    uint8_t _3[0xFFF];
-    uint8_t _4[0xFFF];
-    uint8_t _5[0xFFF];
-    uint8_t _6[0xFFF];
-    uint8_t _7[0xFFF];
-    uint8_t _8[0xFFF];
-    uint8_t _9[0xFFF];
-    uint8_t _A[0xFFF];
-    uint8_t _B[0xFFF];
-    uint8_t _C[0xFFF];
-    uint8_t _D[0xFFF];
-    uint8_t _E[0xFFF];
-    uint8_t _F[0xFFF];
-    // this struct of 4KB segments is because
-    // a single 64KB array crashes my debugger
-} vram_blocks
-    __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.vram")));
-uint8_t *const vram = (uint8_t *)&vram_blocks;
-#endif
-
 static uint32_t ria_phi2_khz;
 static uint8_t ria_reset_ms;
 static uint8_t ria_caps;
@@ -94,10 +63,8 @@ static size_t rw_end;
 static volatile int ria_in_char;
 static size_t ria_in_start = 0;
 static size_t ria_in_end = 0;
-static uint8_t ria_in[32];
-#define RIA_IN(pos) ria_in[pos & 0x1F]
-
-static void ria_action_loop();
+static uint8_t ria_in_buf[32];
+#define RIA_IN_BUF(pos) ria_in_buf[pos & 0x1F]
 
 // RIA action has one variable read address.
 // 0 to disable (0 is hardcoded, disables by duplication).
@@ -280,113 +247,6 @@ void ria_stdio_flush()
 bool ria_is_active()
 {
     return (ria_state == reset) || (ria_state == run);
-}
-
-void ria_init()
-{
-    // safety check for compiler alignment
-    assert(!((uintptr_t)regs & 0x1F));
-    assert(!((uintptr_t)vram & 0xFFFF));
-
-    // Adjustments for GPIO. Speculating possible future needs.
-    for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
-    {
-        gpio_set_input_hysteresis_enabled(i, false);
-        hw_set_bits(&pio0->input_sync_bypass, 1u << i);
-        hw_set_bits(&pio1->input_sync_bypass, 1u << i);
-        // gpio_set_drive_strength(i, GPIO_DRIVE_STRENGTH_12MA);
-        // gpio_set_slew_rate(i, GPIO_SLEW_RATE_SLOW);
-    }
-    // gpio_set_input_hysteresis_enabled(RIA_PHI2_PIN, false);
-    // hw_set_bits(&pio0->input_sync_bypass, 1u << RIA_PHI2_PIN);
-    // hw_set_bits(&pio1->input_sync_bypass, 1u << RIA_PHI2_PIN);
-    // gpio_set_drive_strength(RIA_PHI2_PIN, GPIO_DRIVE_STRENGTH_12MA);
-    // gpio_set_slew_rate(RIA_PHI2_PIN, GPIO_SLEW_RATE_FAST);
-
-    // Raise DMA above CPU on crossbar
-    bus_ctrl_hw->priority |=
-        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
-
-    // drive reset pin
-    gpio_init(RIA_RESB_PIN);
-    gpio_put(RIA_IRQB_PIN, false);
-    gpio_set_dir(RIA_RESB_PIN, true);
-
-    // drive irq pin
-    gpio_init(RIA_IRQB_PIN);
-    gpio_put(RIA_IRQB_PIN, true);
-    gpio_set_dir(RIA_IRQB_PIN, true);
-
-    // the inits
-    ria_write_init();
-    ria_read_init();
-    ria_action_init();
-    ria_set_phi2_khz(0);
-    ria_set_reset_ms(0);
-    ria_set_caps(0);
-    ria_halt();
-    multicore_launch_core1(ria_action_loop);
-}
-
-void ria_task()
-{
-    // Report unexpected FIFO overflows and underflows
-    uint32_t fdebug = pio0->fdebug;
-    uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
-    masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
-    if (masked_fdebug)
-    {
-        pio0->fdebug = 0xFF;
-        printf("pio0->fdebug: %lX\n", fdebug);
-    }
-    fdebug = pio1->fdebug;
-    masked_fdebug = fdebug & 0x0F0F0F0F;         // reserved
-    masked_fdebug &= ~(1 << (24 + RIA_READ_SM)); // expected
-    if (masked_fdebug)
-    {
-        pio1->fdebug = 0xFF;
-        printf("pio1->fdebug: %lX\n", fdebug);
-    }
-
-    // Reset timer
-    if (ria_state == reset)
-    {
-        absolute_time_t now = get_absolute_time();
-        if (absolute_time_diff_us(now, ria_reset_timer) < 0)
-        {
-            ria_state = run;
-            gpio_put(RIA_RESB_PIN, true);
-        }
-    }
-
-    if (ria_state == done)
-    {
-        ria_halt();
-    }
-
-    // Reset 6502 when UART break signal received
-    static uint32_t break_detect = 0;
-    uint32_t current_break = uart_get_hw(RIA_UART)->rsr & UART_UARTRSR_BE_BITS;
-    if (current_break)
-    {
-        hw_clear_bits(&uart_get_hw(RIA_UART)->rsr, UART_UARTRSR_BITS);
-        if (ria_state != halt)
-            ria_halt();
-    }
-    else if (break_detect)
-        mon_halt();
-    break_detect = current_break;
-
-    // We need to keep UART FIFO empty or breaks won't come in
-    if (!rw_in_progress && ria_is_active())
-    {
-        int ch = getchar_timeout_us(0);
-        if (ch >= 0 && &RIA_IN(ria_in_end + 1) != &RIA_IN(ria_in_start))
-            RIA_IN(ria_in_end++) = ch;
-        if (ria_in_char < 0 && &RIA_IN(ria_in_end) != &RIA_IN(ria_in_start))
-            ria_in_char = ria_caps_ch(RIA_IN(ria_in_start++));
-    }
 }
 
 // Set the 6502 clock frequency. 0=default. No upper bounds check.
@@ -652,6 +512,112 @@ static void ria_action_loop()
                 }
             }
         }
+    }
+}
+
+void ria_init()
+{
+    // safety check for compiler alignment
+    assert(!((uintptr_t)regs & 0x1F));
+
+    // Adjustments for GPIO. Speculating possible future needs.
+    for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
+    {
+        gpio_set_input_hysteresis_enabled(i, false);
+        hw_set_bits(&pio0->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio1->input_sync_bypass, 1u << i);
+        // gpio_set_drive_strength(i, GPIO_DRIVE_STRENGTH_12MA);
+        // gpio_set_slew_rate(i, GPIO_SLEW_RATE_SLOW);
+    }
+    // gpio_set_input_hysteresis_enabled(RIA_PHI2_PIN, false);
+    // hw_set_bits(&pio0->input_sync_bypass, 1u << RIA_PHI2_PIN);
+    // hw_set_bits(&pio1->input_sync_bypass, 1u << RIA_PHI2_PIN);
+    // gpio_set_drive_strength(RIA_PHI2_PIN, GPIO_DRIVE_STRENGTH_12MA);
+    // gpio_set_slew_rate(RIA_PHI2_PIN, GPIO_SLEW_RATE_FAST);
+
+    // Raise DMA above CPU on crossbar
+    bus_ctrl_hw->priority |=
+        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
+
+    // drive reset pin
+    gpio_init(RIA_RESB_PIN);
+    gpio_put(RIA_IRQB_PIN, false);
+    gpio_set_dir(RIA_RESB_PIN, true);
+
+    // drive irq pin
+    gpio_init(RIA_IRQB_PIN);
+    gpio_put(RIA_IRQB_PIN, true);
+    gpio_set_dir(RIA_IRQB_PIN, true);
+
+    // the inits
+    ria_write_init();
+    ria_read_init();
+    ria_action_init();
+    ria_set_phi2_khz(0);
+    ria_set_reset_ms(0);
+    ria_set_caps(0);
+    ria_halt();
+    multicore_launch_core1(ria_action_loop);
+}
+
+void ria_task()
+{
+    // Report unexpected FIFO overflows and underflows
+    uint32_t fdebug = pio0->fdebug;
+    uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
+    masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
+    if (masked_fdebug)
+    {
+        pio0->fdebug = 0xFF;
+        printf("pio0->fdebug: %lX\n", fdebug);
+    }
+    fdebug = pio1->fdebug;
+    masked_fdebug = fdebug & 0x0F0F0F0F;         // reserved
+    masked_fdebug &= ~(1 << (24 + RIA_READ_SM)); // expected
+    if (masked_fdebug)
+    {
+        pio1->fdebug = 0xFF;
+        printf("pio1->fdebug: %lX\n", fdebug);
+    }
+
+    // Reset timer
+    if (ria_state == reset)
+    {
+        absolute_time_t now = get_absolute_time();
+        if (absolute_time_diff_us(now, ria_reset_timer) < 0)
+        {
+            ria_state = run;
+            gpio_put(RIA_RESB_PIN, true);
+        }
+    }
+
+    if (ria_state == done)
+    {
+        ria_halt();
+    }
+
+    // Reset 6502 when UART break signal received
+    static uint32_t break_detect = 0;
+    uint32_t current_break = uart_get_hw(RIA_UART)->rsr & UART_UARTRSR_BE_BITS;
+    if (current_break)
+    {
+        hw_clear_bits(&uart_get_hw(RIA_UART)->rsr, UART_UARTRSR_BITS);
+        if (ria_state != halt)
+            ria_halt();
+    }
+    else if (break_detect)
+        mon_halt();
+    break_detect = current_break;
+
+    // We need to keep UART FIFO empty or breaks won't come in
+    if (!rw_in_progress && ria_is_active())
+    {
+        int ch = getchar_timeout_us(0);
+        if (ch >= 0 && &RIA_IN_BUF(ria_in_end + 1) != &RIA_IN_BUF(ria_in_start))
+            RIA_IN_BUF(++ria_in_end) = ch;
+        if (ria_in_char < 0 && &RIA_IN_BUF(ria_in_end) != &RIA_IN_BUF(ria_in_start))
+            ria_in_char = ria_caps_ch(RIA_IN_BUF(++ria_in_start));
     }
 }
 
