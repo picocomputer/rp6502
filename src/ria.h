@@ -23,7 +23,7 @@ void ria_stdio_flush();
 void ria_init();
 void ria_task();
 bool ria_is_active();
-bool ria_set_phi2_khz(uint32_t freq_khz);
+void ria_set_phi2_khz(uint32_t freq_khz);
 uint32_t ria_get_phi2_khz();
 void ria_set_reset_ms(uint8_t ms);
 uint8_t ria_get_reset_ms();

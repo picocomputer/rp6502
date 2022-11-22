@@ -188,11 +188,12 @@ static void cmd_speed(const uint8_t *args, size_t len)
             printf("?syntax error\n");
             return;
         }
-        if (i > 8000 || !ria_set_phi2_khz(i))
+        if (i > 8000)
         {
             printf("?invalid frequency\n");
             return;
         }
+        ria_set_phi2_khz(i);
     }
     status_speed();
 }

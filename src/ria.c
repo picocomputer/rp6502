@@ -298,7 +298,7 @@ void ria_init()
     ria_write_init();
     ria_read_init();
     ria_action_init();
-    ria_set_phi2_khz(4000);
+    ria_set_phi2_khz(0);
     ria_set_reset_ms(0);
     ria_set_caps(0);
     ria_halt();
@@ -376,36 +376,34 @@ void ria_task()
     }
 }
 
-// Set the 6502 clock frequency. Returns false on failure.
-bool ria_set_phi2_khz(uint32_t freq_khz)
+// Set the 6502 clock frequency. 0=default. No upper bounds check.
+void ria_set_phi2_khz(uint32_t freq_khz)
 {
     if (!freq_khz)
-        return false;
+        freq_khz = 4000;
     uint32_t sys_clk_khz = freq_khz * 30;
+    uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
     uint16_t clkdiv_int = 1;
     uint8_t clkdiv_frac = 0;
+    ria_stdio_flush();
     if (sys_clk_khz < 120 * 1000)
     {
-        // <=4MHz will always succeed but may have minor quantization and judder.
         // <=4MHz resolution is limited by the divider's 8-bit fraction.
         sys_clk_khz = 120 * 1000;
         clkdiv_int = sys_clk_khz / 30 / freq_khz;
         clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
+        set_sys_clock_khz(sys_clk_khz, true);
     }
-    // >4MHz will clock the Pi Pico past 120MHz and may fail but will not judder.
-    // >4MHz resolution is 100kHz. e.g. 7.1MHz, 7.2MHz, 7.3MHz
-    // TODO make this never fail (round up, 50k to 6650, 100k to 8000, test by 5s?)
-    uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
-    ria_stdio_flush();
-    if (!set_sys_clock_khz(sys_clk_khz, false))
-        return false;
+    else
+        // >4MHz will clock the Pi Pico past 120MHz with no divider.
+        while (!set_sys_clock_khz(sys_clk_khz, false))
+            sys_clk_khz += 1;
     pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
         ria_stdio_init();
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
-    return true;
 }
 
 // Return actual 6502 frequency adjusted for divider quantization.
