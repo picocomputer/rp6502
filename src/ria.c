@@ -91,7 +91,11 @@ static volatile bool rw_in_progress = false;
 static uint8_t *rw_buf = 0;
 static size_t rw_pos;
 static size_t rw_end;
-static volatile int ria_inchar;
+static volatile int ria_in_char;
+static size_t ria_in_start = 0;
+static size_t ria_in_end = 0;
+static uint8_t ria_in[32];
+#define RIA_IN(pos) ria_in[pos & 0x1F]
 
 static void ria_action_loop();
 
@@ -108,7 +112,8 @@ void ria_halt()
     gpio_put(RIA_RESB_PIN, false);
     rw_in_progress = false;
     ria_state = halt;
-    ria_inchar = -1;
+    ria_in_char = -1;
+    ria_in_start = ria_in_end = 0;
     REGS(0xFFE0) = 0;
     REGSW(0xFFFC) = ria_reset_vec;
     ria_action_set_address(0xFFE2);
@@ -121,9 +126,28 @@ void ria_reset()
 {
     if (ria_state != halt)
         ria_halt();
-    ria_inchar = -1;
+    ria_in_char = -1;
+    ria_in_start = ria_in_end = 0;
     REGS(0xFFE0) = 0;
     ria_state = reset;
+}
+
+static uint8_t ria_caps_ch(uint8_t ch)
+{
+    switch (ria_get_caps())
+    {
+    case 1:
+        if (ch >= 'A' && ch <= 'Z')
+        {
+            ch += 32;
+            break;
+        }
+        // fall through
+    case 2:
+        if (ch >= 'a' && ch <= 'z')
+            ch -= 32;
+    }
+    return ch;
 }
 
 static void ria_write_init()
@@ -325,20 +349,6 @@ void ria_task()
         printf("pio1->fdebug: %lX\n", fdebug);
     }
 
-    // Reset 6502 when UART break signal received
-    // TODO this currently fails when Rx FIFO full
-    static uint32_t break_detect = 0;
-    uint32_t current_break = uart_get_hw(RIA_UART)->rsr & UART_UARTRSR_BE_BITS;
-    if (current_break)
-    {
-        hw_clear_bits(&uart_get_hw(RIA_UART)->rsr, UART_UARTRSR_BITS);
-        if (ria_state != halt)
-            ria_halt();
-    }
-    else if (break_detect)
-        mon_halt();
-    break_detect = current_break;
-
     // Reset timer
     if (ria_state == reset)
     {
@@ -355,24 +365,27 @@ void ria_task()
         ria_halt();
     }
 
-    // Too expensive for action loop
-    if (!rw_in_progress && ria_is_active() && ria_inchar < 0)
+    // Reset 6502 when UART break signal received
+    static uint32_t break_detect = 0;
+    uint32_t current_break = uart_get_hw(RIA_UART)->rsr & UART_UARTRSR_BE_BITS;
+    if (current_break)
+    {
+        hw_clear_bits(&uart_get_hw(RIA_UART)->rsr, UART_UARTRSR_BITS);
+        if (ria_state != halt)
+            ria_halt();
+    }
+    else if (break_detect)
+        mon_halt();
+    break_detect = current_break;
+
+    // We need to keep UART FIFO empty or breaks won't come in
+    if (!rw_in_progress && ria_is_active())
     {
         int ch = getchar_timeout_us(0);
-        switch (ria_get_caps())
-        {
-        case 1:
-            if (ch >= 'A' && ch <= 'Z')
-            {
-                ch += 32;
-                break;
-            }
-            // fall through
-        case 2:
-            if (ch >= 'a' && ch <= 'z')
-                ch -= 32;
-        }
-        ria_inchar = ch;
+        if (ch >= 0 && &RIA_IN(ria_in_end + 1) != &RIA_IN(ria_in_start))
+            RIA_IN(ria_in_end++) = ch;
+        if (ria_in_char < 0 && &RIA_IN(ria_in_end) != &RIA_IN(ria_in_start))
+            ria_in_char = ria_caps_ch(RIA_IN(ria_in_start++));
     }
 }
 
@@ -605,11 +618,11 @@ static void ria_action_loop()
                     ria_halt();
                     break;
                 case 0x02:
-                    if (ria_inchar >= 0)
+                    if (ria_in_char >= 0)
                     {
                         REGS(0xFFE0) |= 0b01000000;
-                        REGS(0xFFE2) = ria_inchar;
-                        ria_inchar = -1;
+                        REGS(0xFFE2) = ria_in_char;
+                        ria_in_char = -1;
                     }
                     else
                     {
@@ -629,11 +642,11 @@ static void ria_action_loop()
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
-                    if (!(REGS(0xFFE0) & 0b01000000) && ria_inchar >= 0)
+                    if (!(REGS(0xFFE0) & 0b01000000) && ria_in_char >= 0)
                     {
                         REGS(0xFFE0) |= 0b01000000;
-                        REGS(0xFFE2) = ria_inchar;
-                        ria_inchar = -1;
+                        REGS(0xFFE2) = ria_in_char;
+                        ria_in_char = -1;
                     }
                     break;
                 }
