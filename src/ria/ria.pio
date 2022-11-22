@@ -9,13 +9,13 @@
 ; Pushing new address to out FIFO changes variable read address.
 .program ria_action
 
-
 .wrap_target
 pull_start:
+wait 0 gpio 21
 pull noblock
 start:
 mov x osr
-wait 1 gpio 21 [12] ; 12
+wait 1 gpio 21 [10]
 mov osr pins
 out y 1
 jmp !y pull_start
@@ -41,9 +41,10 @@ push noblock
 .program ria_read
 
 .wrap_target
+wait 1 gpio 21
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [8]
+wait 0 gpio 21 [5]
 in pins 5
 .wrap
 
@@ -55,27 +56,20 @@ in pins 5
 .side_set 1
 
 nowrite:
-nop             side 0 [5]
+nop             side 0 [9]
 .wrap_target
-mov osr !pins   side 0 ; reading is select==1 and write==1
-out x 2         side 0
-mov osr !isr    side 0
-jmp !x reading1 side 0
-jmp hiz1        side 0
-reading1:
-out pindirs 8   side 0
-hiz1:
+nop             side 1 [1]
 mov osr !pins   side 1 ; reading is select==1 and write==1
 out x 2         side 1
-jmp !x reading2 side 1
-jmp hiz2        side 1 [8]
-reading2:
 mov osr !isr    side 1
-out pindirs 8   side 1 [7]
-hiz2:
-mov osr isr     side 1
-mov x pins      side 1
+jmp !x reading1 side 1
+jmp hiz1        side 1
+reading1:
 out pindirs 8   side 1
+hiz1:
+mov osr isr     side 1 [6]
+mov x pins      side 1
+out pindirs 8   side 0
 mov osr x       side 0 ; writing is select==1 and write==0
 out x 2         side 0
 jmp x-- jmpsub  side 0 ; subtract 1
@@ -86,5 +80,5 @@ mov isr y       side 0 ; cortex base address
 in osr 5        side 0 ; bus address
 push noblock    side 0
 mov isr x       side 0 ; bus data
-push noblock    side 0
+push noblock    side 0 [4]
 .wrap

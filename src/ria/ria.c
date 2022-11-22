@@ -54,7 +54,7 @@ static volatile enum state {
     reset,
     run,
     done
-} ria_state;
+} volatile ria_state;
 static uint16_t ria_reset_vec = 0;
 static volatile bool rw_in_progress = false;
 static uint8_t *rw_buf = 0;
@@ -261,7 +261,7 @@ void ria_set_phi2_khz(uint32_t freq_khz)
     ria_stdio_flush();
     if (sys_clk_khz < 120 * 1000)
     {
-        // <=4MHz resolution is limited by the divider's 8-bit fraction.
+        // <=4MHz resolution is limited by the divider.
         sys_clk_khz = 120 * 1000;
         clkdiv_int = sys_clk_khz / 30 / freq_khz;
         clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
@@ -279,7 +279,7 @@ void ria_set_phi2_khz(uint32_t freq_khz)
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
 }
 
-// Return actual 6502 frequency adjusted for divider quantization.
+// Return actual 6502 frequency adjusted for quantization.
 uint32_t ria_get_phi2_khz()
 {
     return ria_phi2_khz;
@@ -392,9 +392,8 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
     REGS(0xFFFD) = 0xFF;
     // Self-modifying fast load
     // FFF0  AD 00 00  LDA $0000
-    // FFF3  8D F8 FF  STA $FFFC
+    // FFF3  8D FC FF  STA $FFFC
     // FFF6  80 F8     BRA $FFF0
-    // FFF8  80 FE     BRA $FFF8
     REGS(0xFFF0) = 0xAD;
     REGS(0xFFF1) = addr & 0xFF;
     REGS(0xFFF2) = addr >> 8;
@@ -403,32 +402,24 @@ void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len)
     REGS(0xFFF5) = 0xFF;
     REGS(0xFFF6) = 0x80;
     REGS(0xFFF7) = 0xF8;
-    REGS(0xFFF8) = 0x80;
-    REGS(0xFFF9) = 0xFE;
-    ria_action_set_address(0xFFF7);
     rw_in_progress = true;
     rw_buf = buf;
     rw_end = len;
     rw_pos = 0;
-    if (rw_pos + 1 == rw_end)
-        REGS(0xFFF7) = 0x00;
     if (rw_pos == rw_end)
         ria_state = done;
     else
         ria_reset();
 }
 
-static inline void ria_action_ram_read()
+static inline void ria_action_ram_read(uint32_t data)
 {
-    // action for case 0x17:
     if (rw_pos < rw_end)
     {
         REGSW(0xFFF1) += 1;
-        rw_buf[rw_pos] = REGS(0xFFFC);
+        rw_buf[rw_pos] = data;
         if (++rw_pos == rw_end)
             ria_state = done;
-        if (rw_pos + 1 == rw_end)
-            REGS(0xFFF7) = 0x00;
     }
 }
 
@@ -459,57 +450,67 @@ static void ria_action_loop()
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
     {
-        if (!pio_sm_is_rx_fifo_empty(RIA_ACTION_PIO, RIA_ACTION_SM))
+        if (!(RIA_ACTION_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACTION_SM))))
         {
             uint32_t addr = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
             uint32_t data = addr & 0xFF;
             addr = (addr >> 8) & 0x1F;
             if (gpio_get(RIA_RESB_PIN))
             {
-                switch (addr)
+                if (addr == 0x0F)
                 {
-                case 0x16:
-                    ria_action_ram_write();
-                    break;
-                case 0x17:
-                    ria_action_ram_read();
-                    break;
-                case 0x0F:
+                    // I want this here:
+                    //   gpio_put(RIA_RESB_PIN, false);
+                    //   ria_state = done;
+                    // But removing ria_halt() causes failure.
                     ria_halt();
-                    break;
-                case 0x02:
-                    if (ria_in_char >= 0)
-                    {
-                        REGS(0xFFE0) |= 0b01000000;
-                        REGS(0xFFE2) = ria_in_char;
-                        ria_in_char = -1;
-                    }
-                    else
-                    {
-                        REGS(0xFFE0) &= ~0b01000000;
-                        REGS(0xFFE2) = 0;
-                    }
-                    break;
-                case 0x01:
-                    uart_get_hw(RIA_UART)->dr = data;
-                    if (uart_is_writable(RIA_UART))
-                        REGS(0xFFE0) |= 0b10000000;
-                    else
-                        REGS(0xFFE0) &= ~0b10000000;
-                    break;
-                case 0x00:
-                    if (uart_is_writable(RIA_UART))
-                        REGS(0xFFE0) |= 0b10000000;
-                    else
-                        REGS(0xFFE0) &= ~0b10000000;
-                    if (!(REGS(0xFFE0) & 0b01000000) && ria_in_char >= 0)
-                    {
-                        REGS(0xFFE0) |= 0b01000000;
-                        REGS(0xFFE2) = ria_in_char;
-                        ria_in_char = -1;
-                    }
-                    break;
                 }
+                else if (rw_in_progress)
+                    switch (addr)
+                    {
+                    case 0x1C:
+                        ria_action_ram_read(data);
+                        break;
+                    case 0x16:
+                        ria_action_ram_write();
+                        break;
+                    }
+                else
+                    switch (addr)
+                    {
+                    case 0x02:
+                        if (ria_in_char >= 0)
+                        {
+                            REGS(0xFFE0) |= 0b01000000;
+                            REGS(0xFFE2) = ria_in_char;
+                            ria_in_char = -1;
+                        }
+                        else
+                        {
+                            REGS(0xFFE0) &= ~0b01000000;
+                            REGS(0xFFE2) = 0;
+                        }
+                        break;
+                    case 0x01:
+                        uart_get_hw(RIA_UART)->dr = data;
+                        if (uart_is_writable(RIA_UART))
+                            REGS(0xFFE0) |= 0b10000000;
+                        else
+                            REGS(0xFFE0) &= ~0b10000000;
+                        break;
+                    case 0x00:
+                        if (uart_is_writable(RIA_UART))
+                            REGS(0xFFE0) |= 0b10000000;
+                        else
+                            REGS(0xFFE0) &= ~0b10000000;
+                        if (!(REGS(0xFFE0) & 0b01000000) && ria_in_char >= 0)
+                        {
+                            REGS(0xFFE0) |= 0b01000000;
+                            REGS(0xFFE2) = ria_in_char;
+                            ria_in_char = -1;
+                        }
+                        break;
+                    }
             }
         }
     }
@@ -610,7 +611,8 @@ void ria_task()
         mon_halt();
     break_detect = current_break;
 
-    // We need to keep UART FIFO empty or breaks won't come in
+    // We need to keep UART FIFO empty or breaks won't come in.
+    // This maintains a buffer and feeds ria_in_char to the action loop.
     if (!rw_in_progress && ria_is_active())
     {
         int ch = getchar_timeout_us(0);
