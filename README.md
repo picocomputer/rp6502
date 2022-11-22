@@ -50,59 +50,22 @@ FFE1 - UART Tx<br>
 FFE2 - UART Rx<br>
 FFEF - Write anything here to stop 6502<br>
 
-## Examples
-Online assembler:
-https://www.masswerk.at/6502/assembler.html
-```
-.org $0200 ; Hello, World!
-LDX #$00   ; X = 0
-loop:
-BIT $FFE0  ; N = ready to send
-BPL loop   ; If N = 0 goto loop
-LDA text,X ; A = text[X]
-STA $FFE1  ; UART Tx A
-INX        ; X = X + 1
-CMP #$00   ; if A - 0 ...
-BNE loop   ; ... != 0 goto loop
-STA $FFEF  ; Halt 6502
-text:
-.ASCII "Hello, World!"
-.BYTE $0D $0A $00
-```
-```
-0200: A2 00 2C E0 FF 10 FB BD
-0208: 15 02 8D E1 FF E8 C9 00
-0210: D0 F0 8D EF FF 48 65 6C
-0218: 6C 6F 2C 20 57 6F 72 6C
-0220: 64 21 0D 0A 00
-JMP $200
-```
+## Project Status
 
-```
-* = $0200 ; 6522 Blink
-VIA_DDRA = $FF03
-VIA_ORA  = $FF01
-LDA #$FF
-STA VIA_DDRA
-loop:
-LDA #$00
-STA VIA_ORA
-JSR delay
-LDA #$FF
-STA VIA_ORA
-JSR delay
-JMP loop
-delay:
-DEY
-BNE delay
-DEX
-BNE delay
-RTS
-```
-```
-0200: A9 FF 8D 03 FF A9 00 8D
-0208: 01 FF 20 18 02 A9 FF 8D
-0210: 01 FF 20 18 02 4C 05 02
-0218: 88 D0 FD CA D0 FA 60
-jmp $200
-```
+Hardware is tested. Schematic for the reference design is unlikely to change.
+
+Graphics Mode 0, aka Color ANSI Terminal, is working. USB keyboard works. EhBASIC works.
+
+Addressable-memory graphics modes are not yet implemented.
+
+Sound is not yet implemented.
+
+Filesystem is not yet implemented.
+
+## Hardware Notes
+
+The PIX port will likely be "jumpered" into a high-speed graphics bus. However, work on this hasn't started so I left these pins exposed in case someone comes up with a better use for it.
+
+The Pico VGA is optional. Something to control the RIA over the UART Tx/Rx lines is still required. You might, for example, be developing a video system based on other hardware and prefer to have your video chip control the RIA.
+
+The 6522 is optional. You may need to pull-up IRQB/VIRQ if you omit this from the reference design. The GPIOs are not used for anything, but some software may not function without timers.

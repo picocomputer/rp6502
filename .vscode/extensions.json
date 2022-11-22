@@ -2,6 +2,7 @@
   "recommendations": [
     "ms-vscode.cpptools-extension-pack",
     "marus25.cortex-debug",
-    "dan-c-underwood.arm"
+    "dan-c-underwood.arm",
+    "tlgkccampbell.code-ca65"
   ]
 }

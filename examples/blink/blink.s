@@ -1,0 +1,19 @@
+* = $0200
+VIA_DDRA = $FF03
+VIA_ORA  = $FF01
+LDA #$FF
+STA VIA_DDRA
+loop:
+LDA #$00
+STA VIA_ORA
+JSR delay
+LDA #$FF
+STA VIA_ORA
+JSR delay
+JMP loop
+delay:
+DEY
+BNE delay
+DEX
+BNE delay
+RTS

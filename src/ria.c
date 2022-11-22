@@ -326,6 +326,7 @@ void ria_task()
     }
 
     // Reset 6502 when UART break signal received
+    // TODO this currently fails when Rx FIFO full
     static uint32_t break_detect = 0;
     uint32_t current_break = uart_get_hw(RIA_UART)->rsr & UART_UARTRSR_BE_BITS;
     if (current_break)
