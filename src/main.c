@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
 #include "vga.h"
 #include "mon.h"
 #include "ria.h"
@@ -14,6 +13,10 @@
 #include "tusb.h"
 #ifdef RASPBERRYPI_PICO_W
 #include "pico/cyw43_arch.h"
+#endif
+
+#ifndef RP6502_NAME
+#error RP6502_NAME must be defined
 #endif
 
 int main()

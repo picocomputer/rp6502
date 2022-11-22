@@ -6,6 +6,10 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 add_subdirectory(_tinyusb)
 target_include_directories(rp6502_ria PRIVATE _tinyusb)
 
+target_compile_definitions(rp6502_ria PRIVATE
+    RP6502_NAME="Picocomputer 6502"
+)
+
 target_link_libraries(rp6502_ria PRIVATE
     pico_stdlib
     pico_multicore
