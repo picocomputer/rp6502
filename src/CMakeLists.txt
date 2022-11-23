@@ -33,6 +33,8 @@ target_sources(rp6502_ria PRIVATE
     ria/main.c
     ria/mon.c
     ria/msc.c
+    ria/ria_action.c
+    ria/ria_uart.c
     ria/ria.c
 )
 

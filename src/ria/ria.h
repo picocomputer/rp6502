@@ -11,8 +11,25 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void ria_stdio_init();
-void ria_stdio_flush();
+// Content of these 15 pins is bound to the PIO program structure.
+#define RIA_PIN_BASE 6
+#define RIA_CS_PIN (RIA_PIN_BASE + 0)
+#define RIA_RWB_PIN (RIA_PIN_BASE + 1)
+#define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)
+#define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10)
+// These pins may be freely moved around but PHI2 on 21 is strongly
+// recommended since no other pins support clock_gpio_init().
+#define RIA_PHI2_PIN 21
+#define RIA_RESB_PIN 28
+#define RIA_IRQB_PIN 22
+// Use both PIO blocks, constrained by address space
+#define RIA_WRITE_PIO pio0
+#define RIA_WRITE_SM 0
+#define RIA_READ_PIO pio0
+#define RIA_READ_SM 1
+#define RIA_ACTION_PIO pio1
+#define RIA_ACTION_SM 0
+
 void ria_init();
 void ria_task();
 bool ria_is_active();
@@ -23,10 +40,10 @@ uint8_t ria_get_reset_ms();
 uint32_t ria_get_reset_us();
 void ria_set_caps(uint8_t mode);
 uint8_t ria_get_caps();
-void ria_halt();
+void ria_stop();
 void ria_reset();
-void ria_ram_write(uint32_t addr, uint8_t *buf, size_t len);
-void ria_ram_read(uint32_t addr, uint8_t *buf, size_t len);
+void ria_break();
+void ria_done();
 void ria_jmp(uint32_t addr);
 
 #endif /* _RIA_H_ */

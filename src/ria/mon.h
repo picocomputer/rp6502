@@ -8,6 +8,6 @@
 #define _MON_H_
 
 void mon_task();
-void mon_halt();
+void mon_reset();
 
 #endif /* _MON_H_ */

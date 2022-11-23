@@ -7,6 +7,7 @@
 #include "mon.h"
 #include "vga/ansi.h"
 #include "ria.h"
+#include "ria_action.h"
 #include "basic.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
@@ -132,7 +133,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         mon_rw_addr = addr;
         mon_rw_len = (addr | 0xF) - addr + 1;
         mon_state = read;
-        ria_ram_read(mon_rw_addr, mon_readwrite, mon_rw_len);
+        ria_action_ram_read(mon_rw_addr, mon_readwrite, mon_rw_len);
         return;
     }
     uint32_t data = 0x80000000;
@@ -168,7 +169,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     }
     mon_rw_addr = addr;
     mon_state = write;
-    ria_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
+    ria_action_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
     return;
 }
 
@@ -284,7 +285,7 @@ static void cmd_basic(const uint8_t *args, size_t len)
     uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
     for (size_t i = 0; i < MON_RW_SIZE; i++)
         mon_readwrite[i] = rompos[i];
-    ria_ram_write(mon_rw_addr, mon_readwrite, MON_RW_SIZE);
+    ria_action_ram_write(mon_rw_addr, mon_readwrite, MON_RW_SIZE);
 }
 
 static void cmd_help(const uint8_t *args, size_t len)
@@ -528,7 +529,7 @@ void mon_task()
     else if (mon_state == write)
     {
         mon_state = verify;
-        ria_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
+        ria_action_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
     }
     else if (mon_state == verify)
     {
@@ -553,7 +554,7 @@ void mon_task()
     else if (mon_state == basic_load)
     {
         mon_state = basic_verify;
-        ria_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
+        ria_action_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
     }
     else if (mon_state == basic_verify)
     {
@@ -581,17 +582,14 @@ void mon_task()
         uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
         for (size_t i = 0; i < mon_rw_len; i++)
             mon_readwrite[i] = rompos[i];
-        ria_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
+        ria_action_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
     }
 }
 
-// User requested stop by UART break or CTRL-ALT-DEL
-void mon_halt()
+void mon_reset()
 {
-    ria_halt();
     mon_state == idle;
     mon_ansi_state = ansi_state_C0;
     mon_buflen = 0;
     mon_bufpos = 0;
-    puts("\30\33[0m\n" RP6502_NAME);
 }

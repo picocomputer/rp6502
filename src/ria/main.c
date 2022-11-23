@@ -6,6 +6,8 @@
 
 #include "mon.h"
 #include "ria.h"
+#include "ria_action.h"
+#include "ria_uart.h"
 #include "hid.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
@@ -30,12 +32,11 @@ int main()
 #endif
 
     // Initialize UART for terminal
-    ria_stdio_init();
+    ria_uart_init();
 
     // Hello, world.
     puts("\30\33[0m\f\n" RP6502_NAME);
     puts("\33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m 64K RAM SYSTEM\n");
-    ria_stdio_flush();
 
     // Interface Adapter to W65C02S
     ria_init();
@@ -51,6 +52,8 @@ int main()
         hid_task();
         mon_task();
         ria_task();
+        ria_action_task();
+        ria_uart_task();
     }
 
     return 0;

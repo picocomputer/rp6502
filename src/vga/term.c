@@ -436,7 +436,8 @@ void term_task()
     if (absolute_time_diff_us(now, term_timer) < 0)
     {
         term_cursor_set_inv(!term_blink_state);
-        term_timer = delayed_by_us(now, 500000);
+        // 0.3ms drift to avoid blinking cursor trearing
+        term_timer = delayed_by_us(now, 499700);
     }
 }
 
