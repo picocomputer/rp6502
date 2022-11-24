@@ -28,8 +28,7 @@ volatile enum state {
     basic_load,
     basic_verify
 } mon_state = idle;
-static uint8_t mon_readwrite[MON_RW_SIZE];
-static uint8_t mon_verify[MON_RW_SIZE];
+static uint8_t mon_rw_buf[MON_RW_SIZE];
 uint32_t mon_rw_addr;
 size_t mon_rw_len;
 
@@ -133,7 +132,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         mon_rw_addr = addr;
         mon_rw_len = (addr | 0xF) - addr + 1;
         mon_state = read;
-        ria_action_ram_read(mon_rw_addr, mon_readwrite, mon_rw_len);
+        ria_action_ram_read(mon_rw_addr, mon_rw_buf, mon_rw_len);
         return;
     }
     uint32_t data = 0x80000000;
@@ -152,7 +151,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         {
             if (data < 0x100)
             {
-                mon_readwrite[mon_rw_len++] = data;
+                mon_rw_buf[mon_rw_len++] = data;
                 data = 0x80000000;
             }
             else
@@ -169,7 +168,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     }
     mon_rw_addr = addr;
     mon_state = write;
-    ria_action_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
+    ria_action_ram_write(mon_rw_addr, mon_rw_buf, mon_rw_len);
     return;
 }
 
@@ -238,7 +237,7 @@ static void cmd_jmp(const uint8_t *args, size_t len)
         printf("?invalid address\n");
         return;
     }
-    ria_jmp(addr);
+    ria_action_jmp(addr);
 }
 
 static void cmd_start(const uint8_t *args, size_t len)
@@ -282,10 +281,10 @@ static void cmd_basic(const uint8_t *args, size_t len)
     mon_state = basic_load;
     mon_rw_addr = BASIC_ROM_START;
     mon_rw_len = MON_RW_SIZE;
-    uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
+    const uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
     for (size_t i = 0; i < MON_RW_SIZE; i++)
-        mon_readwrite[i] = rompos[i];
-    ria_action_ram_write(mon_rw_addr, mon_readwrite, MON_RW_SIZE);
+        mon_rw_buf[i] = rompos[i];
+    ria_action_ram_write(mon_rw_addr, mon_rw_buf, MON_RW_SIZE);
 }
 
 static void cmd_help(const uint8_t *args, size_t len)
@@ -492,6 +491,7 @@ void mon_task()
 {
     if (ria_is_active())
         return;
+
     if (mon_state == idle)
     {
         int ch = getchar_timeout_us(0);
@@ -516,73 +516,58 @@ void mon_task()
             }
         return;
     }
-    else if (mon_state == read)
+    else
     {
+        int32_t result = ria_action_result();
+        if (result != -1)
+        {
+            mon_state = idle;
+            if (result == -2)
+                printf("?watchdog timeout\n");
+            else
+                printf("?verify failed at $%04X\n", result);
+        }
+    }
+
+    switch (mon_state)
+    {
+    case read:
         mon_state = idle;
         printf("%04X:", mon_rw_addr);
         for (size_t i = 0; i < mon_rw_len; i++)
         {
-            printf(" %02X", mon_readwrite[i]);
+            printf(" %02X", mon_rw_buf[i]);
         }
         printf("\n");
-    }
-    else if (mon_state == write)
-    {
+        break;
+    case write:
         mon_state = verify;
-        ria_action_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
-    }
-    else if (mon_state == verify)
-    {
+        ria_action_ram_verify(mon_rw_addr, mon_rw_buf, mon_rw_len);
+        break;
+    case verify:
         mon_state = idle;
-        for (size_t i = 0; i < mon_rw_len; i++)
-        {
-            if (mon_rw_addr + i < 0xFF00 || mon_rw_addr + i >= 0xFFFA)
-            {
-                if (mon_readwrite[i] != mon_verify[i])
-                {
-                    printf("%04X:", mon_rw_addr);
-                    for (size_t i = 0; i < mon_rw_len; i++)
-                    {
-                        printf(" %02X", mon_verify[i]);
-                    }
-                    printf(" ERROR ERROR ERROR\n");
-                    break;
-                }
-            }
-        }
-    }
-    else if (mon_state == basic_load)
-    {
+        break;
+    case basic_load:
         mon_state = basic_verify;
-        ria_action_ram_read(mon_rw_addr, mon_verify, mon_rw_len);
-    }
-    else if (mon_state == basic_verify)
-    {
-        mon_state = idle;
-        for (size_t i = 0; i < mon_rw_len; i++)
-        {
-            if (mon_rw_addr + i < 0xFF00)
-            {
-                if (mon_readwrite[i] != mon_verify[i])
-                {
-                    printf("Load error at %04X\n", mon_rw_addr + i);
-                    return;
-                }
-            }
-        }
-
+        ria_action_ram_verify(mon_rw_addr, mon_rw_buf, mon_rw_len);
+        break;
+    case basic_verify:
         mon_rw_addr += MON_RW_SIZE;
         if (mon_rw_addr >= BASIC_ROM_START + BASIC_ROM_SIZE)
         {
+            mon_state = idle;
             ria_reset();
-            return;
         }
-        mon_rw_len = MON_RW_SIZE;
-        mon_state = basic_load;
-        uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
-        for (size_t i = 0; i < mon_rw_len; i++)
-            mon_readwrite[i] = rompos[i];
-        ria_action_ram_write(mon_rw_addr, mon_readwrite, mon_rw_len);
+        else
+        {
+            mon_state = basic_load;
+            mon_rw_len = MON_RW_SIZE;
+            const uint8_t *rompos = &basicrom[mon_rw_addr - BASIC_ROM_START];
+            for (size_t i = 0; i < mon_rw_len; i++)
+                mon_rw_buf[i] = rompos[i];
+            ria_action_ram_write(mon_rw_addr, mon_rw_buf, mon_rw_len);
+        }
+        break;
     }
 }
 

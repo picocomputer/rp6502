@@ -10,8 +10,8 @@
 #include "pico/stdlib.h"
 
 volatile int ria_uart_rx_char;
-static size_t ria_in_start = 0;
-static size_t ria_in_end = 0;
+static size_t ria_in_start;
+static size_t ria_in_end;
 static uint8_t ria_in_buf[32];
 #define RIA_IN_BUF(pos) ria_in_buf[pos & 0x1F]
 
@@ -19,12 +19,17 @@ void ria_uart_init()
 {
     stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE,
                          RIA_UART_TX_PIN, RIA_UART_RX_PIN);
+    ria_uart_reset();
+}
+
+void ria_uart_reset()
+{
+    ria_uart_rx_char = -1;
+    ria_in_start = ria_in_end = 0;
 }
 
 void ria_uart_flush()
 {
-    ria_uart_rx_char = -1;
-    ria_in_start = ria_in_end = 0;
     while (getchar_timeout_us(0) >= 0)
         tight_loop_contents();
     while (!(uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFE_BITS))

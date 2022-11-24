@@ -44,6 +44,5 @@ void ria_stop();
 void ria_reset();
 void ria_break();
 void ria_done();
-void ria_jmp(uint32_t addr);
 
 #endif /* _RIA_H_ */

@@ -39,8 +39,8 @@ void ria_stop()
     REGS(0xFFE0) = 0;
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     ria_get_reset_us());
+    ria_uart_reset();
     ria_action_reset();
-    ria_uart_flush();
 }
 
 // Start or reset the 6502
@@ -57,6 +57,7 @@ void ria_break()
 {
     ria_stop();
     mon_reset();
+    ria_uart_flush();
     puts("\30\33[0m\n" RP6502_NAME);
 }
 
@@ -227,7 +228,7 @@ uint8_t ria_get_reset_ms()
 uint32_t ria_get_reset_us()
 {
     if (!ria_reset_ms)
-        return (2000001 / ria_get_phi2_khz() + 999) / 1000;
+        return (2000000 / ria_get_phi2_khz() + 999) / 1000;
     if (ria_phi2_khz == 1 && ria_reset_ms == 1)
         return 2000;
     return ria_reset_ms * 1000;
@@ -241,26 +242,6 @@ void ria_set_caps(uint8_t mode)
 uint8_t ria_get_caps()
 {
     return ria_caps;
-}
-
-void ria_jmp(uint32_t addr)
-{
-    ria_stop();
-    // Reset vector
-    REGSW(0xFFFC) = 0xFFF0;
-    // RESB doesn't clear these
-    // FFF0  D8        CLD      ; clear decimal mode
-    // FFF1  A2 FF     LDX #$FF ; top of stack
-    // FFF3  9A        TXS      ; set the stack
-    // FFF4  4C 00 00  JMP $0000
-    REGS(0xFFF0) = 0xD8;
-    REGS(0xFFF1) = 0xA2;
-    REGS(0xFFF2) = 0xFF;
-    REGS(0xFFF3) = 0x9A;
-    REGS(0xFFF4) = 0x4C;
-    REGS(0xFFF5) = addr & 0xFF;
-    REGS(0xFFF6) = addr >> 8;
-    ria_reset();
 }
 
 void ria_init()

@@ -16,6 +16,7 @@ extern volatile int ria_uart_rx_char;
 
 void ria_uart_task();
 void ria_uart_init();
+void ria_uart_reset();
 void ria_uart_flush();
 
 #endif /* _RIA_UART_H_ */
