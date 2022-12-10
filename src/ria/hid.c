@@ -31,11 +31,15 @@ static struct
 #define HID_REPEAT_DELAY 500000
 #define HID_REPEAT_RATE 30000
 static absolute_time_t key_repeat_timer = {0};
-static hid_keyboard_report_t key_prev_report = {0, 0, {0}};
+static uint8_t key_repeat_keycode = 0;
+static hid_keyboard_report_t key_prev_report = {0, 0, {0, 0, 0, 0, 0, 0}};
 static char key_queue[8];
 static uint8_t key_queue_in = 0;
 static uint8_t key_queue_out = 0;
 static bool terminal_visible = true;
+
+static char const __in_flash("keycode_to_ascii")
+    KEYCODE_TO_ASCII[128][2] = {HID_KEYCODE_TO_ASCII};
 
 static void hid_queue_key_str(const char *str)
 {
@@ -45,11 +49,13 @@ static void hid_queue_key_str(const char *str)
 
 static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
+    key_repeat_keycode = keycode;
     key_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? HID_REPEAT_DELAY : HID_REPEAT_RATE);
     modifier = ((modifier & 0xf0) >> 4) | (modifier & 0x0f); // merge modifiers to left
-    static char const keycode_to_ascii[128][2] = {HID_KEYCODE_TO_ASCII};
-    char ch = keycode_to_ascii[keycode][modifier & KEYBOARD_MODIFIER_LEFTSHIFT ? 1 : 0];
+    char ch = keycode > 127
+                  ? 0
+                  : KEYCODE_TO_ASCII[keycode][modifier & KEYBOARD_MODIFIER_LEFTSHIFT ? 1 : 0];
     if (modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_LEFTGUI))
         ch = 0;
     if (modifier & KEYBOARD_MODIFIER_LEFTCTRL)
@@ -162,12 +168,21 @@ static void hid_kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_repo
     static uint8_t prev_dev_addr = 0;
     static uint8_t prev_instance = 0;
     // Only support key presses on one keyboard at a time.
-    if (key_prev_report.keycode[0] && ((prev_dev_addr != dev_addr) || (prev_instance != instance)))
+    if (key_prev_report.keycode[0] >= HID_KEY_A &&
+        ((prev_dev_addr != dev_addr) || (prev_instance != instance)))
         return;
+    uint8_t modifier = report->modifier;
     for (uint8_t i = 0; i < 6; i++)
     {
         uint8_t keycode = report->keycode[i];
-        if (keycode)
+        if (keycode >= HID_KEY_CONTROL_LEFT && keycode <= HID_KEY_GUI_RIGHT)
+            modifier |= 1 << (keycode & 7);
+    }
+    for (uint8_t i = 0; i < 6; i++)
+    {
+        uint8_t keycode = report->keycode[i];
+        if (keycode >= HID_KEY_A &&
+            !(keycode >= HID_KEY_CONTROL_LEFT && keycode <= HID_KEY_GUI_RIGHT))
         {
             bool held = false;
             for (uint8_t j = 0; j < 6; j++)
@@ -176,12 +191,13 @@ static void hid_kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_repo
                     held = true;
             }
             if (!held)
-                hid_queue_key(report->modifier, keycode, true);
+                hid_queue_key(modifier, keycode, true);
         }
     }
     prev_dev_addr = dev_addr;
     prev_instance = instance;
     key_prev_report = *report;
+    key_prev_report.modifier = modifier;
 }
 
 static void hid_mouse_report(hid_mouse_report_t const *report)
@@ -251,19 +267,18 @@ void hid_init()
 
 void hid_task()
 {
-    absolute_time_t now = get_absolute_time();
-    if (absolute_time_diff_us(now, key_repeat_timer) < 0)
+    if (key_repeat_keycode && absolute_time_diff_us(get_absolute_time(), key_repeat_timer) < 0)
     {
         for (uint8_t i = 0; i < 6; i++)
         {
             uint8_t keycode = key_prev_report.keycode[5 - i];
-            if (keycode)
+            if (key_repeat_keycode == keycode)
             {
                 hid_queue_key(key_prev_report.modifier, keycode, false);
                 return;
             }
         }
-        key_repeat_timer = delayed_by_us(get_absolute_time(), 1000000);
+        key_repeat_keycode = 0;
     }
 }
 
