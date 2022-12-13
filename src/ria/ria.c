@@ -252,6 +252,7 @@ void ria_init()
     // Adjustments for GPIO performance. Important!
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
     {
+        gpio_set_pulls(i, true, true);
         gpio_set_input_hysteresis_enabled(i, false);
         hw_set_bits(&pio0->input_sync_bypass, 1u << i);
         hw_set_bits(&pio1->input_sync_bypass, 1u << i);
