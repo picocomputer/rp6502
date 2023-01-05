@@ -1,4 +1,24 @@
-add_subdirectory(tinyusb)
+# Bleeding edge tinyusb needed for mass storage devices
+
+add_library(tinyusb_ria STATIC EXCLUDE_FROM_ALL)
+
+target_include_directories(tinyusb_ria PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
+    ria
+)
+
+file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
+
+target_link_libraries(tinyusb_ria PUBLIC
+    pico_stdlib
+)
+
+target_sources(tinyusb_ria PRIVATE
+    ${TINY_USB_SRC_FILES}
+)
+
+
+# The Pi Pico RIA
 
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
@@ -7,7 +27,8 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
-    tinyusb
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
+    ria
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
@@ -19,7 +40,7 @@ target_link_libraries(rp6502_ria PRIVATE
     pico_multicore
     hardware_pio
     hardware_dma
-    tinyusb
+    tinyusb_ria
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -38,6 +59,8 @@ target_sources(rp6502_ria PRIVATE
     ria/ria.c
 )
 
+
+# The Pi Pico RIA
 
 add_executable(rp6502_vga)
 pico_add_extra_outputs(rp6502_vga)
