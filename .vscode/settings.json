@@ -13,7 +13,6 @@
       "visibility": "hidden"
     },
   },
-  "cmake.configureOnOpen": false,
   "cmake.buildBeforeRun": true,
   "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
   "files.associations": {

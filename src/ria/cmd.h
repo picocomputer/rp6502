@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2023 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#ifndef _CMD_H_
+#define _CMD_H_
+
+#include <stdint.h>
+
+void cmd_dispatch(const uint8_t *buf, uint8_t buflen);
+
+#endif /* _CMD_H_ */

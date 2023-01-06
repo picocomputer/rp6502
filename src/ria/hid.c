@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "ria.h"
 #include "hid.h"
-#include "vga/ansi.h"
+#include "ansi.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
