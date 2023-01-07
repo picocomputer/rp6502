@@ -40,6 +40,7 @@ target_link_libraries(rp6502_ria PRIVATE
     pico_multicore
     hardware_pio
     hardware_dma
+    hardware_flash
     tinyusb_ria
 )
 
@@ -47,11 +48,17 @@ pico_generate_pio_header(rp6502_ria
     ${CMAKE_CURRENT_LIST_DIR}/ria/ria.pio
 )
 
+target_compile_definitions(rp6502_ria PRIVATE
+    LFS_NO_MALLOC=1
+    RIA_CODE_PAGE=437
+)
+
 target_sources(rp6502_ria PRIVATE
     vram.c
     ria/cmd.c
     ria/hid_ps4.c
     ria/hid.c
+    ria/lfs.c
     ria/main.c
     ria/mon.c
     ria/msc.c
@@ -60,6 +67,8 @@ target_sources(rp6502_ria PRIVATE
     ria/ria.c
     fatfs/ff.c
     fatfs/ffunicode.c
+    littlefs/lfs.c
+    littlefs/lfs_util.c
 )
 
 

@@ -206,17 +206,6 @@ static void cmd_reset(const uint8_t *args, size_t len)
     status_reset();
 }
 
-static void cmd_jmp(const uint8_t *args, size_t len)
-{
-    int32_t addr = arg_to_int32(args, len);
-    if (!len || addr < 0 || addr > 0xFFFF)
-    {
-        printf("?invalid address\n");
-        return;
-    }
-    ria_action_jmp(addr);
-}
-
 static void cmd_start(const uint8_t *args, size_t len)
 {
     ria_reset();
@@ -270,7 +259,6 @@ static void cmd_help(const uint8_t *args, size_t len)
         "CAPS (0|1|2) - Invert or force caps while 6502 is running.\n"
         "SPEED (kHz)  - Query or set PHI2 speed. This is the 6502 clock.\n"
         "RESET (ms)   - Query or set RESB hold time. Set to 0 for auto.\n"
-        "JMP address  - Start the 6502. Begin execution at address.\n"
         "START        - Start the 6502. Begin execution at ($FFFC).\n"
         "F000         - Read memory.\n"
         "F000: 01 02  - Write memory. Colon optional.\n");
@@ -287,7 +275,6 @@ struct
     {5, "speed", cmd_speed},
     {5, "reset", cmd_reset},
     {4, "caps", cmd_caps},
-    {3, "jmp", cmd_jmp},
     {5, "start", cmd_start},
     {6, "status", cmd_status},
     {4, "help", cmd_help},

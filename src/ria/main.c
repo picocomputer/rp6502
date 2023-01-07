@@ -9,6 +9,7 @@
 #include "ria_action.h"
 #include "ria_uart.h"
 #include "hid.h"
+#include "lfs.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #ifdef RASPBERRYPI_PICO_W
@@ -45,6 +46,8 @@ int main()
     // mice, joysticks, and storage devices.
     tusb_init();
     hid_init();
+
+    lfs_init();
 
     while (1)
     {

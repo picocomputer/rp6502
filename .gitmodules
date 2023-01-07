@@ -1,3 +1,6 @@
 [submodule "src/tinyusb"]
 	path = src/tinyusb
 	url = https://github.com/hathach/tinyusb.git
+[submodule "src/littlefs"]
+	path = src/littlefs
+	url = https://github.com/littlefs-project/littlefs.git

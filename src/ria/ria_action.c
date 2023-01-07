@@ -99,28 +99,6 @@ void ria_action_task()
     }
 }
 
-void ria_action_jmp(uint16_t addr)
-{
-    action_result = -1;
-    ria_stop();
-    // Reset vector
-    saved_reset_vec = addr;
-    REGSW(0xFFFC) = 0xFFF0;
-    // RESB doesn't clear these
-    // FFF0  D8        CLD      ; clear decimal mode
-    // FFF1  A2 FF     LDX #$FF ; top of stack
-    // FFF3  9A        TXS      ; set the stack
-    // FFF4  4C 00 00  JMP $0000
-    REGS(0xFFF0) = 0xD8;
-    REGS(0xFFF1) = 0xA2;
-    REGS(0xFFF2) = 0xFF;
-    REGS(0xFFF3) = 0x9A;
-    REGS(0xFFF4) = 0x4C;
-    REGS(0xFFF5) = addr & 0xFF;
-    REGS(0xFFF6) = addr >> 8;
-    ria_reset();
-}
-
 static void read_or_verify_setup(uint16_t addr, uint16_t len, bool verify)
 {
     if (!len)

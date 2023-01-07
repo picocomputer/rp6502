@@ -10,9 +10,9 @@ R0.15 w/patch1  (November 6, 2022)
 
 Plenty of room. Turn everything on as needed.
 
+* #define FF_CODE_PAGE   RIA_CODE_PAGE
 * #define FF_FS_NORTC    1
 * #define FF_FS_RPATH    2
-* #define FF_CODE_PAGE   0
 * #define FF_LBA64       1
 * #define FF_FS_EXFAT    1
 * #define FF_USE_LFN     1
