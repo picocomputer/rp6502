@@ -18,21 +18,6 @@ target_sources(tinyusb_ria PRIVATE
 )
 
 
-# FAT file system
-
-add_library(fatfs STATIC EXCLUDE_FROM_ALL)
-
-target_include_directories(fatfs PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/lib/fatfs/source
-)
-
-target_sources(fatfs PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/lib/fatfs/source/ff.c
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/lib/fatfs/source/ffsystem.c
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/lib/fatfs/source/ffunicode.c
-)
-
-
 # The Pi Pico RIA
 
 add_executable(rp6502_ria)
@@ -43,7 +28,6 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/lib/fatfs/source
     ria
 )
 
@@ -57,7 +41,6 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_pio
     hardware_dma
     tinyusb_ria
-    fatfs
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -75,6 +58,8 @@ target_sources(rp6502_ria PRIVATE
     ria/ria_action.c
     ria/ria_uart.c
     ria/ria.c
+    fatfs/ff.c
+    fatfs/ffunicode.c
 )
 
 

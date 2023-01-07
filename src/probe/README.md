@@ -15,3 +15,5 @@ picoprobe_config.h changes GPIO pins.
 #define PROBE_PIN_OFFSET 22
 #define PROBE_PIN_SWCLK PROBE_PIN_OFFSET + 0 // 22
 #define PROBE_PIN_SWDIO PROBE_PIN_OFFSET + 6 // 28
+
+usb_descriptors.c to 500 mA

@@ -5,8 +5,8 @@
  */
 
 #include "tusb.h"
-#include "ff.h"
-#include "diskio.h"
+#include "fatfs/ff.h"
+#include "fatfs/diskio.h"
 
 static scsi_inquiry_resp_t inquiry_resp;
 
@@ -37,9 +37,11 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
     char drive_path[3] = "0:";
     drive_path[0] += drive_num;
 
-    if (f_mount(&fatfs[drive_num], drive_path, 1) != FR_OK)
+    FRESULT mount_result = f_mount(&fatfs[drive_num], drive_path, 1);
+    if (mount_result != FR_OK)
     {
-        puts("mount failed");
+        printf("?mount failed %d\n", mount_result);
+        return false;
     }
 
     // change to newly mounted drive
