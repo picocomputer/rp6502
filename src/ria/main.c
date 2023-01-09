@@ -1,15 +1,16 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "cmd.h"
 #include "mon.h"
 #include "ria.h"
 #include "ria_action.h"
 #include "ria_uart.h"
 #include "hid.h"
-#include "lfs.h"
+#include "rom.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #ifdef RASPBERRYPI_PICO_W
@@ -47,13 +48,14 @@ int main()
     tusb_init();
     hid_init();
 
-    lfs_init();
+    rom_init();
 
     while (1)
     {
         tuh_task();
         hid_task();
         mon_task();
+        cmd_task();
         ria_task();
         ria_action_task();
         ria_uart_task();

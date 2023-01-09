@@ -4,7 +4,7 @@ add_library(tinyusb_ria STATIC EXCLUDE_FROM_ALL)
 
 target_include_directories(tinyusb_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    ria
+    usb
 )
 
 file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
@@ -28,7 +28,7 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    ria
+    usb
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
@@ -56,15 +56,15 @@ target_compile_definitions(rp6502_ria PRIVATE
 target_sources(rp6502_ria PRIVATE
     vram.c
     ria/cmd.c
-    ria/hid_ps4.c
-    ria/hid.c
-    ria/lfs.c
+    usb/hid_ps4.c
+    usb/hid.c
     ria/main.c
     ria/mon.c
-    ria/msc.c
+    usb/msc.c
     ria/ria_action.c
     ria/ria_uart.c
     ria/ria.c
+    ria/rom.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c

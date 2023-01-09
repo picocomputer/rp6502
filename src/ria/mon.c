@@ -20,15 +20,6 @@ static uint8_t mon_buflen = 0;
 static uint8_t mon_bufpos = 0;
 static ansi_state_t mon_ansi_state = ansi_state_C0;
 static int mon_ansi_param;
-static volatile enum state {
-    idle,
-    read,
-    write,
-    verify,
-} mon_state = idle;
-static uint8_t *mon_rw_data;
-static uint32_t mon_rw_addr;
-static size_t mon_rw_len;
 
 static void mon_enter()
 {
@@ -149,8 +140,12 @@ static void mon_state_CSI(char ch)
         mon_delete();
 }
 
-static void mon_char(int ch)
+void mon_task()
 {
+    if (ria_is_active() || cmd_is_active())
+        return;
+
+    int ch = getchar_timeout_us(0);
     if (ch == ANSI_CANCEL)
         mon_ansi_state = ansi_state_C0;
     else if (ch != PICO_ERROR_TIMEOUT)
@@ -172,67 +167,8 @@ static void mon_char(int ch)
         }
 }
 
-void mon_task()
-{
-    if (ria_is_active())
-        return;
-
-    if (mon_state == idle)
-        return mon_char(getchar_timeout_us(0));
-
-    int32_t result = ria_action_result();
-    if (result != -1)
-    {
-        mon_state = idle;
-        if (result == -2)
-            printf("?watchdog timeout\n");
-        else
-            printf("?verify failed at $%04X\n", result);
-    }
-
-    switch (mon_state)
-    {
-    case read:
-        mon_state = idle;
-        //TODO move to cmd
-        printf("%04X:", mon_rw_addr);
-        for (size_t i = 0; i < mon_rw_len; i++)
-        {
-            printf(" %02X", mon_rw_data[i]);
-        }
-        printf("\n");
-        break;
-    case write:
-        mon_state = verify;
-        ria_action_ram_verify(mon_rw_addr, mon_rw_data, mon_rw_len);
-        break;
-    case verify:
-        mon_state = idle;
-        break;
-    }
-}
-
-void mon_read(uint16_t addr, uint8_t *data, uint16_t len)
-{
-    mon_state = read;
-    mon_rw_addr = addr;
-    mon_rw_data = data;
-    mon_rw_len = len;
-    ria_action_ram_read(addr, data, len);
-}
-
-void mon_write(uint16_t addr, uint8_t *data, uint16_t len)
-{
-    mon_state = write;
-    mon_rw_addr = addr;
-    mon_rw_data = data;
-    mon_rw_len = len;
-    ria_action_ram_write(addr, data, len);
-}
-
 void mon_reset()
 {
-    mon_state == idle;
     mon_ansi_state = ansi_state_C0;
     mon_buflen = 0;
     mon_bufpos = 0;

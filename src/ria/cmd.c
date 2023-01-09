@@ -12,8 +12,16 @@
 #include <stdio.h>
 #include "hardware/clocks.h"
 
-#define MON_RW_SIZE 512
+#define MON_RW_SIZE 1024
 static uint8_t rw_buf[MON_RW_SIZE];
+static volatile enum state {
+    idle,
+    read,
+    write,
+    verify,
+} mon_state = idle;
+static uint32_t rw_addr;
+static size_t rw_len;
 
 static bool is_hex(uint8_t ch)
 {
@@ -110,13 +118,16 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         printf("?invalid address\n");
         return;
     }
+    rw_addr = addr;
     if (!len)
     {
-        mon_read(addr, rw_buf, (addr | 0xF) - addr + 1);
+        rw_len = (addr | 0xF) - addr + 1;
+        ria_action_ram_read(addr, rw_buf, rw_len);
+        mon_state = read;
         return;
     }
     uint32_t data = 0x80000000;
-    uint16_t rw_len = 0;
+    rw_len = 0;
     for (size_t i = 0; i < len; i++)
     {
         uint8_t ch = args[i];
@@ -146,7 +157,8 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
             }
         }
     }
-    mon_write(addr, rw_buf, rw_len);
+    ria_action_ram_write(addr, rw_buf, rw_len);
+    mon_state = write;
 }
 
 static void status_speed()
@@ -324,7 +336,7 @@ void cmd_dispatch(const uint8_t *buf, uint8_t buflen)
     const char *args = buf + i;
     size_t args_len = buflen - i;
 
-    // cd for chdir, cd: for r/w address
+    // cd for chdir, 0cd or cd: for r/w address
     if (cmd_len == 2 && addr == 0xCD)
         is_not_addr = true;
 
@@ -340,4 +352,54 @@ void cmd_dispatch(const uint8_t *buf, uint8_t buflen)
     }
     if (cmd_len)
         printf("?unknown command\n");
+}
+
+void cmd_task()
+{
+    if (ria_is_active())
+        return;
+
+    if (mon_state != idle)
+    {
+        int32_t result = ria_action_result();
+        if (result != -1)
+        {
+            mon_state = idle;
+            if (result == -2)
+                printf("?watchdog timeout\n");
+            else
+                printf("?verify failed at $%04X\n", result);
+        }
+    }
+
+    switch (mon_state)
+    {
+    case read:
+        mon_state = idle;
+        // TODO move to cmd
+        printf("%04X:", rw_addr);
+        for (size_t i = 0; i < rw_len; i++)
+        {
+            printf(" %02X", rw_buf[i]);
+        }
+        printf("\n");
+        break;
+    case write:
+        mon_state = verify;
+        ria_action_ram_verify(rw_addr, rw_buf, rw_len);
+        break;
+    case verify:
+        mon_state = idle;
+        break;
+    }
+}
+
+bool cmd_is_active()
+{
+    return !(mon_state == idle);
+}
+
+void cmd_reset_TODO()
+{
+    mon_state = idle;
 }

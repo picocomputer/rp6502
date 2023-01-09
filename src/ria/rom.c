@@ -4,19 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "lfs.h"
+#include "rom.h"
 #include "littlefs/lfs.h"
 #include "hardware/flash.h"
 
-// 1MB ROMDISK - EEPROM littlefs for ROM storage
-#define LFS_ROMDISK_BLOCKS 256
-static_assert(!(LFS_ROMDISK_BLOCKS % 8));
+// 1MB for ROM storage, 512K for Pico W
+#ifdef RASPBERRYPI_PICO_W
+#define ROM_DISK_BLOCKS 128
+#else
+#define ROM_DISK_BLOCKS 256
+#endif
+static_assert(!(ROM_DISK_BLOCKS % 8));
 
-// Our implementaion is limited to a single volume.
-// Using LFS_NO_MALLOC since only 1 file handle is needed.
-// Picocomputer is copy_to_ram with exceptions for large
-// character conversion tables. Nothing uses this on interrupts.
-// Interrupts are not disabled during flash programming.
+// Our implementaion is limited to a single volume and one file handle.
+// We use LFS_NO_MALLOC and have no need to pause interrupts.
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, void *buffer, lfs_size_t size);
 static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
@@ -24,8 +25,8 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
 static int lfs_erase(const struct lfs_config *c, lfs_block_t block);
 static int lfs_sync(const struct lfs_config *c);
 
-#define LFS_ROMDISK_SIZE (LFS_ROMDISK_BLOCKS * FLASH_SECTOR_SIZE)
-#define LFS_LOOKAHEAD_SIZE LFS_ROMDISK_BLOCKS / 8
+#define LFS_ROMDISK_SIZE (ROM_DISK_BLOCKS * FLASH_SECTOR_SIZE)
+#define LFS_LOOKAHEAD_SIZE ROM_DISK_BLOCKS / 8
 
 static char lfs_read_buffer[FLASH_PAGE_SIZE];
 static char lfs_prog_buffer[FLASH_PAGE_SIZE];
@@ -50,7 +51,7 @@ static struct lfs_config cfg = {
     .lookahead_buffer = lfs_lookahead_buffer,
 };
 lfs_file_t file;
-static struct lfs_file_config file_config = {
+static struct lfs_file_config file_cfg = {
     .buffer = lfs_file_config_buffer,
 };
 
@@ -96,7 +97,7 @@ static int lfs_sync(const struct lfs_config *c)
     return LFS_ERR_OK;
 }
 
-void lfs_init()
+void rom_init()
 {
     // TODO remove this littlefs example from the README
     // mount the filesystem
@@ -112,7 +113,7 @@ void lfs_init()
 
     // read current count
     uint32_t boot_count = 0;
-    lfs_file_opencfg(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT, &file_config);
+    lfs_file_opencfg(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT, &file_cfg);
     lfs_file_read(&lfs, &file, &boot_count, sizeof(boot_count));
 
     // update boot count

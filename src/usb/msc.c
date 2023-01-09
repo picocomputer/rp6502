@@ -8,6 +8,9 @@
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 
+// We are an 8-bit computer, confirm fatfs is too
+static_assert(sizeof(TCHAR) == sizeof(uint8_t));
+
 static scsi_inquiry_resp_t inquiry_resp;
 
 static FATFS fatfs[CFG_TUH_DEVICE_MAX]; // for simplicity only support 1 LUN per device
@@ -160,8 +163,6 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 
 void msc_ls(const uint8_t *args)
 {
-    // TODO I think the monitor should work in TCHARs
-    assert(sizeof TCHAR == sizeof uint8_t);
 
     const uint8_t *dpath = ".";
     if (args[0])
