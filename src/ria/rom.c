@@ -58,6 +58,7 @@ static struct lfs_file_config file_cfg = {
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, void *buffer, lfs_size_t size)
 {
+    (void)(c);
     assert(block < pico_cfg.block_count);
     assert(off + size <= FLASH_SECTOR_SIZE);
     memcpy(buffer,
@@ -72,6 +73,7 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
 static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, const void *buffer, lfs_size_t size)
 {
+    (void)(c);
     assert(block < pico_cfg.block_count);
     uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_ROMDISK_SIZE) +
                           (block * FLASH_SECTOR_SIZE) +
@@ -83,6 +85,7 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
 
 static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
+    (void)(c);
     assert(block < pico_cfg.block_count);
     uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_ROMDISK_SIZE) +
                           (block * FLASH_SECTOR_SIZE);
@@ -93,7 +96,7 @@ static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
 
 static int lfs_sync(const struct lfs_config *c)
 {
-    // RP2040 nop here
+    (void)(c);
     return LFS_ERR_OK;
 }
 
@@ -128,5 +131,5 @@ void rom_init()
     lfs_unmount(&lfs);
 
     // print the boot count
-    printf("lfs test boot_count: %d\n", boot_count);
+    printf("lfs test boot_count: %ld\n", boot_count);
 };

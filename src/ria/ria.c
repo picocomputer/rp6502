@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -24,7 +24,7 @@ static uint32_t ria_phi2_khz;
 static uint8_t ria_reset_ms;
 static uint8_t ria_caps;
 static absolute_time_t ria_reset_timer;
-static volatile enum state {
+static enum state {
     ria_state_stopped,
     ria_state_reset,
     ria_state_run,

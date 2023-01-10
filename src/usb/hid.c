@@ -36,7 +36,6 @@ static hid_keyboard_report_t key_prev_report = {0, 0, {0, 0, 0, 0, 0, 0}};
 static char key_queue[8];
 static uint8_t key_queue_in = 0;
 static uint8_t key_queue_out = 0;
-static bool terminal_visible = true;
 
 static char const __in_flash("keycode_to_ascii")
     KEYCODE_TO_ASCII[128][2] = {HID_KEYCODE_TO_ASCII};
@@ -283,18 +282,18 @@ void hid_task()
 }
 
 // This works, but not through a USB hub.
-static void hid_set_leds()
-{
-    static uint8_t hid_leds = KEYBOARD_LED_SCROLLLOCK;
-    for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
-    {
-        for (uint8_t inst = 0; inst < CFG_TUH_HID; inst++)
-        {
-            uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, inst);
-            if (HID_ITF_PROTOCOL_KEYBOARD == itf_protocol)
-            {
-                tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &hid_leds, sizeof(hid_leds));
-            }
-        }
-    }
-}
+// static void hid_set_leds()
+// {
+//     static uint8_t hid_leds = KEYBOARD_LED_SCROLLLOCK;
+//     for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
+//     {
+//         for (uint8_t inst = 0; inst < CFG_TUH_HID; inst++)
+//         {
+//             uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, inst);
+//             if (HID_ITF_PROTOCOL_KEYBOARD == itf_protocol)
+//             {
+//                 tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &hid_leds, sizeof(hid_leds));
+//             }
+//         }
+//     }
+// }

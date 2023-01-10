@@ -6,16 +6,13 @@
 
 #include "mon.h"
 #include "cmd.h"
-#include "msc.h"
 #include "ansi.h"
 #include "ria.h"
-#include "ria_action.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/clocks.h"
 
 #define MON_BUF_SIZE 80
-static uint8_t mon_buf[MON_BUF_SIZE];
+static char mon_buf[MON_BUF_SIZE];
 static uint8_t mon_buflen = 0;
 static uint8_t mon_bufpos = 0;
 static ansi_state_t mon_ansi_state = ansi_state_C0;

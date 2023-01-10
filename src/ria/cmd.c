@@ -5,7 +5,6 @@
  */
 
 #include "cmd.h"
-#include "mon.h"
 #include "msc.h"
 #include "ria.h"
 #include "ria_action.h"
@@ -23,14 +22,14 @@ static volatile enum state {
 static uint32_t rw_addr;
 static size_t rw_len;
 
-static bool is_hex(uint8_t ch)
+static bool is_hex(char ch)
 {
     return ((ch >= '0') && (ch <= '9')) ||
            ((ch >= 'A') && (ch <= 'F')) ||
            ((ch >= 'a') && (ch <= 'f'));
 }
 
-static uint32_t to_int(uint8_t ch)
+static uint32_t to_int(char ch)
 {
     if ((ch >= '0') && (ch <= '9'))
         return ch - '0';
@@ -38,11 +37,12 @@ static uint32_t to_int(uint8_t ch)
         return ch - 'A' + 10;
     if (ch - 'a' < 6)
         return ch - 'a' + 10;
+    return 0x80000000;
 }
 
 // Expects a single argument in hex or decimal. e.g. 0x0, $0, 0
 // Returns negative value on failure.
-static int32_t arg_to_int32(const uint8_t *args, size_t len)
+static int32_t arg_to_int32(const char *args, size_t len)
 {
     size_t i;
     for (i = 0; i < len; i++)
@@ -67,7 +67,7 @@ static int32_t arg_to_int32(const uint8_t *args, size_t len)
         return -1;
     for (; i < len; i++)
     {
-        uint8_t ch = args[i];
+        char ch = args[i];
         if (is_hex(ch))
         {
             int32_t i = to_int(ch);
@@ -130,7 +130,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     rw_len = 0;
     for (size_t i = 0; i < len; i++)
     {
-        uint8_t ch = args[i];
+        char ch = args[i];
         if (is_hex(ch))
             data = data * 16 + to_int(ch);
         else if (ch != ' ')
@@ -166,7 +166,7 @@ static void status_speed()
     printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
 }
 
-static void cmd_speed(const uint8_t *args, size_t len)
+static void cmd_speed(const char *args, size_t len)
 {
     if (len)
     {
@@ -193,12 +193,12 @@ static void status_reset()
     if (!reset_ms)
         printf("RESB: %.3f ms (auto)\n", reset_us / 1000.f);
     else if (reset_ms * 1000 == reset_us)
-        printf("RESB: %ld ms\n", reset_ms);
+        printf("RESB: %d ms\n", reset_ms);
     else
-        printf("RESB: %.0f ms (%ld ms requested)\n", reset_us / 1000.f, reset_ms);
+        printf("RESB: %.0f ms (%d ms requested)\n", reset_us / 1000.f, reset_ms);
 }
 
-static void cmd_reset(const uint8_t *args, size_t len)
+static void cmd_reset(const char *args, size_t len)
 {
     if (len)
     {
@@ -218,8 +218,10 @@ static void cmd_reset(const uint8_t *args, size_t len)
     status_reset();
 }
 
-static void cmd_start(const uint8_t *args, size_t len)
+static void cmd_start(const char *args, size_t len)
 {
+    (void)(args);
+    (void)(len);
     ria_reset();
 }
 
@@ -229,7 +231,7 @@ static void status_caps()
     printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
 }
 
-static void cmd_caps(const uint8_t *args, size_t len)
+static void cmd_caps(const char *args, size_t len)
 {
     int32_t val = arg_to_int32(args, len);
     if (len)
@@ -244,26 +246,33 @@ static void cmd_caps(const uint8_t *args, size_t len)
     status_caps();
 }
 
-static void cmd_status(const uint8_t *args, size_t len)
+static void cmd_status(const char *args, size_t len)
 {
+    (void)(args);
+    (void)(len);
+
     status_speed();
     status_reset();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     status_caps();
 }
 
-static void cmd_ls(const uint8_t *args, size_t len)
+static void cmd_ls(const char *args, size_t len)
 {
+    (void)(len);
     msc_ls(args);
 }
 
-static void cmd_cd(const uint8_t *args, size_t len)
+static void cmd_cd(const char *args, size_t len)
 {
+    (void)(len);
     msc_cd(args);
 }
 
-static void cmd_help(const uint8_t *args, size_t len)
+static void cmd_help(const char *args, size_t len)
 {
+    (void)(args);
+    (void)(len);
     printf(
         "Commands:\n"
         "HELP         - This help.\n"
@@ -280,7 +289,7 @@ struct
 {
     size_t cmd_len;
     const char *const cmd;
-    void (*func)(const uint8_t *, size_t);
+    void (*func)(const char *, size_t);
 } const COMMANDS[] = {
     {2, "ls", cmd_ls},
     {2, "cd", cmd_cd},
@@ -295,7 +304,7 @@ struct
 };
 const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
-void cmd_dispatch(const uint8_t *buf, uint8_t buflen)
+void cmd_dispatch(const char *buf, uint8_t buflen)
 {
     // find the cmd and args
     size_t i;
@@ -304,7 +313,7 @@ void cmd_dispatch(const uint8_t *buf, uint8_t buflen)
         if (buf[i] != ' ')
             break;
     }
-    const uint8_t *cmd = buf + i;
+    const char *cmd = buf + i;
     uint32_t addr = 0;
     bool is_maybe_addr = false;
     bool is_not_addr = false;
@@ -342,7 +351,10 @@ void cmd_dispatch(const uint8_t *buf, uint8_t buflen)
 
     // address command
     if (is_maybe_addr && !is_not_addr)
-        return cmd_address(addr, args, args_len);
+    {
+        cmd_address(addr, args, args_len);
+        return;
+    }
 
     for (size_t i = 0; i < COMMANDS_COUNT; i++)
     {
@@ -368,7 +380,7 @@ void cmd_task()
             if (result == -2)
                 printf("?watchdog timeout\n");
             else
-                printf("?verify failed at $%04X\n", result);
+                printf("?verify failed at $%04lX\n", result);
         }
     }
 
@@ -377,7 +389,7 @@ void cmd_task()
     case read:
         mon_state = idle;
         // TODO move to cmd
-        printf("%04X:", rw_addr);
+        printf("%04lX:", rw_addr);
         for (size_t i = 0; i < rw_len; i++)
         {
             printf(" %02X", rw_buf[i]);
@@ -390,6 +402,8 @@ void cmd_task()
         break;
     case verify:
         mon_state = idle;
+        break;
+    case idle:
         break;
     }
 }

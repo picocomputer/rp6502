@@ -9,7 +9,7 @@
 #include "fatfs/diskio.h"
 
 // We are an 8-bit computer, confirm fatfs is too
-static_assert(sizeof(TCHAR) == sizeof(uint8_t));
+static_assert(sizeof(TCHAR) == sizeof(char));
 
 static scsi_inquiry_resp_t inquiry_resp;
 
@@ -105,7 +105,8 @@ DSTATUS disk_status(BYTE pdrv)
 
 DSTATUS disk_initialize(BYTE pdrv)
 {
-    return 0; // nothing to do
+    (void)(pdrv);
+    return 0;
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
@@ -161,10 +162,10 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     return RES_OK;
 }
 
-void msc_ls(const uint8_t *args)
+void msc_ls(const char *args)
 {
 
-    const uint8_t *dpath = ".";
+    const char *dpath = ".";
     if (args[0])
         dpath = args;
 
@@ -190,7 +191,7 @@ void msc_ls(const uint8_t *args)
     f_closedir(&dir);
 }
 
-void msc_cd(const uint8_t *args)
+void msc_cd(const char *args)
 {
     if (!args[0])
     {

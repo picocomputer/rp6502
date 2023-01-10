@@ -33,6 +33,12 @@ target_include_directories(rp6502_ria PRIVATE
 
 target_compile_definitions(rp6502_ria PRIVATE
     RP6502_NAME="Picocomputer 6502"
+    RP6502_CODE_PAGE=437
+    LFS_NO_MALLOC=1
+)
+
+target_compile_options(rp6502_ria PRIVATE
+  -Wall -Wextra
 )
 
 target_link_libraries(rp6502_ria PRIVATE
@@ -46,11 +52,6 @@ target_link_libraries(rp6502_ria PRIVATE
 
 pico_generate_pio_header(rp6502_ria
     ${CMAKE_CURRENT_LIST_DIR}/ria/ria.pio
-)
-
-target_compile_definitions(rp6502_ria PRIVATE
-    LFS_NO_MALLOC=1
-    RIA_CODE_PAGE=437
 )
 
 target_sources(rp6502_ria PRIVATE

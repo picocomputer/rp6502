@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -17,7 +17,7 @@
 // allow 16-byte read/write operations at 1 kHz.
 #define RIA_ACTION_WATCHDOG_MS 200
 
-static volatile enum state {
+static enum state {
     action_state_run = 0,
     action_state_read,
     action_state_write,
@@ -147,7 +147,7 @@ void ria_action_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
     read_or_verify_setup(addr, len, false);
 }
 
-static inline void __force_inline ram_read(uint32_t data)
+inline __force_inline static void ram_read(uint32_t data)
 {
     if (rw_pos < rw_end)
     {
@@ -177,7 +177,7 @@ void ria_action_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
     read_or_verify_setup(addr, len, true);
 }
 
-static inline void __force_inline ram_verify(uint32_t data)
+inline __force_inline static void ram_verify(uint32_t data)
 {
     if (rw_pos < rw_end)
     {
@@ -234,7 +234,7 @@ void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
     ria_reset();
 }
 
-static inline void __force_inline ram_write()
+inline __force_inline static void  ram_write()
 {
     if (rw_pos < rw_end)
     {

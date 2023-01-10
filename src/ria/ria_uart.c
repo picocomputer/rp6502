@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -13,7 +13,7 @@ volatile int ria_uart_rx_char;
 static size_t ria_in_start;
 static size_t ria_in_end;
 static uint8_t ria_in_buf[32];
-#define RIA_IN_BUF(pos) ria_in_buf[pos & 0x1F]
+#define RIA_IN_BUF(pos) ria_in_buf[(pos) & 0x1F]
 
 void ria_uart_init()
 {

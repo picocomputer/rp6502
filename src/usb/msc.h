@@ -7,7 +7,7 @@
 #ifndef _MSC_H_
 #define _MSC_H_
 
-void msc_ls(const uint8_t *args);
-void msc_cd(const uint8_t *args);
+void msc_ls(const char *args);
+void msc_cd(const char *args);
 
 #endif /* _MSC_H_ */

@@ -12,7 +12,7 @@
 // Registers are located at the bottom of cpu1 stack.
 // cpu1 runs the ria action loop and uses very little stack.
 extern uint8_t regs[0x20];
-#define REGS(addr) regs[addr & 0x1F]
+#define REGS(addr) regs[(addr) & 0x1F]
 #define REGSW(addr) ((uint16_t *)&REGS(addr))[0]
 asm(".equ regs, 0x20040000");
 

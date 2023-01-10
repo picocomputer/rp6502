@@ -12,6 +12,6 @@
 
 void cmd_task();
 bool cmd_is_active();
-void cmd_dispatch(const uint8_t *buf, uint8_t buflen);
+void cmd_dispatch(const char *buf, uint8_t buflen);
 
 #endif /* _CMD_H_ */
