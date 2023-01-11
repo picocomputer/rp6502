@@ -42,7 +42,6 @@ void ria_set_caps(uint8_t mode);
 uint8_t ria_get_caps();
 void ria_stop();
 void ria_reset();
-void ria_break();
-void ria_done();
+void ria_exit();
 
 #endif /* _RIA_H_ */

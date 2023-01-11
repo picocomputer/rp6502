@@ -28,7 +28,7 @@ static enum state {
     ria_state_stopped,
     ria_state_reset,
     ria_state_run,
-    ria_state_done
+    ria_state_exit
 } volatile ria_state;
 
 // Stop the 6502
@@ -39,8 +39,6 @@ void ria_stop()
     REGS(0xFFE0) = 0;
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     ria_get_reset_us());
-    ria_uart_reset();
-    ria_action_reset();
 }
 
 // Start or reset the 6502
@@ -52,21 +50,12 @@ void ria_reset()
     ria_state = ria_state_reset;
 }
 
-// User requested stop by UART break or CTRL-ALT-DEL
-void ria_break()
-{
-    ria_stop();
-    mon_reset();
-    ria_uart_flush();
-    puts("\30\33[0m\n" RP6502_NAME);
-}
-
 // This will call ria_stop() in the next task loop.
 // It's a safe way for cpu1 to stop the 6502.
-void ria_done()
+void ria_exit()
 {
     gpio_put(RIA_RESB_PIN, false);
-    ria_state = ria_state_done;
+    ria_state = ria_state_exit;
 }
 
 static void ria_write_pio_init()
@@ -309,6 +298,6 @@ void ria_task()
     }
 
     // Stopping event
-    if (ria_state == ria_state_done)
+    if (ria_state == ria_state_exit)
         ria_stop();
 }

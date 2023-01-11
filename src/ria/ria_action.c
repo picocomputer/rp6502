@@ -18,11 +18,12 @@
 #define RIA_ACTION_WATCHDOG_MS 200
 
 static enum state {
-    action_state_run = 0,
+    action_state_idle = 0,
     action_state_read,
     action_state_write,
-    action_state_verify
-} volatile action_state = action_state_run;
+    action_state_verify,
+    action_state_exit
+} volatile action_state = action_state_idle;
 static absolute_time_t action_watchdog_timer;
 static volatile int32_t action_result = -1;
 static int32_t saved_reset_vec = -1;
@@ -45,21 +46,37 @@ int32_t ria_action_result()
 
 void ria_action_reset()
 {
-    action_state = action_state_run;
+    action_state = action_state_idle;
     ria_action_set_address(0xFFE2);
-    if (saved_reset_vec > 0)
+    if (saved_reset_vec >= 0)
     {
         REGSW(0xFFFC) = saved_reset_vec;
         saved_reset_vec = -1;
     }
+}
+
+static void ria_action_start(enum state state)
+{
+    saved_reset_vec = REGSW(0xFFFC);
+    REGSW(0xFFFC) = 0xFFF0;
+    action_state = state;
     action_watchdog_timer = delayed_by_us(get_absolute_time(),
                                           ria_get_reset_us() +
                                               RIA_ACTION_WATCHDOG_MS * 1000);
+    ria_reset();
+}
+
+// This will call ria_action_reset() in the next task loop.
+// It's a safe way for cpu1 to stop the 6502.
+static void ria_action_exit()
+{
+    action_state = action_state_exit;
+    ria_exit();
 }
 
 bool ria_action_in_progress()
 {
-    return action_state != action_state_run;
+    return action_state != action_state_idle && action_state != action_state_exit;
 }
 
 void ria_action_pio_init()
@@ -87,12 +104,16 @@ void ria_action_task()
         printf("RIA_ACTION_PIO->fdebug: %lX\n", fdebug);
     }
 
+    if (action_state == action_state_exit)
+        ria_action_reset();
+
     // check on watchdog
     if (ria_action_in_progress())
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
         {
+            ria_action_reset();
             ria_stop();
             action_result = -2;
         }
@@ -103,9 +124,6 @@ static void read_or_verify_setup(uint16_t addr, uint16_t len, bool verify)
 {
     if (!len)
         return;
-    // Reset vector
-    saved_reset_vec = REGSW(0xFFFC);
-    REGSW(0xFFFC) = 0xFFF0;
     // Self-modifying fast load
     // FFF0  AD 00 00  LDA $0000
     // FFF3  8D FC FF  STA $FFFC/$FFFD
@@ -124,10 +142,9 @@ static void read_or_verify_setup(uint16_t addr, uint16_t len, bool verify)
     rw_end = len;
     rw_pos = 0;
     if (verify)
-        action_state = action_state_verify;
+        ria_action_start(action_state_verify);
     else
-        action_state = action_state_read;
-    ria_reset();
+        ria_action_start(action_state_read);
 }
 
 void ria_action_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
@@ -156,7 +173,7 @@ inline __force_inline static void ram_read(uint32_t data)
         if (++rw_pos == rw_end)
         {
             REGS(0xFFF7) = 0x00;
-            ria_done();
+            ria_action_exit();
         }
     }
 }
@@ -187,7 +204,7 @@ inline __force_inline static void ram_verify(uint32_t data)
         if (++rw_pos == rw_end)
         {
             REGS(0xFFF7) = 0x00;
-            ria_done();
+            ria_action_exit();
         }
     }
 }
@@ -202,11 +219,8 @@ void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
             REGS(addr + len) = buf[len];
     while (len && (addr + len > 0xFF00))
         len--;
-    saved_reset_vec = REGSW(0xFFFC);
     if (!len)
         return;
-    // Reset vector
-    REGSW(0xFFFC) = 0xFFF0;
     // Self-modifying fast load
     // FFF0  A9 00     LDA #$00
     // FFF2  8D 00 00  STA $0000
@@ -224,17 +238,16 @@ void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
     ria_action_set_address(0xFFF6);
-    action_state = action_state_write;
     write_buf = buf;
     rw_end = len;
     // Evil hack because the first few writes with
     // a slow clock (1 kHz) won't actually write to SRAM.
     // This should be investigated further.
     rw_pos = -2;
-    ria_reset();
+    ria_action_start(action_state_write);
 }
 
-inline __force_inline static void  ram_write()
+inline __force_inline static void ram_write()
 {
     if (rw_pos < rw_end)
     {
@@ -247,7 +260,7 @@ inline __force_inline static void  ram_write()
             REGS(0xFFF6) = 0x00;
     }
     else
-        ria_done();
+        ria_action_exit();
 }
 
 void __no_inline_not_in_flash_func(ria_action_loop)()
@@ -279,7 +292,7 @@ void __no_inline_not_in_flash_func(ria_action_loop)()
                     switch (addr)
                     {
                     case 0x0F:
-                        ria_done();
+                        ria_exit();
                         break;
                     case 0x02:
                         if (ria_uart_rx_char >= 0)

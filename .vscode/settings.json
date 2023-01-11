@@ -19,4 +19,9 @@
     "*.h": "c"
   },
   "cortex-debug.registerUseNaturalFormat": true,
+  "search.exclude": {
+    "src/fatfs": true,
+    "src/littlefs": true,
+    "src/tinyusb": true,
+  },
 }

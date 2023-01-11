@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/ria.h"
+#include "ria/main.h"
 #include "hid.h"
 #include "ansi.h"
 #include "tusb.h"
@@ -78,7 +78,7 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
             {
                 key_queue_out = key_queue_in;
-                ria_break();
+                main_break();
             }
             break;
         case HID_KEY_CAPS_LOCK:

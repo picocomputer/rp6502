@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "ria/main.h"
+#include "msc.h"
 #include "tusb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
@@ -13,15 +15,12 @@ static_assert(sizeof(TCHAR) == sizeof(char));
 
 static scsi_inquiry_resp_t inquiry_resp;
 
-static FATFS fatfs[CFG_TUH_DEVICE_MAX]; // for simplicity only support 1 LUN per device
+static FATFS fatfs[CFG_TUH_DEVICE_MAX];
 static volatile bool _disk_busy[CFG_TUH_DEVICE_MAX];
 
 bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
-    msc_cbw_t const *cbw = cb_data->cbw;
-    msc_csw_t const *csw = cb_data->csw;
-
-    if (csw->status != 0)
+    if (cb_data->csw->status != 0)
     {
         printf("USB mass storage device inquiry failed\n");
         return false;
@@ -29,12 +28,6 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
 
     // Print out Vendor ID, Product ID and Rev
     printf("%.8s %.16s rev %.4s\r\n", inquiry_resp.vendor_id, inquiry_resp.product_id, inquiry_resp.product_rev);
-
-    // Get capacity of device
-    uint32_t const block_count = tuh_msc_get_block_count(dev_addr, cbw->lun);
-    uint32_t const block_size = tuh_msc_get_block_size(dev_addr, cbw->lun);
-    printf("Disk Size: %lu MB\r\n", block_count / ((1024 * 1024) / block_size));
-    // printf("Block Count = %lu, Block Size: %lu\r\n", block_count, block_size);
 
     uint8_t const drive_num = dev_addr - 1;
     char drive_path[3] = "0:";
@@ -47,15 +40,10 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
         return false;
     }
 
-    // change to newly mounted drive
+    // change to root of newly mounted drive
+    // TODO only if current dir invalid
     f_chdir(drive_path);
     f_chdrive(drive_path);
-
-    //  char label[34];
-    //  if ( FR_OK == f_getlabel(drive_path, label, NULL) )
-    //  {
-    //    puts(label);
-    //  }
 
     printf("MSC mount: address = %d, drive_path = %s\n", dev_addr, drive_path);
 
@@ -83,10 +71,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 static void wait_for_disk_io(BYTE pdrv)
 {
     while (_disk_busy[pdrv])
-    {
-        // TODO all USB tasks (hid)
-        tuh_task();
-    }
+        main_sys_tasks();
 }
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "ria/main.h"
 #include "ria.h"
 #include "ria_action.h"
 #include "ria_uart.h"
@@ -26,6 +27,7 @@ void ria_uart_reset()
 {
     ria_uart_rx_char = -1;
     ria_in_start = ria_in_end = 0;
+    ria_uart_flush();
 }
 
 void ria_uart_flush()
@@ -63,7 +65,7 @@ void ria_uart_task()
     if (current_break)
         hw_clear_bits(&uart_get_hw(RIA_UART)->rsr, UART_UARTRSR_BITS);
     else if (break_detect)
-        ria_break();
+        main_break();
     break_detect = current_break;
 
     // We need to keep UART FIFO empty or breaks won't come in.
