@@ -273,60 +273,55 @@ void __no_inline_not_in_flash_func(ria_action_loop)()
             uint32_t addr = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
             uint32_t data = addr & 0xFF;
             addr = (addr >> 8) & 0x1F;
-            if (gpio_get(RIA_RESB_PIN))
+            if (((1u << RIA_RESB_PIN) & sio_hw->gpio_in))
             {
-                if (action_state)
-                    switch (addr)
+                switch (addr)
+                {
+                case 0x16:
+                    ram_write();
+                    break;
+                case 0x1D:
+                    ram_read(data);
+                    break;
+                case 0x1C:
+                    ram_verify(data);
+                    break;
+                case 0x0F:
+                    ria_exit();
+                    break;
+                case 0x02:
+                    if (ria_uart_rx_char >= 0)
                     {
-                    case 0x16:
-                        ram_write();
-                        break;
-                    case 0x1D:
-                        ram_read(data);
-                        break;
-                    case 0x1C:
-                        ram_verify(data);
-                        break;
+                        REGS(0xFFE0) |= 0b01000000;
+                        REGS(0xFFE2) = ria_uart_rx_char;
+                        ria_uart_rx_char = -1;
                     }
-                else
-                    switch (addr)
+                    else
                     {
-                    case 0x0F:
-                        ria_exit();
-                        break;
-                    case 0x02:
-                        if (ria_uart_rx_char >= 0)
-                        {
-                            REGS(0xFFE0) |= 0b01000000;
-                            REGS(0xFFE2) = ria_uart_rx_char;
-                            ria_uart_rx_char = -1;
-                        }
-                        else
-                        {
-                            REGS(0xFFE0) &= ~0b01000000;
-                            REGS(0xFFE2) = 0;
-                        }
-                        break;
-                    case 0x01:
-                        uart_get_hw(RIA_UART)->dr = data;
-                        if (uart_is_writable(RIA_UART))
-                            REGS(0xFFE0) |= 0b10000000;
-                        else
-                            REGS(0xFFE0) &= ~0b10000000;
-                        break;
-                    case 0x00:
-                        if (uart_is_writable(RIA_UART))
-                            REGS(0xFFE0) |= 0b10000000;
-                        else
-                            REGS(0xFFE0) &= ~0b10000000;
-                        if (!(REGS(0xFFE0) & 0b01000000) && ria_uart_rx_char >= 0)
-                        {
-                            REGS(0xFFE0) |= 0b01000000;
-                            REGS(0xFFE2) = ria_uart_rx_char;
-                            ria_uart_rx_char = -1;
-                        }
-                        break;
+                        REGS(0xFFE0) &= ~0b01000000;
+                        REGS(0xFFE2) = 0;
                     }
+                    break;
+                case 0x01:
+                    uart_get_hw(RIA_UART)->dr = data;
+                    if (uart_is_writable(RIA_UART))
+                        REGS(0xFFE0) |= 0b10000000;
+                    else
+                        REGS(0xFFE0) &= ~0b10000000;
+                    break;
+                case 0x00:
+                    if (uart_is_writable(RIA_UART))
+                        REGS(0xFFE0) |= 0b10000000;
+                    else
+                        REGS(0xFFE0) &= ~0b10000000;
+                    if (!(REGS(0xFFE0) & 0b01000000) && ria_uart_rx_char >= 0)
+                    {
+                        REGS(0xFFE0) |= 0b01000000;
+                        REGS(0xFFE2) = ria_uart_rx_char;
+                        ria_uart_rx_char = -1;
+                    }
+                    break;
+                }
             }
         }
     }

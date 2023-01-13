@@ -1,6 +1,8 @@
 # FatFs - Generic FAT Filesystem Module
 
-This is the foundation of the RP6502 Operating System.
+From: http://elm-chan.org/fsw/ff/00index_e.html
+
+The ABI of the RP6502 Operating System is based on CC65 calls to FatFs across the RIA.
 
 ## Version
 
@@ -17,6 +19,9 @@ Plenty of room. Turn everything on as needed.
 * #define FF_FS_EXFAT    1
 * #define FF_USE_LFN     1
 * #define FF_FS_LOCK     8
+* #define FF_VOLUMES     9
+
+FF_VOLUMES is 9 because volume 0: is unused so drives can match USB device IDs.
 
 ## Tables in flash
 

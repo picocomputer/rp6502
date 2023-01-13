@@ -59,7 +59,7 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, void *buffer, lfs_size_t size)
 {
     (void)(c);
-    assert(block < pico_cfg.block_count);
+    assert(block < cfg.block_count);
     assert(off + size <= FLASH_SECTOR_SIZE);
     memcpy(buffer,
            (void *)XIP_NOCACHE_NOALLOC_BASE +
@@ -74,7 +74,7 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, const void *buffer, lfs_size_t size)
 {
     (void)(c);
-    assert(block < pico_cfg.block_count);
+    assert(block < cfg.block_count);
     uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_ROMDISK_SIZE) +
                           (block * FLASH_SECTOR_SIZE) +
                           off;
@@ -86,7 +86,7 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
 static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
     (void)(c);
-    assert(block < pico_cfg.block_count);
+    assert(block < cfg.block_count);
     uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_ROMDISK_SIZE) +
                           (block * FLASH_SECTOR_SIZE);
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);

@@ -19,7 +19,6 @@
 #define CFG_TUH_MSC (1)
 #define CFG_TUH_VENDOR (0)
 
-// Support for 8 port hubs
 #define CFG_TUH_DEVICE_MAX (8)
 
 //------------- HID -------------//

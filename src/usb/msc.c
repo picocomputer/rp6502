@@ -5,47 +5,68 @@
  */
 
 #include "ria/main.h"
+#include "dev.h"
 #include "msc.h"
 #include "tusb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
+#include <math.h>
 
 // We are an 8-bit computer, confirm fatfs is too
 static_assert(sizeof(TCHAR) == sizeof(char));
 
 static scsi_inquiry_resp_t inquiry_resp;
 
-static FATFS fatfs[CFG_TUH_DEVICE_MAX];
-static volatile bool _disk_busy[CFG_TUH_DEVICE_MAX];
+static FATFS fatfs[FF_VOLUMES];
+static volatile bool _disk_busy[FF_VOLUMES];
 
 bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
     if (cb_data->csw->status != 0)
     {
-        printf("USB mass storage device inquiry failed\n");
+        dev_printf(dev_addr, "?MSC inquiry failed");
         return false;
     }
 
-    // Print out Vendor ID, Product ID and Rev
-    printf("%.8s %.16s rev %.4s\r\n", inquiry_resp.vendor_id, inquiry_resp.product_id, inquiry_resp.product_rev);
+    // TODO change double to uint64_t
+    const double block_count = tuh_msc_get_block_count(dev_addr, cb_data->cbw->lun);
+    const double block_size = tuh_msc_get_block_size(dev_addr, cb_data->cbw->lun);
+    const char *xb = "MB";
+    double size = block_count * block_size / (1024 * 1024);
+    if (size >= 1000)
+    {
+        xb = "GB";
+        size /= 1024;
+    }
+    if (size >= 1000)
+    {
+        xb = "TB";
+        size /= 1024;
+    }
+    size = ceil(size * 10) / 10;
+    dev_printf(dev_addr, "MSC %.1f %s %.8s %.16s rev %.4s",
+               size, xb,
+               inquiry_resp.vendor_id,
+               inquiry_resp.product_id,
+               inquiry_resp.product_rev);
 
-    uint8_t const drive_num = dev_addr - 1;
     char drive_path[3] = "0:";
-    drive_path[0] += drive_num;
-
-    FRESULT mount_result = f_mount(&fatfs[drive_num], drive_path, 1);
+    drive_path[0] += dev_addr;
+    FRESULT mount_result = f_mount(&fatfs[dev_addr], drive_path, 1);
     if (mount_result != FR_OK)
     {
-        printf("?mount failed %d\n", mount_result);
+        dev_printf(dev_addr, "?MSC device %d mount failed (%d)", dev_addr, mount_result);
         return false;
     }
 
-    // change to root of newly mounted drive
-    // TODO only if current dir invalid
-    f_chdir(drive_path);
-    f_chdrive(drive_path);
-
-    printf("MSC mount: address = %d, drive_path = %s\n", dev_addr, drive_path);
+    // If current directory invalid, change to root of this drive
+    DIR dir;
+    if (FR_OK != f_opendir(&dir, "."))
+    {
+        f_chdrive(drive_path);
+        f_chdir("/");
+    }
+    f_closedir(&dir);
 
     return true;
 }
@@ -53,19 +74,16 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const lun = 0;
+    dev_printf(dev_addr, "MSC mounting");
     tuh_msc_inquiry(dev_addr, lun, &inquiry_resp, inquiry_complete_cb, 0);
 }
 
 void tuh_msc_umount_cb(uint8_t dev_addr)
 {
-    (void)dev_addr;
-    printf("USB mass storage device unmount\n");
-
-    uint8_t const drive_num = dev_addr - 1;
     char drive_path[3] = "0:";
-    drive_path[0] += drive_num;
-
+    drive_path[0] += dev_addr;
     f_unmount(drive_path);
+    dev_printf(dev_addr, "unmounted");
 }
 
 static void wait_for_disk_io(BYTE pdrv)
@@ -78,13 +96,13 @@ static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb
 {
     (void)dev_addr;
     (void)cb_data;
-    _disk_busy[dev_addr - 1] = false;
+    _disk_busy[dev_addr] = false;
     return true;
 }
 
 DSTATUS disk_status(BYTE pdrv)
 {
-    uint8_t dev_addr = pdrv + 1;
+    uint8_t dev_addr = pdrv;
     return tuh_msc_mounted(dev_addr) ? 0 : STA_NODISK;
 }
 
@@ -96,7 +114,7 @@ DSTATUS disk_initialize(BYTE pdrv)
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
-    uint8_t const dev_addr = pdrv + 1;
+    uint8_t const dev_addr = pdrv;
     uint8_t const lun = 0;
 
     _disk_busy[pdrv] = true;
@@ -108,7 +126,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
-    uint8_t const dev_addr = pdrv + 1;
+    uint8_t const dev_addr = pdrv;
     uint8_t const lun = 0;
 
     _disk_busy[pdrv] = true;
@@ -120,7 +138,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
-    uint8_t const dev_addr = pdrv + 1;
+    uint8_t const dev_addr = pdrv;
     uint8_t const lun = 0;
     switch (cmd)
     {

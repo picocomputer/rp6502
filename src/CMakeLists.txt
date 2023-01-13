@@ -57,6 +57,7 @@ pico_generate_pio_header(rp6502_ria
 target_sources(rp6502_ria PRIVATE
     vram.c
     ria/cmd.c
+    usb/dev.c
     usb/hid_ps4.c
     usb/hid.c
     ria/main.c

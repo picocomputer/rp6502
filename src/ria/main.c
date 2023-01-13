@@ -68,6 +68,7 @@ void main_break()
     ria_action_reset();
     ria_uart_reset();
     mon_reset();
+    cmd_reset();
     puts("\30\33[0m\n" RP6502_NAME);
 }
 

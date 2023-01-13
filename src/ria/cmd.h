@@ -11,6 +11,7 @@
 #include <stdbool.h>
 
 void cmd_task();
+void cmd_reset();
 bool cmd_is_active();
 void cmd_dispatch(const char *buf, uint8_t buflen);
 

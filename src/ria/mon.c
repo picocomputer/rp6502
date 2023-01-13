@@ -11,19 +11,19 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
-#define MON_BUF_SIZE 80
+#define MON_BUF_SIZE 79
 static char mon_buf[MON_BUF_SIZE];
 static uint8_t mon_buflen = 0;
 static uint8_t mon_bufpos = 0;
 static ansi_state_t mon_ansi_state = ansi_state_C0;
 static int mon_ansi_param;
+static bool needs_prompt = true;
 
 static void mon_enter()
 {
-
     mon_buf[mon_buflen] = 0;
     cmd_dispatch(mon_buf, mon_buflen);
-    mon_buflen = mon_bufpos = 0;
+    mon_reset();
 }
 
 static void mon_forward(int count)
@@ -80,7 +80,6 @@ static void mon_state_C0(char ch)
     {
         printf("\n");
         mon_enter();
-        mon_buflen = mon_bufpos = 0;
     }
     else if (ch >= 32 && ch < 127 && mon_bufpos < MON_BUF_SIZE - 1)
     {
@@ -140,7 +139,16 @@ static void mon_state_CSI(char ch)
 void mon_task()
 {
     if (ria_is_active() || cmd_is_active())
+    {
+        needs_prompt = true;
         return;
+    }
+
+    if (needs_prompt)
+    {
+        needs_prompt = false;
+        putchar(']');
+    }
 
     int ch = getchar_timeout_us(0);
     if (ch == ANSI_CANCEL)
@@ -169,4 +177,5 @@ void mon_reset()
     mon_ansi_state = ansi_state_C0;
     mon_buflen = 0;
     mon_bufpos = 0;
+    needs_prompt = true;
 }

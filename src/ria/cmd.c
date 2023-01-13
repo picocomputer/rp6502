@@ -8,19 +8,15 @@
 #include "msc.h"
 #include "ria.h"
 #include "ria_action.h"
+#include "usb/dev.h"
 #include <stdio.h>
 #include "hardware/clocks.h"
 
 #define MON_RW_SIZE 1024
 static uint8_t rw_buf[MON_RW_SIZE];
-static volatile enum state {
-    idle,
-    read,
-    write,
-    verify,
-} mon_state = idle;
 static uint32_t rw_addr;
 static size_t rw_len;
+static void (*action_cb)(int32_t) = 0;
 
 static bool is_hex(char ch)
 {
@@ -109,6 +105,47 @@ static int strnicmp(const char *string1, const char *string2, int n)
     return 0;
 }
 
+void cmd_action_error_callback(int32_t result)
+{
+    switch (result)
+    {
+    case -1:
+        // OK
+        break;
+    case -2:
+        printf("?action watchdog timeout\n");
+        break;
+    default:
+        printf("?undefined action error at $%04lX\n", result);
+        break;
+    }
+}
+
+void cmd_read_cb(int32_t result)
+{
+    if (result != -1)
+        return cmd_action_error_callback(result);
+    printf("%04lX:", rw_addr);
+    for (size_t i = 0; i < rw_len; i++)
+        printf(" %02X", rw_buf[i]);
+    printf("\n");
+}
+
+void cmd_verify_cb(int32_t result)
+{
+    if (result < 0)
+        return cmd_action_error_callback(result);
+    printf("?verify failed at $%04lX\n", result);
+}
+
+void cmd_write_cb(int32_t result)
+{
+    if (result != -1)
+        return cmd_action_error_callback(result);
+    action_cb = cmd_verify_cb;
+    ria_action_ram_verify(rw_addr, rw_buf, rw_len);
+}
+
 // Commands that start with a hex address. Read or write memory.
 static void cmd_address(uint32_t addr, const char *args, size_t len)
 {
@@ -123,7 +160,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     {
         rw_len = (addr | 0xF) - addr + 1;
         ria_action_ram_read(addr, rw_buf, rw_len);
-        mon_state = read;
+        action_cb = cmd_read_cb;
         return;
     }
     uint32_t data = 0x80000000;
@@ -158,7 +195,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         }
     }
     ria_action_ram_write(addr, rw_buf, rw_len);
-    mon_state = write;
+    action_cb = cmd_write_cb;
 }
 
 static void status_speed()
@@ -166,7 +203,7 @@ static void status_speed()
     printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
 }
 
-static void cmd_speed(const char *args, size_t len)
+static void cmd_phi2(const char *args, size_t len)
 {
     if (len)
     {
@@ -198,7 +235,7 @@ static void status_reset()
         printf("RESB: %.0f ms (%d ms requested)\n", reset_us / 1000.f, reset_ms);
 }
 
-static void cmd_reset(const char *args, size_t len)
+static void cmd_resb(const char *args, size_t len)
 {
     if (len)
     {
@@ -255,6 +292,7 @@ static void cmd_status(const char *args, size_t len)
     status_reset();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     status_caps();
+    dev_print_all();
 }
 
 static void cmd_ls(const char *args, size_t len)
@@ -278,8 +316,8 @@ static void cmd_help(const char *args, size_t len)
         "HELP         - This help.\n"
         "STATUS       - Show all settings.\n"
         "CAPS (0|1|2) - Invert or force caps while 6502 is running.\n"
-        "SPEED (kHz)  - Query or set PHI2 speed. This is the 6502 clock.\n"
-        "RESET (ms)   - Query or set RESB hold time. Set to 0 for auto.\n"
+        "PHI2 (kHz)   - Query or set PHI2 speed. This is the 6502 clock.\n"
+        "RESB (ms)    - Query or set RESB hold time. Set to 0 for auto.\n"
         "START        - Start the 6502. Begin execution at ($FFFC).\n"
         "F000         - Read memory.\n"
         "F000: 01 02  - Write memory. Colon optional.\n");
@@ -293,8 +331,8 @@ struct
 } const COMMANDS[] = {
     {2, "ls", cmd_ls},
     {2, "cd", cmd_cd},
-    {5, "speed", cmd_speed},
-    {5, "reset", cmd_reset},
+    {4, "phi2", cmd_phi2},
+    {4, "resb", cmd_resb},
     {4, "caps", cmd_caps},
     {5, "start", cmd_start},
     {6, "status", cmd_status},
@@ -371,49 +409,20 @@ void cmd_task()
     if (ria_is_active())
         return;
 
-    if (mon_state != idle)
+    if (action_cb)
     {
-        int32_t result = ria_action_result();
-        if (result != -1)
-        {
-            mon_state = idle;
-            if (result == -2)
-                printf("?watchdog timeout\n");
-            else
-                printf("?verify failed at $%04lX\n", result);
-        }
-    }
-
-    switch (mon_state)
-    {
-    case read:
-        mon_state = idle;
-        // TODO move to cmd
-        printf("%04lX:", rw_addr);
-        for (size_t i = 0; i < rw_len; i++)
-        {
-            printf(" %02X", rw_buf[i]);
-        }
-        printf("\n");
-        break;
-    case write:
-        mon_state = verify;
-        ria_action_ram_verify(rw_addr, rw_buf, rw_len);
-        break;
-    case verify:
-        mon_state = idle;
-        break;
-    case idle:
-        break;
+        void (*current_cb)(int32_t) = action_cb;
+        action_cb = 0;
+        current_cb(ria_action_result());
     }
 }
 
 bool cmd_is_active()
 {
-    return !(mon_state == idle);
+    return action_cb != 0;
 }
 
-void cmd_reset_TODO()
+void cmd_reset()
 {
-    mon_state = idle;
+    action_cb = 0;
 }
