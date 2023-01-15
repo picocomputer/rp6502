@@ -10,12 +10,18 @@
 #include "ria_action.h"
 #include "usb/dev.h"
 #include <stdio.h>
+#include "pico/stdlib.h"
 #include "hardware/clocks.h"
 
 #define MON_RW_SIZE 1024
+#define MON_BINARY_TIMEOUT_MS 200
 static uint8_t rw_buf[MON_RW_SIZE];
+static uint32_t rw_buf_len;
 static uint32_t rw_addr;
-static size_t rw_len;
+static uint32_t rw_len;
+static uint32_t rw_crc;
+static absolute_time_t binary_timer;
+static void (*binary_cb)(void) = 0;
 static void (*action_cb)(int32_t) = 0;
 
 static bool is_hex(char ch)
@@ -33,54 +39,65 @@ static uint32_t to_int(char ch)
         return ch - 'A' + 10;
     if (ch - 'a' < 6)
         return ch - 'a' + 10;
-    return 0x80000000;
+    return 0xFF;
 }
 
-// Expects a single argument in hex or decimal. e.g. 0x0, $0, 0
-// Returns negative value on failure.
-static int32_t arg_to_int32(const char *args, size_t len)
+// A single argument in hex or decimal. e.g. 0x0, $0, 0
+static bool parse_end(const char *args, size_t len)
 {
-    size_t i;
-    for (i = 0; i < len; i++)
+    for (size_t i = 0; i < len; i++)
     {
         if (args[i] != ' ')
+            return false;
+    }
+    return true;
+}
+
+// A single argument in hex or decimal. e.g. 0x0, $0, 0
+static bool parse_uint32(const char **args, size_t *len, uint32_t *result)
+{
+    size_t i;
+    for (i = 0; i < *len; i++)
+    {
+        if ((*args)[i] != ' ')
             break;
     }
-    int32_t base = 10;
-    int32_t value = 0;
-    if (i < len && args[i] == '$')
+    uint32_t base = 10;
+    uint32_t value = 0;
+    uint32_t prefix = 0;
+    if (i < (*len) && (*args)[i] == '$')
     {
         base = 16;
-        i++;
+        prefix = 1;
     }
-    else if (i + 1 < len && args[i] == '0' &&
-             (args[i + 1] == 'x' || args[i + 1] == 'X'))
+    else if (i + 1 < *len && (*args)[i] == '0' &&
+             ((*args)[i + 1] == 'x' || (*args)[i + 1] == 'X'))
     {
         base = 16;
-        i += 2;
+        prefix = 2;
     }
-    if (i == len)
-        return -1;
-    for (; i < len; i++)
+    i = prefix;
+    if (i == *len)
+        return false;
+    for (; i < *len; i++)
     {
-        char ch = args[i];
-        if (is_hex(ch))
-        {
-            int32_t i = to_int(ch);
-            if (i < base)
-            {
-                value = value * base + i;
-                if (value >= 0)
-                    continue;
-            }
-        }
-        for (; i < len; i++)
-        {
-            if (args[i] != ' ')
-                return -1;
-        }
+        char ch = (*args)[i];
+        if (!is_hex(ch))
+            break;
+        uint32_t i = to_int(ch);
+        if (i >= base)
+            return false;
+        value = value * base + i;
     }
-    return value;
+    if (i == prefix)
+        return false;
+    for (; i < *len; i++)
+        if ((*args)[i] != ' ')
+            break;
+    *len -= i;
+    *args += i;
+    *result = value;
+    return true;
 }
 
 // case insensitive string with length limit
@@ -198,32 +215,36 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     action_cb = cmd_write_cb;
 }
 
-static void status_speed()
+static void status_phi2()
 {
     printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
 }
 
 static void cmd_phi2(const char *args, size_t len)
 {
+    uint32_t val;
     if (len)
     {
-        int32_t i = arg_to_int32(args, len);
-        if (i < 0)
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
         {
-            printf("?syntax error\n");
+            if (val > 8000)
+            {
+                printf("?invalid frequency\n");
+                return;
+            }
+            ria_set_phi2_khz(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
             return;
         }
-        if (i > 8000)
-        {
-            printf("?invalid frequency\n");
-            return;
-        }
-        ria_set_phi2_khz(i);
     }
-    status_speed();
+    status_phi2();
 }
 
-static void status_reset()
+static void status_resb()
 {
     uint8_t reset_ms = ria_get_reset_ms();
     float reset_us = ria_get_reset_us();
@@ -237,22 +258,26 @@ static void status_reset()
 
 static void cmd_resb(const char *args, size_t len)
 {
+    uint32_t val;
     if (len)
     {
-        int32_t i = arg_to_int32(args, len);
-        if (i < 0)
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
         {
-            printf("?syntax error\n");
+            if (val > 255)
+            {
+                printf("?invalid duration\n");
+                return;
+            }
+            ria_set_reset_ms(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
             return;
         }
-        if (i > 255)
-        {
-            printf("?invalid duration\n");
-            return;
-        }
-        ria_set_reset_ms(i);
     }
-    status_reset();
+    status_resb();
 }
 
 static void cmd_start(const char *args, size_t len)
@@ -270,15 +295,19 @@ static void status_caps()
 
 static void cmd_caps(const char *args, size_t len)
 {
-    int32_t val = arg_to_int32(args, len);
+    uint32_t val;
     if (len)
     {
-        if (val < 0 || val > 2)
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            ria_set_caps(val);
+        }
+        else
         {
             printf("?invalid argument\n");
             return;
         }
-        ria_set_caps(val);
     }
     status_caps();
 }
@@ -288,11 +317,45 @@ static void cmd_status(const char *args, size_t len)
     (void)(args);
     (void)(len);
 
-    status_speed();
-    status_reset();
+    status_phi2();
+    status_resb();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     status_caps();
     dev_print_all();
+}
+
+static void cmd_binary_callback()
+{
+    // TODO check crc
+    ria_action_ram_write(rw_addr, rw_buf, rw_len);
+    action_cb = cmd_write_cb;
+}
+
+static void cmd_binary(const char *args, size_t len)
+{
+    if (parse_uint32(&args, &len, &rw_addr) &&
+        parse_uint32(&args, &len, &rw_len) &&
+        parse_uint32(&args, &len, &rw_crc) &&
+        parse_end(args, len))
+    {
+        if (rw_addr > 0xFFFF)
+        {
+            printf("?invalid address\n");
+            return;
+        }
+        if (rw_len > 1024 || rw_addr + rw_len > 0x10000)
+        {
+            printf("?invalid length\n");
+            return;
+        }
+        rw_buf_len = 0;
+        binary_cb = cmd_binary_callback;
+        binary_timer = delayed_by_us(get_absolute_time(),
+                                     MON_BINARY_TIMEOUT_MS * 1000);
+
+        return;
+    }
+    printf("?invalid argument\n");
 }
 
 static void cmd_ls(const char *args, size_t len)
@@ -311,16 +374,25 @@ static void cmd_help(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
-    printf(
+    static const char *__in_flash("cmdhelp") cmdhelp =
         "Commands:\n"
-        "HELP         - This help.\n"
-        "STATUS       - Show all settings.\n"
-        "CAPS (0|1|2) - Invert or force caps while 6502 is running.\n"
-        "PHI2 (kHz)   - Query or set PHI2 speed. This is the 6502 clock.\n"
-        "RESB (ms)    - Query or set RESB hold time. Set to 0 for auto.\n"
-        "START        - Start the 6502. Begin execution at ($FFFC).\n"
-        "F000         - Read memory.\n"
-        "F000: 01 02  - Write memory. Colon optional.\n");
+        "HELP (COMMAND)      - This help or expanded help for command.\n"
+        "STATUS              - Show all settings and USB devices.\n"
+        "LS                  - List contents of current directory.\n"
+        "CD (DIR|DRIVE)      - Change to directory or drive.\n"
+        "CAPS (0|1|2)        - Invert or force caps while 6502 is running.\n"
+        "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
+        "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
+        "LOAD file           - Load file.\n"
+        "RUN (file)          - Optionally load file. Begin execution at ($FFFC).\n"
+        "INSTALL file        - Install file on RIA to be used as a ROM.\n"
+        "BOOT (rom)          - Select ROM to run at boot or run current ROM.\n"
+        "REMOVE rom          - Remove ROM from RIA.\n"
+        "UPLOAD file len crc - Write file.\n"
+        "BINARY addr len crc - Write memory.\n"
+        "F000                - Read memory.\n"
+        "F000: 01 02         - Write memory. Colon optional.";
+    puts(cmdhelp);
 }
 
 struct
@@ -336,6 +408,7 @@ struct
     {4, "caps", cmd_caps},
     {5, "start", cmd_start},
     {6, "status", cmd_status},
+    {6, "binary", cmd_binary},
     {4, "help", cmd_help},
     {1, "h", cmd_help},
     {1, "?", cmd_help},
@@ -415,11 +488,42 @@ void cmd_task()
         action_cb = 0;
         current_cb(ria_action_result());
     }
+
+    if (binary_cb)
+    {
+        int ch = getchar_timeout_us(0);
+        if (ch != PICO_ERROR_TIMEOUT)
+        {
+            while (ch != PICO_ERROR_TIMEOUT)
+            {
+                rw_buf[rw_buf_len++] = ch;
+                if (rw_buf_len >= rw_len)
+                {
+                    void (*current_cb)(void) = binary_cb;
+                    binary_cb = 0;
+                    current_cb();
+                    return;
+                }
+                ch = getchar_timeout_us(0);
+            }
+            binary_timer = delayed_by_us(get_absolute_time(),
+                                         MON_BINARY_TIMEOUT_MS * 1000);
+        }
+        else
+        {
+            absolute_time_t now = get_absolute_time();
+            if (absolute_time_diff_us(now, binary_timer) < 0)
+            {
+                printf("?timeout\n");
+                binary_cb = 0;
+            }
+        }
+    }
 }
 
 bool cmd_is_active()
 {
-    return action_cb != 0;
+    return action_cb != 0 || binary_cb != 0;
 }
 
 void cmd_reset()
