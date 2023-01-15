@@ -164,20 +164,6 @@ void ria_action_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
     read_or_verify_setup(addr, len, false);
 }
 
-inline __force_inline static void ram_read(uint32_t data)
-{
-    if (rw_pos < rw_end)
-    {
-        REGSW(0xFFF1) += 1;
-        read_buf[rw_pos] = data;
-        if (++rw_pos == rw_end)
-        {
-            REGS(0xFFF7) = 0x00;
-            ria_action_exit();
-        }
-    }
-}
-
 void ria_action_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
 {
     action_result = -1;
@@ -192,21 +178,6 @@ void ria_action_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
         return;
     write_buf = buf;
     read_or_verify_setup(addr, len, true);
-}
-
-inline __force_inline static void ram_verify(uint32_t data)
-{
-    if (rw_pos < rw_end)
-    {
-        REGSW(0xFFF1) += 1;
-        if (write_buf[rw_pos] != data && action_result < 0)
-            action_result = REGSW(0xFFF1) - 1;
-        if (++rw_pos == rw_end)
-        {
-            REGS(0xFFF7) = 0x00;
-            ria_action_exit();
-        }
-    }
 }
 
 void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
@@ -247,23 +218,7 @@ void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
     ria_action_start(action_state_write);
 }
 
-inline __force_inline static void ram_write()
-{
-    if (rw_pos < rw_end)
-    {
-        if (rw_pos > 0)
-        {
-            REGS(0xFFF1) = write_buf[rw_pos];
-            REGSW(0xFFF3) += 1;
-        }
-        if (++rw_pos == rw_end)
-            REGS(0xFFF6) = 0x00;
-    }
-    else
-        ria_action_exit();
-}
-
-void __no_inline_not_in_flash_func(ria_action_loop)()
+void ria_action_loop()
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
@@ -277,23 +232,55 @@ void __no_inline_not_in_flash_func(ria_action_loop)()
             {
                 switch (addr)
                 {
-                case 0x16:
-                    ram_write();
+                case 0x16: // action write
+                    if (rw_pos < rw_end)
+                    {
+                        if (rw_pos > 0)
+                        {
+                            REGS(0xFFF1) = write_buf[rw_pos];
+                            REGSW(0xFFF3) += 1;
+                        }
+                        if (++rw_pos == rw_end)
+                            REGS(0xFFF6) = 0x00;
+                    }
+                    else
+                        ria_action_exit();
                     break;
-                case 0x1D:
-                    ram_read(data);
+                case 0x1D: // action read
+                    if (rw_pos < rw_end)
+                    {
+                        REGSW(0xFFF1) += 1;
+                        read_buf[rw_pos] = data;
+                        if (++rw_pos == rw_end)
+                        {
+                            REGS(0xFFF7) = 0x00;
+                            ria_action_exit();
+                        }
+                    }
                     break;
-                case 0x1C:
-                    ram_verify(data);
+                case 0x1C: // action verify
+                    if (rw_pos < rw_end)
+                    {
+                        REGSW(0xFFF1) += 1;
+                        if (write_buf[rw_pos] != data && action_result < 0)
+                            action_result = REGSW(0xFFF1) - 1;
+                        if (++rw_pos == rw_end)
+                        {
+                            REGS(0xFFF7) = 0x00;
+                            ria_action_exit();
+                        }
+                    }
                     break;
                 case 0x0F:
                     ria_exit();
                     break;
                 case 0x02:
-                    if (ria_uart_rx_char >= 0)
+                {
+                    int ch = ria_uart_rx_char;
+                    if (ch >= 0)
                     {
+                        REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        REGS(0xFFE2) = ria_uart_rx_char;
                         ria_uart_rx_char = -1;
                     }
                     else
@@ -302,25 +289,29 @@ void __no_inline_not_in_flash_func(ria_action_loop)()
                         REGS(0xFFE2) = 0;
                     }
                     break;
+                }
                 case 0x01:
                     uart_get_hw(RIA_UART)->dr = data;
-                    if (uart_is_writable(RIA_UART))
-                        REGS(0xFFE0) |= 0b10000000;
-                    else
+                    if ((uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFF_BITS))
                         REGS(0xFFE0) &= ~0b10000000;
+                    else
+                        REGS(0xFFE0) |= 0b10000000;
                     break;
                 case 0x00:
-                    if (uart_is_writable(RIA_UART))
-                        REGS(0xFFE0) |= 0b10000000;
-                    else
-                        REGS(0xFFE0) &= ~0b10000000;
-                    if (!(REGS(0xFFE0) & 0b01000000) && ria_uart_rx_char >= 0)
+                {
+                    int ch = ria_uart_rx_char;
+                    if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
                     {
+                        REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        REGS(0xFFE2) = ria_uart_rx_char;
                         ria_uart_rx_char = -1;
                     }
+                    if ((uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFF_BITS))
+                        REGS(0xFFE0) &= ~0b10000000;
+                    else
+                        REGS(0xFFE0) |= 0b10000000;
                     break;
+                }
                 }
             }
         }
