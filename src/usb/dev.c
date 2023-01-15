@@ -11,6 +11,13 @@
 #define MAX_DEV_DESC_LEN 80
 char message[CFG_TUH_DEVICE_MAX][MAX_DEV_DESC_LEN];
 
+//TODO Devices can be "mounted" according to tuh_mounted()
+//     but tinyusb doesn't notify us. This status module
+//     will need to track fully-mounted status itself.
+//     Also, look for a way to know when enumeration is
+//     fully complete since that's really what we're
+//     interested in here.
+
 void dev_print_all()
 {
     uint8_t count = 0;

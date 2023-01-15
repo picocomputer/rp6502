@@ -55,7 +55,7 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
     FRESULT mount_result = f_mount(&fatfs[dev_addr], drive_path, 1);
     if (mount_result != FR_OK)
     {
-        dev_printf(dev_addr, "?MSC device %d mount failed (%d)", dev_addr, mount_result);
+        dev_printf(dev_addr, "?MSC filesystem mount failed (%d)", mount_result);
         return false;
     }
 
@@ -74,7 +74,7 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const lun = 0;
-    dev_printf(dev_addr, "MSC mounting");
+    dev_printf(dev_addr, "MSC mounted, inquiring");
     tuh_msc_inquiry(dev_addr, lun, &inquiry_resp, inquiry_complete_cb, 0);
 }
 
@@ -83,7 +83,6 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
     char drive_path[3] = "0:";
     drive_path[0] += dev_addr;
     f_unmount(drive_path);
-    dev_printf(dev_addr, "unmounted");
 }
 
 static void wait_for_disk_io(BYTE pdrv)

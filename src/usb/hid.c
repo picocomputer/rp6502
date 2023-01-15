@@ -289,8 +289,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance)
 {
+    (void)(dev_addr);
     (void)(instance);
-    dev_printf(dev_addr, "unmounted");
 }
 
 void hid_init()
