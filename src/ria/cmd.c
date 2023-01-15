@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
+#include "littlefs/lfs_util.h"
 
 #define MON_RW_SIZE 1024
 #define MON_BINARY_TIMEOUT_MS 200
@@ -23,6 +24,13 @@ static uint32_t rw_crc;
 static absolute_time_t binary_timer;
 static void (*binary_cb)(void) = 0;
 static void (*action_cb)(int32_t) = 0;
+
+// This CRC32 will match binascii and zlib CRC32
+static uint32_t crc32(uint8_t *data, uint32_t length)
+{
+    // use littlefs library
+    return ~lfs_crc(~0, data, length);
+}
 
 static bool is_hex(char ch)
 {
@@ -326,9 +334,13 @@ static void cmd_status(const char *args, size_t len)
 
 static void cmd_binary_callback()
 {
-    // TODO check crc
-    ria_action_ram_write(rw_addr, rw_buf, rw_len);
-    action_cb = cmd_write_cb;
+    if (crc32(rw_buf, rw_len) == rw_crc)
+    {
+        ria_action_ram_write(rw_addr, rw_buf, rw_len);
+        action_cb = cmd_write_cb;
+    }
+    else
+        puts("?CRC does not match");
 }
 
 static void cmd_binary(const char *args, size_t len)
