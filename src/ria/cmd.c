@@ -5,6 +5,7 @@
  */
 
 #include "cmd.h"
+#include "mon.h"
 #include "msc.h"
 #include "ria.h"
 #include "ria_action.h"
@@ -13,6 +14,7 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "littlefs/lfs_util.h"
+#include "fatfs/ff.h"
 
 #define MON_RW_SIZE 1024
 #define MON_BINARY_TIMEOUT_MS 200
@@ -24,6 +26,10 @@ static uint32_t rw_crc;
 static absolute_time_t binary_timer;
 static void (*binary_cb)(void) = 0;
 static void (*action_cb)(int32_t) = 0;
+static FIL fat_fil;
+static bool is_upload_mode = false;
+
+// TODO make friendly error messages for filesystem errors
 
 // This CRC32 will match binascii and zlib CRC32
 static uint32_t crc32(uint8_t *data, uint32_t length)
@@ -98,6 +104,8 @@ static bool parse_uint32(const char **args, size_t *len, uint32_t *result)
         value = value * base + i;
     }
     if (i == prefix)
+        return false;
+    if (i < *len && (*args)[i] != ' ')
         return false;
     for (; i < *len; i++)
         if ((*args)[i] != ' ')
@@ -355,7 +363,7 @@ static void cmd_binary(const char *args, size_t len)
             printf("?invalid address\n");
             return;
         }
-        if (rw_len > 1024 || rw_addr + rw_len > 0x10000)
+        if (!rw_len || rw_len > 1024 || rw_addr + rw_len > 0x10000)
         {
             printf("?invalid length\n");
             return;
@@ -368,6 +376,94 @@ static void cmd_binary(const char *args, size_t len)
         return;
     }
     printf("?invalid argument\n");
+}
+
+static void cmd_upload_callback()
+{
+    FRESULT result = FR_OK;
+
+    if (crc32(rw_buf, rw_len) != rw_crc)
+    {
+        result = FR_INT_ERR; // any error to abort
+        puts("?CRC does not match");
+    }
+
+    // This will let us leave the file unchanged until
+    // the first chunk is received successfully.
+    if (result == FR_OK && f_tell(&fat_fil) == 0)
+    {
+        result = f_truncate(&fat_fil);
+        if (result != FR_OK)
+            printf("?Unable to truncate file (%d)\n", result);
+    }
+
+    if (result == FR_OK)
+    {
+        UINT bytes_written;
+        result = f_write(&fat_fil, rw_buf, rw_len, &bytes_written);
+        if (result != FR_OK)
+            printf("?Unable to write file (%d)\n", result);
+    }
+
+    if (result != FR_OK)
+    {
+        is_upload_mode = false;
+        FRESULT result = f_close(&fat_fil);
+        if (result != FR_OK)
+            printf("?Unable to close file (%d)\n", result);
+    }
+}
+
+static void cmd_upload(const char *args, size_t len)
+{
+    if (is_upload_mode)
+    {
+        if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
+        {
+            is_upload_mode = false;
+            FRESULT result = f_close(&fat_fil);
+            if (result != FR_OK)
+                printf("?Unable to close file (%d)\n", result);
+            return;
+        }
+
+        if (parse_uint32(&args, &len, &rw_len) &&
+            parse_uint32(&args, &len, &rw_crc) &&
+            parse_end(args, len))
+        {
+            if (!rw_len || rw_len > 1024)
+            {
+                printf("?invalid length\n");
+                return;
+            }
+            rw_buf_len = 0;
+            binary_cb = cmd_upload_callback;
+            binary_timer = delayed_by_us(get_absolute_time(),
+                                         MON_BINARY_TIMEOUT_MS * 1000);
+
+            return;
+        }
+        printf("?invalid argument\n");
+        return;
+    }
+
+    if (len == 0)
+    {
+        printf("?missing filename\n");
+        return;
+    }
+
+    FRESULT result = f_open(&fat_fil, args, FA_READ | FA_WRITE);
+    if (result == FR_NO_FILE)
+        result = f_open(&fat_fil, args, FA_CREATE_NEW | FA_WRITE);
+    if (result != FR_OK)
+    {
+        printf("?Unable to open file (%d)\n", result);
+        return;
+    }
+    is_upload_mode = true;
+    binary_timer = delayed_by_us(get_absolute_time(),
+                                 MON_BINARY_TIMEOUT_MS * 1000);
 }
 
 static void cmd_ls(const char *args, size_t len)
@@ -397,13 +493,13 @@ static void cmd_help(const char *args, size_t len)
         "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
         "LOAD file           - Load file.\n"
         "RUN (file)          - Optionally load file. Begin execution at ($FFFC).\n"
+        "UPLOAD file         - Write file. Binary chunks follow.\n"
         "INSTALL file        - Install file on RIA to be used as a ROM.\n"
         "BOOT (rom)          - Select ROM to run at boot or run current ROM.\n"
         "REMOVE rom          - Remove ROM from RIA.\n"
-        "UPLOAD file len crc - Write file.\n"
-        "BINARY addr len crc - Write memory.\n"
-        "F000                - Read memory.\n"
-        "F000: 01 02         - Write memory. Colon optional.";
+        "BINARY addr len crc - Write memory. Binary data follows.\n"
+        "F000: 01 02         - Write memory. Colon optional.\n"
+        "F000                - Read memory.";
     puts(cmdhelp);
 }
 
@@ -421,6 +517,7 @@ struct
     {5, "start", cmd_start},
     {6, "status", cmd_status},
     {6, "binary", cmd_binary},
+    {6, "upload", cmd_upload},
     {4, "help", cmd_help},
     {1, "h", cmd_help},
     {1, "?", cmd_help},
@@ -437,6 +534,10 @@ void cmd_dispatch(const char *buf, uint8_t buflen)
             break;
     }
     const char *cmd = buf + i;
+
+    if (is_upload_mode)
+        return cmd_upload(cmd, buflen);
+
     uint32_t addr = 0;
     bool is_maybe_addr = false;
     bool is_not_addr = false;
@@ -521,16 +622,34 @@ void cmd_task()
             binary_timer = delayed_by_us(get_absolute_time(),
                                          MON_BINARY_TIMEOUT_MS * 1000);
         }
-        else
+    }
+
+    if (binary_cb || is_upload_mode)
+    {
         {
             absolute_time_t now = get_absolute_time();
             if (absolute_time_diff_us(now, binary_timer) < 0)
             {
+                if (!binary_cb)
+                    puts("");
                 printf("?timeout\n");
+                if (is_upload_mode)
+                {
+                    FRESULT result = f_close(&fat_fil);
+                    if (result != FR_OK)
+                        printf("?Unable to close file (%d)\n", result);
+                }
                 binary_cb = 0;
+                is_upload_mode = false;
+                mon_reset();
             }
         }
     }
+}
+
+char cmd_prompt()
+{
+    return is_upload_mode ? '}' : ']';
 }
 
 bool cmd_is_active()

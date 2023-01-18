@@ -147,7 +147,7 @@ void mon_task()
     if (needs_prompt)
     {
         needs_prompt = false;
-        putchar(']');
+        putchar(cmd_prompt());
     }
 
     int ch = getchar_timeout_us(0);
