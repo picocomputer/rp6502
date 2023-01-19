@@ -22,6 +22,8 @@
   "search.exclude": {
     "src/fatfs": true,
     "src/littlefs": true,
+    "src/pico-extras": true,
+    "src/pico-sdk": true,
     "src/tinyusb": true,
   },
 }

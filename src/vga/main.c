@@ -24,6 +24,7 @@ int main()
     // Inits
     cdc_uart_init();
     tusb_init();
+    probe_gpio_init();
     probe_init();
     led_init();
 

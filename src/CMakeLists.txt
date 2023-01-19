@@ -74,7 +74,7 @@ target_sources(rp6502_ria PRIVATE
 )
 
 
-# The Pi Pico RIA
+# The Pi Pico VGA
 
 add_executable(rp6502_vga)
 pico_add_extra_outputs(rp6502_vga)
