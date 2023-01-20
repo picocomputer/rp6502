@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _ROM_H_
-#define _ROM_H_
+#ifndef _LFS_H_
+#define _LFS_H_
 
-void rom_init();
+void lfs_init();
 
-#endif /* _ROM_H_ */
+#endif /* _LFS_H_ */

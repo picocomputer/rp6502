@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _RIA_UART_H_
-#define _RIA_UART_H_
+#ifndef _COM_H_
+#define _COM_H_
 
 #define RIA_UART uart1
 #define RIA_UART_BAUD_RATE 115200
@@ -14,9 +14,9 @@
 
 extern volatile int ria_uart_rx_char;
 
-void ria_uart_task();
-void ria_uart_init();
-void ria_uart_reset();
-void ria_uart_flush();
+void com_task();
+void com_init();
+void com_reset();
+void com_flush();
 
-#endif /* _RIA_UART_H_ */
+#endif /* _COM_H_ */

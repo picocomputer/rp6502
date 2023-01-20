@@ -5,10 +5,10 @@
  */
 
 #include "mon.h"
-#include "regs.h"
+#include "mem/regs.h"
 #include "ria.h"
-#include "ria_action.h"
-#include "ria_uart.h"
+#include "act.h"
+#include "dev/com.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -174,7 +174,7 @@ void ria_set_phi2_khz(uint32_t freq_khz)
     uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
     uint16_t clkdiv_int = 1;
     uint8_t clkdiv_frac = 0;
-    ria_uart_flush();
+    com_flush();
     if (sys_clk_khz < 120 * 1000)
     {
         // <=4MHz resolution is limited by the divider.
@@ -191,7 +191,7 @@ void ria_set_phi2_khz(uint32_t freq_khz)
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
-        ria_uart_init();
+        com_init();
     ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
 }
 
@@ -265,12 +265,12 @@ void ria_init()
     // the inits
     ria_write_pio_init();
     ria_read_pio_init();
-    ria_action_pio_init();
+    act_pio_init();
     ria_set_phi2_khz(0);
     ria_set_reset_ms(0);
     ria_set_caps(0);
     ria_stop();
-    multicore_launch_core1(ria_action_loop);
+    multicore_launch_core1(act_loop);
 }
 
 void ria_task()

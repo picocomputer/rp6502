@@ -5,9 +5,9 @@
  */
 
 #include "ria/main.h"
-#include "ria.h"
-#include "ria_action.h"
-#include "ria_uart.h"
+#include "ria/ria.h"
+#include "ria/act.h"
+#include "com.h"
 #include "pico/stdlib.h"
 
 volatile int ria_uart_rx_char;
@@ -16,21 +16,21 @@ static size_t ria_in_end;
 static uint8_t ria_in_buf[32];
 #define RIA_IN_BUF(pos) ria_in_buf[(pos) & 0x1F]
 
-void ria_uart_init()
+void com_init()
 {
     stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE,
                          RIA_UART_TX_PIN, RIA_UART_RX_PIN);
-    ria_uart_reset();
+    com_reset();
 }
 
-void ria_uart_reset()
+void com_reset()
 {
     ria_uart_rx_char = -1;
     ria_in_start = ria_in_end = 0;
-    ria_uart_flush();
+    com_flush();
 }
 
-void ria_uart_flush()
+void com_flush()
 {
     while (getchar_timeout_us(0) >= 0)
         tight_loop_contents();
@@ -39,7 +39,7 @@ void ria_uart_flush()
 }
 
 // Do a caps conversion with current setting
-static uint8_t ria_uart_caps_ch(uint8_t ch)
+static uint8_t com_caps_ch(uint8_t ch)
 {
     switch (ria_get_caps())
     {
@@ -57,7 +57,7 @@ static uint8_t ria_uart_caps_ch(uint8_t ch)
     return ch;
 }
 
-void ria_uart_task()
+void com_task()
 {
     // Reset 6502 when UART break signal received
     static uint32_t break_detect = 0;
@@ -70,12 +70,12 @@ void ria_uart_task()
 
     // We need to keep UART FIFO empty or breaks won't come in.
     // This maintains a buffer and feeds ria_uart_rx_char to the action loop.
-    if (!ria_action_in_progress() && ria_is_active())
+    if (!act_in_progress() && ria_is_active())
     {
         int ch = getchar_timeout_us(0);
         if (ch >= 0 && &RIA_IN_BUF(ria_in_end + 1) != &RIA_IN_BUF(ria_in_start))
             RIA_IN_BUF(++ria_in_end) = ch;
         if (ria_uart_rx_char < 0 && &RIA_IN_BUF(ria_in_end) != &RIA_IN_BUF(ria_in_start))
-            ria_uart_rx_char = ria_uart_caps_ch(RIA_IN_BUF(++ria_in_start));
+            ria_uart_rx_char = com_caps_ch(RIA_IN_BUF(++ria_in_start));
     }
 }

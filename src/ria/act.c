@@ -5,10 +5,10 @@
  */
 
 #include "ria.h"
-#include "ria_action.h"
-#include "ria_uart.h"
+#include "act.h"
+#include "dev/com.h"
 #include "ria.pio.h"
-#include "regs.h"
+#include "mem/regs.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include <stdio.h>
@@ -33,21 +33,21 @@ static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 
 // RIA action has one variable read address.
-static void ria_action_set_address(uint32_t addr)
+static void act_set_address(uint32_t addr)
 {
     pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, addr & 0x1F);
 }
 
 // -1 good, -2 timeout, >=0 failed verify at address
-int32_t ria_action_result()
+int32_t act_result()
 {
     return action_result;
 }
 
-void ria_action_reset()
+void act_reset()
 {
     action_state = action_state_idle;
-    ria_action_set_address(0xFFE2);
+    act_set_address(0xFFE2);
     if (saved_reset_vec >= 0)
     {
         REGSW(0xFFFC) = saved_reset_vec;
@@ -55,7 +55,7 @@ void ria_action_reset()
     }
 }
 
-static void ria_action_start(enum state state)
+static void act_start(enum state state)
 {
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
@@ -66,20 +66,20 @@ static void ria_action_start(enum state state)
     ria_reset();
 }
 
-// This will call ria_action_reset() in the next task loop.
+// This will call act_reset() in the next task loop.
 // It's a safe way for cpu1 to stop the 6502.
-static void ria_action_exit()
+static void act_exit()
 {
     action_state = action_state_exit;
     ria_exit();
 }
 
-bool ria_action_in_progress()
+bool act_in_progress()
 {
     return action_state != action_state_idle && action_state != action_state_exit;
 }
 
-void ria_action_pio_init()
+void act_pio_init()
 {
     // PIO to supply action loop with events
     uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
@@ -87,11 +87,11 @@ void ria_action_pio_init()
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, false, false, 0);
     pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
-    ria_action_reset();
+    act_reset();
     pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
 }
 
-void ria_action_task()
+void act_task()
 {
     // Report unexpected FIFO overflows and underflows
     // TODO needs much improvement
@@ -105,15 +105,15 @@ void ria_action_task()
     }
 
     if (action_state == action_state_exit)
-        ria_action_reset();
+        act_reset();
 
     // check on watchdog
-    if (ria_action_in_progress())
+    if (act_in_progress())
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
         {
-            ria_action_reset();
+            act_reset();
             ria_stop();
             action_result = -2;
         }
@@ -142,12 +142,12 @@ static void read_or_verify_setup(uint16_t addr, uint16_t len, bool verify)
     rw_end = len;
     rw_pos = 0;
     if (verify)
-        ria_action_start(action_state_verify);
+        act_start(action_state_verify);
     else
-        ria_action_start(action_state_read);
+        act_start(action_state_read);
 }
 
-void ria_action_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
+void act_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
 {
     action_result = -1;
     ria_stop();
@@ -164,7 +164,7 @@ void ria_action_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
     read_or_verify_setup(addr, len, false);
 }
 
-void ria_action_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
+void act_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
 {
     action_result = -1;
     ria_stop();
@@ -180,7 +180,7 @@ void ria_action_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
     read_or_verify_setup(addr, len, true);
 }
 
-void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
+void act_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
 {
     action_result = -1;
     ria_stop();
@@ -208,17 +208,17 @@ void ria_action_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
     REGS(0xFFF7) = 0xEA;
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
-    ria_action_set_address(0xFFF6);
+    act_set_address(0xFFF6);
     write_buf = buf;
     rw_end = len;
     // Evil hack because the first few writes with
     // a slow clock (1 kHz) won't actually write to SRAM.
     // This should be investigated further.
     rw_pos = -2;
-    ria_action_start(action_state_write);
+    act_start(action_state_write);
 }
 
-void ria_action_loop()
+__attribute__((optimize("O1"))) void act_loop()
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
@@ -244,7 +244,7 @@ void ria_action_loop()
                             REGS(0xFFF6) = 0x00;
                     }
                     else
-                        ria_action_exit();
+                        act_exit();
                     break;
                 case 0x1D: // action read
                     if (rw_pos < rw_end)
@@ -254,7 +254,7 @@ void ria_action_loop()
                         if (++rw_pos == rw_end)
                         {
                             REGS(0xFFF7) = 0x00;
-                            ria_action_exit();
+                            act_exit();
                         }
                     }
                     break;
@@ -267,7 +267,7 @@ void ria_action_loop()
                         if (++rw_pos == rw_end)
                         {
                             REGS(0xFFF7) = 0x00;
-                            ria_action_exit();
+                            act_exit();
                         }
                     }
                     break;

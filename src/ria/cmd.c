@@ -6,10 +6,10 @@
 
 #include "cmd.h"
 #include "mon.h"
-#include "msc.h"
+#include "dev/msc.h"
 #include "ria.h"
-#include "ria_action.h"
-#include "usb/dev.h"
+#include "act.h"
+#include "dev/dev.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
@@ -176,7 +176,7 @@ void cmd_write_cb(int32_t result)
     if (result != -1)
         return cmd_action_error_callback(result);
     action_cb = cmd_verify_cb;
-    ria_action_ram_verify(rw_addr, rw_buf, rw_len);
+    act_ram_verify(rw_addr, rw_buf, rw_len);
 }
 
 // Commands that start with a hex address. Read or write memory.
@@ -192,7 +192,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     if (!len)
     {
         rw_len = (addr | 0xF) - addr + 1;
-        ria_action_ram_read(addr, rw_buf, rw_len);
+        act_ram_read(addr, rw_buf, rw_len);
         action_cb = cmd_read_cb;
         return;
     }
@@ -227,7 +227,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
             }
         }
     }
-    ria_action_ram_write(addr, rw_buf, rw_len);
+    act_ram_write(addr, rw_buf, rw_len);
     action_cb = cmd_write_cb;
 }
 
@@ -344,7 +344,7 @@ static void cmd_binary_callback()
 {
     if (crc32(rw_buf, rw_len) == rw_crc)
     {
-        ria_action_ram_write(rw_addr, rw_buf, rw_len);
+        act_ram_write(rw_addr, rw_buf, rw_len);
         action_cb = cmd_write_cb;
     }
     else
@@ -599,7 +599,7 @@ void cmd_task()
     {
         void (*current_cb)(int32_t) = action_cb;
         action_cb = 0;
-        current_cb(ria_action_result());
+        current_cb(act_result());
     }
 
     if (binary_cb)

@@ -7,10 +7,10 @@
 #include "cmd.h"
 #include "mon.h"
 #include "ria.h"
-#include "ria_action.h"
-#include "ria_uart.h"
+#include "act.h"
+#include "dev/com.h"
 #include "hid.h"
-#include "rom.h"
+#include "dev/lfs.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
 #ifdef RASPBERRYPI_PICO_W
@@ -24,7 +24,7 @@
 static void main_init()
 {
     // Initialize UART for terminal
-    ria_uart_init();
+    com_init();
 
     // Hello, world.
     puts("\30\33[0m\f\n" RP6502_NAME);
@@ -38,7 +38,7 @@ static void main_init()
     tusb_init();
     hid_init();
 
-    rom_init();
+    lfs_init();
 }
 
 // These tasks run always. None may call fatfs.
@@ -47,8 +47,8 @@ void main_sys_tasks()
     tuh_task();
     hid_task();
     ria_task();
-    ria_action_task();
-    ria_uart_task();
+    act_task();
+    com_task();
 }
 
 // These tasks do not run during fatfs IO.
@@ -65,11 +65,11 @@ static void main_app_tasks()
 void main_break()
 {
     ria_stop();
-    ria_action_reset();
-    ria_uart_reset();
+    act_reset();
+    com_reset();
     mon_reset();
     cmd_reset();
-    puts("\30\33[0m\n" RP6502_NAME);
+    puts("\30\33[0m");
 }
 
 int main()

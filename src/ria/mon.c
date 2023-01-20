@@ -6,7 +6,7 @@
 
 #include "mon.h"
 #include "cmd.h"
-#include "ansi.h"
+#include "vga/ansi.h"
 #include "ria.h"
 #include <stdio.h>
 #include "pico/stdlib.h"

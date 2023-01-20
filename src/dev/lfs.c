@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "rom.h"
+#include "lfs.h"
 #include "littlefs/lfs.h"
 #include "hardware/flash.h"
 
@@ -100,7 +100,7 @@ static int lfs_sync(const struct lfs_config *c)
     return LFS_ERR_OK;
 }
 
-void rom_init()
+void lfs_init()
 {
     // TODO remove this littlefs example from the README
     // mount the filesystem

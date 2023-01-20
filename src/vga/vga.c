@@ -1,10 +1,10 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "vram.h"
+#include "mem/vram.h"
 #include "vga.h"
 #include "term.h"
 #include "string.h"
