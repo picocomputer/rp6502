@@ -9,6 +9,7 @@
 #include "dev/com.h"
 #include "ria.pio.h"
 #include "mem/regs.h"
+#include "mem/mbuf.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include <stdio.h>
@@ -27,8 +28,6 @@ static enum state {
 static absolute_time_t action_watchdog_timer;
 static volatile int32_t action_result = -1;
 static int32_t saved_reset_vec = -1;
-static volatile uint8_t *read_buf = 0;
-static volatile const uint8_t *write_buf = 0;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 
@@ -147,47 +146,48 @@ static void read_or_verify_setup(uint16_t addr, uint16_t len, bool verify)
         act_start(action_state_read);
 }
 
-void act_ram_read(uint16_t addr, uint8_t *buf, uint16_t len)
+void act_ram_read(uint16_t addr)
 {
     action_result = -1;
     ria_stop();
     // avoid forbidden areas
+    uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFF0))
         if (addr + --len <= 0xFFFF)
-            buf[len] = REGS(addr + len);
+            mbuf[len] = REGS(addr + len);
         else
-            buf[len] = 0;
+            mbuf[len] = 0;
     while (len && (addr + len > 0xFF00))
         if (addr + --len <= 0xFFFF)
-            buf[len] = 0;
-    read_buf = buf;
+            mbuf[len] = 0;
     read_or_verify_setup(addr, len, false);
 }
 
-void act_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len)
+void act_ram_verify(uint16_t addr)
 {
     action_result = -1;
     ria_stop();
     // avoid forbidden areas
+    uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
-        if (addr + --len <= 0xFFFF && buf[len] != REGS(addr + len))
+        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
             action_result = addr + len;
     while (len && (addr + len > 0xFF00))
         --len;
     if (action_result != -1)
         return;
-    write_buf = buf;
     read_or_verify_setup(addr, len, true);
 }
 
-void act_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
+void act_ram_write(uint16_t addr)
 {
     action_result = -1;
     ria_stop();
     // avoid forbidden area
+    uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFF0))
         if (addr + --len <= 0xFFFF)
-            REGS(addr + len) = buf[len];
+            REGS(addr + len) = mbuf[len];
     while (len && (addr + len > 0xFF00))
         len--;
     if (!len)
@@ -199,7 +199,7 @@ void act_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
     // FFF7  EA        NOP
     // FFF8  80 FE     BRA $FFF8
     REGS(0xFFF0) = 0xA9;
-    REGS(0xFFF1) = buf[0];
+    REGS(0xFFF1) = mbuf[0];
     REGS(0xFFF2) = 0x8D;
     REGS(0xFFF3) = addr & 0xFF;
     REGS(0xFFF4) = addr >> 8;
@@ -209,7 +209,6 @@ void act_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len)
     REGS(0xFFF8) = 0x80;
     REGS(0xFFF9) = 0xFE;
     act_set_address(0xFFF6);
-    write_buf = buf;
     rw_end = len;
     // Evil hack because the first few writes with
     // a slow clock (1 kHz) won't actually write to SRAM.
@@ -237,7 +236,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     {
                         if (rw_pos > 0)
                         {
-                            REGS(0xFFF1) = write_buf[rw_pos];
+                            REGS(0xFFF1) = mbuf[rw_pos];
                             REGSW(0xFFF3) += 1;
                         }
                         if (++rw_pos == rw_end)
@@ -250,7 +249,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
-                        read_buf[rw_pos] = data;
+                        mbuf[rw_pos] = data;
                         if (++rw_pos == rw_end)
                         {
                             REGS(0xFFF7) = 0x00;
@@ -262,7 +261,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
-                        if (write_buf[rw_pos] != data && action_result < 0)
+                        if (mbuf[rw_pos] != data && action_result < 0)
                             action_result = REGSW(0xFFF1) - 1;
                         if (++rw_pos == rw_end)
                         {

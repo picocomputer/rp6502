@@ -12,7 +12,7 @@
 
 // 64KB Virtual RAM
 #ifdef NDEBUG
-extern uint8_t vram[0xFFFF];
+extern uint8_t vram[0x10000];
 #else
 extern uint8_t *const vram;
 #endif

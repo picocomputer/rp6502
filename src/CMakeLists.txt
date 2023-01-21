@@ -62,6 +62,7 @@ target_sources(rp6502_ria PRIVATE
     dev/lfs.c
     dev/msc.c
     mem/vram.c
+    mem/mbuf.c
     ria/cmd.c
     ria/main.c
     ria/mon.c

@@ -15,8 +15,8 @@ void act_reset();
 bool act_in_progress();
 void act_pio_init();
 int32_t act_result();
-void act_ram_read(uint16_t addr, uint8_t *buf, uint16_t len);
-void act_ram_write(uint16_t addr, const uint8_t *buf, uint16_t len);
-void act_ram_verify(uint16_t addr, const uint8_t *buf, uint16_t len);
+void act_ram_read(uint16_t addr);
+void act_ram_write(uint16_t addr);
+void act_ram_verify(uint16_t addr);
 
 #endif /* _ACT_H_ */

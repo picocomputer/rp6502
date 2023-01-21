@@ -7,19 +7,16 @@
 #include "cmd.h"
 #include "mon.h"
 #include "dev/msc.h"
+#include "mem/mbuf.h"
 #include "ria.h"
 #include "act.h"
 #include "dev/dev.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
-#include "littlefs/lfs_util.h"
 #include "fatfs/ff.h"
 
-#define MON_RW_SIZE 1024
 #define MON_BINARY_TIMEOUT_MS 200
-static uint8_t rw_buf[MON_RW_SIZE];
-static uint32_t rw_buf_len;
 static uint32_t rw_addr;
 static uint32_t rw_len;
 static uint32_t rw_crc;
@@ -30,13 +27,6 @@ static FIL fat_fil;
 static bool is_upload_mode = false;
 
 // TODO make friendly error messages for filesystem errors
-
-// This CRC32 will match binascii and zlib CRC32
-static uint32_t crc32(uint8_t *data, uint32_t length)
-{
-    // use littlefs library
-    return ~lfs_crc(~0, data, length);
-}
 
 static bool is_hex(char ch)
 {
@@ -159,8 +149,8 @@ void cmd_read_cb(int32_t result)
     if (result != -1)
         return cmd_action_error_callback(result);
     printf("%04lX:", rw_addr);
-    for (size_t i = 0; i < rw_len; i++)
-        printf(" %02X", rw_buf[i]);
+    for (size_t i = 0; i < mbuf_len; i++)
+        printf(" %02X", mbuf[i]);
     printf("\n");
 }
 
@@ -176,7 +166,7 @@ void cmd_write_cb(int32_t result)
     if (result != -1)
         return cmd_action_error_callback(result);
     action_cb = cmd_verify_cb;
-    act_ram_verify(rw_addr, rw_buf, rw_len);
+    act_ram_verify(rw_addr);
 }
 
 // Commands that start with a hex address. Read or write memory.
@@ -191,13 +181,13 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     rw_addr = addr;
     if (!len)
     {
-        rw_len = (addr | 0xF) - addr + 1;
-        act_ram_read(addr, rw_buf, rw_len);
+        mbuf_len = (addr | 0xF) - addr + 1;
+        act_ram_read(addr);
         action_cb = cmd_read_cb;
         return;
     }
     uint32_t data = 0x80000000;
-    rw_len = 0;
+    mbuf_len = 0;
     for (size_t i = 0; i < len; i++)
     {
         char ch = args[i];
@@ -212,7 +202,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
         {
             if (data < 0x100)
             {
-                rw_buf[rw_len++] = data;
+                mbuf[mbuf_len++] = data;
                 data = 0x80000000;
             }
             else
@@ -227,7 +217,7 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
             }
         }
     }
-    act_ram_write(addr, rw_buf, rw_len);
+    act_ram_write(addr);
     action_cb = cmd_write_cb;
 }
 
@@ -342,9 +332,9 @@ static void cmd_status(const char *args, size_t len)
 
 static void cmd_binary_callback()
 {
-    if (crc32(rw_buf, rw_len) == rw_crc)
+    if (mbuf_crc32() == rw_crc)
     {
-        act_ram_write(rw_addr, rw_buf, rw_len);
+        act_ram_write(rw_addr);
         action_cb = cmd_write_cb;
     }
     else
@@ -363,12 +353,12 @@ static void cmd_binary(const char *args, size_t len)
             printf("?invalid address\n");
             return;
         }
-        if (!rw_len || rw_len > 1024 || rw_addr + rw_len > 0x10000)
+        if (!rw_len || rw_len > MBUF_SIZE || rw_addr + rw_len > 0x10000)
         {
             printf("?invalid length\n");
             return;
         }
-        rw_buf_len = 0;
+        mbuf_len = 0;
         binary_cb = cmd_binary_callback;
         binary_timer = delayed_by_us(get_absolute_time(),
                                      MON_BINARY_TIMEOUT_MS * 1000);
@@ -382,7 +372,7 @@ static void cmd_upload_callback()
 {
     FRESULT result = FR_OK;
 
-    if (crc32(rw_buf, rw_len) != rw_crc)
+    if (mbuf_crc32() != rw_crc)
     {
         result = FR_INT_ERR; // any error to abort
         puts("?CRC does not match");
@@ -400,7 +390,7 @@ static void cmd_upload_callback()
     if (result == FR_OK)
     {
         UINT bytes_written;
-        result = f_write(&fat_fil, rw_buf, rw_len, &bytes_written);
+        result = f_write(&fat_fil, mbuf, mbuf_len, &bytes_written);
         if (result != FR_OK)
             printf("?Unable to write file (%d)\n", result);
     }
@@ -431,12 +421,12 @@ static void cmd_upload(const char *args, size_t len)
             parse_uint32(&args, &len, &rw_crc) &&
             parse_end(args, len))
         {
-            if (!rw_len || rw_len > 1024)
+            if (!rw_len || rw_len > MBUF_SIZE)
             {
                 printf("?invalid length\n");
                 return;
             }
-            rw_buf_len = 0;
+            mbuf_len = 0;
             binary_cb = cmd_upload_callback;
             binary_timer = delayed_by_us(get_absolute_time(),
                                          MON_BINARY_TIMEOUT_MS * 1000);
@@ -609,8 +599,8 @@ void cmd_task()
         {
             while (ch != PICO_ERROR_TIMEOUT)
             {
-                rw_buf[rw_buf_len++] = ch;
-                if (rw_buf_len >= rw_len)
+                mbuf[mbuf_len++] = ch;
+                if (mbuf_len >= rw_len)
                 {
                     void (*current_cb)(void) = binary_cb;
                     binary_cb = 0;
@@ -632,16 +622,9 @@ void cmd_task()
             {
                 if (!binary_cb)
                     puts("");
-                printf("?timeout\n");
-                if (is_upload_mode)
-                {
-                    FRESULT result = f_close(&fat_fil);
-                    if (result != FR_OK)
-                        printf("?Unable to close file (%d)\n", result);
-                }
-                binary_cb = 0;
-                is_upload_mode = false;
+                cmd_reset();
                 mon_reset();
+                printf("?timeout\n");
             }
         }
     }
@@ -659,5 +642,13 @@ bool cmd_is_active()
 
 void cmd_reset()
 {
+    if (is_upload_mode)
+    {
+        is_upload_mode = false;
+        FRESULT result = f_close(&fat_fil);
+        if (result != FR_OK)
+            printf("?Unable to close file (%d)\n", result);
+    }
     action_cb = 0;
+    binary_cb = 0;
 }
