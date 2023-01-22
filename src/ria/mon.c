@@ -6,6 +6,7 @@
 
 #include "mon.h"
 #include "cmd.h"
+#include "rom.h"
 #include "vga/ansi.h"
 #include "ria.h"
 #include <stdio.h>
@@ -138,7 +139,7 @@ static void mon_state_CSI(char ch)
 
 void mon_task()
 {
-    if (ria_is_active() || cmd_is_active())
+    if (ria_is_active() || cmd_is_active() || rom_is_active())
     {
         needs_prompt = true;
         return;

@@ -8,6 +8,7 @@
 #include "mon.h"
 #include "ria.h"
 #include "act.h"
+#include "rom.h"
 #include "dev/com.h"
 #include "hid.h"
 #include "dev/lfs.h"
@@ -57,6 +58,7 @@ static void main_app_tasks()
 {
     mon_task();
     cmd_task();
+    rom_task();
     // api_task(); //TODO
 }
 
@@ -69,6 +71,7 @@ void main_break()
     com_reset();
     mon_reset();
     cmd_reset();
+    rom_reset();
     puts("\30\33[0m");
 }
 

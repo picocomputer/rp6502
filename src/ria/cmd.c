@@ -9,6 +9,8 @@
 #include "dev/msc.h"
 #include "mem/mbuf.h"
 #include "ria.h"
+#include "rom.h"
+#include "str.h"
 #include "act.h"
 #include "dev/dev.h"
 #include <stdio.h>
@@ -28,107 +30,7 @@ static bool is_upload_mode = false;
 
 // TODO make friendly error messages for filesystem errors
 
-static bool is_hex(char ch)
-{
-    return ((ch >= '0') && (ch <= '9')) ||
-           ((ch >= 'A') && (ch <= 'F')) ||
-           ((ch >= 'a') && (ch <= 'f'));
-}
-
-static uint32_t to_int(char ch)
-{
-    if ((ch >= '0') && (ch <= '9'))
-        return ch - '0';
-    if (ch - 'A' < 6)
-        return ch - 'A' + 10;
-    if (ch - 'a' < 6)
-        return ch - 'a' + 10;
-    return 0xFF;
-}
-
-// A single argument in hex or decimal. e.g. 0x0, $0, 0
-static bool parse_end(const char *args, size_t len)
-{
-    for (size_t i = 0; i < len; i++)
-    {
-        if (args[i] != ' ')
-            return false;
-    }
-    return true;
-}
-
-// A single argument in hex or decimal. e.g. 0x0, $0, 0
-static bool parse_uint32(const char **args, size_t *len, uint32_t *result)
-{
-    size_t i;
-    for (i = 0; i < *len; i++)
-    {
-        if ((*args)[i] != ' ')
-            break;
-    }
-    uint32_t base = 10;
-    uint32_t value = 0;
-    uint32_t prefix = 0;
-    if (i < (*len) && (*args)[i] == '$')
-    {
-        base = 16;
-        prefix = 1;
-    }
-    else if (i + 1 < *len && (*args)[i] == '0' &&
-             ((*args)[i + 1] == 'x' || (*args)[i + 1] == 'X'))
-    {
-        base = 16;
-        prefix = 2;
-    }
-    i = prefix;
-    if (i == *len)
-        return false;
-    for (; i < *len; i++)
-    {
-        char ch = (*args)[i];
-        if (!is_hex(ch))
-            break;
-        uint32_t i = to_int(ch);
-        if (i >= base)
-            return false;
-        value = value * base + i;
-    }
-    if (i == prefix)
-        return false;
-    if (i < *len && (*args)[i] != ' ')
-        return false;
-    for (; i < *len; i++)
-        if ((*args)[i] != ' ')
-            break;
-    *len -= i;
-    *args += i;
-    *result = value;
-    return true;
-}
-
-// case insensitive string with length limit
-static int strnicmp(const char *string1, const char *string2, int n)
-{
-    while (n--)
-    {
-        if (!*string1 && !*string2)
-            return 0;
-        int ch1 = *string1;
-        int ch2 = *string2;
-        if (ch1 >= 'a' && ch1 <= 'z')
-            ch1 -= 32;
-        if (ch2 >= 'a' && ch2 <= 'z')
-            ch2 -= 32;
-        int rc = ch1 - ch2;
-        if (rc)
-            return rc;
-        string1++;
-        string2++;
-    }
-    return 0;
-}
-
-void cmd_action_error_callback(int32_t result)
+static void cmd_action_error_callback(int32_t result)
 {
     switch (result)
     {
@@ -138,7 +40,7 @@ void cmd_action_error_callback(int32_t result)
     case -2:
         printf("?action watchdog timeout\n");
         break;
-    default:
+    default: // TODO can this happen?
         printf("?undefined action error at $%04lX\n", result);
         break;
     }
@@ -191,8 +93,8 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
     for (size_t i = 0; i < len; i++)
     {
         char ch = args[i];
-        if (is_hex(ch))
-            data = data * 16 + to_int(ch);
+        if (char_is_hex(ch))
+            data = data * 16 + char_to_int(ch);
         else if (ch != ' ')
         {
             printf("?invalid data character\n");
@@ -493,7 +395,7 @@ static void cmd_help(const char *args, size_t len)
     puts(cmdhelp);
 }
 
-struct
+static struct
 {
     size_t cmd_len;
     const char *const cmd;
@@ -504,6 +406,7 @@ struct
     {4, "phi2", cmd_phi2},
     {4, "resb", cmd_resb},
     {4, "caps", cmd_caps},
+    {4, "load", rom_load},
     {5, "start", cmd_start},
     {6, "status", cmd_status},
     {6, "binary", cmd_binary},
@@ -512,7 +415,7 @@ struct
     {1, "h", cmd_help},
     {1, "?", cmd_help},
 };
-const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
 void cmd_dispatch(const char *buf, uint8_t buflen)
 {
@@ -534,10 +437,10 @@ void cmd_dispatch(const char *buf, uint8_t buflen)
     for (; i < buflen; i++)
     {
         uint8_t ch = buf[i];
-        if (is_hex(ch))
+        if (char_is_hex(ch))
         {
             is_maybe_addr = true;
-            addr = addr * 16 + to_int(ch);
+            addr = addr * 16 + char_to_int(ch);
         }
         else if (is_maybe_addr && !is_not_addr && ch == ':')
         {

@@ -68,6 +68,8 @@ target_sources(rp6502_ria PRIVATE
     ria/mon.c
     ria/act.c
     ria/ria.c
+    ria/rom.c
+    ria/str.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c
