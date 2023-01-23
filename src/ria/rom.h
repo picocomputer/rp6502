@@ -12,6 +12,7 @@
 #include <stdbool.h>
 
 void rom_load(const char *args, size_t len);
+void rom_install(const char *args, size_t len);
 void rom_task();
 bool rom_is_active();
 void rom_reset();

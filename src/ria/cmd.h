@@ -15,5 +15,6 @@ void cmd_reset();
 bool cmd_is_active();
 char cmd_prompt();
 void cmd_dispatch(const char *buf, uint8_t buflen);
+bool cmd_exists(const char *buf, uint8_t buflen);
 
 #endif /* _CMD_H_ */

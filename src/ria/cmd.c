@@ -424,7 +424,7 @@ static struct
     {2, "ls", cmd_ls},
     {2, "cd", cmd_cd},
     {4, "load", rom_load},
-    // {7, "install", rom_install},
+    {7, "install", rom_install},
     // {6, "remove", rom_remove},
     // {4, "boot", rom_boot},
     // {6, "reboot", rom_reboot},
@@ -483,6 +483,10 @@ static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
                 return COMMANDS[i].func;
     }
     return 0;
+}
+
+bool cmd_exists(const char *buf, uint8_t buflen) {
+    return !!cmd_lookup(&buf, buflen);
 }
 
 void cmd_dispatch(const char *buf, uint8_t buflen)
