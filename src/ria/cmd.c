@@ -50,7 +50,7 @@ void cmd_read_cb(int32_t result)
 {
     if (result != -1)
         return cmd_action_error_callback(result);
-    printf("%04lX:", rw_addr);
+    printf("%04lX", rw_addr);
     for (size_t i = 0; i < mbuf_len; i++)
         printf(" %02X", mbuf[i]);
     printf("\n");
@@ -72,25 +72,37 @@ void cmd_write_cb(int32_t result)
 }
 
 // Commands that start with a hex address. Read or write memory.
-static void cmd_address(uint32_t addr, const char *args, size_t len)
+static void cmd_address(const char *args, size_t len)
 {
-    // TODO move address check to RIA
-    if (addr > 0xFFFF)
+    // addr syntax is already validated by dispatch
+    rw_addr = 0;
+    size_t i = 0;
+    for (; i < len; i++)
+    {
+        char ch = args[i];
+        if (char_is_hex(ch))
+            rw_addr = rw_addr * 16 + char_to_int(ch);
+        else
+            break;
+    }
+    for (; i < len; i++)
+        if (args[i] != ' ')
+            break;
+    if (rw_addr > 0xFFFF)
     {
         printf("?invalid address\n");
         return;
     }
-    rw_addr = addr;
-    if (!len)
+    if (i == len)
     {
-        mbuf_len = (addr | 0xF) - addr + 1;
-        act_ram_read(addr);
+        mbuf_len = (rw_addr | 0xF) - rw_addr + 1;
+        act_ram_read(rw_addr);
         action_cb = cmd_read_cb;
         return;
     }
     uint32_t data = 0x80000000;
     mbuf_len = 0;
-    for (size_t i = 0; i < len; i++)
+    for (; i < len; i++)
     {
         char ch = args[i];
         if (char_is_hex(ch))
@@ -113,13 +125,11 @@ static void cmd_address(uint32_t addr, const char *args, size_t len)
                 return;
             }
             for (; i + 1 < len; i++)
-            {
                 if (args[i + 1] != ' ')
                     break;
-            }
         }
     }
-    act_ram_write(addr);
+    act_ram_write(rw_addr);
     action_cb = cmd_write_cb;
 }
 
@@ -378,109 +388,124 @@ static void cmd_help(const char *args, size_t len)
         "Commands:\n"
         "HELP (COMMAND)      - This help or expanded help for command.\n"
         "STATUS              - Show all settings and USB devices.\n"
-        "LS                  - List contents of current directory.\n"
-        "CD (DIR|DRIVE)      - Change to directory or drive.\n"
         "CAPS (0|1|2)        - Invert or force caps while 6502 is running.\n"
         "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
         "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
-        "LOAD file           - Load file.\n"
-        "RUN (file)          - Optionally load file. Begin execution at ($FFFC).\n"
-        "UPLOAD file         - Write file. Binary chunks follow.\n"
-        "INSTALL file        - Install file on RIA to be used as a ROM.\n"
-        "BOOT (rom)          - Select ROM to run at boot or run current ROM.\n"
+        "LS (DIR|DRIVE)      - List contents of directory.\n"
+        "CD (DIR|DRIVE)      - Change current directory.\n"
+        "LOAD file           - Load ROM file. Start if contains reset vector.\n"
+        "INSTALL file        - Install ROM file on RIA.\n"
         "REMOVE rom          - Remove ROM from RIA.\n"
+        "BOOT rom            - Select ROM to boot from cold start.\n"
+        "REBOOT              - Load and start selected boot ROM.\n"
+        "rom                 - Load and start an installed ROM.\n"
+        "UPLOAD file         - Write file. Binary chunks follow.\n"
+        "RESET               - Start 6502 at current reset vector ($FFFC).\n"
         "BINARY addr len crc - Write memory. Binary data follows.\n"
-        "F000: 01 02         - Write memory. Colon optional.\n"
+        "F000 01 02 ...      - Write memory.\n"
         "F000                - Read memory.";
     puts(cmdhelp);
 }
 
+typedef void (*cmd_function)(const char *, size_t);
 static struct
 {
     size_t cmd_len;
     const char *const cmd;
-    void (*func)(const char *, size_t);
+    cmd_function func;
 } const COMMANDS[] = {
-    {2, "ls", cmd_ls},
-    {2, "cd", cmd_cd},
-    {4, "phi2", cmd_phi2},
-    {4, "resb", cmd_resb},
-    {4, "caps", cmd_caps},
-    {4, "load", rom_load},
-    {5, "start", cmd_start},
-    {6, "status", cmd_status},
-    {6, "binary", cmd_binary},
-    {6, "upload", cmd_upload},
     {4, "help", cmd_help},
     {1, "h", cmd_help},
     {1, "?", cmd_help},
+    {6, "status", cmd_status},
+    {4, "caps", cmd_caps},
+    {4, "phi2", cmd_phi2},
+    {4, "resb", cmd_resb},
+    {2, "ls", cmd_ls},
+    {2, "cd", cmd_cd},
+    {4, "load", rom_load},
+    // {7, "install", rom_install},
+    // {6, "remove", rom_remove},
+    // {4, "boot", rom_boot},
+    // {6, "reboot", rom_reboot},
+    {5, "reset", cmd_start},
+    {6, "upload", cmd_upload},
+    {6, "binary", cmd_binary},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
-void cmd_dispatch(const char *buf, uint8_t buflen)
+// Returns 0 if not found. Advances buf to start of args.
+static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
 {
-    // find the cmd and args
     size_t i;
     for (i = 0; i < buflen; i++)
     {
-        if (buf[i] != ' ')
+        if ((*buf)[i] != ' ')
             break;
     }
-    const char *cmd = buf + i;
+    const char *cmd = (*buf) + i;
 
-    if (is_upload_mode)
-        return cmd_upload(cmd, buflen);
-
-    uint32_t addr = 0;
     bool is_maybe_addr = false;
     bool is_not_addr = false;
     for (; i < buflen; i++)
     {
-        uint8_t ch = buf[i];
+        uint8_t ch = (*buf)[i];
         if (char_is_hex(ch))
-        {
             is_maybe_addr = true;
-            addr = addr * 16 + char_to_int(ch);
-        }
-        else if (is_maybe_addr && !is_not_addr && ch == ':')
-        {
-            // optional colon "0000: 00 00"
-            i++;
-            break;
-        }
         else if (ch == ' ')
             break;
         else
             is_not_addr = true;
     }
-    size_t cmd_len = buf + i - cmd;
+    size_t cmd_len = (*buf) + i - cmd;
     for (; i < buflen; i++)
     {
-        if (buf[i] != ' ')
+        if ((*buf)[i] != ' ')
             break;
     }
-    const char *args = buf + i;
-    size_t args_len = buflen - i;
 
-    // cd for chdir, 0cd or cd: for r/w address
-    if (cmd_len == 2 && addr == 0xCD)
+    // cd for chdir, 00cd for r/w address
+    if (cmd_len == 2 && !strnicmp(cmd, "cd", cmd_len))
         is_not_addr = true;
 
     // address command
     if (is_maybe_addr && !is_not_addr)
     {
-        cmd_address(addr, args, args_len);
-        return;
+        *buf = cmd;
+        return cmd_address;
     }
 
-    for (size_t i = 0; i < COMMANDS_COUNT; i++)
+    *buf += i;
+    for (i = 0; i < COMMANDS_COUNT; i++)
     {
         if (cmd_len == COMMANDS[i].cmd_len)
             if (!strnicmp(cmd, COMMANDS[i].cmd, cmd_len))
-                return COMMANDS[i].func(args, args_len);
+                return COMMANDS[i].func;
     }
-    if (cmd_len)
-        printf("?unknown command\n");
+    return 0;
+}
+
+void cmd_dispatch(const char *buf, uint8_t buflen)
+{
+    if (is_upload_mode)
+        return cmd_upload(buf, buflen);
+
+    const char *args = buf;
+    cmd_function func = cmd_lookup(&args, buflen);
+
+    if (!func)
+    {
+        for (; buf < args; buf++)
+            if (buf[0] != ' ')
+            {
+                printf("?unknown command\n");
+                break;
+            }
+        return;
+    }
+
+    size_t args_len = buflen - (args - buf);
+    func(args, args_len);
 }
 
 void cmd_task()
