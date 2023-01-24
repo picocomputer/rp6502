@@ -36,7 +36,7 @@ target_compile_definitions(rp6502_ria PRIVATE
     RP6502_CODE_PAGE=437
     RP6502_EXFAT=0
     LFS_NO_MALLOC=1
-    LFS_NAME_MAX=32
+    LFS_NAME_MAX=16
 )
 
 target_compile_options(rp6502_ria PRIVATE
@@ -65,14 +65,14 @@ target_sources(rp6502_ria PRIVATE
     dev/msc.c
     mem/vram.c
     mem/mbuf.c
-    ria/cmd.c
-    ria/hlp.c
+    mon/cmd.c
+    mon/hlp.c
+    mon/mon.c
+    mon/rom.c
+    mon/str.c
     ria/main.c
-    ria/mon.c
     ria/act.c
     ria/ria.c
-    ria/rom.c
-    ria/str.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c

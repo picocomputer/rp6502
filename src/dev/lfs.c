@@ -5,7 +5,6 @@
  */
 
 #include "lfs.h"
-#include "hardware/flash.h"
 
 // 1MB for ROM storage, 512K for Pico W
 #ifdef RASPBERRYPI_PICO_W
@@ -110,10 +109,7 @@ void lfs_init()
 
     // read current count
     lfs_file_t lfs_file;
-    uint8_t lfs_file_config_buffer[FLASH_PAGE_SIZE];
-    struct lfs_file_config lfs_file_config = {
-        .buffer = lfs_file_config_buffer,
-    };
+    LFS_FILE_CONFIG(lfs_file_config)
 
     uint32_t boot_count = 0;
     lfs_file_opencfg(&lfs_volume, &lfs_file, "boot_count", LFS_O_RDWR | LFS_O_CREAT, &lfs_file_config);

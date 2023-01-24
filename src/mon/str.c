@@ -97,6 +97,50 @@ bool parse_uint32(const char **args, size_t *len, uint32_t *result)
     return true;
 }
 
+// A ROM name converted to upper case. Only A-Z allowed.
+// Return argument name must hold LFS_NAME_MAX+1.
+bool parse_rom_name(const char **args, size_t *len, char *name)
+{
+    name[0] = 0;
+    size_t name_len = 0;
+    size_t i;
+    for (i = 0; i < *len; i++)
+    {
+        if ((*args)[i] != ' ')
+            break;
+    }
+    if (i == *len)
+        return false;
+    for (; i < *len && name_len < LFS_NAME_MAX; i++)
+    {
+        char ch = (*args)[i];
+        if (ch == ' ')
+            break;
+        if (ch >= 'a' && ch <= 'z')
+            ch -= 32;
+        if (ch < 'A' || ch > 'Z')
+        {
+            name[0] = 0;
+            return false;
+        }
+        name[name_len++] = ch;
+    }
+    if (!name_len)
+        return false;
+    if (i < *len && (*args)[i] != ' ')
+    {
+        name[0] = 0;
+        return false;
+    }
+    for (; i < *len; i++)
+        if ((*args)[i] != ' ')
+            break;
+    *len -= i;
+    *args += i;
+    name[name_len] = 0;
+    return true;
+}
+
 // Ensure there are no more arguments
 bool parse_end(const char *args, size_t len)
 {

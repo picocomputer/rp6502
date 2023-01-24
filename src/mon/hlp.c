@@ -6,11 +6,6 @@
 
 #include "hlp.h"
 #include "lfs.h"
-#include "mem/mbuf.h"
-#include "pico/stdlib.h"
-#include <stdio.h>
-#include "littlefs/lfs.h"
-#include "hardware/flash.h"
 
 void hlp_help(const char *args, size_t len)
 {

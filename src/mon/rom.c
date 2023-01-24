@@ -7,12 +7,11 @@
 #include "rom.h"
 #include "str.h"
 #include "mem/mbuf.h"
-#include "ria.h"
-#include "act.h"
+#include "ria/ria.h"
+#include "ria/act.h"
 #include "cmd.h"
 #include "lfs.h"
 #include "fatfs/ff.h"
-#include "hardware/flash.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -157,13 +156,15 @@ static void rom_loading()
 void rom_install(const char *args, size_t len)
 {
     // Strip special extension, validate and upcase name
-    char lfs_name[17];
+    char lfs_name[LFS_NAME_MAX + 1];
     size_t lfs_name_len = strlen(args);
     if (lfs_name_len > 7)
         if (!strnicmp(".RP6502", args + lfs_name_len - 7, 7))
             lfs_name_len -= 7;
-    if (lfs_name_len > 16)
+    if (lfs_name_len > LFS_NAME_MAX)
         lfs_name_len = 0;
+    while (lfs_name_len && args[lfs_name_len - 1] == ' ')
+        lfs_name_len--;
     lfs_name[lfs_name_len] = 0; // strncpy is garbage
     strncpy(lfs_name, args, lfs_name_len);
     for (size_t i = 0; i < lfs_name_len; i++)
@@ -198,10 +199,7 @@ void rom_install(const char *args, size_t len)
     }
 
     lfs_file_t lfs_file;
-    uint8_t lfs_file_config_buffer[FLASH_PAGE_SIZE];
-    struct lfs_file_config lfs_file_config = {
-        .buffer = lfs_file_config_buffer,
-    };
+    LFS_FILE_CONFIG(lfs_file_config);
 
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, lfs_name,
                                      LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
@@ -211,7 +209,6 @@ void rom_install(const char *args, size_t len)
         printf("?Unable to lfs_file_opencfg (%d)\n", lfsresult);
         return;
     }
-
     while (true)
     {
         fresult = f_read(&fat_fil, mbuf, MBUF_SIZE, &mbuf_len);
@@ -236,19 +233,16 @@ void rom_install(const char *args, size_t len)
     {
         printf("?Unable to lfs_file_truncate (%d)\n", lfsresult);
     }
-
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
     {
         printf("?Unable to lfs_file_close (%d)\n", lfsresult);
     }
-
     fresult = f_close(&fat_fil);
     if (fresult != FR_OK)
     {
         printf("?Unable to close file (%d)\n", fresult);
     }
-
     if (fresult == FR_OK && lfsresult >= 0)
         printf("Installed %s.\n", lfs_name);
     else
@@ -257,12 +251,18 @@ void rom_install(const char *args, size_t len)
 
 void rom_remove(const char *args, size_t len)
 {
-    // TODO must match case and be trimmed etc.
-    int lfsresult = lfs_remove(&lfs_volume, args);
-    if (lfsresult < 0)
+    char lfs_name[LFS_NAME_MAX + 1];
+    if (parse_rom_name(&args, &len, lfs_name) &&
+        parse_end(args, len))
     {
-        printf("?Unable to lfs_remove (%d)\n", lfsresult);
+        int lfsresult = lfs_remove(&lfs_volume, lfs_name);
+        if (lfsresult < 0)
+        {
+            printf("?Unable to lfs_remove (%d)\n", lfsresult);
+        }
+        return;
     }
+    printf("?Invalid ROM name\n");
 }
 
 void rom_load(const char *args, size_t len)

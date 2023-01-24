@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "cmd.h"
-#include "mon.h"
+#include "mon/cmd.h"
+#include "mon/mon.h"
 #include "ria.h"
 #include "act.h"
-#include "rom.h"
+#include "mon/rom.h"
 #include "dev/com.h"
 #include "hid.h"
 #include "dev/lfs.h"

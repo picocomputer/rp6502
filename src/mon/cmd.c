@@ -9,10 +9,10 @@
 #include "dev/msc.h"
 #include "mem/mbuf.h"
 #include "hlp.h"
-#include "ria.h"
+#include "ria/ria.h"
 #include "rom.h"
 #include "str.h"
-#include "act.h"
+#include "ria/act.h"
 #include "dev/dev.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
@@ -28,8 +28,6 @@ static void (*binary_cb)(void) = 0;
 static void (*action_cb)(int32_t) = 0;
 static FIL fat_fil;
 static bool is_upload_mode = false;
-
-// TODO make friendly error messages for filesystem errors
 
 static void cmd_action_error_callback(int32_t result)
 {
@@ -552,7 +550,7 @@ void cmd_reset()
     if (is_upload_mode)
     {
         is_upload_mode = false;
-        FRESULT result = f_close(&fat_fil);
+        FRESULT result = f_close(&fat_fil); //TODO not allowed here
         if (result != FR_OK)
             printf("?Unable to close file (%d)\n", result);
     }

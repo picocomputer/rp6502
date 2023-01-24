@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon.h"
+#include "mon/mon.h"
 #include "mem/regs.h"
 #include "ria.h"
 #include "act.h"
