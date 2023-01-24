@@ -5,7 +5,6 @@
  */
 
 #include "lfs.h"
-#include "littlefs/lfs.h"
 #include "hardware/flash.h"
 
 // 1MB for ROM storage, 512K for Pico W
@@ -31,10 +30,9 @@ static int lfs_sync(const struct lfs_config *c);
 static char lfs_read_buffer[FLASH_PAGE_SIZE];
 static char lfs_prog_buffer[FLASH_PAGE_SIZE];
 static char lfs_lookahead_buffer[LFS_LOOKAHEAD_SIZE];
-static char lfs_file_config_buffer[FLASH_PAGE_SIZE];
 
-lfs_t lfs;
-static struct lfs_config cfg = {
+lfs_t lfs_volume;
+static const struct lfs_config cfg = {
     .read = lfs_read,
     .prog = lfs_prog,
     .erase = lfs_erase,
@@ -49,10 +47,6 @@ static struct lfs_config cfg = {
     .read_buffer = lfs_read_buffer,
     .prog_buffer = lfs_prog_buffer,
     .lookahead_buffer = lfs_lookahead_buffer,
-};
-lfs_file_t file;
-static struct lfs_file_config file_cfg = {
-    .buffer = lfs_file_config_buffer,
 };
 
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
@@ -79,7 +73,7 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
                           (block * FLASH_SECTOR_SIZE) +
                           off;
     flash_range_program(flash_offs, buffer, size);
-    // TODO verify for LFS_ERR_CORRUPT
+    // TODO verify for LFS_ERR_CORRUPT?
     return LFS_ERR_OK;
 }
 
@@ -90,7 +84,7 @@ static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
     uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_ROMDISK_SIZE) +
                           (block * FLASH_SECTOR_SIZE);
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    // TODO verify for LFS_ERR_CORRUPT
+    // TODO verify for LFS_ERR_CORRUPT?
     return LFS_ERR_OK;
 }
 
@@ -104,31 +98,37 @@ void lfs_init()
 {
     // TODO remove this littlefs example from the README
     // mount the filesystem
-    int err = lfs_mount(&lfs, &cfg);
+    int err = lfs_mount(&lfs_volume, &cfg);
 
     // reformat if we can't mount the filesystem
     // this should only happen on the first boot
     if (err)
     {
-        lfs_format(&lfs, &cfg);
-        lfs_mount(&lfs, &cfg);
+        lfs_format(&lfs_volume, &cfg);
+        lfs_mount(&lfs_volume, &cfg);
     }
 
     // read current count
+    lfs_file_t lfs_file;
+    uint8_t lfs_file_config_buffer[FLASH_PAGE_SIZE];
+    struct lfs_file_config lfs_file_config = {
+        .buffer = lfs_file_config_buffer,
+    };
+
     uint32_t boot_count = 0;
-    lfs_file_opencfg(&lfs, &file, "boot_count", LFS_O_RDWR | LFS_O_CREAT, &file_cfg);
-    lfs_file_read(&lfs, &file, &boot_count, sizeof(boot_count));
+    lfs_file_opencfg(&lfs_volume, &lfs_file, "boot_count", LFS_O_RDWR | LFS_O_CREAT, &lfs_file_config);
+    lfs_file_read(&lfs_volume, &lfs_file, &boot_count, sizeof(boot_count));
 
     // update boot count
     boot_count += 1;
-    lfs_file_rewind(&lfs, &file);
-    lfs_file_write(&lfs, &file, &boot_count, sizeof(boot_count));
+    lfs_file_rewind(&lfs_volume, &lfs_file);
+    lfs_file_write(&lfs_volume, &lfs_file, &boot_count, sizeof(boot_count));
 
     // remember the storage is not updated until the file is closed successfully
-    lfs_file_close(&lfs, &file);
+    lfs_file_close(&lfs_volume, &lfs_file);
 
     // release any resources we were using
-    lfs_unmount(&lfs);
+    // lfs_unmount(&lfs);
 
     // print the boot count
     printf("lfs test boot_count: %ld\n", boot_count);

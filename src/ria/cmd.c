@@ -8,6 +8,7 @@
 #include "mon.h"
 #include "dev/msc.h"
 #include "mem/mbuf.h"
+#include "hlp.h"
 #include "ria.h"
 #include "rom.h"
 #include "str.h"
@@ -380,33 +381,6 @@ static void cmd_cd(const char *args, size_t len)
     msc_cd(args);
 }
 
-static void cmd_help(const char *args, size_t len)
-{
-    (void)(args);
-    (void)(len);
-    static const char *__in_flash("cmdhelp") cmdhelp =
-        "Commands:\n"
-        "HELP (COMMAND)      - This help or expanded help for command.\n"
-        "STATUS              - Show all settings and USB devices.\n"
-        "CAPS (0|1|2)        - Invert or force caps while 6502 is running.\n"
-        "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
-        "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
-        "LS (DIR|DRIVE)      - List contents of directory.\n"
-        "CD (DIR|DRIVE)      - Change current directory.\n"
-        "LOAD file           - Load ROM file. Start if contains reset vector.\n"
-        "INSTALL file        - Install ROM file on RIA.\n"
-        "REMOVE rom          - Remove ROM from RIA.\n"
-        "BOOT rom            - Select ROM to boot from cold start.\n"
-        "REBOOT              - Load and start selected boot ROM.\n"
-        "rom                 - Load and start an installed ROM.\n"
-        "UPLOAD file         - Write file. Binary chunks follow.\n"
-        "RESET               - Start 6502 at current reset vector ($FFFC).\n"
-        "BINARY addr len crc - Write memory. Binary data follows.\n"
-        "F000 01 02 ...      - Write memory.\n"
-        "F000                - Read memory.";
-    puts(cmdhelp);
-}
-
 typedef void (*cmd_function)(const char *, size_t);
 static struct
 {
@@ -414,9 +388,9 @@ static struct
     const char *const cmd;
     cmd_function func;
 } const COMMANDS[] = {
-    {4, "help", cmd_help},
-    {1, "h", cmd_help},
-    {1, "?", cmd_help},
+    {4, "help", hlp_help},
+    {1, "h", hlp_help},
+    {1, "?", hlp_help},
     {6, "status", cmd_status},
     {4, "caps", cmd_caps},
     {4, "phi2", cmd_phi2},
@@ -425,7 +399,7 @@ static struct
     {2, "cd", cmd_cd},
     {4, "load", rom_load},
     {7, "install", rom_install},
-    // {6, "remove", rom_remove},
+    {6, "remove", rom_remove},
     // {4, "boot", rom_boot},
     // {6, "reboot", rom_reboot},
     {5, "reset", cmd_start},
@@ -485,7 +459,8 @@ static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
     return 0;
 }
 
-bool cmd_exists(const char *buf, uint8_t buflen) {
+bool cmd_exists(const char *buf, uint8_t buflen)
+{
     return !!cmd_lookup(&buf, buflen);
 }
 

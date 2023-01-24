@@ -42,7 +42,8 @@ static void main_init()
     lfs_init();
 }
 
-// These tasks run always. None may call fatfs.
+// These tasks run always, even when FatFs is blocking.
+// Calling FatFs in here may cause undefined behavior.
 void main_sys_tasks()
 {
     tuh_task();
@@ -52,8 +53,8 @@ void main_sys_tasks()
     com_task();
 }
 
-// These tasks do not run during fatfs IO.
-// It is safe to call blocking fatfs operations.
+// These tasks do not run during FatFs IO.
+// It is safe to call blocking FatFs operations.
 static void main_app_tasks()
 {
     mon_task();
@@ -64,6 +65,7 @@ static void main_app_tasks()
 
 // This resets all modules and halts the 6502.
 // It is called from CTRL-ALT-DEL and UART breaks.
+// This may be called by main_sys_tasks so no FatFs calls.
 void main_break()
 {
     ria_stop();
