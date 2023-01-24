@@ -13,6 +13,8 @@ R0.15 w/patch1  (November 6, 2022)
 Plenty of room. Turn everything on as needed.
 
 * #define FF_CODE_PAGE   RP6502_CODE_PAGE
+* #define FF_FS_EXFAT    RP6502_EXFAT
+* #define FF_LBA64       RP6502_EXFAT
 * #define FF_FS_NORTC    1
 * #define FF_FS_RPATH    2
 * #define FF_LBA64       1

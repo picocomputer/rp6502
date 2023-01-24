@@ -34,6 +34,7 @@ target_include_directories(rp6502_ria PRIVATE
 target_compile_definitions(rp6502_ria PRIVATE
     RP6502_NAME="Picocomputer 6502"
     RP6502_CODE_PAGE=437
+    RP6502_EXFAT=0
     LFS_NO_MALLOC=1
 )
 
