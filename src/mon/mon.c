@@ -6,7 +6,10 @@
 
 #include "mon.h"
 #include "cmd.h"
+#include "hlp.h"
+#include "fil.h"
 #include "rom.h"
+#include "str.h"
 #include "vga/ansi.h"
 #include "ria/ria.h"
 #include <stdio.h>
@@ -20,10 +23,114 @@ static ansi_state_t mon_ansi_state = ansi_state_C0;
 static int mon_ansi_param;
 static bool needs_prompt = true;
 
+typedef void (*cmd_function)(const char *, size_t);
+static struct
+{
+    size_t cmd_len;
+    const char *const cmd;
+    cmd_function func;
+} const COMMANDS[] = {
+    {4, "help", hlp_help},
+    {1, "h", hlp_help},
+    {1, "?", hlp_help},
+    {6, "status", cmd_status},
+    {4, "caps", cmd_caps},
+    {4, "phi2", cmd_phi2},
+    {4, "resb", cmd_resb},
+    {2, "ls", fil_ls},
+    {2, "cd", fil_cd},
+    {4, "load", rom_load},
+    {7, "install", rom_install},
+    {6, "remove", rom_remove},
+    // {4, "boot", rom_boot},
+    // {6, "reboot", rom_reboot},
+    {5, "reset", cmd_start},
+    {6, "upload", fil_upload},
+    {6, "binary", cmd_binary},
+};
+static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+
+// Returns 0 if not found. Advances buf to start of args.
+static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
+{
+    size_t i;
+    for (i = 0; i < buflen; i++)
+    {
+        if ((*buf)[i] != ' ')
+            break;
+    }
+    const char *cmd = (*buf) + i;
+
+    bool is_maybe_addr = false;
+    bool is_not_addr = false;
+    for (; i < buflen; i++)
+    {
+        uint8_t ch = (*buf)[i];
+        if (char_is_hex(ch))
+            is_maybe_addr = true;
+        else if (ch == ' ')
+            break;
+        else
+            is_not_addr = true;
+    }
+    size_t cmd_len = (*buf) + i - cmd;
+    for (; i < buflen; i++)
+    {
+        if ((*buf)[i] != ' ')
+            break;
+    }
+
+    // cd for chdir, 00cd for r/w address
+    if (cmd_len == 2 && !strnicmp(cmd, "cd", cmd_len))
+        is_not_addr = true;
+
+    // address command
+    if (is_maybe_addr && !is_not_addr)
+    {
+        *buf = cmd;
+        return cmd_address;
+    }
+
+    *buf += i;
+    for (i = 0; i < COMMANDS_COUNT; i++)
+    {
+        if (cmd_len == COMMANDS[i].cmd_len)
+            if (!strnicmp(cmd, COMMANDS[i].cmd, cmd_len))
+                return COMMANDS[i].func;
+    }
+    return 0;
+}
+
+bool mon_command_exists(const char *buf, uint8_t buflen)
+{
+    return !!cmd_lookup(&buf, buflen);
+}
+
+static void mon_dispatch(const char *buf, uint8_t buflen)
+{
+    const char *args = buf;
+    cmd_function func = cmd_lookup(&args, buflen);
+    if (!func)
+    {
+        for (; buf < args; buf++)
+            if (buf[0] != ' ')
+            {
+                printf("?unknown command\n");
+                break;
+            }
+        return;
+    }
+    size_t args_len = buflen - (args - buf);
+    func(args, args_len);
+}
+
 static void mon_enter()
 {
     mon_buf[mon_buflen] = 0;
-    cmd_dispatch(mon_buf, mon_buflen);
+    if (fil_is_prompting())
+        fil_dispatch(mon_buf, mon_buflen);
+    else
+        mon_dispatch(mon_buf, mon_buflen);
     mon_reset();
 }
 
@@ -144,11 +251,14 @@ void mon_task()
         needs_prompt = true;
         return;
     }
-
+    if (fil_is_rx_binary())
+    {
+        return fil_binary_handler();
+    }
     if (needs_prompt)
     {
         needs_prompt = false;
-        putchar(cmd_prompt());
+        putchar(fil_is_prompting() ? '}' : ']');
     }
 
     int ch = getchar_timeout_us(0);

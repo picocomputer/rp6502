@@ -5,6 +5,7 @@
  */
 
 #include "mon/cmd.h"
+#include "mon/fil.h"
 #include "mon/mon.h"
 #include "ria.h"
 #include "act.h"
@@ -59,6 +60,7 @@ static void main_app_tasks()
 {
     mon_task();
     cmd_task();
+    fil_task();
     rom_task();
     // api_task(); //TODO
 }
@@ -71,6 +73,7 @@ void main_break()
     ria_stop();
     act_reset();
     com_reset();
+    fil_reset();
     mon_reset();
     cmd_reset();
     rom_reset();

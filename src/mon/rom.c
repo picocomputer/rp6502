@@ -9,7 +9,7 @@
 #include "mem/mbuf.h"
 #include "ria/ria.h"
 #include "ria/act.h"
-#include "cmd.h"
+#include "mon.h"
 #include "lfs.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
@@ -22,7 +22,6 @@ static enum {
     ROM_RIA_VERIFYING,
 } rom_state;
 static FIL fat_fil;
-
 static uint32_t rom_addr;
 static bool rom_FFFC;
 static bool rom_FFFD;
@@ -151,8 +150,6 @@ static void rom_loading()
     }
 }
 
-#include <ctype.h>
-
 void rom_install(const char *args, size_t len)
 {
     // Strip special extension, validate and upcase name
@@ -174,7 +171,7 @@ void rom_install(const char *args, size_t len)
         if (lfs_name[i] < 'A' || lfs_name[i] > 'Z')
             lfs_name_len = 0;
     }
-    if (!lfs_name_len || cmd_exists(args, len))
+    if (!lfs_name_len || mon_command_exists(args, len))
     {
         printf("?Invalid ROM name.\n");
         return;
@@ -315,10 +312,8 @@ void rom_task()
         break;
     }
 
-    // FatFs operations can't be done in reset
     if (rom_state == ROM_IDLE && fat_fil.obj.fs)
     {
-        // obj.fs is set only when file is open
         FRESULT result = f_close(&fat_fil);
         if (result != FR_OK)
             printf("?Unable to close file (%d)\n", result);

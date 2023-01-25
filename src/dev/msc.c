@@ -6,7 +6,6 @@
 
 #include "ria/main.h"
 #include "dev.h"
-#include "msc.h"
 #include "tusb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
@@ -162,48 +161,4 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 
     return RES_OK;
-}
-
-void msc_ls(const char *args)
-{
-
-    const char *dpath = ".";
-    if (args[0])
-        dpath = args;
-
-    DIR dir;
-    if (FR_OK != f_opendir(&dir, dpath))
-    {
-        printf("?cannot access '%s': No such file or directory\n", dpath);
-        return;
-    }
-
-    FILINFO fno;
-    while ((f_readdir(&dir, &fno) == FR_OK) && (fno.fname[0] != 0))
-    {
-        if (fno.fname[0] != '.')
-        {
-            if (fno.fattrib & AM_DIR)
-                printf("<DIR> %s\n", fno.fname);
-            else
-                printf("      %s\n", fno.fname);
-        }
-    }
-
-    f_closedir(&dir);
-}
-
-void msc_cd(const char *args)
-{
-    if (!args[0])
-    {
-        // TODO print current directory
-        printf("?invalid arguments\n");
-        return;
-    }
-    if ((FR_OK != f_chdir(args)) || (FR_OK != f_chdrive(args)))
-    {
-        printf("?No such file or directory\n");
-        return;
-    }
 }
