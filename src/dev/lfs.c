@@ -72,7 +72,6 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
                           (block * FLASH_SECTOR_SIZE) +
                           off;
     flash_range_program(flash_offs, buffer, size);
-    // TODO verify for LFS_ERR_CORRUPT?
     return LFS_ERR_OK;
 }
 
@@ -83,7 +82,6 @@ static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
     uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_ROMDISK_SIZE) +
                           (block * FLASH_SECTOR_SIZE);
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    // TODO verify for LFS_ERR_CORRUPT?
     return LFS_ERR_OK;
 }
 
@@ -95,37 +93,21 @@ static int lfs_sync(const struct lfs_config *c)
 
 void lfs_init()
 {
-    // TODO remove this littlefs example from the README
     // mount the filesystem
     int err = lfs_mount(&lfs_volume, &cfg);
-
-    // reformat if we can't mount the filesystem
-    // this should only happen on the first boot
     if (err)
     {
+        // Maybe first boot. Attempt format.
         lfs_format(&lfs_volume, &cfg);
-        lfs_mount(&lfs_volume, &cfg);
+        if (err)
+        {
+            printf("?Unable to format lfs (%d)", err);
+        }
+        else
+        {
+            err = lfs_mount(&lfs_volume, &cfg);
+            if (err)
+                printf("?Unable to mount lfs (%d)", err);
+        }
     }
-
-    // read current count
-    lfs_file_t lfs_file;
-    LFS_FILE_CONFIG(lfs_file_config)
-
-    uint32_t boot_count = 0;
-    lfs_file_opencfg(&lfs_volume, &lfs_file, "boot_count", LFS_O_RDWR | LFS_O_CREAT, &lfs_file_config);
-    lfs_file_read(&lfs_volume, &lfs_file, &boot_count, sizeof(boot_count));
-
-    // update boot count
-    boot_count += 1;
-    lfs_file_rewind(&lfs_volume, &lfs_file);
-    lfs_file_write(&lfs_volume, &lfs_file, &boot_count, sizeof(boot_count));
-
-    // remember the storage is not updated until the file is closed successfully
-    lfs_file_close(&lfs_volume, &lfs_file);
-
-    // release any resources we were using
-    // lfs_unmount(&lfs);
-
-    // print the boot count
-    printf("lfs test boot_count: %ld\n", boot_count);
-};
+}
