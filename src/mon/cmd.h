@@ -11,9 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void cmd_task();
-void cmd_reset();
-bool cmd_is_active();
 void cmd_binary(const char *args, size_t len);
 void cmd_status(const char *args, size_t len);
 void cmd_caps(const char *args, size_t len);
@@ -21,5 +18,11 @@ void cmd_start(const char *args, size_t len);
 void cmd_resb(const char *args, size_t len);
 void cmd_phi2(const char *args, size_t len);
 void cmd_address(const char *args, size_t len);
+bool cmd_rx_handler();
+void cmd_task();
+void cmd_keep_alive();
+bool cmd_is_active();
+bool cmd_is_rx_binary();
+void cmd_reset();
 
 #endif /* _CMD_H_ */

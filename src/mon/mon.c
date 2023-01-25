@@ -10,6 +10,7 @@
 #include "fil.h"
 #include "rom.h"
 #include "str.h"
+#include "mem/mbuf.h"
 #include "vga/ansi.h"
 #include "ria/ria.h"
 #include <stdio.h>
@@ -38,7 +39,7 @@ static struct
     {4, "phi2", cmd_phi2},
     {4, "resb", cmd_resb},
     {2, "ls", fil_ls},
-    {2, "cd", fil_cd},
+    {2, "cd", fil_chdir},
     {4, "load", rom_load},
     {7, "install", rom_install},
     {6, "remove", rom_remove},
@@ -51,7 +52,7 @@ static struct
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
 // Returns 0 if not found. Advances buf to start of args.
-static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
+static cmd_function mon_command_lookup(const char **buf, uint8_t buflen)
 {
     size_t i;
     for (i = 0; i < buflen; i++)
@@ -60,7 +61,6 @@ static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
             break;
     }
     const char *cmd = (*buf) + i;
-
     bool is_maybe_addr = false;
     bool is_not_addr = false;
     for (; i < buflen; i++)
@@ -79,18 +79,21 @@ static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
         if ((*buf)[i] != ' ')
             break;
     }
-
     // cd for chdir, 00cd for r/w address
     if (cmd_len == 2 && !strnicmp(cmd, "cd", cmd_len))
         is_not_addr = true;
-
     // address command
     if (is_maybe_addr && !is_not_addr)
     {
         *buf = cmd;
         return cmd_address;
     }
-
+    // 0:-9: is chdrive
+    if (cmd_len == 2 && cmd[1] == ':' && cmd[0] >= '0' && cmd[0] <= '9')
+    {
+        *buf = cmd;
+        return fil_chdrive;
+    }
     *buf += i;
     for (i = 0; i < COMMANDS_COUNT; i++)
     {
@@ -103,13 +106,13 @@ static cmd_function cmd_lookup(const char **buf, uint8_t buflen)
 
 bool mon_command_exists(const char *buf, uint8_t buflen)
 {
-    return !!cmd_lookup(&buf, buflen);
+    return !!mon_command_lookup(&buf, buflen);
 }
 
-static void mon_dispatch(const char *buf, uint8_t buflen)
+static void mon_command_dispatch(const char *buf, uint8_t buflen)
 {
     const char *args = buf;
-    cmd_function func = cmd_lookup(&args, buflen);
+    cmd_function func = mon_command_lookup(&args, buflen);
     if (!func)
     {
         for (; buf < args; buf++)
@@ -128,9 +131,9 @@ static void mon_enter()
 {
     mon_buf[mon_buflen] = 0;
     if (fil_is_prompting())
-        fil_dispatch(mon_buf, mon_buflen);
+        fil_command_dispatch(mon_buf, mon_buflen);
     else
-        mon_dispatch(mon_buf, mon_buflen);
+        mon_command_dispatch(mon_buf, mon_buflen);
     mon_reset();
 }
 
@@ -244,6 +247,27 @@ static void mon_state_CSI(char ch)
         mon_delete();
 }
 
+static void mon_rx_binary()
+{
+    int ch = getchar_timeout_us(0);
+    if (ch != PICO_ERROR_TIMEOUT)
+    {
+        while (ch != PICO_ERROR_TIMEOUT)
+        {
+            mbuf[mbuf_len++] = ch;
+            if (fil_is_rx_binary() && fil_rx_handler())
+                return;
+            if (cmd_is_rx_binary() && cmd_rx_handler())
+                return;
+            ch = getchar_timeout_us(0);
+        }
+        if (fil_is_rx_binary())
+            fil_keep_alive();
+        if (cmd_is_rx_binary())
+            cmd_keep_alive();
+    }
+}
+
 void mon_task()
 {
     if (ria_is_active() || cmd_is_active() || rom_is_active())
@@ -251,16 +275,13 @@ void mon_task()
         needs_prompt = true;
         return;
     }
-    if (fil_is_rx_binary())
-    {
-        return fil_binary_handler();
-    }
+    if (cmd_is_rx_binary() || fil_is_rx_binary())
+        return mon_rx_binary();
     if (needs_prompt)
     {
         needs_prompt = false;
         putchar(fil_is_prompting() ? '}' : ']');
     }
-
     int ch = getchar_timeout_us(0);
     if (ch == ANSI_CANCEL)
         mon_ansi_state = ansi_state_C0;

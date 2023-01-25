@@ -59,14 +59,12 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
     }
 
     // If current directory invalid, change to root of this drive
-    DIR dir;
-    if (FR_OK != f_opendir(&dir, "."))
+    char s[2];
+    if (FR_OK != f_getcwd(s, 2))
     {
         f_chdrive(drive_path);
         f_chdir("/");
     }
-    f_closedir(&dir);
-
     return true;
 }
 

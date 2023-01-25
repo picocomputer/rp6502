@@ -5,12 +5,9 @@
  */
 
 #include "cmd.h"
-#include "fil.h"
 #include "mon.h"
 #include "mem/mbuf.h"
-#include "hlp.h"
 #include "ria/ria.h"
-#include "rom.h"
 #include "str.h"
 #include "ria/act.h"
 #include "dev/dev.h"
@@ -18,7 +15,7 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 
-#define MON_BINARY_TIMEOUT_MS 200
+#define TIMEOUT_MS 200
 
 static enum {
     CMD_IDLE,
@@ -31,53 +28,50 @@ static enum {
 static uint32_t rw_addr;
 static uint32_t rw_len;
 static uint32_t rw_crc;
-static absolute_time_t binary_timer;
+static absolute_time_t watchdog;
 
-static void cmd_action_error_callback(int32_t result)
+static bool cmd_ria_action_error()
 {
+    int32_t result = act_result();
     switch (result)
     {
-    case -1:
-        // OK
+    case -1: // OK
+        return false;
         break;
     case -2:
         printf("?action watchdog timeout\n");
         break;
-    default: // TODO can this happen?
-        printf("?undefined action error at $%04lX\n", result);
+    default:
+        printf("?verify failed at $%04lX\n", result);
         break;
     }
+    return true;
 }
 
-static void cmd_read_cb()
+static void cmd_ria_read()
 {
     cmd_state = CMD_IDLE;
-    int32_t result = act_result();
-    if (result != -1)
-        return cmd_action_error_callback(result);
+    if (cmd_ria_action_error())
+        return;
     printf("%04lX", rw_addr);
     for (size_t i = 0; i < mbuf_len; i++)
         printf(" %02X", mbuf[i]);
     printf("\n");
 }
 
-static void cmd_write_cb()
+static void cmd_ria_write()
 {
     cmd_state = CMD_IDLE;
-    int32_t result = act_result();
-    if (result != -1)
-        return cmd_action_error_callback(result);
+    if (cmd_ria_action_error())
+        return;
     cmd_state = CMD_VERIFY;
     act_ram_verify(rw_addr);
 }
 
-static void cmd_verify_cb()
+static void cmd_ria_verify()
 {
     cmd_state = CMD_IDLE;
-    int32_t result = act_result();
-    if (result < 0)
-        return cmd_action_error_callback(result);
-    printf("?verify failed at $%04lX\n", result);
+    cmd_ria_action_error();
 }
 
 // Commands that start with a hex address. Read or write memory.
@@ -251,40 +245,6 @@ void cmd_status(const char *args, size_t len)
     dev_print_all();
 }
 
-static void cmd_binary_callback()
-{
-    int ch = getchar_timeout_us(0);
-    if (ch != PICO_ERROR_TIMEOUT)
-    {
-        while (ch != PICO_ERROR_TIMEOUT)
-        {
-            mbuf[mbuf_len++] = ch;
-            if (mbuf_len >= rw_len)
-            {
-                if (mbuf_crc32() == rw_crc)
-                {
-                    cmd_state = CMD_WRITE;
-                    act_ram_write(rw_addr);
-                }
-                else
-                {
-                    cmd_state = CMD_IDLE;
-                    puts("?CRC does not match");
-                }
-                return;
-            }
-            ch = getchar_timeout_us(0);
-        }
-        binary_timer = delayed_by_us(get_absolute_time(),
-                                     MON_BINARY_TIMEOUT_MS * 1000);
-    }
-    if (absolute_time_diff_us(get_absolute_time(), binary_timer) < 0)
-    {
-        cmd_state = CMD_IDLE;
-        printf("?timeout\n");
-    }
-}
-
 void cmd_binary(const char *args, size_t len)
 {
     if (parse_uint32(&args, &len, &rw_addr) &&
@@ -304,41 +264,72 @@ void cmd_binary(const char *args, size_t len)
         }
         mbuf_len = 0;
         cmd_state = CMD_BINARY;
-        binary_timer = delayed_by_us(get_absolute_time(),
-                                     MON_BINARY_TIMEOUT_MS * 1000);
-
+        watchdog = delayed_by_us(get_absolute_time(),
+                                 TIMEOUT_MS * 1000);
         return;
     }
     printf("?invalid argument\n");
+}
+
+bool cmd_rx_handler()
+{
+    if (mbuf_len < rw_len)
+        return false;
+    if (mbuf_crc32() == rw_crc)
+    {
+        cmd_state = CMD_WRITE;
+        act_ram_write(rw_addr);
+    }
+    else
+    {
+        cmd_state = CMD_IDLE;
+        puts("?CRC does not match");
+    }
+    return true;
 }
 
 void cmd_task()
 {
     if (ria_is_active())
         return;
-
     switch (cmd_state)
     {
     case CMD_IDLE:
         break;
     case CMD_READ:
-        cmd_read_cb();
+        cmd_ria_read();
         break;
     case CMD_WRITE:
-        cmd_write_cb();
+        cmd_ria_write();
         break;
     case CMD_VERIFY:
-        cmd_verify_cb();
+        cmd_ria_verify();
         break;
     case CMD_BINARY:
-        cmd_binary_callback();
+        if (absolute_time_diff_us(get_absolute_time(), watchdog) < 0)
+        {
+            printf("?timeout\n");
+            cmd_state = CMD_IDLE;
+            mon_reset();
+        }
         break;
     }
 }
 
+void cmd_keep_alive()
+{
+    watchdog = delayed_by_us(get_absolute_time(),
+                             TIMEOUT_MS * 1000);
+}
+
 bool cmd_is_active()
 {
-    return cmd_state != CMD_IDLE;
+    return cmd_state != CMD_IDLE && cmd_state != CMD_BINARY;
+}
+
+bool cmd_is_rx_binary()
+{
+    return cmd_state == CMD_BINARY;
 }
 
 void cmd_reset()

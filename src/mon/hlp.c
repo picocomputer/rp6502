@@ -19,7 +19,8 @@ void hlp_help(const char *args, size_t len)
         "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
         "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
         "LS (DIR|DRIVE)      - List contents of directory.\n"
-        "CD (DIR|DRIVE)      - Change current directory.\n"
+        "CD (DIR)            - Change or show current directory.\n"
+        "0:                  - 1:-8: Change current USB drive.\n"
         "LOAD file           - Load ROM file. Start if contains reset vector.\n"
         "INSTALL file        - Install ROM file on RIA.\n"
         "REMOVE rom          - Remove ROM from RIA.\n"
@@ -29,8 +30,8 @@ void hlp_help(const char *args, size_t len)
         "UPLOAD file         - Write file. Binary chunks follow.\n"
         "RESET               - Start 6502 at current reset vector ($FFFC).\n"
         "BINARY addr len crc - Write memory. Binary data follows.\n"
-        "F000 01 02 ...      - Write memory.\n"
-        "F000                - Read memory.";
+        "0000 00 00 ...      - Write memory.\n"
+        "0000                - Read memory.";
     puts(cmdhelp);
 
     lfs_dir_t lfs_dir;
