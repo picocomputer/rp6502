@@ -27,7 +27,6 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
         return false;
     }
 
-    // TODO change double to uint64_t
     const double block_count = tuh_msc_get_block_count(dev_addr, cb_data->cbw->lun);
     const double block_size = tuh_msc_get_block_size(dev_addr, cb_data->cbw->lun);
     const char *xb = "MB";

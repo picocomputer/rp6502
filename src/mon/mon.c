@@ -39,6 +39,7 @@ static struct
     {4, "phi2", cmd_phi2},
     {4, "resb", cmd_resb},
     {2, "ls", fil_ls},
+    {3, "dir", fil_ls},
     {2, "cd", fil_chdir},
     {4, "load", rom_load},
     {7, "install", rom_install},
