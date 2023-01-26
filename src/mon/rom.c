@@ -37,18 +37,13 @@ static size_t rom_gets()
     {
         if (!f_gets((char *)mbuf, MBUF_SIZE, &fat_fil))
             return 0;
-        len = strlen((char *)mbuf);
     }
     else
     {
-        for (len = 0; len < MBUF_SIZE - 1; len++)
-        {
-            lfs_ssize_t result = lfs_file_read(&lfs_volume, &lfs_file, &mbuf[len], 1);
-            if (result != 1 || mbuf[len] == '\n')
-                break;
-        }
-        mbuf[len] = 0;
+        if (!lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_file))
+            return 0;
     }
+    len = strlen((char *)mbuf);
     if (mbuf[len - 1] == '\n')
         len--;
     if (mbuf[len - 1] == '\r')
@@ -95,7 +90,7 @@ static bool rom_eof()
     if (is_reading_fat)
         return !!f_eof(&fat_fil);
     else
-        return lfs_file.pos >= lfs_file.ctz.size;
+        return !!lfs_eof(&lfs_file);
 }
 
 static bool rom_read(uint32_t len, uint32_t crc)

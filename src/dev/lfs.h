@@ -18,6 +18,9 @@
     };
 
 void lfs_init();
+int lfs_eof(lfs_file_t *file);
+char *lfs_gets(char *str, int n, lfs_file_t *file);
+
 extern lfs_t lfs_volume;
 
 #endif /* _LFS_H_ */

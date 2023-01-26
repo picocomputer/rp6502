@@ -14,7 +14,7 @@
 #endif
 static_assert(!(ROM_DISK_BLOCKS % 8));
 
-// Our implementaion is limited to a single volume and one file handle.
+// Our implementaion is limited to a single volume.
 // We use LFS_NO_MALLOC and have no need to pause interrupts.
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, void *buffer, lfs_size_t size);
@@ -110,4 +110,29 @@ void lfs_init()
                 printf("?Unable to mount lfs (%d)", err);
         }
     }
+}
+
+int lfs_eof(lfs_file_t *file)
+{
+    return file->pos >= file->ctz.size;
+}
+
+char *lfs_gets(char *str, int n, lfs_file_t *file)
+{
+    int len = 0;
+    for (len = 0; len < n - 1; len++)
+    {
+        lfs_ssize_t result = lfs_file_read(&lfs_volume, file, &str[len], 1);
+        if (result != 1)
+        {
+            str[len] = 0;
+            return NULL;
+        }
+        if (str[len] == '\n')
+            break;
+    }
+    str[len] = 0;
+    if (!len && lfs_eof(file))
+        return NULL;
+    return str;
 }
