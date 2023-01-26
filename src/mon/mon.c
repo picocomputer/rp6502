@@ -47,6 +47,7 @@ static struct
     // {6, "reboot", rom_reboot},
     {5, "reset", cmd_start},
     {6, "upload", fil_upload},
+    {6, "unlink", fil_unlink},
     {6, "binary", cmd_binary},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;

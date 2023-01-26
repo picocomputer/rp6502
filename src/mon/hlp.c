@@ -104,6 +104,7 @@ void hlp_help(const char *args, size_t len)
         "REBOOT              - Load and start selected boot ROM.\n"
         "rom                 - Load and start an installed ROM.\n"
         "UPLOAD file         - Write file. Binary chunks follow.\n"
+        "UNLINK file         - Delete file.\n"
         "RESET               - Start 6502 at current reset vector ($FFFC).\n"
         "BINARY addr len crc - Write memory. Binary data follows.\n"
         "0000 00 00 ...      - Write memory.\n"

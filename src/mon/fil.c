@@ -128,6 +128,14 @@ void fil_upload(const char *args, size_t len)
     fil_keep_alive();
 }
 
+void fil_unlink(const char *args, size_t len)
+{
+    (void)(len);
+    FRESULT result = f_unlink(args);
+    if (result != FR_OK)
+        printf("?Failed to unlink file (%d)\n", result);
+}
+
 void fil_command_dispatch(const char *args, size_t len)
 {
     if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
