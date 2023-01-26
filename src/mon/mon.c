@@ -115,12 +115,13 @@ static void mon_command_dispatch(const char *buf, uint8_t buflen)
     cmd_function func = mon_command_lookup(&args, buflen);
     if (!func)
     {
-        for (; buf < args; buf++)
-            if (buf[0] != ' ')
-            {
-                printf("?unknown command\n");
-                break;
-            }
+        if (!rom_load_lfs(buf, buflen))
+            for (; buf < args; buf++)
+                if (buf[0] != ' ')
+                {
+                    printf("?unknown command\n");
+                    break;
+                }
         return;
     }
     size_t args_len = buflen - (args - buf);
