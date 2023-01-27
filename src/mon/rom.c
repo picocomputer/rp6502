@@ -44,9 +44,9 @@ static size_t rom_gets()
             return 0;
     }
     len = strlen((char *)mbuf);
-    if (mbuf[len - 1] == '\n')
+    if (len && mbuf[len - 1] == '\n')
         len--;
-    if (mbuf[len - 1] == '\r')
+    if (len && mbuf[len - 1] == '\r')
         len--;
     return len;
 }
@@ -265,10 +265,12 @@ void rom_install(const char *args, size_t len)
         if (mbuf_len < MBUF_SIZE)
             break;
     }
-    lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
+    int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     lfs_file_open = false;
-    if (lfsresult < 0)
-        printf("?Unable to lfs_file_close (%d)\n", lfsresult);
+    if (lfscloseresult < 0)
+        printf("?Unable to lfs_file_close (%d)\n", lfscloseresult);
+    if (lfsresult >= 0)
+        lfsresult = lfscloseresult;
     fresult = f_close(&fat_fil);
     if (fresult != FR_OK)
         printf("?Unable to f_close file (%d)\n", fresult);

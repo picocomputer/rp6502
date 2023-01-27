@@ -5,6 +5,7 @@
  */
 
 #include "cmd.h"
+#include "cfg.h"
 #include "mon.h"
 #include "mem/mbuf.h"
 #include "ria/ria.h"
@@ -155,6 +156,7 @@ void cmd_phi2(const char *args, size_t len)
                 return;
             }
             ria_set_phi2_khz(val);
+            cfg_save();
         }
         else
         {
@@ -191,6 +193,7 @@ void cmd_resb(const char *args, size_t len)
                 return;
             }
             ria_set_reset_ms(val);
+            cfg_save();
         }
         else
         {
@@ -223,6 +226,7 @@ void cmd_caps(const char *args, size_t len)
             parse_end(args, len))
         {
             ria_set_caps(val);
+            cfg_save();
         }
         else
         {
@@ -240,8 +244,8 @@ void cmd_status(const char *args, size_t len)
 
     status_phi2();
     status_resb();
-    printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     status_caps();
+    printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     dev_print_all();
 }
 

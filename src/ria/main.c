@@ -9,6 +9,7 @@
 #include "mon/mon.h"
 #include "ria.h"
 #include "act.h"
+#include "mon/cfg.h"
 #include "mon/rom.h"
 #include "dev/com.h"
 #include "hid.h"
@@ -41,6 +42,7 @@ static void main_init()
     hid_init();
 
     lfs_init();
+    cfg_load();
 }
 
 // These tasks run always, even when FatFs is blocking.
