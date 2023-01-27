@@ -40,7 +40,7 @@ static size_t rom_gets()
     }
     else
     {
-        if (!lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_file))
+        if (!lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
             return 0;
     }
     len = strlen((char *)mbuf);

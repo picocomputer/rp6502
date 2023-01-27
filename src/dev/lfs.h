@@ -19,7 +19,8 @@
 
 void lfs_init();
 int lfs_eof(lfs_file_t *file);
-char *lfs_gets(char *str, int n, lfs_file_t *file);
+int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...);
+char *lfs_gets(char *str, int n, lfs_t *lfs, lfs_file_t *file);
 
 extern lfs_t lfs_volume;
 

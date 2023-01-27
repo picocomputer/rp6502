@@ -14,19 +14,17 @@
 // We are an 8-bit computer, confirm fatfs is too
 static_assert(sizeof(TCHAR) == sizeof(char));
 
-static scsi_inquiry_resp_t inquiry_resp;
-
 static FATFS fatfs[FF_VOLUMES];
-static volatile bool _disk_busy[FF_VOLUMES];
+static volatile bool busy[FF_VOLUMES];
+static scsi_inquiry_resp_t inquiry_resp;
 
 bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
     if (cb_data->csw->status != 0)
     {
-        dev_printf(dev_addr, "?MSC inquiry failed");
+        dev_printf(dev_addr, "?MSC SCSI inquiry failed");
         return false;
     }
-
     const double block_count = tuh_msc_get_block_count(dev_addr, cb_data->cbw->lun);
     const double block_size = tuh_msc_get_block_size(dev_addr, cb_data->cbw->lun);
     const char *xb = "MB";
@@ -56,7 +54,6 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
         dev_printf(dev_addr, "?MSC filesystem mount failed (%d)", mount_result);
         return false;
     }
-
     // If current directory invalid, change to root of this drive
     char s[2];
     if (FR_OK != f_getcwd(s, 2))
@@ -83,15 +80,14 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 
 static void wait_for_disk_io(BYTE pdrv)
 {
-    while (_disk_busy[pdrv])
+    while (busy[pdrv])
         main_sys_tasks();
 }
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
-    (void)dev_addr;
     (void)cb_data;
-    _disk_busy[dev_addr] = false;
+    busy[dev_addr] = false;
     return true;
 }
 
@@ -111,11 +107,9 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t const dev_addr = pdrv;
     uint8_t const lun = 0;
-
-    _disk_busy[pdrv] = true;
+    busy[pdrv] = true;
     tuh_msc_read10(dev_addr, lun, buff, sector, (uint16_t)count, disk_io_complete, 0);
     wait_for_disk_io(pdrv);
-
     return RES_OK;
 }
 
@@ -123,11 +117,9 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t const dev_addr = pdrv;
     uint8_t const lun = 0;
-
-    _disk_busy[pdrv] = true;
+    busy[pdrv] = true;
     tuh_msc_write10(dev_addr, lun, buff, sector, (uint16_t)count, disk_io_complete, 0);
     wait_for_disk_io(pdrv);
-
     return RES_OK;
 }
 
@@ -138,24 +130,17 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     switch (cmd)
     {
     case CTRL_SYNC:
-        // nothing to do since we do blocking
         return RES_OK;
-
     case GET_SECTOR_COUNT:
         *((DWORD *)buff) = (WORD)tuh_msc_get_block_count(dev_addr, lun);
         return RES_OK;
-
     case GET_SECTOR_SIZE:
         *((WORD *)buff) = (WORD)tuh_msc_get_block_size(dev_addr, lun);
         return RES_OK;
-
     case GET_BLOCK_SIZE:
-        *((DWORD *)buff) = 1; // erase block size in units of sector size
+        *((DWORD *)buff) = 1; // 1 sector
         return RES_OK;
-
     default:
         return RES_PARERR;
     }
-
-    return RES_OK;
 }
