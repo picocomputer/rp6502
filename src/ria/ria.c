@@ -1,14 +1,15 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon.h"
-#include "regs.h"
+#include "mon/mon.h"
+#include "mon/cfg.h"
+#include "mem/regs.h"
 #include "ria.h"
-#include "ria_action.h"
-#include "ria_uart.h"
+#include "act.h"
+#include "dev/com.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -20,15 +21,12 @@
 // Rumbledethumps Interface Adapter for WDC W65C02S.
 // Pi Pico sys clock of 120MHz will run 6502 at 4MHz.
 
-static uint32_t ria_phi2_khz;
-static uint8_t ria_reset_ms;
-static uint8_t ria_caps;
 static absolute_time_t ria_reset_timer;
-static volatile enum state {
+static enum state {
     ria_state_stopped,
     ria_state_reset,
     ria_state_run,
-    ria_state_done
+    ria_state_exit
 } volatile ria_state;
 
 // Stop the 6502
@@ -39,8 +37,6 @@ void ria_stop()
     REGS(0xFFE0) = 0;
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     ria_get_reset_us());
-    ria_uart_reset();
-    ria_action_reset();
 }
 
 // Start or reset the 6502
@@ -52,21 +48,12 @@ void ria_reset()
     ria_state = ria_state_reset;
 }
 
-// User requested stop by UART break or CTRL-ALT-DEL
-void ria_break()
-{
-    ria_stop();
-    mon_reset();
-    ria_uart_flush();
-    puts("\30\33[0m\n" RP6502_NAME);
-}
-
 // This will call ria_stop() in the next task loop.
 // It's a safe way for cpu1 to stop the 6502.
-void ria_done()
+void ria_exit()
 {
     gpio_put(RIA_RESB_PIN, false);
-    ria_state = ria_state_done;
+    ria_state = ria_state_exit;
 }
 
 static void ria_write_pio_init()
@@ -176,8 +163,9 @@ bool ria_is_active()
     return ria_state != ria_state_stopped;
 }
 
-// Set the 6502 clock frequency. 0=default. No upper bounds check.
-void ria_set_phi2_khz(uint32_t freq_khz)
+// Set the 6502 clock frequency. 0=default.
+// Returns quantized actual frequency.
+uint32_t ria_set_phi2_khz(uint32_t freq_khz)
 {
     if (!freq_khz)
         freq_khz = 4000;
@@ -185,7 +173,7 @@ void ria_set_phi2_khz(uint32_t freq_khz)
     uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
     uint16_t clkdiv_int = 1;
     uint8_t clkdiv_frac = 0;
-    ria_uart_flush();
+    com_flush();
     if (sys_clk_khz < 120 * 1000)
     {
         // <=4MHz resolution is limited by the divider.
@@ -202,46 +190,21 @@ void ria_set_phi2_khz(uint32_t freq_khz)
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
-        ria_uart_init();
-    ria_phi2_khz = sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
-}
-
-// Return actual 6502 frequency adjusted for quantization.
-uint32_t ria_get_phi2_khz()
-{
-    return ria_phi2_khz;
-}
-
-// Specify a minimum time for reset low. 0=auto
-void ria_set_reset_ms(uint8_t ms)
-{
-    ria_reset_ms = ms;
-}
-
-uint8_t ria_get_reset_ms()
-{
-    return ria_reset_ms;
+        com_init();
+    return sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
 }
 
 // Return calculated reset time. May be higher than requested
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t ria_get_reset_us()
 {
-    if (!ria_reset_ms)
-        return (2000000 / ria_get_phi2_khz() + 999) / 1000;
-    if (ria_phi2_khz == 1 && ria_reset_ms == 1)
+    uint32_t reset_ms = cfg_get_reset_ms();
+    uint32_t phi2_khz = cfg_get_phi2_khz();
+    if (!reset_ms)
+        return (2000000 / phi2_khz + 999) / 1000;
+    if (phi2_khz == 1 && reset_ms == 1)
         return 2000;
-    return ria_reset_ms * 1000;
-}
-
-void ria_set_caps(uint8_t mode)
-{
-    ria_caps = mode;
-}
-
-uint8_t ria_get_caps()
-{
-    return ria_caps;
+    return reset_ms * 1000;
 }
 
 void ria_init()
@@ -276,12 +239,11 @@ void ria_init()
     // the inits
     ria_write_pio_init();
     ria_read_pio_init();
-    ria_action_pio_init();
-    ria_set_phi2_khz(0);
-    ria_set_reset_ms(0);
-    ria_set_caps(0);
+    act_pio_init();
+    // Force cfg to call ria_set_phi2_khz
+    cfg_set_phi2_khz(cfg_get_phi2_khz());
     ria_stop();
-    multicore_launch_core1(ria_action_loop);
+    multicore_launch_core1(act_loop);
 }
 
 void ria_task()
@@ -309,6 +271,6 @@ void ria_task()
     }
 
     // Stopping event
-    if (ria_state == ria_state_done)
+    if (ria_state == ria_state_exit)
         ria_stop();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Rumbledethumps
+ * Copyright (c) 2023 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -24,6 +24,7 @@ int main()
     // Inits
     cdc_uart_init();
     tusb_init();
+    probe_gpio_init();
     probe_init();
     led_init();
 

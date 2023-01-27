@@ -11,9 +11,13 @@
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "external",
-      "svdFile": "${env:PICO_SDK_PATH}/src/rp2040/hardware_regs/rp2040.svd",
+      "svdFile": "src/pico-sdk/src/rp2040/hardware_regs/rp2040.svd",
       "gdbPath": "gdb-multiarch",
-      "gdbTarget": "localhost:3333"
+      "gdbTarget": "localhost:3333",
+      "postRestartCommands": [
+        "break main",
+        "continue"
+      ]
     }
   ]
 }
