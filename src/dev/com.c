@@ -7,6 +7,7 @@
 #include "ria/main.h"
 #include "ria/ria.h"
 #include "ria/act.h"
+#include "mon/cfg.h"
 #include "com.h"
 #include "pico/stdlib.h"
 
@@ -14,7 +15,7 @@ volatile int ria_uart_rx_char;
 static size_t ria_in_start;
 static size_t ria_in_end;
 static uint8_t ria_in_buf[32];
-#define RIA_IN_BUF(pos) ria_in_buf[(pos) & 0x1F]
+#define RIA_IN_BUF(pos) ria_in_buf[(pos)&0x1F]
 
 void com_init()
 {
@@ -41,7 +42,7 @@ void com_flush()
 // Do a caps conversion with current setting
 static uint8_t com_caps_ch(uint8_t ch)
 {
-    switch (ria_get_caps())
+    switch (cfg_get_caps())
     {
     case 1:
         if (ch >= 'A' && ch <= 'Z')

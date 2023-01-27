@@ -21,6 +21,10 @@
 #define CFG_VERSION 1
 static const char *filename = "CONFIG.SYS";
 
+static uint32_t cfg_phi2_khz;
+static uint8_t cfg_reset_ms;
+static uint8_t cfg_caps;
+
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
 {
@@ -58,9 +62,9 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+C%d\n"
                                "%s",
                                CFG_VERSION,
-                               ria_get_phi2_khz(),
-                               ria_get_reset_ms(),
-                               ria_get_caps(),
+                               cfg_phi2_khz,
+                               cfg_reset_ms,
+                               cfg_caps,
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -78,9 +82,11 @@ static void cfg_load_with_boot_opt(bool boot_only)
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, filename,
                                      LFS_O_RDONLY, &lfs_file_config);
+    mbuf[0] = 0;
     if (lfsresult < 0)
     {
-        printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", filename, lfsresult);
+        if (lfsresult != LFS_ERR_NOENT)
+            printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", filename, lfsresult);
         return;
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
@@ -99,13 +105,13 @@ static void cfg_load_with_boot_opt(bool boot_only)
             switch (mbuf[1])
             {
             case 'P':
-                ria_set_phi2_khz(val);
+                cfg_phi2_khz = val;
                 break;
             case 'R':
-                ria_set_reset_ms(val);
+                cfg_reset_ms = val;
                 break;
             case 'C':
-                ria_set_caps(val);
+                cfg_caps = val;
                 break;
             default:
                 break;
@@ -114,11 +120,6 @@ static void cfg_load_with_boot_opt(bool boot_only)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
         printf("?Unable to lfs_file_close %s (%d)\n", filename, lfsresult);
-}
-
-void cfg_save()
-{
-    cfg_save_with_boot_opt(0);
 }
 
 void cfg_load()
@@ -134,4 +135,47 @@ void cfg_set_boot(char *str)
 void cfg_get_boot()
 {
     cfg_load_with_boot_opt(true);
+}
+
+void cfg_set_phi2_khz(uint32_t freq_khz)
+{
+    uint32_t old_val = cfg_phi2_khz;
+    cfg_phi2_khz = ria_set_phi2_khz(freq_khz);
+    if (old_val != cfg_phi2_khz)
+        cfg_save_with_boot_opt(NULL);
+}
+
+// Returns actual 6502 frequency adjusted for quantization.
+uint32_t cfg_get_phi2_khz()
+{
+    return cfg_phi2_khz;
+}
+
+// Specify a minimum time for reset low. 0=auto
+void cfg_set_reset_ms(uint8_t ms)
+{
+    if (cfg_reset_ms != ms)
+    {
+        cfg_reset_ms = ms;
+        cfg_save_with_boot_opt(NULL);
+    }
+}
+
+uint8_t cfg_get_reset_ms()
+{
+    return cfg_reset_ms;
+}
+
+void cfg_set_caps(uint8_t mode)
+{
+    if (cfg_caps != mode)
+    {
+        cfg_caps = mode;
+        cfg_save_with_boot_opt(NULL);
+    }
+}
+
+uint8_t cfg_get_caps()
+{
+    return cfg_caps;
 }

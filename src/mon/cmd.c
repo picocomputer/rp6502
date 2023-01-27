@@ -139,7 +139,7 @@ void cmd_address(const char *args, size_t len)
 
 static void status_phi2()
 {
-    printf("PHI2: %ld kHz\n", ria_get_phi2_khz());
+    printf("PHI2: %ld kHz\n", cfg_get_phi2_khz());
 }
 
 void cmd_phi2(const char *args, size_t len)
@@ -155,8 +155,7 @@ void cmd_phi2(const char *args, size_t len)
                 printf("?invalid frequency\n");
                 return;
             }
-            ria_set_phi2_khz(val);
-            cfg_save();
+            cfg_set_phi2_khz(val);
         }
         else
         {
@@ -169,7 +168,7 @@ void cmd_phi2(const char *args, size_t len)
 
 static void status_resb()
 {
-    uint8_t reset_ms = ria_get_reset_ms();
+    uint8_t reset_ms = cfg_get_reset_ms();
     float reset_us = ria_get_reset_us();
     if (!reset_ms)
         printf("RESB: %.3f ms (auto)\n", reset_us / 1000.f);
@@ -192,8 +191,7 @@ void cmd_resb(const char *args, size_t len)
                 printf("?invalid duration\n");
                 return;
             }
-            ria_set_reset_ms(val);
-            cfg_save();
+            cfg_set_reset_ms(val);
         }
         else
         {
@@ -214,7 +212,7 @@ void cmd_start(const char *args, size_t len)
 static void status_caps()
 {
     const char *const caps_labels[] = {"normal", "inverted", "forced"};
-    printf("CAPS: %s\n", caps_labels[ria_get_caps()]);
+    printf("CAPS: %s\n", caps_labels[cfg_get_caps()]);
 }
 
 void cmd_caps(const char *args, size_t len)
@@ -225,8 +223,7 @@ void cmd_caps(const char *args, size_t len)
         if (parse_uint32(&args, &len, &val) &&
             parse_end(args, len))
         {
-            ria_set_caps(val);
-            cfg_save();
+            cfg_set_caps(val);
         }
         else
         {

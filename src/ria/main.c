@@ -33,16 +33,17 @@ static void main_init()
     puts("\30\33[0m\f\n" RP6502_NAME);
     puts("\33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m 64K RAM SYSTEM\n");
 
-    // Interface Adapter to W65C02S
-    ria_init();
-
     // TinyUSB host support for keyboards,
     // mice, joysticks, and storage devices.
     tusb_init();
     hid_init();
 
+    // LittleFS for ROMs and config
     lfs_init();
     cfg_load();
+
+    // Interface Adapter to W65C02S
+    ria_init();
 }
 
 // These tasks run always, even when FatFs is blocking.

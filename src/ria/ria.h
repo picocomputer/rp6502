@@ -33,13 +33,8 @@
 void ria_init();
 void ria_task();
 bool ria_is_active();
-void ria_set_phi2_khz(uint32_t freq_khz);
-uint32_t ria_get_phi2_khz();
-void ria_set_reset_ms(uint8_t ms);
-uint8_t ria_get_reset_ms();
+uint32_t ria_set_phi2_khz(uint32_t freq_khz);
 uint32_t ria_get_reset_us();
-void ria_set_caps(uint8_t mode);
-uint8_t ria_get_caps();
 void ria_stop();
 void ria_reset();
 void ria_exit();
