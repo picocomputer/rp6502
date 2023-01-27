@@ -6,6 +6,7 @@
 
 #include "rom.h"
 #include "str.h"
+#include "cfg.h"
 #include "mem/mbuf.h"
 #include "ria/ria.h"
 #include "ria/act.h"
@@ -286,6 +287,12 @@ void rom_remove(const char *args, size_t len)
     if (parse_rom_name(&args, &len, lfs_name) &&
         parse_end(args, len))
     {
+        const char *boot = cfg_get_boot();
+        if (!strcmp(lfs_name, boot))
+        {
+            printf("?Unable to remove boot ROM\n");
+            return;
+        }
         int lfsresult = lfs_remove(&lfs_volume, lfs_name);
         if (lfsresult < 0)
         {

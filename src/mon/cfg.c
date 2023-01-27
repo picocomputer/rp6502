@@ -132,9 +132,10 @@ void cfg_set_boot(char *str)
     cfg_save_with_boot_opt(str);
 }
 
-void cfg_get_boot()
+char *cfg_get_boot()
 {
     cfg_load_with_boot_opt(true);
+    return (char *)mbuf;
 }
 
 void cfg_set_phi2_khz(uint32_t freq_khz)

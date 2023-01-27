@@ -7,6 +7,7 @@
 #include "cmd.h"
 #include "cfg.h"
 #include "mon.h"
+#include "dev/lfs.h"
 #include "mem/mbuf.h"
 #include "ria/ria.h"
 #include "str.h"
@@ -15,6 +16,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
+#include "hardware/watchdog.h"
 
 #define TIMEOUT_MS 200
 
@@ -202,7 +204,51 @@ void cmd_resb(const char *args, size_t len)
     status_resb();
 }
 
-void cmd_start(const char *args, size_t len)
+static void status_boot()
+{
+    const char *rom = cfg_get_boot();
+    if (!rom[0])
+        rom = "(none)";
+    printf("BOOT: %s\n", rom);
+}
+
+void cmd_boot(const char *args, size_t len)
+{
+    if (len)
+    {
+        char lfs_name[LFS_NAME_MAX + 1];
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_boot("");
+        }
+        else if (parse_rom_name(&args, &len, lfs_name) &&
+                 parse_end(args, len))
+        {
+            struct lfs_info info;
+            if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
+            {
+                printf("?ROM not installed\n");
+                return;
+            }
+            cfg_set_boot(lfs_name);
+        }
+        else
+        {
+            printf("?Invalid ROM name\n");
+            return;
+        }
+    }
+    status_boot();
+}
+
+void cmd_reboot(const char *args, size_t len)
+{
+    (void)(args);
+    (void)(len);
+    watchdog_reboot(0, 0, 0);
+}
+
+void cmd_reset_6502(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
@@ -242,6 +288,7 @@ void cmd_status(const char *args, size_t len)
     status_phi2();
     status_resb();
     status_caps();
+    status_boot();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     dev_print_all();
 }

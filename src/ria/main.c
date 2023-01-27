@@ -12,6 +12,7 @@
 #include "mon/cfg.h"
 #include "mon/rom.h"
 #include "dev/com.h"
+#include "mem/mbuf.h"
 #include "hid.h"
 #include "dev/lfs.h"
 #include "pico/stdlib.h"
@@ -44,6 +45,11 @@ static void main_init()
 
     // Interface Adapter to W65C02S
     ria_init();
+
+    // mbuf has boot string from cfg_load()
+    size_t mbuf_len = strlen((char *)mbuf);
+    if (mbuf_len)
+        rom_load_lfs((char *)mbuf, mbuf_len);
 }
 
 // These tasks run always, even when FatFs is blocking.
