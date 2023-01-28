@@ -2,13 +2,8 @@
 
 The Picocomputer explores retro computing and game development by removing the barrier between genuine 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $4/€4 Raspberry Pi Pico.
 
-This is the reference design. It is a 6502 with 64K of SRAM and an optional 6522. A pair of Raspberry Pi Picos are used for power, clocking, video, audio, WiFi, and USB. It is programmed over USB. A filesystem is planned so it can be programmed with a USB flash drive.
-
 Learn how it works on YouTube:<br>
-https://youtube.com/playlist?list=PLvCRDUYedILfHDoD57Yj8BAXNmNJLVM2r
-
-Connect with other 6502 homebrew enthusiasts on Discord:<br>
-https://discord.gg/TC6X8kTr6d
+https://www.youtube.com/@rumbledethumps
 
 ## Memory Map
 
@@ -31,18 +26,6 @@ FFE1 - UART Tx<br>
 FFE2 - UART Rx<br>
 FFEF - Write anything here to stop 6502<br>
 
-## Project Status
-
-Hardware is tested. Schematic for the reference design is unlikely to change.
-
-Graphics Mode 0, aka Color ANSI Terminal, is working. USB keyboard works. EhBASIC works.
-
-Addressable-memory graphics modes are not yet implemented.
-
-Sound is not yet implemented.
-
-Filesystem is not yet implemented.
-
 ## Hardware Notes
 
 The PIX port will likely be "jumpered" into a high-speed graphics bus. However, work on this hasn't started so I left these pins exposed in case someone comes up with a better use for it.
@@ -50,6 +33,8 @@ The PIX port will likely be "jumpered" into a high-speed graphics bus. However, 
 The Pico VGA is optional. Something to control the RIA over the UART Tx/Rx lines is still required. You might, for example, be developing a video system based on other hardware and prefer to have your video chip control the RIA.
 
 The 6522 is optional. You may need to pull-up IRQB/VIRQ if you omit this from the reference design. The GPIOs are not used for anything, but some software may not function without timers.
+
+The only thing not optional is putting the Pico RIA at FFE0-FFFF. This reference design is very capable, but also very easy to build on a breadboard. Feel free to change the glue circuit to support paged RAM, parallel ROMs, expansion slots, and DIP switches. Those are exactly the expense and complexity the Pico RIA replaces, but you should not encounter any resistance if you want to experiment and learn about them.
 
 ## Dev Setup
 

@@ -49,6 +49,7 @@ static size_t rom_gets()
         len--;
     if (len && mbuf[len - 1] == '\r')
         len--;
+    mbuf[len] = 0;
     return len;
 }
 
@@ -57,7 +58,7 @@ static bool rom_open(const char *name, bool is_fat)
     is_reading_fat = is_fat;
     if (is_fat)
     {
-        FRESULT result = f_open(&fat_fil, name, FA_READ | FA_WRITE);
+        FRESULT result = f_open(&fat_fil, name, FA_READ);
         if (result != FR_OK)
         {
             printf("?Unable to open file (%d)\n", result);
@@ -303,7 +304,7 @@ void rom_remove(const char *args, size_t len)
     printf("?Invalid ROM name\n");
 }
 
-void rom_load(const char *args, size_t len)
+void rom_load_fat(const char *args, size_t len)
 {
     (void)(len);
     if (rom_open(args, true))
@@ -322,6 +323,44 @@ bool rom_load_lfs(const char *args, size_t len)
         if (rom_open(lfs_name, false))
             rom_state = ROM_LOADING;
         return true;
+    }
+    return false;
+}
+
+void rom_help_fat(const char *args, size_t len)
+{
+    (void)(len);
+    if (!rom_open(args, true))
+        return;
+    bool found = false;
+    while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+    {
+        puts((char *)mbuf + 2);
+        found = true;
+    }
+    if (!found)
+        puts("?No help found in file.");
+}
+
+bool rom_help_lfs(const char *args, size_t len)
+{
+    char lfs_name[LFS_NAME_MAX + 1];
+    if (parse_rom_name(&args, &len, lfs_name) &&
+        parse_end(args, len))
+    {
+        struct lfs_info info;
+        if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
+            return false;
+        bool found = false;
+        if (rom_open(lfs_name, false))
+            while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+            {
+                puts((char *)mbuf + 2);
+                found = true;
+            }
+        if (!found)
+            puts("?No help found in ROM.");
+        return true; // even when !found
     }
     return false;
 }

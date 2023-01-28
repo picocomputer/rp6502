@@ -6,6 +6,45 @@
 
 #include "hlp.h"
 #include "lfs.h"
+#include "rom.h"
+#include "str.h"
+
+static const char __in_flash("helptext") hlp_text_help[] =
+    "Commands:\n"
+    "HELP (command|rom)  - This help or expanded help for command or rom.\n"
+    "HELP ABOUT|SYSTEM   - About includes credits. System for general usage.\n"
+    "STATUS              - Show all settings and USB devices.\n"
+    "CAPS (0|1|2)        - Invert or force caps while 6502 is running.\n"
+    "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
+    "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
+    "LS (DIR|DRIVE)      - List contents of directory.\n"
+    "CD (DIR)            - Change or show current directory.\n"
+    "0:                  - 1:-8: Change current USB drive.\n"
+    "LOAD file           - Load ROM file. Start if contains reset vector.\n"
+    "INFO file           - Show help text, if any, contained in ROM file.\n"
+    "INSTALL file        - Install ROM file on RIA.\n"
+    "REMOVE rom          - Remove ROM from RIA.\n"
+    "BOOT (rom|-)        - Select ROM to boot from cold start. \"-\" for none.\n"
+    "REBOOT              - Cold start. Load and start selected boot ROM.\n"
+    "RESET               - Start 6502 at current reset vector ($FFFC).\n"
+    "rom                 - Load and start an installed ROM.\n"
+    "UPLOAD file         - Write file. Binary chunks follow.\n"
+    "UNLINK file         - Delete file.\n"
+    "BINARY addr len crc - Write memory. Binary data follows.\n"
+    "0000 (00 00 ...)    - Read or write memory.\n";
+
+static const char __in_flash("helptext") hlp_text_status[] =
+    "//TODO";
+
+static struct
+{
+    size_t cmd_len;
+    const char *const cmd;
+    const char *const text;
+} const COMMANDS[] = {
+    {6, "status", hlp_text_status},
+};
+static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
 // Use width=0 to supress printing. Returns count.
 // Anything with only uppercase letters is counted.
@@ -79,38 +118,16 @@ static uint32_t hlp_roms_list(uint32_t width)
     if (result < 0)
     {
         printf("?Error closing ROMs directory (%d)\n", result);
+        count = 0;
     }
     return count;
 }
 
-void hlp_help(const char *args, size_t len)
+static void hlp_help(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
-    static const char *__in_flash("cmdhelp") cmdhelp =
-        "Commands:\n"
-        "HELP (COMMAND)      - This help or expanded help for command.\n"
-        "STATUS              - Show all settings and USB devices.\n"
-        "CAPS (0|1|2)        - Invert or force caps while 6502 is running.\n"
-        "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
-        "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
-        "LS (DIR|DRIVE)      - List contents of directory.\n"
-        "CD (DIR)            - Change or show current directory.\n"
-        "0:                  - 1:-8: Change current USB drive.\n"
-        "LOAD file           - Load ROM file. Start if contains reset vector.\n"
-        "INSTALL file        - Install ROM file on RIA.\n"
-        "REMOVE rom          - Remove ROM from RIA.\n"
-        "BOOT (rom|-)        - Select ROM to boot from cold start. \"-\" for none.\n"
-        "REBOOT              - Cold start. Load and start selected boot ROM.\n"
-        "rom                 - Load and start an installed ROM.\n"
-        "UPLOAD file         - Write file. Binary chunks follow.\n"
-        "UNLINK file         - Delete file.\n"
-        "RESET               - Start 6502 at current reset vector ($FFFC).\n"
-        "BINARY addr len crc - Write memory. Binary data follows.\n"
-        "0000 00 00 ...      - Write memory.\n"
-        "0000                - Read memory.";
-    puts(cmdhelp);
-
+    puts(hlp_text_help);
     uint32_t rom_count = hlp_roms_list(0);
     if (rom_count)
     {
@@ -119,4 +136,23 @@ void hlp_help(const char *args, size_t len)
     }
     else
         printf("No installed ROMs.\n");
+}
+
+void hlp_dispatch(const char *args, size_t len)
+{
+    if (!len)
+        return hlp_help(args, len);
+    while (len && args[len - 1] == ' ')
+        len--;
+    for (size_t i = 0; i < COMMANDS_COUNT; i++)
+    {
+        if (len == COMMANDS[i].cmd_len)
+            if (!strnicmp(args, COMMANDS[i].cmd, len))
+            {
+                puts(COMMANDS[i].text);
+                return;
+            }
+    }
+    if (!rom_help_lfs(args, len))
+        puts("?No help found.");
 }

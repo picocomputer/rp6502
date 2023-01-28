@@ -19,7 +19,7 @@
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
-static const char *filename = "CONFIG.SYS";
+static const char filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
 static uint8_t cfg_reset_ms;

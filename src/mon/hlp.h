@@ -11,6 +11,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-void hlp_help(const char *args, size_t len);
+void hlp_dispatch(const char *args, size_t len);
 
 #endif /* _HLP_H_ */

@@ -31,9 +31,9 @@ static struct
     const char *const cmd;
     cmd_function func;
 } const COMMANDS[] = {
-    {4, "help", hlp_help},
-    {1, "h", hlp_help},
-    {1, "?", hlp_help},
+    {4, "help", hlp_dispatch},
+    {1, "h", hlp_dispatch},
+    {1, "?", hlp_dispatch},
     {6, "status", cmd_status},
     {4, "caps", cmd_caps},
     {4, "phi2", cmd_phi2},
@@ -41,7 +41,8 @@ static struct
     {2, "ls", fil_ls},
     {3, "dir", fil_ls},
     {2, "cd", fil_chdir},
-    {4, "load", rom_load},
+    {4, "load", rom_load_fat},
+    {4, "info", rom_help_fat},
     {7, "install", rom_install},
     {6, "remove", rom_remove},
     {4, "boot", cmd_boot},
