@@ -34,7 +34,14 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "0000 (00 00 ...)    - Read or write memory.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
-    "//TODO Credits will go here.";
+    "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
+    "      Pi Pico SDK - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
+    "   Pi Pico Extras - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
+    "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
+    "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
+    "            FatFs - Copyright (c) 20xx ChaN.\n"
+    "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
+    "                    Copyright (c) 2017 Arm Limited.";
 
 static const char __in_flash("helptext") hlp_text_system[] =
     "This is the RIA monitor of the Picocomputer, not an operating system CLI.\n"
@@ -178,6 +185,7 @@ static struct
 } const COMMANDS[] = {
     {6, "status", hlp_text_status},
     {5, "about", hlp_text_about},
+    {7, "credits", hlp_text_about},
     {6, "system", hlp_text_system},
     {1, "0", hlp_text_system},
     {4, "0000", hlp_text_system},
