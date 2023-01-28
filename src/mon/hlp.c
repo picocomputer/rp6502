@@ -31,7 +31,7 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "UPLOAD file         - Write file. Binary chunks follow.\n"
     "UNLINK file         - Delete file.\n"
     "BINARY addr len crc - Write memory. Binary data follows.\n"
-    "0000 (00 00 ...)    - Read or write memory.\n";
+    "0000 (00 00 ...)    - Read or write memory.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "//TODO Credits will go here.";
@@ -40,7 +40,23 @@ static const char __in_flash("helptext") hlp_text_system[] =
     "This is the RIA monitor of the Picocomputer, not an operating system CLI.\n"
     "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
     "similar. Instead, this monitor is used to prepare the 6502 RAM with software\n"
-    "that would normally be on a ROM chip. //TODO more to come.";
+    "that would normally be on a ROM chip. The 6502 is currently in-reset right\n"
+    "now; the RESB line is low. What you are seeing is coming from the Pi Pico RIA.\n"
+    "You can return to this monitor at any time by pressing CTRL-ALT-DEL or sending\n"
+    "a break to the console. Since these signals are handled by the Pi Pico RIA,\n"
+    "they will always stop the 6502, even when it's locked up. That's why the\n"
+    "Picocomputer does not have a physical reset button for the 6502. The Pi Pico\n"
+    "RIA does not have direct access to the 6502 RAM. Sourcing dual port RAM is\n"
+    "unreliable, so a different approach is used. To read or write RAM, the 6502 is\n"
+    "briefly started and a program is run in $FFF0-$FFF9 which can bulk transfer\n"
+    "data faster than a 6502 can copy its own RAM. Many of the commands use this\n"
+    "technique. The most basic is accessed by typing a hex address as a command:\n"
+    "]0200\n"
+    "0200 DA DA DA DA DA DA DA DA DA DA DA DA DA DA DA DA\n"
+    "You can also set memory. For example, to set the reset vector:\n"
+    "]FFFC 00 02\n"
+    "This is useful for some light debugging, but the real power is from the other\n"
+    "commands you can explore with this help system. Have fun!";
 
 static const char __in_flash("helptext") hlp_text_status[] =
     "STATUS will list all configurable settings and some system information\n"
@@ -110,6 +126,50 @@ static const char __in_flash("helptext") hlp_text_boot[] =
     "the argument will have the system boot into the monitor you are using now.\n"
     "Setting is saved on the RIA flash.";
 
+static const char __in_flash("helptext") hlp_text_reboot[] =
+    "REBOOT will restart the Pi Pico RIA. It does the same thing as pressing a\n"
+    "reset button attached to the Pi Pico or interrupting the power supply.\n"
+    "It is of limited use and included for the sake of completeness.";
+
+static const char __in_flash("helptext") hlp_text_reset[] =
+    "RESET will restart the 6502 by bringing RESB high. This is mainly used for\n"
+    "automated testing by a script on another system connected to the console.\n"
+    "For example, a build script can compile a program, upload it directly to\n"
+    "6502 RAM, start it with this RESET, then optionally continue to send and\n"
+    "receive data to ensure proper operation of the program.";
+
+static const char __in_flash("helptext") hlp_text_upload[] =
+    "UPLOAD is used to send a file from another system using the console port.\n"
+    "The file may be any type with any name and will overwrite an existing file\n"
+    "of the same name. For example, you can send a ROM file along with other\n"
+    "files containing graphics or level data for a game. Then you can LOAD the\n"
+    "game and test it. Think \"XMODEM/YMODEM\" but easier to implement with modern\n"
+    "scripting languages. The upload is initiated with the BINARY command\n"
+    "specifying the file name.\n"
+    "]BINARY filename.bin\n"
+    "The system will respond with a \"}\" prompt or an error message starting with\n"
+    "a \"?\". Any error will abort the upload and return you to the monitor.\n"
+    "There is no retry as this is not intended to be used on lossy connections.\n"
+    "Specify each chunk with a length, up to 1024 bytes, and CRC-32 which you can\n"
+    "compute from any zip library.\n"
+    "}$400 $0C0FFEE0\n"
+    "Send the binary data and you will get another \"}\" prompt or \"?\" error.\n"
+    "The transfer is completed with the END command or a blank line. Your choice.\n"
+    "}END\n"
+    "You will return to a \"]\" prompt on success or \"?\" error on failure.";
+
+static const char __in_flash("helptext") hlp_text_unlink[] =
+    "UNLINK removes a file. Its intended use is for scripting on another system\n"
+    "connected to the console. For example, you might want to delete save data\n"
+    "as part of automated testing. You'll probably use this once manually after\n"
+    "attempting to use the UPLOAD command from a keyboard. ;)";
+
+static const char __in_flash("helptext") hlp_text_binary[] =
+    "BINARY is the fastest way to get code or data from your build system to the\n"
+    "6502 RAM. Use the command \"BINARY addr len crc\" with a maximum length of 1024\n"
+    "bytes and the CRC-32 calculated with a zip library. Then send the binary.\n"
+    "You will return to a \"]\" prompt on success or \"?\" error on failure.";
+
 static struct
 {
     size_t cmd_len;
@@ -142,7 +202,11 @@ static struct
     {7, "install", hlp_text_install},
     {6, "remove", hlp_text_install},
     {4, "boot", hlp_text_boot},
-
+    {6, "reboot", hlp_text_reboot},
+    {5, "reset", hlp_text_reset},
+    {6, "upload", hlp_text_upload},
+    {6, "unlink", hlp_text_unlink},
+    {6, "binary", hlp_text_binary},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
