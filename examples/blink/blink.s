@@ -1,4 +1,4 @@
-* = $0200
+.ORG $0200
 VIA_DDRA = $FF03
 VIA_ORA  = $FF01
 LDA #$FF
