@@ -236,7 +236,7 @@ __attribute__((optimize("O1"))) void act_loop()
             {
                 switch (addr)
                 {
-                case 0x16: // action write
+                case 0x16: // $FFF6 action write
                     if (rw_pos < rw_end)
                     {
                         if (rw_pos > 0)
@@ -250,7 +250,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     else
                         act_exit();
                     break;
-                case 0x1D: // action read
+                case 0x1D: // $FFFD action read
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
@@ -262,7 +262,7 @@ __attribute__((optimize("O1"))) void act_loop()
                         }
                     }
                     break;
-                case 0x1C: // action verify
+                case 0x1C: // $FFFC action verify
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
@@ -275,36 +275,38 @@ __attribute__((optimize("O1"))) void act_loop()
                         }
                     }
                     break;
-                case 0x0F:
+                case 0x0F: // $FFEF OS fastcall
                     ria_exit();
                     break;
-                case 0x0B:
+                case 0x0C: // $FFEC RW reserved
+                    break;
+                case 0x0B: // $FFEB Set VRAM PTR1 Hi Addr
                     addr08 = REGSW(0xFFEA);
                     REGS(0xFFE8) = vram[REGSW(0xFFEA)];
                     break;
-                case 0x0A:
+                case 0x0A: // $FFEA Set VRAM PTR1 Lo Addr
                     addr08 = REGSW(0xFFEA);
                     REGS(0xFFE8) = vram[REGSW(0xFFEA)];
                     break;
-                case 0x08:
+                case 0x08: // $FFE8 RW VRAM PTR1
                     vram[REGSW(0xFFEA)] = data;
                     REGSW(0xFFEA) += (int8_t)REGS(0xFFE9);
                     REGS(0xFFE8) = vram[REGSW(0xFFEA)];
                     break;
-                case 0x07:
+                case 0x07: // $FFE7 Set VRAM PTR0 Hi Addr
                     addr04 = REGSW(0xFFE6);
                     REGS(0xFFE4) = vram[REGSW(0xFFE6)];
                     break;
-                case 0x06:
+                case 0x06: // $FFE6 Set VRAM PTR0 Lo Addr
                     addr04 = REGSW(0xFFE6);
                     REGS(0xFFE4) = vram[REGSW(0xFFE6)];
                     break;
-                case 0x04:
+                case 0x04: // $FFE4 RW VRAM PTR0
                     vram[REGSW(0xFFE6)] = data;
                     REGSW(0xFFE6) += (int8_t)REGS(0xFFE5);
                     REGS(0xFFE4) = vram[REGSW(0xFFE6)];
                     break;
-                case 0x02:
+                case 0x02: // $FFE2 UART Rx
                 {
                     int ch = ria_uart_rx_char;
                     if (ch >= 0)
@@ -320,14 +322,14 @@ __attribute__((optimize("O1"))) void act_loop()
                     }
                     break;
                 }
-                case 0x01:
+                case 0x01: // $FFE1 UART Tx
                     uart_get_hw(RIA_UART)->dr = data;
                     if ((uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFF_BITS))
                         REGS(0xFFE0) &= ~0b10000000;
                     else
                         REGS(0xFFE0) |= 0b10000000;
                     break;
-                case 0x00:
+                case 0x00: // $FFE0 Read UART Tx/Rx flow control
                 {
                     int ch = ria_uart_rx_char;
                     if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)

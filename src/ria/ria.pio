@@ -10,41 +10,33 @@
 .program ria_action
 
 .wrap_target
-pull_start:
+start:
 wait 0 gpio 21
 pull noblock
-start:
 mov x osr
 wait 1 gpio 21 [10]
 mov osr pins
 out y 1
-jmp !y pull_start
+jmp !y start
 out y 1
 mov isr osr
-jmp !y write1
+jmp !y write
 out y 8
 out y 5
-jmp !y write1
-jmp x!=y next0
-jmp write1
-next0:
-pull noblock
-set x 0x0
-jmp x!=y next1
-jmp write0
-next1:
-set x 0x4
-jmp x!=y next2
-jmp write0
-next2:
-set x 0x8
-jmp x!=y start
-write0:
-mov x osr
-write1:
+jmp x!=y notvaraddr
+jmp write
+notvaraddr:
+mov osr y
+out y 2
+jmp !y checkhibit
+jmp start
+checkhibit:
+out y 2
+out y 1
+jmp y-- start
+write:
 in isr 13
 in null 19
-; push noblock
 .wrap
 
 
