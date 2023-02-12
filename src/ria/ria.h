@@ -29,6 +29,8 @@
 #define RIA_READ_SM 1
 #define RIA_ACTION_PIO pio1
 #define RIA_ACTION_SM 0
+#define RIA_PIX_PIO pio1
+#define RIA_PIX_SM 1
 
 void ria_init();
 void ria_task();

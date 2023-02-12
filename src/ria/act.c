@@ -10,6 +10,7 @@
 #include "ria.pio.h"
 #include "mem/regs.h"
 #include "mem/mbuf.h"
+#include "mem/vram.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include <stdio.h>
@@ -30,6 +31,8 @@ static volatile int32_t action_result = -1;
 static int32_t saved_reset_vec = -1;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
+static volatile uint16_t addr04;
+static volatile uint16_t addr08;
 
 // RIA action has one variable read address.
 static void act_set_address(uint32_t addr)
@@ -84,7 +87,7 @@ void act_pio_init()
     uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
     pio_sm_config config = ria_action_program_get_default_config(offset);
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
-    sm_config_set_in_shift(&config, false, false, 0);
+    sm_config_set_in_shift(&config, true, true, 32);
     pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
     act_reset();
     pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
@@ -97,6 +100,7 @@ void act_task()
     uint32_t fdebug = RIA_ACTION_PIO->fdebug;
     uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
     masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
+    masked_fdebug &= ~(1 << (16 + RIA_PIX_SM)); // expected with PIX placeholder
     if (masked_fdebug)
     {
         RIA_ACTION_PIO->fdebug = 0xFF;
@@ -224,9 +228,10 @@ __attribute__((optimize("O1"))) void act_loop()
     {
         if (!(RIA_ACTION_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACTION_SM))))
         {
-            uint32_t addr = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
-            uint32_t data = addr & 0xFF;
-            addr = (addr >> 8) & 0x1F;
+            uint32_t addr_data = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
+            RIA_PIX_PIO->txf[RIA_PIX_SM] = addr_data; // PIX placeholder
+            uint32_t data = addr_data & 0xFF;
+            uint32_t addr = (addr_data >> 8);
             if (((1u << RIA_RESB_PIN) & sio_hw->gpio_in))
             {
                 switch (addr)
@@ -272,6 +277,32 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case 0x0F:
                     ria_exit();
+                    break;
+                case 0x0B:
+                    addr08 = REGSW(0xFFEA);
+                    REGS(0xFFE8) = vram[REGSW(0xFFEA)];
+                    break;
+                case 0x0A:
+                    addr08 = REGSW(0xFFEA);
+                    REGS(0xFFE8) = vram[REGSW(0xFFEA)];
+                    break;
+                case 0x08:
+                    vram[REGSW(0xFFEA)] = data;
+                    REGSW(0xFFEA) += (int8_t)REGS(0xFFE9);
+                    REGS(0xFFE8) = vram[REGSW(0xFFEA)];
+                    break;
+                case 0x07:
+                    addr04 = REGSW(0xFFE6);
+                    REGS(0xFFE4) = vram[REGSW(0xFFE6)];
+                    break;
+                case 0x06:
+                    addr04 = REGSW(0xFFE6);
+                    REGS(0xFFE4) = vram[REGSW(0xFFE6)];
+                    break;
+                case 0x04:
+                    vram[REGSW(0xFFE6)] = data;
+                    REGSW(0xFFE6) += (int8_t)REGS(0xFFE5);
+                    REGS(0xFFE4) = vram[REGSW(0xFFE6)];
                     break;
                 case 0x02:
                 {

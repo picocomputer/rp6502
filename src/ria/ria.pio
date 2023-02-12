@@ -21,19 +21,30 @@ out y 1
 jmp !y pull_start
 out y 1
 mov isr osr
-jmp !y write
+jmp !y write1
 out y 8
 out y 5
-jmp !y write
-jmp x!=y next
-jmp write
-next:
+jmp !y write1
+jmp x!=y next0
+jmp write1
+next0:
 pull noblock
 set x 0x0
+jmp x!=y next1
+jmp write0
+next1:
+set x 0x4
+jmp x!=y next2
+jmp write0
+next2:
+set x 0x8
 jmp x!=y start
+write0:
 mov x osr
-write:
-push noblock
+write1:
+in isr 13
+in null 19
+; push noblock
 .wrap
 
 
