@@ -55,8 +55,6 @@ git submodule update --init
 cd ../..
 ```
 
-Only build with Release or RelWithDebInfo. Debug builds may not have a fast enough action loop. This will be addressed later.
-
 The Pi Pico VGA is also a Picoprobe for development and terminal use. Load a release build of rp6502_vga.uf2 on it with the BOOT SEL button. You can do the UF2 process with the RIA board too, or use the VGA/Picoprobe board to load it using OpenOCD.
 
 The VSCode launch settings connect to a remote debug session. I use two terminals for the debugger and monitor. You'll also want to add a udev rule to avoid a sudo nightmare. The following are rough notes, you may need to install software which is beyond the scope of this README.

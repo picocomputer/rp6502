@@ -9,6 +9,7 @@
 #include "mem/regs.h"
 #include "ria.h"
 #include "act.h"
+#include "api.h"
 #include "dev/com.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
@@ -46,6 +47,7 @@ void ria_reset()
         ria_stop();
     REGS(0xFFE0) = 0;
     ria_state = ria_state_reset;
+    api_reset();
 }
 
 // This will call ria_stop() in the next task loop.

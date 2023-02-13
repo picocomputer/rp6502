@@ -6,11 +6,13 @@
 
 #include "ria.h"
 #include "act.h"
+#include "api.h"
 #include "dev/com.h"
 #include "ria.pio.h"
 #include "mem/regs.h"
 #include "mem/mbuf.h"
 #include "mem/vram.h"
+#include "mem/vstack.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include <stdio.h>
@@ -31,8 +33,6 @@ static volatile int32_t action_result = -1;
 static int32_t saved_reset_vec = -1;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
-static volatile uint16_t addr04;
-static volatile uint16_t addr08;
 
 // RIA action has one variable read address.
 static void act_set_address(uint32_t addr)
@@ -100,7 +100,7 @@ void act_task()
     uint32_t fdebug = RIA_ACTION_PIO->fdebug;
     uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
     masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
-    masked_fdebug &= ~(1 << (16 + RIA_PIX_SM)); // expected with PIX placeholder
+    masked_fdebug &= ~(1 << (16 + RIA_PIX_SM));    // expected with PIX placeholder
     if (masked_fdebug)
     {
         RIA_ACTION_PIO->fdebug = 0xFF;
@@ -275,36 +275,47 @@ __attribute__((optimize("O1"))) void act_loop()
                         }
                     }
                     break;
-                case 0x0F: // $FFEF OS fastcall
-                    ria_exit();
+                case 0x0F: // $FFEF OS function call
+                    if (!data)
+                        vstack_ptr = VSTACK_SIZE;
+                    else if (data == 0xFF)
+                        ria_exit();
+                    // 80 FE   BRA -2
+                    // A9 FF   LDA #$FF
+                    // A2 FF   LDX #$FF
+                    // 60      RTS
+                    *(uint32_t *)&regs[0x10] = 0xFFA9FE80;
+                    *(uint32_t *)&regs[0x14] = 0x0060FFA2;
                     break;
-                case 0x0C: // $FFEC RW reserved
+                case 0x0C: // $FFEC RW vstack
+                    if (vstack_ptr)
+                        vstack[--vstack_ptr] = data;
                     break;
-                case 0x0B: // $FFEB Set VRAM PTR1 Hi Addr
-                    addr08 = REGSW(0xFFEA);
-                    REGS(0xFFE8) = vram[REGSW(0xFFEA)];
+                case 0x0B: // $FFEB Set VRAM >ADDR1
+                    vram_ptr1 = VRAM_ADDR1;
+                    VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
-                case 0x0A: // $FFEA Set VRAM PTR1 Lo Addr
-                    addr08 = REGSW(0xFFEA);
-                    REGS(0xFFE8) = vram[REGSW(0xFFEA)];
+                case 0x0A: // $FFEA Set VRAM <ADDR1
+                    vram_ptr1 = VRAM_ADDR1;
+                    VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
-                case 0x08: // $FFE8 RW VRAM PTR1
-                    vram[REGSW(0xFFEA)] = data;
-                    REGSW(0xFFEA) += (int8_t)REGS(0xFFE9);
-                    REGS(0xFFE8) = vram[REGSW(0xFFEA)];
+                case 0x08: // $FFE8 RW VRAM1
+                    vram[VRAM_ADDR1] = data;
+                    VRAM_ADDR1 += VRAM_STEP1;
+                    VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
-                case 0x07: // $FFE7 Set VRAM PTR0 Hi Addr
-                    addr04 = REGSW(0xFFE6);
-                    REGS(0xFFE4) = vram[REGSW(0xFFE6)];
+                case 0x07: // $FFE7 Set VRAM >ADDR0
+                    vram_ptr0 = VRAM_ADDR0;
+                    VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
-                case 0x06: // $FFE6 Set VRAM PTR0 Lo Addr
-                    addr04 = REGSW(0xFFE6);
-                    REGS(0xFFE4) = vram[REGSW(0xFFE6)];
+                case 0x06: // $FFE6 Set VRAM <ADDR0
+                    vram_ptr0 = VRAM_ADDR0;
+                    VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
-                case 0x04: // $FFE4 RW VRAM PTR0
-                    vram[REGSW(0xFFE6)] = data;
-                    REGSW(0xFFE6) += (int8_t)REGS(0xFFE5);
-                    REGS(0xFFE4) = vram[REGSW(0xFFE6)];
+                case 0x04: // $FFE4 RW VRAM0
+                    vram[VRAM_ADDR0] = data;
+                    VRAM_ADDR0 += VRAM_STEP0;
+                    VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
                 case 0x02: // $FFE2 UART Rx
                 {
@@ -329,7 +340,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     else
                         REGS(0xFFE0) |= 0b10000000;
                     break;
-                case 0x00: // $FFE0 Read UART Tx/Rx flow control
+                case 0x00: // $FFE0 UART Tx/Rx flow control
                 {
                     int ch = ria_uart_rx_char;
                     if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)

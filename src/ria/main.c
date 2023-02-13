@@ -9,6 +9,7 @@
 #include "mon/mon.h"
 #include "ria.h"
 #include "act.h"
+#include "api.h"
 #include "mon/cfg.h"
 #include "mon/rom.h"
 #include "dev/com.h"
@@ -71,7 +72,7 @@ static void main_app_tasks()
     cmd_task();
     fil_task();
     rom_task();
-    // api_task(); //TODO
+    api_task();
 }
 
 // This resets all modules and halts the 6502.
