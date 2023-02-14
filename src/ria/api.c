@@ -5,28 +5,55 @@
  */
 
 #include "api.h"
+#include "fatfs/ff.h"
 #include "mem/regs.h"
 #include "mem/vram.h"
 #include "mem/vstack.h"
 
-#include "stdio.h" //TEMP
+#include "stdio.h"     //TEMP
 #include "pico/time.h" //TEMP
 
-volatile uint16_t vram_ptr0;
-volatile uint16_t vram_ptr1;
+#define FIL_MAX 16
+FIL fp[FIL_MAX];
+
+static void api_open(uint8_t *path, uint8_t mode)
+{
+    int i;
+    for (i = 0; i < FIL_MAX; i++)
+        if (!fp[i].obj.fs)
+            break;
+    if (i == FIL_MAX)
+    {
+        // This error is "Number of open files > FF_FS_LOCK"
+        //TODO Candidate for a new error
+        API_RETURN_VAL_ERR(-1, FR_TOO_MANY_OPEN_FILES);
+        return;
+    }
+    FRESULT fresult = f_open(&fp[i], (TCHAR *)path, mode);
+    // printf("<open0> mode:%d path:%s\n", mode, path);
+    // printf("<open0> val:%d err:%d\n", i, fresult);
+    API_RETURN_VAL_ERR(i, fresult);
+}
 
 void api_task()
 {
     switch (API_OPCODE) // 1-127 valid
     {
     case 1: // open0
-        printf(">open0> %d %s\n", API_AX, &vram[vram_ptr0]);
-        API_RETURN(7);
+        api_open(&vram[vram_ptr0], API_AX);
         break;
     }
 }
 
+void api_stop()
+{
+    for (int i = 0; i < FIL_MAX; i++)
+        if (fp[i].obj.fs)
+            f_close(&fp[i]);
+}
+
 void api_reset()
 {
+    API_OPCODE = 0xFF;
     vstack_ptr = VSTACK_SIZE;
 }

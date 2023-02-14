@@ -36,3 +36,6 @@ struct Vram
     __attribute__((section(".uninitialized_data.vram")));
 uint8_t *const vram = (uint8_t *)&vram_blocks;
 #endif
+
+volatile uint16_t vram_ptr0;
+volatile uint16_t vram_ptr1;

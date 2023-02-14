@@ -38,6 +38,7 @@ void ria_stop()
     REGS(0xFFE0) = 0;
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     ria_get_reset_us());
+    api_stop();
 }
 
 // Start or reset the 6502
