@@ -276,26 +276,28 @@ __attribute__((optimize("O1"))) void act_loop()
                     }
                     break;
                 case 0x0F: // $FFEF OS function call
-                    if (!data)
-                        vstack_ptr = VSTACK_SIZE;
-                    else if (data == 0xFF)
-                        ria_exit();
                     // 80 FE   BRA -2
                     // A9 FF   LDA #$FF
                     // A2 FF   LDX #$FF
                     // 60      RTS
                     *(uint32_t *)&regs[0x10] = 0xFFA9FE80;
                     *(uint32_t *)&regs[0x14] = 0x0060FFA2;
+                    if (!data)
+                        vstack_ptr = VSTACK_SIZE;
+                    else if (data == 0xFF)
+                        ria_exit();
                     break;
                 case 0x0C: // $FFEC RW vstack
                     if (vstack_ptr)
                         vstack[--vstack_ptr] = data;
                     break;
                 case 0x0B: // $FFEB Set VRAM >ADDR1
+                    REGS(0xFFEB) = data;
                     vram_ptr1 = VRAM_ADDR1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
                 case 0x0A: // $FFEA Set VRAM <ADDR1
+                    REGS(0xFFEA) = data;
                     vram_ptr1 = VRAM_ADDR1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
@@ -305,10 +307,12 @@ __attribute__((optimize("O1"))) void act_loop()
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
                 case 0x07: // $FFE7 Set VRAM >ADDR0
+                    REGS(0xFFE7) = data;
                     vram_ptr0 = VRAM_ADDR0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
                 case 0x06: // $FFE6 Set VRAM <ADDR0
+                    REGS(0xFFE6) = data;
                     vram_ptr0 = VRAM_ADDR0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
