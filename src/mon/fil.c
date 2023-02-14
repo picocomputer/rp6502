@@ -96,27 +96,24 @@ void fil_ls(const char *args, size_t len)
     FILINFO fno;
     while ((f_readdir(&dir, &fno) == FR_OK) && (fno.fname[0] != 0))
     {
-        if (fno.fname[0] != '.')
+        if (fno.fattrib & AM_DIR)
+            printf(" <DIR> %s\n", fno.fname);
+        else
         {
-            if (fno.fattrib & AM_DIR)
-                printf(" <DIR> %s\n", fno.fname);
+            double size = fno.fsize;
+            if (size <= 999999)
+                printf("%6.0f %s\n", size, fno.fname);
             else
             {
-                double size = fno.fsize;
-                if (size <= 999999)
-                    printf("%6.0f %s\n", size, fno.fname);
-                else
-                {
-                    size /= 1024;
-                    char *s = "K";
-                    if (size >= 1000)
-                        size /= 1024, s = "M";
-                    if (size >= 1000)
-                        size /= 1024, s = "G";
-                    if (size >= 1000)
-                        size /= 1024, s = "T";
-                    printf("%5.1f%s %s\n", size, s, fno.fname);
-                }
+                size /= 1024;
+                char *s = "K";
+                if (size >= 1000)
+                    size /= 1024, s = "M";
+                if (size >= 1000)
+                    size /= 1024, s = "G";
+                if (size >= 1000)
+                    size /= 1024, s = "T";
+                printf("%5.1f%s %s\n", size, s, fno.fname);
             }
         }
     }
