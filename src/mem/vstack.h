@@ -11,8 +11,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define VSTACK_SIZE 0x108
-extern volatile uint8_t vstack[VSTACK_SIZE];
+#define VSTACK_RW REGS(0xFFEC)
+#define VSTACK_SIZE 0x104
+extern uint8_t vstack[];
 extern volatile size_t vstack_ptr;
 
 #endif /* _VSTACK_H_ */

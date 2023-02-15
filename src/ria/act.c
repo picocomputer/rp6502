@@ -284,12 +284,13 @@ __attribute__((optimize("O1"))) void act_loop()
                     *(uint32_t *)&regs[0x14] = 0x0060FFA2;
                     if (!data)
                         vstack_ptr = VSTACK_SIZE;
-                    else if (data == 0xFF)
+                    else if ((data & 0x7F) == 0x7F)
                         ria_exit();
                     break;
                 case 0x0C: // $FFEC RW vstack
                     if (vstack_ptr)
                         vstack[--vstack_ptr] = data;
+                    VSTACK_RW = vstack[vstack_ptr];
                     break;
                 case 0x0B: // $FFEB Set VRAM >ADDR1
                     REGS(0xFFEB) = data;
