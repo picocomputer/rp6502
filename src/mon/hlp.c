@@ -41,7 +41,8 @@ static const char __in_flash("helptext") hlp_text_about[] =
     "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
     "            FatFs - Copyright (c) 20xx ChaN.\n"
     "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
-    "                    Copyright (c) 2017 Arm Limited.";
+    "                    Copyright (c) 2017 Arm Limited.\n"
+    "          Patrons - Shawn Hyam, Romain Fontaine, Mark Rowe, Vitali Filinkou.";
 
 static const char __in_flash("helptext") hlp_text_system[] =
     "This is the RIA monitor of the Picocomputer, not an operating system CLI.\n"

@@ -33,7 +33,7 @@ static void main_init()
 
     // Hello, world.
     puts("\30\33[0m\f\n" RP6502_NAME);
-    puts("\33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m 64K RAM SYSTEM\n");
+    puts("64K RAM, 64K VRAM\n16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n");
 
     // TinyUSB host support for keyboards,
     // mice, joysticks, and storage devices.
