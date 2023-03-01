@@ -5,7 +5,7 @@
  */
 
 ; Action sends a FIFO message for every write.
-; It also sends a message for hard coded reads and one variable.
+; It also sends a message for (addr&3)==0 reads and one variable.
 ; Pushing new address to out FIFO changes variable read address.
 .program ria_action
 
@@ -24,19 +24,19 @@ jmp !y write
 out y 8
 out y 5
 jmp x!=y notvaraddr
-jmp write
+set y 0
+jmp read
 notvaraddr:
 mov osr y
 out y 2
-jmp !y checkhibit
+jmp !y read
 jmp start
-checkhibit:
-out y 2
-out y 1
-jmp y-- start
 write:
+set y 1
+read:
 in isr 13
-in null 19
+in y 1
+in null 18
 .wrap
 
 

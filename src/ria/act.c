@@ -221,6 +221,8 @@ void act_ram_write(uint16_t addr)
     act_start(action_state_write);
 }
 
+#define CASE_READ(addr) (addr & 0x1F)
+#define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
 __attribute__((optimize("O1"))) void act_loop()
 {
     // In here we bypass the usual SDK calls as needed for performance.
@@ -228,15 +230,14 @@ __attribute__((optimize("O1"))) void act_loop()
     {
         if (!(RIA_ACTION_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACTION_SM))))
         {
-            uint32_t addr_data = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
-            RIA_PIX_PIO->txf[RIA_PIX_SM] = addr_data; // PIX placeholder
-            uint32_t data = addr_data & 0xFF;
-            uint32_t addr = (addr_data >> 8);
+            uint32_t rw_addr_data = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
             if (((1u << RIA_RESB_PIN) & sio_hw->gpio_in))
             {
-                switch (addr)
+                uint32_t data = rw_addr_data & 0xFF;
+                uint32_t rw_addr = (rw_addr_data >> 8);
+                switch (rw_addr)
                 {
-                case 0x16: // $FFF6 action write
+                case CASE_READ(0xFFF6): // action write
                     if (rw_pos < rw_end)
                     {
                         if (rw_pos > 0)
@@ -250,7 +251,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     else
                         act_exit();
                     break;
-                case 0x1D: // $FFFD action read
+                case CASE_WRITE(0xFFFD): // action read
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
@@ -262,7 +263,7 @@ __attribute__((optimize("O1"))) void act_loop()
                         }
                     }
                     break;
-                case 0x1C: // $FFFC action verify
+                case CASE_WRITE(0xFFFC): // action verify
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
@@ -275,7 +276,7 @@ __attribute__((optimize("O1"))) void act_loop()
                         }
                     }
                     break;
-                case 0x0F: // $FFEF OS function call
+                case CASE_WRITE(0xFFEF): // OS function call
                     // 80 FE   BRA -2
                     // A9 FF   LDA #$FF
                     // A2 FF   LDX #$FF
@@ -283,46 +284,60 @@ __attribute__((optimize("O1"))) void act_loop()
                     *(uint32_t *)&regs[0x10] = 0xFFA9FE80;
                     *(uint32_t *)&regs[0x14] = 0x0060FFA2;
                     if (!data)
+                    {
                         vstack_ptr = VSTACK_SIZE;
+                        VSTACK_RW = vstack[vstack_ptr];
+                    }
                     else if ((data & 0x7F) == 0x7F)
                         ria_exit();
                     break;
-                case 0x0C: // $FFEC RW vstack
+                case CASE_WRITE(0xFFEC): // vstack
                     if (vstack_ptr)
                         vstack[--vstack_ptr] = data;
                     VSTACK_RW = vstack[vstack_ptr];
                     break;
-                case 0x0B: // $FFEB Set VRAM >ADDR1
+                case CASE_READ(0xFFEC): // vstack
+                    if (vstack_ptr < VSTACK_SIZE)
+                        ++vstack_ptr;
+                    VSTACK_RW = vstack[vstack_ptr];
+                    break;
+                case CASE_WRITE(0xFFEB): // Set VRAM >ADDR1
                     REGS(0xFFEB) = data;
                     vram_ptr1 = VRAM_ADDR1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
-                case 0x0A: // $FFEA Set VRAM <ADDR1
+                case CASE_WRITE(0xFFEA): // Set VRAM <ADDR1
                     REGS(0xFFEA) = data;
                     vram_ptr1 = VRAM_ADDR1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
-                case 0x08: // $FFE8 RW VRAM1
+                case CASE_WRITE(0xFFE8): // W VRAM1
                     vram[VRAM_ADDR1] = data;
+                    RIA_PIX_PIO->txf[RIA_PIX_SM] = (VRAM_ADDR1 << 8) | data | 0x80000000;
+                    __attribute__((fallthrough));
+                case CASE_READ(0xFFE8): // R VRAM1
                     VRAM_ADDR1 += VRAM_STEP1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
-                case 0x07: // $FFE7 Set VRAM >ADDR0
+                case CASE_WRITE(0xFFE7): // Set VRAM >ADDR0
                     REGS(0xFFE7) = data;
                     vram_ptr0 = VRAM_ADDR0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
-                case 0x06: // $FFE6 Set VRAM <ADDR0
+                case CASE_WRITE(0xFFE6): // Set VRAM <ADDR0
                     REGS(0xFFE6) = data;
                     vram_ptr0 = VRAM_ADDR0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
-                case 0x04: // $FFE4 RW VRAM0
+                case CASE_WRITE(0xFFE4): // W VRAM0
                     vram[VRAM_ADDR0] = data;
+                    RIA_PIX_PIO->txf[RIA_PIX_SM] = (VRAM_ADDR0 << 8) | data | 0x80000000;
+                    __attribute__((fallthrough));
+                case CASE_READ(0xFFE4): // R VRAM0
                     VRAM_ADDR0 += VRAM_STEP0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
-                case 0x02: // $FFE2 UART Rx
+                case CASE_READ(0xFFE2): // UART Rx
                 {
                     int ch = ria_uart_rx_char;
                     if (ch >= 0)
@@ -338,14 +353,14 @@ __attribute__((optimize("O1"))) void act_loop()
                     }
                     break;
                 }
-                case 0x01: // $FFE1 UART Tx
+                case CASE_WRITE(0xFFE1): // UART Tx
                     uart_get_hw(RIA_UART)->dr = data;
                     if ((uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFF_BITS))
                         REGS(0xFFE0) &= ~0b10000000;
                     else
                         REGS(0xFFE0) |= 0b10000000;
                     break;
-                case 0x00: // $FFE0 UART Tx/Rx flow control
+                case CASE_READ(0xFFE0): // UART Tx/Rx flow control
                 {
                     int ch = ria_uart_rx_char;
                     if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
