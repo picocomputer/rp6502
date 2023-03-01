@@ -1,19 +1,19 @@
 # Bleeding edge tinyusb needed for mass storage devices
 
-add_library(tinyusb_ria STATIC EXCLUDE_FROM_ALL)
+add_library(tinyusb_vga STATIC EXCLUDE_FROM_ALL)
 
-target_include_directories(tinyusb_ria PRIVATE
+target_include_directories(tinyusb_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    dev
+    probe
 )
 
 file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
 
-target_link_libraries(tinyusb_ria PUBLIC
+target_link_libraries(tinyusb_vga PUBLIC
     pico_stdlib
 )
 
-target_sources(tinyusb_ria PRIVATE
+target_sources(tinyusb_vga PRIVATE
     ${TINY_USB_SRC_FILES}
 )
 
@@ -27,7 +27,6 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
     dev
 )
 
@@ -49,7 +48,8 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_pio
     hardware_dma
     hardware_flash
-    tinyusb_ria
+    tinyusb_board
+    tinyusb_host
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -93,6 +93,7 @@ pico_set_binary_type(rp6502_vga copy_to_ram)
 
 target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
     probe
 )
 
@@ -113,7 +114,7 @@ target_link_libraries(rp6502_vga PRIVATE
     pico_multicore
     pico_unique_id
     pico_scanvideo_dpi
-    tinyusb_device
+    tinyusb_vga
 )
 
 pico_generate_pio_header(rp6502_vga
@@ -124,4 +125,5 @@ target_compile_definitions(rp6502_vga PRIVATE
     PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
     PICO_SCANVIDEO_COLOR_PIN_BASE=6
     PICO_SCANVIDEO_SYNC_PIN_BASE=26
+    PICO_RP2040_USB_DEVICE_ENUMERATION_FIX=1
 )

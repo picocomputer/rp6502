@@ -37,7 +37,7 @@ extern "C"
 
 // defined by compiler flags for flexibility
 #ifndef CFG_TUSB_MCU
-#error CFG_TUSB_MCU must be defined
+#define CFG_TUSB_MCU OPT_MCU_RP2040
 #endif
 
 #define CFG_TUSB_RHPORT0_MODE OPT_MODE_DEVICE
@@ -74,6 +74,10 @@ extern "C"
 
 #define CFG_TUD_VENDOR_RX_BUFSIZE 8192
 #define CFG_TUD_VENDOR_TX_BUFSIZE 8192
+
+#ifndef TUD_OPT_RP2040_USB_DEVICE_UFRAME_FIX
+#define TUD_OPT_RP2040_USB_DEVICE_UFRAME_FIX 1
+#endif
 
 #ifdef __cplusplus
 }

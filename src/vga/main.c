@@ -11,9 +11,13 @@
 #include "probe.h"
 #include "cdc_uart.h"
 #include "led.h"
+#include "get_serial.h"
 
 int main()
 {
+    // Expose serial number
+    usb_serial_init();
+
     // Bring up VGA and terminal
     vga_init();
     term_init();
