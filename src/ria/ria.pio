@@ -4,6 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+
+.program ria_pix
+
+.wrap_target
+wait 1 gpio 21 [9]
+out pins 4
+pull ifempty noblock
+wait 0 gpio 21 [9]
+out pins 4
+pull ifempty noblock
+.wrap
+
+
 ; Action sends a FIFO message for every write.
 ; It also sends a message for (addr&3)==0 reads and one variable.
 ; Pushing new address to out FIFO changes variable read address.

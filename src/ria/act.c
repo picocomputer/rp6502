@@ -18,8 +18,8 @@
 #include <stdio.h>
 
 // This is the smallest value that will
-// allow 16-byte read/write operations at 1 kHz.
-#define RIA_ACTION_WATCHDOG_MS 200
+// allow 1k read/write operations at 50 kHz.
+#define RIA_ACTION_WATCHDOG_MS 250
 
 static enum state {
     action_state_idle = 0,
@@ -100,7 +100,7 @@ void act_task()
     uint32_t fdebug = RIA_ACTION_PIO->fdebug;
     uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
     masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
-    masked_fdebug &= ~(1 << (16 + RIA_PIX_SM));    // expected with PIX placeholder
+    masked_fdebug &= ~(1 << (24 + RIA_PIX_SM));    // expected
     if (masked_fdebug)
     {
         RIA_ACTION_PIO->fdebug = 0xFF;
@@ -313,7 +313,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE8): // W VRAM1
                     vram[VRAM_ADDR1] = data;
-                    RIA_PIX_PIO->txf[RIA_PIX_SM] = (VRAM_ADDR1 << 8) | data | 0x80000000;
+                    RIA_PIX_PIO->txf[RIA_PIX_SM] = (VRAM_ADDR1 << 12) | (data << 4) | RIA_PIX_VRAM;
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R VRAM1
                     VRAM_ADDR1 += VRAM_STEP1;
@@ -331,7 +331,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE4): // W VRAM0
                     vram[VRAM_ADDR0] = data;
-                    RIA_PIX_PIO->txf[RIA_PIX_SM] = (VRAM_ADDR0 << 8) | data | 0x80000000;
+                    RIA_PIX_PIO->txf[RIA_PIX_SM] = (VRAM_ADDR0 << 12) | (data << 4) | RIA_PIX_VRAM;
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R VRAM0
                     VRAM_ADDR0 += VRAM_STEP0;

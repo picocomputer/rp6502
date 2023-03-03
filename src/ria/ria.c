@@ -161,6 +161,22 @@ static void ria_read_pio_init()
         true);
 }
 
+void ria_pix_pio_init()
+{
+    uint offset = pio_add_program(RIA_PIX_PIO, &ria_pix_program);
+    pio_sm_config config = ria_pix_program_get_default_config(offset);
+    sm_config_set_out_pins(&config, 0, 4);
+    sm_config_set_out_shift(&config, false, false, 28);
+    for (int i = 0; i < 4; i++)
+        pio_gpio_init(RIA_PIX_PIO, i);
+    pio_sm_set_consecutive_pindirs(RIA_PIX_PIO, RIA_PIX_SM, 0, 4, true);
+    pio_sm_init(RIA_PIX_PIO, RIA_PIX_SM, offset, &config);
+    pio_sm_put(RIA_PIX_PIO, RIA_PIX_SM, RIA_PIX_IDLE);
+    pio_sm_exec_wait_blocking(RIA_PIX_PIO, RIA_PIX_SM, pio_encode_pull(false, true));
+    pio_sm_exec_wait_blocking(RIA_PIX_PIO, RIA_PIX_SM, pio_encode_mov(pio_x, pio_osr));
+    pio_sm_set_enabled(RIA_PIX_PIO, RIA_PIX_SM, true);
+}
+
 bool ria_is_active()
 {
     return ria_state != ria_state_stopped;
@@ -192,6 +208,7 @@ uint32_t ria_set_phi2_khz(uint32_t freq_khz)
     pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
+    pio_sm_set_clkdiv_int_frac(RIA_PIX_PIO, RIA_PIX_SM, clkdiv_int, clkdiv_frac);
     if (old_sys_clk_hz != clock_get_hz(clk_sys))
         com_init();
     return sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
@@ -242,6 +259,7 @@ void ria_init()
     // the inits
     ria_write_pio_init();
     ria_read_pio_init();
+    ria_pix_pio_init();
     act_pio_init();
     // Force cfg to call ria_set_phi2_khz
     cfg_set_phi2_khz(cfg_get_phi2_khz());

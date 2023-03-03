@@ -141,7 +141,11 @@ void cmd_address(const char *args, size_t len)
 
 static void status_phi2()
 {
-    printf("PHI2: %ld kHz\n", cfg_get_phi2_khz());
+    uint32_t phi2_khz = cfg_get_phi2_khz();
+    printf("PHI2: %ld kHz", phi2_khz);
+    if (phi2_khz < 50)
+        printf(" (!!!)");
+    printf("\n");
 }
 
 void cmd_phi2(const char *args, size_t len)
