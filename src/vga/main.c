@@ -5,6 +5,7 @@
  */
 
 #include "term.h"
+#include "pix.h"
 #include "vga.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
@@ -31,6 +32,7 @@ int main()
     probe_gpio_init();
     probe_init();
     led_init();
+    pix_init();
 
     while (1)
     {
@@ -40,6 +42,7 @@ int main()
         led_task();
         term_task();
         vga_task();
+        pix_task();
     }
 
     return 0;

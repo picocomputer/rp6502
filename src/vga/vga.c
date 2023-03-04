@@ -14,6 +14,7 @@
 #include "pico/scanvideo/composable_scanline.h"
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
+#include "probe/picoprobe_config.h"
 
 static mutex_t vga_mutex;
 static vga_display_t vga_display_current;
@@ -519,7 +520,7 @@ static void vga_set()
     {
         set_sys_clock_khz(clk / 1000, true);
 #if LIB_PICO_STDIO_UART
-        stdio_uart_init();
+    uart_init(PICOPROBE_UART_INTERFACE, PICOPROBE_UART_BAUDRATE);
 #endif
     }
 

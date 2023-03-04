@@ -166,7 +166,7 @@ void ria_pix_pio_init()
     uint offset = pio_add_program(RIA_PIX_PIO, &ria_pix_program);
     pio_sm_config config = ria_pix_program_get_default_config(offset);
     sm_config_set_out_pins(&config, 0, 4);
-    sm_config_set_out_shift(&config, false, false, 28);
+    sm_config_set_out_shift(&config, false, false, 32);
     for (int i = 0; i < 4; i++)
         pio_gpio_init(RIA_PIX_PIO, i);
     pio_sm_set_consecutive_pindirs(RIA_PIX_PIO, RIA_PIX_SM, 0, 4, true);

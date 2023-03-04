@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "hardware/pio.h"
 
 // Content of these 15 pins is bound to the PIO program structure.
 #define RIA_PIN_BASE 6
@@ -32,9 +33,10 @@
 #define RIA_PIX_PIO pio1
 #define RIA_PIX_SM 1
 
+// Bit 28 always 1, bits [31:29] for payload type
+#define RIA_PIX_REGS 0x10000000u
+#define RIA_PIX_VRAM 0x30000000u
 #define RIA_PIX_IDLE 0xF0000000u
-#define RIA_PIX_REGS 0x80000000u
-#define RIA_PIX_VRAM 0x90000000u
 
 void ria_init();
 void ria_task();

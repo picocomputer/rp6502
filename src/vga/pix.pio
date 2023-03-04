@@ -1,0 +1,33 @@
+/*
+ * Copyright (c) 2023 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+.program vga_pix
+
+resync:
+wait 1 gpio 11
+start:
+wait 0 gpio 11
+in pins 4
+mov osr isr
+out y 1
+jmp !y resync
+
+set y 3
+
+.wrap_target
+wait 1 gpio 11
+in pins 4
+jmp y-- loop2
+
+out y 3
+jmp x!=y start
+push noblock
+jmp start
+
+loop2:
+wait 0 gpio 11
+in pins 4
+.wrap

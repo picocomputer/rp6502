@@ -100,6 +100,7 @@ target_include_directories(rp6502_vga PRIVATE
 target_sources(rp6502_vga PRIVATE
     mem/vram.c
     vga/main.c
+    vga/pix.c
     vga/term.c
     vga/vga.c
     probe/led.c
@@ -119,6 +120,10 @@ target_link_libraries(rp6502_vga PRIVATE
 
 pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/probe/probe.pio
+)
+
+pico_generate_pio_header(rp6502_vga
+    ${CMAKE_CURRENT_LIST_DIR}/vga/pix.pio
 )
 
 target_compile_definitions(rp6502_vga PRIVATE
