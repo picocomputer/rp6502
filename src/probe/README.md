@@ -5,6 +5,9 @@ This has a few changes:
 probe.c hardcoded pio0 changed to pio1 because pico-extras VGA
 decided to hardcode pio0 in a couple places.
 
+probe.c look for pio_sm_set_consecutive_pindirs because
+we aren't consecutive.
+
 cdc_uart.c tees rx to putchar_raw() for display on term.
 
 cdc_uart.c remove tud_cdc_line_coding_cb()

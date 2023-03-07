@@ -6,28 +6,34 @@
 
 .program vga_pix
 
-resync:
-wait 1 gpio 11
-start:
-wait 0 gpio 11
-in pins 4
-mov osr isr
-out y 1
-jmp !y resync
+; Initialization will send the channel number
+; then manually run these instructions first:
+; pull
+; mov x osr
+; out null 32
 
+start:
 set y 3
 
-.wrap_target
+bitshi:
 wait 1 gpio 11
 in pins 4
-jmp y-- loop2
+jmp y-- bitslo
 
+; Only push our channel
 out y 3
-jmp x!=y start
+jmp x!=y bitslo
 push noblock
-jmp start
 
-loop2:
+bitslo:
 wait 0 gpio 11
 in pins 4
-.wrap
+jmp !osre bitshi
+
+; Begin a new frame, save the ID
+mov osr isr
+; Test for framing bit
+out y 1
+jmp y-- start
+; Not a frame start, empty the osr
+out null 3
