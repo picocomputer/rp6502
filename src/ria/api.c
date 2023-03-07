@@ -18,8 +18,9 @@ FIL fil_pool[FIL_MAX];
 
 static void api_open(uint8_t *path)
 {
-    uint8_t mode = API_AX;
+    uint8_t mode = API_A;
     int i;
+    vstack_ptr = VSTACK_SIZE;
     for (i = 0; i < FIL_MAX; i++)
         if (!fil_pool[i].obj.fs)
             break;
@@ -27,59 +28,73 @@ static void api_open(uint8_t *path)
     {
         // This error is "Number of open files > FF_FS_LOCK"
         // TODO Candidate for a new error
-        API_RETURN_VAL_ERR(-1, FR_TOO_MANY_OPEN_FILES);
+        API_ERRNO = FR_TOO_MANY_OPEN_FILES;
+        API_RETURN_AX(-1);
         return;
     }
     FIL *fp = &fil_pool[i];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
-    API_RETURN_VAL_ERR(i, fresult);
+    API_ERRNO = fresult;
+    API_RETURN_AX(i);
 }
 
 static void api_lseek()
 {
     unsigned fd = API_AX;
-    if (fd >= FIL_MAX || vstack_ptr != VSTACK_SIZE - 4)
+    size_t ofs_ptr = vstack_ptr;
+    vstack_ptr = VSTACK_SIZE;
+    if (fd >= FIL_MAX || ofs_ptr != VSTACK_SIZE - 4)
     {
-        API_RETURN_VAL_ERR(-1, FR_INVALID_PARAMETER);
+        API_ERRNO = FR_INVALID_PARAMETER;
+        API_RETURN_AX(-1);
         return;
     }
-    uint32_t ofs = *(uint32_t *)&vstack[vstack_ptr];
+    uint32_t ofs = *(uint32_t *)&vstack[ofs_ptr];
     FIL *fp = &fil_pool[fd];
     FRESULT fresult = f_lseek(fp, ofs);
     FSIZE_t pos = f_tell(fp);
     // TODO additional checks?
-    API_RETURN_VAL_ERR(pos, fresult);
+    API_ERRNO = fresult;
+    API_RETURN_AX(pos);
 }
 
 static void api_read(uint8_t *buf)
 {
     unsigned fd = API_AX;
-    if (fd >= FIL_MAX || vstack_ptr != VSTACK_SIZE - 2)
+    size_t count_ptr = vstack_ptr;
+    vstack_ptr = VSTACK_SIZE;
+    if (fd >= FIL_MAX || count_ptr != VSTACK_SIZE - 2)
     {
-        API_RETURN_VAL_ERR(-1, FR_INVALID_PARAMETER);
+        API_ERRNO = FR_INVALID_PARAMETER;
+        API_RETURN_AX(-1);
         return;
     }
-    uint16_t count = *(uint16_t *)&vstack[vstack_ptr];
+    uint16_t count = *(uint16_t *)&vstack[count_ptr];
     FIL *fp = &fil_pool[fd];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
     API_RETURN_VRAM();
-    API_RETURN_VAL_ERR(br, fresult);
+    API_ERRNO = fresult;
+    API_RETURN_AX(br);
 }
 
 static void api_write(uint8_t *buf)
 {
     unsigned fd = API_AX;
-    if (fd >= FIL_MAX || vstack_ptr != VSTACK_SIZE - 2)
+    size_t count_ptr = vstack_ptr;
+    vstack_ptr = VSTACK_SIZE;
+    if (fd >= FIL_MAX || count_ptr != VSTACK_SIZE - 2)
     {
-        API_RETURN_VAL_ERR(-1, FR_INVALID_PARAMETER)
+        API_ERRNO = FR_INVALID_PARAMETER;
+        API_RETURN_AX(-1);
         return;
     }
-    uint16_t count = *(uint16_t *)&vstack[vstack_ptr];
+    uint16_t count = *(uint16_t *)&vstack[count_ptr];
     FIL *fp = &fil_pool[fd];
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
-    API_RETURN_VAL_ERR(bw, fresult);
+    API_ERRNO = fresult;
+    API_RETURN_AX(bw);
 }
 
 static void api_close()
@@ -87,44 +102,55 @@ static void api_close()
     unsigned fd = API_AX;
     FIL *fp = &fil_pool[fd];
     FRESULT fresult = f_close(fp);
+    API_ERRNO = fresult;
     if (fresult == FR_OK)
-        API_RETURN_VAL_ERR(0, fresult)
+        API_RETURN_AX(0)
     else
-        API_RETURN_VAL_ERR(-1, fresult)
+        API_RETURN_AX(-1)
 }
 
 void api_task()
 {
-    switch (API_OPCODE) // 1-127 valid
-    {
-    case 0x01:
-        api_open(&vstack[vstack_ptr]);
-        break;
-    case 0x02:
-        api_open(&vram[vram_ptr0]);
-        break;
-    case 0x03:
-        api_open(&vram[vram_ptr1]);
-        break;
-    case 0x04:
-        api_close();
-        break;
-    case 0x05:
-        api_read(&vram[vram_ptr0]);
-        break;
-    case 0x06:
-        api_read(&vram[vram_ptr1]);
-        break;
-    case 0x07:
-        api_write(&vram[vram_ptr0]);
-        break;
-    case 0x08:
-        api_write(&vram[vram_ptr1]);
-        break;
-    case 0x09:
-        api_lseek();
-        break;
-    }
+    if (API_BUSY)
+        switch (API_OP) // 1-127 valid
+        {
+        case 0x00:
+        case 0xFF:
+            // action loop handles these
+            break;
+        case 0x01:
+            api_open(&vstack[vstack_ptr]);
+            break;
+        case 0x02:
+            api_open(&vram[vram_ptr0]);
+            break;
+        case 0x03:
+            api_open(&vram[vram_ptr1]);
+            break;
+        case 0x04:
+            api_close();
+            break;
+        case 0x05:
+            api_read(&vram[vram_ptr0]);
+            break;
+        case 0x06:
+            api_read(&vram[vram_ptr1]);
+            break;
+        case 0x07:
+            api_write(&vram[vram_ptr0]);
+            break;
+        case 0x08:
+            api_write(&vram[vram_ptr1]);
+            break;
+        case 0x09:
+            api_lseek();
+            break;
+        default:
+            // TODO report an error
+            //  API_ERRNO = EUNKNOWN;
+            API_SPIN_RELEASE();
+            break;
+        }
 }
 
 void api_stop()
@@ -136,6 +162,6 @@ void api_stop()
 
 void api_reset()
 {
-    API_OPCODE = 0xFF;
+    API_OP = 0x00;
     vstack_ptr = VSTACK_SIZE;
 }

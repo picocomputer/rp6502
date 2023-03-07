@@ -277,16 +277,11 @@ __attribute__((optimize("O1"))) void act_loop()
                     }
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
-                    // 80 FE   BRA -2
-                    // A9 FF   LDA #$FF
-                    // A2 FF   LDX #$FF
-                    // 60      RTS
-                    *(uint32_t *)&regs[0x10] = 0xFFA9FE80;
-                    *(uint32_t *)&regs[0x14] = 0x0060FFA2;
+                    API_SPIN_LOCK();
                     if (!data)
                     {
                         vstack_ptr = VSTACK_SIZE;
-                        VSTACK_RW = vstack[vstack_ptr];
+                        API_STACK = vstack[vstack_ptr];
                     }
                     else if ((data & 0x7F) == 0x7F)
                         ria_exit();
@@ -294,12 +289,12 @@ __attribute__((optimize("O1"))) void act_loop()
                 case CASE_WRITE(0xFFEC): // vstack
                     if (vstack_ptr)
                         vstack[--vstack_ptr] = data;
-                    VSTACK_RW = vstack[vstack_ptr];
+                    API_STACK = vstack[vstack_ptr];
                     break;
                 case CASE_READ(0xFFEC): // vstack
                     if (vstack_ptr < VSTACK_SIZE)
                         ++vstack_ptr;
-                    VSTACK_RW = vstack[vstack_ptr];
+                    API_STACK = vstack[vstack_ptr];
                     break;
                 case CASE_WRITE(0xFFEB): // Set VRAM >ADDR1
                     REGS(0xFFEB) = data;
