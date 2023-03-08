@@ -5,6 +5,7 @@
  */
 
 #include "api.h"
+#include "ria.h"
 #include "fatfs/ff.h"
 #include "mem/regs.h"
 #include "mem/vram.h"
@@ -109,6 +110,22 @@ static void api_close()
         API_RETURN_AX(-1)
 }
 
+static void api_set_vreg()
+{
+    unsigned regno = API_A;
+    size_t data_ptr = vstack_ptr;
+    vstack_ptr = VSTACK_SIZE;
+    if (data_ptr != VSTACK_SIZE - 2)
+    {
+        API_ERRNO = FR_INVALID_PARAMETER;
+        API_RETURN_AX(-1);
+        return;
+    }
+    uint16_t data = *(uint16_t *)&vstack[data_ptr];
+    RIA_PIX_PIO->txf[RIA_PIX_SM] = (regno << 16) | data | RIA_PIX_REGS;
+    API_RETURN_AX(0);
+}
+
 void api_task()
 {
     if (API_BUSY)
@@ -144,6 +161,9 @@ void api_task()
             break;
         case 0x09:
             api_lseek();
+            break;
+        case 0x10:
+            api_set_vreg();
             break;
         default:
             // TODO report an error
