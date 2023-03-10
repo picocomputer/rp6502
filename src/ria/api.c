@@ -175,6 +175,7 @@ void api_task()
 
 void api_stop()
 {
+    RIA_PIX_PIO->txf[RIA_PIX_SM] = 0 | 0 | RIA_PIX_REGS;
     for (int i = 0; i < FIL_MAX; i++)
         if (fil_pool[i].obj.fs)
             f_close(&fil_pool[i]);
@@ -182,6 +183,7 @@ void api_stop()
 
 void api_reset()
 {
-    API_OP = 0x00;
+    for (int i = 0; i < 16; i++)
+        REGS(i) = 0;
     vstack_ptr = VSTACK_SIZE;
 }

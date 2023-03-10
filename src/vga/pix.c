@@ -5,6 +5,7 @@
  */
 
 #include "pix.h"
+#include "vga.h"
 #include "pix.pio.h"
 #include "mem/vram.h"
 #include "hardware/dma.h"
@@ -106,6 +107,20 @@ void pix_init()
         true);
 }
 
+static void pix_video_mode(uint16_t mode)
+{
+    if (mode)
+    {
+        vga_display(vga_sxga);
+        vga_resolution(vga_320_180);
+        vga_terminal(false);
+    }
+    else
+    {
+        vga_terminal(true);
+    }
+}
+
 void pix_task()
 {
     if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
@@ -117,6 +132,9 @@ void pix_task()
         uint16_t command = (raw & 0xFFF0000) >> 16;
         switch (command)
         {
+        case 0x000:
+            pix_video_mode(data);
+            break;
         case 0x0FF:
             printf("VRAM $%04X $%02X\n", data, vram[data]);
             break;

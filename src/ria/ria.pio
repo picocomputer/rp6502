@@ -9,9 +9,9 @@
 
 .wrap_target
 pull ifempty noblock
-wait 1 gpio 21 [9]
+wait 1 gpio 21 [6]
 out pins 4
-wait 0 gpio 21 [9]
+wait 0 gpio 21 [6]
 out pins 4
 .wrap
 

@@ -35,7 +35,6 @@ void ria_stop()
 {
     gpio_put(RIA_RESB_PIN, false);
     ria_state = ria_state_stopped;
-    REGS(0xFFE0) = 0;
     ria_reset_timer = delayed_by_us(get_absolute_time(),
                                     ria_get_reset_us());
     api_stop();
@@ -46,7 +45,6 @@ void ria_reset()
 {
     if (ria_state != ria_state_stopped)
         ria_stop();
-    REGS(0xFFE0) = 0;
     ria_state = ria_state_reset;
     api_reset();
 }

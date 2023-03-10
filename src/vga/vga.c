@@ -354,7 +354,7 @@ void vga_render_mono_haxscii(scanvideo_scanline_buffer_t *dest)
     dest->status = SCANLINE_OK;
 }
 
-static void __not_in_flash_func(vga_render_terminal)()
+static void vga_render_terminal()
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 480; i++)
@@ -365,18 +365,57 @@ static void __not_in_flash_func(vga_render_terminal)()
     }
 }
 
-static void __not_in_flash_func(vga_render_320_240)()
+static void vga_render_4bpp(struct scanvideo_scanline_buffer *dest)
+{
+    static const uint32_t colors[] = {
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 205, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 205),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 205),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 205),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(127, 127, 127),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 0),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 255),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 255),
+        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 255),
+    };
+    int line = scanvideo_scanline_number(dest->scanline_id);
+    uint8_t *data = vram + line * 160;
+    uint16_t *pbuf = (void *)dest->data;
+    for (int i = 0; i < 160;)
+    {
+        *++pbuf = colors[(*data) & 0xF];
+        *++pbuf = colors[(*data) >> 4];
+        ++data;
+        ++i;
+    }
+    uint32_t *buf = (void *)dest->data;
+    buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
+    buf[1] = 317 | (buf[1] & 0xFFFF0000);
+    buf[161] = COMPOSABLE_RAW_1P | 0;
+    buf[162] = COMPOSABLE_EOL_SKIP_ALIGN;
+    dest->data_used = 163;
+    dest->status = SCANLINE_OK;
+}
+
+static void vga_render_320_240()
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 240; i++)
     {
         scanline_buffer = scanvideo_begin_scanline_generation(true);
-        vga_render_mono_haxscii(scanline_buffer);
+        vga_render_4bpp(scanline_buffer);
         scanvideo_end_scanline_generation(scanline_buffer);
     }
 }
 
-static void __not_in_flash_func(vga_render_640_480)()
+static void vga_render_640_480()
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 480; i++)
@@ -387,18 +426,18 @@ static void __not_in_flash_func(vga_render_640_480)()
     }
 }
 
-static void __not_in_flash_func(vga_render_320_180)()
+static void vga_render_320_180()
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 180; i++)
     {
         scanline_buffer = scanvideo_begin_scanline_generation(true);
-        vga_render_mono_haxscii(scanline_buffer);
+        vga_render_4bpp(scanline_buffer);
         scanvideo_end_scanline_generation(scanline_buffer);
     }
 }
 
-static void __not_in_flash_func(vga_render_640_360)()
+static void vga_render_640_360()
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 360; i++)
@@ -409,7 +448,7 @@ static void __not_in_flash_func(vga_render_640_360)()
     }
 }
 
-static void __not_in_flash_func(vga_render_loop)()
+static void vga_render_loop()
 {
     while (true)
     {
@@ -520,7 +559,7 @@ static void vga_set()
     {
         set_sys_clock_khz(clk / 1000, true);
 #if LIB_PICO_STDIO_UART
-    uart_init(PICOPROBE_UART_INTERFACE, PICOPROBE_UART_BAUDRATE);
+        uart_init(PICOPROBE_UART_INTERFACE, PICOPROBE_UART_BAUDRATE);
 #endif
     }
 

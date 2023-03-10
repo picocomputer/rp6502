@@ -13,9 +13,15 @@
 #include "cdc_uart.h"
 #include "led.h"
 #include "get_serial.h"
+#include "hardware/structs/bus_ctrl.h"
 
 int main()
 {
+    // Raise DMA above CPU on crossbar
+    bus_ctrl_hw->priority |=
+        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
+
     // Expose serial number
     usb_serial_init();
 
