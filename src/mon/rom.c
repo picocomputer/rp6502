@@ -212,8 +212,11 @@ void rom_install(const char *args, size_t len)
     {
         if (lfs_name[i] >= 'a' && lfs_name[i] <= 'z')
             lfs_name[i] -= 32;
-        if (lfs_name[i] < 'A' || lfs_name[i] > 'Z')
-            lfs_name_len = 0;
+        if (lfs_name[i] >= 'A' && lfs_name[i] <= 'Z')
+            continue;
+        if (i && lfs_name[i] >= '0' && lfs_name[i] <= '9')
+            continue;
+        lfs_name_len = 0;
     }
     if (!lfs_name_len || mon_command_exists(args, len))
     {

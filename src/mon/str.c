@@ -118,12 +118,14 @@ bool parse_rom_name(const char **args, size_t *len, char *name)
             break;
         if (ch >= 'a' && ch <= 'z')
             ch -= 32;
-        if (ch < 'A' || ch > 'Z')
+        if ((ch >= 'A' && ch <= 'Z') ||
+            (name_len && ch >= '0' && ch <= '9'))
         {
-            name[0] = 0;
-            return false;
+            name[name_len++] = ch;
+            continue;
         }
-        name[name_len++] = ch;
+        name[0] = 0;
+        return false;
     }
     if (!name_len)
         return false;
