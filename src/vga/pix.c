@@ -57,6 +57,7 @@ void pix_init()
 
     // DMA move the requested memory data to PIO for output
     dma_channel_config copy_dma = dma_channel_get_default_config(copy_chan);
+    channel_config_set_high_priority(&copy_dma, true);
     channel_config_set_transfer_data_size(&copy_dma, DMA_SIZE_16);
     channel_config_set_read_increment(&copy_dma, false);
     channel_config_set_chain_to(&copy_dma, addr_chan);
@@ -70,6 +71,7 @@ void pix_init()
 
     // DMA move the requested memory data to PIO for output
     dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
+    channel_config_set_high_priority(&addr_dma, true);
     channel_config_set_read_increment(&addr_dma, false);
     channel_config_set_chain_to(&addr_dma, data_chan);
     dma_channel_configure(
@@ -82,6 +84,7 @@ void pix_init()
 
     // DMA move the requested memory data to PIO for output
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
+    channel_config_set_high_priority(&data_dma, true);
     channel_config_set_read_increment(&data_dma, false);
     channel_config_set_transfer_data_size(&data_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&data_dma, fifo_chan);
@@ -95,6 +98,7 @@ void pix_init()
 
     // DMA move address from PIO into the data DMA config
     dma_channel_config fifo_dma = dma_channel_get_default_config(fifo_chan);
+    channel_config_set_high_priority(&fifo_dma, true);
     channel_config_set_dreq(&fifo_dma, pio_get_dreq(VGA_PIX_PIO, VGA_PIX_VRAM_SM, false));
     channel_config_set_read_increment(&fifo_dma, false);
     channel_config_set_chain_to(&fifo_dma, copy_chan);
