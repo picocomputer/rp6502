@@ -277,7 +277,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     }
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
-                    API_SPIN_LOCK();
+                    api_return_blocked();
                     if (!data)
                     {
                         vstack_ptr = VSTACK_SIZE;

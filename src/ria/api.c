@@ -17,6 +17,58 @@
 #define FIL_MAX 16
 FIL fil_pool[FIL_MAX];
 
+static uint16_t api_short_stack_uint16()
+{
+
+    if (vstack_ptr == VSTACK_SIZE - 1)
+    {
+        uint16_t val = *(uint8_t *)&vstack[vstack_ptr];
+        vstack_ptr += 1;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 2)
+    {
+        uint16_t val = *(uint16_t *)&vstack[vstack_ptr];
+        vstack_ptr += 2;
+        return val;
+    }
+    return 0;
+}
+
+static uint32_t api_short_stack_uint32()
+{
+    if (vstack_ptr == VSTACK_SIZE - 3)
+    {
+        // TODO I think this faults
+        uint32_t val = *(uint32_t *)&vstack[vstack_ptr] >> 8;
+        vstack_ptr += 3;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 4)
+    {
+        uint32_t val = *(uint32_t *)&vstack[vstack_ptr];
+        vstack_ptr += 4;
+        return val;
+    }
+    return api_short_stack_uint16();
+}
+
+static uint64_t api_short_stack_uint64()
+{
+
+    if (vstack_ptr == VSTACK_SIZE - 8)
+    {
+        uint64_t val = *(uint64_t *)&vstack[vstack_ptr];
+        vstack_ptr += 8;
+        return val;
+    }
+    return api_short_stack_uint32();
+}
+
+static void api_test()
+{
+}
+
 static void api_open(uint8_t *path)
 {
     uint8_t mode = API_A;
@@ -26,17 +78,13 @@ static void api_open(uint8_t *path)
         if (!fil_pool[i].obj.fs)
             break;
     if (i == FIL_MAX)
-    {
         // This error is "Number of open files > FF_FS_LOCK"
         // TODO Candidate for a new error
-        API_ERRNO = FR_TOO_MANY_OPEN_FILES;
-        API_RETURN_AX(-1);
-        return;
-    }
+        return api_return_errno_ax(FR_TOO_MANY_OPEN_FILES, -1);
     FIL *fp = &fil_pool[i];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
-    API_ERRNO = fresult;
-    API_RETURN_AX(i);
+    printf("(%d %s)\n", fresult, path);
+    return api_return_errno_ax(fresult, i);
 }
 
 static void api_lseek()
@@ -45,18 +93,13 @@ static void api_lseek()
     size_t ofs_ptr = vstack_ptr;
     vstack_ptr = VSTACK_SIZE;
     if (fd >= FIL_MAX || ofs_ptr != VSTACK_SIZE - 4)
-    {
-        API_ERRNO = FR_INVALID_PARAMETER;
-        API_RETURN_AX(-1);
-        return;
-    }
+        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     uint32_t ofs = *(uint32_t *)&vstack[ofs_ptr];
     FIL *fp = &fil_pool[fd];
     FRESULT fresult = f_lseek(fp, ofs);
     FSIZE_t pos = f_tell(fp);
     // TODO additional checks?
-    API_ERRNO = fresult;
-    API_RETURN_AX(pos);
+    return api_return_errno_ax(fresult, pos);
 }
 
 static void api_read(uint8_t *buf)
@@ -65,18 +108,13 @@ static void api_read(uint8_t *buf)
     size_t count_ptr = vstack_ptr;
     vstack_ptr = VSTACK_SIZE;
     if (fd >= FIL_MAX || count_ptr != VSTACK_SIZE - 2)
-    {
-        API_ERRNO = FR_INVALID_PARAMETER;
-        API_RETURN_AX(-1);
-        return;
-    }
+        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     uint16_t count = *(uint16_t *)&vstack[count_ptr];
     FIL *fp = &fil_pool[fd];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
-    API_RETURN_VRAM();
-    API_ERRNO = fresult;
-    API_RETURN_AX(br);
+    api_sync_vram();
+    return api_return_errno_ax(fresult, br);
 }
 
 static void api_write(uint8_t *buf)
@@ -85,17 +123,12 @@ static void api_write(uint8_t *buf)
     size_t count_ptr = vstack_ptr;
     vstack_ptr = VSTACK_SIZE;
     if (fd >= FIL_MAX || count_ptr != VSTACK_SIZE - 2)
-    {
-        API_ERRNO = FR_INVALID_PARAMETER;
-        API_RETURN_AX(-1);
-        return;
-    }
+        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     uint16_t count = *(uint16_t *)&vstack[count_ptr];
     FIL *fp = &fil_pool[fd];
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
-    API_ERRNO = fresult;
-    API_RETURN_AX(bw);
+    return api_return_errno_ax(fresult, bw);
 }
 
 static void api_close()
@@ -103,27 +136,17 @@ static void api_close()
     unsigned fd = API_AX;
     FIL *fp = &fil_pool[fd];
     FRESULT fresult = f_close(fp);
-    API_ERRNO = fresult;
-    if (fresult == FR_OK)
-        API_RETURN_AX(0)
-    else
-        API_RETURN_AX(-1)
+    return api_return_errno_ax(fresult, fresult == FR_OK ? 0 : -1);
 }
 
 static void api_set_vreg()
 {
     unsigned regno = API_A;
-    size_t data_ptr = vstack_ptr;
-    vstack_ptr = VSTACK_SIZE;
-    if (data_ptr != VSTACK_SIZE - 2)
-    {
-        API_ERRNO = FR_INVALID_PARAMETER;
-        API_RETURN_AX(-1);
-        return;
-    }
-    uint16_t data = *(uint16_t *)&vstack[data_ptr];
+    uint16_t data = api_short_stack_uint16();
+    if (vstack_ptr != VSTACK_SIZE)
+        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     RIA_PIX_PIO->txf[RIA_PIX_SM] = (regno << 16) | data | RIA_PIX_REGS;
-    API_RETURN_AX(0);
+    return api_return_ax(0);
 }
 
 void api_task()
@@ -168,7 +191,7 @@ void api_task()
         default:
             // TODO report an error
             //  API_ERRNO = EUNKNOWN;
-            API_SPIN_RELEASE();
+            api_return_released();
             break;
         }
 }
