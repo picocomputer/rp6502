@@ -82,6 +82,7 @@ void main_break()
 {
     ria_stop();
     act_reset();
+    api_reset();
     com_reset();
     fil_reset();
     mon_reset();

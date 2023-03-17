@@ -26,6 +26,25 @@ void api_task();
 void api_stop();
 void api_reset();
 
+// How to build an API handler:
+// 1. The last paramater is in API_AX or API_AXSREG.
+// 2. Stack was pushed "in order". Like any top-down stack.
+// 3. Second-to-last parameter may support a "short stack".
+//    e.g. a uint16 is sent for fseek instead of a uint64.
+// 4. Be careful with the stack. Especially returning vstack_ptr.
+// 5. Registers must be refreshed if vram or vstack data changes.
+// 6. Use the return functions always!
+
+// Helpers for a "short" stack.
+// The smaller ones contribute a tiny bit of validation.
+// success = (vstack_ptr == VSTACK_SIZE)
+uint16_t api_sstack_uint16();
+uint32_t api_sstack_uint32();
+uint64_t api_sstack_uint64();
+int16_t api_sstack_int16();
+int32_t api_sstack_int32();
+int64_t api_sstack_int64();
+
 // Returning data on VRAM or VSTACK requires
 // ensuring the REGS have fresh data.
 static inline void api_sync_vram()
@@ -44,7 +63,7 @@ static inline void api_sync_vstack()
 // FFF3 A9 FF   LDA #$FF
 // FFF5 A2 FF   LDX #$FF
 // FFF7 60      RTS
-// FFF8 FF FF   .SREG FF FF
+// FFF8 FF FF   .SREG $FF $FF
 static inline void api_return_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
 static inline void api_return_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
 

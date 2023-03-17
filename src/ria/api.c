@@ -11,13 +11,10 @@
 #include "mem/vram.h"
 #include "mem/vstack.h"
 
-#include "stdio.h"     //TEMP
-#include "pico/time.h" //TEMP
-
 #define FIL_MAX 16
 FIL fil_pool[FIL_MAX];
 
-static uint16_t api_short_stack_uint16()
+uint16_t api_sstack_uint16()
 {
 
     if (vstack_ptr == VSTACK_SIZE - 1)
@@ -35,12 +32,11 @@ static uint16_t api_short_stack_uint16()
     return 0;
 }
 
-static uint32_t api_short_stack_uint32()
+uint32_t api_sstack_uint32()
 {
     if (vstack_ptr == VSTACK_SIZE - 3)
     {
-        // TODO I think this faults
-        uint32_t val = *(uint32_t *)&vstack[vstack_ptr] >> 8;
+        uint32_t val = *(uint32_t *)&vstack[vstack_ptr - 1] >> 8;
         vstack_ptr += 3;
         return val;
     }
@@ -50,23 +46,100 @@ static uint32_t api_short_stack_uint32()
         vstack_ptr += 4;
         return val;
     }
-    return api_short_stack_uint16();
+    return api_sstack_uint16();
 }
 
-static uint64_t api_short_stack_uint64()
+uint64_t api_sstack_uint64()
 {
-
+    if (vstack_ptr == VSTACK_SIZE - 5)
+    {
+        uint64_t val = *(uint64_t *)&vstack[vstack_ptr - 3] >> 24;
+        vstack_ptr += 5;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 6)
+    {
+        uint64_t val = *(uint64_t *)&vstack[vstack_ptr - 2] >> 16;
+        vstack_ptr += 6;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 7)
+    {
+        uint64_t val = *(uint64_t *)&vstack[vstack_ptr - 1] >> 8;
+        vstack_ptr += 7;
+        return val;
+    }
     if (vstack_ptr == VSTACK_SIZE - 8)
     {
         uint64_t val = *(uint64_t *)&vstack[vstack_ptr];
         vstack_ptr += 8;
         return val;
     }
-    return api_short_stack_uint32();
+    return api_sstack_uint32();
 }
 
-static void api_test()
+int16_t api_sstack_int16()
 {
+
+    if (vstack_ptr == VSTACK_SIZE - 1)
+    {
+        int16_t val = *(int8_t *)&vstack[vstack_ptr];
+        vstack_ptr += 1;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 2)
+    {
+        int16_t val = *(int16_t *)&vstack[vstack_ptr];
+        vstack_ptr += 2;
+        return val;
+    }
+    return 0;
+}
+
+int32_t api_sstack_int32()
+{
+    if (vstack_ptr == VSTACK_SIZE - 3)
+    {
+        int32_t val = *(int32_t *)&vstack[vstack_ptr - 1] >> 8;
+        vstack_ptr += 3;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 4)
+    {
+        int32_t val = *(int32_t *)&vstack[vstack_ptr];
+        vstack_ptr += 4;
+        return val;
+    }
+    return api_sstack_int16();
+}
+
+int64_t api_sstack_int64()
+{
+    if (vstack_ptr == VSTACK_SIZE - 5)
+    {
+        int64_t val = *(int64_t *)&vstack[vstack_ptr - 3] >> 24;
+        vstack_ptr += 5;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 6)
+    {
+        int64_t val = *(int64_t *)&vstack[vstack_ptr - 2] >> 16;
+        vstack_ptr += 6;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 7)
+    {
+        int64_t val = *(int64_t *)&vstack[vstack_ptr - 1] >> 8;
+        vstack_ptr += 7;
+        return val;
+    }
+    if (vstack_ptr == VSTACK_SIZE - 8)
+    {
+        int64_t val = *(int64_t *)&vstack[vstack_ptr];
+        vstack_ptr += 8;
+        return val;
+    }
+    return api_sstack_int32();
 }
 
 static void api_open(uint8_t *path)
@@ -83,7 +156,6 @@ static void api_open(uint8_t *path)
         return api_return_errno_ax(FR_TOO_MANY_OPEN_FILES, -1);
     FIL *fp = &fil_pool[i];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
-    printf("(%d %s)\n", fresult, path);
     return api_return_errno_ax(fresult, i);
 }
 
@@ -142,7 +214,7 @@ static void api_close()
 static void api_set_vreg()
 {
     unsigned regno = API_A;
-    uint16_t data = api_short_stack_uint16();
+    uint16_t data = api_sstack_uint16();
     if (vstack_ptr != VSTACK_SIZE)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     RIA_PIX_PIO->txf[RIA_PIX_SM] = (regno << 16) | data | RIA_PIX_REGS;
