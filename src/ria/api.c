@@ -13,6 +13,9 @@
 
 #define FIL_MAX 16
 FIL fil_pool[FIL_MAX];
+// 0,1,2 reserved for STDIN, STDOUT, STDERR
+#define FIL_OFFS 3
+static_assert(FIL_MAX + FIL_OFFS < 128);
 
 uint16_t api_sstack_uint16()
 {
@@ -144,34 +147,60 @@ int64_t api_sstack_int64()
 
 static void api_open(uint8_t *path)
 {
-    uint8_t mode = API_A;
+    // These match CC65 which is closer to POSIX than FatFs.
+    const unsigned char RDWR = 0x03;
+    const unsigned char CREAT = 0x10;
+    const unsigned char TRUNC = 0x20;
+    const unsigned char APPEND = 0x40;
+    const unsigned char EXCL = 0x80;
+
+    uint8_t flags = API_A;
+    uint8_t mode = flags & RDWR; // RDWR are same bits
+    assert((FA_READ | FA_WRITE) == RDWR);
+
+    if (flags & CREAT)
+    {
+        if (flags & EXCL)
+            mode |= FA_CREATE_NEW;
+        else
+        {
+            if (flags & TRUNC)
+                mode |= FA_CREATE_ALWAYS;
+            else if (flags & APPEND)
+                mode |= FA_OPEN_APPEND;
+            else
+                mode |= FA_OPEN_ALWAYS;
+        }
+    }
+
     int i;
     vstack_ptr = VSTACK_SIZE;
     for (i = 0; i < FIL_MAX; i++)
         if (!fil_pool[i].obj.fs)
             break;
     if (i == FIL_MAX)
-        // This error is "Number of open files > FF_FS_LOCK"
-        // TODO Candidate for a new error
         return api_return_errno_ax(FR_TOO_MANY_OPEN_FILES, -1);
     FIL *fp = &fil_pool[i];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
-    return api_return_errno_ax(fresult, i);
+    if (fresult != FR_OK)
+        return api_return_errno_axsreg(fresult, -1);
+    return api_return_ax(i + FIL_OFFS);
 }
 
 static void api_lseek()
 {
-    unsigned fd = API_AX;
-    size_t ofs_ptr = vstack_ptr;
-    vstack_ptr = VSTACK_SIZE;
-    if (fd >= FIL_MAX || ofs_ptr != VSTACK_SIZE - 4)
+    unsigned fd = API_A;
+    uint64_t ofs = api_sstack_uint64();
+    if (vstack_ptr != VSTACK_SIZE || fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    uint32_t ofs = *(uint32_t *)&vstack[ofs_ptr];
-    FIL *fp = &fil_pool[fd];
+    FIL *fp = &fil_pool[fd - FIL_OFFS];
     FRESULT fresult = f_lseek(fp, ofs);
+    if (fresult != FR_OK)
+        return api_return_errno_axsreg(fresult, -1);
     FSIZE_t pos = f_tell(fp);
-    // TODO additional checks?
-    return api_return_errno_ax(fresult, pos);
+    if (pos > 0x0FFFFFFF)
+        pos = 0x0FFFFFFF;
+    return api_return_axsreg(pos);
 }
 
 static void api_read(uint8_t *buf)
@@ -179,10 +208,10 @@ static void api_read(uint8_t *buf)
     unsigned fd = API_AX;
     size_t count_ptr = vstack_ptr;
     vstack_ptr = VSTACK_SIZE;
-    if (fd >= FIL_MAX || count_ptr != VSTACK_SIZE - 2)
+    if (fd >= FIL_MAX + FIL_OFFS || count_ptr != VSTACK_SIZE - 2)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     uint16_t count = *(uint16_t *)&vstack[count_ptr];
-    FIL *fp = &fil_pool[fd];
+    FIL *fp = &fil_pool[fd - FIL_OFFS];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
     api_sync_vram();
@@ -194,10 +223,10 @@ static void api_write(uint8_t *buf)
     unsigned fd = API_AX;
     size_t count_ptr = vstack_ptr;
     vstack_ptr = VSTACK_SIZE;
-    if (fd >= FIL_MAX || count_ptr != VSTACK_SIZE - 2)
+    if (fd >= FIL_MAX + FIL_OFFS || count_ptr != VSTACK_SIZE - 2)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     uint16_t count = *(uint16_t *)&vstack[count_ptr];
-    FIL *fp = &fil_pool[fd];
+    FIL *fp = &fil_pool[fd - FIL_OFFS];
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
     return api_return_errno_ax(fresult, bw);
@@ -206,7 +235,7 @@ static void api_write(uint8_t *buf)
 static void api_close()
 {
     unsigned fd = API_AX;
-    FIL *fp = &fil_pool[fd];
+    FIL *fp = &fil_pool[fd - FIL_OFFS];
     FRESULT fresult = f_close(fp);
     return api_return_errno_ax(fresult, fresult == FR_OK ? 0 : -1);
 }
