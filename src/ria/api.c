@@ -13,7 +13,9 @@
 
 #define FIL_MAX 16
 FIL fil_pool[FIL_MAX];
-// 0,1,2 reserved for STDIN, STDOUT, STDERR
+#define FIL_STDIN 0
+#define FIL_STDOUT 1
+#define FIL_STDERR 2
 #define FIL_OFFS 3
 static_assert(FIL_MAX + FIL_OFFS < 128);
 
@@ -239,7 +241,7 @@ static void api_read(uint8_t *buf)
 static void api_write(uint8_t *buf)
 {
     int fd = API_A;
-    // TODO support fd==1,2 as STDIN
+    // TODO support fd==1,2 as STDOUT
     uint16_t count;
     if (buf)
         count = api_sstack_uint16();
@@ -259,11 +261,33 @@ static void api_write(uint8_t *buf)
 
 static void api_lseek()
 {
+    // These are identical to unistd.h but we don't want to depend on that.
+    const unsigned SET = 0x00;
+    const unsigned CUR = 0x01;
+    const unsigned END = 0x02;
     int fd = API_A;
-    uint64_t ofs = api_sstack_uint64();
-    if (vstack_ptr != VSTACK_SIZE || fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+    if (vstack_ptr < VSTACK_SIZE - 9 || vstack_ptr > VSTACK_SIZE - 1 ||
+        fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
         return api_return_errno_axsreg_zvstack(FR_INVALID_PARAMETER, -1);
+    unsigned whence = vstack[vstack_ptr++];
+    int64_t ofs = api_sstack_int64();
     FIL *fp = &fil_pool[fd - FIL_OFFS];
+    switch (whence)
+    {
+    case SET:
+        (void)(SET);
+        break;
+    case CUR:
+        (void)(CUR);
+        ofs += f_tell(fp);
+        break;
+    case END:
+        (void)(END);
+        ofs += f_size(fp);
+        break;
+    }
+    if (ofs < 0 || whence > END)
+        return api_return_errno_axsreg_zvstack(FR_INVALID_PARAMETER, -1);
     FRESULT fresult = f_lseek(fp, ofs);
     if (fresult != FR_OK)
         return api_return_errno_axsreg(fresult, -1);
