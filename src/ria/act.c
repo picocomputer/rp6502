@@ -278,12 +278,13 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
                     api_return_blocked();
-                    if (!data)
+                    if (data == 0x00) // zvreset()
                     {
                         vstack_ptr = VSTACK_SIZE;
                         API_STACK = vstack[vstack_ptr];
+                        api_return_ax(0);
                     }
-                    else if ((data & 0x7F) == 0x7F)
+                    else if (data == 0xFF) // exit()
                         ria_exit();
                     break;
                 case CASE_WRITE(0xFFEC): // vstack

@@ -156,7 +156,6 @@ static void api_open(uint8_t *path)
 
     uint8_t flags = API_A;
     uint8_t mode = flags & RDWR; // RDWR are same bits
-    assert((FA_READ | FA_WRITE) == RDWR);
 
     if (flags & CREAT)
     {
@@ -172,72 +171,106 @@ static void api_open(uint8_t *path)
                 mode |= FA_OPEN_ALWAYS;
         }
     }
-
-    int i;
-    vstack_ptr = VSTACK_SIZE;
-    for (i = 0; i < FIL_MAX; i++)
-        if (!fil_pool[i].obj.fs)
+    if (!path)
+    {
+        path = &vstack[vstack_ptr];
+        vstack_ptr = VSTACK_SIZE;
+    }
+    int fd;
+    for (fd = 0; fd < FIL_MAX; fd++)
+        if (!fil_pool[fd].obj.fs)
             break;
-    if (i == FIL_MAX)
+    if (fd == FIL_MAX)
         return api_return_errno_ax(FR_TOO_MANY_OPEN_FILES, -1);
-    FIL *fp = &fil_pool[i];
+    FIL *fp = &fil_pool[fd];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
     if (fresult != FR_OK)
-        return api_return_errno_axsreg(fresult, -1);
-    return api_return_ax(i + FIL_OFFS);
+        return api_return_errno_ax(fresult, -1);
+    return api_return_ax(fd + FIL_OFFS);
 }
 
-static void api_lseek()
+static void api_close()
 {
-    unsigned fd = API_A;
-    uint64_t ofs = api_sstack_uint64();
-    if (vstack_ptr != VSTACK_SIZE || fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+    int fd = API_A;
+    if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
     FIL *fp = &fil_pool[fd - FIL_OFFS];
-    FRESULT fresult = f_lseek(fp, ofs);
+    FRESULT fresult = f_close(fp);
     if (fresult != FR_OK)
-        return api_return_errno_axsreg(fresult, -1);
-    FSIZE_t pos = f_tell(fp);
-    if (pos > 0x0FFFFFFF)
-        pos = 0x0FFFFFFF;
-    return api_return_axsreg(pos);
+        return api_return_errno_ax(fresult, -1);
+    return api_return_ax(0);
 }
 
 static void api_read(uint8_t *buf)
 {
-    unsigned fd = API_AX;
-    size_t count_ptr = vstack_ptr;
-    vstack_ptr = VSTACK_SIZE;
-    if (fd >= FIL_MAX + FIL_OFFS || count_ptr != VSTACK_SIZE - 2)
-        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    uint16_t count = *(uint16_t *)&vstack[count_ptr];
+    int fd = API_A;
+    // TODO support fd==0 as STDIN
+    uint16_t count = api_sstack_uint16();
+    if (vstack_ptr != VSTACK_SIZE ||
+        fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS ||
+        count > 0x7FFF ||
+        (!buf && count > 256))
+        return api_return_errno_ax_zvstack(FR_INVALID_PARAMETER, -1);
+    bool is_vstack = false;
+    if (!buf)
+    {
+        is_vstack = true;
+        buf = vstack;
+    }
     FIL *fp = &fil_pool[fd - FIL_OFFS];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
-    api_sync_vram();
-    return api_return_errno_ax(fresult, br);
+    if (is_vstack)
+    {
+        if (br == 256) // 256 is already in-place
+            vstack_ptr = 0;
+        else
+            for (UINT i = br; i;)
+                vstack[--vstack_ptr] = vstack[--i];
+        api_sync_vstack();
+    }
+    else
+        api_sync_vram();
+    if (fresult != FR_OK)
+        return api_return_errno_ax(fresult, -1);
+    return api_return_ax(br);
 }
 
 static void api_write(uint8_t *buf)
 {
-    unsigned fd = API_AX;
-    size_t count_ptr = vstack_ptr;
-    vstack_ptr = VSTACK_SIZE;
-    if (fd >= FIL_MAX + FIL_OFFS || count_ptr != VSTACK_SIZE - 2)
+    int fd = API_A;
+    // TODO support fd==1,2 as STDIN
+    uint16_t count;
+    if (buf)
+        count = api_sstack_uint16();
+    else
+    {
+        count = VSTACK_SIZE - vstack_ptr;
+        buf = &vstack[vstack_ptr];
+        vstack_ptr = VSTACK_SIZE;
+    }
+    if (count > 0x7FFF || fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    uint16_t count = *(uint16_t *)&vstack[count_ptr];
     FIL *fp = &fil_pool[fd - FIL_OFFS];
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
     return api_return_errno_ax(fresult, bw);
 }
 
-static void api_close()
+static void api_lseek()
 {
-    unsigned fd = API_AX;
+    int fd = API_A;
+    uint64_t ofs = api_sstack_uint64();
+    if (vstack_ptr != VSTACK_SIZE || fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+        return api_return_errno_axsreg_zvstack(FR_INVALID_PARAMETER, -1);
     FIL *fp = &fil_pool[fd - FIL_OFFS];
-    FRESULT fresult = f_close(fp);
-    return api_return_errno_ax(fresult, fresult == FR_OK ? 0 : -1);
+    FRESULT fresult = f_lseek(fp, ofs);
+    if (fresult != FR_OK)
+        return api_return_errno_axsreg(fresult, -1);
+    FSIZE_t pos = f_tell(fp);
+    if (pos > 0x7FFFFFFF)
+        pos = 0x7FFFFFFF;
+    return api_return_axsreg(pos);
 }
 
 static void api_set_vreg()
@@ -260,7 +293,7 @@ void api_task()
             // action loop handles these
             break;
         case 0x01:
-            api_open(&vstack[vstack_ptr]);
+            api_open(0);
             break;
         case 0x02:
             api_open(&vram[vram_ptr0]);
@@ -272,18 +305,24 @@ void api_task()
             api_close();
             break;
         case 0x05:
-            api_read(&vram[vram_ptr0]);
+            api_read(0);
             break;
         case 0x06:
-            api_read(&vram[vram_ptr1]);
+            api_read(&vram[vram_ptr0]);
             break;
         case 0x07:
-            api_write(&vram[vram_ptr0]);
+            api_read(&vram[vram_ptr1]);
             break;
         case 0x08:
-            api_write(&vram[vram_ptr1]);
+            api_write(0);
             break;
         case 0x09:
+            api_write(&vram[vram_ptr0]);
+            break;
+        case 0x0A:
+            api_write(&vram[vram_ptr1]);
+            break;
+        case 0x0B:
             api_lseek();
             break;
         case 0x10:
@@ -309,5 +348,10 @@ void api_reset()
 {
     for (int i = 0; i < 16; i++)
         REGS(i) = 0;
+    VRAM_STEP0 = 1;
+    VRAM_STEP1 = 1;
     vstack_ptr = VSTACK_SIZE;
+    // TODO this doesn't work here and isn't very important,
+    //       but it'd be nice to have $FFF0-$FFFA initialized for programs.
+    // api_return_errno_axsreg_zvstack(0, 0);
 }

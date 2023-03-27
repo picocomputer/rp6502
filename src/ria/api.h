@@ -84,9 +84,19 @@ static inline void api_return_errno_ax(uint16_t errno, uint16_t val)
     API_ERRNO = errno;
     api_return_ax(val);
 }
+static inline void api_return_errno_ax_zvstack(uint16_t errno, uint16_t val)
+{
+    vstack_ptr = VSTACK_SIZE;
+    api_return_errno_ax(errno, val);
+}
 static inline void api_return_errno_axsreg(uint16_t errno, uint32_t val)
 {
     API_ERRNO = errno;
     api_return_axsreg(val);
+}
+static inline void api_return_errno_axsreg_zvstack(uint16_t errno, uint32_t val)
+{
+    vstack_ptr = VSTACK_SIZE;
+    api_return_errno_axsreg(errno, val);
 }
 #endif /* _API_H_ */
