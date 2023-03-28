@@ -147,7 +147,7 @@ int64_t api_sstack_int64()
     return api_sstack_int32();
 }
 
-static void api_open(uint8_t *path)
+static void api_open(void)
 {
     // These match CC65 which is closer to POSIX than FatFs.
     const unsigned char RDWR = 0x03;
@@ -158,7 +158,6 @@ static void api_open(uint8_t *path)
 
     uint8_t flags = API_A;
     uint8_t mode = flags & RDWR; // RDWR are same bits
-
     if (flags & CREAT)
     {
         if (flags & EXCL)
@@ -173,13 +172,10 @@ static void api_open(uint8_t *path)
                 mode |= FA_OPEN_ALWAYS;
         }
     }
-    if (!path)
-    {
-        path = &vstack[vstack_ptr];
-        vstack_ptr = VSTACK_SIZE;
-    }
-    int fd;
-    for (fd = 0; fd < FIL_MAX; fd++)
+    uint8_t *path = &vstack[vstack_ptr];
+    vstack_ptr = VSTACK_SIZE;
+    int fd = 0;
+    for (; fd < FIL_MAX; fd++)
         if (!fil_pool[fd].obj.fs)
             break;
     if (fd == FIL_MAX)
@@ -191,7 +187,7 @@ static void api_open(uint8_t *path)
     return api_return_ax(fd + FIL_OFFS);
 }
 
-static void api_close()
+static void api_close(void)
 {
     int fd = API_A;
     if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
@@ -203,48 +199,69 @@ static void api_close()
     return api_return_ax(0);
 }
 
-static void api_read(uint8_t *buf)
+static void api_read(bool is_vram)
 {
     int fd = API_A;
+    uint8_t *buf;
+    UINT count;
     // TODO support fd==0 as STDIN
-    uint16_t count = api_sstack_uint16();
-    if (vstack_ptr != VSTACK_SIZE ||
-        fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS ||
-        count > 0x7FFF ||
-        (!buf && count > 256))
-        return api_return_errno_ax_zvstack(FR_INVALID_PARAMETER, -1);
-    bool is_vstack = false;
-    if (!buf)
+    if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+        goto err_param;
+    if (is_vram)
     {
-        is_vstack = true;
-        buf = vstack;
+        if (VSTACK_SIZE - vstack_ptr < 2)
+            goto err_param;
+        buf = &vram[*(uint16_t *)&vstack[vstack_ptr]];
+        vstack_ptr += 2;
+        count = api_sstack_uint16();
+        if (buf + count > vstack + 0x10000)
+            goto err_param;
     }
+    else
+    {
+        count = api_sstack_uint16();
+        if (count > 0x100)
+            goto err_param;
+        buf = &vstack[VSTACK_SIZE - count];
+    }
+    if (vstack_ptr != VSTACK_SIZE)
+        goto err_param;
+    if (count > 0x7FFF)
+        count = 0x7FFF;
     FIL *fp = &fil_pool[fd - FIL_OFFS];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
-    if (is_vstack)
+    if (is_vram)
+        api_sync_vram();
+    else
     {
-        if (br == 256) // 256 is already in-place
-            vstack_ptr = 0;
-        else
+        if (br == count)
+            vstack_ptr = VSTACK_SIZE - count;
+        else // short reads need to be moved
             for (UINT i = br; i;)
-                vstack[--vstack_ptr] = vstack[--i];
+                vstack[--vstack_ptr] = buf[--i];
         api_sync_vstack();
     }
-    else
-        api_sync_vram();
     if (fresult != FR_OK)
         return api_return_errno_ax(fresult, -1);
     return api_return_ax(br);
+
+err_param:
+    vstack_ptr = VSTACK_SIZE;
+    api_return_errno_axsreg_zvstack(FR_INVALID_PARAMETER, -1);
 }
 
-static void api_write(uint8_t *buf)
+static void api_write(bool is_vram)
 {
     int fd = API_A;
-    // TODO support fd==1,2 as STDOUT
+    uint8_t *buf;
     uint16_t count;
-    if (buf)
+    // TODO support fd==1,2 as STDOUT
+    if (is_vram)
+    {
+        assert(0); // TODO
         count = api_sstack_uint16();
+    }
     else
     {
         count = VSTACK_SIZE - vstack_ptr;
@@ -259,7 +276,7 @@ static void api_write(uint8_t *buf)
     return api_return_errno_ax(fresult, bw);
 }
 
-static void api_lseek()
+static void api_lseek(void)
 {
     // These are identical to unistd.h but we don't want to depend on that.
     const unsigned SET = 0x00;
@@ -292,6 +309,8 @@ static void api_lseek()
     if (fresult != FR_OK)
         return api_return_errno_axsreg(fresult, -1);
     FSIZE_t pos = f_tell(fp);
+    // Anyone seeking around a file beyond
+    // this size will have to do so blind.
     if (pos > 0x7FFFFFFF)
         pos = 0x7FFFFFFF;
     return api_return_axsreg(pos);
@@ -317,13 +336,7 @@ void api_task()
             // action loop handles these
             break;
         case 0x01:
-            api_open(0);
-            break;
-        case 0x02:
-            api_open(&vram[vram_ptr0]);
-            break;
-        case 0x03:
-            api_open(&vram[vram_ptr1]);
+            api_open();
             break;
         case 0x04:
             api_close();
@@ -332,19 +345,13 @@ void api_task()
             api_read(0);
             break;
         case 0x06:
-            api_read(&vram[vram_ptr0]);
-            break;
-        case 0x07:
-            api_read(&vram[vram_ptr1]);
+            api_read(1);
             break;
         case 0x08:
             api_write(0);
             break;
         case 0x09:
-            api_write(&vram[vram_ptr0]);
-            break;
-        case 0x0A:
-            api_write(&vram[vram_ptr1]);
+            api_write(1);
             break;
         case 0x0B:
             api_lseek();

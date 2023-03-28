@@ -299,12 +299,10 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFEB): // Set VRAM >ADDR1
                     REGS(0xFFEB) = data;
-                    vram_ptr1 = VRAM_ADDR1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
                 case CASE_WRITE(0xFFEA): // Set VRAM <ADDR1
                     REGS(0xFFEA) = data;
-                    vram_ptr1 = VRAM_ADDR1;
                     VRAM_RW1 = vram[VRAM_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE8): // W VRAM1
@@ -317,12 +315,10 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE7): // Set VRAM >ADDR0
                     REGS(0xFFE7) = data;
-                    vram_ptr0 = VRAM_ADDR0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE6): // Set VRAM <ADDR0
                     REGS(0xFFE6) = data;
-                    vram_ptr0 = VRAM_ADDR0;
                     VRAM_RW0 = vram[VRAM_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE4): // W VRAM0

@@ -18,9 +18,6 @@
 #define VRAM_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define VRAM_ADDR1 REGSW(0xFFEA)
 
-extern volatile uint16_t vram_ptr0;
-extern volatile uint16_t vram_ptr1;
-
 // 64KB Virtual RAM
 #ifdef NDEBUG
 extern uint8_t vram[0x10000];
