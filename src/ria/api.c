@@ -201,9 +201,9 @@ static void api_close(void)
 
 static void api_read(bool is_vram)
 {
-    int fd = API_A;
     uint8_t *buf;
     UINT count;
+    int fd = API_A;
     // TODO support fd==0 as STDIN
     if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
         goto err_param;
@@ -253,14 +253,21 @@ err_param:
 
 static void api_write(bool is_vram)
 {
-    int fd = API_A;
     uint8_t *buf;
     uint16_t count;
+    int fd = API_A;
     // TODO support fd==1,2 as STDOUT
+    if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+        goto err_param;
     if (is_vram)
     {
-        assert(0); // TODO
+        if (VSTACK_SIZE - vstack_ptr < 2)
+            goto err_param;
+        buf = &vram[*(uint16_t *)&vstack[vstack_ptr]];
+        vstack_ptr += 2;
         count = api_sstack_uint16();
+        if (buf + count > vstack + 0x10000)
+            goto err_param;
     }
     else
     {
@@ -268,12 +275,20 @@ static void api_write(bool is_vram)
         buf = &vstack[vstack_ptr];
         vstack_ptr = VSTACK_SIZE;
     }
-    if (count > 0x7FFF || fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
-        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
+    if (vstack_ptr != VSTACK_SIZE)
+        goto err_param;
+    if (count > 0x7FFF)
+        count = 0x7FFF;
     FIL *fp = &fil_pool[fd - FIL_OFFS];
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
-    return api_return_errno_ax(fresult, bw);
+    if (fresult != FR_OK)
+        return api_return_errno_ax(fresult, -1);
+    return api_return_ax(bw);
+
+err_param:
+    vstack_ptr = VSTACK_SIZE;
+    api_return_errno_axsreg_zvstack(FR_INVALID_PARAMETER, -1);
 }
 
 static void api_lseek(void)
