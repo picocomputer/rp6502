@@ -8,6 +8,7 @@ STA $FFE1  ; UART Tx A
 INX        ; X = X + 1
 CMP #$00   ; if A - 0 ...
 BNE loop   ; ... != 0 goto loop
+LDA #$FF   ; A = 255, OS exit()
 STA $FFEF  ; Halt 6502
 text:
 .BYTE "Hello, World!"

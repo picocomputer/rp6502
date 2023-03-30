@@ -18,11 +18,11 @@ class Monitor:
         self.serial.send_break(duration)
         self.wait_for_prompt(']')
 
-    def command(self, str):
+    def command(self, str, timeout=DEFAULT_TIMEOUT):
         ''' Send one command and wait for next monitor prompt '''
         self.serial.write(bytes(str, 'utf-8'))
         self.serial.write(b'\r')
-        self.wait_for_prompt(']')
+        self.wait_for_prompt(']', timeout)
 
     def reset(self):
         ''' Start the 6502. '''
