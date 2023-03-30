@@ -31,10 +31,12 @@ void pix_init()
     sm_config_set_in_shift(&regs_config, false, false, 0);
     sm_config_set_out_shift(&regs_config, true, false, 4);
     pio_sm_init(VGA_PIX_PIO, VGA_PIX_REGS_SM, offset, &regs_config);
-    pio_sm_put(VGA_PIX_PIO, VGA_PIX_REGS_SM, 0x0); // channel 0
+    pio_sm_put(VGA_PIX_PIO, VGA_PIX_REGS_SM, 0x1); // channel 1
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_out(pio_null, 32));
+    sm_config_set_fifo_join (&regs_config, PIO_FIFO_JOIN_RX);
+    pio_sm_init(VGA_PIX_PIO, VGA_PIX_REGS_SM, offset, &regs_config);
     pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_REGS_SM, true);
 
     // PIO to receive VRAM
@@ -43,10 +45,12 @@ void pix_init()
     sm_config_set_in_shift(&vram_config, false, false, 0);
     sm_config_set_out_shift(&vram_config, true, false, 4);
     pio_sm_init(VGA_PIX_PIO, VGA_PIX_VRAM_SM, offset, &vram_config);
-    pio_sm_put(VGA_PIX_PIO, VGA_PIX_VRAM_SM, 0x1); // channel 1
+    pio_sm_put(VGA_PIX_PIO, VGA_PIX_VRAM_SM, 0x0); // channel 0
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_VRAM_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_VRAM_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_VRAM_SM, pio_encode_out(pio_null, 32));
+    sm_config_set_fifo_join (&vram_config, PIO_FIFO_JOIN_RX);
+    pio_sm_init(VGA_PIX_PIO, VGA_PIX_VRAM_SM, offset, &regs_config);
     pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_VRAM_SM, true);
 
     // Need all channels now to configure chaining
@@ -55,7 +59,7 @@ void pix_init()
     int data_chan = dma_claim_unused_channel(true);
     int fifo_chan = dma_claim_unused_channel(true);
 
-    // DMA move the requested memory data to PIO for output
+    // DMA move the VRAM address to low bytes of a pointer.
     dma_channel_config copy_dma = dma_channel_get_default_config(copy_chan);
     channel_config_set_high_priority(&copy_dma, true);
     channel_config_set_transfer_data_size(&copy_dma, DMA_SIZE_16);
@@ -69,7 +73,7 @@ void pix_init()
         1,
         false);
 
-    // DMA move the requested memory data to PIO for output
+    // DMA move the constructed pointer to the next DMA source
     dma_channel_config addr_dma = dma_channel_get_default_config(addr_chan);
     channel_config_set_high_priority(&addr_dma, true);
     channel_config_set_read_increment(&addr_dma, false);
@@ -82,7 +86,7 @@ void pix_init()
         1,
         false);
 
-    // DMA move the requested memory data to PIO for output
+    // DMA move the VRAM data to its new home
     dma_channel_config data_dma = dma_channel_get_default_config(data_chan);
     channel_config_set_high_priority(&data_dma, true);
     channel_config_set_read_increment(&data_dma, false);
@@ -96,7 +100,7 @@ void pix_init()
         1,
         false);
 
-    // DMA move address from PIO into the data DMA config
+    // DMA move raw received data into RAM
     dma_channel_config fifo_dma = dma_channel_get_default_config(fifo_chan);
     channel_config_set_high_priority(&fifo_dma, true);
     channel_config_set_dreq(&fifo_dma, pio_get_dreq(VGA_PIX_PIO, VGA_PIX_VRAM_SM, false));
@@ -115,7 +119,7 @@ static void pix_video_mode(uint16_t mode)
 {
     if (mode)
     {
-        vga_display(vga_sxga);
+        // vga_display(vga_sxga);
         vga_resolution(vga_320_180);
         vga_terminal(false);
     }
@@ -133,18 +137,18 @@ void pix_task()
         uint16_t data = raw;
         // 0-0xFF reachable from api_set_vreg
         // 0x100-0xFFF for internal RIA-to-VGA
-        uint16_t command = (raw & 0xFFF0000) >> 16;
-        switch (command)
+        uint16_t vreg = (raw & 0xFFF0000) >> 16;
+        switch (vreg)
         {
         case 0x000:
             pix_video_mode(data);
             break;
-        case 0x0FF:
-            printf("VRAM $%04X $%02X\n", data, vram[data]);
+        case 0xFFF:
+            vga_terminal(true);
             break;
         default:
 #ifndef NDEBUG
-            printf("VREG: $%02X $%04X\n", command, data);
+            printf("VREG: $%03X $%04X\n", vreg, data);
 #endif
             break;
         }

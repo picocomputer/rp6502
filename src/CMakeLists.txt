@@ -45,6 +45,7 @@ target_compile_options(rp6502_ria PRIVATE
 target_link_libraries(rp6502_ria PRIVATE
     pico_stdlib
     pico_multicore
+    pico_rand
     hardware_pio
     hardware_dma
     hardware_flash
@@ -73,6 +74,7 @@ target_sources(rp6502_ria PRIVATE
     mon/mon.c
     mon/rom.c
     mon/str.c
+    mon/vip.c
     ria/act.c
     ria/api.c
     ria/main.c

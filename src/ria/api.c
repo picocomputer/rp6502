@@ -337,7 +337,7 @@ static void api_set_vreg()
     uint16_t data = api_sstack_uint16();
     if (vstack_ptr != VSTACK_SIZE)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    RIA_PIX_PIO->txf[RIA_PIX_SM] = (regno << 16) | data | RIA_PIX_REGS;
+    RIA_PIX_PIO->txf[RIA_PIX_SM] = (regno << 16) | data | RIA_PIX_VREG(1);
     return api_return_ax(0);
 }
 
@@ -384,7 +384,13 @@ void api_task()
 
 void api_stop()
 {
-    RIA_PIX_PIO->txf[RIA_PIX_SM] = 0 | 0 | RIA_PIX_REGS;
+    for (unsigned i = 1; i < 7; i++)
+    {
+        while (!ria_pix_ready())
+            ;
+        // TODO send global config bits.
+        ria_pix_send(i, 0xFFF, 0);
+    }
     for (int i = 0; i < FIL_MAX; i++)
         if (fil_pool[i].obj.fs)
             f_close(&fil_pool[i]);

@@ -165,6 +165,7 @@ void ria_pix_pio_init()
     pio_sm_config config = ria_pix_program_get_default_config(offset);
     sm_config_set_out_pins(&config, 0, 4);
     sm_config_set_out_shift(&config, false, false, 32);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
     for (int i = 0; i < 4; i++)
         pio_gpio_init(RIA_PIX_PIO, i);
     pio_sm_set_consecutive_pindirs(RIA_PIX_PIO, RIA_PIX_SM, 0, 4, true);
@@ -292,4 +293,19 @@ void ria_task()
     // Stopping event
     if (ria_state == ria_state_exit)
         ria_stop();
+}
+
+bool ria_pix_ready()
+{
+    // PIX TX FIFO is joined to be 8 deep.
+    // Need space for the one the caller is about to push
+    // and any that might arrive from the action loop.
+    // TODO The threshold could probably be "<7", need test.
+    return pio_sm_get_tx_fifo_level(RIA_PIX_PIO, RIA_PIX_SM) < 6;
+}
+
+void ria_pix_send(uint8_t channel, uint16_t vreg, uint16_t value)
+{
+    uint32_t data = RIA_PIX_VREG(channel) | ((vreg & 0x0FFF) << 16) | value;
+    pio_sm_put(RIA_PIX_PIO, RIA_PIX_SM, data);
 }
