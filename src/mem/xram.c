@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "vram.h"
+#include "xram.h"
 
 #ifdef NDEBUG
-uint8_t vram[0x10000]
+uint8_t xram[0x10000]
     __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.vram")));
+    __attribute__((section(".uninitialized_data.xram")));
 #else
 struct Vram
 {
@@ -31,8 +31,8 @@ struct Vram
     uint8_t _F[0x1000];
     // this struct of 4KB segments is because
     // a single 64KB array crashes my debugger
-} vram_blocks
+} xram_blocks
     __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.vram")));
-uint8_t *const vram = (uint8_t *)&vram_blocks;
+    __attribute__((section(".uninitialized_data.xram")));
+uint8_t *const xram = (uint8_t *)&xram_blocks;
 #endif

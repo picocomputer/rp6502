@@ -8,8 +8,8 @@
 #define _API_H_
 
 #include "mem/regs.h"
-#include "mem/vram.h"
-#include "mem/vstack.h"
+#include "mem/xram.h"
+#include "mem/xstack.h"
 #include <stdint.h>
 
 #define API_OP REGS(0xFFEF)
@@ -31,13 +31,13 @@ void api_reset();
 // 2. Stack was pushed "in order". Like any top-down stack.
 // 3. Second-to-last parameter may support a "short stack".
 //    e.g. a uint16 is sent for fseek instead of a uint64.
-// 4. Be careful with the stack. Especially returning vstack_ptr.
-// 5. Registers must be refreshed if vram or vstack data changes.
+// 4. Be careful with the stack. Especially returning xstack_ptr.
+// 5. Registers must be refreshed if xram or xstack data changes.
 // 6. Use the return functions always!
 
 // Helpers for a "short" stack.
 // The smaller ones contribute a tiny bit of validation.
-// success = (vstack_ptr == VSTACK_SIZE)
+// success = (xstack_ptr == XSTACK_SIZE)
 uint16_t api_sstack_uint16();
 uint32_t api_sstack_uint32();
 uint64_t api_sstack_uint64();
@@ -45,16 +45,16 @@ int16_t api_sstack_int16();
 int32_t api_sstack_int32();
 int64_t api_sstack_int64();
 
-// Returning data on VRAM or VSTACK requires
+// Returning data on XRAM or XSTACK requires
 // ensuring the REGS have fresh data.
-static inline void api_sync_vram()
+static inline void api_sync_xram()
 {
-    VRAM_RW0 = vram[VRAM_ADDR0];
-    VRAM_RW1 = vram[VRAM_ADDR1];
+    XRAM_RW0 = xram[XRAM_ADDR0];
+    XRAM_RW1 = xram[XRAM_ADDR1];
 }
-static inline void api_sync_vstack()
+static inline void api_sync_xstack()
 {
-    API_STACK = vstack[vstack_ptr];
+    API_STACK = xstack[xstack_ptr];
 }
 
 // Return works by manipulating 10 bytes of registers.
@@ -84,9 +84,9 @@ static inline void api_return_errno_ax(uint16_t errno, uint16_t val)
     API_ERRNO = errno;
     api_return_ax(val);
 }
-static inline void api_return_errno_ax_zvstack(uint16_t errno, uint16_t val)
+static inline void api_return_errno_ax_zxstack(uint16_t errno, uint16_t val)
 {
-    vstack_ptr = VSTACK_SIZE;
+    xstack_ptr = XSTACK_SIZE;
     api_return_errno_ax(errno, val);
 }
 static inline void api_return_errno_axsreg(uint16_t errno, uint32_t val)
@@ -94,9 +94,9 @@ static inline void api_return_errno_axsreg(uint16_t errno, uint32_t val)
     API_ERRNO = errno;
     api_return_axsreg(val);
 }
-static inline void api_return_errno_axsreg_zvstack(uint16_t errno, uint32_t val)
+static inline void api_return_errno_axsreg_zxstack(uint16_t errno, uint32_t val)
 {
-    vstack_ptr = VSTACK_SIZE;
+    xstack_ptr = XSTACK_SIZE;
     api_return_errno_axsreg(errno, val);
 }
 #endif /* _API_H_ */

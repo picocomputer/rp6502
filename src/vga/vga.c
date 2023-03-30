@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mem/vram.h"
+#include "mem/xram.h"
 #include "vga.h"
 #include "term.h"
 #include "string.h"
@@ -320,11 +320,11 @@ void vga_render_mono_haxscii(scanvideo_scanline_buffer_t *dest)
         0x0D88 | (0x0D88 << 16)};
 
     int line = scanvideo_scanline_number(dest->scanline_id);
-    const uint8_t *font_base = &vram[0x1000] + (line & 7);
+    const uint8_t *font_base = &xram[0x1000] + (line & 7);
 
     int columns = vga_mode_current->width / 8;
 
-    uint8_t *term_ptr = vram + columns * (line / 8);
+    uint8_t *term_ptr = xram + columns * (line / 8);
     uint32_t *buf = dest->data;
     for (int i = 0; i < columns; i++)
     {
@@ -386,7 +386,7 @@ static void vga_render_4bpp(struct scanvideo_scanline_buffer *dest)
         PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 255),
     };
     int line = scanvideo_scanline_number(dest->scanline_id);
-    uint8_t *data = vram + line * 160;
+    uint8_t *data = xram + line * 160;
     uint16_t *pbuf = (void *)dest->data;
     for (int i = 0; i < 160;)
     {
@@ -607,25 +607,25 @@ void vga_task()
 void vga_memory_init()
 {
     // Thought provoking scaffolding
-    strcpy(&vram[45], "**** PICOCOMPUTER 6502 V1 ****");
-    strcpy(&vram[121], "64K RAM SYSTEM  53248 BASIC BYTES FREE");
-    strcpy(&vram[200], "READY");
-    vram[240] = 32 + 128;
+    strcpy(&xram[45], "**** PICOCOMPUTER 6502 V1 ****");
+    strcpy(&xram[121], "64K RAM SYSTEM  53248 BASIC BYTES FREE");
+    strcpy(&xram[200], "READY");
+    xram[240] = 32 + 128;
     // Rotate font as we copy it into video memory
     for (int i = 0; i < 1024; i += 8)
         for (int x = 0; x < 8; x++)
             for (int y = 0; y < 8; y++)
-                vram[0x1000 + i + y] =
-                    (vram[0x1000 + i + y] << 1) | ((haxscii[i + x] & (0x01 << y)) >> y);
+                xram[0x1000 + i + y] =
+                    (xram[0x1000 + i + y] << 1) | ((haxscii[i + x] & (0x01 << y)) >> y);
     // PETSCII 128-255 are inverse
     for (int i = 0; i < 1024; i += 1)
-        vram[0x1400 + i] = ~vram[0x1000 + i];
+        xram[0x1400 + i] = ~xram[0x1000 + i];
 }
 
 void vga_init()
 {
     // safety check for compiler alignment
-    assert(!((uintptr_t)vram & 0xFFFF));
+    assert(!((uintptr_t)xram & 0xFFFF));
 
     vga_memory_init();
     mutex_init(&vga_mutex);

@@ -65,8 +65,8 @@ target_sources(rp6502_ria PRIVATE
     dev/lfs.c
     dev/msc.c
     mem/mbuf.c
-    mem/vram.c
-    mem/vstack.c
+    mem/xram.c
+    mem/xstack.c
     mon/cfg.c
     mon/cmd.c
     mon/fil.c
@@ -100,7 +100,7 @@ target_include_directories(rp6502_vga PRIVATE
 )
 
 target_sources(rp6502_vga PRIVATE
-    mem/vram.c
+    mem/xram.c
     vga/main.c
     vga/pix.c
     vga/term.c

@@ -34,8 +34,8 @@
 #define RIA_PIX_SM 1
 
 // Bit 28 always 1, bits [31:29] for payload type
-#define RIA_PIX_VRAM 0x10000000u
-#define RIA_PIX_VREG(channel) ((channel << 29u) | 0x10000000u)
+#define RIA_PIX_XRAM 0x10000000u
+#define RIA_PIX_XREG(channel) ((channel << 29u) | 0x10000000u)
 #define RIA_PIX_IDLE 0xF0000000u
 
 void ria_init();
@@ -47,6 +47,6 @@ void ria_stop();
 void ria_reset();
 void ria_exit();
 bool ria_pix_ready();
-void ria_pix_send(uint8_t channel, uint16_t vreg, uint16_t value);
+void ria_pix_send(uint8_t channel, uint16_t xreg, uint16_t value);
 
 #endif /* _RIA_H_ */

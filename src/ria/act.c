@@ -11,8 +11,8 @@
 #include "ria.pio.h"
 #include "mem/regs.h"
 #include "mem/mbuf.h"
-#include "mem/vram.h"
-#include "mem/vstack.h"
+#include "mem/xram.h"
+#include "mem/xstack.h"
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include <stdio.h>
@@ -280,54 +280,54 @@ __attribute__((optimize("O1"))) void act_loop()
                     api_return_blocked();
                     if (data == 0x00) // zvreset()
                     {
-                        vstack_ptr = VSTACK_SIZE;
-                        API_STACK = vstack[vstack_ptr];
+                        xstack_ptr = XSTACK_SIZE;
+                        API_STACK = xstack[xstack_ptr];
                         api_return_ax(0);
                     }
                     else if (data == 0xFF) // exit()
                         ria_exit();
                     break;
-                case CASE_WRITE(0xFFEC): // vstack
-                    if (vstack_ptr)
-                        vstack[--vstack_ptr] = data;
-                    API_STACK = vstack[vstack_ptr];
+                case CASE_WRITE(0xFFEC): // xstack
+                    if (xstack_ptr)
+                        xstack[--xstack_ptr] = data;
+                    API_STACK = xstack[xstack_ptr];
                     break;
-                case CASE_READ(0xFFEC): // vstack
-                    if (vstack_ptr < VSTACK_SIZE)
-                        ++vstack_ptr;
-                    API_STACK = vstack[vstack_ptr];
+                case CASE_READ(0xFFEC): // xstack
+                    if (xstack_ptr < XSTACK_SIZE)
+                        ++xstack_ptr;
+                    API_STACK = xstack[xstack_ptr];
                     break;
-                case CASE_WRITE(0xFFEB): // Set VRAM >ADDR1
+                case CASE_WRITE(0xFFEB): // Set XRAM >ADDR1
                     REGS(0xFFEB) = data;
-                    VRAM_RW1 = vram[VRAM_ADDR1];
+                    XRAM_RW1 = xram[XRAM_ADDR1];
                     break;
-                case CASE_WRITE(0xFFEA): // Set VRAM <ADDR1
+                case CASE_WRITE(0xFFEA): // Set XRAM <ADDR1
                     REGS(0xFFEA) = data;
-                    VRAM_RW1 = vram[VRAM_ADDR1];
+                    XRAM_RW1 = xram[XRAM_ADDR1];
                     break;
-                case CASE_WRITE(0xFFE8): // W VRAM1
-                    vram[VRAM_ADDR1] = data;
-                    RIA_PIX_PIO->txf[RIA_PIX_SM] = VRAM_ADDR1 | (data << 16) | RIA_PIX_VRAM;
+                case CASE_WRITE(0xFFE8): // W XRAM1
+                    xram[XRAM_ADDR1] = data;
+                    RIA_PIX_PIO->txf[RIA_PIX_SM] = XRAM_ADDR1 | (data << 16) | RIA_PIX_XRAM;
                     __attribute__((fallthrough));
-                case CASE_READ(0xFFE8): // R VRAM1
-                    VRAM_ADDR1 += VRAM_STEP1;
-                    VRAM_RW1 = vram[VRAM_ADDR1];
+                case CASE_READ(0xFFE8): // R XRAM1
+                    XRAM_ADDR1 += XRAM_STEP1;
+                    XRAM_RW1 = xram[XRAM_ADDR1];
                     break;
-                case CASE_WRITE(0xFFE7): // Set VRAM >ADDR0
+                case CASE_WRITE(0xFFE7): // Set XRAM >ADDR0
                     REGS(0xFFE7) = data;
-                    VRAM_RW0 = vram[VRAM_ADDR0];
+                    XRAM_RW0 = xram[XRAM_ADDR0];
                     break;
-                case CASE_WRITE(0xFFE6): // Set VRAM <ADDR0
+                case CASE_WRITE(0xFFE6): // Set XRAM <ADDR0
                     REGS(0xFFE6) = data;
-                    VRAM_RW0 = vram[VRAM_ADDR0];
+                    XRAM_RW0 = xram[XRAM_ADDR0];
                     break;
-                case CASE_WRITE(0xFFE4): // W VRAM0
-                    vram[VRAM_ADDR0] = data;
-                    RIA_PIX_PIO->txf[RIA_PIX_SM] = VRAM_ADDR0 | (data << 16) | RIA_PIX_VRAM;
+                case CASE_WRITE(0xFFE4): // W XRAM0
+                    xram[XRAM_ADDR0] = data;
+                    RIA_PIX_PIO->txf[RIA_PIX_SM] = XRAM_ADDR0 | (data << 16) | RIA_PIX_XRAM;
                     __attribute__((fallthrough));
-                case CASE_READ(0xFFE4): // R VRAM0
-                    VRAM_ADDR0 += VRAM_STEP0;
-                    VRAM_RW0 = vram[VRAM_ADDR0];
+                case CASE_READ(0xFFE4): // R XRAM0
+                    XRAM_ADDR0 += XRAM_STEP0;
+                    XRAM_RW0 = xram[XRAM_ADDR0];
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
