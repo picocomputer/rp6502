@@ -278,7 +278,7 @@ __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
                     api_return_blocked();
-                    if (data == 0x00) // zvreset()
+                    if (data == 0x00) // zxreset()
                     {
                         xstack_ptr = XSTACK_SIZE;
                         API_STACK = xstack[xstack_ptr];

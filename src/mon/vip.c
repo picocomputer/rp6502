@@ -11,7 +11,7 @@
 
 void vip_print(void)
 {
-    char *patrons[] = {
+    char *vips[] = {
         "Shawn Hyam",
         "Romain Fontaine",
         "Mark Rowe",
@@ -19,28 +19,28 @@ void vip_print(void)
         "Andy Herron",
         "Sean Franklin",
         "ulften",
+        "Larryvc",
     };
-    const unsigned PATRONS_COUNT = sizeof(patrons) / sizeof(char *);
-    for (unsigned i = 0; i < PATRONS_COUNT; i++)
+    const unsigned VIP_COUNT = sizeof(vips) / sizeof(char *);
+    for (unsigned i = 0; i < VIP_COUNT; i++)
     {
-        unsigned swap = (PATRONS_COUNT * (get_rand_32() & 0xFFFF)) >> 16;
-        char *tmp = patrons[i];
-        patrons[i] = patrons[swap];
-        patrons[swap] = tmp;
+        unsigned swap = (VIP_COUNT * (get_rand_32() & 0xFFFF)) >> 16;
+        char *tmp = vips[i];
+        vips[i] = vips[swap];
+        vips[swap] = tmp;
     }
-
-    printf("          Patrons - %s", patrons[0]);
-    unsigned col = 20 + strlen(patrons[0]) + 2;
-    for (unsigned i = 1; i < PATRONS_COUNT - 1; i++)
+    printf("          Patrons - %s", vips[0]);
+    unsigned col = 20 + strlen(vips[0]) + 2;
+    for (unsigned i = 1; i < VIP_COUNT - 1; i++)
     {
         printf(", ");
-        col += strlen(patrons[i]) + 2;
+        col += strlen(vips[i]) + 2;
         if (col > 78)
         {
-            col = 20 + strlen(patrons[i]) + 2;
+            col = 20 + strlen(vips[i]) + 2;
             printf("\n%20s", "");
         }
-        printf("%s", patrons[i]);
+        printf("%s", vips[i]);
     }
     puts(".");
 }

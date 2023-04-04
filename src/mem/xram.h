@@ -18,7 +18,7 @@
 #define XRAM_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define XRAM_ADDR1 REGSW(0xFFEA)
 
-// 64KB Virtual RAM
+// 64KB Extended RAM
 #ifdef NDEBUG
 extern uint8_t xram[0x10000];
 #else

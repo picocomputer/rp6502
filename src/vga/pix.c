@@ -35,7 +35,7 @@ void pix_init()
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_out(pio_null, 32));
-    sm_config_set_fifo_join (&regs_config, PIO_FIFO_JOIN_RX);
+    sm_config_set_fifo_join(&regs_config, PIO_FIFO_JOIN_RX);
     pio_sm_init(VGA_PIX_PIO, VGA_PIX_REGS_SM, offset, &regs_config);
     pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_REGS_SM, true);
 
@@ -49,7 +49,7 @@ void pix_init()
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_XRAM_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_XRAM_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_XRAM_SM, pio_encode_out(pio_null, 32));
-    sm_config_set_fifo_join (&xram_config, PIO_FIFO_JOIN_RX);
+    sm_config_set_fifo_join(&xram_config, PIO_FIFO_JOIN_RX);
     pio_sm_init(VGA_PIX_PIO, VGA_PIX_XRAM_SM, offset, &regs_config);
     pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_XRAM_SM, true);
 
@@ -117,15 +117,19 @@ void pix_init()
 
 static void pix_video_mode(uint16_t mode)
 {
-    if (mode)
+    switch (mode)
     {
-        // vga_display(vga_sxga);
+    default:
+        vga_terminal(true);
+        break;
+    case 0:
+        vga_resolution(vga_320_240);
+        vga_terminal(false);
+        break;
+    case 1:
         vga_resolution(vga_320_180);
         vga_terminal(false);
-    }
-    else
-    {
-        vga_terminal(true);
+        break;
     }
 }
 
