@@ -308,6 +308,7 @@ __attribute__((optimize("O1"))) void act_loop()
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[XRAM_ADDR1] = data;
                     RIA_PIX_PIO->txf[RIA_PIX_SM] = XRAM_ADDR1 | (data << 16) | RIA_PIX_XRAM;
+                    XRAM_RW0 = xram[XRAM_ADDR0];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
                     XRAM_ADDR1 += XRAM_STEP1;
@@ -324,6 +325,7 @@ __attribute__((optimize("O1"))) void act_loop()
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[XRAM_ADDR0] = data;
                     RIA_PIX_PIO->txf[RIA_PIX_SM] = XRAM_ADDR0 | (data << 16) | RIA_PIX_XRAM;
+                    XRAM_RW1 = xram[XRAM_ADDR1];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
                     XRAM_ADDR0 += XRAM_STEP0;

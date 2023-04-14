@@ -304,8 +304,8 @@ bool ria_pix_ready()
     return pio_sm_get_tx_fifo_level(RIA_PIX_PIO, RIA_PIX_SM) < 6;
 }
 
-void ria_pix_send(uint8_t channel, uint16_t xreg, uint16_t value)
+void ria_pix_send(uint8_t ch3, uint16_t hi12, uint16_t lo16)
 {
-    uint32_t data = RIA_PIX_XREG(channel) | ((xreg & 0x0FFF) << 16) | value;
+    uint32_t data = RIA_PIX_XREG(ch3) | ((hi12 & 0x0FFFu) << 16) | lo16;
     pio_sm_put(RIA_PIX_PIO, RIA_PIX_SM, data);
 }

@@ -67,17 +67,28 @@ static inline void api_sync_xstack()
 static inline void api_return_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
 static inline void api_return_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
 
+static inline void api_set_ax(uint16_t val)
+{
+    *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | (((unsigned)val << 8) & 0xFF0000);
+}
+
+static inline void api_set_axsreg(uint32_t val)
+{
+    api_set_ax(val);
+    API_SREG = val >> 16;
+}
+
 // Call one of these at the very end. These signal
 // the 6502 that the operation is complete.
 static inline void api_return_ax(uint16_t val)
 {
-    *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | (((unsigned)val << 8) & 0xFF0000);
+    api_set_ax(val);
     api_return_released();
 }
 static inline void api_return_axsreg(uint32_t val)
 {
-    API_SREG = val >> 16;
-    api_return_ax(val);
+    api_set_axsreg(val);
+    api_return_released();
 }
 static inline void api_return_errno_ax(uint16_t errno, uint16_t val)
 {

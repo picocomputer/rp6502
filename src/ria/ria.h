@@ -47,6 +47,6 @@ void ria_stop();
 void ria_reset();
 void ria_exit();
 bool ria_pix_ready();
-void ria_pix_send(uint8_t channel, uint16_t xreg, uint16_t value);
+void ria_pix_send(uint8_t ch3, uint16_t hi12, uint16_t lo16);
 
 #endif /* _RIA_H_ */
