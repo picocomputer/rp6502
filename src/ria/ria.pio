@@ -59,7 +59,7 @@ in null 18
 wait 1 gpio 21
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [5]
+wait 0 gpio 21 [7]
 in pins 5
 .wrap
 
