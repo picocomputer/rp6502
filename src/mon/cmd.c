@@ -9,6 +9,7 @@
 #include "mon.h"
 #include "dev/lfs.h"
 #include "mem/mbuf.h"
+#include "mem/xram.h"
 #include "ria/ria.h"
 #include "str.h"
 #include "ria/act.h"
@@ -33,28 +34,10 @@ static uint32_t rw_len;
 static uint32_t rw_crc;
 static absolute_time_t watchdog;
 
-static bool cmd_ria_action_error()
-{
-    int32_t result = act_result();
-    switch (result)
-    {
-    case -1: // OK
-        return false;
-        break;
-    case -2:
-        printf("?action watchdog timeout\n");
-        break;
-    default:
-        printf("?verify failed at $%04lX\n", result);
-        break;
-    }
-    return true;
-}
-
 static void cmd_ria_read()
 {
     cmd_state = CMD_IDLE;
-    if (cmd_ria_action_error())
+    if (act_error_message())
         return;
     printf("%04lX", rw_addr);
     for (size_t i = 0; i < mbuf_len; i++)
@@ -65,7 +48,7 @@ static void cmd_ria_read()
 static void cmd_ria_write()
 {
     cmd_state = CMD_IDLE;
-    if (cmd_ria_action_error())
+    if (act_error_message())
         return;
     cmd_state = CMD_VERIFY;
     act_ram_verify(rw_addr);
@@ -74,7 +57,7 @@ static void cmd_ria_write()
 static void cmd_ria_verify()
 {
     cmd_state = CMD_IDLE;
-    cmd_ria_action_error();
+    act_error_message();
 }
 
 // Commands that start with a hex address. Read or write memory.
@@ -94,7 +77,7 @@ void cmd_address(const char *args, size_t len)
     for (; i < len; i++)
         if (args[i] != ' ')
             break;
-    if (rw_addr > 0xFFFF)
+    if (rw_addr > 0x1FFFF)
     {
         printf("?invalid address\n");
         return;
@@ -102,6 +85,15 @@ void cmd_address(const char *args, size_t len)
     if (i == len)
     {
         mbuf_len = (rw_addr | 0xF) - rw_addr + 1;
+        if (rw_addr > 0xFFFF)
+        {
+            printf("%04lX", rw_addr);
+            rw_addr -= 0x10000;
+            for (size_t i = 0; i < mbuf_len; i++)
+                printf(" %02X", xram[rw_addr + i]);
+            printf("\n");
+            return;
+        }
         act_ram_read(rw_addr);
         cmd_state = CMD_READ;
         return;
@@ -134,6 +126,18 @@ void cmd_address(const char *args, size_t len)
                 if (args[i + 1] != ' ')
                     break;
         }
+    }
+    if (rw_addr > 0xFFFF)
+    {
+        rw_addr -= 0x10000;
+        for (size_t i = 0; i < mbuf_len; i++)
+        {
+            xram[rw_addr + i] = mbuf[i];
+            while (!ria_pix_ready())
+                ;
+            ria_pix_send(0, mbuf[i], rw_addr + i);
+        }
+        return;
     }
     act_ram_write(rw_addr);
     cmd_state = CMD_WRITE;
