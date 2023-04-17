@@ -34,9 +34,9 @@
 #define RIA_PIX_SM 1
 
 // Bit 28 always 1, bits [31:29] for payload type
-#define RIA_PIX_XRAM 0x10000000u
 #define RIA_PIX_XREG(channel) ((channel << 29u) | 0x10000000u)
-#define RIA_PIX_IDLE 0xF0000000u
+#define RIA_PIX_XRAM RIA_PIX_XREG(0)
+#define RIA_PIX_IDLE RIA_PIX_XREG(7)
 
 void ria_init();
 void ria_task();

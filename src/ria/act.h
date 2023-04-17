@@ -11,6 +11,7 @@
 
 void act_loop();
 void act_task();
+bool act_error_message();
 void act_reset();
 bool act_in_progress();
 void act_pio_init();

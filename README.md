@@ -5,34 +5,8 @@ The Picocomputer explores retro computing and game development by removing the b
 Learn how it works on YouTube:<br>
 https://www.youtube.com/@rumbledethumps
 
-## Memory Map
-
-| Addr | Description
-| - | -
-| FFFE-FFFF | BRK/IRQB Vector
-| FFFC-FFFD | RESB Vector
-| FFFA-FFFB | NMIB Vector
-| FFF0-FFF9 | 10 bytes for fast load
-| FFE0-FFEF | 16 bytes for I/O TBD
-| FF10-FFDF | Unallocated for Expansion
-| FF00-FF0F | 6522 VIA
-| 0200-FEFF | Free RAM
-| 0100-01FF | Stack Page
-| 0000-00FF | Zero Page
-
-Preliminary I/O registers (beta)<br>
-FFE0 - UART status, bit 7 Tx ready, bit 6 Rx ready<br>
-FFE1 - UART Tx<br>
-FFE2 - UART Rx<br>
-FFEF - Write anything here to stop 6502<br>
-
-## Hardware Notes
-
-The Pico VGA is optional. Something to control the RIA over the UART Tx/Rx lines is still required. You might, for example, be developing a video system based on other hardware and prefer to have your video chip control the RIA.
-
-The 6522 is optional. You may need to pull-up IRQB/VIRQ if you omit this from the reference design. The GPIOs are not used for anything, but some software may not function without timers.
-
-The only thing not optional is putting the Pico RIA at FFE0-FFFF. This reference design is very capable, but also very easy to build on a breadboard. Feel free to change the glue circuit to support paged RAM, parallel ROMs, expansion slots, and DIP switches. Those are exactly the expense and complexity the Pico RIA replaces, but you should not encounter any resistance if you want to experiment and learn about them.
+Read the documentation:<br>
+https://picocomputer.github.io/
 
 ## Dev Setup
 

@@ -4,7 +4,7 @@ import sys,io,time,subprocess,serial,binascii
 from typing import Union
 
 class Monitor:
-    DEFAULT_TIMEOUT = 0.2
+    DEFAULT_TIMEOUT = 0.5
     serial = serial.Serial()
 
     def __init__(self, name, timeout=DEFAULT_TIMEOUT):

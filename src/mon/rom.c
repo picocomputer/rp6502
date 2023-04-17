@@ -372,21 +372,12 @@ static bool rom_action_is_finished()
 {
     if (ria_is_active())
         return false;
-    int32_t result = act_result();
-    switch (result)
+    if (act_error_message())
     {
-    case -1:
-        return true;
-        break;
-    case -2:
-        printf("?action watchdog timeout\n");
-        break;
-    default:
-        printf("?verify error at $%04lX\n", result);
-        break;
+        rom_state = ROM_IDLE;
+        return false;
     }
-    rom_state = ROM_IDLE;
-    return false;
+    return true;
 }
 
 void rom_task()

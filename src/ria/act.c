@@ -123,6 +123,24 @@ void act_task()
     }
 }
 
+bool act_error_message()
+{
+    int32_t result = act_result();
+    switch (result)
+    {
+    case -1: // OK
+        return false;
+        break;
+    case -2:
+        printf("?watchdog timeout\n");
+        break;
+    default:
+        printf("?verify failed at $%04lX\n", result);
+        break;
+    }
+    return true;
+}
+
 static void read_or_verify_setup(uint16_t addr, uint16_t len, bool verify)
 {
     if (!len)
