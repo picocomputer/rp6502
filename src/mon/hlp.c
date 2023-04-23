@@ -247,7 +247,7 @@ static uint32_t hlp_roms_list(uint32_t width)
         for (size_t i = 0; i < len; i++)
         {
             char ch = lfs_info.name[i];
-            if (ch < 'A' || ch > 'Z')
+            if (!(i && ch >= '0' && ch <= '9') && (ch < 'A' || ch > 'Z'))
                 is_ok = false;
         }
         if (is_ok && width)
