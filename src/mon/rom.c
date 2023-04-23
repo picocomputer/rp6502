@@ -8,6 +8,7 @@
 #include "str.h"
 #include "cfg.h"
 #include "mem/mbuf.h"
+#include "mem/xram.h"
 #include "ria/ria.h"
 #include "ria/act.h"
 #include "mon.h"
@@ -19,10 +20,12 @@
 static enum {
     ROM_IDLE,
     ROM_LOADING,
+    ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
     ROM_RIA_VERIFYING,
 } rom_state;
 static uint32_t rom_addr;
+static uint32_t rom_len;
 static bool rom_FFFC;
 static bool rom_FFFD;
 bool is_reading_fat;
@@ -143,7 +146,6 @@ static bool rom_next_chunk()
         default:
             break;
         }
-    uint32_t rom_len;
     uint32_t rom_crc;
     const char *args = (char *)mbuf;
     if (parse_uint32(&args, &len, &rom_addr) &&
@@ -151,12 +153,14 @@ static bool rom_next_chunk()
         parse_uint32(&args, &len, &rom_crc) &&
         parse_end(args, len))
     {
-        if (rom_addr > 0xFFFF)
+        if (rom_addr > 0x1FFFF)
         {
             printf("?invalid address\n");
             return false;
         }
-        if (!rom_len || rom_len > MBUF_SIZE || rom_addr + rom_len > 0x10000)
+        if (!rom_len || rom_len > MBUF_SIZE ||
+            (rom_addr < 0x10000 && rom_addr + rom_len > 0x10000) ||
+            (rom_addr + rom_len > 0x20000))
         {
             printf("?invalid length\n");
             return false;
@@ -189,8 +193,13 @@ static void rom_loading()
     }
     if (mbuf_len)
     {
-        rom_state = ROM_RIA_WRITING;
-        act_ram_write(rom_addr);
+        if (rom_addr > 0xFFFF)
+            rom_state = ROM_XRAM_WRITING;
+        else
+        {
+            rom_state = ROM_RIA_WRITING;
+            act_ram_write(rom_addr);
+        }
     }
 }
 
@@ -380,6 +389,17 @@ static bool rom_action_is_finished()
     return true;
 }
 
+static bool rom_xram_writing()
+{
+    while (rom_len && ria_pix_ready())
+    {
+        uint32_t addr = rom_addr + --rom_len - 0x10000;
+        xram[addr] = mbuf[addr];
+        ria_pix_send(0, mbuf[addr], addr);
+    }
+    return !!rom_len;
+}
+
 void rom_task()
 {
     switch (rom_state)
@@ -388,6 +408,10 @@ void rom_task()
         break;
     case ROM_LOADING:
         rom_loading();
+        break;
+    case ROM_XRAM_WRITING:
+        if (!rom_xram_writing())
+            rom_state = ROM_LOADING;
         break;
     case ROM_RIA_WRITING:
         if (rom_action_is_finished())
