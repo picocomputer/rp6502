@@ -15,17 +15,14 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "HELP (command|rom)  - This help or expanded help for command or rom.\n"
     "HELP ABOUT|SYSTEM   - About includes credits. System for general usage.\n"
     "STATUS              - Show all settings and USB devices.\n"
-    "CAPS (0|1|2)        - Invert or force caps while 6502 is running.\n"
-    "PHI2 (kHz)          - Query or set PHI2 speed. This is the 6502 clock.\n"
-    "RESB (ms)           - Query or set RESB hold time. Set to 0 for auto.\n"
-    "LS (DIR|DRIVE)      - List contents of directory.\n"
-    "CD (DIR)            - Change or show current directory.\n"
+    "SET attr (value)    - Change or show a setting.\n"
+    "LS (dir|drive)      - List contents of directory.\n"
+    "CD (dir)            - Change or show current directory.\n"
     "0:                  - 1:-8: Change current USB drive.\n"
     "LOAD file           - Load ROM file. Start if contains reset vector.\n"
     "INFO file           - Show help text, if any, contained in ROM file.\n"
     "INSTALL file        - Install ROM file on RIA.\n"
     "REMOVE rom          - Remove ROM from RIA.\n"
-    "BOOT (rom|-)        - Select ROM to boot from cold start. \"-\" for none.\n"
     "REBOOT              - Cold start. Load and start selected boot ROM.\n"
     "RESET               - Start 6502 at current reset vector ($FFFC).\n"
     "rom                 - Load and start an installed ROM.\n"
@@ -33,6 +30,14 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "UNLINK file         - Delete file.\n"
     "BINARY addr len crc - Write memory. Binary data follows.\n"
     "0000 (00 00 ...)    - Read or write memory.";
+
+static const char __in_flash("helptext") hlp_text_set[] =
+    "Settings:\n"
+    "HELP attr           - Show information about a setting.\n"
+    "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
+    "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
+    "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
+    "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
@@ -188,9 +193,6 @@ static struct
     {6, "system", hlp_text_system},
     {1, "0", hlp_text_system},
     {4, "0000", hlp_text_system},
-    {4, "caps", hlp_text_caps},
-    {4, "phi2", hlp_text_phi2},
-    {4, "resb", hlp_text_resb},
     {2, "ls", hlp_text_dir},
     {3, "dir", hlp_text_dir},
     {2, "cd", hlp_text_dir},
@@ -208,12 +210,17 @@ static struct
     {4, "info", hlp_text_load},
     {7, "install", hlp_text_install},
     {6, "remove", hlp_text_install},
-    {4, "boot", hlp_text_boot},
     {6, "reboot", hlp_text_reboot},
     {5, "reset", hlp_text_reset},
     {6, "upload", hlp_text_upload},
     {6, "unlink", hlp_text_unlink},
     {6, "binary", hlp_text_binary},
+    // Settings
+    {3, "set", hlp_text_set},
+    {4, "caps", hlp_text_caps},
+    {4, "phi2", hlp_text_phi2},
+    {4, "resb", hlp_text_resb},
+    {4, "boot", hlp_text_boot},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 

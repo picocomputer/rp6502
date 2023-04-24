@@ -9,6 +9,7 @@
 #include "hlp.h"
 #include "fil.h"
 #include "rom.h"
+#include "set.h"
 #include "str.h"
 #include "mem/mbuf.h"
 #include "vga/ansi.h"
@@ -35,9 +36,7 @@ static struct
     {1, "h", hlp_dispatch},
     {1, "?", hlp_dispatch},
     {6, "status", cmd_status},
-    {4, "caps", cmd_caps},
-    {4, "phi2", cmd_phi2},
-    {4, "resb", cmd_resb},
+    {3, "set", set_attr},
     {2, "ls", fil_ls},
     {3, "dir", fil_ls},
     {2, "cd", fil_chdir},
@@ -45,7 +44,6 @@ static struct
     {4, "info", rom_help_fat},
     {7, "install", rom_install},
     {6, "remove", rom_remove},
-    {4, "boot", cmd_boot},
     {6, "reboot", cmd_reboot},
     {5, "reset", cmd_reset_6502},
     {6, "upload", fil_upload},

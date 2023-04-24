@@ -73,6 +73,7 @@ target_sources(rp6502_ria PRIVATE
     mon/hlp.c
     mon/mon.c
     mon/rom.c
+    mon/set.c
     mon/str.c
     mon/vip.c
     ria/act.c
