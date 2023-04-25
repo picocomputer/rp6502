@@ -5,7 +5,7 @@
  */
 
 #include "mon.h"
-#include "cmd.h"
+#include "sys.h"
 #include "hlp.h"
 #include "fil.h"
 #include "rom.h"
@@ -35,7 +35,7 @@ static struct
     {4, "help", hlp_dispatch},
     {1, "h", hlp_dispatch},
     {1, "?", hlp_dispatch},
-    {6, "status", cmd_status},
+    {6, "status", set_status},
     {3, "set", set_attr},
     {2, "ls", fil_ls},
     {3, "dir", fil_ls},
@@ -44,11 +44,11 @@ static struct
     {4, "info", rom_help_fat},
     {7, "install", rom_install},
     {6, "remove", rom_remove},
-    {6, "reboot", cmd_reboot},
-    {5, "reset", cmd_reset_6502},
+    {6, "reboot", sys_reboot},
+    {5, "reset", sys_reset_6502},
     {6, "upload", fil_upload},
     {6, "unlink", fil_unlink},
-    {6, "binary", cmd_binary},
+    {6, "binary", sys_binary},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
@@ -87,7 +87,7 @@ static cmd_function mon_command_lookup(const char **buf, uint8_t buflen)
     if (is_maybe_addr && !is_not_addr)
     {
         *buf = cmd;
-        return cmd_address;
+        return sys_address;
     }
     // 0:-9: is chdrive
     if (cmd_len == 2 && cmd[1] == ':' && cmd[0] >= '0' && cmd[0] <= '9')
@@ -259,25 +259,25 @@ static void mon_rx_binary()
             mbuf[mbuf_len++] = ch;
             if (fil_is_rx_binary() && fil_rx_handler())
                 return;
-            if (cmd_is_rx_binary() && cmd_rx_handler())
+            if (sys_is_rx_binary() && sys_rx_handler())
                 return;
             ch = getchar_timeout_us(0);
         }
         if (fil_is_rx_binary())
             fil_keep_alive();
-        if (cmd_is_rx_binary())
-            cmd_keep_alive();
+        if (sys_is_rx_binary())
+            sys_keep_alive();
     }
 }
 
 void mon_task()
 {
-    if (ria_is_active() || cmd_is_active() || rom_is_active())
+    if (ria_is_active() || sys_is_active() || rom_is_active())
     {
         needs_prompt = true;
         return;
     }
-    if (cmd_is_rx_binary() || fil_is_rx_binary())
+    if (sys_is_rx_binary() || fil_is_rx_binary())
         return mon_rx_binary();
     if (needs_prompt)
     {

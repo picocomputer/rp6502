@@ -6,7 +6,7 @@
 
 #include "rom.h"
 #include "str.h"
-#include "cfg.h"
+#include "ria/cfg.h"
 #include "mem/mbuf.h"
 #include "mem/xram.h"
 #include "ria/ria.h"

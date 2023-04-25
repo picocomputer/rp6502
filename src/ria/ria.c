@@ -5,7 +5,7 @@
  */
 
 #include "mon/mon.h"
-#include "mon/cfg.h"
+#include "cfg.h"
 #include "mem/regs.h"
 #include "ria.h"
 #include "act.h"

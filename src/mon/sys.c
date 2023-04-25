@@ -4,29 +4,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "cmd.h"
-#include "cfg.h"
+#include "sys.h"
 #include "mon.h"
-#include "dev/lfs.h"
 #include "mem/mbuf.h"
 #include "mem/xram.h"
 #include "ria/ria.h"
 #include "str.h"
 #include "ria/act.h"
-#include "dev/dev.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
-#include "hardware/clocks.h"
 #include "hardware/watchdog.h"
 
 #define TIMEOUT_MS 200
 
 static enum {
-    CMD_IDLE,
-    CMD_READ,
-    CMD_WRITE,
-    CMD_VERIFY,
-    CMD_BINARY,
+    SYS_IDLE,
+    SYS_READ,
+    SYS_WRITE,
+    SYS_VERIFY,
+    SYS_BINARY,
 } cmd_state;
 
 static uint32_t rw_addr;
@@ -36,7 +32,7 @@ static absolute_time_t watchdog;
 
 static void cmd_ria_read()
 {
-    cmd_state = CMD_IDLE;
+    cmd_state = SYS_IDLE;
     if (act_error_message())
         return;
     printf("%04lX", rw_addr);
@@ -47,21 +43,21 @@ static void cmd_ria_read()
 
 static void cmd_ria_write()
 {
-    cmd_state = CMD_IDLE;
+    cmd_state = SYS_IDLE;
     if (act_error_message())
         return;
-    cmd_state = CMD_VERIFY;
+    cmd_state = SYS_VERIFY;
     act_ram_verify(rw_addr);
 }
 
 static void cmd_ria_verify()
 {
-    cmd_state = CMD_IDLE;
+    cmd_state = SYS_IDLE;
     act_error_message();
 }
 
 // Commands that start with a hex address. Read or write memory.
-void cmd_address(const char *args, size_t len)
+void sys_address(const char *args, size_t len)
 {
     // addr syntax is already validated by dispatch
     rw_addr = 0;
@@ -95,7 +91,7 @@ void cmd_address(const char *args, size_t len)
             return;
         }
         act_ram_read(rw_addr);
-        cmd_state = CMD_READ;
+        cmd_state = SYS_READ;
         return;
     }
     uint32_t data = 0x80000000;
@@ -140,168 +136,24 @@ void cmd_address(const char *args, size_t len)
         return;
     }
     act_ram_write(rw_addr);
-    cmd_state = CMD_WRITE;
+    cmd_state = SYS_WRITE;
 }
 
-static void status_phi2()
-{
-    uint32_t phi2_khz = cfg_get_phi2_khz();
-    printf("PHI2: %ld kHz", phi2_khz);
-    if (phi2_khz < 50)
-        printf(" (!!!)");
-    printf("\n");
-}
-
-void cmd_phi2(const char *args, size_t len)
-{
-    uint32_t val;
-    if (len)
-    {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
-        {
-            if (val > 8000)
-            {
-                printf("?invalid frequency\n");
-                return;
-            }
-            cfg_set_phi2_khz(val);
-        }
-        else
-        {
-            printf("?invalid argument\n");
-            return;
-        }
-    }
-    status_phi2();
-}
-
-static void status_resb()
-{
-    uint8_t reset_ms = cfg_get_reset_ms();
-    float reset_us = ria_get_reset_us();
-    if (!reset_ms)
-        printf("RESB: %.3f ms (auto)\n", reset_us / 1000.f);
-    else if (reset_ms * 1000 == reset_us)
-        printf("RESB: %d ms\n", reset_ms);
-    else
-        printf("RESB: %.0f ms (%d ms requested)\n", reset_us / 1000.f, reset_ms);
-}
-
-void cmd_resb(const char *args, size_t len)
-{
-    uint32_t val;
-    if (len)
-    {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
-        {
-            if (val > 255)
-            {
-                printf("?invalid duration\n");
-                return;
-            }
-            cfg_set_reset_ms(val);
-        }
-        else
-        {
-            printf("?invalid argument\n");
-            return;
-        }
-    }
-    status_resb();
-}
-
-static void status_boot()
-{
-    const char *rom = cfg_get_boot();
-    if (!rom[0])
-        rom = "(none)";
-    printf("BOOT: %s\n", rom);
-}
-
-void cmd_boot(const char *args, size_t len)
-{
-    if (len)
-    {
-        char lfs_name[LFS_NAME_MAX + 1];
-        if (args[0] == '-' && parse_end(++args, --len))
-        {
-            cfg_set_boot("");
-        }
-        else if (parse_rom_name(&args, &len, lfs_name) &&
-                 parse_end(args, len))
-        {
-            struct lfs_info info;
-            if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
-            {
-                printf("?ROM not installed\n");
-                return;
-            }
-            cfg_set_boot(lfs_name);
-        }
-        else
-        {
-            printf("?Invalid ROM name\n");
-            return;
-        }
-    }
-    status_boot();
-}
-
-void cmd_reboot(const char *args, size_t len)
+void sys_reboot(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
     watchdog_reboot(0, 0, 0);
 }
 
-void cmd_reset_6502(const char *args, size_t len)
+void sys_reset_6502(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
     ria_reset();
 }
 
-static void status_caps()
-{
-    const char *const caps_labels[] = {"normal", "inverted", "forced"};
-    printf("CAPS: %s\n", caps_labels[cfg_get_caps()]);
-}
-
-void cmd_caps(const char *args, size_t len)
-{
-    uint32_t val;
-    if (len)
-    {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
-        {
-            cfg_set_caps(val);
-        }
-        else
-        {
-            printf("?invalid argument\n");
-            return;
-        }
-    }
-    status_caps();
-}
-
-void cmd_status(const char *args, size_t len)
-{
-    (void)(args);
-    (void)(len);
-
-    status_phi2();
-    status_resb();
-    status_caps();
-    status_boot();
-    printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
-    dev_print_all();
-}
-
-void cmd_binary(const char *args, size_t len)
+void sys_binary(const char *args, size_t len)
 {
     if (parse_uint32(&args, &len, &rw_addr) &&
         parse_uint32(&args, &len, &rw_len) &&
@@ -319,7 +171,7 @@ void cmd_binary(const char *args, size_t len)
             return;
         }
         mbuf_len = 0;
-        cmd_state = CMD_BINARY;
+        cmd_state = SYS_BINARY;
         watchdog = delayed_by_us(get_absolute_time(),
                                  TIMEOUT_MS * 1000);
         return;
@@ -327,68 +179,68 @@ void cmd_binary(const char *args, size_t len)
     printf("?invalid argument\n");
 }
 
-bool cmd_rx_handler()
+bool sys_rx_handler()
 {
     if (mbuf_len < rw_len)
         return false;
     if (mbuf_crc32() == rw_crc)
     {
-        cmd_state = CMD_WRITE;
+        cmd_state = SYS_WRITE;
         act_ram_write(rw_addr);
     }
     else
     {
-        cmd_state = CMD_IDLE;
+        cmd_state = SYS_IDLE;
         puts("?CRC does not match");
     }
     return true;
 }
 
-void cmd_task()
+void sys_task()
 {
     if (ria_is_active())
         return;
     switch (cmd_state)
     {
-    case CMD_IDLE:
+    case SYS_IDLE:
         break;
-    case CMD_READ:
+    case SYS_READ:
         cmd_ria_read();
         break;
-    case CMD_WRITE:
+    case SYS_WRITE:
         cmd_ria_write();
         break;
-    case CMD_VERIFY:
+    case SYS_VERIFY:
         cmd_ria_verify();
         break;
-    case CMD_BINARY:
+    case SYS_BINARY:
         if (absolute_time_diff_us(get_absolute_time(), watchdog) < 0)
         {
             printf("?timeout\n");
-            cmd_state = CMD_IDLE;
+            cmd_state = SYS_IDLE;
             mon_reset();
         }
         break;
     }
 }
 
-void cmd_keep_alive()
+void sys_keep_alive()
 {
     watchdog = delayed_by_us(get_absolute_time(),
                              TIMEOUT_MS * 1000);
 }
 
-bool cmd_is_active()
+bool sys_is_active()
 {
-    return cmd_state != CMD_IDLE && cmd_state != CMD_BINARY;
+    return cmd_state != SYS_IDLE && cmd_state != SYS_BINARY;
 }
 
-bool cmd_is_rx_binary()
+bool sys_is_rx_binary()
 {
-    return cmd_state == CMD_BINARY;
+    return cmd_state == SYS_BINARY;
 }
 
-void cmd_reset()
+void sys_reset()
 {
-    cmd_state = CMD_IDLE;
+    cmd_state = SYS_IDLE;
 }

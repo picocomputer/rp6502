@@ -7,7 +7,7 @@
 #include "ria/main.h"
 #include "ria/ria.h"
 #include "ria/act.h"
-#include "mon/cfg.h"
+#include "ria/cfg.h"
 #include "com.h"
 #include "pico/stdlib.h"
 

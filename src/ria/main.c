@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/cmd.h"
+#include "mon/sys.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
 #include "ria.h"
 #include "act.h"
 #include "api.h"
-#include "mon/cfg.h"
+#include "cfg.h"
 #include "mon/rom.h"
 #include "dev/com.h"
 #include "mem/mbuf.h"
@@ -69,7 +69,7 @@ void main_sys_tasks()
 static void main_app_tasks()
 {
     mon_task();
-    cmd_task();
+    sys_task();
     fil_task();
     rom_task();
     api_task();
@@ -86,7 +86,7 @@ void main_break()
     com_reset();
     fil_reset();
     mon_reset();
-    cmd_reset();
+    sys_reset();
     rom_reset();
     puts("\30\33[0m");
 }

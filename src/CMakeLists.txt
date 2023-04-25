@@ -67,17 +67,17 @@ target_sources(rp6502_ria PRIVATE
     mem/mbuf.c
     mem/xram.c
     mem/xstack.c
-    mon/cfg.c
-    mon/cmd.c
     mon/fil.c
     mon/hlp.c
     mon/mon.c
     mon/rom.c
     mon/set.c
     mon/str.c
+    mon/sys.c
     mon/vip.c
     ria/act.c
     ria/api.c
+    ria/cfg.c
     ria/main.c
     ria/ria.c
     fatfs/ff.c

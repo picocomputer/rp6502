@@ -6,7 +6,7 @@
 
 #include "cfg.h"
 #include "lfs.h"
-#include "str.h"
+#include "mon/str.h"
 #include "ria/ria.h"
 #include "mem/mbuf.h"
 
@@ -15,6 +15,7 @@
 // +P8000      | PHI2
 // +C0         | Caps
 // +R0         | RESB
+// +V0         | VGA monitor type
 // +S437       | Code Page
 // BASIC       | Boot ROM - Must be last
 

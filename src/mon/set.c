@@ -5,9 +5,158 @@
  */
 
 #include "set.h"
-#include "cmd.h"
+#include "ria/cfg.h"
+#include "sys.h"
 #include "str.h"
+#include "ria/ria.h"
+#include "dev/dev.h"
+#include "dev/lfs.h"
 #include <stdio.h>
+#include "hardware/clocks.h"
+
+static void status_phi2()
+{
+    uint32_t phi2_khz = cfg_get_phi2_khz();
+    printf("PHI2: %ld kHz", phi2_khz);
+    if (phi2_khz < 50)
+        printf(" (!!!)");
+    printf("\n");
+}
+
+static void set_phi2(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            if (val > 8000)
+            {
+                printf("?invalid frequency\n");
+                return;
+            }
+            cfg_set_phi2_khz(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    status_phi2();
+}
+
+static void status_resb()
+{
+    uint8_t reset_ms = cfg_get_reset_ms();
+    float reset_us = ria_get_reset_us();
+    if (!reset_ms)
+        printf("RESB: %.3f ms (auto)\n", reset_us / 1000.f);
+    else if (reset_ms * 1000 == reset_us)
+        printf("RESB: %d ms\n", reset_ms);
+    else
+        printf("RESB: %.0f ms (%d ms requested)\n", reset_us / 1000.f, reset_ms);
+}
+
+static void set_resb(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            if (val > 255)
+            {
+                printf("?invalid duration\n");
+                return;
+            }
+            cfg_set_reset_ms(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    status_resb();
+}
+
+static void status_boot()
+{
+    const char *rom = cfg_get_boot();
+    if (!rom[0])
+        rom = "(none)";
+    printf("BOOT: %s\n", rom);
+}
+
+static void set_boot(const char *args, size_t len)
+{
+    if (len)
+    {
+        char lfs_name[LFS_NAME_MAX + 1];
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_boot("");
+        }
+        else if (parse_rom_name(&args, &len, lfs_name) &&
+                 parse_end(args, len))
+        {
+            struct lfs_info info;
+            if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
+            {
+                printf("?ROM not installed\n");
+                return;
+            }
+            cfg_set_boot(lfs_name);
+        }
+        else
+        {
+            printf("?Invalid ROM name\n");
+            return;
+        }
+    }
+    status_boot();
+}
+
+static void status_caps()
+{
+    const char *const caps_labels[] = {"normal", "inverted", "forced"};
+    printf("CAPS: %s\n", caps_labels[cfg_get_caps()]);
+}
+
+static void set_caps(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            cfg_set_caps(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    status_caps();
+}
+
+void set_status(const char *args, size_t len)
+{
+    (void)(args);
+    (void)(len);
+
+    status_phi2();
+    status_resb();
+    status_caps();
+    status_boot();
+    printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
+    dev_print_all();
+}
 
 typedef void (*set_function)(const char *, size_t);
 static struct
@@ -16,10 +165,10 @@ static struct
     const char *const attr;
     set_function func;
 } const SETTERS[] = {
-    {4, "caps", cmd_caps},
-    {4, "phi2", cmd_phi2},
-    {4, "resb", cmd_resb},
-    {4, "boot", cmd_boot},
+    {4, "caps", set_caps},
+    {4, "phi2", set_phi2},
+    {4, "resb", set_resb},
+    {4, "boot", set_boot},
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
