@@ -18,5 +18,7 @@ void cfg_set_caps(uint8_t mode);
 uint8_t cfg_get_caps();
 void cfg_set_boot(char *rom);
 char *cfg_get_boot();
+void cfg_set_code_page(uint16_t cp);
+uint16_t cfg_get_code_page();
 
 #endif /* _CFG_H_ */

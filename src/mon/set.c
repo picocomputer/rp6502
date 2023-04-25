@@ -145,6 +145,34 @@ static void set_caps(const char *args, size_t len)
     status_caps();
 }
 
+static void status_code_page()
+{
+#if (RP6502_CODE_PAGE)
+    printf("CP  : %d (dev)\n", RP6502_CODE_PAGE);
+#else
+    printf("CP  : %d\n", cfg_get_code_page());
+#endif
+}
+
+static void set_code_page(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            cfg_set_code_page(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    status_code_page();
+}
+
 void set_status(const char *args, size_t len)
 {
     (void)(args);
@@ -154,6 +182,7 @@ void set_status(const char *args, size_t len)
     status_resb();
     status_caps();
     status_boot();
+    status_code_page();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     dev_print_all();
 }
@@ -169,6 +198,7 @@ static struct
     {4, "phi2", set_phi2},
     {4, "resb", set_resb},
     {4, "boot", set_boot},
+    {2, "cp", set_code_page},
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 

@@ -9,6 +9,7 @@
 #include "mon/str.h"
 #include "ria/ria.h"
 #include "mem/mbuf.h"
+#include "fatfs/ff.h"
 
 // Configuration is a plain ASCII file on the LFS. e.g.
 // +V1         | Version - Must be first
@@ -25,6 +26,33 @@ static const char filename[] = "CONFIG.SYS";
 static uint32_t cfg_phi2_khz;
 static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
+static uint16_t cfg_code_page;
+
+// Guaranteed setting of FatFs code page.
+// Adapts to compile time options.
+static uint16_t update_code_page(uint16_t cp)
+{
+#if RP6502_CODE_PAGE
+    (void)cp;
+    return RP6502_CODE_PAGE;
+#else
+    FRESULT result;
+    if (cp)
+    {
+        result = f_setcp(cp);
+        if (result == FR_OK)
+            return cp;
+    }
+    if (cfg_code_page)
+    {
+        result = f_setcp(cfg_code_page);
+        if (result == FR_OK)
+            return cfg_code_page;
+    }
+    f_setcp(437);
+    return 437;
+#endif
+}
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -61,11 +89,13 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+P%d\n"
                                "+R%d\n"
                                "+C%d\n"
+                               "+S%d\n"
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
                                cfg_reset_ms,
                                cfg_caps,
+                               cfg_code_page,
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -114,6 +144,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
             case 'C':
                 cfg_caps = val;
                 break;
+            case 'S':
+                cfg_code_page = val;
+                break;
             default:
                 break;
             }
@@ -121,6 +154,8 @@ static void cfg_load_with_boot_opt(bool boot_only)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
         printf("?Unable to lfs_file_close %s (%d)\n", filename, lfsresult);
+    // Validate CP because RP6502_CODE_PAGE may have changed
+    cfg_code_page = update_code_page(cfg_code_page);
 }
 
 void cfg_load()
@@ -180,4 +215,19 @@ void cfg_set_caps(uint8_t mode)
 uint8_t cfg_get_caps()
 {
     return cfg_caps;
+}
+
+void cfg_set_code_page(uint16_t cp)
+{
+    cp = update_code_page(cp);
+    if (cfg_code_page != cp)
+    {
+        cfg_code_page = cp;
+        cfg_save_with_boot_opt(NULL);
+    }
+}
+
+uint16_t cfg_get_code_page()
+{
+    return cfg_code_page;
 }

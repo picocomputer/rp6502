@@ -69,36 +69,6 @@ static const char __in_flash("helptext") hlp_text_system[] =
     "This is useful for some light debugging, but the real power is from the other\n"
     "commands you can explore with this help system. Have fun!";
 
-static const char __in_flash("helptext") hlp_text_status[] =
-    "STATUS will list all configurable settings and some system information\n"
-    "including a list of USB devices and their ID. The USB ID is also the drive\n"
-    "number for mass storage devices (MSC). Up to 8 devices are supported.";
-
-static const char __in_flash("helptext") hlp_text_caps[] =
-    "CAPS is intended for software that doesn't recognize lower case, like many\n"
-    "versions of BASIC. This is only in effect while 6502 software is running.\n"
-    "It will translate both USB keyboards and the serial console. Setting is\n"
-    "saved on the RIA flash.\n"
-    "  0 = Normal.\n"
-    "  1 = Inverted. Uppercase is lowered. Lowercase is uppered.\n"
-    "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
-
-static const char __in_flash("helptext") hlp_text_phi2[] =
-    "PHI2 is the 6502 clock speed in kHz. The valid range is 1-8000 but not all\n"
-    "frequencies are available. In that case, the next highest frequency will\n"
-    "be automatically calculated and selected. Faster than the default speed of\n"
-    "4000 kHz (4 MHz) requires \"Advanced CMOS\" glue logic (74ACxx) as well as\n"
-    "overclocking of the Pi Pico RIA, which is handled automatically. The Pi Pico\n"
-    "RIA will run at 240MHz for 8MHz, which is much lower than the 400+ MHz that\n"
-    "it is capable of. Setting is saved on the RIA flash.";
-
-static const char __in_flash("helptext") hlp_text_resb[] =
-    "RESB is the minimum time in milliseconds that the RESB line is held low for\n"
-    "a 6502 reset. This should be left on auto (0) unless you have installed extra\n"
-    "hardware that needs more than 2 cycles of PHI2 while in reset. The range is\n"
-    "0-255ms but beware that large delays will affect loading ROMs. Setting is\n"
-    "saved on the RIA flash.";
-
 static const char __in_flash("helptext") hlp_text_dir[] =
     "LS (also aliased as DIR) and CD are used to navigate USB mass storage\n"
     "devices. You can change to a different USB device with 1: to 8:. Use the\n"
@@ -128,14 +98,6 @@ static const char __in_flash("helptext") hlp_text_install[] =
     "system command and may only contain up to 16 ASCII letters. If the file\n"
     "contains an extension, it must be \".rp6502\", which will be stripped upon\n"
     "install.";
-
-static const char __in_flash("helptext") hlp_text_boot[] =
-    "BOOT selects an installed ROM to be automatically loaded and started when the\n"
-    "system is power up or rebooted. For example, you might want the system to\n"
-    "immediately boot into BASIC or an operating system CLI. This is used to\n"
-    "provide the instant-on experience of classic 8-bit computers. Using \"-\" for\n"
-    "the argument will have the system boot into the monitor you are using now.\n"
-    "Setting is saved on the RIA flash.";
 
 static const char __in_flash("helptext") hlp_text_reboot[] =
     "REBOOT will restart the Pi Pico RIA. It does the same thing as pressing a\n"
@@ -181,6 +143,56 @@ static const char __in_flash("helptext") hlp_text_binary[] =
     "bytes and the CRC-32 calculated with a zip library. Then send the binary.\n"
     "You will return to a \"]\" prompt on success or \"?\" error on failure.";
 
+static const char __in_flash("helptext") hlp_text_status[] =
+    "STATUS will list all configurable settings and some system information\n"
+    "including a list of USB devices and their ID. The USB ID is also the drive\n"
+    "number for mass storage devices (MSC). Up to 8 devices are supported.";
+
+static const char __in_flash("helptext") hlp_text_caps[] =
+    "CAPS is intended for software that doesn't recognize lower case, like many\n"
+    "versions of BASIC. This is only in effect while 6502 software is running.\n"
+    "It will translate both USB keyboards and the serial console. Setting is\n"
+    "saved on the RIA flash.\n"
+    "  0 = Normal.\n"
+    "  1 = Inverted. Uppercase is lowered. Lowercase is uppered.\n"
+    "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
+
+static const char __in_flash("helptext") hlp_text_phi2[] =
+    "PHI2 is the 6502 clock speed in kHz. The valid range is 1-8000 but not all\n"
+    "frequencies are available. In that case, the next highest frequency will\n"
+    "be automatically calculated and selected. Faster than the default speed of\n"
+    "4000 kHz (4 MHz) requires \"Advanced CMOS\" glue logic (74ACxx) as well as\n"
+    "overclocking of the Pi Pico RIA, which is handled automatically. The Pi Pico\n"
+    "RIA will run at 240MHz for 8MHz, which is much lower than the 400+ MHz that\n"
+    "it is capable of. Setting is saved on the RIA flash.";
+
+static const char __in_flash("helptext") hlp_text_resb[] =
+    "RESB is the minimum time in milliseconds that the RESB line is held low for\n"
+    "a 6502 reset. This should be left on auto (0) unless you have installed extra\n"
+    "hardware that needs more than 2 cycles of PHI2 while in reset. The range is\n"
+    "0-255ms but beware that large delays will affect loading ROMs. Setting is\n"
+    "saved on the RIA flash.";
+
+static const char __in_flash("helptext") hlp_text_boot[] =
+    "BOOT selects an installed ROM to be automatically loaded and started when the\n"
+    "system is power up or rebooted. For example, you might want the system to\n"
+    "immediately boot into BASIC or an operating system CLI. This is used to\n"
+    "provide the instant-on experience of classic 8-bit computers. Using \"-\" for\n"
+    "the argument will have the system boot into the monitor you are using now.\n"
+    "Setting is saved on the RIA flash.";
+
+static const char __in_flash("helptext") hlp_text_code_page[] =
+    "SET CP selects a code page for system text. The following is supported:\n"
+    "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
+    "866, 869, 932, 936, 949, 950."
+#if RP6502_CODE_PAGE
+#define xstr(s) str(s)
+#define str(s) #s
+    "\nThis is a development build. Only " xstr(RP6502_CODE_PAGE) " is available.";
+#else
+    "";
+#endif
+
 static struct
 {
     size_t cmd_len;
@@ -221,6 +233,7 @@ static struct
     {4, "phi2", hlp_text_phi2},
     {4, "resb", hlp_text_resb},
     {4, "boot", hlp_text_boot},
+    {2, "cp", hlp_text_code_page},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
