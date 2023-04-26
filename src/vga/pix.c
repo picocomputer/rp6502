@@ -148,6 +148,7 @@ void pix_task()
             pix_video_mode(data);
             break;
         case 0xFFF:
+            vga_display(data);
             vga_terminal(true);
             break;
         default:

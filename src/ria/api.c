@@ -6,6 +6,7 @@
 
 #include "api.h"
 #include "com.h"
+#include "cfg.h"
 #include "ria.h"
 #include "fatfs/ff.h"
 #include "mem/regs.h"
@@ -339,7 +340,8 @@ void api_write_stdout(void)
     for (; api_count && uart_is_writable(RIA_UART); --api_count)
     {
         uint8_t ch = *(uint8_t *)api_io_ptr++;
-        if (ch == '\n') {
+        if (ch == '\n')
+        {
             uart_putc_raw(RIA_UART, '\r');
             uart_putc_raw(RIA_UART, ch);
         }
@@ -459,13 +461,7 @@ void api_task()
 void api_stop()
 {
     api_state = API_IDLE;
-    for (unsigned i = 1; i < 7; i++)
-    {
-        while (!ria_pix_ready())
-            ;
-        // TODO send global config bits.
-        ria_pix_send(i, 0xFFF, 0);
-    }
+    cfg_reset_pix();
     for (int i = 0; i < FIL_MAX; i++)
         if (fil_pool[i].obj.fs)
             f_close(&fil_pool[i]);

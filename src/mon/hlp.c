@@ -37,7 +37,9 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
-    "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.";
+    "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
+    "SET CP (cp)         - Query or set code page.\n"
+    "SET VGA (0|1|2)     - Query or set monitor type for VGA output.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
@@ -193,6 +195,15 @@ static const char __in_flash("helptext") hlp_text_code_page[] =
     "";
 #endif
 
+static const char __in_flash("helptext") hlp_text_vga[] =
+    "SET VGA selects the monitor type for VGA output. All resolutions are\n"
+    "supported by all monitor type. Monitor type is used to maintain square\n"
+    "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
+    "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
+    "  0 - 640x480\n"
+    "  1 - 640x480 and 1280x720, 16:9 modes will not letterbox\n"
+    "  2 - 1280x1024, all graphics modes will letterbox";
+
 static struct
 {
     size_t cmd_len;
@@ -234,6 +245,7 @@ static struct
     {4, "resb", hlp_text_resb},
     {4, "boot", hlp_text_boot},
     {2, "cp", hlp_text_code_page},
+    {3, "vga", hlp_text_vga},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 

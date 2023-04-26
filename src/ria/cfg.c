@@ -16,8 +16,8 @@
 // +P8000      | PHI2
 // +C0         | Caps
 // +R0         | RESB
-// +V0         | VGA monitor type
 // +S437       | Code Page
+// +V0         | VGA monitor type
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
@@ -27,6 +27,7 @@ static uint32_t cfg_phi2_khz;
 static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint16_t cfg_code_page;
+static uint8_t cfg_vga;
 
 // Guaranteed setting of FatFs code page.
 // Adapts to compile time options.
@@ -52,6 +53,17 @@ static uint16_t update_code_page(uint16_t cp)
     f_setcp(437);
     return 437;
 #endif
+}
+
+// Reset all PIX with config bits
+void cfg_reset_pix()
+{
+    for (unsigned i = 1; i < 7; i++)
+    {
+        while (!ria_pix_ready())
+            ;
+        ria_pix_send(i, 0xFFF, cfg_get_vga());
+    }
 }
 
 // Optional string can replace boot string
@@ -90,12 +102,14 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+R%d\n"
                                "+C%d\n"
                                "+S%d\n"
+                               "+V%d\n"
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
                                cfg_reset_ms,
                                cfg_caps,
                                cfg_code_page,
+                               cfg_vga,
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -146,6 +160,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
                 break;
             case 'S':
                 cfg_code_page = val;
+                break;
+            case 'V':
+                cfg_vga = val;
                 break;
             default:
                 break;
@@ -205,7 +222,7 @@ uint8_t cfg_get_reset_ms()
 
 void cfg_set_caps(uint8_t mode)
 {
-    if (cfg_caps != mode)
+    if (mode <= 2 && cfg_caps != mode)
     {
         cfg_caps = mode;
         cfg_save_with_boot_opt(NULL);
@@ -230,4 +247,19 @@ void cfg_set_code_page(uint16_t cp)
 uint16_t cfg_get_code_page()
 {
     return cfg_code_page;
+}
+
+void cfg_set_vga(uint8_t disp)
+{
+    if (disp <= 2 && cfg_vga != disp)
+    {
+        cfg_vga = disp;
+        cfg_save_with_boot_opt(NULL);
+        cfg_reset_pix();
+    }
+}
+
+uint8_t cfg_get_vga()
+{
+    return cfg_vga;
 }

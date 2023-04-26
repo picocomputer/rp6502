@@ -173,6 +173,31 @@ static void set_code_page(const char *args, size_t len)
     status_code_page();
 }
 
+static void status_vga()
+{
+    const char *const vga_labels[] = {"640x480", "640x480 and 1280x720", "1280x1024"};
+    printf("VGA : %s\n", vga_labels[cfg_get_vga()]);
+}
+
+static void set_vga(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            cfg_set_vga(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    status_vga();
+}
+
 void set_status(const char *args, size_t len)
 {
     (void)(args);
@@ -183,6 +208,7 @@ void set_status(const char *args, size_t len)
     status_caps();
     status_boot();
     status_code_page();
+    status_vga();
     printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
     dev_print_all();
 }
@@ -199,6 +225,7 @@ static struct
     {4, "resb", set_resb},
     {4, "boot", set_boot},
     {2, "cp", set_code_page},
+    {3, "vga", set_vga},
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
