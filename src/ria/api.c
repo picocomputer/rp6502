@@ -13,6 +13,7 @@
 #include "mem/xram.h"
 #include "mem/xstack.h"
 #include "pico/stdlib.h"
+#include "pico/rand.h"
 
 #define FIL_MAX 16
 FIL fil_pool[FIL_MAX];
@@ -397,12 +398,33 @@ static void api_lseek(void)
 
 static void api_set_xreg()
 {
-    unsigned regno = API_A;
-    uint16_t data = api_sstack_uint16();
+    unsigned devid = API_A;
+    if (xstack_ptr < XSTACK_SIZE - 4 || xstack_ptr > XSTACK_SIZE - 3)
+        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
+    uint16_t reg = xstack[xstack_ptr];
+    xstack_ptr += 2;
+    uint16_t val = api_sstack_uint16();
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    RIA_PIX_PIO->txf[RIA_PIX_SM] = (regno << 16) | data | RIA_PIX_XREG(1);
+    while (!ria_pix_ready())
+        ;
+    ria_pix_send(devid, reg, val);
     return api_return_ax(0);
+}
+
+static void api_phi2()
+{
+    return api_return_ax(cfg_get_phi2_khz());
+}
+
+static void api_codepage()
+{
+    return api_return_ax(cfg_get_code_page());
+}
+
+static void api_rand()
+{
+    return api_return_axsreg(get_rand_32());
 }
 
 void api_task()
@@ -449,6 +471,15 @@ void api_task()
             break;
         case 0x10:
             api_set_xreg();
+            break;
+        case 0x11:
+            api_phi2();
+            break;
+        case 0x12:
+            api_codepage();
+            break;
+        case 0x13:
+            api_rand();
             break;
         default:
             // TODO report an error

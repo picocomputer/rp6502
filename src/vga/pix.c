@@ -122,11 +122,11 @@ static void pix_video_mode(uint16_t mode)
     default:
         vga_terminal(true);
         break;
-    case 0:
+    case 1:
         vga_resolution(vga_320_240);
         vga_terminal(false);
         break;
-    case 1:
+    case 2:
         vga_resolution(vga_320_180);
         vga_terminal(false);
         break;
