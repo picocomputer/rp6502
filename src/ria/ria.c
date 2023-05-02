@@ -19,8 +19,7 @@
 #include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
 
-// Rumbledethumps Interface Adapter for WDC W65C02S.
-// Pi Pico sys clock of 120MHz will run 6502 at 4MHz.
+// RP6502 Interface Adapter for WDC W65C02S.
 
 static absolute_time_t ria_reset_timer;
 static enum state {
