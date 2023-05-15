@@ -29,7 +29,7 @@ void api_reset();
 // How to build an API handler:
 // 1. The last paramater is in API_AX or API_AXSREG.
 // 2. Stack was pushed "in order". Like any top-down stack.
-// 3. Second-to-last parameter may support a "short stack".
+// 3. First parameter may support a "short stack".
 //    e.g. a uint16 is sent for fseek instead of a uint64.
 // 4. Be careful with the stack. Especially returning xstack_ptr.
 // 5. Registers must be refreshed if xram or xstack data changes.
