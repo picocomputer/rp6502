@@ -21,7 +21,7 @@
 // These pins may be freely moved around but PHI2 on 21 is strongly
 // recommended since no other pins support clock_gpio_init().
 #define RIA_PHI2_PIN 21
-#define RIA_RESB_PIN 28
+#define RIA_RESB_PIN 26
 #define RIA_IRQB_PIN 22
 // Use both PIO blocks, constrained by address space
 #define RIA_WRITE_PIO pio0

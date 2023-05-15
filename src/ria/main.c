@@ -8,6 +8,7 @@
 #include "mon/fil.h"
 #include "mon/mon.h"
 #include "ria.h"
+#include "aud.h"
 #include "act.h"
 #include "api.h"
 #include "cfg.h"
@@ -34,6 +35,9 @@ static void main_init()
     // Hello, world.
     puts("\30\33[0m\f\n" RP6502_NAME);
     puts("64K RAM, 64K XRAM\n16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n");
+
+    // Initialize audio system
+    aud_init();
 
     // TinyUSB host support for keyboards,
     // mice, joysticks, and storage devices.

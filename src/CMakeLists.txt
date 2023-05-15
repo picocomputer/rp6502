@@ -48,6 +48,7 @@ target_link_libraries(rp6502_ria PRIVATE
     pico_rand
     hardware_pio
     hardware_dma
+    hardware_pwm
     hardware_flash
     tinyusb_board
     tinyusb_host
@@ -58,6 +59,7 @@ pico_generate_pio_header(rp6502_ria
 )
 
 target_sources(rp6502_ria PRIVATE
+    dev/aud.c
     dev/com.c
     dev/dev.c
     dev/hid_ps4.c
