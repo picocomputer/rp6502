@@ -10,6 +10,7 @@
 #include "hardware/pwm.h"
 #include "hardware/timer.h"
 #include "hardware/irq.h"
+#include "pico/stdlib.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -68,14 +69,13 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
     for (unsigned idx = 0; idx < AUD_CHANNELS; idx++)
     {
         struct channel *this = &chan[idx];
-        enum waveform wave = this->wave;
-
         if (pending[idx].dirty)
         {
             pending[idx].dirty = false;
             memcpy(this, &pending[idx], sizeof(struct channel));
         }
 
+        enum waveform wave = this->wave;
         if (wave <= sine)
         {
             s1x14 r = ((int)this->nco_r * (int)this->clk_r - (int)this->nco_i * (int)this->clk_i) >> 14;
@@ -175,10 +175,6 @@ void aud_init()
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
     float freq = 440.0; // A4
-    // freq = 32.7;    // C1
-    // freq = 65.41;    // C2
-    // freq = 4186.009;    // C8
-    // freq = 2093.005; // C7
     float inc = M_PI * 2 * freq / AUD_RATE;
     s1x14 clk_r = float_to_s1x14(cosf(inc));
     s1x14 clk_i = float_to_s1x14(sinf(inc));
@@ -193,22 +189,75 @@ void aud_init()
         pending[idx].dirty = true;
     }
 
-    // // saw
-    // pending[0].clk_r = float_to_s1x14(2 * freq / AUD_RATE);
-    // pending[0].clk_i = s1x14_1_0;  // up
-    // pending[0].clk_i = -s1x14_1_0; // down
-    // pending[0].wave = saw;
-
-    // // triangle
-    // pending[0].clk_r = float_to_s1x14(4 * freq / AUD_RATE);
-    // pending[0].clk_i = s1x14_1_0; // start up
-    // // pending[0].clk_i = -s1x14_1_0; // start down
-    // pending[0].wave = triangle;
-
-    // // square
-    // pending[0].wave = square;
-
     pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
     irq_set_exclusive_handler(PWM_IRQ_WRAP, audio_pwm_irq_handler);
     irq_set_enabled(PWM_IRQ_WRAP, true);
+}
+
+#define TIMEOUT_MS 1500
+static absolute_time_t timer;
+static unsigned mode;
+
+void aud_task()
+{
+    if (absolute_time_diff_us(get_absolute_time(), timer) < 0)
+    {
+        timer = delayed_by_us(get_absolute_time(),
+                              TIMEOUT_MS * 1500);
+        float freq;
+        freq = 440.0; // A4
+        // freq = 32.7;     // C1
+        // freq = 65.41;    // C2
+        // freq = 2093.005; // C7
+        // freq = 4186.009; // C8
+        float inc = M_PI * 2 * freq / AUD_RATE;
+        s1x14 clk_r = float_to_s1x14(cosf(inc));
+        s1x14 clk_i = float_to_s1x14(sinf(inc));
+
+        switch (mode)
+        {
+        case 0:
+            mode = 1;
+            pending[0].wave = sine;
+            pending[0].nco_r = s1x14_1_0;
+            pending[0].nco_i = s1x14_0_0;
+            pending[0].clk_r = clk_r;
+            pending[0].clk_i = clk_i;
+            pending[0].dirty = true;
+            break;
+        case 1:
+            mode = 2;
+            pending[0].wave = square;
+            pending[0].nco_r = s1x14_1_0;
+            pending[0].nco_i = s1x14_0_0;
+            pending[0].clk_r = clk_r;
+            pending[0].clk_i = clk_i;
+            pending[0].dirty = true;
+            break;
+        case 2:
+            mode = 4; // skip 3
+            pending[0].wave = saw;
+            pending[0].nco_r = s1x14_1_0;
+            pending[0].clk_r = float_to_s1x14(2 * freq / AUD_RATE);
+            pending[0].clk_i = -s1x14_1_0;
+            pending[0].dirty = true;
+            break;
+        case 3:
+            mode = 4;
+            pending[0].wave = saw;
+            pending[0].nco_r = s1x14_1_0;
+            pending[0].clk_r = float_to_s1x14(2 * freq / AUD_RATE);
+            pending[0].clk_i = +s1x14_1_0;
+            pending[0].dirty = true;
+            break;
+        default:
+            mode = 0;
+            pending[0].wave = triangle;
+            pending[0].nco_r = s1x14_1_0;
+            pending[0].clk_r = float_to_s1x14(4 * freq / AUD_RATE);
+            pending[0].clk_i = s1x14_1_0;
+            pending[0].dirty = true;
+            break;
+        }
+    }
 }

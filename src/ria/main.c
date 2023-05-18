@@ -66,6 +66,7 @@ void main_sys_tasks()
     ria_task();
     act_task();
     com_task();
+    aud_task();
 }
 
 // These tasks do not run during FatFs IO.
