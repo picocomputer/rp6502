@@ -24,7 +24,7 @@
 
 void api_task();
 void api_stop();
-void api_reset();
+void api_run();
 
 // How to build an API handler:
 // 1. The last paramater is in API_AX or API_AXSREG.

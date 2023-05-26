@@ -7,7 +7,9 @@
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-void main_sys_tasks();
+void main_run();
+void main_stop();
 void main_break();
+void main_task();
 
 #endif /* _MAIN_H_ */

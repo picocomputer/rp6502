@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "ria/main.h"
+#include "ria/cpu.h"
 #include "sys.h"
 #include "mon.h"
 #include "mem/mbuf.h"
@@ -150,7 +152,7 @@ void sys_reset_6502(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
-    ria_reset();
+    main_run();
 }
 
 void sys_binary(const char *args, size_t len)
@@ -198,7 +200,7 @@ bool sys_rx_handler()
 
 void sys_task()
 {
-    if (ria_is_active())
+    if (cpu_is_active())
         return;
     switch (cmd_state)
     {

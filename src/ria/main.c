@@ -9,9 +9,11 @@
 #include "mon/mon.h"
 #include "ria.h"
 #include "aud.h"
+#include "api.h"
 #include "act.h"
 #include "api.h"
 #include "cfg.h"
+#include "cpu.h"
 #include "mon/rom.h"
 #include "dev/com.h"
 #include "mem/mbuf.h"
@@ -27,29 +29,65 @@
 #error RP6502_NAME must be defined
 #endif
 
-static void main_init()
+static bool is_breaking;
+static enum state {
+    stopped,
+    starting,
+    running,
+    stopping,
+} volatile main_state;
+
+// Run the 6502
+void main_run()
+{
+    if (main_state != running)
+        main_state = starting;
+}
+
+// Stop the 6502
+void main_stop()
+{
+    if (main_state != stopped)
+        main_state = stopping;
+}
+
+// A break is triggered by CTRL-ALT-DEL and UART breaks.
+void main_break()
+{
+    if (main_state == starting)
+        main_state = stopped;
+    if (main_state == running)
+        main_state = stopping;
+    is_breaking = true;
+}
+
+// Device drivers that require initialization should register here.
+// Many things are sensitive to order in obvious ways, like starting
+// the UART before printing. Please list subtleties here.
+static void init()
 {
     // Initialize UART for terminal
     com_init();
 
     // Hello, world.
     puts("\30\33[0m\f\n" RP6502_NAME);
-    puts("64K RAM, 64K XRAM\n16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n");
+    puts("64K RAM, 64K XRAM");
+    puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n");
 
-    // Initialize audio system
+    // Internal systems
     aud_init();
-
-    // TinyUSB host support for keyboards,
-    // mice, joysticks, and storage devices.
     tusb_init();
     hid_init();
-
-    // LittleFS for ROMs and config
     lfs_init();
+
+    // Loading config before we init PHI2 so it will
+    // initially start at user defined speed.
     cfg_load();
 
-    // Interface Adapter to W65C02S
+    // 6502 systems
+    cpu_init();
     ria_init();
+    act_init();
 
     // mbuf has boot string from cfg_load()
     size_t mbuf_len = strlen((char *)mbuf);
@@ -57,43 +95,54 @@ static void main_init()
         rom_load_lfs((char *)mbuf, mbuf_len);
 }
 
-// These tasks run always, even when FatFs is blocking.
-// Calling FatFs in here may cause undefined behavior.
-void main_sys_tasks()
+// This is called to start the 6502.
+static void run()
 {
-    tuh_task();
-    hid_task();
-    ria_task();
-    act_task();
-    com_task();
-    aud_task();
+    api_run();
+    act_run();
+    cpu_run();
 }
 
-// These tasks do not run during FatFs IO.
-// It is safe to call blocking FatFs operations.
-static void main_app_tasks()
+// This is called to stop the 6502.
+static void stop()
 {
-    mon_task();
-    sys_task();
-    fil_task();
-    rom_task();
-    api_task();
+    cpu_stop();
+    act_stop();
+    api_stop();
 }
 
-// This resets all modules and halts the 6502.
-// It is called from CTRL-ALT-DEL and UART breaks.
-// This may be called by main_sys_tasks so no FatFs calls.
-void main_break()
+// This is called by CTRL-ALT-DEL and UART breaks.
+static void reset()
 {
-    ria_stop();
-    act_reset();
-    api_reset();
     com_reset();
     fil_reset();
     mon_reset();
     sys_reset();
     rom_reset();
     puts("\30\33[0m");
+}
+
+// These tasks run always, even when FatFs is blocking.
+// Calling FatFs in here may cause undefined behavior.
+void main_task()
+{
+    cpu_task();
+    ria_task();
+    act_task();
+    com_task();
+    aud_task();
+    tuh_task();
+    hid_task();
+}
+
+// Tasks that call FatFs should be here instead of main_task().
+static void task()
+{
+    mon_task();
+    sys_task();
+    fil_task();
+    rom_task();
+    api_task();
 }
 
 int main()
@@ -108,12 +157,27 @@ int main()
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 #endif
 
-    main_init();
+    init();
 
-    while (1)
+    while (true)
     {
-        main_sys_tasks();
-        main_app_tasks();
+        main_task();
+        task();
+        if (main_state == stopping)
+        {
+            stop();
+            main_state = stopped;
+        }
+        if (main_state == stopped && is_breaking)
+        {
+            reset();
+            is_breaking = false;
+        }
+        if (main_state == starting)
+        {
+            run();
+            main_state = running;
+        }
     }
 
     return 0;

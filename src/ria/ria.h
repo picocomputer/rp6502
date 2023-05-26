@@ -40,12 +40,8 @@
 
 void ria_init();
 void ria_task();
-bool ria_is_active();
 uint32_t ria_set_phi2_khz(uint32_t freq_khz);
 uint32_t ria_get_reset_us();
-void ria_stop();
-void ria_reset();
-void ria_exit();
 bool ria_pix_ready();
 void ria_pix_send(uint8_t ch3, uint16_t hi12, uint16_t lo16);
 

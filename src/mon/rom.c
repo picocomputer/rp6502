@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "ria/main.h"
+#include "ria/cpu.h"
 #include "rom.h"
 #include "str.h"
 #include "ria/cfg.h"
@@ -181,7 +183,7 @@ static void rom_loading()
     {
         rom_state = ROM_IDLE;
         if (rom_FFFC && rom_FFFD)
-            ria_reset();
+            main_run();
         else
             printf("Loaded. No reset vector.\n");
         return;
@@ -379,7 +381,7 @@ bool rom_help_lfs(const char *args, size_t len)
 
 static bool rom_action_is_finished()
 {
-    if (ria_is_active())
+    if (cpu_is_active())
         return false;
     if (act_error_message())
     {

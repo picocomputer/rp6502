@@ -81,7 +81,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 static void wait_for_disk_io(BYTE pdrv)
 {
     while (busy[pdrv])
-        main_sys_tasks();
+        main_task();
 }
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)

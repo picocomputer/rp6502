@@ -5,8 +5,10 @@
  */
 
 #include "api.h"
+#include "act.h"
 #include "com.h"
 #include "cfg.h"
+#include "cpu.h"
 #include "ria.h"
 #include "fatfs/ff.h"
 #include "mem/regs.h"
@@ -429,6 +431,9 @@ static void api_rand()
 
 void api_task()
 {
+    if (!cpu_is_active() || act_in_progress())
+        return;
+
     switch (api_state)
     {
     case API_READ_XRAM:
@@ -498,14 +503,12 @@ void api_stop()
             f_close(&fil_pool[i]);
 }
 
-void api_reset()
+void api_run()
 {
     for (int i = 0; i < 16; i++)
         REGS(i) = 0;
     XRAM_STEP0 = 1;
     XRAM_STEP1 = 1;
     xstack_ptr = XSTACK_SIZE;
-    // TODO this doesn't work here and isn't very important,
-    //       but it'd be nice to have $FFF0-$FFFA initialized for programs.
-    // api_return_errno_axsreg_zxstack(0, 0);
+    api_return_errno_axsreg_zxstack(0, 0);
 }

@@ -7,6 +7,7 @@
 #include "mon/mon.h"
 #include "cfg.h"
 #include "mem/regs.h"
+#include "main.h"
 #include "ria.h"
 #include "act.h"
 #include "api.h"
@@ -20,41 +21,6 @@
 #include <stdio.h>
 
 // RP6502 Interface Adapter for WDC W65C02S.
-
-static absolute_time_t ria_reset_timer;
-static enum state {
-    ria_state_stopped,
-    ria_state_reset,
-    ria_state_run,
-    ria_state_exit
-} volatile ria_state;
-
-// Stop the 6502
-void ria_stop()
-{
-    gpio_put(RIA_RESB_PIN, false);
-    ria_state = ria_state_stopped;
-    ria_reset_timer = delayed_by_us(get_absolute_time(),
-                                    ria_get_reset_us());
-    api_stop();
-}
-
-// Start or reset the 6502
-void ria_reset()
-{
-    if (ria_state != ria_state_stopped)
-        ria_stop();
-    ria_state = ria_state_reset;
-    api_reset();
-}
-
-// This will call ria_stop() in the next task loop.
-// It's a safe way for cpu1 to stop the 6502.
-void ria_exit()
-{
-    gpio_put(RIA_RESB_PIN, false);
-    ria_state = ria_state_exit;
-}
 
 static void ria_write_pio_init()
 {
@@ -175,11 +141,6 @@ void ria_pix_pio_init()
     pio_sm_set_enabled(RIA_PIX_PIO, RIA_PIX_SM, true);
 }
 
-bool ria_is_active()
-{
-    return ria_state != ria_state_stopped;
-}
-
 // Set the 6502 clock frequency. 0=default.
 // Returns quantized actual frequency.
 uint32_t ria_set_phi2_khz(uint32_t freq_khz)
@@ -244,24 +205,12 @@ void ria_init()
         BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
         BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
 
-    // drive reset pin
-    gpio_init(RIA_RESB_PIN);
-    gpio_put(RIA_IRQB_PIN, false);
-    gpio_set_dir(RIA_RESB_PIN, true);
-
-    // drive irq pin
-    gpio_init(RIA_IRQB_PIN);
-    gpio_put(RIA_IRQB_PIN, true);
-    gpio_set_dir(RIA_IRQB_PIN, true);
-
     // the inits
     ria_write_pio_init();
     ria_read_pio_init();
     ria_pix_pio_init();
-    act_pio_init();
     // Force cfg to call ria_set_phi2_khz
     cfg_set_phi2_khz(cfg_get_phi2_khz());
-    ria_stop();
     multicore_launch_core1(act_loop);
 }
 
@@ -277,21 +226,6 @@ void ria_task()
         pio0->fdebug = 0xFF;
         printf("pio0->fdebug: %lX\n", fdebug);
     }
-
-    // Reset timer
-    if (ria_state == ria_state_reset)
-    {
-        absolute_time_t now = get_absolute_time();
-        if (absolute_time_diff_us(now, ria_reset_timer) < 0)
-        {
-            ria_state = ria_state_run;
-            gpio_put(RIA_RESB_PIN, true);
-        }
-    }
-
-    // Stopping event
-    if (ria_state == ria_state_exit)
-        ria_stop();
 }
 
 bool ria_pix_ready()

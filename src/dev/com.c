@@ -8,6 +8,7 @@
 #include "ria/ria.h"
 #include "ria/act.h"
 #include "ria/cfg.h"
+#include "ria/cpu.h"
 #include "com.h"
 #include "pico/stdlib.h"
 
@@ -71,7 +72,7 @@ void com_task()
 
     // We need to keep UART FIFO empty or breaks won't come in.
     // This maintains a buffer and feeds ria_uart_rx_char to the action loop.
-    if (!act_in_progress() && ria_is_active())
+    if (!act_in_progress() && cpu_is_active())
     {
         int ch = getchar_timeout_us(0);
         if (ch >= 0 && &RIA_IN_BUF(ria_in_end + 1) != &RIA_IN_BUF(ria_in_start))

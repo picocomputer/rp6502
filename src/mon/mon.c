@@ -13,7 +13,7 @@
 #include "str.h"
 #include "mem/mbuf.h"
 #include "vga/ansi.h"
-#include "ria/ria.h"
+#include "ria/cpu.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 
@@ -272,7 +272,7 @@ static void mon_rx_binary()
 
 void mon_task()
 {
-    if (ria_is_active() || sys_is_active() || rom_is_active())
+    if (cpu_is_active() || sys_is_active() || rom_is_active())
     {
         needs_prompt = true;
         return;

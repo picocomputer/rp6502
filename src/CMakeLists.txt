@@ -80,6 +80,7 @@ target_sources(rp6502_ria PRIVATE
     ria/act.c
     ria/api.c
     ria/cfg.c
+    ria/cpu.c
     ria/main.c
     ria/ria.c
     fatfs/ff.c
