@@ -27,7 +27,7 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
-    dev
+    ria
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
@@ -67,6 +67,8 @@ target_sources(rp6502_ria PRIVATE
     dev/hid.c
     dev/lfs.c
     dev/msc.c
+    dev/rng.c
+    dev/std.c
     mem/mbuf.c
     mem/xram.c
     mem/xstack.c

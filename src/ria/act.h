@@ -10,6 +10,7 @@
 #define ACT_PIO pio1
 #define ACT_SM 0
 
+#include <stdint.h>
 #include <stdbool.h>
 
 void act_task();

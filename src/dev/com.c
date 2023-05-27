@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
-#include "ria/ria.h"
-#include "ria/act.h"
-#include "ria/cfg.h"
-#include "ria/cpu.h"
+#include "act.h"
+#include "cfg.h"
 #include "com.h"
+#include "cpu.h"
+#include "main.h"
+#include "ria.h"
 #include "pico/stdlib.h"
 
 volatile int ria_uart_rx_char;

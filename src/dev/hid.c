@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "main.h"
 #include "dev.h"
 #include "hid.h"
 #include "vga/ansi.h"
@@ -282,7 +282,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
     else if (has_mouse)
         dev_printf(dev_addr, "HID mouse");
     else
-        dev_printf(dev_addr, "HID %d report%s", other_reports, other_reports==1 ? "" : "s");
+        dev_printf(dev_addr, "HID %d report%s", other_reports, other_reports == 1 ? "" : "s");
 
     hid_receive_report(dev_addr, instance);
 }

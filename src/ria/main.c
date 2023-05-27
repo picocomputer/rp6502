@@ -4,23 +4,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/fil.h"
-#include "mon/mon.h"
-#include "mon/sys.h"
 #include "act.h"
 #include "api.h"
-#include "aud.h"
 #include "cfg.h"
-#include "com.h"
 #include "cpu.h"
-#include "hid.h"
 #include "pix.h"
 #include "ria.h"
+#include "mon/fil.h"
+#include "mon/mon.h"
 #include "mon/rom.h"
-#include "mem/mbuf.h"
+#include "mon/sys.h"
+#include "dev/aud.h"
+#include "dev/com.h"
+#include "dev/hid.h"
 #include "dev/lfs.h"
-#include "pico/stdlib.h"
+#include "dev/rng.h"
+#include "dev/std.h"
+#include "mem/mbuf.h"
 #include "tusb.h"
+#include "pico/stdlib.h"
 #ifdef RASPBERRYPI_PICO_W
 #include "pico/cyw43_arch.h"
 #endif
@@ -114,8 +116,8 @@ static void stop()
 {
     cpu_stop(); // Must be first
     act_stop();
-    api_stop();
     pix_stop();
+    std_stop();
 }
 
 // This is called by CTRL-ALT-DEL and UART breaks.
@@ -167,6 +169,49 @@ static void task()
     fil_task();
     rom_task();
     api_task();
+}
+
+bool main_api(uint8_t operation)
+{
+    switch (operation)
+    {
+    case 0x01:
+        std_api_open();
+        break;
+    case 0x04:
+        std_api_close();
+        break;
+    case 0x05:
+        std_api_read_();
+        break;
+    case 0x06:
+        std_api_readx();
+        break;
+    case 0x08:
+        std_api_write_();
+        break;
+    case 0x09:
+        std_api_writex();
+        break;
+    case 0x0B:
+        std_api_lseek();
+        break;
+    case 0x10:
+        pix_api_set_xreg();
+        break;
+    case 0x11:
+        cpu_api_phi2();
+        break;
+    case 0x12:
+        cfg_api_codepage();
+        break;
+    case 0x13:
+        rng_api_rand();
+        break;
+    default:
+        return false;
+    }
+    return true;
 }
 
 /*********************************/

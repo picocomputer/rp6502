@@ -5,11 +5,11 @@
  */
 
 #include "set.h"
-#include "ria/cfg.h"
-#include "ria/cpu.h"
+#include "cfg.h"
+#include "cpu.h"
 #include "sys.h"
 #include "str.h"
-#include "ria/ria.h"
+#include "ria.h"
 #include "dev/dev.h"
 #include "dev/lfs.h"
 #include <stdio.h>

@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
-#include "ria/cpu.h"
+#include "mon.h"
 #include "rom.h"
 #include "str.h"
-#include "ria/cfg.h"
+#include "act.h"
+#include "pix.h"
+#include "main.h"
+#include "cpu.h"
+#include "cfg.h"
 #include "mem/mbuf.h"
 #include "mem/xram.h"
-#include "ria/act.h"
-#include "ria/pix.h"
-#include "mon.h"
-#include "lfs.h"
+#include "dev/lfs.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
 #include <string.h>

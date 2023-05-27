@@ -22,9 +22,8 @@
 #define API_AX (API_A | (API_X << 8))
 #define API_AXSREG (API_AX | (API_SREG << 16))
 
-void api_task();
-void api_run();
-void api_stop();
+void api_task(void);
+void api_run(void);
 
 // How to build an API handler:
 // 1. The last paramater is in API_AX or API_AXSREG.
@@ -37,12 +36,12 @@ void api_stop();
 
 // Helpers for a "short" stack.
 // success = (xstack_ptr == XSTACK_SIZE)
-uint16_t api_sstack_uint16();
-uint32_t api_sstack_uint32();
-uint64_t api_sstack_uint64();
-int16_t api_sstack_int16();
-int32_t api_sstack_int32();
-int64_t api_sstack_int64();
+uint16_t api_sstack_uint16(void);
+uint32_t api_sstack_uint32(void);
+uint64_t api_sstack_uint64(void);
+int16_t api_sstack_int16(void);
+int32_t api_sstack_int32(void);
+int64_t api_sstack_int64(void);
 
 // Returning data on XRAM or XSTACK requires
 // ensuring the REGS have fresh data.

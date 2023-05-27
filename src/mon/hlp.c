@@ -5,10 +5,10 @@
  */
 
 #include "hlp.h"
-#include "lfs.h"
 #include "rom.h"
 #include "str.h"
 #include "vip.h"
+#include "dev/lfs.h"
 
 static const char __in_flash("helptext") hlp_text_help[] =
     "Commands:\n"

@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api.h"
 #include "cfg.h"
-#include "pix.h"
 #include "cpu.h"
-#include "lfs.h"
+#include "pix.h"
+#include "ria.h"
+#include "dev/lfs.h"
 #include "mon/str.h"
-#include "ria/ria.h"
 #include "mem/mbuf.h"
 #include "fatfs/ff.h"
 
@@ -55,6 +56,12 @@ static uint16_t update_code_page(uint16_t cp)
     f_setcp(437);
     return 437;
 #endif
+}
+
+// TODO mode codepage things out of here
+void cfg_api_codepage()
+{
+    return api_return_ax(cfg_get_code_page());
 }
 
 // Optional string can replace boot string

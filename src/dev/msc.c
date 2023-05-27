@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "main.h"
 #include "dev.h"
 #include "tusb.h"
 #include "fatfs/ff.h"

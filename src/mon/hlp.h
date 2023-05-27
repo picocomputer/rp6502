@@ -9,7 +9,6 @@
 #define _HLP_H_
 
 #include <stddef.h>
-#include <stdbool.h>
 
 void hlp_dispatch(const char *args, size_t len);
 

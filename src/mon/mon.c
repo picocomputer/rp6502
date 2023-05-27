@@ -13,7 +13,7 @@
 #include "str.h"
 #include "mem/mbuf.h"
 #include "vga/ansi.h"
-#include "ria/cpu.h"
+#include "cpu.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 

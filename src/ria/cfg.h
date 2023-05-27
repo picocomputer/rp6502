@@ -11,6 +11,7 @@
 #include <stdbool.h>
 
 void cfg_init();
+void cfg_api_codepage();
 bool cfg_set_phi2_khz(uint32_t freq_khz);
 uint32_t cfg_get_phi2_khz();
 void cfg_set_reset_ms(uint8_t ms);
