@@ -61,9 +61,14 @@ void main_break()
     is_breaking = true;
 }
 
-// Device drivers that require initialization should register here.
-// Many things are sensitive to order in obvious ways, like starting
-// the UART before printing. Please list subtleties here.
+/*************************************/
+/* All kernel modules register here. */
+/*************************************/
+
+// Many things are sensitive to order in obvious ways, like
+// starting the UART before printing. Please list subtleties.
+
+// Only called once.
 static void init()
 {
     // Initialize UART for terminal
@@ -74,22 +79,22 @@ static void init()
     puts("64K RAM, 64K XRAM");
     puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n");
 
-    // Internal systems
-    aud_init();
-    tusb_init();
-    hid_init();
+    // Load config before we init anything
     lfs_init();
+    cfg_init();
 
-    // Loading config before we init PHI2 so it will
-    // initially start at user defined speed.
-    cfg_load();
-
-    // 6502 systems
+    // Misc kernel modules, add yours here
     cpu_init();
+    tusb_init();
+    aud_init();
+    hid_init();
     ria_init();
     act_init();
 
-    // mbuf has boot string from cfg_load()
+    // This triggers main_reclock()
+    cpu_set_phi2_khz(cfg_get_phi2_khz());
+
+    // mbuf has boot string from cfg_init()
     size_t mbuf_len = strlen((char *)mbuf);
     if (mbuf_len)
         rom_load_lfs((char *)mbuf, mbuf_len);
@@ -99,14 +104,14 @@ static void init()
 static void run()
 {
     api_run();
-    act_run();
-    cpu_run();
+    act_run(); // After api_run, may override REGS $FFF0-F9
+    cpu_run(); // Must be last
 }
 
 // This is called to stop the 6502.
 static void stop()
 {
-    cpu_stop();
+    cpu_stop(); // Must be first
     act_stop();
     api_stop();
 }
@@ -144,6 +149,10 @@ static void task()
     rom_task();
     api_task();
 }
+
+/*********************************/
+/* This is the kernel scheduler. */
+/*********************************/
 
 int main()
 {

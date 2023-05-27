@@ -200,7 +200,7 @@ bool sys_rx_handler()
 
 void sys_task()
 {
-    if (cpu_is_active())
+    if (act_in_progress())
         return;
     switch (cmd_state)
     {

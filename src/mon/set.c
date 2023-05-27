@@ -6,6 +6,7 @@
 
 #include "set.h"
 #include "ria/cfg.h"
+#include "ria/cpu.h"
 #include "sys.h"
 #include "str.h"
 #include "ria/ria.h"
@@ -50,7 +51,7 @@ static void set_phi2(const char *args, size_t len)
 static void status_resb()
 {
     uint8_t reset_ms = cfg_get_reset_ms();
-    float reset_us = ria_get_reset_us();
+    float reset_us = cpu_get_reset_us();
     if (!reset_ms)
         printf("RESB: %.3f ms (auto)\n", reset_us / 1000.f);
     else if (reset_ms * 1000 == reset_us)

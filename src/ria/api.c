@@ -414,11 +414,6 @@ static void api_set_xreg()
     return api_return_ax(0);
 }
 
-static void api_phi2()
-{
-    return api_return_ax(cfg_get_phi2_khz());
-}
-
 static void api_codepage()
 {
     return api_return_ax(cfg_get_code_page());
@@ -478,7 +473,7 @@ void api_task()
             api_set_xreg();
             break;
         case 0x11:
-            api_phi2();
+            cpu_api_phi2();
             break;
         case 0x12:
             api_codepage();
@@ -494,6 +489,17 @@ void api_task()
         }
 }
 
+void api_run()
+{
+    // All registers reset to a known state
+    for (int i = 0; i < 16; i++)
+        REGS(i) = 0;
+    XRAM_STEP0 = 1;
+    XRAM_STEP1 = 1;
+    xstack_ptr = XSTACK_SIZE;
+    api_return_errno_axsreg_zxstack(0, 0);
+}
+
 void api_stop()
 {
     api_state = API_IDLE;
@@ -501,14 +507,4 @@ void api_stop()
     for (int i = 0; i < FIL_MAX; i++)
         if (fil_pool[i].obj.fs)
             f_close(&fil_pool[i]);
-}
-
-void api_run()
-{
-    for (int i = 0; i < 16; i++)
-        REGS(i) = 0;
-    XRAM_STEP0 = 1;
-    XRAM_STEP1 = 1;
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg_zxstack(0, 0);
 }

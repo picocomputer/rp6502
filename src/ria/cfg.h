@@ -8,10 +8,11 @@
 #define _CFG_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 void cfg_reset_pix();
-void cfg_load();
-void cfg_set_phi2_khz(uint32_t freq_khz);
+void cfg_init();
+bool cfg_set_phi2_khz(uint32_t freq_khz);
 uint32_t cfg_get_phi2_khz();
 void cfg_set_reset_ms(uint8_t ms);
 uint8_t cfg_get_reset_ms();

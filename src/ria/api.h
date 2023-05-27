@@ -23,8 +23,8 @@
 #define API_AXSREG (API_AX | (API_SREG << 16))
 
 void api_task();
-void api_stop();
 void api_run();
+void api_stop();
 
 // How to build an API handler:
 // 1. The last paramater is in API_AX or API_AXSREG.
@@ -36,7 +36,6 @@ void api_run();
 // 6. Use the return functions always!
 
 // Helpers for a "short" stack.
-// The smaller ones contribute a tiny bit of validation.
 // success = (xstack_ptr == XSTACK_SIZE)
 uint16_t api_sstack_uint16();
 uint32_t api_sstack_uint32();

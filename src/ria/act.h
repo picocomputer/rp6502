@@ -9,7 +9,6 @@
 
 #include <stdbool.h>
 
-void act_loop();
 void act_task();
 bool act_error_message();
 void act_run();

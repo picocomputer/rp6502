@@ -5,17 +5,13 @@
  */
 
 #include "mon/mon.h"
-#include "cfg.h"
 #include "mem/regs.h"
 #include "main.h"
 #include "ria.h"
 #include "act.h"
 #include "api.h"
-#include "dev/com.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
-#include "pico/multicore.h"
-#include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
@@ -141,51 +137,6 @@ void ria_pix_pio_init()
     pio_sm_set_enabled(RIA_PIX_PIO, RIA_PIX_SM, true);
 }
 
-// Set the 6502 clock frequency. 0=default.
-// Returns quantized actual frequency.
-uint32_t ria_set_phi2_khz(uint32_t freq_khz)
-{
-    if (!freq_khz)
-        freq_khz = 4000;
-    uint32_t sys_clk_khz = freq_khz * 30;
-    uint32_t old_sys_clk_hz = clock_get_hz(clk_sys);
-    uint16_t clkdiv_int = 1;
-    uint8_t clkdiv_frac = 0;
-    com_flush();
-    if (sys_clk_khz < 120 * 1000)
-    {
-        // <=4MHz resolution is limited by the divider.
-        sys_clk_khz = 120 * 1000;
-        clkdiv_int = sys_clk_khz / 30 / freq_khz;
-        clkdiv_frac = ((float)sys_clk_khz / 30 / freq_khz - clkdiv_int) * (1u << 8u);
-        set_sys_clock_khz(sys_clk_khz, true);
-    }
-    else
-        // >4MHz will clock the Pi Pico past 120MHz with no divider.
-        while (!set_sys_clock_khz(sys_clk_khz, false))
-            sys_clk_khz += 1;
-    pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
-    pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
-    pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
-    pio_sm_set_clkdiv_int_frac(RIA_PIX_PIO, RIA_PIX_SM, clkdiv_int, clkdiv_frac);
-    if (old_sys_clk_hz != clock_get_hz(clk_sys))
-        com_init();
-    return sys_clk_khz / 30 / (clkdiv_int + clkdiv_frac / 256.f);
-}
-
-// Return calculated reset time. May be higher than requested
-// to guarantee the 6502 gets two clock cycles during reset.
-uint32_t ria_get_reset_us()
-{
-    uint32_t reset_ms = cfg_get_reset_ms();
-    uint32_t phi2_khz = cfg_get_phi2_khz();
-    if (!reset_ms)
-        return (2000000 / phi2_khz + 999) / 1000;
-    if (phi2_khz == 1 && reset_ms == 1)
-        return 2000;
-    return reset_ms * 1000;
-}
-
 void ria_init()
 {
     // safety check for compiler alignment
@@ -209,9 +160,6 @@ void ria_init()
     ria_write_pio_init();
     ria_read_pio_init();
     ria_pix_pio_init();
-    // Force cfg to call ria_set_phi2_khz
-    cfg_set_phi2_khz(cfg_get_phi2_khz());
-    multicore_launch_core1(act_loop);
 }
 
 void ria_task()

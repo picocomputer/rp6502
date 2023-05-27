@@ -16,6 +16,7 @@
 #include "mem/xram.h"
 #include "mem/xstack.h"
 #include "pico/stdlib.h"
+#include "pico/multicore.h"
 #include "hardware/pio.h"
 #include <stdio.h>
 
@@ -50,7 +51,7 @@ void act_run()
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
     action_watchdog_timer = delayed_by_us(get_absolute_time(),
-                                          ria_get_reset_us() +
+                                          cpu_get_reset_us() +
                                               RIA_ACTION_WATCHDOG_MS * 1000);
     switch (action_state)
     {
@@ -109,18 +110,6 @@ void act_stop()
 bool act_in_progress()
 {
     return action_state != action_state_idle;
-}
-
-void act_init()
-{
-    // PIO to supply action loop with events
-    uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
-    pio_sm_config config = ria_action_program_get_default_config(offset);
-    sm_config_set_in_pins(&config, RIA_PIN_BASE);
-    sm_config_set_in_shift(&config, true, true, 32);
-    pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
-    act_stop();
-    pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
 }
 
 void act_task()
@@ -240,7 +229,7 @@ static void act_exit()
 
 #define CASE_READ(addr) (addr & 0x1F)
 #define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
-__attribute__((optimize("O1"))) void act_loop()
+static __attribute__((optimize("O1"))) void act_loop()
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
@@ -389,4 +378,17 @@ __attribute__((optimize("O1"))) void act_loop()
             }
         }
     }
+}
+
+void act_init()
+{
+    // PIO to supply action loop with events
+    uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
+    pio_sm_config config = ria_action_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, RIA_PIN_BASE);
+    sm_config_set_in_shift(&config, true, true, 32);
+    pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
+    act_stop();
+    pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
+    multicore_launch_core1(act_loop);
 }

@@ -5,6 +5,7 @@
  */
 
 #include "cfg.h"
+#include "cpu.h"
 #include "lfs.h"
 #include "mon/str.h"
 #include "ria/ria.h"
@@ -175,7 +176,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
     cfg_code_page = update_code_page(cfg_code_page);
 }
 
-void cfg_load()
+void cfg_init()
 {
     cfg_load_with_boot_opt(false);
 }
@@ -191,12 +192,24 @@ char *cfg_get_boot()
     return (char *)mbuf;
 }
 
-void cfg_set_phi2_khz(uint32_t freq_khz)
+bool cfg_set_phi2_khz(uint32_t freq_khz)
 {
+// Set in in CMakeLists.txt
+#ifndef RP6502_MAX_PHI2
+#define RP6502_MAX_PHI2 8000
+#endif
+    if (freq_khz > RP6502_MAX_PHI2)
+        return false;
     uint32_t old_val = cfg_phi2_khz;
-    cfg_phi2_khz = ria_set_phi2_khz(freq_khz);
+    cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
+    bool ok = true;
     if (old_val != cfg_phi2_khz)
-        cfg_save_with_boot_opt(NULL);
+    {
+        ok = cpu_set_phi2_khz(cfg_phi2_khz);
+        if (ok)
+            cfg_save_with_boot_opt(NULL);
+    }
+    return ok;
 }
 
 // Returns actual 6502 frequency adjusted for quantization.
