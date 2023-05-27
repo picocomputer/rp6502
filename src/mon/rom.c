@@ -11,8 +11,8 @@
 #include "ria/cfg.h"
 #include "mem/mbuf.h"
 #include "mem/xram.h"
-#include "ria/ria.h"
 #include "ria/act.h"
+#include "ria/pix.h"
 #include "mon.h"
 #include "lfs.h"
 #include "fatfs/ff.h"
@@ -393,11 +393,11 @@ static bool rom_action_is_finished()
 
 static bool rom_xram_writing()
 {
-    while (rom_len && ria_pix_ready())
+    while (rom_len && pix_ready())
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
         xram[addr] = mbuf[addr];
-        ria_pix_send(0, mbuf[addr], addr);
+        pix_send(0, 0, mbuf[addr], addr);
     }
     return !!rom_len;
 }

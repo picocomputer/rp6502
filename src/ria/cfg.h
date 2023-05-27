@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void cfg_reset_pix();
 void cfg_init();
 bool cfg_set_phi2_khz(uint32_t freq_khz);
 uint32_t cfg_get_phi2_khz();
@@ -22,7 +21,7 @@ void cfg_set_boot(char *rom);
 char *cfg_get_boot();
 void cfg_set_code_page(uint16_t cp);
 uint16_t cfg_get_code_page();
-void cfg_set_vga(uint8_t disp);
+bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga();
 
 #endif /* _CFG_H_ */

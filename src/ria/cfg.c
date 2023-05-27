@@ -5,6 +5,7 @@
  */
 
 #include "cfg.h"
+#include "pix.h"
 #include "cpu.h"
 #include "lfs.h"
 #include "mon/str.h"
@@ -54,17 +55,6 @@ static uint16_t update_code_page(uint16_t cp)
     f_setcp(437);
     return 437;
 #endif
-}
-
-// Reset all PIX with config bits
-void cfg_reset_pix()
-{
-    for (unsigned i = 1; i < 7; i++)
-    {
-        while (!ria_pix_ready())
-            ;
-        ria_pix_send(i, 0xFFF, cfg_get_vga());
-    }
 }
 
 // Optional string can replace boot string
@@ -262,14 +252,17 @@ uint16_t cfg_get_code_page()
     return cfg_code_page;
 }
 
-void cfg_set_vga(uint8_t disp)
+bool cfg_set_vga(uint8_t disp)
 {
+    bool ok = true;
     if (disp <= 2 && cfg_vga != disp)
     {
         cfg_vga = disp;
-        cfg_save_with_boot_opt(NULL);
-        cfg_reset_pix();
+        ok = pix_set_vga(cfg_vga);
+        if (ok)
+            cfg_save_with_boot_opt(NULL);
     }
+    return ok;
 }
 
 uint8_t cfg_get_vga()

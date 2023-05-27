@@ -28,19 +28,9 @@
 #define RIA_WRITE_SM 0
 #define RIA_READ_PIO pio0
 #define RIA_READ_SM 1
-#define RIA_ACTION_PIO pio1
-#define RIA_ACTION_SM 0
-#define RIA_PIX_PIO pio1
-#define RIA_PIX_SM 1
-
-// Bit 28 always 1, bits [31:29] for payload type
-#define RIA_PIX_XREG(channel) ((channel << 29u) | 0x10000000u)
-#define RIA_PIX_XRAM RIA_PIX_XREG(0)
-#define RIA_PIX_IDLE RIA_PIX_XREG(7)
 
 void ria_init();
 void ria_task();
-bool ria_pix_ready();
-void ria_pix_send(uint8_t ch3, uint16_t hi12, uint16_t lo16);
+void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 #endif /* _RIA_H_ */

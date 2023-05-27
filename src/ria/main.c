@@ -4,20 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/sys.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
-#include "ria.h"
-#include "aud.h"
-#include "api.h"
+#include "mon/sys.h"
 #include "act.h"
 #include "api.h"
+#include "aud.h"
 #include "cfg.h"
+#include "com.h"
 #include "cpu.h"
-#include "mon/rom.h"
-#include "dev/com.h"
-#include "mem/mbuf.h"
 #include "hid.h"
+#include "pix.h"
+#include "ria.h"
+#include "mon/rom.h"
+#include "mem/mbuf.h"
 #include "dev/lfs.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
@@ -90,6 +90,7 @@ static void init()
     hid_init();
     ria_init();
     act_init();
+    pix_init();
 
     // This triggers main_reclock()
     cpu_set_phi2_khz(cfg_get_phi2_khz());
@@ -114,6 +115,7 @@ static void stop()
     cpu_stop(); // Must be first
     act_stop();
     api_stop();
+    pix_stop();
 }
 
 // This is called by CTRL-ALT-DEL and UART breaks.
@@ -125,6 +127,23 @@ static void reset()
     sys_reset();
     rom_reset();
     puts("\30\33[0m");
+}
+
+// Called before any clock change.
+void main_preclock()
+{
+    com_preclock();
+}
+
+// Called once during init then after every clock change.
+void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
+{
+    (void)phi2_khz;
+    (void)sys_clk_khz;
+    com_reclock();
+    ria_reclock(clkdiv_int, clkdiv_frac);
+    act_reclock(clkdiv_int, clkdiv_frac);
+    pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
 // These tasks run always, even when FatFs is blocking.

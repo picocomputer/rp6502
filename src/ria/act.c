@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "ria.h"
+#include "pix.h"
 #include "act.h"
 #include "api.h"
 #include "cpu.h"
@@ -40,7 +41,7 @@ static volatile int32_t rw_end;
 // RIA action has one variable read address.
 static void act_set_watch_address(uint32_t addr)
 {
-    pio_sm_put(RIA_ACTION_PIO, RIA_ACTION_SM, addr & 0x1F);
+    pio_sm_put(ACT_PIO, ACT_SM, addr & 0x1F);
 }
 
 void act_run()
@@ -116,14 +117,14 @@ void act_task()
 {
     // Report unexpected FIFO overflows and underflows
     // TODO needs much improvement
-    uint32_t fdebug = RIA_ACTION_PIO->fdebug;
-    uint32_t masked_fdebug = fdebug & 0x0F0F0F0F;  // reserved
-    masked_fdebug &= ~(1 << (24 + RIA_ACTION_SM)); // expected
-    masked_fdebug &= ~(1 << (24 + RIA_PIX_SM));    // expected
+    uint32_t fdebug = ACT_PIO->fdebug;
+    uint32_t masked_fdebug = fdebug & 0x0F0F0F0F; // reserved
+    masked_fdebug &= ~(1 << (24 + ACT_SM));       // expected
+    masked_fdebug &= ~(1 << (24 + PIX_SM));       // expected
     if (masked_fdebug)
     {
-        RIA_ACTION_PIO->fdebug = 0xFF;
-        printf("RIA_ACTION_PIO->fdebug: %lX\n", fdebug);
+        ACT_PIO->fdebug = 0xFF;
+        printf("ACT_PIO->fdebug: %lX\n", fdebug);
     }
 
     // check on watchdog
@@ -234,9 +235,9 @@ static __attribute__((optimize("O1"))) void act_loop()
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
     {
-        if (!(RIA_ACTION_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACTION_SM))))
+        if (!(ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + ACT_SM))))
         {
-            uint32_t rw_addr_data = RIA_ACTION_PIO->rxf[RIA_ACTION_SM];
+            uint32_t rw_addr_data = ACT_PIO->rxf[ACT_SM];
             if (((1u << RIA_RESB_PIN) & sio_hw->gpio_in))
             {
                 uint32_t data = rw_addr_data & 0xFF;
@@ -312,7 +313,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[XRAM_ADDR1] = data;
-                    RIA_PIX_PIO->txf[RIA_PIX_SM] = XRAM_ADDR1 | (data << 16) | RIA_PIX_XRAM;
+                    PIX_PIO->txf[PIX_SM] = XRAM_ADDR1 | (data << 16) | PIX_XRAM;
                     XRAM_RW0 = xram[XRAM_ADDR0];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
@@ -329,7 +330,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[XRAM_ADDR0] = data;
-                    RIA_PIX_PIO->txf[RIA_PIX_SM] = XRAM_ADDR0 | (data << 16) | RIA_PIX_XRAM;
+                    PIX_PIO->txf[PIX_SM] = XRAM_ADDR0 | (data << 16) | PIX_XRAM;
                     XRAM_RW1 = xram[XRAM_ADDR1];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
@@ -383,12 +384,17 @@ static __attribute__((optimize("O1"))) void act_loop()
 void act_init()
 {
     // PIO to supply action loop with events
-    uint offset = pio_add_program(RIA_ACTION_PIO, &ria_action_program);
+    uint offset = pio_add_program(ACT_PIO, &ria_action_program);
     pio_sm_config config = ria_action_program_get_default_config(offset);
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, true, true, 32);
-    pio_sm_init(RIA_ACTION_PIO, RIA_ACTION_SM, offset, &config);
+    pio_sm_init(ACT_PIO, ACT_SM, offset, &config);
     act_stop();
-    pio_sm_set_enabled(RIA_ACTION_PIO, RIA_ACTION_SM, true);
+    pio_sm_set_enabled(ACT_PIO, ACT_SM, true);
     multicore_launch_core1(act_loop);
+}
+
+void act_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
+{
+    pio_sm_set_clkdiv_int_frac(ACT_PIO, ACT_SM, clkdiv_int, clkdiv_frac);
 }

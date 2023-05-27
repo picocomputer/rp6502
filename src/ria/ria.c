@@ -7,6 +7,7 @@
 #include "mon/mon.h"
 #include "mem/regs.h"
 #include "main.h"
+#include "pix.h"
 #include "ria.h"
 #include "act.h"
 #include "api.h"
@@ -120,23 +121,6 @@ static void ria_read_pio_init()
         true);
 }
 
-void ria_pix_pio_init()
-{
-    uint offset = pio_add_program(RIA_PIX_PIO, &ria_pix_program);
-    pio_sm_config config = ria_pix_program_get_default_config(offset);
-    sm_config_set_out_pins(&config, 0, 4);
-    sm_config_set_out_shift(&config, false, false, 32);
-    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
-    for (int i = 0; i < 4; i++)
-        pio_gpio_init(RIA_PIX_PIO, i);
-    pio_sm_set_consecutive_pindirs(RIA_PIX_PIO, RIA_PIX_SM, 0, 4, true);
-    pio_sm_init(RIA_PIX_PIO, RIA_PIX_SM, offset, &config);
-    pio_sm_put(RIA_PIX_PIO, RIA_PIX_SM, RIA_PIX_IDLE);
-    pio_sm_exec_wait_blocking(RIA_PIX_PIO, RIA_PIX_SM, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(RIA_PIX_PIO, RIA_PIX_SM, pio_encode_mov(pio_x, pio_osr));
-    pio_sm_set_enabled(RIA_PIX_PIO, RIA_PIX_SM, true);
-}
-
 void ria_init()
 {
     // safety check for compiler alignment
@@ -159,7 +143,6 @@ void ria_init()
     // the inits
     ria_write_pio_init();
     ria_read_pio_init();
-    ria_pix_pio_init();
 }
 
 void ria_task()
@@ -176,17 +159,8 @@ void ria_task()
     }
 }
 
-bool ria_pix_ready()
+void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
-    // PIX TX FIFO is joined to be 8 deep.
-    // Need space for the one the caller is about to push
-    // and any that might arrive from the action loop.
-    // TODO The threshold could probably be "<7", need test.
-    return pio_sm_get_tx_fifo_level(RIA_PIX_PIO, RIA_PIX_SM) < 6;
-}
-
-void ria_pix_send(uint8_t ch3, uint16_t hi12, uint16_t lo16)
-{
-    uint32_t data = RIA_PIX_XREG(ch3) | ((hi12 & 0x0FFFu) << 16) | lo16;
-    pio_sm_put(RIA_PIX_PIO, RIA_PIX_SM, data);
+    pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
+    pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
 }

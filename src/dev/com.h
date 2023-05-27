@@ -17,6 +17,7 @@ extern volatile int ria_uart_rx_char;
 void com_task();
 void com_init();
 void com_reset();
-void com_flush();
+void com_preclock();
+void com_reclock();
 
 #endif /* _COM_H_ */

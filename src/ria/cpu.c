@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "cpu.h"
 #include "api.h"
 #include "ria.h"
@@ -115,16 +116,9 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
     cpu_compute_phi2_clocks(phi2_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    com_flush(); // TODO main_preclock
+    main_preclock();
     bool ok = set_sys_clock_khz(sys_clk_khz, false);
     if (ok)
-    {
-        // TODO main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);
-        com_init();
-        pio_sm_set_clkdiv_int_frac(RIA_ACTION_PIO, RIA_ACTION_SM, clkdiv_int, clkdiv_frac);
-        pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
-        pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
-        pio_sm_set_clkdiv_int_frac(RIA_PIX_PIO, RIA_PIX_SM, clkdiv_int, clkdiv_frac);
-    }
+        main_reclock(phi2_khz, sys_clk_khz, clkdiv_int, clkdiv_frac);
     return ok;
 }

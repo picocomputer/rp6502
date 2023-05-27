@@ -13,6 +13,7 @@
 #include "ria/ria.h"
 #include "str.h"
 #include "ria/act.h"
+#include "ria/pix.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"
@@ -131,9 +132,7 @@ void sys_address(const char *args, size_t len)
         for (size_t i = 0; i < mbuf_len; i++)
         {
             xram[rw_addr + i] = mbuf[i];
-            while (!ria_pix_ready())
-                ;
-            ria_pix_send(0, mbuf[i], rw_addr + i);
+            pix_send_blocking(0, 0, mbuf[i], rw_addr + i);
         }
         return;
     }

@@ -20,24 +20,30 @@ static uint8_t ria_in_buf[32];
 
 void com_init()
 {
-    stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE,
-                         RIA_UART_TX_PIN, RIA_UART_RX_PIN);
-    com_reset();
+    com_reclock();
 }
 
 void com_reset()
 {
     ria_uart_rx_char = -1;
     ria_in_start = ria_in_end = 0;
-    com_flush();
+    com_preclock();
 }
 
-void com_flush()
+void com_preclock()
 {
+    // flush every buffer
     while (getchar_timeout_us(0) >= 0)
         tight_loop_contents();
     while (!(uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFE_BITS))
         tight_loop_contents();
+}
+
+void com_reclock()
+{
+    stdio_uart_init_full(RIA_UART, RIA_UART_BAUD_RATE,
+                         RIA_UART_TX_PIN, RIA_UART_RX_PIN);
+    com_reset();
 }
 
 // Do a caps conversion with current setting

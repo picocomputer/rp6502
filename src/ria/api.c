@@ -9,6 +9,7 @@
 #include "com.h"
 #include "cfg.h"
 #include "cpu.h"
+#include "pix.h"
 #include "ria.h"
 #include "fatfs/ff.h"
 #include "mem/regs.h"
@@ -281,8 +282,8 @@ err_param:
 
 static void api_read_xram()
 {
-    for (; api_count && ria_pix_ready(); --api_count, ++api_xaddr)
-        ria_pix_send(0, xstack[api_xaddr], api_xaddr);
+    for (; api_count && pix_ready(); --api_count, ++api_xaddr)
+        pix_send(0, 0, xstack[api_xaddr], api_xaddr);
     if (!api_count)
     {
         api_state = API_IDLE;
@@ -398,22 +399,6 @@ static void api_lseek(void)
     return api_return_axsreg(pos);
 }
 
-static void api_set_xreg()
-{
-    unsigned devid = API_A;
-    if (xstack_ptr < XSTACK_SIZE - 4 || xstack_ptr > XSTACK_SIZE - 3)
-        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    uint16_t reg = xstack[xstack_ptr];
-    xstack_ptr += 2;
-    uint16_t val = api_sstack_uint16();
-    if (xstack_ptr != XSTACK_SIZE)
-        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    while (!ria_pix_ready())
-        ;
-    ria_pix_send(devid, reg, val);
-    return api_return_ax(0);
-}
-
 static void api_codepage()
 {
     return api_return_ax(cfg_get_code_page());
@@ -470,7 +455,7 @@ void api_task()
             api_lseek();
             break;
         case 0x10:
-            api_set_xreg();
+            pix_api_set_xreg();
             break;
         case 0x11:
             cpu_api_phi2();
@@ -503,7 +488,6 @@ void api_run()
 void api_stop()
 {
     api_state = API_IDLE;
-    cfg_reset_pix();
     for (int i = 0; i < FIL_MAX; i++)
         if (fil_pool[i].obj.fs)
             f_close(&fil_pool[i]);

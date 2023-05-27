@@ -83,6 +83,7 @@ target_sources(rp6502_ria PRIVATE
     ria/cfg.c
     ria/cpu.c
     ria/main.c
+    ria/pix.c
     ria/ria.c
     fatfs/ff.c
     fatfs/ffunicode.c
