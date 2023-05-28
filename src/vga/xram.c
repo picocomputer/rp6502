@@ -6,18 +6,12 @@
 
 #include "xram.h"
 
-#ifdef PROJECT_NAME
-#endif
-
 #ifdef NDEBUG
 uint8_t xram[0x10000]
-#ifdef VIDEO_DPI
     __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.xram")))
-#endif
-    ;
+    __attribute__((section(".uninitialized_data.xram")));
 #else
-struct Xram
+struct
 {
     uint8_t _0[0x1000];
     uint8_t _1[0x1000];
@@ -38,10 +32,7 @@ struct Xram
     // this struct of 4KB segments is because
     // a single 64KB array crashes my debugger
 } xram_blocks
-#ifdef VIDEO_DPI
     __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.xram")))
-#endif
-    ;
+    __attribute__((section(".uninitialized_data.xram")));
 uint8_t *const xram = (uint8_t *)&xram_blocks;
 #endif

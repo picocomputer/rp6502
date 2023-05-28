@@ -4,16 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
+#include "act.h"
 #include "cpu.h"
-#include "sys.h"
+#include "main.h"
+#include "mem.h"
 #include "mon.h"
-#include "mem/mbuf.h"
-#include "mem/xram.h"
+#include "pix.h"
 #include "ria.h"
 #include "str.h"
-#include "act.h"
-#include "pix.h"
+#include "sys.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"

@@ -8,10 +8,10 @@
 #include "sys.h"
 #include "hlp.h"
 #include "fil.h"
+#include "mem.h"
 #include "rom.h"
 #include "set.h"
 #include "str.h"
-#include "mem/mbuf.h"
 #include "vga/ansi.h"
 #include "cpu.h"
 #include <stdio.h>

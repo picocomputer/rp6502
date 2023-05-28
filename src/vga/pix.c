@@ -7,7 +7,7 @@
 #include "pix.h"
 #include "vga.h"
 #include "pix.pio.h"
-#include "mem/xram.h"
+#include "xram.h"
 #include "hardware/dma.h"
 #include <stdio.h>
 

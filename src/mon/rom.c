@@ -10,10 +10,9 @@
 #include "act.h"
 #include "pix.h"
 #include "main.h"
+#include "mem.h"
 #include "cpu.h"
 #include "cfg.h"
-#include "mem/mbuf.h"
-#include "mem/xram.h"
 #include "dev/lfs.h"
 #include "fatfs/ff.h"
 #include <stdio.h>

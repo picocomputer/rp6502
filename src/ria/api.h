@@ -7,10 +7,7 @@
 #ifndef _API_H_
 #define _API_H_
 
-#include "mem/regs.h"
-#include "mem/xram.h"
-#include "mem/xstack.h"
-#include <stdint.h>
+#include "mem.h"
 
 #define API_OP REGS(0xFFEF)
 #define API_ERRNO REGSW(0xFFED)

@@ -69,9 +69,6 @@ target_sources(rp6502_ria PRIVATE
     dev/msc.c
     dev/rng.c
     dev/std.c
-    mem/mbuf.c
-    mem/xram.c
-    mem/xstack.c
     mon/fil.c
     mon/hlp.c
     mon/mon.c
@@ -85,6 +82,7 @@ target_sources(rp6502_ria PRIVATE
     ria/cfg.c
     ria/cpu.c
     ria/main.c
+    ria/mem.c
     ria/pix.c
     ria/ria.c
     fatfs/ff.c
@@ -108,11 +106,11 @@ target_include_directories(rp6502_vga PRIVATE
 )
 
 target_sources(rp6502_vga PRIVATE
-    mem/xram.c
     vga/main.c
     vga/pix.c
     vga/term.c
     vga/vga.c
+    vga/xram.c
     probe/led.c
     probe/probe.c
     probe/cdc_uart.c

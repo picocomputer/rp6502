@@ -5,7 +5,6 @@
  */
 
 #include "mon/mon.h"
-#include "mem/regs.h"
 #include "main.h"
 #include "pix.h"
 #include "ria.h"

@@ -12,10 +12,6 @@
 #include "cpu.h"
 #include "dev/com.h"
 #include "ria.pio.h"
-#include "mem/regs.h"
-#include "mem/mbuf.h"
-#include "mem/xram.h"
-#include "mem/xstack.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/pio.h"
@@ -316,7 +312,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[XRAM_ADDR1] = data;
-                    PIX_PIO->txf[PIX_SM] = XRAM_ADDR1 | (data << 16) | PIX_XRAM;
+                    PIX_PIO->txf[PIX_SM] = PIX_XRAM(XRAM_ADDR1, data);
                     XRAM_RW0 = xram[XRAM_ADDR0];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
@@ -333,7 +329,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[XRAM_ADDR0] = data;
-                    PIX_PIO->txf[PIX_SM] = XRAM_ADDR0 | (data << 16) | PIX_XRAM;
+                    PIX_PIO->txf[PIX_SM] = PIX_XRAM(XRAM_ADDR0, data);
                     XRAM_RW1 = xram[XRAM_ADDR1];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0

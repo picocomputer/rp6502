@@ -21,10 +21,10 @@ void pix_api_set_xreg();
 #define PIX_PIO pio1
 #define PIX_SM 1
 
-// Bit 28 always 1, bits [31:29] for payload type
-#define PIX_XREG(channel) ((channel << 29u) | 0x10000000u)
-#define PIX_XRAM PIX_XREG(0)
-#define PIX_IDLE PIX_XREG(7)
+// Bit 28 always 1, bits [31:29] for device id
+#define PIX_CHANNEL(channel) ((channel << 29u) | 0x10000000u)
+#define PIX_XRAM(addr, data) (PIX_CHANNEL(0) | ((data) << 16) | (addr))
+#define PIX_IDLE() (PIX_CHANNEL(7))
 
 static inline bool pix_ready()
 {
@@ -34,7 +34,7 @@ static inline bool pix_ready()
 
 static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
-    uint32_t data = PIX_XREG(dev3) | ((ch4 & 0xFu) << 24) | ((byte & 0xFFu) << 16) | word;
+    uint32_t data = PIX_CHANNEL(dev3) | ((ch4 & 0xFu) << 24) | ((byte & 0xFFu) << 16) | word;
     pio_sm_put(PIX_PIO, PIX_SM, data);
 }
 

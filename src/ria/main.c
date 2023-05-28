@@ -20,7 +20,6 @@
 #include "dev/lfs.h"
 #include "dev/rng.h"
 #include "dev/std.h"
-#include "mem/mbuf.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
 #ifdef RASPBERRYPI_PICO_W
@@ -56,10 +55,6 @@ void main_stop()
 // A break is triggered by CTRL-ALT-DEL and UART breaks.
 void main_break()
 {
-    if (main_state == starting)
-        main_state = stopped;
-    if (main_state == running)
-        main_state = stopping;
     is_breaking = true;
 }
 
@@ -248,20 +243,27 @@ int main()
     {
         main_task();
         task();
-        if (main_state == stopping)
+        if (is_breaking)
         {
-            stop();
-            main_state = stopped;
-        }
-        if (main_state == stopped && is_breaking)
-        {
-            reset();
-            is_breaking = false;
+            if (main_state == starting)
+                main_state = stopped;
+            if (main_state == running)
+                main_state = stopping;
         }
         if (main_state == starting)
         {
             run();
             main_state = running;
+        }
+        if (main_state == stopping)
+        {
+            stop();
+            main_state = stopped;
+        }
+        if (is_breaking)
+        {
+            reset();
+            is_breaking = false;
         }
     }
 

@@ -11,7 +11,6 @@
 #include "ria.h"
 #include "dev/lfs.h"
 #include "mon/str.h"
-#include "mem/mbuf.h"
 #include "fatfs/ff.h"
 
 // Configuration is a plain ASCII file on the LFS. e.g.
