@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "act.h"
 #include "api.h"
 #include "cfg.h"
 #include "cpu.h"
@@ -19,7 +18,7 @@ static bool is_running;
 
 bool cpu_is_running()
 {
-    return is_running && !act_in_progress();
+    return is_running && !ria_is_running();
 }
 
 void cpu_run()
@@ -85,8 +84,9 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz, uint32_t *sys_clk_khz, ui
     if (*sys_clk_khz < 120 * 1000)
     {
         *sys_clk_khz = 120 * 1000;
-        *clkdiv_int = *sys_clk_khz / 30 / freq_khz;
-        *clkdiv_frac = (uint8_t)(*sys_clk_khz / 30.f / freq_khz - (float)*clkdiv_int) * (1u << 8u);
+        float clkdiv = 120000.f / 30.f / freq_khz;
+        *clkdiv_int = clkdiv;
+        *clkdiv_frac = (clkdiv - *clkdiv_int) * (1u << 8u);
     }
     else
     {

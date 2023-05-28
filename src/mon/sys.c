@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "act.h"
 #include "cpu.h"
 #include "main.h"
 #include "mem.h"
@@ -35,7 +34,7 @@ static absolute_time_t watchdog;
 static void cmd_ria_read()
 {
     cmd_state = SYS_IDLE;
-    if (act_error_message())
+    if (ria_print_error_message())
         return;
     printf("%04lX", rw_addr);
     for (size_t i = 0; i < mbuf_len; i++)
@@ -46,16 +45,16 @@ static void cmd_ria_read()
 static void cmd_ria_write()
 {
     cmd_state = SYS_IDLE;
-    if (act_error_message())
+    if (ria_print_error_message())
         return;
     cmd_state = SYS_VERIFY;
-    act_ram_verify(rw_addr);
+    ria_verify_mbuf(rw_addr);
 }
 
 static void cmd_ria_verify()
 {
     cmd_state = SYS_IDLE;
-    act_error_message();
+    ria_print_error_message();
 }
 
 // Commands that start with a hex address. Read or write memory.
@@ -92,7 +91,7 @@ void sys_address(const char *args, size_t len)
             printf("\n");
             return;
         }
-        act_ram_read(rw_addr);
+        ria_read_mbuf(rw_addr);
         cmd_state = SYS_READ;
         return;
     }
@@ -135,7 +134,7 @@ void sys_address(const char *args, size_t len)
         }
         return;
     }
-    act_ram_write(rw_addr);
+    ria_write_mbuf(rw_addr);
     cmd_state = SYS_WRITE;
 }
 
@@ -186,7 +185,7 @@ bool sys_rx_handler()
     if (mbuf_crc32() == rw_crc)
     {
         cmd_state = SYS_WRITE;
-        act_ram_write(rw_addr);
+        ria_write_mbuf(rw_addr);
     }
     else
     {
@@ -198,7 +197,7 @@ bool sys_rx_handler()
 
 void sys_task()
 {
-    if (act_in_progress())
+    if (ria_is_running())
         return;
     switch (cmd_state)
     {

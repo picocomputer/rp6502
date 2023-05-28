@@ -7,13 +7,11 @@
 
 .program ria_pix
 
-.wrap_target
 pull ifempty noblock
 wait 1 gpio 21 [6]
 out pins 4
 wait 0 gpio 21 [6]
 out pins 4
-.wrap
 
 
 ; Action sends a FIFO message for every write.

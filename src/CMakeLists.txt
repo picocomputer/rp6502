@@ -77,7 +77,6 @@ target_sources(rp6502_ria PRIVATE
     mon/str.c
     mon/sys.c
     mon/vip.c
-    ria/act.c
     ria/api.c
     ria/cfg.c
     ria/cpu.c

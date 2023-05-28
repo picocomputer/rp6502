@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "act.h"
 #include "api.h"
 #include "cfg.h"
 #include "cpu.h"
@@ -48,6 +47,8 @@ void main_run()
 // Stop the 6502
 void main_stop()
 {
+    if (main_state == starting)
+        main_state = stopped;
     if (main_state != stopped)
         main_state = stopping;
 }
@@ -82,12 +83,11 @@ static void init()
 
     // Misc kernel modules, add yours here
     cpu_init();
-    tusb_init();
-    aud_init();
-    hid_init();
     ria_init();
-    act_init();
     pix_init();
+    aud_init();
+    tusb_init();
+    hid_init();
 
     // This triggers main_reclock()
     cpu_set_phi2_khz(cfg_get_phi2_khz());
@@ -102,7 +102,7 @@ static void init()
 static void run()
 {
     api_run();
-    act_run(); // After api_run, may override REGS $FFF0-F9
+    ria_run(); // Must be before cpu
     cpu_run(); // Must be last
 }
 
@@ -110,7 +110,7 @@ static void run()
 static void stop()
 {
     cpu_stop(); // Must be first
-    act_stop();
+    ria_stop();
     pix_stop();
     std_stop();
 }
@@ -139,7 +139,6 @@ void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, 
     (void)sys_clk_khz;
     com_reclock();
     ria_reclock(clkdiv_int, clkdiv_frac);
-    act_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
@@ -149,8 +148,6 @@ void main_task()
 {
     cpu_task();
     ria_task();
-    act_task();
-    com_task();
     aud_task();
     tuh_task();
     hid_task();
@@ -164,6 +161,7 @@ static void task()
     fil_task();
     rom_task();
     api_task();
+    com_task();
 }
 
 // PIX writes to the RIA will notify here.

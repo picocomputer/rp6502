@@ -12,13 +12,17 @@
 
 #define CPU_RESB_PIN 26
 #define CPU_IRQB_PIN 22
+#define CPU_PHI2_PIN 21
 
 void cpu_run();
 void cpu_stop();
 void cpu_init();
 void cpu_task();
-bool cpu_is_running();
 void cpu_api_phi2();
+
+// True if the CPU is running a program.
+// This will be false when ria_is_running.
+bool cpu_is_running();
 
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz);
 bool cpu_set_phi2_khz(uint32_t freq_khz);

@@ -18,10 +18,17 @@
 #define RIA_RWB_PIN (RIA_PIN_BASE + 1)
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10)
-#define RIA_PHI2_PIN 21
 
 void ria_init();
-void ria_task();
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
+void ria_task();
+void ria_run();
+void ria_stop();
+
+void ria_read_mbuf(uint16_t addr);
+void ria_write_mbuf(uint16_t addr);
+void ria_verify_mbuf(uint16_t addr);
+bool ria_is_running();
+bool ria_print_error_message();
 
 #endif /* _RIA_H_ */

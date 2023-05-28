@@ -7,7 +7,6 @@
 #include "mon.h"
 #include "rom.h"
 #include "str.h"
-#include "act.h"
 #include "pix.h"
 #include "main.h"
 #include "mem.h"
@@ -199,7 +198,7 @@ static void rom_loading()
         else
         {
             rom_state = ROM_RIA_WRITING;
-            act_ram_write(rom_addr);
+            ria_write_mbuf(rom_addr);
         }
     }
 }
@@ -380,9 +379,9 @@ bool rom_help_lfs(const char *args, size_t len)
 
 static bool rom_action_is_finished()
 {
-    if (act_in_progress())
+    if (ria_is_running())
         return false;
-    if (act_error_message())
+    if (ria_print_error_message())
     {
         rom_state = ROM_IDLE;
         return false;
@@ -418,7 +417,7 @@ void rom_task()
         if (rom_action_is_finished())
         {
             rom_state = ROM_RIA_VERIFYING;
-            act_ram_verify(rom_addr);
+            ria_verify_mbuf(rom_addr);
         }
         break;
     case ROM_RIA_VERIFYING:

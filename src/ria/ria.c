@@ -5,23 +5,369 @@
  */
 
 #include "mon/mon.h"
+#include "api.h"
+#include "cpu.h"
 #include "main.h"
 #include "pix.h"
 #include "ria.h"
-#include "act.h"
-#include "api.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
+#include "dev/com.h"
+#include "pico/multicore.h"
 #include <stdio.h>
 
 // RP6502 Interface Adapter for WDC W65C02S.
+
+// This is the smallest value that will
+// allow 1k read/write operations at 50 kHz.
+#define RIA_WATCHDOG_MS 250
 
 #define RIA_WRITE_PIO pio0
 #define RIA_WRITE_SM 0
 #define RIA_READ_PIO pio0
 #define RIA_READ_SM 1
+#define RIA_ACT_PIO pio1
+#define RIA_ACT_SM 0
+
+static enum state {
+    action_state_idle = 0,
+    action_state_read,
+    action_state_write,
+    action_state_verify,
+} volatile action_state = action_state_idle;
+static absolute_time_t action_watchdog_timer;
+static volatile int32_t action_result = -1;
+static int32_t saved_reset_vec = -1;
+static uint16_t rw_addr;
+static volatile int32_t rw_pos;
+static volatile int32_t rw_end;
+
+// RIA action has one variable read address.
+static void act_set_watch_address(uint32_t addr)
+{
+    pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, addr & 0x1F);
+}
+
+void ria_run()
+{
+    act_set_watch_address(0xFFE2);
+    if (action_state == action_state_idle)
+        return;
+    action_result = -1;
+    saved_reset_vec = REGSW(0xFFFC);
+    REGSW(0xFFFC) = 0xFFF0;
+    action_watchdog_timer = delayed_by_us(get_absolute_time(),
+                                          cpu_get_reset_us() +
+                                              RIA_WATCHDOG_MS * 1000);
+    switch (action_state)
+    {
+    case action_state_write:
+        // Self-modifying fast load
+        // FFF0  A9 00     LDA #$00
+        // FFF2  8D 00 00  STA $0000
+        // FFF5  80 F9     BRA $FFF0
+        // FFF7  80 FE     BRA $FFF7
+        act_set_watch_address(0xFFF6);
+        REGS(0xFFF0) = 0xA9;
+        REGS(0xFFF1) = mbuf[0];
+        REGS(0xFFF2) = 0x8D;
+        REGS(0xFFF3) = rw_addr & 0xFF;
+        REGS(0xFFF4) = rw_addr >> 8;
+        REGS(0xFFF5) = 0x80;
+        REGS(0xFFF6) = 0xF9;
+        REGS(0xFFF7) = 0x80;
+        REGS(0xFFF8) = 0xFE;
+        break;
+    case action_state_read:
+    case action_state_verify:
+        // Self-modifying fast load
+        // FFF0  AD 00 00  LDA $0000
+        // FFF3  8D FC FF  STA $FFFC/$FFFD
+        // FFF6  80 F8     BRA $FFF0
+        REGS(0xFFF0) = 0xAD;
+        REGS(0xFFF1) = rw_addr & 0xFF;
+        REGS(0xFFF2) = rw_addr >> 8;
+        REGS(0xFFF3) = 0x8D;
+        REGS(0xFFF4) = (action_state == action_state_verify) ? 0xFC : 0xFD;
+        REGS(0xFFF5) = 0xFF;
+        REGS(0xFFF6) = 0x80;
+        REGS(0xFFF7) = 0xF8;
+        break;
+    default:
+        break;
+    }
+}
+
+void ria_stop()
+{
+    action_state = action_state_idle;
+    if (saved_reset_vec >= 0)
+    {
+        REGSW(0xFFFC) = saved_reset_vec;
+        saved_reset_vec = -1;
+    }
+}
+
+bool ria_is_running()
+{
+    return action_state != action_state_idle;
+}
+
+void ria_task()
+{
+    // check on watchdog
+    if (ria_is_running())
+    {
+        absolute_time_t now = get_absolute_time();
+        if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
+        {
+            action_result = -2;
+            main_stop();
+        }
+    }
+}
+
+bool ria_print_error_message()
+{
+    switch (action_result)
+    {
+    case -1: // OK
+        return false;
+        break;
+    case -2:
+        printf("?watchdog timeout\n");
+        break;
+    default:
+        printf("?verify failed at $%04lX\n", action_result);
+        break;
+    }
+    return true;
+}
+
+void ria_read_mbuf(uint16_t addr)
+{
+    assert(!cpu_is_running());
+    // avoid forbidden areas
+    uint16_t len = mbuf_len;
+    while (len && (addr + len > 0xFFFA))
+        if (addr + --len <= 0xFFFF)
+            mbuf[len] = REGS(addr + len);
+        else
+            mbuf[len] = 0;
+    while (len && (addr + len > 0xFF00))
+        if (addr + --len <= 0xFFFF)
+            mbuf[len] = 0;
+    if (!len)
+        return;
+    rw_addr = addr;
+    rw_end = len;
+    rw_pos = 0;
+    action_state = action_state_read;
+    main_run();
+}
+
+void ria_verify_mbuf(uint16_t addr)
+{
+    assert(!cpu_is_running());
+    // avoid forbidden areas
+    action_result = -1;
+    uint16_t len = mbuf_len;
+    while (len && (addr + len > 0xFFFA))
+        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
+            action_result = addr + len;
+    while (len && (addr + len > 0xFF00))
+        --len;
+    if (!len || action_result != -1)
+        return;
+    rw_addr = addr;
+    rw_end = len;
+    rw_pos = 0;
+    action_state = action_state_verify;
+    main_run();
+}
+
+void ria_write_mbuf(uint16_t addr)
+{
+    assert(!cpu_is_running());
+    // avoid forbidden area
+    uint16_t len = mbuf_len;
+    while (len && (addr + len > 0xFFFA))
+        if (addr + --len <= 0xFFFF)
+            REGS(addr + len) = mbuf[len];
+    while (len && (addr + len > 0xFF00))
+        len--;
+    if (!len)
+        return;
+    rw_addr = addr;
+    rw_end = len;
+    // Evil hack because the first few writes with
+    // a slow clock (1 kHz) won't actually write to SRAM.
+    // This should be investigated further.
+    rw_pos = -2;
+    action_state = action_state_write;
+    main_run();
+}
+
+#define CASE_READ(addr) (addr & 0x1F)
+#define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
+static __attribute__((optimize("O1"))) void act_loop()
+{
+    // In here we bypass the usual SDK calls as needed for performance.
+    while (true)
+    {
+        if (!(RIA_ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACT_SM))))
+        {
+            uint32_t rw_addr_data = RIA_ACT_PIO->rxf[RIA_ACT_SM];
+            if (((1u << CPU_RESB_PIN) & sio_hw->gpio_in))
+            {
+                uint32_t data = rw_addr_data & 0xFF;
+                switch (rw_addr_data >> 8)
+                {
+                case CASE_READ(0xFFF6): // action write
+                    if (rw_pos < rw_end)
+                    {
+                        if (rw_pos > 0)
+                        {
+                            REGS(0xFFF1) = mbuf[rw_pos];
+                            REGSW(0xFFF3) += 1;
+                        }
+                        if (++rw_pos == rw_end)
+                            REGS(0xFFF6) = 0x00;
+                    }
+                    else
+                    {
+                        gpio_put(CPU_RESB_PIN, false);
+                        main_stop();
+                    }
+                    break;
+                case CASE_WRITE(0xFFFD): // action read
+                    if (rw_pos < rw_end)
+                    {
+                        REGSW(0xFFF1) += 1;
+                        mbuf[rw_pos] = data;
+                        if (++rw_pos == rw_end)
+                        {
+                            gpio_put(CPU_RESB_PIN, false);
+                            main_stop();
+                        }
+                    }
+                    break;
+                case CASE_WRITE(0xFFFC): // action verify
+                    if (rw_pos < rw_end)
+                    {
+                        REGSW(0xFFF1) += 1;
+                        if (mbuf[rw_pos] != data && action_result < 0)
+                            action_result = REGSW(0xFFF1) - 1;
+                        if (++rw_pos == rw_end)
+                        {
+                            gpio_put(CPU_RESB_PIN, false);
+                            main_stop();
+                        }
+                    }
+                    break;
+                case CASE_WRITE(0xFFEF): // OS function call
+                    api_return_blocked();
+                    if (data == 0x00) // zxstack()
+                    {
+                        xstack_ptr = XSTACK_SIZE;
+                        API_STACK = xstack[xstack_ptr];
+                        api_return_ax(0);
+                    }
+                    else if (data == 0xFF) // exit()
+                    {
+                        gpio_put(CPU_RESB_PIN, false);
+                        main_stop();
+                    }
+                    break;
+                case CASE_WRITE(0xFFEC): // xstack
+                    if (xstack_ptr)
+                        xstack[--xstack_ptr] = data;
+                    API_STACK = xstack[xstack_ptr];
+                    break;
+                case CASE_READ(0xFFEC): // xstack
+                    if (xstack_ptr < XSTACK_SIZE)
+                        ++xstack_ptr;
+                    API_STACK = xstack[xstack_ptr];
+                    break;
+                case CASE_WRITE(0xFFEB): // Set XRAM >ADDR1
+                    REGS(0xFFEB) = data;
+                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    break;
+                case CASE_WRITE(0xFFEA): // Set XRAM <ADDR1
+                    REGS(0xFFEA) = data;
+                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    break;
+                case CASE_WRITE(0xFFE8): // W XRAM1
+                    xram[XRAM_ADDR1] = data;
+                    PIX_PIO->txf[PIX_SM] = PIX_XRAM(XRAM_ADDR1, data);
+                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    __attribute__((fallthrough));
+                case CASE_READ(0xFFE8): // R XRAM1
+                    XRAM_ADDR1 += XRAM_STEP1;
+                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    break;
+                case CASE_WRITE(0xFFE7): // Set XRAM >ADDR0
+                    REGS(0xFFE7) = data;
+                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    break;
+                case CASE_WRITE(0xFFE6): // Set XRAM <ADDR0
+                    REGS(0xFFE6) = data;
+                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    break;
+                case CASE_WRITE(0xFFE4): // W XRAM0
+                    xram[XRAM_ADDR0] = data;
+                    PIX_PIO->txf[PIX_SM] = PIX_XRAM(XRAM_ADDR0, data);
+                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    __attribute__((fallthrough));
+                case CASE_READ(0xFFE4): // R XRAM0
+                    XRAM_ADDR0 += XRAM_STEP0;
+                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    break;
+                case CASE_READ(0xFFE2): // UART Rx
+                {
+                    int ch = ria_uart_rx_char;
+                    if (ch >= 0)
+                    {
+                        REGS(0xFFE2) = ch;
+                        REGS(0xFFE0) |= 0b01000000;
+                        ria_uart_rx_char = -1;
+                    }
+                    else
+                    {
+                        REGS(0xFFE0) &= ~0b01000000;
+                        REGS(0xFFE2) = 0;
+                    }
+                    break;
+                }
+                case CASE_WRITE(0xFFE1): // UART Tx
+                    uart_get_hw(COM_UART)->dr = data;
+                    if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
+                        REGS(0xFFE0) &= ~0b10000000;
+                    else
+                        REGS(0xFFE0) |= 0b10000000;
+                    break;
+                case CASE_READ(0xFFE0): // UART Tx/Rx flow control
+                {
+                    int ch = ria_uart_rx_char;
+                    if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
+                    {
+                        REGS(0xFFE2) = ch;
+                        REGS(0xFFE0) |= 0b01000000;
+                        ria_uart_rx_char = -1;
+                    }
+                    if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
+                        REGS(0xFFE0) &= ~0b10000000;
+                    else
+                        REGS(0xFFE0) |= 0b10000000;
+                    break;
+                }
+                }
+            }
+        }
+    }
+}
 
 static void ria_write_pio_init()
 {
@@ -31,9 +377,9 @@ static void ria_write_pio_init()
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, false, false, 0);
     sm_config_set_out_pins(&config, RIA_DATA_PIN_BASE, 8);
-    sm_config_set_sideset_pins(&config, RIA_PHI2_PIN);
-    pio_gpio_init(RIA_WRITE_PIO, RIA_PHI2_PIN);
-    pio_sm_set_consecutive_pindirs(RIA_WRITE_PIO, RIA_WRITE_SM, RIA_PHI2_PIN, 1, true);
+    sm_config_set_sideset_pins(&config, CPU_PHI2_PIN);
+    pio_gpio_init(RIA_WRITE_PIO, CPU_PHI2_PIN);
+    pio_sm_set_consecutive_pindirs(RIA_WRITE_PIO, RIA_WRITE_SM, CPU_PHI2_PIN, 1, true);
     pio_sm_init(RIA_WRITE_PIO, RIA_WRITE_SM, offset, &config);
     pio_sm_put(RIA_WRITE_PIO, RIA_WRITE_SM, (uintptr_t)regs >> 5);
     pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_pull(false, true));
@@ -125,6 +471,19 @@ static void ria_read_pio_init()
         true);
 }
 
+static void ria_act_pio_init()
+{
+    // PIO to supply action loop with events
+    uint offset = pio_add_program(RIA_ACT_PIO, &ria_action_program);
+    pio_sm_config config = ria_action_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, RIA_PIN_BASE);
+    sm_config_set_in_shift(&config, true, true, 32);
+    pio_sm_init(RIA_ACT_PIO, RIA_ACT_SM, offset, &config);
+    act_set_watch_address(0);
+    pio_sm_set_enabled(RIA_ACT_PIO, RIA_ACT_SM, true);
+    multicore_launch_core1(act_loop);
+}
+
 void ria_init()
 {
     // safety check for compiler alignment
@@ -147,24 +506,12 @@ void ria_init()
     // the inits
     ria_write_pio_init();
     ria_read_pio_init();
-}
-
-void ria_task()
-{
-    // Report unexpected FIFO overflows and underflows
-    // TODO needs much improvement
-    uint32_t fdebug = pio0->fdebug;
-    uint32_t masked_fdebug = fdebug & 0x0F0F0F0F; // reserved
-    masked_fdebug &= ~(1 << (24 + RIA_READ_SM));  // expected
-    if (masked_fdebug)
-    {
-        pio0->fdebug = 0xFF;
-        printf("pio0->fdebug: %lX\n", fdebug);
-    }
+    ria_act_pio_init();
 }
 
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
+    pio_sm_set_clkdiv_int_frac(RIA_ACT_PIO, RIA_ACT_SM, clkdiv_int, clkdiv_frac);
 }
