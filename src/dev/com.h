@@ -14,8 +14,6 @@
 #define RIA_UART_TX_PIN 4
 #define RIA_UART_RX_PIN 5
 
-extern volatile int ria_uart_rx_char;
-
 void com_task();
 void com_init();
 void com_reset();

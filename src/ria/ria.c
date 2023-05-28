@@ -6,6 +6,7 @@
 
 #include "mon/mon.h"
 #include "api.h"
+#include "cfg.h"
 #include "cpu.h"
 #include "main.h"
 #include "pix.h"
@@ -44,15 +45,35 @@ static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 
+volatile int com_rx_char;
+static size_t com_rx_start;
+static size_t com_rx_end;
+static uint8_t com_rx_buf[32];
+#define COM_RX_BUF(pos) com_rx_buf[(pos)&0x1F]
+
+void ria_com_rx(uint8_t ch)
+{
+    // discarding overflow
+    if (&COM_RX_BUF(com_rx_end + 1) != &COM_RX_BUF(com_rx_start))
+        COM_RX_BUF(++com_rx_end) = ch;
+}
+
 // RIA action has one variable read address.
 static void act_set_watch_address(uint32_t addr)
 {
     pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, addr & 0x1F);
 }
 
+static void clear_com_rx_fifo()
+{
+    com_rx_char = -1;
+    com_rx_start = com_rx_end = 0;
+}
+
 void ria_run()
 {
     act_set_watch_address(0xFFE2);
+    clear_com_rx_fifo();
     if (action_state == action_state_idle)
         return;
     action_result = -1;
@@ -102,6 +123,7 @@ void ria_run()
 
 void ria_stop()
 {
+    clear_com_rx_fifo();
     action_state = action_state_idle;
     if (saved_reset_vec >= 0)
     {
@@ -126,6 +148,26 @@ void ria_task()
             action_result = -2;
             main_stop();
         }
+    }
+
+    // Move UART FIFO into action loop
+    if (com_rx_char < 0 && &COM_RX_BUF(com_rx_end) != &COM_RX_BUF(com_rx_start))
+    {
+        int ch = COM_RX_BUF(++com_rx_start);
+        switch (cfg_get_caps())
+        {
+        case 1:
+            if (ch >= 'A' && ch <= 'Z')
+            {
+                ch += 32;
+                break;
+            }
+            // fall through
+        case 2:
+            if (ch >= 'a' && ch <= 'z')
+                ch -= 32;
+        }
+        com_rx_char = ch;
     }
 }
 
@@ -327,12 +369,12 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
-                    int ch = ria_uart_rx_char;
+                    int ch = com_rx_char;
                     if (ch >= 0)
                     {
                         REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        ria_uart_rx_char = -1;
+                        com_rx_char = -1;
                     }
                     else
                     {
@@ -350,12 +392,12 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_READ(0xFFE0): // UART Tx/Rx flow control
                 {
-                    int ch = ria_uart_rx_char;
+                    int ch = com_rx_char;
                     if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
                     {
                         REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        ria_uart_rx_char = -1;
+                        com_rx_char = -1;
                     }
                     if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
                         REGS(0xFFE0) &= ~0b10000000;
