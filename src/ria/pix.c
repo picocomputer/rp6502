@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pix.h"
 #include "api.h"
+#include "main.h"
+#include "pix.h"
 #include "ria.h"
 #include "cfg.h"
 #include "ria.pio.h"
@@ -59,14 +60,18 @@ void pix_init()
 
 void pix_api_set_xreg()
 {
-    unsigned devid = API_A;
+    unsigned dev = API_A & 0x7;
     if (xstack_ptr < XSTACK_SIZE - 4 || xstack_ptr > XSTACK_SIZE - 3)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    uint16_t reg = xstack[xstack_ptr];
+    uint16_t byte = xstack[xstack_ptr];
     xstack_ptr += 2;
-    uint16_t val = api_sstack_uint16();
+    uint16_t word = api_sstack_uint16();
     if (xstack_ptr != XSTACK_SIZE)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    pix_send_blocking(devid, reg >> 8, reg, val);
+    uint8_t ch = (byte >> 8) & 0xF;
+    if (!dev)
+        main_pix(ch, byte, word);
+    else
+        pix_send_blocking(dev, ch, byte, word);
     return api_return_ax(0);
 }

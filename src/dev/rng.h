@@ -7,6 +7,6 @@
 #ifndef _RNG_H_
 #define _RNG_H_
 
-void rng_api_rand();
+void rng_api_rand32();
 
 #endif /* _RNG_H_ */

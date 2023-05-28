@@ -23,7 +23,10 @@
 
 // This is the smallest value that will
 // allow 1k read/write operations at 50 kHz.
-#define RIA_ACTION_WATCHDOG_MS 250
+#define ACT_WATCHDOG_MS 250
+
+#define ACT_PIO pio1
+#define ACT_SM 0
 
 static enum state {
     action_state_idle = 0,
@@ -53,7 +56,7 @@ void act_run()
     REGSW(0xFFFC) = 0xFFF0;
     action_watchdog_timer = delayed_by_us(get_absolute_time(),
                                           cpu_get_reset_us() +
-                                              RIA_ACTION_WATCHDOG_MS * 1000);
+                                              ACT_WATCHDOG_MS * 1000);
     switch (action_state)
     {
     case action_state_write:
@@ -224,7 +227,7 @@ void act_ram_write(uint16_t addr)
 
 static void act_exit()
 {
-    gpio_put(RIA_RESB_PIN, false);
+    gpio_put(CPU_RESB_PIN, false);
     main_stop();
 }
 
@@ -238,7 +241,7 @@ static __attribute__((optimize("O1"))) void act_loop()
         if (!(ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + ACT_SM))))
         {
             uint32_t rw_addr_data = ACT_PIO->rxf[ACT_SM];
-            if (((1u << RIA_RESB_PIN) & sio_hw->gpio_in))
+            if (((1u << CPU_RESB_PIN) & sio_hw->gpio_in))
             {
                 uint32_t data = rw_addr_data & 0xFF;
                 switch (rw_addr_data >> 8)
@@ -354,8 +357,8 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    uart_get_hw(RIA_UART)->dr = data;
-                    if ((uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFF_BITS))
+                    uart_get_hw(COM_UART)->dr = data;
+                    if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
                         REGS(0xFFE0) &= ~0b10000000;
                     else
                         REGS(0xFFE0) |= 0b10000000;
@@ -369,7 +372,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                         REGS(0xFFE0) |= 0b01000000;
                         ria_uart_rx_char = -1;
                     }
-                    if ((uart_get_hw(RIA_UART)->fr & UART_UARTFR_TXFF_BITS))
+                    if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
                         REGS(0xFFE0) &= ~0b10000000;
                     else
                         REGS(0xFFE0) |= 0b10000000;

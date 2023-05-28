@@ -381,7 +381,7 @@ bool rom_help_lfs(const char *args, size_t len)
 
 static bool rom_action_is_finished()
 {
-    if (cpu_is_active())
+    if (act_in_progress())
         return false;
     if (act_error_message())
     {

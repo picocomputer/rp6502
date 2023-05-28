@@ -171,6 +171,18 @@ static void task()
     api_task();
 }
 
+// PIX writes to the RIA will notify here.
+void main_pix(uint8_t ch, uint8_t byte, uint16_t word)
+{
+    switch (ch)
+    {
+    case 0:
+        aud_pix(byte, word);
+        break;
+    }
+}
+
+// This will repeatedly call until API_BUSY is false
 bool main_api(uint8_t operation)
 {
     switch (operation)
@@ -206,7 +218,7 @@ bool main_api(uint8_t operation)
         cfg_api_codepage();
         break;
     case 0x13:
-        rng_api_rand();
+        rng_api_rand32();
         break;
     default:
         return false;

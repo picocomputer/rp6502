@@ -261,3 +261,9 @@ void aud_task()
         }
     }
 }
+
+void aud_pix(uint8_t byte, uint16_t word)
+{
+    (void)byte;
+    (void)word;
+}

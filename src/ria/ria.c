@@ -19,6 +19,11 @@
 
 // RP6502 Interface Adapter for WDC W65C02S.
 
+#define RIA_WRITE_PIO pio0
+#define RIA_WRITE_SM 0
+#define RIA_READ_PIO pio0
+#define RIA_READ_SM 1
+
 static void ria_write_pio_init()
 {
     // PIO to manage PHI2 clock and 6502 writes

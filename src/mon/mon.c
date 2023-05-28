@@ -272,7 +272,7 @@ static void mon_rx_binary()
 
 void mon_task()
 {
-    if (cpu_is_active() || sys_is_active() || rom_is_active())
+    if (cpu_is_running() || sys_is_active() || rom_is_active())
     {
         needs_prompt = true;
         return;

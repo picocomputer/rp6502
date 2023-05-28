@@ -4,21 +4,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "cpu.h"
+#include "act.h"
 #include "api.h"
-#include "ria.h"
-#include "pico/stdlib.h"
-#include "dev/com.h"
 #include "cfg.h"
+#include "cpu.h"
+#include "main.h"
+#include "ria.h"
+#include "dev/com.h"
+#include "pico/stdlib.h"
 #include "hardware/clocks.h"
 
 static absolute_time_t resb_timer;
 static bool is_running;
 
-bool cpu_is_active()
+bool cpu_is_running()
 {
-    return is_running || gpio_get(RIA_RESB_PIN);
+    return is_running && !act_in_progress();
 }
 
 void cpu_run()
@@ -29,9 +30,9 @@ void cpu_run()
 void cpu_stop()
 {
     is_running = false;
-    if (gpio_get(RIA_RESB_PIN))
+    if (gpio_get(CPU_RESB_PIN))
     {
-        gpio_put(RIA_RESB_PIN, false);
+        gpio_put(CPU_RESB_PIN, false);
         resb_timer = delayed_by_us(get_absolute_time(),
                                    cpu_get_reset_us());
     }
@@ -40,23 +41,23 @@ void cpu_stop()
 void cpu_init()
 {
     // drive reset pin
-    gpio_init(RIA_RESB_PIN);
-    gpio_put(RIA_RESB_PIN, false);
-    gpio_set_dir(RIA_RESB_PIN, true);
+    gpio_init(CPU_RESB_PIN);
+    gpio_put(CPU_RESB_PIN, false);
+    gpio_set_dir(CPU_RESB_PIN, true);
 
     // drive irq pin
-    gpio_init(RIA_IRQB_PIN);
-    gpio_put(RIA_IRQB_PIN, true);
-    gpio_set_dir(RIA_IRQB_PIN, true);
+    gpio_init(CPU_IRQB_PIN);
+    gpio_put(CPU_IRQB_PIN, true);
+    gpio_set_dir(CPU_IRQB_PIN, true);
 }
 
 void cpu_task()
 {
-    if (is_running && !gpio_get(RIA_RESB_PIN))
+    if (is_running && !gpio_get(CPU_RESB_PIN))
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, resb_timer) < 0)
-            gpio_put(RIA_RESB_PIN, true);
+            gpio_put(CPU_RESB_PIN, true);
     }
 }
 
@@ -106,7 +107,6 @@ uint32_t cpu_validate_phi2_khz(uint32_t freq_khz)
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
     cpu_compute_phi2_clocks(freq_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-
     return sys_clk_khz / 30.f / (clkdiv_int + clkdiv_frac / 256.f);
 }
 

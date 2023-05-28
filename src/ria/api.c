@@ -140,7 +140,7 @@ int64_t api_sstack_int64()
 
 void api_task()
 {
-    if (cpu_is_active() && !act_in_progress() && API_BUSY)
+    if (cpu_is_running() && API_BUSY)
     {
         uint8_t operation = API_OP;
         if (operation != 0x00 && operation != 0xFF)

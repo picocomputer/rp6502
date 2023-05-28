@@ -19,16 +19,9 @@ FIL fil_pool[FIL_MAX];
 #define FIL_OFFS 3
 static_assert(FIL_MAX + FIL_OFFS < 128);
 
-static enum {
-    API_IDLE,
-    API_READ_XRAM,
-    // API_READ_STDIN, //TODO
-    API_WRITE_STDOUT,
-} api_state;
-
-static void *api_io_ptr;
-static uint16_t api_xaddr;
-static unsigned api_count;
+static void *std_io_ptr;
+static uint16_t std_xaddr;
+static int32_t std_count = -1;
 
 void std_api_open(void)
 {
@@ -84,6 +77,17 @@ void std_api_close(void)
 
 static void api_read_impl(bool is_xram)
 {
+    if (std_count >= 0)
+    {
+        for (; std_count && pix_ready(); --std_count, ++std_xaddr)
+            pix_send(0, 0, xstack[std_xaddr], std_xaddr);
+        if (!std_count)
+        {
+            std_count = -1;
+            api_return_released();
+        }
+        return;
+    }
     uint8_t *buf;
     UINT count;
     int fd = API_A;
@@ -94,9 +98,9 @@ static void api_read_impl(bool is_xram)
     {
         if (XSTACK_SIZE - xstack_ptr < 2)
             goto err_param;
-        api_xaddr = *(uint16_t *)&xstack[xstack_ptr];
+        std_xaddr = *(uint16_t *)&xstack[xstack_ptr];
         xstack_ptr += 2;
-        buf = &xram[api_xaddr];
+        buf = &xram[std_xaddr];
         count = api_sstack_uint16();
         if (buf + count > xstack + 0x10000)
             goto err_param;
@@ -125,8 +129,7 @@ static void api_read_impl(bool is_xram)
     if (is_xram)
     {
         api_sync_xram();
-        api_state = API_READ_XRAM;
-        api_count = br;
+        std_count = br;
     }
     else
     {
@@ -152,38 +155,19 @@ void std_api_read_(void)
 
 void std_api_readx(void)
 {
-    if (api_state == API_READ_XRAM)
-    {
-        for (; api_count && pix_ready(); --api_count, ++api_xaddr)
-            pix_send(0, 0, xstack[api_xaddr], api_xaddr);
-        if (!api_count)
-        {
-            api_state = API_IDLE;
-            api_return_released();
-        }
-        return;
-    }
     api_read_impl(true);
 }
 
 static void api_write_impl(bool is_xram)
 {
-    if (api_state == API_WRITE_STDOUT)
+    if (std_count >= 0)
     {
-        for (; api_count && uart_is_writable(RIA_UART); --api_count)
+        size_t bw = com_write(std_io_ptr, std_count);
+        std_io_ptr += bw;
+        std_count -= bw;
+        if (!std_count)
         {
-            uint8_t ch = *(uint8_t *)api_io_ptr++;
-            if (ch == '\n')
-            {
-                uart_putc_raw(RIA_UART, '\r');
-                uart_putc_raw(RIA_UART, ch);
-            }
-            else
-                uart_get_hw(RIA_UART)->dr = ch;
-        }
-        if (!api_count)
-        {
-            api_state = API_IDLE;
+            std_count = -1;
             api_return_released();
         }
         return;
@@ -191,7 +175,6 @@ static void api_write_impl(bool is_xram)
     uint8_t *buf;
     uint16_t count;
     int fd = API_A;
-    // TODO support fd==1,2 as STDOUT
     if (fd == FIL_STDIN || fd >= FIL_MAX + FIL_OFFS)
         goto err_param;
     if (is_xram)
@@ -216,9 +199,8 @@ static void api_write_impl(bool is_xram)
         count = 0x7FFF;
     if (fd < FIL_OFFS)
     {
-        api_state = API_WRITE_STDOUT;
-        api_io_ptr = buf;
-        api_count = count;
+        std_io_ptr = buf;
+        std_count = count;
         api_set_ax(count);
         return;
     }
@@ -286,7 +268,7 @@ void std_api_lseek(void)
 
 void std_stop(void)
 {
-    api_state = API_IDLE;
+    std_count = -1;
     for (int i = 0; i < FIL_MAX; i++)
         if (fil_pool[i].obj.fs)
             f_close(&fil_pool[i]);

@@ -32,13 +32,13 @@ static inline bool pix_ready()
     return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
 }
 
-static inline void pix_send(uint8_t dev3, uint8_t ch4, uint16_t byte, uint16_t word)
+static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
     uint32_t data = PIX_XREG(dev3) | ((ch4 & 0xFu) << 24) | ((byte & 0xFFu) << 16) | word;
     pio_sm_put(PIX_PIO, PIX_SM, data);
 }
 
-static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint16_t byte, uint16_t word)
+static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
     while (!pix_ready())
         ;
