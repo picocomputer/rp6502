@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "dev/com.h"
 #include "fil.h"
 #include "str.h"
 #include "mem.h"
@@ -18,13 +19,12 @@
 static enum {
     FIL_IDLE,
     FIL_COMMAND,
-    FIL_BINARY,
 } fil_state;
 
 // static uint32_t rw_addr;
 static uint32_t rx_len;
 static uint32_t rx_crc;
-static absolute_time_t watchdog;
+static absolute_time_t watchdog; //  TODO remove
 static FIL fil_fat;
 
 void fil_chdir(const char *args, size_t len)
@@ -136,7 +136,7 @@ void fil_upload(const char *args, size_t len)
         return;
     }
     fil_state = FIL_COMMAND;
-    fil_keep_alive();
+    watchdog = delayed_by_ms(get_absolute_time(), TIMEOUT_MS);
 }
 
 void fil_unlink(const char *args, size_t len)
@@ -145,6 +145,44 @@ void fil_unlink(const char *args, size_t len)
     FRESULT result = f_unlink(args);
     if (result != FR_OK)
         printf("?Failed to unlink file (%d)\n", result);
+}
+
+static void fil_com_rx_mbuf()
+{
+    printf("(%8lx,%8lx,%d)", mbuf_crc32(), rx_crc, mbuf_len);
+    FRESULT result = FR_OK;
+    if (mbuf_len < rx_len)
+    {
+        result = FR_INT_ERR;
+        printf("?timeout\n");
+    }
+    else if (mbuf_crc32() != rx_crc)
+    {
+        result = FR_INT_ERR;
+        puts("?CRC does not match");
+    }
+    // This will leave the file unchanged until
+    // the first chunk is received successfully.
+    if (result == FR_OK && f_tell(&fil_fat) == 0)
+    {
+        result = f_truncate(&fil_fat);
+        if (result != FR_OK)
+            printf("?Unable to truncate file (%d)\n", result);
+    }
+    if (result == FR_OK)
+    {
+        UINT bytes_written;
+        result = f_write(&fil_fat, mbuf, mbuf_len, &bytes_written);
+        if (result != FR_OK)
+            printf("?Unable to write file (%d)\n", result);
+    }
+    if (result == FR_OK)
+    {
+        fil_state = FIL_COMMAND;
+    }
+    else
+        fil_state = FIL_IDLE;
+    watchdog = delayed_by_ms(get_absolute_time(), TIMEOUT_MS);
 }
 
 void fil_command_dispatch(const char *args, size_t len)
@@ -168,47 +206,12 @@ void fil_command_dispatch(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        mbuf_len = 0;
-        fil_state = FIL_BINARY;
-        fil_keep_alive();
+        com_capture_mbuf(fil_com_rx_mbuf, rx_len, TIMEOUT_MS);
         return;
     }
     printf("?invalid argument\n");
     fil_state = FIL_IDLE;
     return;
-}
-
-bool fil_rx_handler()
-{
-    if (mbuf_len < rx_len)
-        return false;
-    FRESULT result = FR_OK;
-    if (mbuf_crc32() != rx_crc)
-    {
-        result = FR_INT_ERR; // any error to abort
-        puts("?CRC does not match");
-    }
-    // This will leave the file unchanged until
-    // the first chunk is received successfully.
-    if (result == FR_OK && f_tell(&fil_fat) == 0)
-    {
-        result = f_truncate(&fil_fat);
-        if (result != FR_OK)
-            printf("?Unable to truncate file (%d)\n", result);
-    }
-    if (result == FR_OK)
-    {
-        UINT bytes_written;
-        result = f_write(&fil_fat, mbuf, mbuf_len, &bytes_written);
-        if (result != FR_OK)
-            printf("?Unable to write file (%d)\n", result);
-    }
-    if (result == FR_OK)
-        fil_state = FIL_COMMAND;
-    else
-        fil_state = FIL_IDLE;
-    fil_keep_alive();
-    return true;
 }
 
 void fil_task()
@@ -232,20 +235,9 @@ void fil_task()
     }
 }
 
-void fil_keep_alive()
-{
-    watchdog = delayed_by_us(get_absolute_time(),
-                             TIMEOUT_MS * 1000);
-}
-
 bool fil_is_prompting()
 {
     return fil_state == FIL_COMMAND;
-}
-
-bool fil_is_rx_binary()
-{
-    return fil_state == FIL_BINARY;
 }
 
 void fil_reset()

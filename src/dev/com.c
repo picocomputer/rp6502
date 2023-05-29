@@ -8,8 +8,18 @@
 #include "com.h"
 #include "cpu.h"
 #include "main.h"
+#include "mem.h"
 #include "ria.h"
+#include "mon/fil.h"
+#include "mon/mon.h"
+#include "mon/sys.h"
 #include "pico/stdlib.h"
+#include <stdio.h>
+
+static size_t capture_length;
+static void (*capture_callback)(void);
+uint32_t capture_timeout_ms;
+static absolute_time_t timer;
 
 void com_init()
 {
@@ -18,6 +28,7 @@ void com_init()
 
 void com_reset()
 {
+    capture_callback = NULL;
     com_preclock();
 }
 
@@ -55,7 +66,7 @@ size_t com_write(char *ptr, size_t count)
 
 void com_task()
 {
-    // Detect UART break
+    // Detect UART breaks.
     static uint32_t break_detect = 0;
     uint32_t current_break = uart_get_hw(COM_UART)->rsr & UART_UARTRSR_BE_BITS;
     if (current_break)
@@ -64,12 +75,41 @@ void com_task()
         main_break();
     break_detect = current_break;
 
-    // We need to keep UART FIFO empty or breaks won't come in.
-    // Receivers will discard overflows.
-    if (cpu_is_running())
+    // Allow UART RX FIFO to fill during RIA actions.
+    // At all other times the FIFO must be emptied to detect breaks.
+    if (!ria_is_running())
     {
         int ch = getchar_timeout_us(0);
-        if (ch >= 0)
-            ria_com_rx(ch);
+        while (ch != PICO_ERROR_TIMEOUT)
+        {
+            if (capture_callback)
+            {
+                absolute_time_t now = get_absolute_time();
+                mbuf[mbuf_len] = ch;
+                if (++mbuf_len == capture_length || absolute_time_diff_us(now, timer) < 0)
+                {
+                    void (*cc)(void) = capture_callback;
+                    capture_callback = NULL;
+                    cc();
+                }
+                timer = delayed_by_ms(now, capture_timeout_ms);
+            }
+            else if (cpu_is_running())
+                ria_com_rx(ch);
+            else
+                mon_com_rx(ch);
+            if (ria_is_running())
+                break;
+            ch = getchar_timeout_us(0);
+        }
     }
+}
+
+void com_capture_mbuf(void (*callback)(void), size_t length, uint32_t timeout_ms)
+{
+    mbuf_len = 0;
+    capture_length = length;
+    capture_timeout_ms = timeout_ms;
+    timer = delayed_by_ms(get_absolute_time(), capture_timeout_ms);
+    capture_callback = callback;
 }

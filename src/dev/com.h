@@ -8,6 +8,7 @@
 #define _COM_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #define COM_UART uart1
 #define RIA_UART_BAUD_RATE 115200
@@ -23,5 +24,9 @@ void com_reclock();
 // Writes in stdout style. Non-blocking.
 // Fills UART buffer then stops.
 size_t com_write(char *ptr, size_t count);
+
+// Redirect UART RX bulk data to mbuf.
+// When timeout, mbuf_len will be < length in callback.
+void com_capture_mbuf(void (*callback)(void), size_t length, uint32_t timeout_ms);
 
 #endif /* _COM_H_ */

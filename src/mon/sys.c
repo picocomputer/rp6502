@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "dev/com.h"
 #include "cpu.h"
 #include "main.h"
 #include "mem.h"
@@ -23,13 +24,11 @@ static enum {
     SYS_READ,
     SYS_WRITE,
     SYS_VERIFY,
-    SYS_BINARY,
 } cmd_state;
 
 static uint32_t rw_addr;
 static uint32_t rw_len;
 static uint32_t rw_crc;
-static absolute_time_t watchdog;
 
 static void cmd_ria_read()
 {
@@ -152,6 +151,23 @@ void sys_reset_6502(const char *args, size_t len)
     main_run();
 }
 
+static void sys_com_rx_mbuf()
+{
+    cmd_state = SYS_IDLE;
+    if (mbuf_len < rw_len)
+    {
+        puts("?timeout");
+        return;
+    }
+    if (mbuf_crc32() != rw_crc)
+    {
+        puts("?CRC does not match");
+        return;
+    }
+    cmd_state = SYS_WRITE;
+    ria_write_mbuf(rw_addr);
+}
+
 void sys_binary(const char *args, size_t len)
 {
     if (parse_uint32(&args, &len, &rw_addr) &&
@@ -169,30 +185,10 @@ void sys_binary(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        mbuf_len = 0;
-        cmd_state = SYS_BINARY;
-        watchdog = delayed_by_us(get_absolute_time(),
-                                 TIMEOUT_MS * 1000);
+        com_capture_mbuf(sys_com_rx_mbuf, rw_len, TIMEOUT_MS);
         return;
     }
     printf("?invalid argument\n");
-}
-
-bool sys_rx_handler()
-{
-    if (mbuf_len < rw_len)
-        return false;
-    if (mbuf_crc32() == rw_crc)
-    {
-        cmd_state = SYS_WRITE;
-        ria_write_mbuf(rw_addr);
-    }
-    else
-    {
-        cmd_state = SYS_IDLE;
-        puts("?CRC does not match");
-    }
-    return true;
 }
 
 void sys_task()
@@ -212,31 +208,12 @@ void sys_task()
     case SYS_VERIFY:
         cmd_ria_verify();
         break;
-    case SYS_BINARY:
-        if (absolute_time_diff_us(get_absolute_time(), watchdog) < 0)
-        {
-            printf("?timeout\n");
-            cmd_state = SYS_IDLE;
-            mon_reset();
-        }
-        break;
     }
-}
-
-void sys_keep_alive()
-{
-    watchdog = delayed_by_us(get_absolute_time(),
-                             TIMEOUT_MS * 1000);
 }
 
 bool sys_is_active()
 {
-    return cmd_state != SYS_IDLE && cmd_state != SYS_BINARY;
-}
-
-bool sys_is_rx_binary()
-{
-    return cmd_state == SYS_BINARY;
+    return cmd_state != SYS_IDLE;
 }
 
 void sys_reset()

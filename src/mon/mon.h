@@ -13,5 +13,6 @@
 bool mon_command_exists(const char *buf, uint8_t buflen);
 void mon_task();
 void mon_reset();
+void mon_com_rx(uint8_t ch);
 
 #endif /* _MON_H_ */

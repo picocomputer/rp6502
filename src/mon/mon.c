@@ -4,16 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "cpu.h"
 #include "mon.h"
-#include "sys.h"
 #include "hlp.h"
+#include "ria.h"
+#include "sys.h"
 #include "fil.h"
 #include "mem.h"
 #include "rom.h"
 #include "set.h"
 #include "str.h"
 #include "vga/ansi.h"
-#include "cpu.h"
 #include <stdio.h>
 #include "pico/stdlib.h"
 
@@ -249,45 +250,25 @@ static void mon_state_CSI(char ch)
         mon_delete();
 }
 
-static void mon_rx_binary()
-{
-    int ch = getchar_timeout_us(0);
-    if (ch != PICO_ERROR_TIMEOUT)
-    {
-        while (ch != PICO_ERROR_TIMEOUT)
-        {
-            mbuf[mbuf_len++] = ch;
-            if (fil_is_rx_binary() && fil_rx_handler())
-                return;
-            if (sys_is_rx_binary() && sys_rx_handler())
-                return;
-            ch = getchar_timeout_us(0);
-        }
-        if (fil_is_rx_binary())
-            fil_keep_alive();
-        if (sys_is_rx_binary())
-            sys_keep_alive();
-    }
-}
-
 void mon_task()
 {
-    if (cpu_is_running() || sys_is_active() || rom_is_active())
+    if (ria_is_running() || sys_is_active() || rom_is_active() || fil_is_prompting())
     {
         needs_prompt = true;
         return;
     }
-    if (sys_is_rx_binary() || fil_is_rx_binary())
-        return mon_rx_binary();
-    if (needs_prompt)
+    else if (needs_prompt && !cpu_is_running())
     {
         needs_prompt = false;
         putchar(fil_is_prompting() ? '}' : ']');
     }
-    int ch = getchar_timeout_us(0);
+}
+
+void mon_com_rx(uint8_t ch)
+{
     if (ch == ANSI_CANCEL)
         mon_ansi_state = ansi_state_C0;
-    else if (ch != PICO_ERROR_TIMEOUT)
+    else
         switch (mon_ansi_state)
         {
         case ansi_state_C0:
