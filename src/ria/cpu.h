@@ -19,10 +19,7 @@ void cpu_stop();
 void cpu_init();
 void cpu_task();
 void cpu_api_phi2();
-
-// True if the CPU is running a program.
-// This will be false when ria_is_running.
-bool cpu_is_running();
+bool cpu_active();
 
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz);
 bool cpu_set_phi2_khz(uint32_t freq_khz);

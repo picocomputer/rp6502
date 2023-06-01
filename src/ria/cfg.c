@@ -31,6 +31,7 @@ static uint8_t cfg_caps;
 static uint16_t cfg_code_page;
 static uint8_t cfg_vga;
 
+// TODO move codepage things out of here
 // Guaranteed setting of FatFs code page.
 // Adapts to compile time options.
 static uint16_t update_code_page(uint16_t cp)
@@ -57,7 +58,7 @@ static uint16_t update_code_page(uint16_t cp)
 #endif
 }
 
-// TODO mode codepage things out of here
+// TODO move codepage things out of here
 void cfg_api_codepage()
 {
     return api_return_ax(cfg_get_code_page());

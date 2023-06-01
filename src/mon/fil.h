@@ -16,9 +16,8 @@ void fil_chdrive(const char *args, size_t len);
 void fil_ls(const char *args, size_t len);
 void fil_upload(const char *args, size_t len);
 void fil_unlink(const char *args, size_t len);
-void fil_command_dispatch(const char *args, size_t len);
 void fil_task();
-bool fil_is_prompting();
+bool fil_active();
 void fil_reset();
 
 #endif /* _FIL_H_ */

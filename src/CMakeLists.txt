@@ -61,7 +61,6 @@ pico_generate_pio_header(rp6502_ria
 
 target_sources(rp6502_ria PRIVATE
     dev/aud.c
-    dev/com.c
     dev/dev.c
     dev/hid_ps4.c
     dev/hid.c
@@ -79,6 +78,7 @@ target_sources(rp6502_ria PRIVATE
     mon/vip.c
     ria/api.c
     ria/cfg.c
+    ria/com.c
     ria/cpu.c
     ria/main.c
     ria/mem.c

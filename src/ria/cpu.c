@@ -6,19 +6,18 @@
 
 #include "api.h"
 #include "cfg.h"
+#include "com.h"
 #include "cpu.h"
 #include "main.h"
 #include "ria.h"
-#include "dev/com.h"
 #include "pico/stdlib.h"
-#include "hardware/clocks.h"
 
 static absolute_time_t resb_timer;
 static bool is_running;
 
-bool cpu_is_running()
+bool cpu_active()
 {
-    return is_running && !ria_is_running();
+    return is_running;
 }
 
 void cpu_run()
@@ -48,6 +47,9 @@ void cpu_init()
     gpio_init(CPU_IRQB_PIN);
     gpio_put(CPU_IRQB_PIN, true);
     gpio_set_dir(CPU_IRQB_PIN, true);
+
+    // set initial timer from config
+    resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
 
 void cpu_task()
@@ -116,7 +118,7 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
     cpu_compute_phi2_clocks(phi2_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    main_preclock();
+    com_flush();
     bool ok = set_sys_clock_khz(sys_clk_khz, false);
     if (ok)
         main_reclock(phi2_khz, sys_clk_khz, clkdiv_int, clkdiv_frac);

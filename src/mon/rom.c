@@ -379,7 +379,7 @@ bool rom_help_lfs(const char *args, size_t len)
 
 static bool rom_action_is_finished()
 {
-    if (ria_is_running())
+    if (ria_active())
         return false;
     if (ria_print_error_message())
     {
@@ -442,7 +442,7 @@ void rom_task()
     }
 }
 
-bool rom_is_active()
+bool rom_active()
 {
     return rom_state != ROM_IDLE;
 }

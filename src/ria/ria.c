@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/mon.h"
 #include "api.h"
 #include "cfg.h"
+#include "com.h"
 #include "cpu.h"
 #include "main.h"
 #include "pix.h"
@@ -15,7 +15,6 @@
 #include "pico/stdlib.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
-#include "dev/com.h"
 #include "pico/multicore.h"
 #include <stdio.h>
 
@@ -132,7 +131,7 @@ void ria_stop()
     }
 }
 
-bool ria_is_running()
+bool ria_active()
 {
     return action_state != action_state_idle;
 }
@@ -140,7 +139,7 @@ bool ria_is_running()
 void ria_task()
 {
     // check on watchdog
-    if (ria_is_running())
+    if (ria_active())
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
@@ -190,7 +189,7 @@ bool ria_print_error_message()
 
 void ria_read_mbuf(uint16_t addr)
 {
-    assert(!cpu_is_running());
+    assert(!cpu_active());
     // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -212,7 +211,7 @@ void ria_read_mbuf(uint16_t addr)
 
 void ria_verify_mbuf(uint16_t addr)
 {
-    assert(!cpu_is_running());
+    assert(!cpu_active());
     // avoid forbidden areas
     action_result = -1;
     uint16_t len = mbuf_len;
@@ -232,7 +231,7 @@ void ria_verify_mbuf(uint16_t addr)
 
 void ria_write_mbuf(uint16_t addr)
 {
-    assert(!cpu_is_running());
+    assert(!cpu_active());
     // avoid forbidden area
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -343,7 +342,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[XRAM_ADDR1] = data;
-                    PIX_PIO->txf[PIX_SM] = PIX_XRAM(XRAM_ADDR1, data);
+                    PIX_SEND_XRAM(XRAM_ADDR1, data);
                     XRAM_RW0 = xram[XRAM_ADDR0];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
@@ -360,7 +359,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[XRAM_ADDR0] = data;
-                    PIX_PIO->txf[PIX_SM] = PIX_XRAM(XRAM_ADDR0, data);
+                    PIX_SEND_XRAM(XRAM_ADDR0, data);
                     XRAM_RW1 = xram[XRAM_ADDR1];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0

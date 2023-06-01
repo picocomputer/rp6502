@@ -7,6 +7,7 @@
 #include "api.h"
 #include "cpu.h"
 #include "main.h"
+#include "ria.h"
 #include "fatfs/ff.h"
 
 uint16_t api_sstack_uint16()
@@ -139,7 +140,7 @@ int64_t api_sstack_int64()
 
 void api_task()
 {
-    if (cpu_is_running() && API_BUSY)
+    if (cpu_active() && !ria_active() && API_BUSY)
     {
         uint8_t operation = API_OP;
         if (operation != 0x00 && operation != 0xFF)

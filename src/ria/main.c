@@ -6,7 +6,10 @@
 
 #include "api.h"
 #include "cfg.h"
+#include "com.h"
 #include "cpu.h"
+#include "main.h"
+#include "mem.h"
 #include "pix.h"
 #include "ria.h"
 #include "mon/fil.h"
@@ -14,7 +17,6 @@
 #include "mon/rom.h"
 #include "mon/sys.h"
 #include "dev/aud.h"
-#include "dev/com.h"
 #include "dev/hid.h"
 #include "dev/lfs.h"
 #include "dev/rng.h"
@@ -59,9 +61,9 @@ void main_break()
     is_breaking = true;
 }
 
-/*************************************/
-/* All kernel modules register here. */
-/*************************************/
+/**************************************/
+/* All kernel modules register below. */
+/**************************************/
 
 // Many things are sensitive to order in obvious ways, like
 // starting the UART before printing. Please list subtleties.
@@ -90,7 +92,7 @@ static void init()
     hid_init();
 
     // This triggers main_reclock()
-    cpu_set_phi2_khz(cfg_get_phi2_khz());
+    cpu_set_phi2_khz(cpu_validate_phi2_khz(cfg_get_phi2_khz()));
 
     // mbuf has boot string from cfg_init()
     size_t mbuf_len = strlen((char *)mbuf);
@@ -102,7 +104,7 @@ static void init()
 static void run()
 {
     api_run();
-    ria_run(); // Must be before cpu
+    ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
 }
 
@@ -126,10 +128,13 @@ static void reset()
     puts("\30\33[0m");
 }
 
-// Called before any clock change.
-void main_preclock()
+// Anything that suspends the monitor will register here.
+bool main_active()
 {
-    com_preclock();
+    return main_state != stopped ||
+           sys_active() ||
+           rom_active() ||
+           fil_active();
 }
 
 // Called once during init then after every clock change.

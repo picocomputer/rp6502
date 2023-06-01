@@ -48,7 +48,7 @@ void pix_init()
         pio_gpio_init(PIX_PIO, i);
     pio_sm_set_consecutive_pindirs(PIX_PIO, PIX_SM, 0, 4, true);
     pio_sm_init(PIX_PIO, PIX_SM, offset, &config);
-    pio_sm_put(PIX_PIO, PIX_SM, PIX_IDLE());
+    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(PIX_IDLE_DEV, 0, 0, 0));
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_set_enabled(PIX_PIO, PIX_SM, true);

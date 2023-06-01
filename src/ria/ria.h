@@ -29,7 +29,7 @@ void ria_com_rx(uint8_t ch);
 void ria_read_mbuf(uint16_t addr);
 void ria_write_mbuf(uint16_t addr);
 void ria_verify_mbuf(uint16_t addr);
-bool ria_is_running();
+bool ria_active();
 bool ria_print_error_message();
 
 #endif /* _RIA_H_ */

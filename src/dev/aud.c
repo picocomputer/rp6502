@@ -195,14 +195,14 @@ void aud_init()
 }
 
 #define TIMEOUT_MS 1500
-static absolute_time_t timer;
+static absolute_time_t com_timer;
 static unsigned mode;
 
 void aud_task()
 {
-    if (absolute_time_diff_us(get_absolute_time(), timer) < 0)
+    if (absolute_time_diff_us(get_absolute_time(), com_timer) < 0)
     {
-        timer = delayed_by_us(get_absolute_time(),
+        com_timer = delayed_by_us(get_absolute_time(),
                               TIMEOUT_MS * 1500);
         float freq;
         freq = 440.0; // A4

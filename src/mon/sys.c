@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "dev/com.h"
+#include "com.h"
 #include "cpu.h"
 #include "main.h"
 #include "mem.h"
@@ -24,6 +24,7 @@ static enum {
     SYS_READ,
     SYS_WRITE,
     SYS_VERIFY,
+    SYS_BINARY,
 } cmd_state;
 
 static uint32_t rw_addr;
@@ -151,10 +152,11 @@ void sys_reset_6502(const char *args, size_t len)
     main_run();
 }
 
-static void sys_com_rx_mbuf()
+static void sys_com_rx_mbuf(bool timeout, size_t length)
 {
+    mbuf_len = length;
     cmd_state = SYS_IDLE;
-    if (mbuf_len < rw_len)
+    if (timeout)
     {
         puts("?timeout");
         return;
@@ -185,7 +187,8 @@ void sys_binary(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_capture_mbuf(sys_com_rx_mbuf, rw_len, TIMEOUT_MS);
+        com_read_binary(mbuf, rw_len, TIMEOUT_MS, sys_com_rx_mbuf);
+        cmd_state = SYS_BINARY;
         return;
     }
     printf("?invalid argument\n");
@@ -193,11 +196,12 @@ void sys_binary(const char *args, size_t len)
 
 void sys_task()
 {
-    if (ria_is_running())
+    if (ria_active())
         return;
     switch (cmd_state)
     {
     case SYS_IDLE:
+    case SYS_BINARY:
         break;
     case SYS_READ:
         cmd_ria_read();
@@ -211,7 +215,7 @@ void sys_task()
     }
 }
 
-bool sys_is_active()
+bool sys_active()
 {
     return cmd_state != SYS_IDLE;
 }

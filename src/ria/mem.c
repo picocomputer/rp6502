@@ -7,6 +7,8 @@
 #include "mem.h"
 #include "littlefs/lfs_util.h"
 
+char cbuf[CBUF_SIZE];
+
 uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
 size_t mbuf_len;
 

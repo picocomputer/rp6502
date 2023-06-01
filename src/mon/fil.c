@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "dev/com.h"
+#include "com.h"
 #include "fil.h"
 #include "str.h"
 #include "mem.h"
@@ -21,10 +21,8 @@ static enum {
     FIL_COMMAND,
 } fil_state;
 
-// static uint32_t rw_addr;
 static uint32_t rx_len;
 static uint32_t rx_crc;
-static absolute_time_t watchdog; //  TODO remove
 static FIL fil_fat;
 
 void fil_chdir(const char *args, size_t len)
@@ -120,38 +118,13 @@ void fil_ls(const char *args, size_t len)
     f_closedir(&dir);
 }
 
-void fil_upload(const char *args, size_t len)
-{
-    if (!len)
-    {
-        printf("?missing filename\n");
-        return;
-    }
-    FRESULT result = f_open(&fil_fat, args, FA_READ | FA_WRITE);
-    if (result == FR_NO_FILE)
-        result = f_open(&fil_fat, args, FA_CREATE_NEW | FA_WRITE);
-    if (result != FR_OK)
-    {
-        printf("?Unable to open file (%d)\n", result);
-        return;
-    }
-    fil_state = FIL_COMMAND;
-    watchdog = delayed_by_ms(get_absolute_time(), TIMEOUT_MS);
-}
+static void fil_command_dispatch(bool timeout, size_t len);
 
-void fil_unlink(const char *args, size_t len)
+static void fil_com_rx_mbuf(bool timeout, size_t length)
 {
-    (void)(len);
-    FRESULT result = f_unlink(args);
-    if (result != FR_OK)
-        printf("?Failed to unlink file (%d)\n", result);
-}
-
-static void fil_com_rx_mbuf()
-{
-    printf("(%8lx,%8lx,%d)", mbuf_crc32(), rx_crc, mbuf_len);
+    mbuf_len = length;
     FRESULT result = FR_OK;
-    if (mbuf_len < rx_len)
+    if (timeout)
     {
         result = FR_INT_ERR;
         printf("?timeout\n");
@@ -179,14 +152,24 @@ static void fil_com_rx_mbuf()
     if (result == FR_OK)
     {
         fil_state = FIL_COMMAND;
+        putchar('}');
+        com_read_line(cbuf, CBUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
     }
     else
         fil_state = FIL_IDLE;
-    watchdog = delayed_by_ms(get_absolute_time(), TIMEOUT_MS);
 }
 
-void fil_command_dispatch(const char *args, size_t len)
+static void fil_command_dispatch(bool timeout, size_t len)
 {
+    if (timeout)
+    {
+        puts("");
+        printf("?timeout\n");
+        fil_state = FIL_IDLE;
+        return;
+    }
+    const char *args = cbuf;
+
     if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
     {
         fil_state = FIL_IDLE;
@@ -206,7 +189,7 @@ void fil_command_dispatch(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_capture_mbuf(fil_com_rx_mbuf, rx_len, TIMEOUT_MS);
+        com_read_binary(mbuf, rx_len, TIMEOUT_MS, fil_com_rx_mbuf);
         return;
     }
     printf("?invalid argument\n");
@@ -214,18 +197,36 @@ void fil_command_dispatch(const char *args, size_t len)
     return;
 }
 
+void fil_upload(const char *args, size_t len)
+{
+    if (!len)
+    {
+        printf("?missing filename\n");
+        return;
+    }
+    FRESULT result = f_open(&fil_fat, args, FA_READ | FA_WRITE);
+    if (result == FR_NO_FILE)
+        result = f_open(&fil_fat, args, FA_CREATE_NEW | FA_WRITE);
+    if (result != FR_OK)
+    {
+        printf("?Unable to open file (%d)\n", result);
+        return;
+    }
+    fil_state = FIL_COMMAND;
+    putchar('}');
+    com_read_line(cbuf, CBUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+}
+
+void fil_unlink(const char *args, size_t len)
+{
+    (void)(len);
+    FRESULT result = f_unlink(args);
+    if (result != FR_OK)
+        printf("?Failed to unlink file (%d)\n", result);
+}
+
 void fil_task()
 {
-    if (fil_state != FIL_IDLE)
-        if (absolute_time_diff_us(get_absolute_time(), watchdog) < 0)
-        {
-            if (fil_state == FIL_COMMAND)
-                puts("");
-            printf("?timeout\n");
-            fil_state = FIL_IDLE;
-            mon_reset();
-        }
-
     // Close file after reset or error condition
     if (fil_state == FIL_IDLE && fil_fat.obj.fs)
     {
@@ -235,7 +236,7 @@ void fil_task()
     }
 }
 
-bool fil_is_prompting()
+bool fil_active()
 {
     return fil_state == FIL_COMMAND;
 }
