@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api.h"
 #include "cfg.h"
 #include "cpu.h"
+#include "mem.h"
 #include "pix.h"
 #include "ria.h"
+#include "str.h"
 #include "dev/lfs.h"
-#include "mon/str.h"
+#include "dev/oem.h"
 #include "fatfs/ff.h"
 
 // Configuration is a plain ASCII file on the LFS. e.g.
@@ -28,41 +29,9 @@ static const char filename[] = "CONFIG.SYS";
 static uint32_t cfg_phi2_khz;
 static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
-static uint16_t cfg_code_page;
+static uint32_t cfg_code_page;
 static uint8_t cfg_vga;
 
-// TODO move codepage things out of here
-// Guaranteed setting of FatFs code page.
-// Adapts to compile time options.
-static uint16_t update_code_page(uint16_t cp)
-{
-#if RP6502_CODE_PAGE
-    (void)cp;
-    return RP6502_CODE_PAGE;
-#else
-    FRESULT result;
-    if (cp)
-    {
-        result = f_setcp(cp);
-        if (result == FR_OK)
-            return cp;
-    }
-    if (cfg_code_page)
-    {
-        result = f_setcp(cfg_code_page);
-        if (result == FR_OK)
-            return cfg_code_page;
-    }
-    f_setcp(437);
-    return 437;
-#endif
-}
-
-// TODO move codepage things out of here
-void cfg_api_codepage()
-{
-    return api_return_ax(cfg_get_code_page());
-}
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -169,8 +138,6 @@ static void cfg_load_with_boot_opt(bool boot_only)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
         printf("?Unable to lfs_file_close %s (%d)\n", filename, lfsresult);
-    // Validate CP because RP6502_CODE_PAGE may have changed
-    cfg_code_page = update_code_page(cfg_code_page);
 }
 
 void cfg_init()
@@ -191,10 +158,6 @@ char *cfg_get_boot()
 
 bool cfg_set_phi2_khz(uint32_t freq_khz)
 {
-// Set in in CMakeLists.txt
-#ifndef RP6502_MAX_PHI2
-#define RP6502_MAX_PHI2 8000
-#endif
     if (freq_khz > RP6502_MAX_PHI2)
         return false;
     uint32_t old_val = cfg_phi2_khz;
@@ -244,14 +207,15 @@ uint8_t cfg_get_caps()
     return cfg_caps;
 }
 
-void cfg_set_code_page(uint16_t cp)
+bool cfg_set_code_page(uint32_t cp)
 {
-    cp = update_code_page(cp);
-    if (cfg_code_page != cp)
-    {
-        cfg_code_page = cp;
+    if (cp > UINT16_MAX)
+        return false;
+    uint32_t old_val = cfg_code_page;
+    cfg_code_page = oem_validate_code_page(cp);
+    if (old_val != cfg_code_page)
         cfg_save_with_boot_opt(NULL);
-    }
+    return true;
 }
 
 uint16_t cfg_get_code_page()

@@ -9,7 +9,6 @@
 #include "cpu.h"
 #include "main.h"
 #include "ria.h"
-#include "mon/fil.h"
 #include "mon/mon.h"
 #include "mon/sys.h"
 #include "pico/stdlib.h"
@@ -280,7 +279,7 @@ void com_task()
                         com_binary_rx(ch);
                 }
                 else if (cpu_active())
-                    ria_com_rx(ch);
+                    cpu_com_rx(ch);
                 if (ria_active())
                     break;
                 ch = getchar_timeout_us(0);

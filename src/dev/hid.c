@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
 #include "dev.h"
 #include "hid.h"
-#include "vga/ansi.h"
+#include "main.h"
 #include "tusb.h"
-#include "pico/stdlib.h"
+#include "vga/ansi.h"
 #include "pico/stdio/driver.h"
 
 extern int process_sony_ds4(uint8_t dev_addr, uint8_t const *report, uint16_t len);
@@ -31,12 +30,12 @@ static struct hid_info
 
 #define HID_REPEAT_DELAY 500000
 #define HID_REPEAT_RATE 30000
-static absolute_time_t key_repeat_timer = {0};
-static uint8_t key_repeat_keycode = 0;
-static hid_keyboard_report_t key_prev_report = {0, 0, {0, 0, 0, 0, 0, 0}};
-static char key_queue[8];
-static uint8_t key_queue_in = 0;
-static uint8_t key_queue_out = 0;
+static absolute_time_t hid_repeat_timer = {0};
+static uint8_t hid_repeat_keycode = 0;
+static hid_keyboard_report_t hid_prev_report = {0, 0, {0, 0, 0, 0, 0, 0}};
+static char hid_key_queue[8];
+static uint8_t hid_key_queue_in = 0;
+static uint8_t hid_key_queue_out = 0;
 
 static char const __in_flash("keycode_to_ascii")
     KEYCODE_TO_ASCII[128][2] = {HID_KEYCODE_TO_ASCII};
@@ -44,13 +43,13 @@ static char const __in_flash("keycode_to_ascii")
 static void hid_queue_key_str(const char *str)
 {
     while (*str)
-        key_queue[++key_queue_in & 7] = *str++;
+        hid_key_queue[++hid_key_queue_in & 7] = *str++;
 }
 
 static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
-    key_repeat_keycode = keycode;
-    key_repeat_timer = delayed_by_us(get_absolute_time(),
+    hid_repeat_keycode = keycode;
+    hid_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? HID_REPEAT_DELAY : HID_REPEAT_RATE);
     modifier = ((modifier & 0xf0) >> 4) | (modifier & 0x0f); // merge modifiers to left
     char ch = keycode > 127
@@ -69,7 +68,7 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     if (ch)
     {
-        key_queue[++key_queue_in & 7] = ch;
+        hid_key_queue[++hid_key_queue_in & 7] = ch;
         return;
     }
     if (initial_press)
@@ -78,7 +77,7 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         case HID_KEY_DELETE:
             if (modifier == (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_LEFTALT))
             {
-                key_queue_out = key_queue_in;
+                hid_key_queue_out = hid_key_queue_in;
                 main_break();
             }
             break;
@@ -103,14 +102,14 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 static int hid_stdio_in_chars(char *buf, int length)
 {
     int i = 0;
-    key_queue_in = key_queue_in & 7;
-    if (key_queue_out > key_queue_in)
-        key_queue_in += 8;
-    while (i < length && key_queue_out < key_queue_in)
+    hid_key_queue_in = hid_key_queue_in & 7;
+    if (hid_key_queue_out > hid_key_queue_in)
+        hid_key_queue_in += 8;
+    while (i < length && hid_key_queue_out < hid_key_queue_in)
     {
-        buf[i++] = key_queue[++key_queue_out & 7];
+        buf[i++] = hid_key_queue[++hid_key_queue_out & 7];
     }
-    key_queue_out = key_queue_out & 7;
+    hid_key_queue_out = hid_key_queue_out & 7;
     return i ? i : PICO_ERROR_NO_DATA;
 }
 
@@ -168,7 +167,7 @@ static void hid_kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_repo
     static uint8_t prev_dev_addr = 0;
     static uint8_t prev_instance = 0;
     // Only support key presses on one keyboard at a time.
-    if (key_prev_report.keycode[0] >= HID_KEY_A &&
+    if (hid_prev_report.keycode[0] >= HID_KEY_A &&
         ((prev_dev_addr != dev_addr) || (prev_instance != instance)))
         return;
     uint8_t modifier = report->modifier;
@@ -187,7 +186,7 @@ static void hid_kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_repo
             bool held = false;
             for (uint8_t j = 0; j < 6; j++)
             {
-                if (keycode == key_prev_report.keycode[j])
+                if (keycode == hid_prev_report.keycode[j])
                     held = true;
             }
             if (!held)
@@ -196,8 +195,8 @@ static void hid_kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_repo
     }
     prev_dev_addr = dev_addr;
     prev_instance = instance;
-    key_prev_report = *report;
-    key_prev_report.modifier = modifier;
+    hid_prev_report = *report;
+    hid_prev_report.modifier = modifier;
 }
 
 static void hid_mouse_report(hid_mouse_report_t const *report)
@@ -300,18 +299,18 @@ void hid_init()
 
 void hid_task()
 {
-    if (key_repeat_keycode && absolute_time_diff_us(get_absolute_time(), key_repeat_timer) < 0)
+    if (hid_repeat_keycode && absolute_time_diff_us(get_absolute_time(), hid_repeat_timer) < 0)
     {
         for (uint8_t i = 0; i < 6; i++)
         {
-            uint8_t keycode = key_prev_report.keycode[5 - i];
-            if (key_repeat_keycode == keycode)
+            uint8_t keycode = hid_prev_report.keycode[5 - i];
+            if (hid_repeat_keycode == keycode)
             {
-                hid_queue_key(key_prev_report.modifier, keycode, false);
+                hid_queue_key(hid_prev_report.modifier, keycode, false);
                 return;
             }
         }
-        key_repeat_keycode = 0;
+        hid_repeat_keycode = 0;
     }
 }
 

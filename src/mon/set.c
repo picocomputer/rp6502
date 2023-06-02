@@ -29,17 +29,9 @@ static void set_phi2(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
-        {
-            if (val > 8000)
-            {
-                printf("?invalid frequency\n");
-                return;
-            }
-            cfg_set_phi2_khz(val);
-        }
-        else
+        if (!parse_uint32(&args, &len, &val) ||
+            !parse_end(args, len) ||
+            !cfg_set_phi2_khz(val))
         {
             printf("?invalid argument\n");
             return;
@@ -160,12 +152,9 @@ static void set_code_page(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
-        {
-            cfg_set_code_page(val);
-        }
-        else
+        if (!parse_uint32(&args, &len, &val) ||
+            !parse_end(args, len) ||
+            !cfg_set_code_page(val))
         {
             printf("?invalid argument\n");
             return;

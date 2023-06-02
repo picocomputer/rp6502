@@ -11,13 +11,13 @@
 #include "fatfs/ff.h"
 #include "pico/stdlib.h"
 
-#define FIL_MAX 16
-FIL fil_pool[FIL_MAX];
-#define FIL_STDIN 0
-#define FIL_STDOUT 1
-#define FIL_STDERR 2
-#define FIL_OFFS 3
-static_assert(FIL_MAX + FIL_OFFS < 128);
+#define STD_FIL_MAX 16
+FIL std_fil[STD_FIL_MAX];
+#define STD_FIL_STDIN 0
+#define STD_FIL_STDOUT 1
+#define STD_FIL_STDERR 2
+#define STD_FIL_OFFS 3
+static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 
 static void *std_io_ptr;
 static uint16_t std_xaddr;
@@ -51,24 +51,24 @@ void std_api_open(void)
     uint8_t *path = &xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     int fd = 0;
-    for (; fd < FIL_MAX; fd++)
-        if (!fil_pool[fd].obj.fs)
+    for (; fd < STD_FIL_MAX; fd++)
+        if (!std_fil[fd].obj.fs)
             break;
-    if (fd == FIL_MAX)
+    if (fd == STD_FIL_MAX)
         return api_return_errno_ax(FR_TOO_MANY_OPEN_FILES, -1);
-    FIL *fp = &fil_pool[fd];
+    FIL *fp = &std_fil[fd];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
     if (fresult != FR_OK)
         return api_return_errno_ax(fresult, -1);
-    return api_return_ax(fd + FIL_OFFS);
+    return api_return_ax(fd + STD_FIL_OFFS);
 }
 
 void std_api_close(void)
 {
     int fd = API_A;
-    if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+    if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    FIL *fp = &fil_pool[fd - FIL_OFFS];
+    FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     FRESULT fresult = f_close(fp);
     if (fresult != FR_OK)
         return api_return_errno_ax(fresult, -1);
@@ -92,7 +92,7 @@ static void api_read_impl(bool is_xram)
     UINT count;
     int fd = API_A;
     // TODO support fd==0 as STDIN
-    if (fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+    if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         goto err_param;
     if (is_xram)
     {
@@ -116,7 +116,7 @@ static void api_read_impl(bool is_xram)
         goto err_param;
     if (count > 0x7FFF)
         count = 0x7FFF;
-    FIL *fp = &fil_pool[fd - FIL_OFFS];
+    FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
     if (fresult == FR_OK)
@@ -175,7 +175,7 @@ static void api_write_impl(bool is_xram)
     uint8_t *buf;
     uint16_t count;
     int fd = API_A;
-    if (fd == FIL_STDIN || fd >= FIL_MAX + FIL_OFFS)
+    if (fd == STD_FIL_STDIN || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         goto err_param;
     if (is_xram)
     {
@@ -197,14 +197,14 @@ static void api_write_impl(bool is_xram)
         goto err_param;
     if (count > 0x7FFF)
         count = 0x7FFF;
-    if (fd < FIL_OFFS)
+    if (fd < STD_FIL_OFFS)
     {
         std_io_ptr = buf;
         std_count = count;
         api_set_ax(count);
         return;
     }
-    FIL *fp = &fil_pool[fd - FIL_OFFS];
+    FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
     if (fresult != FR_OK)
@@ -234,11 +234,11 @@ void std_api_lseek(void)
     const unsigned END = 0x02;
     int fd = API_A;
     if (xstack_ptr < XSTACK_SIZE - 9 || xstack_ptr > XSTACK_SIZE - 1 ||
-        fd < FIL_OFFS || fd >= FIL_MAX + FIL_OFFS)
+        fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         return api_return_errno_axsreg_zxstack(FR_INVALID_PARAMETER, -1);
     unsigned whence = xstack[xstack_ptr++];
     int64_t ofs = api_sstack_int64();
-    FIL *fp = &fil_pool[fd - FIL_OFFS];
+    FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     switch (whence)
     {
     case SET:
@@ -269,7 +269,7 @@ void std_api_lseek(void)
 void std_stop(void)
 {
     std_count = -1;
-    for (int i = 0; i < FIL_MAX; i++)
-        if (fil_pool[i].obj.fs)
-            f_close(&fil_pool[i]);
+    for (int i = 0; i < STD_FIL_MAX; i++)
+        if (std_fil[i].obj.fs)
+            f_close(&std_fil[i]);
 }

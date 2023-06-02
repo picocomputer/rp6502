@@ -66,6 +66,7 @@ target_sources(rp6502_ria PRIVATE
     dev/hid.c
     dev/lfs.c
     dev/msc.c
+    dev/oem.c
     dev/rng.c
     dev/std.c
     mon/fil.c
@@ -73,7 +74,6 @@ target_sources(rp6502_ria PRIVATE
     mon/mon.c
     mon/rom.c
     mon/set.c
-    mon/str.c
     mon/sys.c
     mon/vip.c
     ria/api.c
@@ -84,6 +84,7 @@ target_sources(rp6502_ria PRIVATE
     ria/mem.c
     ria/pix.c
     ria/ria.c
+    ria/str.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c

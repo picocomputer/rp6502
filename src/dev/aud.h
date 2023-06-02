@@ -17,6 +17,7 @@
 
 void aud_init();
 void aud_task();
+void aud_reclock(uint32_t sys_clk_khz);
 void aud_pix(uint8_t byte, uint16_t word);
 
 #endif /* _AUD_H_ */

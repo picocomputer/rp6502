@@ -32,8 +32,8 @@
 // Fixed point range of -1.9r to 1.9r for DSP work
 typedef signed short s1x14;
 #define muls1x14(a, b) ((s1x14)((((int)(a)) * ((int)(b))) >> 14))
-#define float_to_s1x14(a) ((s1x14)((a)*16384.0))
-#define s1x14_to_float(a) ((float)(a) / 16384.0)
+#define float_to_s1x14(a) ((s1x14)((a)*16384.f))
+#define s1x14_to_float(a) ((float)(a) / 16384.f)
 #define s1x14_0_0 (0)
 #define s1x14_1_0 ((s1x14)(1 << 14))
 #define s1x14_1_9r ((s1x14)(1 << 15) - 1)
@@ -171,7 +171,6 @@ void aud_init()
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
 
     config = pwm_get_default_config();
-    pwm_config_set_wrap(&config, 120000u / (AUD_RATE / 1000));
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
     float freq = 440.0; // A4
@@ -194,16 +193,21 @@ void aud_init()
     irq_set_enabled(PWM_IRQ_WRAP, true);
 }
 
-#define TIMEOUT_MS 1500
-static absolute_time_t com_timer;
-static unsigned mode;
+void aud_reclock(uint32_t sys_clk_khz)
+{
+    pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (AUD_RATE / 1000.f));
+}
 
 void aud_task()
 {
+    // TODO remove this example
+#define TIMEOUT_MS 1500
+    static absolute_time_t com_timer;
+    static unsigned mode;
     if (absolute_time_diff_us(get_absolute_time(), com_timer) < 0)
     {
         com_timer = delayed_by_us(get_absolute_time(),
-                              TIMEOUT_MS * 1500);
+                                  TIMEOUT_MS * 1500);
         float freq;
         freq = 440.0; // A4
         // freq = 32.7;     // C1

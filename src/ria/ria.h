@@ -24,7 +24,6 @@ void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 void ria_task();
 void ria_run();
 void ria_stop();
-void ria_com_rx(uint8_t ch);
 
 void ria_read_mbuf(uint16_t addr);
 void ria_write_mbuf(uint16_t addr);

@@ -19,6 +19,7 @@
 #include "dev/aud.h"
 #include "dev/hid.h"
 #include "dev/lfs.h"
+#include "dev/oem.h"
 #include "dev/rng.h"
 #include "dev/std.h"
 #include "tusb.h"
@@ -75,9 +76,9 @@ static void init()
     com_init();
 
     // Hello, world.
-    puts("\30\33[0m\f\n" RP6502_NAME);
-    puts("64K RAM, 64K XRAM");
-    puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n");
+    puts("\30\33[0m\f\n" RP6502_NAME);                                   // TODO com_init
+    puts("64K RAM, 64K XRAM");                                           // TODO cpu_init
+    puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n"); // TODO vga module
 
     // Load config before we init anything
     lfs_init();
@@ -86,6 +87,7 @@ static void init()
     // Misc kernel modules, add yours here
     cpu_init();
     ria_init();
+    oem_init();
     pix_init();
     aud_init();
     tusb_init();
@@ -98,6 +100,32 @@ static void init()
     size_t mbuf_len = strlen((char *)mbuf);
     if (mbuf_len)
         rom_load_lfs((char *)mbuf, mbuf_len);
+}
+
+// Tasks are repeatedly called as the main kernel loop.
+// They must not block. Use a state machine to do as
+// much work as you can until something blocks.
+
+// These tasks run when FatFs is blocking.
+// Calling FatFs in here may cause undefined behavior.
+void main_task()
+{
+    cpu_task();
+    ria_task();
+    aud_task();
+    tuh_task();
+    hid_task();
+}
+
+// Tasks that call FatFs should be here instead of main_task().
+static void task()
+{
+    mon_task();
+    sys_task();
+    fil_task();
+    rom_task();
+    api_task();
+    com_task();
 }
 
 // This is called to start the 6502.
@@ -137,36 +165,16 @@ bool main_active()
            fil_active();
 }
 
-// Called once during init then after every clock change.
+// Called once after init then after every clock change.
 void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     (void)phi2_khz;
     (void)sys_clk_khz;
     com_reclock();
+    cpu_reclock();
     ria_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
-}
-
-// These tasks run always, even when FatFs is blocking.
-// Calling FatFs in here may cause undefined behavior.
-void main_task()
-{
-    cpu_task();
-    ria_task();
-    aud_task();
-    tuh_task();
-    hid_task();
-}
-
-// Tasks that call FatFs should be here instead of main_task().
-static void task()
-{
-    mon_task();
-    sys_task();
-    fil_task();
-    rom_task();
-    api_task();
-    com_task();
+    aud_reclock(sys_clk_khz);
 }
 
 // PIX writes to the RIA will notify here.
@@ -213,7 +221,7 @@ bool main_api(uint8_t operation)
         cpu_api_phi2();
         break;
     case 0x12:
-        cfg_api_codepage();
+        oem_api_codepage();
         break;
     case 0x13:
         rng_api_rand32();
@@ -230,7 +238,7 @@ bool main_api(uint8_t operation)
 
 int main()
 {
-    // Pi Pico LED on.
+    // TODO Move LED to its own kernel module
 #ifdef PICO_DEFAULT_LED_PIN
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);

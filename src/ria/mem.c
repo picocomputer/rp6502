@@ -12,26 +12,15 @@ char cbuf[CBUF_SIZE];
 uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
 size_t mbuf_len;
 
-// This CRC32 will match zlib
 uint32_t mbuf_crc32()
 {
     // use littlefs library
     return ~lfs_crc(~0, mbuf, mbuf_len);
 }
 
-// The xstack is:
-// 256 bytes, enough to hold a CC65 stack frame
-// 1 byte at end always zero for cstrings
-
-// Many OS calls can use xstack instead of xram for cstrings.
-// Using xstack doesn't require sending the zero termination.
-// Cstrings and data are pushed in reverse so data is ordered correctly on a the top down stack.
-// Cstrings and data are pulled in reverse to expedite use of returned y resister
-// TODO can we use mbuf for this? it's big enough to reverse a 256 byte return.
 uint8_t xstack[XSTACK_SIZE + 1];
 size_t volatile xstack_ptr;
 
-// 64KB Extended RAM
 #ifdef NDEBUG
 uint8_t xram[0x10000];
 #else

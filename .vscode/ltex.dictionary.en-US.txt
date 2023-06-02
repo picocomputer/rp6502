@@ -1,4 +1,0 @@
-Rumbledethumps
-SPDX-License-Identifier
-Pico
-Picocomputer

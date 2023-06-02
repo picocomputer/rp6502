@@ -12,29 +12,13 @@
 #include "ria.h"
 #include "pico/stdlib.h"
 
-static absolute_time_t resb_timer;
-static bool is_running;
-
-bool cpu_active()
-{
-    return is_running;
-}
-
-void cpu_run()
-{
-    is_running = true;
-}
-
-void cpu_stop()
-{
-    is_running = false;
-    if (gpio_get(CPU_RESB_PIN))
-    {
-        gpio_put(CPU_RESB_PIN, false);
-        resb_timer = delayed_by_us(get_absolute_time(),
-                                   cpu_get_reset_us());
-    }
-}
+static bool cpu_run_requested;
+static absolute_time_t cpu_resb_timer;
+volatile int cpu_rx_char;
+static size_t cpu_rx_start;
+static size_t cpu_rx_end;
+static uint8_t cpu_rx_buf[32];
+#define CPU_RX_BUF(pos) cpu_rx_buf[(pos)&0x1F]
 
 void cpu_init()
 {
@@ -47,19 +31,72 @@ void cpu_init()
     gpio_init(CPU_IRQB_PIN);
     gpio_put(CPU_IRQB_PIN, true);
     gpio_set_dir(CPU_IRQB_PIN, true);
+}
 
-    // set initial timer from config
-    resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
+void cpu_reclock()
+{
+    if (!gpio_get(CPU_RESB_PIN))
+        cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
 
 void cpu_task()
 {
-    if (is_running && !gpio_get(CPU_RESB_PIN))
+    // Enforce minimum RESB time
+    if (cpu_run_requested && !gpio_get(CPU_RESB_PIN))
     {
         absolute_time_t now = get_absolute_time();
-        if (absolute_time_diff_us(now, resb_timer) < 0)
+        if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
             gpio_put(CPU_RESB_PIN, true);
     }
+
+    // Move UART FIFO into action loop
+    if (cpu_rx_char < 0 && &CPU_RX_BUF(cpu_rx_end) != &CPU_RX_BUF(cpu_rx_start))
+    {
+        int ch = CPU_RX_BUF(++cpu_rx_start);
+        switch (cfg_get_caps())
+        {
+        case 1:
+            if (ch >= 'A' && ch <= 'Z')
+            {
+                ch += 32;
+                break;
+            }
+            // fall through
+        case 2:
+            if (ch >= 'a' && ch <= 'z')
+                ch -= 32;
+        }
+        cpu_rx_char = ch;
+    }
+}
+
+static void clear_com_rx_fifo()
+{
+    cpu_rx_char = -1;
+    cpu_rx_start = cpu_rx_end = 0;
+}
+
+void cpu_run()
+{
+    cpu_run_requested = true;
+    clear_com_rx_fifo();
+}
+
+void cpu_stop()
+{
+    clear_com_rx_fifo();
+    cpu_run_requested = false;
+    if (gpio_get(CPU_RESB_PIN))
+    {
+        gpio_put(CPU_RESB_PIN, false);
+        cpu_resb_timer = delayed_by_us(get_absolute_time(),
+                                       cpu_get_reset_us());
+    }
+}
+
+bool cpu_active()
+{
+    return cpu_run_requested;
 }
 
 void cpu_api_phi2()
@@ -123,4 +160,11 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
     if (ok)
         main_reclock(phi2_khz, sys_clk_khz, clkdiv_int, clkdiv_frac);
     return ok;
+}
+
+void cpu_com_rx(uint8_t ch)
+{
+    // discarding overflow
+    if (&CPU_RX_BUF(cpu_rx_end + 1) != &CPU_RX_BUF(cpu_rx_start))
+        CPU_RX_BUF(++cpu_rx_end) = ch;
 }
