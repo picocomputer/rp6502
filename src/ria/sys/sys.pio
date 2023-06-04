@@ -1,0 +1,97 @@
+/*
+ * Copyright (c) 2023 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+
+.program pix_send
+
+pull ifempty noblock
+wait 1 gpio 21 [6]
+out pins 4
+wait 0 gpio 21 [6]
+out pins 4
+
+
+; Action sends a FIFO message for every write.
+; It also sends a message for (addr&3)==0 reads and one variable.
+; Pushing new address to out FIFO changes variable read address.
+.program ria_action
+
+.wrap_target
+start:
+wait 0 gpio 21
+pull noblock
+mov x osr
+wait 1 gpio 21 [10]
+mov osr pins
+out y 1
+jmp !y start
+out y 1
+mov isr osr
+jmp !y write
+out y 8
+out y 5
+jmp x!=y notvaraddr
+set y 0
+jmp read
+notvaraddr:
+mov osr y
+out y 2
+jmp !y read
+jmp start
+write:
+set y 1
+read:
+in isr 13
+in y 1
+in null 18
+.wrap
+
+
+; Async ROM emulation but synced with PHI2.
+.program ria_read
+
+.wrap_target
+wait 1 gpio 21
+out pins 8
+mov isr y ; cortex base address
+wait 0 gpio 21 [7]
+in pins 5
+.wrap
+
+
+; This tries to sets pindirs exactly on PHI2 up transition
+; but has to check again to accomodate slow glue logic.
+; Doing both costs an extra 6 (of 32) PIO instructions.
+.program ria_write
+.side_set 1
+
+nowrite:
+nop             side 0 [9]
+.wrap_target
+nop             side 1 [1]
+mov osr !pins   side 1 ; reading is select==1 and write==1
+out x 2         side 1
+mov osr !isr    side 1
+jmp !x reading1 side 1
+jmp hiz1        side 1
+reading1:
+out pindirs 8   side 1
+hiz1:
+mov osr isr     side 1 [6]
+mov x pins      side 1
+out pindirs 8   side 0
+mov osr x       side 0 ; writing is select==1 and write==0
+out x 2         side 0
+jmp x-- jmpsub  side 0 ; subtract 1
+jmpsub:
+jmp x-- nowrite side 0
+out x 8         side 0
+mov isr y       side 0 ; cortex base address
+in osr 5        side 0 ; bus address
+push noblock    side 0
+mov isr x       side 0 ; bus data
+push noblock    side 0 [4]
+.wrap

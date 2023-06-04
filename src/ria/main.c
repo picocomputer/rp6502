@@ -4,29 +4,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api.h"
-#include "cfg.h"
-#include "com.h"
-#include "cpu.h"
 #include "main.h"
 #include "mem.h"
-#include "pix.h"
-#include "ria.h"
+#include "tusb.h"
+#include "api/api.h"
+#include "api/oem.h"
+#include "api/rng.h"
+#include "api/std.h"
+#include "aud/aud.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
+#include "mon/ram.h"
 #include "mon/rom.h"
-#include "mon/sys.h"
-#include "dev/aud.h"
-#include "dev/hid.h"
-#include "dev/lfs.h"
-#include "dev/oem.h"
-#include "dev/rng.h"
-#include "dev/std.h"
-#include "tusb.h"
-#include "pico/stdlib.h"
-#ifdef RASPBERRYPI_PICO_W
-#include "pico/cyw43_arch.h"
-#endif
+#include "sys/com.h"
+#include "sys/cfg.h"
+#include "sys/cpu.h"
+#include "sys/led.h"
+#include "sys/lfs.h"
+#include "sys/pix.h"
+#include "sys/ria.h"
+#include "usb/hid.h"
 
 #ifndef RP6502_NAME
 #error RP6502_NAME must be defined
@@ -40,14 +37,14 @@ static enum state {
     stopping,
 } volatile main_state;
 
-// Run the 6502
+// Run the 6502.
 void main_run()
 {
     if (main_state != running)
         main_state = starting;
 }
 
-// Stop the 6502
+// Stop the 6502.
 void main_stop()
 {
     if (main_state == starting)
@@ -60,6 +57,12 @@ void main_stop()
 void main_break()
 {
     is_breaking = true;
+}
+
+// Is the picocomputer active?
+bool main_active()
+{
+    return main_state != stopped;
 }
 
 /**************************************/
@@ -87,19 +90,15 @@ static void init()
     // Misc kernel modules, add yours here
     cpu_init();
     ria_init();
-    oem_init();
     pix_init();
+    oem_init();
     aud_init();
-    tusb_init();
     hid_init();
+    rom_init();
+    led_init();
 
-    // This triggers main_reclock()
-    cpu_set_phi2_khz(cpu_validate_phi2_khz(cfg_get_phi2_khz()));
-
-    // mbuf has boot string from cfg_init()
-    size_t mbuf_len = strlen((char *)mbuf);
-    if (mbuf_len)
-        rom_load_lfs((char *)mbuf, mbuf_len);
+    // TinyUSB
+    tuh_init(TUH_OPT_RHPORT);
 }
 
 // Tasks are repeatedly called as the main kernel loop.
@@ -110,22 +109,23 @@ static void init()
 // Calling FatFs in here may cause undefined behavior.
 void main_task()
 {
+    tuh_task();
     cpu_task();
     ria_task();
+    pix_task();
     aud_task();
-    tuh_task();
     hid_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task()
 {
-    mon_task();
-    sys_task();
-    fil_task();
-    rom_task();
     api_task();
     com_task();
+    mon_task();
+    ram_task();
+    fil_task();
+    rom_task();
 }
 
 // This is called to start the 6502.
@@ -151,25 +151,15 @@ static void reset()
     com_reset();
     fil_reset();
     mon_reset();
-    sys_reset();
+    ram_reset();
     rom_reset();
     puts("\30\33[0m");
-}
-
-// Anything that suspends the monitor will register here.
-bool main_active()
-{
-    return main_state != stopped ||
-           sys_active() ||
-           rom_active() ||
-           fil_active();
 }
 
 // Called once after init then after every clock change.
 void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     (void)phi2_khz;
-    (void)sys_clk_khz;
     com_reclock();
     cpu_reclock();
     ria_reclock(clkdiv_int, clkdiv_frac);
@@ -238,17 +228,10 @@ bool main_api(uint8_t operation)
 
 int main()
 {
-    // TODO Move LED to its own kernel module
-#ifdef PICO_DEFAULT_LED_PIN
-    gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    gpio_put(PICO_DEFAULT_LED_PIN, 1);
-#endif
-#ifdef RASPBERRYPI_PICO_W
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-#endif
-
     init();
+
+    // Trigger main_reclock()
+    cpu_set_phi2_khz(cpu_validate_phi2_khz(cfg_get_phi2_khz()));
 
     while (true)
     {

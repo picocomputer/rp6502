@@ -56,35 +56,37 @@ target_link_libraries(rp6502_ria PRIVATE
 )
 
 pico_generate_pio_header(rp6502_ria
-    ${CMAKE_CURRENT_LIST_DIR}/ria/ria.pio
+    ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.pio
 )
 
 target_sources(rp6502_ria PRIVATE
-    dev/aud.c
-    dev/dev.c
-    dev/hid_ps4.c
-    dev/hid.c
-    dev/lfs.c
-    dev/msc.c
-    dev/oem.c
-    dev/rng.c
-    dev/std.c
-    mon/fil.c
-    mon/hlp.c
-    mon/mon.c
-    mon/rom.c
-    mon/set.c
-    mon/sys.c
-    mon/vip.c
-    ria/api.c
-    ria/cfg.c
-    ria/com.c
-    ria/cpu.c
     ria/main.c
     ria/mem.c
-    ria/pix.c
-    ria/ria.c
     ria/str.c
+    ria/api/api.c
+    ria/api/oem.c
+    ria/api/rng.c
+    ria/api/std.c
+    ria/aud/aud.c
+    ria/mon/fil.c
+    ria/mon/hlp.c
+    ria/mon/mon.c
+    ria/mon/ram.c
+    ria/mon/rom.c
+    ria/mon/set.c
+    ria/mon/vip.c
+    ria/sys/cfg.c
+    ria/sys/com.c
+    ria/sys/cpu.c
+    ria/sys/led.c
+    ria/sys/lfs.c
+    ria/sys/pix.c
+    ria/sys/ria.c
+    ria/sys/sys.c
+    ria/usb/hid_ps4.c
+    ria/usb/hid.c
+    ria/usb/msc.c
+    ria/usb/usb.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c
