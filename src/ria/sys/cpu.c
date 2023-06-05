@@ -103,8 +103,6 @@ void cpu_api_phi2()
     return api_return_ax(cfg_get_phi2_khz());
 }
 
-// Return calculated reset time. May be higher than requested
-// to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us()
 {
     uint32_t reset_ms = cfg_get_reset_ms();
@@ -136,7 +134,6 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz, uint32_t *sys_clk_khz, ui
     }
 }
 
-// Returns quantized actual frequency.
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz)
 {
     if (!freq_khz)

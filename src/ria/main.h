@@ -10,14 +10,34 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Use these. Do not call cpu_run et al.
+/*
+ * This is the main kernel event loop.
+ */
 
+// Request to "start the 6502".
+// It will safely do nothing if the 6502 is already running.
 void main_run();
+
+// Request to "stop the 6502".
+// It will safely do nothing if the 6502 is already stopped.
 void main_stop();
+
+// Request to "break the kernel".
+// A break is triggered by CTRL-ALT-DEL and UART breaks.
+// If the 6502 is running, stop events will be called first.
+// Kernel modules should reset to a state similar to after
+// init() was first run.
 void main_break();
+
+// This is true when the 6502 is running or there's an
+// event queued to start it.
 bool main_active();
 
 // Useful kernel events.
+
+/*
+ * See main.c for information about the events below.
+ */
 
 void main_task();
 void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);

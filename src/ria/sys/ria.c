@@ -17,8 +17,6 @@
 #include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
 
-// RP6502 Interface Adapter for WDC W65C02S.
-
 // This is the smallest value that will
 // allow 1k read/write operations at 50 kHz.
 #define RIA_WATCHDOG_MS 250
@@ -43,7 +41,10 @@ static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 
-// RIA action has one variable read address.
+// The PIO will notify the action loop of all register writes.
+// Only every fourth register (0, 4, 8, ...) is watched for
+// read access. This additional read address to be watched
+// is varied based on the state of the RIA.
 static void ria_set_watch_address(uint32_t addr)
 {
     pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, addr & 0x1F);

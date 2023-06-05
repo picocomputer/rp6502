@@ -12,7 +12,7 @@
 
 void led_init()
 {
-    // TODO Move LED to its own kernel module
+    // Turn on the Pi Pico LED
 #ifdef PICO_DEFAULT_LED_PIN
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
