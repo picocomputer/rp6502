@@ -202,7 +202,10 @@ void ria_write_mbuf(uint16_t addr)
         return;
     rw_addr = addr;
     rw_end = len;
-    rw_pos = 0;
+    // Evil hack. Because otherwise this fails:
+    // set phi2 100; 0000 0 0 0 0; set phi2 4000; 0000 5 5 5 5
+    // It used to be that writes <10kHz would fail.
+    rw_pos = -2;
     action_state = action_state_write;
     main_run();
 }
