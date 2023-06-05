@@ -15,6 +15,7 @@
 #include "pico/multicore.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
+#include "littlefs/lfs_util.h"
 #include <stdio.h>
 
 // This is the smallest value that will
@@ -40,6 +41,15 @@ static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
+
+uint8_t ria_buf[MBUF_SIZE] __attribute__((aligned(4)));
+size_t ria_buf_len;
+
+uint32_t ria_buf_crc32()
+{
+    // use littlefs library
+    return ~lfs_crc(~0, ria_buf, ria_buf_len);
+}
 
 // The PIO will notify the action loop of all register writes.
 // Only every fourth register (0, 4, 8, ...) is watched for
@@ -71,7 +81,7 @@ void ria_run()
         // FFF7  80 FE     BRA $FFF7
         ria_set_watch_address(0xFFF6);
         REGS(0xFFF0) = 0xA9;
-        REGS(0xFFF1) = mbuf[0];
+        REGS(0xFFF1) = ria_buf[0];
         REGS(0xFFF2) = 0x8D;
         REGS(0xFFF3) = rw_addr & 0xFF;
         REGS(0xFFF4) = rw_addr >> 8;
@@ -146,19 +156,19 @@ bool ria_print_error_message()
     return true;
 }
 
-void ria_read_mbuf(uint16_t addr)
+void ria_read_buf(uint16_t addr)
 {
     assert(!cpu_active());
     // avoid forbidden areas
-    uint16_t len = mbuf_len;
+    uint16_t len = ria_buf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            mbuf[len] = REGS(addr + len);
+            ria_buf[len] = REGS(addr + len);
         else
-            mbuf[len] = 0;
+            ria_buf[len] = 0;
     while (len && (addr + len > 0xFF00))
         if (addr + --len <= 0xFFFF)
-            mbuf[len] = 0;
+            ria_buf[len] = 0;
     if (!len)
         return;
     rw_addr = addr;
@@ -168,14 +178,14 @@ void ria_read_mbuf(uint16_t addr)
     main_run();
 }
 
-void ria_verify_mbuf(uint16_t addr)
+void ria_verify_buf(uint16_t addr)
 {
     assert(!cpu_active());
     // avoid forbidden areas
     action_result = -1;
-    uint16_t len = mbuf_len;
+    uint16_t len = ria_buf_len;
     while (len && (addr + len > 0xFFFA))
-        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
+        if (addr + --len <= 0xFFFF && ria_buf[len] != REGS(addr + len))
             action_result = addr + len;
     while (len && (addr + len > 0xFF00))
         --len;
@@ -188,14 +198,14 @@ void ria_verify_mbuf(uint16_t addr)
     main_run();
 }
 
-void ria_write_mbuf(uint16_t addr)
+void ria_write_buf(uint16_t addr)
 {
     assert(!cpu_active());
     // avoid forbidden area
-    uint16_t len = mbuf_len;
+    uint16_t len = ria_buf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            REGS(addr + len) = mbuf[len];
+            REGS(addr + len) = ria_buf[len];
     while (len && (addr + len > 0xFF00))
         len--;
     if (!len)
@@ -230,7 +240,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     {
                         if (rw_pos > 0)
                         {
-                            REGS(0xFFF1) = mbuf[rw_pos];
+                            REGS(0xFFF1) = ria_buf[rw_pos];
                             REGSW(0xFFF3) += 1;
                         }
                         if (++rw_pos == rw_end)
@@ -246,7 +256,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
-                        mbuf[rw_pos] = data;
+                        ria_buf[rw_pos] = data;
                         if (++rw_pos == rw_end)
                         {
                             gpio_put(CPU_RESB_PIN, false);
@@ -258,7 +268,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
-                        if (mbuf[rw_pos] != data && action_result < 0)
+                        if (ria_buf[rw_pos] != data && action_result < 0)
                             action_result = REGSW(0xFFF1) - 1;
                         if (++rw_pos == rw_end)
                         {
@@ -293,37 +303,37 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 case CASE_WRITE(0xFFEB): // Set XRAM >ADDR1
                     REGS(0xFFEB) = data;
-                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    API_RW1 = xram[API_ADDR1];
                     break;
                 case CASE_WRITE(0xFFEA): // Set XRAM <ADDR1
                     REGS(0xFFEA) = data;
-                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    API_RW1 = xram[API_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
-                    xram[XRAM_ADDR1] = data;
-                    PIX_SEND_XRAM(XRAM_ADDR1, data);
-                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    xram[API_ADDR1] = data;
+                    PIX_SEND_XRAM(API_ADDR1, data);
+                    API_RW0 = xram[API_ADDR0];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
-                    XRAM_ADDR1 += XRAM_STEP1;
-                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    API_ADDR1 += API_STEP1;
+                    API_RW1 = xram[API_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE7): // Set XRAM >ADDR0
                     REGS(0xFFE7) = data;
-                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    API_RW0 = xram[API_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE6): // Set XRAM <ADDR0
                     REGS(0xFFE6) = data;
-                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    API_RW0 = xram[API_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
-                    xram[XRAM_ADDR0] = data;
-                    PIX_SEND_XRAM(XRAM_ADDR0, data);
-                    XRAM_RW1 = xram[XRAM_ADDR1];
+                    xram[API_ADDR0] = data;
+                    PIX_SEND_XRAM(API_ADDR0, data);
+                    API_RW1 = xram[API_ADDR1];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
-                    XRAM_ADDR0 += XRAM_STEP0;
-                    XRAM_RW0 = xram[XRAM_ADDR0];
+                    API_ADDR0 += API_STEP0;
+                    API_RW0 = xram[API_ADDR0];
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
@@ -381,7 +391,7 @@ static void ria_write_pio_init()
     pio_gpio_init(RIA_WRITE_PIO, CPU_PHI2_PIN);
     pio_sm_set_consecutive_pindirs(RIA_WRITE_PIO, RIA_WRITE_SM, CPU_PHI2_PIN, 1, true);
     pio_sm_init(RIA_WRITE_PIO, RIA_WRITE_SM, offset, &config);
-    pio_sm_put(RIA_WRITE_PIO, RIA_WRITE_SM, (uintptr_t)regs >> 5);
+    pio_sm_put(RIA_WRITE_PIO, RIA_WRITE_SM, (uintptr_t)ria_regs >> 5);
     pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_mov(pio_y, pio_osr));
     pio_sm_set_enabled(RIA_WRITE_PIO, RIA_WRITE_SM, true);
@@ -400,7 +410,7 @@ static void ria_write_pio_init()
     dma_channel_configure(
         data_chan,
         &data_dma,
-        regs,                              // dst
+        ria_regs,                          // dst
         &RIA_WRITE_PIO->rxf[RIA_WRITE_SM], // src
         1,
         false);
@@ -433,7 +443,7 @@ static void ria_read_pio_init()
         pio_gpio_init(RIA_READ_PIO, i);
     pio_sm_set_consecutive_pindirs(RIA_READ_PIO, RIA_READ_SM, RIA_DATA_PIN_BASE, 8, true);
     pio_sm_init(RIA_READ_PIO, RIA_READ_SM, offset, &config);
-    pio_sm_put(RIA_READ_PIO, RIA_READ_SM, (uintptr_t)regs >> 5);
+    pio_sm_put(RIA_READ_PIO, RIA_READ_SM, (uintptr_t)ria_regs >> 5);
     pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_mov(pio_y, pio_osr));
     pio_sm_set_enabled(RIA_READ_PIO, RIA_READ_SM, true);
@@ -452,7 +462,7 @@ static void ria_read_pio_init()
         data_chan,
         &data_dma,
         &RIA_READ_PIO->txf[RIA_READ_SM], // dst
-        regs,                            // src
+        ria_regs,                        // src
         1,
         false);
 
@@ -487,7 +497,7 @@ static void ria_act_pio_init()
 void ria_init()
 {
     // safety check for compiler alignment
-    assert(!((uintptr_t)regs & 0x1F));
+    assert(!((uintptr_t)ria_regs & 0x1F));
 
     // Adjustments for GPIO performance. Important!
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)

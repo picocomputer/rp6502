@@ -7,7 +7,12 @@
 #ifndef _STD_H_
 #define _STD_H_
 
+// Kernel events
 void std_stop(void);
+
+/*
+ * The API implementation for stdio support.
+ */
 
 void std_api_open(void);
 void std_api_close(void);

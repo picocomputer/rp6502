@@ -15,6 +15,7 @@
 // IRQ pin used for PWM IRQ timer only, no IO
 #define AUD_IRQ_PIN 14
 
+// Kernel events
 void aud_init();
 void aud_task();
 void aud_reclock(uint32_t sys_clk_khz);

@@ -61,7 +61,6 @@ pico_generate_pio_header(rp6502_ria
 
 target_sources(rp6502_ria PRIVATE
     ria/main.c
-    ria/mem.c
     ria/str.c
     ria/api/api.c
     ria/api/oem.c

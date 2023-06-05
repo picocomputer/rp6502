@@ -10,5 +10,6 @@
 
 void rng_api_rand32()
 {
+    // The Pi Pico SDK random is perfect here.
     return api_return_axsreg(get_rand_32());
 }

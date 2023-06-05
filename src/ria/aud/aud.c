@@ -115,20 +115,33 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
         }
     }
 
-    int r = chan[0].nco_r;
+    // int r = chan[0].nco_r; // real audio
+    int r = 0; // silence
     if (chan[0].wave == square)
     {
         if (r < s1x14_0_0)
+        {
             pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, 0);
+            pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, 0);
+        }
         else
+        {
             pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_WRAP + 1);
+            pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_WRAP + 1);
+        }
     }
     else
     {
         if (r < s1x14_0_0)
+        {
             pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER - (-r >> AUD_SHIFT));
+            pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER - (-r >> AUD_SHIFT));
+        }
         else
+        {
             pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER + (r >> AUD_SHIFT));
+            pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER + (r >> AUD_SHIFT));
+        }
     }
 
     static unsigned norm = 1;
@@ -216,7 +229,7 @@ void aud_task()
         switch (mode)
         {
         case 0:
-            mode = 1;
+            mode = 0; // stay
             pending[0].wave = sine;
             pending[0].nco_r = s1x14_1_0;
             pending[0].nco_i = s1x14_0_0;

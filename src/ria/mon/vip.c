@@ -20,6 +20,7 @@ void vip_print(void)
         "Sean Franklin",
         "ulften",
         "Larryvc",
+        "ingmar meins",
     };
     const unsigned VIP_COUNT = sizeof(vips) / sizeof(char *);
     for (unsigned i = 0; i < VIP_COUNT; i++)

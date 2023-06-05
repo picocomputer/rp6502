@@ -5,7 +5,6 @@
  */
 
 #include "main.h"
-#include "mem.h"
 #include "tusb.h"
 #include "api/api.h"
 #include "api/oem.h"
@@ -117,16 +116,14 @@ static void reset()
     mon_reset();
     ram_reset();
     rom_reset();
-    puts("\30\33[0m");
 }
 
 // Triggered once after init then after every PHI2 clock change.
 // Divider is used when PHI2 less than 4 MHz to
 // maintain a minimum system clock of 120 MHz.
 // From 4 to 8 MHz increases system clock to 240 MHz.
-void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
-    (void)phi2_khz;
     com_reclock();
     cpu_reclock();
     ria_reclock(clkdiv_int, clkdiv_frac);

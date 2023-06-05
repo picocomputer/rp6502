@@ -5,8 +5,8 @@
  */
 
 #include "main.h"
-#include "mem.h"
 #include "str.h"
+#include "api/api.h"
 #include "mon/mon.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
@@ -25,10 +25,10 @@ static uint32_t rom_addr;
 static uint32_t rom_len;
 static bool rom_FFFC;
 static bool rom_FFFD;
-bool is_reading_fat;
-bool lfs_file_open;
-lfs_file_t lfs_file;
-LFS_FILE_CONFIG(lfs_file_config);
+static bool is_reading_fat;
+static bool lfs_file_open;
+static lfs_file_t lfs_file;
+static LFS_FILE_CONFIG(lfs_file_config);
 static FIL fat_fil;
 
 static size_t rom_gets()
@@ -36,20 +36,20 @@ static size_t rom_gets()
     size_t len;
     if (is_reading_fat)
     {
-        if (!f_gets((char *)mbuf, MBUF_SIZE, &fat_fil))
+        if (!f_gets((char *)ria_buf, MBUF_SIZE, &fat_fil))
             return 0;
     }
     else
     {
-        if (!lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
+        if (!lfs_gets((char *)ria_buf, MBUF_SIZE, &lfs_volume, &lfs_file))
             return 0;
     }
-    len = strlen((char *)mbuf);
-    if (len && mbuf[len - 1] == '\n')
+    len = strlen((char *)ria_buf);
+    if (len && ria_buf[len - 1] == '\n')
         len--;
-    if (len && mbuf[len - 1] == '\r')
+    if (len && ria_buf[len - 1] == '\r')
         len--;
-    mbuf[len] = 0;
+    ria_buf[len] = 0;
     return len;
 }
 
@@ -76,7 +76,7 @@ static bool rom_open(const char *name, bool is_fat)
         }
         lfs_file_open = true;
     }
-    if (rom_gets() != 8 || strnicmp("#!RP6502", (char *)mbuf, 8))
+    if (rom_gets() != 8 || strnicmp("#!RP6502", (char *)ria_buf, 8))
     {
         printf("?Missing RP6502 ROM header\n");
         rom_state = ROM_IDLE;
@@ -99,7 +99,7 @@ static bool rom_read(uint32_t len, uint32_t crc)
 {
     if (is_reading_fat)
     {
-        FRESULT result = f_read(&fat_fil, mbuf, len, &mbuf_len);
+        FRESULT result = f_read(&fat_fil, ria_buf, len, &ria_buf_len);
         if (result != FR_OK)
         {
             printf("?Unable to read file (%d)\n", result);
@@ -108,20 +108,20 @@ static bool rom_read(uint32_t len, uint32_t crc)
     }
     else
     {
-        lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, mbuf, len);
+        lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, ria_buf, len);
         if (lfsresult < 0)
         {
             printf("?Unable to lfs_file_read (%ld)\n", lfsresult);
             return false;
         }
-        mbuf_len = lfsresult;
+        ria_buf_len = lfsresult;
     }
-    if (len != mbuf_len)
+    if (len != ria_buf_len)
     {
         printf("?Unable to read binary data\n");
         return false;
     }
-    if (mbuf_crc32() != crc)
+    if (ria_buf_crc32() != crc)
     {
         printf("?CRC failed\n");
         return false;
@@ -131,10 +131,10 @@ static bool rom_read(uint32_t len, uint32_t crc)
 
 static bool rom_next_chunk()
 {
-    mbuf_len = 0;
+    ria_buf_len = 0;
     size_t len = rom_gets();
     for (size_t i = 0; i < len; i++)
-        switch (mbuf[i])
+        switch (ria_buf[i])
         {
         case ' ':
             continue;
@@ -144,7 +144,7 @@ static bool rom_next_chunk()
             break;
         }
     uint32_t rom_crc;
-    const char *args = (char *)mbuf;
+    const char *args = (char *)ria_buf;
     if (parse_uint32(&args, &len, &rom_addr) &&
         parse_uint32(&args, &len, &rom_len) &&
         parse_uint32(&args, &len, &rom_crc) &&
@@ -188,14 +188,14 @@ static void rom_loading()
         rom_state = ROM_IDLE;
         return;
     }
-    if (mbuf_len)
+    if (ria_buf_len)
     {
         if (rom_addr > 0xFFFF)
             rom_state = ROM_XRAM_WRITING;
         else
         {
             rom_state = ROM_RIA_WRITING;
-            ria_write_mbuf(rom_addr);
+            ria_write_buf(rom_addr);
         }
     }
 }
@@ -261,19 +261,19 @@ void rom_install(const char *args, size_t len)
     lfs_file_open = true;
     while (true)
     {
-        fresult = f_read(&fat_fil, mbuf, MBUF_SIZE, &mbuf_len);
+        fresult = f_read(&fat_fil, ria_buf, MBUF_SIZE, &ria_buf_len);
         if (fresult != FR_OK)
         {
             printf("?Unable to read file (%d)\n", fresult);
             break;
         }
-        lfsresult = lfs_file_write(&lfs_volume, &lfs_file, mbuf, mbuf_len);
+        lfsresult = lfs_file_write(&lfs_volume, &lfs_file, ria_buf, ria_buf_len);
         if (lfsresult < 0)
         {
             printf("?Unable to lfs_file_write (%d)\n", lfsresult);
             break;
         }
-        if (mbuf_len < MBUF_SIZE)
+        if (ria_buf_len < MBUF_SIZE)
             break;
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
@@ -342,9 +342,9 @@ void rom_help_fat(const char *args, size_t len)
     if (!rom_open(args, true))
         return;
     bool found = false;
-    while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+    while (rom_gets() && ria_buf[0] == '#' && ria_buf[1] == ' ')
     {
-        puts((char *)mbuf + 2);
+        puts((char *)ria_buf + 2);
         found = true;
     }
     if (!found)
@@ -362,9 +362,9 @@ bool rom_help_lfs(const char *args, size_t len)
             return false;
         bool found = false;
         if (rom_open(lfs_name, false))
-            while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+            while (rom_gets() && ria_buf[0] == '#' && ria_buf[1] == ' ')
             {
-                puts((char *)mbuf + 2);
+                puts((char *)ria_buf + 2);
                 found = true;
             }
         if (!found)
@@ -391,8 +391,8 @@ static bool rom_xram_writing()
     while (rom_len && pix_ready())
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
-        xram[addr] = mbuf[addr];
-        pix_send(0, 0, mbuf[addr], addr);
+        xram[addr] = ria_buf[addr];
+        pix_send(0, 0, ria_buf[addr], addr);
     }
     return !!rom_len;
 }
@@ -416,13 +416,16 @@ void rom_task()
         break;
     case ROM_XRAM_WRITING:
         if (!rom_xram_writing())
+        {
             rom_state = ROM_LOADING;
+            api_sync_xram();
+        }
         break;
     case ROM_RIA_WRITING:
         if (rom_action_is_finished())
         {
             rom_state = ROM_RIA_VERIFYING;
-            ria_verify_mbuf(rom_addr);
+            ria_verify_buf(rom_addr);
         }
         break;
     case ROM_RIA_VERIFYING:

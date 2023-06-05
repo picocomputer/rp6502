@@ -17,7 +17,7 @@ extern lfs_t lfs_volume;
 #define _LFS_FILE_CONFIG_NAME(name) lfs_file_config_buffer_##name
 #define LFS_FILE_CONFIG(name)                             \
     uint8_t _LFS_FILE_CONFIG_NAME(name)[FLASH_PAGE_SIZE]; \
-    struct lfs_file_config lfs_file_config = {            \
+    struct lfs_file_config name = {                       \
         .buffer = _LFS_FILE_CONFIG_NAME(name),            \
     };
 

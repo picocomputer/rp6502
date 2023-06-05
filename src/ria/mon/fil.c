@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mem.h"
 #include "str.h"
 #include "sys/com.h"
 #include "sys/ria.h"
@@ -120,14 +119,14 @@ static void fil_command_dispatch(bool timeout, size_t len);
 
 static void fil_com_rx_mbuf(bool timeout, size_t length)
 {
-    mbuf_len = length;
+    ria_buf_len = length;
     FRESULT result = FR_OK;
     if (timeout)
     {
         result = FR_INT_ERR;
         printf("?timeout\n");
     }
-    else if (mbuf_crc32() != rx_crc)
+    else if (ria_buf_crc32() != rx_crc)
     {
         result = FR_INT_ERR;
         puts("?CRC does not match");
@@ -143,7 +142,7 @@ static void fil_com_rx_mbuf(bool timeout, size_t length)
     if (result == FR_OK)
     {
         UINT bytes_written;
-        result = f_write(&fil_fat, mbuf, mbuf_len, &bytes_written);
+        result = f_write(&fil_fat, ria_buf, ria_buf_len, &bytes_written);
         if (result != FR_OK)
             printf("?Unable to write file (%d)\n", result);
     }
@@ -151,7 +150,7 @@ static void fil_com_rx_mbuf(bool timeout, size_t length)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        com_read_line(cbuf, CBUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+        com_read_line(com_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
     }
     else
         fil_state = FIL_IDLE;
@@ -166,7 +165,7 @@ static void fil_command_dispatch(bool timeout, size_t len)
         fil_state = FIL_IDLE;
         return;
     }
-    const char *args = cbuf;
+    const char *args = com_buf;
 
     if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
     {
@@ -187,7 +186,7 @@ static void fil_command_dispatch(bool timeout, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_read_binary(mbuf, rx_len, TIMEOUT_MS, fil_com_rx_mbuf);
+        com_read_binary(ria_buf, rx_len, TIMEOUT_MS, fil_com_rx_mbuf);
         return;
     }
     printf("?invalid argument\n");
@@ -212,7 +211,7 @@ void fil_upload(const char *args, size_t len)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    com_read_line(cbuf, CBUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+    com_read_line(com_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
 }
 
 void fil_unlink(const char *args, size_t len)

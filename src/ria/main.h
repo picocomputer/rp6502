@@ -29,18 +29,16 @@ void main_stop();
 // init() was first run.
 void main_break();
 
-// This is true when the 6502 is running or there's an
-// event queued to start it.
+// This is true when the 6502 is running or there's a pending
+// request to start it.
 bool main_active();
-
-// Useful kernel events.
 
 /*
  * See main.c for information about the events below.
  */
 
 void main_task();
-void main_reclock(uint32_t phi2_khz, uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);
+void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);
 void main_pix(uint8_t ch, uint8_t byte, uint16_t word);
 bool main_api(uint8_t operation);
 

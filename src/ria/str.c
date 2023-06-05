@@ -6,7 +6,6 @@
 
 #include "str.h"
 
-// Test for 0-9 a-f A-F
 bool char_is_hex(char ch)
 {
     return ((ch >= '0') && (ch <= '9')) ||
@@ -14,7 +13,6 @@ bool char_is_hex(char ch)
            ((ch >= 'a') && (ch <= 'f'));
 }
 
-// Change chars 0-9 a-f A-F to a binary int, -1 on fail
 int char_to_int(char ch)
 {
     if ((unsigned int)ch - (unsigned int)'0' < 10u)
@@ -26,7 +24,6 @@ int char_to_int(char ch)
     return -1;
 }
 
-// Case insensitive string compare with length limit
 int strnicmp(const char *string1, const char *string2, int n)
 {
     while (n--)
@@ -48,7 +45,6 @@ int strnicmp(const char *string1, const char *string2, int n)
     return 0;
 }
 
-// A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool parse_uint32(const char **args, size_t *len, uint32_t *result)
 {
     size_t i;
@@ -97,8 +93,6 @@ bool parse_uint32(const char **args, size_t *len, uint32_t *result)
     return true;
 }
 
-// A ROM name converted to upper case. Only A-Z allowed.
-// Return argument name must hold LFS_NAME_MAX+1.
 bool parse_rom_name(const char **args, size_t *len, char *name)
 {
     name[0] = 0;
@@ -143,7 +137,6 @@ bool parse_rom_name(const char **args, size_t *len, char *name)
     return true;
 }
 
-// Ensure there are no more arguments
 bool parse_end(const char *args, size_t len)
 {
     for (size_t i = 0; i < len; i++)

@@ -10,6 +10,36 @@
 #include "sys/ria.h"
 #include "fatfs/ff.h"
 
+#ifdef NDEBUG
+uint8_t xram[0x10000];
+#else
+static struct
+{
+    uint8_t _0[0x1000];
+    uint8_t _1[0x1000];
+    uint8_t _2[0x1000];
+    uint8_t _3[0x1000];
+    uint8_t _4[0x1000];
+    uint8_t _5[0x1000];
+    uint8_t _6[0x1000];
+    uint8_t _7[0x1000];
+    uint8_t _8[0x1000];
+    uint8_t _9[0x1000];
+    uint8_t _A[0x1000];
+    uint8_t _B[0x1000];
+    uint8_t _C[0x1000];
+    uint8_t _D[0x1000];
+    uint8_t _E[0x1000];
+    uint8_t _F[0x1000];
+    // this struct of 4KB segments is because
+    // a single 64KB array crashes my debugger
+} xram_blocks;
+uint8_t *const xram = (uint8_t *)&xram_blocks;
+#endif
+
+uint8_t xstack[XSTACK_SIZE + 1];
+size_t volatile xstack_ptr;
+
 void api_task()
 {
     if (cpu_active() && !ria_active() && API_BUSY)
@@ -29,8 +59,12 @@ void api_run()
     // All registers reset to a known state
     for (int i = 0; i < 16; i++)
         REGS(i) = 0;
-    XRAM_STEP0 = 1;
-    XRAM_STEP1 = 1;
+    API_STEP0 = 1;
+    API_ADDR0 = 0;
+    API_RW0 = xram[API_ADDR0];
+    API_STEP1 = 1;
+    API_ADDR1 = 0;
+    API_RW1 = xram[API_ADDR1];
     xstack_ptr = XSTACK_SIZE;
     api_return_errno_axsreg_zxstack(0, 0);
 }

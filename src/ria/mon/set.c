@@ -139,7 +139,7 @@ static void status_code_page()
 #if (RP6502_CODE_PAGE)
     printf("CP  : %d (dev)\n", RP6502_CODE_PAGE);
 #else
-    printf("CP  : %d\n", cfg_get_code_page());
+    printf("CP  : %d\n", cfg_get_codepage());
 #endif
 }
 
@@ -150,7 +150,7 @@ static void set_code_page(const char *args, size_t len)
     {
         if (!parse_uint32(&args, &len, &val) ||
             !parse_end(args, len) ||
-            !cfg_set_code_page(val))
+            !cfg_set_codepage(val))
         {
             printf("?invalid argument\n");
             return;

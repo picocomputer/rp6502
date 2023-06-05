@@ -16,6 +16,11 @@
 #define COM_UART_TX_PIN 4
 #define COM_UART_RX_PIN 5
 
+// Shared character buffer for read line.
+// TODO add multiline support and 256 size.
+#define COM_BUF_SIZE 79
+extern char com_buf[COM_BUF_SIZE];
+
 // Kernel events
 void com_task();
 void com_init();

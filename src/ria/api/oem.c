@@ -11,10 +11,10 @@
 
 void oem_init(void)
 {
-    cfg_set_code_page(oem_validate_code_page(cfg_get_code_page()));
+    cfg_set_codepage(oem_set_codepage(cfg_get_codepage()));
 }
 
-uint16_t oem_validate_code_page(uint16_t cp)
+uint16_t oem_set_codepage(uint16_t cp)
 {
 #if RP6502_CODE_PAGE
     (void)cp;
@@ -40,5 +40,5 @@ uint16_t oem_validate_code_page(uint16_t cp)
 
 void oem_api_codepage()
 {
-    return api_return_ax(cfg_get_code_page());
+    return api_return_ax(cfg_get_codepage());
 }

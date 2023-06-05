@@ -114,7 +114,10 @@ uint32_t cpu_get_reset_us()
     return reset_ms * 1000;
 }
 
-static void cpu_compute_phi2_clocks(uint32_t freq_khz, uint32_t *sys_clk_khz, uint16_t *clkdiv_int, uint8_t *clkdiv_frac)
+static void cpu_compute_phi2_clocks(uint32_t freq_khz,
+                                    uint32_t *sys_clk_khz,
+                                    uint16_t *clkdiv_int,
+                                    uint8_t *clkdiv_frac)
 {
     *sys_clk_khz = freq_khz * 30;
     if (*sys_clk_khz < 120 * 1000)
@@ -154,7 +157,7 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
     com_flush();
     bool ok = set_sys_clock_khz(sys_clk_khz, false);
     if (ok)
-        main_reclock(phi2_khz, sys_clk_khz, clkdiv_int, clkdiv_frac);
+        main_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
     return ok;
 }
 

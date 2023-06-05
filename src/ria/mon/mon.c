@@ -5,7 +5,6 @@
  */
 
 #include "main.h"
-#include "mem.h"
 #include "str.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
@@ -109,12 +108,12 @@ static void mon_enter(bool timeout, size_t length)
 {
     assert(!timeout);
     needs_prompt = true;
-    const char *args = cbuf;
+    const char *args = com_buf;
     cmd_function func = mon_command_lookup(&args, length);
     if (!func)
     {
-        if (!rom_load_lfs(cbuf, length))
-            for (char *b = cbuf; b < args; b++)
+        if (!rom_load_lfs(com_buf, length))
+            for (char *b = com_buf; b < args; b++)
                 if (b[0] != ' ')
                 {
                     printf("?unknown command\n");
@@ -122,7 +121,7 @@ static void mon_enter(bool timeout, size_t length)
                 }
         return;
     }
-    size_t args_len = length - (args - cbuf);
+    size_t args_len = length - (args - com_buf);
     func(args, args_len);
 }
 
@@ -141,7 +140,7 @@ void mon_task()
     {
         needs_prompt = false;
         putchar(']');
-        com_read_line(cbuf, CBUF_SIZE, 0, mon_enter);
+        com_read_line(com_buf, COM_BUF_SIZE, 0, mon_enter);
     }
 }
 

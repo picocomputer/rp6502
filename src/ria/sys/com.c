@@ -13,15 +13,17 @@
 #include <stdio.h>
 
 static com_read_callback_t com_callback;
-uint8_t *com_binary_buf;
-char *com_line_buf;
+static uint8_t *com_binary_buf;
+static char *com_line_buf;
 static absolute_time_t com_timer;
-uint32_t com_timeout_ms;
-size_t com_bufsize;
-size_t com_buflen;
-size_t com_bufpos;
-ansi_state_t com_ansi_state;
-int com_ansi_param;
+static uint32_t com_timeout_ms;
+static size_t com_bufsize;
+static size_t com_buflen;
+static size_t com_bufpos;
+static ansi_state_t com_ansi_state;
+static int com_ansi_param;
+
+char com_buf[COM_BUF_SIZE];
 
 void com_init()
 {
@@ -30,6 +32,7 @@ void com_init()
 
 void com_reset()
 {
+    puts("\30\33[0m");
     com_callback = NULL;
     com_binary_buf = NULL;
     com_line_buf = NULL;

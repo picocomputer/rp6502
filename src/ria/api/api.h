@@ -7,8 +7,17 @@
 #ifndef _API_H_
 #define _API_H_
 
-#include "mem.h"
+#include "sys/ria.h"
 
+// RIA XRAM portals
+#define API_RW0 REGS(0xFFE4)
+#define API_STEP0 *(int8_t *)&REGS(0xFFE5)
+#define API_ADDR0 REGSW(0xFFE6)
+#define API_RW1 REGS(0xFFE8)
+#define API_STEP1 *(int8_t *)&REGS(0xFFE9)
+#define API_ADDR1 REGSW(0xFFEA)
+
+// RIA fastcall registers
 #define API_OP REGS(0xFFEF)
 #define API_ERRNO REGSW(0xFFED)
 #define API_STACK REGS(0xFFEC)
@@ -19,6 +28,24 @@
 #define API_AX (API_A | (API_X << 8))
 #define API_AXSREG (API_AX | (API_SREG << 16))
 
+// 64KB Extended RAM
+#ifdef NDEBUG
+extern uint8_t xram[0x10000];
+#else
+extern uint8_t *const xram;
+#endif
+
+// The xstack is:
+// 256 bytes, enough to hold a CC65 stack frame.
+// 1 byte at end+1 always zero for cstrings.
+// Many OS calls can use xstack instead of xram for cstrings.
+// Using xstack doesn't require sending the zero termination.
+// Cstrings and data are pushed in reverse so data is ordered correctly on the top down stack.
+#define XSTACK_SIZE 0x100
+extern uint8_t xstack[];
+extern volatile size_t xstack_ptr;
+
+// Kernel events
 void api_task(void);
 void api_run(void);
 
@@ -44,8 +71,8 @@ int64_t api_sstack_int64(void);
 // ensuring the REGS have fresh data.
 static inline void api_sync_xram()
 {
-    XRAM_RW0 = xram[XRAM_ADDR0];
-    XRAM_RW1 = xram[XRAM_ADDR1];
+    API_RW0 = xram[API_ADDR0];
+    API_RW1 = xram[API_ADDR1];
 }
 static inline void api_sync_xstack()
 {
@@ -59,12 +86,12 @@ static inline void api_sync_xstack()
 // FFF5 A9 FF   LDA #$FF
 // FFF7 60      RTS
 // FFF8 FF FF   .SREG $FF $FF
-static inline void api_return_blocked() { *(uint32_t *)&regs[0x10] = 0xA2FE80EA; }
-static inline void api_return_released() { *(uint32_t *)&regs[0x10] = 0xA20080EA; }
+static inline void api_return_blocked() { *(uint32_t *)&ria_regs[0x10] = 0xA2FE80EA; }
+static inline void api_return_released() { *(uint32_t *)&ria_regs[0x10] = 0xA20080EA; }
 
 static inline void api_set_ax(uint16_t val)
 {
-    *(uint32_t *)&regs[0x14] = 0x6000A900 | ((val >> 8) & 0xFF) | ((val << 16) & 0xFF0000);
+    *(uint32_t *)&ria_regs[0x14] = 0x6000A900 | ((val >> 8) & 0xFF) | ((val << 16) & 0xFF0000);
 }
 
 static inline void api_set_axsreg(uint32_t val)
