@@ -202,10 +202,7 @@ void ria_write_mbuf(uint16_t addr)
         return;
     rw_addr = addr;
     rw_end = len;
-    // Evil hack because the first few writes with
-    // a slow clock (1 kHz) won't actually write to SRAM.
-    // This should be investigated further.
-    rw_pos = -2;
+    rw_pos = 0;
     action_state = action_state_write;
     main_run();
 }
