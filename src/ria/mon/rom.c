@@ -200,7 +200,7 @@ static void rom_loading()
     }
 }
 
-void rom_install(const char *args, size_t len)
+void rom_mon_install(const char *args, size_t len)
 {
     // Strip special extension, validate and upcase name
     char lfs_name[LFS_NAME_MAX + 1];
@@ -291,7 +291,7 @@ void rom_install(const char *args, size_t len)
         lfs_remove(&lfs_volume, lfs_name);
 }
 
-void rom_remove(const char *args, size_t len)
+void rom_mon_remove(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
     if (parse_rom_name(&args, &len, lfs_name) &&
@@ -313,7 +313,7 @@ void rom_remove(const char *args, size_t len)
     printf("?Invalid ROM name\n");
 }
 
-void rom_load_fat(const char *args, size_t len)
+void rom_mon_load(const char *args, size_t len)
 {
     (void)(len);
     if (rom_open(args, true))
@@ -336,7 +336,7 @@ bool rom_load_lfs(const char *args, size_t len)
     return false;
 }
 
-void rom_help_fat(const char *args, size_t len)
+void rom_mon_info(const char *args, size_t len)
 {
     (void)(len);
     if (!rom_open(args, true))

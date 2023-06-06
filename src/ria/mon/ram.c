@@ -52,7 +52,7 @@ static void cmd_ria_verify()
 }
 
 // Commands that start with a hex address. Read or write memory.
-void ram_address(const char *args, size_t len)
+void ram_mon_address(const char *args, size_t len)
 {
     // addr syntax is already validated by dispatch
     rw_addr = 0;
@@ -151,7 +151,7 @@ static void sys_com_rx_mbuf(bool timeout, size_t length)
     ria_write_buf(rw_addr);
 }
 
-void ram_binary(const char *args, size_t len)
+void ram_mon_binary(const char *args, size_t len)
 {
     if (parse_uint32(&args, &len, &rw_addr) &&
         parse_uint32(&args, &len, &rw_len) &&

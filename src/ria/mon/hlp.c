@@ -341,7 +341,7 @@ static void hlp_help(const char *args, size_t len)
         printf("No installed ROMs.\n");
 }
 
-void hlp_dispatch(const char *args, size_t len)
+void hlp_mon_help(const char *args, size_t len)
 {
     if (!len)
         return hlp_help(args, len);

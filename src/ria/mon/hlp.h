@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 
-void hlp_dispatch(const char *args, size_t len);
+// Monitor commands
+void hlp_mon_help(const char *args, size_t len);
 
 #endif /* _HLP_H_ */

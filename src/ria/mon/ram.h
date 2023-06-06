@@ -9,10 +9,13 @@
 
 #include <stddef.h>
 
-void ram_binary(const char *args, size_t len);
-void ram_address(const char *args, size_t len);
+// Kernel events
 void ram_task();
 bool ram_active();
 void ram_reset();
+
+// Monitor commands
+void ram_mon_binary(const char *args, size_t len);
+void ram_mon_address(const char *args, size_t len);
 
 #endif /* _RAM_H_ */

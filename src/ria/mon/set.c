@@ -184,7 +184,7 @@ static void set_vga(const char *args, size_t len)
     status_vga();
 }
 
-void set_status(const char *args, size_t len)
+void set_mon_status(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
@@ -215,7 +215,7 @@ static struct
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
-void set_attr(const char *args, size_t len)
+void set_mon_set(const char *args, size_t len)
 {
     size_t i = 0;
     for (; i < len; i++)

@@ -9,7 +9,8 @@
 
 #include <stddef.h>
 
-void set_status(const char *args, size_t len);
-void set_attr(const char *args, size_t len);
+// Monitor commands
+void set_mon_status(const char *args, size_t len);
+void set_mon_set(const char *args, size_t len);
 
 #endif /* _SET_H_ */

@@ -22,7 +22,7 @@ static uint32_t rx_len;
 static uint32_t rx_crc;
 static FIL fil_fat;
 
-void fil_chdir(const char *args, size_t len)
+void fil_mon_chdir(const char *args, size_t len)
 {
     FRESULT result;
     DIR dir;
@@ -53,7 +53,7 @@ void fil_chdir(const char *args, size_t len)
     }
 }
 
-void fil_chdrive(const char *args, size_t len)
+void fil_mon_chdrive(const char *args, size_t len)
 {
     assert(len >= 2 && args[1] == ':');
     char s[3] = "0:";
@@ -77,7 +77,7 @@ void fil_chdrive(const char *args, size_t len)
     }
 }
 
-void fil_ls(const char *args, size_t len)
+void fil_mon_ls(const char *args, size_t len)
 {
     const char *dpath = ".";
     if (len)
@@ -194,7 +194,7 @@ static void fil_command_dispatch(bool timeout, size_t len)
     return;
 }
 
-void fil_upload(const char *args, size_t len)
+void fil_mon_upload(const char *args, size_t len)
 {
     if (!len)
     {
@@ -214,7 +214,7 @@ void fil_upload(const char *args, size_t len)
     com_read_line(com_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
 }
 
-void fil_unlink(const char *args, size_t len)
+void fil_mon_unlink(const char *args, size_t len)
 {
     (void)(len);
     FRESULT result = f_unlink(args);

@@ -11,15 +11,24 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-void rom_load_fat(const char *args, size_t len);
-bool rom_load_lfs(const char *args, size_t len);
-void rom_help_fat(const char *args, size_t len);
-bool rom_help_lfs(const char *args, size_t len);
-void rom_install(const char *args, size_t len);
-void rom_remove(const char *args, size_t len);
+// Kernel events
 void rom_init();
 void rom_task();
-bool rom_active();
 void rom_reset();
+
+// True when this module is busy with IO.
+bool rom_active();
+
+// Monitor commands
+void rom_mon_load(const char *args, size_t len);
+void rom_mon_info(const char *args, size_t len);
+void rom_mon_install(const char *args, size_t len);
+void rom_mon_remove(const char *args, size_t len);
+
+// Begin loading an installed rom, if exists.
+bool rom_load_lfs(const char *args, size_t len);
+
+// Display help from an installed ROM.
+bool rom_help_lfs(const char *args, size_t len);
 
 #endif /* _ROM_H_ */

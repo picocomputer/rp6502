@@ -8,14 +8,14 @@
 #include "sys/sys.h"
 #include "hardware/watchdog.h"
 
-void sys_reboot(const char *args, size_t len)
+void sys_mon_reboot(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
     watchdog_reboot(0, 0, 0);
 }
 
-void sys_run_6502(const char *args, size_t len)
+void sys_mon_reset(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);

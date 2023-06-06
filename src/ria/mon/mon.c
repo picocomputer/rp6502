@@ -19,35 +19,36 @@
 
 static bool needs_prompt = true;
 
-typedef void (*cmd_function)(const char *, size_t);
+typedef void (*mon_function)(const char *, size_t);
 static struct
 {
     size_t cmd_len;
     const char *const cmd;
-    cmd_function func;
+    mon_function func;
 } const COMMANDS[] = {
-    {4, "help", hlp_dispatch},
-    {1, "h", hlp_dispatch},
-    {1, "?", hlp_dispatch},
-    {6, "status", set_status},
-    {3, "set", set_attr},
-    {2, "ls", fil_ls},
-    {3, "dir", fil_ls},
-    {2, "cd", fil_chdir},
-    {4, "load", rom_load_fat},
-    {4, "info", rom_help_fat},
-    {7, "install", rom_install},
-    {6, "remove", rom_remove},
-    {6, "reboot", sys_reboot},
-    {5, "reset", sys_run_6502},
-    {6, "upload", fil_upload},
-    {6, "unlink", fil_unlink},
-    {6, "binary", ram_binary},
+    {4, "help", hlp_mon_help},
+    {1, "h", hlp_mon_help},
+    {1, "?", hlp_mon_help},
+    {6, "status", set_mon_status},
+    {3, "set", set_mon_set},
+    {2, "ls", fil_mon_ls},
+    {3, "dir", fil_mon_ls},
+    {2, "cd", fil_mon_chdir},
+    {5, "chdir", fil_mon_chdir},
+    {4, "load", rom_mon_load},
+    {4, "info", rom_mon_info},
+    {7, "install", rom_mon_install},
+    {6, "remove", rom_mon_remove},
+    {6, "reboot", sys_mon_reboot},
+    {5, "reset", sys_mon_reset},
+    {6, "upload", fil_mon_upload},
+    {6, "unlink", fil_mon_unlink},
+    {6, "binary", ram_mon_binary},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
 // Returns 0 if not found. Advances buf to start of args.
-static cmd_function mon_command_lookup(const char **buf, uint8_t buflen)
+static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
 {
     size_t i;
     for (i = 0; i < buflen; i++)
@@ -81,13 +82,13 @@ static cmd_function mon_command_lookup(const char **buf, uint8_t buflen)
     if (is_maybe_addr && !is_not_addr)
     {
         *buf = cmd;
-        return ram_address;
+        return ram_mon_address;
     }
     // 0:-9: is chdrive
     if (cmd_len == 2 && cmd[1] == ':' && cmd[0] >= '0' && cmd[0] <= '9')
     {
         *buf = cmd;
-        return fil_chdrive;
+        return fil_mon_chdrive;
     }
     *buf += i;
     for (i = 0; i < COMMANDS_COUNT; i++)
@@ -109,7 +110,7 @@ static void mon_enter(bool timeout, size_t length)
     assert(!timeout);
     needs_prompt = true;
     const char *args = com_buf;
-    cmd_function func = mon_command_lookup(&args, length);
+    mon_function func = mon_command_lookup(&args, length);
     if (!func)
     {
         if (!rom_load_lfs(com_buf, length))
