@@ -27,6 +27,7 @@ uint16_t oem_set_codepage(uint16_t cp)
         if (result == FR_OK)
             return cp;
     }
+    uint16_t cfg_code_page = cfg_get_codepage();
     if (cfg_code_page)
     {
         result = f_setcp(cfg_code_page);
