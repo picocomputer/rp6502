@@ -21,11 +21,11 @@ static vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
 static vga_resolution_t vga_resolution_current;
 static vga_resolution_t vga_resolution_selected;
-static bool vga_terminal_current;
+static volatile bool vga_terminal_current;
 static bool vga_terminal_selected;
 static scanvideo_mode_t const *vga_mode_current;
 static scanvideo_mode_t const *vga_mode_selected;
-static bool vga_mode_switch_triggered;
+static volatile bool vga_mode_switch_triggered;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
