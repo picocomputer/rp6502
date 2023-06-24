@@ -388,6 +388,7 @@ static void vga_render_4bpp(struct scanvideo_scanline_buffer *dest)
     int line = scanvideo_scanline_number(dest->scanline_id);
     uint8_t *data = xram + line * 160;
     uint16_t *pbuf = (void *)dest->data;
+    ++pbuf;
     for (int i = 0; i < 160;)
     {
         *++pbuf = colors[(*data) & 0xF];
