@@ -10,7 +10,7 @@ https://picocomputer.github.io/
 
 ## Dev Setup
 
-This is only for building the Pi Pico software. For writing 6502 software, see the examples.
+This is only for building the Pi Pico software. For writing 6502 software, see the [rp6502-vscode](https://github.com/picocomputer/rp6502-vscode) and [rp6502-sdk](https://github.com/picocomputer/rp6502-sdk).
 
 Install the C/C++ toolchain for the Raspberry Pi Pico. For more information, read [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 ```

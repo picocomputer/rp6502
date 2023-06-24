@@ -107,6 +107,7 @@ bool mon_command_exists(const char *buf, uint8_t buflen)
 
 static void mon_enter(bool timeout, size_t length)
 {
+    (void)timeout;
     assert(!timeout);
     needs_prompt = true;
     const char *args = com_buf;

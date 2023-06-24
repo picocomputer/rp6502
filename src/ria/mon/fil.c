@@ -55,6 +55,7 @@ void fil_mon_chdir(const char *args, size_t len)
 
 void fil_mon_chdrive(const char *args, size_t len)
 {
+    (void)len;
     assert(len >= 2 && args[1] == ':');
     char s[3] = "0:";
     s[0] = args[0];
