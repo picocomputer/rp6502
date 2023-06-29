@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * Copyright (c) 2021 a-pushkin on GitHub
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,22 +23,13 @@
  *
  */
 
-#ifndef PROBE_H_
-#define PROBE_H_
+#ifndef LED_H
+#define LED_H
 
-void probe_set_swclk_freq(uint freq_khz);
-void probe_write_bits(uint bit_count, uint32_t data_byte);
-uint32_t probe_read_bits(uint bit_count);
+#include "pico/stdlib.h"
 
-void probe_read_mode(void);
-void probe_write_mode(void);
-
-void probe_handle_read(uint total_bits);
-void probe_handle_write(uint8_t *data, uint total_bits);
-
-void probe_task(void);
-void probe_gpio_init(void);
-void probe_init(void);
-void probe_deinit(void);
+void led_init(void);
+void led_task(void);
+void led_signal_activity(uint total_bits);
 
 #endif

@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2021 Raspberry Pi (Trading) Ltd.
+ * Copyright (c) 2021 Federico Zuccardi Merli
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,10 +23,26 @@
  *
  */
 
-#ifndef CDC_UART_H
-#define CDC_UART_H
+#include "serno.h"
+#include "pico/unique_id.h"
+#include <stdint.h>
 
-void cdc_uart_init(void);
-void cdc_task(void);
+/* C string for iSerialNumber in USB Device Descriptor, two chars per byte + terminating NUL */
+char serno[PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2 + 1];
 
-#endif
+void serno_init(void)
+{
+    pico_unique_board_id_t uID;
+    pico_get_unique_board_id(&uID);
+
+    for (int i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2; i++)
+    {
+        /* Byte index inside the uid array */
+        int bi = i / 2;
+        /* Use high nibble first to keep memory order (just cosmetics) */
+        uint8_t nibble = (uID.id[bi] >> 4) & 0x0F;
+        uID.id[bi] <<= 4;
+        /* Binary to hex digit */
+        serno[i] = nibble < 10 ? nibble + '0' : nibble + 'A' - 10;
+    }
+}

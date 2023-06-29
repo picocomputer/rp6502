@@ -8,7 +8,7 @@
 #include "sys/com.h"
 #include "sys/cpu.h"
 #include "sys/ria.h"
-#include "vga/ansi.h"
+#include "vga/term/ansi.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
 

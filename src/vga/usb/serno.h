@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2021 a-pushkin on GitHub
+ * Copyright (c) 2021 Federico Zuccardi Merli
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,11 +23,13 @@
  *
  */
 
-#ifndef LED_H
-#define LED_H
+#ifndef SERNO_H_
+#define SERNO_H_
 
-void led_init(void);
-void led_task(void);
-void led_signal_activity(uint total_bits);
+/* Contains unique serial number string (NUL terminated) after call to serno_init */
+extern char serno[];
+
+/* Fills unique_serial with the flash unique id */
+void serno_init(void);
 
 #endif

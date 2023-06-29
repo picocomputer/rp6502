@@ -4,7 +4,7 @@ add_library(tinyusb_vga STATIC EXCLUDE_FROM_ALL)
 
 target_include_directories(tinyusb_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    probe
+    vga
 )
 
 file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
@@ -103,20 +103,20 @@ pico_set_binary_type(rp6502_vga copy_to_ram)
 target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    probe
+    vga
 )
 
 target_sources(rp6502_vga PRIVATE
     vga/main.c
-    vga/pix.c
-    vga/term.c
-    vga/vga.c
-    vga/xram.c
-    probe/led.c
-    probe/probe.c
-    probe/cdc_uart.c
-    probe/get_serial.c
-    probe/usb_descriptors.c
+    vga/sys/led.c
+    vga/sys/pix.c
+    vga/sys/vga.c
+    vga/sys/xram.c
+    vga/term/term.c
+    vga/usb/cdc.c
+    vga/usb/descriptors.c
+    vga/usb/probe.c
+    vga/usb/serno.c
 )
 
 target_link_libraries(rp6502_vga PRIVATE
@@ -128,11 +128,11 @@ target_link_libraries(rp6502_vga PRIVATE
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/probe/probe.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/usb/probe.pio
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/vga/pix.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio
 )
 
 target_compile_definitions(rp6502_vga PRIVATE

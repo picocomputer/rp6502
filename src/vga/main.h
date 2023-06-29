@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _PIX_H_
-#define _PIX_H_
+#ifndef _MAIN_H_
+#define _MAIN_H_
 
-void pix_init();
-void pix_task();
+void main_reclock(void);
 
-#endif /* _PIX_H_ */
+#endif /* _MAIN_H_ */

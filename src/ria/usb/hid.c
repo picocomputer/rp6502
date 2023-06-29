@@ -8,7 +8,7 @@
 #include "tusb.h"
 #include "usb/hid.h"
 #include "usb/usb.h"
-#include "vga/ansi.h"
+#include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
 
 extern int process_sony_ds4(uint8_t dev_addr, uint8_t const *report, uint16_t len);

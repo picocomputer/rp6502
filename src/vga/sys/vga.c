@@ -4,26 +4,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "xram.h"
 #include "vga.h"
-#include "term.h"
-#include "string.h"
+#include "term/term.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "pico/scanvideo.h"
 #include "pico/scanvideo/composable_scanline.h"
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
-#include "probe/picoprobe_config.h"
+#include <string.h>
 
 static mutex_t vga_mutex;
-static vga_display_t vga_display_current;
+static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
-static vga_resolution_t vga_resolution_current;
+static volatile vga_resolution_t vga_resolution_current;
 static vga_resolution_t vga_resolution_selected;
 static volatile bool vga_terminal_current;
 static bool vga_terminal_selected;
-static scanvideo_mode_t const *vga_mode_current;
+static volatile scanvideo_mode_t const *vga_mode_current;
 static scanvideo_mode_t const *vga_mode_selected;
 static volatile bool vga_mode_switch_triggered;
 
@@ -354,7 +354,7 @@ void vga_render_mono_haxscii(scanvideo_scanline_buffer_t *dest)
     dest->status = SCANLINE_OK;
 }
 
-static void vga_render_terminal()
+static void vga_render_terminal(void)
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 480; i++)
@@ -405,7 +405,7 @@ static void vga_render_4bpp(struct scanvideo_scanline_buffer *dest)
     dest->status = SCANLINE_OK;
 }
 
-static void vga_render_320_240()
+static void vga_render_320_240(void)
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 240; i++)
@@ -416,7 +416,7 @@ static void vga_render_320_240()
     }
 }
 
-static void vga_render_640_480()
+static void vga_render_640_480(void)
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 480; i++)
@@ -427,7 +427,7 @@ static void vga_render_640_480()
     }
 }
 
-static void vga_render_320_180()
+static void vga_render_320_180(void)
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 180; i++)
@@ -438,7 +438,7 @@ static void vga_render_320_180()
     }
 }
 
-static void vga_render_640_360()
+static void vga_render_640_360(void)
 {
     struct scanvideo_scanline_buffer *scanline_buffer;
     for (int i = 0; i < 360; i++)
@@ -449,7 +449,7 @@ static void vga_render_640_360()
     }
 }
 
-static void vga_render_loop()
+static void vga_render_loop(void)
 {
     while (true)
     {
@@ -479,7 +479,7 @@ static void vga_render_loop()
     }
 }
 
-static void vga_find_mode()
+static void vga_find_mode(void)
 {
     // terminal_selected mode goes first
     if (vga_terminal_selected)
@@ -527,7 +527,7 @@ static void vga_find_mode()
         vga_mode_switch_triggered = true;
 }
 
-static void vga_set()
+static void vga_set(void)
 {
     // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
     // Until it does, a brute force shutdown between frames seems to work.
@@ -559,9 +559,7 @@ static void vga_set()
     if (clk != clock_get_hz(clk_sys))
     {
         set_sys_clock_khz(clk / 1000, true);
-#if LIB_PICO_STDIO_UART
-        uart_init(PICOPROBE_UART_INTERFACE, PICOPROBE_UART_BAUDRATE);
-#endif
+        main_reclock();
     }
 
     // These two calls are the main scanvideo startup
@@ -593,7 +591,7 @@ void vga_terminal(bool show)
     vga_find_mode();
 }
 
-void vga_task()
+void vga_task(void)
 {
     if (vga_mode_switch_triggered)
     {
@@ -605,7 +603,7 @@ void vga_task()
     }
 }
 
-void vga_memory_init()
+static void vga_memory_init(void)
 {
     // Thought provoking scaffolding
     strcpy(&xram[45], "**** PICOCOMPUTER 6502 V1 ****");
@@ -623,7 +621,7 @@ void vga_memory_init()
         xram[0x1400 + i] = ~xram[0x1000 + i];
 }
 
-void vga_init()
+void vga_init(void)
 {
     // safety check for compiler alignment
     assert(!((uintptr_t)xram & 0xFFFF));

@@ -10,6 +10,7 @@
 #include "pico/stdio/driver.h"
 #include "pico/scanvideo.h"
 #include "pico/scanvideo/composable_scanline.h"
+#include <stdio.h>
 
 // If you are extending this for use outside the Picocomputer,
 // CSI codes with multiple parameters will need a more complete
@@ -395,7 +396,7 @@ static stdio_driver_t term_stdio = {
 #endif
 };
 
-void term_init()
+void term_init(void)
 {
     // become part of stdout
     stdio_set_driver_enabled(&term_stdio, true);
@@ -428,9 +429,11 @@ void term_init()
         term_color_data[pos + 2] = fgcolor | (bgcolor << 16);
         term_color_data[pos + 3] = fgcolor | (fgcolor << 16);
     }
+    // Clear screen
+    puts("\30\33[0m\f");
 }
 
-void term_task()
+void term_task(void)
 {
     absolute_time_t now = get_absolute_time();
     if (absolute_time_diff_us(now, term_timer) < 0)

@@ -10,10 +10,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The Picocomputer supports analog VGA output.
-// Inexpensive VGA to HDMI converters work perfectly
-// on all resolutions without any framebuffer lag.
-
 // Display type. Choose SD for 4:3 displays,
 // HD for 16:9 displays, and SXGA for 5:4 displays.
 // Note that choosing vga_hd will only activate 720p
@@ -34,10 +30,10 @@ typedef enum
     vga_640_360,
 } vga_resolution_t;
 
+void vga_init(void);
+void vga_task(void);
 void vga_display(vga_display_t display);
 void vga_resolution(vga_resolution_t mode);
 void vga_terminal(bool show);
-void vga_init();
-void vga_task();
 
 #endif /* _VGA_H_ */

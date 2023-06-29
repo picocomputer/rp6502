@@ -23,17 +23,34 @@
  *
  */
 
-#include <pico/stdlib.h>
-#include <stdio.h>
-#include <string.h>
 
-#include <hardware/clocks.h>
-#include <hardware/gpio.h>
-
-#include "led.h"
-#include "picoprobe_config.h"
+#include "probe.h"
+#include "sys/led.h"
 #include "probe.pio.h"
 #include "tusb.h"
+#include <pico/stdlib.h>
+#include <hardware/clocks.h>
+
+// Target reset config
+// #define PROBE_PIN_RESET 6
+
+#if false
+#define picoprobe_info(format, args...) printf(format, ##args)
+#else
+#define picoprobe_info(format, ...) ((void)0)
+#endif
+
+#if false
+#define picoprobe_debug(format, args...) printf(format, ##args)
+#else
+#define picoprobe_debug(format, ...) ((void)0)
+#endif
+
+#if false
+#define picoprobe_dump(format, args...) printf(format, ##args)
+#else
+#define picoprobe_dump(format, ...) ((void)0)
+#endif
 
 #define DIV_ROUND_UP(m, n) (((m) + (n)-1) / (n))
 
@@ -91,22 +108,29 @@ struct __attribute__((__packed__)) probe_pkt_hdr
     uint32_t total_packet_length;
 };
 
-void probe_set_swclk_freq(uint freq_khz)
+static uint swclk_freq_khz;
+
+static void probe_set_swclk_freq(uint freq_khz)
 {
-    uint clk_sys_freq_khz = clock_get_hz(clk_sys) / 1000;
-    picoprobe_info("Set swclk freq %dKHz sysclk %dkHz\n", freq_khz, clk_sys_freq_khz);
+    swclk_freq_khz = freq_khz;
+}
+
+void probe_reclock(void)
+{
+    uint sys_clk_khz = clock_get_hz(clk_sys) / 1000;
+    picoprobe_info("Set swclk freq %dKHz sysclk %dkHz\n", freq_khz, sys_clk_khz);
     // Worked out with saleae
-    uint32_t divider = clk_sys_freq_khz / freq_khz / 2;
+    uint32_t divider = sys_clk_khz / swclk_freq_khz / 2;
     pio_sm_set_clkdiv_int_frac(pio1, PROBE_SM, divider, 0);
 }
 
-void probe_assert_reset(bool state)
+static void probe_assert_reset(bool state)
 {
     /* Change the direction to out to drive pin to 0 or to in to emulate open drain */
     // gpio_set_dir(PROBE_PIN_RESET, state);
 }
 
-void probe_write_bits(uint bit_count, uint32_t data_byte)
+static void probe_write_bits(uint bit_count, uint32_t data_byte)
 {
     DEBUG_PINS_SET(probe_timing, DBG_PIN_WRITE);
     pio_sm_put_blocking(pio1, PROBE_SM, bit_count - 1);
@@ -119,7 +143,7 @@ void probe_write_bits(uint bit_count, uint32_t data_byte)
     DEBUG_PINS_CLR(probe_timing, DBG_PIN_WRITE);
 }
 
-uint32_t probe_read_bits(uint bit_count)
+static uint32_t probe_read_bits(uint bit_count)
 {
     DEBUG_PINS_SET(probe_timing, DBG_PIN_READ);
     pio_sm_put_blocking(pio1, PROBE_SM, bit_count - 1);
@@ -135,31 +159,28 @@ uint32_t probe_read_bits(uint bit_count)
     return data_shifted;
 }
 
-void probe_read_mode(void)
+static void probe_read_mode(void)
 {
     pio_sm_exec(pio1, PROBE_SM, pio_encode_jmp(probe.offset + probe_offset_in_posedge));
     while (pio1->dbg_padoe & (1 << PROBE_PIN_SWDIO))
         ;
 }
 
-void probe_write_mode(void)
+static void probe_write_mode(void)
 {
     pio_sm_exec(pio1, PROBE_SM, pio_encode_jmp(probe.offset + probe_offset_out_negedge));
     while (!(pio1->dbg_padoe & (1 << PROBE_PIN_SWDIO)))
         ;
 }
 
-void probe_gpio_init()
+void probe_init(void)
 {
+    // Make sure SWDIO has a pullup on it. Idle state is high
+    gpio_pull_up(PROBE_PIN_SWDIO);
     // Funcsel pins
     pio_gpio_init(pio1, PROBE_PIN_SWCLK);
     pio_gpio_init(pio1, PROBE_PIN_SWDIO);
-    // Make sure SWDIO has a pullup on it. Idle state is high
-    gpio_pull_up(PROBE_PIN_SWDIO);
-}
 
-void probe_init()
-{
     // Target reset pin: pull up, input to emulate open drain pin
     // gpio_pull_up(PROBE_PIN_RESET);
     // gpio_init will leave the pin cleared and set as input
@@ -200,7 +221,7 @@ void probe_init()
     probe_write_mode();
 }
 
-void probe_handle_read(uint total_bits)
+static void probe_handle_read(uint total_bits)
 {
     picoprobe_debug("Read %d bits\n", total_bits);
     probe_read_mode();
@@ -224,7 +245,7 @@ void probe_handle_read(uint total_bits)
     }
 }
 
-void probe_handle_write(uint8_t *data, uint total_bits)
+static void probe_handle_write(uint8_t *data, uint total_bits)
 {
     picoprobe_debug("Write %d bits\n", total_bits);
 
@@ -250,7 +271,7 @@ void probe_handle_write(uint8_t *data, uint total_bits)
     }
 }
 
-void probe_prepare_read_header(struct probe_cmd_hdr *hdr)
+static void probe_prepare_read_header(struct probe_cmd_hdr *hdr)
 {
     // We have a read so need to prefix the data with the cmd header
     if (probe.tx_len == 0)
@@ -263,7 +284,7 @@ void probe_prepare_read_header(struct probe_cmd_hdr *hdr)
     probe.tx_len += sizeof(struct probe_cmd_hdr);
 }
 
-void probe_handle_pkt(void)
+static void probe_handle_pkt(void)
 {
     uint8_t *pkt = &probe.rx_buf[0] + sizeof(struct probe_pkt_hdr);
     uint remaining = probe.rx_len - sizeof(struct probe_pkt_hdr);
@@ -295,6 +316,7 @@ void probe_handle_pkt(void)
         else if (hdr->cmd == PROBE_SET_FREQ)
         {
             probe_set_swclk_freq(hdr->bits);
+            probe_reclock();
         }
         else if (hdr->cmd == PROBE_RESET)
         {

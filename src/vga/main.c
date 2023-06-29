@@ -4,52 +4,49 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "term.h"
-#include "pix.h"
-#include "vga.h"
+#include "main.h"
+#include "sys/led.h"
+#include "sys/pix.h"
+#include "sys/vga.h"
+#include "term/term.h"
+#include "usb/cdc.h"
+#include "usb/probe.h"
+#include "usb/serno.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
-#include "probe.h"
-#include "cdc_uart.h"
-#include "led.h"
-#include "get_serial.h"
-#include "hardware/structs/bus_ctrl.h"
 
-int main()
+static void init(void)
 {
-    // Raise DMA above CPU on crossbar
-    bus_ctrl_hw->priority |=
-        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
-
-    // Expose serial number
-    usb_serial_init();
-
-    // Bring up VGA and terminal
     vga_init();
     term_init();
-
-    // Clear screen
-    puts("\30\33[0m\f");
-
-    // Inits
-    cdc_uart_init();
+    serno_init(); // before tusb
     tusb_init();
-    probe_gpio_init();
+    cdc_init();
     probe_init();
     led_init();
     pix_init();
+}
 
+static void task(void)
+{
+    vga_task();
+    term_task();
+    tud_task();
+    cdc_task();
+    probe_task();
+    led_task();
+    pix_task();
+}
+
+void main_reclock(void)
+{
+    cdc_reclock();
+    probe_reclock();
+}
+
+void main()
+{
+    init();
     while (1)
-    {
-        tud_task();
-        cdc_task();
-        probe_task();
-        led_task();
-        term_task();
-        vga_task();
-        pix_task();
-    }
-
-    return 0;
+        task();
 }

@@ -25,15 +25,20 @@
 
 #include <pico/stdlib.h>
 #include "tusb.h"
-#include "picoprobe_config.h"
+#include "cdc.h"
 
 static absolute_time_t break_timer = {0};
 static bool break_en = false;
 
-void cdc_uart_init(void)
+void cdc_init(void)
 {
     gpio_set_function(PICOPROBE_UART_TX, GPIO_FUNC_UART);
     gpio_set_function(PICOPROBE_UART_RX, GPIO_FUNC_UART);
+    uart_init(PICOPROBE_UART_INTERFACE, PICOPROBE_UART_BAUDRATE);
+}
+
+void cdc_reclock(void)
+{
     uart_init(PICOPROBE_UART_INTERFACE, PICOPROBE_UART_BAUDRATE);
 }
 

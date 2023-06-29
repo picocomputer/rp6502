@@ -9,6 +9,7 @@
 #include "pix.pio.h"
 #include "xram.h"
 #include "hardware/dma.h"
+#include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
 
 #define VGA_PIX_PIO pio1
@@ -16,10 +17,16 @@
 #define VGA_PIX_XRAM_SM 2
 #define VGA_PHI2_PIN 11
 
-void pix_init()
+void pix_init(void)
 {
     static volatile uint8_t dma_fifo[4];
     static volatile uint32_t dma_addr;
+
+    // Raise DMA above CPU on crossbar
+    bus_ctrl_hw->priority |=
+        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
+
     dma_addr = (uint32_t)xram;
 
     // Two state machines, one program
@@ -133,7 +140,7 @@ static void pix_video_mode(uint16_t mode)
     }
 }
 
-void pix_task()
+void pix_task(void)
 {
     if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
     {
