@@ -8,6 +8,7 @@
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/vga.h"
+#include "term/font.h"
 #include "term/term.h"
 #include "usb/cdc.h"
 #include "usb/probe.h"
@@ -18,6 +19,7 @@
 static void init(void)
 {
     vga_init();
+    font_init();
     term_init();
     serno_init(); // before tusb
     tusb_init();
