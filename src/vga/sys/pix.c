@@ -8,6 +8,7 @@
 #include "vga.h"
 #include "pix.pio.h"
 #include "xram.h"
+#include "term/font.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
@@ -151,6 +152,14 @@ void pix_task(void)
         uint16_t xreg = (raw & 0xFFF0000) >> 16;
         switch (xreg)
         {
+
+        case 0xF00:
+            vga_display(data);
+            break;
+        case 0xF01:
+            font_set_codepage(data);
+            break;
+        // TODO below is old system being replaced
         case 0x000:
             pix_video_mode(data);
             break;

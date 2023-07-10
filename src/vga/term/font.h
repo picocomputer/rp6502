@@ -13,5 +13,6 @@ extern uint8_t font8[2048];
 extern uint8_t font16[4096];
 
 void font_init(void);
+void font_set_codepage(uint16_t cp);
 
 #endif /* _FONT_H_ */

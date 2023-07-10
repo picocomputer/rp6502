@@ -7,6 +7,7 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "sys/cfg.h"
+#include "sys/pix.h"
 #include "fatfs/ff.h"
 
 void oem_init(void)
@@ -14,7 +15,7 @@ void oem_init(void)
     cfg_set_codepage(oem_set_codepage(cfg_get_codepage()));
 }
 
-uint16_t oem_set_codepage(uint16_t cp)
+static uint16_t oem_find_codepage(uint16_t cp)
 {
 #if RP6502_CODE_PAGE
     (void)cp;
@@ -37,6 +38,13 @@ uint16_t oem_set_codepage(uint16_t cp)
     f_setcp(437);
     return 437;
 #endif
+}
+
+uint16_t oem_set_codepage(uint16_t cp)
+{
+    cp = oem_find_codepage(cp);
+    pix_send_blocking(1, 0xFu, 0x01u, cp);
+    return cp;
 }
 
 void oem_api_codepage()
