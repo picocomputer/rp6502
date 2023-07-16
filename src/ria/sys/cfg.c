@@ -171,7 +171,7 @@ bool cfg_set_phi2_khz(uint32_t freq_khz)
 // Returns actual 6502 frequency adjusted for quantization.
 uint32_t cfg_get_phi2_khz()
 {
-    return cfg_phi2_khz;
+    return cpu_validate_phi2_khz(cfg_phi2_khz);
 }
 
 // Specify a minimum time for reset low. 0=auto

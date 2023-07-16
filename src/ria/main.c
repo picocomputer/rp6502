@@ -232,7 +232,7 @@ int main()
     init();
 
     // Trigger main_reclock()
-    cpu_set_phi2_khz(cpu_validate_phi2_khz(cfg_get_phi2_khz()));
+    cpu_set_phi2_khz(cfg_get_phi2_khz());
 
     while (true)
     {
