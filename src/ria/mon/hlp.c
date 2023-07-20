@@ -43,8 +43,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
-    "      Pi Pico SDK - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
-    "   Pi Pico Extras - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
+    "     Pi Pico SDKs - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
     "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
     "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
     "            FatFs - Copyright (c) 20xx ChaN.\n"
@@ -186,7 +185,8 @@ static const char __in_flash("helptext") hlp_text_boot[] =
 static const char __in_flash("helptext") hlp_text_code_page[] =
     "SET CP selects a code page for system text. The following is supported:\n"
     "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
-    "866, 869, 932, 936, 949, 950."
+    "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
+    "VGA fonts."
 #if RP6502_CODE_PAGE
 #define xstr(s) str(s)
 #define str(s) #s

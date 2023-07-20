@@ -14,13 +14,27 @@ void vip_print(void)
     char *vips[] = {
         "Shawn Hyam",
         "Romain Fontaine",
-        "Mark Rowe",
+        "bdash",
         "Vitali Filinkou",
         "Andy Herron",
         "Sean Franklin",
         "ulften",
         "Larryvc",
         "ingmar meins",
+        "Alexander Sharikhin",
+        "Tom Smith",
+        "michael sarr",
+        "Kai Wells",
+        "Andy Petrie",
+        "Paul Gorlinsky",
+        "Christian Lott",
+        "Everett Rubel",
+        "Cole Rise",
+        "Randy Gardner",
+        "Etienne Moreau",
+        "EJ012345",
+        "Ronald Lens",
+        "Geoff Waldron",
     };
     const unsigned VIP_COUNT = sizeof(vips) / sizeof(char *);
     for (unsigned i = 0; i < VIP_COUNT; i++)

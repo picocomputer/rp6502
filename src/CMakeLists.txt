@@ -1,4 +1,4 @@
-# Bleeding edge tinyusb needed for mass storage devices
+# Old tinyusb needed for Picoprobe
 
 add_library(tinyusb_vga STATIC EXCLUDE_FROM_ALL)
 
@@ -32,7 +32,7 @@ target_include_directories(rp6502_ria PRIVATE
 
 target_compile_definitions(rp6502_ria PRIVATE
     RP6502_NAME="Picocomputer 6502"
-    RP6502_CODE_PAGE=437
+    RP6502_CODE_PAGE=850
     RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0
     LFS_NO_MALLOC=1
@@ -137,7 +137,7 @@ pico_generate_pio_header(rp6502_vga
 )
 
 target_compile_definitions(rp6502_vga PRIVATE
-    RP6502_CODE_PAGE=437
+    RP6502_CODE_PAGE=850
     PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
     PICO_SCANVIDEO_COLOR_PIN_BASE=6
     PICO_SCANVIDEO_SYNC_PIN_BASE=26
