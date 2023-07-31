@@ -31,10 +31,6 @@ target_include_directories(rp6502_ria PRIVATE
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
-    RP6502_NAME="Picocomputer 6502"
-    RP6502_CODE_PAGE=850
-    RP6502_MAX_PHI2=8000
-    RP6502_EXFAT=0
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
 )
@@ -110,6 +106,7 @@ target_sources(rp6502_vga PRIVATE
     vga/main.c
     vga/sys/led.c
     vga/sys/pix.c
+    vga/sys/ria.c
     vga/sys/vga.c
     vga/sys/xram.c
     vga/term/font.c
@@ -136,10 +133,29 @@ pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio
 )
 
+pico_generate_pio_header(rp6502_vga
+    ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.pio
+)
+
 target_compile_definitions(rp6502_vga PRIVATE
-    RP6502_CODE_PAGE=850
     PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
     PICO_SCANVIDEO_COLOR_PIN_BASE=6
     PICO_SCANVIDEO_SYNC_PIN_BASE=26
     PICO_RP2040_USB_DEVICE_ENUMERATION_FIX=1
+)
+
+
+# Project defines available to both Pi Picos.
+# Please change name for hardware forks.
+# For release, set version and set code page to 0.
+
+string(TIMESTAMP VERSION "%Y-%m-%d %H:%M")
+
+set_property(TARGET rp6502_ria rp6502_vga
+    APPEND PROPERTY COMPILE_DEFINITIONS
+    RP6502_NAME="Picocomputer 6502"
+    RP6502_VERSION="${VERSION}"
+    RP6502_CODE_PAGE=850
+    RP6502_MAX_PHI2=8000
+    RP6502_EXFAT=0
 )

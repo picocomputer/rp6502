@@ -7,6 +7,7 @@
 #include "main.h"
 #include "sys/led.h"
 #include "sys/pix.h"
+#include "sys/ria.h"
 #include "sys/vga.h"
 #include "term/font.h"
 #include "term/term.h"
@@ -26,6 +27,7 @@ static void init(void)
     cdc_init();
     probe_init();
     led_init();
+    ria_init();
     pix_init();
 }
 
@@ -44,6 +46,30 @@ void main_reclock(void)
 {
     cdc_reclock();
     probe_reclock();
+    ria_reclock();
+}
+
+void main_pix_cmd(uint8_t addr, uint16_t word)
+{
+    switch (addr)
+    {
+    case 0x00:
+        vga_display(word);
+        break;
+    case 0x01:
+        font_set_codepage(word);
+        break;
+    case 0x04:
+        ria_backchan_req();
+        break;
+    case 0x05:
+        ria_backchan_ack();
+        break;
+    case 0xFF: // TODO legacy reset, delme
+        vga_display(word);
+        vga_terminal(true);
+        break;
+    }
 }
 
 void main()

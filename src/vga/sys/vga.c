@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "xram.h"
+#include "ria.h"
 #include "vga.h"
 #include "term/term.h"
 #include "pico/stdlib.h"
@@ -475,6 +476,7 @@ static void vga_render_loop(void)
                     break;
                 }
             mutex_exit(&vga_mutex);
+            ria_vsync();
         }
     }
 }
