@@ -61,7 +61,7 @@ static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t wo
 static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
     while (!pix_ready())
-        ;
+        tight_loop_contents();
     pix_send(dev3, ch4, byte, word);
 }
 

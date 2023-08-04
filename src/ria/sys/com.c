@@ -7,9 +7,11 @@
 #include "main.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
+#include "sys/pix.h"
 #include "sys/ria.h"
 #include "vga/term/ansi.h"
 #include "pico/stdlib.h"
+#include "pico/stdio/driver.h"
 #include <stdio.h>
 
 static com_read_callback_t com_callback;
@@ -23,11 +25,27 @@ static size_t com_bufpos;
 static ansi_state_t com_ansi_state;
 static int com_ansi_param;
 
-char com_buf[COM_BUF_SIZE];
+char com_readline_buf[COM_BUF_SIZE];
+
+volatile size_t com_stdout_head;
+volatile size_t com_stdout_tail;
+volatile uint8_t com_stdout_buf[32];
+
+static volatile size_t com_tx_head;
+static volatile size_t com_tx_tail;
+static volatile uint8_t com_tx_buf[32];
+#define COM_TX_BUF(pos) com_tx_buf[(pos)&0x1F]
+
+static stdio_driver_t com_stdio_app;
+static bool com_backchan_started;
 
 void com_init()
 {
+    gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
+    stdio_set_driver_enabled(&com_stdio_app, true);
     com_reclock();
+    com_backchan_started = false;
 }
 
 void com_reset()
@@ -40,7 +58,7 @@ void com_reset()
 
 void com_flush()
 {
-    // flush every buffer
+    // Wait for UART buffers to clear in preparation for a CPU clock change.
     while (getchar_timeout_us(0) >= 0)
         tight_loop_contents();
     while (!(uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS))
@@ -49,24 +67,16 @@ void com_flush()
 
 void com_reclock()
 {
-    stdio_uart_init_full(COM_UART, COM_UART_BAUD_RATE,
-                         COM_UART_TX_PIN, COM_UART_RX_PIN);
+    uart_init(COM_UART, COM_UART_BAUD_RATE);
+    // com_backchan_started = true;
 }
 
+// Non-blocking write for the API
 size_t com_write(char *ptr, size_t count)
 {
     size_t bw = 0;
-    for (; count && uart_is_writable(COM_UART); --count, bw++)
-    {
-        uint8_t ch = *(uint8_t *)ptr++;
-        if (ch == '\n')
-        {
-            uart_putc_raw(COM_UART, '\r');
-            uart_putc_raw(COM_UART, ch);
-        }
-        else
-            uart_get_hw(COM_UART)->dr = ch;
-    }
+    for (; count && com_stdout_writable(); --count, bw++)
+        com_stdout_tx(*(uint8_t *)ptr++);
     return bw;
 }
 
@@ -114,7 +124,7 @@ static void com_line_backspace()
         com_line_buf[i] = com_line_buf[i + 1];
 }
 
-static void com_lilne_state_C0(char ch)
+static void com_line_state_C0(char ch)
 {
     if (ch == '\33')
         com_ansi_state = ansi_state_Fe;
@@ -192,7 +202,7 @@ void com_line_rx(uint8_t ch)
         switch (com_ansi_state)
         {
         case ansi_state_C0:
-            com_lilne_state_C0(ch);
+            com_line_state_C0(ch);
             break;
         case ansi_state_Fe:
             com_line_state_Fe(ch);
@@ -243,8 +253,38 @@ void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callbac
     com_callback = callback;
 }
 
+static void com_tx_task()
+{
+    // We sacrifice the UART TX FIFO so PIX STDOUT can keep pace.
+    // 115_200 baud doesn't need flow control, but PIX will send
+    // 16_000_000 bps if we don't throttle it.
+    if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
+    {
+        if (&COM_TX_BUF(com_tx_tail) != &COM_TX_BUF(com_tx_head))
+        {
+            char ch = COM_TX_BUF(++com_tx_head);
+            uart_putc_raw(COM_UART, ch);
+            if (com_backchan_started)
+                pix_send_blocking(PIX_VGA_DEV, 0xF, 0x03, ch);
+        }
+    }
+}
+
+// 6502 applications write to com_stdout_buf which we
+// route through the Pi Pico STDIO driver.
+static void com_stdout_task()
+{
+    if ((&COM_STDOUT_BUF(com_stdout_tail) != &COM_STDOUT_BUF(com_stdout_head)) &&
+        (&COM_TX_BUF(com_tx_tail + 1) != &COM_TX_BUF(com_tx_head)) &&
+        (&COM_TX_BUF(com_tx_tail + 2) != &COM_TX_BUF(com_tx_head)))
+        putchar(COM_STDOUT_BUF(++com_stdout_head));
+}
+
 void com_task()
 {
+    com_tx_task();
+    com_stdout_task();
+
     // Detect UART breaks.
     static uint32_t break_detect = 0;
     uint32_t current_break = uart_get_hw(COM_UART)->rsr & UART_UARTRSR_BE_BITS;
@@ -288,3 +328,83 @@ void com_task()
         }
     }
 }
+
+static void com_stdio_out_chars(const char *buf, int len)
+{
+    while (len--)
+    {
+        // Wait for room in buffer before we add next char
+        while (&COM_TX_BUF(com_tx_tail + 1) == &COM_TX_BUF(com_tx_head))
+            com_tx_task();
+        COM_TX_BUF(++com_tx_tail) = *buf++;
+    }
+}
+
+// Below is mostly the same as the Pi Pico SDK.
+// We need lower level access to the out_chars
+// so it can be used for pacing PIX STDOUT.
+// If the Pi Pico SDK authors read this, what you made
+// is generally good but please expose the callbacks.
+
+#if PICO_STDIO_UART_SUPPORT_CHARS_AVAILABLE_CALLBACK
+static void (*chars_available_callback)(void *);
+static void *chars_available_param;
+
+static void on_uart_rx(void)
+{
+    if (chars_available_callback)
+    {
+        // Interrupts will go off until the uart is read, so disable them
+        uart_set_irq_enables(COM_UART, false, false);
+        chars_available_callback(chars_available_param);
+    }
+}
+
+static void stdio_uart_set_chars_available_callback(void (*fn)(void *), void *param)
+{
+    static_assert(UART1_IRQ == UART0_IRQ + 1, "");
+    const uint UART_IRQ = UART0_IRQ + uart_get_index(COM_UART);
+    if (fn && !chars_available_callback)
+    {
+        irq_set_exclusive_handler(UART_IRQ, on_uart_rx);
+        irq_set_enabled(UART_IRQ, true);
+        uart_set_irq_enables(COM_UART, true, false);
+    }
+    else if (!fn && chars_available_callback)
+    {
+        uart_set_irq_enables(COM_UART, false, false);
+        irq_set_enabled(UART_IRQ, false);
+        irq_remove_handler(UART_IRQ, on_uart_rx);
+    }
+    chars_available_callback = fn;
+    chars_available_param = param;
+}
+#endif
+
+static int stdio_uart_in_chars(char *buf, int length)
+{
+    int i = 0;
+    while (i < length && uart_is_readable(COM_UART))
+    {
+        buf[i++] = uart_getc(COM_UART);
+    }
+#if PICO_STDIO_UART_SUPPORT_CHARS_AVAILABLE_CALLBACK
+    if (chars_available_callback)
+    {
+        // Re-enable interrupts after reading a character
+        uart_set_irq_enables(COM_UART, true, false);
+    }
+#endif
+    return i ? i : PICO_ERROR_NO_DATA;
+}
+
+static stdio_driver_t com_stdio_app = {
+    .out_chars = com_stdio_out_chars,
+    .in_chars = stdio_uart_in_chars,
+#if PICO_STDIO_UART_SUPPORT_CHARS_AVAILABLE_CALLBACK
+    .set_chars_available_callback = stdio_uart_set_chars_available_callback,
+#endif
+#if PICO_STDIO_ENABLE_CRLF_SUPPORT
+    .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
+#endif
+};

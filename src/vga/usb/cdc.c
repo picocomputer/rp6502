@@ -26,6 +26,7 @@
 #include <pico/stdlib.h>
 #include "tusb.h"
 #include "cdc.h"
+#include "sys/ria.h"
 
 static absolute_time_t break_timer = {0};
 static bool break_en = false;
@@ -59,6 +60,13 @@ void cdc_task(void)
     while (uart_is_readable(PICOPROBE_UART_INTERFACE) && (rx_len < MAX_UART_PKT))
     {
         char ch = uart_getc(PICOPROBE_UART_INTERFACE);
+        putchar_raw(ch);
+        rx_buf[rx_len++] = ch;
+    }
+
+    while (ria_stdout_is_readable() && (rx_len < MAX_UART_PKT))
+    {
+        char ch = ria_stdout_getc();
         putchar_raw(ch);
         rx_buf[rx_len++] = ch;
     }

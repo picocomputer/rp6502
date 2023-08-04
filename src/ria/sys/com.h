@@ -19,7 +19,7 @@
 // Shared character buffer for read line.
 // TODO add multiline support and 256 size.
 #define COM_BUF_SIZE 79
-extern char com_buf[COM_BUF_SIZE];
+extern char com_readline_buf[COM_BUF_SIZE];
 
 // Kernel events
 void com_task();
@@ -48,5 +48,21 @@ void com_read_binary(uint8_t *buf, size_t size, uint32_t timeout_ms, com_read_ca
 // Prepare the line editor. The com module can read entire lines
 // of input with basic editing on ANSI terminals.
 void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callback_t callback);
+
+extern volatile size_t com_stdout_head;
+extern volatile size_t com_stdout_tail;
+extern volatile uint8_t com_stdout_buf[32];
+#define COM_STDOUT_BUF(pos) com_stdout_buf[(pos)&0x1F]
+
+static inline bool com_stdout_writable()
+{
+    return (((com_stdout_tail + 1) & 0x1F) != (com_stdout_head & 0x1F));
+}
+
+static inline void com_stdout_tx(char ch)
+{
+    if (com_stdout_writable())
+        COM_STDOUT_BUF(++com_stdout_tail) = ch;
+}
 
 #endif /* _COM_H_ */

@@ -19,6 +19,15 @@
 #define BACKCHAN_PIO pio1
 #define BACKCHAN_SM 3
 
+static bool ria_backchan_enabled;
+
+// TODO Merge this STDOUT with the UART RX STDOUT in cdc.c and
+//      get rid of the redundant readable checks and unused blocking.
+static size_t ria_stdout_head;
+static size_t ria_stdout_tail;
+static uint8_t ria_stdout_buf[32];
+#define RIA_STDOUT_BUF(pos) ria_stdout_buf[(pos)&0x1F]
+
 void ria_init(void)
 {
     pio_sm_set_pins_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
@@ -48,7 +57,28 @@ void ria_backchan_req(void)
 
 void ria_backchan_ack(void)
 {
+    ria_backchan_enabled = true;
     pio_gpio_init(BACKCHAN_PIO, BACKCHAN_PIN);
+}
+
+void ria_stdout_rx(char ch)
+{
+    if (!ria_backchan_enabled)
+        return;
+    if (&RIA_STDOUT_BUF(ria_stdout_tail + 1) != &RIA_STDOUT_BUF(ria_stdout_head))
+        RIA_STDOUT_BUF(++ria_stdout_tail) = ch;
+}
+
+bool ria_stdout_is_readable()
+{
+    return &RIA_STDOUT_BUF(ria_stdout_tail) != &RIA_STDOUT_BUF(ria_stdout_head);
+}
+
+char ria_stdout_getc()
+{
+    while (!ria_stdout_is_readable())
+        tight_loop_contents();
+    return RIA_STDOUT_BUF(++ria_stdout_head);
 }
 
 void ria_vsync(void)

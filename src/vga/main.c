@@ -59,6 +59,9 @@ void main_pix_cmd(uint8_t addr, uint16_t word)
     case 0x01:
         font_set_codepage(word);
         break;
+    case 0x03:
+        ria_stdout_rx(word);
+        break;
     case 0x04:
         ria_backchan_req();
         break;

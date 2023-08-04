@@ -110,12 +110,12 @@ static void mon_enter(bool timeout, size_t length)
     (void)timeout;
     assert(!timeout);
     needs_prompt = true;
-    const char *args = com_buf;
+    const char *args = com_readline_buf;
     mon_function func = mon_command_lookup(&args, length);
     if (!func)
     {
-        if (!rom_load_lfs(com_buf, length))
-            for (char *b = com_buf; b < args; b++)
+        if (!rom_load_lfs(com_readline_buf, length))
+            for (char *b = com_readline_buf; b < args; b++)
                 if (b[0] != ' ')
                 {
                     printf("?unknown command\n");
@@ -123,7 +123,7 @@ static void mon_enter(bool timeout, size_t length)
                 }
         return;
     }
-    size_t args_len = length - (args - com_buf);
+    size_t args_len = length - (args - com_readline_buf);
     func(args, args_len);
 }
 
@@ -142,7 +142,7 @@ void mon_task()
     {
         needs_prompt = false;
         putchar(']');
-        com_read_line(com_buf, COM_BUF_SIZE, 0, mon_enter);
+        com_read_line(com_readline_buf, COM_BUF_SIZE, 0, mon_enter);
     }
 }
 
