@@ -11,6 +11,8 @@
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
 
+#include "hardware/gpio.h"
+
 // PIX is unidirectional and we're out of pins.
 // The RIA also sends UART data over PIX so we can
 // reconfigure that pin for a return channel.
@@ -50,15 +52,22 @@ void ria_reclock(void)
     pio_sm_set_clkdiv_int_frac(BACKCHAN_PIO, BACKCHAN_SM, div, 0);
 }
 
-void ria_backchan_req(void)
+void ria_backchan(uint16_t word)
 {
-    uart_write_blocking(PICOPROBE_UART_INTERFACE, "VGA1\r", 5);
-}
-
-void ria_backchan_ack(void)
-{
-    ria_backchan_enabled = true;
-    pio_gpio_init(BACKCHAN_PIO, BACKCHAN_PIN);
+    switch (word)
+    {
+    case 0: // off
+        ria_backchan_enabled = false;
+        gpio_set_function(BACKCHAN_PIN, GPIO_FUNC_UART);
+        break;
+    case 1: // on
+        ria_backchan_enabled = true;
+        pio_gpio_init(BACKCHAN_PIO, BACKCHAN_PIN);
+        break;
+    case 2: // send ack
+        uart_write_blocking(PICOPROBE_UART_INTERFACE, "VGA1", 4);
+        break;
+    }
 }
 
 void ria_stdout_rx(char ch)
@@ -84,5 +93,5 @@ char ria_stdout_getc()
 void ria_vsync(void)
 {
     static uint32_t frame_no;
-    pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ++frame_no);
+    pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ++frame_no | 0x80);
 }

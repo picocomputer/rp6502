@@ -9,6 +9,7 @@
 #include "sys/cpu.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/vga.h"
 #include "vga/term/ansi.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -37,15 +38,40 @@ static volatile uint8_t com_tx_buf[32];
 #define COM_TX_BUF(pos) com_tx_buf[(pos)&0x1F]
 
 static stdio_driver_t com_stdio_app;
-static bool com_backchan_started;
+
+static void com_tx_task()
+{
+    // We sacrifice the UART TX FIFO so PIX STDOUT can keep pace.
+    // 115_200 baud doesn't need flow control, but PIX will send
+    // 16_000_000 bps if we don't throttle it.
+    if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
+    {
+        if (&COM_TX_BUF(com_tx_tail) != &COM_TX_BUF(com_tx_head))
+        {
+            char ch = COM_TX_BUF(++com_tx_head);
+            uart_putc_raw(COM_UART, ch);
+            if (vga_backchannel())
+                pix_send_blocking(PIX_VGA_DEV, 0xF, 0x03, ch);
+        }
+    }
+}
+
+// 6502 applications write to com_stdout_buf which we
+// route through the Pi Pico STDIO driver.
+static void com_stdout_task()
+{
+    if ((&COM_STDOUT_BUF(com_stdout_tail) != &COM_STDOUT_BUF(com_stdout_head)) &&
+        (&COM_TX_BUF(com_tx_tail + 1) != &COM_TX_BUF(com_tx_head)) &&
+        (&COM_TX_BUF(com_tx_tail + 2) != &COM_TX_BUF(com_tx_head)))
+        putchar(COM_STDOUT_BUF(++com_stdout_head));
+}
 
 void com_init()
 {
     gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&com_stdio_app, true);
-    com_reclock();
-    com_backchan_started = false;
+    uart_init(COM_UART, COM_UART_BAUD_RATE);
 }
 
 void com_reset()
@@ -58,17 +84,18 @@ void com_reset()
 
 void com_flush()
 {
-    // Wait for UART buffers to clear in preparation for a CPU clock change.
+    // Wait for buffers to clear in preparation for a CPU clock change.
     while (getchar_timeout_us(0) >= 0)
-        tight_loop_contents();
-    while (!(uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS))
+        com_tx_task();
+    while (&COM_TX_BUF(com_tx_tail) != &COM_TX_BUF(com_tx_head))
+        com_tx_task();
+    while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
         tight_loop_contents();
 }
 
 void com_reclock()
 {
     uart_init(COM_UART, COM_UART_BAUD_RATE);
-    // com_backchan_started = true;
 }
 
 // Non-blocking write for the API
@@ -251,33 +278,6 @@ void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callbac
     com_timeout_ms = timeout_ms;
     com_timer = delayed_by_ms(get_absolute_time(), com_timeout_ms);
     com_callback = callback;
-}
-
-static void com_tx_task()
-{
-    // We sacrifice the UART TX FIFO so PIX STDOUT can keep pace.
-    // 115_200 baud doesn't need flow control, but PIX will send
-    // 16_000_000 bps if we don't throttle it.
-    if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
-    {
-        if (&COM_TX_BUF(com_tx_tail) != &COM_TX_BUF(com_tx_head))
-        {
-            char ch = COM_TX_BUF(++com_tx_head);
-            uart_putc_raw(COM_UART, ch);
-            if (com_backchan_started)
-                pix_send_blocking(PIX_VGA_DEV, 0xF, 0x03, ch);
-        }
-    }
-}
-
-// 6502 applications write to com_stdout_buf which we
-// route through the Pi Pico STDIO driver.
-static void com_stdout_task()
-{
-    if ((&COM_STDOUT_BUF(com_stdout_tail) != &COM_STDOUT_BUF(com_stdout_head)) &&
-        (&COM_TX_BUF(com_tx_tail + 1) != &COM_TX_BUF(com_tx_head)) &&
-        (&COM_TX_BUF(com_tx_tail + 2) != &COM_TX_BUF(com_tx_head)))
-        putchar(COM_STDOUT_BUF(++com_stdout_head));
 }
 
 void com_task()

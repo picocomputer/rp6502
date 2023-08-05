@@ -63,10 +63,7 @@ void main_pix_cmd(uint8_t addr, uint16_t word)
         ria_stdout_rx(word);
         break;
     case 0x04:
-        ria_backchan_req();
-        break;
-    case 0x05:
-        ria_backchan_ack();
+        ria_backchan(word);
         break;
     case 0xFF: // TODO legacy reset, delme
         vga_display(word);

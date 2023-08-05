@@ -14,6 +14,7 @@
 #include "mon/set.h"
 #include "sys/com.h"
 #include "sys/sys.h"
+#include "sys/vga.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
 
@@ -133,6 +134,7 @@ static bool mon_suspended()
     return main_active() ||
            ram_active() ||
            rom_active() ||
+           vga_active() ||
            fil_active();
 }
 

@@ -22,6 +22,7 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/vga.h"
 #include "usb/hid.h"
 
 #ifndef RP6502_NAME
@@ -38,7 +39,11 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init()
 {
-    // Initialize UART for terminal
+    // STDIO not available until after these inits
+    cpu_init();
+    ria_init();
+    pix_init();
+    vga_init();
     com_init();
 
     // Hello, world.
@@ -46,14 +51,11 @@ static void init()
     puts("64K RAM, 64K XRAM");                                           // TODO cpu_init
     puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n"); // TODO vga module
 
-    // Load config before we init anything
+    // Load config before we continue
     lfs_init();
     cfg_init();
 
     // Misc kernel modules, add yours here
-    cpu_init();
-    ria_init();
-    pix_init();
     oem_init();
     aud_init();
     hid_init();
@@ -78,6 +80,7 @@ void main_task()
     pix_task();
     aud_task();
     hid_task();
+    vga_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().

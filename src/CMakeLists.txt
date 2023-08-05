@@ -55,6 +55,10 @@ pico_generate_pio_header(rp6502_ria
     ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.pio
 )
 
+pico_generate_pio_header(rp6502_ria
+    ${CMAKE_CURRENT_LIST_DIR}/ria/sys/vga.pio
+)
+
 target_sources(rp6502_ria PRIVATE
     ria/main.c
     ria/str.c
@@ -78,6 +82,7 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/pix.c
     ria/sys/ria.c
     ria/sys/sys.c
+    ria/sys/vga.c
     ria/usb/hid_ps4.c
     ria/usb/hid.c
     ria/usb/msc.c
