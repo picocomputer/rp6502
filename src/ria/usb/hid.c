@@ -142,7 +142,7 @@ static void hid_generic_report(uint8_t dev_addr, uint8_t instance, uint8_t const
 
     if (!rpt_info)
     {
-        printf("Couldn't find the report info for this report !\r\n");
+        // printf("Couldn't find the report info for this report !\r\n");
         return;
     }
 
