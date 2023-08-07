@@ -154,7 +154,7 @@ target_compile_definitions(rp6502_vga PRIVATE
 # Please change name for hardware forks.
 # For release, set version and set code page to 0.
 
-string(TIMESTAMP VERSION "%Y-%m-%d %H:%M")
+string(TIMESTAMP VERSION "%Y-%m-%d %H:%M:%S")
 
 set_property(TARGET rp6502_ria rp6502_vga
     APPEND PROPERTY COMPILE_DEFINITIONS

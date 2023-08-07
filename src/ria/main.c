@@ -22,6 +22,7 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/hid.h"
 
@@ -47,9 +48,8 @@ static void init()
     com_init();
 
     // Hello, world.
-    puts("\30\33[0m\f\n" RP6502_NAME);                                   // TODO com_init
-    puts("64K RAM, 64K XRAM");                                           // TODO cpu_init
-    puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n"); // TODO vga module
+    puts("\30\33[0m\f");
+    sys_init();
 
     // Load config before we continue
     lfs_init();
@@ -129,6 +129,7 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
 {
     com_reclock();
     cpu_reclock();
+    vga_reclock();
     ria_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
     aud_reclock(sys_clk_khz);

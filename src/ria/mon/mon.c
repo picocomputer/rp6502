@@ -30,7 +30,7 @@ static struct
     {4, "help", hlp_mon_help},
     {1, "h", hlp_mon_help},
     {1, "?", hlp_mon_help},
-    {6, "status", set_mon_status},
+    {6, "status", sys_mon_status},
     {3, "set", set_mon_set},
     {2, "ls", fil_mon_ls},
     {3, "dir", fil_mon_ls},

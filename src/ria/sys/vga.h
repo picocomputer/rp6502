@@ -11,7 +11,9 @@
 
 void vga_init(void);
 void vga_task(void);
+void vga_reclock(void);
 bool vga_active(void);
 bool vga_backchannel(void);
+void vga_print_status(void);
 
 #endif /* _VGA_H_ */

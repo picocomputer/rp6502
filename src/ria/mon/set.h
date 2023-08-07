@@ -10,7 +10,6 @@
 #include <stddef.h>
 
 // Monitor commands
-void set_mon_status(const char *args, size_t len);
 void set_mon_set(const char *args, size_t len);
 
 #endif /* _SET_H_ */

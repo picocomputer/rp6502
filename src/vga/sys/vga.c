@@ -5,9 +5,9 @@
  */
 
 #include "main.h"
-#include "xram.h"
-#include "ria.h"
-#include "vga.h"
+#include "sys/ria.h"
+#include "sys/vga.h"
+#include "sys/xram.h"
 #include "term/term.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
