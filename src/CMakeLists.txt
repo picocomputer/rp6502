@@ -152,14 +152,12 @@ target_compile_definitions(rp6502_vga PRIVATE
 
 # Project defines available to both Pi Picos.
 # Please change name for hardware forks.
-# For release, set version and set code page to 0.
-
-string(TIMESTAMP VERSION "%Y-%m-%d %H:%M:%S")
+# For release, set version string and set code page to 0.
 
 set_property(TARGET rp6502_ria rp6502_vga
     APPEND PROPERTY COMPILE_DEFINITIONS
     RP6502_NAME="Picocomputer 6502"
-    RP6502_VERSION="${VERSION}"
+    RP6502_VERSION=""
     RP6502_CODE_PAGE=850
     RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0

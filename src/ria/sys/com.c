@@ -84,7 +84,7 @@ void com_reset()
 
 void com_flush()
 {
-    // Wait for buffers to clear in preparation for a CPU clock change.
+    // Clear all buffers, software and hardware
     while (getchar_timeout_us(0) >= 0)
         com_tx_task();
     while (&COM_TX_BUF(com_tx_tail) != &COM_TX_BUF(com_tx_head))

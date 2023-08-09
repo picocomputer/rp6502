@@ -42,10 +42,16 @@ void pix_api_set_xreg();
     PIX_PIO->txf[PIX_SM] = (PIX_MESSAGE(PIX_XRAM_DEV, 0, (data), (addr)))
 
 // Test for free space in the PIX transmit FIFO.
-static inline bool pix_ready()
+static inline bool pix_ready(void)
 {
     // PIX TX FIFO is joined to be 8 deep.
     return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
+}
+
+// Test for empty transmit FIFO.
+static inline bool pix_fifo_empty(void)
+{
+    return pio_sm_is_tx_fifo_empty(PIX_PIO, PIX_SM);
 }
 
 // Unconditionally attempt to send a PIX message.

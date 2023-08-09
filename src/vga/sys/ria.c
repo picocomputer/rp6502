@@ -70,6 +70,11 @@ void ria_backchan(uint16_t word)
     }
 }
 
+bool ria_backchannel(void)
+{
+    return ria_backchan_enabled;
+}
+
 void ria_stdout_rx(char ch)
 {
     if (!ria_backchan_enabled)
@@ -78,20 +83,19 @@ void ria_stdout_rx(char ch)
         RIA_STDOUT_BUF(++ria_stdout_tail) = ch;
 }
 
-bool ria_stdout_is_readable()
+bool ria_stdout_is_readable(void)
 {
     return &RIA_STDOUT_BUF(ria_stdout_tail) != &RIA_STDOUT_BUF(ria_stdout_head);
 }
 
-char ria_stdout_getc()
+char ria_stdout_getc(void)
 {
-    while (!ria_stdout_is_readable())
-        tight_loop_contents();
     return RIA_STDOUT_BUF(++ria_stdout_head);
 }
 
 void ria_vsync(void)
 {
     static uint32_t frame_no;
-    pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ++frame_no | 0x80);
+    if (ria_backchan_enabled)
+        pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ++frame_no | 0x80);
 }

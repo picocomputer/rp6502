@@ -5,6 +5,7 @@
  */
 
 #include "str.h"
+#include "sys/cfg.h"
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -20,21 +21,39 @@
 #define VGA_BACKCHANNEL_SM 2
 
 // How long to wait for ACK to backchannel enable request
-#define VGA_TEST_MS 1
-
+#define VGA_TEST_MS 2
+// How long to wait for version string
+#define VGA_VERSION_WATCHDOG_MS 2
 // Abandon backchannel after two missed vsync messages (~2/60sec)
-#define VGA_WATCHDOG_MS 35
+#define VGA_VSYNC_WATCHDOG_MS 35
 
 static enum {
     VGA_REQUEST_TEST, // Starting state
     VGA_TESTING,      // Looking for Pico VGA
-    VGA_CONNECTED,    // Pico VGA PIX device found and working
+    VGA_VERSIONING,   // Pico VGA PIX device found
+    VGA_CONNECTED,    // Connected and version string received
+    VGA_NO_VERSION,   // Connected but no version string received
     VGA_NOT_FOUND,    // Possibly normal, Pico VGA is optional
     VGA_LOST_SIGNAL,  // Definitely an error condition
 } vga_state;
 
 uint8_t vga_read_buf[4];
-static absolute_time_t vga_watchdog;
+static absolute_time_t vga_vsync_watchdog;
+static absolute_time_t vga_version_watchdog;
+
+#define VGA_VERSION_MESSAGE_SIZE 80
+char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
+size_t vga_version_message_length;
+
+static inline void vga_pix_flush()
+{
+    // It takes four cycles of PHI2 to send a PIX message.
+    // Begin by waiting for FIFO to clear.
+    while (!pix_fifo_empty())
+        tight_loop_contents();
+    // Then wait six cycles to ensure PIX TX registers clear.
+    busy_wait_us(6000 / cfg_get_phi2_khz());
+}
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -55,16 +74,21 @@ static void vga_read(bool timeout, size_t length)
 {
     if (!timeout && length == 4 && !strnicmp("VGA1", (char *)vga_read_buf, 4))
     {
-        printf("VGA PIX device connected\n");
-        vga_state = VGA_CONNECTED;
+        // IO and buffers need to be in sync before switch
         com_flush();
-        pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
+        // Clear any local echo (UART is seen by PIO)
+        while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+            pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
+        // Change direction
         vga_pix_backchannel_enable();
+        vga_pix_flush();
+        pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
+        // Wait for version
+        vga_state = VGA_VERSIONING;
+        vga_version_watchdog = delayed_by_ms(get_absolute_time(), VGA_VERSION_WATCHDOG_MS);
     }
     else
-    {
         vga_state = VGA_NOT_FOUND;
-    }
 }
 
 void vga_init(void)
@@ -90,9 +114,9 @@ void vga_init(void)
     vga_pix_backchannel_disable();
 }
 
-void vga_reclock(void)
+void vga_reclock(uint32_t sys_clk_khz)
 {
-    float div = (float)clock_get_hz(clk_sys) / (8 * VGA_BACKCHANNEL_BAUDRATE);
+    float div = (float)sys_clk_khz * 1000 / (8 * VGA_BACKCHANNEL_BAUDRATE);
     pio_sm_set_clkdiv(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, div);
 }
 
@@ -107,62 +131,102 @@ void vga_task(void)
 
     if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
     {
-        vga_watchdog = delayed_by_ms(get_absolute_time(), VGA_WATCHDOG_MS);
-        // TODO watchdog
         uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
-        if (byte & 0x80)
+
+        if (vga_state == VGA_VERSIONING && !(byte & 0x80))
         {
+            vga_version_watchdog = delayed_by_ms(get_absolute_time(), VGA_VERSION_WATCHDOG_MS);
+            if (byte == '\r' || byte == '\n')
+            {
+                if (vga_version_message_length > 0 && vga_state == VGA_VERSIONING)
+                {
+                    vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+                    vga_state = VGA_CONNECTED;
+                    vga_version_message_length = 0;
+                    vga_print_status();
+                }
+            }
+            else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
+            {
+                vga_version_message[vga_version_message_length++] = byte;
+                vga_version_message[vga_version_message_length] = 0;
+            }
+        }
+
+        if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) && (byte & 0x80))
+        {
+            vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
             static uint8_t vframe;
             uint8_t this_frame = byte & 0x7F;
             if (this_frame < (vframe & 0x7F))
                 vframe ^= 0x80;
             vframe = (vframe & 0x80) | this_frame;
             REGS(0xFFE3) = vframe;
-            // printf("{%d}", vframe);
-        }
-        else
-        {
-            // TODO incoming version string
-            // printf("[%c]", byte);
         }
     }
 
-    if (vga_state == VGA_CONNECTED &&
-        absolute_time_diff_us(get_absolute_time(), vga_watchdog) < 0)
+    if (vga_state == VGA_VERSIONING &&
+        absolute_time_diff_us(get_absolute_time(), vga_version_watchdog) < 0)
     {
-        printf("VGA PIX backchannel lost signal\n");
-        vga_state = VGA_LOST_SIGNAL;
-        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
+        vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+        vga_state = VGA_NO_VERSION;
+        vga_print_status();
     }
+
+    if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
+        absolute_time_diff_us(get_absolute_time(), vga_vsync_watchdog) < 0)
+    {
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
+        vga_pix_backchannel_disable();
+        vga_pix_flush();
+        vga_state = VGA_LOST_SIGNAL;
+        printf("?");
+        vga_print_status();
+    }
+}
+
+void vga_run(void)
+{
+    // It's normal to lose signal during Pico VGA development.
+    // Attempt to restart when a 6502 program is run.
+    if (vga_state == VGA_LOST_SIGNAL && !ria_active())
+        vga_state = VGA_REQUEST_TEST;
 }
 
 bool vga_active(void)
 {
-    return vga_state == VGA_REQUEST_TEST || vga_state == VGA_TESTING;
+    return vga_state == VGA_REQUEST_TEST ||
+           vga_state == VGA_TESTING ||
+           vga_state == VGA_VERSIONING;
 }
 
 bool vga_backchannel(void)
 {
-    return vga_state == VGA_CONNECTED;
+    return vga_state == VGA_VERSIONING ||
+           vga_state == VGA_CONNECTED ||
+           vga_state == VGA_NO_VERSION;
 }
 
 void vga_print_status(void)
 {
-    const char *msg = "Looking for PIX VGA device";
+    const char *msg = "VGA Searching";
     switch (vga_state)
     {
     case VGA_REQUEST_TEST:
-        break;
     case VGA_TESTING:
+    case VGA_VERSIONING:
         break;
     case VGA_CONNECTED:
-        msg = "TODO";
+        msg = vga_version_message;
+        break;
+    case VGA_NO_VERSION:
+        msg = "VGA Version Unknown";
         break;
     case VGA_NOT_FOUND:
-        msg = "Not found";
+        msg = "VGA Not Found";
         break;
     case VGA_LOST_SIGNAL:
-        msg = "Signal lost";
+        msg = "VGA Signal Lost";
         break;
     }
     puts(msg);

@@ -97,6 +97,7 @@ static void task()
 // Event to start running the 6502.
 static void run()
 {
+    vga_run();
     api_run();
     ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
@@ -129,7 +130,7 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
 {
     com_reclock();
     cpu_reclock();
-    vga_reclock();
+    vga_reclock(sys_clk_khz);
     ria_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
     aud_reclock(sys_clk_khz);

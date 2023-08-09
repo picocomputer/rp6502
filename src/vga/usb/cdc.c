@@ -57,18 +57,25 @@ void cdc_task(void)
 
     // Consume uart fifo regardless even if not connected
     uint rx_len = 0;
+
     while (uart_is_readable(PICOPROBE_UART_INTERFACE) && (rx_len < MAX_UART_PKT))
     {
         char ch = uart_getc(PICOPROBE_UART_INTERFACE);
-        putchar_raw(ch);
-        rx_buf[rx_len++] = ch;
+        if (!ria_backchannel())
+        {
+            putchar_raw(ch);
+            rx_buf[rx_len++] = ch;
+        }
     }
 
     while (ria_stdout_is_readable() && (rx_len < MAX_UART_PKT))
     {
         char ch = ria_stdout_getc();
-        putchar_raw(ch);
-        rx_buf[rx_len++] = ch;
+        if (ria_backchannel())
+        {
+            putchar_raw(ch);
+            rx_buf[rx_len++] = ch;
+        }
     }
 
     if (tud_cdc_connected())
