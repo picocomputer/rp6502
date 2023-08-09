@@ -40,6 +40,7 @@ static void task(void)
     probe_task();
     led_task();
     pix_task();
+    ria_task();
 }
 
 void main_reclock(void)

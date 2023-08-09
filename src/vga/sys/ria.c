@@ -8,10 +8,8 @@
 #include "usb/cdc.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
-#include "hardware/pio.h"
 #include "hardware/clocks.h"
-
-#include "hardware/gpio.h"
+#include <string.h>
 
 // PIX is unidirectional and we're out of pins.
 // The RIA also sends UART data over PIX so we can
@@ -20,11 +18,18 @@
 #define BACKCHAN_BAUDRATE 115200
 #define BACKCHAN_PIO pio1
 #define BACKCHAN_SM 3
-
 static bool ria_backchan_enabled;
+
+// Weird version logic because C macros are lame
+#define VERSION_SEND_RATE_US 100
+static const char version_dev[] = "\rVGA " __DATE__ " " __TIME__;
+static const char version_full[] = "\rVGA Version " RP6502_VERSION;
+static const char *version_pos = version_dev;
+static absolute_time_t version_timer;
 
 // TODO Merge this STDOUT with the UART RX STDOUT in cdc.c and
 //      get rid of the redundant readable checks and unused blocking.
+//      Also get printf() sending to USB for TinyUSB logging.
 static size_t ria_stdout_head;
 static size_t ria_stdout_tail;
 static uint8_t ria_stdout_buf[32];
@@ -46,6 +51,23 @@ void ria_init(void)
     pio_sm_set_enabled(BACKCHAN_PIO, BACKCHAN_SM, true);
 }
 
+void ria_task(void)
+{
+    char ch = *version_pos;
+    if (ch != '\r' && absolute_time_diff_us(get_absolute_time(), version_timer) < 0)
+    {
+        if (ch)
+            version_pos++;
+        else
+        {
+            version_pos = version_dev;
+            ch = *version_pos;
+        }
+        pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ch);
+        version_timer = delayed_by_us(get_absolute_time(), VERSION_SEND_RATE_US);
+    }
+}
+
 void ria_reclock(void)
 {
     float div = (float)clock_get_hz(clk_sys) / (8 * BACKCHAN_BAUDRATE);
@@ -63,6 +85,11 @@ void ria_backchan(uint16_t word)
     case 1: // on
         ria_backchan_enabled = true;
         pio_gpio_init(BACKCHAN_PIO, BACKCHAN_PIN);
+        if (strlen(RP6502_VERSION))
+            version_pos = version_full + 1;
+        else
+            version_pos = version_dev + 1;
+        version_timer = delayed_by_us(get_absolute_time(), VERSION_SEND_RATE_US);
         break;
     case 2: // send ack
         uart_write_blocking(PICOPROBE_UART_INTERFACE, "VGA1", 4);

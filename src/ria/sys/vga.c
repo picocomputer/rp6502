@@ -144,6 +144,7 @@ void vga_task(void)
                     vga_state = VGA_CONNECTED;
                     vga_version_message_length = 0;
                     vga_print_status();
+                    puts("");
                 }
             }
             else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
@@ -171,6 +172,7 @@ void vga_task(void)
         vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
         vga_state = VGA_NO_VERSION;
         vga_print_status();
+        puts("");
     }
 
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
