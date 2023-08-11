@@ -21,11 +21,9 @@
 static bool ria_backchan_enabled;
 
 // Weird version logic because C macros are lame
-#define VERSION_SEND_RATE_US 100
 static const char version_dev[] = "\rVGA " __DATE__ " " __TIME__;
 static const char version_full[] = "\rVGA Version " RP6502_VERSION;
 static const char *version_pos = version_dev;
-static absolute_time_t version_timer;
 
 // TODO Merge this STDOUT with the UART RX STDOUT in cdc.c and
 //      get rid of the redundant readable checks and unused blocking.
@@ -54,7 +52,7 @@ void ria_init(void)
 void ria_task(void)
 {
     char ch = *version_pos;
-    if (ch != '\r' && absolute_time_diff_us(get_absolute_time(), version_timer) < 0)
+    if (ch != '\r' && !pio_sm_is_tx_fifo_full(BACKCHAN_PIO, BACKCHAN_SM))
     {
         if (ch)
             version_pos++;
@@ -64,7 +62,6 @@ void ria_task(void)
             ch = *version_pos;
         }
         pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ch);
-        version_timer = delayed_by_us(get_absolute_time(), VERSION_SEND_RATE_US);
     }
 }
 
@@ -89,7 +86,6 @@ void ria_backchan(uint16_t word)
             version_pos = version_full + 1;
         else
             version_pos = version_dev + 1;
-        version_timer = delayed_by_us(get_absolute_time(), VERSION_SEND_RATE_US);
         break;
     case 2: // send ack
         uart_write_blocking(PICOPROBE_UART_INTERFACE, "VGA1", 4);
