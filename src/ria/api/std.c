@@ -9,6 +9,7 @@
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "fatfs/ff.h"
+#include <stdio.h>
 
 #define STD_FIL_MAX 16
 FIL std_fil[STD_FIL_MAX];
@@ -21,6 +22,32 @@ static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 static void *std_io_ptr;
 static uint16_t std_xaddr;
 static int32_t std_count = -1;
+
+static volatile size_t std_out_head;
+static volatile size_t std_out_tail;
+static volatile uint8_t std_out_buf[32];
+#define STD_OUT_BUF(pos) std_out_buf[(pos)&0x1F]
+
+static inline bool com_stdout_writable()
+{
+    return (((std_out_tail + 1) & 0x1F) != (std_out_head & 0x1F));
+}
+
+static inline void com_stdout_write(char ch)
+{
+    if (com_stdout_writable())
+        STD_OUT_BUF(++std_out_tail) = ch;
+}
+
+void std_task(void)
+{
+    // 6502 applications write to std_out_buf which we route
+    // through the Pi Pico STDIO driver for CR/LR translation.
+    if ((&STD_OUT_BUF(std_out_tail) != &STD_OUT_BUF(std_out_head)) &&
+        (&COM_TX_BUF(com_tx_tail + 1) != &COM_TX_BUF(com_tx_head)) &&
+        (&COM_TX_BUF(com_tx_tail + 2) != &COM_TX_BUF(com_tx_head)))
+        putchar(STD_OUT_BUF(++std_out_head));
+}
 
 void std_api_open(void)
 {
@@ -157,11 +184,20 @@ void std_api_readx(void)
     api_read_impl(true);
 }
 
+// Non-blocking write, returns bytes written.
+static size_t std_out_write(char *ptr, size_t count)
+{
+    size_t bw = 0;
+    for (; count && com_stdout_writable(); --count, bw++)
+        com_stdout_write(*(uint8_t *)ptr++);
+    return bw;
+}
+
 static void api_write_impl(bool is_xram)
 {
     if (std_count >= 0)
     {
-        size_t bw = com_write(std_io_ptr, std_count);
+        size_t bw = std_out_write(std_io_ptr, std_count);
         std_io_ptr += bw;
         std_count -= bw;
         if (!std_count)

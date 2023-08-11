@@ -81,6 +81,7 @@ void main_task()
     aud_task();
     hid_task();
     vga_task();
+    std_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().

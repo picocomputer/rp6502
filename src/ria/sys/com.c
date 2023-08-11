@@ -28,16 +28,11 @@ static int com_ansi_param;
 
 char com_readline_buf[COM_BUF_SIZE];
 
-volatile size_t com_stdout_head;
-volatile size_t com_stdout_tail;
-volatile uint8_t com_stdout_buf[32];
-
-static volatile size_t com_tx_head;
-static volatile size_t com_tx_tail;
-static volatile uint8_t com_tx_buf[32];
-#define COM_TX_BUF(pos) com_tx_buf[(pos)&0x1F]
-
 static stdio_driver_t com_stdio_app;
+
+volatile size_t com_tx_head;
+volatile size_t com_tx_tail;
+volatile uint8_t com_tx_buf[32];
 
 static void com_tx_task()
 {
@@ -54,16 +49,6 @@ static void com_tx_task()
                 pix_send_blocking(PIX_VGA_DEV, 0xF, 0x03, ch);
         }
     }
-}
-
-// 6502 applications write to com_stdout_buf which we
-// route through the Pi Pico STDIO driver.
-static void com_stdout_task()
-{
-    if ((&COM_STDOUT_BUF(com_stdout_tail) != &COM_STDOUT_BUF(com_stdout_head)) &&
-        (&COM_TX_BUF(com_tx_tail + 1) != &COM_TX_BUF(com_tx_head)) &&
-        (&COM_TX_BUF(com_tx_tail + 2) != &COM_TX_BUF(com_tx_head)))
-        putchar(COM_STDOUT_BUF(++com_stdout_head));
 }
 
 void com_init()
@@ -96,15 +81,6 @@ void com_flush()
 void com_reclock()
 {
     uart_init(COM_UART, COM_UART_BAUD_RATE);
-}
-
-// Non-blocking write for the API
-size_t com_write(char *ptr, size_t count)
-{
-    size_t bw = 0;
-    for (; count && com_stdout_writable(); --count, bw++)
-        com_stdout_tx(*(uint8_t *)ptr++);
-    return bw;
 }
 
 static void com_line_forward(size_t count)
@@ -283,7 +259,6 @@ void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callbac
 void com_task()
 {
     com_tx_task();
-    com_stdout_task();
 
     // Detect UART breaks.
     static uint32_t break_detect = 0;
