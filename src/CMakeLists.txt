@@ -112,6 +112,7 @@ target_sources(rp6502_vga PRIVATE
     vga/sys/led.c
     vga/sys/pix.c
     vga/sys/ria.c
+    vga/sys/std.c
     vga/sys/vga.c
     vga/sys/xram.c
     vga/term/font.c

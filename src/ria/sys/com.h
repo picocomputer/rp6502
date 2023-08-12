@@ -44,19 +44,19 @@ void com_read_binary(uint8_t *buf, size_t size, uint32_t timeout_ms, com_read_ca
 // of input with basic editing on ANSI terminals.
 void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callback_t callback);
 
-extern volatile size_t com_tx_head;
 extern volatile size_t com_tx_tail;
+extern volatile size_t com_tx_head;
 extern volatile uint8_t com_tx_buf[32];
 #define COM_TX_BUF(pos) com_tx_buf[(pos)&0x1F]
 
-static inline bool com_tx_writable()
+static inline bool com_tx_writable(void)
 {
-    return (((com_tx_tail + 1) & 0x1F) != (com_tx_head & 0x1F));
+    return (((com_tx_head + 1) & 0x1F) != (com_tx_tail & 0x1F));
 }
 
 static inline void com_tx_write(char ch)
 {
-    COM_TX_BUF(++com_tx_tail) = ch;
+    COM_TX_BUF(++com_tx_head) = ch;
 }
 
 #endif /* _COM_H_ */

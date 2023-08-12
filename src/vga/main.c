@@ -8,6 +8,7 @@
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/std.h"
 #include "sys/vga.h"
 #include "term/font.h"
 #include "term/term.h"
@@ -24,7 +25,7 @@ static void init(void)
     term_init();
     serno_init(); // before tusb
     tusb_init();
-    cdc_init();
+    std_init();
     probe_init();
     led_init();
     ria_init();
@@ -41,11 +42,12 @@ static void task(void)
     led_task();
     pix_task();
     ria_task();
+    std_task();
 }
 
 void main_reclock(void)
 {
-    cdc_reclock();
+    std_reclock();
     probe_reclock();
     ria_reclock();
 }

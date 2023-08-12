@@ -5,7 +5,7 @@
  */
 
 #include "ria.h"
-#include "usb/cdc.h"
+#include "sys/std.h"
 #include "ria.pio.h"
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
@@ -14,7 +14,7 @@
 // PIX is unidirectional and we're out of pins.
 // The RIA also sends UART data over PIX so we can
 // reconfigure that pin for a return channel.
-#define BACKCHAN_PIN PICOPROBE_UART_RX
+#define BACKCHAN_PIN STD_UART_RX
 #define BACKCHAN_BAUDRATE 115200
 #define BACKCHAN_PIO pio1
 #define BACKCHAN_SM 3
@@ -88,7 +88,7 @@ void ria_backchan(uint16_t word)
             version_pos = version_dev + 1;
         break;
     case 2: // send ack
-        uart_write_blocking(PICOPROBE_UART_INTERFACE, "VGA1", 4);
+        uart_write_blocking(STD_UART_INTERFACE, "VGA1", 4);
         break;
     }
 }

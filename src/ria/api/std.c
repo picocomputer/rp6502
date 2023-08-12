@@ -23,30 +23,29 @@ static void *std_io_ptr;
 static uint16_t std_xaddr;
 static int32_t std_count = -1;
 
-static volatile size_t std_out_head;
 static volatile size_t std_out_tail;
+static volatile size_t std_out_head;
 static volatile uint8_t std_out_buf[32];
 #define STD_OUT_BUF(pos) std_out_buf[(pos)&0x1F]
 
 static inline bool com_stdout_writable()
 {
-    return (((std_out_tail + 1) & 0x1F) != (std_out_head & 0x1F));
+    return (((std_out_head + 1) & 0x1F) != (std_out_tail & 0x1F));
 }
 
 static inline void com_stdout_write(char ch)
 {
-    if (com_stdout_writable())
-        STD_OUT_BUF(++std_out_tail) = ch;
+    STD_OUT_BUF(++std_out_head) = ch;
 }
 
 void std_task(void)
 {
     // 6502 applications write to std_out_buf which we route
     // through the Pi Pico STDIO driver for CR/LR translation.
-    if ((&STD_OUT_BUF(std_out_tail) != &STD_OUT_BUF(std_out_head)) &&
-        (&COM_TX_BUF(com_tx_tail + 1) != &COM_TX_BUF(com_tx_head)) &&
-        (&COM_TX_BUF(com_tx_tail + 2) != &COM_TX_BUF(com_tx_head)))
-        putchar(STD_OUT_BUF(++std_out_head));
+    if ((&STD_OUT_BUF(std_out_head) != &STD_OUT_BUF(std_out_tail)) &&
+        (&COM_TX_BUF(com_tx_head + 1) != &COM_TX_BUF(com_tx_tail)) &&
+        (&COM_TX_BUF(com_tx_head + 2) != &COM_TX_BUF(com_tx_tail)))
+        putchar(STD_OUT_BUF(++std_out_tail));
 }
 
 void std_api_open(void)
