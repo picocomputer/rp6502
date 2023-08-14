@@ -1,4 +1,4 @@
-# Old tinyusb needed for Picoprobe
+# Old TinyUSB needed for Picoprobe
 
 add_library(tinyusb_vga STATIC EXCLUDE_FROM_ALL)
 
@@ -163,3 +163,20 @@ set_property(TARGET rp6502_ria rp6502_vga
     RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0
 )
+
+
+# If no version set, touch the file that provides a dev timestamp for the version.
+
+get_target_property(RP6502_RIA_COMPILE_DEFINITIONS rp6502_ria COMPILE_DEFINITIONS)
+if(RP6502_RIA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
+    add_custom_command(TARGET rp6502_ria
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.c
+    )
+endif()
+
+get_target_property(RP6502_VGA_COMPILE_DEFINITIONS rp6502_vga COMPILE_DEFINITIONS)
+if(RP6502_VGA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
+    add_custom_command(TARGET rp6502_vga
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.c
+    )
+endif()

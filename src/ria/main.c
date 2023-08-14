@@ -26,10 +26,6 @@
 #include "sys/vga.h"
 #include "usb/hid.h"
 
-#ifndef RP6502_NAME
-#error RP6502_NAME must be defined
-#endif
-
 /**************************************/
 /* All kernel modules register below. */
 /**************************************/
