@@ -51,7 +51,7 @@ static inline void vga_pix_flush()
     // Begin by waiting for FIFO to clear.
     while (!pix_fifo_empty())
         tight_loop_contents();
-    // Then wait six cycles to ensure PIX TX registers clear.
+    // Then wait six PHI2 cycles to ensure PIX TX registers clear.
     busy_wait_us(6000 / cfg_get_phi2_khz());
 }
 

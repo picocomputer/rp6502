@@ -126,7 +126,6 @@ void ram_mon_address(const char *args, size_t len)
             xram[rw_addr + i] = ria_buf[i];
             pix_send_blocking(0, 0, ria_buf[i], rw_addr + i);
         }
-        api_sync_xram();
         return;
     }
     ria_write_buf(rw_addr);

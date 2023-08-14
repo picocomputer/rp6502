@@ -152,10 +152,7 @@ static void api_read_impl(bool is_xram)
         api_set_ax(-1);
     }
     if (is_xram)
-    {
-        api_sync_xram();
         std_count = br;
-    }
     else
     {
         if (br == count)
