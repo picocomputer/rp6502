@@ -35,6 +35,7 @@ static uint8_t ria_stdout_buf[32];
 
 void ria_init(void)
 {
+    gpio_pull_up(BACKCHAN_PIN);
     pio_sm_set_pins_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
     pio_sm_set_pindirs_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
     uint offset = pio_add_program(BACKCHAN_PIO, &uart_tx_program);
