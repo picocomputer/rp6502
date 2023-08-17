@@ -127,7 +127,7 @@ static void api_read_impl(bool is_xram)
         xstack_ptr += 2;
         std_xaddr = api_sstack_uint16();
         buf = &xram[std_xaddr];
-        if (buf + count > xstack + 0x10000)
+        if (count > 0x7FFF || buf + count > xram + 0x10000)
             goto err_param;
     }
     else
