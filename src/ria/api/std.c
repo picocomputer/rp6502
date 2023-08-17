@@ -105,7 +105,7 @@ static void api_read_impl(bool is_xram)
     if (std_count >= 0)
     {
         for (; std_count && pix_ready(); --std_count, ++std_xaddr)
-            pix_send(0, 0, xstack[std_xaddr], std_xaddr);
+            pix_send(0, 0, xram[std_xaddr], std_xaddr);
         if (!std_count)
         {
             std_count = -1;
@@ -123,10 +123,10 @@ static void api_read_impl(bool is_xram)
     {
         if (XSTACK_SIZE - xstack_ptr < 2)
             goto err_param;
-        std_xaddr = *(uint16_t *)&xstack[xstack_ptr];
+        count = *(uint16_t *)&xstack[xstack_ptr];
         xstack_ptr += 2;
+        std_xaddr = api_sstack_uint16();
         buf = &xram[std_xaddr];
-        count = api_sstack_uint16();
         if (buf + count > xstack + 0x10000)
             goto err_param;
     }
