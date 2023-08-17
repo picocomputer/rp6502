@@ -8,8 +8,8 @@
 #include "sys/std.h"
 #include "usb/cdc.h"
 
-static absolute_time_t break_timer = {};
-static absolute_time_t faux_break_timer = {};
+static absolute_time_t break_timer = {0};
+static absolute_time_t faux_break_timer = {0};
 static bool is_breaking = false;
 static uint8_t read_buf[32];
 
