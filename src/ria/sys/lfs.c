@@ -94,17 +94,11 @@ void lfs_init()
     if (err)
     {
         // Maybe first boot. Attempt format.
+        // lfs_format returns -84 here, but still succeeds
         lfs_format(&lfs_volume, &cfg);
+        err = lfs_mount(&lfs_volume, &cfg);
         if (err)
-        {
             printf("?Unable to format lfs (%d)", err);
-        }
-        else
-        {
-            err = lfs_mount(&lfs_volume, &cfg);
-            if (err)
-                printf("?Unable to mount lfs (%d)", err);
-        }
     }
 }
 

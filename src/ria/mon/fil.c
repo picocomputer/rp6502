@@ -151,7 +151,7 @@ static void fil_com_rx_mbuf(bool timeout, size_t length)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        com_read_line(com_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+        com_read_line(com_readline_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
     }
     else
         fil_state = FIL_IDLE;
@@ -166,7 +166,7 @@ static void fil_command_dispatch(bool timeout, size_t len)
         fil_state = FIL_IDLE;
         return;
     }
-    const char *args = com_buf;
+    const char *args = com_readline_buf;
 
     if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
     {
@@ -212,7 +212,7 @@ void fil_mon_upload(const char *args, size_t len)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    com_read_line(com_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+    com_read_line(com_readline_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
 }
 
 void fil_mon_unlink(const char *args, size_t len)

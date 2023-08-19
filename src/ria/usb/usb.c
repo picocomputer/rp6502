@@ -25,7 +25,7 @@ void usb_print_status()
         if (tuh_mounted(i + 1))
             count++;
 
-    printf("USB : %d device%s\n", count, count == 1 ? "" : "s");
+    printf("USB: %d device%s\n", count, count == 1 ? "" : "s");
     for (uint8_t i = 0; i < CFG_TUH_DEVICE_MAX; i++)
         if (tuh_mounted(i + 1))
             puts(dev_message[i]);

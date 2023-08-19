@@ -416,10 +416,7 @@ void rom_task()
         break;
     case ROM_XRAM_WRITING:
         if (!rom_xram_writing())
-        {
             rom_state = ROM_LOADING;
-            api_sync_xram();
-        }
         break;
     case ROM_RIA_WRITING:
         if (rom_action_is_finished())

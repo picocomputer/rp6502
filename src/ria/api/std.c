@@ -9,6 +9,7 @@
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "fatfs/ff.h"
+#include <stdio.h>
 
 #define STD_FIL_MAX 16
 FIL std_fil[STD_FIL_MAX];
@@ -21,6 +22,31 @@ static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 static void *std_io_ptr;
 static uint16_t std_xaddr;
 static int32_t std_count = -1;
+
+static volatile size_t std_out_tail;
+static volatile size_t std_out_head;
+static volatile uint8_t std_out_buf[32];
+#define STD_OUT_BUF(pos) std_out_buf[(pos)&0x1F]
+
+static inline bool com_stdout_writable()
+{
+    return (((std_out_head + 1) & 0x1F) != (std_out_tail & 0x1F));
+}
+
+static inline void com_stdout_write(char ch)
+{
+    STD_OUT_BUF(++std_out_head) = ch;
+}
+
+void std_task(void)
+{
+    // 6502 applications write to std_out_buf which we route
+    // through the Pi Pico STDIO driver for CR/LR translation.
+    if ((&STD_OUT_BUF(std_out_head) != &STD_OUT_BUF(std_out_tail)) &&
+        (&COM_TX_BUF(com_tx_head + 1) != &COM_TX_BUF(com_tx_tail)) &&
+        (&COM_TX_BUF(com_tx_head + 2) != &COM_TX_BUF(com_tx_tail)))
+        putchar(STD_OUT_BUF(++std_out_tail));
+}
 
 void std_api_open(void)
 {
@@ -79,7 +105,7 @@ static void api_read_impl(bool is_xram)
     if (std_count >= 0)
     {
         for (; std_count && pix_ready(); --std_count, ++std_xaddr)
-            pix_send(0, 0, xstack[std_xaddr], std_xaddr);
+            pix_send(0, 0, xram[std_xaddr], std_xaddr);
         if (!std_count)
         {
             std_count = -1;
@@ -97,11 +123,11 @@ static void api_read_impl(bool is_xram)
     {
         if (XSTACK_SIZE - xstack_ptr < 2)
             goto err_param;
-        std_xaddr = *(uint16_t *)&xstack[xstack_ptr];
+        count = *(uint16_t *)&xstack[xstack_ptr];
         xstack_ptr += 2;
+        std_xaddr = api_sstack_uint16();
         buf = &xram[std_xaddr];
-        count = api_sstack_uint16();
-        if (buf + count > xstack + 0x10000)
+        if (count > 0x7FFF || buf + count > xram + 0x10000)
             goto err_param;
     }
     else
@@ -126,10 +152,7 @@ static void api_read_impl(bool is_xram)
         api_set_ax(-1);
     }
     if (is_xram)
-    {
-        api_sync_xram();
         std_count = br;
-    }
     else
     {
         if (br == count)
@@ -157,11 +180,20 @@ void std_api_readx(void)
     api_read_impl(true);
 }
 
+// Non-blocking write, returns bytes written.
+static size_t std_out_write(char *ptr, size_t count)
+{
+    size_t bw = 0;
+    for (; count && com_stdout_writable(); --count, bw++)
+        com_stdout_write(*(uint8_t *)ptr++);
+    return bw;
+}
+
 static void api_write_impl(bool is_xram)
 {
     if (std_count >= 0)
     {
-        size_t bw = com_write(std_io_ptr, std_count);
+        size_t bw = std_out_write(std_io_ptr, std_count);
         std_io_ptr += bw;
         std_count -= bw;
         if (!std_count)

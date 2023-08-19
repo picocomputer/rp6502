@@ -207,7 +207,7 @@ static void term_out_state_C0(char ch)
         term_out_cr();
     else if (ch == '\33')
         term_state = ansi_state_Fe;
-    else if (ch >= 32 && ch <= 126)
+    else if (ch >= 32 && ch <= 255)
         term_out_char(ch);
 }
 
@@ -330,8 +330,7 @@ void term_init(void)
         term_color_data[pos + 2] = fgcolor | (bgcolor << 16);
         term_color_data[pos + 3] = fgcolor | (fgcolor << 16);
     }
-    // Clear screen
-    puts("\30\33[0m\f");
+    term_clear();
 }
 
 void term_task(void)
@@ -343,6 +342,12 @@ void term_task(void)
         // 0.3ms drift to avoid blinking cursor trearing
         term_timer = delayed_by_us(now, 499700);
     }
+}
+
+void term_clear(void)
+{
+    // reset state and clear screen
+    puts("\30\33[0m\f");
 }
 
 void term_render(struct scanvideo_scanline_buffer *dest, uint16_t height)

@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "pix.h"
 #include "vga.h"
 #include "pix.pio.h"
 #include "xram.h"
+#include "term/font.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
 #include <stdio.h>
@@ -16,6 +18,8 @@
 #define VGA_PIX_REGS_SM 1
 #define VGA_PIX_XRAM_SM 2
 #define VGA_PHI2_PIN 11
+
+volatile uint8_t pix_xregs[PIX_XREGS_MAX];
 
 void pix_init(void)
 {
@@ -122,6 +126,7 @@ void pix_init(void)
         true);
 }
 
+// TODO legacy mode, delme
 static void pix_video_mode(uint16_t mode)
 {
     switch (mode)
@@ -145,24 +150,33 @@ void pix_task(void)
     if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
     {
         uint32_t raw = pio_sm_get(VGA_PIX_PIO, VGA_PIX_REGS_SM);
-        uint16_t data = raw;
-        // 0-0xFF reachable from api_set_xreg
-        // 0x100-0xFFF for internal RIA-to-VGA
-        uint16_t xreg = (raw & 0xFFF0000) >> 16;
-        switch (xreg)
+        uint8_t ch = (raw & 0xF000000) >> 24;
+        uint8_t addr = (raw & 0xFF0000) >> 16;
+        uint16_t word = raw & 0xFFFF;
+
+        if (ch == 0xF)
+            main_pix_cmd(addr, word);
+
+        if (ch == 0x0)
         {
-        case 0x000:
-            pix_video_mode(data);
-            break;
-        case 0xFFF:
-            vga_display(data);
-            vga_terminal(true);
-            break;
-        default:
-#ifndef NDEBUG
-            printf("XREG: $%03X $%04X\n", xreg, data);
-#endif
-            break;
+            if (addr < PIX_XREGS_MAX)
+                pix_xregs[addr] = word;
+            if (addr == 0)
+            {
+                // TODO legacy mode, replace with vsync
+                pix_video_mode(word);
+            }
+            if (addr == 1)
+            {
+                // TODO vga_set_canvas()
+            }
+            if (addr == 2)
+            {
+                // TODO vga_set_mode()
+            }
+            if (addr == 1 || addr == 2)
+                for (int i = 3; i < PIX_XREGS_MAX; i++)
+                    pix_xregs[i] = 0;
         }
     }
 }

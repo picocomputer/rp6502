@@ -14,8 +14,8 @@
 static bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
 volatile int cpu_rx_char;
-static size_t cpu_rx_start;
-static size_t cpu_rx_end;
+static size_t cpu_rx_tail;
+static size_t cpu_rx_head;
 static uint8_t cpu_rx_buf[32];
 #define CPU_RX_BUF(pos) cpu_rx_buf[(pos)&0x1F]
 
@@ -49,9 +49,9 @@ void cpu_task()
     }
 
     // Move UART FIFO into action loop
-    if (cpu_rx_char < 0 && &CPU_RX_BUF(cpu_rx_end) != &CPU_RX_BUF(cpu_rx_start))
+    if (cpu_rx_char < 0 && &CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
     {
-        int ch = CPU_RX_BUF(++cpu_rx_start);
+        int ch = CPU_RX_BUF(++cpu_rx_tail);
         switch (cfg_get_caps())
         {
         case 1:
@@ -72,7 +72,7 @@ void cpu_task()
 static void clear_com_rx_fifo()
 {
     cpu_rx_char = -1;
-    cpu_rx_start = cpu_rx_end = 0;
+    cpu_rx_tail = cpu_rx_head = 0;
 }
 
 void cpu_run()
@@ -164,6 +164,6 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
 void cpu_com_rx(uint8_t ch)
 {
     // discarding overflow
-    if (&CPU_RX_BUF(cpu_rx_end + 1) != &CPU_RX_BUF(cpu_rx_start))
-        CPU_RX_BUF(++cpu_rx_end) = ch;
+    if (&CPU_RX_BUF(cpu_rx_head + 1) != &CPU_RX_BUF(cpu_rx_tail))
+        CPU_RX_BUF(++cpu_rx_head) = ch;
 }

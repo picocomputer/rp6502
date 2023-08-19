@@ -23,7 +23,6 @@
  *
  */
 
-
 #include "probe.h"
 #include "sys/led.h"
 #include "probe.pio.h"
@@ -162,6 +161,7 @@ static uint32_t probe_read_bits(uint bit_count)
 static void probe_read_mode(void)
 {
     pio_sm_exec(pio1, PROBE_SM, pio_encode_jmp(probe.offset + probe_offset_in_posedge));
+    pio_sm_exec(pio1, PROBE_SM, pio_encode_set(pio_pindirs, 0) | pio_encode_sideset_opt(1, 0));
     while (pio1->dbg_padoe & (1 << PROBE_PIN_SWDIO))
         ;
 }
@@ -169,6 +169,7 @@ static void probe_read_mode(void)
 static void probe_write_mode(void)
 {
     pio_sm_exec(pio1, PROBE_SM, pio_encode_jmp(probe.offset + probe_offset_out_negedge));
+    pio_sm_exec(pio1, PROBE_SM, pio_encode_set(pio_pindirs, 1) | pio_encode_sideset_opt(1, 0));
     while (!(pio1->dbg_padoe & (1 << PROBE_PIN_SWDIO)))
         ;
 }

@@ -8,6 +8,7 @@
 #define _STD_H_
 
 // Kernel events
+void std_task(void);
 void std_stop(void);
 
 /*

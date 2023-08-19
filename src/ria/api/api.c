@@ -58,12 +58,11 @@ void api_run()
 {
     // All registers reset to a known state
     for (int i = 0; i < 16; i++)
-        REGS(i) = 0;
+        if (i != 3) // Skip VSYNC
+            REGS(i) = 0;
     API_STEP0 = 1;
-    API_ADDR0 = 0;
     API_RW0 = xram[API_ADDR0];
     API_STEP1 = 1;
-    API_ADDR1 = 0;
     API_RW1 = xram[API_ADDR1];
     xstack_ptr = XSTACK_SIZE;
     api_return_errno_axsreg_zxstack(0, 0);

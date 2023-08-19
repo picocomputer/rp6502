@@ -55,7 +55,7 @@ void api_run(void);
 // 3. First parameter may support a "short stack".
 //    e.g. a uint16 is sent for fseek instead of a uint64.
 // 4. Be careful with the stack. Especially returning xstack_ptr.
-// 5. Registers must be refreshed if xram or xstack data changes.
+// 5. Registers must be refreshed if XSTACK data changes.
 // 6. Use the return functions always!
 
 // Helpers for a "short" stack.
@@ -67,13 +67,8 @@ int16_t api_sstack_int16(void);
 int32_t api_sstack_int32(void);
 int64_t api_sstack_int64(void);
 
-// Returning data on XRAM or XSTACK requires
+// Returning data on XSTACK requires
 // ensuring the REGS have fresh data.
-static inline void api_sync_xram()
-{
-    API_RW0 = xram[API_ADDR0];
-    API_RW1 = xram[API_ADDR1];
-}
 static inline void api_sync_xstack()
 {
     API_STACK = xstack[xstack_ptr];

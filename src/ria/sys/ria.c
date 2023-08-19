@@ -16,7 +16,6 @@
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
 #include "littlefs/lfs_util.h"
-#include <stdio.h>
 
 // This is the smallest value that will
 // allow 1k read/write operations at 50 kHz.
@@ -352,11 +351,12 @@ static __attribute__((optimize("O1"))) void act_loop()
                     break;
                 }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    uart_get_hw(COM_UART)->dr = data;
-                    if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
-                        REGS(0xFFE0) &= ~0b10000000;
-                    else
+                    if (com_tx_writable())
+                        com_tx_write(data);
+                    if (com_tx_writable())
                         REGS(0xFFE0) |= 0b10000000;
+                    else
+                        REGS(0xFFE0) &= ~0b10000000;
                     break;
                 case CASE_READ(0xFFE0): // UART Tx/Rx flow control
                 {
@@ -367,10 +367,10 @@ static __attribute__((optimize("O1"))) void act_loop()
                         REGS(0xFFE0) |= 0b01000000;
                         cpu_rx_char = -1;
                     }
-                    if ((uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
-                        REGS(0xFFE0) &= ~0b10000000;
-                    else
+                    if (com_tx_writable())
                         REGS(0xFFE0) |= 0b10000000;
+                    else
+                        REGS(0xFFE0) &= ~0b10000000;
                     break;
                 }
                 }

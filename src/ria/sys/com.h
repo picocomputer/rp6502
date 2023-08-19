@@ -19,7 +19,7 @@
 // Shared character buffer for read line.
 // TODO add multiline support and 256 size.
 #define COM_BUF_SIZE 79
-extern char com_buf[COM_BUF_SIZE];
+extern char com_readline_buf[COM_BUF_SIZE];
 
 // Kernel events
 void com_task();
@@ -32,11 +32,6 @@ void com_reclock();
 // It shouldn't be used elsewhere.
 void com_flush();
 
-// Writes in stdout style. Non-blocking.
-// Fills UART buffer then stops.
-// Returns number of chars written successfully.
-size_t com_write(char *ptr, size_t count);
-
 // Both types of reads guarantee this callback unless a
 // break event happens. Timeout is true when input is idle too long.
 // Requesting a timeout of 0 ms will disable the idle timer.
@@ -48,5 +43,20 @@ void com_read_binary(uint8_t *buf, size_t size, uint32_t timeout_ms, com_read_ca
 // Prepare the line editor. The com module can read entire lines
 // of input with basic editing on ANSI terminals.
 void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callback_t callback);
+
+extern volatile size_t com_tx_tail;
+extern volatile size_t com_tx_head;
+extern volatile uint8_t com_tx_buf[32];
+#define COM_TX_BUF(pos) com_tx_buf[(pos)&0x1F]
+
+static inline bool com_tx_writable(void)
+{
+    return (((com_tx_head + 1) & 0x1F) != (com_tx_tail & 0x1F));
+}
+
+static inline void com_tx_write(char ch)
+{
+    COM_TX_BUF(++com_tx_head) = ch;
+}
 
 #endif /* _COM_H_ */

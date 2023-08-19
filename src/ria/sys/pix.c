@@ -57,6 +57,10 @@ void pix_init()
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_set_enabled(PIX_PIO, PIX_SM, true);
     pix_reset_requested = true;
+
+    // Queue a couple sync frames for safety
+    pix_send(PIX_IDLE_DEV, 0, 0, 0);
+    pix_send(PIX_IDLE_DEV, 0, 0, 0);
 }
 
 void pix_api_set_xreg()

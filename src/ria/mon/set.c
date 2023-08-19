@@ -8,14 +8,13 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
-#include "usb/usb.h"
 #include "hardware/clocks.h"
 
-static void status_phi2()
+static void set_print_phi2()
 {
     uint32_t phi2_khz = cfg_get_phi2_khz();
     printf("PHI2: %ld kHz", phi2_khz);
-    if (phi2_khz < 50)
+    if (phi2_khz < RP6502_MIN_PHI2 || phi2_khz > RP6502_MAX_PHI2)
         printf(" (!!!)");
     printf("\n");
 }
@@ -26,17 +25,21 @@ static void set_phi2(const char *args, size_t len)
     if (len)
     {
         if (!parse_uint32(&args, &len, &val) ||
-            !parse_end(args, len) ||
-            !cfg_set_phi2_khz(val))
+            !parse_end(args, len))
         {
             printf("?invalid argument\n");
             return;
         }
+        if (!cfg_set_phi2_khz(val))
+        {
+            printf("?invalid speed\n");
+            return;
+        }
     }
-    status_phi2();
+    set_print_phi2();
 }
 
-static void status_resb()
+static void set_print_resb()
 {
     uint8_t reset_ms = cfg_get_reset_ms();
     float reset_us = cpu_get_reset_us();
@@ -69,10 +72,10 @@ static void set_resb(const char *args, size_t len)
             return;
         }
     }
-    status_resb();
+    set_print_resb();
 }
 
-static void status_boot()
+static void set_print_boot()
 {
     const char *rom = cfg_get_boot();
     if (!rom[0])
@@ -106,10 +109,10 @@ static void set_boot(const char *args, size_t len)
             return;
         }
     }
-    status_boot();
+    set_print_boot();
 }
 
-static void status_caps()
+static void set_print_caps()
 {
     const char *const caps_labels[] = {"normal", "inverted", "forced"};
     printf("CAPS: %s\n", caps_labels[cfg_get_caps()]);
@@ -131,10 +134,10 @@ static void set_caps(const char *args, size_t len)
             return;
         }
     }
-    status_caps();
+    set_print_caps();
 }
 
-static void status_code_page()
+static void set_print_code_page()
 {
 #if (RP6502_CODE_PAGE)
     printf("CP  : %d (dev)\n", RP6502_CODE_PAGE);
@@ -156,10 +159,10 @@ static void set_code_page(const char *args, size_t len)
             return;
         }
     }
-    status_code_page();
+    set_print_code_page();
 }
 
-static void status_vga()
+static void set_print_vga()
 {
     const char *const vga_labels[] = {"640x480", "640x480 and 1280x720", "1280x1024"};
     printf("VGA : %s\n", vga_labels[cfg_get_vga()]);
@@ -181,22 +184,7 @@ static void set_vga(const char *args, size_t len)
             return;
         }
     }
-    status_vga();
-}
-
-void set_mon_status(const char *args, size_t len)
-{
-    (void)(args);
-    (void)(len);
-
-    status_phi2();
-    status_resb();
-    status_caps();
-    status_boot();
-    status_code_page();
-    status_vga();
-    printf("RIA : %.1f MHz\n", clock_get_hz(clk_sys) / 1000 / 1000.f);
-    usb_print_status();
+    set_print_vga();
 }
 
 typedef void (*set_function)(const char *, size_t);
@@ -215,8 +203,21 @@ static struct
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
+static void set_print_all(void)
+{
+    set_print_phi2();
+    set_print_resb();
+    set_print_caps();
+    set_print_boot();
+    set_print_code_page();
+    set_print_vga();
+}
+
 void set_mon_set(const char *args, size_t len)
 {
+    if (!len)
+        return set_print_all();
+
     size_t i = 0;
     for (; i < len; i++)
         if (args[i] == ' ')

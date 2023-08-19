@@ -22,11 +22,9 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/sys.h"
+#include "sys/vga.h"
 #include "usb/hid.h"
-
-#ifndef RP6502_NAME
-#error RP6502_NAME must be defined
-#endif
 
 /**************************************/
 /* All kernel modules register below. */
@@ -38,22 +36,22 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init()
 {
-    // Initialize UART for terminal
+    // STDIO not available until after these inits
+    cpu_init();
+    ria_init();
+    pix_init();
+    vga_init();
     com_init();
 
     // Hello, world.
-    puts("\30\33[0m\f\n" RP6502_NAME);                                   // TODO com_init
-    puts("64K RAM, 64K XRAM");                                           // TODO cpu_init
-    puts("16-bit \33[31mC\33[32mO\33[33mL\33[36mO\33[35mR\33[0m VGA\n"); // TODO vga module
+    puts("\30\33[0m\f");
+    sys_init();
 
-    // Load config before we init anything
+    // Load config before we continue
     lfs_init();
     cfg_init();
 
     // Misc kernel modules, add yours here
-    cpu_init();
-    ria_init();
-    pix_init();
     oem_init();
     aud_init();
     hid_init();
@@ -78,6 +76,8 @@ void main_task()
     pix_task();
     aud_task();
     hid_task();
+    vga_task();
+    std_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -94,6 +94,7 @@ static void task()
 // Event to start running the 6502.
 static void run()
 {
+    vga_run();
     api_run();
     ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
@@ -126,6 +127,7 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
 {
     com_reclock();
     cpu_reclock();
+    vga_reclock(sys_clk_khz);
     ria_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
     aud_reclock(sys_clk_khz);
@@ -232,7 +234,7 @@ int main()
     init();
 
     // Trigger main_reclock()
-    cpu_set_phi2_khz(cpu_validate_phi2_khz(cfg_get_phi2_khz()));
+    cpu_set_phi2_khz(cfg_get_phi2_khz());
 
     while (true)
     {

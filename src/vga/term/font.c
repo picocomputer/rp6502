@@ -5,6 +5,7 @@
  */
 
 #include "font.h"
+#include "term.h"
 #include "pico/stdlib.h"
 #include <string.h>
 
@@ -3362,4 +3363,137 @@ void font_init(void)
             memset(&font8[row * 256 + 128], 0, 128);
         }
     }
+    if (RP6502_CODE_PAGE)
+        font_set_codepage(RP6502_CODE_PAGE);
+}
+
+void font_set_codepage(uint16_t cp)
+{
+    static uint16_t current_cp = 0;
+    const uint8_t *font8hi = NULL;
+    const uint8_t *font16hi = NULL;
+
+    switch (cp)
+    {
+#if RP6502_CODE_PAGE == 437 || RP6502_CODE_PAGE == 0
+    case 437:
+        font8hi = FONT8_CP437;
+        font16hi = FONT16_CP437;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 737 || RP6502_CODE_PAGE == 0
+    case 737:
+        font8hi = FONT8_CP737;
+        font16hi = FONT16_CP737;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 771 || RP6502_CODE_PAGE == 0
+    case 771:
+        font8hi = FONT8_CP771;
+        font16hi = FONT16_CP771;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 775 || RP6502_CODE_PAGE == 0
+    case 775:
+        font8hi = FONT8_CP775;
+        font16hi = FONT16_CP775;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 850 || RP6502_CODE_PAGE == 0
+    case 850:
+        font8hi = FONT8_CP850;
+        font16hi = FONT16_CP850;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 852 || RP6502_CODE_PAGE == 0
+    case 852:
+        font8hi = FONT8_CP852;
+        font16hi = FONT16_CP852;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 855 || RP6502_CODE_PAGE == 0
+    case 855:
+        font8hi = FONT8_CP855;
+        font16hi = FONT16_CP855;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 857 || RP6502_CODE_PAGE == 0
+    case 857:
+        font8hi = FONT8_CP857;
+        font16hi = FONT16_CP857;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 860 || RP6502_CODE_PAGE == 0
+    case 860:
+        font8hi = FONT8_CP860;
+        font16hi = FONT16_CP860;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 861 || RP6502_CODE_PAGE == 0
+    case 861:
+        font8hi = FONT8_CP861;
+        font16hi = FONT16_CP861;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 862 || RP6502_CODE_PAGE == 0
+    case 862:
+        font8hi = FONT8_CP862;
+        font16hi = FONT16_CP862;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 863 || RP6502_CODE_PAGE == 0
+    case 863:
+        font8hi = FONT8_CP863;
+        font16hi = FONT16_CP863;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 864 || RP6502_CODE_PAGE == 0
+    case 864:
+        font8hi = FONT8_CP864;
+        font16hi = FONT16_CP864;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 865 || RP6502_CODE_PAGE == 0
+    case 865:
+        font8hi = FONT8_CP865;
+        font16hi = FONT16_CP865;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 866 || RP6502_CODE_PAGE == 0
+    case 866:
+        font8hi = FONT8_CP866;
+        font16hi = FONT16_CP866;
+        break;
+#endif
+#if RP6502_CODE_PAGE == 869 || RP6502_CODE_PAGE == 0
+    case 869:
+        font8hi = FONT8_CP869;
+        font16hi = FONT16_CP869;
+        break;
+#endif
+    default:
+        cp = 0;
+        break;
+    }
+
+    if (current_cp == cp)
+        return;
+    if (current_cp)
+        term_clear();
+    current_cp = cp;
+
+    if (!cp)
+        for (int row = 0; row < 16; row++)
+        {
+            memset(&font16[row * 256 + 128], 0, 128);
+            if (row < 8)
+                memset(&font8[row * 256 + 128], 0, 128);
+        }
+    else
+        for (int row = 0; row < 16; row++)
+        {
+            memcpy(&font16[row * 256 + 128], &font16hi[row * 128], 128);
+            if (row < 8)
+                memcpy(&font8[row * 256 + 128], &font8hi[row * 128], 128);
+        }
 }

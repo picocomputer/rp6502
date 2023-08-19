@@ -7,14 +7,20 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "sys/cfg.h"
+#include "sys/pix.h"
 #include "fatfs/ff.h"
+
+// Only the code page specified by RP6502_CODE_PAGE is installed to flash.
+// To include all code pages, set RP6502_CODE_PAGE to 0 (CMmakeLists.txt).
+// This is the default for when RP6502_CODE_PAGE == 0.
+#define DEFAULT_CODE_PAGE 850
 
 void oem_init(void)
 {
     cfg_set_codepage(oem_set_codepage(cfg_get_codepage()));
 }
 
-uint16_t oem_set_codepage(uint16_t cp)
+static uint16_t oem_find_codepage(uint16_t cp)
 {
 #if RP6502_CODE_PAGE
     (void)cp;
@@ -34,9 +40,16 @@ uint16_t oem_set_codepage(uint16_t cp)
         if (result == FR_OK)
             return cfg_code_page;
     }
-    f_setcp(437);
-    return 437;
+    f_setcp(DEFAULT_CODE_PAGE);
+    return DEFAULT_CODE_PAGE;
 #endif
+}
+
+uint16_t oem_set_codepage(uint16_t cp)
+{
+    cp = oem_find_codepage(cp);
+    pix_send_blocking(1, 0xFu, 0x01u, cp);
+    return cp;
 }
 
 void oem_api_codepage()
