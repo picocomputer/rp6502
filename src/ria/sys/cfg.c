@@ -156,6 +156,8 @@ bool cfg_set_phi2_khz(uint32_t freq_khz)
 {
     if (freq_khz > RP6502_MAX_PHI2)
         return false;
+    if (freq_khz && freq_khz < RP6502_MIN_PHI2)
+        return false;
     uint32_t old_val = cfg_phi2_khz;
     cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
     bool ok = true;

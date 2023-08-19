@@ -14,7 +14,7 @@ static void set_print_phi2()
 {
     uint32_t phi2_khz = cfg_get_phi2_khz();
     printf("PHI2: %ld kHz", phi2_khz);
-    if (phi2_khz < 50)
+    if (phi2_khz < RP6502_MIN_PHI2 || phi2_khz > RP6502_MIN_PHI2)
         printf(" (!!!)");
     printf("\n");
 }
@@ -25,10 +25,14 @@ static void set_phi2(const char *args, size_t len)
     if (len)
     {
         if (!parse_uint32(&args, &len, &val) ||
-            !parse_end(args, len) ||
-            !cfg_set_phi2_khz(val))
+            !parse_end(args, len))
         {
             printf("?invalid argument\n");
+            return;
+        }
+        if (!cfg_set_phi2_khz(val))
+        {
+            printf("?invalid speed\n");
             return;
         }
     }
