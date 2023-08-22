@@ -6,10 +6,13 @@
 
 #include "main.h"
 #include "tusb.h"
+#include "sys/cfg.h"
 #include "usb/hid.h"
+#include "usb/kbd_en.h"
 #include "usb/usb.h"
 #include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
+#include "fatfs/ff.h"
 
 extern int process_sony_ds4(uint8_t dev_addr, uint8_t const *report, uint16_t len);
 static int hid_stdio_in_chars(char *buf, int length);
@@ -37,8 +40,8 @@ static char hid_key_queue[8];
 static uint8_t hid_key_queue_in = 0;
 static uint8_t hid_key_queue_out = 0;
 
-static char const __in_flash("keycode_to_ascii")
-    KEYCODE_TO_ASCII[128][2] = {HID_KEYCODE_TO_ASCII};
+static DWORD const __in_flash("keycode_to_ascii")
+    KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE_EN};
 
 static void hid_queue_key_str(const char *str)
 {
@@ -51,13 +54,25 @@ static void hid_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     hid_repeat_keycode = keycode;
     hid_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? HID_REPEAT_DELAY : HID_REPEAT_RATE);
-    modifier = ((modifier & 0xf0) >> 4) | (modifier & 0x0f); // merge modifiers to left
-    char ch = keycode > 127
-                  ? 0
-                  : KEYCODE_TO_ASCII[keycode][modifier & KEYBOARD_MODIFIER_LEFTSHIFT ? 1 : 0];
-    if (modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_LEFTGUI))
-        ch = 0;
-    if (modifier & KEYBOARD_MODIFIER_LEFTCTRL)
+    char ch = 0;
+    if (keycode < 128 && !((modifier & (KEYBOARD_MODIFIER_LEFTALT |
+                                        KEYBOARD_MODIFIER_LEFTGUI |
+                                        KEYBOARD_MODIFIER_RIGHTGUI))))
+    {
+        if (modifier & (KEYBOARD_MODIFIER_RIGHTALT))
+        {
+            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
+        }
+        else if (modifier & (KEYBOARD_MODIFIER_LEFTSHIFT |
+                             KEYBOARD_MODIFIER_RIGHTSHIFT))
+        {
+            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
+        }
+        else
+            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+    }
+    if (modifier & (KEYBOARD_MODIFIER_LEFTCTRL |
+                    KEYBOARD_MODIFIER_RIGHTCTRL))
     {
         if (ch >= '`' && ch <= '~')
             ch -= 96;
