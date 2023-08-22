@@ -24,7 +24,7 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/hid.h"
+#include "usb/kbd.h"
 
 /**************************************/
 /* All kernel modules register below. */
@@ -54,7 +54,7 @@ static void init()
     // Misc kernel modules, add yours here
     oem_init();
     aud_init();
-    hid_init();
+    kbd_init();
     rom_init();
     led_init();
 
@@ -75,7 +75,7 @@ void main_task()
     ria_task();
     pix_task();
     aud_task();
-    hid_task();
+    kbd_task();
     vga_task();
     std_task();
 }

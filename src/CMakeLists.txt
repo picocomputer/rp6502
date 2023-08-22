@@ -85,6 +85,7 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/vga.c
     ria/usb/hid_ps4.c
     ria/usb/hid.c
+    ria/usb/kbd.c
     ria/usb/msc.c
     ria/usb/usb.c
     fatfs/ff.c
