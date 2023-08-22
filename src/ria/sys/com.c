@@ -142,7 +142,7 @@ static void com_line_state_C0(char ch)
         com_line_buf = NULL;
         cc(false, com_buflen);
     }
-    else if (ch >= 32 && ch < 127 && com_bufpos < com_bufsize - 1)
+    else if (ch >= 32 && com_bufpos < com_bufsize - 1)
     {
         putchar(ch);
         com_line_buf[com_bufpos] = ch;
