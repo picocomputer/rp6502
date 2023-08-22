@@ -239,6 +239,11 @@ bool main_active()
 
 int main()
 {
+    // Delay a bit to wait for VGA initial power up.
+    // Both UART Tx and Backchannel Tx characters of the
+    // statup messages can get dropped if this isn't here.
+    busy_wait_ms(10);
+
     init();
 
     // Trigger main_reclock()
