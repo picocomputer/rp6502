@@ -51,8 +51,9 @@ static inline void vga_pix_flush()
     // Begin by waiting for FIFO to clear.
     while (!pix_fifo_empty())
         tight_loop_contents();
-    // Then wait six PHI2 cycles to ensure PIX TX registers clear.
-    busy_wait_us(6000 / cfg_get_phi2_khz());
+    // Then wait at least six PHI2 cycles for shift registers.
+    uint32_t wait = 6000 / cfg_get_phi2_khz();
+    busy_wait_us_32(wait ? wait : 1);
 }
 
 static inline void vga_pix_backchannel_disable(void)
@@ -81,7 +82,6 @@ static void vga_read(bool timeout, size_t length)
             pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
         // Change direction
         vga_pix_backchannel_enable();
-        vga_pix_flush();
         pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
         // Wait for version
         vga_state = VGA_VERSIONING;
@@ -182,6 +182,7 @@ void vga_task(void)
         vga_pix_backchannel_disable();
         vga_pix_flush();
         vga_state = VGA_LOST_SIGNAL;
+        // This is usually futile, but print an error message anyway
         printf("?");
         vga_print_status();
     }
