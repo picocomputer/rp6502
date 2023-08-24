@@ -22,6 +22,7 @@
 #include <string.h>
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
+#include "fattime.h"
 #include "pico/platform.h"
 
 
@@ -268,7 +269,7 @@
 
 
 /* Timestamp */
-#if FF_FS_NORTC == 1
+#if FF_FS_NORTC == 0
 #if FF_NORTC_YEAR < 1980 || FF_NORTC_YEAR > 2107 || FF_NORTC_MON < 1 || FF_NORTC_MON > 12 || FF_NORTC_MDAY < 1 || FF_NORTC_MDAY > 31
 #error Invalid FF_FS_NORTC settings
 #endif
