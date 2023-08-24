@@ -28,12 +28,12 @@
 
 DWORD get_fattime (void)
 {
-	DWORD res;
-	datetime_t datetime;
+    DWORD res;
+    datetime_t datetime;
     bool rtc_set;
 
-	rtc_set = rtc_get_datetime(&datetime);
-	
+    rtc_set = rtc_get_datetime(&datetime);
+
     if (rtc_set)
     {
         res =  (((DWORD)datetime.year - 1980) << 25)
@@ -50,7 +50,7 @@ DWORD get_fattime (void)
                 | (DWORD)FF_NORTC_MDAY << 16);
     }
 
-	return res;
+    return res;
 }
 
 void rtc_api_get_time(void)
