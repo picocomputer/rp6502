@@ -62,7 +62,6 @@ static void init()
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
-    rtc_print();
 }
 
 // Tasks events are repeatedly called by the main kernel loop.
@@ -189,6 +188,12 @@ bool main_api(uint8_t operation)
         break;
     case 0x13:
         rng_api_rand32();
+        break;
+    case 0x14:
+        rtc_api_get_time();
+        break;
+    case 0x15:
+        rtc_api_set_time();
         break;
     default:
         return false;
