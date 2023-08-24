@@ -57,10 +57,8 @@ void rtc_api_get_time(void)
 {
     datetime_t *datetime;
     uint8_t count = sizeof(datetime_t);
-    uint8_t *buf = (uint8_t *)malloc(count);
     bool result;
-    buf = &xstack[XSTACK_SIZE - count];
-    datetime = (datetime_t *) buf;
+    datetime = (datetime_t *)(u_int8_t *)&(xstack[XSTACK_SIZE - count]);
     if (xstack_ptr != XSTACK_SIZE)
         goto err_param;
     result = rtc_get_datetime(datetime);
@@ -81,11 +79,8 @@ err_param:
 void rtc_api_set_time(void)
 {
     datetime_t *datetime;
-    uint8_t count = XSTACK_SIZE - xstack_ptr;
-    uint8_t *buf = (uint8_t *)malloc(count);
     bool result;
-    buf = &xstack[xstack_ptr];
-    datetime = (datetime_t *)buf;
+    datetime = (datetime_t *)(u_int8_t *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     if (xstack_ptr != XSTACK_SIZE)
         goto err_param;
