@@ -62,7 +62,6 @@ static void init()
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
-    rtc_print();
 }
 
 // Tasks events are repeatedly called by the main kernel loop.
