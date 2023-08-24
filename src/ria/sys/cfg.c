@@ -19,6 +19,7 @@
 // +R0         | RESB
 // +S437       | Code Page
 // +V0         | VGA monitor type
+// +K0         | Keyboard layout
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
@@ -29,6 +30,7 @@ static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
 static uint8_t cfg_vga;
+static uint8_t cfg_keyb;
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -67,6 +69,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+C%d\n"
                                "+S%d\n"
                                "+V%d\n"
+                               "+K%d\n"
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
@@ -74,6 +77,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_caps,
                                cfg_codepage,
                                cfg_vga,
+                               cfg_keyb,
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -126,6 +130,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
                 break;
             case 'V':
                 cfg_vga = val;
+                break;
+            case 'K':
+                cfg_keyb = val;
                 break;
             default:
                 break;
@@ -237,4 +244,18 @@ bool cfg_set_vga(uint8_t disp)
 uint8_t cfg_get_vga()
 {
     return cfg_vga;
+}
+
+void cfg_set_keyb(uint8_t keyb)
+{
+    if (keyb <= 2 && cfg_keyb != keyb)
+    {
+        cfg_keyb = keyb;
+        cfg_save_with_boot_opt(NULL);
+    }
+}
+
+uint8_t cfg_get_keyb()
+{
+    return cfg_keyb;
 }

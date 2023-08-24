@@ -27,5 +27,7 @@ bool cfg_set_codepage(uint32_t cp);
 uint16_t cfg_get_codepage();
 bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga();
+void cfg_set_keyb(uint8_t keyb);
+uint8_t cfg_get_keyb();
 
 #endif /* _CFG_H_ */

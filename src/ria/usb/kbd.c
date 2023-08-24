@@ -8,6 +8,7 @@
 #include "sys/cfg.h"
 #include "usb/kbd.h"
 #include "usb/kbd_en.h"
+#include "usb/kbd_gr.h"
 #include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
@@ -30,8 +31,16 @@ static char kbd_key_queue[8];
 static uint8_t kbd_key_queue_in = 0;
 static uint8_t kbd_key_queue_out = 0;
 
-static DWORD const __in_flash("keycode_to_ascii")
-    KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE_EN};
+//static DWORD const __in_flash("keycode_to_ascii")
+//    KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE_GR};
+
+static DWORD const __in_flash("keycode_to_gr")
+    layout_gr[128][3] = {HID_KEYCODE_TO_UNICODE_GR};
+
+static DWORD const __in_flash("keycode_to_en")
+    layout_us[128][3] = {HID_KEYCODE_TO_UNICODE_EN};
+
+const DWORD (*KEYCODE_TO_UNICODE)[3] = NULL;
 
 static void kbd_queue_key_str(const char *str)
 {
@@ -45,6 +54,20 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     kbd_repeat_keycode = keycode;
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
+    
+    switch(cfg_get_keyb())
+    {
+        case 0:
+            KEYCODE_TO_UNICODE = layout_us;
+            break;
+        case 1:
+            KEYCODE_TO_UNICODE = layout_gr;
+            break;
+        default:
+            KEYCODE_TO_UNICODE = layout_us;
+            break;            
+    }
+
     char ch = 0;
     if (keycode < 128 && !((modifier & (KEYBOARD_MODIFIER_LEFTALT |
                                         KEYBOARD_MODIFIER_LEFTGUI |

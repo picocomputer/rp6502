@@ -39,7 +39,8 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET CP (cp)         - Query or set code page.\n"
-    "SET VGA (0|1|2)     - Query or set monitor type for VGA output.";
+    "SET VGA (0|1|2)     - Query or set monitor type for VGA output.\n"
+    "SET KEYB (0|1)      - Query or set keyboard layout.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
@@ -204,6 +205,12 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "  1 - 640x480 and 1280x720, 16:9 modes will not letterbox\n"
     "  2 - 1280x1024, all graphics modes will letterbox";
 
+static const char __in_flash("helptext") hlp_text_keyb[] =
+    "SET KEYB selects the keyboard layout for your USB keyboard.\n"
+    "At the moment, only US and german layouts are supported.\n"
+    "  0 - US Layout (default)\n"
+    "  1 - GR Layout";
+
 static struct
 {
     size_t cmd_len;
@@ -246,6 +253,7 @@ static struct
     {4, "boot", hlp_text_boot},
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
+    {4, "keyb", hlp_text_keyb},
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
