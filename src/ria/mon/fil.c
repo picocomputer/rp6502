@@ -10,6 +10,7 @@
 #include "pico/stdlib.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
+#include "hardware/rtc.h"
 
 #define TIMEOUT_MS 200
 
