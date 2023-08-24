@@ -9,6 +9,7 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "api/rng.h"
+#include "api/rtc.h"
 #include "api/std.h"
 #include "aud/aud.h"
 #include "mon/fil.h"
@@ -57,9 +58,11 @@ static void init()
     hid_init();
     rom_init();
     led_init();
+    rtc_init_();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
+    rtc_print();
 }
 
 // Tasks events are repeatedly called by the main kernel loop.

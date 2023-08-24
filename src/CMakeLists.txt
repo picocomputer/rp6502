@@ -47,6 +47,7 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_dma
     hardware_pwm
     hardware_flash
+    hardware_rtc
     tinyusb_board
     tinyusb_host
 )
@@ -65,6 +66,7 @@ target_sources(rp6502_ria PRIVATE
     ria/api/api.c
     ria/api/oem.c
     ria/api/rng.c
+    ria/api/rtc.c
     ria/api/std.c
     ria/aud/aud.c
     ria/mon/fil.c
@@ -158,7 +160,7 @@ target_compile_definitions(rp6502_vga PRIVATE
 set_property(TARGET rp6502_ria rp6502_vga
     APPEND PROPERTY COMPILE_DEFINITIONS
     RP6502_NAME="Picocomputer 6502"
-    RP6502_VERSION=""
+    RP6502_VERSION="RTC_0.1.0a"
     RP6502_CODE_PAGE=850
     RP6502_MIN_PHI2=500
     RP6502_MAX_PHI2=8000
