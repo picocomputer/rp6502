@@ -74,7 +74,7 @@ void std_api_open(void)
         }
     }
     uint8_t *path = &xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
+    api_zxstack();
     int fd = 0;
     for (; fd < STD_FIL_MAX; fd++)
         if (!std_fil[fd].obj.fs)
@@ -114,33 +114,30 @@ static void api_read_impl(bool is_xram)
         return;
     }
     uint8_t *buf;
-    UINT count;
+    uint16_t count;
     int fd = API_A;
     // TODO support fd==0 as STDIN
     if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         goto err_param;
     if (is_xram)
     {
-        if (XSTACK_SIZE - xstack_ptr < 2)
+        if (!api_pop_uint16(&count) ||
+            !api_pop_uint16_end(&std_xaddr))
             goto err_param;
-        count = *(uint16_t *)&xstack[xstack_ptr];
-        xstack_ptr += 2;
-        std_xaddr = api_sstack_uint16();
         buf = &xram[std_xaddr];
-        if (count > 0x7FFF || buf + count > xram + 0x10000)
+        if (count > 0x7FFF)
+            count = 0x7FFF;
+        if (buf + count > xram + 0x10000)
             goto err_param;
     }
     else
     {
-        count = api_sstack_uint16();
+        if (!api_pop_uint16_end(&count))
+            goto err_param;
         if (count > 0x100)
             goto err_param;
         buf = &xstack[XSTACK_SIZE - count];
     }
-    if (xstack_ptr != XSTACK_SIZE)
-        goto err_param;
-    if (count > 0x7FFF)
-        count = 0x7FFF;
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
@@ -166,8 +163,8 @@ static void api_read_impl(bool is_xram)
     return;
 
 err_param:
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg_zxstack(FR_INVALID_PARAMETER, -1);
+    api_zxstack();
+    api_return_errno_axsreg(FR_INVALID_PARAMETER, -1);
 }
 
 void std_api_read_(void)
@@ -210,19 +207,20 @@ static void api_write_impl(bool is_xram)
         goto err_param;
     if (is_xram)
     {
-        if (XSTACK_SIZE - xstack_ptr < 2)
+        if (!api_pop_uint16(&count) ||
+            !api_pop_uint16_end(&std_xaddr))
             goto err_param;
-        buf = &xram[*(uint16_t *)&xstack[xstack_ptr]];
-        xstack_ptr += 2;
-        count = api_sstack_uint16();
-        if (buf + count > xstack + 0x10000)
+        buf = &xram[std_xaddr];
+        if (count > 0x7FFF)
+            count = 0x7FFF;
+        if (buf + count > xram + 0x10000)
             goto err_param;
     }
     else
     {
         count = XSTACK_SIZE - xstack_ptr;
         buf = &xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
+        api_zxstack();
     }
     if (xstack_ptr != XSTACK_SIZE)
         goto err_param;
@@ -243,8 +241,8 @@ static void api_write_impl(bool is_xram)
     return api_return_ax(bw);
 
 err_param:
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg_zxstack(FR_INVALID_PARAMETER, -1);
+    api_zxstack();
+    api_return_errno_axsreg(FR_INVALID_PARAMETER, -1);
 }
 
 void std_api_write_(void)
@@ -259,33 +257,31 @@ void std_api_writex(void)
 
 void std_api_lseek(void)
 {
-    // These are identical to unistd.h but we don't want to depend on that.
-    const unsigned SET = 0x00;
-    const unsigned CUR = 0x01;
-    const unsigned END = 0x02;
+    int8_t whence;
+    int64_t ofs;
     int fd = API_A;
-    if (xstack_ptr < XSTACK_SIZE - 9 || xstack_ptr > XSTACK_SIZE - 1 ||
-        fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
-        return api_return_errno_axsreg_zxstack(FR_INVALID_PARAMETER, -1);
-    unsigned whence = xstack[xstack_ptr++];
-    int64_t ofs = api_sstack_int64();
+    if (fd < STD_FIL_OFFS ||
+        fd >= STD_FIL_MAX + STD_FIL_OFFS ||
+        !api_pop_int8(&whence) ||
+        !api_pop_int64_end(&ofs))
+        goto err_param;
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     switch (whence)
     {
-    case SET:
-        (void)(SET);
+    case 0: // SET
         break;
-    case CUR:
-        (void)(CUR);
+    case 1: // CUR
         ofs += f_tell(fp);
         break;
-    case END:
-        (void)(END);
+    case 2: // END
         ofs += f_size(fp);
         break;
+    default:
+        ofs = -1;
+        break;
     }
-    if (ofs < 0 || whence > END)
-        return api_return_errno_axsreg_zxstack(FR_INVALID_PARAMETER, -1);
+    if (ofs < 0)
+        goto err_param;
     FRESULT fresult = f_lseek(fp, ofs);
     if (fresult != FR_OK)
         return api_return_errno_axsreg(fresult, -1);
@@ -295,6 +291,10 @@ void std_api_lseek(void)
     if (pos > 0x7FFFFFFF)
         pos = 0x7FFFFFFF;
     return api_return_axsreg(pos);
+
+err_param:
+    api_zxstack();
+    api_return_errno_axsreg(FR_INVALID_PARAMETER, -1);
 }
 
 void std_stop(void)

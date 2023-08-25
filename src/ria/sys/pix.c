@@ -66,13 +66,14 @@ void pix_init()
 void pix_api_set_xreg()
 {
     unsigned dev = API_A & 0x7;
-    if (xstack_ptr < XSTACK_SIZE - 4 || xstack_ptr > XSTACK_SIZE - 3)
+    uint16_t byte;
+    uint16_t word;
+    if (!api_pop_uint16(&byte) ||
+        !api_pop_uint16_end(&word))
+    {
+        api_zxstack();
         return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
-    uint16_t byte = xstack[xstack_ptr];
-    xstack_ptr += 2;
-    uint16_t word = api_sstack_uint16();
-    if (xstack_ptr != XSTACK_SIZE)
-        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
+    }
     uint8_t ch = (byte >> 8) & 0xF;
     if (!dev)
         main_pix(ch, byte, word);

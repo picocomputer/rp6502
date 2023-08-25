@@ -8,6 +8,9 @@
 #define _API_H_
 
 #include "sys/ria.h"
+#include <stddef.h>
+#include <stdbool.h>
+#include <string.h>
 
 // RIA XRAM portals
 #define API_RW0 REGS(0xFFE4)
@@ -50,22 +53,50 @@ void api_task(void);
 void api_run(void);
 
 // How to build an API handler:
-// 1. The last paramater is in API_AX or API_AXSREG.
+// 1. The last fastcall argument is in API_AX or API_AXSREG.
 // 2. Stack was pushed "in order". Like any top-down stack.
-// 3. First parameter may support a "short stack".
+// 3. First parameter supports a "short stack".
 //    e.g. a uint16 is sent for fseek instead of a uint64.
 // 4. Be careful with the stack. Especially returning xstack_ptr.
 // 5. Registers must be refreshed if XSTACK data changes.
 // 6. Use the return functions always!
 
-// Helpers for a "short" stack.
-// success = (xstack_ptr == XSTACK_SIZE)
-uint16_t api_sstack_uint16(void);
-uint32_t api_sstack_uint32(void);
-uint64_t api_sstack_uint64(void);
-int16_t api_sstack_int16(void);
-int32_t api_sstack_int32(void);
-int64_t api_sstack_int64(void);
+/* The last stack value, which is the first argument on the CC65 side,
+ * may be a "short stack" to keep 6502 code as small as possible.
+ * Always pop the final argument off the stack with these or api_pop_n.
+ */
+
+bool api_pop_uint16_end(uint16_t *data);
+bool api_pop_uint32_end(uint32_t *data);
+bool api_pop_uint64_end(uint64_t *data);
+bool api_pop_int16_end(int16_t *data);
+bool api_pop_int32_end(int32_t *data);
+bool api_pop_int64_end(int64_t *data);
+
+// Safely pop n bytes off the xstack.
+static inline bool api_pop_n(void *data, size_t n)
+{
+    if (XSTACK_SIZE - xstack_ptr >= n)
+    {
+        memcpy(data, &xstack[xstack_ptr], n);
+        xstack_ptr += n;
+        return true;
+    }
+    else
+        return false;
+}
+
+/* Ordinary stack popping. Use these for all but the final argument.
+ */
+
+static inline bool api_pop_uint8(uint8_t *data) { return api_pop_n(data, sizeof(uint8_t)); }
+static inline bool api_pop_uint16(uint16_t *data) { return api_pop_n(data, sizeof(uint16_t)); }
+static inline bool api_pop_uint32(uint32_t *data) { return api_pop_n(data, sizeof(uint32_t)); }
+static inline bool api_pop_uint64(uint64_t *data) { return api_pop_n(data, sizeof(uint64_t)); }
+static inline bool api_pop_int8(int8_t *data) { return api_pop_n(data, sizeof(int8_t)); }
+static inline bool api_pop_int16(int16_t *data) { return api_pop_n(data, sizeof(int16_t)); }
+static inline bool api_pop_int32(int32_t *data) { return api_pop_n(data, sizeof(int32_t)); }
+static inline bool api_pop_int64(int64_t *data) { return api_pop_n(data, sizeof(int64_t)); }
 
 // Returning data on XSTACK requires
 // ensuring the REGS have fresh data.
@@ -74,13 +105,25 @@ static inline void api_sync_xstack()
     API_STACK = xstack[xstack_ptr];
 }
 
-// Return works by manipulating 10 bytes of registers.
-// FFF0 EA      NOP
-// FFF1 80 FE   BRA -2
-// FFF3 A2 FF   LDX #$FF
-// FFF5 A9 FF   LDA #$FF
-// FFF7 60      RTS
-// FFF8 FF FF   .SREG $FF $FF
+static inline void api_zxstack()
+{
+    xstack_ptr = XSTACK_SIZE;
+}
+
+static inline bool api_is_xstack_empty()
+{
+    return xstack_ptr == XSTACK_SIZE;
+}
+
+/* Return works by manipulating 10 bytes of registers.
+ * FFF0 EA      NOP
+ * FFF1 80 FE   BRA -2
+ * FFF3 A2 FF   LDX #$FF
+ * FFF5 A9 FF   LDA #$FF
+ * FFF7 60      RTS
+ * FFF8 FF FF   .SREG $FF $FF
+ */
+
 static inline void api_return_blocked() { *(uint32_t *)&ria_regs[0x10] = 0xA2FE80EA; }
 static inline void api_return_released() { *(uint32_t *)&ria_regs[0x10] = 0xA20080EA; }
 
@@ -95,8 +138,10 @@ static inline void api_set_axsreg(uint32_t val)
     API_SREG = val >> 16;
 }
 
-// Call one of these at the very end. These signal
-// the 6502 that the operation is complete.
+/* Call one of these at the very end. These signal
+ * the 6502 that the operation is complete.
+ */
+
 static inline void api_return_ax(uint16_t val)
 {
     api_set_ax(val);
@@ -112,19 +157,9 @@ static inline void api_return_errno_ax(uint16_t errno, uint16_t val)
     API_ERRNO = errno;
     api_return_ax(val);
 }
-static inline void api_return_errno_ax_zxstack(uint16_t errno, uint16_t val)
-{
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_ax(errno, val);
-}
 static inline void api_return_errno_axsreg(uint16_t errno, uint32_t val)
 {
     API_ERRNO = errno;
     api_return_axsreg(val);
-}
-static inline void api_return_errno_axsreg_zxstack(uint16_t errno, uint32_t val)
-{
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg(errno, val);
 }
 #endif /* _API_H_ */
