@@ -70,7 +70,7 @@ void rtc_api_set_time(void)
 {
     datetime_t *datetime;
     bool result;
-    uint8_t count = API_A;
+    uint8_t count = XSTACK_SIZE - xstack_ptr;
     if (count != sizeof(datetime_t))
         return api_return_errno_ax_zxstack(RTC_INVALID_DATETIME, -1);
     datetime = (datetime_t *)(u_int8_t *)&xstack[xstack_ptr];
@@ -79,5 +79,5 @@ void rtc_api_set_time(void)
     result = rtc_set_datetime(datetime);
     if (!result)
         return api_return_errno_ax(RTC_INVALID_DATETIME, -1);
-    return api_return_ax(RTC_OK);    
+    return api_return_ax(RTC_OK);
 }
