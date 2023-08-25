@@ -52,7 +52,7 @@ DWORD get_fattime (void)
 void rtc_api_get_time(void)
 {
     datetime_t *datetime;
-    uint8_t count = sizeof(datetime_t);
+    uint8_t count = sizeof(*datetime);
     bool result;
     datetime = (datetime_t *)(u_int8_t *)&(xstack[XSTACK_SIZE - count]);
     result = rtc_get_datetime(datetime);
@@ -71,7 +71,7 @@ void rtc_api_set_time(void)
     datetime_t *datetime;
     bool result;
     uint8_t count = XSTACK_SIZE - xstack_ptr;
-    if (count != sizeof(datetime_t))
+    if (count != sizeof(*datetime))
         return api_return_errno_ax_zxstack(RTC_INVALID_DATETIME, -1);
     datetime = (datetime_t *)(u_int8_t *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
