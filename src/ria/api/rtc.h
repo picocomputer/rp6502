@@ -3,6 +3,13 @@
 
 #include "fatfs/ff.h"
 
+typedef enum {
+    RTC_OK = 0,             /* (0) RTC is set */
+    RTC_NOT_SET,            /* (1) RTC is not set*/
+    RTC_NTP_PENDING,        /* (2) RTC is waiting for NTP time response*/
+    RTC_INVALID_DATETIME    /* (3) datetime_t parameter was invalid*/
+} RTC_RESPONSE;
+
 // Kernel events
 void rtc_init_(void);
 DWORD get_fattime (void);

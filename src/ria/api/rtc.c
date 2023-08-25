@@ -7,10 +7,6 @@
 #include "pico/stdlib.h"
 #include "pico/util/datetime.h"
 
-#define RTC_SET 0
-#define RTC_NOT_SET 1
-#define RTC_NTC_PENDING 2
-
 // void rtc_init_()
 // {
 //     datetime_t t = {
@@ -59,38 +55,29 @@ void rtc_api_get_time(void)
     uint8_t count = sizeof(datetime_t);
     bool result;
     datetime = (datetime_t *)(u_int8_t *)&(xstack[XSTACK_SIZE - count]);
-    if (xstack_ptr != XSTACK_SIZE)
-        goto err_param;
     result = rtc_get_datetime(datetime);
     if (result)
         api_set_ax(0);
     else
-        goto err_param;
+        return api_return_errno_ax_zxstack(RTC_NOT_SET, -1);
     xstack_ptr = XSTACK_SIZE - count;
     api_sync_xstack();
     api_return_released();
     return;
-
-err_param:
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg_zxstack(1, -1);
 }
 
 void rtc_api_set_time(void)
 {
     datetime_t *datetime;
     bool result;
+    uint8_t count = API_A;
+    if (count != sizeof(datetime_t))
+        return api_return_errno_ax_zxstack(RTC_INVALID_DATETIME, -1);
     datetime = (datetime_t *)(u_int8_t *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    if (xstack_ptr != XSTACK_SIZE)
-        goto err_param;
     rtc_init();
     result = rtc_set_datetime(datetime);
     if (!result)
-        return api_return_errno_ax(RTC_NOT_SET, -1);
-    return api_return_ax(RTC_SET);
-
-err_param:
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg_zxstack(1, -1);
+        return api_return_errno_ax(RTC_INVALID_DATETIME, -1);
+    return api_return_ax(RTC_OK);    
 }
