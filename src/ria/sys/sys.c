@@ -8,6 +8,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "pico/stdlib.h"
 #include "hardware/watchdog.h"
 #include <stdio.h>
 #include <string.h>
@@ -46,5 +47,12 @@ void sys_mon_status(const char *args, size_t len)
 
 void sys_init(void)
 {
+    // Delay a bit to wait for VGA initial power up.
+    // Both UART Tx and Backchannel Tx characters of the
+    // statup messages can get dropped if this isn't here.
+    busy_wait_ms(10);
+    // Reset terminal.
+    puts("\30\33[0m\f");
+    // Hello, world.
     sys_print_status();
 }
