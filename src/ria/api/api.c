@@ -64,134 +64,218 @@ void api_run()
     API_RW0 = xram[API_ADDR0];
     API_STEP1 = 1;
     API_RW1 = xram[API_ADDR1];
-    xstack_ptr = XSTACK_SIZE;
-    api_return_errno_axsreg_zxstack(0, 0);
+    api_zxstack();
+    api_return_errno_axsreg(0, 0);
 }
 
-uint16_t api_sstack_uint16()
+bool api_pop_uint16_end(uint16_t *data)
 {
-
-    if (xstack_ptr == XSTACK_SIZE - 1)
+    switch (xstack_ptr)
     {
-        uint16_t val = *(uint8_t *)&xstack[xstack_ptr];
-        xstack_ptr += 1;
-        return val;
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint16_t) - 1);
+        *data >>= 8 * 1;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 2:
+        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(uint16_t) - 0);
+        *data >>= 8 * 0;
+        api_zxstack();
+        return true;
+    default:
+        return false;
     }
-    if (xstack_ptr == XSTACK_SIZE - 2)
-    {
-        uint16_t val = *(uint16_t *)&xstack[xstack_ptr];
-        xstack_ptr += 2;
-        return val;
-    }
-    return 0;
 }
 
-uint32_t api_sstack_uint32()
+bool api_pop_uint32_end(uint32_t *data)
 {
-    if (xstack_ptr == XSTACK_SIZE - 3)
+    switch (xstack_ptr)
     {
-        uint32_t val = *(uint32_t *)&xstack[xstack_ptr - 1] >> 8;
-        xstack_ptr += 3;
-        return val;
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(uint32_t) - 3);
+        *data >>= 8 * 3;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 2:
+        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(uint32_t) - 2);
+        *data >>= 8 * 2;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 3:
+        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint32_t) - 1);
+        *data >>= 8 * 1;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 4:
+        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(uint32_t) - 0);
+        *data >>= 8 * 0;
+        api_zxstack();
+        return true;
+    default:
+        return false;
     }
-    if (xstack_ptr == XSTACK_SIZE - 4)
-    {
-        uint32_t val = *(uint32_t *)&xstack[xstack_ptr];
-        xstack_ptr += 4;
-        return val;
-    }
-    return api_sstack_uint16();
 }
 
-uint64_t api_sstack_uint64()
+bool api_pop_uint64_end(uint64_t *data)
 {
-    if (xstack_ptr == XSTACK_SIZE - 5)
+    switch (xstack_ptr)
     {
-        uint64_t val = *(uint64_t *)&xstack[xstack_ptr - 3] >> 24;
-        xstack_ptr += 5;
-        return val;
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data + 7, &xstack[xstack_ptr], sizeof(uint64_t) - 7);
+        *data >>= 8 * 7;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 2:
+        memcpy((void *)data + 6, &xstack[xstack_ptr], sizeof(uint64_t) - 6);
+        *data >>= 8 * 6;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 3:
+        memcpy((void *)data + 5, &xstack[xstack_ptr], sizeof(uint64_t) - 5);
+        *data >>= 8 * 5;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 4:
+        memcpy((void *)data + 4, &xstack[xstack_ptr], sizeof(uint64_t) - 4);
+        *data >>= 8 * 4;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 5:
+        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(uint64_t) - 3);
+        *data >>= 8 * 3;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 6:
+        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(uint64_t) - 2);
+        *data >>= 8 * 2;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 7:
+        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint64_t) - 1);
+        *data >>= 8 * 1;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 8:
+        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(uint64_t) - 0);
+        *data >>= 8 * 0;
+        api_zxstack();
+        return true;
+    default:
+        return false;
     }
-    if (xstack_ptr == XSTACK_SIZE - 6)
-    {
-        uint64_t val = *(uint64_t *)&xstack[xstack_ptr - 2] >> 16;
-        xstack_ptr += 6;
-        return val;
-    }
-    if (xstack_ptr == XSTACK_SIZE - 7)
-    {
-        uint64_t val = *(uint64_t *)&xstack[xstack_ptr - 1] >> 8;
-        xstack_ptr += 7;
-        return val;
-    }
-    if (xstack_ptr == XSTACK_SIZE - 8)
-    {
-        uint64_t val = *(uint64_t *)&xstack[xstack_ptr];
-        xstack_ptr += 8;
-        return val;
-    }
-    return api_sstack_uint32();
 }
 
-int16_t api_sstack_int16()
+bool api_pop_int16_end(int16_t *data)
 {
-
-    if (xstack_ptr == XSTACK_SIZE - 1)
+    switch (xstack_ptr)
     {
-        int16_t val = *(int8_t *)&xstack[xstack_ptr];
-        xstack_ptr += 1;
-        return val;
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int16_t) - 1);
+        *data >>= 8 * 1;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 2:
+        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int16_t) - 0);
+        *data >>= 8 * 0;
+        api_zxstack();
+        return true;
+    default:
+        return false;
     }
-    if (xstack_ptr == XSTACK_SIZE - 2)
-    {
-        int16_t val = *(int16_t *)&xstack[xstack_ptr];
-        xstack_ptr += 2;
-        return val;
-    }
-    return 0;
 }
 
-int32_t api_sstack_int32()
+bool api_pop_int32_end(int32_t *data)
 {
-    if (xstack_ptr == XSTACK_SIZE - 3)
+    switch (xstack_ptr)
     {
-        int32_t val = *(int32_t *)&xstack[xstack_ptr - 1] >> 8;
-        xstack_ptr += 3;
-        return val;
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(int32_t) - 3);
+        *data >>= 8 * 3;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 2:
+        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(int32_t) - 2);
+        *data >>= 8 * 2;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 3:
+        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int32_t) - 1);
+        *data >>= 8 * 1;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 4:
+        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int32_t) - 0);
+        *data >>= 8 * 0;
+        api_zxstack();
+        return true;
+    default:
+        return false;
     }
-    if (xstack_ptr == XSTACK_SIZE - 4)
-    {
-        int32_t val = *(int32_t *)&xstack[xstack_ptr];
-        xstack_ptr += 4;
-        return val;
-    }
-    return api_sstack_int16();
 }
 
-int64_t api_sstack_int64()
+bool api_pop_int64_end(int64_t *data)
 {
-    if (xstack_ptr == XSTACK_SIZE - 5)
+    switch (xstack_ptr)
     {
-        int64_t val = *(int64_t *)&xstack[xstack_ptr - 3] >> 24;
-        xstack_ptr += 5;
-        return val;
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data + 7, &xstack[xstack_ptr], sizeof(int64_t) - 7);
+        *data >>= 8 * 7;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 2:
+        memcpy((void *)data + 6, &xstack[xstack_ptr], sizeof(int64_t) - 6);
+        *data >>= 8 * 6;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 3:
+        memcpy((void *)data + 5, &xstack[xstack_ptr], sizeof(int64_t) - 5);
+        *data >>= 8 * 5;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 4:
+        memcpy((void *)data + 4, &xstack[xstack_ptr], sizeof(int64_t) - 4);
+        *data >>= 8 * 4;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 5:
+        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(int64_t) - 3);
+        *data >>= 8 * 3;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 6:
+        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(int64_t) - 2);
+        *data >>= 8 * 2;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 7:
+        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int64_t) - 1);
+        *data >>= 8 * 1;
+        api_zxstack();
+        return true;
+    case XSTACK_SIZE - 8:
+        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int64_t) - 0);
+        *data >>= 8 * 0;
+        api_zxstack();
+        return true;
+    default:
+        return false;
     }
-    if (xstack_ptr == XSTACK_SIZE - 6)
-    {
-        int64_t val = *(int64_t *)&xstack[xstack_ptr - 2] >> 16;
-        xstack_ptr += 6;
-        return val;
-    }
-    if (xstack_ptr == XSTACK_SIZE - 7)
-    {
-        int64_t val = *(int64_t *)&xstack[xstack_ptr - 1] >> 8;
-        xstack_ptr += 7;
-        return val;
-    }
-    if (xstack_ptr == XSTACK_SIZE - 8)
-    {
-        int64_t val = *(int64_t *)&xstack[xstack_ptr];
-        xstack_ptr += 8;
-        return val;
-    }
-    return api_sstack_int32();
 }
