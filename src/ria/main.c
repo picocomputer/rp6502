@@ -43,8 +43,7 @@ static void init()
     vga_init();
     com_init();
 
-    // Hello, world.
-    puts("\30\33[0m\f");
+    // Print startup message
     sys_init();
 
     // Load config before we continue
@@ -231,11 +230,6 @@ bool main_active()
 
 int main()
 {
-    // Delay a bit to wait for VGA initial power up.
-    // Both UART Tx and Backchannel Tx characters of the
-    // statup messages can get dropped if this isn't here.
-    busy_wait_ms(10);
-
     init();
 
     // Trigger main_reclock()
