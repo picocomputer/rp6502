@@ -3,9 +3,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <time.h>
 #include "hardware/rtc.h"
 #include "pico/stdlib.h"
 #include "pico/util/datetime.h"
+
+
+// void tz_init(void)
+// {
+//     const char ENV_TZ[] = "TZ";
+//     const char LOCAL_TZ[] = "PST8PDT,M3.2.0,M11.1.0"; //"America/Los_Angeles"; // US Pacific Time
+//     setenv (ENV_TZ, LOCAL_TZ, 1);
+//     tzset ();
+// }
 
 DWORD get_fattime (void)
 {
@@ -36,32 +46,40 @@ DWORD get_fattime (void)
 
 void rtc_api_get_time(void)
 {
-    datetime_t *datetime;
-    uint8_t count = sizeof(*datetime);
-    bool result;
-    datetime = (datetime_t *)(u_int8_t *)&(xstack[XSTACK_SIZE - count]);
-    result = rtc_get_datetime(datetime);
+    datetime_t rtc_info;
+    bool result = rtc_get_datetime(&rtc_info);
     if (!result)
-        return api_return_errno_ax_zxstack(RTC_NOT_SET, -1);   
-    xstack_ptr = XSTACK_SIZE - count;
-    api_sync_xstack();
-    return api_return_ax(RTC_OK);
+        return api_return_errno_ax_zxstack(RTC_NOT_SET, -1);
+    struct tm timeinfo = {
+        .tm_year = rtc_info.year - 1900,
+        .tm_mon = rtc_info.month - 1,
+        .tm_mday = rtc_info.day,
+        .tm_hour = rtc_info.hour,
+        .tm_min = rtc_info.min,
+        .tm_sec = rtc_info.sec,
+        .tm_isdst = -1,
+    };
+
+    time_t rawtime = mktime(&timeinfo);
+    api_return_axsreg((uint32_t)rawtime);
 }
 
 void rtc_api_set_time(void)
 {
-    datetime_t *datetime;
-    bool result;
-    uint8_t count = XSTACK_SIZE - xstack_ptr;
-    if (count != sizeof(*datetime))
-        return api_return_errno_ax_zxstack(RTC_INVALID_DATETIME, -1);
-    datetime = (datetime_t *)(u_int8_t *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
     if (!rtc_running())
-    {
         rtc_init();
-    }
-    result = rtc_set_datetime(datetime);
+    time_t rawtime = (time_t)API_AXSREG;
+    struct tm timeinfo = *gmtime(&rawtime);
+    datetime_t rtc_info = {
+        .year = timeinfo.tm_year + 1900,
+        .month = timeinfo.tm_mon + 1,
+        .day = timeinfo.tm_mday,
+        .dotw = timeinfo.tm_wday,
+        .hour = timeinfo.tm_hour,
+        .min = timeinfo.tm_min,
+        .sec = timeinfo.tm_sec,
+    };
+    bool result = rtc_set_datetime(&rtc_info);
     if (!result)
         return api_return_errno_ax(RTC_INVALID_DATETIME, -1);
     return api_return_ax(RTC_OK);

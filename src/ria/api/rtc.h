@@ -10,6 +10,7 @@
 
 // Kernel events
 DWORD get_fattime (void);
+// void tz_init(void);
 
 /*
  * The API implementaiton for RTC support
