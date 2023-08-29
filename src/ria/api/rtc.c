@@ -8,23 +8,11 @@
 #include "pico/stdlib.h"
 #include "pico/util/datetime.h"
 
-
-// void tz_init(void)
-// {
-//     const char ENV_TZ[] = "TZ";
-//     const char LOCAL_TZ[] = "PST8PDT,M3.2.0,M11.1.0"; //"America/Los_Angeles"; // US Pacific Time
-//     setenv (ENV_TZ, LOCAL_TZ, 1);
-//     tzset ();
-// }
-
 DWORD get_fattime (void)
 {
     DWORD res;
     datetime_t datetime;
-    bool rtc_set;
-
-    rtc_set = rtc_get_datetime(&datetime);
-
+    bool rtc_set = rtc_get_datetime(&datetime);
     if (rtc_set)
     {
         res =  (((DWORD)datetime.year - 1980) << 25)
@@ -40,7 +28,6 @@ DWORD get_fattime (void)
                 | (DWORD)FF_NORTC_MON << 21
                 | (DWORD)FF_NORTC_MDAY << 16);
     }
-
     return res;
 }
 
@@ -49,7 +36,7 @@ void rtc_api_get_time(void)
     datetime_t rtc_info;
     bool result = rtc_get_datetime(&rtc_info);
     if (!result)
-        return api_return_errno_ax_zxstack(RTC_NOT_SET, -1);
+        return api_return_errno_axsreg(RTC_NOT_SET, -1);
     struct tm timeinfo = {
         .tm_year = rtc_info.year - 1900,
         .tm_mon = rtc_info.month - 1,
@@ -59,7 +46,6 @@ void rtc_api_get_time(void)
         .tm_sec = rtc_info.sec,
         .tm_isdst = -1,
     };
-
     time_t rawtime = mktime(&timeinfo);
     api_return_axsreg((uint32_t)rawtime);
 }
@@ -81,6 +67,6 @@ void rtc_api_set_time(void)
     };
     bool result = rtc_set_datetime(&rtc_info);
     if (!result)
-        return api_return_errno_ax(RTC_INVALID_DATETIME, -1);
+        return api_return_errno_axsreg(RTC_INVALID_DATETIME, -1);
     return api_return_ax(RTC_OK);
 }
