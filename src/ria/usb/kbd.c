@@ -7,7 +7,7 @@
 #include "main.h"
 #include "sys/cfg.h"
 #include "usb/kbd.h"
-#include "usb/kbd_en.h"
+#include "usb/kbd_us.h"
 #include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
@@ -30,8 +30,10 @@ static char kbd_key_queue[8];
 static uint8_t kbd_key_queue_in = 0;
 static uint8_t kbd_key_queue_out = 0;
 
-static DWORD const __in_flash("keycode_to_ascii")
-    KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE_EN};
+#define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
+#define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
+static DWORD const __in_flash("keycode_to_unicode")
+    KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
 
 static void kbd_queue_key_str(const char *str)
 {
