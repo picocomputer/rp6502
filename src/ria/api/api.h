@@ -107,6 +107,7 @@ static inline void api_sync_xstack()
 
 static inline void api_zxstack()
 {
+    API_STACK = 0;
     xstack_ptr = XSTACK_SIZE;
 }
 

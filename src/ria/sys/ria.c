@@ -280,8 +280,8 @@ static __attribute__((optimize("O1"))) void act_loop()
                     api_return_blocked();
                     if (data == 0x00) // zxstack()
                     {
+                        API_STACK = 0;
                         xstack_ptr = XSTACK_SIZE;
-                        API_STACK = xstack[xstack_ptr];
                         api_return_ax(0);
                     }
                     else if (data == 0xFF) // exit()
