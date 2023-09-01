@@ -64,8 +64,7 @@ void api_run()
     API_RW0 = xram[API_ADDR0];
     API_STEP1 = 1;
     API_RW1 = xram[API_ADDR1];
-    api_zxstack();
-    api_return_errno_axsreg(0, 0);
+    api_return_errno(0);
 }
 
 bool api_pop_uint16_end(uint16_t *data)

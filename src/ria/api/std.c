@@ -19,14 +19,12 @@ FIL std_fil[STD_FIL_MAX];
 #define STD_FIL_OFFS 3
 static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 
-static void *std_io_ptr;
-static uint16_t std_xaddr;
 static int32_t std_count = -1;
 
 static volatile size_t std_out_tail;
 static volatile size_t std_out_head;
 static volatile uint8_t std_out_buf[32];
-#define STD_OUT_BUF(pos) std_out_buf[(pos)&0x1F]
+#define STD_OUT_BUF(pos) std_out_buf[(pos) & 0x1F]
 
 static inline bool com_stdout_writable()
 {
@@ -80,11 +78,11 @@ void std_api_open(void)
         if (!std_fil[fd].obj.fs)
             break;
     if (fd == STD_FIL_MAX)
-        return api_return_errno_ax(FR_TOO_MANY_OPEN_FILES, -1);
+        return api_return_errno(FR_TOO_MANY_OPEN_FILES);
     FIL *fp = &std_fil[fd];
     FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
     if (fresult != FR_OK)
-        return api_return_errno_ax(fresult, -1);
+        return api_return_errno(fresult);
     return api_return_ax(fd + STD_FIL_OFFS);
 }
 
@@ -92,52 +90,25 @@ void std_api_close(void)
 {
     int fd = API_A;
     if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
-        return api_return_errno_ax(FR_INVALID_PARAMETER, -1);
+        return api_return_errno(FR_INVALID_PARAMETER);
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     FRESULT fresult = f_close(fp);
     if (fresult != FR_OK)
-        return api_return_errno_ax(fresult, -1);
+        return api_return_errno(fresult);
     return api_return_ax(0);
 }
 
-static void api_read_impl(bool is_xram)
+void std_api_read_xstack(void)
 {
-    if (std_count >= 0)
-    {
-        for (; std_count && pix_ready(); --std_count, ++std_xaddr)
-            pix_send(0, 0, xram[std_xaddr], std_xaddr);
-        if (!std_count)
-        {
-            std_count = -1;
-            api_return_released();
-        }
-        return;
-    }
     uint8_t *buf;
     uint16_t count;
-    int fd = API_A;
+    int16_t fd = API_A;
     // TODO support fd==0 as STDIN
-    if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
-        goto err_param;
-    if (is_xram)
-    {
-        if (!api_pop_uint16(&count) ||
-            !api_pop_uint16_end(&std_xaddr))
-            goto err_param;
-        buf = &xram[std_xaddr];
-        if (count > 0x7FFF)
-            count = 0x7FFF;
-        if (buf + count > xram + 0x10000)
-            goto err_param;
-    }
-    else
-    {
-        if (!api_pop_uint16_end(&count))
-            goto err_param;
-        if (count > 0x100)
-            goto err_param;
-        buf = &xstack[XSTACK_SIZE - count];
-    }
+    if (!api_pop_uint16_end(&count) ||
+        fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS ||
+        count > 0x100)
+        return api_return_errno(FR_INVALID_PARAMETER);
+    buf = &xstack[XSTACK_SIZE - count];
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
@@ -148,33 +119,53 @@ static void api_read_impl(bool is_xram)
         API_ERRNO = fresult;
         api_set_ax(-1);
     }
-    if (is_xram)
-        std_count = br;
+    if (br == count)
+        xstack_ptr = XSTACK_SIZE - count;
+    else // short reads need to be moved
+        for (UINT i = br; i;)
+            xstack[--xstack_ptr] = buf[--i];
+    api_sync_xstack();
+    api_return_released();
+}
+
+void std_api_read_xram(void)
+{
+    static uint16_t xram_addr;
+    if (std_count >= 0)
+    {
+        for (; std_count && pix_ready(); --std_count, ++xram_addr)
+            pix_send(0, 0, xram[xram_addr], xram_addr);
+        if (!std_count)
+        {
+            std_count = -1;
+            api_return_released();
+        }
+        return;
+    }
+    uint8_t *buf;
+    uint16_t count;
+    int16_t fd = API_A;
+    // TODO support fd==0 as STDIN
+    if (!api_pop_uint16(&count) ||
+        !api_pop_uint16_end(&xram_addr) ||
+        fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
+        return api_return_errno(FR_INVALID_PARAMETER);
+    buf = &xram[xram_addr];
+    if (count > 0x7FFF)
+        count = 0x7FFF;
+    if (buf + count > xram + 0x10000)
+        return api_return_errno(FR_INVALID_PARAMETER);
+    FIL *fp = &std_fil[fd - STD_FIL_OFFS];
+    UINT br;
+    FRESULT fresult = f_read(fp, buf, count, &br);
+    if (fresult == FR_OK)
+        api_set_ax(br);
     else
     {
-        if (br == count)
-            xstack_ptr = XSTACK_SIZE - count;
-        else // short reads need to be moved
-            for (UINT i = br; i;)
-                xstack[--xstack_ptr] = buf[--i];
-        api_sync_xstack();
-        api_return_released();
+        API_ERRNO = fresult;
+        api_set_ax(-1);
     }
-    return;
-
-err_param:
-    api_zxstack();
-    api_return_errno_axsreg(FR_INVALID_PARAMETER, -1);
-}
-
-void std_api_read_(void)
-{
-    api_read_impl(false);
-}
-
-void std_api_readx(void)
-{
-    api_read_impl(true);
+    std_count = br;
 }
 
 // Non-blocking write, returns bytes written.
@@ -188,6 +179,7 @@ static size_t std_out_write(char *ptr, size_t count)
 
 static void api_write_impl(bool is_xram)
 {
+    static void *std_io_ptr;
     if (std_count >= 0)
     {
         size_t bw = std_out_write(std_io_ptr, std_count);
@@ -201,20 +193,21 @@ static void api_write_impl(bool is_xram)
         return;
     }
     uint8_t *buf;
+    uint16_t xram_addr;
     uint16_t count;
     int fd = API_A;
     if (fd == STD_FIL_STDIN || fd >= STD_FIL_MAX + STD_FIL_OFFS)
-        goto err_param;
+        return api_return_errno(FR_INVALID_PARAMETER);
     if (is_xram)
     {
         if (!api_pop_uint16(&count) ||
-            !api_pop_uint16_end(&std_xaddr))
-            goto err_param;
-        buf = &xram[std_xaddr];
+            !api_pop_uint16_end(&xram_addr))
+            return api_return_errno(FR_INVALID_PARAMETER);
+        buf = &xram[xram_addr];
         if (count > 0x7FFF)
             count = 0x7FFF;
         if (buf + count > xram + 0x10000)
-            goto err_param;
+            return api_return_errno(FR_INVALID_PARAMETER);
     }
     else
     {
@@ -223,7 +216,7 @@ static void api_write_impl(bool is_xram)
         api_zxstack();
     }
     if (xstack_ptr != XSTACK_SIZE)
-        goto err_param;
+        return api_return_errno(FR_INVALID_PARAMETER);
     if (count > 0x7FFF)
         count = 0x7FFF;
     if (fd < STD_FIL_OFFS)
@@ -237,12 +230,8 @@ static void api_write_impl(bool is_xram)
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
     if (fresult != FR_OK)
-        return api_return_errno_ax(fresult, -1);
+        return api_return_errno(fresult);
     return api_return_ax(bw);
-
-err_param:
-    api_zxstack();
-    api_return_errno_axsreg(FR_INVALID_PARAMETER, -1);
 }
 
 void std_api_write_(void)
@@ -264,7 +253,7 @@ void std_api_lseek(void)
         fd >= STD_FIL_MAX + STD_FIL_OFFS ||
         !api_pop_int8(&whence) ||
         !api_pop_int64_end(&ofs))
-        goto err_param;
+        return api_return_errno(FR_INVALID_PARAMETER);
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     switch (whence)
     {
@@ -281,20 +270,16 @@ void std_api_lseek(void)
         break;
     }
     if (ofs < 0)
-        goto err_param;
+        return api_return_errno(FR_INVALID_PARAMETER);
     FRESULT fresult = f_lseek(fp, ofs);
     if (fresult != FR_OK)
-        return api_return_errno_axsreg(fresult, -1);
+        return api_return_errno(fresult);
     FSIZE_t pos = f_tell(fp);
     // Anyone seeking around a file beyond
     // this size will have to do so blind.
     if (pos > 0x7FFFFFFF)
         pos = 0x7FFFFFFF;
     return api_return_axsreg(pos);
-
-err_param:
-    api_zxstack();
-    api_return_errno_axsreg(FR_INVALID_PARAMETER, -1);
 }
 
 void std_stop(void)
