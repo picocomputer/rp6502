@@ -160,10 +160,10 @@ bool main_api(uint8_t operation)
         std_api_close();
         break;
     case 0x05:
-        std_api_read_();
+        std_api_read_xstack();
         break;
     case 0x06:
-        std_api_readx();
+        std_api_read_xram();
         break;
     case 0x08:
         std_api_write_();

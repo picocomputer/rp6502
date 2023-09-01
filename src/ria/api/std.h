@@ -17,8 +17,8 @@ void std_stop(void);
 
 void std_api_open(void);
 void std_api_close(void);
-void std_api_read_(void);
-void std_api_readx(void);
+void std_api_read_xstack(void);
+void std_api_read_xram(void);
 void std_api_write_(void);
 void std_api_writex(void);
 void std_api_lseek(void);
