@@ -70,7 +70,7 @@ void pix_api_set_xreg()
     uint16_t word;
     if (!api_pop_uint16(&byte) ||
         !api_pop_uint16_end(&word))
-        return api_return_errno(FR_INVALID_PARAMETER);
+        return api_return_errno(API_EINVAL);
     uint8_t ch = (byte >> 8) & 0xF;
     if (!dev)
         main_pix(ch, byte, word);
