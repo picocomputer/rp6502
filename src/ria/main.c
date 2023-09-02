@@ -166,10 +166,10 @@ bool main_api(uint8_t operation)
         std_api_read_xram();
         break;
     case 0x08:
-        std_api_write_();
+        std_api_write_xstack();
         break;
     case 0x09:
-        std_api_writex();
+        std_api_write_xram();
         break;
     case 0x0B:
         std_api_lseek();

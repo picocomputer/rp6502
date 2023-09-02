@@ -19,8 +19,8 @@ void std_api_open(void);
 void std_api_close(void);
 void std_api_read_xstack(void);
 void std_api_read_xram(void);
-void std_api_write_(void);
-void std_api_writex(void);
+void std_api_write_xstack(void);
+void std_api_write_xram(void);
 void std_api_lseek(void);
 
 #endif /* _STD_H_ */
