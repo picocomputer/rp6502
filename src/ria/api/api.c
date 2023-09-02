@@ -47,10 +47,7 @@ void api_task()
         uint8_t operation = API_OP;
         if (operation != 0x00 && operation != 0xFF)
             if (!main_api(operation))
-            {
-                API_ERRNO = API_ENOSYS;
-                api_return_released();
-            }
+                api_return_errno(API_ENOSYS);
     }
 }
 
