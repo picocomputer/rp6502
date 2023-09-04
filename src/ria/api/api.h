@@ -93,12 +93,12 @@ void api_run(void);
  * These will fail if the stack would not be empty after the pop.
  */
 
+bool api_pop_uint8_end(uint8_t *data);
 bool api_pop_uint16_end(uint16_t *data);
 bool api_pop_uint32_end(uint32_t *data);
-bool api_pop_uint64_end(uint64_t *data);
+bool api_pop_int8_end(int8_t *data);
 bool api_pop_int16_end(int16_t *data);
 bool api_pop_int32_end(int32_t *data);
-bool api_pop_int64_end(int64_t *data);
 
 // Safely pop n bytes off the xstack. Fails with false if will underflow.
 static inline bool api_pop_n(void *data, size_t n)
@@ -116,11 +116,9 @@ static inline bool api_pop_n(void *data, size_t n)
 static inline bool api_pop_uint8(uint8_t *data) { return api_pop_n(data, sizeof(uint8_t)); }
 static inline bool api_pop_uint16(uint16_t *data) { return api_pop_n(data, sizeof(uint16_t)); }
 static inline bool api_pop_uint32(uint32_t *data) { return api_pop_n(data, sizeof(uint32_t)); }
-static inline bool api_pop_uint64(uint64_t *data) { return api_pop_n(data, sizeof(uint64_t)); }
 static inline bool api_pop_int8(int8_t *data) { return api_pop_n(data, sizeof(int8_t)); }
 static inline bool api_pop_int16(int16_t *data) { return api_pop_n(data, sizeof(int16_t)); }
 static inline bool api_pop_int32(int32_t *data) { return api_pop_n(data, sizeof(int32_t)); }
-static inline bool api_pop_int64(int64_t *data) { return api_pop_n(data, sizeof(int64_t)); }
 
 // Safely push n bytes to the xstack. Fails with false if no room.
 static inline bool api_push_n(const void *data, size_t n)
@@ -138,11 +136,9 @@ static inline bool api_push_n(const void *data, size_t n)
 static inline bool api_push_uint8(const uint8_t *data) { return api_push_n(data, sizeof(uint8_t)); }
 static inline bool api_push_uint16(const uint16_t *data) { return api_push_n(data, sizeof(uint16_t)); }
 static inline bool api_push_uint32(const uint32_t *data) { return api_push_n(data, sizeof(uint32_t)); }
-static inline bool api_push_uint64(const uint64_t *data) { return api_push_n(data, sizeof(uint64_t)); }
 static inline bool api_push_int8(const int8_t *data) { return api_push_n(data, sizeof(int8_t)); }
 static inline bool api_push_int16(const int16_t *data) { return api_push_n(data, sizeof(int16_t)); }
 static inline bool api_push_int32(const int32_t *data) { return api_push_n(data, sizeof(int32_t)); }
-static inline bool api_push_int64(const int64_t *data) { return api_push_n(data, sizeof(int64_t)); }
 
 // Returning data on XSTACK requires the
 // read/write register to have the latest data.

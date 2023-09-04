@@ -64,6 +64,22 @@ void api_run()
     api_return_errno(0);
 }
 
+bool api_pop_uint8_end(uint8_t *data)
+{
+    switch (xstack_ptr)
+    {
+    case XSTACK_SIZE - 0:
+        *data = 0;
+        return true;
+    case XSTACK_SIZE - 1:
+        memcpy((void *)data, &xstack[xstack_ptr], sizeof(uint8_t));
+        api_zxstack();
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool api_pop_uint16_end(uint16_t *data)
 {
     switch (xstack_ptr)
@@ -118,7 +134,7 @@ bool api_pop_uint32_end(uint32_t *data)
     }
 }
 
-bool api_pop_uint64_end(uint64_t *data)
+bool api_pop_int8_end(int8_t *data)
 {
     switch (xstack_ptr)
     {
@@ -126,43 +142,7 @@ bool api_pop_uint64_end(uint64_t *data)
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data + 7, &xstack[xstack_ptr], sizeof(uint64_t) - 7);
-        *data >>= 8 * 7;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 2:
-        memcpy((void *)data + 6, &xstack[xstack_ptr], sizeof(uint64_t) - 6);
-        *data >>= 8 * 6;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 3:
-        memcpy((void *)data + 5, &xstack[xstack_ptr], sizeof(uint64_t) - 5);
-        *data >>= 8 * 5;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 4:
-        memcpy((void *)data + 4, &xstack[xstack_ptr], sizeof(uint64_t) - 4);
-        *data >>= 8 * 4;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 5:
-        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(uint64_t) - 3);
-        *data >>= 8 * 3;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 6:
-        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(uint64_t) - 2);
-        *data >>= 8 * 2;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 7:
-        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint64_t) - 1);
-        *data >>= 8 * 1;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 8:
-        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(uint64_t) - 0);
-        *data >>= 8 * 0;
+        memcpy((void *)data, &xstack[xstack_ptr], sizeof(int8_t));
         api_zxstack();
         return true;
     default:
@@ -216,58 +196,6 @@ bool api_pop_int32_end(int32_t *data)
         return true;
     case XSTACK_SIZE - 4:
         memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int32_t) - 0);
-        *data >>= 8 * 0;
-        api_zxstack();
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool api_pop_int64_end(int64_t *data)
-{
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE - 0:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        memcpy((void *)data + 7, &xstack[xstack_ptr], sizeof(int64_t) - 7);
-        *data >>= 8 * 7;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 2:
-        memcpy((void *)data + 6, &xstack[xstack_ptr], sizeof(int64_t) - 6);
-        *data >>= 8 * 6;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 3:
-        memcpy((void *)data + 5, &xstack[xstack_ptr], sizeof(int64_t) - 5);
-        *data >>= 8 * 5;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 4:
-        memcpy((void *)data + 4, &xstack[xstack_ptr], sizeof(int64_t) - 4);
-        *data >>= 8 * 4;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 5:
-        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(int64_t) - 3);
-        *data >>= 8 * 3;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 6:
-        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(int64_t) - 2);
-        *data >>= 8 * 2;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 7:
-        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int64_t) - 1);
-        *data >>= 8 * 1;
-        api_zxstack();
-        return true;
-    case XSTACK_SIZE - 8:
-        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int64_t) - 0);
         *data >>= 8 * 0;
         api_zxstack();
         return true;
