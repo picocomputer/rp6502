@@ -246,12 +246,12 @@ void std_api_write_xram(void)
 void std_api_lseek(void)
 {
     int8_t whence;
-    int64_t ofs;
+    int32_t ofs;
     int fd = API_A;
     if (fd < STD_FIL_OFFS ||
         fd >= STD_FIL_MAX + STD_FIL_OFFS ||
         !api_pop_int8(&whence) ||
-        !api_pop_int64_end(&ofs))
+        !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     switch (whence) // CC65
