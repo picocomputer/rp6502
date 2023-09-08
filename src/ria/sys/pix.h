@@ -13,12 +13,7 @@
 
 // Kernel events
 void pix_init();
-void pix_task();
-void pix_stop();
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
-
-// Config handler
-bool pix_set_vga(uint32_t disp);
 
 // API call to set an XREG.
 void pix_api_set_xreg();

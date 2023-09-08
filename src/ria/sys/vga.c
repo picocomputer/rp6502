@@ -45,6 +45,8 @@ static absolute_time_t vga_version_watchdog;
 char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
 size_t vga_version_message_length;
 
+bool vga_needs_reset;
+
 static inline void vga_pix_flush()
 {
     // It takes four cycles of PHI2 to send a PIX message.
@@ -112,6 +114,9 @@ void vga_init(void)
 
     // Disable backchannel again, for safety.
     vga_pix_backchannel_disable();
+
+    // Reset Pico VGA
+    vga_needs_reset = true;
 }
 
 void vga_reclock(uint32_t sys_clk_khz)
@@ -186,6 +191,13 @@ void vga_task(void)
         printf("?");
         vga_print_status();
     }
+
+    if (vga_needs_reset)
+    {
+        vga_needs_reset = false;
+        pix_send_blocking(PIX_VGA_DEV, 0x0, 0x00, 0);
+        pix_send_blocking(PIX_VGA_DEV, 0xF, 0x00, cfg_get_vga());
+    }
 }
 
 void vga_run(void)
@@ -194,6 +206,17 @@ void vga_run(void)
     // Attempt to restart when a 6502 program is run.
     if (vga_state == VGA_LOST_SIGNAL && !ria_active())
         vga_state = VGA_REQUEST_TEST;
+}
+
+void vga_stop()
+{
+    vga_needs_reset = true;
+}
+
+bool vga_set_vga(uint32_t disp)
+{
+    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x00, disp);
+    return true;
 }
 
 bool vga_active(void)

@@ -196,8 +196,8 @@ static const char __in_flash("helptext") hlp_text_code_page[] =
 #endif
 
 static const char __in_flash("helptext") hlp_text_vga[] =
-    "SET VGA selects the monitor type for VGA output. All resolutions are\n"
-    "supported by all monitor type. Monitor type is used to maintain square\n"
+    "SET VGA selects the display type for VGA output. All canvas resolutions are\n"
+    "supported by all display types. Display type is used to maintain square\n"
     "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
     "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
     "  0 - 640x480\n"
