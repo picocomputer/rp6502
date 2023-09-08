@@ -392,7 +392,7 @@ static bool rom_xram_writing()
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
         xram[addr] = ria_buf[addr];
-        pix_send(0, 0, ria_buf[addr], addr);
+        pix_send(PIX_XRAM_DEV, 0, ria_buf[addr], addr);
     }
     return !!rom_len;
 }

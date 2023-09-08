@@ -9,8 +9,8 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
-#include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/vga.h"
 
 // Configuration is a plain ASCII file on the LFS. e.g.
 // +V1         | Version - Must be first
@@ -18,7 +18,7 @@
 // +C0         | Caps
 // +R0         | RESB
 // +S437       | Code Page
-// +V0         | VGA monitor type
+// +D0         | VGA display type
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
@@ -28,7 +28,7 @@ static uint32_t cfg_phi2_khz;
 static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
-static uint8_t cfg_vga;
+static uint8_t cfg_vga_display;
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -66,14 +66,14 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+R%d\n"
                                "+C%d\n"
                                "+S%d\n"
-                               "+V%d\n"
+                               "+D%d\n"
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
                                cfg_reset_ms,
                                cfg_caps,
                                cfg_codepage,
-                               cfg_vga,
+                               cfg_vga_display,
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -124,8 +124,8 @@ static void cfg_load_with_boot_opt(bool boot_only)
             case 'S':
                 cfg_codepage = val;
                 break;
-            case 'V':
-                cfg_vga = val;
+            case 'D':
+                cfg_vga_display = val;
                 break;
             default:
                 break;
@@ -224,10 +224,10 @@ uint16_t cfg_get_codepage()
 bool cfg_set_vga(uint8_t disp)
 {
     bool ok = true;
-    if (disp <= 2 && cfg_vga != disp)
+    if (disp <= 2 && cfg_vga_display != disp)
     {
-        cfg_vga = disp;
-        ok = pix_set_vga(cfg_vga);
+        cfg_vga_display = disp;
+        ok = vga_set_vga(cfg_vga_display);
         if (ok)
             cfg_save_with_boot_opt(NULL);
     }
@@ -236,5 +236,5 @@ bool cfg_set_vga(uint8_t disp)
 
 uint8_t cfg_get_vga()
 {
-    return cfg_vga;
+    return cfg_vga_display;
 }

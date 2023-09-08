@@ -48,7 +48,7 @@ static uint16_t oem_find_codepage(uint16_t cp)
 uint16_t oem_set_codepage(uint16_t cp)
 {
     cp = oem_find_codepage(cp);
-    pix_send_blocking(1, 0xFu, 0x01u, cp);
+    pix_send_blocking(PIX_VGA_DEV, 0xFu, 0x01u, cp);
     return cp;
 }
 

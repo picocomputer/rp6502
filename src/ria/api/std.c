@@ -134,7 +134,7 @@ void std_api_read_xram(void)
     if (std_count >= 0)
     {
         for (; std_count && pix_ready(); --std_count, ++xram_addr)
-            pix_send(0, 0, xram[xram_addr], xram_addr);
+            pix_send(PIX_XRAM_DEV, 0, xram[xram_addr], xram_addr);
         if (!std_count)
         {
             std_count = -1;

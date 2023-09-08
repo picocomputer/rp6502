@@ -72,7 +72,6 @@ void main_task()
     tuh_task();
     cpu_task();
     ria_task();
-    pix_task();
     aud_task();
     kbd_task();
     vga_task();
@@ -104,7 +103,7 @@ static void stop()
 {
     cpu_stop(); // Must be first
     ria_stop();
-    pix_stop();
+    vga_stop();
     std_stop();
 }
 

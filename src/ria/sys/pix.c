@@ -11,31 +11,6 @@
 #include "sys.pio.h"
 #include "fatfs/ff.h"
 
-bool pix_reset_requested;
-
-void pix_task()
-{
-    if (pix_reset_requested)
-    {
-        pix_reset_requested = false;
-        uint16_t config_bits = cfg_get_vga();
-        for (uint8_t dev = 1; dev < 7; dev++)
-            pix_send_blocking(dev, 0xFu, 0xFFu, config_bits);
-    }
-}
-
-void pix_stop()
-{
-    pix_reset_requested = true;
-}
-
-bool pix_set_vga(uint32_t disp)
-{
-    (void)disp;
-    pix_reset_requested = true;
-    return true;
-}
-
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     pio_sm_set_clkdiv_int_frac(PIX_PIO, PIX_SM, clkdiv_int, clkdiv_frac);
@@ -56,7 +31,6 @@ void pix_init()
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_set_enabled(PIX_PIO, PIX_SM, true);
-    pix_reset_requested = true;
 
     // Queue a couple sync frames for safety
     pix_send(PIX_IDLE_DEV, 0, 0, 0);
@@ -65,16 +39,19 @@ void pix_init()
 
 void pix_api_set_xreg()
 {
-    unsigned dev = API_A & 0x7;
-    uint16_t byte;
-    uint16_t word;
-    if (!api_pop_uint16(&byte) ||
-        !api_pop_uint16_end(&word))
+    uint8_t device = xstack[XSTACK_SIZE - 1];
+    uint8_t channel = xstack[XSTACK_SIZE - 2];
+    uint8_t addr = xstack[XSTACK_SIZE - 3];
+    uint32_t count = (XSTACK_SIZE - xstack_ptr - 3) / 2;
+    if (!(xstack_ptr & 0x01) ||
+        count < 1 || count > XSTACK_SIZE / 2 ||
+        device > 7 || channel > 15)
         return api_return_errno(API_EINVAL);
-    uint8_t ch = (byte >> 8) & 0xF;
-    if (!dev)
-        main_pix(ch, byte, word);
-    else
-        pix_send_blocking(dev, ch, byte, word);
+    while (xstack_ptr < XSTACK_SIZE - 3)
+    {
+        uint16_t data;
+        api_pop_uint16(&data);
+        pix_send_blocking(device, channel, addr, data);
+    }
     return api_return_ax(0);
 }

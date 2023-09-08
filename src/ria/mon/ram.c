@@ -124,7 +124,7 @@ void ram_mon_address(const char *args, size_t len)
         for (size_t i = 0; i < ria_buf_len; i++)
         {
             xram[rw_addr + i] = ria_buf[i];
-            pix_send_blocking(0, 0, ria_buf[i], rw_addr + i);
+            pix_send_blocking(PIX_XRAM_DEV, 0, ria_buf[i], rw_addr + i);
         }
         return;
     }
