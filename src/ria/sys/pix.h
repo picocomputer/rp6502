@@ -12,11 +12,15 @@
 #include <stdbool.h>
 
 // Kernel events
-void pix_init();
+void pix_init(void);
+void pix_stop(void);
+void pix_task(void);
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
-// API call to set an XREG.
-void pix_api_set_xreg();
+// API to set XREGs
+void pix_ack(void);
+void pix_nak(void);
+void pix_api_set_xreg(void);
 
 #define PIX_PIO pio1
 #define PIX_SM 1
