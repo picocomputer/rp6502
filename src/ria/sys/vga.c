@@ -93,6 +93,28 @@ static void vga_read(bool timeout, size_t length)
         vga_state = VGA_NOT_FOUND;
 }
 
+static void vga_backchannel_command(uint8_t byte)
+{
+    uint8_t scalar = byte & 0xF;
+    switch (byte & 0xF0)
+    {
+    case 0x80:
+        vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+        static uint8_t vframe;
+        if (scalar < (vframe & 0xF))
+            vframe = (vframe & 0xF0) + 0x10;
+        vframe = (vframe & 0xF0) | scalar;
+        REGS(0xFFE3) = vframe;
+        break;
+    case 0x90:
+        pix_ack();
+        break;
+    case 0xA0:
+        pix_nak();
+        break;
+    }
+}
+
 void vga_init(void)
 {
     // Disable backchannel for the case where RIA reboots and VGA doesn't
@@ -160,15 +182,7 @@ void vga_task(void)
         }
 
         if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) && (byte & 0x80))
-        {
-            vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
-            static uint8_t vframe;
-            uint8_t this_frame = byte & 0x7F;
-            if (this_frame < (vframe & 0x7F))
-                vframe ^= 0x80;
-            vframe = (vframe & 0x80) | this_frame;
-            REGS(0xFFE3) = vframe;
-        }
+            vga_backchannel_command(byte);
     }
 
     if (vga_state == VGA_VERSIONING &&
@@ -195,7 +209,6 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        pix_send_blocking(PIX_VGA_DEV, 0x0, 0x00, 0);
         pix_send_blocking(PIX_VGA_DEV, 0xF, 0x00, cfg_get_vga());
     }
 }

@@ -76,6 +76,7 @@ void main_task()
     kbd_task();
     vga_task();
     std_task();
+    pix_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -103,6 +104,7 @@ static void stop()
 {
     cpu_stop(); // Must be first
     ria_stop();
+    pix_stop();
     vga_stop();
     std_stop();
 }

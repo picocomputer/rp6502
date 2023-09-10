@@ -57,6 +57,7 @@ void main_pix_cmd(uint8_t addr, uint16_t word)
     switch (addr)
     {
     case 0x00:
+        vga_terminal(true);
         vga_display(word);
         break;
     case 0x01:
@@ -67,10 +68,6 @@ void main_pix_cmd(uint8_t addr, uint16_t word)
         break;
     case 0x04:
         ria_backchan(word);
-        break;
-    case 0xFF: // TODO legacy reset, delme
-        vga_display(word);
-        vga_terminal(true);
         break;
     }
 }

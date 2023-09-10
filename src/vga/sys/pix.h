@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 
-#define PIX_XREGS_MAX 16
+#define PIX_XREGS_MAX 8
 extern volatile uint8_t pix_xregs[PIX_XREGS_MAX];
 
 void pix_init(void);

@@ -5,10 +5,11 @@
  */
 
 #include "main.h"
-#include "pix.h"
-#include "vga.h"
+#include "sys/pix.h"
+#include "sys/ria.h"
+#include "sys/vga.h"
 #include "pix.pio.h"
-#include "xram.h"
+#include "sys/xram.h"
 #include "term/font.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
@@ -150,8 +151,8 @@ void pix_task(void)
     if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
     {
         uint32_t raw = pio_sm_get(VGA_PIX_PIO, VGA_PIX_REGS_SM);
-        uint8_t ch = (raw & 0xF000000) >> 24;
-        uint8_t addr = (raw & 0xFF0000) >> 16;
+        uint8_t ch = (raw & 0x0F000000) >> 24;
+        uint8_t addr = (raw & 0x00FF0000) >> 16;
         uint16_t word = raw & 0xFFFF;
 
         if (ch == 0xF)
@@ -163,19 +164,22 @@ void pix_task(void)
                 pix_xregs[addr] = word;
             if (addr == 0)
             {
-                // TODO legacy mode, replace with vsync
-                pix_video_mode(word);
+                // TODO vga_set_canvas()
+                if (word > 4)
+                    ria_nak();
+                else
+                    ria_ack();
             }
             if (addr == 1)
             {
-                // TODO vga_set_canvas()
-            }
-            if (addr == 2)
-            {
                 // TODO vga_set_mode()
+                if (word > 5)
+                    ria_nak();
+                else
+                    ria_ack();
             }
-            if (addr == 1 || addr == 2)
-                for (int i = 3; i < PIX_XREGS_MAX; i++)
+            if (addr == 0 || addr == 1)
+                for (int i = 2; i < PIX_XREGS_MAX; i++)
                     pix_xregs[i] = 0;
         }
     }

@@ -19,5 +19,7 @@ bool ria_backchannel(void);
 bool ria_stdout_is_readable(void);
 char ria_stdout_getc(void);
 void ria_vsync(void);
+void ria_ack(void);
+void ria_nak(void);
 
 #endif /* _RIA_H_ */
