@@ -562,15 +562,12 @@ static void vga_set(void)
     // Until it does, a brute force shutdown between frames seems to work.
 
     // Stop and release resources previously held by scanvideo_setup()
-    dma_channel_abort(0);
-    if (dma_channel_is_claimed(0))
-        dma_channel_unclaim(0);
-    dma_channel_abort(1);
-    if (dma_channel_is_claimed(1))
-        dma_channel_unclaim(1);
-    dma_channel_abort(2);
-    if (dma_channel_is_claimed(2))
-        dma_channel_unclaim(2);
+    for (int i = 0; i < 3; i++)
+    {
+        dma_channel_abort(i);
+        if (dma_channel_is_claimed(i))
+            dma_channel_unclaim(i);
+    }
     pio_clear_instruction_memory(pio0);
 
     // scanvideo_timing_enable is almost able to stop itself
