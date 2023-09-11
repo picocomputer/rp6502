@@ -308,6 +308,15 @@ void vga_render_color_bar(scanvideo_scanline_buffer_t *buffer)
     *p++ = COMPOSABLE_EOL_SKIP_ALIGN;
     *p++ = 0;
     buffer->data_used = ((uint32_t *)p) - buffer->data;
+
+    buffer->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
+    buffer->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
+    buffer->data2_used = 2;
+
+    buffer->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
+    buffer->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
+    buffer->data3_used = 2;
+
     buffer->status = SCANLINE_OK;
 }
 
@@ -352,6 +361,15 @@ void vga_render_mono_haxscii(scanvideo_scanline_buffer_t *dest)
     buf[161] = COMPOSABLE_RAW_1P | 0;
     buf[162] = COMPOSABLE_EOL_SKIP_ALIGN;
     dest->data_used = 163;
+
+    dest->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
+    dest->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
+    dest->data2_used = 2;
+
+    dest->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
+    dest->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
+    dest->data3_used = 2;
+
     dest->status = SCANLINE_OK;
 }
 
@@ -400,9 +418,18 @@ static void vga_render_4bpp(struct scanvideo_scanline_buffer *dest)
     uint32_t *buf = (void *)dest->data;
     buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
     buf[1] = 317 | (buf[1] & 0xFFFF0000);
-    buf[161] = COMPOSABLE_RAW_1P | 0;
+    buf[161] = COMPOSABLE_RAW_1P | (0 << 16);
     buf[162] = COMPOSABLE_EOL_SKIP_ALIGN;
     dest->data_used = 163;
+
+    dest->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
+    dest->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
+    dest->data2_used = 2;
+
+    dest->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
+    dest->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
+    dest->data3_used = 2;
+
     dest->status = SCANLINE_OK;
 }
 
@@ -538,6 +565,12 @@ static void vga_set(void)
     dma_channel_abort(0);
     if (dma_channel_is_claimed(0))
         dma_channel_unclaim(0);
+    dma_channel_abort(1);
+    if (dma_channel_is_claimed(1))
+        dma_channel_unclaim(1);
+    dma_channel_abort(2);
+    if (dma_channel_is_claimed(2))
+        dma_channel_unclaim(2);
     pio_clear_instruction_memory(pio0);
 
     // scanvideo_timing_enable is almost able to stop itself
@@ -557,7 +590,7 @@ static void vga_set(void)
         clk = 162000000; // *3
     else if (clk == 37125000)
         clk = 148500000; // *4
-    assert(clk >= 125000000 && clk <= 166000000);
+    assert(clk >= 120000000 && clk <= 266000000);
     if (clk != clock_get_hz(clk_sys))
     {
         set_sys_clock_khz(clk / 1000, true);

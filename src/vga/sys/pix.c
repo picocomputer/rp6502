@@ -164,6 +164,16 @@ void pix_task(void)
                 pix_xregs[addr] = word;
             if (addr == 0)
             {
+                if (word == 1)
+                {
+                    vga_resolution(vga_320_240);
+                    vga_terminal(false);
+                }
+                if (word == 2)
+                {
+                    vga_resolution(vga_320_180);
+                    vga_terminal(false);
+                }
                 // TODO vga_set_canvas()
                 if (word > 4)
                     ria_nak();

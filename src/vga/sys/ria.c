@@ -31,7 +31,7 @@ static const char *version_pos = version_dev;
 static size_t ria_stdout_head;
 static size_t ria_stdout_tail;
 static uint8_t ria_stdout_buf[32];
-#define RIA_STDOUT_BUF(pos) ria_stdout_buf[(pos)&0x1F]
+#define RIA_STDOUT_BUF(pos) ria_stdout_buf[(pos) & 0x1F]
 
 void ria_init(void)
 {
@@ -121,5 +121,15 @@ void ria_vsync(void)
 {
     static uint32_t frame_no;
     if (ria_backchan_enabled)
-        pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ++frame_no | 0x80);
+        pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, (++frame_no & 0xF) | 0x80);
+}
+
+void ria_ack(void)
+{
+    pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, 0x90);
+}
+
+void ria_nak(void)
+{
+    pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, 0xA0);
 }
