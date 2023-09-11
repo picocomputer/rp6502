@@ -36,7 +36,7 @@ Create `/etc/udev/rules.d/99-pico.rules` with:
 #Picoprobe
 SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"
 ```
-Debug terminal:
+Debug terminal: (use OpenOCD 0.11)
 ```
 $ openocd -f interface/picoprobe.cfg -f target/rp2040.cfg -s tcl
 ```
