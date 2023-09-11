@@ -4,9 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ansi.h"
-#include "font.h"
-#include "term.h"
+#include "term/ansi.h"
+#include "term/color.h"
+#include "term/font.h"
+#include "term/term.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include "pico/scanvideo.h"
@@ -301,29 +302,10 @@ void term_init(void)
 {
     // become part of stdout
     stdio_set_driver_enabled(&term_stdio, true);
-    // populate color lookup table
-    uint32_t colors[] = {
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 0) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 0) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 205, 0) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 205) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 205) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 205) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(127, 127, 127) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 0) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 0) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 0) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 255) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 255) | PICO_SCANVIDEO_ALPHA_MASK,
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 255) | PICO_SCANVIDEO_ALPHA_MASK,
-    };
     for (int c = 0; c < 256; c++)
     {
-        uint32_t fgcolor = colors[c & 0x0f];
-        uint32_t bgcolor = colors[(c & 0xf0) >> 4];
+        uint32_t fgcolor = color256[c & 0x0f];
+        uint32_t bgcolor = color256[(c & 0xf0) >> 4];
         size_t pos = c * 4;
         term_color_data[pos] = bgcolor | (bgcolor << 16);
         term_color_data[pos + 1] = bgcolor | (fgcolor << 16);
