@@ -16,7 +16,10 @@
 
 #define TERM_MAX_WIDTH 80
 #define TERM_MAX_HEIGHT 32
-#define TERM_WORD_WRAP 1
+#define TERM_CSI_PARAM_MAX_LEN 16
+#define TERM_LINE_WRAP 1
+#define TERM_FG_COLOR_INDEX 7
+#define TERM_BG_COLOR_INDEX 0
 
 struct cell_state
 {
@@ -39,8 +42,10 @@ typedef struct term_state
     struct cell_state *ptr;
     absolute_time_t timer;
     int32_t blink_state;
-    ansi_state_t state;
-    int csi_param; // TODO make list
+    ansi_state_t ansi_state;
+    uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
+    char csi_separator[TERM_CSI_PARAM_MAX_LEN];
+    uint8_t csi_param_count;
 } term_state_t;
 
 static term_state_t term_console;
@@ -63,10 +68,10 @@ static void term_state_init(term_state_t *term, uint8_t width, uint8_t height)
 {
     term->width = width;
     term->height = height;
-    term->fg_color = color256[7];
-    term->bg_color = color256[0];
+    term->fg_color = color256[TERM_FG_COLOR_INDEX];
+    term->bg_color = color256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
-    term->state = ansi_state_C0;
+    term->ansi_state = ansi_state_C0;
     term_state_clear(term);
 }
 
@@ -80,45 +85,131 @@ static void term_cursor_set_inv(term_state_t *term, bool inv)
     term->blink_state = inv;
 }
 
-static void term_out_sgr(term_state_t *term, int param)
+static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
 {
-    switch (param)
+    if (idx + 2 < term->csi_param_count &&
+        term->csi_param[idx + 1] == 5)
     {
-    case -1:
-    case 0: // reset
-        term->fg_color = color256[7];
-        term->bg_color = color256[0];
-        break;
-    case 1: // bold intensity
-        for (int i = 0; i < 8; i++)
-            if (term->fg_color == color256[i])
-                term->fg_color = color256[i + 8];
-        break;
-    case 22: // normal intensity
-        for (int i = 8; i < 16; i++)
-            if (term->fg_color == color256[i])
-                term->fg_color = color256[i - 16];
-        break;
-    case 30: // foreground color
-    case 31:
-    case 32:
-    case 33:
-    case 34:
-    case 35:
-    case 36:
-    case 37:
-        term->fg_color = color256[param - 30];
-        break;
-    case 40: // background color
-    case 41:
-    case 42:
-    case 43:
-    case 44:
-    case 45:
-    case 46:
-    case 47:
-        term->bg_color = color256[param - 40];
-        break;
+        // e.g. ESC[38;5;255m - Indexed color
+        if (color)
+        {
+            uint16_t color_idx = term->csi_param[idx + 2];
+            if (color_idx < 256)
+                *color = color256[color_idx];
+        }
+    }
+    else if (idx + 4 < term->csi_param_count &&
+             term->csi_separator[idx] == ';' &&
+             term->csi_param[idx + 1] == 2)
+    {
+        // e.g. ESC[38;2;255;255;255m - RBG color
+        if (color)
+            *color = PICO_SCANVIDEO_ALPHA_MASK |
+                     PICO_SCANVIDEO_PIXEL_FROM_RGB8(
+                         term->csi_param[idx + 2],
+                         term->csi_param[idx + 3],
+                         term->csi_param[idx + 4]);
+    }
+    else if (idx + 5 < term->csi_param_count &&
+             term->csi_separator[idx] == ':' &&
+             term->csi_param[idx + 1] == 2)
+    {
+        // e.g. ESC[38:2::255:255:255:::m - RBG color (ITU)
+        if (color)
+            *color = PICO_SCANVIDEO_ALPHA_MASK |
+                     PICO_SCANVIDEO_PIXEL_FROM_RGB8(
+                         term->csi_param[idx + 3],
+                         term->csi_param[idx + 4],
+                         term->csi_param[idx + 5]);
+    }
+    else if (idx + 1 < term->csi_param_count &&
+             term->csi_param[idx + 1] == 1)
+    {
+        // e.g. ESC[38;1m - transparent
+        if (color)
+            *color = *color & ~PICO_SCANVIDEO_ALPHA_MASK;
+    }
+}
+
+static void term_out_sgr(term_state_t *term)
+{
+    if (term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
+        return;
+    for (uint8_t idx = 0; idx < term->csi_param_count; idx++)
+    {
+        uint16_t param = term->csi_param[idx];
+        switch (param)
+        {
+        case 0: // reset
+            term->fg_color = color256[TERM_FG_COLOR_INDEX];
+            term->bg_color = color256[TERM_BG_COLOR_INDEX];
+            break;
+        case 1: // bold intensity
+            for (int i = 0; i < 8; i++)
+                if (term->fg_color == color256[i])
+                    term->fg_color = color256[i + 8];
+            break;
+        case 22: // normal intensity
+            for (int i = 8; i < 16; i++)
+                if (term->fg_color == color256[i])
+                    term->fg_color = color256[i - 8];
+            break;
+        case 30: // foreground color
+        case 31:
+        case 32:
+        case 33:
+        case 34:
+        case 35:
+        case 36:
+        case 37:
+            term->fg_color = color256[param - 30];
+            break;
+        case 38:
+            sgr_color(term, idx, &term->fg_color);
+            return;
+        case 39:
+            term->fg_color = color256[TERM_FG_COLOR_INDEX];
+            break;
+        case 40: // background color
+        case 41:
+        case 42:
+        case 43:
+        case 44:
+        case 45:
+        case 46:
+        case 47:
+            term->bg_color = color256[param - 40];
+            break;
+        case 48:
+            sgr_color(term, idx, &term->bg_color);
+            return;
+        case 49:
+            term->bg_color = color256[TERM_BG_COLOR_INDEX];
+            break;
+        case 58: // Underline not supported, but eat colors
+            sgr_color(term, idx, NULL);
+            return;
+        case 90: // bright foreground color
+        case 91:
+        case 92:
+        case 93:
+        case 94:
+        case 95:
+        case 96:
+        case 97:
+            term->fg_color = color256[param - 90 + 8];
+            break;
+        case 100: // bright foreground color
+        case 101:
+        case 102:
+        case 103:
+        case 104:
+        case 105:
+        case 106:
+        case 107:
+            term->bg_color = color256[param - 100 + 8];
+            break;
+        }
     }
 }
 
@@ -136,17 +227,10 @@ static void term_out_lf(term_state_t *term)
 {
     term->ptr += term->width;
     if (term->ptr >= term->mem + term->width * term->height)
-    {
         term->ptr -= term->width * term->height;
-    }
-
     if (++term->y == term->height)
     {
         --term->y;
-        if (++term->y_offset == term->height)
-        {
-            term->y_offset = 0;
-        }
         struct cell_state *line_ptr = term->ptr - term->x;
         for (size_t x = 0; x < term->width; x++)
         {
@@ -154,6 +238,8 @@ static void term_out_lf(term_state_t *term)
             line_ptr[x].fg_color = term->fg_color;
             line_ptr[x].bg_color = term->bg_color;
         }
+        if (++term->y_offset == term->height)
+            term->y_offset = 0;
     }
 }
 
@@ -172,7 +258,7 @@ static void term_out_char(term_state_t *term, char ch)
 {
     if (term->x == term->width)
     {
-        if (TERM_WORD_WRAP)
+        if (TERM_LINE_WRAP)
         {
             term_out_cr(term);
             term_out_lf(term);
@@ -191,8 +277,13 @@ static void term_out_char(term_state_t *term, char ch)
 }
 
 // Cursor forward
-static void term_out_cuf(term_state_t *term, int cols)
+static void term_out_cuf(term_state_t *term)
 {
+    if (term->csi_param_count > 1)
+        return;
+    uint16_t cols = term->csi_param[0];
+    if (cols < 1)
+        cols = 1;
     if (cols > term->width - term->x)
         cols = term->width - term->x;
     term->ptr += cols;
@@ -200,8 +291,13 @@ static void term_out_cuf(term_state_t *term, int cols)
 }
 
 // Cursor backward
-static void term_out_cub(term_state_t *term, int cols)
+static void term_out_cub(term_state_t *term)
 {
+    if (term->csi_param_count > 1)
+        return;
+    uint16_t cols = term->csi_param[0];
+    if (cols < 1)
+        cols = 1;
     if (cols > term->x)
         cols = term->x;
     term->ptr -= cols;
@@ -209,11 +305,16 @@ static void term_out_cub(term_state_t *term, int cols)
 }
 
 // Delete characters
-static void term_out_dch(term_state_t *term, int chars)
+static void term_out_dch(term_state_t *term)
 {
-    struct cell_state *tp = term->ptr;
+    if (term->csi_param_count > 1)
+        return;
+    uint16_t chars = term->csi_param[0];
+    if (chars < 1)
+        chars = 1;
     if (chars > term->width - term->x)
         chars = term->width - term->x;
+    struct cell_state *tp = term->ptr;
     for (int i = term->x; i < term->width; i++)
     {
         if (chars + i >= term->width)
@@ -233,7 +334,10 @@ static void term_out_dch(term_state_t *term, int chars)
 static void term_out_state_C0(term_state_t *term, char ch)
 {
     if (ch == '\b')
-        term_out_cub(term, 1);
+    {
+        if (term->x > 0)
+            --term->ptr, --term->x;
+    }
     else if (ch == '\t')
         term_out_ht(term);
     else if (ch == '\n')
@@ -243,7 +347,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
     else if (ch == '\r')
         term_out_cr(term);
     else if (ch == '\33')
-        term->state = ansi_state_Fe;
+        term->ansi_state = ansi_state_Fe;
     else if (ch >= 32 && ch <= 255)
         term_out_char(term, ch);
 }
@@ -252,51 +356,53 @@ static void term_out_state_Fe(term_state_t *term, char ch)
 {
     if (ch == '[')
     {
-        term->state = ansi_state_CSI;
-        term->csi_param = -1;
+        term->ansi_state = ansi_state_CSI;
+        term->csi_param_count = 0;
+        term->csi_param[0] = 0;
     }
     else
-        term->state = ansi_state_C0;
+        term->ansi_state = ansi_state_C0;
 }
 
 static void term_out_state_CSI(term_state_t *term, char ch)
 {
+    // Silently discard overflow parameters but still count them.
     if (ch >= '0' && ch <= '9')
     {
-        if (term->csi_param < 0)
+        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
         {
-            term->csi_param = ch - '0';
-        }
-        else
-        {
-            term->csi_param *= 10;
-            term->csi_param += ch - '0';
+            term->csi_param[term->csi_param_count] *= 10;
+            term->csi_param[term->csi_param_count] += ch - '0';
         }
         return;
     }
-    if (ch == ';')
+    if (ch == ';' || ch == ':')
     {
-        // all codes with multiple parameters
-        // end up here where we assume SGR
-        term_out_sgr(term, term->csi_param);
-        term->csi_param = -1;
+        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+            term->csi_separator[term->csi_param_count] = ch;
+        if (++term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+            term->csi_param[term->csi_param_count] = 0;
         return;
     }
-    term->state = ansi_state_C0;
-    if (ch == 'm')
+    term->ansi_state = ansi_state_C0;
+    if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+        term->csi_separator[term->csi_param_count] = 0;
+    term->csi_param_count++;
+    switch (ch)
     {
-        term_out_sgr(term, term->csi_param);
-        return;
+    case 'm':
+        term_out_sgr(term);
+        break;
+    case 'C':
+        term_out_cuf(term);
+        break;
+    case 'D':
+        term_out_cub(term);
+        break;
+    case 'P':
+        term_out_dch(term);
+        break;
     }
-    // Everything below defaults to 1
-    if (term->csi_param < 0)
-        term->csi_param = -term->csi_param;
-    if (ch == 'C')
-        term_out_cuf(term, term->csi_param);
-    else if (ch == 'D')
-        term_out_cub(term, term->csi_param);
-    else if (ch == 'P')
-        term_out_dch(term, term->csi_param);
 }
 
 static void term_out_chars(const char *buf, int length)
@@ -309,9 +415,9 @@ static void term_out_chars(const char *buf, int length)
         {
             char ch = buf[i];
             if (ch == ANSI_CANCEL)
-                term->state = ansi_state_C0;
+                term->ansi_state = ansi_state_C0;
             else
-                switch (term->state)
+                switch (term->ansi_state)
                 {
                 case ansi_state_C0:
                     term_out_state_C0(term, ch);
