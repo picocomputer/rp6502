@@ -582,11 +582,11 @@ static void vga_set(void)
     // begin scanvideo setup with clock setup
     uint32_t clk = vga_mode_selected->default_timing->clock_freq;
     if (clk == 25200000)
-        clk = 126000000; // *5
+        clk = 25200000 * 8;
     else if (clk == 54000000)
-        clk = 162000000; // *3
+        clk = 54000000 * 4;
     else if (clk == 37125000)
-        clk = 148500000; // *4
+        clk = 37125000 * 5;
     assert(clk >= 120000000 && clk <= 266000000);
     if (clk != clock_get_hz(clk_sys))
     {
