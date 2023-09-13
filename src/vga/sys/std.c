@@ -9,13 +9,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define STD_IN_BUF_SIZE 32
+// IN is sourced by USB CDC
+// IN is sunk here to UART
 size_t std_in_head;
 size_t std_in_tail;
 uint8_t std_in_buf[STD_IN_BUF_SIZE];
 #define STD_IN_BUF(pos) std_in_buf[(pos) & (STD_IN_BUF_SIZE - 1)]
 
-#define STD_OUT_BUF_SIZE 32
+// OUT is sourced here from STD UART or PIX
+// OUT is sunk here to stdio and by USB CDC
 size_t std_out_tail;
 size_t std_out_head;
 uint8_t std_out_buf[STD_OUT_BUF_SIZE];

@@ -14,6 +14,10 @@
 #define STD_UART_RX 5
 #define STD_UART_INTERFACE uart1
 #define STD_UART_BAUDRATE 115200
+// STD IN Buffering is handled by 32 byte UART FIFO
+#define STD_IN_BUF_SIZE 8
+// STD OUT Buffer matches full speed USB BULK_PACKET_SIZE
+#define STD_OUT_BUF_SIZE 64
 
 void std_init(void);
 void std_reclock(void);
