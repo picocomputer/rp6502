@@ -667,3 +667,13 @@ void vga_init(void)
     vga_mode_switch_triggered = false;
     multicore_launch_core1(vga_render_loop);
 }
+
+uint16_t vga_mode_width(void)
+{
+    return vga_mode_selected->width;
+}
+
+uint16_t vga_mode_height(void)
+{
+    return vga_mode_selected->height;
+}

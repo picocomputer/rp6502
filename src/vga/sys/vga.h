@@ -35,5 +35,7 @@ void vga_task(void);
 void vga_display(vga_display_t display);
 void vga_resolution(vga_resolution_t mode);
 void vga_terminal(bool show);
+uint16_t vga_mode_width(void);
+uint16_t vga_mode_height(void);
 
 #endif /* _VGA_H_ */

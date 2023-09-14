@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "modes/modes.h"
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -21,6 +22,7 @@
 static void init(void)
 {
     std_init();
+    mode_init();
     vga_init();
     font_init();
     term_init();
@@ -50,26 +52,6 @@ void main_reclock(void)
     std_reclock();
     probe_reclock();
     ria_reclock();
-}
-
-void main_pix_cmd(uint8_t addr, uint16_t word)
-{
-    switch (addr)
-    {
-    case 0x00:
-        vga_terminal(true);
-        vga_display(word);
-        break;
-    case 0x01:
-        font_set_codepage(word);
-        break;
-    case 0x03:
-        ria_stdout_rx(word);
-        break;
-    case 0x04:
-        ria_backchan(word);
-        break;
-    }
 }
 
 void main()

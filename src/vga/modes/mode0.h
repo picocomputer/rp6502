@@ -4,11 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MAIN_H_
-#define _MAIN_H_
+#ifndef _MODE0_H_
+#define _MODE0_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
-void main_reclock(void);
-
-#endif /* _MAIN_H_ */
+#endif /* _MODE0_H_ */

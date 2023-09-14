@@ -14,7 +14,7 @@
 #include "pico/scanvideo/composable_scanline.h"
 #include <stdio.h>
 
-#define TERM_MAX_WIDTH 80
+#define TERM_STD_HEIGHT 30
 #define TERM_MAX_HEIGHT 32
 #define TERM_CSI_PARAM_MAX_LEN 16
 #define TERM_LINE_WRAP 1
@@ -38,7 +38,7 @@ typedef struct term_state
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
-    struct cell_state mem[TERM_MAX_WIDTH * TERM_MAX_HEIGHT];
+    struct cell_state *mem;
     struct cell_state *ptr;
     absolute_time_t timer;
     int32_t blink_state;
@@ -48,31 +48,42 @@ typedef struct term_state
     uint8_t csi_param_count;
 } term_state_t;
 
-static term_state_t term_console;
+static struct cell_state term40_mem[40 * TERM_MAX_HEIGHT];
+static struct cell_state term80_mem[80 * TERM_MAX_HEIGHT];
+static term_state_t term40;
+static term_state_t term80;
 
 static void term_state_clear(term_state_t *term)
 {
-    term->x = 0;
-    term->y = 0;
-    term->y_offset = 0;
-    term->ptr = term->mem;
     for (size_t i = 0; i < term->width * term->height; i++)
     {
         term->mem[i].glyph_code = ' ';
         term->mem[i].fg_color = term->fg_color;
         term->mem[i].bg_color = term->bg_color;
     }
+    term->x = 0;
+    term->y = 0;
+    term->y_offset = 0;
+    term->ptr = term->mem;
 }
 
-static void term_state_init(term_state_t *term, uint8_t width, uint8_t height)
+static void term_state_init(term_state_t *term, uint8_t width, struct cell_state *mem)
 {
     term->width = width;
-    term->height = height;
+    term->height = TERM_STD_HEIGHT;
+    term->mem = mem;
     term->fg_color = color256[TERM_FG_COLOR_INDEX];
     term->bg_color = color256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
     term->ansi_state = ansi_state_C0;
     term_state_clear(term);
+}
+
+// This is mainly for changing from 640x480 to 640x512 for SXGA
+static void term_state_set_height(term_state_t *term, uint8_t height)
+{
+    assert(height >= TERM_STD_HEIGHT && height <= TERM_MAX_HEIGHT);
+    // TODO
 }
 
 static void term_cursor_set_inv(term_state_t *term, bool inv)
@@ -226,8 +237,8 @@ static void term_out_ht(term_state_t *term)
 static void term_out_lf(term_state_t *term)
 {
     term->ptr += term->width;
-    if (term->ptr >= term->mem + term->width * term->height)
-        term->ptr -= term->width * term->height;
+    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
+        term->ptr -= term->width * TERM_MAX_HEIGHT;
     if (++term->y == term->height)
     {
         --term->y;
@@ -238,7 +249,7 @@ static void term_out_lf(term_state_t *term)
             line_ptr[x].fg_color = term->fg_color;
             line_ptr[x].bg_color = term->bg_color;
         }
-        if (++term->y_offset == term->height)
+        if (++term->y_offset == TERM_MAX_HEIGHT)
             term->y_offset = 0;
     }
 }
@@ -254,7 +265,7 @@ static void term_out_cr(term_state_t *term)
     term->x = 0;
 }
 
-static void term_out_char(term_state_t *term, char ch)
+static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->x == term->width)
     {
@@ -349,7 +360,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
     else if (ch == '\33')
         term->ansi_state = ansi_state_Fe;
     else if (ch >= 32 && ch <= 255)
-        term_out_char(term, ch);
+        term_out_glyph(term, ch);
 }
 
 static void term_out_state_Fe(term_state_t *term, char ch)
@@ -405,39 +416,45 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     }
 }
 
+static void term_out_char(term_state_t *term, char ch)
+{
+    if (ch == ANSI_CANCEL)
+        term->ansi_state = ansi_state_C0;
+    else
+        switch (term->ansi_state)
+        {
+        case ansi_state_C0:
+            term_out_state_C0(term, ch);
+            break;
+        case ansi_state_Fe:
+            term_out_state_Fe(term, ch);
+            break;
+        case ansi_state_CSI:
+            term_out_state_CSI(term, ch);
+            break;
+        }
+}
+
 static void term_out_chars(const char *buf, int length)
 {
     if (length)
     {
-        term_state_t *term = &term_console;
-        term_cursor_set_inv(term, false);
+        term_cursor_set_inv(&term40, false);
+        term_cursor_set_inv(&term80, false);
         for (int i = 0; i < length; i++)
         {
-            char ch = buf[i];
-            if (ch == ANSI_CANCEL)
-                term->ansi_state = ansi_state_C0;
-            else
-                switch (term->ansi_state)
-                {
-                case ansi_state_C0:
-                    term_out_state_C0(term, ch);
-                    break;
-                case ansi_state_Fe:
-                    term_out_state_Fe(term, ch);
-                    break;
-                case ansi_state_CSI:
-                    term_out_state_CSI(term, ch);
-                    break;
-                }
+            term_out_char(&term40, buf[i]);
+            term_out_char(&term80, buf[i]);
         }
-        term->timer = get_absolute_time();
+        term40.timer = term80.timer = get_absolute_time();
     }
 }
 
 void term_init(void)
 {
     // prepare console
-    term_state_init(&term_console, 80, 32);
+    term_state_init(&term40, 40, term40_mem);
+    term_state_init(&term80, 80, term80_mem);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = term_out_chars,
@@ -448,9 +465,8 @@ void term_init(void)
     stdio_set_driver_enabled(&term_stdio, true);
 }
 
-void term_task(void)
+static void term_blink_cursor(term_state_t *term)
 {
-    term_state_t *term = &term_console;
     absolute_time_t now = get_absolute_time();
     if (absolute_time_diff_us(now, term->timer) < 0)
     {
@@ -460,20 +476,21 @@ void term_task(void)
     }
 }
 
-__attribute__((optimize("O1"))) void
-term_render(struct scanvideo_scanline_buffer *dest, uint16_t height)
+void term_task(void)
 {
-    term_state_t *term = &term_console;
+    term_blink_cursor(&term40);
+    term_blink_cursor(&term80);
+}
+
+__attribute__((optimize("O1"))) void
+term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
+{
+    term_state_t *term = &term80;
     int line = scanvideo_scanline_number(dest->scanline_id);
-    while (height <= term->y * 16)
-    {
-        line += 16;
-        height += 16;
-    }
     const uint8_t *font_line = &font16[(line & 15) * 256];
     line = line / 16 + term->y_offset;
-    if (line >= term->height)
-        line -= term->height;
+    if (line >= TERM_MAX_HEIGHT)
+        line -= TERM_MAX_HEIGHT;
     struct cell_state *term_ptr = term->mem + term->width * line - 1;
     uint32_t *buf = dest->data;
     for (int i = 0; i < term->width; i++)
