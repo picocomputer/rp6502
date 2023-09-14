@@ -15,7 +15,7 @@
 //   16-231:  6 × 6 × 6 cube (216 colors)
 //  232-255:  grayscale from dark to light in 24 steps
 
-uint16_t color256[256] = {
+const uint16_t color256[256] = {
     PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),                                   // 0  Black
     PICO_SCANVIDEO_ALPHA_MASK | PICO_SCANVIDEO_PIXEL_FROM_RGB8(128, 0, 0),     // 1  Red
     PICO_SCANVIDEO_ALPHA_MASK | PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 128, 0),     // 2  Green

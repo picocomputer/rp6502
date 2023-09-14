@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "modes/mode1.h"
 #include "term/ansi.h"
 #include "term/color.h"
 #include "term/font.h"
@@ -21,14 +22,6 @@
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
 
-struct cell_state
-{
-    uint8_t glyph_code;
-    uint8_t attributes;
-    uint16_t fg_color;
-    uint16_t bg_color;
-};
-
 typedef struct term_state
 {
     uint8_t width;
@@ -38,8 +31,8 @@ typedef struct term_state
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
-    struct cell_state *mem;
-    struct cell_state *ptr;
+    mode1_16_data_t *mem;
+    mode1_16_data_t *ptr;
     absolute_time_t timer;
     int32_t blink_state;
     ansi_state_t ansi_state;
@@ -48,8 +41,8 @@ typedef struct term_state
     uint8_t csi_param_count;
 } term_state_t;
 
-static struct cell_state term40_mem[40 * TERM_MAX_HEIGHT];
-static struct cell_state term80_mem[80 * TERM_MAX_HEIGHT];
+static mode1_16_data_t term40_mem[40 * TERM_MAX_HEIGHT];
+static mode1_16_data_t term80_mem[80 * TERM_MAX_HEIGHT];
 static term_state_t term40;
 static term_state_t term80;
 
@@ -67,7 +60,7 @@ static void term_state_clear(term_state_t *term)
     term->ptr = term->mem;
 }
 
-static void term_state_init(term_state_t *term, uint8_t width, struct cell_state *mem)
+static void term_state_init(term_state_t *term, uint8_t width, mode1_16_data_t *mem)
 {
     term->width = width;
     term->height = TERM_STD_HEIGHT;
@@ -242,7 +235,7 @@ static void term_out_lf(term_state_t *term)
     if (++term->y == term->height)
     {
         --term->y;
-        struct cell_state *line_ptr = term->ptr - term->x;
+        mode1_16_data_t *line_ptr = term->ptr - term->x;
         for (size_t x = 0; x < term->width; x++)
         {
             line_ptr[x].glyph_code = ' ';
@@ -325,7 +318,7 @@ static void term_out_dch(term_state_t *term)
         chars = 1;
     if (chars > term->width - term->x)
         chars = term->width - term->x;
-    struct cell_state *tp = term->ptr;
+    mode1_16_data_t *tp = term->ptr;
     for (int i = term->x; i < term->width; i++)
     {
         if (chars + i >= term->width)
@@ -491,7 +484,7 @@ term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
     line = line / 16 + term->y_offset;
     if (line >= TERM_MAX_HEIGHT)
         line -= TERM_MAX_HEIGHT;
-    struct cell_state *term_ptr = term->mem + term->width * line - 1;
+    mode1_16_data_t *term_ptr = term->mem + term->width * line - 1;
     uint32_t *buf = dest->data;
     for (int i = 0; i < term->width; i++)
     {

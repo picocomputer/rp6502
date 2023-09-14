@@ -4,29 +4,43 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/mode0.h"
 #include "modes/mode1.h"
-#include "term/font.h"
 #include "sys/pix.h"
 #include "sys/vga.h"
-
-/*
+#include "sys/xram.h"
+#include "term/color.h"
+#include "term/font.h"
+#include "pico/scanvideo.h"
 
 __attribute__((optimize("O1"))) void
-term_render_mode0_640(term_state_t *term, int16_t scanline, uint32_t *data)
+term_render_mode1_256_00_8x16_640x480(mode1_config_t *config, int16_t scanline, uint32_t *data)
 {
-    // int line = scanvideo_scanline_number(dest->scanline_id);
-    const uint8_t *font_line = &font16[(scanline & 15) * 256]; // TODO
-    int line = scanline / 16 + term->y_offset;
-    if (line >= TERM_MAX_HEIGHT)
-        line -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term->mem + term->width * line - 1;
-    data--;
-    for (int i = 0; i < 80; i++, term_ptr++)
+    const uint8_t *font_line;
+    if (config->xram_font_ptr == 0xFFFF)
+        font_line = &font16[(scanline & 15) * 256];
+    else
+        font_line = &((const uint8_t *)&xram[config->xram_font_ptr])[(scanline & 15) * 256];
+
+    scanline += config->ypos_px;
+    if (scanline < 0 || scanline > config->height_chars * 16)
     {
-        uint8_t bits = font_line[term_ptr->glyph_code];
-        uint16_t fg = term_ptr->fg_color;
-        uint16_t bg = term_ptr->bg_color;
+        for (int i = 0; i < 320; i++)
+            data[i] = PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0) |
+                      PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0) << 16;
+        return;
+    }
+
+    mode1_16_data_t *cell_ptr = (mode1_16_data_t *)&xram[config->xram_data_ptr] + scanline * 640;
+
+    int start = 0; // TODO
+    int end = 0;   // TODO
+
+    data--;
+    for (int i = start; i < end; i++, cell_ptr++)
+    {
+        uint8_t bits = font_line[cell_ptr->glyph_code];
+        uint16_t fg = cell_ptr->fg_color;
+        uint16_t bg = cell_ptr->bg_color;
         switch (bits >> 4)
         {
         case 0:
@@ -163,5 +177,3 @@ term_render_mode0_640(term_state_t *term, int16_t scanline, uint32_t *data)
         }
     }
 }
-
-*/
