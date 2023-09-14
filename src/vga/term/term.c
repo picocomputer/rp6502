@@ -434,18 +434,17 @@ static void term_out_chars(const char *buf, int length)
     }
 }
 
-static stdio_driver_t term_stdio = {
-    .out_chars = term_out_chars,
-#if PICO_STDIO_ENABLE_CRLF_SUPPORT
-    .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
-#endif
-};
-
 void term_init(void)
 {
     // prepare console
     term_state_init(&term_console, 80, 32);
     // become part of stdout
+    static stdio_driver_t term_stdio = {
+        .out_chars = term_out_chars,
+#if PICO_STDIO_ENABLE_CRLF_SUPPORT
+        .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
+#endif
+    };
     stdio_set_driver_enabled(&term_stdio, true);
 }
 

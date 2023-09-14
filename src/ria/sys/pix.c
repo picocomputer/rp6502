@@ -68,32 +68,33 @@ void pix_nak(void)
     return api_return_errno(API_EINVAL);
 }
 
-void pix_task(void)
-{
-    // Check for timeout
-    if (pix_wait_for_vga_ack && absolute_time_diff_us(get_absolute_time(), pix_ack_timer) < 0)
-    {
-        if (vga_backchannel())
-        {
-            pix_wait_for_vga_ack = false;
-            pix_send_count = 0;
-            return api_return_errno(API_EIO);
-        }
-        else
-            pix_ack();
-    }
-}
-
 void pix_api_set_xreg(void)
 {
     static uint8_t pix_device;
     static uint8_t pix_channel;
     static uint8_t pix_addr;
 
-    // Send one xreg
-    if (pix_send_count || pix_wait_for_vga_ack)
+    // Check for timeout
+    if (pix_wait_for_vga_ack)
     {
-        if (!pix_wait_for_vga_ack && pix_ready())
+        if (absolute_time_diff_us(get_absolute_time(), pix_ack_timer) < 0)
+        {
+            if (vga_backchannel())
+            {
+                pix_wait_for_vga_ack = false;
+                pix_send_count = 0;
+                return api_return_errno(API_EIO);
+            }
+            else
+                pix_ack();
+        }
+        return;
+    }
+
+    // In progress, send one xreg
+    if (pix_send_count)
+    {
+        if (pix_ready())
         {
             --pix_send_count;
             uint16_t data;

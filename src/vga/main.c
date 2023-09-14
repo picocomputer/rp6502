@@ -20,12 +20,12 @@
 
 static void init(void)
 {
+    std_init();
     vga_init();
     font_init();
     term_init();
     serno_init(); // before tusb
     tusb_init();
-    std_init();
     probe_init();
     led_init();
     ria_init();
