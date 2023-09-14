@@ -76,7 +76,6 @@ void main_task()
     kbd_task();
     vga_task();
     std_task();
-    pix_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -117,6 +116,7 @@ static void reset()
     mon_reset();
     ram_reset();
     rom_reset();
+    vga_reset();
 }
 
 // Triggered once after init then after every PHI2 clock change.

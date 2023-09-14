@@ -226,6 +226,11 @@ void vga_stop()
     vga_needs_reset = true;
 }
 
+void vga_reset()
+{
+    vga_needs_reset = true;
+}
+
 bool vga_set_vga(uint32_t disp)
 {
     pix_send_blocking(PIX_VGA_DEV, 0xF, 0x00, disp);
