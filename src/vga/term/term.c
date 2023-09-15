@@ -475,162 +475,139 @@ void term_task(void)
     term_blink_cursor(&term80);
 }
 
-__attribute__((optimize("O1"))) void
-term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
+static inline void __attribute__((optimize("O1")))
+render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
 {
-    term_state_t *term = &term80;
-    int line = scanvideo_scanline_number(dest->scanline_id);
-    const uint8_t *font_line = &font16[(line & 15) * 256];
-    line = line / 16 + term->y_offset;
+    switch (bits)
+    {
+    case 0:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 1:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 2:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 3:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 4:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 5:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 6:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 7:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 8:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 9:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 10:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 11:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 12:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 13:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 14:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 15:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    }
+}
+
+void __attribute__((optimize("O1")))
+term_render_640(void *ctx_term, int16_t scanline, uint16_t *rgb)
+{
+    term_state_t *term = ctx_term;
+    const uint8_t *font_line = &font16[(scanline & 15) * 256]; // TODO
+    int line = scanline / 16 + term->y_offset;
     if (line >= TERM_MAX_HEIGHT)
         line -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term->mem + term->width * line - 1;
-    uint32_t *buf = dest->data;
-    for (int i = 0; i < term->width; i++)
+    mode1_16_data_t *term_ptr = term->mem + 80 * line;
+    for (int i = 0; i < 80; i++, term_ptr++)
     {
-        ++term_ptr;
         uint8_t bits = font_line[term_ptr->glyph_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
-
-        switch (bits >> 4)
-        {
-        case 0:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 1:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 2:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 3:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 4:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 5:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 6:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 7:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 8:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 9:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 10:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 11:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 12:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 13:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 14:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 15:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        }
-
-        switch (bits & 0xF)
-        {
-        case 0:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 1:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 2:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 3:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 4:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 5:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 6:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 7:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 8:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 9:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 10:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 11:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 12:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 13:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 14:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 15:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        }
+        render_nibble(rgb, bits >> 4, fg, bg);
+        rgb += 4;
+        render_nibble(rgb, bits & 0xF, fg, bg);
+        rgb += 4;
     }
+}
 
-    buf = (void *)dest->data;
+void __attribute__((optimize("O1")))
+term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
+{
+    term_render_640(&term80,
+                    scanvideo_scanline_number(dest->scanline_id),
+                    (void *)(dest->data + 1));
+
+    uint32_t *buf = dest->data;
     buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
     buf[1] = 637 | (buf[1] & 0xFFFF0000);
     buf[321] = COMPOSABLE_RAW_1P | (0 << 16);

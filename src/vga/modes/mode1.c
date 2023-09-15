@@ -13,7 +13,7 @@
 #include "pico/scanvideo.h"
 
 __attribute__((optimize("O1"))) void
-term_render_mode1_256_00_8x16_640x480(mode1_config_t *config, int16_t scanline, uint32_t *data)
+mode1_256_00_8x16_640x480(mode1_config_t *config, int16_t scanline, uint32_t *data)
 {
     const uint8_t *font_line;
     if (config->xram_font_ptr == 0xFFFF)
