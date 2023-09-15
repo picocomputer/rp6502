@@ -11,8 +11,10 @@
 #include "pix.pio.h"
 #include "sys/xram.h"
 #include "term/font.h"
+#include "modes/modes.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
+#include <string.h>
 #include <stdio.h>
 
 #define VGA_PIX_PIO pio1
@@ -20,7 +22,7 @@
 #define VGA_PIX_XRAM_SM 2
 #define VGA_PHI2_PIN 11
 
-volatile uint8_t pix_xregs[PIX_XREGS_MAX];
+uint16_t pix_xregs[PIX_XREGS_MAX];
 
 void pix_init(void)
 {
@@ -127,66 +129,33 @@ void pix_init(void)
         true);
 }
 
-// TODO legacy mode, delme
-static void pix_video_mode(uint16_t mode)
-{
-    switch (mode)
-    {
-    default:
-        vga_terminal(true);
-        break;
-    case 1:
-        vga_resolution(vga_320_240);
-        vga_terminal(false);
-        break;
-    case 2:
-        vga_resolution(vga_320_180);
-        vga_terminal(false);
-        break;
-    }
-}
-
-static void pix_cmd_00(uint8_t addr, uint16_t word)
+static void pix_ch0_xreg(uint8_t addr, uint16_t word)
 {
     if (addr < PIX_XREGS_MAX)
         pix_xregs[addr] = word;
     if (addr == 0)
-    {
-        if (word == 1)
-        {
-            vga_resolution(vga_320_240);
-            vga_terminal(false);
-        }
-        if (word == 2)
-        {
-            vga_resolution(vga_320_180);
-            vga_terminal(false);
-        }
-        // TODO vga_set_canvas()
-        if (word > 4)
-            ria_nak();
-        else
+        if (vga_xreg_canvas(pix_xregs))
             ria_ack();
-    }
+        else
+            ria_nak();
     if (addr == 1)
     {
-        // TODO vga_set_mode()
-        if (word > 5)
-            ria_nak();
-        else
+        if (mode_mode(pix_xregs))
             ria_ack();
+        else
+            ria_nak();
     }
     if (addr == 0 || addr == 1)
-        for (int i = 2; i < PIX_XREGS_MAX; i++)
-            pix_xregs[i] = 0;
+        memset(&pix_xregs, 0, sizeof(pix_xregs));
 }
 
-static void pix_cmd_0f(uint8_t addr, uint16_t word)
+static void pix_ch15_xreg(uint8_t addr, uint16_t word)
 {
     switch (addr)
     {
     case 0x00:
-        vga_terminal(true);
+        memset(&pix_xregs, 0, sizeof(pix_xregs));
+        vga_xreg_canvas(pix_xregs);
         vga_display(word);
         break;
     case 0x01:
@@ -211,8 +180,8 @@ void pix_task(void)
         uint16_t word = raw & 0xFFFF;
 
         if (ch == 0xF)
-            pix_cmd_0f(addr, word);
+            pix_ch15_xreg(addr, word);
         if (ch == 0x0)
-            pix_cmd_00(addr, word);
+            pix_ch0_xreg(addr, word);
     }
 }

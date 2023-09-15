@@ -24,18 +24,18 @@ typedef enum
 // Internal resolution, before scaling for display.
 typedef enum
 {
+    vga_console,
     vga_320_240,
-    vga_640_480,
     vga_320_180,
+    vga_640_480,
     vga_640_360,
-} vga_resolution_t;
+} vga_canvas_t;
 
 void vga_init(void);
 void vga_task(void);
 void vga_display(vga_display_t display);
-void vga_resolution(vga_resolution_t mode);
-void vga_terminal(bool show);
 uint16_t vga_mode_width(void);
 uint16_t vga_mode_height(void);
+bool vga_xreg_canvas(uint16_t *xregs);
 
 #endif /* _VGA_H_ */

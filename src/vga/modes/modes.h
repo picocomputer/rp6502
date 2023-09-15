@@ -7,6 +7,7 @@
 #ifndef _MODES_H_
 #define _MODES_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define SCANPROG_MAX 512
@@ -19,6 +20,7 @@ typedef struct
 
 extern scanprog_t scanprog[SCANPROG_MAX];
 
+bool mode_mode(uint16_t *xregs);
 void mode_init(void);
 
 #endif /* _MODES_H_ */
