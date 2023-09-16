@@ -9,6 +9,7 @@
 #include "term/color.h"
 #include "term/font.h"
 #include "term/term.h"
+#include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include "pico/scanvideo.h"
@@ -41,10 +42,12 @@ typedef struct term_state
     uint8_t csi_param_count;
 } term_state_t;
 
-static mode1_16_data_t term40_mem[40 * TERM_MAX_HEIGHT];
-static mode1_16_data_t term80_mem[80 * TERM_MAX_HEIGHT];
-static term_state_t term40;
-static term_state_t term80;
+static struct term_ctx
+{
+    term_state_t term40;
+    term_state_t term80;
+    int16_t scanline_begin;
+} term_ctx;
 
 static void term_state_clear(term_state_t *term)
 {
@@ -72,10 +75,9 @@ static void term_state_init(term_state_t *term, uint8_t width, mode1_16_data_t *
     term_state_clear(term);
 }
 
-// This is mainly for changing from 640x480 to 640x512 for SXGA
 static void term_state_set_height(term_state_t *term, uint8_t height)
 {
-    assert(height >= TERM_STD_HEIGHT && height <= TERM_MAX_HEIGHT);
+    assert(height >= 1 && height <= TERM_MAX_HEIGHT);
     // TODO
 }
 
@@ -432,22 +434,24 @@ static void term_out_chars(const char *buf, int length)
 {
     if (length)
     {
-        term_cursor_set_inv(&term40, false);
-        term_cursor_set_inv(&term80, false);
+        term_cursor_set_inv(&term_ctx.term40, false);
+        term_cursor_set_inv(&term_ctx.term80, false);
         for (int i = 0; i < length; i++)
         {
-            term_out_char(&term40, buf[i]);
-            term_out_char(&term80, buf[i]);
+            term_out_char(&term_ctx.term40, buf[i]);
+            term_out_char(&term_ctx.term80, buf[i]);
         }
-        term40.timer = term80.timer = get_absolute_time();
+        term_ctx.term40.timer = term_ctx.term80.timer = get_absolute_time();
     }
 }
 
 void term_init(void)
 {
     // prepare console
-    term_state_init(&term40, 40, term40_mem);
-    term_state_init(&term80, 80, term80_mem);
+    static mode1_16_data_t term40_mem[40 * TERM_MAX_HEIGHT];
+    static mode1_16_data_t term80_mem[80 * TERM_MAX_HEIGHT];
+    term_state_init(&term_ctx.term40, 40, term40_mem);
+    term_state_init(&term_ctx.term80, 80, term80_mem);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = term_out_chars,
@@ -471,8 +475,8 @@ static void term_blink_cursor(term_state_t *term)
 
 void term_task(void)
 {
-    term_blink_cursor(&term40);
-    term_blink_cursor(&term80);
+    term_blink_cursor(&term_ctx.term40);
+    term_blink_cursor(&term_ctx.term80);
 }
 
 static inline void __attribute__((optimize("O1")))
@@ -579,15 +583,38 @@ render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
     }
 }
 
-void __attribute__((optimize("O1")))
-term_render_640(void *ctx_term, int16_t scanline, uint16_t *rgb)
+static void __attribute__((optimize("O1")))
+term_render_320(void *void_term_ctx, int16_t scanline, uint16_t *rgb)
 {
-    term_state_t *term = ctx_term;
-    const uint8_t *font_line = &font16[(scanline & 15) * 256]; // TODO
-    int line = scanline / 16 + term->y_offset;
+    // struct term_ctx *term_ctx = void_term_ctx;
+    scanline -= term_ctx.scanline_begin;
+    const uint8_t *font_line = &font8[(scanline & 7) * 256];
+    int line = scanline / 8 + term_ctx.term40.y_offset;
     if (line >= TERM_MAX_HEIGHT)
         line -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term->mem + 80 * line;
+    mode1_16_data_t *term_ptr = term_ctx.term40.mem + 40 * line;
+    for (int i = 0; i < 40; i++, term_ptr++)
+    {
+        uint8_t bits = font_line[term_ptr->glyph_code];
+        uint16_t fg = term_ptr->fg_color;
+        uint16_t bg = term_ptr->bg_color;
+        render_nibble(rgb, bits >> 4, fg, bg);
+        rgb += 4;
+        render_nibble(rgb, bits & 0xF, fg, bg);
+        rgb += 4;
+    }
+}
+
+static void __attribute__((optimize("O1")))
+term_render_640(void *void_term_ctx, int16_t scanline, uint16_t *rgb)
+{
+    // struct term_ctx *term_ctx = void_term_ctx;
+    scanline -= term_ctx.scanline_begin;
+    const uint8_t *font_line = &font16[(scanline & 15) * 256];
+    int line = scanline / 16 + term_ctx.term80.y_offset;
+    if (line >= TERM_MAX_HEIGHT)
+        line -= TERM_MAX_HEIGHT;
+    mode1_16_data_t *term_ptr = term_ctx.term80.mem + 80 * line;
     for (int i = 0; i < 80; i++, term_ptr++)
     {
         uint8_t bits = font_line[term_ptr->glyph_code];
@@ -600,12 +627,12 @@ term_render_640(void *ctx_term, int16_t scanline, uint16_t *rgb)
     }
 }
 
-void __attribute__((optimize("O1")))
+void __attribute__((optimize("O1"))) // TODO delme
 term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
 {
-    term_render_640(&term80,
+    term_render_640(&term_ctx,
                     scanvideo_scanline_number(dest->scanline_id),
-                    (void *)(dest->data + 1));
+                    (uint16_t *)(dest->data + 1));
 
     uint32_t *buf = dest->data;
     buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
@@ -623,4 +650,55 @@ term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
     dest->data3_used = 2;
 
     dest->status = SCANLINE_OK;
+}
+
+bool term_mode0_setup(uint16_t *xregs)
+{
+    uint16_t plane = xregs[2];
+    int16_t scanline_begin = xregs[3];
+    int16_t scanline_end = xregs[4];
+    if (!scanline_end)
+        scanline_end = vga_height();
+    int16_t scanline_count = scanline_end - scanline_begin;
+
+    // Validate
+    if (plane >= PICO_SCANVIDEO_PLANE_COUNT ||
+        scanline_begin < 0 ||
+        scanline_end > vga_height() ||
+        scanline_count < 1)
+        return false;
+
+    // Set terminal height
+    if (vga_height() == 320)
+    {
+        if (scanline_count % 8)
+            return false;
+        term_state_set_height(&term_ctx.term40, scanline_count / 8);
+    }
+    else
+    {
+        if (scanline_count % 16)
+            return false;
+        term_state_set_height(&term_ctx.term40, scanline_count / 16);
+    }
+
+    // Remove all previous programming
+    for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
+        for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
+            if (vga_prog[i].fill320[j] == term_render_320)
+            {
+                vga_prog[i].fill320[j] = NULL;
+                vga_prog[i].fill640[j] = NULL;
+            }
+
+    // Program the new scanlines
+    term_ctx.scanline_begin = scanline_begin;
+    for (uint16_t i = scanline_begin; i < scanline_end; i++)
+    {
+        vga_prog[i].fill320[plane] = term_render_320;
+        vga_prog[i].fill640[plane] = term_render_640;
+        vga_prog[i].fill_ctx[plane] = &term_ctx;
+    }
+
+    return true;
 }

@@ -9,9 +9,6 @@
 
 #include <stdint.h>
 
-#define PIX_XREGS_MAX 8
-// extern uint8_t pix_xregs[PIX_XREGS_MAX];
-
 void pix_init(void);
 void pix_task(void);
 

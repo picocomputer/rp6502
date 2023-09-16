@@ -11,7 +11,6 @@
 #include "pix.pio.h"
 #include "sys/xram.h"
 #include "term/font.h"
-#include "modes/modes.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
 #include <string.h>
@@ -22,7 +21,48 @@
 #define VGA_PIX_XRAM_SM 2
 #define VGA_PHI2_PIN 11
 
-uint16_t pix_xregs[PIX_XREGS_MAX];
+#define PIX_CH0_XREGS_MAX 8
+
+static void pix_ch0_xreg(uint8_t addr, uint16_t word)
+{
+    static uint16_t xregs[PIX_CH0_XREGS_MAX];
+    if (addr < PIX_CH0_XREGS_MAX)
+        xregs[addr] = word;
+    if (addr == 0)
+        if (vga_xreg_canvas(xregs))
+            ria_ack();
+        else
+            ria_nak();
+    if (addr == 1)
+    {
+        if (vga_xreg_mode(xregs))
+            ria_ack();
+        else
+            ria_nak();
+    }
+    if (addr == 0 || addr == 1)
+        memset(&xregs, 0, sizeof(xregs));
+}
+
+static void pix_ch15_xreg(uint8_t addr, uint16_t word)
+{
+    switch (addr)
+    {
+    case 0x00:
+        vga_xreg_canvas(NULL);
+        vga_set_display(word);
+        break;
+    case 0x01:
+        font_set_codepage(word);
+        break;
+    case 0x03:
+        ria_stdout_rx(word);
+        break;
+    case 0x04:
+        ria_backchan(word);
+        break;
+    }
+}
 
 void pix_init(void)
 {
@@ -129,47 +169,6 @@ void pix_init(void)
         true);
 }
 
-static void pix_ch0_xreg(uint8_t addr, uint16_t word)
-{
-    if (addr < PIX_XREGS_MAX)
-        pix_xregs[addr] = word;
-    if (addr == 0)
-        if (vga_xreg_canvas(pix_xregs))
-            ria_ack();
-        else
-            ria_nak();
-    if (addr == 1)
-    {
-        if (mode_mode(pix_xregs))
-            ria_ack();
-        else
-            ria_nak();
-    }
-    if (addr == 0 || addr == 1)
-        memset(&pix_xregs, 0, sizeof(pix_xregs));
-}
-
-static void pix_ch15_xreg(uint8_t addr, uint16_t word)
-{
-    switch (addr)
-    {
-    case 0x00:
-        memset(&pix_xregs, 0, sizeof(pix_xregs));
-        vga_xreg_canvas(pix_xregs);
-        vga_display(word);
-        break;
-    case 0x01:
-        font_set_codepage(word);
-        break;
-    case 0x03:
-        ria_stdout_rx(word);
-        break;
-    case 0x04:
-        ria_backchan(word);
-        break;
-    }
-}
-
 void pix_task(void)
 {
     if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
@@ -178,10 +177,12 @@ void pix_task(void)
         uint8_t ch = (raw & 0x0F000000) >> 24;
         uint8_t addr = (raw & 0x00FF0000) >> 16;
         uint16_t word = raw & 0xFFFF;
-
-        if (ch == 0xF)
-            pix_ch15_xreg(addr, word);
-        if (ch == 0x0)
-            pix_ch0_xreg(addr, word);
+        switch (ch)
+        {
+        case 0:
+            return pix_ch0_xreg(addr, word);
+        case 15:
+            return pix_ch15_xreg(addr, word);
+        }
     }
 }

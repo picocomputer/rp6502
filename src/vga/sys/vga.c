@@ -8,7 +8,6 @@
 #include "sys/ria.h"
 #include "sys/vga.h"
 #include "sys/xram.h"
-#include "modes/modes.h"
 #include "term/term.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -17,6 +16,8 @@
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 #include <string.h>
+
+vga_prog_t vga_prog[VGA_PROG_MAX];
 
 static mutex_t vga_mutex;
 static volatile vga_display_t vga_display_current;
@@ -386,7 +387,7 @@ static void vga_render_loop(void)
     }
 }
 
-static void vga_find_mode(void)
+static void vga_scanvideo_mode(void)
 {
     if (vga_canvas_selected == vga_console)
     {
@@ -480,16 +481,70 @@ static void vga_set(void)
     vga_canvas_current = vga_canvas_selected;
 }
 
-void vga_display(vga_display_t display)
+static void vga_reset_console_prog()
 {
-    vga_display_selected = display;
-    vga_find_mode();
+    uint16_t xregs_console[] = {0, vga_console, 0, 0, 0};
+    vga_xreg_mode(xregs_console);
 }
 
-static void vga_canvas(vga_canvas_t mode)
+void vga_set_display(vga_display_t display)
 {
-    vga_canvas_selected = mode;
-    vga_find_mode();
+    vga_display_selected = display;
+    vga_scanvideo_mode();
+    if (vga_mode_switch_triggered && vga_canvas_selected == vga_console)
+        vga_reset_console_prog();
+}
+
+// Also accepts NULL for reset to vga_console
+bool vga_xreg_canvas(uint16_t *xregs)
+{
+    uint16_t canvas = xregs ? xregs[0] : 0;
+    switch (canvas)
+    {
+    case vga_console:
+    case vga_320_240:
+    case vga_320_180:
+    case vga_640_480:
+    case vga_640_360:
+        vga_canvas_selected = canvas;
+        vga_scanvideo_mode();
+        break;
+    default:
+        return false;
+    }
+    memset(&vga_prog, 0, sizeof(vga_prog));
+    if (canvas == vga_console)
+        vga_reset_console_prog();
+    return true;
+}
+
+bool vga_xreg_mode(uint16_t *xregs)
+{
+    switch (xregs[1])
+    {
+    case 0:
+        return term_mode0_setup(xregs);
+    default:
+        return false;
+    }
+}
+
+uint16_t vga_height(void)
+{
+    return vga_mode_selected->height;
+}
+
+void vga_init(void)
+{
+    // safety check for compiler alignment
+    assert(!((uintptr_t)xram & 0xFFFF));
+
+    mutex_init(&vga_mutex);
+    vga_set_display(vga_sd);
+    vga_xreg_canvas(NULL);
+    vga_set();
+    vga_mode_switch_triggered = false;
+    multicore_launch_core1(vga_render_loop);
 }
 
 void vga_task(void)
@@ -501,54 +556,5 @@ void vga_task(void)
         vga_set();
         vga_mode_switch_triggered = false;
         mutex_exit(&vga_mutex);
-    }
-}
-
-void vga_init(void)
-{
-    // safety check for compiler alignment
-    assert(!((uintptr_t)xram & 0xFFFF));
-
-    mutex_init(&vga_mutex);
-    vga_display(vga_sd);
-    vga_canvas(vga_console);
-    vga_set();
-    vga_mode_switch_triggered = false;
-    multicore_launch_core1(vga_render_loop);
-}
-
-uint16_t vga_mode_width(void)
-{
-    return vga_mode_selected->width;
-}
-
-uint16_t vga_mode_height(void)
-{
-    return vga_mode_selected->height;
-}
-
-bool vga_xreg_canvas(uint16_t *xregs)
-{
-    memset(&scanprog, 0, sizeof(scanprog));
-    switch (xregs[0])
-    {
-    case 0:
-        vga_canvas(vga_console);
-        xregs[2] = xregs[3] = xregs[4] = 0;
-        return mode_mode(xregs);
-    case 1:
-        vga_canvas(vga_320_240);
-        return true;
-    case 2:
-        vga_canvas(vga_320_180);
-        return true;
-    case 3:
-        vga_canvas(vga_640_480);
-        return true;
-    case 4:
-        vga_canvas(vga_640_360);
-        return true;
-    default:
-        return false;
     }
 }

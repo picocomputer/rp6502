@@ -5,7 +5,6 @@
  */
 
 #include "main.h"
-#include "modes/modes.h"
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -22,7 +21,6 @@
 static void init(void)
 {
     std_init();
-    mode_init();
     vga_init();
     font_init();
     term_init();

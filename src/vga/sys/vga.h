@@ -10,6 +10,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define VGA_PROG_MAX 512
+typedef struct
+{
+    void (*fill320[PICO_SCANVIDEO_PLANE_COUNT])(void *ctx, int16_t scanline, uint16_t *rgb);
+    void (*fill640[PICO_SCANVIDEO_PLANE_COUNT])(void *ctx, int16_t scanline, uint16_t *rgb);
+    void *fill_ctx[PICO_SCANVIDEO_PLANE_COUNT];
+    void (*sprite320[PICO_SCANVIDEO_PLANE_COUNT])(void *ctx, int16_t scanline, uint16_t *rgb);
+    void (*sprite640[PICO_SCANVIDEO_PLANE_COUNT])(void *ctx, int16_t scanline, uint16_t *rgb);
+    void *sprite_ctx[PICO_SCANVIDEO_PLANE_COUNT];
+} vga_prog_t;
+extern vga_prog_t vga_prog[VGA_PROG_MAX];
+
 // Display type. Choose SD for 4:3 displays,
 // HD for 16:9 displays, and SXGA for 5:4 displays.
 // Note that choosing vga_hd will only activate 720p
@@ -31,11 +43,11 @@ typedef enum
     vga_640_360,
 } vga_canvas_t;
 
+void vga_set_display(vga_display_t display);
+bool vga_xreg_canvas(uint16_t *xregs);
+bool vga_xreg_mode(uint16_t *xregs);
+uint16_t vga_height(void);
 void vga_init(void);
 void vga_task(void);
-void vga_display(vga_display_t display);
-uint16_t vga_mode_width(void);
-uint16_t vga_mode_height(void);
-bool vga_xreg_canvas(uint16_t *xregs);
 
 #endif /* _VGA_H_ */
