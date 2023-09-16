@@ -24,9 +24,9 @@ static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
 static volatile vga_canvas_t vga_canvas_current;
 static vga_canvas_t vga_canvas_selected;
-static volatile scanvideo_mode_t const *vga_mode_current;
-static scanvideo_mode_t const *vga_mode_selected;
-static volatile bool vga_mode_switch_triggered;
+static volatile scanvideo_mode_t const *vga_scanvideo_mode_current;
+static scanvideo_mode_t const *vga_scanvideo_mode_selected;
+static volatile bool vga_scanvideo_mode_switching;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
@@ -131,7 +131,7 @@ static const scanvideo_timing_t vga_timing_1280x720_60_cea = {
     .v_total = 750,
     .v_sync_polarity = 1};
 
-static const scanvideo_mode_t vga_mode_320x240 = {
+static const scanvideo_mode_t vga_scanvideo_mode_320x240 = {
     .default_timing = &vga_timing_640x480_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 320,
@@ -139,7 +139,7 @@ static const scanvideo_mode_t vga_mode_320x240 = {
     .xscale = 2,
     .yscale = 2};
 
-static const scanvideo_mode_t vga_mode_640x480 = {
+static const scanvideo_mode_t vga_scanvideo_mode_640x480 = {
     .default_timing = &vga_timing_640x480_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 640,
@@ -147,7 +147,7 @@ static const scanvideo_mode_t vga_mode_640x480 = {
     .xscale = 1,
     .yscale = 1};
 
-static const scanvideo_mode_t vga_mode_320x180 = {
+static const scanvideo_mode_t vga_scanvideo_mode_320x180 = {
     .default_timing = &vga_timing_640x480_wide_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 320,
@@ -155,7 +155,7 @@ static const scanvideo_mode_t vga_mode_320x180 = {
     .xscale = 2,
     .yscale = 2};
 
-static const scanvideo_mode_t vga_mode_640x360 = {
+static const scanvideo_mode_t vga_scanvideo_mode_640x360 = {
     .default_timing = &vga_timing_640x480_wide_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 640,
@@ -163,7 +163,7 @@ static const scanvideo_mode_t vga_mode_640x360 = {
     .xscale = 1,
     .yscale = 1};
 
-static const scanvideo_mode_t vga_mode_320x240_sxga = {
+static const scanvideo_mode_t vga_scanvideo_mode_320x240_sxga = {
     .default_timing = &vga_timing_1280x1024_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 320,
@@ -171,7 +171,7 @@ static const scanvideo_mode_t vga_mode_320x240_sxga = {
     .xscale = 2,
     .yscale = 4};
 
-static const scanvideo_mode_t vga_mode_640x480_sxga = {
+static const scanvideo_mode_t vga_scanvideo_mode_640x480_sxga = {
     .default_timing = &vga_timing_1280x1024_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 640,
@@ -179,7 +179,7 @@ static const scanvideo_mode_t vga_mode_640x480_sxga = {
     .xscale = 1,
     .yscale = 2};
 
-static const scanvideo_mode_t vga_mode_640x512_sxga = {
+static const scanvideo_mode_t vga_scanvideo_mode_640x512_sxga = {
     .default_timing = &vga_timing_1280x1024_tall_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 640,
@@ -187,7 +187,7 @@ static const scanvideo_mode_t vga_mode_640x512_sxga = {
     .xscale = 1,
     .yscale = 2};
 
-static const scanvideo_mode_t vga_mode_320x180_sxga = {
+static const scanvideo_mode_t vga_scanvideo_mode_320x180_sxga = {
     .default_timing = &vga_timing_1280x1024_wide_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 320,
@@ -195,7 +195,7 @@ static const scanvideo_mode_t vga_mode_320x180_sxga = {
     .xscale = 2,
     .yscale = 4};
 
-static const scanvideo_mode_t vga_mode_640x360_sxga = {
+static const scanvideo_mode_t vga_scanvideo_mode_640x360_sxga = {
     .default_timing = &vga_timing_1280x1024_wide_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 640,
@@ -203,7 +203,7 @@ static const scanvideo_mode_t vga_mode_640x360_sxga = {
     .xscale = 1,
     .yscale = 2};
 
-static const scanvideo_mode_t vga_mode_320x180_hd = {
+static const scanvideo_mode_t vga_scanvideo_mode_320x180_hd = {
     .default_timing = &vga_timing_1280x720_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 320,
@@ -211,7 +211,7 @@ static const scanvideo_mode_t vga_mode_320x180_hd = {
     .xscale = 2,
     .yscale = 4};
 
-static const scanvideo_mode_t vga_mode_640x360_hd = {
+static const scanvideo_mode_t vga_scanvideo_mode_640x360_hd = {
     .default_timing = &vga_timing_1280x720_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 640,
@@ -219,167 +219,86 @@ static const scanvideo_mode_t vga_mode_640x360_hd = {
     .xscale = 1,
     .yscale = 2};
 
-// Temporary scaffolding
-void vga_render_color_bar(scanvideo_scanline_buffer_t *buffer)
+static inline void __attribute__((optimize("O1")))
+vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer, vga_render_fn_t *render_fn)
 {
-    uint line_num = scanvideo_scanline_number(buffer->scanline_id);
-    int32_t color_step = 1 + (line_num * 7 / vga_mode_current->height);
-    color_step = PICO_SCANVIDEO_PIXEL_FROM_RGB5(color_step & 1u, (color_step >> 1u) & 1u, (color_step >> 2u) & 1u);
-    uint bar_width = vga_mode_current->width / 16;
-    uint16_t *p = (uint16_t *)buffer->data;
-    int32_t color = PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0);
-    for (uint bar = 0; bar < 16; bar++)
+    const uint16_t width = vga_scanvideo_mode_current->width;
+    const int16_t scanline_id = scanline_buffer->scanline_id;
+    uint32_t *const data[3] = {scanline_buffer->data, scanline_buffer->data2, scanline_buffer->data3};
+    bool filled[3] = {false, false, false};
+    uint32_t *foreground = NULL;
+    for (int16_t i = 0; i < 3; i++)
     {
-        *p++ = COMPOSABLE_COLOR_RUN;
-        *p++ = color;
-        *p++ = bar_width - 3;
-        color += color_step;
+        if (render_fn->fill[i])
+        {
+            filled[i] = render_fn->fill[i](scanline_id,
+                                           (uint16_t *)(data[i] + 1),
+                                           vga_prog->fill_ctx[scanline_id]);
+            if (filled[i])
+                foreground = data[i];
+        }
+        if (render_fn->sprite[i])
+        {
+            if (!foreground)
+            {
+                foreground = data[i];
+                memset(foreground, 0, width * 2);
+                filled[i] = true;
+            }
+            render_fn->sprite[i](scanline_id,
+                                 (uint16_t *)(foreground + 1));
+        }
     }
-    *p++ = COMPOSABLE_RAW_1P;
-    *p++ = 0;
-    *p++ = COMPOSABLE_EOL_SKIP_ALIGN;
-    *p++ = 0;
-    buffer->data_used = ((uint32_t *)p) - buffer->data;
-
-    buffer->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    buffer->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    buffer->data2_used = 2;
-
-    buffer->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    buffer->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    buffer->data3_used = 2;
-
-    buffer->status = SCANLINE_OK;
-}
-
-static void vga_render_terminal(void)
-{
-    struct scanvideo_scanline_buffer *scanline_buffer;
-    for (int i = 0; i < 480; i++)
+    for (int16_t i = 0; i < 3; i++)
     {
-        scanline_buffer = scanvideo_begin_scanline_generation(true);
-        term_render(scanline_buffer, vga_mode_current->height);
-        scanvideo_end_scanline_generation(scanline_buffer);
-    }
-}
-
-static void vga_render_4bpp(struct scanvideo_scanline_buffer *dest)
-{
-    static const uint32_t colors[] = {
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 205, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 205),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 205),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 205),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(127, 127, 127),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 255),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 255),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 255),
-    };
-    int line = scanvideo_scanline_number(dest->scanline_id);
-    uint8_t *data = xram + line * 160;
-    uint16_t *pbuf = (void *)dest->data;
-    ++pbuf;
-    for (int i = 0; i < 160;)
-    {
-        *++pbuf = colors[(*data) & 0xF];
-        *++pbuf = colors[(*data) >> 4];
-        ++data;
-        ++i;
-    }
-    uint32_t *buf = (void *)dest->data;
-    buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
-    buf[1] = 317 | (buf[1] & 0xFFFF0000);
-    buf[161] = COMPOSABLE_RAW_1P | (0 << 16);
-    buf[162] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data_used = 163;
-
-    dest->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    dest->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data2_used = 2;
-
-    dest->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    dest->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data3_used = 2;
-
-    dest->status = SCANLINE_OK;
-}
-
-static void vga_render_320_240(void)
-{
-    struct scanvideo_scanline_buffer *scanline_buffer;
-    for (int i = 0; i < 240; i++)
-    {
-        scanline_buffer = scanvideo_begin_scanline_generation(true);
-        vga_render_4bpp(scanline_buffer);
-        scanvideo_end_scanline_generation(scanline_buffer);
+        uint16_t data_used;
+        if (filled[i])
+        {
+            data[i][0] = COMPOSABLE_RAW_RUN | (data[i][1] << 16);
+            data[i][1] = width - 3 | (data[i][1] & 0xFFFF0000);
+            data[i][width / 2 + 1] = COMPOSABLE_RAW_1P | (0 << 16);
+            data[i][width / 2 + 2] = COMPOSABLE_EOL_SKIP_ALIGN;
+            data_used = 323;
+        }
+        else
+        {
+            data[i][0] = COMPOSABLE_RAW_1P | (0 << 16);
+            data[i][1] = COMPOSABLE_EOL_SKIP_ALIGN;
+            data_used = 2;
+        }
+        switch (i)
+        {
+        case 0:
+            scanline_buffer->data_used = data_used;
+            break;
+        case 1:
+            scanline_buffer->data2_used = data_used;
+            break;
+        case 2:
+            scanline_buffer->data3_used = data_used;
+            break;
+        }
     }
 }
 
-static void vga_render_640_480(void)
+static void __attribute__((optimize("O1")))
+vga_render_loop(void)
 {
-    struct scanvideo_scanline_buffer *scanline_buffer;
-    for (int i = 0; i < 480; i++)
-    {
-        scanline_buffer = scanvideo_begin_scanline_generation(true);
-        vga_render_color_bar(scanline_buffer);
-        scanvideo_end_scanline_generation(scanline_buffer);
-    }
-}
-
-static void vga_render_320_180(void)
-{
-    struct scanvideo_scanline_buffer *scanline_buffer;
-    for (int i = 0; i < 180; i++)
-    {
-        scanline_buffer = scanvideo_begin_scanline_generation(true);
-        vga_render_4bpp(scanline_buffer);
-        scanvideo_end_scanline_generation(scanline_buffer);
-    }
-}
-
-static void vga_render_640_360(void)
-{
-    struct scanvideo_scanline_buffer *scanline_buffer;
-    for (int i = 0; i < 360; i++)
-    {
-        scanline_buffer = scanvideo_begin_scanline_generation(true);
-        vga_render_color_bar(scanline_buffer);
-        scanvideo_end_scanline_generation(scanline_buffer);
-    }
-}
-
-static void vga_render_loop(void)
-{
+    assert(PICO_SCANVIDEO_PLANE_COUNT == 3);
     while (true)
     {
-        if (!vga_mode_switch_triggered)
+        if (!vga_scanvideo_mode_switching)
         {
             mutex_enter_blocking(&vga_mutex);
-            switch (vga_canvas_current)
+            vga_render_fn_t *const render_fn =
+                vga_scanvideo_mode_current->width == 320 ? &vga_prog->render_320 : &vga_prog->render_640;
+            const int16_t height = vga_scanvideo_mode_current->height;
+            for (int16_t i = 0; i < height; i++)
             {
-            case vga_console:
-                vga_render_terminal();
-                break;
-            case vga_320_240:
-                vga_render_320_240();
-                break;
-            case vga_640_480:
-                vga_render_640_480();
-                break;
-            case vga_320_180:
-                vga_render_320_180();
-                break;
-            case vga_640_360:
-                vga_render_640_360();
-                break;
+                scanvideo_scanline_buffer_t *const scanline_buffer =
+                    scanvideo_begin_scanline_generation(true);
+                vga_render_scanline(scanline_buffer, render_fn);
+                scanvideo_end_scanline_generation(scanline_buffer);
             }
             mutex_exit(&vga_mutex);
             ria_vsync();
@@ -387,53 +306,53 @@ static void vga_render_loop(void)
     }
 }
 
-static void vga_scanvideo_mode(void)
+static void vga_scanvideo_update(void)
 {
     if (vga_canvas_selected == vga_console)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_640x512_sxga;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x512_sxga;
         else
-            vga_mode_selected = &vga_mode_640x480;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x480;
     }
     else if (vga_canvas_selected == vga_320_240)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_320x240_sxga;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x240_sxga;
         else
-            vga_mode_selected = &vga_mode_320x240;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x240;
     }
     else if (vga_canvas_selected == vga_640_480)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_640x480_sxga;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x480_sxga;
         else
-            vga_mode_selected = &vga_mode_640x480;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x480;
     }
     else if (vga_canvas_selected == vga_320_180)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_320x180_sxga;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x180_sxga;
         else if (vga_display_selected == vga_hd)
-            vga_mode_selected = &vga_mode_320x180_hd;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x180_hd;
         else
-            vga_mode_selected = &vga_mode_320x180;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x180;
     }
     else if (vga_canvas_selected == vga_640_360)
     {
         if (vga_display_selected == vga_sxga)
-            vga_mode_selected = &vga_mode_640x360_sxga;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x360_sxga;
         else if (vga_display_selected == vga_hd)
-            vga_mode_selected = &vga_mode_640x360_hd;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x360_hd;
         else
-            vga_mode_selected = &vga_mode_640x360;
+            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x360;
     }
     // trigger only if change detected
-    if (vga_mode_selected != vga_mode_current)
-        vga_mode_switch_triggered = true;
+    if (vga_scanvideo_mode_selected != vga_scanvideo_mode_current)
+        vga_scanvideo_mode_switching = true;
 }
 
-static void vga_set(void)
+static void vga_scanvideo_start(void)
 {
     // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
     // Until it does, a brute force shutdown between frames seems to work.
@@ -457,13 +376,13 @@ static void vga_set(void)
             pio_sm_unclaim(pio0, sm);
 
     // begin scanvideo setup with clock setup
-    uint32_t clk = vga_mode_selected->default_timing->clock_freq;
+    uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
     if (clk == 25200000)
-        clk = 25200000 * 8;
+        clk = 25200000 * 8; // 201.6 MHz
     else if (clk == 54000000)
-        clk = 54000000 * 4;
+        clk = 54000000 * 4; // 216 MHz
     else if (clk == 37125000)
-        clk = 37125000 * 5;
+        clk = 37125000 * 5; // 185.625 MHz
     assert(clk >= 120000000 && clk <= 266000000);
     if (clk != clock_get_hz(clk_sys))
     {
@@ -472,11 +391,11 @@ static void vga_set(void)
     }
 
     // These two calls are the main scanvideo startup
-    scanvideo_setup(vga_mode_selected);
+    scanvideo_setup(vga_scanvideo_mode_selected);
     scanvideo_timing_enable(true);
 
     // Swap in the new config
-    vga_mode_current = vga_mode_selected;
+    vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
     vga_canvas_current = vga_canvas_selected;
 }
@@ -490,8 +409,8 @@ static void vga_reset_console_prog()
 void vga_set_display(vga_display_t display)
 {
     vga_display_selected = display;
-    vga_scanvideo_mode();
-    if (vga_mode_switch_triggered && vga_canvas_selected == vga_console)
+    vga_scanvideo_update();
+    if (vga_scanvideo_mode_switching && vga_canvas_selected == vga_console)
         vga_reset_console_prog();
 }
 
@@ -507,7 +426,7 @@ bool vga_xreg_canvas(uint16_t *xregs)
     case vga_640_480:
     case vga_640_360:
         vga_canvas_selected = canvas;
-        vga_scanvideo_mode();
+        vga_scanvideo_update();
         break;
     default:
         return false;
@@ -531,7 +450,7 @@ bool vga_xreg_mode(uint16_t *xregs)
 
 uint16_t vga_height(void)
 {
-    return vga_mode_selected->height;
+    return vga_scanvideo_mode_selected->height;
 }
 
 void vga_init(void)
@@ -542,19 +461,19 @@ void vga_init(void)
     mutex_init(&vga_mutex);
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
-    vga_set();
-    vga_mode_switch_triggered = false;
+    vga_scanvideo_start();
+    vga_scanvideo_mode_switching = false;
     multicore_launch_core1(vga_render_loop);
 }
 
 void vga_task(void)
 {
-    if (vga_mode_switch_triggered)
+    if (vga_scanvideo_mode_switching)
     {
         if (!mutex_try_enter(&vga_mutex, 0))
             return;
-        vga_set();
-        vga_mode_switch_triggered = false;
+        vga_scanvideo_start();
+        vga_scanvideo_mode_switching = false;
         mutex_exit(&vga_mutex);
     }
 }

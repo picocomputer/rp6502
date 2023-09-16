@@ -42,12 +42,9 @@ typedef struct term_state
     uint8_t csi_param_count;
 } term_state_t;
 
-static struct term_ctx
-{
-    term_state_t term40;
-    term_state_t term80;
-    int16_t scanline_begin;
-} term_ctx;
+static term_state_t term_40;
+static term_state_t term_80;
+static int16_t term_scanline_begin;
 
 static void term_state_clear(term_state_t *term)
 {
@@ -434,14 +431,14 @@ static void term_out_chars(const char *buf, int length)
 {
     if (length)
     {
-        term_cursor_set_inv(&term_ctx.term40, false);
-        term_cursor_set_inv(&term_ctx.term80, false);
+        term_cursor_set_inv(&term_40, false);
+        term_cursor_set_inv(&term_80, false);
         for (int i = 0; i < length; i++)
         {
-            term_out_char(&term_ctx.term40, buf[i]);
-            term_out_char(&term_ctx.term80, buf[i]);
+            term_out_char(&term_40, buf[i]);
+            term_out_char(&term_80, buf[i]);
         }
-        term_ctx.term40.timer = term_ctx.term80.timer = get_absolute_time();
+        term_40.timer = term_80.timer = get_absolute_time();
     }
 }
 
@@ -450,8 +447,8 @@ void term_init(void)
     // prepare console
     static mode1_16_data_t term40_mem[40 * TERM_MAX_HEIGHT];
     static mode1_16_data_t term80_mem[80 * TERM_MAX_HEIGHT];
-    term_state_init(&term_ctx.term40, 40, term40_mem);
-    term_state_init(&term_ctx.term80, 80, term80_mem);
+    term_state_init(&term_40, 40, term40_mem);
+    term_state_init(&term_80, 80, term80_mem);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = term_out_chars,
@@ -475,8 +472,8 @@ static void term_blink_cursor(term_state_t *term)
 
 void term_task(void)
 {
-    term_blink_cursor(&term_ctx.term40);
-    term_blink_cursor(&term_ctx.term80);
+    term_blink_cursor(&term_40);
+    term_blink_cursor(&term_80);
 }
 
 static inline void __attribute__((optimize("O1")))
@@ -583,16 +580,15 @@ render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
     }
 }
 
-static void __attribute__((optimize("O1")))
-term_render_320(void *void_term_ctx, int16_t scanline, uint16_t *rgb)
+static bool __attribute__((optimize("O1")))
+term_render_320(int16_t scanline_id, uint16_t *rgb, void *null)
 {
-    // struct term_ctx *term_ctx = void_term_ctx;
-    scanline -= term_ctx.scanline_begin;
-    const uint8_t *font_line = &font8[(scanline & 7) * 256];
-    int line = scanline / 8 + term_ctx.term40.y_offset;
-    if (line >= TERM_MAX_HEIGHT)
-        line -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term_ctx.term40.mem + 40 * line;
+    scanline_id -= term_scanline_begin;
+    const uint8_t *font_line = &font8[(scanline_id & 7) * 256];
+    int mem_y = scanline_id / 8 + term_40.y_offset;
+    if (mem_y >= TERM_MAX_HEIGHT)
+        mem_y -= TERM_MAX_HEIGHT;
+    mode1_16_data_t *term_ptr = term_40.mem + 40 * mem_y;
     for (int i = 0; i < 40; i++, term_ptr++)
     {
         uint8_t bits = font_line[term_ptr->glyph_code];
@@ -603,18 +599,18 @@ term_render_320(void *void_term_ctx, int16_t scanline, uint16_t *rgb)
         render_nibble(rgb, bits & 0xF, fg, bg);
         rgb += 4;
     }
+    return true;
 }
 
-static void __attribute__((optimize("O1")))
-term_render_640(void *void_term_ctx, int16_t scanline, uint16_t *rgb)
+static bool __attribute__((optimize("O1")))
+term_render_640(int16_t scanline_id, uint16_t *rgb, void *null)
 {
-    // struct term_ctx *term_ctx = void_term_ctx;
-    scanline -= term_ctx.scanline_begin;
-    const uint8_t *font_line = &font16[(scanline & 15) * 256];
-    int line = scanline / 16 + term_ctx.term80.y_offset;
-    if (line >= TERM_MAX_HEIGHT)
-        line -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term_ctx.term80.mem + 80 * line;
+    scanline_id -= term_scanline_begin;
+    const uint8_t *font_line = &font16[(scanline_id & 15) * 256];
+    int mem_y = scanline_id / 16 + term_80.y_offset;
+    if (mem_y >= TERM_MAX_HEIGHT)
+        mem_y -= TERM_MAX_HEIGHT;
+    mode1_16_data_t *term_ptr = term_80.mem + 80 * mem_y;
     for (int i = 0; i < 80; i++, term_ptr++)
     {
         uint8_t bits = font_line[term_ptr->glyph_code];
@@ -625,31 +621,7 @@ term_render_640(void *void_term_ctx, int16_t scanline, uint16_t *rgb)
         render_nibble(rgb, bits & 0xF, fg, bg);
         rgb += 4;
     }
-}
-
-void __attribute__((optimize("O1"))) // TODO delme
-term_render(struct scanvideo_scanline_buffer *dest, uint16_t unused)
-{
-    term_render_640(&term_ctx,
-                    scanvideo_scanline_number(dest->scanline_id),
-                    (uint16_t *)(dest->data + 1));
-
-    uint32_t *buf = dest->data;
-    buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
-    buf[1] = 637 | (buf[1] & 0xFFFF0000);
-    buf[321] = COMPOSABLE_RAW_1P | (0 << 16);
-    buf[322] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data_used = 323;
-
-    dest->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    dest->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data2_used = 2;
-
-    dest->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    dest->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data3_used = 2;
-
-    dest->status = SCANLINE_OK;
+    return true;
 }
 
 bool term_mode0_setup(uint16_t *xregs)
@@ -673,31 +645,31 @@ bool term_mode0_setup(uint16_t *xregs)
     {
         if (scanline_count % 8)
             return false;
-        term_state_set_height(&term_ctx.term40, scanline_count / 8);
+        term_state_set_height(&term_40, scanline_count / 8);
     }
     else
     {
         if (scanline_count % 16)
             return false;
-        term_state_set_height(&term_ctx.term40, scanline_count / 16);
+        term_state_set_height(&term_80, scanline_count / 16);
     }
 
     // Remove all previous programming
     for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
         for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
-            if (vga_prog[i].fill320[j] == term_render_320)
+
+            if (vga_prog[i].render_320.fill[j] == term_render_320)
             {
-                vga_prog[i].fill320[j] = NULL;
-                vga_prog[i].fill640[j] = NULL;
+                vga_prog[i].render_320.fill[j] = NULL;
+                vga_prog[i].render_640.fill[j] = NULL;
             }
 
     // Program the new scanlines
-    term_ctx.scanline_begin = scanline_begin;
+    term_scanline_begin = scanline_begin;
     for (uint16_t i = scanline_begin; i < scanline_end; i++)
     {
-        vga_prog[i].fill320[plane] = term_render_320;
-        vga_prog[i].fill640[plane] = term_render_640;
-        vga_prog[i].fill_ctx[plane] = &term_ctx;
+        vga_prog[i].render_320.fill[plane] = term_render_320;
+        vga_prog[i].render_640.fill[plane] = term_render_640;
     }
 
     return true;
