@@ -7,8 +7,6 @@
 #ifndef _PIX_H_
 #define _PIX_H_
 
-#include <stdint.h>
-
 void pix_init(void);
 void pix_task(void);
 

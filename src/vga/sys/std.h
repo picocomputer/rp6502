@@ -28,10 +28,8 @@ void std_set_break(bool en);
 
 size_t std_in_free(void);
 bool std_in_empty(void);
-bool std_in_writable(void);
 void std_in_write(char ch);
 
-size_t std_out_free(void);
 bool std_out_empty(void);
 bool std_out_writable(void);
 void std_out_write(char ch);

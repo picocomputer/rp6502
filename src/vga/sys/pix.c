@@ -7,6 +7,7 @@
 #include "main.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/std.h"
 #include "sys/vga.h"
 #include "pix.pio.h"
 #include "sys/xram.h"
@@ -14,7 +15,6 @@
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
 #include <string.h>
-#include <stdio.h>
 
 #define VGA_PIX_PIO pio1
 #define VGA_PIX_REGS_SM 1
@@ -56,7 +56,8 @@ static void pix_ch15_xreg(uint8_t addr, uint16_t word)
         font_set_codepage(word);
         break;
     case 0x03:
-        ria_stdout_rx(word);
+        if (std_out_writable())
+            std_out_write(word);
         break;
     case 0x04:
         ria_backchan(word);
