@@ -14,7 +14,6 @@ struct scanvideo_scanline_buffer;
 
 void term_init(void);
 void term_task(void);
-void term_render(struct scanvideo_scanline_buffer *dest, uint16_t height);
 bool term_mode0_setup(uint16_t *xregs);
 
 #endif /* _TERM_H_ */

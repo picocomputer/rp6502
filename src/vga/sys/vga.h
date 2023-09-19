@@ -13,14 +13,17 @@
 #define VGA_PROG_MAX 512
 typedef struct
 {
-    bool (*fill[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline_id, uint16_t *rgb, void *ctx);
-    void (*sprite[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline_id, uint16_t *rgb);
-} vga_render_fn_t;
-typedef struct
-{
-    vga_render_fn_t render_320;
-    vga_render_fn_t render_640;
+    bool (*fill[PICO_SCANVIDEO_PLANE_COUNT])(int16_t plane_id,
+                                             int16_t scanline_id,
+                                             int16_t width,
+                                             uint16_t *rgb,
+                                             void *ctx);
     void *fill_ctx[PICO_SCANVIDEO_PLANE_COUNT];
+
+    void (*sprite[PICO_SCANVIDEO_PLANE_COUNT])(int16_t plane_id,
+                                               int16_t scanline_id,
+                                               int16_t width,
+                                               uint16_t *rgb);
 } vga_prog_t;
 extern vga_prog_t vga_prog[VGA_PROG_MAX];
 

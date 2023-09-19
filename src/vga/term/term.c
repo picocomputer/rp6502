@@ -580,8 +580,8 @@ render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
     }
 }
 
-static bool __attribute__((optimize("O1")))
-term_render_320(int16_t scanline_id, uint16_t *rgb, void *null)
+static inline bool __attribute__((optimize("O1")))
+term_render_320(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
     const uint8_t *font_line = &font8[(scanline_id & 7) * 256];
@@ -602,8 +602,8 @@ term_render_320(int16_t scanline_id, uint16_t *rgb, void *null)
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
-term_render_640(int16_t scanline_id, uint16_t *rgb, void *null)
+static inline bool __attribute__((optimize("O1")))
+term_render_640(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
     const uint8_t *font_line = &font16[(scanline_id & 15) * 256];
@@ -622,6 +622,15 @@ term_render_640(int16_t scanline_id, uint16_t *rgb, void *null)
         rgb += 4;
     }
     return true;
+}
+
+static bool __attribute__((optimize("O1")))
+term_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, void *null)
+{
+    if (width == 320)
+        return term_render_320(scanline_id, rgb);
+    else
+        return term_render_640(scanline_id, rgb);
 }
 
 bool term_mode0_setup(uint16_t *xregs)
@@ -657,20 +666,13 @@ bool term_mode0_setup(uint16_t *xregs)
     // Remove all previous programming
     for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
         for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
-
-            if (vga_prog[i].render_320.fill[j] == term_render_320)
-            {
-                vga_prog[i].render_320.fill[j] = NULL;
-                vga_prog[i].render_640.fill[j] = NULL;
-            }
+            if (vga_prog[i].fill[j] == term_render)
+                vga_prog[i].fill[j] = NULL;
 
     // Program the new scanlines
     term_scanline_begin = scanline_begin;
     for (uint16_t i = scanline_begin; i < scanline_end; i++)
-    {
-        vga_prog[i].render_320.fill[plane] = term_render_320;
-        vga_prog[i].render_640.fill[plane] = term_render_640;
-    }
+        vga_prog[i].fill[plane] = term_render;
 
     return true;
 }

@@ -220,24 +220,26 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x360_hd = {
     .yscale = 2};
 
 static inline void __attribute__((optimize("O1")))
-vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer, vga_render_fn_t *render_fn)
+vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
 {
     const uint16_t width = vga_scanvideo_mode_current->width;
     const int16_t scanline_id = scanline_buffer->scanline_id;
     uint32_t *const data[3] = {scanline_buffer->data, scanline_buffer->data2, scanline_buffer->data3};
     bool filled[3] = {false, false, false};
     uint32_t *foreground = NULL;
+    vga_prog_t prog = vga_prog[scanline_id];
     for (int16_t i = 0; i < 3; i++)
     {
-        if (render_fn->fill[i])
+        if (prog.fill[i])
         {
-            filled[i] = render_fn->fill[i](scanline_id,
-                                           (uint16_t *)(data[i] + 1),
-                                           vga_prog->fill_ctx[scanline_id]);
+            filled[i] = prog.fill[i](i, scanline_id,
+                                     vga_scanvideo_mode_current->width,
+                                     (uint16_t *)(data[i] + 1),
+                                     vga_prog->fill_ctx[scanline_id]);
             if (filled[i])
                 foreground = data[i];
         }
-        if (render_fn->sprite[i])
+        if (prog.sprite[i])
         {
             if (!foreground)
             {
@@ -245,8 +247,9 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer, vga_render_fn_
                 memset(foreground, 0, width * 2);
                 filled[i] = true;
             }
-            render_fn->sprite[i](scanline_id,
-                                 (uint16_t *)(foreground + 1));
+            prog.sprite[i](i, scanline_id,
+                           vga_scanvideo_mode_current->width,
+                           (uint16_t *)(foreground + 1));
         }
     }
     for (int16_t i = 0; i < 3; i++)
@@ -258,7 +261,7 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer, vga_render_fn_
             data[i][1] = width - 3 | (data[i][1] & 0xFFFF0000);
             data[i][width / 2 + 1] = COMPOSABLE_RAW_1P | (0 << 16);
             data[i][width / 2 + 2] = COMPOSABLE_EOL_SKIP_ALIGN;
-            data_used = 323;
+            data_used = width / 2 + 3;
         }
         else
         {
@@ -290,14 +293,12 @@ vga_render_loop(void)
         if (!vga_scanvideo_mode_switching)
         {
             mutex_enter_blocking(&vga_mutex);
-            vga_render_fn_t *const render_fn =
-                vga_scanvideo_mode_current->width == 320 ? &vga_prog->render_320 : &vga_prog->render_640;
             const int16_t height = vga_scanvideo_mode_current->height;
             for (int16_t i = 0; i < height; i++)
             {
                 scanvideo_scanline_buffer_t *const scanline_buffer =
                     scanvideo_begin_scanline_generation(true);
-                vga_render_scanline(scanline_buffer, render_fn);
+                vga_render_scanline(scanline_buffer);
                 scanvideo_end_scanline_generation(scanline_buffer);
             }
             mutex_exit(&vga_mutex);
