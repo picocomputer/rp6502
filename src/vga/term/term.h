@@ -14,6 +14,6 @@ struct scanvideo_scanline_buffer;
 
 void term_init(void);
 void term_task(void);
-bool term_mode0_setup(uint16_t *xregs);
+bool term_prog(uint16_t *xregs);
 
 #endif /* _TERM_H_ */

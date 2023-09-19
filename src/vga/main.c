@@ -5,6 +5,11 @@
  */
 
 #include "main.h"
+#include "modes/mode1.h"
+#include "modes/mode2.h"
+#include "modes/mode3.h"
+#include "modes/mode4.h"
+#include "modes/mode5.h"
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -50,6 +55,27 @@ void main_reclock(void)
     std_reclock();
     probe_reclock();
     ria_reclock();
+}
+
+bool main_prog(uint16_t *xregs)
+{
+    switch (xregs[1])
+    {
+    case 0:
+        return term_prog(xregs);
+    case 1:
+        return mode1_prog(xregs);
+    case 2:
+        return mode2_prog(xregs);
+    case 3:
+        return mode3_prog(xregs);
+    case 4:
+        return mode4_prog(xregs);
+    case 5:
+        return mode5_prog(xregs);
+    default:
+        return false;
+    }
 }
 
 void main()

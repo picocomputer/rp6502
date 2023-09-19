@@ -35,7 +35,7 @@ static void pix_ch0_xreg(uint8_t addr, uint16_t word)
             ria_nak();
     if (addr == 1)
     {
-        if (vga_xreg_mode(xregs))
+        if (main_prog(xregs))
             ria_ack();
         else
             ria_nak();

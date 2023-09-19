@@ -10,4 +10,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+bool mode3_prog(uint16_t *xregs);
+
 #endif /* _MODE3_H_ */

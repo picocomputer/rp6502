@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MODE1_H_
-#define _MODE1_H_
+#ifndef _MODE2_H_
+#define _MODE2_H_
 
 #include <stdint.h>
 #include <stdbool.h>
 
-bool mode1_prog(uint16_t *xregs);
+bool mode2_prog(uint16_t *xregs);
 
-#endif /* _MODE1_H_ */
+#endif /* _MODE2_H_ */

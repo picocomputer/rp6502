@@ -48,7 +48,6 @@ typedef enum
 
 void vga_set_display(vga_display_t display);
 bool vga_xreg_canvas(uint16_t *xregs);
-bool vga_xreg_mode(uint16_t *xregs);
 uint16_t vga_height(void);
 void vga_init(void);
 void vga_task(void);

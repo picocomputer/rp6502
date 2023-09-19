@@ -404,7 +404,7 @@ static void vga_scanvideo_start(void)
 static void vga_reset_console_prog()
 {
     uint16_t xregs_console[] = {0, vga_console, 0, 0, 0};
-    vga_xreg_mode(xregs_console);
+    main_prog(xregs_console);
 }
 
 void vga_set_display(vga_display_t display)
@@ -436,17 +436,6 @@ bool vga_xreg_canvas(uint16_t *xregs)
     if (canvas == vga_console)
         vga_reset_console_prog();
     return true;
-}
-
-bool vga_xreg_mode(uint16_t *xregs)
-{
-    switch (xregs[1])
-    {
-    case 0:
-        return term_mode0_setup(xregs);
-    default:
-        return false;
-    }
 }
 
 uint16_t vga_height(void)

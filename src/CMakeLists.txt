@@ -111,7 +111,10 @@ target_include_directories(rp6502_vga PRIVATE
 target_sources(rp6502_vga PRIVATE
     vga/main.c
     vga/modes/mode1.c
+    vga/modes/mode2.c
     vga/modes/mode3.c
+    vga/modes/mode4.c
+    vga/modes/mode5.c
     vga/sys/led.c
     vga/sys/pix.c
     vga/sys/ria.c

@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/mode3.h"
+#include "modes/mode2.h"
 #include "pico/scanvideo.h"
 
-bool mode3_prog(uint16_t *xregs)
+bool mode2_prog(uint16_t *xregs)
 {
     return false;
 }

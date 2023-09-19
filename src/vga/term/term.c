@@ -23,6 +23,14 @@
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
 
+typedef struct
+{
+    uint8_t font_code;
+    uint8_t attributes;
+    uint16_t fg_color;
+    uint16_t bg_color;
+} term_data_t;
+
 typedef struct term_state
 {
     uint8_t width;
@@ -32,8 +40,8 @@ typedef struct term_state
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
-    mode1_16_data_t *mem;
-    mode1_16_data_t *ptr;
+    term_data_t *mem;
+    term_data_t *ptr;
     absolute_time_t timer;
     int32_t blink_state;
     ansi_state_t ansi_state;
@@ -50,7 +58,7 @@ static void term_state_clear(term_state_t *term)
 {
     for (size_t i = 0; i < term->width * term->height; i++)
     {
-        term->mem[i].glyph_code = ' ';
+        term->mem[i].font_code = ' ';
         term->mem[i].fg_color = term->fg_color;
         term->mem[i].bg_color = term->bg_color;
     }
@@ -60,7 +68,7 @@ static void term_state_clear(term_state_t *term)
     term->ptr = term->mem;
 }
 
-static void term_state_init(term_state_t *term, uint8_t width, mode1_16_data_t *mem)
+static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 {
     term->width = width;
     term->height = TERM_STD_HEIGHT;
@@ -190,7 +198,6 @@ static void term_out_sgr(term_state_t *term)
             term->bg_color = color256[TERM_BG_COLOR_INDEX];
             break;
         case 58: // Underline not supported, but eat colors
-            sgr_color(term, idx, NULL);
             return;
         case 90: // bright foreground color
         case 91:
@@ -202,7 +209,7 @@ static void term_out_sgr(term_state_t *term)
         case 97:
             term->fg_color = color256[param - 90 + 8];
             break;
-        case 100: // bright foreground color
+        case 100: // bright background color
         case 101:
         case 102:
         case 103:
@@ -234,10 +241,10 @@ static void term_out_lf(term_state_t *term)
     if (++term->y == term->height)
     {
         --term->y;
-        mode1_16_data_t *line_ptr = term->ptr - term->x;
+        term_data_t *line_ptr = term->ptr - term->x;
         for (size_t x = 0; x < term->width; x++)
         {
-            line_ptr[x].glyph_code = ' ';
+            line_ptr[x].font_code = ' ';
             line_ptr[x].fg_color = term->fg_color;
             line_ptr[x].bg_color = term->bg_color;
         }
@@ -273,7 +280,7 @@ static void term_out_glyph(term_state_t *term, char ch)
         }
     }
     term->x++;
-    term->ptr->glyph_code = ch;
+    term->ptr->font_code = ch;
     term->ptr->fg_color = term->fg_color;
     term->ptr->bg_color = term->bg_color;
     term->ptr++;
@@ -317,12 +324,12 @@ static void term_out_dch(term_state_t *term)
         chars = 1;
     if (chars > term->width - term->x)
         chars = term->width - term->x;
-    mode1_16_data_t *tp = term->ptr;
+    term_data_t *tp = term->ptr;
     for (int i = term->x; i < term->width; i++)
     {
         if (chars + i >= term->width)
         {
-            tp->glyph_code = ' ';
+            tp->font_code = ' ';
             tp->fg_color = term->fg_color;
             tp->bg_color = term->bg_color;
         }
@@ -445,8 +452,8 @@ static void term_out_chars(const char *buf, int length)
 void term_init(void)
 {
     // prepare console
-    static mode1_16_data_t term40_mem[40 * TERM_MAX_HEIGHT];
-    static mode1_16_data_t term80_mem[80 * TERM_MAX_HEIGHT];
+    static term_data_t term40_mem[40 * TERM_MAX_HEIGHT];
+    static term_data_t term80_mem[80 * TERM_MAX_HEIGHT];
     term_state_init(&term_40, 40, term40_mem);
     term_state_init(&term_80, 80, term80_mem);
     // become part of stdout
@@ -588,10 +595,10 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     int mem_y = scanline_id / 8 + term_40.y_offset;
     if (mem_y >= TERM_MAX_HEIGHT)
         mem_y -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term_40.mem + 40 * mem_y;
+    term_data_t *term_ptr = term_40.mem + 40 * mem_y;
     for (int i = 0; i < 40; i++, term_ptr++)
     {
-        uint8_t bits = font_line[term_ptr->glyph_code];
+        uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
         render_nibble(rgb, bits >> 4, fg, bg);
@@ -610,10 +617,10 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     int mem_y = scanline_id / 16 + term_80.y_offset;
     if (mem_y >= TERM_MAX_HEIGHT)
         mem_y -= TERM_MAX_HEIGHT;
-    mode1_16_data_t *term_ptr = term_80.mem + 80 * mem_y;
+    term_data_t *term_ptr = term_80.mem + 80 * mem_y;
     for (int i = 0; i < 80; i++, term_ptr++)
     {
-        uint8_t bits = font_line[term_ptr->glyph_code];
+        uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
         render_nibble(rgb, bits >> 4, fg, bg);
@@ -633,7 +640,7 @@ term_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb,
         return term_render_640(scanline_id, rgb);
 }
 
-bool term_mode0_setup(uint16_t *xregs)
+bool term_prog(uint16_t *xregs)
 {
     uint16_t plane = xregs[2];
     int16_t scanline_begin = xregs[3];
