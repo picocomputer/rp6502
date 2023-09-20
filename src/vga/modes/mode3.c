@@ -161,8 +161,8 @@ bool mode3_prog(uint16_t *xregs)
     mode3_config_t *config = (void *)&xram[xregs[2]];
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        vga_prog->fill[plane] = render_fn;
-        vga_prog->fill_config[plane] = config;
+        vga_prog[i].fill[plane] = render_fn;
+        vga_prog[i].fill_config[plane] = config;
     }
     return true;
 }

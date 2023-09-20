@@ -223,7 +223,7 @@ static inline void __attribute__((optimize("O1")))
 vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
 {
     const uint16_t width = vga_scanvideo_mode_current->width;
-    const int16_t scanline_id = scanline_buffer->scanline_id;
+    const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
     uint32_t *const data[3] = {scanline_buffer->data, scanline_buffer->data2, scanline_buffer->data3};
     bool filled[3] = {false, false, false};
     uint32_t *foreground = NULL;
@@ -235,7 +235,7 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
             filled[i] = prog.fill[i](scanline_id,
                                      vga_scanvideo_mode_current->width,
                                      (uint16_t *)(data[i] + 1),
-                                     vga_prog->fill_config[scanline_id]);
+                                     prog.fill_config[i]);
             if (filled[i])
                 foreground = data[i];
         }
@@ -250,8 +250,8 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
             prog.sprite[i](scanline_id,
                            vga_scanvideo_mode_current->width,
                            (uint16_t *)(foreground + 1),
-                           vga_prog->sprite_config[scanline_id],
-                           vga_prog->sprite_count[scanline_id]);
+                           prog.sprite_config[i],
+                           prog.sprite_count[i]);
         }
     }
     for (int16_t i = 0; i < 3; i++)
