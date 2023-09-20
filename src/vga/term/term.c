@@ -632,7 +632,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
 }
 
 static bool __attribute__((optimize("O1")))
-term_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, void *null)
+term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
 {
     if (width == 320)
         return term_render_320(scanline_id, rgb);
@@ -642,7 +642,7 @@ term_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb,
 
 bool term_prog(uint16_t *xregs)
 {
-    uint16_t plane = xregs[2];
+    int16_t plane = xregs[2];
     int16_t scanline_begin = xregs[3];
     int16_t scanline_end = xregs[4];
     if (!scanline_end)

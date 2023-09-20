@@ -232,10 +232,10 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
     {
         if (prog.fill[i])
         {
-            filled[i] = prog.fill[i](i, scanline_id,
+            filled[i] = prog.fill[i](scanline_id,
                                      vga_scanvideo_mode_current->width,
                                      (uint16_t *)(data[i] + 1),
-                                     vga_prog->fill_ctx[scanline_id]);
+                                     vga_prog->fill_config[scanline_id]);
             if (filled[i])
                 foreground = data[i];
         }
@@ -247,9 +247,11 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
                 memset(foreground, 0, width * 2);
                 filled[i] = true;
             }
-            prog.sprite[i](i, scanline_id,
+            prog.sprite[i](scanline_id,
                            vga_scanvideo_mode_current->width,
-                           (uint16_t *)(foreground + 1));
+                           (uint16_t *)(foreground + 1),
+                           vga_prog->sprite_config[scanline_id],
+                           vga_prog->sprite_count[scanline_id]);
         }
     }
     for (int16_t i = 0; i < 3; i++)
