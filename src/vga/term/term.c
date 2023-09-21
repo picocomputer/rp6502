@@ -73,8 +73,8 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
     term->width = width;
     term->height = TERM_STD_HEIGHT;
     term->mem = mem;
-    term->fg_color = color256[TERM_FG_COLOR_INDEX];
-    term->bg_color = color256[TERM_BG_COLOR_INDEX];
+    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
     term->ansi_state = ansi_state_C0;
     term_state_clear(term);
@@ -106,7 +106,7 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
         {
             uint16_t color_idx = term->csi_param[idx + 2];
             if (color_idx < 256)
-                *color = color256[color_idx];
+                *color = color_256[color_idx];
         }
     }
     else if (idx + 4 < term->csi_param_count &&
@@ -152,18 +152,18 @@ static void term_out_sgr(term_state_t *term)
         switch (param)
         {
         case 0: // reset
-            term->fg_color = color256[TERM_FG_COLOR_INDEX];
-            term->bg_color = color256[TERM_BG_COLOR_INDEX];
+            term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+            term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 1: // bold intensity
             for (int i = 0; i < 8; i++)
-                if (term->fg_color == color256[i])
-                    term->fg_color = color256[i + 8];
+                if (term->fg_color == color_256[i])
+                    term->fg_color = color_256[i + 8];
             break;
         case 22: // normal intensity
             for (int i = 8; i < 16; i++)
-                if (term->fg_color == color256[i])
-                    term->fg_color = color256[i - 8];
+                if (term->fg_color == color_256[i])
+                    term->fg_color = color_256[i - 8];
             break;
         case 30: // foreground color
         case 31:
@@ -173,13 +173,13 @@ static void term_out_sgr(term_state_t *term)
         case 35:
         case 36:
         case 37:
-            term->fg_color = color256[param - 30];
+            term->fg_color = color_256[param - 30];
             break;
         case 38:
             sgr_color(term, idx, &term->fg_color);
             return;
         case 39:
-            term->fg_color = color256[TERM_FG_COLOR_INDEX];
+            term->fg_color = color_256[TERM_FG_COLOR_INDEX];
             break;
         case 40: // background color
         case 41:
@@ -189,13 +189,13 @@ static void term_out_sgr(term_state_t *term)
         case 45:
         case 46:
         case 47:
-            term->bg_color = color256[param - 40];
+            term->bg_color = color_256[param - 40];
             break;
         case 48:
             sgr_color(term, idx, &term->bg_color);
             return;
         case 49:
-            term->bg_color = color256[TERM_BG_COLOR_INDEX];
+            term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 58: // Underline not supported, but eat colors
             return;
@@ -207,7 +207,7 @@ static void term_out_sgr(term_state_t *term)
         case 95:
         case 96:
         case 97:
-            term->fg_color = color256[param - 90 + 8];
+            term->fg_color = color_256[param - 90 + 8];
             break;
         case 100: // bright background color
         case 101:
@@ -217,7 +217,7 @@ static void term_out_sgr(term_state_t *term)
         case 105:
         case 106:
         case 107:
-            term->bg_color = color256[param - 100 + 8];
+            term->bg_color = color_256[param - 100 + 8];
             break;
         }
     }

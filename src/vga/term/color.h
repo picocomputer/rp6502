@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 
-extern const uint16_t color256[256];
+extern const uint16_t color_2[2];
+extern const uint16_t color_256[256];
 
 #endif /* _COLOR_H_ */
