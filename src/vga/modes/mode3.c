@@ -46,23 +46,35 @@ mode3_scanline_to_row(int16_t scanline_id, mode3_config_t *config, bool y_wrap)
     return row;
 }
 
+volatile const uint8_t *__attribute__((optimize("O1")))
+mode3_row_to_data(int16_t row, mode3_config_t *config, int16_t bpp)
+{
+    if (row < 0 || config->width_px < 1 || config->height_px < 1)
+        return NULL;
+    const int32_t sizeof_row = ((int32_t)config->width_px * bpp + 7) / 8;
+    const int32_t sizeof_bitmap = (int32_t)config->height_px * sizeof_row;
+    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
+        return NULL;
+    return &xram[config->xram_data_ptr + row * sizeof_row];
+}
+
+volatile const uint16_t *__attribute__((optimize("O1")))
+mode3_get_palette(mode3_config_t *config, int16_t bpp)
+{
+    if (config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
+        return (uint16_t *)&xram[config->xram_palette_ptr];
+    // if (bpp == 1)
+    //     return color2;
+    return color256;
+}
+
 static bool __attribute__((optimize("O1")))
 mode3_render_4bpp_1r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *config, bool x_wrap)
 {
-    if (row < 0)
+    volatile const uint8_t *row_data = mode3_row_to_data(row, config, 4);
+    if (!row_data)
         return false;
-
-    const uint16_t *palette = color256;
-    if (config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * 16)
-        palette = (void *)&xram[config->xram_palette_ptr];
-
-    int32_t sizeof_row = ((int32_t)config->width_px * 4 + 7) / 8;
-    int32_t sizeof_bitmap = (int32_t)config->height_px * sizeof_row;
-    if (sizeof_row < 1 || sizeof_bitmap > 0x10000 - config->xram_data_ptr)
-        return false;
-
-    uint8_t *row_data = (void *)&xram[config->xram_data_ptr + row * sizeof_row];
-
+    volatile const uint16_t *palette = mode3_get_palette(config, 4);
     int16_t col = -config->xpos_px;
     while (width)
     {
@@ -79,6 +91,7 @@ mode3_render_4bpp_1r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *
                 col += empty_cols;
                 rgb += empty_cols;
                 width -= empty_cols;
+                continue;
             }
         }
         if (col >= config->width_px)
@@ -88,32 +101,29 @@ mode3_render_4bpp_1r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *
             else
             {
                 memset(rgb, 0, sizeof(uint16_t) * width);
-                col += width;
-                rgb += width;
-                width = 0;
+                break;
             }
         }
-        uint16_t fill_cols = width;
+        int16_t fill_cols = width;
         if (fill_cols > config->width_px - col)
             fill_cols = config->width_px - col;
         width -= fill_cols;
-        uint8_t *data = &row_data[col / 2];
+        volatile const uint8_t *data = &row_data[col / 2];
         if (col & 1)
         {
             *rgb++ = palette[*data++ >> 4];
             col++;
             fill_cols--;
         }
-        for (; fill_cols > 1; fill_cols -= 2, data++)
+        col += fill_cols;
+        while (fill_cols > 1)
         {
             *rgb++ = palette[*data & 0xF];
-            *rgb++ = palette[*data >> 4];
+            *rgb++ = palette[*data++ >> 4];
+            fill_cols -= 2;
         }
         if (fill_cols == 1)
-        {
-            *rgb++ = palette[*data++ & 0xF];
-            col++;
-        }
+            *rgb++ = palette[*data & 0xF];
     }
     return true;
 }
@@ -161,8 +171,8 @@ bool mode3_prog(uint16_t *xregs)
     mode3_config_t *config = (void *)&xram[xregs[2]];
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
-        vga_prog[i].fill[plane] = render_fn;
         vga_prog[i].fill_config[plane] = config;
+        vga_prog[i].fill[plane] = render_fn;
     }
     return true;
 }
