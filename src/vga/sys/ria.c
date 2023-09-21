@@ -18,20 +18,11 @@
 #define BACKCHAN_BAUDRATE 115200
 #define BACKCHAN_PIO pio1
 #define BACKCHAN_SM 3
-static bool ria_backchan_enabled;
 
 // Weird version logic because C macros are lame
 static const char version_dev[] = "\rVGA " __DATE__ " " __TIME__;
 static const char version_full[] = "\rVGA Version " RP6502_VERSION;
 static const char *version_pos = version_dev;
-
-// TODO Merge this STDOUT with the UART RX STDOUT in cdc.c and
-//      get rid of the redundant readable checks and unused blocking.
-//      Also get printf() sending to USB for TinyUSB logging.
-static size_t ria_stdout_head;
-static size_t ria_stdout_tail;
-static uint8_t ria_stdout_buf[32];
-#define RIA_STDOUT_BUF(pos) ria_stdout_buf[(pos) & 0x1F]
 
 void ria_init(void)
 {
@@ -77,11 +68,9 @@ void ria_backchan(uint16_t word)
     switch (word)
     {
     case 0: // off
-        ria_backchan_enabled = false;
         gpio_set_function(BACKCHAN_PIN, GPIO_FUNC_UART);
         break;
     case 1: // on
-        ria_backchan_enabled = true;
         pio_gpio_init(BACKCHAN_PIO, BACKCHAN_PIN);
         if (strlen(RP6502_VERSION))
             version_pos = version_full + 1;
@@ -94,34 +83,10 @@ void ria_backchan(uint16_t word)
     }
 }
 
-bool ria_backchannel(void)
-{
-    return ria_backchan_enabled;
-}
-
-void ria_stdout_rx(char ch)
-{
-    if (!ria_backchan_enabled)
-        return;
-    if (&RIA_STDOUT_BUF(ria_stdout_tail + 1) != &RIA_STDOUT_BUF(ria_stdout_head))
-        RIA_STDOUT_BUF(++ria_stdout_tail) = ch;
-}
-
-bool ria_stdout_is_readable(void)
-{
-    return &RIA_STDOUT_BUF(ria_stdout_tail) != &RIA_STDOUT_BUF(ria_stdout_head);
-}
-
-char ria_stdout_getc(void)
-{
-    return RIA_STDOUT_BUF(++ria_stdout_head);
-}
-
 void ria_vsync(void)
 {
     static uint32_t frame_no;
-    if (ria_backchan_enabled)
-        pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, (++frame_no & 0xF) | 0x80);
+    pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, (++frame_no & 0xF) | 0x80);
 }
 
 void ria_ack(void)

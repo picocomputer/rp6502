@@ -4,30 +4,32 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "modes/mode1.h"
 #include "term/ansi.h"
 #include "term/color.h"
 #include "term/font.h"
 #include "term/term.h"
+#include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include "pico/scanvideo.h"
 #include "pico/scanvideo/composable_scanline.h"
 #include <stdio.h>
 
-#define TERM_MAX_WIDTH 80
+#define TERM_STD_HEIGHT 30
 #define TERM_MAX_HEIGHT 32
 #define TERM_CSI_PARAM_MAX_LEN 16
 #define TERM_LINE_WRAP 1
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
 
-struct cell_state
+typedef struct
 {
-    uint8_t glyph_code;
+    uint8_t font_code;
     uint8_t attributes;
     uint16_t fg_color;
     uint16_t bg_color;
-};
+} term_data_t;
 
 typedef struct term_state
 {
@@ -38,8 +40,8 @@ typedef struct term_state
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
-    struct cell_state mem[TERM_MAX_WIDTH * TERM_MAX_HEIGHT];
-    struct cell_state *ptr;
+    term_data_t *mem;
+    term_data_t *ptr;
     absolute_time_t timer;
     int32_t blink_state;
     ansi_state_t ansi_state;
@@ -48,31 +50,78 @@ typedef struct term_state
     uint8_t csi_param_count;
 } term_state_t;
 
-static term_state_t term_console;
+static term_state_t term_40;
+static term_state_t term_80;
+static int16_t term_scanline_begin;
 
 static void term_state_clear(term_state_t *term)
 {
+    for (size_t i = 0; i < term->width * term->height; i++)
+    {
+        term->mem[i].font_code = ' ';
+        term->mem[i].fg_color = term->fg_color;
+        term->mem[i].bg_color = term->bg_color;
+    }
     term->x = 0;
     term->y = 0;
     term->y_offset = 0;
     term->ptr = term->mem;
-    for (size_t i = 0; i < term->width * term->height; i++)
-    {
-        term->mem[i].glyph_code = ' ';
-        term->mem[i].fg_color = term->fg_color;
-        term->mem[i].bg_color = term->bg_color;
-    }
 }
 
-static void term_state_init(term_state_t *term, uint8_t width, uint8_t height)
+static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 {
     term->width = width;
-    term->height = height;
-    term->fg_color = color256[TERM_FG_COLOR_INDEX];
-    term->bg_color = color256[TERM_BG_COLOR_INDEX];
+    term->height = TERM_STD_HEIGHT;
+    term->mem = mem;
+    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
     term->ansi_state = ansi_state_C0;
     term_state_clear(term);
+}
+
+static void term_state_set_height(term_state_t *term, uint8_t height)
+{
+    assert(height >= 1 && height <= TERM_MAX_HEIGHT);
+    while (height != term->height)
+    {
+        int row;
+        if (height > term->height)
+        {
+            term->height++;
+            if (term->y == term->height - 2)
+            {
+                term->y++;
+                if (!term->y_offset)
+                    term->y_offset = TERM_MAX_HEIGHT - 1;
+                else
+                    term->y_offset--;
+                continue;
+            }
+            row = term->y_offset + term->height - 1;
+        }
+        else
+        {
+            term->height--;
+            if (term->y == term->height)
+            {
+                term->y--;
+                if (++term->y_offset >= TERM_MAX_HEIGHT)
+                    term->y_offset -= TERM_MAX_HEIGHT;
+                continue;
+            }
+            row = term->y_offset + term->height;
+        }
+        if (row >= TERM_MAX_HEIGHT)
+            row -= TERM_MAX_HEIGHT;
+        term_data_t *data = term->mem + row * term->width;
+        for (size_t i = 0; i < term->width; i++)
+        {
+            data[i].font_code = ' ';
+            data[i].fg_color = term->fg_color;
+            data[i].bg_color = term->bg_color;
+        }
+    }
 }
 
 static void term_cursor_set_inv(term_state_t *term, bool inv)
@@ -95,7 +144,7 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
         {
             uint16_t color_idx = term->csi_param[idx + 2];
             if (color_idx < 256)
-                *color = color256[color_idx];
+                *color = color_256[color_idx];
         }
     }
     else if (idx + 4 < term->csi_param_count &&
@@ -141,18 +190,18 @@ static void term_out_sgr(term_state_t *term)
         switch (param)
         {
         case 0: // reset
-            term->fg_color = color256[TERM_FG_COLOR_INDEX];
-            term->bg_color = color256[TERM_BG_COLOR_INDEX];
+            term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+            term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 1: // bold intensity
             for (int i = 0; i < 8; i++)
-                if (term->fg_color == color256[i])
-                    term->fg_color = color256[i + 8];
+                if (term->fg_color == color_256[i])
+                    term->fg_color = color_256[i + 8];
             break;
         case 22: // normal intensity
             for (int i = 8; i < 16; i++)
-                if (term->fg_color == color256[i])
-                    term->fg_color = color256[i - 8];
+                if (term->fg_color == color_256[i])
+                    term->fg_color = color_256[i - 8];
             break;
         case 30: // foreground color
         case 31:
@@ -162,13 +211,13 @@ static void term_out_sgr(term_state_t *term)
         case 35:
         case 36:
         case 37:
-            term->fg_color = color256[param - 30];
+            term->fg_color = color_256[param - 30];
             break;
         case 38:
             sgr_color(term, idx, &term->fg_color);
             return;
         case 39:
-            term->fg_color = color256[TERM_FG_COLOR_INDEX];
+            term->fg_color = color_256[TERM_FG_COLOR_INDEX];
             break;
         case 40: // background color
         case 41:
@@ -178,16 +227,15 @@ static void term_out_sgr(term_state_t *term)
         case 45:
         case 46:
         case 47:
-            term->bg_color = color256[param - 40];
+            term->bg_color = color_256[param - 40];
             break;
         case 48:
             sgr_color(term, idx, &term->bg_color);
             return;
         case 49:
-            term->bg_color = color256[TERM_BG_COLOR_INDEX];
+            term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 58: // Underline not supported, but eat colors
-            sgr_color(term, idx, NULL);
             return;
         case 90: // bright foreground color
         case 91:
@@ -197,9 +245,9 @@ static void term_out_sgr(term_state_t *term)
         case 95:
         case 96:
         case 97:
-            term->fg_color = color256[param - 90 + 8];
+            term->fg_color = color_256[param - 90 + 8];
             break;
-        case 100: // bright foreground color
+        case 100: // bright background color
         case 101:
         case 102:
         case 103:
@@ -207,7 +255,7 @@ static void term_out_sgr(term_state_t *term)
         case 105:
         case 106:
         case 107:
-            term->bg_color = color256[param - 100 + 8];
+            term->bg_color = color_256[param - 100 + 8];
             break;
         }
     }
@@ -226,19 +274,19 @@ static void term_out_ht(term_state_t *term)
 static void term_out_lf(term_state_t *term)
 {
     term->ptr += term->width;
-    if (term->ptr >= term->mem + term->width * term->height)
-        term->ptr -= term->width * term->height;
+    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
+        term->ptr -= term->width * TERM_MAX_HEIGHT;
     if (++term->y == term->height)
     {
         --term->y;
-        struct cell_state *line_ptr = term->ptr - term->x;
+        term_data_t *line_ptr = term->ptr - term->x;
         for (size_t x = 0; x < term->width; x++)
         {
-            line_ptr[x].glyph_code = ' ';
+            line_ptr[x].font_code = ' ';
             line_ptr[x].fg_color = term->fg_color;
             line_ptr[x].bg_color = term->bg_color;
         }
-        if (++term->y_offset == term->height)
+        if (++term->y_offset == TERM_MAX_HEIGHT)
             term->y_offset = 0;
     }
 }
@@ -254,7 +302,7 @@ static void term_out_cr(term_state_t *term)
     term->x = 0;
 }
 
-static void term_out_char(term_state_t *term, char ch)
+static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->x == term->width)
     {
@@ -270,7 +318,7 @@ static void term_out_char(term_state_t *term, char ch)
         }
     }
     term->x++;
-    term->ptr->glyph_code = ch;
+    term->ptr->font_code = ch;
     term->ptr->fg_color = term->fg_color;
     term->ptr->bg_color = term->bg_color;
     term->ptr++;
@@ -314,12 +362,12 @@ static void term_out_dch(term_state_t *term)
         chars = 1;
     if (chars > term->width - term->x)
         chars = term->width - term->x;
-    struct cell_state *tp = term->ptr;
+    term_data_t *tp = term->ptr;
     for (int i = term->x; i < term->width; i++)
     {
         if (chars + i >= term->width)
         {
-            tp->glyph_code = ' ';
+            tp->font_code = ' ';
             tp->fg_color = term->fg_color;
             tp->bg_color = term->bg_color;
         }
@@ -349,7 +397,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
     else if (ch == '\33')
         term->ansi_state = ansi_state_Fe;
     else if (ch >= 32 && ch <= 255)
-        term_out_char(term, ch);
+        term_out_glyph(term, ch);
 }
 
 static void term_out_state_Fe(term_state_t *term, char ch)
@@ -405,39 +453,47 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     }
 }
 
+static void term_out_char(term_state_t *term, char ch)
+{
+    if (ch == ANSI_CANCEL)
+        term->ansi_state = ansi_state_C0;
+    else
+        switch (term->ansi_state)
+        {
+        case ansi_state_C0:
+            term_out_state_C0(term, ch);
+            break;
+        case ansi_state_Fe:
+            term_out_state_Fe(term, ch);
+            break;
+        case ansi_state_CSI:
+            term_out_state_CSI(term, ch);
+            break;
+        }
+}
+
 static void term_out_chars(const char *buf, int length)
 {
     if (length)
     {
-        term_state_t *term = &term_console;
-        term_cursor_set_inv(term, false);
+        term_cursor_set_inv(&term_40, false);
+        term_cursor_set_inv(&term_80, false);
         for (int i = 0; i < length; i++)
         {
-            char ch = buf[i];
-            if (ch == ANSI_CANCEL)
-                term->ansi_state = ansi_state_C0;
-            else
-                switch (term->ansi_state)
-                {
-                case ansi_state_C0:
-                    term_out_state_C0(term, ch);
-                    break;
-                case ansi_state_Fe:
-                    term_out_state_Fe(term, ch);
-                    break;
-                case ansi_state_CSI:
-                    term_out_state_CSI(term, ch);
-                    break;
-                }
+            term_out_char(&term_40, buf[i]);
+            term_out_char(&term_80, buf[i]);
         }
-        term->timer = get_absolute_time();
+        term_40.timer = term_80.timer = get_absolute_time();
     }
 }
 
 void term_init(void)
 {
     // prepare console
-    term_state_init(&term_console, 80, 32);
+    static term_data_t term40_mem[40 * TERM_MAX_HEIGHT];
+    static term_data_t term80_mem[80 * TERM_MAX_HEIGHT];
+    term_state_init(&term_40, 40, term40_mem);
+    term_state_init(&term_80, 80, term80_mem);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = term_out_chars,
@@ -448,9 +504,8 @@ void term_init(void)
     stdio_set_driver_enabled(&term_stdio, true);
 }
 
-void term_task(void)
+static void term_blink_cursor(term_state_t *term)
 {
-    term_state_t *term = &term_console;
     absolute_time_t now = get_absolute_time();
     if (absolute_time_diff_us(now, term->timer) < 0)
     {
@@ -460,180 +515,209 @@ void term_task(void)
     }
 }
 
-__attribute__((optimize("O1"))) void
-term_render(struct scanvideo_scanline_buffer *dest, uint16_t height)
+void term_task(void)
 {
-    term_state_t *term = &term_console;
-    int line = scanvideo_scanline_number(dest->scanline_id);
-    while (height <= term->y * 16)
+    term_blink_cursor(&term_40);
+    term_blink_cursor(&term_80);
+}
+
+static inline void __attribute__((optimize("O1")))
+render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
+{
+    switch (bits)
     {
-        line += 16;
-        height += 16;
+    case 0:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 1:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 2:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 3:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 4:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 5:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 6:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 7:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 8:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 9:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 10:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 11:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 12:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 13:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 14:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 15:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
     }
-    const uint8_t *font_line = &font16[(line & 15) * 256];
-    line = line / 16 + term->y_offset;
-    if (line >= term->height)
-        line -= term->height;
-    struct cell_state *term_ptr = term->mem + term->width * line - 1;
-    uint32_t *buf = dest->data;
-    for (int i = 0; i < term->width; i++)
+}
+
+static inline bool __attribute__((optimize("O1")))
+term_render_320(int16_t scanline_id, uint16_t *rgb)
+{
+    scanline_id -= term_scanline_begin;
+    const uint8_t *font_line = &font8[(scanline_id & 7) * 256];
+    int mem_y = scanline_id / 8 + term_40.y_offset;
+    if (mem_y >= TERM_MAX_HEIGHT)
+        mem_y -= TERM_MAX_HEIGHT;
+    term_data_t *term_ptr = term_40.mem + 40 * mem_y;
+    for (int i = 0; i < 40; i++, term_ptr++)
     {
-        ++term_ptr;
-        uint8_t bits = font_line[term_ptr->glyph_code];
+        uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
+        render_nibble(rgb, bits >> 4, fg, bg);
+        rgb += 4;
+        render_nibble(rgb, bits & 0xF, fg, bg);
+        rgb += 4;
+    }
+    return true;
+}
 
-        switch (bits >> 4)
-        {
-        case 0:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 1:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 2:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 3:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 4:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 5:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 6:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 7:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 8:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 9:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 10:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 11:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 12:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 13:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 14:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 15:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        }
+static inline bool __attribute__((optimize("O1")))
+term_render_640(int16_t scanline_id, uint16_t *rgb)
+{
+    scanline_id -= term_scanline_begin;
+    const uint8_t *font_line = &font16[(scanline_id & 15) * 256];
+    int mem_y = scanline_id / 16 + term_80.y_offset;
+    if (mem_y >= TERM_MAX_HEIGHT)
+        mem_y -= TERM_MAX_HEIGHT;
+    term_data_t *term_ptr = term_80.mem + 80 * mem_y;
+    for (int i = 0; i < 80; i++, term_ptr++)
+    {
+        uint8_t bits = font_line[term_ptr->font_code];
+        uint16_t fg = term_ptr->fg_color;
+        uint16_t bg = term_ptr->bg_color;
+        render_nibble(rgb, bits >> 4, fg, bg);
+        rgb += 4;
+        render_nibble(rgb, bits & 0xF, fg, bg);
+        rgb += 4;
+    }
+    return true;
+}
 
-        switch (bits & 0xF)
-        {
-        case 0:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 1:
-            *++buf = bg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 2:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 3:
-            *++buf = bg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 4:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 5:
-            *++buf = bg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 6:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 7:
-            *++buf = bg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 8:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 9:
-            *++buf = fg | (bg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 10:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 11:
-            *++buf = fg | (bg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        case 12:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (bg << 16);
-            break;
-        case 13:
-            *++buf = fg | (fg << 16);
-            *++buf = bg | (fg << 16);
-            break;
-        case 14:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (bg << 16);
-            break;
-        case 15:
-            *++buf = fg | (fg << 16);
-            *++buf = fg | (fg << 16);
-            break;
-        }
+static bool __attribute__((optimize("O1")))
+term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
+{
+    if (width == 320)
+        return term_render_320(scanline_id, rgb);
+    else
+        return term_render_640(scanline_id, rgb);
+}
+
+bool term_prog(uint16_t *xregs)
+{
+    int16_t plane = xregs[2];
+    int16_t scanline_begin = xregs[3];
+    int16_t scanline_end = xregs[4];
+    if (!scanline_end)
+        scanline_end = vga_height();
+    int16_t scanline_count = scanline_end - scanline_begin;
+
+    // Validate
+    if (plane >= PICO_SCANVIDEO_PLANE_COUNT ||
+        scanline_begin < 0 ||
+        scanline_end > vga_height() ||
+        scanline_count < 1)
+        return false;
+
+    // Set terminal height
+    if (vga_height() == 320)
+    {
+        if (scanline_count % 8)
+            return false;
+        term_state_set_height(&term_40, scanline_count / 8);
+    }
+    else
+    {
+        if (scanline_count % 16)
+            return false;
+        term_state_set_height(&term_80, scanline_count / 16);
     }
 
-    buf = (void *)dest->data;
-    buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
-    buf[1] = 637 | (buf[1] & 0xFFFF0000);
-    buf[321] = COMPOSABLE_RAW_1P | (0 << 16);
-    buf[322] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data_used = 323;
+    // Remove all previous programming
+    for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
+        for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
+            if (vga_prog[i].fill[j] == term_render)
+                vga_prog[i].fill[j] = NULL;
 
-    dest->data2[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    dest->data2[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data2_used = 2;
+    // Program the new scanlines
+    term_scanline_begin = scanline_begin;
+    for (uint16_t i = scanline_begin; i < scanline_end; i++)
+        vga_prog[i].fill[plane] = term_render;
 
-    dest->data3[0] = COMPOSABLE_RAW_1P | (0 << 16);
-    dest->data3[1] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data3_used = 2;
-
-    dest->status = SCANLINE_OK;
+    return true;
 }
