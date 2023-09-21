@@ -10,30 +10,48 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define VGA_PROG_MAX 512
+typedef struct
+{
+    bool (*fill[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline_id,
+                                             int16_t width,
+                                             uint16_t *rgb,
+                                             void *config);
+    void *fill_config[PICO_SCANVIDEO_PLANE_COUNT];
+
+    void (*sprite[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline_id,
+                                               int16_t width,
+                                               uint16_t *rgb,
+                                               void *config,
+                                               uint16_t count);
+    void *sprite_config[PICO_SCANVIDEO_PLANE_COUNT];
+    uint16_t sprite_count[PICO_SCANVIDEO_PLANE_COUNT];
+} vga_prog_t;
+extern vga_prog_t vga_prog[VGA_PROG_MAX];
+
 // Display type. Choose SD for 4:3 displays,
 // HD for 16:9 displays, and SXGA for 5:4 displays.
-// Note that choosing vga_hd will only activate 720p
-// output on 320x180 and 640x380 resolutions.
 typedef enum
 {
     vga_sd,   // 640x480 (480p) default
-    vga_hd,   // 1280x720 (720p)
+    vga_hd,   // 640x480 and 1280x720 (720p)
     vga_sxga, // 1280x1024 (5:4)
 } vga_display_t;
 
-// Internal resolution, before scaling for display.
+// Canvas size.
 typedef enum
 {
+    vga_console,
     vga_320_240,
-    vga_640_480,
     vga_320_180,
+    vga_640_480,
     vga_640_360,
-} vga_resolution_t;
+} vga_canvas_t;
 
+void vga_set_display(vga_display_t display);
+bool vga_xreg_canvas(uint16_t *xregs);
+uint16_t vga_height(void);
 void vga_init(void);
 void vga_task(void);
-void vga_display(vga_display_t display);
-void vga_resolution(vga_resolution_t mode);
-void vga_terminal(bool show);
 
 #endif /* _VGA_H_ */

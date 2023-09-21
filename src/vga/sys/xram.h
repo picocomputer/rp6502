@@ -20,9 +20,9 @@
 
 // 64KB Extended RAM
 #ifdef NDEBUG
-extern uint8_t xram[0x10000];
+extern volatile uint8_t xram[0x10000];
 #else
-extern uint8_t *const xram;
+extern volatile uint8_t *const xram;
 #endif
 
 #endif /* _XRAM_H_ */

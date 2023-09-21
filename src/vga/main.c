@@ -5,6 +5,11 @@
  */
 
 #include "main.h"
+#include "modes/mode1.h"
+#include "modes/mode2.h"
+#include "modes/mode3.h"
+#include "modes/mode4.h"
+#include "modes/mode5.h"
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -52,23 +57,24 @@ void main_reclock(void)
     ria_reclock();
 }
 
-void main_pix_cmd(uint8_t addr, uint16_t word)
+bool main_prog(uint16_t *xregs)
 {
-    switch (addr)
+    switch (xregs[1])
     {
-    case 0x00:
-        vga_terminal(true);
-        vga_display(word);
-        break;
-    case 0x01:
-        font_set_codepage(word);
-        break;
-    case 0x03:
-        ria_stdout_rx(word);
-        break;
-    case 0x04:
-        ria_backchan(word);
-        break;
+    case 0:
+        return term_prog(xregs);
+    case 1:
+        return mode1_prog(xregs);
+    case 2:
+        return mode2_prog(xregs);
+    case 3:
+        return mode3_prog(xregs);
+    case 4:
+        return mode4_prog(xregs);
+    case 5:
+        return mode5_prog(xregs);
+    default:
+        return false;
     }
 }
 

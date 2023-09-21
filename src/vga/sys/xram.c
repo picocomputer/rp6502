@@ -7,7 +7,7 @@
 #include "xram.h"
 
 #ifdef NDEBUG
-uint8_t xram[0x10000]
+volatile uint8_t xram[0x10000]
     __attribute__((aligned(0x10000)))
     __attribute__((section(".uninitialized_data.xram")));
 #else
@@ -34,5 +34,5 @@ struct
 } xram_blocks
     __attribute__((aligned(0x10000)))
     __attribute__((section(".uninitialized_data.xram")));
-uint8_t *const xram = (uint8_t *)&xram_blocks;
+volatile uint8_t *const xram = (uint8_t *)&xram_blocks;
 #endif
