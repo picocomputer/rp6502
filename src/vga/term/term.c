@@ -83,7 +83,45 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 static void term_state_set_height(term_state_t *term, uint8_t height)
 {
     assert(height >= 1 && height <= TERM_MAX_HEIGHT);
-    // TODO
+    while (height != term->height)
+    {
+        int row;
+        if (height > term->height)
+        {
+            term->height++;
+            if (term->y == term->height - 2)
+            {
+                term->y++;
+                if (!term->y_offset)
+                    term->y_offset = TERM_MAX_HEIGHT - 1;
+                else
+                    term->y_offset--;
+                continue;
+            }
+            row = term->y_offset + term->height - 1;
+        }
+        else
+        {
+            term->height--;
+            if (term->y == term->height)
+            {
+                term->y--;
+                if (++term->y_offset >= TERM_MAX_HEIGHT)
+                    term->y_offset -= TERM_MAX_HEIGHT;
+                continue;
+            }
+            row = term->y_offset + term->height;
+        }
+        if (row >= TERM_MAX_HEIGHT)
+            row -= TERM_MAX_HEIGHT;
+        term_data_t *data = term->mem + row * term->width;
+        for (size_t i = 0; i < term->width; i++)
+        {
+            data[i].font_code = ' ';
+            data[i].fg_color = term->fg_color;
+            data[i].bg_color = term->bg_color;
+        }
+    }
 }
 
 static void term_cursor_set_inv(term_state_t *term, bool inv)
