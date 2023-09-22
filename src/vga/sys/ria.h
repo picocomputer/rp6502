@@ -11,6 +11,7 @@
 
 void ria_init(void);
 void ria_task(void);
+void ria_flush(void);
 void ria_reclock(void);
 void ria_backchan(uint16_t word);
 void ria_vsync(void);

@@ -50,6 +50,11 @@ static void task(void)
     std_task();
 }
 
+void main_flush(void)
+{
+    ria_flush();
+}
+
 void main_reclock(void)
 {
     std_reclock();

@@ -44,7 +44,7 @@ void ria_init(void)
 void ria_task(void)
 {
     char ch = *version_pos;
-    if (ch != '\r' && !pio_sm_is_tx_fifo_full(BACKCHAN_PIO, BACKCHAN_SM))
+    if (ch != '\r' && pio_sm_is_tx_fifo_empty(BACKCHAN_PIO, BACKCHAN_SM))
     {
         if (ch)
             version_pos++;
@@ -55,6 +55,16 @@ void ria_task(void)
         }
         pio_sm_put(BACKCHAN_PIO, BACKCHAN_SM, ch);
     }
+}
+
+void ria_flush(void)
+{
+    // Wait for empty FIFO
+    while (pio_sm_get_tx_fifo_level(BACKCHAN_PIO, BACKCHAN_SM))
+        tight_loop_contents();
+    // Wait for shift register too
+    float clock = (float)clock_get_hz(clk_sys);
+    busy_wait_us_32(clock / BACKCHAN_BAUDRATE / clock * 10 * 1000000);
 }
 
 void ria_reclock(void)

@@ -21,7 +21,7 @@
 #define VGA_BACKCHANNEL_SM 2
 
 // How long to wait for ACK to backchannel enable request
-#define VGA_TEST_MS 2
+#define VGA_BACKCHANNEL_ACK_MS 2
 // How long to wait for version string
 #define VGA_VERSION_WATCHDOG_MS 2
 // Abandon backchannel after two missed vsync messages (~2/60sec)
@@ -152,7 +152,7 @@ void vga_task(void)
     if (vga_state == VGA_REQUEST_TEST)
     {
         vga_state = VGA_TESTING;
-        com_read_binary(vga_read_buf, 4, VGA_TEST_MS, vga_read);
+        com_read_binary(vga_read_buf, 4, VGA_BACKCHANNEL_ACK_MS, vga_read);
         vga_pix_backchannel_request();
     }
 
@@ -160,7 +160,9 @@ void vga_task(void)
     {
         uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
 
-        if (vga_state == VGA_VERSIONING && !(byte & 0x80))
+        if (byte & 0x80)
+            vga_backchannel_command(byte);
+        else if (vga_state == VGA_VERSIONING)
         {
             vga_version_watchdog = delayed_by_ms(get_absolute_time(), VGA_VERSION_WATCHDOG_MS);
             if (byte == '\r' || byte == '\n')
@@ -171,7 +173,6 @@ void vga_task(void)
                     vga_state = VGA_CONNECTED;
                     vga_version_message_length = 0;
                     vga_print_status();
-                    puts("");
                 }
             }
             else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
@@ -180,9 +181,6 @@ void vga_task(void)
                 vga_version_message[vga_version_message_length] = 0;
             }
         }
-
-        if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) && (byte & 0x80))
-            vga_backchannel_command(byte);
     }
 
     if (vga_state == VGA_VERSIONING &&
@@ -191,7 +189,6 @@ void vga_task(void)
         vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
         vga_state = VGA_NO_VERSION;
         vga_print_status();
-        puts("");
     }
 
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&

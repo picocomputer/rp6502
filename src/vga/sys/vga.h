@@ -10,25 +10,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define VGA_PROG_MAX 512
-typedef struct
-{
-    bool (*fill[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline_id,
-                                             int16_t width,
-                                             uint16_t *rgb,
-                                             void *config);
-    void *fill_config[PICO_SCANVIDEO_PLANE_COUNT];
-
-    void (*sprite[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline_id,
-                                               int16_t width,
-                                               uint16_t *rgb,
-                                               void *config,
-                                               uint16_t count);
-    void *sprite_config[PICO_SCANVIDEO_PLANE_COUNT];
-    uint16_t sprite_count[PICO_SCANVIDEO_PLANE_COUNT];
-} vga_prog_t;
-extern vga_prog_t vga_prog[VGA_PROG_MAX];
-
 // Display type. Choose SD for 4:3 displays,
 // HD for 16:9 displays, and SXGA for 5:4 displays.
 typedef enum
@@ -50,8 +31,31 @@ typedef enum
 
 void vga_set_display(vga_display_t display);
 bool vga_xreg_canvas(uint16_t *xregs);
-uint16_t vga_height(void);
+int16_t vga_canvas_height(void);
 void vga_init(void);
 void vga_task(void);
+
+bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                   uint16_t config_ptr,
+                   bool (*fill_fn)(int16_t scanline,
+                                   int16_t width,
+                                   uint16_t *rgb,
+                                   uint16_t config_ptr));
+
+// For singleton fill modes, like the terminal
+bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                        uint16_t config_ptr,
+                        bool (*fill_fn)(int16_t scanline,
+                                        int16_t width,
+                                        uint16_t *rgb,
+                                        uint16_t config_ptr));
+
+bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                     uint16_t config_ptr,
+                     void (*sprite_fn)(int16_t scanline,
+                                       int16_t width,
+                                       uint16_t *rgb,
+                                       uint16_t config_ptr,
+                                       uint16_t count));
 
 #endif /* _VGA_H_ */

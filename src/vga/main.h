@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+void main_flush(void);
 void main_reclock(void);
 bool main_prog(uint16_t *xregs);
 

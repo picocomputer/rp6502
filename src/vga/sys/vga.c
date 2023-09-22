@@ -17,7 +17,24 @@
 #include "hardware/clocks.h"
 #include <string.h>
 
-vga_prog_t vga_prog[VGA_PROG_MAX];
+#define VGA_PROG_MAX 512
+typedef struct
+{
+    bool (*fill_fn[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline,
+                                                int16_t width,
+                                                uint16_t *rgb,
+                                                uint16_t config_ptr);
+    uint16_t fill_config[PICO_SCANVIDEO_PLANE_COUNT];
+
+    void (*sprite_fn[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline,
+                                                  int16_t width,
+                                                  uint16_t *rgb,
+                                                  uint16_t config_ptr,
+                                                  uint16_t count);
+    uint16_t sprite_config[PICO_SCANVIDEO_PLANE_COUNT];
+    uint16_t sprite_count[PICO_SCANVIDEO_PLANE_COUNT];
+} vga_prog_t;
+static vga_prog_t vga_prog[VGA_PROG_MAX];
 
 static mutex_t vga_mutex;
 static volatile vga_display_t vga_display_current;
@@ -230,16 +247,16 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
     vga_prog_t prog = vga_prog[scanline_id];
     for (int16_t i = 0; i < 3; i++)
     {
-        if (prog.fill[i])
+        if (prog.fill_fn[i])
         {
-            filled[i] = prog.fill[i](scanline_id,
-                                     vga_scanvideo_mode_current->width,
-                                     (uint16_t *)(data[i] + 1),
-                                     prog.fill_config[i]);
+            filled[i] = prog.fill_fn[i](scanline_id,
+                                        vga_scanvideo_mode_current->width,
+                                        (uint16_t *)(data[i] + 1),
+                                        prog.fill_config[i]);
             if (filled[i])
                 foreground = data[i];
         }
-        if (prog.sprite[i])
+        if (prog.sprite_fn[i])
         {
             if (!foreground)
             {
@@ -247,11 +264,11 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
                 memset(foreground, 0, width * 2);
                 filled[i] = true;
             }
-            prog.sprite[i](scanline_id,
-                           vga_scanvideo_mode_current->width,
-                           (uint16_t *)(foreground + 1),
-                           prog.sprite_config[i],
-                           prog.sprite_count[i]);
+            prog.sprite_fn[i](scanline_id,
+                              vga_scanvideo_mode_current->width,
+                              (uint16_t *)(foreground + 1),
+                              prog.sprite_config[i],
+                              prog.sprite_count[i]);
         }
     }
     for (int16_t i = 0; i < 3; i++)
@@ -383,12 +400,13 @@ static void vga_scanvideo_start(void)
     if (clk == 25200000)
         clk = 25200000 * 8; // 201.6 MHz
     else if (clk == 54000000)
-        clk = 54000000 * 4; // 216 MHz
+        clk = 54000000 * 4; // 216.0 MHz
     else if (clk == 37125000)
         clk = 37125000 * 5; // 185.625 MHz
     assert(clk >= 120000000 && clk <= 266000000);
     if (clk != clock_get_hz(clk_sys))
     {
+        main_flush();
         set_sys_clock_khz(clk / 1000, true);
         main_reclock();
     }
@@ -420,7 +438,7 @@ void vga_set_display(vga_display_t display)
 // Also accepts NULL for reset to vga_console
 bool vga_xreg_canvas(uint16_t *xregs)
 {
-    uint16_t canvas = xregs ? xregs[0] : 0;
+    uint16_t canvas = xregs ? xregs[0] : vga_console;
     switch (canvas)
     {
     case vga_console:
@@ -440,7 +458,7 @@ bool vga_xreg_canvas(uint16_t *xregs)
     return true;
 }
 
-uint16_t vga_height(void)
+int16_t vga_canvas_height(void)
 {
     return vga_scanvideo_mode_selected->height;
 }
@@ -468,4 +486,50 @@ void vga_task(void)
         vga_scanvideo_mode_switching = false;
         mutex_exit(&vga_mutex);
     }
+}
+
+bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                   uint16_t config_ptr,
+                   bool (*fill_fn)(int16_t scanline,
+                                   int16_t width,
+                                   uint16_t *rgb,
+                                   uint16_t config_ptr))
+{
+    if (!scanline_end)
+        scanline_end = vga_canvas_height();
+    const int16_t scanline_count = scanline_end - scanline_begin;
+    if (!fill_fn ||
+        plane < 0 || plane >= PICO_SCANVIDEO_PLANE_COUNT ||
+        scanline_begin < 0 || scanline_end > vga_canvas_height() ||
+        scanline_count < 1)
+        return false;
+    // Note there is no synchronization. Render functions
+    // must validate everything from the config_ptr.
+    // Render functions return false when they can't or don't need to render.
+    // A single scanline of junk is acceptable during reprogramming.
+    for (int16_t i = scanline_begin; i < scanline_end; i++)
+    {
+        vga_prog[i].fill_config[plane] = config_ptr;
+        vga_prog[i].fill_fn[plane] = fill_fn;
+    }
+    return true;
+}
+
+bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                        uint16_t config_ptr,
+                        bool (*fill_fn)(int16_t scanline,
+                                        int16_t width,
+                                        uint16_t *rgb,
+                                        uint16_t config_ptr))
+{
+    // Test if valid
+    if (!vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, fill_fn))
+        return false;
+    // Remove all previous programming
+    for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
+        for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
+            if (vga_prog[i].fill_fn[j] == fill_fn)
+                vga_prog[i].fill_fn[j] = NULL;
+    // All good so do it for real
+    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, fill_fn);
 }

@@ -670,7 +670,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
 }
 
 static bool __attribute__((optimize("O1")))
-term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
+term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (width == 320)
         return term_render_320(scanline_id, rgb);
@@ -684,40 +684,30 @@ bool term_prog(uint16_t *xregs)
     int16_t scanline_begin = xregs[3];
     int16_t scanline_end = xregs[4];
     if (!scanline_end)
-        scanline_end = vga_height();
+        scanline_end = vga_canvas_height();
     int16_t scanline_count = scanline_end - scanline_begin;
 
-    // Validate
-    if (plane >= PICO_SCANVIDEO_PLANE_COUNT ||
-        scanline_begin < 0 ||
-        scanline_end > vga_height() ||
-        scanline_count < 1)
-        return false;
-
-    // Set terminal height
-    if (vga_height() == 320)
+    // Check terminal height
+    if (vga_canvas_height() == 320)
     {
         if (scanline_count % 8)
             return false;
-        term_state_set_height(&term_40, scanline_count / 8);
     }
     else
     {
         if (scanline_count % 16)
             return false;
-        term_state_set_height(&term_80, scanline_count / 16);
     }
 
-    // Remove all previous programming
-    for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
-        for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
-            if (vga_prog[i].fill[j] == term_render)
-                vga_prog[i].fill[j] = NULL;
-
     // Program the new scanlines
-    term_scanline_begin = scanline_begin;
-    for (uint16_t i = scanline_begin; i < scanline_end; i++)
-        vga_prog[i].fill[plane] = term_render;
-
-    return true;
+    if (vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, term_render))
+    {
+        if (vga_canvas_height() == 320)
+            term_state_set_height(&term_40, scanline_count / 8);
+        else
+            term_state_set_height(&term_80, scanline_count / 16);
+        term_scanline_begin = scanline_begin;
+        return true;
+    }
+    return false;
 }

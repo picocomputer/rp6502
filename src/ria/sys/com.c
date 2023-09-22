@@ -61,7 +61,6 @@ void com_init()
 
 void com_reset()
 {
-    puts("\30\33[0m");
     com_callback = NULL;
     com_binary_buf = NULL;
     com_line_buf = NULL;
@@ -136,6 +135,7 @@ static void com_line_state_C0(char ch)
     else if (ch == '\r')
     {
         printf("\n");
+        com_flush();
         com_line_buf[com_buflen] = 0;
         com_read_callback_t cc = com_callback;
         com_callback = NULL;
