@@ -18,6 +18,7 @@
 #include "pico/stdlib.h"
 #include <stdio.h>
 
+static bool needs_newline = true;
 static bool needs_prompt = true;
 
 typedef void (*mon_function)(const char *, size_t);
@@ -142,8 +143,12 @@ void mon_task()
 {
     if (needs_prompt && !mon_suspended())
     {
-        needs_prompt = false;
+        printf("\30\33[0m");
+        if (needs_newline)
+            putchar('\n');
         putchar(']');
+        needs_prompt = false;
+        needs_newline = false;
         com_read_line(com_readline_buf, COM_BUF_SIZE, 0, mon_enter);
     }
 }
@@ -151,4 +156,5 @@ void mon_task()
 void mon_reset()
 {
     needs_prompt = true;
+    needs_newline = true;
 }

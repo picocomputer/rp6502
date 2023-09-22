@@ -13,46 +13,32 @@
 
 typedef struct
 {
-    int16_t xpos_px;
-    int16_t ypos_px;
+    bool x_wrap;
+    bool y_wrap;
+    int16_t x_pos_px;
+    int16_t y_pos_px;
     int16_t width_px;
     int16_t height_px;
     uint16_t xram_data_ptr;
     uint16_t xram_palette_ptr;
 } mode3_config_t;
 
-typedef struct
+volatile const uint8_t *__attribute__((optimize("O1")))
+mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
 {
-    uint8_t font_code;
-    uint8_t attributes;
-    uint16_t fg_color;
-    uint16_t bg_color;
-} mode3_16bpp_data_t;
-
-static int16_t __attribute__((optimize("O1")))
-mode3_scanline_to_row(int16_t scanline_id, mode3_config_t *config, bool y_wrap)
-{
-    int16_t row = scanline_id - config->ypos_px;
-    int16_t height = config->height_px;
-    if (y_wrap)
+    int16_t row = scanline_id - config->y_pos_px;
+    const int16_t height = config->height_px;
+    if (config->y_wrap)
     {
         if (row < 0)
             row += (-(row + 1) / height + 1) * height;
         if (row >= height)
             row -= ((row - height) / height + 1) * height;
     }
-    if (row >= height)
-        row = -1;
-    return row;
-}
-
-volatile const uint8_t *__attribute__((optimize("O1")))
-mode3_row_to_data(int16_t row, mode3_config_t *config, int16_t bpp)
-{
-    if (row < 0 || config->width_px < 1 || config->height_px < 1)
+    if (row < 0 || row >= height || config->width_px < 1 || height < 1)
         return NULL;
     const int32_t sizeof_row = ((int32_t)config->width_px * bpp + 7) / 8;
-    const int32_t sizeof_bitmap = (int32_t)config->height_px * sizeof_row;
+    const int32_t sizeof_bitmap = (int32_t)height * sizeof_row;
     if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
         return NULL;
     return &xram[config->xram_data_ptr + row * sizeof_row];
@@ -69,18 +55,21 @@ mode3_get_palette(mode3_config_t *config, int16_t bpp)
 }
 
 static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_0r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *config, bool x_wrap)
+mode3_render_4bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    volatile const uint8_t *row_data = mode3_row_to_data(row, config, 4);
+    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
+        return false;
+    mode3_config_t *config = (void *)&xram[config_ptr];
+    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode3_get_palette(config, 4);
-    int16_t col = -config->xpos_px;
+    int16_t col = -config->x_pos_px;
     while (width)
     {
         if (col < 0)
         {
-            if (x_wrap)
+            if (config->x_wrap)
                 col += (-(col + 1) / config->width_px + 1) * config->width_px;
             else
             {
@@ -96,7 +85,7 @@ mode3_render_4bpp_0r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *
         }
         if (col >= config->width_px)
         {
-            if (x_wrap)
+            if (config->x_wrap)
                 col -= ((col - config->width_px) / config->width_px + 1) * config->width_px;
             else
             {
@@ -129,46 +118,21 @@ mode3_render_4bpp_0r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *
 }
 
 static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_00xy_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
+mode3_render_4bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    int16_t row = mode3_scanline_to_row(scanline_id, config, false);
-    return mode3_render_4bpp_0r(row, width, rgb, config, false);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_10xy_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, false);
-    return mode3_render_4bpp_0r(row, width, rgb, config, true);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_01xy_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, true);
-    return mode3_render_4bpp_0r(row, width, rgb, config, false);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_11xy_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, true);
-    return mode3_render_4bpp_0r(row, width, rgb, config, true);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_1r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *config, bool x_wrap)
-{
-    volatile const uint8_t *row_data = mode3_row_to_data(row, config, 4);
+    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
+        return false;
+    mode3_config_t *config = (void *)&xram[config_ptr];
+    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode3_get_palette(config, 4);
-    int16_t col = -config->xpos_px;
+    int16_t col = -config->x_pos_px;
     while (width)
     {
         if (col < 0)
         {
-            if (x_wrap)
+            if (config->x_wrap)
                 col += (-(col + 1) / config->width_px + 1) * config->width_px;
             else
             {
@@ -184,7 +148,7 @@ mode3_render_4bpp_1r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *
         }
         if (col >= config->width_px)
         {
-            if (x_wrap)
+            if (config->x_wrap)
                 col -= ((col - config->width_px) / config->width_px + 1) * config->width_px;
             else
             {
@@ -217,46 +181,21 @@ mode3_render_4bpp_1r(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *
 }
 
 static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_00xy_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
+mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    int16_t row = mode3_scanline_to_row(scanline_id, config, false);
-    return mode3_render_4bpp_1r(row, width, rgb, config, false);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_10xy_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, false);
-    return mode3_render_4bpp_1r(row, width, rgb, config, true);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_01xy_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, true);
-    return mode3_render_4bpp_1r(row, width, rgb, config, false);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_4bpp_11xy_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, true);
-    return mode3_render_4bpp_1r(row, width, rgb, config, true);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_8bpp(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *config, bool x_wrap)
-{
-    volatile const uint8_t *row_data = mode3_row_to_data(row, config, 8);
+    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
+        return false;
+    mode3_config_t *config = (void *)&xram[config_ptr];
+    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 8);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode3_get_palette(config, 8);
-    int16_t col = -config->xpos_px;
+    int16_t col = -config->x_pos_px;
     while (width)
     {
         if (col < 0)
         {
-            if (x_wrap)
+            if (config->x_wrap)
                 col += (-(col + 1) / config->width_px + 1) * config->width_px;
             else
             {
@@ -272,7 +211,7 @@ mode3_render_8bpp(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *con
         }
         if (col >= config->width_px)
         {
-            if (x_wrap)
+            if (config->x_wrap)
                 col -= ((col - config->width_px) / config->width_px + 1) * config->width_px;
             else
             {
@@ -287,107 +226,47 @@ mode3_render_8bpp(int16_t row, int16_t width, uint16_t *rgb, mode3_config_t *con
         volatile const uint8_t *data = &row_data[col];
         col += fill_cols;
         for (; fill_cols; fill_cols--)
-            *rgb++ = palette[*data];
+            *rgb++ = palette[*data++];
     }
     return true;
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_8bpp_00xy(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, false);
-    return mode3_render_8bpp(row, width, rgb, config, false);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_8bpp_10xy(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, false);
-    return mode3_render_8bpp(row, width, rgb, config, true);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_8bpp_01xy(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, true);
-    return mode3_render_8bpp(row, width, rgb, config, false);
-}
-
-static bool __attribute__((optimize("O1")))
-mode3_render_8bpp_11xy(int16_t scanline_id, int16_t width, uint16_t *rgb, void *config)
-{
-    int16_t row = mode3_scanline_to_row(scanline_id, config, true);
-    return mode3_render_8bpp(row, width, rgb, config, true);
-}
-
-static void *lookup_render_fn(uint16_t attributes)
-{
-    switch (attributes)
-    {
-    case 1:
-        return mode3_render_4bpp_00xy_0r;
-    case 2:
-        return mode3_render_8bpp_00xy;
-    case 5:
-        return mode3_render_4bpp_10xy_0r;
-    case 6:
-        return mode3_render_8bpp_10xy;
-    case 9:
-        return mode3_render_4bpp_01xy_0r;
-    case 10:
-        return mode3_render_8bpp_01xy;
-    case 13:
-        return mode3_render_4bpp_11xy_0r;
-    case 14:
-        return mode3_render_8bpp_11xy;
-    case 17:
-        return mode3_render_4bpp_00xy_1r;
-    case 18:
-        return mode3_render_8bpp_00xy;
-    case 21:
-        return mode3_render_4bpp_10xy_1r;
-    case 22:
-        return mode3_render_8bpp_10xy;
-    case 25:
-        return mode3_render_4bpp_01xy_1r;
-    case 26:
-        return mode3_render_8bpp_01xy;
-    case 29:
-        return mode3_render_4bpp_11xy_1r;
-    case 30:
-        return mode3_render_8bpp_11xy;
-    default:
-        return NULL;
-    }
 }
 
 bool mode3_prog(uint16_t *xregs)
 {
-    uint16_t attributes = xregs[3];
-    uint16_t plane = xregs[4];
-    int16_t scanline_begin = xregs[5];
-    int16_t scanline_end = xregs[6];
-    if (!scanline_end)
-        scanline_end = vga_height();
-    int16_t scanline_count = scanline_end - scanline_begin;
 
-    // Validate
-    if (xregs[2] > 0x10000 - sizeof(mode3_config_t) ||
-        attributes >= 32 ||
-        plane >= PICO_SCANVIDEO_PLANE_COUNT ||
-        scanline_begin < 0 ||
-        scanline_end > vga_height() ||
-        scanline_count < 1)
+    const uint16_t config_ptr = xregs[2];
+    const uint16_t attributes = xregs[3];
+    const int16_t plane = xregs[4];
+    const int16_t scanline_begin = xregs[5];
+    const int16_t scanline_end = xregs[6];
+
+    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
-    void *render_fn = lookup_render_fn(attributes);
-    if (!render_fn) // TODO remove after complete
-        return false;
-    mode3_config_t *config = (void *)&xram[xregs[2]];
-    for (int16_t i = scanline_begin; i < scanline_end; i++)
+    void *render_fn;
+    switch (attributes)
     {
-        vga_prog[i].fill_config[plane] = config;
-        vga_prog[i].fill[plane] = render_fn;
-    }
-    return true;
+    // case 0:
+    //     render_fn= mode3_render_1bpp_0r;
+    // break;
+    case 1:
+        render_fn = mode3_render_4bpp_0r;
+        break;
+    case 2:
+        render_fn = mode3_render_8bpp;
+        break;
+    // case 3:
+    //     render_fn= mode3_render_16bpp;
+    // break;
+    // case 4:
+    //     render_fn= mode3_render_1bpp_1r;
+    // break;
+    case 5:
+        render_fn = mode3_render_4bpp_1r;
+        break;
+    default:
+        return false;
+    };
+
+    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }
