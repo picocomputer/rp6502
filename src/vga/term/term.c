@@ -683,26 +683,28 @@ bool term_prog(uint16_t *xregs)
     int16_t plane = xregs[2];
     int16_t scanline_begin = xregs[3];
     int16_t scanline_end = xregs[4];
+    int16_t height = vga_canvas_height();
+    if (!scanline_begin && !scanline_end)
+    {
+        // Special case to make defaults work with widescreen
+        if (height == 180)
+            scanline_begin = 2, scanline_end = 178;
+        if (height == 360)
+            scanline_begin = 4, scanline_end = 356;
+    }
     if (!scanline_end)
-        scanline_end = vga_canvas_height();
+        scanline_end = height;
     int16_t scanline_count = scanline_end - scanline_begin;
+    bool use_40 = height == 180 || height == 240;
 
-    // Check terminal height
-    if (vga_canvas_height() == 320)
-    {
-        if (scanline_count % 8)
-            return false;
-    }
-    else
-    {
-        if (scanline_count % 16)
-            return false;
-    }
+    // Check for terminal height is multiple of font height
+    if (scanline_count % (use_40 ? 8 : 16))
+        return false;
 
     // Program the new scanlines
     if (vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, term_render))
     {
-        if (vga_canvas_height() == 320)
+        if (use_40)
             term_state_set_height(&term_40, scanline_count / 8);
         else
             term_state_set_height(&term_80, scanline_count / 16);
