@@ -204,16 +204,16 @@ void rom_mon_install(const char *args, size_t len)
 {
     // Strip special extension, validate and upcase name
     char lfs_name[LFS_NAME_MAX + 1];
-    size_t lfs_name_len = strlen(args);
+    size_t lfs_name_len = len;
+    while (lfs_name_len && args[lfs_name_len - 1] == ' ')
+        lfs_name_len--;
     if (lfs_name_len > 7)
         if (!strnicmp(".RP6502", args + lfs_name_len - 7, 7))
             lfs_name_len -= 7;
     if (lfs_name_len > LFS_NAME_MAX)
         lfs_name_len = 0;
-    while (lfs_name_len && args[lfs_name_len - 1] == ' ')
-        lfs_name_len--;
-    lfs_name[lfs_name_len] = 0; // strncpy is garbage
-    strncpy(lfs_name, args, lfs_name_len);
+    lfs_name[lfs_name_len] = 0;
+    memcpy(lfs_name, args, lfs_name_len);
     for (size_t i = 0; i < lfs_name_len; i++)
     {
         if (lfs_name[i] >= 'a' && lfs_name[i] <= 'z')
@@ -224,7 +224,8 @@ void rom_mon_install(const char *args, size_t len)
             continue;
         lfs_name_len = 0;
     }
-    if (!lfs_name_len || mon_command_exists(args, len))
+    // TODO also exclude help arguments
+    if (!lfs_name_len || mon_command_exists(lfs_name, lfs_name_len))
     {
         printf("?Invalid ROM name.\n");
         return;
