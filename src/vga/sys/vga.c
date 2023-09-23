@@ -44,6 +44,7 @@ static vga_canvas_t vga_canvas_selected;
 static volatile scanvideo_mode_t const *vga_scanvideo_mode_current;
 static scanvideo_mode_t const *vga_scanvideo_mode_selected;
 static volatile bool vga_scanvideo_mode_switching;
+static volatile bool vga_scanvideo_mode_switched;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
@@ -323,6 +324,12 @@ vga_render_loop(void)
             mutex_exit(&vga_mutex);
             ria_vsync();
         }
+        if (vga_scanvideo_mode_switched)
+        {
+            // stay off for two frames so displays will resync
+            vga_scanvideo_mode_switched = false;
+            busy_wait_ms(17 * 2);
+        }
     }
 }
 
@@ -484,6 +491,7 @@ void vga_task(void)
             return;
         vga_scanvideo_start();
         vga_scanvideo_mode_switching = false;
+        vga_scanvideo_mode_switched = true;
         mutex_exit(&vga_mutex);
     }
 }
