@@ -49,7 +49,7 @@ static struct
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
-// Returns 0 if not found. Advances buf to start of args.
+// Returns NULL if not found. Advances buf to start of args.
 static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
 {
     size_t i;
@@ -99,7 +99,7 @@ static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
             if (!strnicmp(cmd, COMMANDS[i].cmd, cmd_len))
                 return COMMANDS[i].func;
     }
-    return 0;
+    return NULL;
 }
 
 bool mon_command_exists(const char *buf, uint8_t buflen)

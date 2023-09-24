@@ -310,7 +310,16 @@ vga_render_loop(void)
     assert(PICO_SCANVIDEO_PLANE_COUNT == 3);
     while (true)
     {
-        if (!vga_scanvideo_mode_switching)
+        if (vga_scanvideo_mode_switched)
+        {
+            // stay off for two frames so displays will resync
+            vga_scanvideo_mode_switched = false;
+            busy_wait_us_32(16667);
+            ria_vsync();
+            busy_wait_us_32(16667);
+            ria_vsync();
+        }
+        else if (!vga_scanvideo_mode_switching)
         {
             mutex_enter_blocking(&vga_mutex);
             const int16_t height = vga_scanvideo_mode_current->height;
@@ -323,12 +332,6 @@ vga_render_loop(void)
             }
             mutex_exit(&vga_mutex);
             ria_vsync();
-        }
-        if (vga_scanvideo_mode_switched)
-        {
-            // stay off for two frames so displays will resync
-            vga_scanvideo_mode_switched = false;
-            busy_wait_ms(17 * 2);
         }
     }
 }
@@ -489,9 +492,9 @@ void vga_task(void)
     {
         if (!mutex_try_enter(&vga_mutex, 0))
             return;
+        vga_scanvideo_mode_switched = true;
         vga_scanvideo_start();
         vga_scanvideo_mode_switching = false;
-        vga_scanvideo_mode_switched = true;
         mutex_exit(&vga_mutex);
     }
 }

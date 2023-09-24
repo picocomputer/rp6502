@@ -6,15 +6,6 @@
     "launch": {
       "visibility": "hidden"
     },
-    "launchTarget": {
-      "visibility": "default"
-    },
-    "build": {
-      "visibility": "default"
-    },
-    "buildTarget": {
-      "visibility": "hidden"
-    },
   },
   "cmake.buildBeforeRun": true,
   "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",

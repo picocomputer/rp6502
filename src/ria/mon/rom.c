@@ -7,6 +7,7 @@
 #include "main.h"
 #include "str.h"
 #include "api/api.h"
+#include "mon/hlp.h"
 #include "mon/mon.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
@@ -224,8 +225,10 @@ void rom_mon_install(const char *args, size_t len)
             continue;
         lfs_name_len = 0;
     }
-    // TODO also exclude help arguments
-    if (!lfs_name_len || mon_command_exists(lfs_name, lfs_name_len))
+    // Test for system conflicts
+    if (!lfs_name_len ||
+        mon_command_exists(lfs_name, lfs_name_len) ||
+        help_text_lookup(lfs_name, lfs_name_len))
     {
         printf("?Invalid ROM name.\n");
         return;
@@ -353,6 +356,8 @@ void rom_mon_info(const char *args, size_t len)
         puts("?No help found in file.");
 }
 
+// Returns false and prints nothing if ROM not found.
+// Something will always print before returning true.
 bool rom_help_lfs(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
