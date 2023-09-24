@@ -12,5 +12,6 @@
 
 // Monitor commands
 void hlp_mon_help(const char *args, size_t len);
+const char *help_text_lookup(const char *args, size_t len);
 
 #endif /* _HLP_H_ */
