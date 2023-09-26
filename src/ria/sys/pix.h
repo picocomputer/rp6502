@@ -19,7 +19,7 @@ void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 // API to set XREGs
 void pix_ack(void);
 void pix_nak(void);
-void pix_api_set_xreg(void);
+void pix_api_xreg(void);
 
 #define PIX_PIO pio1
 #define PIX_SM 1

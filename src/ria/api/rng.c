@@ -8,7 +8,7 @@
 #include "api/rng.h"
 #include "pico/rand.h"
 
-void rng_api_rand32()
+void rng_api_lrand()
 {
     // The Pi Pico SDK random is perfect here.
     return api_return_axsreg(get_rand_32());

@@ -8,7 +8,6 @@
 #include "api/api.h"
 #include "sys/cfg.h"
 #include "sys/pix.h"
-#include "sys/vga.h"
 #include "sys.pio.h"
 #include "fatfs/ff.h"
 #include "pico/stdlib.h"
@@ -68,7 +67,7 @@ void pix_nak(void)
     return api_return_errno(API_EINVAL);
 }
 
-void pix_api_set_xreg(void)
+void pix_api_xreg(void)
 {
     static uint8_t pix_device;
     static uint8_t pix_channel;
@@ -79,14 +78,9 @@ void pix_api_set_xreg(void)
     {
         if (absolute_time_diff_us(get_absolute_time(), pix_ack_timer) < 0)
         {
-            if (vga_backchannel())
-            {
-                pix_wait_for_vga_ack = false;
-                pix_send_count = 0;
-                return api_return_errno(API_EIO);
-            }
-            else
-                pix_ack();
+            pix_wait_for_vga_ack = false;
+            pix_send_count = 0;
+            return api_return_errno(API_EIO);
         }
         return;
     }

@@ -44,7 +44,7 @@ static vga_canvas_t vga_canvas_selected;
 static volatile scanvideo_mode_t const *vga_scanvideo_mode_current;
 static scanvideo_mode_t const *vga_scanvideo_mode_selected;
 static volatile bool vga_scanvideo_mode_switching;
-static volatile bool vga_scanvideo_mode_switched;
+static volatile bool vga_scanvideo_mode_resync;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
@@ -310,14 +310,17 @@ vga_render_loop(void)
     assert(PICO_SCANVIDEO_PLANE_COUNT == 3);
     while (true)
     {
-        if (vga_scanvideo_mode_switched)
+        if (vga_scanvideo_mode_resync)
         {
-            // stay off for two frames so displays will resync
-            vga_scanvideo_mode_switched = false;
-            busy_wait_us_32(16667);
-            ria_vsync();
-            busy_wait_us_32(16667);
-            ria_vsync();
+            vga_scanvideo_mode_resync = false;
+            // Stay off for 50+ ms to signal that we're switching.
+            // Not sure if this is helpful or what the delay should be.
+            // It just seems the polite thing to do.
+            for (int16_t i = 0; i < 4; i++)
+            {
+                busy_wait_us_32(16667);
+                ria_vsync();
+            }
         }
         else if (!vga_scanvideo_mode_switching)
         {
@@ -379,56 +382,69 @@ static void vga_scanvideo_update(void)
     }
     // trigger only if change detected
     if (vga_scanvideo_mode_selected != vga_scanvideo_mode_current)
+    {
+        vga_scanvideo_mode_resync = true;
         vga_scanvideo_mode_switching = true;
+    }
 }
 
-static void vga_scanvideo_start(void)
+static void vga_scanvideo_switch(void)
 {
-    // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
-    // Until it does, a brute force shutdown between frames seems to work.
 
-    // Stop and release resources previously held by scanvideo_setup()
-    for (int i = 0; i < 3; i++)
+    if (vga_scanvideo_mode_switching)
     {
-        dma_channel_abort(i);
-        if (dma_channel_is_claimed(i))
-            dma_channel_unclaim(i);
+        if (!mutex_try_enter(&vga_mutex, 0))
+            return;
+
+        // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
+        // Until it does, a brute force shutdown between frames seems to work.
+
+        // Stop and release resources previously held by scanvideo_setup()
+        for (int i = 0; i < 3; i++)
+        {
+            dma_channel_abort(i);
+            if (dma_channel_is_claimed(i))
+                dma_channel_unclaim(i);
+        }
+        pio_clear_instruction_memory(pio0);
+
+        // scanvideo_timing_enable is almost able to stop itself
+        for (int sm = 0; sm < 4; sm++)
+            if (pio_sm_is_claimed(pio0, sm))
+                pio_sm_unclaim(pio0, sm);
+        scanvideo_timing_enable(false);
+        for (int sm = 0; sm < 4; sm++)
+            if (pio_sm_is_claimed(pio0, sm))
+                pio_sm_unclaim(pio0, sm);
+
+        // begin scanvideo setup with clock setup
+        uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
+        if (clk == 25200000)
+            clk = 25200000 * 8; // 201.6 MHz
+        else if (clk == 54000000)
+            clk = 54000000 * 4; // 216.0 MHz
+        else if (clk == 37125000)
+            clk = 37125000 * 5; // 185.625 MHz
+        assert(clk >= 120000000 && clk <= 266000000);
+        if (clk != clock_get_hz(clk_sys))
+        {
+            main_flush();
+            set_sys_clock_khz(clk / 1000, true);
+            main_reclock();
+        }
+
+        // These two calls are the main scanvideo startup
+        scanvideo_setup(vga_scanvideo_mode_selected);
+        scanvideo_timing_enable(true);
+
+        // Swap in the new config
+        vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
+        vga_display_current = vga_display_selected;
+        vga_canvas_current = vga_canvas_selected;
+        vga_scanvideo_mode_switching = false;
+
+        mutex_exit(&vga_mutex);
     }
-    pio_clear_instruction_memory(pio0);
-
-    // scanvideo_timing_enable is almost able to stop itself
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(pio0, sm))
-            pio_sm_unclaim(pio0, sm);
-    scanvideo_timing_enable(false);
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(pio0, sm))
-            pio_sm_unclaim(pio0, sm);
-
-    // begin scanvideo setup with clock setup
-    uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
-    if (clk == 25200000)
-        clk = 25200000 * 8; // 201.6 MHz
-    else if (clk == 54000000)
-        clk = 54000000 * 4; // 216.0 MHz
-    else if (clk == 37125000)
-        clk = 37125000 * 5; // 185.625 MHz
-    assert(clk >= 120000000 && clk <= 266000000);
-    if (clk != clock_get_hz(clk_sys))
-    {
-        main_flush();
-        set_sys_clock_khz(clk / 1000, true);
-        main_reclock();
-    }
-
-    // These two calls are the main scanvideo startup
-    scanvideo_setup(vga_scanvideo_mode_selected);
-    scanvideo_timing_enable(true);
-
-    // Swap in the new config
-    vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
-    vga_display_current = vga_display_selected;
-    vga_canvas_current = vga_canvas_selected;
 }
 
 static void vga_reset_console_prog()
@@ -481,22 +497,13 @@ void vga_init(void)
     mutex_init(&vga_mutex);
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
-    vga_scanvideo_start();
-    vga_scanvideo_mode_switching = false;
+    vga_scanvideo_switch();
     multicore_launch_core1(vga_render_loop);
 }
 
 void vga_task(void)
 {
-    if (vga_scanvideo_mode_switching)
-    {
-        if (!mutex_try_enter(&vga_mutex, 0))
-            return;
-        vga_scanvideo_mode_switched = true;
-        vga_scanvideo_start();
-        vga_scanvideo_mode_switching = false;
-        mutex_exit(&vga_mutex);
-    }
+    vga_scanvideo_switch();
 }
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,

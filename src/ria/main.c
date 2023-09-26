@@ -155,37 +155,37 @@ bool main_api(uint8_t operation)
     switch (operation)
     {
     case 0x01:
-        std_api_open();
+        pix_api_xreg();
         break;
-    case 0x04:
-        std_api_close();
-        break;
-    case 0x05:
-        std_api_read_xstack();
-        break;
-    case 0x06:
-        std_api_read_xram();
-        break;
-    case 0x08:
-        std_api_write_xstack();
-        break;
-    case 0x09:
-        std_api_write_xram();
-        break;
-    case 0x0B:
-        std_api_lseek();
-        break;
-    case 0x10:
-        pix_api_set_xreg();
-        break;
-    case 0x11:
+    case 0x02:
         cpu_api_phi2();
         break;
-    case 0x12:
+    case 0x03:
         oem_api_codepage();
         break;
-    case 0x13:
-        rng_api_rand32();
+    case 0x04:
+        rng_api_lrand();
+        break;
+    case 0x14:
+        std_api_open();
+        break;
+    case 0x15:
+        std_api_close();
+        break;
+    case 0x16:
+        std_api_read_xstack();
+        break;
+    case 0x17:
+        std_api_read_xram();
+        break;
+    case 0x18:
+        std_api_write_xstack();
+        break;
+    case 0x19:
+        std_api_write_xram();
+        break;
+    case 0x1A:
+        std_api_lseek();
         break;
     default:
         return false;
