@@ -438,7 +438,6 @@ mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t c
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 16);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode3_get_palette(config, 16);
     int16_t col = -config->x_pos_px;
     while (width)
     {
@@ -483,8 +482,8 @@ mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t c
 bool mode3_prog(uint16_t *xregs)
 {
 
-    const uint16_t config_ptr = xregs[2];
-    const uint16_t attributes = xregs[3];
+    const uint16_t attributes = xregs[2];
+    const uint16_t config_ptr = xregs[3];
     const int16_t plane = xregs[4];
     const int16_t scanline_begin = xregs[5];
     const int16_t scanline_end = xregs[6];
