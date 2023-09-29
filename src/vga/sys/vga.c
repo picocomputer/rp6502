@@ -330,11 +330,20 @@ vga_render_loop(void)
             {
                 scanvideo_scanline_buffer_t *const scanline_buffer =
                     scanvideo_begin_scanline_generation(true);
+                // The vblank "pause" between frames happens after the
+                // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT (8) scanlines
+                // have been rendered, not between frames. This is because
+                // the queue is always trying to stay that far ahead. This
+                // hack injects a pause where it's supposed to be.
+                if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
+                {
+                    ria_vsync();
+                    busy_wait_us_32(750);
+                }
                 vga_render_scanline(scanline_buffer);
                 scanvideo_end_scanline_generation(scanline_buffer);
             }
             mutex_exit(&vga_mutex);
-            ria_vsync();
         }
     }
 }
@@ -424,7 +433,7 @@ static void vga_scanvideo_switch(void)
         else if (clk == 54000000)
             clk = 54000000 * 4; // 216.0 MHz
         else if (clk == 37125000)
-            clk = 37125000 * 5; // 185.625 MHz
+            clk = 37125000 * 4; // 148.5 MHz
         assert(clk >= 120000000 && clk <= 266000000);
         if (clk != clock_get_hz(clk_sys))
         {
@@ -433,7 +442,9 @@ static void vga_scanvideo_switch(void)
             main_reclock();
         }
 
-        // These two calls are the main scanvideo startup
+        // These two calls are the main scanvideo startup.
+        // There's a memory leak in scanvideo_setup which is
+        // patched in the fork we use.
         scanvideo_setup(vga_scanvideo_mode_selected);
         scanvideo_timing_enable(true);
 
