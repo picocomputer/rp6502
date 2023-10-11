@@ -47,7 +47,8 @@ mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
 volatile const uint16_t *__attribute__((optimize("O1")))
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
-    if (config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
+    if (!(config->xram_palette_ptr & 1) &&
+        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
         return (uint16_t *)&xram[config->xram_palette_ptr];
     if (bpp == 1)
         return color_2;
@@ -435,8 +436,8 @@ mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t c
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
-    volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 16);
-    if (!row_data)
+    volatile const uint16_t *row_data = (uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
+    if (!row_data || (uint32_t)row_data & 1)
         return false;
     int16_t col = -config->x_pos_px;
     while (width)
@@ -471,7 +472,7 @@ mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t c
         if (fill_cols > config->width_px - col)
             fill_cols = config->width_px - col;
         width -= fill_cols;
-        volatile const uint16_t *data = (void *)&row_data[col];
+        volatile const uint16_t *data = &row_data[col];
         col += fill_cols;
         for (; fill_cols; fill_cols--)
             *rgb++ = *data++;
@@ -488,7 +489,8 @@ bool mode3_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[5];
     const int16_t scanline_end = xregs[6];
 
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
+    if (config_ptr & 1 ||
+        config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
     void *render_fn;
