@@ -27,5 +27,7 @@ bool cfg_set_codepage(uint32_t cp);
 uint16_t cfg_get_codepage();
 bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga();
+bool cfg_set_timezone(const char *timezone);
+const char* cfg_get_timezone(void);
 
 #endif /* _CFG_H_ */

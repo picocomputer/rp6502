@@ -11,6 +11,7 @@
 #include "api/rng.h"
 #include "api/rtc.h"
 #include "api/std.h"
+#include "api/rtc.h"
 #include "aud/aud.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
@@ -26,6 +27,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/kbd.h"
+#include "hardware/rtc.h"
 
 /**************************************/
 /* All kernel modules register below. */
@@ -58,6 +60,7 @@ static void init()
     kbd_init();
     rom_init();
     led_init();
+    rtc_init_();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);

@@ -187,6 +187,24 @@ static void set_vga(const char *args, size_t len)
     set_print_vga();
 }
 
+static void set_print_timezone()
+{
+    printf("TZ : %s\n", cfg_get_timezone());
+}
+
+static void set_timezone(const char *args, size_t len)
+{
+    if (len)
+    {
+        if (!cfg_set_timezone(args))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_timezone();
+}
+
 typedef void (*set_function)(const char *, size_t);
 static struct
 {
@@ -200,6 +218,7 @@ static struct
     {4, "boot", set_boot},
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
+    {2, "tz", set_timezone},
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
@@ -211,6 +230,7 @@ static void set_print_all(void)
     set_print_boot();
     set_print_code_page();
     set_print_vga();
+    set_print_timezone();
 }
 
 void set_mon_set(const char *args, size_t len)
