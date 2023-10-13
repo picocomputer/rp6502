@@ -64,7 +64,7 @@ static int cpu_caps(int ch)
 static int cpu_getchar_fifo()
 {
     if (&CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
-        return cpu_caps(CPU_RX_BUF(++cpu_rx_tail));
+        return CPU_RX_BUF(++cpu_rx_tail);
     return -1;
 }
 
@@ -186,18 +186,21 @@ void cpu_com_rx(uint8_t ch)
         CPU_RX_BUF(++cpu_rx_head) = ch;
 }
 
+// Used by std.c to get stdin destined for the CPU.
+// Mixing RIA register input with read() calls isn't perfect.
+// Even with a mutex, nulls may appear from RIA register.
 int cpu_getchar(void)
 {
-    // Get char from RIA register
+    // Steal char from RIA register
     if (REGS(0xFFE0) & 0b01000000)
     {
         REGS(0xFFE0) &= ~0b01000000;
         int ch = REGS(0xFFE2);
-        // Imperfect, so replace char with null
+        // Replace char with null
         REGS(0xFFE2) = 0;
         return cpu_caps(ch);
     }
-    // Get char from action loop queue
+    // Steal char from action loop queue
     if (cpu_rx_char >= 0)
     {
         int ch = cpu_rx_char;

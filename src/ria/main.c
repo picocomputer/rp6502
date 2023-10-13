@@ -104,7 +104,6 @@ static void stop()
     cpu_stop(); // Must be first
     ria_stop();
     pix_stop();
-    vga_stop();
     std_stop();
 }
 

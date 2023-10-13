@@ -309,10 +309,10 @@ void rom_mon_remove(const char *args, size_t len)
         }
         int lfsresult = lfs_remove(&lfs_volume, lfs_name);
         if (lfsresult < 0)
-        {
+
             printf("?Unable to lfs_remove (%d)\n", lfsresult);
-        }
-        printf("Removed %s.\n", lfs_name);
+        else
+            printf("Removed %s.\n", lfs_name);
         return;
     }
     printf("?Invalid ROM name\n");
