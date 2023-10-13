@@ -22,15 +22,15 @@
 extern char com_readline_buf[COM_BUF_SIZE];
 
 // Kernel events
-void com_task();
-void com_init();
-void com_reset();
-void com_reclock();
+void com_task(void);
+void com_init(void);
+void com_reset(void);
+void com_reclock(void);
 
 // Blocks until all buffers empty.
 // This is called before a clock change.
 // It shouldn't be used elsewhere.
-void com_flush();
+void com_flush(void);
 
 // Both types of reads guarantee this callback unless a
 // break event happens. Timeout is true when input is idle too long.
@@ -47,7 +47,7 @@ void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callbac
 extern volatile size_t com_tx_tail;
 extern volatile size_t com_tx_head;
 extern volatile uint8_t com_tx_buf[32];
-#define COM_TX_BUF(pos) com_tx_buf[(pos)&0x1F]
+#define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
 static inline bool com_tx_writable(void)
 {

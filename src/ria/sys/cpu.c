@@ -17,7 +17,12 @@ volatile int cpu_rx_char;
 static size_t cpu_rx_tail;
 static size_t cpu_rx_head;
 static uint8_t cpu_rx_buf[32];
-#define CPU_RX_BUF(pos) cpu_rx_buf[(pos)&0x1F]
+#define CPU_RX_BUF(pos) cpu_rx_buf[(pos) & 0x1F]
+
+static bool cpu_readline;
+static bool cpu_readline_needs_nl;
+static size_t cpu_readline_pos;
+static size_t cpu_readline_length;
 
 void cpu_init()
 {
@@ -38,6 +43,31 @@ void cpu_reclock()
         cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
 
+static int cpu_caps(int ch)
+{
+    switch (cfg_get_caps())
+    {
+    case 1:
+        if (ch >= 'A' && ch <= 'Z')
+        {
+            ch += 32;
+            break;
+        }
+        // fall through
+    case 2:
+        if (ch >= 'a' && ch <= 'z')
+            ch -= 32;
+    }
+    return ch;
+}
+
+static int cpu_getchar_fifo()
+{
+    if (&CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
+        return cpu_caps(CPU_RX_BUF(++cpu_rx_tail));
+    return -1;
+}
+
 void cpu_task()
 {
     // Enforce minimum RESB time
@@ -49,24 +79,8 @@ void cpu_task()
     }
 
     // Move UART FIFO into action loop
-    if (cpu_rx_char < 0 && &CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
-    {
-        int ch = CPU_RX_BUF(++cpu_rx_tail);
-        switch (cfg_get_caps())
-        {
-        case 1:
-            if (ch >= 'A' && ch <= 'Z')
-            {
-                ch += 32;
-                break;
-            }
-            // fall through
-        case 2:
-            if (ch >= 'a' && ch <= 'z')
-                ch -= 32;
-        }
-        cpu_rx_char = ch;
-    }
+    if (cpu_rx_char < 0)
+        cpu_rx_char = cpu_caps(cpu_getchar_fifo());
 }
 
 static void clear_com_rx_fifo()
@@ -84,6 +98,10 @@ void cpu_run()
 void cpu_stop()
 {
     clear_com_rx_fifo();
+    cpu_readline = false;
+    cpu_readline_needs_nl = false;
+    cpu_readline_pos = 0;
+    cpu_readline_length = 0;
     cpu_run_requested = false;
     if (gpio_get(CPU_RESB_PIN))
     {
@@ -166,4 +184,72 @@ void cpu_com_rx(uint8_t ch)
     // discarding overflow
     if (&CPU_RX_BUF(cpu_rx_head + 1) != &CPU_RX_BUF(cpu_rx_tail))
         CPU_RX_BUF(++cpu_rx_head) = ch;
+}
+
+int cpu_getchar(void)
+{
+    // Get char from RIA register
+    if (REGS(0xFFE0) & 0b01000000)
+    {
+        REGS(0xFFE0) &= ~0b01000000;
+        int ch = REGS(0xFFE2);
+        // Imperfect, so replace char with null
+        REGS(0xFFE2) = 0;
+        return cpu_caps(ch);
+    }
+    // Get char from action loop queue
+    if (cpu_rx_char >= 0)
+    {
+        int ch = cpu_rx_char;
+        cpu_rx_char = -1;
+        return cpu_caps(ch);
+    }
+    // Get char from FIFO
+    int ch = cpu_getchar_fifo();
+    // Get char from UART
+    if (ch < 0)
+        ch = getchar_timeout_us(0);
+    return cpu_caps(ch);
+}
+
+static void cpu_enter(bool timeout, size_t length)
+{
+    (void)timeout;
+    assert(!timeout);
+    cpu_readline = false;
+    cpu_readline_pos = 0;
+    cpu_readline_length = length;
+    cpu_readline_needs_nl = true;
+}
+
+void cpu_stdin_request(void)
+{
+    if (!cpu_readline_needs_nl)
+    {
+        cpu_readline = true;
+        com_read_line(com_readline_buf, COM_BUF_SIZE, 0, cpu_enter);
+        // TODO send rx buf
+    }
+}
+
+bool cpu_stdin_ready(void)
+{
+    return !cpu_readline;
+}
+
+size_t cpu_stdin_read(uint8_t *buf, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count && cpu_readline_pos < cpu_readline_length; i++)
+    {
+        if (cpu_readline_pos >= cpu_readline_length)
+            return 0;
+        buf[i] = com_readline_buf[cpu_readline_pos++];
+    }
+    if (i < count && cpu_readline_needs_nl)
+    {
+        buf[i++] = '\n';
+        cpu_readline_needs_nl = false;
+    }
+    return i;
 }

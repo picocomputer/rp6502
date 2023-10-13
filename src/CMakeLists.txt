@@ -9,7 +9,7 @@ target_include_directories(tinyusb_vga PRIVATE
 
 file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
 
-target_link_libraries(tinyusb_vga PUBLIC
+target_link_libraries(tinyusb_vga PRIVATE
     pico_stdlib
 )
 
