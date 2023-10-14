@@ -127,7 +127,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
         {
         case HID_ITF_PROTOCOL_KEYBOARD:
             has_keyboard = true;
-            kbd_set_hid_leds();
+            kbd_hid_leds_dirty();
             break;
         case HID_ITF_PROTOCOL_MOUSE:
             has_mouse = true;

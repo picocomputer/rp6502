@@ -30,25 +30,16 @@ static char kbd_key_queue[8];
 static uint8_t kbd_key_queue_in = 0;
 static uint8_t kbd_key_queue_out = 0;
 static uint8_t kdb_hid_leds = 0;
+static bool kdb_hid_leds_need_report;
 
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
 
-void kbd_set_hid_leds()
+void kbd_hid_leds_dirty()
 {
-    for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
-    {
-        for (uint8_t inst = 0; inst < CFG_TUH_HID; inst++)
-        {
-            uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, inst);
-            if (HID_ITF_PROTOCOL_KEYBOARD == itf_protocol)
-            {
-                tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &kdb_hid_leds, sizeof(kdb_hid_leds));
-            }
-        }
-    }
+    kdb_hid_leds_need_report = true;
 }
 
 static void kbd_queue_key_str(const char *str)
@@ -115,7 +106,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         case HID_KEY_CAPS_LOCK:
             kdb_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
-            kbd_set_hid_leds();
+            kbd_hid_leds_dirty();
             break;
         }
     switch (keycode)
@@ -202,5 +193,15 @@ void kbd_task()
             }
         }
         kbd_repeat_keycode = 0;
+    }
+
+    if (kdb_hid_leds_need_report)
+    {
+        kdb_hid_leds_need_report = false;
+        for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
+            for (uint8_t instance = 0; instance < CFG_TUH_HID; instance++)
+                if (tuh_hid_interface_protocol(dev_addr, instance) == HID_ITF_PROTOCOL_KEYBOARD)
+                    tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT,
+                                       &kdb_hid_leds, sizeof(kdb_hid_leds));
     }
 }
