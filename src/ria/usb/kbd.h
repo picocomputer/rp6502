@@ -12,5 +12,6 @@
 void kbd_init();
 void kbd_task();
 void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report);
+void kbd_set_hid_leds();
 
 #endif /* _KBD_H_ */

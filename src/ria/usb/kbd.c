@@ -29,11 +29,27 @@ static hid_keyboard_report_t kbd_prev_report = {0, 0, {0, 0, 0, 0, 0, 0}};
 static char kbd_key_queue[8];
 static uint8_t kbd_key_queue_in = 0;
 static uint8_t kbd_key_queue_out = 0;
+static uint8_t kdb_hid_leds = 0;
 
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
+
+void kbd_set_hid_leds()
+{
+    for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
+    {
+        for (uint8_t inst = 0; inst < CFG_TUH_HID; inst++)
+        {
+            uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, inst);
+            if (HID_ITF_PROTOCOL_KEYBOARD == itf_protocol)
+            {
+                tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &kdb_hid_leds, sizeof(kdb_hid_leds));
+            }
+        }
+    }
+}
 
 static void kbd_queue_key_str(const char *str)
 {
@@ -74,6 +90,13 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         else
             ch = 0;
     }
+    if (kdb_hid_leds & KEYBOARD_LED_CAPSLOCK)
+    {
+        if (ch >= 'A' && ch <= 'Z')
+            ch += 32;
+        else if (ch >= 'a' && ch <= 'z')
+            ch -= 32;
+    }
     if (ch)
     {
         kbd_key_queue[++kbd_key_queue_in & 7] = ch;
@@ -91,7 +114,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             }
             break;
         case HID_KEY_CAPS_LOCK:
-            // TODO
+            kdb_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
+            kbd_set_hid_leds();
             break;
         }
     switch (keycode)
@@ -180,21 +204,3 @@ void kbd_task()
         kbd_repeat_keycode = 0;
     }
 }
-
-// TODO Retest. This works, but not through a USB hub.
-//      It's too confusing without the LED.
-// static void kbd_set_leds()
-// {
-//     static uint8_t hid_leds = KEYBOARD_LED_SCROLLLOCK;
-//     for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
-//     {
-//         for (uint8_t inst = 0; inst < CFG_TUH_HID; inst++)
-//         {
-//             uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, inst);
-//             if (HID_ITF_PROTOCOL_KEYBOARD == itf_protocol)
-//             {
-//                 tuh_hid_set_report(dev_addr, inst, 0, HID_REPORT_TYPE_OUTPUT, &hid_leds, sizeof(hid_leds));
-//             }
-//         }
-//     }
-// }

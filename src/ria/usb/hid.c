@@ -69,10 +69,11 @@ static void hid_generic_report(uint8_t dev_addr, uint8_t instance, uint8_t const
 
 static void hid_mouse_report(hid_mouse_report_t const *report)
 {
-    printf("(%d %d %d) %c%c%c\n", report->x, report->y, report->wheel,
-           report->buttons & MOUSE_BUTTON_LEFT ? 'L' : '-',
-           report->buttons & MOUSE_BUTTON_MIDDLE ? 'M' : '-',
-           report->buttons & MOUSE_BUTTON_RIGHT ? 'R' : '-');
+    (void)report;
+    // printf("(%d %d %d) %c%c%c\n", report->x, report->y, report->wheel,
+    //        report->buttons & MOUSE_BUTTON_LEFT ? 'L' : '-',
+    //        report->buttons & MOUSE_BUTTON_MIDDLE ? 'M' : '-',
+    //        report->buttons & MOUSE_BUTTON_RIGHT ? 'R' : '-');
 }
 
 static bool hid_receive_report(uint8_t dev_addr, uint8_t instance)
@@ -126,6 +127,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_re
         {
         case HID_ITF_PROTOCOL_KEYBOARD:
             has_keyboard = true;
+            kbd_set_hid_leds();
             break;
         case HID_ITF_PROTOCOL_MOUSE:
             has_mouse = true;
