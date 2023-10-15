@@ -26,10 +26,10 @@ void pix_api_xreg(void);
 
 // Well known PIX devices. 2-6 are for user expansion.
 // RIA device 0 is virtual, not on the physical PIX bus.
-#define PIX_XRAM_DEV 0
-#define PIX_RIA_DEV 0
-#define PIX_VGA_DEV 1
-#define PIX_IDLE_DEV 7
+#define PIX_DEVICE_XRAM 0
+#define PIX_DEVICE_RIA 0
+#define PIX_DEVICE_VGA 1
+#define PIX_DEVICE_IDLE 7
 
 // Bit 28 always 1, bits [31:29] for device id, etc.
 #define PIX_MESSAGE(dev, ch, byte, word) \
@@ -37,7 +37,7 @@ void pix_api_xreg(void);
 
 // Macro for the RIA. Use the inline functions elsewhere.
 #define PIX_SEND_XRAM(addr, data) \
-    PIX_PIO->txf[PIX_SM] = (PIX_MESSAGE(PIX_XRAM_DEV, 0, (data), (addr)))
+    PIX_PIO->txf[PIX_SM] = (PIX_MESSAGE(PIX_DEVICE_XRAM, 0, (data), (addr)))
 
 // Test for free space in the PIX transmit FIFO.
 static inline bool pix_ready(void)

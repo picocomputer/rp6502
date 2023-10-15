@@ -133,16 +133,17 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
 }
 
 // PIX XREG writes to the RIA device will notify here.
-void main_pix(uint8_t ch, uint8_t byte, uint16_t word)
+bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
 {
-    switch (ch)
+    (void)addr;
+    switch (ch * 256 + addr)
     {
-    case 0:
-        // usb_pix(byte, word); //TODO direct access to keyboard, mouse, gamepad
-        break;
-    case 1:
-        aud_pix(byte, word);
-        break;
+    case 0x000: // KEYBOARD
+        return kbd_pix(word);
+    case 0x100:
+        return aud_pix(word);
+    default:
+        return false;
     }
 }
 

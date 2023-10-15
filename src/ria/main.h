@@ -39,7 +39,7 @@ bool main_active();
 
 void main_task();
 void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);
-void main_pix(uint8_t ch, uint8_t byte, uint16_t word);
+bool main_pix(uint8_t ch, uint8_t addr, uint16_t word);
 bool main_api(uint8_t operation);
 
 #endif /* _MAIN_H_ */

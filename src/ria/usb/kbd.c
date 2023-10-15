@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "api/api.h"
 #include "sys/cfg.h"
 #include "usb/kbd.h"
 #include "usb/kbd_us.h"
@@ -23,14 +24,16 @@ static stdio_driver_t kbd_stdio_app = {
 
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
-static absolute_time_t kbd_repeat_timer = {0};
-static uint8_t kbd_repeat_keycode = 0;
-static hid_keyboard_report_t kbd_prev_report = {0, 0, {0, 0, 0, 0, 0, 0}};
+static absolute_time_t kbd_repeat_timer;
+static uint8_t kbd_repeat_keycode;
+static hid_keyboard_report_t kbd_prev_report;
 static char kbd_key_queue[8];
-static uint8_t kbd_key_queue_in = 0;
-static uint8_t kbd_key_queue_out = 0;
-static uint8_t kdb_hid_leds = 0;
+static uint8_t kbd_key_queue_head;
+static uint8_t kbd_key_queue_tail;
+static uint8_t kdb_hid_leds;
 static bool kdb_hid_leds_need_report;
+static uint16_t kbd_xram = 0xFFFF;
+static uint8_t kbd_xram_keys[32];
 
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
@@ -46,7 +49,7 @@ static void kbd_queue_key_str(const char *str)
 {
     // TODO check for free space, change to head/tail style
     while (*str)
-        kbd_key_queue[++kbd_key_queue_in & 7] = *str++;
+        kbd_key_queue[++kbd_key_queue_head & 7] = *str++;
 }
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
@@ -90,7 +93,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     if (ch)
     {
-        kbd_key_queue[++kbd_key_queue_in & 7] = ch;
+        kbd_key_queue[++kbd_key_queue_head & 7] = ch;
         return;
     }
     if (initial_press)
@@ -100,7 +103,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             if ((modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) &&
                 (modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)))
             {
-                kbd_key_queue_out = kbd_key_queue_in;
+                kbd_key_queue_tail = kbd_key_queue_head;
                 main_break();
             }
             break;
@@ -126,14 +129,14 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 static int kbd_stdio_in_chars(char *buf, int length)
 {
     int i = 0;
-    kbd_key_queue_in = kbd_key_queue_in & 7;
-    if (kbd_key_queue_out > kbd_key_queue_in)
-        kbd_key_queue_in += 8;
-    while (i < length && kbd_key_queue_out < kbd_key_queue_in)
+    kbd_key_queue_head = kbd_key_queue_head & 7;
+    if (kbd_key_queue_tail > kbd_key_queue_head)
+        kbd_key_queue_head += 8;
+    while (i < length && kbd_key_queue_tail < kbd_key_queue_head)
     {
-        buf[i++] = kbd_key_queue[++kbd_key_queue_out & 7];
+        buf[i++] = kbd_key_queue[++kbd_key_queue_tail & 7];
     }
-    kbd_key_queue_out = kbd_key_queue_out & 7;
+    kbd_key_queue_tail = kbd_key_queue_tail & 7;
     return i ? i : PICO_ERROR_NO_DATA;
 }
 
@@ -145,6 +148,8 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
     if (kbd_prev_report.keycode[0] >= HID_KEY_A &&
         ((prev_dev_addr != dev_addr) || (prev_instance != instance)))
         return;
+
+    // Extract presses for queue
     uint8_t modifier = report->modifier;
     for (uint8_t i = 0; i < 6; i++)
     {
@@ -172,6 +177,36 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
     prev_instance = instance;
     kbd_prev_report = *report;
     kbd_prev_report.modifier = modifier;
+
+    // Update xram if configured
+    if (kbd_xram != 0xFFFF)
+    {
+        // Check for phantom state
+        bool phantom = false;
+        for (uint8_t i = 0; i < 6; i++)
+            if (report->keycode[i] == 1)
+                phantom = true;
+        // Preserve previous keys in phantom state
+        if (!phantom)
+            memset(kbd_xram_keys, 0, sizeof(kbd_xram_keys));
+        bool any_key = false;
+        for (uint8_t i = 0; i < 6; i++)
+        {
+            uint8_t keycode = report->keycode[i];
+            if (keycode >= HID_KEY_A)
+            {
+                any_key = true;
+                kbd_xram_keys[keycode >> 3] |= 1 << (keycode & 7);
+            }
+        }
+        // modifier maps directly
+        kbd_xram_keys[HID_KEY_CONTROL_LEFT >> 3] = modifier;
+        // The Any Key
+        if (!any_key && !modifier && !phantom)
+            kbd_xram_keys[0] |= 1;
+        // Send it to xram
+        memcpy(&xram[kbd_xram], kbd_xram_keys, sizeof(kbd_xram_keys));
+    }
 }
 
 void kbd_init()
@@ -204,4 +239,12 @@ void kbd_task()
                     tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT,
                                        &kdb_hid_leds, sizeof(kdb_hid_leds));
     }
+}
+
+bool kbd_pix(uint16_t word)
+{
+    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_xram_keys))
+        return false;
+    kbd_xram = word;
+    return true;
 }

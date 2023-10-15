@@ -60,17 +60,17 @@ static inline void vga_pix_flush()
 
 static inline void vga_pix_backchannel_disable(void)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x04, 0);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
 static inline void vga_pix_backchannel_enable(void)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x04, 1);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 1);
 }
 
 static inline void vga_pix_backchannel_request(void)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x04, 2);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 2);
 }
 
 static void vga_read(bool timeout, size_t length)
@@ -206,7 +206,7 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        pix_send_blocking(PIX_VGA_DEV, 0xF, 0x00, cfg_get_vga());
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, cfg_get_vga());
     }
 }
 
@@ -225,7 +225,7 @@ void vga_reset()
 
 bool vga_set_vga(uint32_t disp)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x00, disp);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, disp);
     return true;
 }
 

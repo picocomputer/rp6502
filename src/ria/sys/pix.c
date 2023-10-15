@@ -34,14 +34,14 @@ void pix_init(void)
         pio_gpio_init(PIX_PIO, i);
     pio_sm_set_consecutive_pindirs(PIX_PIO, PIX_SM, 0, 4, true);
     pio_sm_init(PIX_PIO, PIX_SM, offset, &config);
-    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(PIX_IDLE_DEV, 0, 0, 0));
+    pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(PIX_DEVICE_IDLE, 0, 0, 0));
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_set_enabled(PIX_PIO, PIX_SM, true);
 
     // Queue a couple sync frames for safety
-    pix_send(PIX_IDLE_DEV, 0, 0, 0);
-    pix_send(PIX_IDLE_DEV, 0, 0, 0);
+    pix_send(PIX_DEVICE_IDLE, 0, 0, 0);
+    pix_send(PIX_DEVICE_IDLE, 0, 0, 0);
 }
 
 void pix_stop(void)
@@ -94,7 +94,7 @@ void pix_api_xreg(void)
             uint16_t data;
             api_pop_uint16(&data);
             pix_send(pix_device, pix_channel, pix_addr + pix_send_count, data);
-            if (pix_device == PIX_VGA_DEV && pix_channel == 0 &&
+            if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
                 pix_addr + pix_send_count <= 1)
             {
                 pix_wait_for_vga_ack = true;
@@ -122,12 +122,29 @@ void pix_api_xreg(void)
         return api_return_errno(API_EINVAL);
     }
 
+    // Local PIX device $0
+    if (pix_device == PIX_DEVICE_RIA)
+    {
+        while (pix_send_count--)
+        {
+            uint16_t data;
+            api_pop_uint16(&data);
+            if (!main_pix(pix_channel, pix_addr, data))
+            {
+                pix_send_count = 0;
+                return api_return_errno(API_EINVAL);
+            }
+        }
+        api_zxstack();
+        return api_return_ax(0);
+    }
+
     // Special case of sending VGA canvas and mode in same call.
-    // Because we send in reverse, canvas has to be first or it'll clear mode.
-    if (pix_device == PIX_VGA_DEV && pix_channel == 0 &&
+    // Because we send in reverse, canvas has to be first or it'll clear mode programming.
+    if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
         pix_addr == 0 && pix_send_count > 1)
     {
-        pix_send_blocking(PIX_VGA_DEV, 0, 0, *(uint16_t *)&xstack[XSTACK_SIZE - 5]);
+        pix_send_blocking(PIX_DEVICE_VGA, 0, 0, *(uint16_t *)&xstack[XSTACK_SIZE - 5]);
         pix_addr = 1;
         pix_send_count -= 1;
         pix_wait_for_vga_ack = true;
