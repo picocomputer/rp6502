@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2023 Rumbledethumps
  *
@@ -19,10 +18,7 @@
 #define XRAM_ADDR1 REGSW(0xFFEA)
 
 // 64KB Extended RAM
-#ifdef NDEBUG
-extern volatile uint8_t xram[0x10000];
-#else
-extern volatile uint8_t *const xram;
-#endif
+extern volatile const uint8_t xram[0x10000];
+asm(".equ xram, 0x20030000");
 
 #endif /* _XRAM_H_ */

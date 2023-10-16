@@ -10,7 +10,7 @@
 #include "sys/std.h"
 #include "sys/vga.h"
 #include "pix.pio.h"
-#include "sys/xram.h"
+#include "sys/mem.h"
 #include "term/font.h"
 #include "hardware/dma.h"
 #include "hardware/structs/bus_ctrl.h"
@@ -150,7 +150,7 @@ void pix_init(void)
     dma_channel_configure(
         data_chan,
         &data_dma,
-        xram,         // dst
+        (void *)xram, // dst
         &dma_fifo[2], // src
         1,
         false);

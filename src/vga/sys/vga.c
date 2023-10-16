@@ -7,7 +7,7 @@
 #include "main.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
-#include "sys/xram.h"
+#include "sys/mem.h"
 #include "term/term.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"

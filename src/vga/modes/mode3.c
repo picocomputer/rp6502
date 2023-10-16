@@ -6,7 +6,7 @@
 
 #include "modes/mode3.h"
 #include "sys/vga.h"
-#include "sys/xram.h"
+#include "sys/mem.h"
 #include "term/color.h"
 #include "pico/scanvideo.h"
 #include <string.h>
