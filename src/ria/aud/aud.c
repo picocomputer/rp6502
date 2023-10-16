@@ -273,9 +273,3 @@ void aud_task()
         }
     }
 }
-
-bool aud_pix(uint16_t word)
-{
-    (void)word;
-    return false;
-}

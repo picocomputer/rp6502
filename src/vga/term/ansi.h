@@ -20,6 +20,8 @@ typedef enum
 #define ANSI_CSI_CODE(seq) "\33[" seq
 #define ANSI_SGR_CODE(n) ANSI_CSI_CODE(#n "m")
 
+#define ANSI_KEY_ARROW_UP ANSI_CSI_CODE("A")
+#define ANSI_KEY_ARROW_DOWN ANSI_CSI_CODE("B")
 #define ANSI_KEY_ARROW_RIGHT ANSI_CSI_CODE("C")
 #define ANSI_KEY_ARROW_LEFT ANSI_CSI_CODE("D")
 #define ANSI_KEY_DELETE "\33\x7f"

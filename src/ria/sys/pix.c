@@ -125,7 +125,7 @@ void pix_api_xreg(void)
     // Local PIX device $0
     if (pix_device == PIX_DEVICE_RIA)
     {
-        while (pix_send_count--)
+        for (; pix_send_count; pix_send_count--)
         {
             uint16_t data;
             api_pop_uint16(&data);

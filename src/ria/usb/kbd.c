@@ -30,9 +30,9 @@ static hid_keyboard_report_t kbd_prev_report;
 static char kbd_key_queue[8];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
-static uint8_t kdb_hid_leds;
+static uint8_t kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
 static bool kdb_hid_leds_need_report;
-static uint16_t kbd_xram = 0xFFFF;
+static uint16_t kbd_xram;
 static uint8_t kbd_xram_keys[32];
 
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
@@ -47,7 +47,9 @@ void kbd_hid_leds_dirty()
 
 static void kbd_queue_key_str(const char *str)
 {
-    // TODO check for free space, change to head/tail style
+    for (size_t len = strlen(str); len; len--)
+        if (&kbd_key_queue[(kbd_key_queue_head + len) & 7] == &kbd_key_queue[kbd_key_queue_tail & 7])
+            return;
     while (*str)
         kbd_key_queue[++kbd_key_queue_head & 7] = *str++;
 }
@@ -114,6 +116,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
     switch (keycode)
     {
+    case HID_KEY_ARROW_UP:
+        kbd_queue_key_str(ANSI_KEY_ARROW_UP);
+        break;
+    case HID_KEY_ARROW_DOWN:
+        kbd_queue_key_str(ANSI_KEY_ARROW_DOWN);
+        break;
     case HID_KEY_ARROW_RIGHT:
         kbd_queue_key_str(ANSI_KEY_ARROW_RIGHT);
         break;
@@ -209,12 +217,13 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
     }
 }
 
-void kbd_init()
+void kbd_init(void)
 {
     stdio_set_driver_enabled(&kbd_stdio_app, true);
+    kbd_stop();
 }
 
-void kbd_task()
+void kbd_task(void)
 {
     if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
     {
@@ -239,6 +248,11 @@ void kbd_task()
                     tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT,
                                        &kdb_hid_leds, sizeof(kdb_hid_leds));
     }
+}
+
+void kbd_stop(void)
+{
+    kbd_xram = 0xFFFF;
 }
 
 bool kbd_pix(uint16_t word)

@@ -11,6 +11,7 @@
 
 void api_task()
 {
+    // TODO latch called op in case 6502 app misbehaves
     if (cpu_active() && !ria_active() && API_BUSY)
     {
         uint8_t operation = API_OP;

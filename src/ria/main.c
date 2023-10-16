@@ -25,6 +25,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/kbd.h"
+#include "usb/mou.h"
 
 /**************************************/
 /* All kernel modules register below. */
@@ -54,6 +55,7 @@ static void init()
     oem_init();
     aud_init();
     kbd_init();
+    mou_init();
     rom_init();
     led_init();
 
@@ -105,6 +107,8 @@ static void stop()
     ria_stop();
     pix_stop();
     std_stop();
+    kbd_stop();
+    mou_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
@@ -138,10 +142,10 @@ bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
     (void)addr;
     switch (ch * 256 + addr)
     {
-    case 0x000: // KEYBOARD
+    case 0x000:
         return kbd_pix(word);
-    case 0x100:
-        return aud_pix(word);
+    case 0x001:
+        return mou_pix(word);
     default:
         return false;
     }

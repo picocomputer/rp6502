@@ -21,7 +21,7 @@ static uint8_t cpu_rx_buf[32];
 #define CPU_RX_BUF(pos) cpu_rx_buf[(pos) & 0x1F]
 
 static bool cpu_readline_active;
-static char *cpu_readline_buf;
+static const char *cpu_readline_buf;
 static bool cpu_readline_needs_nl;
 static size_t cpu_readline_pos;
 static size_t cpu_readline_length;
@@ -217,7 +217,7 @@ int cpu_getchar(void)
     return cpu_caps(ch);
 }
 
-static void cpu_enter(bool timeout, char *buf, size_t length)
+static void cpu_enter(bool timeout, const char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);

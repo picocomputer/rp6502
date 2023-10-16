@@ -108,7 +108,7 @@ bool mon_command_exists(const char *buf, uint8_t buflen)
     return !!mon_command_lookup(&buf, buflen);
 }
 
-static void mon_enter(bool timeout, char *buf, size_t length)
+static void mon_enter(bool timeout, const char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);
@@ -118,7 +118,7 @@ static void mon_enter(bool timeout, char *buf, size_t length)
     if (!func)
     {
         if (!rom_load_lfs(buf, length))
-            for (char *b = buf; b < args; b++)
+            for (const char *b = buf; b < args; b++)
                 if (b[0] != ' ')
                 {
                     printf("?unknown command\n");
