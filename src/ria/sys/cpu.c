@@ -13,13 +13,15 @@
 
 static bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
+
 volatile int cpu_rx_char;
 static size_t cpu_rx_tail;
 static size_t cpu_rx_head;
 static uint8_t cpu_rx_buf[32];
 #define CPU_RX_BUF(pos) cpu_rx_buf[(pos) & 0x1F]
 
-static bool cpu_readline;
+static bool cpu_readline_active;
+static char *cpu_readline_buf;
 static bool cpu_readline_needs_nl;
 static size_t cpu_readline_pos;
 static size_t cpu_readline_length;
@@ -98,7 +100,7 @@ void cpu_run()
 void cpu_stop()
 {
     clear_com_rx_fifo();
-    cpu_readline = false;
+    cpu_readline_active = false;
     cpu_readline_needs_nl = false;
     cpu_readline_pos = 0;
     cpu_readline_length = 0;
@@ -215,11 +217,12 @@ int cpu_getchar(void)
     return cpu_caps(ch);
 }
 
-static void cpu_enter(bool timeout, size_t length)
+static void cpu_enter(bool timeout, char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);
-    cpu_readline = false;
+    cpu_readline_active = false;
+    cpu_readline_buf = buf;
     cpu_readline_pos = 0;
     cpu_readline_length = length;
     cpu_readline_needs_nl = true;
@@ -229,15 +232,14 @@ void cpu_stdin_request(void)
 {
     if (!cpu_readline_needs_nl)
     {
-        cpu_readline = true;
-        com_read_line(com_readline_buf, COM_BUF_SIZE, 0, cpu_enter);
-        // TODO send rx buf
+        cpu_readline_active = true;
+        com_read_line(0, cpu_enter);
     }
 }
 
 bool cpu_stdin_ready(void)
 {
-    return !cpu_readline;
+    return !cpu_readline_active;
 }
 
 size_t cpu_stdin_read(uint8_t *buf, size_t count)
@@ -247,7 +249,7 @@ size_t cpu_stdin_read(uint8_t *buf, size_t count)
     {
         if (cpu_readline_pos >= cpu_readline_length)
             return 0;
-        buf[i] = com_readline_buf[cpu_readline_pos++];
+        buf[i] = cpu_readline_buf[cpu_readline_pos++];
     }
     if (i < count && cpu_readline_needs_nl)
     {

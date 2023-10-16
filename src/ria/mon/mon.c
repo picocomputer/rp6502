@@ -13,6 +13,7 @@
 #include "mon/rom.h"
 #include "mon/set.h"
 #include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "pico/stdlib.h"
@@ -107,17 +108,17 @@ bool mon_command_exists(const char *buf, uint8_t buflen)
     return !!mon_command_lookup(&buf, buflen);
 }
 
-static void mon_enter(bool timeout, size_t length)
+static void mon_enter(bool timeout, char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);
     needs_prompt = true;
-    const char *args = com_readline_buf;
+    const char *args = buf;
     mon_function func = mon_command_lookup(&args, length);
     if (!func)
     {
-        if (!rom_load_lfs(com_readline_buf, length))
-            for (char *b = com_readline_buf; b < args; b++)
+        if (!rom_load_lfs(buf, length))
+            for (char *b = buf; b < args; b++)
                 if (b[0] != ' ')
                 {
                     printf("?unknown command\n");
@@ -125,7 +126,7 @@ static void mon_enter(bool timeout, size_t length)
                 }
         return;
     }
-    size_t args_len = length - (args - com_readline_buf);
+    size_t args_len = length - (args - buf);
     func(args, args_len);
 }
 
@@ -149,7 +150,7 @@ void mon_task()
         putchar(']');
         needs_prompt = false;
         needs_newline = false;
-        com_read_line(com_readline_buf, COM_BUF_SIZE, 0, mon_enter);
+        com_read_line(0, mon_enter);
     }
 }
 

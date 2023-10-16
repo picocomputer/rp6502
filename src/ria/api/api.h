@@ -7,9 +7,7 @@
 #ifndef _API_H_
 #define _API_H_
 
-#include "sys/ria.h"
-#include <stddef.h>
-#include <stdbool.h>
+#include "sys/mem.h"
 #include <string.h>
 
 /* The 18 base errors come directly from CC65. Use them when you can.
@@ -57,23 +55,6 @@
 #define API_SREG REGSW(0xFFF8)
 #define API_AX (API_A | (API_X << 8))
 #define API_AXSREG (API_AX | (API_SREG << 16))
-
-// 64KB Extended RAM
-#ifdef NDEBUG
-extern uint8_t xram[0x10000];
-#else
-extern uint8_t *const xram;
-#endif
-
-// The xstack is:
-// 256 bytes, enough to hold a CC65 stack frame.
-// 1 byte at end+1 always zero for cstrings.
-// Many OS calls can use xstack instead of xram for cstrings.
-// Using xstack doesn't require sending the zero termination.
-// Cstrings and data are pushed in reverse so data is ordered correctly on the top down stack.
-#define XSTACK_SIZE 0x100
-extern uint8_t xstack[];
-extern volatile size_t xstack_ptr;
 
 // Kernel events
 void api_task(void);
@@ -169,12 +150,12 @@ static inline bool api_is_xstack_empty()
  * FFF8 FF FF   .SREG $FF $FF
  */
 
-static inline void api_return_blocked() { *(uint32_t *)&ria_regs[0x10] = 0xA9FE80EA; }
-static inline void api_return_released() { *(uint32_t *)&ria_regs[0x10] = 0xA90080EA; }
+static inline void api_return_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
+static inline void api_return_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
 
 static inline void api_set_ax(uint16_t val)
 {
-    *(uint32_t *)&ria_regs[0x14] = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
+    *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
 }
 
 static inline void api_set_axsreg(uint32_t val)

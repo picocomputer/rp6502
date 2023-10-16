@@ -41,13 +41,10 @@ static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 
-uint8_t ria_buf[MBUF_SIZE] __attribute__((aligned(4)));
-size_t ria_buf_len;
-
 uint32_t ria_buf_crc32()
 {
     // use littlefs library
-    return ~lfs_crc(~0, ria_buf, ria_buf_len);
+    return ~lfs_crc(~0, mbuf, mbuf_len);
 }
 
 // The PIO will notify the action loop of all register writes.
@@ -80,7 +77,7 @@ void ria_run()
         // FFF7  80 FE     BRA $FFF7
         ria_set_watch_address(0xFFF6);
         REGS(0xFFF0) = 0xA9;
-        REGS(0xFFF1) = ria_buf[0];
+        REGS(0xFFF1) = mbuf[0];
         REGS(0xFFF2) = 0x8D;
         REGS(0xFFF3) = rw_addr & 0xFF;
         REGS(0xFFF4) = rw_addr >> 8;
@@ -159,15 +156,15 @@ void ria_read_buf(uint16_t addr)
 {
     assert(!cpu_active());
     // avoid forbidden areas
-    uint16_t len = ria_buf_len;
+    uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            ria_buf[len] = REGS(addr + len);
+            mbuf[len] = REGS(addr + len);
         else
-            ria_buf[len] = 0;
+            mbuf[len] = 0;
     while (len && (addr + len > 0xFF00))
         if (addr + --len <= 0xFFFF)
-            ria_buf[len] = 0;
+            mbuf[len] = 0;
     if (!len)
         return;
     rw_addr = addr;
@@ -182,9 +179,9 @@ void ria_verify_buf(uint16_t addr)
     assert(!cpu_active());
     // avoid forbidden areas
     action_result = -1;
-    uint16_t len = ria_buf_len;
+    uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
-        if (addr + --len <= 0xFFFF && ria_buf[len] != REGS(addr + len))
+        if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
             action_result = addr + len;
     while (len && (addr + len > 0xFF00))
         --len;
@@ -201,10 +198,10 @@ void ria_write_buf(uint16_t addr)
 {
     assert(!cpu_active());
     // avoid forbidden area
-    uint16_t len = ria_buf_len;
+    uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
-            REGS(addr + len) = ria_buf[len];
+            REGS(addr + len) = mbuf[len];
     while (len && (addr + len > 0xFF00))
         len--;
     if (!len)
@@ -236,7 +233,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     {
                         if (rw_pos > 0)
                         {
-                            REGS(0xFFF1) = ria_buf[rw_pos];
+                            REGS(0xFFF1) = mbuf[rw_pos];
                             REGSW(0xFFF3) += 1;
                         }
                         if (++rw_pos == rw_end)
@@ -252,7 +249,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
-                        ria_buf[rw_pos] = data;
+                        mbuf[rw_pos] = data;
                         if (++rw_pos == rw_end)
                         {
                             gpio_put(CPU_RESB_PIN, false);
@@ -264,7 +261,7 @@ static __attribute__((optimize("O1"))) void act_loop()
                     if (rw_pos < rw_end)
                     {
                         REGSW(0xFFF1) += 1;
-                        if (ria_buf[rw_pos] != data && action_result < 0)
+                        if (mbuf[rw_pos] != data && action_result < 0)
                             action_result = REGSW(0xFFF1) - 1;
                         if (++rw_pos == rw_end)
                         {
@@ -388,7 +385,7 @@ static void ria_write_pio_init()
     pio_gpio_init(RIA_WRITE_PIO, CPU_PHI2_PIN);
     pio_sm_set_consecutive_pindirs(RIA_WRITE_PIO, RIA_WRITE_SM, CPU_PHI2_PIN, 1, true);
     pio_sm_init(RIA_WRITE_PIO, RIA_WRITE_SM, offset, &config);
-    pio_sm_put(RIA_WRITE_PIO, RIA_WRITE_SM, (uintptr_t)ria_regs >> 5);
+    pio_sm_put(RIA_WRITE_PIO, RIA_WRITE_SM, (uintptr_t)regs >> 5);
     pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(RIA_WRITE_PIO, RIA_WRITE_SM, pio_encode_mov(pio_y, pio_osr));
     pio_sm_set_enabled(RIA_WRITE_PIO, RIA_WRITE_SM, true);
@@ -407,7 +404,7 @@ static void ria_write_pio_init()
     dma_channel_configure(
         data_chan,
         &data_dma,
-        ria_regs,                          // dst
+        regs,                              // dst
         &RIA_WRITE_PIO->rxf[RIA_WRITE_SM], // src
         1,
         false);
@@ -440,7 +437,7 @@ static void ria_read_pio_init()
         pio_gpio_init(RIA_READ_PIO, i);
     pio_sm_set_consecutive_pindirs(RIA_READ_PIO, RIA_READ_SM, RIA_DATA_PIN_BASE, 8, true);
     pio_sm_init(RIA_READ_PIO, RIA_READ_SM, offset, &config);
-    pio_sm_put(RIA_READ_PIO, RIA_READ_SM, (uintptr_t)ria_regs >> 5);
+    pio_sm_put(RIA_READ_PIO, RIA_READ_SM, (uintptr_t)regs >> 5);
     pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_pull(false, true));
     pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_mov(pio_y, pio_osr));
     pio_sm_set_enabled(RIA_READ_PIO, RIA_READ_SM, true);
@@ -459,7 +456,7 @@ static void ria_read_pio_init()
         data_chan,
         &data_dma,
         &RIA_READ_PIO->txf[RIA_READ_SM], // dst
-        ria_regs,                        // src
+        regs,                            // src
         1,
         false);
 
@@ -494,7 +491,7 @@ static void ria_act_pio_init()
 void ria_init()
 {
     // safety check for compiler alignment
-    assert(!((uintptr_t)ria_regs & 0x1F));
+    assert(!((uintptr_t)regs & 0x1F));
 
     // Adjustments for GPIO performance. Important!
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)

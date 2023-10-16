@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _XRAM_H_
-#define _XRAM_H_
+#ifndef _MEM_H_
+#define _MEM_H_
 
 #include <stdint.h>
 
@@ -21,4 +21,4 @@
 extern volatile const uint8_t xram[0x10000];
 asm(".equ xram, 0x20030000");
 
-#endif /* _XRAM_H_ */
+#endif /* _MEM_H_ */

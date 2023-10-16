@@ -31,8 +31,8 @@ static void cmd_ria_read()
     if (ria_print_error_message())
         return;
     printf("%04lX", rw_addr);
-    for (size_t i = 0; i < ria_buf_len; i++)
-        printf(" %02X", ria_buf[i]);
+    for (size_t i = 0; i < mbuf_len; i++)
+        printf(" %02X", mbuf[i]);
     printf("\n");
 }
 
@@ -75,12 +75,12 @@ void ram_mon_address(const char *args, size_t len)
     }
     if (i == len)
     {
-        ria_buf_len = (rw_addr | 0xF) - rw_addr + 1;
+        mbuf_len = (rw_addr | 0xF) - rw_addr + 1;
         if (rw_addr > 0xFFFF)
         {
             printf("%04lX", rw_addr);
             rw_addr -= 0x10000;
-            for (size_t i = 0; i < ria_buf_len; i++)
+            for (size_t i = 0; i < mbuf_len; i++)
                 printf(" %02X", xram[rw_addr + i]);
             printf("\n");
             return;
@@ -90,7 +90,7 @@ void ram_mon_address(const char *args, size_t len)
         return;
     }
     uint32_t data = 0x80000000;
-    ria_buf_len = 0;
+    mbuf_len = 0;
     for (; i < len; i++)
     {
         char ch = args[i];
@@ -105,7 +105,7 @@ void ram_mon_address(const char *args, size_t len)
         {
             if (data < 0x100)
             {
-                ria_buf[ria_buf_len++] = data;
+                mbuf[mbuf_len++] = data;
                 data = 0x80000000;
             }
             else
@@ -121,10 +121,10 @@ void ram_mon_address(const char *args, size_t len)
     if (rw_addr > 0xFFFF)
     {
         rw_addr -= 0x10000;
-        for (size_t i = 0; i < ria_buf_len; i++)
+        for (size_t i = 0; i < mbuf_len; i++)
         {
-            xram[rw_addr + i] = ria_buf[i];
-            pix_send_blocking(PIX_DEVICE_XRAM, 0, ria_buf[i], rw_addr + i);
+            xram[rw_addr + i] = mbuf[i];
+            pix_send_blocking(PIX_DEVICE_XRAM, 0, mbuf[i], rw_addr + i);
         }
         return;
     }
@@ -132,9 +132,10 @@ void ram_mon_address(const char *args, size_t len)
     cmd_state = SYS_WRITE;
 }
 
-static void sys_com_rx_mbuf(bool timeout, size_t length)
+static void sys_com_rx_mbuf(bool timeout, char *buf, size_t length)
 {
-    ria_buf_len = length;
+    (void)buf;
+    mbuf_len = length;
     cmd_state = SYS_IDLE;
     if (timeout)
     {
@@ -167,7 +168,7 @@ void ram_mon_binary(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_read_binary(ria_buf, rw_len, TIMEOUT_MS, sys_com_rx_mbuf);
+        com_read_binary(TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
         cmd_state = SYS_BINARY;
         return;
     }

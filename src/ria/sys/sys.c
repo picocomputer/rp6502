@@ -47,10 +47,6 @@ void sys_mon_status(const char *args, size_t len)
 
 void sys_init(void)
 {
-    // Delay a bit to wait for VGA initial power up.
-    // Both UART Tx and Backchannel Tx characters of the
-    // statup messages can get dropped if this isn't here.
-    busy_wait_ms(10);
     // Reset terminal.
     puts("\30\33[0m\f");
     // Hello, world.

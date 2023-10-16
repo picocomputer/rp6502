@@ -7,6 +7,7 @@
 #include "str.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
@@ -73,9 +74,9 @@ static inline void vga_pix_backchannel_request(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 2);
 }
 
-static void vga_read(bool timeout, size_t length)
+static void vga_read(bool timeout, char *buf, size_t length)
 {
-    if (!timeout && length == 4 && !strnicmp("VGA1", (char *)vga_read_buf, 4))
+    if (!timeout && length == 4 && !strnicmp("VGA1", buf, 4))
     {
         // IO and buffers need to be in sync before switch
         com_flush();
@@ -152,7 +153,7 @@ void vga_task(void)
     if (vga_state == VGA_REQUEST_TEST)
     {
         vga_state = VGA_TESTING;
-        com_read_binary(vga_read_buf, 4, VGA_BACKCHANNEL_ACK_MS, vga_read);
+        com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, 4);
         vga_pix_backchannel_request();
     }
 
