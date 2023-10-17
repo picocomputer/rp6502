@@ -9,6 +9,7 @@
 #include "sys/cfg.h"
 #include "usb/kbd.h"
 #include "usb/kbd_us.h"
+#include "usb/kbd_de.h"
 #include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
@@ -64,12 +65,15 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KEYBOARD_MODIFIER_LEFTGUI |
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
-        if (modifier & (KEYBOARD_MODIFIER_RIGHTALT))
+        bool is_alt_gr = modifier & (KEYBOARD_MODIFIER_RIGHTALT);
+        bool is_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT |
+                                    KEYBOARD_MODIFIER_RIGHTSHIFT);
+        bool is_caps_lock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
+        if (is_alt_gr)
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
         }
-        else if (modifier & (KEYBOARD_MODIFIER_LEFTSHIFT |
-                             KEYBOARD_MODIFIER_RIGHTSHIFT))
+        else if ((is_shift && !is_caps_lock) || (!is_shift && is_caps_lock))
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
         }
@@ -85,13 +89,6 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             ch -= 64;
         else
             ch = 0;
-    }
-    if (kdb_hid_leds & KEYBOARD_LED_CAPSLOCK)
-    {
-        if (ch >= 'A' && ch <= 'Z')
-            ch += 32;
-        else if (ch >= 'a' && ch <= 'z')
-            ch -= 32;
     }
     if (ch)
     {
