@@ -23,7 +23,7 @@ typedef struct
     uint16_t xram_palette_ptr;
 } mode3_config_t;
 
-volatile const uint8_t *__attribute__((optimize("O1")))
+static volatile const uint8_t *__attribute__((optimize("O1")))
 mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
 {
     int16_t row = scanline_id - config->y_pos_px;
@@ -44,7 +44,7 @@ mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
     return &xram[config->xram_data_ptr + row * sizeof_row];
 }
 
-volatile const uint16_t *__attribute__((optimize("O1")))
+static volatile const uint16_t *__attribute__((optimize("O1")))
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -55,7 +55,7 @@ mode3_get_palette(mode3_config_t *config, int16_t bpp)
     return color_256;
 }
 
-volatile const int16_t __attribute__((optimize("O1")))
+static int16_t __attribute__((optimize("O1")))
 mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     if (*col < 0)
@@ -106,57 +106,57 @@ mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 8];
-        int16_t part = col & 7;
-        if (part)
+        int16_t part = 8 - (col & 7);
+        if (part > config->width_px - col)
+            part = config->width_px - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
         {
-            part = 8 - part;
-            fill_cols -= part;
-            col += part;
-            switch (part)
-            {
-            case 7:
-                *rgb++ = palette[*data & 0x40];
-            case 6:
-                *rgb++ = palette[*data & 0x20];
-            case 5:
-                *rgb++ = palette[*data & 0x10];
-            case 4:
-                *rgb++ = palette[*data & 0x08];
-            case 3:
-                *rgb++ = palette[*data & 0x04];
-            case 2:
-                *rgb++ = palette[*data & 0x02];
-            case 1:
-                *rgb++ = palette[*data++ & 0x01];
-            }
+        case 8:
+            *rgb++ = palette[(*data & 0x80) >> 7];
+        case 7:
+            *rgb++ = palette[(*data & 0x40) >> 6];
+        case 6:
+            *rgb++ = palette[(*data & 0x20) >> 5];
+        case 5:
+            *rgb++ = palette[(*data & 0x10) >> 4];
+        case 4:
+            *rgb++ = palette[(*data & 0x08) >> 3];
+        case 3:
+            *rgb++ = palette[(*data & 0x04) >> 2];
+        case 2:
+            *rgb++ = palette[(*data & 0x02) >> 1];
+        case 1:
+            *rgb++ = palette[*data++ & 0x01];
         }
         col += fill_cols;
         while (fill_cols > 7)
         {
-            *rgb++ = palette[*data & 0x80];
-            *rgb++ = palette[*data & 0x40];
-            *rgb++ = palette[*data & 0x20];
-            *rgb++ = palette[*data & 0x10];
-            *rgb++ = palette[*data & 0x08];
-            *rgb++ = palette[*data & 0x04];
-            *rgb++ = palette[*data & 0x02];
+            *rgb++ = palette[(*data & 0x80) >> 7];
+            *rgb++ = palette[(*data & 0x40) >> 6];
+            *rgb++ = palette[(*data & 0x20) >> 5];
+            *rgb++ = palette[(*data & 0x10) >> 4];
+            *rgb++ = palette[(*data & 0x08) >> 3];
+            *rgb++ = palette[(*data & 0x04) >> 2];
+            *rgb++ = palette[(*data & 0x02) >> 1];
             *rgb++ = palette[*data++ & 0x01];
             fill_cols -= 8;
         }
         if (fill_cols >= 1)
-            *rgb++ = palette[*data & 0x80];
+            *rgb++ = palette[(*data & 0x80) >> 7];
         if (fill_cols >= 2)
-            *rgb++ = palette[*data & 0x40];
+            *rgb++ = palette[(*data & 0x40) >> 6];
         if (fill_cols >= 3)
-            *rgb++ = palette[*data & 0x20];
+            *rgb++ = palette[(*data & 0x20) >> 5];
         if (fill_cols >= 4)
-            *rgb++ = palette[*data & 0x10];
+            *rgb++ = palette[(*data & 0x10) >> 4];
         if (fill_cols >= 5)
-            *rgb++ = palette[*data & 0x08];
+            *rgb++ = palette[(*data & 0x08) >> 3];
         if (fill_cols >= 6)
-            *rgb++ = palette[*data & 0x04];
+            *rgb++ = palette[(*data & 0x04) >> 2];
         if (fill_cols >= 7)
-            *rgb++ = palette[*data & 0x02];
+            *rgb++ = palette[(*data & 0x02) >> 1];
     }
     return true;
 }
@@ -176,57 +176,57 @@ mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 8];
-        int16_t part = col & 7;
-        if (part)
+        int16_t part = 8 - (col & 7);
+        if (part > config->width_px - col)
+            part = config->width_px - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
         {
-            part = 8 - part;
-            fill_cols -= part;
-            col += part;
-            switch (part)
-            {
-            case 7:
-                *rgb++ = palette[*data & 0x02];
-            case 6:
-                *rgb++ = palette[*data & 0x04];
-            case 5:
-                *rgb++ = palette[*data & 0x08];
-            case 4:
-                *rgb++ = palette[*data & 0x10];
-            case 3:
-                *rgb++ = palette[*data & 0x20];
-            case 2:
-                *rgb++ = palette[*data & 0x40];
-            case 1:
-                *rgb++ = palette[*data++ & 0x80];
-            }
+        case 8:
+            *rgb++ = palette[*data & 0x01];
+        case 7:
+            *rgb++ = palette[(*data & 0x02) >> 1];
+        case 6:
+            *rgb++ = palette[(*data & 0x04) >> 2];
+        case 5:
+            *rgb++ = palette[(*data & 0x08) >> 3];
+        case 4:
+            *rgb++ = palette[(*data & 0x10) >> 4];
+        case 3:
+            *rgb++ = palette[(*data & 0x20) >> 5];
+        case 2:
+            *rgb++ = palette[(*data & 0x40) >> 6];
+        case 1:
+            *rgb++ = palette[(*data++ & 0x80) >> 7];
         }
         col += fill_cols;
         while (fill_cols > 7)
         {
             *rgb++ = palette[*data & 0x01];
-            *rgb++ = palette[*data & 0x02];
-            *rgb++ = palette[*data & 0x04];
-            *rgb++ = palette[*data & 0x08];
-            *rgb++ = palette[*data & 0x10];
-            *rgb++ = palette[*data & 0x20];
-            *rgb++ = palette[*data & 0x40];
-            *rgb++ = palette[*data++ & 0x80];
+            *rgb++ = palette[(*data & 0x02) >> 1];
+            *rgb++ = palette[(*data & 0x04) >> 2];
+            *rgb++ = palette[(*data & 0x08) >> 3];
+            *rgb++ = palette[(*data & 0x10) >> 4];
+            *rgb++ = palette[(*data & 0x20) >> 5];
+            *rgb++ = palette[(*data & 0x40) >> 6];
+            *rgb++ = palette[(*data++ & 0x80) >> 7];
             fill_cols -= 8;
         }
         if (fill_cols >= 1)
             *rgb++ = palette[*data & 0x01];
         if (fill_cols >= 2)
-            *rgb++ = palette[*data & 0x02];
+            *rgb++ = palette[(*data & 0x02) >> 1];
         if (fill_cols >= 3)
-            *rgb++ = palette[*data & 0x04];
+            *rgb++ = palette[(*data & 0x04) >> 2];
         if (fill_cols >= 4)
-            *rgb++ = palette[*data & 0x08];
+            *rgb++ = palette[(*data & 0x08) >> 3];
         if (fill_cols >= 5)
-            *rgb++ = palette[*data & 0x10];
+            *rgb++ = palette[(*data & 0x10) >> 4];
         if (fill_cols >= 6)
-            *rgb++ = palette[*data & 0x20];
+            *rgb++ = palette[(*data & 0x20) >> 5];
         if (fill_cols >= 7)
-            *rgb++ = palette[*data & 0x40];
+            *rgb++ = palette[(*data & 0x40) >> 6];
     }
     return true;
 }
@@ -246,37 +246,37 @@ mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 4];
-        int16_t part = col & 3;
-        if (part)
+        int16_t part = 4 - (col & 3);
+        if (part > config->width_px - col)
+            part = config->width_px - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
         {
-            part = 4 - part;
-            fill_cols -= part;
-            col += part;
-            switch (part)
-            {
-            case 3:
-                *rgb++ = palette[*data & 0x30];
-            case 2:
-                *rgb++ = palette[*data & 0x0C];
-            case 1:
-                *rgb++ = palette[*data++ & 0x03];
-            }
+        case 4:
+            *rgb++ = palette[(*data & 0xC0) >> 6];
+        case 3:
+            *rgb++ = palette[(*data & 0x30) >> 4];
+        case 2:
+            *rgb++ = palette[(*data & 0x0C) >> 2];
+        case 1:
+            *rgb++ = palette[*data++ & 0x03];
         }
         col += fill_cols;
         while (fill_cols > 3)
         {
-            *rgb++ = palette[*data & 0xC0];
-            *rgb++ = palette[*data & 0x30];
-            *rgb++ = palette[*data & 0x0C];
+            *rgb++ = palette[(*data & 0xC0) >> 6];
+            *rgb++ = palette[(*data & 0x30) >> 4];
+            *rgb++ = palette[(*data & 0x0C) >> 2];
             *rgb++ = palette[*data++ & 0x03];
             fill_cols -= 4;
         }
         if (fill_cols >= 1)
-            *rgb++ = palette[*data & 0xC0];
+            *rgb++ = palette[(*data & 0xC0) >> 6];
         if (fill_cols >= 2)
-            *rgb++ = palette[*data & 0x30];
+            *rgb++ = palette[(*data & 0x30) >> 4];
         if (fill_cols >= 3)
-            *rgb++ = palette[*data & 0x0C];
+            *rgb++ = palette[(*data & 0x0C) >> 2];
     }
     return true;
 }
@@ -296,37 +296,37 @@ mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 4];
-        int16_t part = col & 3;
-        if (part)
+        int16_t part = 4 - (col & 3);
+        if (part > config->width_px - col)
+            part = config->width_px - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
         {
-            part = 4 - part;
-            fill_cols -= part;
-            col += part;
-            switch (part)
-            {
-            case 3:
-                *rgb++ = palette[*data & 0x0C];
-            case 2:
-                *rgb++ = palette[*data & 0x30];
-            case 1:
-                *rgb++ = palette[*data++ & 0xC0];
-            }
+        case 4:
+            *rgb++ = palette[*data & 0x03];
+        case 3:
+            *rgb++ = palette[(*data & 0x0C) >> 2];
+        case 2:
+            *rgb++ = palette[(*data & 0x30) >> 4];
+        case 1:
+            *rgb++ = palette[(*data++ & 0xC0) >> 6];
         }
         col += fill_cols;
         while (fill_cols > 3)
         {
             *rgb++ = palette[*data & 0x03];
-            *rgb++ = palette[*data & 0x0C];
-            *rgb++ = palette[*data & 0x30];
-            *rgb++ = palette[*data++ & 0xC0];
+            *rgb++ = palette[(*data & 0x0C) >> 2];
+            *rgb++ = palette[(*data & 0x30) >> 4];
+            *rgb++ = palette[(*data++ & 0xC0) >> 6];
             fill_cols -= 4;
         }
         if (fill_cols >= 1)
             *rgb++ = palette[*data & 0x03];
         if (fill_cols >= 2)
-            *rgb++ = palette[*data & 0x0C];
+            *rgb++ = palette[(*data & 0x0C) >> 2];
         if (fill_cols >= 3)
-            *rgb++ = palette[*data & 0x30];
+            *rgb++ = palette[(*data & 0x30) >> 4];
     }
     return true;
 }

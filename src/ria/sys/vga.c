@@ -219,7 +219,15 @@ void vga_run(void)
         vga_state = VGA_REQUEST_TEST;
 }
 
-void vga_reset()
+void vga_stop(void)
+{
+    // We want to reset only when program stops,
+    // otherwise video flickers after every ria job.
+    if (!ria_active())
+        vga_needs_reset = true;
+}
+
+void vga_reset(void)
 {
     vga_needs_reset = true;
 }
