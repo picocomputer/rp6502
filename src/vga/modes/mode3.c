@@ -473,13 +473,13 @@ bool mode3_prog(uint16_t *xregs)
     case 4:
         render_fn = mode3_render_16bpp;
         break;
-    case 9:
+    case 8:
         render_fn = mode3_render_1bpp_1r;
         break;
-    case 10:
+    case 9:
         render_fn = mode3_render_2bpp_1r;
         break;
-    case 11:
+    case 10:
         render_fn = mode3_render_4bpp_1r;
         break;
     default:
