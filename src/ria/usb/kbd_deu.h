@@ -4,14 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _KBD_DE_H_
-#define _KBD_DE_H_
+#ifndef _KBD_DEU_H_
+#define _KBD_DEU_H_
+
+// German / Deutsch
 
 // KEYCODE to Unicode Conversion
-// Table for german (GR) keyboards
 // {without shift, with shift, with altGr}
 
-#define HID_KEYCODE_TO_UNICODE_DE                          \
+#define HID_KEYCODE_TO_UNICODE_DE         HID_KEYCODE_TO_UNICODE_DEU_QWERTZ
+#define HID_KEYCODE_TO_UNICODE_DE_QWERTZ  HID_KEYCODE_TO_UNICODE_DEU_QWERTZ
+#define HID_KEYCODE_TO_UNICODE_DEU        HID_KEYCODE_TO_UNICODE_DEU_QWERTZ
+
+#define HID_KEYCODE_TO_UNICODE_DEU_QWERTZ                  \
         {0, 0, 0},             /* 0x00 */                  \
         {0, 0, 0},             /* 0x01 */                  \
         {0, 0, 0},             /* 0x02 */                  \
