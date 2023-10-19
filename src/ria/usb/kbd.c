@@ -146,6 +146,39 @@ static int kbd_stdio_in_chars(char *buf, int length)
     return i ? i : PICO_ERROR_NO_DATA;
 }
 
+static void kbd_prev_report_to_xram()
+{
+    // Update xram if configured
+    if (kbd_xram != 0xFFFF)
+    {
+        // Check for phantom state
+        bool phantom = false;
+        for (uint8_t i = 0; i < 6; i++)
+            if (kbd_prev_report.keycode[i] == 1)
+                phantom = true;
+        // Preserve previous keys in phantom state
+        if (!phantom)
+            memset(kbd_xram_keys, 0, sizeof(kbd_xram_keys));
+        bool any_key = false;
+        for (uint8_t i = 0; i < 6; i++)
+        {
+            uint8_t keycode = kbd_prev_report.keycode[i];
+            if (keycode >= HID_KEY_A)
+            {
+                any_key = true;
+                kbd_xram_keys[keycode >> 3] |= 1 << (keycode & 7);
+            }
+        }
+        // modifier maps directly
+        kbd_xram_keys[HID_KEY_CONTROL_LEFT >> 3] = kbd_prev_report.modifier;
+        // The Any Key
+        if (!any_key && !kbd_prev_report.modifier && !phantom)
+            kbd_xram_keys[0] |= 1;
+        // Send it to xram
+        memcpy(&xram[kbd_xram], kbd_xram_keys, sizeof(kbd_xram_keys));
+    }
+}
+
 void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report)
 {
     static uint8_t prev_dev_addr = 0;
@@ -159,6 +192,7 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
     uint8_t modifier = report->modifier;
     for (uint8_t i = 0; i < 6; i++)
     {
+        // fix unusual modifier reports
         uint8_t keycode = report->keycode[i];
         if (keycode >= HID_KEY_CONTROL_LEFT && keycode <= HID_KEY_GUI_RIGHT)
             modifier |= 1 << (keycode & 7);
@@ -183,36 +217,7 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
     prev_instance = instance;
     kbd_prev_report = *report;
     kbd_prev_report.modifier = modifier;
-
-    // Update xram if configured
-    if (kbd_xram != 0xFFFF)
-    {
-        // Check for phantom state
-        bool phantom = false;
-        for (uint8_t i = 0; i < 6; i++)
-            if (report->keycode[i] == 1)
-                phantom = true;
-        // Preserve previous keys in phantom state
-        if (!phantom)
-            memset(kbd_xram_keys, 0, sizeof(kbd_xram_keys));
-        bool any_key = false;
-        for (uint8_t i = 0; i < 6; i++)
-        {
-            uint8_t keycode = report->keycode[i];
-            if (keycode >= HID_KEY_A)
-            {
-                any_key = true;
-                kbd_xram_keys[keycode >> 3] |= 1 << (keycode & 7);
-            }
-        }
-        // modifier maps directly
-        kbd_xram_keys[HID_KEY_CONTROL_LEFT >> 3] = modifier;
-        // The Any Key
-        if (!any_key && !modifier && !phantom)
-            kbd_xram_keys[0] |= 1;
-        // Send it to xram
-        memcpy(&xram[kbd_xram], kbd_xram_keys, sizeof(kbd_xram_keys));
-    }
+    kbd_prev_report_to_xram();
 }
 
 void kbd_init(void)
@@ -258,5 +263,6 @@ bool kbd_pix(uint16_t word)
     if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_xram_keys))
         return false;
     kbd_xram = word;
+    kbd_prev_report_to_xram();
     return true;
 }
