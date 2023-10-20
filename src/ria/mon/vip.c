@@ -44,6 +44,7 @@ void vip_print(void)
         "Andrew C. Young",
         "Jack Chidley",
         "tonyvr",
+        "Jos Vermoesen",
         // YouTube
         "AJ_Whitney",
     };
