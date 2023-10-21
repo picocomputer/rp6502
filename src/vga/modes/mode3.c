@@ -44,7 +44,7 @@ mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
     return &xram[config->xram_data_ptr + row * sizeof_row];
 }
 
-static volatile const uint16_t *__attribute__((optimize("O1")))
+static inline volatile const uint16_t *__attribute__((optimize("O1")))
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -55,7 +55,7 @@ mode3_get_palette(mode3_config_t *config, int16_t bpp)
     return color_256;
 }
 
-static int16_t __attribute__((optimize("O1")))
+static inline int16_t __attribute__((optimize("O1")))
 mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     if (*col < 0)
