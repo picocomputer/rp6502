@@ -11,7 +11,7 @@
 static absolute_time_t break_timer = {0};
 static absolute_time_t faux_break_timer = {0};
 static bool is_breaking = false;
-static uint8_t read_buf[32];
+static uint8_t read_buf[STD_IN_BUF_SIZE];
 
 static void send_break_ms(uint16_t duration_ms)
 {
@@ -63,8 +63,6 @@ void cdc_task(void)
         if (tud_cdc_available())
         {
             size_t bufsize = std_in_free();
-            if (bufsize > sizeof(read_buf))
-                bufsize = sizeof(read_buf);
             size_t data_len = tud_cdc_read(read_buf, bufsize);
             if (absolute_time_diff_us(get_absolute_time(), faux_break_timer) > 0)
                 for (size_t i = 0; i < data_len; i++)

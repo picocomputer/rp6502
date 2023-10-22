@@ -7,6 +7,7 @@
 #include "font.h"
 #include "term.h"
 #include "pico/stdlib.h"
+#include <stdio.h>
 #include <string.h>
 
 // 8x8 and 8x16 fonts based on the IBM VGA typeface.
@@ -3479,7 +3480,7 @@ void font_set_codepage(uint16_t cp)
     if (current_cp == cp)
         return;
     if (current_cp)
-        term_clear();
+        printf("\f");
     current_cp = cp;
 
     if (!cp)

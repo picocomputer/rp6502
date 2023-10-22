@@ -15,9 +15,11 @@
 #include "pico/stdio/driver.h"
 #include <stdio.h>
 
+// TODO add multiline support and 256 size.
+#define COM_BUF_SIZE 79
+char com_buf[COM_BUF_SIZE];
 static com_read_callback_t com_callback;
 static uint8_t *com_binary_buf;
-static char *com_line_buf;
 static absolute_time_t com_timer;
 static uint32_t com_timeout_ms;
 static size_t com_bufsize;
@@ -26,15 +28,13 @@ static size_t com_bufpos;
 static ansi_state_t com_ansi_state;
 static int com_ansi_param;
 
-char com_readline_buf[COM_BUF_SIZE];
-
 static stdio_driver_t com_stdio_app;
 
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
 
-static void com_tx_task()
+static void com_tx_task(void)
 {
     // We sacrifice the UART TX FIFO so PIX STDOUT can keep pace.
     // 115_200 baud doesn't need flow control, but PIX will send
@@ -46,12 +46,12 @@ static void com_tx_task()
             char ch = COM_TX_BUF(++com_tx_tail);
             uart_putc_raw(COM_UART, ch);
             if (vga_backchannel())
-                pix_send_blocking(PIX_VGA_DEV, 0xF, 0x03, ch);
+                pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x03, ch);
         }
     }
 }
 
-void com_init()
+void com_init(void)
 {
     gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
@@ -59,15 +59,13 @@ void com_init()
     uart_init(COM_UART, COM_UART_BAUD_RATE);
 }
 
-void com_reset()
+void com_reset(void)
 {
-    puts("\30\33[0m");
     com_callback = NULL;
     com_binary_buf = NULL;
-    com_line_buf = NULL;
 }
 
-void com_flush()
+void com_flush(void)
 {
     // Clear all buffers, software and hardware
     while (getchar_timeout_us(0) >= 0)
@@ -78,7 +76,7 @@ void com_flush()
         tight_loop_contents();
 }
 
-void com_reclock()
+void com_reclock(void)
 {
     uart_init(COM_UART, COM_UART_BAUD_RATE);
 }
@@ -107,24 +105,24 @@ static void com_line_backward(size_t count)
     // clang-format on
 }
 
-static void com_line_delete()
+static void com_line_delete(void)
 {
     if (!com_buflen || com_bufpos == com_buflen)
         return;
     printf(ANSI_DELETE(1));
     com_buflen--;
     for (uint8_t i = com_bufpos; i < com_buflen; i++)
-        com_line_buf[i] = com_line_buf[i + 1];
+        com_buf[i] = com_buf[i + 1];
 }
 
-static void com_line_backspace()
+static void com_line_backspace(void)
 {
     if (!com_bufpos)
         return;
     printf("\b" ANSI_DELETE(1));
     com_buflen--;
     for (uint8_t i = --com_bufpos; i < com_buflen; i++)
-        com_line_buf[i] = com_line_buf[i + 1];
+        com_buf[i] = com_buf[i + 1];
 }
 
 static void com_line_state_C0(char ch)
@@ -136,16 +134,16 @@ static void com_line_state_C0(char ch)
     else if (ch == '\r')
     {
         printf("\n");
-        com_line_buf[com_buflen] = 0;
+        com_flush();
+        com_buf[com_buflen] = 0;
         com_read_callback_t cc = com_callback;
         com_callback = NULL;
-        com_line_buf = NULL;
-        cc(false, com_buflen);
+        cc(false, com_buf, com_buflen);
     }
     else if (ch >= 32 && com_bufpos < com_bufsize - 1)
     {
         putchar(ch);
-        com_line_buf[com_bufpos] = ch;
+        com_buf[com_bufpos] = ch;
         if (++com_bufpos > com_buflen)
             com_buflen = com_bufpos;
     }
@@ -165,7 +163,7 @@ static void com_line_state_Fe(char ch)
     else
     {
         com_ansi_state = ansi_state_C0;
-        com_line_delete(gets);
+        com_line_delete();
     }
 }
 
@@ -194,10 +192,10 @@ static void com_line_state_CSI(char ch)
     else if (ch == 'D')
         com_line_backward(com_ansi_param);
     else if (ch == '~' && com_ansi_param == 3)
-        com_line_delete(gets);
+        com_line_delete();
 }
 
-void com_line_rx(uint8_t ch)
+static void com_line_rx(uint8_t ch)
 {
     if (ch == ANSI_CANCEL)
         com_ansi_state = ansi_state_C0;
@@ -220,21 +218,20 @@ void com_line_rx(uint8_t ch)
         }
 }
 
-void com_binary_rx(uint8_t ch)
+static void com_binary_rx(uint8_t ch)
 {
     com_binary_buf[com_buflen] = ch;
     if (++com_buflen == com_bufsize)
     {
         com_read_callback_t cc = com_callback;
         com_callback = NULL;
+        cc(false, (char *)com_binary_buf, com_buflen);
         com_binary_buf = NULL;
-        cc(false, com_buflen);
     }
 }
 
-void com_read_binary(uint8_t *buf, size_t size, uint32_t timeout_ms, com_read_callback_t callback)
+void com_read_binary(uint32_t timeout_ms, com_read_callback_t callback, uint8_t *buf, size_t size)
 {
-    assert(!com_line_buf);
     com_binary_buf = buf;
     com_bufsize = size;
     com_buflen = 0;
@@ -243,11 +240,9 @@ void com_read_binary(uint8_t *buf, size_t size, uint32_t timeout_ms, com_read_ca
     com_callback = callback;
 }
 
-void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callback_t callback)
+void com_read_line(uint32_t timeout_ms, com_read_callback_t callback)
 {
-    assert(!com_binary_buf);
-    com_line_buf = buf;
-    com_bufsize = size;
+    com_bufsize = COM_BUF_SIZE;
     com_buflen = 0;
     com_bufpos = 0;
     com_ansi_state = ansi_state_C0;
@@ -256,7 +251,7 @@ void com_read_line(char *buf, size_t size, uint32_t timeout_ms, com_read_callbac
     com_callback = callback;
 }
 
-void com_task()
+void com_task(void)
 {
     com_tx_task();
 
@@ -278,25 +273,28 @@ void com_task()
             com_read_callback_t cc = com_callback;
             com_callback = NULL;
             com_binary_buf = NULL;
-            com_line_buf = NULL;
-            cc(true, com_buflen);
+            cc(true, NULL, 0);
         }
         else
         {
-            int ch = getchar_timeout_us(0);
+            int ch;
+            if (cpu_active() && com_callback)
+                ch = cpu_getchar();
+            else
+                ch = getchar_timeout_us(0);
             while (ch != PICO_ERROR_TIMEOUT)
             {
                 if (com_callback)
                 {
                     com_timer = delayed_by_ms(get_absolute_time(), com_timeout_ms);
-                    if (com_line_buf)
-                        com_line_rx(ch);
-                    else if (com_binary_buf)
+                    if (com_binary_buf)
                         com_binary_rx(ch);
+                    else
+                        com_line_rx(ch);
                 }
                 else if (cpu_active())
                     cpu_com_rx(ch);
-                if (ria_active())
+                if (ria_active()) // why?
                     break;
                 ch = getchar_timeout_us(0);
             }

@@ -6,6 +6,7 @@
 
 #include "str.h"
 #include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/ria.h"
 #include "pico/stdlib.h"
 #include "fatfs/ff.h"
@@ -116,11 +117,12 @@ void fil_mon_ls(const char *args, size_t len)
     f_closedir(&dir);
 }
 
-static void fil_command_dispatch(bool timeout, size_t len);
+static void fil_command_dispatch(bool timeout, const char *buf, size_t len);
 
-static void fil_com_rx_mbuf(bool timeout, size_t length)
+static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
 {
-    ria_buf_len = length;
+    (void)buf;
+    mbuf_len = length;
     FRESULT result = FR_OK;
     if (timeout)
     {
@@ -143,7 +145,7 @@ static void fil_com_rx_mbuf(bool timeout, size_t length)
     if (result == FR_OK)
     {
         UINT bytes_written;
-        result = f_write(&fil_fat, ria_buf, ria_buf_len, &bytes_written);
+        result = f_write(&fil_fat, mbuf, mbuf_len, &bytes_written);
         if (result != FR_OK)
             printf("?Unable to write file (%d)\n", result);
     }
@@ -151,13 +153,13 @@ static void fil_com_rx_mbuf(bool timeout, size_t length)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        com_read_line(com_readline_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+        com_read_line(TIMEOUT_MS, fil_command_dispatch);
     }
     else
         fil_state = FIL_IDLE;
 }
 
-static void fil_command_dispatch(bool timeout, size_t len)
+static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
 {
     if (timeout)
     {
@@ -166,7 +168,7 @@ static void fil_command_dispatch(bool timeout, size_t len)
         fil_state = FIL_IDLE;
         return;
     }
-    const char *args = com_readline_buf;
+    const char *args = buf;
 
     if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
     {
@@ -187,7 +189,7 @@ static void fil_command_dispatch(bool timeout, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_read_binary(ria_buf, rx_len, TIMEOUT_MS, fil_com_rx_mbuf);
+        com_read_binary(TIMEOUT_MS, fil_com_rx_mbuf, mbuf, rx_len);
         return;
     }
     printf("?invalid argument\n");
@@ -212,7 +214,7 @@ void fil_mon_upload(const char *args, size_t len)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    com_read_line(com_readline_buf, COM_BUF_SIZE, TIMEOUT_MS, fil_command_dispatch);
+    com_read_line(TIMEOUT_MS, fil_command_dispatch);
 }
 
 void fil_mon_unlink(const char *args, size_t len)

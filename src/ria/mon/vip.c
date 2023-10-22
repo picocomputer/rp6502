@@ -39,6 +39,12 @@ void vip_print(void)
         "Snake",
         "Kirk Davis",
         "Tomasz Sterna",
+        "Brian E-RAD Simmons",
+        "Robert Brown",
+        "Andrew C. Young",
+        "Jack Chidley",
+        "tonyvr",
+        "Jos Vermoesen",
         // YouTube
         "AJ_Whitney",
     };

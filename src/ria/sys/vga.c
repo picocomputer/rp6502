@@ -7,6 +7,7 @@
 #include "str.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
@@ -21,7 +22,7 @@
 #define VGA_BACKCHANNEL_SM 2
 
 // How long to wait for ACK to backchannel enable request
-#define VGA_TEST_MS 2
+#define VGA_BACKCHANNEL_ACK_MS 2
 // How long to wait for version string
 #define VGA_VERSION_WATCHDOG_MS 2
 // Abandon backchannel after two missed vsync messages (~2/60sec)
@@ -45,6 +46,8 @@ static absolute_time_t vga_version_watchdog;
 char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
 size_t vga_version_message_length;
 
+bool vga_needs_reset;
+
 static inline void vga_pix_flush()
 {
     // It takes four cycles of PHI2 to send a PIX message.
@@ -58,22 +61,22 @@ static inline void vga_pix_flush()
 
 static inline void vga_pix_backchannel_disable(void)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x04, 0);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
 static inline void vga_pix_backchannel_enable(void)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x04, 1);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 1);
 }
 
 static inline void vga_pix_backchannel_request(void)
 {
-    pix_send_blocking(PIX_VGA_DEV, 0xF, 0x04, 2);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 2);
 }
 
-static void vga_read(bool timeout, size_t length)
+static void vga_read(bool timeout, const char *buf, size_t length)
 {
-    if (!timeout && length == 4 && !strnicmp("VGA1", (char *)vga_read_buf, 4))
+    if (!timeout && length == 4 && !strnicmp("VGA1", buf, 4))
     {
         // IO and buffers need to be in sync before switch
         com_flush();
@@ -89,6 +92,28 @@ static void vga_read(bool timeout, size_t length)
     }
     else
         vga_state = VGA_NOT_FOUND;
+}
+
+static void vga_backchannel_command(uint8_t byte)
+{
+    uint8_t scalar = byte & 0xF;
+    switch (byte & 0xF0)
+    {
+    case 0x80:
+        vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+        static uint8_t vframe;
+        if (scalar < (vframe & 0xF))
+            vframe = (vframe & 0xF0) + 0x10;
+        vframe = (vframe & 0xF0) | scalar;
+        REGS(0xFFE3) = vframe;
+        break;
+    case 0x90:
+        pix_ack();
+        break;
+    case 0xA0:
+        pix_nak();
+        break;
+    }
 }
 
 void vga_init(void)
@@ -112,6 +137,9 @@ void vga_init(void)
 
     // Disable backchannel again, for safety.
     vga_pix_backchannel_disable();
+
+    // Reset Pico VGA
+    vga_needs_reset = true;
 }
 
 void vga_reclock(uint32_t sys_clk_khz)
@@ -125,7 +153,7 @@ void vga_task(void)
     if (vga_state == VGA_REQUEST_TEST)
     {
         vga_state = VGA_TESTING;
-        com_read_binary(vga_read_buf, 4, VGA_TEST_MS, vga_read);
+        com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, 4);
         vga_pix_backchannel_request();
     }
 
@@ -133,7 +161,9 @@ void vga_task(void)
     {
         uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
 
-        if (vga_state == VGA_VERSIONING && !(byte & 0x80))
+        if (byte & 0x80)
+            vga_backchannel_command(byte);
+        else if (vga_state == VGA_VERSIONING)
         {
             vga_version_watchdog = delayed_by_ms(get_absolute_time(), VGA_VERSION_WATCHDOG_MS);
             if (byte == '\r' || byte == '\n')
@@ -144,7 +174,6 @@ void vga_task(void)
                     vga_state = VGA_CONNECTED;
                     vga_version_message_length = 0;
                     vga_print_status();
-                    puts("");
                 }
             }
             else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
@@ -152,17 +181,6 @@ void vga_task(void)
                 vga_version_message[vga_version_message_length++] = byte;
                 vga_version_message[vga_version_message_length] = 0;
             }
-        }
-
-        if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) && (byte & 0x80))
-        {
-            vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
-            static uint8_t vframe;
-            uint8_t this_frame = byte & 0x7F;
-            if (this_frame < (vframe & 0x7F))
-                vframe ^= 0x80;
-            vframe = (vframe & 0x80) | this_frame;
-            REGS(0xFFE3) = vframe;
         }
     }
 
@@ -172,7 +190,6 @@ void vga_task(void)
         vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
         vga_state = VGA_NO_VERSION;
         vga_print_status();
-        puts("");
     }
 
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
@@ -186,6 +203,12 @@ void vga_task(void)
         printf("?");
         vga_print_status();
     }
+
+    if (vga_needs_reset)
+    {
+        vga_needs_reset = false;
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, cfg_get_vga());
+    }
 }
 
 void vga_run(void)
@@ -194,6 +217,25 @@ void vga_run(void)
     // Attempt to restart when a 6502 program is run.
     if (vga_state == VGA_LOST_SIGNAL && !ria_active())
         vga_state = VGA_REQUEST_TEST;
+}
+
+void vga_stop(void)
+{
+    // We want to reset only when program stops,
+    // otherwise video flickers after every ria job.
+    if (!ria_active())
+        vga_needs_reset = true;
+}
+
+void vga_reset(void)
+{
+    vga_needs_reset = true;
+}
+
+bool vga_set_vga(uint32_t disp)
+{
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, disp);
+    return true;
 }
 
 bool vga_active(void)

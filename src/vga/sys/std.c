@@ -4,18 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include <sys/ria.h>
 #include <sys/std.h>
-#include <stddef.h>
-#include <stdint.h>
 
-#define STD_IN_BUF_SIZE 32
+// IN is sourced by USB CDC
+// IN is sunk here to UART
 size_t std_in_head;
 size_t std_in_tail;
 uint8_t std_in_buf[STD_IN_BUF_SIZE];
 #define STD_IN_BUF(pos) std_in_buf[(pos) & (STD_IN_BUF_SIZE - 1)]
 
-#define STD_OUT_BUF_SIZE 32
+// OUT is sourced here from STD UART or PIX
+// OUT is sourced from PIX $F:03
+// OUT is sunk here to stdio
+// OUT is sunk by USB CDC
 size_t std_out_tail;
 size_t std_out_head;
 uint8_t std_out_buf[STD_OUT_BUF_SIZE];
@@ -33,19 +34,9 @@ bool std_in_empty(void)
     return &STD_IN_BUF(std_in_head) == &STD_IN_BUF(std_in_tail);
 }
 
-bool std_in_writable(void)
-{
-    return &STD_IN_BUF(std_in_head + 1) != &STD_IN_BUF(std_in_tail);
-}
-
 void std_in_write(char ch)
 {
     STD_IN_BUF(++std_in_head) = ch;
-}
-
-size_t std_out_free(void)
-{
-    return ((std_out_head + 0) - (std_out_tail + 1)) & (STD_OUT_BUF_SIZE - 1);
 }
 
 bool std_out_empty(void)
@@ -61,6 +52,7 @@ bool std_out_writable(void)
 void std_out_write(char ch)
 {
     STD_OUT_BUF(++std_out_tail) = ch;
+    // OUT is sunk here to stdio
     putchar_raw(ch);
 }
 
@@ -94,21 +86,11 @@ void std_set_break(bool en)
 
 void std_task()
 {
+    // IN is sunk here to UART
     if (!std_in_empty() && uart_is_writable(STD_UART_INTERFACE))
         uart_get_hw(STD_UART_INTERFACE)->dr = STD_IN_BUF(++std_in_tail);
 
-    if (ria_backchannel())
-    {
-        while (uart_is_readable(STD_UART_INTERFACE))
-            uart_getc(STD_UART_INTERFACE);
-        while (ria_stdout_is_readable() && std_out_writable())
-            std_out_write(ria_stdout_getc());
-    }
-    else
-    {
-        while (ria_stdout_is_readable())
-            ria_stdout_getc();
-        while (uart_is_readable(STD_UART_INTERFACE) && std_out_writable())
-            std_out_write(uart_getc(STD_UART_INTERFACE));
-    }
+    // OUT is sourced here from STD UART
+    while (uart_is_readable(STD_UART_INTERFACE) && std_out_writable())
+        std_out_write(uart_getc(STD_UART_INTERFACE));
 }

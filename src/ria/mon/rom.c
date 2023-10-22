@@ -7,6 +7,7 @@
 #include "main.h"
 #include "str.h"
 #include "api/api.h"
+#include "mon/hlp.h"
 #include "mon/mon.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
@@ -36,20 +37,20 @@ static size_t rom_gets()
     size_t len;
     if (is_reading_fat)
     {
-        if (!f_gets((char *)ria_buf, MBUF_SIZE, &fat_fil))
+        if (!f_gets((char *)mbuf, MBUF_SIZE, &fat_fil))
             return 0;
     }
     else
     {
-        if (!lfs_gets((char *)ria_buf, MBUF_SIZE, &lfs_volume, &lfs_file))
+        if (!lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
             return 0;
     }
-    len = strlen((char *)ria_buf);
-    if (len && ria_buf[len - 1] == '\n')
+    len = strlen((char *)mbuf);
+    if (len && mbuf[len - 1] == '\n')
         len--;
-    if (len && ria_buf[len - 1] == '\r')
+    if (len && mbuf[len - 1] == '\r')
         len--;
-    ria_buf[len] = 0;
+    mbuf[len] = 0;
     return len;
 }
 
@@ -76,7 +77,7 @@ static bool rom_open(const char *name, bool is_fat)
         }
         lfs_file_open = true;
     }
-    if (rom_gets() != 8 || strnicmp("#!RP6502", (char *)ria_buf, 8))
+    if (rom_gets() != 8 || strnicmp("#!RP6502", (char *)mbuf, 8))
     {
         printf("?Missing RP6502 ROM header\n");
         rom_state = ROM_IDLE;
@@ -99,7 +100,7 @@ static bool rom_read(uint32_t len, uint32_t crc)
 {
     if (is_reading_fat)
     {
-        FRESULT result = f_read(&fat_fil, ria_buf, len, &ria_buf_len);
+        FRESULT result = f_read(&fat_fil, mbuf, len, &mbuf_len);
         if (result != FR_OK)
         {
             printf("?Unable to read file (%d)\n", result);
@@ -108,15 +109,15 @@ static bool rom_read(uint32_t len, uint32_t crc)
     }
     else
     {
-        lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, ria_buf, len);
+        lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, mbuf, len);
         if (lfsresult < 0)
         {
             printf("?Unable to lfs_file_read (%ld)\n", lfsresult);
             return false;
         }
-        ria_buf_len = lfsresult;
+        mbuf_len = lfsresult;
     }
-    if (len != ria_buf_len)
+    if (len != mbuf_len)
     {
         printf("?Unable to read binary data\n");
         return false;
@@ -131,10 +132,10 @@ static bool rom_read(uint32_t len, uint32_t crc)
 
 static bool rom_next_chunk()
 {
-    ria_buf_len = 0;
+    mbuf_len = 0;
     size_t len = rom_gets();
     for (size_t i = 0; i < len; i++)
-        switch (ria_buf[i])
+        switch (mbuf[i])
         {
         case ' ':
             continue;
@@ -144,7 +145,7 @@ static bool rom_next_chunk()
             break;
         }
     uint32_t rom_crc;
-    const char *args = (char *)ria_buf;
+    const char *args = (char *)mbuf;
     if (parse_uint32(&args, &len, &rom_addr) &&
         parse_uint32(&args, &len, &rom_len) &&
         parse_uint32(&args, &len, &rom_crc) &&
@@ -188,7 +189,7 @@ static void rom_loading()
         rom_state = ROM_IDLE;
         return;
     }
-    if (ria_buf_len)
+    if (mbuf_len)
     {
         if (rom_addr > 0xFFFF)
             rom_state = ROM_XRAM_WRITING;
@@ -204,16 +205,16 @@ void rom_mon_install(const char *args, size_t len)
 {
     // Strip special extension, validate and upcase name
     char lfs_name[LFS_NAME_MAX + 1];
-    size_t lfs_name_len = strlen(args);
+    size_t lfs_name_len = len;
+    while (lfs_name_len && args[lfs_name_len - 1] == ' ')
+        lfs_name_len--;
     if (lfs_name_len > 7)
         if (!strnicmp(".RP6502", args + lfs_name_len - 7, 7))
             lfs_name_len -= 7;
     if (lfs_name_len > LFS_NAME_MAX)
         lfs_name_len = 0;
-    while (lfs_name_len && args[lfs_name_len - 1] == ' ')
-        lfs_name_len--;
-    lfs_name[lfs_name_len] = 0; // strncpy is garbage
-    strncpy(lfs_name, args, lfs_name_len);
+    lfs_name[lfs_name_len] = 0;
+    memcpy(lfs_name, args, lfs_name_len);
     for (size_t i = 0; i < lfs_name_len; i++)
     {
         if (lfs_name[i] >= 'a' && lfs_name[i] <= 'z')
@@ -224,7 +225,10 @@ void rom_mon_install(const char *args, size_t len)
             continue;
         lfs_name_len = 0;
     }
-    if (!lfs_name_len || mon_command_exists(args, len))
+    // Test for system conflicts
+    if (!lfs_name_len ||
+        mon_command_exists(lfs_name, lfs_name_len) ||
+        help_text_lookup(lfs_name, lfs_name_len))
     {
         printf("?Invalid ROM name.\n");
         return;
@@ -261,19 +265,19 @@ void rom_mon_install(const char *args, size_t len)
     lfs_file_open = true;
     while (true)
     {
-        fresult = f_read(&fat_fil, ria_buf, MBUF_SIZE, &ria_buf_len);
+        fresult = f_read(&fat_fil, mbuf, MBUF_SIZE, &mbuf_len);
         if (fresult != FR_OK)
         {
             printf("?Unable to read file (%d)\n", fresult);
             break;
         }
-        lfsresult = lfs_file_write(&lfs_volume, &lfs_file, ria_buf, ria_buf_len);
+        lfsresult = lfs_file_write(&lfs_volume, &lfs_file, mbuf, mbuf_len);
         if (lfsresult < 0)
         {
             printf("?Unable to lfs_file_write (%d)\n", lfsresult);
             break;
         }
-        if (ria_buf_len < MBUF_SIZE)
+        if (mbuf_len < MBUF_SIZE)
             break;
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
@@ -305,9 +309,10 @@ void rom_mon_remove(const char *args, size_t len)
         }
         int lfsresult = lfs_remove(&lfs_volume, lfs_name);
         if (lfsresult < 0)
-        {
+
             printf("?Unable to lfs_remove (%d)\n", lfsresult);
-        }
+        else
+            printf("Removed %s.\n", lfs_name);
         return;
     }
     printf("?Invalid ROM name\n");
@@ -342,15 +347,17 @@ void rom_mon_info(const char *args, size_t len)
     if (!rom_open(args, true))
         return;
     bool found = false;
-    while (rom_gets() && ria_buf[0] == '#' && ria_buf[1] == ' ')
+    while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
     {
-        puts((char *)ria_buf + 2);
+        puts((char *)mbuf + 2);
         found = true;
     }
     if (!found)
         puts("?No help found in file.");
 }
 
+// Returns false and prints nothing if ROM not found.
+// Something will always print before returning true.
 bool rom_help_lfs(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
@@ -362,9 +369,9 @@ bool rom_help_lfs(const char *args, size_t len)
             return false;
         bool found = false;
         if (rom_open(lfs_name, false))
-            while (rom_gets() && ria_buf[0] == '#' && ria_buf[1] == ' ')
+            while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
             {
-                puts((char *)ria_buf + 2);
+                puts((char *)mbuf + 2);
                 found = true;
             }
         if (!found)
@@ -391,8 +398,8 @@ static bool rom_xram_writing()
     while (rom_len && pix_ready())
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
-        xram[addr] = ria_buf[addr];
-        pix_send(0, 0, ria_buf[addr], addr);
+        xram[addr] = mbuf[addr];
+        pix_send(PIX_DEVICE_XRAM, 0, mbuf[addr], addr);
     }
     return !!rom_len;
 }

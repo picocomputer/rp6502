@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "str.h"
+#include "api/std.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
@@ -13,11 +14,13 @@
 #include "mon/rom.h"
 #include "mon/set.h"
 #include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
 
+static bool needs_newline = true;
 static bool needs_prompt = true;
 
 typedef void (*mon_function)(const char *, size_t);
@@ -48,7 +51,7 @@ static struct
 };
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
-// Returns 0 if not found. Advances buf to start of args.
+// Returns NULL if not found. Advances buf to start of args.
 static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
 {
     size_t i;
@@ -98,7 +101,7 @@ static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
             if (!strnicmp(cmd, COMMANDS[i].cmd, cmd_len))
                 return COMMANDS[i].func;
     }
-    return 0;
+    return NULL;
 }
 
 bool mon_command_exists(const char *buf, uint8_t buflen)
@@ -106,17 +109,17 @@ bool mon_command_exists(const char *buf, uint8_t buflen)
     return !!mon_command_lookup(&buf, buflen);
 }
 
-static void mon_enter(bool timeout, size_t length)
+static void mon_enter(bool timeout, const char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);
     needs_prompt = true;
-    const char *args = com_readline_buf;
+    const char *args = buf;
     mon_function func = mon_command_lookup(&args, length);
     if (!func)
     {
-        if (!rom_load_lfs(com_readline_buf, length))
-            for (char *b = com_readline_buf; b < args; b++)
+        if (!rom_load_lfs(buf, length))
+            for (const char *b = buf; b < args; b++)
                 if (b[0] != ' ')
                 {
                     printf("?unknown command\n");
@@ -124,7 +127,7 @@ static void mon_enter(bool timeout, size_t length)
                 }
         return;
     }
-    size_t args_len = length - (args - com_readline_buf);
+    size_t args_len = length - (args - buf);
     func(args, args_len);
 }
 
@@ -135,20 +138,26 @@ static bool mon_suspended()
            ram_active() ||
            rom_active() ||
            vga_active() ||
-           fil_active();
+           fil_active() ||
+           std_active();
 }
 
 void mon_task()
 {
     if (needs_prompt && !mon_suspended())
     {
-        needs_prompt = false;
+        printf("\30\33[0m");
+        if (needs_newline)
+            putchar('\n');
         putchar(']');
-        com_read_line(com_readline_buf, COM_BUF_SIZE, 0, mon_enter);
+        needs_prompt = false;
+        needs_newline = false;
+        com_read_line(0, mon_enter);
     }
 }
 
 void mon_reset()
 {
     needs_prompt = true;
+    needs_newline = true;
 }

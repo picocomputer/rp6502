@@ -28,6 +28,7 @@
 #include "sys/vga.h"
 #include "usb/kbd.h"
 #include "hardware/rtc.h"
+#include "usb/mou.h"
 
 /**************************************/
 /* All kernel modules register below. */
@@ -46,8 +47,7 @@ static void init()
     vga_init();
     com_init();
 
-    // Hello, world.
-    puts("\30\33[0m\f");
+    // Print startup message
     sys_init();
 
     // Load config before we continue
@@ -58,6 +58,7 @@ static void init()
     oem_init();
     aud_init();
     kbd_init();
+    mou_init();
     rom_init();
     led_init();
     rtc_init_();
@@ -77,7 +78,6 @@ void main_task()
     tuh_task();
     cpu_task();
     ria_task();
-    pix_task();
     aud_task();
     kbd_task();
     vga_task();
@@ -108,9 +108,12 @@ static void run()
 static void stop()
 {
     cpu_stop(); // Must be first
+    vga_stop(); // Must be before ria
     ria_stop();
     pix_stop();
     std_stop();
+    kbd_stop();
+    mou_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
@@ -121,6 +124,7 @@ static void reset()
     mon_reset();
     ram_reset();
     rom_reset();
+    vga_reset();
 }
 
 // Triggered once after init then after every PHI2 clock change.
@@ -138,16 +142,17 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
 }
 
 // PIX XREG writes to the RIA device will notify here.
-void main_pix(uint8_t ch, uint8_t byte, uint16_t word)
+bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
 {
-    switch (ch)
+    (void)addr;
+    switch (ch * 256 + addr)
     {
-    case 0:
-        // usb_pix(byte, word); //TODO direct access to keyboard, mouse, gamepad
-        break;
-    case 1:
-        aud_pix(byte, word);
-        break;
+    case 0x000:
+        return kbd_pix(word);
+    case 0x001:
+        return mou_pix(word);
+    default:
+        return false;
     }
 }
 
@@ -159,42 +164,45 @@ bool main_api(uint8_t operation)
     switch (operation)
     {
     case 0x01:
-        std_api_open();
+        pix_api_xreg();
+        break;
+    case 0x02:
+        cpu_api_phi2();
+        break;
+    case 0x03:
+        oem_api_codepage();
         break;
     case 0x04:
+        rng_api_lrand();
+        break;
+    case 0x14:
+        std_api_open();
+        break;
+    case 0x15:
         std_api_close();
         break;
-    case 0x05:
-        std_api_read_();
+    case 0x16:
+        std_api_read_xstack();
         break;
-    case 0x06:
-        std_api_readx();
+    case 0x17:
+        std_api_read_xram();
         break;
-    case 0x08:
-        std_api_write_();
+    case 0x18:
+        std_api_write_xstack();
         break;
-    case 0x09:
-        std_api_writex();
+    case 0x19:
+        std_api_write_xram();
         break;
-    case 0x0B:
+    case 0x1A:
         std_api_lseek();
         break;
     case 0x10:
-        pix_api_set_xreg();
+        rtc_api_get_res();
         break;
     case 0x11:
-        cpu_api_phi2();
-        break;
-    case 0x12:
-        oem_api_codepage();
-        break;
-    case 0x13:
-        rng_api_rand32();
-        break;
-    case 0x14:
         rtc_api_get_time();
         break;
-    case 0x15:
+    case 0x12:
         rtc_api_set_time();
         break;
     default:

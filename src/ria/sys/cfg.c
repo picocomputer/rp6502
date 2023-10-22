@@ -10,11 +10,11 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
+#include "sys/mem.h"
+#include "sys/vga.h"
 
 // Configuration is a plain ASCII file on the LFS. e.g.
 // +V1         | Version - Must be first
@@ -22,7 +22,7 @@
 // +C0         | Caps
 // +R0         | RESB
 // +S437       | Code Page
-// +V0         | VGA monitor type
+// +D0         | VGA display type
 // +TPST8PDT   | Time Zone setting
 // BASIC       | Boot ROM - Must be last
 
@@ -33,7 +33,7 @@ static uint32_t cfg_phi2_khz;
 static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
-static uint8_t cfg_vga;
+static uint8_t cfg_vga_display;
 static char cfg_timezone[100];
 
 // Optional string can replace boot string
@@ -51,10 +51,10 @@ static void cfg_save_with_boot_opt(char *opt_str)
     }
     if (!opt_str)
     {
-        opt_str = (char *)ria_buf;
+        opt_str = (char *)mbuf;
         // Fetch the boot string, ignore the rest
-        while (lfs_gets((char *)ria_buf, MBUF_SIZE, &lfs_volume, &lfs_file))
-            if (ria_buf[0] != '+')
+        while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
+            if (mbuf[0] != '+')
                 break;
         if (lfsresult >= 0)
             if ((lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file)) < 0)
@@ -72,7 +72,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+R%d\n"
                                "+C%d\n"
                                "+S%d\n"
-                               "+V%d\n"
+                               "+D%d\n"
                                "+T%s \n"
                                "%s",
                                CFG_VERSION,
@@ -80,7 +80,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_reset_ms,
                                cfg_caps,
                                cfg_codepage,
-                               cfg_vga,
+                               cfg_vga_display,
                                cfg_timezone,
                                opt_str);
         if (lfsresult < 0)
@@ -99,26 +99,26 @@ static void cfg_load_with_boot_opt(bool boot_only)
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, filename,
                                      LFS_O_RDONLY, &lfs_file_config);
-    ria_buf[0] = 0;
+    mbuf[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult != LFS_ERR_NOENT)
             printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", filename, lfsresult);
         return;
     }
-    while (lfs_gets((char *)ria_buf, MBUF_SIZE, &lfs_volume, &lfs_file))
+    while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
     {
-        size_t len = strlen((char *)ria_buf);
-        while (len && ria_buf[len - 1] == '\n')
+        size_t len = strlen((char *)mbuf);
+        while (len && mbuf[len - 1] == '\n')
             len--;
-        ria_buf[len] = 0;
-        if (len < 3 || ria_buf[0] != '+')
+        mbuf[len] = 0;
+        if (len < 3 || mbuf[0] != '+')
             break;
-        const char *str = (char *)ria_buf + 2;
+        const char *str = (char *)mbuf + 2;
         len -= 2;
         uint32_t val;
         if (!boot_only && parse_uint32(&str, &len, &val))
-            switch (ria_buf[1])
+            switch (mbuf[1])
             {
             case 'P':
                 cfg_phi2_khz = val;
@@ -132,8 +132,8 @@ static void cfg_load_with_boot_opt(bool boot_only)
             case 'S':
                 cfg_codepage = val;
                 break;
-            case 'V':
-                cfg_vga = val;
+            case 'D':
+                cfg_vga_display = val;
                 break;
             default:
                 break;
@@ -162,7 +162,7 @@ void cfg_set_boot(char *str)
 char *cfg_get_boot()
 {
     cfg_load_with_boot_opt(true);
-    return (char *)ria_buf;
+    return (char *)mbuf;
 }
 
 bool cfg_set_phi2_khz(uint32_t freq_khz)
@@ -237,10 +237,10 @@ uint16_t cfg_get_codepage()
 bool cfg_set_vga(uint8_t disp)
 {
     bool ok = true;
-    if (disp <= 2 && cfg_vga != disp)
+    if (disp <= 2 && cfg_vga_display != disp)
     {
-        cfg_vga = disp;
-        ok = pix_set_vga(cfg_vga);
+        cfg_vga_display = disp;
+        ok = vga_set_vga(cfg_vga_display);
         if (ok)
             cfg_save_with_boot_opt(NULL);
     }
@@ -249,7 +249,7 @@ bool cfg_set_vga(uint8_t disp)
 
 uint8_t cfg_get_vga()
 {
-    return cfg_vga;
+    return cfg_vga_display;
 }
 
 bool cfg_set_timezone(const char *timezone)

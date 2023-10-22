@@ -4,14 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "xram.h"
+#include "mem.h"
 
 #ifdef NDEBUG
-uint8_t xram[0x10000]
-    __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.xram")));
+uint8_t xram[0x10000];
 #else
-struct
+static struct
 {
     uint8_t _0[0x1000];
     uint8_t _1[0x1000];
@@ -31,8 +29,12 @@ struct
     uint8_t _F[0x1000];
     // this struct of 4KB segments is because
     // a single 64KB array crashes my debugger
-} xram_blocks
-    __attribute__((aligned(0x10000)))
-    __attribute__((section(".uninitialized_data.xram")));
+} xram_blocks;
 uint8_t *const xram = (uint8_t *)&xram_blocks;
 #endif
+
+uint8_t xstack[XSTACK_SIZE + 1];
+size_t volatile xstack_ptr;
+
+uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
+size_t mbuf_len;

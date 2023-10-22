@@ -33,13 +33,13 @@ static const char __in_flash("helptext") hlp_text_help[] =
 
 static const char __in_flash("helptext") hlp_text_set[] =
     "Settings:\n"
-    "HELP attr           - Show information about a setting.\n"
+    "HELP SET attr       - Show information about a setting.\n"
     "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET CP (cp)         - Query or set code page.\n"
-    "SET VGA (0|1|2)     - Query or set monitor type for VGA output.\n"
+    "SET VGA (0|1|2)     - Query or set display type for VGA output.\n"
     "SET TX (POSIX tz)   - Query or set the system time zone.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
@@ -197,8 +197,8 @@ static const char __in_flash("helptext") hlp_text_code_page[] =
 #endif
 
 static const char __in_flash("helptext") hlp_text_vga[] =
-    "SET VGA selects the monitor type for VGA output. All resolutions are\n"
-    "supported by all monitor type. Monitor type is used to maintain square\n"
+    "SET VGA selects the display type for VGA output. All canvas resolutions are\n"
+    "supported by all display types. Display type is used to maintain square\n"
     "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
     "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
     "  0 - 640x480\n"
@@ -225,6 +225,7 @@ static struct
     const char *const cmd;
     const char *const text;
 } const COMMANDS[] = {
+    {3, "set", hlp_text_set}, // must be first
     {6, "status", hlp_text_status},
     {5, "about", hlp_text_about},
     {7, "credits", hlp_text_about},
@@ -253,8 +254,15 @@ static struct
     {6, "upload", hlp_text_upload},
     {6, "unlink", hlp_text_unlink},
     {6, "binary", hlp_text_binary},
-    // Settings
-    {3, "set", hlp_text_set},
+};
+static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+
+static struct
+{
+    size_t set_len;
+    const char *const cmd;
+    const char *const text;
+} const SETTINGS[] = {
     {4, "caps", hlp_text_caps},
     {4, "phi2", hlp_text_phi2},
     {4, "resb", hlp_text_resb},
@@ -263,7 +271,7 @@ static struct
     {3, "vga", hlp_text_vga},
     {2, "tz", hlp_text_timezone},
 };
-static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;
 
 // Use width=0 to supress printing. Returns count.
 // Anything with only uppercase letters is counted.
@@ -357,23 +365,56 @@ static void hlp_help(const char *args, size_t len)
         printf("No installed ROMs.\n");
 }
 
+// Returns NULL if not found.
+const char *help_text_lookup(const char *args, size_t len)
+{
+    size_t cmd_len;
+    for (cmd_len = 0; cmd_len < len; cmd_len++)
+        if (args[cmd_len] == ' ')
+            break;
+    // SET command has another level of help
+    if (cmd_len == COMMANDS[0].cmd_len && !strnicmp(args, COMMANDS[0].cmd, cmd_len))
+    {
+        args += cmd_len;
+        len -= cmd_len;
+        while (len && args[0] == ' ')
+            args++, len--;
+        size_t set_len;
+        for (set_len = 0; set_len < len; set_len++)
+            if (args[set_len] == ' ')
+                break;
+        if (!set_len)
+            return COMMANDS[0].text;
+        for (size_t i = 0; i < SETTINGS_COUNT; i++)
+            if (set_len == SETTINGS[i].set_len)
+                if (!strnicmp(args, SETTINGS[i].cmd, set_len))
+                    return SETTINGS[i].text;
+        return NULL;
+    }
+    // Help for commands and a couple special words.
+    for (size_t i = 1; i < COMMANDS_COUNT; i++)
+        if (cmd_len == COMMANDS[i].cmd_len)
+            if (!strnicmp(args, COMMANDS[i].cmd, cmd_len))
+                return COMMANDS[i].text;
+    return NULL;
+}
+
 void hlp_mon_help(const char *args, size_t len)
 {
     if (!len)
         return hlp_help(args, len);
     while (len && args[len - 1] == ' ')
         len--;
-    for (size_t i = 0; i < COMMANDS_COUNT; i++)
+    const char *text = help_text_lookup(args, len);
+    if (text)
     {
-        if (len == COMMANDS[i].cmd_len)
-            if (!strnicmp(args, COMMANDS[i].cmd, len))
-            {
-                puts(COMMANDS[i].text);
-                if (COMMANDS[i].text == hlp_text_about)
-                    vip_print();
-                return;
-            }
+        puts(text);
+        if (text == hlp_text_about)
+            vip_print();
     }
-    if (!rom_help_lfs(args, len))
-        puts("?No help found.");
+    else
+    {
+        if (!rom_help_lfs(args, len))
+            puts("?No help found.");
+    }
 }

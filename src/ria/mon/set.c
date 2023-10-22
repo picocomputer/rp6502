@@ -8,7 +8,6 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
-#include "hardware/clocks.h"
 
 static void set_print_phi2()
 {

@@ -27,7 +27,7 @@
 // Fixed point range of -1.9r to 1.9r for DSP work
 typedef signed short s1x14;
 #define muls1x14(a, b) ((s1x14)((((int)(a)) * ((int)(b))) >> 14))
-#define float_to_s1x14(a) ((s1x14)((a)*16384.f))
+#define float_to_s1x14(a) ((s1x14)((a) * 16384.f))
 #define s1x14_to_float(a) ((float)(a) / 16384.f)
 #define s1x14_0_0 (0)
 #define s1x14_1_0 ((s1x14)(1 << 14))
@@ -272,10 +272,4 @@ void aud_task()
             break;
         }
     }
-}
-
-void aud_pix(uint8_t byte, uint16_t word)
-{
-    (void)byte;
-    (void)word;
 }

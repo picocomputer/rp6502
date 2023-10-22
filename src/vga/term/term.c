@@ -4,382 +4,712 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ansi.h"
-#include "font.h"
-#include "term.h"
+#include "modes/mode1.h"
+#include "term/ansi.h"
+#include "term/color.h"
+#include "term/font.h"
+#include "term/term.h"
+#include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include "pico/scanvideo.h"
 #include "pico/scanvideo/composable_scanline.h"
 #include <stdio.h>
 
-// If you are extending this for use outside the Picocomputer,
-// CSI codes with multiple parameters will need a more complete
-// implementation first.
+#define TERM_STD_HEIGHT 30
+#define TERM_MAX_HEIGHT 32
+#define TERM_CSI_PARAM_MAX_LEN 16
+#define TERM_LINE_WRAP 1
+#define TERM_FG_COLOR_INDEX 7
+#define TERM_BG_COLOR_INDEX 0
 
-#define TERM_WIDTH 80
-#define TERM_HEIGHT 32
-#define TERM_MEM_SIZE (TERM_WIDTH * TERM_HEIGHT * 2)
-#define TERM_WORD_WRAP 1
-static int term_x = 0, term_y = 0;
-static int term_y_offset = 0;
-static uint8_t term_color = 0x07;
-static uint32_t term_color_data[1024];
-static uint8_t term_memory[TERM_MEM_SIZE];
-static uint8_t *term_ptr = term_memory;
-static absolute_time_t term_timer = {0};
-static int32_t term_blink_state = 0;
-static ansi_state_t term_state = ansi_state_C0;
-static int term_csi_param;
-
-static void term_cursor_set_inv(bool inv)
+typedef struct
 {
-    if (term_blink_state == -1 || inv == term_blink_state || term_x >= TERM_WIDTH)
-        return;
-    term_ptr[1] = ((term_ptr[1] & 0x0F) << 4) | ((term_ptr[1] & 0xF0) >> 4);
-    term_blink_state = inv;
+    uint8_t font_code;
+    uint8_t attributes;
+    uint16_t fg_color;
+    uint16_t bg_color;
+} term_data_t;
+
+typedef struct term_state
+{
+    uint8_t width;
+    uint8_t height;
+    uint8_t x;
+    uint8_t y;
+    uint8_t y_offset;
+    uint16_t fg_color;
+    uint16_t bg_color;
+    term_data_t *mem;
+    term_data_t *ptr;
+    absolute_time_t timer;
+    int32_t blink_state;
+    ansi_state_t ansi_state;
+    uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
+    char csi_separator[TERM_CSI_PARAM_MAX_LEN];
+    uint8_t csi_param_count;
+} term_state_t;
+
+static term_state_t term_40;
+static term_state_t term_80;
+static int16_t term_scanline_begin;
+
+static void term_state_clear(term_state_t *term)
+{
+    for (size_t i = 0; i < term->width * term->height; i++)
+    {
+        term->mem[i].font_code = ' ';
+        term->mem[i].fg_color = term->fg_color;
+        term->mem[i].bg_color = term->bg_color;
+    }
+    term->x = 0;
+    term->y = 0;
+    term->y_offset = 0;
+    term->ptr = term->mem;
 }
 
-static void term_out_sgr(int param)
+static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 {
-    switch (param)
-    {
-    case -1:
-    case 0: // reset
-        term_color = 0x07;
-        break;
-    case 1: // bold intensity
-        term_color = (term_color | 0x08);
-        break;
-    case 22: // normal intensity
-        term_color = (term_color & 0xf7);
-        break;
-    case 30: // foreground color
-    case 31:
-    case 32:
-    case 33:
-    case 34:
-    case 35:
-    case 36:
-    case 37:
-        term_color = (term_color & 0xf8) | (param - 30);
-        break;
-    case 40: // background color
-    case 41:
-    case 42:
-    case 43:
-    case 44:
-    case 45:
-    case 46:
-    case 47:
-        term_color = ((param - 40) << 4) | (term_color & 0x8f);
-        break;
-    }
+    term->width = width;
+    term->height = TERM_STD_HEIGHT;
+    term->mem = mem;
+    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
+    term->blink_state = 0;
+    term->ansi_state = ansi_state_C0;
+    term_state_clear(term);
 }
 
-static void term_out_ht()
+static void term_state_set_height(term_state_t *term, uint8_t height)
 {
-    if (term_x < TERM_WIDTH)
+    assert(height >= 1 && height <= TERM_MAX_HEIGHT);
+    while (height != term->height)
     {
-        int xp = 8 - ((term_x + 8) & 7);
-        term_ptr += xp * 2;
-        term_x += xp;
-    }
-}
-
-static void term_out_lf()
-{
-    term_ptr += TERM_WIDTH * 2;
-    if (term_ptr >= term_memory + TERM_MEM_SIZE)
-    {
-        term_ptr -= TERM_MEM_SIZE;
-    }
-
-    if (++term_y == TERM_HEIGHT)
-    {
-        term_y = TERM_HEIGHT - 1;
-        if (++term_y_offset == TERM_HEIGHT)
+        int row;
+        if (height > term->height)
         {
-            term_y_offset = 0;
-        }
-        uint8_t *line_ptr = term_ptr - term_x * 2;
-        for (size_t x = 0; x < TERM_WIDTH * 2; x += 2)
-        {
-            line_ptr[x] = ' ';
-            line_ptr[x + 1] = term_color;
-        }
-    }
-}
-
-static void term_out_ff()
-{
-    term_ptr -= term_x * 2;
-    term_ptr += (TERM_HEIGHT - term_y) * TERM_WIDTH * 2;
-    term_x = term_y = 0;
-    if (term_ptr >= term_memory + TERM_MEM_SIZE)
-    {
-        term_ptr -= TERM_MEM_SIZE;
-    }
-    for (size_t i = 0; i < TERM_MEM_SIZE; i += 2)
-    {
-        term_memory[i] = ' ';
-        term_memory[i + 1] = term_color;
-    }
-}
-
-static void term_out_cr()
-{
-    term_ptr -= term_x * 2;
-    term_x = 0;
-}
-
-static void term_out_char(char ch)
-{
-    if (term_x == TERM_WIDTH)
-    {
-        if (TERM_WORD_WRAP)
-        {
-            term_out_cr();
-            term_out_lf();
+            term->height++;
+            if (term->y == term->height - 2)
+            {
+                term->y++;
+                if (!term->y_offset)
+                    term->y_offset = TERM_MAX_HEIGHT - 1;
+                else
+                    term->y_offset--;
+                continue;
+            }
+            row = term->y_offset + term->height - 1;
         }
         else
         {
-            term_ptr -= 2;
-            term_x -= 1;
+            term->height--;
+            if (term->y == term->height)
+            {
+                term->y--;
+                if (++term->y_offset >= TERM_MAX_HEIGHT)
+                    term->y_offset -= TERM_MAX_HEIGHT;
+                continue;
+            }
+            row = term->y_offset + term->height;
+        }
+        if (row >= TERM_MAX_HEIGHT)
+            row -= TERM_MAX_HEIGHT;
+        term_data_t *data = term->mem + row * term->width;
+        for (size_t i = 0; i < term->width; i++)
+        {
+            data[i].font_code = ' ';
+            data[i].fg_color = term->fg_color;
+            data[i].bg_color = term->bg_color;
         }
     }
-    term_x++;
-    *term_ptr++ = ch;
-    *term_ptr++ = term_color;
+}
+
+static void term_cursor_set_inv(term_state_t *term, bool inv)
+{
+    if (term->blink_state == -1 || inv == term->blink_state || term->x >= term->width)
+        return;
+    uint16_t swap = term->ptr->fg_color;
+    term->ptr->fg_color = term->ptr->bg_color;
+    term->ptr->bg_color = swap;
+    term->blink_state = inv;
+}
+
+static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
+{
+    if (idx + 2 < term->csi_param_count &&
+        term->csi_param[idx + 1] == 5)
+    {
+        // e.g. ESC[38;5;255m - Indexed color
+        if (color)
+        {
+            uint16_t color_idx = term->csi_param[idx + 2];
+            if (color_idx < 256)
+                *color = color_256[color_idx];
+        }
+    }
+    else if (idx + 4 < term->csi_param_count &&
+             term->csi_separator[idx] == ';' &&
+             term->csi_param[idx + 1] == 2)
+    {
+        // e.g. ESC[38;2;255;255;255m - RBG color
+        if (color)
+            *color = PICO_SCANVIDEO_ALPHA_MASK |
+                     PICO_SCANVIDEO_PIXEL_FROM_RGB8(
+                         term->csi_param[idx + 2],
+                         term->csi_param[idx + 3],
+                         term->csi_param[idx + 4]);
+    }
+    else if (idx + 5 < term->csi_param_count &&
+             term->csi_separator[idx] == ':' &&
+             term->csi_param[idx + 1] == 2)
+    {
+        // e.g. ESC[38:2::255:255:255:::m - RBG color (ITU)
+        if (color)
+            *color = PICO_SCANVIDEO_ALPHA_MASK |
+                     PICO_SCANVIDEO_PIXEL_FROM_RGB8(
+                         term->csi_param[idx + 3],
+                         term->csi_param[idx + 4],
+                         term->csi_param[idx + 5]);
+    }
+    else if (idx + 1 < term->csi_param_count &&
+             term->csi_param[idx + 1] == 1)
+    {
+        // e.g. ESC[38;1m - transparent
+        if (color)
+            *color = *color & ~PICO_SCANVIDEO_ALPHA_MASK;
+    }
+}
+
+static void term_out_sgr(term_state_t *term)
+{
+    if (term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
+        return;
+    for (uint8_t idx = 0; idx < term->csi_param_count; idx++)
+    {
+        uint16_t param = term->csi_param[idx];
+        switch (param)
+        {
+        case 0: // reset
+            term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+            term->bg_color = color_256[TERM_BG_COLOR_INDEX];
+            break;
+        case 1: // bold intensity
+            for (int i = 0; i < 8; i++)
+                if (term->fg_color == color_256[i])
+                    term->fg_color = color_256[i + 8];
+            break;
+        case 22: // normal intensity
+            for (int i = 8; i < 16; i++)
+                if (term->fg_color == color_256[i])
+                    term->fg_color = color_256[i - 8];
+            break;
+        case 30: // foreground color
+        case 31:
+        case 32:
+        case 33:
+        case 34:
+        case 35:
+        case 36:
+        case 37:
+            term->fg_color = color_256[param - 30];
+            break;
+        case 38:
+            sgr_color(term, idx, &term->fg_color);
+            return;
+        case 39:
+            term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+            break;
+        case 40: // background color
+        case 41:
+        case 42:
+        case 43:
+        case 44:
+        case 45:
+        case 46:
+        case 47:
+            term->bg_color = color_256[param - 40];
+            break;
+        case 48:
+            sgr_color(term, idx, &term->bg_color);
+            return;
+        case 49:
+            term->bg_color = color_256[TERM_BG_COLOR_INDEX];
+            break;
+        case 58: // Underline not supported, but eat colors
+            return;
+        case 90: // bright foreground color
+        case 91:
+        case 92:
+        case 93:
+        case 94:
+        case 95:
+        case 96:
+        case 97:
+            term->fg_color = color_256[param - 90 + 8];
+            break;
+        case 100: // bright background color
+        case 101:
+        case 102:
+        case 103:
+        case 104:
+        case 105:
+        case 106:
+        case 107:
+            term->bg_color = color_256[param - 100 + 8];
+            break;
+        }
+    }
+}
+
+static void term_out_ht(term_state_t *term)
+{
+    if (term->x < term->width)
+    {
+        int xp = 8 - ((term->x + 8) & 7);
+        term->ptr += xp;
+        term->x += xp;
+    }
+}
+
+static void term_out_lf(term_state_t *term)
+{
+    term->ptr += term->width;
+    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
+        term->ptr -= term->width * TERM_MAX_HEIGHT;
+    if (++term->y == term->height)
+    {
+        --term->y;
+        term_data_t *line_ptr = term->ptr - term->x;
+        for (size_t x = 0; x < term->width; x++)
+        {
+            line_ptr[x].font_code = ' ';
+            line_ptr[x].fg_color = term->fg_color;
+            line_ptr[x].bg_color = term->bg_color;
+        }
+        if (++term->y_offset == TERM_MAX_HEIGHT)
+            term->y_offset = 0;
+    }
+}
+
+static void term_out_ff(term_state_t *term)
+{
+    term_state_clear(term);
+}
+
+static void term_out_cr(term_state_t *term)
+{
+    term->ptr -= term->x;
+    term->x = 0;
+}
+
+static void term_out_glyph(term_state_t *term, char ch)
+{
+    if (term->x == term->width)
+    {
+        if (TERM_LINE_WRAP)
+        {
+            term_out_cr(term);
+            term_out_lf(term);
+        }
+        else
+        {
+            --term->ptr;
+            --term->x;
+        }
+    }
+    term->x++;
+    term->ptr->font_code = ch;
+    term->ptr->fg_color = term->fg_color;
+    term->ptr->bg_color = term->bg_color;
+    term->ptr++;
 }
 
 // Cursor forward
-static void term_out_cuf(int cols)
+static void term_out_cuf(term_state_t *term)
 {
-    if (cols > TERM_WIDTH - term_x)
-        cols = TERM_WIDTH - term_x;
-    term_ptr += cols * 2;
-    term_x += cols;
+    if (term->csi_param_count > 1)
+        return;
+    uint16_t cols = term->csi_param[0];
+    if (cols < 1)
+        cols = 1;
+    if (cols > term->width - term->x)
+        cols = term->width - term->x;
+    term->ptr += cols;
+    term->x += cols;
 }
 
 // Cursor backward
-static void term_out_cub(int cols)
+static void term_out_cub(term_state_t *term)
 {
-    if (cols > term_x)
-        cols = term_x;
-    term_ptr -= cols * 2;
-    term_x -= cols;
+    if (term->csi_param_count > 1)
+        return;
+    uint16_t cols = term->csi_param[0];
+    if (cols < 1)
+        cols = 1;
+    if (cols > term->x)
+        cols = term->x;
+    term->ptr -= cols;
+    term->x -= cols;
 }
 
 // Delete characters
-static void term_out_dch(int chars)
+static void term_out_dch(term_state_t *term)
 {
-    uint8_t *tp = term_ptr;
-    if (chars > TERM_WIDTH - term_x)
-        chars = TERM_WIDTH - term_x;
-    for (int i = term_x; i < TERM_WIDTH; i++)
+    if (term->csi_param_count > 1)
+        return;
+    uint16_t chars = term->csi_param[0];
+    if (chars < 1)
+        chars = 1;
+    if (chars > term->width - term->x)
+        chars = term->width - term->x;
+    term_data_t *tp = term->ptr;
+    for (int i = term->x; i < term->width; i++)
     {
-        if (chars + i >= TERM_WIDTH)
+        if (chars + i >= term->width)
         {
-            tp[0] = ' ';
-            tp[1] = term_color;
+            tp->font_code = ' ';
+            tp->fg_color = term->fg_color;
+            tp->bg_color = term->bg_color;
         }
         else
         {
-            tp[0] = tp[chars * 2];
-            tp[1] = tp[chars * 2 + 1];
+            tp[0] = tp[chars];
         }
-        tp += 2;
+        ++tp;
     }
 }
 
-static void term_out_state_C0(char ch)
+static void term_out_state_C0(term_state_t *term, char ch)
 {
     if (ch == '\b')
-        term_out_cub(1);
+    {
+        if (term->x > 0)
+            --term->ptr, --term->x;
+    }
     else if (ch == '\t')
-        term_out_ht();
+        term_out_ht(term);
     else if (ch == '\n')
-        term_out_lf();
+        term_out_lf(term);
     else if (ch == '\f')
-        term_out_ff();
+        term_out_ff(term);
     else if (ch == '\r')
-        term_out_cr();
+        term_out_cr(term);
     else if (ch == '\33')
-        term_state = ansi_state_Fe;
+        term->ansi_state = ansi_state_Fe;
     else if (ch >= 32 && ch <= 255)
-        term_out_char(ch);
+        term_out_glyph(term, ch);
 }
 
-static void term_out_state_Fe(char ch)
+static void term_out_state_Fe(term_state_t *term, char ch)
 {
     if (ch == '[')
     {
-        term_state = ansi_state_CSI;
-        term_csi_param = -1;
+        term->ansi_state = ansi_state_CSI;
+        term->csi_param_count = 0;
+        term->csi_param[0] = 0;
     }
     else
-        term_state = ansi_state_C0;
+        term->ansi_state = ansi_state_C0;
 }
 
-static void term_out_state_CSI(char ch)
+static void term_out_state_CSI(term_state_t *term, char ch)
 {
+    // Silently discard overflow parameters but still count them.
     if (ch >= '0' && ch <= '9')
     {
-        if (term_csi_param < 0)
+        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
         {
-            term_csi_param = ch - '0';
-        }
-        else
-        {
-            term_csi_param *= 10;
-            term_csi_param += ch - '0';
+            term->csi_param[term->csi_param_count] *= 10;
+            term->csi_param[term->csi_param_count] += ch - '0';
         }
         return;
     }
-    if (ch == ';')
+    if (ch == ';' || ch == ':')
     {
-        // all codes with multiple parameters
-        // end up here where we assume SGR
-        term_out_sgr(term_csi_param);
-        term_csi_param = -1;
+        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+            term->csi_separator[term->csi_param_count] = ch;
+        if (++term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+            term->csi_param[term->csi_param_count] = 0;
         return;
     }
-    term_state = ansi_state_C0;
-    if (ch == 'm')
+    term->ansi_state = ansi_state_C0;
+    if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+        term->csi_separator[term->csi_param_count] = 0;
+    term->csi_param_count++;
+    switch (ch)
     {
-        term_out_sgr(term_csi_param);
-        return;
+    case 'm':
+        term_out_sgr(term);
+        break;
+    case 'C':
+        term_out_cuf(term);
+        break;
+    case 'D':
+        term_out_cub(term);
+        break;
+    case 'P':
+        term_out_dch(term);
+        break;
     }
-    // Everything below defaults to 1
-    if (term_csi_param < 0)
-        term_csi_param = -term_csi_param;
-    if (ch == 'C')
-        term_out_cuf(term_csi_param);
-    else if (ch == 'D')
-        term_out_cub(term_csi_param);
-    else if (ch == 'P')
-        term_out_dch(term_csi_param);
+}
+
+static void term_out_char(term_state_t *term, char ch)
+{
+    if (ch == ANSI_CANCEL)
+        term->ansi_state = ansi_state_C0;
+    else
+        switch (term->ansi_state)
+        {
+        case ansi_state_C0:
+            term_out_state_C0(term, ch);
+            break;
+        case ansi_state_Fe:
+            term_out_state_Fe(term, ch);
+            break;
+        case ansi_state_CSI:
+            term_out_state_CSI(term, ch);
+            break;
+        }
 }
 
 static void term_out_chars(const char *buf, int length)
 {
     if (length)
     {
-        term_cursor_set_inv(false);
+        term_cursor_set_inv(&term_40, false);
+        term_cursor_set_inv(&term_80, false);
         for (int i = 0; i < length; i++)
         {
-            char ch = buf[i];
-            if (ch == ANSI_CANCEL)
-                term_state = ansi_state_C0;
-            else
-                switch (term_state)
-                {
-                case ansi_state_C0:
-                    term_out_state_C0(ch);
-                    break;
-                case ansi_state_Fe:
-                    term_out_state_Fe(ch);
-                    break;
-                case ansi_state_CSI:
-                    term_out_state_CSI(ch);
-                    break;
-                }
+            term_out_char(&term_40, buf[i]);
+            term_out_char(&term_80, buf[i]);
         }
-        term_timer = get_absolute_time();
+        term_40.timer = term_80.timer = get_absolute_time();
     }
 }
 
-static stdio_driver_t term_stdio = {
-    .out_chars = term_out_chars,
-#if PICO_STDIO_ENABLE_CRLF_SUPPORT
-    .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
-#endif
-};
-
 void term_init(void)
 {
+    // prepare console
+    static term_data_t term40_mem[40 * TERM_MAX_HEIGHT];
+    static term_data_t term80_mem[80 * TERM_MAX_HEIGHT];
+    term_state_init(&term_40, 40, term40_mem);
+    term_state_init(&term_80, 80, term80_mem);
     // become part of stdout
-    stdio_set_driver_enabled(&term_stdio, true);
-    // populate color lookup table
-    uint32_t colors[] = {
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 205, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 205),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 205),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 205, 205),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(127, 127, 127),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 0),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 0, 255),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(0, 255, 255),
-        PICO_SCANVIDEO_PIXEL_FROM_RGB8(255, 255, 255),
+    static stdio_driver_t term_stdio = {
+        .out_chars = term_out_chars,
+#if PICO_STDIO_ENABLE_CRLF_SUPPORT
+        .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
+#endif
     };
-    for (int c = 0; c < 256; c++)
+    stdio_set_driver_enabled(&term_stdio, true);
+}
+
+static void term_blink_cursor(term_state_t *term)
+{
+    absolute_time_t now = get_absolute_time();
+    if (absolute_time_diff_us(now, term->timer) < 0)
     {
-        uint32_t fgcolor = colors[c & 0x0f];
-        uint32_t bgcolor = colors[(c & 0xf0) >> 4];
-        size_t pos = c * 4;
-        term_color_data[pos] = bgcolor | (bgcolor << 16);
-        term_color_data[pos + 1] = bgcolor | (fgcolor << 16);
-        term_color_data[pos + 2] = fgcolor | (bgcolor << 16);
-        term_color_data[pos + 3] = fgcolor | (fgcolor << 16);
+        term_cursor_set_inv(term, !term->blink_state);
+        // 0.3ms drift to avoid blinking cursor trearing
+        term->timer = delayed_by_us(now, 499700);
     }
-    term_clear();
 }
 
 void term_task(void)
 {
-    absolute_time_t now = get_absolute_time();
-    if (absolute_time_diff_us(now, term_timer) < 0)
+    term_blink_cursor(&term_40);
+    term_blink_cursor(&term_80);
+}
+
+static inline void __attribute__((optimize("O1")))
+render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
+{
+    switch (bits)
     {
-        term_cursor_set_inv(!term_blink_state);
-        // 0.3ms drift to avoid blinking cursor trearing
-        term_timer = delayed_by_us(now, 499700);
+    case 0:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 1:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 2:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 3:
+        buf[0] = bg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 4:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 5:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 6:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 7:
+        buf[0] = bg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 8:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 9:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 10:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 11:
+        buf[0] = fg;
+        buf[1] = bg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
+    case 12:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = bg;
+        break;
+    case 13:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = bg;
+        buf[3] = fg;
+        break;
+    case 14:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = bg;
+        break;
+    case 15:
+        buf[0] = fg;
+        buf[1] = fg;
+        buf[2] = fg;
+        buf[3] = fg;
+        break;
     }
 }
 
-void term_clear(void)
+static inline bool __attribute__((optimize("O1")))
+term_render_320(int16_t scanline_id, uint16_t *rgb)
 {
-    // reset state and clear screen
-    puts("\30\33[0m\f");
+    scanline_id -= term_scanline_begin;
+    const uint8_t *font_line = &font8[(scanline_id & 7) * 256];
+    int mem_y = scanline_id / 8 + term_40.y_offset;
+    if (mem_y >= TERM_MAX_HEIGHT)
+        mem_y -= TERM_MAX_HEIGHT;
+    term_data_t *term_ptr = term_40.mem + 40 * mem_y;
+    for (int i = 0; i < 40; i++, term_ptr++)
+    {
+        uint8_t bits = font_line[term_ptr->font_code];
+        uint16_t fg = term_ptr->fg_color;
+        uint16_t bg = term_ptr->bg_color;
+        render_nibble(rgb, bits >> 4, fg, bg);
+        rgb += 4;
+        render_nibble(rgb, bits & 0xF, fg, bg);
+        rgb += 4;
+    }
+    return true;
 }
 
-void term_render(struct scanvideo_scanline_buffer *dest, uint16_t height)
+static inline bool __attribute__((optimize("O1")))
+term_render_640(int16_t scanline_id, uint16_t *rgb)
 {
-    // renders 80 columns into 640 pixels with 16 fg/bg colors
-    // requires PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
-    int line = scanvideo_scanline_number(dest->scanline_id);
-    while (height <= term_y * 16)
+    scanline_id -= term_scanline_begin;
+    const uint8_t *font_line = &font16[(scanline_id & 15) * 256];
+    int mem_y = scanline_id / 16 + term_80.y_offset;
+    if (mem_y >= TERM_MAX_HEIGHT)
+        mem_y -= TERM_MAX_HEIGHT;
+    term_data_t *term_ptr = term_80.mem + 80 * mem_y;
+    for (int i = 0; i < 80; i++, term_ptr++)
     {
-        line += 16;
-        height += 16;
+        uint8_t bits = font_line[term_ptr->font_code];
+        uint16_t fg = term_ptr->fg_color;
+        uint16_t bg = term_ptr->bg_color;
+        render_nibble(rgb, bits >> 4, fg, bg);
+        rgb += 4;
+        render_nibble(rgb, bits & 0xF, fg, bg);
+        rgb += 4;
     }
-    const uint8_t *font_line = &font16[(line & 15) * 256];
-    line = line / 16 + term_y_offset;
-    if (line >= TERM_HEIGHT)
-        line -= TERM_HEIGHT;
-    uint8_t *term_ptr = term_memory + TERM_WIDTH * 2 * line;
-    uint32_t *buf = dest->data;
-    for (int i = 0; i < TERM_WIDTH * 2; i += 2)
+    return true;
+}
+
+static bool __attribute__((optimize("O1")))
+term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    if (width == 320)
+        return term_render_320(scanline_id, rgb);
+    else
+        return term_render_640(scanline_id, rgb);
+}
+
+bool term_prog(uint16_t *xregs)
+{
+    int16_t plane = xregs[2];
+    int16_t scanline_begin = xregs[3];
+    int16_t scanline_end = xregs[4];
+    int16_t height = vga_canvas_height();
+    if (!scanline_begin && !scanline_end)
     {
-        uint8_t bits = font_line[term_ptr[i]];
-        uint32_t *colors = term_color_data + term_ptr[i + 1] * 4;
-        *++buf = colors[bits >> 6];
-        *++buf = colors[bits >> 4 & 0x03];
-        *++buf = colors[bits >> 2 & 0x03];
-        *++buf = colors[bits & 0x03];
+        // Special case to make defaults work with widescreen
+        if (height == 180)
+            scanline_begin = 2, scanline_end = 178;
+        if (height == 360)
+            scanline_begin = 4, scanline_end = 356;
     }
-    buf = (void *)dest->data;
-    buf[0] = COMPOSABLE_RAW_RUN | (buf[1] << 16);
-    buf[1] = 637 | (buf[1] & 0xFFFF0000);
-    buf[321] = COMPOSABLE_RAW_1P | 0;
-    buf[322] = COMPOSABLE_EOL_SKIP_ALIGN;
-    dest->data_used = 323;
-    dest->status = SCANLINE_OK;
+    if (!scanline_end)
+        scanline_end = height;
+    int16_t scanline_count = scanline_end - scanline_begin;
+    bool use_40 = height == 180 || height == 240;
+
+    // Check for terminal height is multiple of font height
+    if (scanline_count % (use_40 ? 8 : 16))
+        return false;
+
+    // Program the new scanlines
+    if (vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, term_render))
+    {
+        if (use_40)
+            term_state_set_height(&term_40, scanline_count / 8);
+        else
+            term_state_set_height(&term_80, scanline_count / 16);
+        term_scanline_begin = scanline_begin;
+        return true;
+    }
+    return false;
 }

@@ -9,7 +9,7 @@ target_include_directories(tinyusb_vga PRIVATE
 
 file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
 
-target_link_libraries(tinyusb_vga PUBLIC
+target_link_libraries(tinyusb_vga PRIVATE
     pico_stdlib
 )
 
@@ -81,6 +81,7 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/cpu.c
     ria/sys/led.c
     ria/sys/lfs.c
+    ria/sys/mem.c
     ria/sys/pix.c
     ria/sys/ria.c
     ria/sys/sys.c
@@ -88,6 +89,7 @@ target_sources(rp6502_ria PRIVATE
     ria/usb/hid_ps4.c
     ria/usb/hid.c
     ria/usb/kbd.c
+    ria/usb/mou.c
     ria/usb/msc.c
     ria/usb/usb.c
     fatfs/ff.c
@@ -103,6 +105,7 @@ add_executable(rp6502_vga)
 pico_add_extra_outputs(rp6502_vga)
 pico_set_program_name(rp6502_vga "RP6502 VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
+pico_set_linker_script(rp6502_vga ${CMAKE_CURRENT_LIST_DIR}/memmap_xram.ld)
 
 target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -112,12 +115,17 @@ target_include_directories(rp6502_vga PRIVATE
 
 target_sources(rp6502_vga PRIVATE
     vga/main.c
+    vga/modes/mode1.c
+    vga/modes/mode2.c
+    vga/modes/mode3.c
+    vga/modes/mode4.c
+    vga/modes/mode5.c
     vga/sys/led.c
     vga/sys/pix.c
     vga/sys/ria.c
     vga/sys/std.c
     vga/sys/vga.c
-    vga/sys/xram.c
+    vga/term/color.c
     vga/term/font.c
     vga/term/term.c
     vga/usb/cdc.c
@@ -147,10 +155,12 @@ pico_generate_pio_header(rp6502_vga
 )
 
 target_compile_definitions(rp6502_vga PRIVATE
+    PICO_SCANVIDEO_PLANE_COUNT=3
     PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
     PICO_SCANVIDEO_COLOR_PIN_BASE=6
     PICO_SCANVIDEO_SYNC_PIN_BASE=26
     PICO_RP2040_USB_DEVICE_ENUMERATION_FIX=1
+    PICO_RP2040_USB_DEVICE_UFRAME_FIX=1
 )
 
 
@@ -163,6 +173,7 @@ set_property(TARGET rp6502_ria rp6502_vga
     RP6502_NAME="Picocomputer 6502"
     RP6502_VERSION=""
     RP6502_CODE_PAGE=850
+    RP6502_KEYBOARD=EN_US
     RP6502_MIN_PHI2=500
     RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0

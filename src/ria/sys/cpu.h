@@ -40,4 +40,12 @@ uint32_t cpu_get_reset_us();
 // Receive UART and keyboard communications intended for the 6502.
 void cpu_com_rx(uint8_t ch);
 
+// Get char from CPU rx buf
+int cpu_getchar(void);
+
+// Readline support for stdin
+void cpu_stdin_request(void);
+bool cpu_stdin_ready(void);
+size_t cpu_stdin_read(uint8_t *buf, size_t count);
+
 #endif /* _CPU_H_ */

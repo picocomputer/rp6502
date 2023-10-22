@@ -12,28 +12,50 @@
 
 // Display type. Choose SD for 4:3 displays,
 // HD for 16:9 displays, and SXGA for 5:4 displays.
-// Note that choosing vga_hd will only activate 720p
-// output on 320x180 and 640x380 resolutions.
 typedef enum
 {
     vga_sd,   // 640x480 (480p) default
-    vga_hd,   // 1280x720 (720p)
+    vga_hd,   // 640x480 and 1280x720 (720p)
     vga_sxga, // 1280x1024 (5:4)
 } vga_display_t;
 
-// Internal resolution, before scaling for display.
+// Canvas size.
 typedef enum
 {
+    vga_console,
     vga_320_240,
-    vga_640_480,
     vga_320_180,
+    vga_640_480,
     vga_640_360,
-} vga_resolution_t;
+} vga_canvas_t;
 
+void vga_set_display(vga_display_t display);
+bool vga_xreg_canvas(uint16_t *xregs);
+int16_t vga_canvas_height(void);
 void vga_init(void);
 void vga_task(void);
-void vga_display(vga_display_t display);
-void vga_resolution(vga_resolution_t mode);
-void vga_terminal(bool show);
+
+bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                   uint16_t config_ptr,
+                   bool (*fill_fn)(int16_t scanline,
+                                   int16_t width,
+                                   uint16_t *rgb,
+                                   uint16_t config_ptr));
+
+// For singleton fill modes, like the terminal
+bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                        uint16_t config_ptr,
+                        bool (*fill_fn)(int16_t scanline,
+                                        int16_t width,
+                                        uint16_t *rgb,
+                                        uint16_t config_ptr));
+
+bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                     uint16_t config_ptr,
+                     void (*sprite_fn)(int16_t scanline,
+                                       int16_t width,
+                                       uint16_t *rgb,
+                                       uint16_t config_ptr,
+                                       uint16_t count));
 
 #endif /* _VGA_H_ */
