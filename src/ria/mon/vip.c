@@ -45,6 +45,7 @@ void vip_print(void)
         "Jack Chidley",
         "tonyvr",
         "Jos Vermoesen",
+        "James Temple",
         // YouTube
         "AJ_Whitney",
     };
