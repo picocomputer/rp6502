@@ -28,14 +28,20 @@ static volatile size_t std_out_head;
 static volatile uint8_t std_out_buf[32];
 #define STD_OUT_BUF(pos) std_out_buf[(pos) & 0x1F]
 
-static inline bool com_stdout_writable()
+static inline bool std_out_buf_writable()
 {
     return (((std_out_head + 1) & 0x1F) != (std_out_tail & 0x1F));
 }
 
-static inline void com_stdout_write(char ch)
+static inline void std_out_buf_write(char ch)
 {
     STD_OUT_BUF(++std_out_head) = ch;
+}
+
+bool std_active(void)
+{
+    // Active until stdout is empty
+    return (((std_out_head) & 0x1F) != (std_out_tail & 0x1F));
 }
 
 void std_task(void)
@@ -208,8 +214,8 @@ static void std_out_write(char *ptr)
     static void *std_out_ptr;
     if (ptr)
         std_out_ptr = ptr;
-    for (; std_xram_count && com_stdout_writable(); --std_xram_count)
-        com_stdout_write(*(uint8_t *)std_out_ptr++);
+    for (; std_xram_count && std_out_buf_writable(); --std_xram_count)
+        std_out_buf_write(*(uint8_t *)std_out_ptr++);
     if (!std_xram_count)
     {
         std_xram_count = -1;

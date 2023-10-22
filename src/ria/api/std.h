@@ -7,9 +7,12 @@
 #ifndef _STD_H_
 #define _STD_H_
 
-// Kernel events
+#include <stdbool.h>
+
+// Core events
 void std_task(void);
 void std_stop(void);
+bool std_active(void);
 
 /*
  * The API implementation for stdio support.
