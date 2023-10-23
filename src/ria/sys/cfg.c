@@ -138,7 +138,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             default:
                 break;
             }
-        else if (!boot_only && ria_buf[1] == 'T')
+        else if (!boot_only && mbuf[1] == 'T')
         {
             strlcpy(cfg_timezone, str, len);
             break;
