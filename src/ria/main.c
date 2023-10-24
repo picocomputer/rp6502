@@ -27,7 +27,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/kbd.h"
-#include "hardware/rtc.h"
+// #include "hardware/rtc.h"
 #include "usb/mou.h"
 
 /**************************************/
@@ -204,9 +204,6 @@ bool main_api(uint8_t operation)
         break;
     case 0x12:
         rtc_api_set_time();
-        break;
-    case 0x13:
-        rtc_api_get_timezone();
         break;
     default:
         return false;

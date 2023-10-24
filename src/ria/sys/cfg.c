@@ -6,13 +6,9 @@
 
 #include "str.h"
 #include "api/oem.h"
-#include "api/rtc.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
-#include <string.h>
-#include <time.h>
-#include <stdlib.h>
 #include "sys/mem.h"
 #include "sys/vga.h"
 
@@ -23,7 +19,6 @@
 // +R0         | RESB
 // +S437       | Code Page
 // +D0         | VGA display type
-// +TPST8PDT   | Time Zone setting
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
@@ -34,7 +29,6 @@ static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
 static uint8_t cfg_vga_display;
-static char cfg_timezone[100];
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -73,7 +67,6 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+C%d\n"
                                "+S%d\n"
                                "+D%d\n"
-                               "+T%s \n"
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
@@ -81,7 +74,6 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_caps,
                                cfg_codepage,
                                cfg_vga_display,
-                               cfg_timezone,
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -138,11 +130,6 @@ static void cfg_load_with_boot_opt(bool boot_only)
             default:
                 break;
             }
-        else if (!boot_only && mbuf[1] == 'T')
-        {
-            strlcpy(cfg_timezone, str, len);
-            break;
-        }
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
@@ -250,33 +237,4 @@ bool cfg_set_vga(uint8_t disp)
 uint8_t cfg_get_vga()
 {
     return cfg_vga_display;
-}
-
-bool cfg_set_timezone(const char *timezone)
-{
-    if (timezone != cfg_timezone)
-    {
-        unsigned char tz_old_buf[sizeof(__tzinfo_type)];
-        // unsigned char tz_buf[sizeof(__tzinfo_type)];
-        memcpy(&tz_old_buf, __gettzinfo(), sizeof(__tzinfo_type));
-        char tz_old_tzname[sizeof(_tzname[0])];
-        char tz_old_dstname[sizeof(_tzname[1])];
-        strlcpy(tz_old_tzname, _tzname[0], sizeof(tz_old_tzname));
-        strlcpy(tz_old_dstname, _tzname[1], sizeof(tz_old_dstname));
-        set_timezone(timezone);
-        __tzinfo_type tz = *__gettzinfo();
-        int tz_dif_val = memcmp(tz_old_buf, (unsigned char *)&tz, sizeof(__tzinfo_type));
-        int tzname_dif_val = strcmp(tz_old_tzname, _tzname[0]);
-        int dstname_dif_val = strcmp(tz_old_dstname, _tzname[1]);
-        if (tz_dif_val != 0 && tzname_dif_val != 0 && dstname_dif_val != 0)
-            return false;
-        strlcpy(cfg_timezone, timezone, sizeof(cfg_timezone));
-        cfg_save_with_boot_opt(NULL);
-    }
-    return true;
-}
-
-const char* cfg_get_timezone()
-{
-    return cfg_timezone;
 }

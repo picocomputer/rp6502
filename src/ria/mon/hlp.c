@@ -39,8 +39,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET CP (cp)         - Query or set code page.\n"
-    "SET VGA (0|1|2)     - Query or set display type for VGA output.\n"
-    "SET TX (POSIX tz)   - Query or set the system time zone.";
+    "SET VGA (0|1|2)     - Query or set display type for VGA output.";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
@@ -205,20 +204,6 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "  1 - 640x480 and 1280x720, 16:9 modes will not letterbox\n"
     "  2 - 1280x1024, all graphics modes will letterbox";
 
-static const char __in_flash("helptext") hlp_text_timezone[] =
-    "SET TZ sets the system time zone. The format is POSIX Ttime zone specification\n"
-    "and has the form: STD offset [ DST [ dstoffset ] [ , rule ] ](For readability,\n"
-    "we show spaces between the fields, but spaces should not be used in practice.)\n"
-    "STD and DST are time zone abbreviations for standard time and daylight saving\n"
-    "time. They must be 3 or 4 characters long and must not contain a leading colon,\n"
-    "embedded digits, commas, nor plus and minus signs.\n"
-    "If a DST name but no rule is specified the default of M3.2.0,M11.1.0 is applied.\n"
-    "Example 1: PST8 would spcify PST as the SDT name with an 8 hour offset with no\n"
-    "DST.\n"
-    "Example 2: EST5EDT would specify EDT as the STD name with a 5 hour offset and\n"
-    "EDT as the DST name. A 1 hour daylight adjustment will be assumed and the rule\n"
-    "M3.2.0,M11.1.0 will be applied.\n";
-
 static struct
 {
     size_t cmd_len;
@@ -269,7 +254,6 @@ static struct
     {4, "boot", hlp_text_boot},
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
-    {2, "tz", hlp_text_timezone},
 };
 static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;
 

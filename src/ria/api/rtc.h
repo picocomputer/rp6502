@@ -21,6 +21,5 @@ void set_timezone (const char* timezone);
 void rtc_api_get_res(void);
 void rtc_api_get_time(void);
 void rtc_api_set_time(void);
-void rtc_api_get_timezone(void);
 
 #endif /* _RTC_H_ */
