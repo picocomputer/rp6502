@@ -5,6 +5,7 @@
 #include "hardware/rtc.h"
 
 #define RIA_CLOCK_REALTIME 0
+#define FAT_EPOCH_YEAR 1980
 
 void rtc_init_ (void)
 {
