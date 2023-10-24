@@ -1,14 +1,10 @@
 #include "api/api.h"
 #include "api/rtc.h"
 #include "sys/cfg.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
 #include <time.h>
-#include <string.h>
 #include "hardware/rtc.h"
-#include "pico/stdlib.h"
+
+#define RIA_CLOCK_REALTIME 0
 
 void rtc_init_ (void)
 {
@@ -51,7 +47,7 @@ DWORD get_fattime (void)
 void rtc_api_get_res(void)
 {
     uint8_t clock_id = API_A;
-    if (clock_id == 0)
+    if (clock_id == RIA_CLOCK_REALTIME)
     {
         uint32_t sec = 1;
         int32_t nsec = 0;
@@ -68,7 +64,7 @@ void rtc_api_get_res(void)
 void rtc_api_get_time(void)
 {
     uint8_t clock_id = API_A;
-    if (clock_id == 0) {
+    if (clock_id == RIA_CLOCK_REALTIME) {
         datetime_t rtc_info;
         bool result = rtc_get_datetime(&rtc_info);
         if (!result)
@@ -96,7 +92,7 @@ void rtc_api_get_time(void)
 void rtc_api_set_time(void)
 {
     uint8_t clock_id = API_A;
-    if (clock_id == 0) {
+    if (clock_id == RIA_CLOCK_REALTIME) {
         time_t rawtime;
         long rawtime_nsec;
         api_pop_uint32((uint32_t *)&rawtime);
