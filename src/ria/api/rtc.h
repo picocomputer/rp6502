@@ -6,7 +6,6 @@
 // Kernel events
 void rtc_init_ (void);
 DWORD get_fattime (void);
-void set_timezone (const char* timezone);
 
 /*
  * The API implementaiton for RTC support

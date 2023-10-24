@@ -11,7 +11,6 @@
 #include "api/rng.h"
 #include "api/rtc.h"
 #include "api/std.h"
-#include "api/rtc.h"
 #include "aud/aud.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
