@@ -4,8 +4,8 @@
 #include "fatfs/ff.h"
 
 // Kernel events
-void rtc_init_ (void);
-DWORD get_fattime (void);
+void rt_clock_init(void);
+DWORD get_fattime(void);
 
 /*
  * The API implementaiton for RTC support

@@ -59,7 +59,7 @@ static void init()
     mou_init();
     rom_init();
     led_init();
-    rtc_init_();
+    rt_clock_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
