@@ -495,10 +495,11 @@ void ria_init(void)
         hw_set_bits(&pio1->input_sync_bypass, 1u << i);
     }
 
-    // Raise DMA above CPU on crossbar
+    // Lower CPU0 on crossbar by raising others
     bus_ctrl_hw->priority |=
         BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
+        BUSCTRL_BUS_PRIORITY_DMA_W_BITS |
+        BUSCTRL_BUS_PRIORITY_PROC1_BITS;
 
     // the inits
     ria_write_pio_init();

@@ -11,13 +11,18 @@
 
 void api_task(void)
 {
-    // TODO latch called op in case 6502 app misbehaves
-    if (cpu_active() && !ria_active() && API_BUSY)
+    static uint8_t active_op = 0;
+    // Latch called op in case 6502 app misbehaves
+    if (cpu_active() && !ria_active() &&
+        !active_op && API_BUSY &&
+        API_OP != 0x00 && API_OP != 0xFF)
+        active_op = API_OP;
+    if (active_op)
     {
-        uint8_t operation = API_OP;
-        if (operation != 0x00 && operation != 0xFF)
-            if (!main_api(operation))
-                api_return_errno(API_ENOSYS);
+        if (!main_api(active_op))
+            api_return_errno(API_ENOSYS);
+        if (!API_BUSY)
+            active_op = 0;
     }
 }
 
