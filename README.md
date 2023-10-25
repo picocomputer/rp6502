@@ -22,8 +22,6 @@ All dependencies are submodules. The following will download the correct version
 git submodule update --init
 cd src/pico-sdk
 git submodule update --init
-cd ../pico-extras
-git submodule update --init
 cd ../..
 ```
 

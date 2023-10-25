@@ -30,9 +30,9 @@ typedef struct
                                                   int16_t width,
                                                   uint16_t *rgb,
                                                   uint16_t config_ptr,
-                                                  uint16_t count);
+                                                  uint16_t length);
     uint16_t sprite_config[PICO_SCANVIDEO_PLANE_COUNT];
-    uint16_t sprite_count[PICO_SCANVIDEO_PLANE_COUNT];
+    uint16_t sprite_length[PICO_SCANVIDEO_PLANE_COUNT];
 } vga_prog_t;
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
@@ -269,7 +269,7 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
                               vga_scanvideo_mode_current->width,
                               (uint16_t *)(foreground + 1),
                               prog.sprite_config[i],
-                              prog.sprite_count[i]);
+                              prog.sprite_length[i]);
         }
     }
     for (int16_t i = 0; i < 3; i++)
@@ -561,4 +561,29 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
                 vga_prog[i].fill_fn[j] = NULL;
     // All good so do it for real
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, fill_fn);
+}
+
+bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                     uint16_t config_ptr, uint16_t length,
+                     void (*sprite_fn)(int16_t scanline,
+                                       int16_t width,
+                                       uint16_t *rgb,
+                                       uint16_t config_ptr,
+                                       uint16_t length))
+{
+    if (!scanline_end)
+        scanline_end = vga_canvas_height();
+    const int16_t scanline_count = scanline_end - scanline_begin;
+    if (!sprite_fn ||
+        plane < 0 || plane >= PICO_SCANVIDEO_PLANE_COUNT ||
+        scanline_begin < 0 || scanline_end > vga_canvas_height() ||
+        scanline_count < 1)
+        return false;
+    for (int16_t i = scanline_begin; i < scanline_end; i++)
+    {
+        vga_prog[i].sprite_config[plane] = config_ptr;
+        vga_prog[i].sprite_length[plane] = length;
+        vga_prog[i].sprite_fn[plane] = sprite_fn;
+    }
+    return true;
 }

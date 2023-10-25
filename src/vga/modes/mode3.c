@@ -444,7 +444,6 @@ mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t c
 
 bool mode3_prog(uint16_t *xregs)
 {
-
     const uint16_t attributes = xregs[2];
     const uint16_t config_ptr = xregs[3];
     const int16_t plane = xregs[4];

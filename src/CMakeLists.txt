@@ -117,7 +117,7 @@ target_sources(rp6502_vga PRIVATE
     vga/modes/mode2.c
     vga/modes/mode3.c
     vga/modes/mode4.c
-    vga/modes/mode5.c
+    vga/modes/mode4.S
     vga/sys/led.c
     vga/sys/pix.c
     vga/sys/ria.c
@@ -137,6 +137,7 @@ target_link_libraries(rp6502_vga PRIVATE
     pico_multicore
     pico_unique_id
     pico_scanvideo_dpi
+    hardware_interp
     tinyusb_vga
 )
 

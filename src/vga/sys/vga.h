@@ -51,11 +51,11 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
                                         uint16_t config_ptr));
 
 bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                     uint16_t config_ptr,
+                     uint16_t config_ptr, uint16_t length,
                      void (*sprite_fn)(int16_t scanline,
                                        int16_t width,
                                        uint16_t *rgb,
                                        uint16_t config_ptr,
-                                       uint16_t count));
+                                       uint16_t length));
 
 #endif /* _VGA_H_ */
