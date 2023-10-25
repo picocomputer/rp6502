@@ -26,7 +26,7 @@ static bool cpu_readline_needs_nl;
 static size_t cpu_readline_pos;
 static size_t cpu_readline_length;
 
-void cpu_init()
+void cpu_init(void)
 {
     // drive reset pin
     gpio_init(CPU_RESB_PIN);
@@ -39,7 +39,7 @@ void cpu_init()
     gpio_set_dir(CPU_IRQB_PIN, true);
 }
 
-void cpu_reclock()
+void cpu_reclock(void)
 {
     if (!gpio_get(CPU_RESB_PIN))
         cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
@@ -63,14 +63,14 @@ static int cpu_caps(int ch)
     return ch;
 }
 
-static int cpu_getchar_fifo()
+static int cpu_getchar_fifo(void)
 {
     if (&CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
         return CPU_RX_BUF(++cpu_rx_tail);
     return -1;
 }
 
-void cpu_task()
+void cpu_task(void)
 {
     // Enforce minimum RESB time
     if (cpu_run_requested && !gpio_get(CPU_RESB_PIN))
@@ -91,13 +91,13 @@ static void clear_com_rx_fifo()
     cpu_rx_tail = cpu_rx_head = 0;
 }
 
-void cpu_run()
+void cpu_run(void)
 {
     cpu_run_requested = true;
     clear_com_rx_fifo();
 }
 
-void cpu_stop()
+void cpu_stop(void)
 {
     clear_com_rx_fifo();
     cpu_readline_active = false;
@@ -113,17 +113,17 @@ void cpu_stop()
     }
 }
 
-bool cpu_active()
+bool cpu_active(void)
 {
     return cpu_run_requested;
 }
 
-void cpu_api_phi2()
+void cpu_api_phi2(void)
 {
     return api_return_ax(cfg_get_phi2_khz());
 }
 
-uint32_t cpu_get_reset_us()
+uint32_t cpu_get_reset_us(void)
 {
     uint32_t reset_ms = cfg_get_reset_ms();
     uint32_t phi2_khz = cfg_get_phi2_khz();

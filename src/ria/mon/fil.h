@@ -12,9 +12,9 @@
 #include <stdbool.h>
 
 // Kernel events
-void fil_task();
-bool fil_active();
-void fil_reset();
+void fil_task(void);
+bool fil_active(void);
+void fil_reset(void);
 
 // Monitor commands
 void fil_mon_chdir(const char *args, size_t len);

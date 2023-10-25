@@ -56,12 +56,12 @@ void std_out_write(char ch)
     putchar_raw(ch);
 }
 
-char std_out_peek()
+char std_out_peek(void)
 {
     return STD_OUT_BUF(std_out_head + 1);
 }
 
-char std_out_read()
+char std_out_read(void)
 {
     return STD_OUT_BUF(++std_out_head);
 }
@@ -84,7 +84,7 @@ void std_set_break(bool en)
     is_breaking = en;
 }
 
-void std_task()
+void std_task(void)
 {
     // IN is sunk here to UART
     if (!std_in_empty() && uart_is_writable(STD_UART_INTERFACE))

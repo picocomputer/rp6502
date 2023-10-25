@@ -21,13 +21,6 @@
 // allow 1k read/write operations at 50 kHz.
 #define RIA_WATCHDOG_MS 250
 
-#define RIA_WRITE_PIO pio0
-#define RIA_WRITE_SM 0
-#define RIA_READ_PIO pio0
-#define RIA_READ_SM 1
-#define RIA_ACT_PIO pio1
-#define RIA_ACT_SM 0
-
 static enum state {
     action_state_idle = 0,
     action_state_read,
@@ -41,7 +34,7 @@ static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 
-uint32_t ria_buf_crc32()
+uint32_t ria_buf_crc32(void)
 {
     // use littlefs library
     return ~lfs_crc(~0, mbuf, mbuf_len);
@@ -56,7 +49,7 @@ static void ria_set_watch_address(uint32_t addr)
     pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, addr & 0x1F);
 }
 
-void ria_run()
+void ria_run(void)
 {
     ria_set_watch_address(0xFFE2);
     if (action_state == action_state_idle)
@@ -106,7 +99,7 @@ void ria_run()
     }
 }
 
-void ria_stop()
+void ria_stop(void)
 {
     action_state = action_state_idle;
     if (saved_reset_vec >= 0)
@@ -116,12 +109,12 @@ void ria_stop()
     }
 }
 
-bool ria_active()
+bool ria_active(void)
 {
     return action_state != action_state_idle;
 }
 
-void ria_task()
+void ria_task(void)
 {
     // check on watchdog
     if (ria_active())
@@ -135,7 +128,7 @@ void ria_task()
     }
 }
 
-bool ria_print_error_message()
+bool ria_print_error_message(void)
 {
     switch (action_result)
     {
@@ -215,7 +208,7 @@ void ria_write_buf(uint16_t addr)
 
 #define CASE_READ(addr) (addr & 0x1F)
 #define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
-static __attribute__((optimize("O1"))) void act_loop()
+static __attribute__((optimize("O1"))) void act_loop(void)
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
@@ -373,7 +366,7 @@ static __attribute__((optimize("O1"))) void act_loop()
     }
 }
 
-static void ria_write_pio_init()
+static void ria_write_pio_init(void)
 {
     // PIO to manage PHI2 clock and 6502 writes
     uint offset = pio_add_program(RIA_WRITE_PIO, &ria_write_program);
@@ -424,7 +417,7 @@ static void ria_write_pio_init()
         true);
 }
 
-static void ria_read_pio_init()
+static void ria_read_pio_init(void)
 {
     // PIO for 6502 reads
     uint offset = pio_add_program(RIA_READ_PIO, &ria_read_program);
@@ -475,7 +468,7 @@ static void ria_read_pio_init()
         true);
 }
 
-static void ria_act_pio_init()
+static void ria_act_pio_init(void)
 {
     // PIO to supply action loop with events
     uint offset = pio_add_program(RIA_ACT_PIO, &ria_action_program);
@@ -488,7 +481,7 @@ static void ria_act_pio_init()
     multicore_launch_core1(act_loop);
 }
 
-void ria_init()
+void ria_init(void)
 {
     // safety check for compiler alignment
     assert(!((uintptr_t)regs & 0x1F));

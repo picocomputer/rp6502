@@ -10,9 +10,9 @@
 #include <stddef.h>
 
 // Kernel events
-void ram_task();
-bool ram_active();
-void ram_reset();
+void ram_task(void);
+bool ram_active(void);
+void ram_reset(void);
 
 // Monitor commands
 void ram_mon_binary(const char *args, size_t len);

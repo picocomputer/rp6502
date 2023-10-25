@@ -25,7 +25,7 @@ static uint32_t rw_addr;
 static uint32_t rw_len;
 static uint32_t rw_crc;
 
-static void cmd_ria_read()
+static void cmd_ria_read(void)
 {
     cmd_state = SYS_IDLE;
     if (ria_print_error_message())
@@ -36,7 +36,7 @@ static void cmd_ria_read()
     printf("\n");
 }
 
-static void cmd_ria_write()
+static void cmd_ria_write(void)
 {
     cmd_state = SYS_IDLE;
     if (ria_print_error_message())
@@ -45,7 +45,7 @@ static void cmd_ria_write()
     ria_verify_buf(rw_addr);
 }
 
-static void cmd_ria_verify()
+static void cmd_ria_verify(void)
 {
     cmd_state = SYS_IDLE;
     ria_print_error_message();
@@ -175,7 +175,7 @@ void ram_mon_binary(const char *args, size_t len)
     printf("?invalid argument\n");
 }
 
-void ram_task()
+void ram_task(void)
 {
     if (ria_active())
         return;
@@ -196,12 +196,12 @@ void ram_task()
     }
 }
 
-bool ram_active()
+bool ram_active(void)
 {
     return cmd_state != SYS_IDLE;
 }
 
-void ram_reset()
+void ram_reset(void)
 {
     cmd_state = SYS_IDLE;
 }

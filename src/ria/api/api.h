@@ -123,20 +123,20 @@ static inline bool api_push_int32(const int32_t *data) { return api_push_n(data,
 
 // Returning data on XSTACK requires the
 // read/write register to have the latest data.
-static inline void api_sync_xstack()
+static inline void api_sync_xstack(void)
 {
     API_STACK = xstack[xstack_ptr];
 }
 
 // Same as opcode 0 from the 6502 side.
-static inline void api_zxstack()
+static inline void api_zxstack(void)
 {
     API_STACK = 0;
     xstack_ptr = XSTACK_SIZE;
 }
 
 // Useful for variadic functions or other stack shenanigans.
-static inline bool api_is_xstack_empty()
+static inline bool api_is_xstack_empty(void)
 {
     return xstack_ptr == XSTACK_SIZE;
 }

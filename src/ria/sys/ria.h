@@ -15,16 +15,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Content of these 15 pins is bound to the PIO program structure.
-#define RIA_PIN_BASE 6
-#define RIA_CS_PIN (RIA_PIN_BASE + 0)
-#define RIA_RWB_PIN (RIA_PIN_BASE + 1)
-#define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)
-#define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10)
-
 // Kernel events
-void ria_init();
-void ria_task();
+void ria_init(void);
+void ria_task(void);
 void ria_run();
 void ria_stop();
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);

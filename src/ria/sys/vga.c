@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "str.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
@@ -15,11 +16,6 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include <stdio.h>
-
-#define VGA_BACKCHANNEL_PIN COM_UART_TX_PIN
-#define VGA_BACKCHANNEL_BAUDRATE 115200
-#define VGA_BACKCHANNEL_PIO pio0
-#define VGA_BACKCHANNEL_SM 2
 
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 2

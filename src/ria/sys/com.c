@@ -17,7 +17,7 @@
 
 // TODO add multiline support and 256 size.
 #define COM_BUF_SIZE 79
-char com_buf[COM_BUF_SIZE];
+static char com_buf[COM_BUF_SIZE];
 static com_read_callback_t com_callback;
 static uint8_t *com_binary_buf;
 static absolute_time_t com_timer;

@@ -132,7 +132,7 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
 }
 
 // Anything that suspends the monitor.
-static bool mon_suspended()
+static bool mon_suspended(void)
 {
     return main_active() ||
            ram_active() ||
@@ -142,7 +142,7 @@ static bool mon_suspended()
            std_active();
 }
 
-void mon_task()
+void mon_task(void)
 {
     if (needs_prompt && !mon_suspended())
     {
@@ -156,7 +156,7 @@ void mon_task()
     }
 }
 
-void mon_reset()
+void mon_reset(void)
 {
     needs_prompt = true;
     needs_newline = true;

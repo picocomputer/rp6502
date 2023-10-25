@@ -22,7 +22,7 @@ extern lfs_t lfs_volume;
     };
 
 // Kernel events
-void lfs_init();
+void lfs_init(void);
 
 // Test is file position is at the end of the file.
 int lfs_eof(lfs_file_t *file);

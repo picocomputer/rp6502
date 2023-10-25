@@ -11,11 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define COM_UART uart1
-#define COM_UART_BAUD_RATE 115200
-#define COM_UART_TX_PIN 4
-#define COM_UART_RX_PIN 5
-
 // Kernel events
 void com_task(void);
 void com_init(void);

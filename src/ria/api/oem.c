@@ -52,7 +52,7 @@ uint16_t oem_set_codepage(uint16_t cp)
     return cp;
 }
 
-void oem_api_codepage()
+void oem_api_codepage(void)
 {
     return api_return_ax(cfg_get_codepage());
 }

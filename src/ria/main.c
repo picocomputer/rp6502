@@ -35,7 +35,7 @@
 // starting the UART before printing. Please list subtleties.
 
 // Initialization event for power up, reboot command, or reboot button.
-static void init()
+static void init(void)
 {
     // STDIO not available until after these inits
     cpu_init();
@@ -69,7 +69,7 @@ static void init()
 
 // These tasks run when FatFs is blocking.
 // Calling FatFs in here may cause undefined behavior.
-void main_task()
+void main_task(void)
 {
     tuh_task();
     cpu_task();
@@ -81,7 +81,7 @@ void main_task()
 }
 
 // Tasks that call FatFs should be here instead of main_task().
-static void task()
+static void task(void)
 {
     api_task();
     com_task();
@@ -92,7 +92,7 @@ static void task()
 }
 
 // Event to start running the 6502.
-static void run()
+static void run(void)
 {
     vga_run();
     api_run();
@@ -101,7 +101,7 @@ static void run()
 }
 
 // Event to stop the 6502.
-static void stop()
+static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
@@ -113,7 +113,7 @@ static void stop()
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
-static void reset()
+static void reset(void)
 {
     com_reset();
     fil_reset();
@@ -210,13 +210,13 @@ static enum state {
     stopping,
 } volatile main_state;
 
-void main_run()
+void main_run(void)
 {
     if (main_state != running)
         main_state = starting;
 }
 
-void main_stop()
+void main_stop(void)
 {
     if (main_state == starting)
         main_state = stopped;
@@ -224,17 +224,17 @@ void main_stop()
         main_state = stopping;
 }
 
-void main_break()
+void main_break(void)
 {
     is_breaking = true;
 }
 
-bool main_active()
+bool main_active(void)
 {
     return main_state != stopped;
 }
 
-int main()
+int main(void)
 {
     init();
 
@@ -268,6 +268,4 @@ int main()
             is_breaking = false;
         }
     }
-
-    return 0;
 }

@@ -18,6 +18,6 @@ void oem_init(void);
 uint16_t oem_set_codepage(uint16_t cp);
 
 // API query the codepage.
-void oem_api_codepage();
+void oem_api_codepage(void);
 
 #endif /* _OEM_H_ */

@@ -87,7 +87,7 @@ static int lfs_sync(const struct lfs_config *c)
     return LFS_ERR_OK;
 }
 
-void lfs_init()
+void lfs_init(void)
 {
     // mount the filesystem
     int err = lfs_mount(&lfs_volume, &cfg);

@@ -32,7 +32,7 @@ static lfs_file_t lfs_file;
 static LFS_FILE_CONFIG(lfs_file_config);
 static FIL fat_fil;
 
-static size_t rom_gets()
+static size_t rom_gets(void)
 {
     size_t len;
     if (is_reading_fat)
@@ -88,7 +88,7 @@ static bool rom_open(const char *name, bool is_fat)
     return true;
 }
 
-static bool rom_eof()
+static bool rom_eof(void)
 {
     if (is_reading_fat)
         return !!f_eof(&fat_fil);
@@ -130,7 +130,7 @@ static bool rom_read(uint32_t len, uint32_t crc)
     return true;
 }
 
-static bool rom_next_chunk()
+static bool rom_next_chunk(void)
 {
     mbuf_len = 0;
     size_t len = rom_gets();
@@ -173,7 +173,7 @@ static bool rom_next_chunk()
     return false;
 }
 
-static void rom_loading()
+static void rom_loading(void)
 {
     if (rom_eof())
     {
@@ -381,7 +381,7 @@ bool rom_help_lfs(const char *args, size_t len)
     return false;
 }
 
-static bool rom_action_is_finished()
+static bool rom_action_is_finished(void)
 {
     if (ria_active())
         return false;
@@ -393,7 +393,7 @@ static bool rom_action_is_finished()
     return true;
 }
 
-static bool rom_xram_writing()
+static bool rom_xram_writing(void)
 {
     while (rom_len && pix_ready())
     {
@@ -404,7 +404,7 @@ static bool rom_xram_writing()
     return !!rom_len;
 }
 
-void rom_init()
+void rom_init(void)
 {
     // Try booting the set boot ROM
     char *boot = cfg_get_boot();
@@ -412,7 +412,7 @@ void rom_init()
     rom_load_lfs((char *)boot, boot_len);
 }
 
-void rom_task()
+void rom_task(void)
 {
     switch (rom_state)
     {
@@ -454,12 +454,12 @@ void rom_task()
     }
 }
 
-bool rom_active()
+bool rom_active(void)
 {
     return rom_state != ROM_IDLE;
 }
 
-void rom_reset()
+void rom_reset(void)
 {
     rom_state = ROM_IDLE;
 }

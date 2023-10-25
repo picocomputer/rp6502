@@ -10,7 +10,7 @@
 #include "pico/cyw43_arch.h"
 #endif
 
-void led_init()
+void led_init(void)
 {
     // Turn on the Pi Pico LED
 #ifdef PICO_DEFAULT_LED_PIN

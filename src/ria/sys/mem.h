@@ -36,7 +36,7 @@ asm(".equ regs, 0x20040000");
 // Misc memory buffer for moving things around.
 // 6502 <-> RAM, USB <-> RAM, UART <-> RAM, etc.
 #define MBUF_SIZE 1024
-extern uint8_t mbuf[MBUF_SIZE];
+extern uint8_t mbuf[];
 extern size_t mbuf_len;
 
 #endif /* _MEM_H_ */

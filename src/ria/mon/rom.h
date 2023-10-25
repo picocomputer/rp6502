@@ -12,12 +12,12 @@
 #include <stdbool.h>
 
 // Kernel events
-void rom_init();
-void rom_task();
-void rom_reset();
+void rom_init(void);
+void rom_task(void);
+void rom_reset(void);
 
 // True when this module is busy with IO.
-bool rom_active();
+bool rom_active(void);
 
 // Monitor commands
 void rom_mon_load(const char *args, size_t len);

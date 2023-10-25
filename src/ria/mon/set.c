@@ -9,7 +9,7 @@
 #include "sys/cpu.h"
 #include "sys/lfs.h"
 
-static void set_print_phi2()
+static void set_print_phi2(void)
 {
     uint32_t phi2_khz = cfg_get_phi2_khz();
     printf("PHI2: %ld kHz", phi2_khz);
@@ -38,7 +38,7 @@ static void set_phi2(const char *args, size_t len)
     set_print_phi2();
 }
 
-static void set_print_resb()
+static void set_print_resb(void)
 {
     uint8_t reset_ms = cfg_get_reset_ms();
     float reset_us = cpu_get_reset_us();
@@ -74,7 +74,7 @@ static void set_resb(const char *args, size_t len)
     set_print_resb();
 }
 
-static void set_print_boot()
+static void set_print_boot(void)
 {
     const char *rom = cfg_get_boot();
     if (!rom[0])
@@ -111,7 +111,7 @@ static void set_boot(const char *args, size_t len)
     set_print_boot();
 }
 
-static void set_print_caps()
+static void set_print_caps(void)
 {
     const char *const caps_labels[] = {"normal", "inverted", "forced"};
     printf("CAPS: %s\n", caps_labels[cfg_get_caps()]);
@@ -161,7 +161,7 @@ static void set_code_page(const char *args, size_t len)
     set_print_code_page();
 }
 
-static void set_print_vga()
+static void set_print_vga(void)
 {
     const char *const vga_labels[] = {"640x480", "640x480 and 1280x720", "1280x1024"};
     printf("VGA : %s\n", vga_labels[cfg_get_vga()]);

@@ -9,9 +9,11 @@
 
 #include <stdbool.h>
 
-// Core events
+// Kernel events
 void std_task(void);
 void std_stop(void);
+
+// std_api is active until stdout buffer empty
 bool std_active(void);
 
 /*

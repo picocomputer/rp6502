@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "aud/aud.h"
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
@@ -18,7 +19,7 @@
 #define AUD_L_SLICE (pwm_gpio_to_slice_num(AUD_L_PIN))
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
-#define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_IRQ_PIN))
+#define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_PWM_IRQ_PIN))
 
 #define AUD_PWM_WRAP ((1u << AUD_BITS) - 1)
 #define AUD_PWM_CENTER (1u << (AUD_BITS - 1))
@@ -164,7 +165,7 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
     }
 }
 
-void aud_init()
+void aud_init(void)
 {
     gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
     gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
@@ -206,7 +207,7 @@ void aud_reclock(uint32_t sys_clk_khz)
     pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (AUD_RATE / 1000.f));
 }
 
-void aud_task()
+void aud_task(void)
 {
     // TODO remove this example
 #define TIMEOUT_MS 1500

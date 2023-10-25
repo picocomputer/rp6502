@@ -8,6 +8,6 @@
 #define _LED_H_
 
 // Kernel events
-void led_init();
+void led_init(void);
 
 #endif /* _LED_H_ */

@@ -11,8 +11,8 @@
 #include <stdint.h>
 
 // Kernel events
-void mon_task();
-void mon_reset();
+void mon_task(void);
+void mon_reset(void);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.

@@ -9,7 +9,7 @@
 #include "sys/cpu.h"
 #include "sys/ria.h"
 
-void api_task()
+void api_task(void)
 {
     // TODO latch called op in case 6502 app misbehaves
     if (cpu_active() && !ria_active() && API_BUSY)
@@ -21,7 +21,7 @@ void api_task()
     }
 }
 
-void api_run()
+void api_run(void)
 {
     // All registers reset to a known state
     for (int i = 0; i < 16; i++)

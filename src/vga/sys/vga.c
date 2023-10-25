@@ -458,7 +458,7 @@ static void vga_scanvideo_switch(void)
     }
 }
 
-static void vga_reset_console_prog()
+static void vga_reset_console_prog(void)
 {
     uint16_t xregs_console[] = {0, vga_console, 0, 0, 0};
     main_prog(xregs_console);

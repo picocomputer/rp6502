@@ -27,12 +27,12 @@ void pix_init(void)
 {
     uint offset = pio_add_program(PIX_PIO, &pix_send_program);
     pio_sm_config config = pix_send_program_get_default_config(offset);
-    sm_config_set_out_pins(&config, 0, 4);
+    sm_config_set_out_pins(&config, PIX_PIN_BASE, 4);
     sm_config_set_out_shift(&config, false, false, 32);
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
     for (int i = 0; i < 4; i++)
         pio_gpio_init(PIX_PIO, i);
-    pio_sm_set_consecutive_pindirs(PIX_PIO, PIX_SM, 0, 4, true);
+    pio_sm_set_consecutive_pindirs(PIX_PIO, PIX_SM, PIX_PIN_BASE, 4, true);
     pio_sm_init(PIX_PIO, PIX_SM, offset, &config);
     pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(PIX_DEVICE_IDLE, 0, 0, 0));
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_pull(false, true));

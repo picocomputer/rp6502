@@ -136,7 +136,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         printf("?Unable to lfs_file_close %s (%d)\n", filename, lfsresult);
 }
 
-void cfg_init()
+void cfg_init(void)
 {
     cfg_load_with_boot_opt(false);
 }
@@ -146,7 +146,7 @@ void cfg_set_boot(char *str)
     cfg_save_with_boot_opt(str);
 }
 
-char *cfg_get_boot()
+char *cfg_get_boot(void)
 {
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;
@@ -171,7 +171,7 @@ bool cfg_set_phi2_khz(uint32_t freq_khz)
 }
 
 // Returns actual 6502 frequency adjusted for quantization.
-uint32_t cfg_get_phi2_khz()
+uint32_t cfg_get_phi2_khz(void)
 {
     return cpu_validate_phi2_khz(cfg_phi2_khz);
 }
@@ -186,7 +186,7 @@ void cfg_set_reset_ms(uint8_t ms)
     }
 }
 
-uint8_t cfg_get_reset_ms()
+uint8_t cfg_get_reset_ms(void)
 {
     return cfg_reset_ms;
 }
@@ -200,7 +200,7 @@ void cfg_set_caps(uint8_t mode)
     }
 }
 
-uint8_t cfg_get_caps()
+uint8_t cfg_get_caps(void)
 {
     return cfg_caps;
 }
@@ -216,7 +216,7 @@ bool cfg_set_codepage(uint32_t cp)
     return true;
 }
 
-uint16_t cfg_get_codepage()
+uint16_t cfg_get_codepage(void)
 {
     return cfg_codepage;
 }
@@ -234,7 +234,7 @@ bool cfg_set_vga(uint8_t disp)
     return ok;
 }
 
-uint8_t cfg_get_vga()
+uint8_t cfg_get_vga(void)
 {
     return cfg_vga_display;
 }
