@@ -7,15 +7,16 @@
 #ifndef _RIA_H_
 #define _RIA_H_
 
-/*
- * RP6502 Interface Adapter for WDC W65C02S.
+/* RP6502 Interface Adapter for WDC W65C02S.
  */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void ria_init(void);
 void ria_task(void);
 void ria_run();

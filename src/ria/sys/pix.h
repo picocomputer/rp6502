@@ -12,18 +12,23 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void pix_init(void);
 void pix_stop(void);
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
-// API to set XREGs
+/* API to set XREGs
+ */
+
+void pix_api_xreg(void);
 void pix_ack(void);
 void pix_nak(void);
-void pix_api_xreg(void);
 
 // Well known PIX devices. 2-6 are for user expansion.
 // RIA device 0 is virtual, not on the physical PIX bus.
+
 #define PIX_DEVICE_XRAM 0
 #define PIX_DEVICE_RIA 0
 #define PIX_DEVICE_VGA 1

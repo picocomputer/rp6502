@@ -21,7 +21,9 @@ extern lfs_t lfs_volume;
         .buffer = _LFS_FILE_CONFIG_NAME(name),            \
     };
 
-// Kernel events
+/* Kernel events
+ */
+
 void lfs_init(void);
 
 // Test is file position is at the end of the file.

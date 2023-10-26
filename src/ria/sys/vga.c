@@ -228,9 +228,9 @@ void vga_reset(void)
     vga_needs_reset = true;
 }
 
-bool vga_set_vga(uint32_t disp)
+bool vga_set_vga(uint32_t display_type)
 {
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, disp);
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display_type);
     return true;
 }
 

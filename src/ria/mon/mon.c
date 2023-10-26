@@ -118,7 +118,7 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     mon_function func = mon_command_lookup(&args, length);
     if (!func)
     {
-        if (!rom_load_lfs(buf, length))
+        if (!rom_load(buf, length))
             for (const char *b = buf; b < args; b++)
                 if (b[0] != ' ')
                 {

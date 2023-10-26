@@ -12,7 +12,7 @@
 
 /* The 18 base errors come directly from CC65. Use them when you can.
  * FatFs has its own errors, which should be used when obtained from FatFs.
- * We can have both by adding EFATFS_BASE to FatFs error returns.
+ * We can have both by using API_EFATFS(fresult) to return FatFs errors.
  * See the CC65 SDK method osmaperrno for how this is made portable.
  */
 
@@ -34,18 +34,12 @@
 #define API_EBADF 16    /* Bad file number */
 #define API_ENOEXEC 17  /* Exec format error */
 #define API_EUNKNOWN 18 /* Unknown OS specific error */
-#define API_EFATFS(err) /* Start of FatFs errors */ \
-    (err + 32)
+#define API_EFATFS(fresult) /* Start of FatFs errors */ \
+    (fresult + 32)
 
-// RIA XRAM portals
-#define API_RW0 REGS(0xFFE4)
-#define API_STEP0 *(int8_t *)&REGS(0xFFE5)
-#define API_ADDR0 REGSW(0xFFE6)
-#define API_RW1 REGS(0xFFE8)
-#define API_STEP1 *(int8_t *)&REGS(0xFFE9)
-#define API_ADDR1 REGSW(0xFFEA)
+/* RIA fastcall registers
+ */
 
-// RIA fastcall registers
 #define API_OP REGS(0xFFEF)
 #define API_ERRNO REGSW(0xFFED)
 #define API_STACK REGS(0xFFEC)
@@ -56,7 +50,9 @@
 #define API_AX (API_A | (API_X << 8))
 #define API_AXSREG (API_AX | (API_SREG << 16))
 
-// Kernel events
+/* Kernel events
+ */
+
 void api_task(void);
 void api_run(void);
 
@@ -141,14 +137,13 @@ static inline bool api_is_xstack_empty(void)
     return xstack_ptr == XSTACK_SIZE;
 }
 
-/* Return works by manipulating 10 bytes of registers.
- * FFF0 EA      NOP
- * FFF1 80 FE   BRA -2
- * FFF3 A9 FF   LDA #$FF
- * FFF5 A2 FF   LDX #$FF
- * FFF7 60      RTS
- * FFF8 FF FF   .SREG $FF $FF
- */
+// Return works by manipulating 10 bytes of registers.
+// FFF0 EA      NOP
+// FFF1 80 FE   BRA -2
+// FFF3 A9 FF   LDA #$FF
+// FFF5 A2 FF   LDX #$FF
+// FFF7 60      RTS
+// FFF8 FF FF   .SREG $FF $FF
 
 static inline void api_return_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
 static inline void api_return_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
@@ -164,9 +159,8 @@ static inline void api_set_axsreg(uint32_t val)
     API_SREG = val >> 16;
 }
 
-/* Call one of these at the very end. These signal
- * the 6502 that the operation is complete.
- */
+// Call one of these at the very end. These signal
+// the 6502 that the operation is complete.
 
 static inline void api_return_ax(uint16_t val)
 {

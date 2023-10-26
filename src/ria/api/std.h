@@ -9,15 +9,16 @@
 
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void std_task(void);
 void std_stop(void);
 
-// std_api is active until stdout buffer empty
+// Active until stdout buffer empty.
 bool std_active(void);
 
-/*
- * The API implementation for stdio support.
+/* The API implementation for stdio support.
  */
 
 void std_api_open(void);

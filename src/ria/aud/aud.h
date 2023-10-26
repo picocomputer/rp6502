@@ -10,7 +10,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void aud_init(void);
 void aud_task(void);
 void aud_reclock(uint32_t sys_clk_khz);

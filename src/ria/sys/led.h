@@ -7,7 +7,9 @@
 #ifndef _LED_H_
 #define _LED_H_
 
-// Kernel events
+/* Kernel events
+ */
+
 void led_init(void);
 
 #endif /* _LED_H_ */

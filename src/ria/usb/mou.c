@@ -27,7 +27,7 @@ void mou_stop(void)
     mou_xram = 0xFFFF;
 }
 
-bool mou_pix(uint16_t word)
+bool mou_xreg(uint16_t word)
 {
     if (word != 0xFFFF && word > 0x10000 - sizeof(mou_xram_data))
         return false;

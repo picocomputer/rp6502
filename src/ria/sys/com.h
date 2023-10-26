@@ -11,7 +11,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void com_task(void);
 void com_init(void);
 void com_reset(void);

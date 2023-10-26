@@ -9,9 +9,16 @@
 
 #include "tusb.h"
 
+/* Kernel events
+ */
+
 void mou_init(void);
 void mou_stop(void);
-bool mou_pix(uint16_t word);
+
+// Set the extended register value.
+bool mou_xreg(uint16_t word);
+
+// Process HID keyboard report.
 void mou_report(hid_mouse_report_t const *report);
 
 #endif /* _MOU_H_ */

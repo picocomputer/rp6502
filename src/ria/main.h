@@ -10,8 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/*
- * This is the main kernel event loop.
+/* This is the main kernel event loop.
  */
 
 // Request to "start the 6502".
@@ -22,7 +21,7 @@ void main_run(void);
 // It will safely do nothing if the 6502 is already stopped.
 void main_stop(void);
 
-// Request to "break the kernel".
+// Request to "break the system".
 // A break is triggered by CTRL-ALT-DEL and UART breaks.
 // If the 6502 is running, stop events will be called first.
 // Kernel modules should reset to a state similar to after
@@ -33,8 +32,7 @@ void main_break(void);
 // request to start it.
 bool main_active(void);
 
-/*
- * See main.c for information about these events.
+/* Special events dispatched in main.c
  */
 
 void main_task(void);
@@ -42,8 +40,7 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
 bool main_pix(uint8_t ch, uint8_t addr, uint16_t word);
 bool main_api(uint8_t operation);
 
-/*
- * All pin assignments
+/* All pin assignments
  */
 
 #define AUD_L_PIN 28
@@ -61,8 +58,7 @@ bool main_api(uint8_t operation);
 #define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)  /* D0-D7 */
 #define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10) /* A0-A4 */
 
-/*
- * All resource assignments
+/* All resource assignments
  */
 
 #define AUD_PWM_IRQ_PIN 14 /* No IO */

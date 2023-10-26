@@ -9,7 +9,9 @@
 
 #include <stddef.h>
 
-// Monitor commands
+/* Monitor commands
+ */
+
 void set_mon_set(const char *args, size_t len);
 
 #endif /* _SET_H_ */

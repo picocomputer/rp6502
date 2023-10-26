@@ -10,7 +10,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void mon_task(void);
 void mon_reset(void);
 

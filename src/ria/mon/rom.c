@@ -325,7 +325,7 @@ void rom_mon_load(const char *args, size_t len)
         rom_state = ROM_LOADING;
 }
 
-bool rom_load_lfs(const char *args, size_t len)
+bool rom_load(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
     if (parse_rom_name(&args, &len, lfs_name) &&
@@ -358,7 +358,7 @@ void rom_mon_info(const char *args, size_t len)
 
 // Returns false and prints nothing if ROM not found.
 // Something will always print before returning true.
-bool rom_help_lfs(const char *args, size_t len)
+bool rom_help(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
     if (parse_rom_name(&args, &len, lfs_name) &&
@@ -409,7 +409,7 @@ void rom_init(void)
     // Try booting the set boot ROM
     char *boot = cfg_get_boot();
     size_t boot_len = strlen(boot);
-    rom_load_lfs((char *)boot, boot_len);
+    rom_load((char *)boot, boot_len);
 }
 
 void rom_task(void)

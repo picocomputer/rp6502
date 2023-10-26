@@ -398,7 +398,7 @@ void hlp_mon_help(const char *args, size_t len)
     }
     else
     {
-        if (!rom_help_lfs(args, len))
+        if (!rom_help(args, len))
             puts("?No help found.");
     }
 }

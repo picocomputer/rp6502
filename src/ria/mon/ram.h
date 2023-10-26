@@ -9,12 +9,16 @@
 
 #include <stddef.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void ram_task(void);
 bool ram_active(void);
 void ram_reset(void);
 
-// Monitor commands
+/* Monitor commands
+ */
+
 void ram_mon_binary(const char *args, size_t len);
 void ram_mon_address(const char *args, size_t len);
 

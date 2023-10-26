@@ -11,12 +11,16 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void fil_task(void);
 bool fil_active(void);
 void fil_reset(void);
 
-// Monitor commands
+/* Monitor commands
+ */
+
 void fil_mon_chdir(const char *args, size_t len);
 void fil_mon_chdrive(const char *args, size_t len);
 void fil_mon_ls(const char *args, size_t len);

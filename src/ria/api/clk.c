@@ -6,19 +6,21 @@
  */
 
 #include "api/api.h"
-#include "api/ntp.h"
+#include "api/clk.h"
 #include "sys/cfg.h"
 #include <time.h>
 #include "hardware/rtc.h"
+#include "fatfs/ff.h"
 
-#define RIA_CLOCK_REALTIME 0
-#define FAT_EPOCH_YEAR 1980
+#define CLK_ID_REALTIME 0
+#define CLK_EPOCH_UNIX 1970
+#define CLK_EPOCH_FAT 1980
 
-void ntp_init(void)
+void clk_init(void)
 {
     rtc_init();
     datetime_t rtc_info = {
-        .year = 1970,
+        .year = CLK_EPOCH_UNIX,
         .month = 1,
         .day = 1,
         .dotw = 5,
@@ -33,9 +35,9 @@ DWORD get_fattime(void)
 {
     DWORD res;
     datetime_t rtc_time;
-    if (rtc_get_datetime(&rtc_time) && (rtc_time.year >= FAT_EPOCH_YEAR))
+    if (rtc_get_datetime(&rtc_time) && (rtc_time.year >= CLK_EPOCH_FAT))
     {
-        res = (((DWORD)rtc_time.year - FAT_EPOCH_YEAR) << 25) |
+        res = (((DWORD)rtc_time.year - CLK_EPOCH_FAT) << 25) |
               ((DWORD)rtc_time.month << 21) |
               ((DWORD)rtc_time.day << 16) |
               (WORD)(rtc_time.hour << 11) |
@@ -49,10 +51,10 @@ DWORD get_fattime(void)
     return res;
 }
 
-void ntp_api_get_res(void)
+void clk_api_get_res(void)
 {
     uint8_t clock_id = API_A;
-    if (clock_id == RIA_CLOCK_REALTIME)
+    if (clock_id == CLK_ID_REALTIME)
     {
         uint32_t sec = 1;
         int32_t nsec = 0;
@@ -66,10 +68,10 @@ void ntp_api_get_res(void)
         return api_return_errno(API_EINVAL);
 }
 
-void ntp_api_get_time(void)
+void clk_api_get_time(void)
 {
     uint8_t clock_id = API_A;
-    if (clock_id == RIA_CLOCK_REALTIME)
+    if (clock_id == CLK_ID_REALTIME)
     {
         datetime_t rtc_info;
         if (!rtc_get_datetime(&rtc_info))
@@ -95,10 +97,10 @@ void ntp_api_get_time(void)
         return api_return_errno(API_EINVAL);
 }
 
-void ntp_api_set_time(void)
+void clk_api_set_time(void)
 {
     uint8_t clock_id = API_A;
-    if (clock_id == RIA_CLOCK_REALTIME)
+    if (clock_id == CLK_ID_REALTIME)
     {
         time_t rawtime;
         int32_t rawtime_nsec;

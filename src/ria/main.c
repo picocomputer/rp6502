@@ -7,7 +7,7 @@
 #include "main.h"
 #include "tusb.h"
 #include "api/api.h"
-#include "api/ntp.h"
+#include "api/clk.h"
 #include "api/oem.h"
 #include "api/rng.h"
 #include "api/std.h"
@@ -59,7 +59,7 @@ static void init(void)
     mou_init();
     rom_init();
     led_init();
-    ntp_init();
+    clk_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
@@ -146,9 +146,9 @@ bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
     switch (ch * 256 + addr)
     {
     case 0x000:
-        return kbd_pix(word);
+        return kbd_xreg(word);
     case 0x001:
-        return mou_pix(word);
+        return mou_xreg(word);
     default:
         return false;
     }
@@ -174,13 +174,13 @@ bool main_api(uint8_t operation)
         rng_api_lrand();
         break;
     case 0x10:
-        ntp_api_get_res();
+        clk_api_get_res();
         break;
     case 0x11:
-        ntp_api_get_time();
+        clk_api_get_time();
         break;
     case 0x12:
-        ntp_api_set_time();
+        clk_api_set_time();
         break;
     case 0x14:
         std_api_open();

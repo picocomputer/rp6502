@@ -208,6 +208,12 @@ void ria_write_buf(uint16_t addr)
 
 #define CASE_READ(addr) (addr & 0x1F)
 #define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
+#define RIA_RW0 REGS(0xFFE4)
+#define RIA_STEP0 *(int8_t *)&REGS(0xFFE5)
+#define RIA_ADDR0 REGSW(0xFFE6)
+#define RIA_RW1 REGS(0xFFE8)
+#define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
+#define RIA_ADDR1 REGSW(0xFFEA)
 static __attribute__((optimize("O1"))) void act_loop(void)
 {
     // In here we bypass the usual SDK calls as needed for performance.
@@ -289,37 +295,37 @@ static __attribute__((optimize("O1"))) void act_loop(void)
                     break;
                 case CASE_WRITE(0xFFEB): // Set XRAM >ADDR1
                     REGS(0xFFEB) = data;
-                    API_RW1 = xram[API_ADDR1];
+                    RIA_RW1 = xram[RIA_ADDR1];
                     break;
                 case CASE_WRITE(0xFFEA): // Set XRAM <ADDR1
                     REGS(0xFFEA) = data;
-                    API_RW1 = xram[API_ADDR1];
+                    RIA_RW1 = xram[RIA_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
-                    xram[API_ADDR1] = data;
-                    PIX_SEND_XRAM(API_ADDR1, data);
-                    API_RW0 = xram[API_ADDR0];
+                    xram[RIA_ADDR1] = data;
+                    PIX_SEND_XRAM(RIA_ADDR1, data);
+                    RIA_RW0 = xram[RIA_ADDR0];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
-                    API_ADDR1 += API_STEP1;
-                    API_RW1 = xram[API_ADDR1];
+                    RIA_ADDR1 += RIA_STEP1;
+                    RIA_RW1 = xram[RIA_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE7): // Set XRAM >ADDR0
                     REGS(0xFFE7) = data;
-                    API_RW0 = xram[API_ADDR0];
+                    RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE6): // Set XRAM <ADDR0
                     REGS(0xFFE6) = data;
-                    API_RW0 = xram[API_ADDR0];
+                    RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
-                    xram[API_ADDR0] = data;
-                    PIX_SEND_XRAM(API_ADDR0, data);
-                    API_RW1 = xram[API_ADDR1];
+                    xram[RIA_ADDR0] = data;
+                    PIX_SEND_XRAM(RIA_ADDR0, data);
+                    RIA_RW1 = xram[RIA_ADDR1];
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
-                    API_ADDR0 += API_STEP0;
-                    API_RW0 = xram[API_ADDR0];
+                    RIA_ADDR0 += RIA_STEP0;
+                    RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {

@@ -258,7 +258,7 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-bool kbd_pix(uint16_t word)
+bool kbd_xreg(uint16_t word)
 {
     if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_xram_keys))
         return false;

@@ -10,11 +10,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void cfg_init(void);
 
 // These setters will auto save on change and
 // reconfigure the system as necessary.
+
 bool cfg_set_phi2_khz(uint32_t freq_khz);
 uint32_t cfg_get_phi2_khz(void);
 void cfg_set_reset_ms(uint8_t ms);

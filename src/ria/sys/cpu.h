@@ -10,10 +10,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Short circuit this to the RIA action loop
+// 1-byte message queue to the RIA action loop.
 extern volatile int cpu_rx_char;
 
-// Kernel events
+/* Kernel events
+ */
+
 void cpu_init(void);
 void cpu_task(void);
 void cpu_run(void);
@@ -25,7 +27,9 @@ void cpu_api_phi2(void);
 // we're waiting for the RESB timer.
 bool cpu_active(void);
 
-// Config handlers
+/* Config handlers
+ */
+
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz);
 bool cpu_set_phi2_khz(uint32_t freq_khz);
 

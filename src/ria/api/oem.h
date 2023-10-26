@@ -9,7 +9,9 @@
 
 #include <stdint.h>
 
-// Kernel events
+/* Kernel events
+ */
+
 void oem_init(void);
 
 // Attempt to change the code page.
