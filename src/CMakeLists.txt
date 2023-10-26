@@ -47,7 +47,6 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_dma
     hardware_pwm
     hardware_flash
-    hardware_rtc
     tinyusb_board
     tinyusb_host
 )
@@ -64,7 +63,6 @@ target_sources(rp6502_ria PRIVATE
     ria/main.c
     ria/str.c
     ria/api/api.c
-    ria/api/ntp.c
     ria/api/oem.c
     ria/api/rng.c
     ria/api/std.c
