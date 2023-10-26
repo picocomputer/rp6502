@@ -262,7 +262,7 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
             if (!foreground)
             {
                 foreground = data[i];
-                memset(foreground, 0, width * 2);
+                memset(foreground + 1, 0, width * 2);
                 filled[i] = true;
             }
             prog.sprite_fn[i](scanline_id,

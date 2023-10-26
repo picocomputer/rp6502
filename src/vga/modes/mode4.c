@@ -331,7 +331,8 @@ void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_
         sprite.img = (void *)&xram[sprites[i].xram_sprite_ptr];
         sprite.log_size = sprites[i].log_size;
         sprite.has_opacity_metadata = sprites[i].has_opacity_metadata;
-        sprite_sprite16(rgb, &sprite, scanline, width);
+        if (sprites[i].xram_sprite_ptr <= 0x10000 - 2 ^ sprites[i].log_size)
+            sprite_sprite16(rgb, &sprite, scanline, width);
     }
 }
 
@@ -353,13 +354,14 @@ void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16
     for (uint16_t i; i < length; i++)
     {
         for (uint16_t j; j < length; j++)
-            transform[j] = sprites[i].transform[j] << 8;
+            transform[j] = (int32_t)sprites[i].transform[j] << 8;
         sprite.x = sprites[i].x_pos_px;
         sprite.y = sprites[i].y_pos_px;
         sprite.img = (void *)&xram[sprites[i].xram_sprite_ptr];
         sprite.log_size = sprites[i].log_size;
         sprite.has_opacity_metadata = sprites[i].has_opacity_metadata;
-        sprite_asprite16(rgb, &sprite, transform, scanline, width);
+        if (sprites[i].xram_sprite_ptr <= 0x10000 - 2 ^ sprite.log_size)
+            sprite_asprite16(rgb, &sprite, transform, scanline, width);
     }
 }
 
