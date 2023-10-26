@@ -1,5 +1,5 @@
 #include "api/api.h"
-#include "api/rtc.h"
+#include "api/ntp.h"
 #include "sys/cfg.h"
 #include <time.h>
 #include "hardware/rtc.h"
@@ -7,7 +7,7 @@
 #define RIA_CLOCK_REALTIME 0
 #define FAT_EPOCH_YEAR 1980
 
-void rt_clock_init(void)
+void ntp_init(void)
 {
     rtc_init();
     datetime_t rtc_info = {
@@ -28,7 +28,12 @@ DWORD get_fattime(void)
     datetime_t rtc_time;
     if (rtc_get_datetime(&rtc_time) && (rtc_time.year >= FAT_EPOCH_YEAR))
     {
-        res = (((DWORD)rtc_time.year - FAT_EPOCH_YEAR) << 25) | ((DWORD)rtc_time.month << 21) | ((DWORD)rtc_time.day << 16) | (WORD)(rtc_time.hour << 11) | (WORD)(rtc_time.min << 5) | (WORD)(rtc_time.sec >> 1);
+        res = (((DWORD)rtc_time.year - FAT_EPOCH_YEAR) << 25) |
+              ((DWORD)rtc_time.month << 21) |
+              ((DWORD)rtc_time.day << 16) |
+              (WORD)(rtc_time.hour << 11) |
+              (WORD)(rtc_time.min << 5) |
+              (WORD)(rtc_time.sec >> 1);
     }
     else
     {
@@ -37,7 +42,7 @@ DWORD get_fattime(void)
     return res;
 }
 
-void rtc_api_get_res(void)
+void ntp_api_get_res(void)
 {
     uint8_t clock_id = API_A;
     if (clock_id == RIA_CLOCK_REALTIME)
@@ -46,15 +51,15 @@ void rtc_api_get_res(void)
         int32_t nsec = 0;
         if (!api_push_int32(&nsec) ||
             !api_push_uint32(&sec))
-            return api_return_errno(API_EUNKNOWN);
+            return api_return_errno(API_EINVAL);
         api_sync_xstack();
         return api_return_ax(0);
     }
     else
-        return api_return_errno(API_EUNKNOWN);
+        return api_return_errno(API_EINVAL);
 }
 
-void rtc_api_get_time(void)
+void ntp_api_get_time(void)
 {
     uint8_t clock_id = API_A;
     if (clock_id == RIA_CLOCK_REALTIME)
@@ -75,15 +80,15 @@ void rtc_api_get_time(void)
         int32_t rawtime_nsec = 0;
         if (!api_push_int32(&rawtime_nsec) ||
             !api_push_uint32((uint32_t *)&rawtime))
-            return api_return_errno(API_EUNKNOWN);
+            return api_return_errno(API_EINVAL);
         api_sync_xstack();
         return api_return_ax(0);
     }
     else
-        return api_return_errno(API_EUNKNOWN);
+        return api_return_errno(API_EINVAL);
 }
 
-void rtc_api_set_time(void)
+void ntp_api_set_time(void)
 {
     uint8_t clock_id = API_A;
     if (clock_id == RIA_CLOCK_REALTIME)
@@ -92,7 +97,7 @@ void rtc_api_set_time(void)
         int32_t rawtime_nsec;
         if (!api_pop_uint32((uint32_t *)&rawtime) ||
             !api_pop_int32_end(&rawtime_nsec))
-            return api_return_errno(API_EUNKNOWN);
+            return api_return_errno(API_EINVAL);
         struct tm timeinfo = *gmtime(&rawtime);
         datetime_t rtc_info = {
             .year = timeinfo.tm_year + 1900,
@@ -110,5 +115,5 @@ void rtc_api_set_time(void)
             return api_return_ax(0);
     }
     else
-        return api_return_errno(API_EUNKNOWN);
+        return api_return_errno(API_EINVAL);
 }
