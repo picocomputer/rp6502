@@ -26,6 +26,16 @@
 #include "tusb.h"
 #include "serno.h"
 
+/* A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
+ * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
+ *
+ * Auto ProductID layout's Bitmap:
+ *   [MSB]         HID | MSC | CDC          [LSB]
+ */
+#define _PID_MAP(itf, n) ((CFG_TUD_##itf) << (n))
+#define USB_PID (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | \
+                 _PID_MAP(MIDI, 3) | _PID_MAP(VENDOR, 4))
+
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
@@ -39,9 +49,9 @@ tusb_desc_device_t const desc_device =
         .bDeviceProtocol = 0x00,
         .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
-        .idVendor = 0x2E8A,  // Pi
-        .idProduct = 0x0004, // Picoprobe
-        .bcdDevice = 0x0100, // Version 01.00
+        .idVendor = 0x2E8A,   // Pi
+        .idProduct = USB_PID, // Auto
+        .bcdDevice = 0x0100,  // Version 01.00
         .iManufacturer = 0x01,
         .iProduct = 0x02,
         .iSerialNumber = 0x03,
@@ -62,7 +72,6 @@ enum
 {
     ITF_NUM_CDC_COM,
     ITF_NUM_CDC_DATA,
-    ITF_NUM_PROBE,
     ITF_NUM_TOTAL
 };
 
@@ -72,17 +81,13 @@ enum
 #define PROBE_OUT_EP_NUM 0x04
 #define PROBE_IN_EP_NUM 0x85
 
-#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_VENDOR_DESC_LEN)
+#define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN)
 
-uint8_t const desc_configuration[] =
-    {
-        TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
+uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
 
-        // Interface 0 + 1
-        TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COM, 0, CDC_NOTIFICATION_EP_NUM, 64, CDC_DATA_OUT_EP_NUM, CDC_DATA_IN_EP_NUM, 64),
-
-        // Interface 2
-        TUD_VENDOR_DESCRIPTOR(ITF_NUM_PROBE, 0, PROBE_OUT_EP_NUM, PROBE_IN_EP_NUM, 64)
+    // Interface 0 + 1
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COM, 0, CDC_NOTIFICATION_EP_NUM, 64, CDC_DATA_OUT_EP_NUM, CDC_DATA_IN_EP_NUM, 64)
 
 };
 
@@ -104,7 +109,7 @@ char const *string_desc_arr[] =
     {
         (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
         "Raspberry Pi",             // 1: Manufacturer
-        "Picoprobe",                // 2: Product
+        "RP6502 Console",           // 2: Product
         serno,                      // 3: Serial, uses flash unique ID
 };
 

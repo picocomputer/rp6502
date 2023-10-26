@@ -25,20 +25,20 @@ git submodule update --init
 cd ../..
 ```
 
-The Pi Pico VGA is also a Picoprobe for development and terminal use. Load a release build of rp6502_vga.uf2 on it with the BOOT SEL button. You can do the UF2 process with the RIA board too, or use the VGA/Picoprobe board to load it using OpenOCD.
+The Pi Pico VGA is no longer a Picoprobe. It remains a CDC for console access. To debug Pico RIA or Pico VGA code, you need a Debug Probe or a third Pi Pico as a Picoprobe.
 
-The VSCode launch settings connect to a remote debug session. I use two terminals for the debugger and monitor. You'll also want to add a udev rule to avoid a sudo nightmare. The following are rough notes, you may need to install software which is beyond the scope of this README.
+The VSCode launch settings connect to a remote debug session. I use multiple terminals for the debugger and console. You'll also want to add a udev rule to avoid a sudo nightmare. The following are rough notes, you may need to install software which is beyond the scope of this README.
 
 Create `/etc/udev/rules.d/99-pico.rules` with:
 ```
 #Picoprobe
 SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"
 ```
-Debug terminal: (use OpenOCD 0.11)
+Debug terminal:
 ```
-$ openocd -f interface/picoprobe.cfg -f target/rp2040.cfg -s tcl
+$ openocd -f interface/cmsis-dap.cfg -c "adapter speed 5000" -f target/rp2040.cfg -s tcl
 ```
-Monitor terminal:
+Console terminal:
 ```
 $ minicom -c on -b 115200 -o -D /dev/ttyACM0
 ```
@@ -46,7 +46,7 @@ WSL (Windows Subsystem for Linux) can forward the Picoprobe to Linux:
 ```
 PS> usbipd list
 BUSID  DEVICE
-7-4    USB Serial Device (COM6), Picoprobe
+7-4    CMSIS-DAP v2 Interface, USB Serial Device (COM6)
 
 PS> usbipd wsl attach --busid 7-4
 ```

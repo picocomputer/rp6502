@@ -130,7 +130,6 @@ target_sources(rp6502_vga PRIVATE
     vga/term/term.c
     vga/usb/cdc.c
     vga/usb/descriptors.c
-    vga/usb/probe.c
     vga/usb/serno.c
 )
 
@@ -141,10 +140,6 @@ target_link_libraries(rp6502_vga PRIVATE
     pico_scanvideo_dpi
     hardware_interp
     tinyusb_vga
-)
-
-pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/vga/usb/probe.pio
 )
 
 pico_generate_pio_header(rp6502_vga

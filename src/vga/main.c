@@ -17,7 +17,6 @@
 #include "term/font.h"
 #include "term/term.h"
 #include "usb/cdc.h"
-#include "usb/probe.h"
 #include "usb/serno.h"
 #include "pico/stdlib.h"
 #include "tusb.h"
@@ -30,7 +29,6 @@ static void init(void)
     term_init();
     serno_init(); // before tusb
     tusb_init();
-    probe_init();
     led_init();
     ria_init();
     pix_init();
@@ -42,7 +40,6 @@ static void task(void)
     term_task();
     tud_task();
     cdc_task();
-    probe_task();
     led_task();
     pix_task();
     ria_task();
@@ -57,7 +54,6 @@ void main_flush(void)
 void main_reclock(void)
 {
     std_reclock();
-    probe_reclock();
     ria_reclock();
 }
 
