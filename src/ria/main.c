@@ -7,7 +7,6 @@
 #include "main.h"
 #include "tusb.h"
 #include "api/api.h"
-#include "api/ntp.h"
 #include "api/oem.h"
 #include "api/rng.h"
 #include "api/std.h"
@@ -59,7 +58,6 @@ static void init(void)
     mou_init();
     rom_init();
     led_init();
-    ntp_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
@@ -172,15 +170,6 @@ bool main_api(uint8_t operation)
         break;
     case 0x04:
         rng_api_lrand();
-        break;
-    case 0x10:
-        ntp_api_get_res();
-        break;
-    case 0x11:
-        ntp_api_get_time();
-        break;
-    case 0x12:
-        ntp_api_set_time();
         break;
     case 0x14:
         std_api_open();
