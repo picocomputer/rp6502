@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2023 Brentward
+ * Copyright (c) 2023 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #ifndef _NTP_H_
 #define _NTP_H_
 

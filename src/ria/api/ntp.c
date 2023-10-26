@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2023 Brentward
+ * Copyright (c) 2023 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
 #include "api/api.h"
 #include "api/ntp.h"
 #include "sys/cfg.h"
