@@ -16,14 +16,24 @@
 #include "hardware/interp.h"
 #include <stdint.h>
 
-typedef struct sprite
+typedef struct
 {
-    int16_t x;
-    int16_t y;
-    const void *img;
-    uint8_t log_size; // always square
+    int16_t x_pos_px;
+    int16_t y_pos_px;
+    uint16_t xram_sprite_ptr;
+    uint8_t log_size;
     bool has_opacity_metadata;
-} sprite_t;
+} mode4_sprite_t;
+
+typedef struct
+{
+    int16_t transform[6];
+    int16_t x_pos_px;
+    int16_t y_pos_px;
+    uint16_t xram_sprite_ptr;
+    uint8_t log_size;
+    bool has_opacity_metadata;
+} mode4_asprite_t;
 
 // Note some of the sprite routines are quite large (unrolled), so trying to
 // keep everything in separate sections so the linker can garbage collect
@@ -186,17 +196,32 @@ typedef struct
 } intersect_t;
 
 // Always-inline else the compiler does rash things like passing structs in memory
-static inline intersect_t _get_sprite_intersect(const sprite_t *sp, uint raster_y, uint raster_w)
+static inline intersect_t _get_asprite_intersect(const mode4_asprite_t *sp, uint raster_y, uint raster_w)
 {
     intersect_t isct = {0};
-    isct.tex_offs_y = (int)raster_y - sp->y;
+    isct.tex_offs_y = (int)raster_y - sp->y_pos_px;
     int size = 1u << sp->log_size;
     uint upper_mask = -size;
     if ((uint)isct.tex_offs_y & upper_mask)
         return isct;
-    int x_start_clipped = MAX(0, sp->x);
-    isct.tex_offs_x = x_start_clipped - sp->x;
-    isct.size_x = MIN(sp->x + size, (int)raster_w) - x_start_clipped;
+    int x_start_clipped = MAX(0, sp->x_pos_px);
+    isct.tex_offs_x = x_start_clipped - sp->x_pos_px;
+    isct.size_x = MIN(sp->x_pos_px + size, (int)raster_w) - x_start_clipped;
+    return isct;
+}
+
+// Always-inline else the compiler does rash things like passing structs in memory
+static inline intersect_t _get_sprite_intersect(const mode4_sprite_t *sp, uint raster_y, uint raster_w)
+{
+    intersect_t isct = {0};
+    isct.tex_offs_y = (int)raster_y - sp->y_pos_px;
+    int size = 1u << sp->log_size;
+    uint upper_mask = -size;
+    if ((uint)isct.tex_offs_y & upper_mask)
+        return isct;
+    int x_start_clipped = MAX(0, sp->x_pos_px);
+    isct.tex_offs_x = x_start_clipped - sp->x_pos_px;
+    isct.size_x = MIN(sp->x_pos_px + size, (int)raster_w) - x_start_clipped;
     return isct;
 }
 
@@ -214,30 +239,48 @@ static inline intersect_t _intersect_with_metadata(intersect_t isct, uint32_t me
     return isct;
 }
 
-void __ram_func(sprite_sprite16)(uint16_t *scanbuf, const sprite_t *sp, uint raster_y, uint raster_w)
+static inline __attribute__((always_inline)) void __ram_func(sprite_sprite16)(
+    uint16_t *scanbuf, const mode4_sprite_t *sp, const void *sp_img, uint raster_y, uint raster_w)
 {
     int size = 1u << sp->log_size;
     intersect_t isct = _get_sprite_intersect(sp, raster_y, raster_w);
     if (isct.size_x <= 0)
         return;
-    const uint16_t *img = sp->img;
+    const uint16_t *img = sp_img;
     if (sp->has_opacity_metadata)
     {
-        uint32_t meta = ((uint32_t *)(sp->img + size * size * sizeof(uint16_t)))[isct.tex_offs_y];
+        uint32_t meta = ((uint32_t *)(sp_img + size * size * sizeof(uint16_t)))[isct.tex_offs_y];
         isct = _intersect_with_metadata(isct, meta);
         if (isct.size_x <= 0)
             return;
         bool span_continuous = !!(meta & (1u << 31));
         if (span_continuous)
-            sprite_blit16(scanbuf + sp->x + isct.tex_offs_x, img + isct.tex_offs_x + isct.tex_offs_y * size,
+            sprite_blit16(scanbuf + sp->x_pos_px + isct.tex_offs_x, img + isct.tex_offs_x + isct.tex_offs_y * size,
                           isct.size_x);
         else
-            sprite_blit16_alpha(scanbuf + sp->x + isct.tex_offs_x, img + isct.tex_offs_x + isct.tex_offs_y * size,
+            sprite_blit16_alpha(scanbuf + sp->x_pos_px + isct.tex_offs_x, img + isct.tex_offs_x + isct.tex_offs_y * size,
                                 isct.size_x);
     }
     else
     {
-        sprite_blit16_alpha(scanbuf + MAX(0, sp->x), img + isct.tex_offs_x + isct.tex_offs_y * size, isct.size_x);
+        sprite_blit16_alpha(scanbuf + MAX(0, sp->x_pos_px), img + isct.tex_offs_x + isct.tex_offs_y * size, isct.size_x);
+    }
+}
+
+static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    const mode4_sprite_t *sprites = (void *)&xram[config_ptr];
+    for (uint16_t i; i < length; i++)
+    {
+        const unsigned px_size = 2 ^ sprites[i].log_size;
+        unsigned byte_size = px_size * px_size * sizeof(uint16_t);
+        if (sprites[i].has_opacity_metadata)
+            byte_size += px_size * sizeof(uint32_t);
+        if (sprites[i].xram_sprite_ptr <= 0x10000 - byte_size)
+        {
+            const void *img = (void *)&xram[sprites[i].xram_sprite_ptr];
+            sprite_sprite16(rgb, &sprites[i], img, scanline, width);
+        }
     }
 }
 
@@ -273,8 +316,8 @@ static inline __attribute__((always_inline)) void _setup_interp_affine(interp_hw
 // Set up an interpolator to generate pixel lookup addresses from fp1616
 // numbers in accum1, accum0 based on the parameters of sprite sp and the size
 // of the individual pixels
-static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(interp_hw_t *interp,
-                                                                             const sprite_t *sp, uint pixel_shift)
+static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
+    interp_hw_t *interp, const mode4_asprite_t *sp, const void *sp_img, uint pixel_shift)
 {
     // Concatenate from accum0[31:16] and accum1[31:16] as many LSBs as required
     // to index the sprite texture in both directions. Reading from POP_FULL will
@@ -295,73 +338,40 @@ static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(int
     interp_config_set_mask(&c1, pixel_shift + sp->log_size, pixel_shift + 2 * sp->log_size - 1);
     interp_set_config(interp, 1, &c1);
 
-    interp->base[2] = (uint32_t)sp->img;
+    interp->base[2] = (uint32_t)sp_img;
 }
 
 // Note we do NOT save/restore the interpolator!
-void __ram_func(sprite_asprite16)(uint16_t *scanbuf, const sprite_t *sp, const affine_transform_t atrans, uint raster_y,
-                                  uint raster_w)
+void __ram_func(sprite_asprite16)(
+    uint16_t *scanbuf, const mode4_asprite_t *sp, const void *sp_img,
+    uint raster_y, uint raster_w)
 {
-    intersect_t isct = _get_sprite_intersect(sp, raster_y, raster_w);
+    intersect_t isct = _get_asprite_intersect(sp, raster_y, raster_w);
     if (isct.size_x <= 0)
         return;
     interp_hw_t *interp = interp0;
+    affine_transform_t atrans;
+    for (uint16_t j; j < 6; j++)
+        atrans[j] = (int32_t)sp->transform[j] << 8;
     _setup_interp_affine(interp, isct, atrans);
-    _setup_interp_pix_coordgen(interp, sp, 1);
-    sprite_ablit16_alpha_loop(scanbuf + MAX(0, sp->x), isct.size_x);
+    _setup_interp_pix_coordgen(interp, sp, sp_img, 1);
+    sprite_ablit16_alpha_loop(scanbuf + MAX(0, sp->x_pos_px), isct.size_x);
 }
 
-typedef struct
-{
-    int16_t x_pos_px;
-    int16_t y_pos_px;
-    uint16_t xram_sprite_ptr;
-    uint8_t log_size;
-    bool has_opacity_metadata;
-} mode4_sprite_t;
-
-void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
-{
-    mode4_sprite_t *sprites = (void *)&xram[config_ptr];
-    sprite_t sprite;
-    for (uint16_t i; i < length; i++)
-    {
-        sprite.x = sprites[i].x_pos_px;
-        sprite.y = sprites[i].y_pos_px;
-        sprite.img = (void *)&xram[sprites[i].xram_sprite_ptr];
-        sprite.log_size = sprites[i].log_size;
-        sprite.has_opacity_metadata = sprites[i].has_opacity_metadata;
-        if (sprites[i].xram_sprite_ptr <= 0x10000 - 2 ^ sprites[i].log_size)
-            sprite_sprite16(rgb, &sprite, scanline, width);
-    }
-}
-
-typedef struct
-{
-    int16_t transform[6];
-    int16_t x_pos_px;
-    int16_t y_pos_px;
-    uint16_t xram_sprite_ptr;
-    uint8_t log_size;
-    bool has_opacity_metadata;
-} mode4_asprite_t;
-
-void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     mode4_asprite_t *sprites = (void *)&xram[config_ptr];
-    sprite_t sprite;
-    affine_transform_t transform;
     for (uint16_t i; i < length; i++)
     {
-        for (uint16_t j; j < length; j++)
-            transform[j] = (int32_t)sprites[i].transform[j] << 8;
-        sprite.x = sprites[i].x_pos_px;
-        sprite.y = sprites[i].y_pos_px;
-        sprite.img = (void *)&xram[sprites[i].xram_sprite_ptr];
-        sprite.log_size = sprites[i].log_size;
-        sprite.has_opacity_metadata = sprites[i].has_opacity_metadata;
-        if (sprites[i].xram_sprite_ptr <= 0x10000 - 2 ^ sprite.log_size)
-            sprite_asprite16(rgb, &sprite, transform, scanline, width);
+        const unsigned px_size = 2 ^ sprites[i].log_size;
+        unsigned byte_size = px_size * px_size * sizeof(uint16_t);
+        if (sprites[i].has_opacity_metadata)
+            byte_size += px_size * sizeof(uint32_t);
+        if (sprites[i].xram_sprite_ptr <= 0x10000 - byte_size)
+        {
+            const void *img = (void *)&xram[sprites[i].xram_sprite_ptr];
+            sprite_asprite16(rgb, &sprites[i], img, scanline, width);
+        }
     }
 }
 
