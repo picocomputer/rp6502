@@ -203,6 +203,12 @@ bool main_api(uint8_t operation)
     case 0x1A:
         std_api_lseek();
         break;
+    case 0x1B:
+        std_api_unlink();
+        break;
+    case 0x1C:
+        std_api_rename();
+        break;
     default:
         return false;
     }

@@ -472,10 +472,10 @@ void vga_set_display(vga_display_t display)
         vga_reset_console_prog();
 }
 
-// Also accepts NULL for reset to vga_console
+// Also accepts NULL for reset to vga_console.
 bool vga_xreg_canvas(uint16_t *xregs)
 {
-    uint16_t canvas = xregs ? xregs[0] : vga_console;
+    vga_canvas_t canvas = xregs ? xregs[0] : vga_console;
     switch (canvas)
     {
     case vga_console:

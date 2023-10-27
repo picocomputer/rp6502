@@ -22,18 +22,18 @@
 #define VGA_PHI2_PIN 11
 
 #define PIX_CH0_XREGS_MAX 8
+static uint16_t xregs[PIX_CH0_XREGS_MAX];
 
 static void pix_ch0_xreg(uint8_t addr, uint16_t word)
 {
-    static uint16_t xregs[PIX_CH0_XREGS_MAX];
     if (addr < PIX_CH0_XREGS_MAX)
         xregs[addr] = word;
-    if (addr == 0)
+    if (addr == 0) // CANVAS
         if (vga_xreg_canvas(xregs))
             ria_ack();
         else
             ria_nak();
-    if (addr == 1)
+    if (addr == 1) // MODE
     {
         if (main_prog(xregs))
             ria_ack();
@@ -48,18 +48,20 @@ static void pix_ch15_xreg(uint8_t addr, uint16_t word)
 {
     switch (addr)
     {
-    case 0x00:
+    case 0x00: // DISPLAY
+        // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
+        memset(&xregs, 0, sizeof(xregs));
         break;
-    case 0x01:
+    case 0x01: // CODEPAGE
         font_set_codepage(word);
         break;
-    case 0x03:
+    case 0x03: // UART_TX
         if (std_out_writable())
             std_out_write(word);
         break;
-    case 0x04:
+    case 0x04: // BACKCHAN
         ria_backchan(word);
         break;
     }
