@@ -19,6 +19,7 @@ static enum {
     SYS_WRITE,
     SYS_VERIFY,
     SYS_BINARY,
+    SYS_XRAM,
 } cmd_state;
 
 static uint32_t rw_addr;
@@ -147,8 +148,30 @@ static void sys_com_rx_mbuf(bool timeout, const char *buf, size_t length)
         puts("?CRC does not match");
         return;
     }
-    cmd_state = SYS_WRITE;
-    ria_write_buf(rw_addr);
+
+    if (rw_addr >= 0x10000)
+    {
+        cmd_state = SYS_XRAM;
+        for (size_t i = 0; i < rw_len; i++)
+            xram[rw_addr + i - 0x10000] = buf[i];
+    }
+    else
+    {
+        cmd_state = SYS_WRITE;
+        ria_write_buf(rw_addr);
+    }
+}
+
+static void cmd_xram()
+{
+    while (rw_len)
+    {
+        if (!pix_ready())
+            return;
+        uint32_t addr = rw_addr + --rw_len - 0x10000;
+        PIX_SEND_XRAM(addr, xram[addr]);
+    }
+    cmd_state = SYS_IDLE;
 }
 
 void ram_mon_binary(const char *args, size_t len)
@@ -158,12 +181,14 @@ void ram_mon_binary(const char *args, size_t len)
         parse_uint32(&args, &len, &rw_crc) &&
         parse_end(args, len))
     {
-        if (rw_addr > 0xFFFF)
+        if (rw_addr > 0x1FFFF)
         {
             printf("?invalid address\n");
             return;
         }
-        if (!rw_len || rw_len > MBUF_SIZE || rw_addr + rw_len > 0x10000)
+        if (!rw_len || rw_len > MBUF_SIZE ||
+            (rw_addr < 0x10000 && rw_addr + rw_len > 0x10000) ||
+            rw_addr + rw_len > 0x20000)
         {
             printf("?invalid length\n");
             return;
@@ -192,6 +217,9 @@ void ram_task(void)
         break;
     case SYS_VERIFY:
         cmd_ria_verify();
+        break;
+    case SYS_XRAM:
+        cmd_xram();
         break;
     }
 }
