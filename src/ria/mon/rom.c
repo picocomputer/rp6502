@@ -398,8 +398,8 @@ static bool rom_xram_writing(void)
     while (rom_len && pix_ready())
     {
         uint32_t addr = rom_addr + --rom_len - 0x10000;
-        xram[addr] = mbuf[addr];
-        pix_send(PIX_DEVICE_XRAM, 0, mbuf[addr], addr);
+        xram[addr] = mbuf[rom_len];
+        PIX_SEND_XRAM(addr, xram[addr]);
     }
     return !!rom_len;
 }

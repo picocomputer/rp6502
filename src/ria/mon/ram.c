@@ -125,7 +125,9 @@ void ram_mon_address(const char *args, size_t len)
         for (size_t i = 0; i < mbuf_len; i++)
         {
             xram[rw_addr + i] = mbuf[i];
-            pix_send_blocking(PIX_DEVICE_XRAM, 0, mbuf[i], rw_addr + i);
+            while (!pix_ready())
+                tight_loop_contents();
+            PIX_SEND_XRAM(rw_addr + i, mbuf[i]);
         }
         return;
     }
