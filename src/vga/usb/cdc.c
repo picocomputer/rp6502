@@ -46,7 +46,13 @@ void cdc_task(void)
         std_set_break(false);
     }
 
-    if (tud_cdc_connected())
+    if (!tud_cdc_connected())
+    {
+        // flush stdout to null
+        while (!std_out_empty())
+            std_out_read();
+    }
+    else
     {
         if (!std_out_empty())
         {
