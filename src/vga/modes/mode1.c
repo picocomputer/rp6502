@@ -6,14 +6,6 @@
 
 #include "modes/mode1.h"
 #include "pico/scanvideo.h"
-
-/*
- * Copyright (c) 2023 Rumbledethumps
- *
- * SPDX-License-Identifier: BSD-3-Clause
- */
-
-#include "modes/mode3.h"
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/color.h"

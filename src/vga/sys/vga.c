@@ -46,7 +46,6 @@ static vga_canvas_t vga_canvas_selected;
 static volatile scanvideo_mode_t const *vga_scanvideo_mode_current;
 static scanvideo_mode_t const *vga_scanvideo_mode_selected;
 static volatile bool vga_scanvideo_mode_switching;
-static volatile bool vga_scanvideo_mode_resync;
 static scanvideo_scanline_buffer_t *volatile vga_scanline_buffer_core0;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
@@ -314,22 +313,10 @@ vga_render_loop(void)
     assert(PICO_SCANVIDEO_PLANE_COUNT == 3);
     while (true)
     {
-        if (vga_scanvideo_mode_resync)
-        {
-            vga_scanvideo_mode_resync = false;
-            // Stay off for 50+ ms to signal that we're switching.
-            // Not sure if this is helpful or what the delay should be.
-            // It just seems the polite thing to do.
-            for (int16_t i = 0; i < 4; i++)
-            {
-                busy_wait_us_32(16667);
-                ria_vsync();
-            }
-        }
-        else if (!vga_scanvideo_mode_switching)
+        if (!vga_scanvideo_mode_switching)
         {
             // The vblank "pause" between frames happens after the
-            // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT (8) scanlines
+            // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT scanlines
             // have been rendered, not between frames. This is because
             // the queue is always trying to stay that far ahead. The
             // hack injects a pause where it's supposed to be.
@@ -409,15 +396,11 @@ static void vga_scanvideo_update(void)
     }
     // trigger only if change detected
     if (vga_scanvideo_mode_selected != vga_scanvideo_mode_current)
-    {
-        vga_scanvideo_mode_resync = true;
         vga_scanvideo_mode_switching = true;
-    }
 }
 
 static void vga_scanvideo_switch(void)
 {
-
     if (vga_scanvideo_mode_switching)
     {
         if (!mutex_try_enter(&vga_mutex, 0))
