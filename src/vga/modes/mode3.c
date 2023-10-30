@@ -55,7 +55,7 @@ mode3_get_palette(mode3_config_t *config, int16_t bpp)
     return color_256;
 }
 
-static inline int16_t __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
 mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     if (*col < 0)

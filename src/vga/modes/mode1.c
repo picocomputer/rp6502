@@ -108,7 +108,7 @@ mode1_get_font(mode1_config_t *config, int16_t font_height)
     return font16;
 }
 
-static inline int16_t __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
 mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     int16_t width_px = config->width_chars * 8;
@@ -145,7 +145,7 @@ mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static inline void __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
 render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits >> 4)
