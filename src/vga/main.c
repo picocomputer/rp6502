@@ -40,7 +40,6 @@ static void task(void)
     term_task();
     tud_task();
     cdc_task();
-    led_task();
     pix_task();
     ria_task();
     std_task();

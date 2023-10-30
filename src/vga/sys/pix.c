@@ -24,7 +24,7 @@
 #define PIX_CH0_XREGS_MAX 8
 static uint16_t xregs[PIX_CH0_XREGS_MAX];
 
-static void pix_ch0_xreg(uint8_t addr, uint16_t word)
+static bool pix_ch0_xreg(uint8_t addr, uint16_t word)
 {
     if (addr < PIX_CH0_XREGS_MAX)
         xregs[addr] = word;
@@ -41,10 +41,14 @@ static void pix_ch0_xreg(uint8_t addr, uint16_t word)
             ria_nak();
     }
     if (addr == 0 || addr == 1)
+    {
         memset(&xregs, 0, sizeof(xregs));
+        return true;
+    }
+    return false;
 }
 
-static void pix_ch15_xreg(uint8_t addr, uint16_t word)
+static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
 {
     switch (addr)
     {
@@ -53,18 +57,18 @@ static void pix_ch15_xreg(uint8_t addr, uint16_t word)
         vga_xreg_canvas(NULL);
         vga_set_display(word);
         memset(&xregs, 0, sizeof(xregs));
-        break;
+        return true;
     case 0x01: // CODEPAGE
         font_set_codepage(word);
-        break;
+        return true;
     case 0x03: // UART_TX
-        if (std_out_writable())
-            std_out_write(word);
-        break;
+        std_out_write(word);
+        return false;
     case 0x04: // BACKCHAN
         ria_backchan(word);
-        break;
+        return false;
     }
+    return false;
 }
 
 void pix_init(void)
@@ -174,18 +178,17 @@ void pix_init(void)
 
 void pix_task(void)
 {
-    if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
+    while (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
     {
         uint32_t raw = pio_sm_get(VGA_PIX_PIO, VGA_PIX_REGS_SM);
         uint8_t ch = (raw & 0x0F000000) >> 24;
         uint8_t addr = (raw & 0x00FF0000) >> 16;
         uint16_t word = raw & 0xFFFF;
-        switch (ch)
-        {
-        case 0:
-            return pix_ch0_xreg(addr, word);
-        case 15:
-            return pix_ch15_xreg(addr, word);
-        }
+        // These return true on slow operations to
+        // allow us to stay greedy on fast ones.
+        if (ch == 0 && pix_ch0_xreg(addr, word))
+            break;
+        if (ch == 15 && pix_ch15_xreg(addr, word))
+            break;
     }
 }

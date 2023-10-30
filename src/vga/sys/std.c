@@ -44,13 +44,10 @@ bool std_out_empty(void)
     return &STD_OUT_BUF(std_out_tail) == &STD_OUT_BUF(std_out_head);
 }
 
-bool std_out_writable(void)
-{
-    return &STD_OUT_BUF(std_out_tail + 1) != &STD_OUT_BUF(std_out_head);
-}
-
 void std_out_write(char ch)
 {
+    if (&STD_OUT_BUF(std_out_tail + 1) == &STD_OUT_BUF(std_out_head))
+        ++std_out_head;
     STD_OUT_BUF(++std_out_tail) = ch;
     // OUT is sunk here to stdio
     putchar_raw(ch);
@@ -87,10 +84,10 @@ void std_set_break(bool en)
 void std_task(void)
 {
     // IN is sunk here to UART
-    if (!std_in_empty() && uart_is_writable(STD_UART_INTERFACE))
+    while (!std_in_empty() && uart_is_writable(STD_UART_INTERFACE))
         uart_get_hw(STD_UART_INTERFACE)->dr = STD_IN_BUF(++std_in_tail);
 
     // OUT is sourced here from STD UART
-    while (uart_is_readable(STD_UART_INTERFACE) && std_out_writable())
+    while (uart_is_readable(STD_UART_INTERFACE))
         std_out_write(uart_getc(STD_UART_INTERFACE));
 }

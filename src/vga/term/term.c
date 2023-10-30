@@ -521,7 +521,7 @@ void term_task(void)
     term_blink_cursor(&term_80);
 }
 
-static inline void __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
 render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
 {
     switch (bits)
