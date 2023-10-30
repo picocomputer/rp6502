@@ -8,8 +8,8 @@
 #include "sys/std.h"
 #include "usb/cdc.h"
 
-static absolute_time_t break_timer = {0};
-static absolute_time_t faux_break_timer = {0};
+static absolute_time_t break_timer;
+static absolute_time_t faux_break_timer;
 static bool is_breaking = false;
 static uint8_t read_buf[STD_IN_BUF_SIZE];
 
@@ -46,13 +46,7 @@ void cdc_task(void)
         std_set_break(false);
     }
 
-    if (!tud_cdc_connected())
-    {
-        // Not connected, flush STDOUT to null
-        while (!std_out_empty())
-            std_out_read();
-    }
-    else
+    if (tud_cdc_connected())
     {
         if (!std_out_empty())
         {

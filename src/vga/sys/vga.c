@@ -17,6 +17,8 @@
 #include "hardware/clocks.h"
 #include <string.h>
 
+#define VGA_VSYNC_BUSY_WAIT_HACK_US 750
+
 #define VGA_PROG_MAX 512
 typedef struct
 {
@@ -238,7 +240,7 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x360_hd = {
     .xscale = 1,
     .yscale = 2};
 
-static inline void __attribute__((optimize("O1")))
+static void __attribute__((optimize("O1")))
 vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
 {
     const uint16_t width = vga_scanvideo_mode_current->width;
@@ -303,6 +305,7 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
             break;
         }
     }
+    scanvideo_end_scanline_generation(scanline_buffer);
 }
 
 static void __attribute__((optimize("O1")))
@@ -325,7 +328,6 @@ vga_render_loop(void)
         }
         else if (!vga_scanvideo_mode_switching)
         {
-#define VGA_VSYNC_BUSY_WAIT_HACK_US 750
             // The vblank "pause" between frames happens after the
             // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT (8) scanlines
             // have been rendered, not between frames. This is because
@@ -333,7 +335,7 @@ vga_render_loop(void)
             // hack injects a pause where it's supposed to be.
             mutex_enter_blocking(&vga_mutex);
             const int16_t height = vga_scanvideo_mode_current->height;
-            for (int16_t i = 0; i < height / 2; i++)
+            for (int16_t i = 0; i < height; i++)
             {
                 // core 0 (other)
                 scanvideo_scanline_buffer_t *const scanline_buffer0 =
@@ -355,8 +357,10 @@ vga_render_loop(void)
                     busy_wait_us_32(VGA_VSYNC_BUSY_WAIT_HACK_US);
                 }
                 vga_render_scanline(scanline_buffer1);
-                scanvideo_end_scanline_generation(scanline_buffer1);
             }
+            // safety
+            while (vga_scanline_buffer_core0)
+                tight_loop_contents();
             mutex_exit(&vga_mutex);
         }
     }
@@ -528,12 +532,13 @@ void vga_init(void)
 
 void vga_task(void)
 {
+    // Handle requests to change scanvideo modes
     vga_scanvideo_switch();
 
+    // Render a scanline if ready
     if (vga_scanline_buffer_core0)
     {
         vga_render_scanline(vga_scanline_buffer_core0);
-        scanvideo_end_scanline_generation(vga_scanline_buffer_core0);
         vga_scanline_buffer_core0 = NULL;
     }
 }

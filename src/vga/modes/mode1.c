@@ -148,7 +148,7 @@ mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 static inline void __attribute__((optimize("O1")))
 render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
-    switch (bits)
+    switch (bits >> 4)
     {
     case 0:
         buf[0] = bg;
@@ -247,6 +247,105 @@ render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
         buf[3] = fg;
         break;
     }
+    switch (bits & 0xF)
+    {
+    case 0:
+        buf[4] = bg;
+        buf[5] = bg;
+        buf[6] = bg;
+        buf[7] = bg;
+        break;
+    case 1:
+        buf[4] = bg;
+        buf[5] = bg;
+        buf[6] = bg;
+        buf[7] = fg;
+        break;
+    case 2:
+        buf[4] = bg;
+        buf[5] = bg;
+        buf[6] = fg;
+        buf[7] = bg;
+        break;
+    case 3:
+        buf[4] = bg;
+        buf[5] = bg;
+        buf[6] = fg;
+        buf[7] = fg;
+        break;
+    case 4:
+        buf[4] = bg;
+        buf[5] = fg;
+        buf[6] = bg;
+        buf[7] = bg;
+        break;
+    case 5:
+        buf[4] = bg;
+        buf[5] = fg;
+        buf[6] = bg;
+        buf[7] = fg;
+        break;
+    case 6:
+        buf[4] = bg;
+        buf[5] = fg;
+        buf[6] = fg;
+        buf[7] = bg;
+        break;
+    case 7:
+        buf[4] = bg;
+        buf[5] = fg;
+        buf[6] = fg;
+        buf[7] = fg;
+        break;
+    case 8:
+        buf[4] = fg;
+        buf[5] = bg;
+        buf[6] = bg;
+        buf[7] = bg;
+        break;
+    case 9:
+        buf[4] = fg;
+        buf[5] = bg;
+        buf[6] = bg;
+        buf[7] = fg;
+        break;
+    case 10:
+        buf[4] = fg;
+        buf[5] = bg;
+        buf[6] = fg;
+        buf[7] = bg;
+        break;
+    case 11:
+        buf[4] = fg;
+        buf[5] = bg;
+        buf[6] = fg;
+        buf[7] = fg;
+        break;
+    case 12:
+        buf[4] = fg;
+        buf[5] = fg;
+        buf[6] = bg;
+        buf[7] = bg;
+        break;
+    case 13:
+        buf[4] = fg;
+        buf[5] = fg;
+        buf[6] = bg;
+        buf[7] = fg;
+        break;
+    case 14:
+        buf[4] = fg;
+        buf[5] = fg;
+        buf[6] = fg;
+        buf[7] = bg;
+        break;
+    case 15:
+        buf[4] = fg;
+        buf[5] = fg;
+        buf[6] = fg;
+        buf[7] = fg;
+        break;
+    }
 }
 
 static bool __attribute__((optimize("O1")))
@@ -296,12 +395,10 @@ mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[0], palette[1]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[0], palette[1]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[0], palette[1]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         if (fill_cols >= 1)
             *rgb++ = palette[(glyph & 0x80) >> 7];
@@ -368,12 +465,10 @@ mode1_render_1bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[0], palette[1]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[0], palette[1]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[0], palette[1]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         if (fill_cols >= 1)
             *rgb++ = palette[(glyph & 0x80) >> 7];
@@ -443,12 +538,10 @@ mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = palette[data->bg_fg_index >> 4];
         colors[1] = palette[data->bg_fg_index & 0xF];
@@ -520,12 +613,10 @@ mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = palette[data->bg_fg_index >> 4];
         colors[1] = palette[data->bg_fg_index & 0xF];
@@ -597,12 +688,10 @@ mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = palette[data->fg_bg_index & 0xF];
         colors[1] = palette[data->fg_bg_index >> 4];
@@ -674,12 +763,10 @@ mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = palette[data->fg_bg_index & 0xF];
         colors[1] = palette[data->fg_bg_index >> 4];
@@ -751,12 +838,10 @@ mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[data->bg_index], palette[data->fg_index]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[data->bg_index], palette[data->fg_index]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = palette[data->bg_index];
         colors[1] = palette[data->fg_index];
@@ -828,12 +913,10 @@ mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, palette[data->bg_index], palette[data->fg_index]);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, palette[data->bg_index], palette[data->fg_index]);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = palette[data->bg_index];
         colors[1] = palette[data->fg_index];
@@ -902,12 +985,10 @@ mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, data->bg_color, data->fg_color);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, data->bg_color, data->fg_color);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, data->bg_color, data->fg_color);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = data->bg_color;
         colors[1] = data->fg_color;
@@ -976,12 +1057,10 @@ mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph >> 4, data->bg_color, data->fg_color);
-            rgb += 4;
-            render_nibble(rgb, glyph & 0xF, data->bg_color, data->fg_color);
-            rgb += 4;
-            glyph = font[(++data)->glyph_code];
+            render_nibble(rgb, glyph, data->bg_color, data->fg_color);
+            rgb += 8;
             fill_cols -= 8;
+            glyph = font[(++data)->glyph_code];
         }
         colors[0] = data->bg_color;
         colors[1] = data->fg_color;

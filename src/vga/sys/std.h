@@ -31,7 +31,6 @@ bool std_in_empty(void);
 void std_in_write(char ch);
 
 bool std_out_empty(void);
-bool std_out_writable(void);
 void std_out_write(char ch);
 char std_out_peek(void);
 char std_out_read(void);
