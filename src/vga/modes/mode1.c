@@ -629,6 +629,334 @@ mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
     return true;
 }
 
+static bool __attribute__((optimize("O1")))
+mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    if (config_ptr > 0x10000 - sizeof(mode1_config_t))
+        return false;
+    mode1_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const mode1_8bpp_data_t *row_data =
+        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_8bpp_data_t), 8, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint8_t *font = mode1_get_font(config, 8) + 256 * (row & 7);
+    int16_t col = -config->x_pos_px;
+    while (width)
+    {
+        int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
+        volatile const mode1_8bpp_data_t *data = &row_data[col / 8];
+        uint8_t glyph = font[data->glyph_code];
+        uint16_t colors[2] = {
+            palette[data->bg_index],
+            palette[data->fg_index]};
+        int16_t part = 8 - (col & 7);
+        if (part > config->width_chars * 8 - col)
+            part = config->width_chars * 8 - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
+        {
+        case 8:
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        case 7:
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        case 6:
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        case 5:
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        case 4:
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        case 3:
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        case 2:
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+        case 1:
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = palette[data->bg_index];
+            colors[1] = palette[data->fg_index];
+        }
+        col += fill_cols;
+        while (fill_cols > 7)
+        {
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = palette[data->bg_index];
+            colors[1] = palette[data->fg_index];
+            fill_cols -= 8;
+        }
+        if (fill_cols >= 1)
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        if (fill_cols >= 2)
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        if (fill_cols >= 3)
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        if (fill_cols >= 4)
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        if (fill_cols >= 5)
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        if (fill_cols >= 6)
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        if (fill_cols >= 7)
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+    }
+    return true;
+}
+
+static bool __attribute__((optimize("O1")))
+mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    if (config_ptr > 0x10000 - sizeof(mode1_config_t))
+        return false;
+    mode1_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const mode1_8bpp_data_t *row_data =
+        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_8bpp_data_t), 16, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint8_t *font = mode1_get_font(config, 16) + 256 * (row & 15);
+    int16_t col = -config->x_pos_px;
+    while (width)
+    {
+        int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
+        volatile const mode1_8bpp_data_t *data = &row_data[col / 8];
+        uint8_t glyph = font[data->glyph_code];
+        uint16_t colors[2] = {
+            palette[data->bg_index],
+            palette[data->fg_index]};
+        int16_t part = 8 - (col & 7);
+        if (part > config->width_chars * 8 - col)
+            part = config->width_chars * 8 - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
+        {
+        case 8:
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        case 7:
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        case 6:
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        case 5:
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        case 4:
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        case 3:
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        case 2:
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+        case 1:
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = palette[data->bg_index];
+            colors[1] = palette[data->fg_index];
+        }
+        col += fill_cols;
+        while (fill_cols > 7)
+        {
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = palette[data->bg_index];
+            colors[1] = palette[data->fg_index];
+            fill_cols -= 8;
+        }
+        if (fill_cols >= 1)
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        if (fill_cols >= 2)
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        if (fill_cols >= 3)
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        if (fill_cols >= 4)
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        if (fill_cols >= 5)
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        if (fill_cols >= 6)
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        if (fill_cols >= 7)
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+    }
+    return true;
+}
+
+static bool __attribute__((optimize("O1")))
+mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    if (config_ptr > 0x10000 - sizeof(mode1_config_t))
+        return false;
+    mode1_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const mode1_16bpp_data_t *row_data =
+        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_16bpp_data_t), 8, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint8_t *font = mode1_get_font(config, 8) + 256 * (row & 7);
+    int16_t col = -config->x_pos_px;
+    while (width)
+    {
+        int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
+        volatile const mode1_16bpp_data_t *data = &row_data[col / 8];
+        uint8_t glyph = font[data->glyph_code];
+        uint16_t colors[2] = {data->bg_color, data->fg_color};
+        int16_t part = 8 - (col & 7);
+        if (part > config->width_chars * 8 - col)
+            part = config->width_chars * 8 - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
+        {
+        case 8:
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        case 7:
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        case 6:
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        case 5:
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        case 4:
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        case 3:
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        case 2:
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+        case 1:
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = data->bg_color;
+            colors[1] = data->fg_color;
+        }
+        col += fill_cols;
+        while (fill_cols > 7)
+        {
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = data->bg_color;
+            colors[1] = data->fg_color;
+            fill_cols -= 8;
+        }
+        if (fill_cols >= 1)
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        if (fill_cols >= 2)
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        if (fill_cols >= 3)
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        if (fill_cols >= 4)
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        if (fill_cols >= 5)
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        if (fill_cols >= 6)
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        if (fill_cols >= 7)
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+    }
+    return true;
+}
+
+static bool __attribute__((optimize("O1")))
+mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    if (config_ptr > 0x10000 - sizeof(mode1_config_t))
+        return false;
+    mode1_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const mode1_16bpp_data_t *row_data =
+        (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_16bpp_data_t), 16, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint8_t *font = mode1_get_font(config, 16) + 256 * (row & 15);
+    int16_t col = -config->x_pos_px;
+    while (width)
+    {
+        int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
+        volatile const mode1_16bpp_data_t *data = &row_data[col / 8];
+        uint8_t glyph = font[data->glyph_code];
+        uint16_t colors[2] = {data->bg_color, data->fg_color};
+        int16_t part = 8 - (col & 7);
+        if (part > config->width_chars * 8 - col)
+            part = config->width_chars * 8 - col;
+        fill_cols -= part;
+        col += part;
+        switch (part)
+        {
+        case 8:
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        case 7:
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        case 6:
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        case 5:
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        case 4:
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        case 3:
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        case 2:
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+        case 1:
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = data->bg_color;
+            colors[1] = data->fg_color;
+        }
+        col += fill_cols;
+        while (fill_cols > 7)
+        {
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+            *rgb++ = colors[glyph & 0x01];
+            glyph = font[(++data)->glyph_code];
+            colors[0] = data->bg_color;
+            colors[1] = data->fg_color;
+            fill_cols -= 8;
+        }
+        if (fill_cols >= 1)
+            *rgb++ = colors[(glyph & 0x80) >> 7];
+        if (fill_cols >= 2)
+            *rgb++ = colors[(glyph & 0x40) >> 6];
+        if (fill_cols >= 3)
+            *rgb++ = colors[(glyph & 0x20) >> 5];
+        if (fill_cols >= 4)
+            *rgb++ = colors[(glyph & 0x10) >> 4];
+        if (fill_cols >= 5)
+            *rgb++ = colors[(glyph & 0x08) >> 3];
+        if (fill_cols >= 6)
+            *rgb++ = colors[(glyph & 0x04) >> 2];
+        if (fill_cols >= 7)
+            *rgb++ = colors[(glyph & 0x02) >> 1];
+    }
+    return true;
+}
+
 bool mode1_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -653,6 +981,12 @@ bool mode1_prog(uint16_t *xregs)
     case 2:
         render_fn = mode1_render_4bpp_8x8;
         break;
+    case 3:
+        render_fn = mode1_render_8bpp_8x8;
+        break;
+    case 4:
+        render_fn = mode1_render_16bpp_8x8;
+        break;
     case 8:
         render_fn = mode1_render_1bpp_8x16;
         break;
@@ -661,6 +995,12 @@ bool mode1_prog(uint16_t *xregs)
         break;
     case 10:
         render_fn = mode1_render_4bpp_8x16;
+        break;
+    case 11:
+        render_fn = mode1_render_8bpp_8x16;
+        break;
+    case 12:
+        render_fn = mode1_render_16bpp_8x16;
         break;
     default:
         return false;
