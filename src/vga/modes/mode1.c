@@ -308,7 +308,7 @@ mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bpp_data_t), 8, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint16_t *palette = mode1_get_palette(config, 4);
     volatile const uint8_t *font = mode1_get_font(config, 8) + 256 * (row & 7);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -391,7 +391,7 @@ mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bpp_data_t), 16, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint16_t *palette = mode1_get_palette(config, 4);
     volatile const uint8_t *font = mode1_get_font(config, 16) + 256 * (row & 15);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -474,7 +474,7 @@ mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bppr_data_t), 8, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint16_t *palette = mode1_get_palette(config, 4);
     volatile const uint8_t *font = mode1_get_font(config, 8) + 256 * (row & 7);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -557,7 +557,7 @@ mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_4bppr_data_t), 16, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint16_t *palette = mode1_get_palette(config, 4);
     volatile const uint8_t *font = mode1_get_font(config, 16) + 256 * (row & 15);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -640,7 +640,7 @@ mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_8bpp_data_t), 8, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint16_t *palette = mode1_get_palette(config, 8);
     volatile const uint8_t *font = mode1_get_font(config, 8) + 256 * (row & 7);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -723,7 +723,7 @@ mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_8bpp_data_t), 16, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
+    volatile const uint16_t *palette = mode1_get_palette(config, 8);
     volatile const uint8_t *font = mode1_get_font(config, 16) + 256 * (row & 15);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -806,7 +806,6 @@ mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_16bpp_data_t), 8, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
     volatile const uint8_t *font = mode1_get_font(config, 8) + 256 * (row & 7);
     int16_t col = -config->x_pos_px;
     while (width)
@@ -887,7 +886,6 @@ mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         (void *)mode1_scanline_to_data(scanline_id, config, sizeof(mode1_16bpp_data_t), 16, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode1_get_palette(config, 1);
     volatile const uint8_t *font = mode1_get_font(config, 16) + 256 * (row & 15);
     int16_t col = -config->x_pos_px;
     while (width)
