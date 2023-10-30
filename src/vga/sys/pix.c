@@ -174,7 +174,7 @@ void pix_init(void)
 
 void pix_task(void)
 {
-    if (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
+    while (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
     {
         uint32_t raw = pio_sm_get(VGA_PIX_PIO, VGA_PIX_REGS_SM);
         uint8_t ch = (raw & 0x0F000000) >> 24;
@@ -183,9 +183,11 @@ void pix_task(void)
         switch (ch)
         {
         case 0:
-            return pix_ch0_xreg(addr, word);
+            pix_ch0_xreg(addr, word);
+            break;
         case 15:
-            return pix_ch15_xreg(addr, word);
+            pix_ch15_xreg(addr, word);
+            break;
         }
     }
 }

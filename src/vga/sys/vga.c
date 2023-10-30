@@ -45,6 +45,7 @@ static volatile scanvideo_mode_t const *vga_scanvideo_mode_current;
 static scanvideo_mode_t const *vga_scanvideo_mode_selected;
 static volatile bool vga_scanvideo_mode_switching;
 static volatile bool vga_scanvideo_mode_resync;
+static scanvideo_scanline_buffer_t *volatile vga_scanline_buffer_core0;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
@@ -324,24 +325,37 @@ vga_render_loop(void)
         }
         else if (!vga_scanvideo_mode_switching)
         {
+#define VGA_VSYNC_BUSY_WAIT_HACK_US 750
+            // The vblank "pause" between frames happens after the
+            // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT (8) scanlines
+            // have been rendered, not between frames. This is because
+            // the queue is always trying to stay that far ahead. The
+            // hack injects a pause where it's supposed to be.
             mutex_enter_blocking(&vga_mutex);
             const int16_t height = vga_scanvideo_mode_current->height;
-            for (int16_t i = 0; i < height; i++)
+            for (int16_t i = 0; i < height / 2; i++)
             {
-                scanvideo_scanline_buffer_t *const scanline_buffer =
+                // core 0 (other)
+                scanvideo_scanline_buffer_t *const scanline_buffer0 =
                     scanvideo_begin_scanline_generation(true);
-                // The vblank "pause" between frames happens after the
-                // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT (8) scanlines
-                // have been rendered, not between frames. This is because
-                // the queue is always trying to stay that far ahead. This
-                // hack injects a pause where it's supposed to be.
-                if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
+                if (scanvideo_scanline_number(scanline_buffer0->scanline_id) == 0)
                 {
                     ria_vsync();
-                    busy_wait_us_32(750);
+                    busy_wait_us_32(VGA_VSYNC_BUSY_WAIT_HACK_US);
                 }
-                vga_render_scanline(scanline_buffer);
-                scanvideo_end_scanline_generation(scanline_buffer);
+                while (vga_scanline_buffer_core0)
+                    tight_loop_contents();
+                vga_scanline_buffer_core0 = scanline_buffer0;
+                // core 1 (this)
+                scanvideo_scanline_buffer_t *const scanline_buffer1 =
+                    scanvideo_begin_scanline_generation(true);
+                if (scanvideo_scanline_number(scanline_buffer1->scanline_id) == 0)
+                {
+                    ria_vsync();
+                    busy_wait_us_32(VGA_VSYNC_BUSY_WAIT_HACK_US);
+                }
+                vga_render_scanline(scanline_buffer1);
+                scanvideo_end_scanline_generation(scanline_buffer1);
             }
             mutex_exit(&vga_mutex);
         }
@@ -515,6 +529,13 @@ void vga_init(void)
 void vga_task(void)
 {
     vga_scanvideo_switch();
+
+    if (vga_scanline_buffer_core0)
+    {
+        vga_render_scanline(vga_scanline_buffer_core0);
+        scanvideo_end_scanline_generation(vga_scanline_buffer_core0);
+        vga_scanline_buffer_core0 = NULL;
+    }
 }
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,

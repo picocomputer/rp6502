@@ -87,7 +87,7 @@ void std_set_break(bool en)
 void std_task(void)
 {
     // IN is sunk here to UART
-    if (!std_in_empty() && uart_is_writable(STD_UART_INTERFACE))
+    while (!std_in_empty() && uart_is_writable(STD_UART_INTERFACE))
         uart_get_hw(STD_UART_INTERFACE)->dr = STD_IN_BUF(++std_in_tail);
 
     // OUT is sourced here from STD UART
