@@ -58,87 +58,8 @@ typedef struct
     uint16_t bg_color;
 } mode1_16bpp_data_t;
 
-static inline volatile const uint8_t *__attribute__((optimize("O1")))
-mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
-{
-    *row = scanline_id - config->y_pos_px;
-    const int16_t height = config->height_chars * font_height;
-    if (config->y_wrap)
-    {
-        if (*row < 0)
-            *row += (-(*row + 1) / height + 1) * height;
-        if (*row >= height)
-            *row -= ((*row - height) / height + 1) * height;
-    }
-    if (*row < 0 || *row >= height || config->width_chars < 1 || height < 1)
-        return NULL;
-    const int32_t sizeof_row = (int32_t)config->width_chars * cell_size;
-    const int32_t sizeof_bitmap = (int32_t)config->height_chars * sizeof_row;
-    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
-        return NULL;
-    return &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
-}
-
-static inline volatile const uint16_t *__attribute__((optimize("O1")))
-mode1_get_palette(mode1_config_t *config, int16_t bpp)
-{
-    if (!(config->xram_palette_ptr & 1) &&
-        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
-        return (uint16_t *)&xram[config->xram_palette_ptr];
-    if (bpp == 1)
-        return color_2;
-    return color_256;
-}
-
-static inline volatile const uint8_t *__attribute__((optimize("O1")))
-mode1_get_font(mode1_config_t *config, int16_t font_height)
-{
-    if (config->xram_font_ptr <= 0x10000 - 256 * font_height)
-        return &xram[config->xram_font_ptr];
-    if (font_height == 8)
-        return font8;
-    return font16;
-}
-
-static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
-mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
-{
-    int16_t width_px = config->width_chars * 8;
-    if (*col < 0)
-    {
-        if (config->x_wrap)
-            *col += (-(*col + 1) / width_px + 1) * width_px;
-        else
-        {
-            uint16_t empty_cols = -*col;
-            if (empty_cols > *width)
-                empty_cols = *width;
-            memset(*rgb, 0, sizeof(uint16_t) * empty_cols);
-            *rgb += empty_cols;
-            *col += empty_cols;
-            *width -= empty_cols;
-            return 0;
-        }
-    }
-    if (*col >= width_px)
-    {
-        if (config->x_wrap)
-            *col -= ((*col - width_px) / width_px + 1) * width_px;
-        else
-        {
-            memset(*rgb, 0, sizeof(uint16_t) * (*width));
-            *width = 0;
-        }
-    }
-    int16_t fill_cols = *width;
-    if (fill_cols > width_px - *col)
-        fill_cols = width_px - *col;
-    *width -= fill_cols;
-    return fill_cols;
-}
-
 static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
-render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
+render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits >> 4)
     {
@@ -340,6 +261,85 @@ render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
     }
 }
 
+static inline volatile const uint8_t *__attribute__((optimize("O1")))
+mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
+{
+    *row = scanline_id - config->y_pos_px;
+    const int16_t height = config->height_chars * font_height;
+    if (config->y_wrap)
+    {
+        if (*row < 0)
+            *row += (-(*row + 1) / height + 1) * height;
+        if (*row >= height)
+            *row -= ((*row - height) / height + 1) * height;
+    }
+    if (*row < 0 || *row >= height || config->width_chars < 1 || height < 1)
+        return NULL;
+    const int32_t sizeof_row = (int32_t)config->width_chars * cell_size;
+    const int32_t sizeof_bitmap = (int32_t)config->height_chars * sizeof_row;
+    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
+        return NULL;
+    return &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
+}
+
+static inline volatile const uint16_t *__attribute__((optimize("O1")))
+mode1_get_palette(mode1_config_t *config, int16_t bpp)
+{
+    if (!(config->xram_palette_ptr & 1) &&
+        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
+        return (uint16_t *)&xram[config->xram_palette_ptr];
+    if (bpp == 1)
+        return color_2;
+    return color_256;
+}
+
+static inline volatile const uint8_t *__attribute__((optimize("O1")))
+mode1_get_font(mode1_config_t *config, int16_t font_height)
+{
+    if (config->xram_font_ptr <= 0x10000 - 256 * font_height)
+        return &xram[config->xram_font_ptr];
+    if (font_height == 8)
+        return font8;
+    return font16;
+}
+
+static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
+mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
+{
+    int16_t width_px = config->width_chars * 8;
+    if (*col < 0)
+    {
+        if (config->x_wrap)
+            *col += (-(*col + 1) / width_px + 1) * width_px;
+        else
+        {
+            uint16_t empty_cols = -*col;
+            if (empty_cols > *width)
+                empty_cols = *width;
+            memset(*rgb, 0, sizeof(uint16_t) * empty_cols);
+            *rgb += empty_cols;
+            *col += empty_cols;
+            *width -= empty_cols;
+            return 0;
+        }
+    }
+    if (*col >= width_px)
+    {
+        if (config->x_wrap)
+            *col -= ((*col - width_px) / width_px + 1) * width_px;
+        else
+        {
+            memset(*rgb, 0, sizeof(uint16_t) * (*width));
+            *width = 0;
+        }
+    }
+    int16_t fill_cols = *width;
+    if (fill_cols > width_px - *col)
+        fill_cols = width_px - *col;
+    *width -= fill_cols;
+    return fill_cols;
+}
+
 static bool __attribute__((optimize("O1")))
 mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
@@ -387,7 +387,7 @@ mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[0], palette[1]);
+            render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -457,7 +457,7 @@ mode1_render_1bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[0], palette[1]);
+            render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -530,7 +530,7 @@ mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            render_1bpp(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -605,7 +605,7 @@ mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            render_1bpp(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -680,7 +680,7 @@ mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            render_1bpp(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -755,7 +755,7 @@ mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            render_1bpp(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -830,7 +830,7 @@ mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
+            render_1bpp(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -905,7 +905,7 @@ mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
+            render_1bpp(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -977,7 +977,7 @@ mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, data->bg_color, data->fg_color);
+            render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -1049,7 +1049,7 @@ mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, data->bg_color, data->fg_color);
+            render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];

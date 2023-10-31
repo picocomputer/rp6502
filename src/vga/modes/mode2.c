@@ -27,7 +27,7 @@ typedef struct
 } mode2_config_t;
 
 static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
-render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
+render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits >> 4)
     {
@@ -354,7 +354,7 @@ mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         }
         while (fill_cols > 7)
         {
-            render_nibble(rgb, glyph, palette[0], palette[1]);
+            render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             col += 8;
