@@ -26,77 +26,6 @@ typedef struct
     uint16_t xram_tile_ptr;
 } mode2_config_t;
 
-static inline volatile const uint8_t *__attribute__((optimize("O1")))
-mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
-{
-    *row = scanline_id - config->y_pos_px;
-    const int16_t height = config->height_tiles * font_height;
-    if (config->y_wrap)
-    {
-        if (*row < 0)
-            *row += (-(*row + 1) / height + 1) * height;
-        if (*row >= height)
-            *row -= ((*row - height) / height + 1) * height;
-    }
-    if (*row < 0 || *row >= height || config->width_tiles < 1 || height < 1)
-        return NULL;
-    const int32_t sizeof_row = (int32_t)config->width_tiles * cell_size;
-    const int32_t sizeof_bitmap = (int32_t)config->height_tiles * sizeof_row;
-    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
-        return NULL;
-    volatile const uint8_t *rv = &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
-    *row &= font_height - 1;
-    return rv;
-}
-
-static inline volatile const uint16_t *__attribute__((optimize("O1")))
-mode2_get_palette(mode2_config_t *config, int16_t bpp)
-{
-    if (!(config->xram_palette_ptr & 1) &&
-        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
-        return (uint16_t *)&xram[config->xram_palette_ptr];
-    if (bpp == 1)
-        return color_2;
-    return color_256;
-}
-
-static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
-mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
-{
-    int16_t width_px = config->width_tiles * 8;
-    if (*col < 0)
-    {
-        if (config->x_wrap)
-            *col += (-(*col + 1) / width_px + 1) * width_px;
-        else
-        {
-            uint16_t empty_cols = -*col;
-            if (empty_cols > *width)
-                empty_cols = *width;
-            memset(*rgb, 0, sizeof(uint16_t) * empty_cols);
-            *rgb += empty_cols;
-            *col += empty_cols;
-            *width -= empty_cols;
-            return 0;
-        }
-    }
-    if (*col >= width_px)
-    {
-        if (config->x_wrap)
-            *col -= ((*col - width_px) / width_px + 1) * width_px;
-        else
-        {
-            memset(*rgb, 0, sizeof(uint16_t) * (*width));
-            *width = 0;
-        }
-    }
-    int16_t fill_cols = *width;
-    if (fill_cols > width_px - *col)
-        fill_cols = width_px - *col;
-    *width -= fill_cols;
-    return fill_cols;
-}
-
 static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
 render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
@@ -300,15 +229,86 @@ render_nibble(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
     }
 }
 
-static inline __attribute__((always_inline)) volatile const uint8_t *__attribute__((optimize("O1")))
-mode2_get_tile_data(mode2_config_t *config, int16_t tile_size, int16_t bpp, int16_t tile_id, int16_t row)
+static inline volatile const uint8_t *__attribute__((optimize("O1")))
+mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
+{
+    *row = scanline_id - config->y_pos_px;
+    const int16_t height = config->height_tiles * font_height;
+    if (config->y_wrap)
+    {
+        if (*row < 0)
+            *row += (-(*row + 1) / height + 1) * height;
+        if (*row >= height)
+            *row -= ((*row - height) / height + 1) * height;
+    }
+    if (*row < 0 || *row >= height || config->width_tiles < 1 || height < 1)
+        return NULL;
+    const int32_t sizeof_row = (int32_t)config->width_tiles * cell_size;
+    const int32_t sizeof_bitmap = (int32_t)config->height_tiles * sizeof_row;
+    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
+        return NULL;
+    volatile const uint8_t *rv = &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
+    *row &= font_height - 1;
+    return rv;
+}
+
+static inline volatile const uint16_t *__attribute__((optimize("O1")))
+mode2_get_palette(mode2_config_t *config, int16_t bpp)
+{
+    if (!(config->xram_palette_ptr & 1) &&
+        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
+        return (uint16_t *)&xram[config->xram_palette_ptr];
+    if (bpp == 1)
+        return color_2;
+    return color_256;
+}
+
+static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
+mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
+{
+    int16_t width_px = config->width_tiles * 8;
+    if (*col < 0)
+    {
+        if (config->x_wrap)
+            *col += (-(*col + 1) / width_px + 1) * width_px;
+        else
+        {
+            uint16_t empty_cols = -*col;
+            if (empty_cols > *width)
+                empty_cols = *width;
+            memset(*rgb, 0, sizeof(uint16_t) * empty_cols);
+            *rgb += empty_cols;
+            *col += empty_cols;
+            *width -= empty_cols;
+            return 0;
+        }
+    }
+    if (*col >= width_px)
+    {
+        if (config->x_wrap)
+            *col -= ((*col - width_px) / width_px + 1) * width_px;
+        else
+        {
+            memset(*rgb, 0, sizeof(uint16_t) * (*width));
+            *width = 0;
+        }
+    }
+    int16_t fill_cols = *width;
+    if (fill_cols > width_px - *col)
+        fill_cols = width_px - *col;
+    *width -= fill_cols;
+    return fill_cols;
+}
+
+static inline __attribute__((always_inline)) uint8_t __attribute__((optimize("O1")))
+mode2_get_glyph_data(mode2_config_t *config, int16_t bpp, int16_t tile_size, int16_t col, int16_t row, volatile const uint8_t *row_data)
 {
     uint32_t row_size = tile_size == 8 ? bpp : 2 * bpp;
     uint32_t mem_size = row_size * tile_size;
-    uint32_t tile_mem = (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row;
-    if (tile_mem <= 0x10000 - mem_size)
-        return &xram[tile_mem];
-    return NULL;
+    uint8_t tile_id = row_data[col / row_size];
+    uint8_t index = col & (row_size - 1);
+    uint16_t tile_mem = config->xram_tile_ptr + mem_size * tile_id + row_size * row + index;
+    return xram[tile_mem];
 }
 
 static bool __attribute__((optimize("O1")))
@@ -324,62 +324,57 @@ mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         return false;
     volatile const uint16_t *palette = mode2_get_palette(config, 1);
     int16_t col = -config->x_pos_px;
-    volatile const uint8_t *glyph;
+
     while (width)
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
-        volatile const uint8_t *data = &row_data[col / 8];
-        if (!(glyph = mode2_get_tile_data(config, 8, 1, *data, row)))
-            return false;
+        uint8_t glyph = mode2_get_glyph_data(config, 1, 8, col, row, row_data);
         int16_t part = 8 - (col & 7);
-        if (part > config->width_tiles * 8 - col)
-            part = config->width_tiles * 8 - col;
         fill_cols -= part;
         col += part;
         switch (part)
         {
         case 8:
-            *rgb++ = palette[(*glyph & 0x80) >> 7];
+            *rgb++ = palette[(glyph & 0x80) >> 7];
         case 7:
-            *rgb++ = palette[(*glyph & 0x40) >> 6];
+            *rgb++ = palette[(glyph & 0x40) >> 6];
         case 6:
-            *rgb++ = palette[(*glyph & 0x20) >> 5];
+            *rgb++ = palette[(glyph & 0x20) >> 5];
         case 5:
-            *rgb++ = palette[(*glyph & 0x10) >> 4];
+            *rgb++ = palette[(glyph & 0x10) >> 4];
         case 4:
-            *rgb++ = palette[(*glyph & 0x08) >> 3];
+            *rgb++ = palette[(glyph & 0x08) >> 3];
         case 3:
-            *rgb++ = palette[(*glyph & 0x04) >> 2];
+            *rgb++ = palette[(glyph & 0x04) >> 2];
         case 2:
-            *rgb++ = palette[(*glyph & 0x02) >> 1];
+            *rgb++ = palette[(glyph & 0x02) >> 1];
         case 1:
-            *rgb++ = palette[*glyph & 0x01];
-            if (!(glyph = mode2_get_tile_data(config, 8, 1, *++data, row)))
-                return false;
+            *rgb++ = palette[glyph & 0x01];
+            glyph = mode2_get_glyph_data(config, 1, 8, col, row, row_data);
         }
-        col += fill_cols;
         while (fill_cols > 7)
         {
-            render_nibble(rgb, *glyph, palette[0], palette[1]);
+            render_nibble(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
-            if (!(glyph = mode2_get_tile_data(config, 8, 1, *++data, row)))
-                return false;
+            col += 8;
+            glyph = mode2_get_glyph_data(config, 1, 8, col, row, row_data);
         }
+        col += fill_cols;
         if (fill_cols >= 1)
-            *rgb++ = palette[(*glyph & 0x80) >> 7];
+            *rgb++ = palette[(glyph & 0x80) >> 7];
         if (fill_cols >= 2)
-            *rgb++ = palette[(*glyph & 0x40) >> 6];
+            *rgb++ = palette[(glyph & 0x40) >> 6];
         if (fill_cols >= 3)
-            *rgb++ = palette[(*glyph & 0x20) >> 5];
+            *rgb++ = palette[(glyph & 0x20) >> 5];
         if (fill_cols >= 4)
-            *rgb++ = palette[(*glyph & 0x10) >> 4];
+            *rgb++ = palette[(glyph & 0x10) >> 4];
         if (fill_cols >= 5)
-            *rgb++ = palette[(*glyph & 0x08) >> 3];
+            *rgb++ = palette[(glyph & 0x08) >> 3];
         if (fill_cols >= 6)
-            *rgb++ = palette[(*glyph & 0x04) >> 2];
+            *rgb++ = palette[(glyph & 0x04) >> 2];
         if (fill_cols >= 7)
-            *rgb++ = palette[(*glyph & 0x02) >> 1];
+            *rgb++ = palette[(glyph & 0x02) >> 1];
     }
     return true;
 }
