@@ -300,14 +300,15 @@ mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
+// TODO Not 16bpp
 static inline __attribute__((always_inline)) uint8_t __attribute__((optimize("O1")))
 mode2_get_glyph_data(mode2_config_t *config, int16_t bpp, int16_t tile_size, int16_t col, int16_t row, volatile const uint8_t *row_data)
 {
     uint32_t row_size = tile_size == 8 ? bpp : 2 * bpp;
     uint32_t mem_size = row_size * tile_size;
-    uint8_t tile_id = row_data[col / row_size];
     uint8_t index = col & (row_size - 1);
-    uint16_t tile_mem = config->xram_tile_ptr + mem_size * tile_id + row_size * row + index;
+    uint8_t tile_id = row_data[col / (tile_size / bpp)];
+    uint16_t tile_mem = (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row + index;
     return xram[tile_mem];
 }
 
