@@ -306,7 +306,7 @@ mode2_get_glyph_data(mode2_config_t *config, int16_t bpp, int16_t tile_size, int
 {
     uint32_t row_size = tile_size == 8 ? bpp : 2 * bpp;
     uint32_t mem_size = row_size * tile_size;
-    uint8_t index = col & (row_size - 1);
+    uint8_t index = (col / 8) & (row_size - 1);
     uint8_t tile_id = row_data[col / (tile_size / bpp)];
     uint16_t tile_mem = (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row + index;
     return xram[tile_mem];
@@ -380,6 +380,74 @@ mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
     return true;
 }
 
+static bool __attribute__((optimize("O1")))
+mode2_render_1bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
+        return false;
+    mode2_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const uint8_t *row_data =
+        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), 16, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode2_get_palette(config, 1);
+    int16_t col = -config->x_pos_px;
+
+    while (width)
+    {
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        uint8_t glyph = mode2_get_glyph_data(config, 1, 16, col, row, row_data);
+        int16_t part = 8 - (col & 7);
+        fill_cols -= part;
+        col += part;
+        switch (part)
+        {
+        case 8:
+            *rgb++ = palette[(glyph & 0x80) >> 7];
+        case 7:
+            *rgb++ = palette[(glyph & 0x40) >> 6];
+        case 6:
+            *rgb++ = palette[(glyph & 0x20) >> 5];
+        case 5:
+            *rgb++ = palette[(glyph & 0x10) >> 4];
+        case 4:
+            *rgb++ = palette[(glyph & 0x08) >> 3];
+        case 3:
+            *rgb++ = palette[(glyph & 0x04) >> 2];
+        case 2:
+            *rgb++ = palette[(glyph & 0x02) >> 1];
+        case 1:
+            *rgb++ = palette[glyph & 0x01];
+            glyph = mode2_get_glyph_data(config, 1, 16, col, row, row_data);
+        }
+        while (fill_cols > 7)
+        {
+            render_1bpp(rgb, glyph, palette[0], palette[1]);
+            rgb += 8;
+            fill_cols -= 8;
+            col += 8;
+            glyph = mode2_get_glyph_data(config, 1, 16, col, row, row_data);
+        }
+        col += fill_cols;
+        if (fill_cols >= 1)
+            *rgb++ = palette[(glyph & 0x80) >> 7];
+        if (fill_cols >= 2)
+            *rgb++ = palette[(glyph & 0x40) >> 6];
+        if (fill_cols >= 3)
+            *rgb++ = palette[(glyph & 0x20) >> 5];
+        if (fill_cols >= 4)
+            *rgb++ = palette[(glyph & 0x10) >> 4];
+        if (fill_cols >= 5)
+            *rgb++ = palette[(glyph & 0x08) >> 3];
+        if (fill_cols >= 6)
+            *rgb++ = palette[(glyph & 0x04) >> 2];
+        if (fill_cols >= 7)
+            *rgb++ = palette[(glyph & 0x02) >> 1];
+    }
+    return true;
+}
+
 bool mode2_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -410,9 +478,9 @@ bool mode2_prog(uint16_t *xregs)
     // case 4:
     //     render_fn = mode2_render_16bpp_8x8;
     //     break;
-    // case 8:
-    //     render_fn = mode2_render_1bpp_16x16;
-    //     break;
+    case 8:
+        render_fn = mode2_render_1bpp_16x16;
+        break;
     // case 9:
     //     render_fn = mode2_render_2bpp_16x16;
     //     break;
