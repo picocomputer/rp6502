@@ -101,10 +101,42 @@ mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 static inline __attribute__((always_inline)) uint8_t __attribute__((optimize("O1")))
 mode2_get_glyph_data(mode2_config_t *config, int16_t bpp, int16_t tile_size, int16_t col, int16_t row, volatile const uint8_t *row_data)
 {
-    uint32_t row_size = tile_size == 8 ? bpp : 2 * bpp;
+    uint32_t row_size = (tile_size == 8) ? bpp : 2 * bpp;
     uint32_t mem_size = row_size * tile_size;
-    uint8_t index = (col / 8) & (row_size - 1);
-    uint8_t tile_id = row_data[col / (tile_size / bpp)];
+    uint8_t tile_id = row_data[col / tile_size];
+    uint8_t index;
+    if (tile_size == 8)
+        switch (bpp)
+        {
+        case 1:
+            index = (col / 8) & 0;
+            break;
+        case 2:
+            index = (col / 4) & 1;
+            break;
+        case 4:
+            index = (col / 2) & 3;
+            break;
+        case 8:
+            index = (col / 1) & 7;
+            break;
+        }
+    if (tile_size == 16)
+        switch (bpp)
+        {
+        case 1:
+            index = (col / 8) & 1;
+            break;
+        case 2:
+            index = (col / 4) & 3;
+            break;
+        case 4:
+            index = (col / 2) & 7;
+            break;
+        case 8:
+            index = (col / 1) & 15;
+            break;
+        }
     uint16_t tile_mem = (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row + index;
     return xram[tile_mem];
 }
@@ -266,7 +298,7 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode2_get_palette(config, 2);
+    volatile const uint16_t *palette = mode2_get_palette(config, 4);
     int16_t col = -config->x_pos_px;
 
     while (width)
@@ -319,7 +351,7 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode2_get_palette(config, 2);
+    volatile const uint16_t *palette = mode2_get_palette(config, 8);
     int16_t col = -config->x_pos_px;
 
     while (width)
