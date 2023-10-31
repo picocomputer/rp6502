@@ -5,6 +5,7 @@
  */
 
 #include "modes/mode2.h"
+#include "modes/modex.h"
 #include "pico/scanvideo.h"
 #include "sys/vga.h"
 #include "sys/mem.h"
@@ -26,210 +27,7 @@ typedef struct
     uint16_t xram_tile_ptr;
 } mode2_config_t;
 
-static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
-render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
-{
-    switch (bits >> 4)
-    {
-    case 0:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 1:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 2:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 3:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 4:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 5:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 6:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 7:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 8:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 9:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 10:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 11:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 12:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 13:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 14:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 15:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    }
-    switch (bits & 0xF)
-    {
-    case 0:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 1:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 2:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 3:
-        buf[4] = bg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    case 4:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 5:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 6:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 7:
-        buf[4] = bg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    case 8:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 9:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 10:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 11:
-        buf[4] = fg;
-        buf[5] = bg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    case 12:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = bg;
-        break;
-    case 13:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = bg;
-        buf[7] = fg;
-        break;
-    case 14:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = bg;
-        break;
-    case 15:
-        buf[4] = fg;
-        buf[5] = fg;
-        buf[6] = fg;
-        buf[7] = fg;
-        break;
-    }
-}
-
-static inline volatile const uint8_t *__attribute__((optimize("O1")))
+static volatile const uint8_t *__attribute__((optimize("O1")))
 mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
@@ -252,7 +50,7 @@ mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_
     return rv;
 }
 
-static inline volatile const uint16_t *__attribute__((optimize("O1")))
+static volatile const uint16_t *__attribute__((optimize("O1")))
 mode2_get_palette(mode2_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -300,7 +98,6 @@ mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-// TODO Not 16bpp
 static inline __attribute__((always_inline)) uint8_t __attribute__((optimize("O1")))
 mode2_get_glyph_data(mode2_config_t *config, int16_t bpp, int16_t tile_size, int16_t col, int16_t row, volatile const uint8_t *row_data)
 {
@@ -312,15 +109,15 @@ mode2_get_glyph_data(mode2_config_t *config, int16_t bpp, int16_t tile_size, int
     return xram[tile_mem];
 }
 
-static bool __attribute__((optimize("O1")))
-mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
     if (config_ptr > 0x10000 - sizeof(mode2_config_t))
         return false;
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     volatile const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), 8, &row);
+        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode2_get_palette(config, 1);
@@ -329,7 +126,7 @@ mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
     while (width)
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
-        uint8_t glyph = mode2_get_glyph_data(config, 1, 8, col, row, row_data);
+        uint8_t glyph = mode2_get_glyph_data(config, 1, tile_size, col, row, row_data);
         int16_t part = 8 - (col & 7);
         fill_cols -= part;
         col += part;
@@ -351,15 +148,15 @@ mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
             *rgb++ = palette[(glyph & 0x02) >> 1];
         case 1:
             *rgb++ = palette[glyph & 0x01];
-            glyph = mode2_get_glyph_data(config, 1, 8, col, row, row_data);
+            glyph = mode2_get_glyph_data(config, 1, tile_size, col, row, row_data);
         }
         while (fill_cols > 7)
         {
-            render_1bpp(rgb, glyph, palette[0], palette[1]);
+            modex_render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             col += 8;
-            glyph = mode2_get_glyph_data(config, 1, 8, col, row, row_data);
+            glyph = mode2_get_glyph_data(config, 1, tile_size, col, row, row_data);
         }
         col += fill_cols;
         if (fill_cols >= 1)
@@ -381,71 +178,175 @@ mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
 }
 
 static bool __attribute__((optimize("O1")))
+mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
+}
+
+static bool __attribute__((optimize("O1")))
 mode2_render_1bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
+}
+
+static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
     if (config_ptr > 0x10000 - sizeof(mode2_config_t))
         return false;
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     volatile const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), 16, &row);
+        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
     if (!row_data)
         return false;
-    volatile const uint16_t *palette = mode2_get_palette(config, 1);
+    volatile const uint16_t *palette = mode2_get_palette(config, 2);
     int16_t col = -config->x_pos_px;
 
     while (width)
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
-        uint8_t glyph = mode2_get_glyph_data(config, 1, 16, col, row, row_data);
-        int16_t part = 8 - (col & 7);
+        uint8_t glyph = mode2_get_glyph_data(config, 2, tile_size, col, row, row_data);
+        int16_t part = 4 - (col & 3);
         fill_cols -= part;
         col += part;
         switch (part)
         {
-        case 8:
-            *rgb++ = palette[(glyph & 0x80) >> 7];
-        case 7:
-            *rgb++ = palette[(glyph & 0x40) >> 6];
-        case 6:
-            *rgb++ = palette[(glyph & 0x20) >> 5];
-        case 5:
-            *rgb++ = palette[(glyph & 0x10) >> 4];
         case 4:
-            *rgb++ = palette[(glyph & 0x08) >> 3];
+            *rgb++ = palette[(glyph & 0xC0) >> 6];
         case 3:
-            *rgb++ = palette[(glyph & 0x04) >> 2];
+            *rgb++ = palette[(glyph & 0x30) >> 4];
         case 2:
-            *rgb++ = palette[(glyph & 0x02) >> 1];
+            *rgb++ = palette[(glyph & 0x0C) >> 2];
         case 1:
-            *rgb++ = palette[glyph & 0x01];
-            glyph = mode2_get_glyph_data(config, 1, 16, col, row, row_data);
+            *rgb++ = palette[glyph & 0x03];
+            glyph = mode2_get_glyph_data(config, 2, tile_size, col, row, row_data);
         }
-        while (fill_cols > 7)
+        while (fill_cols > 3)
         {
-            render_1bpp(rgb, glyph, palette[0], palette[1]);
-            rgb += 8;
-            fill_cols -= 8;
-            col += 8;
-            glyph = mode2_get_glyph_data(config, 1, 16, col, row, row_data);
+            *rgb++ = palette[(glyph & 0xC0) >> 6];
+            *rgb++ = palette[(glyph & 0x30) >> 4];
+            *rgb++ = palette[(glyph & 0x0C) >> 2];
+            *rgb++ = palette[glyph & 0x03];
+            fill_cols -= 4;
+            col += 4;
+            glyph = mode2_get_glyph_data(config, 2, tile_size, col, row, row_data);
         }
         col += fill_cols;
         if (fill_cols >= 1)
-            *rgb++ = palette[(glyph & 0x80) >> 7];
+            *rgb++ = palette[(glyph & 0xC0) >> 6];
         if (fill_cols >= 2)
-            *rgb++ = palette[(glyph & 0x40) >> 6];
+            *rgb++ = palette[(glyph & 0x30) >> 4];
         if (fill_cols >= 3)
-            *rgb++ = palette[(glyph & 0x20) >> 5];
-        if (fill_cols >= 4)
-            *rgb++ = palette[(glyph & 0x10) >> 4];
-        if (fill_cols >= 5)
-            *rgb++ = palette[(glyph & 0x08) >> 3];
-        if (fill_cols >= 6)
-            *rgb++ = palette[(glyph & 0x04) >> 2];
-        if (fill_cols >= 7)
-            *rgb++ = palette[(glyph & 0x02) >> 1];
+            *rgb++ = palette[(glyph & 0x0C) >> 2];
     }
     return true;
+}
+
+static bool __attribute__((optimize("O1")))
+mode2_render_2bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_2bpp(scanline_id, width, rgb, config_ptr, 8);
+}
+
+static bool __attribute__((optimize("O1")))
+mode2_render_2bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_2bpp(scanline_id, width, rgb, config_ptr, 16);
+}
+
+static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
+{
+    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
+        return false;
+    mode2_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const uint8_t *row_data =
+        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode2_get_palette(config, 2);
+    int16_t col = -config->x_pos_px;
+
+    while (width)
+    {
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        uint8_t glyph = mode2_get_glyph_data(config, 4, tile_size, col, row, row_data);
+
+        if (col & 1)
+        {
+            *rgb++ = palette[glyph & 0xF];
+            col++;
+            fill_cols--;
+            glyph = mode2_get_glyph_data(config, 4, tile_size, col, row, row_data);
+        }
+        while (fill_cols > 1)
+        {
+            *rgb++ = palette[glyph >> 4];
+            *rgb++ = palette[glyph & 0xF];
+            fill_cols -= 2;
+            col += 2;
+            glyph = mode2_get_glyph_data(config, 4, tile_size, col, row, row_data);
+        }
+        col += fill_cols;
+        if (fill_cols == 1)
+            *rgb++ = palette[glyph >> 4];
+    }
+    return true;
+}
+
+static bool __attribute__((optimize("O1")))
+mode2_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
+}
+
+static bool __attribute__((optimize("O1")))
+mode2_render_4bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
+}
+
+static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
+{
+    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
+        return false;
+    mode2_config_t *config = (void *)&xram[config_ptr];
+    int16_t row;
+    volatile const uint8_t *row_data =
+        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
+    if (!row_data)
+        return false;
+    volatile const uint16_t *palette = mode2_get_palette(config, 2);
+    int16_t col = -config->x_pos_px;
+
+    while (width)
+    {
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        uint8_t glyph = mode2_get_glyph_data(config, 8, tile_size, col, row, row_data);
+        while (fill_cols > 0)
+        {
+            *rgb++ = palette[glyph];
+            fill_cols -= 1;
+            col += 1;
+            glyph = mode2_get_glyph_data(config, 8, tile_size, col, row, row_data);
+        }
+    }
+    return true;
+}
+
+static bool __attribute__((optimize("O1")))
+mode2_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
+}
+
+static bool __attribute__((optimize("O1")))
+mode2_render_8bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
+    return mode2_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
 bool mode2_prog(uint16_t *xregs)
@@ -466,33 +367,27 @@ bool mode2_prog(uint16_t *xregs)
     case 0:
         render_fn = mode2_render_1bpp_8x8;
         break;
-    // case 1:
-    //     render_fn = mode2_render_2bpp_8x8;
-    //     break;
-    // case 2:
-    //     render_fn = mode2_render_4bpp_8x8;
-    //     break;
-    // case 3:
-    //     render_fn = mode2_render_8bpp_8x8;
-    //     break;
-    // case 4:
-    //     render_fn = mode2_render_16bpp_8x8;
-    //     break;
+    case 1:
+        render_fn = mode2_render_2bpp_8x8;
+        break;
+    case 2:
+        render_fn = mode2_render_4bpp_8x8;
+        break;
+    case 3:
+        render_fn = mode2_render_8bpp_8x8;
+        break;
     case 8:
         render_fn = mode2_render_1bpp_16x16;
         break;
-    // case 9:
-    //     render_fn = mode2_render_2bpp_16x16;
-    //     break;
-    // case 10:
-    //     render_fn = mode2_render_4bpp_16x16;
-    //     break;
-    // case 11:
-    //     render_fn = mode2_render_8bpp_16x16;
-    //     break;
-    // case 12:
-    //     render_fn = mode2_render_16bpp_16x16;
-    //     break;
+    case 9:
+        render_fn = mode2_render_2bpp_16x16;
+        break;
+    case 10:
+        render_fn = mode2_render_4bpp_16x16;
+        break;
+    case 11:
+        render_fn = mode2_render_8bpp_16x16;
+        break;
     default:
         return false;
     };

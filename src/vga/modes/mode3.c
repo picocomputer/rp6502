@@ -5,6 +5,7 @@
  */
 
 #include "modes/mode3.h"
+#include "modes/modex.h"
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/color.h"
@@ -44,7 +45,7 @@ mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
     return &xram[config->xram_data_ptr + row * sizeof_row];
 }
 
-static inline volatile const uint16_t *__attribute__((optimize("O1")))
+static volatile const uint16_t *__attribute__((optimize("O1")))
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -133,14 +134,8 @@ mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
         col += fill_cols;
         while (fill_cols > 7)
         {
-            *rgb++ = palette[(*data & 0x80) >> 7];
-            *rgb++ = palette[(*data & 0x40) >> 6];
-            *rgb++ = palette[(*data & 0x20) >> 5];
-            *rgb++ = palette[(*data & 0x10) >> 4];
-            *rgb++ = palette[(*data & 0x08) >> 3];
-            *rgb++ = palette[(*data & 0x04) >> 2];
-            *rgb++ = palette[(*data & 0x02) >> 1];
-            *rgb++ = palette[*data++ & 0x01];
+            modex_render_1bpp(rgb, *data++, palette[0], palette[1]);
+            rgb += 8;
             fill_cols -= 8;
         }
         if (fill_cols >= 1)
@@ -203,14 +198,8 @@ mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
         col += fill_cols;
         while (fill_cols > 7)
         {
-            *rgb++ = palette[*data & 0x01];
-            *rgb++ = palette[(*data & 0x02) >> 1];
-            *rgb++ = palette[(*data & 0x04) >> 2];
-            *rgb++ = palette[(*data & 0x08) >> 3];
-            *rgb++ = palette[(*data & 0x10) >> 4];
-            *rgb++ = palette[(*data & 0x20) >> 5];
-            *rgb++ = palette[(*data & 0x40) >> 6];
-            *rgb++ = palette[(*data++ & 0x80) >> 7];
+            modex_render_1bpp_reverse(rgb, *data++, palette[0], palette[1]);
+            rgb += 8;
             fill_cols -= 8;
         }
         if (fill_cols >= 1)
