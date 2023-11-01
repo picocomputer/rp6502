@@ -5,7 +5,7 @@
  */
 
 #include "modes/mode1.h"
-#include "modes/modex.h"
+#include "modes/modes.h"
 #include "pico/scanvideo.h"
 #include "sys/vga.h"
 #include "sys/mem.h"

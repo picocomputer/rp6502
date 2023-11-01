@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MODEX_H_
-#define _MODEX_H_
+#ifndef _MODES_H_
+#define _MODES_H_
 
 // Common utils for all modes
 
@@ -418,4 +418,4 @@ modex_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
     }
 }
 
-#endif /* _MODEX_H_ */
+#endif /* _MODES_H_ */

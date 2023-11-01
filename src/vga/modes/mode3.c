@@ -5,7 +5,7 @@
  */
 
 #include "modes/mode3.h"
-#include "modes/modex.h"
+#include "modes/modes.h"
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/color.h"
