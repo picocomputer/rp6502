@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/mode1.h"
+#include "modes/modes.h"
 #include "term/ansi.h"
 #include "term/color.h"
 #include "term/font.h"
@@ -19,7 +19,6 @@
 #define TERM_STD_HEIGHT 30
 #define TERM_MAX_HEIGHT 32
 #define TERM_CSI_PARAM_MAX_LEN 16
-#define TERM_LINE_WRAP 1
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
 
@@ -37,6 +36,7 @@ typedef struct term_state
     uint8_t height;
     uint8_t x;
     uint8_t y;
+    bool line_wrap;
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
@@ -72,6 +72,7 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 {
     term->width = width;
     term->height = TERM_STD_HEIGHT;
+    term->line_wrap = true;
     term->mem = mem;
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
@@ -306,7 +307,7 @@ static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->x == term->width)
     {
-        if (TERM_LINE_WRAP)
+        if (term->line_wrap)
         {
             term_out_cr(term);
             term_out_lf(term);
@@ -521,110 +522,6 @@ void term_task(void)
     term_blink_cursor(&term_80);
 }
 
-static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
-render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
-{
-    switch (bits)
-    {
-    case 0:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 1:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 2:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 3:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 4:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 5:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 6:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 7:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 8:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 9:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 10:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 11:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 12:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 13:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 14:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 15:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    }
-}
-
 static inline bool __attribute__((optimize("O1")))
 term_render_320(int16_t scanline_id, uint16_t *rgb)
 {
@@ -639,10 +536,8 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
         uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
-        render_nibble(rgb, bits >> 4, fg, bg);
-        rgb += 4;
-        render_nibble(rgb, bits & 0xF, fg, bg);
-        rgb += 4;
+        modes_render_1bpp(rgb, bits, bg, fg);
+        rgb += 8;
     }
     return true;
 }
@@ -661,10 +556,8 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
         uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
-        render_nibble(rgb, bits >> 4, fg, bg);
-        rgb += 4;
-        render_nibble(rgb, bits & 0xF, fg, bg);
-        rgb += 4;
+        modes_render_1bpp(rgb, bits, bg, fg);
+        rgb += 8;
     }
     return true;
 }

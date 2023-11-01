@@ -185,7 +185,7 @@ mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[0], palette[1]);
+            modes_render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -255,7 +255,7 @@ mode1_render_1bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[0], palette[1]);
+            modes_render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -328,7 +328,7 @@ mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            modes_render_1bpp(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -403,7 +403,7 @@ mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
+            modes_render_1bpp(rgb, glyph, palette[data->bg_fg_index >> 4], palette[data->bg_fg_index & 0xF]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -478,7 +478,7 @@ mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            modes_render_1bpp(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -553,7 +553,7 @@ mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
+            modes_render_1bpp(rgb, glyph, palette[data->fg_bg_index & 0xF], palette[data->fg_bg_index >> 4]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -628,7 +628,7 @@ mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
+            modes_render_1bpp(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -703,7 +703,7 @@ mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
+            modes_render_1bpp(rgb, glyph, palette[data->bg_index], palette[data->fg_index]);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -775,7 +775,7 @@ mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
+            modes_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
@@ -847,7 +847,7 @@ mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
         col += fill_cols;
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
+            modes_render_1bpp(rgb, glyph, data->bg_color, data->fg_color);
             rgb += 8;
             fill_cols -= 8;
             glyph = font[(++data)->glyph_code];
