@@ -424,25 +424,26 @@ static void term_out_dch(term_state_t *term)
     if (chars > max_chars)
         chars = max_chars;
 
+    term_data_t *tp_max = term->mem + term->width * TERM_MAX_HEIGHT;
     term_data_t *tp_dst = term->ptr;
     term_data_t *tp_src = &term->ptr[chars];
-    term_data_t *tp_max = term->mem + term->width * TERM_MAX_HEIGHT;
-    for (unsigned i = 0; i < max_chars; i++)
+    if (tp_src >= tp_max)
+        tp_src -= term->width * TERM_MAX_HEIGHT;
+    for (unsigned i = 0; i < max_chars - chars; i++)
     {
-        if (tp_dst >= tp_max)
+        tp_dst[0] = tp_src[0];
+        if (++tp_dst >= tp_max)
             tp_dst -= term->width * TERM_MAX_HEIGHT;
-        if (tp_src >= tp_max)
+        if (++tp_src >= tp_max)
             tp_src -= term->width * TERM_MAX_HEIGHT;
-        if (i >= max_chars - chars)
-        {
-            tp_dst->font_code = ' ';
-            tp_dst->fg_color = term->fg_color;
-            tp_dst->bg_color = term->bg_color;
-        }
-        else
-            tp_dst[0] = tp_src[0];
-        ++tp_dst;
-        ++tp_src;
+    }
+    for (unsigned i = max_chars - chars; i < max_chars; i++)
+    {
+        tp_dst->font_code = ' ';
+        tp_dst->fg_color = term->fg_color;
+        tp_dst->bg_color = term->bg_color;
+        if (++tp_dst >= tp_max)
+            tp_dst -= term->width * TERM_MAX_HEIGHT;
     }
 }
 
