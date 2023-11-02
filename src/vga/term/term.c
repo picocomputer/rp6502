@@ -407,30 +407,39 @@ static void term_out_cub(term_state_t *term)
 }
 
 // Delete characters
-// TODO handle wrapped
 static void term_out_dch(term_state_t *term)
 {
     if (term->csi_param_count > 1)
         return;
+    unsigned max_chars = term->width - term->x;
+    for (unsigned i = term->y; i < term->height - 1; i++)
+        if (term->wrapped[i])
+            max_chars += term->width;
     uint16_t chars = term->csi_param[0];
     if (chars < 1)
         chars = 1;
-    if (chars > term->width - term->x)
-        chars = term->width - term->x;
-    term_data_t *tp = term->ptr;
-    for (int i = term->x; i < term->width; i++)
+    if (chars > max_chars)
+        chars = max_chars;
+
+    term_data_t *tp_dst = term->ptr;
+    term_data_t *tp_src = &term->ptr[chars];
+    term_data_t *tp_max = term->mem + term->width * TERM_MAX_HEIGHT;
+    for (unsigned i = 0; i < max_chars; i++)
     {
-        if (chars + i >= term->width)
+        if (tp_dst >= tp_max)
+            tp_dst -= term->width * TERM_MAX_HEIGHT;
+        if (tp_src >= tp_max)
+            tp_src -= term->width * TERM_MAX_HEIGHT;
+        if (i >= max_chars - chars)
         {
-            tp->font_code = ' ';
-            tp->fg_color = term->fg_color;
-            tp->bg_color = term->bg_color;
+            tp_dst->font_code = ' ';
+            tp_dst->fg_color = term->fg_color;
+            tp_dst->bg_color = term->bg_color;
         }
         else
-        {
-            tp[0] = tp[chars];
-        }
-        ++tp;
+            tp_dst[0] = tp_src[0];
+        ++tp_dst;
+        ++tp_src;
     }
 }
 
