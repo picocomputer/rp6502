@@ -233,7 +233,7 @@ void cpu_stdin_request(void)
     if (!cpu_readline_needs_nl)
     {
         cpu_readline_active = true;
-        com_read_line(0, cpu_enter);
+        com_read_line(0, cpu_enter, 256);
     }
 }
 
