@@ -15,8 +15,7 @@
 #include "pico/stdio/driver.h"
 #include <stdio.h>
 
-// TODO add multiline support and 256 size.
-#define COM_BUF_SIZE 79
+#define COM_BUF_SIZE 256
 static char com_buf[COM_BUF_SIZE];
 static com_read_callback_t com_callback;
 static uint8_t *com_binary_buf;
@@ -240,9 +239,11 @@ void com_read_binary(uint32_t timeout_ms, com_read_callback_t callback, uint8_t 
     com_callback = callback;
 }
 
-void com_read_line(uint32_t timeout_ms, com_read_callback_t callback)
+void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t size)
 {
-    com_bufsize = COM_BUF_SIZE;
+    com_bufsize = size;
+    if (com_bufsize > COM_BUF_SIZE)
+        com_bufsize = COM_BUF_SIZE;
     com_buflen = 0;
     com_bufpos = 0;
     com_ansi_state = ansi_state_C0;

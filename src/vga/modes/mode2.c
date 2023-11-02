@@ -154,7 +154,7 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         }
         while (fill_cols > 7)
         {
-            modex_render_1bpp(rgb, glyph, palette[0], palette[1]);
+            modes_render_1bpp(rgb, glyph, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             col += 8;

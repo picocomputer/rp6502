@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/mode1.h"
+#include "modes/modes.h"
 #include "term/ansi.h"
 #include "term/color.h"
 #include "term/font.h"
@@ -19,7 +19,6 @@
 #define TERM_STD_HEIGHT 30
 #define TERM_MAX_HEIGHT 32
 #define TERM_CSI_PARAM_MAX_LEN 16
-#define TERM_LINE_WRAP 1
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
 
@@ -37,6 +36,8 @@ typedef struct term_state
     uint8_t height;
     uint8_t x;
     uint8_t y;
+    bool line_wrap;
+    bool wrapped[TERM_MAX_HEIGHT];
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
@@ -62,6 +63,8 @@ static void term_state_clear(term_state_t *term)
         term->mem[i].fg_color = term->fg_color;
         term->mem[i].bg_color = term->bg_color;
     }
+    for (size_t i = 0; i < term->height; i++)
+        term->wrapped[i] = false;
     term->x = 0;
     term->y = 0;
     term->y_offset = 0;
@@ -72,6 +75,7 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 {
     term->width = width;
     term->height = TERM_STD_HEIGHT;
+    term->line_wrap = true;
     term->mem = mem;
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
@@ -108,6 +112,8 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
                 term->y--;
                 if (++term->y_offset >= TERM_MAX_HEIGHT)
                     term->y_offset -= TERM_MAX_HEIGHT;
+                for (size_t i = 0; i < term->height; i++)
+                    term->wrapped[i] = term->wrapped[i + 1];
                 continue;
             }
             row = term->y_offset + term->height;
@@ -126,11 +132,14 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
 
 static void term_cursor_set_inv(term_state_t *term, bool inv)
 {
-    if (term->blink_state == -1 || inv == term->blink_state || term->x >= term->width)
+    if (term->blink_state == -1 || inv == term->blink_state)
         return;
-    uint16_t swap = term->ptr->fg_color;
-    term->ptr->fg_color = term->ptr->bg_color;
-    term->ptr->bg_color = swap;
+    term_data_t *term_ptr = term->ptr;
+    if (term->x == term->width)
+        term_ptr--;
+    uint16_t swap = term_ptr->fg_color;
+    term_ptr->fg_color = term_ptr->bg_color;
+    term_ptr->bg_color = swap;
     term->blink_state = inv;
 }
 
@@ -271,11 +280,18 @@ static void term_out_ht(term_state_t *term)
     }
 }
 
-static void term_out_lf(term_state_t *term)
+static void term_out_lf(term_state_t *term, bool wrapping)
 {
     term->ptr += term->width;
     if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
         term->ptr -= term->width * TERM_MAX_HEIGHT;
+    if (wrapping)
+        term->wrapped[term->y] = wrapping;
+    else if (term->wrapped[term->y])
+    {
+        ++term->y;
+        return term_out_lf(term, false);
+    }
     if (++term->y == term->height)
     {
         --term->y;
@@ -288,6 +304,9 @@ static void term_out_lf(term_state_t *term)
         }
         if (++term->y_offset == TERM_MAX_HEIGHT)
             term->y_offset = 0;
+        for (size_t i = 0; i < term->y; i++)
+            term->wrapped[i] = term->wrapped[i + 1];
+        term->wrapped[term->y] = false;
     }
 }
 
@@ -306,10 +325,10 @@ static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->x == term->width)
     {
-        if (TERM_LINE_WRAP)
+        if (term->line_wrap)
         {
             term_out_cr(term);
-            term_out_lf(term);
+            term_out_lf(term, true);
         }
         else
         {
@@ -324,6 +343,18 @@ static void term_out_glyph(term_state_t *term, char ch)
     term->ptr++;
 }
 
+// Cursor up by one line
+static void term_out_cup_1(term_state_t *term)
+{
+    if (term->y)
+    {
+        term->y--;
+        term->ptr -= term->width;
+        if (term->ptr < 0)
+            term->ptr += term->width * TERM_MAX_HEIGHT;
+    }
+}
+
 // Cursor forward
 static void term_out_cuf(term_state_t *term)
 {
@@ -332,8 +363,20 @@ static void term_out_cuf(term_state_t *term)
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
         cols = 1;
+    if (cols > term->width * term->height)
+        cols = term->width * term->height;
     if (cols > term->width - term->x)
-        cols = term->width - term->x;
+    {
+        if (term->wrapped[term->y])
+        {
+            term->csi_param[0] = cols - (term->width - term->x);
+            term_out_cr(term);
+            term_out_lf(term, true);
+            return term_out_cuf(term);
+        }
+        else
+            cols = term->width - term->x;
+    }
     term->ptr += cols;
     term->x += cols;
 }
@@ -346,8 +389,22 @@ static void term_out_cub(term_state_t *term)
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
         cols = 1;
+    if (cols > term->width * term->height)
+        cols = term->width * term->height;
+
     if (cols > term->x)
-        cols = term->x;
+    {
+        if (term->y && term->wrapped[term->y - 1])
+        {
+            term->csi_param[0] = cols - term->x;
+            term->ptr += term->width - term->x;
+            term->x += term->width - term->x;
+            term_out_cup_1(term);
+            return term_out_cub(term);
+        }
+        else
+            cols = term->x;
+    }
     term->ptr -= cols;
     term->x -= cols;
 }
@@ -357,25 +414,35 @@ static void term_out_dch(term_state_t *term)
 {
     if (term->csi_param_count > 1)
         return;
+    unsigned max_chars = term->width - term->x;
+    for (unsigned i = term->y; i < term->height - 1; i++)
+        if (term->wrapped[i])
+            max_chars += term->width;
     uint16_t chars = term->csi_param[0];
     if (chars < 1)
         chars = 1;
-    if (chars > term->width - term->x)
-        chars = term->width - term->x;
-    term_data_t *tp = term->ptr;
-    for (int i = term->x; i < term->width; i++)
+    if (chars > max_chars)
+        chars = max_chars;
+
+    term_data_t *tp_dst = term->ptr;
+    term_data_t *tp_src = &term->ptr[chars];
+    term_data_t *tp_max = term->mem + term->width * TERM_MAX_HEIGHT;
+    for (unsigned i = 0; i < max_chars; i++)
     {
-        if (chars + i >= term->width)
+        if (tp_dst >= tp_max)
+            tp_dst -= term->width * TERM_MAX_HEIGHT;
+        if (tp_src >= tp_max)
+            tp_src -= term->width * TERM_MAX_HEIGHT;
+        if (i >= max_chars - chars)
         {
-            tp->font_code = ' ';
-            tp->fg_color = term->fg_color;
-            tp->bg_color = term->bg_color;
+            tp_dst->font_code = ' ';
+            tp_dst->fg_color = term->fg_color;
+            tp_dst->bg_color = term->bg_color;
         }
         else
-        {
-            tp[0] = tp[chars];
-        }
-        ++tp;
+            tp_dst[0] = tp_src[0];
+        ++tp_dst;
+        ++tp_src;
     }
 }
 
@@ -383,13 +450,13 @@ static void term_out_state_C0(term_state_t *term, char ch)
 {
     if (ch == '\b')
     {
-        if (term->x > 0)
-            --term->ptr, --term->x;
+        term->csi_param[0] = 1;
+        term_out_cub(term);
     }
     else if (ch == '\t')
         term_out_ht(term);
     else if (ch == '\n')
-        term_out_lf(term);
+        term_out_lf(term, false);
     else if (ch == '\f')
         term_out_ff(term);
     else if (ch == '\r')
@@ -511,7 +578,11 @@ static void term_blink_cursor(term_state_t *term)
     {
         term_cursor_set_inv(term, !term->blink_state);
         // 0.3ms drift to avoid blinking cursor trearing
-        term->timer = delayed_by_us(now, 499700);
+        if (term->x == term->width)
+            // fast blink when off right side
+            term->timer = delayed_by_us(now, 249700);
+        else
+            term->timer = delayed_by_us(now, 499700);
     }
 }
 
@@ -519,110 +590,6 @@ void term_task(void)
 {
     term_blink_cursor(&term_40);
     term_blink_cursor(&term_80);
-}
-
-static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
-render_nibble(uint16_t *buf, uint8_t bits, uint16_t fg, uint16_t bg)
-{
-    switch (bits)
-    {
-    case 0:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 1:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 2:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 3:
-        buf[0] = bg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 4:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 5:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 6:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 7:
-        buf[0] = bg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 8:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 9:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 10:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 11:
-        buf[0] = fg;
-        buf[1] = bg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    case 12:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = bg;
-        break;
-    case 13:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = bg;
-        buf[3] = fg;
-        break;
-    case 14:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = bg;
-        break;
-    case 15:
-        buf[0] = fg;
-        buf[1] = fg;
-        buf[2] = fg;
-        buf[3] = fg;
-        break;
-    }
 }
 
 static inline bool __attribute__((optimize("O1")))
@@ -639,10 +606,8 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
         uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
-        render_nibble(rgb, bits >> 4, fg, bg);
-        rgb += 4;
-        render_nibble(rgb, bits & 0xF, fg, bg);
-        rgb += 4;
+        modes_render_1bpp(rgb, bits, bg, fg);
+        rgb += 8;
     }
     return true;
 }
@@ -661,10 +626,8 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
         uint8_t bits = font_line[term_ptr->font_code];
         uint16_t fg = term_ptr->fg_color;
         uint16_t bg = term_ptr->bg_color;
-        render_nibble(rgb, bits >> 4, fg, bg);
-        rgb += 4;
-        render_nibble(rgb, bits & 0xF, fg, bg);
-        rgb += 4;
+        modes_render_1bpp(rgb, bits, bg, fg);
+        rgb += 8;
     }
     return true;
 }
@@ -698,7 +661,7 @@ bool term_prog(uint16_t *xregs)
     bool use_40 = height == 180 || height == 240;
 
     // Check for terminal height is multiple of font height
-    if (scanline_count % (use_40 ? 8 : 16))
+    if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
         return false;
 
     // Program the new scanlines
