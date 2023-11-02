@@ -132,11 +132,14 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
 
 static void term_cursor_set_inv(term_state_t *term, bool inv)
 {
-    if (term->blink_state == -1 || inv == term->blink_state || term->x >= term->width)
+    if (term->blink_state == -1 || inv == term->blink_state)
         return;
-    uint16_t swap = term->ptr->fg_color;
-    term->ptr->fg_color = term->ptr->bg_color;
-    term->ptr->bg_color = swap;
+    term_data_t *term_ptr = term->ptr;
+    if (term->x == term->width)
+        term_ptr--;
+    uint16_t swap = term_ptr->fg_color;
+    term_ptr->fg_color = term_ptr->bg_color;
+    term_ptr->bg_color = swap;
     term->blink_state = inv;
 }
 
@@ -341,7 +344,7 @@ static void term_out_glyph(term_state_t *term, char ch)
 }
 
 // Cursor up by one line
-static void term_out_up1(term_state_t *term)
+static void term_out_cup_1(term_state_t *term)
 {
     if (term->y)
     {
@@ -396,7 +399,7 @@ static void term_out_cub(term_state_t *term)
             term->csi_param[0] = cols - term->x;
             term->ptr += term->width - term->x;
             term->x += term->width - term->x;
-            term_out_up1(term);
+            term_out_cup_1(term);
             return term_out_cub(term);
         }
         else
@@ -575,7 +578,11 @@ static void term_blink_cursor(term_state_t *term)
     {
         term_cursor_set_inv(term, !term->blink_state);
         // 0.3ms drift to avoid blinking cursor trearing
-        term->timer = delayed_by_us(now, 499700);
+        if (term->x == term->width)
+            // fast blink when off right side
+            term->timer = delayed_by_us(now, 249700);
+        else
+            term->timer = delayed_by_us(now, 499700);
     }
 }
 

@@ -335,6 +335,9 @@ vga_render_loop(void)
                 while (vga_scanline_buffer_core0)
                     tight_loop_contents();
                 vga_scanline_buffer_core0 = scanline_buffer0;
+                // Scanvideo will reset to the last scanline, resync here
+                if (scanvideo_scanline_number(scanline_buffer0->scanline_id) == 1)
+                    continue;
                 // core 1 (this)
                 scanvideo_scanline_buffer_t *const scanline_buffer1 =
                     scanvideo_begin_scanline_generation(true);
