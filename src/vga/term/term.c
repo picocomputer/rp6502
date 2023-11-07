@@ -344,7 +344,7 @@ static void term_out_glyph(term_state_t *term, char ch)
 }
 
 // Cursor up by one line
-static void term_out_cup_1(term_state_t *term)
+static void term_out_cuu_1(term_state_t *term)
 {
     if (term->y)
     {
@@ -399,7 +399,7 @@ static void term_out_cub(term_state_t *term)
             term->csi_param[0] = cols - term->x;
             term->ptr += term->width - term->x;
             term->x += term->width - term->x;
-            term_out_cup_1(term);
+            term_out_cuu_1(term);
             return term_out_cub(term);
         }
         else
