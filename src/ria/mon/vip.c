@@ -46,6 +46,7 @@ void vip_print(void)
         "tonyvr",
         "Jos Vermoesen",
         "James Temple",
+        "Wojciech Gwiozdzik",
         // YouTube
         "AJ_Whitney",
     };
