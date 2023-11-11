@@ -11,7 +11,6 @@
 #include "usb/kbd_deu.h"
 #include "usb/kbd_eng.h"
 #include "usb/kbd_swe.h"
-#include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
 #include "string.h"
@@ -27,16 +26,19 @@ static stdio_driver_t kbd_stdio_app = {
 
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
+
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_keycode;
 static hid_keyboard_report_t kbd_prev_report;
-static char kbd_key_queue[8];
+static char kbd_key_queue[16];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
 static bool kdb_hid_leds_need_report;
 static uint16_t kbd_xram;
 static uint8_t kbd_xram_keys[32];
+
+#define KBD_KEY_QUEUE(pos) kbd_key_queue[(pos) & 0x0F]
 
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
@@ -52,10 +54,10 @@ static void kbd_queue_key_str(const char *str)
 {
     // All or nothing
     for (size_t len = strlen(str); len; len--)
-        if (&kbd_key_queue[(kbd_key_queue_head + len) & 7] == &kbd_key_queue[kbd_key_queue_tail & 7])
+        if (&KBD_KEY_QUEUE(kbd_key_queue_head + len) == &KBD_KEY_QUEUE(kbd_key_queue_tail))
             return;
     while (*str)
-        kbd_key_queue[++kbd_key_queue_head & 7] = *str++;
+        KBD_KEY_QUEUE(++kbd_key_queue_head) = *str++;
 }
 
 static void kbd_queue_key_seq(const char *str, const char *mod_seq, int mod)
@@ -69,10 +71,10 @@ static void kbd_queue_key_seq(const char *str, const char *mod_seq, int mod)
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
-    bool kbd_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
-    bool kbd_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
-    bool kbd_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
-    bool kbd_meta = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
+    bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
+    bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
+    bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
+    bool key_meta = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
     kbd_repeat_keycode = keycode;
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
@@ -86,14 +88,14 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
         }
-        else if ((kbd_shift && !is_caps_lock) || (!kbd_shift && is_caps_lock))
+        else if ((key_shift && !is_caps_lock) || (!key_shift && is_caps_lock))
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
         }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
     }
-    if (kbd_ctrl)
+    if (key_ctrl)
     {
         if (ch >= '`' && ch <= '~')
             ch -= 96;
@@ -104,17 +106,19 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     if (ch)
     {
-        kbd_key_queue[++kbd_key_queue_head & 7] = ch;
+        if (&KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+            KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
         return;
     }
     if (initial_press)
         switch (keycode)
         {
         case HID_KEY_DELETE:
-            if (kbd_ctrl && kbd_alt)
+            if (key_ctrl && key_alt)
             {
                 kbd_key_queue_tail = kbd_key_queue_head;
                 main_break();
+                return;
             }
             break;
         case HID_KEY_CAPS_LOCK:
@@ -123,40 +127,36 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         }
     int ansi_modifier = 1;
-    if (kbd_shift)
+    if (key_shift)
         ansi_modifier += 1;
-    if (kbd_alt)
+    if (key_alt)
         ansi_modifier += 2;
-    if (kbd_ctrl)
+    if (key_ctrl)
         ansi_modifier += 4;
-    if (kbd_meta)
+    if (key_meta)
         ansi_modifier += 8;
     switch (keycode)
     {
     case HID_KEY_ARROW_UP:
-        return kbd_queue_key_seq(ANSI_KEY_ARROW_UP, "\33[1;%dA", ansi_modifier);
+        return kbd_queue_key_seq("\33[A", "\33[1;%dA", ansi_modifier);
     case HID_KEY_ARROW_DOWN:
-        return kbd_queue_key_seq(ANSI_KEY_ARROW_DOWN, "\33[1;%dB", ansi_modifier);
+        return kbd_queue_key_seq("\33[B", "\33[1;%dB", ansi_modifier);
     case HID_KEY_ARROW_RIGHT:
-        return kbd_queue_key_seq(ANSI_KEY_ARROW_RIGHT, "\33[1;%dC", ansi_modifier);
+        return kbd_queue_key_seq("\33[C", "\33[1;%dC", ansi_modifier);
     case HID_KEY_ARROW_LEFT:
-        return kbd_queue_key_seq(ANSI_KEY_ARROW_LEFT, "\33[1;%dD", ansi_modifier);
+        return kbd_queue_key_seq("\33[D", "\33[1;%dD", ansi_modifier);
     case HID_KEY_DELETE:
-        return kbd_queue_key_str(ANSI_KEY_DELETE);
+        return kbd_queue_key_str("\33\x7F");
     }
 }
 
 static int kbd_stdio_in_chars(char *buf, int length)
 {
     int i = 0;
-    kbd_key_queue_head = kbd_key_queue_head & 7;
-    if (kbd_key_queue_tail > kbd_key_queue_head)
-        kbd_key_queue_head += 8;
-    while (i < length && kbd_key_queue_tail < kbd_key_queue_head)
+    while (i < length && &KBD_KEY_QUEUE(kbd_key_queue_tail) != &KBD_KEY_QUEUE(kbd_key_queue_head))
     {
-        buf[i++] = kbd_key_queue[++kbd_key_queue_tail & 7];
+        buf[i++] = KBD_KEY_QUEUE(++kbd_key_queue_tail);
     }
-    kbd_key_queue_tail = kbd_key_queue_tail & 7;
     return i ? i : PICO_ERROR_NO_DATA;
 }
 

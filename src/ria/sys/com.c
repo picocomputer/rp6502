@@ -10,13 +10,20 @@
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
-#include "vga/term/ansi.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include <stdio.h>
 
 #define COM_BUF_SIZE 256
 #define COM_CSI_PARAM_MAX_LEN 16
+
+typedef enum
+{
+    ansi_state_C0,
+    ansi_state_Fe,
+    ansi_state_SS3,
+    ansi_state_CSI
+} ansi_state_t;
 
 static char com_buf[COM_BUF_SIZE];
 static com_read_callback_t com_callback;
@@ -92,9 +99,7 @@ static void com_line_forward(void)
     if (!count)
         return;
     com_bufpos += count;
-    // clang-format off
-    printf(ANSI_FORWARD(%d), count);
-    // clang-format on
+    printf("\33[%dC", count);
 }
 
 static void com_line_backward(void)
@@ -107,16 +112,14 @@ static void com_line_backward(void)
     if (!count)
         return;
     com_bufpos -= count;
-    // clang-format off
-    printf(ANSI_BACKWARD(%d), count);
-    // clang-format on
+    printf("\33[%dD", count);
 }
 
 static void com_line_delete(void)
 {
     if (!com_buflen || com_bufpos == com_buflen)
         return;
-    printf(ANSI_DELETE(1));
+    printf("\33[P");
     com_buflen--;
     for (uint8_t i = com_bufpos; i < com_buflen; i++)
         com_buf[i] = com_buf[i + 1];
@@ -126,7 +129,7 @@ static void com_line_backspace(void)
 {
     if (!com_bufpos)
         return;
-    printf("\b" ANSI_DELETE(1));
+    printf("\b\33[P");
     com_buflen--;
     for (uint8_t i = --com_bufpos; i < com_buflen; i++)
         com_buf[i] = com_buf[i + 1];
@@ -209,7 +212,7 @@ static void com_line_state_CSI(char ch)
 
 static void com_line_rx(uint8_t ch)
 {
-    if (ch == ANSI_CANCEL)
+    if (ch == '\30')
         com_ansi_state = ansi_state_C0;
     else
         switch (com_ansi_state)
