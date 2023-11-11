@@ -135,6 +135,21 @@ static void com_line_backspace(void)
         com_buf[i] = com_buf[i + 1];
 }
 
+static void com_line_insert(char ch)
+{
+    if (ch < 32 || com_buflen >= com_bufsize - 1)
+        return;
+    for (size_t i = com_buflen; i > com_bufpos; i--)
+        com_buf[i] = com_buf[i - 1];
+    com_buflen++;
+    com_buf[com_bufpos] = ch;
+    for (size_t i = com_bufpos; i < com_buflen; i++)
+        putchar(com_buf[i]);
+    com_bufpos++;
+    if (com_buflen - com_bufpos)
+        printf("\33[%dD", com_buflen - com_bufpos);
+}
+
 static void com_line_state_C0(char ch)
 {
     if (ch == '\33')
@@ -150,13 +165,8 @@ static void com_line_state_C0(char ch)
         com_callback = NULL;
         cc(false, com_buf, com_buflen);
     }
-    else if (ch >= 32 && com_bufpos < com_bufsize - 1)
-    {
-        putchar(ch);
-        com_buf[com_bufpos] = ch;
-        if (++com_bufpos > com_buflen)
-            com_buflen = com_bufpos;
-    }
+    else
+        com_line_insert(ch);
 }
 
 static void com_line_state_Fe(char ch)

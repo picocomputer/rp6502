@@ -180,13 +180,13 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     case HID_KEY_F12:
         return kbd_queue_seq_vt(24, ansi_modifier);
     case HID_KEY_HOME:
-        return kbd_queue_seq_vt(1, ansi_modifier);
+        return kbd_queue_seq("\33[H", "\33[1;%dH", ansi_modifier);
     case HID_KEY_INSERT:
         return kbd_queue_seq_vt(2, ansi_modifier);
     case HID_KEY_DELETE:
         return kbd_queue_seq_vt(3, ansi_modifier);
     case HID_KEY_END:
-        return kbd_queue_seq_vt(4, ansi_modifier);
+        return kbd_queue_seq("\33[F", "\33[1;%dF", ansi_modifier);
     case HID_KEY_PAGE_UP:
         return kbd_queue_seq_vt(5, ansi_modifier);
     case HID_KEY_PAGE_DOWN:
