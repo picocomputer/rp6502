@@ -174,7 +174,8 @@ static void com_line_state_Fe(char ch)
     else
     {
         com_ansi_state = ansi_state_C0;
-        com_line_delete();
+        if (ch == 127)
+            com_line_delete();
     }
 }
 

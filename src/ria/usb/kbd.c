@@ -146,7 +146,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     case HID_KEY_ARROW_LEFT:
         return kbd_queue_key_seq("\33[D", "\33[1;%dD", ansi_modifier);
     case HID_KEY_DELETE:
-        return kbd_queue_key_str("\33\x7F");
+        return kbd_queue_key_seq("\33[3~","\33[3;%d~", ansi_modifier);
     }
 }
 
