@@ -21,6 +21,7 @@ typedef enum
 {
     ansi_state_C0,
     ansi_state_Fe,
+    ansi_state_SS2,
     ansi_state_SS3,
     ansi_state_CSI
 } ansi_state_t;
@@ -87,6 +88,20 @@ void com_flush(void)
 void com_reclock(void)
 {
     uart_init(COM_UART, COM_UART_BAUD_RATE);
+}
+
+static void com_line_home(void)
+{
+    if (com_bufpos)
+        printf("\33[%dD", com_bufpos);
+    com_bufpos = 0;
+}
+
+static void com_line_end(void)
+{
+    if (com_bufpos != com_buflen)
+        printf("\33[%dC", com_buflen - com_bufpos);
+    com_bufpos = com_buflen;
 }
 
 static void com_line_forward(void)
@@ -177,10 +192,10 @@ static void com_line_state_Fe(char ch)
         com_csi_param_count = 0;
         com_csi_param[0] = 0;
     }
+    else if (ch == 'N')
+        com_ansi_state = ansi_state_SS2;
     else if (ch == 'O')
-    {
         com_ansi_state = ansi_state_SS3;
-    }
     else
     {
         com_ansi_state = ansi_state_C0;
@@ -189,9 +204,22 @@ static void com_line_state_Fe(char ch)
     }
 }
 
+static void com_line_state_SS2(char ch)
+{
+    com_ansi_state = ansi_state_C0;
+}
+
+static void com_line_state_SS3(char ch)
+{
+    com_ansi_state = ansi_state_C0;
+    if (ch == 'F')
+        com_line_end();
+    else if (ch == 'H')
+        com_line_home();
+}
+
 static void com_line_state_CSI(char ch)
 {
-
     // Silently discard overflow parameters but still count to + 1.
     if (ch >= '0' && ch <= '9')
     {
@@ -217,8 +245,22 @@ static void com_line_state_CSI(char ch)
         com_line_forward();
     else if (ch == 'D')
         com_line_backward();
-    else if (com_csi_param[0] == 3 && ch == '~')
-        com_line_delete();
+    else if (ch == 'F')
+        com_line_end();
+    else if (ch == 'H')
+        com_line_home();
+    else if (ch == '~')
+        switch (com_csi_param[0])
+        {
+        case 1:
+        case 7:
+            return com_line_home();
+        case 4:
+        case 8:
+            return com_line_end();
+        case 3:
+            return com_line_delete();
+        }
 }
 
 static void com_line_rx(uint8_t ch)
@@ -234,9 +276,11 @@ static void com_line_rx(uint8_t ch)
         case ansi_state_Fe:
             com_line_state_Fe(ch);
             break;
+        case ansi_state_SS2:
+            com_line_state_SS2(ch);
+            break;
         case ansi_state_SS3:
-            // all SS3 is nop
-            com_ansi_state = ansi_state_C0;
+            com_line_state_SS3(ch);
             break;
         case ansi_state_CSI:
             com_line_state_CSI(ch);
