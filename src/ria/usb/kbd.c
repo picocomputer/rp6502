@@ -50,7 +50,7 @@ void kbd_hid_leds_dirty()
     kdb_hid_leds_need_report = true;
 }
 
-static void kbd_queue_key_str(const char *str)
+static void kbd_queue_str(const char *str)
 {
     // All or nothing
     for (size_t len = strlen(str); len; len--)
@@ -60,13 +60,23 @@ static void kbd_queue_key_str(const char *str)
         KBD_KEY_QUEUE(++kbd_key_queue_head) = *str++;
 }
 
-static void kbd_queue_key_seq(const char *str, const char *mod_seq, int mod)
+static void kbd_queue_seq(const char *str, const char *mod_seq, int mod)
 {
     char s[16];
     if (mod == 1)
-        return kbd_queue_key_str(str);
+        return kbd_queue_str(str);
     sprintf(s, mod_seq, mod);
-    return kbd_queue_key_str(s);
+    return kbd_queue_str(s);
+}
+
+static void kbd_queue_seq_vt(int num, int mod)
+{
+    char s[16];
+    if (mod == 1)
+        sprintf(s, "\33[%d~", num);
+    else
+        sprintf(s, "\33[%d;%d~", num, mod);
+    return kbd_queue_str(s);
 }
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
@@ -138,15 +148,49 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     switch (keycode)
     {
     case HID_KEY_ARROW_UP:
-        return kbd_queue_key_seq("\33[A", "\33[1;%dA", ansi_modifier);
+        return kbd_queue_seq("\33[A", "\33[1;%dA", ansi_modifier);
     case HID_KEY_ARROW_DOWN:
-        return kbd_queue_key_seq("\33[B", "\33[1;%dB", ansi_modifier);
+        return kbd_queue_seq("\33[B", "\33[1;%dB", ansi_modifier);
     case HID_KEY_ARROW_RIGHT:
-        return kbd_queue_key_seq("\33[C", "\33[1;%dC", ansi_modifier);
+        return kbd_queue_seq("\33[C", "\33[1;%dC", ansi_modifier);
     case HID_KEY_ARROW_LEFT:
-        return kbd_queue_key_seq("\33[D", "\33[1;%dD", ansi_modifier);
+        return kbd_queue_seq("\33[D", "\33[1;%dD", ansi_modifier);
+    case HID_KEY_F1:
+        return kbd_queue_seq("\33OP", "\33[1;%dP", ansi_modifier);
+    case HID_KEY_F2:
+        return kbd_queue_seq("\33OQ", "\33[1;%dQ", ansi_modifier);
+    case HID_KEY_F3:
+        return kbd_queue_seq("\33OR", "\33[1;%dR", ansi_modifier);
+    case HID_KEY_F4:
+        return kbd_queue_seq("\33OS", "\33[1;%dS", ansi_modifier);
+    case HID_KEY_F5:
+        return kbd_queue_seq_vt(15, ansi_modifier);
+    case HID_KEY_F6:
+        return kbd_queue_seq_vt(17, ansi_modifier);
+    case HID_KEY_F7:
+        return kbd_queue_seq_vt(18, ansi_modifier);
+    case HID_KEY_F8:
+        return kbd_queue_seq_vt(19, ansi_modifier);
+    case HID_KEY_F9:
+        return kbd_queue_seq_vt(10, ansi_modifier);
+    case HID_KEY_F10:
+        return kbd_queue_seq_vt(21, ansi_modifier);
+    case HID_KEY_F11:
+        return kbd_queue_seq_vt(23, ansi_modifier);
+    case HID_KEY_F12:
+        return kbd_queue_seq_vt(24, ansi_modifier);
+    case HID_KEY_HOME:
+        return kbd_queue_seq_vt(1, ansi_modifier);
+    case HID_KEY_INSERT:
+        return kbd_queue_seq_vt(2, ansi_modifier);
     case HID_KEY_DELETE:
-        return kbd_queue_key_seq("\33[3~","\33[3;%d~", ansi_modifier);
+        return kbd_queue_seq_vt(3, ansi_modifier);
+    case HID_KEY_END:
+        return kbd_queue_seq_vt(4, ansi_modifier);
+    case HID_KEY_PAGE_UP:
+        return kbd_queue_seq_vt(5, ansi_modifier);
+    case HID_KEY_PAGE_DOWN:
+        return kbd_queue_seq_vt(6, ansi_modifier);
     }
 }
 
@@ -162,6 +206,8 @@ static int kbd_stdio_in_chars(char *buf, int length)
 
 static void kbd_prev_report_to_xram()
 {
+    //TODO use 2 and 3 for capslock and numlock status
+
     // Update xram if configured
     if (kbd_xram != 0xFFFF)
     {
