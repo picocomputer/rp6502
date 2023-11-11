@@ -14,6 +14,7 @@
 #include "vga/term/ansi.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
+#include "string.h"
 
 static int kbd_stdio_in_chars(char *buf, int length);
 
@@ -49,6 +50,7 @@ void kbd_hid_leds_dirty()
 
 static void kbd_queue_key_str(const char *str)
 {
+    // All or nothing
     for (size_t len = strlen(str); len; len--)
         if (&kbd_key_queue[(kbd_key_queue_head + len) & 7] == &kbd_key_queue[kbd_key_queue_tail & 7])
             return;
@@ -56,8 +58,21 @@ static void kbd_queue_key_str(const char *str)
         kbd_key_queue[++kbd_key_queue_head & 7] = *str++;
 }
 
+static void kbd_queue_key_seq(const char *str, const char *mod_seq, int mod)
+{
+    char s[16];
+    if (mod == 1)
+        return kbd_queue_key_str(str);
+    sprintf(s, mod_seq, mod);
+    return kbd_queue_key_str(s);
+}
+
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
+    bool kbd_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
+    bool kbd_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
+    bool kbd_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
+    bool kbd_meta = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
     kbd_repeat_keycode = keycode;
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
@@ -66,23 +81,19 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KEYBOARD_MODIFIER_LEFTGUI |
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
-        bool is_alt_gr = modifier & (KEYBOARD_MODIFIER_RIGHTALT);
-        bool is_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT |
-                                    KEYBOARD_MODIFIER_RIGHTSHIFT);
         bool is_caps_lock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
-        if (is_alt_gr)
+        if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
         }
-        else if ((is_shift && !is_caps_lock) || (!is_shift && is_caps_lock))
+        else if ((kbd_shift && !is_caps_lock) || (!kbd_shift && is_caps_lock))
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
         }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
     }
-    if (modifier & (KEYBOARD_MODIFIER_LEFTCTRL |
-                    KEYBOARD_MODIFIER_RIGHTCTRL))
+    if (kbd_ctrl)
     {
         if (ch >= '`' && ch <= '~')
             ch -= 96;
@@ -100,8 +111,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         switch (keycode)
         {
         case HID_KEY_DELETE:
-            if ((modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) &&
-                (modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)))
+            if (kbd_ctrl && kbd_alt)
             {
                 kbd_key_queue_tail = kbd_key_queue_head;
                 main_break();
@@ -112,23 +122,27 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             kbd_hid_leds_dirty();
             break;
         }
+    int ansi_modifier = 1;
+    if (kbd_shift)
+        ansi_modifier += 1;
+    if (kbd_alt)
+        ansi_modifier += 2;
+    if (kbd_ctrl)
+        ansi_modifier += 4;
+    if (kbd_meta)
+        ansi_modifier += 8;
     switch (keycode)
     {
     case HID_KEY_ARROW_UP:
-        kbd_queue_key_str(ANSI_KEY_ARROW_UP);
-        break;
+        return kbd_queue_key_seq(ANSI_KEY_ARROW_UP, "\33[1;%dA", ansi_modifier);
     case HID_KEY_ARROW_DOWN:
-        kbd_queue_key_str(ANSI_KEY_ARROW_DOWN);
-        break;
+        return kbd_queue_key_seq(ANSI_KEY_ARROW_DOWN, "\33[1;%dB", ansi_modifier);
     case HID_KEY_ARROW_RIGHT:
-        kbd_queue_key_str(ANSI_KEY_ARROW_RIGHT);
-        break;
+        return kbd_queue_key_seq(ANSI_KEY_ARROW_RIGHT, "\33[1;%dC", ansi_modifier);
     case HID_KEY_ARROW_LEFT:
-        kbd_queue_key_str(ANSI_KEY_ARROW_LEFT);
-        break;
+        return kbd_queue_key_seq(ANSI_KEY_ARROW_LEFT, "\33[1;%dD", ansi_modifier);
     case HID_KEY_DELETE:
-        kbd_queue_key_str(ANSI_KEY_DELETE);
-        break;
+        return kbd_queue_key_str(ANSI_KEY_DELETE);
     }
 }
 

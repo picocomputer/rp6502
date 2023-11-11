@@ -16,6 +16,8 @@
 #include <stdio.h>
 
 #define COM_BUF_SIZE 256
+#define COM_CSI_PARAM_MAX_LEN 16
+
 static char com_buf[COM_BUF_SIZE];
 static com_read_callback_t com_callback;
 static uint8_t *com_binary_buf;
@@ -25,8 +27,8 @@ static size_t com_bufsize;
 static size_t com_buflen;
 static size_t com_bufpos;
 static ansi_state_t com_ansi_state;
-static int com_ansi_param;
-
+static uint16_t com_csi_param[COM_CSI_PARAM_MAX_LEN];
+static uint8_t com_csi_param_count;
 static stdio_driver_t com_stdio_app;
 
 volatile size_t com_tx_tail;
@@ -80,8 +82,11 @@ void com_reclock(void)
     uart_init(COM_UART, COM_UART_BAUD_RATE);
 }
 
-static void com_line_forward(size_t count)
+static void com_line_forward(void)
 {
+    uint16_t count = com_csi_param[0];
+    if (count < 1)
+        count = 1;
     if (count > com_buflen - com_bufpos)
         count = com_buflen - com_bufpos;
     if (!count)
@@ -92,8 +97,11 @@ static void com_line_forward(size_t count)
     // clang-format on
 }
 
-static void com_line_backward(size_t count)
+static void com_line_backward(void)
 {
+    uint16_t count = com_csi_param[0];
+    if (count < 1)
+        count = 1;
     if (count > com_bufpos)
         count = com_bufpos;
     if (!count)
@@ -153,7 +161,8 @@ static void com_line_state_Fe(char ch)
     if (ch == '[')
     {
         com_ansi_state = ansi_state_CSI;
-        com_ansi_param = -1;
+        com_csi_param_count = 0;
+        com_csi_param[0] = 0;
     }
     else if (ch == 'O')
     {
@@ -168,29 +177,33 @@ static void com_line_state_Fe(char ch)
 
 static void com_line_state_CSI(char ch)
 {
+
+    // Silently discard overflow parameters but still count to + 1.
     if (ch >= '0' && ch <= '9')
     {
-        if (com_ansi_param < 0)
+        if (com_csi_param_count < COM_CSI_PARAM_MAX_LEN)
         {
-            com_ansi_param = ch - '0';
-        }
-        else
-        {
-            com_ansi_param *= 10;
-            com_ansi_param += ch - '0';
+            com_csi_param[com_csi_param_count] *= 10;
+            com_csi_param[com_csi_param_count] += ch - '0';
         }
         return;
     }
-    if (ch == ';')
+    if (ch == ';' || ch == ':')
+    {
+        if (++com_csi_param_count < COM_CSI_PARAM_MAX_LEN)
+            com_csi_param[com_csi_param_count] = 0;
+        else
+            com_csi_param_count = COM_CSI_PARAM_MAX_LEN;
         return;
+    }
     com_ansi_state = ansi_state_C0;
-    if (com_ansi_param < 0)
-        com_ansi_param = -com_ansi_param;
+    if (++com_csi_param_count > COM_CSI_PARAM_MAX_LEN)
+        com_csi_param_count = COM_CSI_PARAM_MAX_LEN;
     if (ch == 'C')
-        com_line_forward(com_ansi_param);
+        com_line_forward();
     else if (ch == 'D')
-        com_line_backward(com_ansi_param);
-    else if (ch == '~' && com_ansi_param == 3)
+        com_line_backward();
+    else if (com_csi_param[0] == 3 && ch == '~')
         com_line_delete();
 }
 
