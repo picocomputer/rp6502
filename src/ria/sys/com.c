@@ -104,17 +104,46 @@ static void com_line_end(void)
     com_bufpos = com_buflen;
 }
 
+static void com_line_forward_word(void)
+{
+    int count = 0;
+    if (com_bufpos < com_buflen)
+        while (true)
+        {
+            count++;
+            if (++com_bufpos >= com_buflen)
+                break;
+            if (com_buf[com_bufpos] == ' ' && com_buf[com_bufpos - 1] != ' ')
+                break;
+        }
+    if (count)
+        printf("\33[%dC", count);
+}
+
 static void com_line_forward(void)
 {
     uint16_t count = com_csi_param[0];
     if (count < 1)
         count = 1;
+    if (com_csi_param_count > 1 && !!(com_csi_param[1] - 1))
+        return com_line_forward_word();
     if (count > com_buflen - com_bufpos)
         count = com_buflen - com_bufpos;
     if (!count)
         return;
     com_bufpos += count;
     printf("\33[%dC", count);
+}
+
+static void com_line_forward_1(void)
+{
+    com_csi_param_count = 1;
+    com_csi_param[0] = 1;
+    com_line_forward();
+}
+
+static void com_line_backward_word(void)
+{
 }
 
 static void com_line_backward(void)
@@ -128,6 +157,13 @@ static void com_line_backward(void)
         return;
     com_bufpos -= count;
     printf("\33[%dD", count);
+}
+
+static void com_line_backward_1(void)
+{
+    com_csi_param_count = 1;
+    com_csi_param[0] = 1;
+    com_line_backward();
 }
 
 static void com_line_delete(void)
@@ -171,6 +207,14 @@ static void com_line_state_C0(char ch)
         com_ansi_state = ansi_state_Fe;
     else if (ch == '\b' || ch == 127)
         com_line_backspace();
+    else if (ch == 1) // ctrl-a
+        com_line_home();
+    else if (ch == 2) // ctrl-b
+        com_line_backward_1();
+    else if (ch == 5) // ctrl-e
+        com_line_end();
+    else if (ch == 6) // ctrl-f
+        com_line_forward_1();
     else if (ch == '\r')
     {
         printf("\n");
@@ -192,6 +236,16 @@ static void com_line_state_Fe(char ch)
         com_csi_param_count = 0;
         com_csi_param[0] = 0;
     }
+    else if (ch == 'b' || ch == 2)
+    {
+        com_ansi_state = ansi_state_C0;
+        com_line_backward_word();
+    }
+    else if (ch == 'f' || ch == 6)
+    {
+        com_ansi_state = ansi_state_C0;
+        com_line_forward_word();
+    }
     else if (ch == 'N')
         com_ansi_state = ansi_state_SS2;
     else if (ch == 'O')
@@ -206,6 +260,7 @@ static void com_line_state_Fe(char ch)
 
 static void com_line_state_SS2(char ch)
 {
+    (void)ch;
     com_ansi_state = ansi_state_C0;
 }
 
@@ -249,6 +304,10 @@ static void com_line_state_CSI(char ch)
         com_line_end();
     else if (ch == 'H')
         com_line_home();
+    else if (ch == 'b' || ch == 2)
+        com_line_backward_word();
+    else if (ch == 'f' || ch == 6)
+        com_line_forward_word();
     else if (ch == '~')
         switch (com_csi_param[0])
         {

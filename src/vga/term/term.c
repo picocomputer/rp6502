@@ -25,6 +25,7 @@ typedef enum
 {
     ansi_state_C0,
     ansi_state_Fe,
+    ansi_state_SS2,
     ansi_state_SS3,
     ansi_state_CSI
 } ansi_state_t;
@@ -477,8 +478,24 @@ static void term_out_state_Fe(term_state_t *term, char ch)
         term->csi_param_count = 0;
         term->csi_param[0] = 0;
     }
+    else if (ch == 'N')
+        term->ansi_state = ansi_state_SS2;
+    else if (ch == 'O')
+        term->ansi_state = ansi_state_SS3;
     else
         term->ansi_state = ansi_state_C0;
+}
+
+static void term_out_state_SS2(term_state_t *term, char ch)
+{
+    (void)ch;
+    term->ansi_state = ansi_state_C0;
+}
+
+static void term_out_state_SS3(term_state_t *term, char ch)
+{
+    (void)ch;
+    term->ansi_state = ansi_state_C0;
 }
 
 static void term_out_state_CSI(term_state_t *term, char ch)
@@ -537,6 +554,12 @@ static void term_out_char(term_state_t *term, char ch)
             break;
         case ansi_state_Fe:
             term_out_state_Fe(term, ch);
+            break;
+        case ansi_state_SS2:
+            term_out_state_SS2(term, ch);
+            break;
+        case ansi_state_SS3:
+            term_out_state_SS3(term, ch);
             break;
         case ansi_state_CSI:
             term_out_state_CSI(term, ch);

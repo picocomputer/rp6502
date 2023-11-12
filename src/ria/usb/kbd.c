@@ -85,6 +85,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
     bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
     bool key_meta = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
+    bool is_caps_lock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
     kbd_repeat_keycode = keycode;
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
@@ -93,7 +94,6 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KEYBOARD_MODIFIER_LEFTGUI |
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
-        bool is_caps_lock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
@@ -104,6 +104,30 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+    }
+    if (key_alt && !ch && keycode < 128)
+    {
+        if ((key_shift && !is_caps_lock) || (!key_shift && is_caps_lock))
+        {
+            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
+        }
+        else
+            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+        if (key_ctrl)
+        {
+            if (ch >= '`' && ch <= '~')
+                ch -= 96;
+            else if (ch >= '@' && ch <= '_')
+                ch -= 64;
+        }
+        if (ch &&
+            &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
+            &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+        {
+            KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
+            KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+        }
+        return;
     }
     if (key_ctrl)
     {
