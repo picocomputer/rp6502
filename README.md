@@ -2,9 +2,6 @@
 
 The Picocomputer explores retro computing and game development by removing the barrier between genuine 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $4/€4 Raspberry Pi Pico.
 
-Learn how it works on YouTube:<br>
-https://www.youtube.com/@rumbledethumps
-
 Read the documentation:<br>
 https://picocomputer.github.io/
 
