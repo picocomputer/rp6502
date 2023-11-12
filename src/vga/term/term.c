@@ -5,7 +5,6 @@
  */
 
 #include "modes/modes.h"
-#include "term/ansi.h"
 #include "term/color.h"
 #include "term/font.h"
 #include "term/term.h"
@@ -21,6 +20,15 @@
 #define TERM_CSI_PARAM_MAX_LEN 16
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
+
+typedef enum
+{
+    ansi_state_C0,
+    ansi_state_Fe,
+    ansi_state_SS2,
+    ansi_state_SS3,
+    ansi_state_CSI
+} ansi_state_t;
 
 typedef struct
 {
@@ -358,8 +366,6 @@ static void term_out_cuu_1(term_state_t *term)
 // Cursor forward
 static void term_out_cuf(term_state_t *term)
 {
-    if (term->csi_param_count > 1)
-        return;
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
         cols = 1;
@@ -384,8 +390,6 @@ static void term_out_cuf(term_state_t *term)
 // Cursor backward
 static void term_out_cub(term_state_t *term)
 {
-    if (term->csi_param_count > 1)
-        return;
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
         cols = 1;
@@ -412,8 +416,6 @@ static void term_out_cub(term_state_t *term)
 // Delete characters
 static void term_out_dch(term_state_t *term)
 {
-    if (term->csi_param_count > 1)
-        return;
     unsigned max_chars = term->width - term->x;
     for (unsigned i = term->y; i < term->height - 1; i++)
         if (term->wrapped[i])
@@ -476,13 +478,29 @@ static void term_out_state_Fe(term_state_t *term, char ch)
         term->csi_param_count = 0;
         term->csi_param[0] = 0;
     }
+    else if (ch == 'N')
+        term->ansi_state = ansi_state_SS2;
+    else if (ch == 'O')
+        term->ansi_state = ansi_state_SS3;
     else
         term->ansi_state = ansi_state_C0;
 }
 
+static void term_out_state_SS2(term_state_t *term, char ch)
+{
+    (void)ch;
+    term->ansi_state = ansi_state_C0;
+}
+
+static void term_out_state_SS3(term_state_t *term, char ch)
+{
+    (void)ch;
+    term->ansi_state = ansi_state_C0;
+}
+
 static void term_out_state_CSI(term_state_t *term, char ch)
 {
-    // Silently discard overflow parameters but still count them.
+    // Silently discard overflow parameters but still count to + 1.
     if (ch >= '0' && ch <= '9')
     {
         if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
@@ -498,12 +516,15 @@ static void term_out_state_CSI(term_state_t *term, char ch)
             term->csi_separator[term->csi_param_count] = ch;
         if (++term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
             term->csi_param[term->csi_param_count] = 0;
+        else
+            term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
         return;
     }
     term->ansi_state = ansi_state_C0;
     if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
         term->csi_separator[term->csi_param_count] = 0;
-    term->csi_param_count++;
+    if (++term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
+        term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
     switch (ch)
     {
     case 'm':
@@ -523,7 +544,7 @@ static void term_out_state_CSI(term_state_t *term, char ch)
 
 static void term_out_char(term_state_t *term, char ch)
 {
-    if (ch == ANSI_CANCEL)
+    if (ch == '\30')
         term->ansi_state = ansi_state_C0;
     else
         switch (term->ansi_state)
@@ -533,6 +554,12 @@ static void term_out_char(term_state_t *term, char ch)
             break;
         case ansi_state_Fe:
             term_out_state_Fe(term, ch);
+            break;
+        case ansi_state_SS2:
+            term_out_state_SS2(term, ch);
+            break;
+        case ansi_state_SS3:
+            term_out_state_SS3(term, ch);
             break;
         case ansi_state_CSI:
             term_out_state_CSI(term, ch);
