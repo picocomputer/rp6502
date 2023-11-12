@@ -95,22 +95,16 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
-        {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
-        }
         else if ((key_shift && !is_caps_lock) || (!key_shift && is_caps_lock))
-        {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
-        }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
     }
     if (key_alt && !ch && keycode < 128)
     {
-        if ((key_shift && !is_caps_lock) || (!key_shift && is_caps_lock))
-        {
+        if (key_shift)
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
-        }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
         if (key_ctrl)
@@ -122,7 +116,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
         if (ch &&
             &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
-            &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+            &KBD_KEY_QUEUE(kbd_key_queue_head + 2) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
         {
             KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
             KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
@@ -204,13 +198,13 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     case HID_KEY_F12:
         return kbd_queue_seq_vt(24, ansi_modifier);
     case HID_KEY_HOME:
-        return kbd_queue_seq_vt(1, ansi_modifier);
+        return kbd_queue_seq("\33[H", "\33[1;%dH", ansi_modifier);
     case HID_KEY_INSERT:
         return kbd_queue_seq_vt(2, ansi_modifier);
     case HID_KEY_DELETE:
         return kbd_queue_seq_vt(3, ansi_modifier);
     case HID_KEY_END:
-        return kbd_queue_seq_vt(4, ansi_modifier);
+        return kbd_queue_seq("\33[F", "\33[1;%dF", ansi_modifier);
     case HID_KEY_PAGE_UP:
         return kbd_queue_seq_vt(5, ansi_modifier);
     case HID_KEY_PAGE_DOWN:
