@@ -144,6 +144,18 @@ static void com_line_forward_1(void)
 
 static void com_line_backward_word(void)
 {
+    int count = 0;
+    if (com_bufpos)
+        while (true)
+        {
+            count++;
+            if (!--com_bufpos)
+                break;
+            if (com_buf[com_bufpos] != ' ' && com_buf[com_bufpos - 1] == ' ')
+                break;
+        }
+    if (count)
+        printf("\33[%dD", count);
 }
 
 static void com_line_backward(void)
@@ -151,6 +163,8 @@ static void com_line_backward(void)
     uint16_t count = com_csi_param[0];
     if (count < 1)
         count = 1;
+    if (com_csi_param_count > 1 && !!(com_csi_param[1] - 1))
+        return com_line_backward_word();
     if (count > com_bufpos)
         count = com_bufpos;
     if (!count)
