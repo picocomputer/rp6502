@@ -162,14 +162,16 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             else if (ch >= '@' && ch <= '_')
                 ch -= 64;
         }
-        if (ch &&
-            &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
-            &KBD_KEY_QUEUE(kbd_key_queue_head + 2) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+        if (ch)
         {
-            KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
-            KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+            if (&KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
+                &KBD_KEY_QUEUE(kbd_key_queue_head + 2) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+            {
+                KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
+                KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+            }
+            return;
         }
-        return;
     }
     // Promote ctrl characters
     if (key_ctrl)
