@@ -32,11 +32,6 @@ void cpu_init(void)
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);
     gpio_set_dir(CPU_RESB_PIN, true);
-
-    // drive irq pin
-    gpio_init(CPU_IRQB_PIN);
-    gpio_put(CPU_IRQB_PIN, true);
-    gpio_set_dir(CPU_IRQB_PIN, true);
 }
 
 void cpu_reclock(void)
