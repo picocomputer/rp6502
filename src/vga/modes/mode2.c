@@ -225,7 +225,7 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             *rgb++ = palette[(glyph & 0x0C) >> 2];
         case 1:
             *rgb++ = palette[glyph & 0x03];
-            if (index++ == tile_size / 4)
+            if (++index == tile_size / 4)
                 tile_mem = mode2_get_glyph_tile_mem(config, 2, tile_size, col, row, row_data, &index);
             glyph = xram[tile_mem + index];
         }
@@ -237,7 +237,7 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             *rgb++ = palette[glyph & 0x03];
             fill_cols -= 4;
             col += 4;
-            if (index++ == tile_size / 4)
+            if (++index == tile_size / 4)
                 tile_mem = mode2_get_glyph_tile_mem(config, 2, tile_size, col, row, row_data, &index);
             glyph = xram[tile_mem + index];
         }
@@ -289,7 +289,7 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             *rgb++ = palette[glyph & 0xF];
             col++;
             fill_cols--;
-            if (index++ == tile_size / 2)
+            if (++index == tile_size / 2)
                 tile_mem = mode2_get_glyph_tile_mem(config, 4, tile_size, col, row, row_data, &index);
             glyph = xram[tile_mem + index];
         }
@@ -299,7 +299,7 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             *rgb++ = palette[glyph & 0xF];
             fill_cols -= 2;
             col += 2;
-            if (index++ == tile_size / 2)
+            if (++index == tile_size / 2)
                 tile_mem = mode2_get_glyph_tile_mem(config, 4, tile_size, col, row, row_data, &index);
             glyph = xram[tile_mem + index];
         }
@@ -347,7 +347,7 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             *rgb++ = palette[glyph];
             fill_cols -= 1;
             col += 1;
-            if (index++ == tile_size / 1)
+            if (++index == tile_size / 1)
                 tile_mem = mode2_get_glyph_tile_mem(config, 8, tile_size, col, row, row_data, &index);
             glyph = xram[tile_mem + index];
         }
