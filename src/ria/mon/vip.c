@@ -47,8 +47,12 @@ void vip_print(void)
         "Jos Vermoesen",
         "James Temple",
         "Wojciech Gwiozdzik",
+        "Volodymyr Vialyi",
+        "markbo",
         // YouTube
         "AJ_Whitney",
+        // Other
+        "Jesse Warford",
     };
     const unsigned VIP_COUNT = sizeof(vips) / sizeof(char *);
     for (unsigned i = 0; i < VIP_COUNT; i++)

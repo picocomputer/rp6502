@@ -48,4 +48,7 @@ void cpu_stdin_request(void);
 bool cpu_stdin_ready(void);
 size_t cpu_stdin_read(uint8_t *buf, size_t count);
 
+// API sets STDIN options
+void cpu_api_stdin_opt(void);
+
 #endif /* _CPU_H_ */

@@ -38,6 +38,7 @@ static ansi_state_t com_ansi_state;
 static uint16_t com_csi_param[COM_CSI_PARAM_MAX_LEN];
 static uint8_t com_csi_param_count;
 static stdio_driver_t com_stdio_app;
+static uint32_t com_ctrl_bits;
 
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
@@ -217,7 +218,27 @@ static void com_line_insert(char ch)
 
 static void com_line_state_C0(char ch)
 {
-    if (ch == '\33')
+    if (com_ctrl_bits & (1 << ch))
+    {
+        printf("\n");
+        com_flush();
+        com_buf[0] = ch;
+        com_buf[1] = 0;
+        com_buflen = 1;
+        com_read_callback_t cc = com_callback;
+        com_callback = NULL;
+        cc(false, com_buf, com_buflen);
+    }
+    else if (ch == '\r')
+    {
+        printf("\n");
+        com_flush();
+        com_buf[com_buflen] = 0;
+        com_read_callback_t cc = com_callback;
+        com_callback = NULL;
+        cc(false, com_buf, com_buflen);
+    }
+    else if (ch == '\33')
         com_ansi_state = ansi_state_Fe;
     else if (ch == '\b' || ch == 127)
         com_line_backspace();
@@ -229,15 +250,6 @@ static void com_line_state_C0(char ch)
         com_line_end();
     else if (ch == 6) // ctrl-f
         com_line_forward_1();
-    else if (ch == '\r')
-    {
-        printf("\n");
-        com_flush();
-        com_buf[com_buflen] = 0;
-        com_read_callback_t cc = com_callback;
-        com_callback = NULL;
-        cc(false, com_buf, com_buflen);
-    }
     else
         com_line_insert(ch);
 }
@@ -383,7 +395,7 @@ void com_read_binary(uint32_t timeout_ms, com_read_callback_t callback, uint8_t 
     com_callback = callback;
 }
 
-void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t size)
+void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t size, uint32_t ctrl_bits)
 {
     com_bufsize = size;
     if (com_bufsize > COM_BUF_SIZE)
@@ -394,6 +406,7 @@ void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t siz
     com_timeout_ms = timeout_ms;
     com_timer = delayed_by_ms(get_absolute_time(), com_timeout_ms);
     com_callback = callback;
+    com_ctrl_bits = ctrl_bits;
 }
 
 void com_task(void)

@@ -152,7 +152,7 @@ void mon_task(void)
         putchar(']');
         needs_prompt = false;
         needs_newline = false;
-        com_read_line(0, mon_enter, 256);
+        com_read_line(0, mon_enter, 256, 0);
     }
 }
 

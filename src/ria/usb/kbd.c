@@ -161,6 +161,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 ch -= 96;
             else if (ch >= '@' && ch <= '_')
                 ch -= 64;
+            else if (keycode == HID_KEY_BACKSPACE)
+                ch = '\b';
         }
         if (ch)
         {
@@ -180,6 +182,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             ch -= 96;
         else if (ch >= '@' && ch <= '_')
             ch -= 64;
+        else if (keycode == HID_KEY_BACKSPACE)
+            ch = '\b';
         else
             ch = 0;
     }
