@@ -82,36 +82,78 @@ static void kbd_queue_seq_vt(int num, int mod)
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
-    bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
-    bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
     bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
-    bool key_meta = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
-    bool is_caps_lock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
+    bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
+    bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
+    bool key_gui = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
+    bool is_numlock = kdb_hid_leds & KEYBOARD_LED_NUMLOCK;
+    bool is_capslock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
+    // Set up for repeat
     kbd_repeat_keycode = keycode;
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
+    // When not in numlock, and not shifted, remap num pad
+    if (keycode >= HID_KEY_KEYPAD_1 &&
+        keycode <= HID_KEY_KEYPAD_DECIMAL &&
+        (!is_numlock || (key_shift && is_numlock)))
+    {
+        if (is_numlock)
+            key_shift = false;
+        switch (keycode)
+        {
+        case HID_KEY_KEYPAD_1:
+            keycode = HID_KEY_END;
+            break;
+        case HID_KEY_KEYPAD_2:
+            keycode = HID_KEY_ARROW_DOWN;
+            break;
+        case HID_KEY_KEYPAD_3:
+            keycode = HID_KEY_PAGE_DOWN;
+            break;
+        case HID_KEY_KEYPAD_4:
+            keycode = HID_KEY_ARROW_LEFT;
+            break;
+        case HID_KEY_KEYPAD_5:
+            keycode = HID_KEY_NONE;
+            break;
+        case HID_KEY_KEYPAD_6:
+            keycode = HID_KEY_ARROW_RIGHT;
+            break;
+        case HID_KEY_KEYPAD_7:
+            keycode = HID_KEY_HOME;
+            break;
+        case HID_KEY_KEYPAD_8:
+            keycode = HID_KEY_ARROW_UP;
+            break;
+        case HID_KEY_PAGE_UP:
+            keycode = HID_KEY_END;
+            break;
+        case HID_KEY_KEYPAD_0:
+            keycode = HID_KEY_INSERT;
+            break;
+        case HID_KEY_KEYPAD_DECIMAL:
+            keycode = HID_KEY_DELETE;
+            break;
+        }
+    }
+    // Find plain typed or AltGr character
     char ch = 0;
     if (keycode < 128 && !((modifier & (KEYBOARD_MODIFIER_LEFTALT |
                                         KEYBOARD_MODIFIER_LEFTGUI |
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
-        {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
-        }
-        else if ((key_shift && !is_caps_lock) || (!key_shift && is_caps_lock))
-        {
+        else if ((key_shift && !is_capslock) || (!key_shift && is_capslock))
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
-        }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
     }
+    // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
-        if ((key_shift && !is_caps_lock) || (!key_shift && is_caps_lock))
-        {
+        if (key_shift)
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
-        }
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
         if (key_ctrl)
@@ -120,31 +162,40 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 ch -= 96;
             else if (ch >= '@' && ch <= '_')
                 ch -= 64;
+            else if (keycode == HID_KEY_BACKSPACE)
+                ch = '\b';
         }
-        if (ch &&
-            &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
-            &KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+        if (ch)
         {
-            KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
-            KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+            if (&KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
+                &KBD_KEY_QUEUE(kbd_key_queue_head + 2) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+            {
+                KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
+                KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+            }
+            return;
         }
-        return;
     }
+    // Promote ctrl characters
     if (key_ctrl)
     {
         if (ch >= '`' && ch <= '~')
             ch -= 96;
         else if (ch >= '@' && ch <= '_')
             ch -= 64;
+        else if (keycode == HID_KEY_BACKSPACE)
+            ch = '\b';
         else
             ch = 0;
     }
+    // Queue a regularly typed key
     if (ch)
     {
         if (&KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
             KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
         return;
     }
+    // Non-repeating special key handler
     if (initial_press)
         switch (keycode)
         {
@@ -156,11 +207,16 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 return;
             }
             break;
+        case HID_KEY_NUM_LOCK:
+            kdb_hid_leds ^= KEYBOARD_LED_NUMLOCK;
+            kbd_hid_leds_dirty();
+            break;
         case HID_KEY_CAPS_LOCK:
             kdb_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
             kbd_hid_leds_dirty();
             break;
         }
+    // Special key handler
     int ansi_modifier = 1;
     if (key_shift)
         ansi_modifier += 1;
@@ -168,7 +224,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         ansi_modifier += 2;
     if (key_ctrl)
         ansi_modifier += 4;
-    if (key_meta)
+    if (key_gui)
         ansi_modifier += 8;
     switch (keycode)
     {
@@ -205,13 +261,13 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     case HID_KEY_F12:
         return kbd_queue_seq_vt(24, ansi_modifier);
     case HID_KEY_HOME:
-        return kbd_queue_seq_vt(1, ansi_modifier);
+        return kbd_queue_seq("\33[H", "\33[1;%dH", ansi_modifier);
     case HID_KEY_INSERT:
         return kbd_queue_seq_vt(2, ansi_modifier);
     case HID_KEY_DELETE:
         return kbd_queue_seq_vt(3, ansi_modifier);
     case HID_KEY_END:
-        return kbd_queue_seq_vt(4, ansi_modifier);
+        return kbd_queue_seq("\33[F", "\33[1;%dF", ansi_modifier);
     case HID_KEY_PAGE_UP:
         return kbd_queue_seq_vt(5, ansi_modifier);
     case HID_KEY_PAGE_DOWN:
@@ -231,8 +287,6 @@ static int kbd_stdio_in_chars(char *buf, int length)
 
 static void kbd_prev_report_to_xram()
 {
-    // TODO use 2 and 3 for capslock and numlock status
-
     // Update xram if configured
     if (kbd_xram != 0xFFFF)
     {
@@ -256,9 +310,15 @@ static void kbd_prev_report_to_xram()
         }
         // modifier maps directly
         kbd_xram_keys[HID_KEY_CONTROL_LEFT >> 3] = kbd_prev_report.modifier;
-        // The Any Key
+        // No key pressed
         if (!any_key && !kbd_prev_report.modifier && !phantom)
             kbd_xram_keys[0] |= 1;
+        // NUMLOCK
+        if (kdb_hid_leds & KEYBOARD_LED_NUMLOCK)
+            kbd_xram_keys[0] |= 4;
+        // CAPSLOCK
+        if (kdb_hid_leds & KEYBOARD_LED_CAPSLOCK)
+            kbd_xram_keys[0] |= 8;
         // Send it to xram
         memcpy(&xram[kbd_xram], kbd_xram_keys, sizeof(kbd_xram_keys));
     }

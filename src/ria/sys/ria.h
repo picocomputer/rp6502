@@ -23,6 +23,9 @@ void ria_run();
 void ria_stop();
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
+// Trigger IRQ when enabled
+void ria_trigger_irq(void);
+
 // Move data from the 6502 to mbuf.
 void ria_read_buf(uint16_t addr);
 

@@ -33,6 +33,13 @@ static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
+static volatile bool irq_enabled;
+
+void ria_trigger_irq(void)
+{
+    if (irq_enabled & 0x01)
+        gpio_put(CPU_IRQB_PIN, false);
+}
 
 uint32_t ria_buf_crc32(void)
 {
@@ -101,6 +108,8 @@ void ria_run(void)
 
 void ria_stop(void)
 {
+    irq_enabled = false;
+    gpio_put(CPU_IRQB_PIN, true);
     action_state = action_state_idle;
     if (saved_reset_vec >= 0)
     {
@@ -268,6 +277,12 @@ static __attribute__((optimize("O1"))) void act_loop(void)
                             main_stop();
                         }
                     }
+                    break;
+                case CASE_WRITE(0xFFF0): // IRQ Enable
+                    irq_enabled = data;
+                    __attribute__((fallthrough));
+                case CASE_READ(0xFFF0): // IRQ ACK
+                    gpio_put(CPU_IRQB_PIN, true);
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
                     api_return_blocked();
@@ -489,6 +504,11 @@ static void ria_act_pio_init(void)
 
 void ria_init(void)
 {
+    // drive irq pin
+    gpio_init(CPU_IRQB_PIN);
+    gpio_put(CPU_IRQB_PIN, true);
+    gpio_set_dir(CPU_IRQB_PIN, true);
+
     // safety check for compiler alignment
     assert(!((uintptr_t)regs & 0x1F));
 

@@ -25,6 +25,8 @@ static const char *cpu_readline_buf;
 static bool cpu_readline_needs_nl;
 static size_t cpu_readline_pos;
 static size_t cpu_readline_length;
+static size_t cpu_str_length = 254;
+static uint32_t cpu_ctrl_bits;
 
 void cpu_init(void)
 {
@@ -32,11 +34,6 @@ void cpu_init(void)
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);
     gpio_set_dir(CPU_RESB_PIN, true);
-
-    // drive irq pin
-    gpio_init(CPU_IRQB_PIN);
-    gpio_put(CPU_IRQB_PIN, true);
-    gpio_set_dir(CPU_IRQB_PIN, true);
 }
 
 void cpu_reclock(void)
@@ -104,6 +101,9 @@ void cpu_stop(void)
     cpu_readline_needs_nl = false;
     cpu_readline_pos = 0;
     cpu_readline_length = 0;
+    cpu_str_length = 254;
+    cpu_ctrl_bits = 0;
+
     cpu_run_requested = false;
     if (gpio_get(CPU_RESB_PIN))
     {
@@ -233,7 +233,7 @@ void cpu_stdin_request(void)
     if (!cpu_readline_needs_nl)
     {
         cpu_readline_active = true;
-        com_read_line(0, cpu_enter, 256);
+        com_read_line(0, cpu_enter, cpu_str_length + 1, cpu_ctrl_bits);
     }
 }
 
@@ -246,15 +246,22 @@ size_t cpu_stdin_read(uint8_t *buf, size_t count)
 {
     size_t i;
     for (i = 0; i < count && cpu_readline_pos < cpu_readline_length; i++)
-    {
-        if (cpu_readline_pos >= cpu_readline_length)
-            return 0;
         buf[i] = cpu_readline_buf[cpu_readline_pos++];
-    }
     if (i < count && cpu_readline_needs_nl)
     {
         buf[i++] = '\n';
         cpu_readline_needs_nl = false;
     }
     return i;
+}
+
+void cpu_api_stdin_opt(void)
+{
+    uint8_t str_length = API_A;
+    uint32_t ctrl_bits;
+    if (!api_pop_uint32_end(&ctrl_bits))
+        return api_return_errno(API_EINVAL);
+    cpu_str_length = str_length;
+    cpu_ctrl_bits = ctrl_bits;
+    return api_return_ax(0);
 }

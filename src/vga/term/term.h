@@ -10,8 +10,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-struct scanvideo_scanline_buffer;
-
 void term_init(void);
 void term_task(void);
 bool term_prog(uint16_t *xregs);

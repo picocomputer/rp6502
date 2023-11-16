@@ -102,6 +102,7 @@ static void vga_backchannel_command(uint8_t byte)
             vframe = (vframe & 0xF0) + 0x10;
         vframe = (vframe & 0xF0) | scalar;
         REGS(0xFFE3) = vframe;
+        ria_trigger_irq();
         break;
     case 0x90:
         pix_ack();
