@@ -7,10 +7,15 @@
 #ifndef _KBD_FRA_H_
 #define _KBD_FRA_H_
 
-// French / Français
+/*
+ * "French Legacy AZERTY" layout
+ * (there are also "French Standard AZERTY" & "French Standard BÉPO" layouts)
+ * see http://kbdlayout.info/
+ * see src/pico-sdk/lib/tinyusb/src/class/hid/hid.h for keycodes
+ */
+
 // KEYCODE to Unicode Conversion
 // {without shift, with shift, with altGr}
-// see src/pico-sdk/lib/tinyusb/src/class/hid/hid.h for keycodes
 
 #define HID_KEYCODE_TO_UNICODE_FR        HID_KEYCODE_TO_UNICODE_FRA_AZERTY
 #define HID_KEYCODE_TO_UNICODE_FR_AZERTY HID_KEYCODE_TO_UNICODE_FRA_AZERTY
@@ -23,7 +28,7 @@
         {0, 0, 0},             /* 0x02 POST FAIL        */ \
         {0, 0, 0},             /* 0x03 UNDEFINED        */ \
         /* LETTERS                                      */ \
-        {'q', 'Q', 0},         /* 0x04 A, FRA           */ \
+        {'q', 'Q', 0},         /* 0x04 (A) FRA          */ \
         {'b', 'B', 0},         /* 0x05                  */ \
         {'c', 'C', 0},         /* 0x06                  */ \
         {'d', 'D', 0},         /* 0x07                  */ \
@@ -35,20 +40,20 @@
         {'j', 'J', 0},         /* 0x0d                  */ \
         {'k', 'K', 0},         /* 0x0e                  */ \
         {'l', 'L', 0},         /* 0x0f                  */ \
-        {',', '?', 0},         /* 0x10 M, FRA           */ \
+        {',', '?', 0},         /* 0x10 (M) FRA          */ \
         {'n', 'N', 0},         /* 0x11                  */ \
         {'o', 'O', 0},         /* 0x12                  */ \
         {'p', 'P', 0},         /* 0x13                  */ \
-        {'a', 'A', 0},         /* 0x14 Q, FRA           */ \
+        {'a', 'A', 0},         /* 0x14 (Q) FRA          */ \
         {'r', 'R', 0},         /* 0x15                  */ \
         {'s', 'S', 0},         /* 0x16                  */ \
         {'t', 'T', 0},         /* 0x17                  */ \
         {'u', 'U', 0},         /* 0x18                  */ \
         {'v', 'V', 0},         /* 0x19                  */ \
-        {'z', 'Z', 0},         /* 0x1a W, FRA           */ \
+        {'z', 'Z', 0},         /* 0x1a (W) FRA          */ \
         {'x', 'X', 0},         /* 0x1b                  */ \
         {'y', 'Y', 0},         /* 0x1c                  */ \
-        {'w', 'W', 0},         /* 0x1d Z, FRA           */ \
+        {'w', 'W', 0},         /* 0x1d (Z) FRA          */ \
         /* DIGITS                                       */ \
         {'&', '1', 0},         /* 0x1e FRA              */ \
         {0x00E9, '2', '~'},    /* 0x1f FRA 'é'          */ \
