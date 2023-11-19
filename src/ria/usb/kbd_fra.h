@@ -18,8 +18,10 @@
 // {without shift, with shift, with altGr}
 
 #define HID_KEYCODE_TO_UNICODE_FR        HID_KEYCODE_TO_UNICODE_FRA_AZERTY
+#define HID_KEYCODE_TO_UNICODE_FR_FR     HID_KEYCODE_TO_UNICODE_FRA_AZERTY
 #define HID_KEYCODE_TO_UNICODE_FR_AZERTY HID_KEYCODE_TO_UNICODE_FRA_AZERTY
 #define HID_KEYCODE_TO_UNICODE_FRA       HID_KEYCODE_TO_UNICODE_FRA_AZERTY
+#define HID_KEYCODE_TO_UNICODE_FRA_FR    HID_KEYCODE_TO_UNICODE_FRA_AZERTY
 
 #define HID_KEYCODE_TO_UNICODE_FRA_AZERTY                  \
         /* STATUS CODES                                 */ \
@@ -61,7 +63,7 @@
         {'\'', '4', '{'},      /* 0x21 FRA              */ \
         {'(', '5', '['},       /* 0x22 FRA              */ \
         {'-', '6', '|'},       /* 0x23 FRA              */ \
-        {0x00E8, '7', '{'},    /* 0x24 FRA 'è'          */ \
+        {0x00E8, '7', '`'},    /* 0x24 FRA 'è'          */ \
         {'_', '8', '\\'},      /* 0x25 FRA              */ \
         {0x00E7, '9', '^'},    /* 0x26 FRA 'ç'          */ \
         {0x00E0, '0', '@'},    /* 0x27 FRA 'à'          */ \
