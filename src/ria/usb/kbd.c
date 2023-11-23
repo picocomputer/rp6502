@@ -125,8 +125,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         case HID_KEY_KEYPAD_8:
             keycode = HID_KEY_ARROW_UP;
             break;
-        case HID_KEY_PAGE_UP:
-            keycode = HID_KEY_END;
+        case HID_KEY_KEYPAD_9:
+            keycode = HID_KEY_PAGE_UP;
             break;
         case HID_KEY_KEYPAD_0:
             keycode = HID_KEY_INSERT;
