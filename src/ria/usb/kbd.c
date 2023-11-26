@@ -143,7 +143,9 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     {
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
-        else if ((key_shift && !is_capslock) || (!key_shift && is_capslock))
+        else if ((key_shift && !is_capslock) ||
+                 (key_shift && keycode > HID_KEY_Z) ||
+                 (!key_shift && is_capslock && keycode <= HID_KEY_Z))
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
         else
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
