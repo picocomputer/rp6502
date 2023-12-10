@@ -74,7 +74,15 @@ void cpu_task(void)
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
+        {
+            // Always start at the same PHI2 phase to
+            // avoid rare watchdog timeout (I hope)
+            while (gpio_get(CPU_PHI2_PIN))
+                tight_loop_contents();
+            while (!gpio_get(CPU_PHI2_PIN))
+                tight_loop_contents();
             gpio_put(CPU_RESB_PIN, true);
+        }
     }
 
     // Move UART FIFO into action loop

@@ -49,6 +49,7 @@ void vip_print(void)
         "Wojciech Gwiozdzik",
         "Volodymyr Vialyi",
         "markbo",
+        "James Will",
         // YouTube
         "AJ_Whitney",
         // Other
