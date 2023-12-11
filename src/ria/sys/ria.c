@@ -29,6 +29,7 @@ static enum state {
 } volatile action_state = action_state_idle;
 static absolute_time_t action_watchdog_timer;
 static volatile int32_t action_result = -1;
+static uint32_t action_retries;
 static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int32_t rw_pos;
@@ -110,11 +111,27 @@ void ria_stop(void)
 {
     irq_enabled = false;
     gpio_put(CPU_IRQB_PIN, true);
-    action_state = action_state_idle;
-    if (saved_reset_vec >= 0)
+    if ((action_state == action_state_read || action_state == action_state_write) &&
+        action_result == -2 && action_retries > 0)
     {
-        REGSW(0xFFFC) = saved_reset_vec;
-        saved_reset_vec = -1;
+        // The CPU may not come out of reset after
+        // having been in reset for a long time.
+        // Retry the watchdog timeouts.
+        action_retries--;
+        main_run();
+#ifndef NDEBUG
+        //TODO remove message after verifying this workaround is valid
+        printf("Watchdog Retry, state = %d\n", action_state);
+#endif
+    }
+    else
+    {
+        action_state = action_state_idle;
+        if (saved_reset_vec >= 0)
+        {
+            REGSW(0xFFFC) = saved_reset_vec;
+            saved_reset_vec = -1;
+        }
     }
 }
 
@@ -173,6 +190,7 @@ void ria_read_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_read;
+    action_retries = 1;
     main_run();
 }
 
@@ -193,6 +211,7 @@ void ria_verify_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_verify;
+    action_retries = 1;
     main_run();
 }
 
@@ -212,6 +231,7 @@ void ria_write_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_write;
+    action_retries = 1;
     main_run();
 }
 
