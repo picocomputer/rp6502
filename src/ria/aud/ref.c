@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
+#include "aud.h"
 #include "aud/aud.h"
 #include "aud/ref.h"
 #include "pico/stdlib.h"
@@ -12,19 +12,8 @@
 #include <math.h>
 #include <string.h>
 
-#define AUD_RATE 24000
-#define AUD_BITS 8
-#define AUD_CHANNELS 8
-
-#define AUD_L_CHAN (pwm_gpio_to_channel(AUD_L_PIN))
-#define AUD_L_SLICE (pwm_gpio_to_slice_num(AUD_L_PIN))
-#define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
-#define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
-#define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_PWM_IRQ_PIN))
-
-#define AUD_PWM_WRAP ((1u << AUD_BITS) - 1)
-#define AUD_PWM_CENTER (1u << (AUD_BITS - 1))
-#define AUD_SHIFT (1 + 14 - AUD_BITS)
+#define REF_RATE 24000
+#define REF_CHANNELS 8
 
 // Fixed point range of -1.9r to 1.9r for DSP work
 typedef signed short s1x14;
@@ -56,14 +45,14 @@ struct channel
 
 // Recomputing clocks is too much for an ISR, so it's done as a task
 // then moved from pending[] to chan[] as needed by the ISR.
-static struct channel chan[AUD_CHANNELS];
-static struct channel pending[AUD_CHANNELS];
+static struct channel chan[REF_CHANNELS];
+static struct channel pending[REF_CHANNELS];
 
 static void __isr __time_critical_func(audio_pwm_irq_handler)()
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
 
-    for (unsigned idx = 0; idx < AUD_CHANNELS; idx++)
+    for (unsigned idx = 0; idx < REF_CHANNELS; idx++)
     {
         struct channel *this = &chan[idx];
         if (pending[idx].dirty)
@@ -117,8 +106,8 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
         }
     }
 
-    // int r = chan[0].nco_r; // real audio
-    int r = 0; // silence
+    int r = chan[0].nco_r; // real audio
+    // int r = 0; // silence
     if (chan[0].wave == square)
     {
         if (r < s1x14_0_0)
@@ -150,7 +139,7 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
     if (!--norm)
     {
         norm = 1 << (AUD_SHIFT - 1);
-        for (unsigned idx = 0; idx < AUD_CHANNELS; idx++)
+        for (unsigned idx = 0; idx < REF_CHANNELS; idx++)
         {
             struct channel *this = &chan[idx];
             enum waveform wave = this->wave;
@@ -168,27 +157,12 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
 
 static void ref_start(void)
 {
-    gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
-    gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
-
-    pwm_config config;
-
-    config = pwm_get_default_config();
-    pwm_config_set_wrap(&config, AUD_PWM_WRAP);
-    pwm_init(AUD_L_SLICE, &config, true);
-    pwm_init(AUD_R_SLICE, &config, true);
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
-
-    config = pwm_get_default_config();
-    pwm_init(AUD_IRQ_SLICE, &config, true);
-
     float freq = 440.0; // A4
-    float inc = M_PI * 2 * freq / AUD_RATE;
+    float inc = M_PI * 2 * freq / REF_RATE;
     s1x14 clk_r = float_to_s1x14(cosf(inc));
     s1x14 clk_i = float_to_s1x14(sinf(inc));
 
-    for (unsigned idx = 0; idx < AUD_CHANNELS; idx++)
+    for (unsigned idx = 0; idx < REF_CHANNELS; idx++)
     {
         pending[idx].nco_r = s1x14_1_0;
         pending[idx].nco_i = s1x14_0_0;
@@ -205,11 +179,13 @@ static void ref_start(void)
 
 static void ref_stop(void)
 {
+    pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
+    irq_set_enabled(PWM_IRQ_WRAP, false);
 }
 
 static void ref_reclock(uint32_t sys_clk_khz)
 {
-    pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (AUD_RATE / 1000.f));
+    pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (REF_RATE / 1000.f));
 }
 
 static void ref_task(void)
@@ -228,14 +204,14 @@ static void ref_task(void)
         // freq = 65.41;    // C2
         // freq = 2093.005; // C7
         // freq = 4186.009; // C8
-        float inc = M_PI * 2 * freq / AUD_RATE;
+        float inc = M_PI * 2 * freq / REF_RATE;
         s1x14 clk_r = float_to_s1x14(cosf(inc));
         s1x14 clk_i = float_to_s1x14(sinf(inc));
 
         switch (mode)
         {
         case 0:
-            mode = 0; // stay
+            mode = 1;
             pending[0].wave = sine;
             pending[0].nco_r = s1x14_1_0;
             pending[0].nco_i = s1x14_0_0;
@@ -256,7 +232,7 @@ static void ref_task(void)
             mode = 4; // skip 3
             pending[0].wave = saw;
             pending[0].nco_r = s1x14_1_0;
-            pending[0].clk_r = float_to_s1x14(2 * freq / AUD_RATE);
+            pending[0].clk_r = float_to_s1x14(2 * freq / REF_RATE);
             pending[0].clk_i = -s1x14_1_0;
             pending[0].dirty = true;
             break;
@@ -264,7 +240,7 @@ static void ref_task(void)
             mode = 4;
             pending[0].wave = saw;
             pending[0].nco_r = s1x14_1_0;
-            pending[0].clk_r = float_to_s1x14(2 * freq / AUD_RATE);
+            pending[0].clk_r = float_to_s1x14(2 * freq / REF_RATE);
             pending[0].clk_i = +s1x14_1_0;
             pending[0].dirty = true;
             break;
@@ -272,7 +248,7 @@ static void ref_task(void)
             mode = 0;
             pending[0].wave = triangle;
             pending[0].nco_r = s1x14_1_0;
-            pending[0].clk_r = float_to_s1x14(4 * freq / AUD_RATE);
+            pending[0].clk_r = float_to_s1x14(4 * freq / REF_RATE);
             pending[0].clk_i = s1x14_1_0;
             pending[0].dirty = true;
             break;
