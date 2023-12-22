@@ -78,6 +78,8 @@ target_sources(rp6502_ria PRIVATE
     ria/api/rng.c
     ria/api/std.c
     ria/aud/aud.c
+    ria/aud/psg.c
+    ria/aud/ref.c
     ria/mon/fil.c
     ria/mon/hlp.c
     ria/mon/mon.c

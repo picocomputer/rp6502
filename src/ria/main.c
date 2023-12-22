@@ -12,6 +12,8 @@
 #include "api/rng.h"
 #include "api/std.h"
 #include "aud/aud.h"
+#include "aud/psg.h"
+#include "aud/ref.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
 #include "mon/ram.h"
@@ -112,6 +114,7 @@ static void stop(void)
     std_stop();
     kbd_stop();
     mou_stop();
+    aud_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
@@ -149,6 +152,10 @@ bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
         return kbd_xreg(word);
     case 0x001:
         return mou_xreg(word);
+    case 0x100:
+        return psg_xreg(word);
+    case 0x1FF: // TODO will be deleted
+        return ref_xreg(word);
     default:
         return false;
     }
