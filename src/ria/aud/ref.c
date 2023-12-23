@@ -172,15 +172,7 @@ static void ref_start(void)
         pending[idx].dirty = true;
     }
 
-    pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
     irq_set_exclusive_handler(PWM_IRQ_WRAP, audio_pwm_irq_handler);
-    irq_set_enabled(PWM_IRQ_WRAP, true);
-}
-
-static void ref_stop(void)
-{
-    pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
-    irq_set_enabled(PWM_IRQ_WRAP, false);
 }
 
 static void ref_reclock(uint32_t sys_clk_khz)
@@ -259,6 +251,6 @@ static void ref_task(void)
 bool ref_xreg(uint16_t word)
 {
     (void)(word);
-    aud_setup(ref_start, ref_stop, ref_reclock, ref_task);
+    aud_setup(ref_start, ref_reclock, ref_task);
     return true;
 }

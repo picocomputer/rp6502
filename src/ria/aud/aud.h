@@ -24,7 +24,6 @@ void aud_reclock(uint32_t sys_clk_khz);
 
 void aud_setup(
     void (*start_fn)(void),
-    void (*stop_fn)(void),
     void (*reclock_fn)(uint32_t sys_clk_khz),
     void (*task_fn)(void));
 

@@ -15,9 +15,8 @@
 
 static void (*aud_reclock_fn)(uint32_t sys_clk_khz);
 static void (*aud_task_fn)();
-static void (*aud_stop_fn)();
 
-static void aud_null()
+static void aud_nop()
 {
 }
 
@@ -38,16 +37,15 @@ void aud_init(void)
     config = pwm_get_default_config();
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
-    aud_stop_fn = aud_null;
     aud_stop();
 }
 
 void aud_stop(void)
 {
-    aud_stop_fn();
-    aud_reclock_fn = aud_null;
-    aud_task_fn = aud_null;
-    aud_stop_fn = aud_null;
+    pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
+    irq_set_enabled(PWM_IRQ_WRAP, false);
+    aud_reclock_fn = aud_nop;
+    aud_task_fn = aud_nop;
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
 }
@@ -64,16 +62,16 @@ void aud_task(void)
 
 void aud_setup(
     void (*start_fn)(void),
-    void (*stop_fn)(void),
     void (*reclock_fn)(uint32_t sys_clk_khz),
     void (*task_fn)(void))
 {
-    if (stop_fn != aud_stop_fn)
+    if (reclock_fn != aud_reclock_fn)
     {
         aud_stop();
         start_fn();
         reclock_fn(clock_get_hz(clk_sys) / 1000);
-        aud_stop_fn = stop_fn;
+        pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
+        irq_set_enabled(PWM_IRQ_WRAP, true);
         aud_reclock_fn = reclock_fn;
         aud_task_fn = task_fn;
     }
