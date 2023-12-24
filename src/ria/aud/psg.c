@@ -41,7 +41,10 @@ struct
     uint32_t inc;
 } channel_data[PSG_CHANNELS];
 
-static void __isr __time_critical_func(audio_pwm_irq_handler)()
+static void
+    __attribute__((optimize("O1")))
+    __isr
+    __time_critical_func(psg_irq_handler)()
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
     struct channels *channels = (void *)&xram[psg_xaddr];
@@ -52,40 +55,54 @@ static void __isr __time_critical_func(audio_pwm_irq_handler)()
         return;
     }
 
-    static unsigned slow_chan = 0;
-    if (++slow_chan >= PSG_CHANNELS)
-        slow_chan = 0;
-    channel_data[slow_chan].inc = ((double)UINT32_MAX + 1) * channels[slow_chan].freq / PSG_RATE;
-
+    // Begin with a sample of the raw waveform
+    int8_t samples[PSG_CHANNELS];
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        channel_data[i].phase += channel_data[i].inc;
-        uint8_t sample;
         switch (channels[i].trig_wave & 0xF)
         {
         case 1: // square
-            sample = 255;
+            channel_data[i].phase += channel_data[i].inc;
+            if ((channel_data[i].phase >> 16) > channels[i].duty)
+                samples[i] = -127;
+            else
+                samples[i] = 127;
+            break;
+        case 2: // sawtooth
+            channel_data[i].phase += channel_data[i].inc;
+            if ((channel_data[i].phase >> 16) > channels[i].duty)
+                samples[i] = -127;
+            else
+                samples[i] = 127 - (channel_data[i].phase >> 24);
             break;
         case 0: // sine (not impl)
-        case 2: // sawtooth (not impl)
         case 3: // triangle (not impl)
+        case 4: // noise (not impl)
         default:
-            sample = AUD_PWM_CENTER;
+            channel_data[i].phase += channel_data[i].inc;
+            channel_data[i].phase += channel_data[i].inc;
+            channel_data[i].phase += channel_data[i].inc;
+            samples[i] = 0;
             break;
         }
-        if ((channel_data[i].phase >> 16) > channels[i].duty)
-            sample = 0;
-        if (i == 0)
-        {
-            pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample);
-            pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample);
-        }
+    }
+
+    // Short circuit
+    if (channels[0].trig_wave & 0xF0)
+    {
+        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, samples[0] + AUD_PWM_CENTER);
+        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, samples[0] + AUD_PWM_CENTER);
+    }
+    else
+    {
+        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
+        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
     }
 }
 
 static void psg_start(void)
 {
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, audio_pwm_irq_handler);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP, psg_irq_handler);
 }
 
 static void psg_reclock(uint32_t sys_clk_khz)
@@ -95,6 +112,16 @@ static void psg_reclock(uint32_t sys_clk_khz)
 
 static void psg_task(void)
 {
+
+    struct channels *channels = (void *)&xram[psg_xaddr];
+    if (channels != (void *)&xram[0xFFFF])
+    {
+        // Perform slow computations on only 1 channel per task
+        static unsigned slow_chan = 0;
+        if (++slow_chan >= PSG_CHANNELS)
+            slow_chan = 0;
+        channel_data[slow_chan].inc = ((double)UINT32_MAX + 1) * channels[slow_chan].freq / PSG_RATE;
+    }
 }
 
 bool psg_xreg(uint16_t word)
