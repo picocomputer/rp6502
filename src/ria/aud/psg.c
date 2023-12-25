@@ -30,9 +30,9 @@ struct channels
     uint16_t freq;
     uint16_t duty;
     uint8_t trig_wave;
-    uint8_t attack_vol;
-    uint8_t decay_vol;
-    uint8_t release_pan;
+    uint8_t vol_attack;
+    uint8_t vol_decay;
+    uint8_t pan_release;
 };
 
 struct
@@ -75,13 +75,16 @@ static void
             else
                 samples[i] = 127 - (channel_data[i].phase >> 24);
             break;
+        case 3: // triangle
+            channel_data[i].phase += channel_data[i].inc;
+            if ((channel_data[i].phase >> 16) >= 32768)
+                samples[i] = (channel_data[i].phase >> 23) - 128;
+            else
+                samples[i] = 127 - (channel_data[i].phase >> 23);
+            break;
         case 0: // sine (not impl)
-        case 3: // triangle (not impl)
         case 4: // noise (not impl)
         default:
-            channel_data[i].phase += channel_data[i].inc;
-            channel_data[i].phase += channel_data[i].inc;
-            channel_data[i].phase += channel_data[i].inc;
             samples[i] = 0;
             break;
         }
