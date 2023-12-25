@@ -10,6 +10,7 @@
 #include "aud/psg.h"
 #include "sys/mem.h"
 #include "hardware/pwm.h"
+#include <math.h>
 
 #define PSG_RATE 24000
 #define PSG_CHANNELS 8
@@ -35,11 +36,15 @@ struct channels
     uint8_t pan_release;
 };
 
-struct
+static struct
 {
     uint32_t phase;
     uint32_t inc;
+    uint32_t noise1;
+    uint32_t noise2;
 } channel_data[PSG_CHANNELS];
+
+static int8_t sine_table[256];
 
 static void
     __attribute__((optimize("O1")))
@@ -59,31 +64,40 @@ static void
     int8_t samples[PSG_CHANNELS];
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
+        channel_data[i].phase += channel_data[i].inc;
         switch (channels[i].trig_wave & 0xF)
         {
+        case 0: // sine
+            samples[i] = sine_table[channel_data[i].phase >> 24];
+            break;
         case 1: // square
-            channel_data[i].phase += channel_data[i].inc;
             if ((channel_data[i].phase >> 16) > channels[i].duty)
                 samples[i] = -127;
             else
                 samples[i] = 127;
             break;
         case 2: // sawtooth
-            channel_data[i].phase += channel_data[i].inc;
             if ((channel_data[i].phase >> 16) > channels[i].duty)
                 samples[i] = -127;
             else
                 samples[i] = 127 - (channel_data[i].phase >> 24);
             break;
         case 3: // triangle
-            channel_data[i].phase += channel_data[i].inc;
             if ((channel_data[i].phase >> 16) >= 32768)
                 samples[i] = (channel_data[i].phase >> 23) - 128;
             else
                 samples[i] = 127 - (channel_data[i].phase >> 23);
             break;
-        case 0: // sine (not impl)
-        case 4: // noise (not impl)
+        case 4: // noise
+            if ((channel_data[i].phase >> 16) > channels[i].duty)
+                samples[i] = -127;
+            else
+            {
+                channel_data[i].noise1 ^= channel_data[i].noise2;
+                samples[i] = channel_data[i].noise2 & 0xFF;
+                channel_data[i].noise2 += channel_data[i].noise1;
+            }
+            break;
         default:
             samples[i] = 0;
             break;
@@ -105,6 +119,18 @@ static void
 
 static void psg_start(void)
 {
+    // Set up linear-feedback shift register for noise. Starting constants from here:
+    // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        channel_data[i].noise1 = 0x67452301;
+        channel_data[i].noise2 = 0xEFCDAB89;
+    }
+
+    // Set up sine table
+    for (unsigned i = 0; i < 256; i++)
+        sine_table[i] = sin(M_PI * 2.0 / 256 * i) * 127;
+
     irq_set_exclusive_handler(PWM_IRQ_WRAP, psg_irq_handler);
 }
 
