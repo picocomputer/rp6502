@@ -15,33 +15,44 @@
 #define PSG_RATE 24000
 #define PSG_CHANNELS 8
 
-// Fixed point range of -1.9r to 1.9r for DSP work
-typedef signed short s1x14;
-#define muls1x14(a, b) ((s1x14)((((int)(a)) * ((int)(b))) >> 14))
-#define float_to_s1x14(a) ((s1x14)((a) * 16384.f))
-#define s1x14_to_float(a) ((float)(a) / 16384.f)
-#define s1x14_0_0 (0)
-#define s1x14_1_0 ((s1x14)(1 << 14))
-#define s1x14_1_9r ((s1x14)(1 << 15) - 1)
+enum adsr_state
+{
+    attack,
+    decay,
+    sustain,
+    release
+};
 
 static volatile uint16_t psg_xaddr;
 
+// static const uint16_t vol_table_mul[] = {
+//     256, 240, 224, 208, 192, 176, 160, 144, 128, 112, 96, 80, 49, 64, 32, 0};
+
+// // Same rates as the 6581 SID
+// static const uint16_t rate_table_ms[] = {
+//     2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000, 8000};
+
 struct channels
 {
-    uint16_t freq;
     uint16_t duty;
-    uint8_t trig_wave;
+    uint16_t freq;
+    uint8_t pan_trig;
     uint8_t vol_attack;
     uint8_t vol_decay;
-    uint8_t pan_release;
+    uint8_t wave_release;
 };
 
 static struct
 {
+    int8_t sample;
     uint32_t phase;
     uint32_t inc;
     uint32_t noise1;
     uint32_t noise2;
+    uint8_t adsr;
+    uint8_t attack_inc;
+    uint8_t decay_inc;
+    uint8_t release_inc;
 } channel_data[PSG_CHANNELS];
 
 static int8_t sine_table[256];
@@ -60,61 +71,69 @@ static void
         return;
     }
 
-    // Begin with a sample of the raw waveform
-    int8_t samples[PSG_CHANNELS];
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    // Output previous sample at start to minimize jitter
+    if (channels[0].pan_trig & 0x01)
     {
-        channel_data[i].phase += channel_data[i].inc;
-        switch (channels[i].trig_wave & 0xF)
-        {
-        case 0: // sine
-            samples[i] = sine_table[channel_data[i].phase >> 24];
-            break;
-        case 1: // square
-            if ((channel_data[i].phase >> 16) > channels[i].duty)
-                samples[i] = -127;
-            else
-                samples[i] = 127;
-            break;
-        case 2: // sawtooth
-            if ((channel_data[i].phase >> 16) > channels[i].duty)
-                samples[i] = -127;
-            else
-                samples[i] = 127 - (channel_data[i].phase >> 24);
-            break;
-        case 3: // triangle
-            if ((channel_data[i].phase >> 16) >= 32768)
-                samples[i] = (channel_data[i].phase >> 23) - 128;
-            else
-                samples[i] = 127 - (channel_data[i].phase >> 23);
-            break;
-        case 4: // noise
-            if ((channel_data[i].phase >> 16) > channels[i].duty)
-                samples[i] = -127;
-            else
-            {
-                channel_data[i].noise1 ^= channel_data[i].noise2;
-                samples[i] = channel_data[i].noise2 & 0xFF;
-                channel_data[i].noise2 += channel_data[i].noise1;
-            }
-            break;
-        default:
-            samples[i] = 0;
-            break;
-        }
-    }
-
-    // Short circuit
-    if (channels[0].trig_wave & 0xF0)
-    {
-        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, samples[0] + AUD_PWM_CENTER);
-        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, samples[0] + AUD_PWM_CENTER);
+        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, channel_data[0].sample + AUD_PWM_CENTER);
+        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, channel_data[0].sample + AUD_PWM_CENTER);
     }
     else
     {
         pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
         pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
     }
+
+
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        channel_data[i].phase += channel_data[i].inc;
+        // Sample the raw waveform
+        switch (channels[i].wave_release >> 4)
+        {
+        case 0: // sine
+            channel_data[i].sample = sine_table[channel_data[i].phase >> 24];
+            break;
+        case 1: // square
+            if ((channel_data[i].phase >> 16) > channels[i].duty)
+                channel_data[i].sample = -127;
+            else
+                channel_data[i].sample = 127;
+            break;
+        case 2: // sawtooth
+            if ((channel_data[i].phase >> 16) > channels[i].duty)
+                channel_data[i].sample = -127;
+            else
+                channel_data[i].sample = 127 - (channel_data[i].phase >> 24);
+            break;
+        case 3: // triangle
+            if ((channel_data[i].phase >> 16) >= 32768)
+                channel_data[i].sample = (channel_data[i].phase >> 23) - 128;
+            else
+                channel_data[i].sample = 127 - (channel_data[i].phase >> 23);
+            break;
+        case 4: // noise
+            if ((channel_data[i].phase >> 16) > channels[i].duty)
+                channel_data[i].sample = -127;
+            else
+            {
+                channel_data[i].noise1 ^= channel_data[i].noise2;
+                channel_data[i].sample = channel_data[i].noise2 & 0xFF;
+                channel_data[i].noise2 += channel_data[i].noise1;
+            }
+            break;
+        default:
+            channel_data[i].sample = 0;
+            break;
+        }
+
+        // Amplitude modulate the ADSR envelope
+        // switch (channel_data[i].adsr)
+        // {
+        // case attack:
+        //     break;
+        // }
+    }
+
 }
 
 static void psg_start(void)
