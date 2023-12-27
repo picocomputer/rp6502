@@ -25,12 +25,45 @@ enum adsr_state
 
 static volatile uint16_t psg_xaddr;
 
-// static const uint16_t vol_table_mul[] = {
-//     256, 240, 224, 208, 192, 176, 160, 144, 128, 112, 96, 80, 49, 64, 32, 0};
+static const uint32_t vol_table[] = {
+    256 << 16,
+    240 << 16,
+    224 << 16,
+    208 << 16,
+    192 << 16,
+    176 << 16,
+    160 << 16,
+    144 << 16,
+    128 << 16,
+    112 << 16,
+    96 << 16,
+    80 << 16,
+    49 << 16,
+    64 << 16,
+    32 << 16,
+    0 << 16,
+};
 
-// // Same rates as the 6581 SID
-// static const uint16_t rate_table_ms[] = {
-//     2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000, 8000};
+// Same rates as the 6581 SID
+static const uint32_t rate_table[] = {
+    // 2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000, 8000};
+    (1 << 24) / (PSG_RATE / 1000 * 2),
+    (1 << 24) / (PSG_RATE / 1000 * 8),
+    (1 << 24) / (PSG_RATE / 1000 * 16),
+    (1 << 24) / (PSG_RATE / 1000 * 24),
+    (1 << 24) / (PSG_RATE / 1000 * 38),
+    (1 << 24) / (PSG_RATE / 1000 * 56),
+    (1 << 24) / (PSG_RATE / 1000 * 68),
+    (1 << 24) / (PSG_RATE / 1000 * 80),
+    (1 << 24) / (PSG_RATE / 1000 * 100),
+    (1 << 24) / (PSG_RATE / 1000 * 250),
+    (1 << 24) / (PSG_RATE / 1000 * 500),
+    (1 << 24) / (PSG_RATE / 1000 * 800),
+    (1 << 24) / (PSG_RATE / 1000 * 1000),
+    (1 << 24) / (PSG_RATE / 1000 * 3000),
+    (1 << 24) / (PSG_RATE / 1000 * 5000),
+    (1 << 24) / (PSG_RATE / 1000 * 8000),
+};
 
 struct channels
 {
@@ -46,13 +79,11 @@ static struct
 {
     int8_t sample;
     uint32_t phase;
-    uint32_t inc;
+    uint32_t phase_inc;
     uint32_t noise1;
     uint32_t noise2;
     uint8_t adsr;
-    uint8_t attack_inc;
-    uint8_t decay_inc;
-    uint8_t release_inc;
+    uint32_t vol;
 } channel_data[PSG_CHANNELS];
 
 static int8_t sine_table[256];
@@ -72,21 +103,14 @@ static void
     }
 
     // Output previous sample at start to minimize jitter
-    if (channels[0].pan_trig & 0x01)
-    {
-        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, channel_data[0].sample + AUD_PWM_CENTER);
-        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, channel_data[0].sample + AUD_PWM_CENTER);
-    }
-    else
-    {
-        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
-        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
-    }
-
+    int8_t sample = channel_data[0].sample;
+    sample = ((int32_t)sample * (channel_data[0].vol >> 16)) >> 8;
+    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample + AUD_PWM_CENTER);
+    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample + AUD_PWM_CENTER);
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        channel_data[i].phase += channel_data[i].inc;
+        channel_data[i].phase += channel_data[i].phase_inc;
         // Sample the raw waveform
         switch (channels[i].wave_release >> 4)
         {
@@ -127,13 +151,41 @@ static void
         }
 
         // Amplitude modulate the ADSR envelope
-        // switch (channel_data[i].adsr)
-        // {
-        // case attack:
-        //     break;
-        // }
+        if (!(channels[0].pan_trig & 0x01) && channel_data[i].adsr != release)
+            channel_data[i].adsr = release;
+        if ((channels[0].pan_trig & 0x01) && channel_data[i].adsr == release)
+            channel_data[i].adsr = attack;
+        switch (channel_data[i].adsr)
+        {
+        case attack:
+            channel_data[i].vol += rate_table[channels[0].vol_attack & 0xF];
+            if (channel_data[i].vol >= vol_table[channels[0].vol_attack >> 4])
+            {
+                channel_data[i].vol = vol_table[channels[0].vol_attack >> 4];
+                channel_data[i].adsr = decay;
+            }
+            break;
+        case decay:
+            if (channel_data[i].vol <= rate_table[channels[0].vol_decay & 0xF])
+                channel_data[i].vol = 0;
+            else
+                channel_data[i].vol -= rate_table[channels[0].vol_decay & 0xF];
+            if (channel_data[i].vol <= vol_table[channels[0].vol_decay >> 4])
+            {
+                channel_data[i].vol = vol_table[channels[0].vol_decay >> 4];
+                channel_data[i].adsr = sustain;
+            }
+            break;
+        case sustain:
+            break;
+        case release:
+            if (channel_data[i].vol <= rate_table[channels[0].wave_release & 0xF])
+                channel_data[i].vol = 0;
+            else
+                channel_data[i].vol -= rate_table[channels[0].wave_release & 0xF];
+            break;
+        }
     }
-
 }
 
 static void psg_start(void)
@@ -168,7 +220,7 @@ static void psg_task(void)
         static unsigned slow_chan = 0;
         if (++slow_chan >= PSG_CHANNELS)
             slow_chan = 0;
-        channel_data[slow_chan].inc = ((double)UINT32_MAX + 1) * channels[slow_chan].freq / PSG_RATE;
+        channel_data[slow_chan].phase_inc = ((double)UINT32_MAX + 1) * channels[slow_chan].freq / PSG_RATE;
     }
 }
 
