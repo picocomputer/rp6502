@@ -124,8 +124,11 @@ static void
     // Output previous sample at start to minimize jitter
     int8_t sample = channel_state[0].sample;
     sample = ((int32_t)sample * (channel_state[0].vol >> 16)) >> 8;
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample + AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample + AUD_PWM_CENTER);
+    int8_t pan = (int8_t)channels[0].pan_gate & 0xFE;
+    int8_t sample_l = ((int32_t)sample * (128 - pan)) >> 8;
+    int8_t sample_r = ((int32_t)sample * (128 + pan)) >> 8;
+    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample_l + AUD_PWM_CENTER);
+    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample_r + AUD_PWM_CENTER);
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
