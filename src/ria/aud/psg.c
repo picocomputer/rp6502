@@ -131,31 +131,40 @@ static void
     {
         // Sample the raw waveform
         channel_state[i].phase += channel_state[i].phase_inc;
+        uint32_t phase = channel_state[i].phase >> 16;
+        uint32_t duty = channels[i].duty;
         switch (channels[i].wave_release >> 4)
         {
         case 0: // sine
-            channel_state[i].sample = sine_table[channel_state[i].phase >> 24];
+            duty >>= 1;
+            if (phase < 32768u - duty || phase >= 32768u + duty)
+                channel_state[i].sample = -127;
+            else
+                channel_state[i].sample = sine_table[phase >> 8];
             break;
         case 1: // square
-            if ((channel_state[i].phase >> 16) > channels[i].duty)
+            if (phase > duty)
                 channel_state[i].sample = -127;
             else
                 channel_state[i].sample = 127;
             break;
         case 2: // sawtooth
-            if ((channel_state[i].phase >> 16) > channels[i].duty)
+            if (phase > duty)
                 channel_state[i].sample = -127;
             else
-                channel_state[i].sample = 127 - (channel_state[i].phase >> 24);
+                channel_state[i].sample = 127 - (phase >> 8);
             break;
         case 3: // triangle
-            if ((channel_state[i].phase >> 16) >= 32768)
-                channel_state[i].sample = (channel_state[i].phase >> 23) - 128;
+            duty >>= 1;
+            if (phase < 32768u - duty || phase >= 32768u + duty)
+                channel_state[i].sample = -127;
+            else if (phase >= 32768)
+                channel_state[i].sample = 127 - (phase >> 7);
             else
-                channel_state[i].sample = 127 - (channel_state[i].phase >> 23);
+                channel_state[i].sample = (phase >> 7) - 128;
             break;
         case 4: // noise
-            if ((channel_state[i].phase >> 16) > channels[i].duty)
+            if ((phase) > duty)
                 channel_state[i].sample = -127;
             else
             {
@@ -219,7 +228,7 @@ static void psg_start(void)
 
     // Set up sine table
     for (unsigned i = 0; i < 256; i++)
-        sine_table[i] = sin(M_PI * 2.0 / 256 * i) * 127;
+        sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
 
     irq_set_exclusive_handler(PWM_IRQ_WRAP, psg_irq_handler);
 }
