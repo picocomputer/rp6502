@@ -113,6 +113,8 @@ static void
     __time_critical_func(psg_irq_handler)()
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
+
+    // Check for valid xram address
     struct channels *channels = (void *)&xram[psg_xaddr];
     if (channels == (void *)&xram[0xFFFF])
     {
@@ -122,11 +124,28 @@ static void
     }
 
     // Output previous sample at start to minimize jitter
-    int8_t sample = channel_state[0].sample;
-    sample = ((int32_t)sample * (channel_state[0].vol >> 16)) >> 8;
-    int8_t pan = (int8_t)channels[0].pan_gate & 0xFE;
-    int8_t sample_l = ((int32_t)sample * (128 - pan)) >> 8;
-    int8_t sample_r = ((int32_t)sample * (128 + pan)) >> 8;
+    int16_t sample_l = 0;
+    int16_t sample_r = 0;
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        int8_t sample = channel_state[i].sample;
+        sample = ((int32_t)sample * (channel_state[i].vol >> 16)) >> 8;
+        int8_t pan = (int8_t)channels[i].pan_gate / 2;
+        if (pan != -64)
+        {
+
+            sample_l += ((int32_t)sample * (63 - pan)) >> 7;
+            sample_r += ((int32_t)sample * (63 + pan)) >> 7;
+        }
+    }
+    if (sample_l < -128)
+        sample_l = -128;
+    if (sample_l > 127)
+        sample_l = 127;
+    if (sample_r < -128)
+        sample_r = -128;
+    if (sample_r > 127)
+        sample_r = 127;
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample_l + AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample_r + AUD_PWM_CENTER);
 
@@ -182,38 +201,38 @@ static void
         }
 
         // Compute the ADSR envelope volume
-        if (!(channels[0].pan_gate & 0x01) && channel_state[i].adsr != release)
+        if (!(channels[i].pan_gate & 0x01) && channel_state[i].adsr != release)
             channel_state[i].adsr = release;
-        if ((channels[0].pan_gate & 0x01) && channel_state[i].adsr == release)
+        if ((channels[i].pan_gate & 0x01) && channel_state[i].adsr == release)
             channel_state[i].adsr = attack;
         switch (channel_state[i].adsr)
         {
         case attack:
-            channel_state[i].vol += attack_table[channels[0].vol_attack & 0xF];
-            if (channel_state[i].vol >= vol_table[channels[0].vol_attack >> 4])
+            channel_state[i].vol += attack_table[channels[i].vol_attack & 0xF];
+            if (channel_state[i].vol >= vol_table[channels[i].vol_attack >> 4])
             {
-                channel_state[i].vol = vol_table[channels[0].vol_attack >> 4];
+                channel_state[i].vol = vol_table[channels[i].vol_attack >> 4];
                 channel_state[i].adsr = decay;
             }
             break;
         case decay:
-            if (channel_state[i].vol <= decay_release_table[channels[0].vol_decay & 0xF])
+            if (channel_state[i].vol <= decay_release_table[channels[i].vol_decay & 0xF])
                 channel_state[i].vol = 0;
             else
-                channel_state[i].vol -= decay_release_table[channels[0].vol_decay & 0xF];
-            if (channel_state[i].vol <= vol_table[channels[0].vol_decay >> 4])
+                channel_state[i].vol -= decay_release_table[channels[i].vol_decay & 0xF];
+            if (channel_state[i].vol <= vol_table[channels[i].vol_decay >> 4])
             {
-                channel_state[i].vol = vol_table[channels[0].vol_decay >> 4];
+                channel_state[i].vol = vol_table[channels[i].vol_decay >> 4];
                 channel_state[i].adsr = sustain;
             }
             break;
         case sustain:
             break;
         case release:
-            if (channel_state[i].vol <= decay_release_table[channels[0].wave_release & 0xF])
+            if (channel_state[i].vol <= decay_release_table[channels[i].wave_release & 0xF])
                 channel_state[i].vol = 0;
             else
-                channel_state[i].vol -= decay_release_table[channels[0].wave_release & 0xF];
+                channel_state[i].vol -= decay_release_table[channels[i].wave_release & 0xF];
             break;
         }
     }
