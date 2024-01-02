@@ -18,7 +18,7 @@
 #include <stdio.h>
 
 // How long to wait for ACK to backchannel enable request
-#define VGA_BACKCHANNEL_ACK_MS 2
+#define VGA_BACKCHANNEL_ACK_MS 10
 // How long to wait for version string
 #define VGA_VERSION_WATCHDOG_MS 2
 // Abandon backchannel after two missed vsync messages (~2/60sec)

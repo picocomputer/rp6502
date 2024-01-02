@@ -17,8 +17,6 @@
 #include "hardware/structs/bus_ctrl.h"
 #include "littlefs/lfs_util.h"
 
-// This is the smallest value that will
-// allow 1k read/write operations at 50 kHz.
 #define RIA_WATCHDOG_MS 250
 
 static enum state {
@@ -29,7 +27,6 @@ static enum state {
 } volatile action_state = action_state_idle;
 static absolute_time_t action_watchdog_timer;
 static volatile int32_t action_result = -1;
-static uint32_t action_retries;
 static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int32_t rw_pos;
@@ -111,27 +108,11 @@ void ria_stop(void)
 {
     irq_enabled = false;
     gpio_put(CPU_IRQB_PIN, true);
-    if ((action_state == action_state_read || action_state == action_state_write) &&
-        action_result == -2 && action_retries > 0)
+    action_state = action_state_idle;
+    if (saved_reset_vec >= 0)
     {
-        // The CPU may not come out of reset after
-        // having been in reset for a long time.
-        // Retry the watchdog timeouts.
-        action_retries--;
-        main_run();
-#ifndef NDEBUG
-        //TODO remove message after verifying this workaround is valid
-        printf("Watchdog Retry, state = %d\n", action_state);
-#endif
-    }
-    else
-    {
-        action_state = action_state_idle;
-        if (saved_reset_vec >= 0)
-        {
-            REGSW(0xFFFC) = saved_reset_vec;
-            saved_reset_vec = -1;
-        }
+        REGSW(0xFFFC) = saved_reset_vec;
+        saved_reset_vec = -1;
     }
 }
 
@@ -142,13 +123,13 @@ bool ria_active(void)
 
 void ria_task(void)
 {
-    // check on watchdog
-    if (ria_active())
+    // check on watchdog unless we explicitly ended or errored
+    if (ria_active() && action_result == -1)
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
         {
-            action_result = -2;
+            action_result = -3;
             main_stop();
         }
     }
@@ -158,10 +139,10 @@ bool ria_print_error_message(void)
 {
     switch (action_result)
     {
-    case -1: // OK
+    case -1: // Ok, default at start
+    case -2: // OK, explicitly ended
         return false;
-        break;
-    case -2:
+    case -3:
         printf("?watchdog timeout\n");
         break;
     default:
@@ -190,7 +171,6 @@ void ria_read_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_read;
-    action_retries = 1;
     main_run();
 }
 
@@ -211,7 +191,6 @@ void ria_verify_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_verify;
-    action_retries = 1;
     main_run();
 }
 
@@ -231,7 +210,6 @@ void ria_write_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_write;
-    action_retries = 1;
     main_run();
 }
 
@@ -270,6 +248,7 @@ static __attribute__((optimize("O1"))) void act_loop(void)
                     else
                     {
                         gpio_put(CPU_RESB_PIN, false);
+                        action_result = -2;
                         main_stop();
                     }
                     break;
@@ -281,6 +260,7 @@ static __attribute__((optimize("O1"))) void act_loop(void)
                         if (++rw_pos == rw_end)
                         {
                             gpio_put(CPU_RESB_PIN, false);
+                            action_result = -2;
                             main_stop();
                         }
                     }
@@ -294,6 +274,7 @@ static __attribute__((optimize("O1"))) void act_loop(void)
                         if (++rw_pos == rw_end)
                         {
                             gpio_put(CPU_RESB_PIN, false);
+                            action_result = -2;
                             main_stop();
                         }
                     }
