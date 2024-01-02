@@ -154,7 +154,7 @@ bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
         return mou_xreg(word);
     case 0x100:
         return psg_xreg(word);
-    case 0x1FF: // TODO will be deleted
+    case 0x1FF:
         return ref_xreg(word);
     default:
         return false;

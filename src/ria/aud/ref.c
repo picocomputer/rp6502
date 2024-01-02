@@ -48,7 +48,7 @@ struct channel
 static struct channel chan[REF_CHANNELS];
 static struct channel pending[REF_CHANNELS];
 
-static void __isr __time_critical_func(audio_pwm_irq_handler)()
+static void __isr __time_critical_func(ref_irq_handler)()
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
 
@@ -172,7 +172,7 @@ static void ref_start(void)
         pending[idx].dirty = true;
     }
 
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, audio_pwm_irq_handler);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP, ref_irq_handler);
 }
 
 static void ref_reclock(uint32_t sys_clk_khz)

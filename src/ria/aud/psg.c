@@ -220,13 +220,13 @@ static void
                 psg_channel_state[i].vol = 0;
             else
                 psg_channel_state[i].vol -= psg_decay_release_table[channels[i].vol_decay & 0xF];
-            if (psg_channel_state[i].vol <= psg_vol_table[channels[i].vol_decay >> 4])
-            {
-                psg_channel_state[i].vol = psg_vol_table[channels[i].vol_decay >> 4];
-                psg_channel_state[i].adsr = sustain;
-            }
-            break;
+            if (psg_channel_state[i].vol > psg_vol_table[channels[i].vol_decay >> 4])
+                break;
+            psg_channel_state[i].adsr = sustain;
+            __attribute__((fallthrough));
         case sustain:
+            if (psg_vol_table[channels[i].vol_decay >> 4] <= psg_vol_table[channels[i].vol_attack >> 4])
+                psg_channel_state[i].vol = psg_vol_table[channels[i].vol_decay >> 4];
             break;
         case release:
             if (psg_channel_state[i].vol <= psg_decay_release_table[channels[i].wave_release & 0xF])
@@ -277,9 +277,12 @@ static void psg_task(void)
 
 bool psg_xreg(uint16_t word)
 {
-    if (word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
+    if (word & 0x0001 ||
+        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
     {
         psg_xaddr = 0xFFFF;
+        if (word != 0xFFFF)
+            return false;
     }
     else
     {
