@@ -274,7 +274,8 @@ static __attribute__((optimize("O1"))) void act_loop(void)
                         if (++rw_pos == rw_end)
                         {
                             gpio_put(CPU_RESB_PIN, false);
-                            action_result = -2;
+                            if (action_result < 0)
+                                action_result = -2;
                             main_stop();
                         }
                     }
