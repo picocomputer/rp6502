@@ -87,11 +87,12 @@ static const uint32_t psg_decay_release_table[] = {
 struct psg_channel
 {
     uint16_t freq;
-    uint16_t duty;
+    uint8_t duty;
     uint8_t vol_attack;
     uint8_t vol_decay;
     uint8_t wave_release;
     uint8_t pan_gate;
+    uint8_t unused;
 };
 
 static struct
@@ -153,16 +154,16 @@ static void
     {
         // Sample the raw waveform
         psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
-        uint32_t phase = psg_channel_state[i].phase >> 16;
+        uint32_t phase = psg_channel_state[i].phase >> 24;
         uint32_t duty = channels[i].duty;
         switch (channels[i].wave_release >> 4)
         {
         case 0: // sine
             duty >>= 1;
-            if (phase < 32768u - duty || phase >= 32768u + duty)
+            if (phase < 128u - duty || phase >= 128u + duty)
                 psg_channel_state[i].sample = -127;
             else
-                psg_channel_state[i].sample = psg_sine_table[phase >> 8];
+                psg_channel_state[i].sample = psg_sine_table[phase];
             break;
         case 1: // square
             if (phase > duty)
@@ -174,19 +175,19 @@ static void
             if (phase > duty)
                 psg_channel_state[i].sample = -127;
             else
-                psg_channel_state[i].sample = 127 - (phase >> 8);
+                psg_channel_state[i].sample = 127 - phase;
             break;
         case 3: // triangle
             duty >>= 1;
-            if (phase < 32768u - duty || phase >= 32768u + duty)
+            if (phase < 128u - duty || phase >= 128u + duty)
                 psg_channel_state[i].sample = -127;
-            else if (phase >= 32768)
-                psg_channel_state[i].sample = 127 - (phase >> 7);
+            else if (phase >= 128)
+                psg_channel_state[i].sample = 127 - (int8_t)(psg_channel_state[i].phase >> 23);
             else
-                psg_channel_state[i].sample = (phase >> 7) - 128;
+                psg_channel_state[i].sample = (int8_t)(psg_channel_state[i].phase >> 23) - 128;
             break;
         case 4: // noise
-            if ((phase) > duty)
+            if (phase > duty)
                 psg_channel_state[i].sample = -127;
             else
             {
