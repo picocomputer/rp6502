@@ -272,7 +272,7 @@ static void psg_task(void)
         static unsigned task_chan = 0;
         if (++task_chan >= PSG_CHANNELS)
             task_chan = 0;
-        psg_channel_state[task_chan].phase_inc = ((double)UINT32_MAX + 1) * channels[task_chan].freq / PSG_RATE;
+        psg_channel_state[task_chan].phase_inc = ((double)UINT32_MAX + 1) * channels[task_chan].freq / 3 / PSG_RATE;
     }
 }
 
