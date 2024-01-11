@@ -10,6 +10,7 @@
 #include "sys/cfg.h"
 #include <time.h>
 #include "hardware/rtc.h"
+#include "hardware/timer.h"
 #include "fatfs/ff.h"
 
 #define CLK_ID_REALTIME 0
@@ -49,6 +50,11 @@ DWORD get_fattime(void)
         res = ((DWORD)(0) << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
     }
     return res;
+}
+
+void clk_api_clock(void)
+{
+    return api_return_axsreg(time_us_64() / 10000);
 }
 
 void clk_api_get_res(void)

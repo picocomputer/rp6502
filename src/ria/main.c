@@ -180,6 +180,9 @@ bool main_api(uint8_t operation)
     case 0x05:
         cpu_api_stdin_opt();
         break;
+    case 0x0F:
+        clk_api_clock();
+        break;
     case 0x10:
         clk_api_get_res();
         break;

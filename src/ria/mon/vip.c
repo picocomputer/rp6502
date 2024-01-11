@@ -50,6 +50,10 @@ void vip_print(void)
         "Volodymyr Vialyi",
         "markbo",
         "James Will",
+        "David Raulo",
+        "Sodiumlightbaby",
+        "Paul S. Jenkins",
+        "Muhammad A",
         // YouTube
         "AJ_Whitney",
         // Other
