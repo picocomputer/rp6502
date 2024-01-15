@@ -18,6 +18,7 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "SET (attr) (value)  - Change or show settings.\n"
     "LS (dir|drive)      - List contents of directory.\n"
     "CD (dir)            - Change or show current directory.\n"
+    "MKDIR dir           - Make a new directory.\n"
     "0:                  - 1:-8: Change current USB drive.\n"
     "LOAD file           - Load ROM file. Start if contains reset vector.\n"
     "INFO file           - Show help text, if any, contained in ROM file.\n"
@@ -27,7 +28,7 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "RESET               - Start 6502 at current reset vector ($FFFC).\n"
     "rom                 - Load and start an installed ROM.\n"
     "UPLOAD file         - Write file. Binary chunks follow.\n"
-    "UNLINK file         - Delete file.\n"
+    "UNLINK file|dir     - Delete file or empty directory.\n"
     "BINARY addr len crc - Write memory. Binary data follows.\n"
     "0000 (00 00 ...)    - Read or write memory.";
 
@@ -75,6 +76,9 @@ static const char __in_flash("helptext") hlp_text_dir[] =
     "devices. You can change to a different USB device with 1: to 8:. Use the\n"
     "STATUS command to get a list of mounted drives.";
 
+static const char __in_flash("helptext") hlp_text_mkdir[] =
+    "MKDIR is used to create new directories. Use UNLINK to remove empty directories.";
+
 static const char __in_flash("helptext") hlp_text_load[] =
     "LOAD and INFO read ROM files from a USB drive. A ROM file contains both\n"
     "ASCII information for the user, and binary information for the RP6502.\n"
@@ -102,8 +106,7 @@ static const char __in_flash("helptext") hlp_text_install[] =
 
 static const char __in_flash("helptext") hlp_text_reboot[] =
     "REBOOT will restart the Pi Pico RIA. It does the same thing as pressing a\n"
-    "reset button attached to the Pi Pico or interrupting the power supply.\n"
-    "It is of limited use and included for the sake of completeness.";
+    "reset button attached to the Pi Pico or interrupting the power supply.";
 
 static const char __in_flash("helptext") hlp_text_reset[] =
     "RESET will restart the 6502 by bringing RESB high. This is mainly used for\n"
@@ -220,6 +223,8 @@ static struct
     {2, "ls", hlp_text_dir},
     {3, "dir", hlp_text_dir},
     {2, "cd", hlp_text_dir},
+    {5, "chdir", hlp_text_dir},
+    {5, "mkdir", hlp_text_mkdir},
     {2, "0:", hlp_text_dir},
     {2, "1:", hlp_text_dir},
     {2, "2:", hlp_text_dir},

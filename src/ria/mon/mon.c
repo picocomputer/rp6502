@@ -39,6 +39,7 @@ static struct
     {3, "dir", fil_mon_ls},
     {2, "cd", fil_mon_chdir},
     {5, "chdir", fil_mon_chdir},
+    {5, "mkdir", fil_mon_mkdir},
     {4, "load", rom_mon_load},
     {4, "info", rom_mon_info},
     {7, "install", rom_mon_install},

@@ -22,6 +22,7 @@ void fil_reset(void);
  */
 
 void fil_mon_chdir(const char *args, size_t len);
+void fil_mon_mkdir(const char *args, size_t len);
 void fil_mon_chdrive(const char *args, size_t len);
 void fil_mon_ls(const char *args, size_t len);
 void fil_mon_upload(const char *args, size_t len);

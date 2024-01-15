@@ -54,6 +54,19 @@ void fil_mon_chdir(const char *args, size_t len)
     }
 }
 
+void fil_mon_mkdir(const char *args, size_t len)
+{
+    FRESULT result;
+    if (!len)
+    {
+        printf("?Directory name missing\n");
+        return;
+    }
+    result = f_mkdir(args);
+    if (result != FR_OK)
+        printf("?Unable to make directory (%d)\n", result);
+}
+
 void fil_mon_chdrive(const char *args, size_t len)
 {
     (void)len;
