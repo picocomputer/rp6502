@@ -46,6 +46,10 @@ typedef struct term_state
     uint8_t y;
     bool line_wrap;
     bool wrapped[TERM_MAX_HEIGHT];
+    bool dirty[TERM_MAX_HEIGHT];
+    bool cleaned;
+    uint16_t erase_fg_color;
+    uint16_t erase_bg_color;
     uint8_t y_offset;
     uint16_t fg_color;
     uint16_t bg_color;
@@ -63,20 +67,51 @@ static term_state_t term_40;
 static term_state_t term_80;
 static int16_t term_scanline_begin;
 
+static void term_clean_line(term_state_t *term, uint8_t y)
+{
+    if (!term->dirty[y])
+        return;
+    term->dirty[y] = false;
+    term_data_t *row = &term->mem[(term->y_offset + y) * term->width];
+    if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
+        row -= term->width * TERM_MAX_HEIGHT;
+    for (size_t i = 0; i < term->width; i++)
+    {
+        row[i].font_code = ' ';
+        row[i].fg_color = term->erase_fg_color;
+        row[i].bg_color = term->erase_bg_color;
+    }
+}
+
+static void term_clean_task(term_state_t *term)
+{
+    // Clean only one line per task
+    if (term->cleaned)
+        return;
+    for (size_t i = 0; i < term->height; i++)
+        if (term->dirty[i])
+        {
+            term_clean_line(term, i);
+            return;
+        }
+    term->cleaned = true;
+}
+
 static void term_state_clear(term_state_t *term)
 {
-    for (size_t i = 0; i < term->width * term->height; i++)
-    {
-        term->mem[i].font_code = ' ';
-        term->mem[i].fg_color = term->fg_color;
-        term->mem[i].bg_color = term->bg_color;
-    }
     for (size_t i = 0; i < term->height; i++)
+    {
         term->wrapped[i] = false;
+        term->dirty[i] = true;
+    }
+    term->erase_fg_color = term->fg_color;
+    term->erase_bg_color = term->bg_color;
     term->x = 0;
     term->y = 0;
     term->y_offset = 0;
     term->ptr = term->mem;
+    term->cleaned = false;
+    term_clean_line(term, 0);
 }
 
 static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
@@ -312,10 +347,16 @@ static void term_out_lf(term_state_t *term, bool wrapping)
         }
         if (++term->y_offset == TERM_MAX_HEIGHT)
             term->y_offset = 0;
-        for (size_t i = 0; i < term->y; i++)
-            term->wrapped[i] = term->wrapped[i + 1];
-        term->wrapped[term->y] = false;
+        // scroll the wrapped and dirty flags
+        for (size_t y = 0; y < term->height - 1; y++)
+        {
+            term->wrapped[y] = term->wrapped[y + 1];
+            term->dirty[y] = term->dirty[y + 1];
+        }
+        term->wrapped[term->height - 1] = false;
+        term->dirty[term->height - 1] = false;
     }
+    term_clean_line(term, term->y);
 }
 
 static void term_out_ff(term_state_t *term)
@@ -618,6 +659,8 @@ void term_task(void)
 {
     term_blink_cursor(&term_40);
     term_blink_cursor(&term_80);
+    term_clean_task(&term_40);
+    term_clean_task(&term_80);
 }
 
 static inline bool __attribute__((optimize("O1")))

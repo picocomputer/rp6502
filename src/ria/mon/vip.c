@@ -54,6 +54,7 @@ void vip_print(void)
         "Sodiumlightbaby",
         "Paul S. Jenkins",
         "Muhammad A",
+        "Ville Kivivuori",
         // YouTube
         "AJ_Whitney",
         // Other
