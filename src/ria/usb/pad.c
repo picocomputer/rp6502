@@ -47,15 +47,22 @@ typedef struct TU_ATTR_PACKED
 } sony_ds4_report_t;
 
 #define PAD_TIMEOUT_TIME_MS 10
-static absolute_time_t pad_timer;
+static absolute_time_t pad_p1_timer;
+static absolute_time_t pad_p2_timer;
+static uint8_t pad_p1_dev_addr;
+static uint8_t pad_p2_dev_addr;
 static uint16_t pad_xram = 0xFFFF;
 
 static void pad_disconnect_check(void)
 {
     // Set dpad invalid to indicate no controller detected
-    if (absolute_time_diff_us(get_absolute_time(), pad_timer) < 0)
-        if (pad_xram != 0xFFFF)
+    if (pad_xram != 0xFFFF)
+    {
+        if (absolute_time_diff_us(get_absolute_time(), pad_p1_timer) < 0)
             xram[pad_xram + 4] = 0x0F;
+        if (absolute_time_diff_us(get_absolute_time(), pad_p2_timer) < 0)
+            xram[pad_xram + sizeof(sony_ds4_report_t) + 4] = 0x0F;
+    }
 }
 
 void pad_init(void)
@@ -75,7 +82,7 @@ void pad_task(void)
 
 bool pad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(sony_ds4_report_t))
+    if (word != 0xFFFF && word > 0x10000 - sizeof(sony_ds4_report_t) * 2)
         return false;
     pad_xram = word;
     pad_disconnect_check();
@@ -84,12 +91,42 @@ bool pad_xreg(uint16_t word)
 
 void pad_report(uint8_t dev_addr, uint8_t const *report)
 {
-    (void)dev_addr;
     // We should probably check VIDs/PIDs or something
-    if (report[0] == 1)
+    if (report[0] != 1)
+        return;
+
+    uint8_t player = 0;
+    absolute_time_t now = get_absolute_time();
+
+    if (absolute_time_diff_us(now, pad_p1_timer) >= 0)
+        if (pad_p1_dev_addr == dev_addr)
+            player = 1;
+
+    if (absolute_time_diff_us(now, pad_p2_timer) >= 0)
+        if (pad_p2_dev_addr == dev_addr)
+            player = 2;
+
+    if (!player)
     {
-        pad_timer = make_timeout_time_ms(PAD_TIMEOUT_TIME_MS);
+        if (absolute_time_diff_us(now, pad_p1_timer) < 0)
+            player = 1;
+        else if (absolute_time_diff_us(now, pad_p2_timer) < 0)
+            player = 2;
+    }
+
+    if (player == 1)
+    {
+        pad_p1_timer = make_timeout_time_ms(PAD_TIMEOUT_TIME_MS);
+        pad_p1_dev_addr = dev_addr;
         if (pad_xram != 0xFFFF)
             memcpy(&xram[pad_xram], report + 1, sizeof(sony_ds4_report_t));
+    }
+
+    if (player == 2)
+    {
+        pad_p2_timer = make_timeout_time_ms(PAD_TIMEOUT_TIME_MS);
+        pad_p2_dev_addr = dev_addr;
+        if (pad_xram != 0xFFFF)
+            memcpy(&xram[pad_xram + sizeof(sony_ds4_report_t)], report + 1, sizeof(sony_ds4_report_t));
     }
 }
