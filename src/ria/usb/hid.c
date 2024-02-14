@@ -7,10 +7,8 @@
 #include "tusb.h"
 #include "usb/kbd.h"
 #include "usb/mou.h"
+#include "usb/pad.h"
 #include "usb/usb.h"
-
-// TODO this is temporary, need full and proper gamepad support
-extern int process_sony_ds4(uint8_t dev_addr, uint8_t const *report, uint16_t len);
 
 #define HID_MAX_REPORT 4
 static struct hid_info
@@ -18,55 +16,6 @@ static struct hid_info
     uint8_t report_count;
     tuh_hid_report_info_t report_info[HID_MAX_REPORT];
 } hid_info[CFG_TUH_DEVICE_MAX][CFG_TUH_HID];
-
-static void hid_generic_report(uint8_t dev_addr, uint8_t instance, uint8_t const *report, uint16_t len)
-{
-    (void)dev_addr;
-
-    uint8_t const rpt_count = hid_info[dev_addr][instance].report_count;
-    tuh_hid_report_info_t *rpt_info_arr = hid_info[dev_addr][instance].report_info;
-    tuh_hid_report_info_t *rpt_info = NULL;
-
-    if (rpt_count == 1 && rpt_info_arr[0].report_id == 0)
-    {
-        rpt_info = &rpt_info_arr[0];
-    }
-    else
-    {
-        uint8_t const rpt_id = report[0];
-        for (uint8_t i = 0; i < rpt_count; i++)
-        {
-            if (rpt_id == rpt_info_arr[i].report_id)
-            {
-                rpt_info = &rpt_info_arr[i];
-                break;
-            }
-        }
-        report++;
-        len--;
-    }
-
-    if (!rpt_info)
-    {
-        // printf("Couldn't find the report info for this report !\r\n");
-        return;
-    }
-
-    if (rpt_info->usage_page == HID_USAGE_PAGE_DESKTOP)
-    {
-        switch (rpt_info->usage)
-        {
-        case HID_USAGE_DESKTOP_JOYSTICK:
-            printf("HID receive joystick report\n");
-            break;
-        case HID_USAGE_DESKTOP_GAMEPAD:
-            printf("HID receive gamepad report\n");
-            break;
-        default:
-            break;
-        }
-    }
-}
 
 static bool hid_receive_report(uint8_t dev_addr, uint8_t instance)
 {
@@ -78,6 +27,7 @@ static bool hid_receive_report(uint8_t dev_addr, uint8_t instance)
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report, uint16_t len)
 {
+    (void)len;
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
 
     switch (itf_protocol)
@@ -91,8 +41,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
         break;
 
     default:
-        if (process_sony_ds4(dev_addr, report, len))
-            hid_generic_report(dev_addr, instance, report, len);
+        pad_report(dev_addr, report);
+        break;
     }
 
     hid_receive_report(dev_addr, instance);
