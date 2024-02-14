@@ -19,10 +19,11 @@ extern uint8_t *const xram;
 #endif
 
 // The xstack is:
-// 256 bytes, enough to hold a CC65 stack frame.
+// 512 bytes, enough to hold a CC65 stack frame, two strings for a
+// file rename, or a disk sector
 // 1 byte at end+1 always zero for cstring and safety.
-// Using xstack fort cstrings doesn't require sending the zero termination.
-#define XSTACK_SIZE 0x100
+// Using xstack for cstrings doesn't require sending the zero termination.
+#define XSTACK_SIZE 0x200
 extern uint8_t xstack[];
 extern volatile size_t xstack_ptr;
 
