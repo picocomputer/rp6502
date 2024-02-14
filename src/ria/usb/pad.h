@@ -15,6 +15,7 @@
 
 void pad_init(void);
 void pad_stop(void);
+void pad_task(void);
 
 // Set the extended register value.
 bool pad_xreg(uint16_t word);
