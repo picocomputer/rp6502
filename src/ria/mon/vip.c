@@ -55,6 +55,7 @@ void vip_print(void)
         "Paul S. Jenkins",
         "Muhammad A",
         "Ville Kivivuori",
+        "Kamil Devel",
         // YouTube
         "AJ_Whitney",
         // Other
