@@ -17,6 +17,8 @@
 #define CLK_EPOCH_UNIX 1970
 #define CLK_EPOCH_FAT 1980
 
+uint64_t clk_clock_start;
+
 void clk_init(void)
 {
     rtc_init();
@@ -30,6 +32,11 @@ void clk_init(void)
         .sec = 0,
     };
     rtc_set_datetime(&rtc_info);
+}
+
+void clk_run(void)
+{
+    clk_clock_start = time_us_64();
 }
 
 DWORD get_fattime(void)
@@ -54,7 +61,7 @@ DWORD get_fattime(void)
 
 void clk_api_clock(void)
 {
-    return api_return_axsreg(time_us_64() / 10000);
+    return api_return_axsreg((time_us_64() - clk_clock_start) / 10000);
 }
 
 void clk_api_get_res(void)

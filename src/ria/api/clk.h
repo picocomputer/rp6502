@@ -12,6 +12,7 @@
  */
 
 void clk_init(void);
+void clk_run(void);
 
 /* The API implementaiton for time support
  */
