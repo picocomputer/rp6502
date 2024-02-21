@@ -10,6 +10,7 @@
 #include "usb/kbd.h"
 #include "usb/kbd_deu.h"
 #include "usb/kbd_eng.h"
+#include "usb/kbd_fra.h"
 #include "usb/kbd_swe.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
