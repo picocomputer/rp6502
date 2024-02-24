@@ -10,6 +10,7 @@
 #include "usb/kbd.h"
 #include "usb/kbd_deu.h"
 #include "usb/kbd_eng.h"
+#include "usb/kbd_pol.h"
 #include "usb/kbd_swe.h"
 #include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
@@ -43,7 +44,7 @@ static uint8_t kbd_xram_keys[32];
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
-    KEYCODE_TO_UNICODE[128][3] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
+    KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
 
 void kbd_hid_leds_dirty()
 {
@@ -142,7 +143,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
+        {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
+            if ((key_shift && !is_capslock) || 
+                (!key_shift && is_capslock))
+                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][3], cfg_get_codepage());
+        }
         else if ((key_shift && !is_capslock) ||
                  (key_shift && keycode > HID_KEY_Z) ||
                  (!key_shift && is_capslock && keycode <= HID_KEY_Z))
