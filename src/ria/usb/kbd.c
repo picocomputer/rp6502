@@ -8,6 +8,7 @@
 #include "api/api.h"
 #include "sys/cfg.h"
 #include "usb/kbd.h"
+#include "usb/kbd_dan.h"
 #include "usb/kbd_deu.h"
 #include "usb/kbd_eng.h"
 #include "usb/kbd_pol.h"
