@@ -56,6 +56,9 @@ void vip_print(void)
         "Muhammad A",
         "Ville Kivivuori",
         "Kamil Devel",
+        "Jason Howard",
+        "Bart DeMeulmeester",
+        "Francis Cunningham",
         // YouTube
         "AJ_Whitney",
         // Other
