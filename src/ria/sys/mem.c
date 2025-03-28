@@ -7,7 +7,7 @@
 #include "mem.h"
 
 #ifdef NDEBUG
-uint8_t xram[0x10000];
+uint8_t xram[0x10000] __attribute__((aligned(32)));
 #else
 static struct
 {
@@ -29,7 +29,7 @@ static struct
     uint8_t _F[0x1000];
     // this struct of 4KB segments is because
     // a single 64KB array crashes my debugger
-} xram_blocks;
+} xram_blocks __attribute__((aligned(32)));
 uint8_t *const xram = (uint8_t *)&xram_blocks;
 #endif
 

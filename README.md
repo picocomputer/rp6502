@@ -1,13 +1,13 @@
 # Rumbledethumps' Picocomputer 6502
 
-The Picocomputer explores retro computing and game development by bridging the void between genuine 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $5/€5 Raspberry Pi Pico 2.
+The Picocomputer explores retro computing and game development by bridging the void between genuine 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $5/€5 Raspberry Pi Pico.
 
 The main documentation starts here:<br>
 https://picocomputer.github.io/
 
 ## Dev Setup
 
-This is for building the Pi Pico software. For writing 6502 software, see [picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65).
+This is for building the Pi Pico firmware. For writing 6502 software, see [picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65) and [picocomputer/vscode-llvm-mos](https://github.com/picocomputer/vscode-llvm-mos).
 
 Begin by installing VSCode and the Pi Pico VSCode Extension as described in [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 

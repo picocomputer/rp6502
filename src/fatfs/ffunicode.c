@@ -24,7 +24,7 @@
 
 
 #include "ff.h"
-#include "pico/platform.h"
+#include "pico.h"
 
 #if FF_USE_LFN != 0	/* This module will be blanked if in non-LFN configuration */
 

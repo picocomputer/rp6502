@@ -10,6 +10,7 @@
 #include "sys/com.h"
 #include "sys/cpu.h"
 #include "pico/stdlib.h"
+#include "hardware/clocks.h"
 
 static bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;

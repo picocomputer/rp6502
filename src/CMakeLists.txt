@@ -1,32 +1,3 @@
-# TinyUSB detatched from Pico SDK so we can use latest
-
-file(GLOB_RECURSE TINY_USB_SRC_FILES ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/*.c)
-
-add_library(tinyusb_ria STATIC EXCLUDE_FROM_ALL)
-target_include_directories(tinyusb_ria PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    ria
-)
-target_link_libraries(tinyusb_ria PUBLIC
-    pico_stdlib
-)
-target_sources(tinyusb_ria PRIVATE
-    ${TINY_USB_SRC_FILES}
-)
-
-add_library(tinyusb_vga STATIC EXCLUDE_FROM_ALL)
-target_include_directories(tinyusb_vga PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
-    vga
-)
-target_link_libraries(tinyusb_vga PUBLIC
-    pico_stdlib
-)
-target_sources(tinyusb_vga PRIVATE
-    ${TINY_USB_SRC_FILES}
-)
-
-
 # The Pi Pico RIA
 
 add_executable(rp6502_ria)
@@ -58,7 +29,7 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_pwm
     hardware_flash
     hardware_rtc
-    tinyusb_ria
+    tinyusb_host
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -149,7 +120,7 @@ target_link_libraries(rp6502_vga PRIVATE
     pico_unique_id
     pico_scanvideo_dpi
     hardware_interp
-    tinyusb_vga
+    tinyusb_device
 )
 
 pico_generate_pio_header(rp6502_vga
@@ -191,14 +162,14 @@ set_property(TARGET rp6502_ria rp6502_vga
 
 get_target_property(RP6502_RIA_COMPILE_DEFINITIONS rp6502_ria COMPILE_DEFINITIONS)
 if(RP6502_RIA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
-    add_custom_command(TARGET rp6502_ria
+    add_custom_command(TARGET rp6502_ria PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.c
     )
 endif()
 
 get_target_property(RP6502_VGA_COMPILE_DEFINITIONS rp6502_vga COMPILE_DEFINITIONS)
 if(RP6502_VGA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
-    add_custom_command(TARGET rp6502_vga
+    add_custom_command(TARGET rp6502_vga PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.c
     )
 endif()
