@@ -1,8 +1,9 @@
 {
   "recommendations": [
-    "ms-vscode.cpptools-extension-pack",
     "marus25.cortex-debug",
-    "dan-c-underwood.arm",
-    "tlgkccampbell.code-ca65"
+    "ms-vscode.cpptools",
+    "ms-vscode.cpptools-extension-pack",
+    "ms-vscode.vscode-serial-monitor",
+    "raspberry-pi.raspberry-pi-pico"
   ]
 }
