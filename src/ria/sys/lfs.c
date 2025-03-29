@@ -7,15 +7,15 @@
 #include "sys/lfs.h"
 #include "pico/printf.h"
 
-// 1MB for ROM storage, 512K for Pico W
-// TODO Pico W now using some of this flash for bluetooth
-//      see PICO_FLASH_BANK_STORAGE_OFFSET and github issue#19
-#ifdef RASPBERRYPI_PICO_W
-#define LFS_DISK_BLOCKS 128
-#else
+// 1MB for ROM storage
 #define LFS_DISK_BLOCKS 256
+
+// Bluetooth stack uses the last two blocks
+#ifdef RASPBERRYPI_PICO2_W
+#define LFS_RESERVED_BLOCKS 2
+#else
+#define LFS_RESERVED_BLOCKS 0
 #endif
-static_assert(!(LFS_DISK_BLOCKS % 8));
 
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, void *buffer, lfs_size_t size);
@@ -24,8 +24,10 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
 static int lfs_erase(const struct lfs_config *c, lfs_block_t block);
 static int lfs_sync(const struct lfs_config *c);
 
-#define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
+static_assert(!(LFS_DISK_BLOCKS % 8));
 #define LFS_LOOKAHEAD_SIZE LFS_DISK_BLOCKS / 8
+#define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
+#define LFS_RESERVED_SIZE (LFS_RESERVED_BLOCKS * FLASH_SECTOR_SIZE)
 
 lfs_t lfs_volume;
 static char lfs_read_buffer[FLASH_PAGE_SIZE];
@@ -54,7 +56,7 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
     (void)(c);
     memcpy(buffer,
            (void *)XIP_NOCACHE_NOALLOC_BASE +
-               (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
+               (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE - LFS_RESERVED_SIZE) +
                (block * FLASH_SECTOR_SIZE) +
                off,
            size);
@@ -65,7 +67,7 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, const void *buffer, lfs_size_t size)
 {
     (void)(c);
-    uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
+    uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE - LFS_RESERVED_SIZE) +
                           (block * FLASH_SECTOR_SIZE) +
                           off;
     flash_range_program(flash_offs, buffer, size);
@@ -75,7 +77,7 @@ static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
 static int lfs_erase(const struct lfs_config *c, lfs_block_t block)
 {
     (void)(c);
-    uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
+    uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE - LFS_RESERVED_SIZE) +
                           (block * FLASH_SECTOR_SIZE);
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
     return LFS_ERR_OK;
