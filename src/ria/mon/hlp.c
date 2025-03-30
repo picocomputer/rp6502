@@ -270,7 +270,7 @@ static uint32_t hlp_roms_list(uint32_t width)
     uint32_t col = 0;
     lfs_dir_t lfs_dir;
     struct lfs_info lfs_info;
-    int result = lfs_dir_open(&lfs_volume, &lfs_dir, "");
+    int result = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
     if (result < 0)
     {
         printf("?Unable to open ROMs directory (%d)\n", result);
