@@ -17,9 +17,10 @@
 #define CFG_TUSB_OS OPT_OS_PICO
 #endif
 
-#ifndef CFG_TUSB_DEBUG
+// Debug builds are quite noisy on v0.18.0 (March 2025).
+// Override the debug level set by the tusb build system.
+#undef CFG_TUSB_DEBUG
 #define CFG_TUSB_DEBUG (0)
-#endif
 
 #ifndef CFG_TUH_MEM_SECTION
 #define CFG_TUH_MEM_SECTION
