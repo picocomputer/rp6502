@@ -389,6 +389,19 @@ static __attribute__((optimize("O1"))) void act_loop(void)
     }
 }
 
+static void ria_cs_rwb_pio_init(void)
+{
+    uint offset = pio_add_program(RIA_CS_RWB_PIO, &ria_cs_rwb_program);
+    pio_sm_config config = ria_cs_rwb_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, RIA_PIN_BASE);
+    sm_config_set_in_shift(&config, false, false, 0);
+    sm_config_set_in_pin_count(&config, 2);
+    sm_config_set_out_pins(&config, RIA_DATA_PIN_BASE, 8);
+    sm_config_set_out_shift(&config, true, false, 0);
+    pio_sm_init(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, offset, &config);
+    pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
+}
+
 static void ria_write_pio_init(void)
 {
     // PIO to manage PHI2 clock and 6502 writes
@@ -451,7 +464,6 @@ static void ria_read_pio_init(void)
     sm_config_set_out_shift(&config, true, true, 8);
     for (int i = RIA_DATA_PIN_BASE; i < RIA_DATA_PIN_BASE + 8; i++)
         pio_gpio_init(RIA_READ_PIO, i);
-    pio_sm_set_consecutive_pindirs(RIA_READ_PIO, RIA_READ_SM, RIA_DATA_PIN_BASE, 8, true);
     pio_sm_init(RIA_READ_PIO, RIA_READ_SM, offset, &config);
     pio_sm_put(RIA_READ_PIO, RIA_READ_SM, (uintptr_t)regs >> 5);
     pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_pull(false, true));
@@ -517,10 +529,12 @@ void ria_init(void)
     // Adjustments for GPIO performance. Important!
     for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
     {
-        gpio_set_pulls(i, true, true);
+        pio_gpio_init(pio0, i); // any pio
+        gpio_set_pulls(i, false, false);
         gpio_set_input_hysteresis_enabled(i, false);
         hw_set_bits(&pio0->input_sync_bypass, 1u << i);
         hw_set_bits(&pio1->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio2->input_sync_bypass, 1u << i);
     }
 
     // Lower CPU0 on crossbar by raising others
@@ -530,6 +544,7 @@ void ria_init(void)
         BUSCTRL_BUS_PRIORITY_PROC1_BITS;
 
     // the inits
+    ria_cs_rwb_pio_init();
     ria_write_pio_init();
     ria_read_pio_init();
     ria_act_pio_init();
@@ -537,6 +552,7 @@ void ria_init(void)
 
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
+    // chip_select doesn't reclock
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_READ_PIO, RIA_READ_SM, clkdiv_int, clkdiv_frac);
     pio_sm_set_clkdiv_int_frac(RIA_ACT_PIO, RIA_ACT_SM, clkdiv_int, clkdiv_frac);

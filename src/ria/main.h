@@ -71,9 +71,11 @@ bool main_api(uint8_t operation);
 #define PIX_PIO pio1
 #define PIX_SM 1
 
+#define RIA_CS_RWB_PIO pio2
+#define RIA_CS_RWB_SM 0
 #define RIA_WRITE_PIO pio0
 #define RIA_WRITE_SM 0
-#define RIA_READ_PIO pio0
+#define RIA_READ_PIO pio2
 #define RIA_READ_SM 1
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0

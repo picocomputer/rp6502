@@ -24,7 +24,7 @@ start:
 wait 0 gpio 21
 pull noblock
 mov x osr
-wait 1 gpio 21 [10]
+wait 1 gpio 21 [10] ; 10
 mov osr pins
 out y 1
 jmp !y start
@@ -57,7 +57,7 @@ in null 18
 wait 1 gpio 21
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [7]
+wait 0 gpio 21 [7] ; 7
 in pins 5
 .wrap
 
@@ -78,11 +78,13 @@ mov osr !isr    side 1
 jmp !x reading1 side 1
 jmp hiz1        side 1
 reading1:
-out pindirs 8   side 1
+; out pindirs 8   side 1
+nop side 1
 hiz1:
 mov osr isr     side 1 [6]
 mov x pins      side 1
-out pindirs 8   side 0
+; out pindirs 8   side 0
+nop side 0
 mov osr x       side 0 ; writing is select==1 and write==0
 out x 2         side 0
 jmp x-- jmpsub  side 0 ; subtract 1
@@ -94,4 +96,22 @@ in osr 5        side 0 ; bus address
 push noblock    side 0
 mov isr x       side 0 ; bus data
 push noblock    side 0 [4]
+.wrap
+
+
+; Handle chip select and read/write logic
+.program ria_cs_rwb
+set y 0
+
+.wrap_target
+startx:
+mov osr !pins
+out x 2
+jmp !x readingx ; select==1 and rwb==1
+mov osr y
+out pindirs 8
+jmp startx
+readingx:
+mov osr !y
+out pindirs 8
 .wrap
