@@ -398,7 +398,9 @@ static void ria_cs_rwb_pio_init(void)
     sm_config_set_in_pin_count(&config, 2);
     sm_config_set_out_pins(&config, RIA_DATA_PIN_BASE, 8);
     sm_config_set_out_shift(&config, true, false, 0);
+    sm_config_set_out_pin_count(&config, 8);
     pio_sm_init(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, offset, &config);
+    pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_set(pio_y, 0));
     pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
 }
 

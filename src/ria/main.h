@@ -71,18 +71,18 @@ bool main_api(uint8_t operation);
 #define PIX_PIO pio1
 #define PIX_SM 1
 
-#define RIA_CS_RWB_PIO pio2
+#define RIA_CS_RWB_PIO pio0
 #define RIA_CS_RWB_SM 0
 #define RIA_WRITE_PIO pio0
-#define RIA_WRITE_SM 0
-#define RIA_READ_PIO pio2
-#define RIA_READ_SM 1
+#define RIA_WRITE_SM 1
+#define RIA_READ_PIO pio0
+#define RIA_READ_SM 2
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
 #define VGA_BACKCHANNEL_PIN COM_UART_TX_PIN
 #define VGA_BACKCHANNEL_BAUDRATE 115200
-#define VGA_BACKCHANNEL_PIO pio0
+#define VGA_BACKCHANNEL_PIO pio1
 #define VGA_BACKCHANNEL_SM 2
 
 #endif /* _MAIN_H_ */
