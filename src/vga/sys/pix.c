@@ -76,6 +76,13 @@ void pix_init(void)
     static volatile uint8_t dma_fifo[4];
     static volatile uint32_t dma_addr;
 
+    // Connect GPIO fabric
+    pio_gpio_init(VGA_PIX_PIO, VGA_PHI2_PIN);
+    pio_gpio_init(VGA_PIX_PIO, 0);
+    pio_gpio_init(VGA_PIX_PIO, 1);
+    pio_gpio_init(VGA_PIX_PIO, 2);
+    pio_gpio_init(VGA_PIX_PIO, 3);
+
     // Raise DMA above CPU on crossbar
     bus_ctrl_hw->priority |=
         BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
