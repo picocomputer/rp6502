@@ -16,7 +16,7 @@
 #define INTERP1 (SIO_INTERP1_ACCUM0_OFFSET - SIO_INTERP0_ACCUM0_OFFSET)
 
 .syntax unified
-.cpu cortex-m0plus
+.cpu cortex-m33
 .thumb
 
 // Put every function in its own ELF section, to permit linker GC
@@ -554,8 +554,7 @@ decl_func sprite_ablit16_loop
     ands r2, r2, r4
     orrs r1, r1, r2
     ldr r2, [r3, #POP2_OFFS]
-    cmp r1, 0
-    bne 2f
+    cbnz r1, 2f
     ldrh r2, [r2]
     lsrs r1, r2, #ALPHA_SHIFT_16BPP
     bcc 2f
