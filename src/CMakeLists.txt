@@ -21,6 +21,7 @@ target_compile_options(rp6502_ria PRIVATE
 )
 
 target_link_libraries(rp6502_ria PRIVATE
+    pico_aon_timer
     pico_stdlib
     pico_multicore
     pico_rand
