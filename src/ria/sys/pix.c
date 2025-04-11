@@ -91,7 +91,7 @@ void pix_api_xreg(void)
         if (pix_ready())
         {
             --pix_send_count;
-            uint16_t data;
+            uint16_t data = 0;
             api_pop_uint16(&data);
             pix_send(pix_device, pix_channel, pix_addr + pix_send_count, data);
             if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
@@ -127,7 +127,7 @@ void pix_api_xreg(void)
     {
         for (; pix_send_count; pix_send_count--)
         {
-            uint16_t data;
+            uint16_t data = 0;
             api_pop_uint16(&data);
             if (!main_pix(pix_channel, pix_addr, data))
             {
