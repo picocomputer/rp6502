@@ -9,12 +9,14 @@
 #include "hardware/regs/addressmap.h"
 #include "hardware/regs/sio.h"
 
+#define ACCUM0_OFFS (SIO_INTERP0_ACCUM0_OFFSET - SIO_INTERP0_ACCUM0_OFFSET)
+#define ACCUM1_OFFS (SIO_INTERP0_ACCUM1_OFFSET - SIO_INTERP0_ACCUM0_OFFSET)
 #define POP2_OFFS (SIO_INTERP0_POP_FULL_OFFSET - SIO_INTERP0_ACCUM0_OFFSET)
 #define CTRL0_OFFS (SIO_INTERP0_CTRL_LANE0_OFFSET - SIO_INTERP0_ACCUM0_OFFSET)
 #define INTERP1 (SIO_INTERP1_ACCUM0_OFFSET - SIO_INTERP0_ACCUM0_OFFSET)
 
 .syntax unified
-.cpu cortex-m0plus
+.cpu cortex-m33
 .thumb
 
 // Put every function in its own ELF section, to permit linker GC
@@ -539,10 +541,20 @@ decl_func sprite_ablit16_loop
 
 
 .macro sprite_ablit16_alpha_loop_body n
-    ldr r1, [r3, #CTRL0_OFFS]
+
+    // overflow is broken or changed on RP3250
+    // this used to work on the RP2040
+    //   ldr r1, [r3, #CTRL0_OFFS]
+    //   lsrs r1, #SIO_INTERP0_CTRL_LANE0_OVERF_LSB + 1
+    //   bcs 2f
+
+    ldr r1, [r3, #ACCUM0_OFFS]
+    ands r1, r1, r4
+    ldr r2, [r3, #ACCUM1_OFFS]
+    ands r2, r2, r4
+    orrs r1, r1, r2
     ldr r2, [r3, #POP2_OFFS]
-    lsrs r1, #SIO_INTERP0_CTRL_LANE0_OVERF_LSB + 1
-    bcs 2f
+    cbnz r1, 2f
     ldrh r2, [r2]
     lsrs r1, r2, #ALPHA_SHIFT_16BPP
     bcc 2f
@@ -552,6 +564,7 @@ decl_func sprite_ablit16_loop
 
 decl_func sprite_ablit16_alpha_loop
     mov ip, r0
+    mov r4, r2
     ldr r3, =(SIO_BASE + SIO_INTERP0_ACCUM0_OFFSET)
 
     lsrs r2, r1, #3

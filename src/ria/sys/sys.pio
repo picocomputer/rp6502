@@ -24,7 +24,7 @@ start:
 wait 0 gpio 21
 pull noblock
 mov x osr
-wait 1 gpio 21 [10]
+wait 1 gpio 21 [9]
 mov osr pins
 out y 1
 jmp !y start
@@ -50,39 +50,29 @@ in null 18
 .wrap
 
 
-; Async ROM emulation but synced with PHI2.
+; 6502 reading from RIA
+; Synced with PHI2
 .program ria_read
 
 .wrap_target
 wait 1 gpio 21
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [7]
+wait 0 gpio 21 [6]
 in pins 5
 .wrap
 
 
-; This tries to sets pindirs exactly on PHI2 up transition
-; but has to check again to accomodate slow glue logic.
-; Doing both costs an extra 6 (of 32) PIO instructions.
+; Handle 6502 writing to RIA
+; This also generates PHI2 on the side set
 .program ria_write
 .side_set 1
 
 nowrite:
-nop             side 0 [9]
+nop             side 0 [10]
 .wrap_target
-nop             side 1 [1]
-mov osr !pins   side 1 ; reading is select==1 and write==1
-out x 2         side 1
-mov osr !isr    side 1
-jmp !x reading1 side 1
-jmp hiz1        side 1
-reading1:
-out pindirs 8   side 1
-hiz1:
-mov osr isr     side 1 [6]
+nop             side 1 [13]
 mov x pins      side 1
-out pindirs 8   side 0
 mov osr x       side 0 ; writing is select==1 and write==0
 out x 2         side 0
 jmp x-- jmpsub  side 0 ; subtract 1
@@ -93,5 +83,22 @@ mov isr y       side 0 ; cortex base address
 in osr 5        side 0 ; bus address
 push noblock    side 0
 mov isr x       side 0 ; bus data
-push noblock    side 0 [4]
+push noblock    side 0 [5]
 .wrap
+
+
+; Handle chip select and read/write logic
+.program ria_cs_rwb
+
+; TODO why doesn't `mov x !pins` work?
+
+.wrap_target
+mov pindirs y
+start:
+mov osr !pins
+out x 2
+jmp !x reading ; select==1 and rwb==1
+.wrap
+reading:
+mov pindirs !y
+jmp start

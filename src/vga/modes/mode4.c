@@ -52,7 +52,7 @@ void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint len);
 
 // These are just inner loops, and require INTERP0 to be configured before calling:
 void sprite_ablit16_loop(uint16_t *dst, uint len);
-void sprite_ablit16_alpha_loop(uint16_t *dst, uint len);
+void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask);
 
 // Store unpacked affine transforms as signed 16.16 fixed point in the following order:
 // a00, a01, b0,   a10, a11, b1
@@ -324,7 +324,7 @@ static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
     // yields these bits, added to sp->img, and this will also trigger BASE0 and
     // BASE1 to be directly added (thanks to CTRL_ADD_RAW) to the accumulators,
     // which generates the u,v coordinate for the *next* read.
-    assert(sp->log_size + pixel_shift <= 16);
+    assert(sp->log_size + pixel_shift <= 15);
 
     interp_config c0 = interp_default_config();
     interp_config_set_add_raw(&c0, true);
@@ -338,11 +338,11 @@ static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
     interp_config_set_mask(&c1, pixel_shift + sp->log_size, pixel_shift + 2 * sp->log_size - 1);
     interp_set_config(interp, 1, &c1);
 
-    interp->base[2] = (uint32_t)sp_img;
+    interp_set_base(interp, 2, (uint32_t)sp_img);
 }
 
 // Note we do NOT save/restore the interpolator!
-void __ram_func(sprite_asprite16)(
+__attribute__((optimize("O1"))) void __ram_func(sprite_asprite16)(
     uint16_t *scanbuf, const mode4_asprite_t *sp, const void *sp_img,
     uint raster_y, uint raster_w)
 {
@@ -355,10 +355,10 @@ void __ram_func(sprite_asprite16)(
         atrans[j] = (int32_t)sp->transform[j] << 8;
     _setup_interp_affine(interp, isct, atrans);
     _setup_interp_pix_coordgen(interp, sp, sp_img, 1);
-    sprite_ablit16_alpha_loop(scanbuf + MAX(0, sp->x_pos_px), isct.size_x);
+    sprite_ablit16_alpha_loop(scanbuf + MAX(0, sp->x_pos_px), isct.size_x, 0xFFFF0000 << sp->log_size);
 }
 
-static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+__attribute__((optimize("O1"))) static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     mode4_asprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i; i < length; i++)

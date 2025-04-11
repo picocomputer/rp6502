@@ -1,54 +1,52 @@
 # Rumbledethumps' Picocomputer 6502
 
-The Picocomputer explores retro computing and game development by removing the barrier between genuine 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $4/€4 Raspberry Pi Pico.
+The Picocomputer explores retro computing and game development by bridging the void between genuine 8-bit hardware and modern devices. It can be built entirely with through-hole components, compactly using surface mount devices, or even on a breadboard. No programming devices need to be purchased and the only component used that wasn't available in the 1980s is the $5 Raspberry Pi Pico 2.
 
-Read the documentation:<br>
+The main documentation starts here:<br>
 https://picocomputer.github.io/
 
 ## Dev Setup
 
-This is only for building the Pi Pico software. For writing 6502 software, see [rp6502-vscode](https://github.com/picocomputer/rp6502-vscode).
+This is for building the Pi Pico firmware. For writing 6502 software, see [picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65) and [picocomputer/vscode-llvm-mos](https://github.com/picocomputer/vscode-llvm-mos).
 
-Install the C/C++ toolchain for the Raspberry Pi Pico. For more information, read [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
-```
-sudo apt install cmake gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential gdb-multiarch
-```
+Begin by installing VSCode and the Pi Pico VSCode Extension as described in [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-All dependencies are submodules. The following will download the correct version of all SDKs. It will take an extremely long time to recurse the project, so do this instead:
+Some dependencies are submodules. Don't forget to grab them:
 ```
-git submodule update --init
-cd src/pico-sdk
-git submodule update --init
-cd ../..
+$ git submodule update --init
 ```
 
-The Pi Pico VGA is no longer a Picoprobe. It remains a CDC for console access. To debug Pico RIA or Pico VGA code, you need a Debug Probe or a third Pi Pico as a Picoprobe.
+This is all you would need to do in an ideal world. But the Pi Pico tools run on many operating systems which makes documentation a moving target. They assume you can fill in some blanks. The following are my notes for setting up WSL (Windows Subsystem for Linux) with Ubuntu. Don't forget that you can get help from the [Raspberry Pi Forums](https://forums.raspberrypi.com/).
 
-The VSCode launch settings connect to a remote debug session. I use multiple terminals for the debugger and console. You'll also want to add a udev rule to avoid a sudo nightmare. The following are rough notes, you may need to install software which is beyond the scope of this README.
-
-Create `/etc/udev/rules.d/99-pico.rules` with:
+The Pi Pico VSCode Extension will need this additional software:
 ```
-#Picoprobe
+$ sudo apt install build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
+```
+
+Add a udev rule to avoid needing root access for openocd. Create `/etc/udev/rules.d/99-pico.rules` with:
+```
+#Raspberry Pi Foundation
 SUBSYSTEM=="usb", ATTRS{idVendor}=="2e8a", MODE="0666"
 ```
-Debug terminal:
-```
-$ openocd -f interface/cmsis-dap.cfg -c "adapter speed 5000" -f target/rp2040.cfg -s tcl
-```
-Console terminal:
-```
-$ minicom -c on -b 115200 -o -D /dev/ttyACM0
-```
-WSL (Windows Subsystem for Linux) can forward the Picoprobe to Linux:
-```
-PS> usbipd list
-BUSID  DEVICE
-7-4    CMSIS-DAP v2 Interface, USB Serial Device (COM6)
 
-PS> usbipd wsl attach --busid 7-4
-```
-WSL needs udev started. Create `/etc/wsl.conf` with:
+WSL won't start udev by default. Create or edit `/etc/wsl.conf` with:
 ```
 [boot]
 command="service udev start"
+```
+
+Add your user account to the dialout group so you don't need root for serial device access:
+```
+$ sudo usermod -a -G dialout $USER
+```
+
+You can forward USB ports to WSL with [usbipd-win](https://github.com/dorssel/usbipd-win):
+```
+PS> winget install usbipd
+PS> usbipd list
+
+BUSID  VID:PID    DEVICE
+7-4    2e8a:000c  CMSIS-DAP v2 Interface, USB Serial Device (COM1)
+
+PS> usbipd attach --wsl --busid 7-4
 ```

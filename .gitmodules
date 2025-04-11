@@ -1,9 +1,6 @@
 [submodule "src/littlefs"]
 	path = src/littlefs
 	url = https://github.com/littlefs-project/littlefs.git
-[submodule "src/pico-sdk"]
-	path = src/pico-sdk
-	url = https://github.com/raspberrypi/pico-sdk.git
 [submodule "src/pico-extras"]
 	path = src/pico-extras
 	url = https://github.com/picocomputer/pico-extras.git

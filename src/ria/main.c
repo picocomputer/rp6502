@@ -40,21 +40,25 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // STDIO not available until after these inits
+    // STDIO not available until after these inits.
     cpu_init();
     ria_init();
     pix_init();
     vga_init();
     com_init();
 
-    // Print startup message
+    // Wait a moment for RP6502-VGA to boot at power on.
+    // This isn't ideal since it delays warm boots too.
+    busy_wait_ms(40);
+
+    // Print startup message.
     sys_init();
 
-    // Load config before we continue
+    // Load config before we continue.
     lfs_init();
     cfg_init();
 
-    // Misc kernel modules, add yours here
+    // Misc kernel modules, add yours here.
     oem_init();
     aud_init();
     kbd_init();

@@ -22,7 +22,7 @@
 #include <string.h>
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
-#include "pico/platform.h"
+#include "pico.h"
 
 
 /*--------------------------------------------------------------------------

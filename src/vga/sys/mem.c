@@ -7,7 +7,7 @@
 #include "mem.h"
 
 #ifdef NDEBUG
-uint8_t xram[0x10000] __attribute__((aligned(32)));
+volatile const uint8_t xram[0x10000] __attribute__((aligned(0x10000)));
 #else
 static struct
 {
@@ -29,12 +29,6 @@ static struct
     uint8_t _F[0x1000];
     // this struct of 4KB segments is because
     // a single 64KB array crashes my debugger
-} xram_blocks __attribute__((aligned(32)));
-uint8_t *const xram = (uint8_t *)&xram_blocks;
+} xram_blocks __attribute__((aligned(0x10000)));
+uint8_t volatile *const xram = (uint8_t *)&xram_blocks;
 #endif
-
-uint8_t xstack[XSTACK_SIZE + 1];
-size_t volatile xstack_ptr;
-
-uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
-size_t mbuf_len;
