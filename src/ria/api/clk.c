@@ -22,8 +22,8 @@ uint64_t clk_clock_start;
 
 void clk_init(void)
 {
-    const struct timespec *ts = {0};
-    aon_timer_start(ts);
+    const struct timespec ts = {0, 0};
+    aon_timer_start(&ts);
 }
 
 void clk_run(void)
