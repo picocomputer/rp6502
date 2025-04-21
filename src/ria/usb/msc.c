@@ -9,10 +9,43 @@
 #include "usb/usb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
+#include "pico/aon_timer.h"
 #include <math.h>
 
-// We are an 8-bit computer, confirm fatfs is too
+// Validate essential settings in ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
+static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
+static_assert(FF_FS_EXFAT == RP6502_EXFAT);
+static_assert(FF_LBA64 == RP6502_EXFAT);
+static_assert(FF_USE_STRFUNC == 1);
+static_assert(FF_USE_LFN == 1);
+static_assert(FF_MAX_LFN == 255);
+static_assert(FF_LFN_UNICODE == 0);
+static_assert(FF_LFN_BUF == 255);
+static_assert(FF_SFN_BUF == 12);
+static_assert(FF_FS_RPATH == 2);
+static_assert(FF_MULTI_PARTITION == 0);
+static_assert(FF_FS_LOCK == 8);
+static_assert(FF_FS_NORTC == 0);
+static_assert(FF_VOLUMES == 10);
+static_assert(FF_STR_VOLUME_ID == 1);
+#ifdef FF_VOLUME_STRS
+#error FF_VOLUME_STRS must not be defined
+#endif
+
+static const char __in_flash("fatfs_vol") VolumeStrUSB0[] = "USB0";
+static const char __in_flash("fatfs_vol") VolumeStrUSB1[] = "USB1";
+static const char __in_flash("fatfs_vol") VolumeStrUSB2[] = "USB2";
+static const char __in_flash("fatfs_vol") VolumeStrUSB3[] = "USB3";
+static const char __in_flash("fatfs_vol") VolumeStrUSB4[] = "USB4";
+static const char __in_flash("fatfs_vol") VolumeStrUSB5[] = "USB5";
+static const char __in_flash("fatfs_vol") VolumeStrUSB6[] = "USB6";
+static const char __in_flash("fatfs_vol") VolumeStrUSB7[] = "USB7";
+static const char __in_flash("fatfs_vol") VolumeStrUSB8[] = "USB8";
+static const char __in_flash("fatfs_vol") VolumeStrUSB9[] = "USB9";
+__in_flash("fatfs_vols") const char *VolumeStr[FF_VOLUMES] = {
+    VolumeStrUSB0, VolumeStrUSB1, VolumeStrUSB2, VolumeStrUSB3, VolumeStrUSB4,
+    VolumeStrUSB5, VolumeStrUSB6, VolumeStrUSB7, VolumeStrUSB8, VolumeStrUSB9};
 
 static FATFS msc_fatfs_volumes[FF_VOLUMES];
 static volatile bool msc_volume_busy[FF_VOLUMES];
@@ -88,6 +121,23 @@ static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb
     (void)cb_data;
     msc_volume_busy[dev_addr] = false;
     return true;
+}
+
+DWORD get_fattime(void)
+{
+    // by default, aon_timer is started at 0 (1-1-1970)
+    struct tm tm;
+    if (aon_timer_get_time_calendar(&tm) &&
+        tm.tm_year + 1900 >= 1980 &&
+        tm.tm_year + 1900 <= 2107)
+        return ((DWORD)(tm.tm_year + 1900 - 1980) << 25) |
+               ((DWORD)(tm.tm_mon + 1) << 21) |
+               ((DWORD)tm.tm_mday << 16) |
+               ((WORD)tm.tm_hour << 11) |
+               ((WORD)tm.tm_min << 5) |
+               ((WORD)(tm.tm_sec >> 1));
+    else
+        return ((DWORD)(0) << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
 }
 
 DSTATUS disk_status(BYTE pdrv)

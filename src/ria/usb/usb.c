@@ -9,7 +9,7 @@
 #include <stdarg.h>
 
 #define DEV_DESC_SIZE 80
-char dev_message[CFG_TUH_DEVICE_MAX][DEV_DESC_SIZE];
+static char dev_message[CFG_TUH_DEVICE_MAX][DEV_DESC_SIZE];
 
 // TODO Devices can be "mounted" according to tuh_mounted()
 //      but tinyusb doesn't notify us. This status module

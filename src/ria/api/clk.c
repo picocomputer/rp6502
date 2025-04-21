@@ -9,14 +9,10 @@
 
 #include "api/api.h"
 #include "api/clk.h"
-#include "sys/cfg.h"
-#include <time.h>
 #include "hardware/timer.h"
 #include "pico/aon_timer.h"
-#include "fatfs/ff.h"
 
 #define CLK_ID_REALTIME 0
-#define CLK_EPOCH_FAT 1980
 
 uint64_t clk_clock_start;
 
@@ -29,21 +25,6 @@ void clk_init(void)
 void clk_run(void)
 {
     clk_clock_start = time_us_64();
-}
-
-DWORD get_fattime(void)
-{
-    struct tm tm;
-    aon_timer_get_time_calendar(&tm);
-    if (tm.tm_year + 1900 >= CLK_EPOCH_FAT)
-        return ((DWORD)(tm.tm_year + 1900 - CLK_EPOCH_FAT) << 25) |
-               ((DWORD)(tm.tm_mon + 1) << 21) |
-               ((DWORD)tm.tm_mday << 16) |
-               ((WORD)tm.tm_hour << 11) |
-               ((WORD)tm.tm_min << 5) |
-               ((WORD)(tm.tm_sec >> 1));
-    else
-        return ((DWORD)(0) << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
 }
 
 void clk_api_clock(void)
