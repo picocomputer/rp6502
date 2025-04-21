@@ -24,7 +24,7 @@ start:
 wait 0 gpio 21
 pull noblock
 mov x osr
-wait 1 gpio 21 [9]
+wait 1 gpio 21 [12] ; late in good range 3-14
 mov osr pins
 out y 1
 jmp !y start
@@ -58,7 +58,7 @@ in null 18
 wait 1 gpio 21
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [6]
+wait 0 gpio 21 [6] ; early in good range 5-9
 in pins 5
 .wrap
 
