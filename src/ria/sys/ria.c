@@ -208,7 +208,8 @@ void ria_write_buf(uint16_t addr)
         return;
     rw_addr = addr;
     rw_end = len;
-    rw_pos = 0;
+    // The first couple bytes may not write with very low clock speeds.
+    rw_pos = -2;
     action_state = action_state_write;
     main_run();
 }
