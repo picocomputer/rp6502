@@ -146,7 +146,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
         {
             ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
-            if ((key_shift && !is_capslock) || 
+            if ((key_shift && !is_capslock) ||
                 (!key_shift && is_capslock))
                 ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][3], cfg_get_codepage());
         }
@@ -398,7 +398,7 @@ void kbd_task(void)
     if (kdb_hid_leds_need_report)
     {
         kdb_hid_leds_need_report = false;
-        for (uint8_t dev_addr = 0; dev_addr < CFG_TUH_DEVICE_MAX; dev_addr++)
+        for (uint8_t dev_addr = 1; dev_addr <= CFG_TUH_DEVICE_MAX; dev_addr++)
             for (uint8_t instance = 0; instance < CFG_TUH_HID; instance++)
                 if (tuh_hid_interface_protocol(dev_addr, instance) == HID_ITF_PROTOCOL_KEYBOARD)
                     tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT,

@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "tusb.h"
+#include "usb/msc.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
@@ -32,6 +33,7 @@ static_assert(FF_STR_VOLUME_ID == 1);
 #error FF_VOLUME_STRS must not be defined
 #endif
 
+// Place volume strings in flash
 static const char __in_flash("fatfs_vol") VolumeStrUSB0[] = "USB0";
 static const char __in_flash("fatfs_vol") VolumeStrUSB1[] = "USB1";
 static const char __in_flash("fatfs_vol") VolumeStrUSB2[] = "USB2";
@@ -44,9 +46,20 @@ __in_flash("fatfs_vols") const char *VolumeStr[FF_VOLUMES] = {
     VolumeStrUSB0, VolumeStrUSB1, VolumeStrUSB2, VolumeStrUSB3,
     VolumeStrUSB4, VolumeStrUSB5, VolumeStrUSB6, VolumeStrUSB7};
 
+// Place some printables in flash
 static const char __in_flash("msc_print") MSC_PRINT_MB[] = "MB";
 static const char __in_flash("msc_print") MSC_PRINT_GB[] = "GB";
 static const char __in_flash("msc_print") MSC_PRINT_TB[] = "TB";
+static const char __in_flash("msc_print") MSC_PRINT_COUNT[] =
+    "USB MSC: %d device%s\n";
+static const char __in_flash("msc_print") MSC_PRINT_INQUIRING[] =
+    "%s: inquiring\n";
+static const char __in_flash("msc_print") MSC_PRINT_MOUNTED[] =
+    "%s: %.1f %s %.8s %.16s rev %.4s\n";
+static const char __in_flash("msc_print") MSC_PRINT_INQUIRY_FAILED[] =
+    "%s: inquiry failed\n";
+static const char __in_flash("msc_print") MSC_PRINT_MOUNT_FAILED[] =
+    "%s: mount failed (%d)\n";
 
 typedef enum
 {
@@ -85,18 +98,13 @@ void msc_print_status(void)
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
         if (msc_volume_status[vol] != msc_volume_free)
             count++;
-    printf("USB MSC: %d device%s\n", count, count == 1 ? "" : "s");
-
+    printf(MSC_PRINT_COUNT, count, count == 1 ? "" : "s");
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_status[vol] == msc_volume_free)
-            continue;
-        uint16_t vid, pid;
-        tuh_vid_pid_get(msc_volume_dev_addr[vol], &vid, &pid);
         switch (msc_volume_status[vol])
         {
         case msc_volume_inquiring:
-            printf("%04X:%04X inquiring\n", vid, pid);
+            printf(MSC_PRINT_INQUIRING, VolumeStr[vol]);
             break;
         case msc_volume_mounted:
             const char *xb = MSC_PRINT_MB;
@@ -115,8 +123,7 @@ void msc_print_status(void)
             rtrims(msc_inquiry_resp[vol].vendor_id, 8);
             rtrims(msc_inquiry_resp[vol].product_id, 16);
             rtrims(msc_inquiry_resp[vol].product_rev, 4);
-            printf("%04X:%04X %s: %.1f %s %.8s %.16s rev %.4s\n",
-                   vid, pid,
+            printf(MSC_PRINT_MOUNTED,
                    VolumeStr[vol],
                    size, xb,
                    msc_inquiry_resp[vol].vendor_id,
@@ -124,10 +131,10 @@ void msc_print_status(void)
                    msc_inquiry_resp[vol].product_rev);
             break;
         case msc_volume_inquiry_failed:
-            printf("%04X:%04X inquiry failed\n", vid, pid);
+            printf(MSC_PRINT_INQUIRY_FAILED, VolumeStr[vol]);
             break;
         case msc_volume_mount_failed:
-            printf("%04X:%04X mount failed (%d)\n", vid, pid, msc_mount_result[vol]);
+            printf(MSC_PRINT_MOUNT_FAILED, VolumeStr[vol], msc_mount_result[vol]);
             break;
         default:
             break;
