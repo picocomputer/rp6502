@@ -7,6 +7,7 @@
 #include "main.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/msc.h"
 #include "usb/usb.h"
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"
@@ -43,6 +44,7 @@ void sys_mon_status(const char *args, size_t len)
     sys_print_status();
     vga_print_status();
     usb_print_status();
+    msc_print_status();
 }
 
 void sys_init(void)

@@ -6,7 +6,6 @@
 
 #include "main.h"
 #include "tusb.h"
-#include "usb/usb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
@@ -45,6 +44,10 @@ __in_flash("fatfs_vols") const char *VolumeStr[FF_VOLUMES] = {
     VolumeStrUSB0, VolumeStrUSB1, VolumeStrUSB2, VolumeStrUSB3,
     VolumeStrUSB4, VolumeStrUSB5, VolumeStrUSB6, VolumeStrUSB7};
 
+static const char __in_flash("msc_print") MSC_PRINT_MB[] = "MB";
+static const char __in_flash("msc_print") MSC_PRINT_GB[] = "GB";
+static const char __in_flash("msc_print") MSC_PRINT_TB[] = "TB";
+
 typedef enum
 {
     msc_volume_free = 0,
@@ -63,7 +66,76 @@ static FRESULT msc_mount_result[FF_VOLUMES];
 
 static bool msc_tuh_dev_busy[CFG_TUH_DEVICE_MAX];
 
-bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
+// Some USB vendors pad their strings with spaces, others with zeros.
+// This will ensure zeros, which prints better.
+static void rtrims(uint8_t *s, size_t l)
+{
+    while (l--)
+    {
+        if (s[l] == ' ')
+            s[l] = '\0';
+        else
+            break;
+    }
+}
+
+void msc_print_status(void)
+{
+    int count = 0;
+    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+        if (msc_volume_status[vol] != msc_volume_free)
+            count++;
+    printf("USB MSC: %d device%s\n", count, count == 1 ? "" : "s");
+
+    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+    {
+        if (msc_volume_status[vol] == msc_volume_free)
+            continue;
+        uint16_t vid, pid;
+        tuh_vid_pid_get(msc_volume_dev_addr[vol], &vid, &pid);
+        switch (msc_volume_status[vol])
+        {
+        case msc_volume_inquiring:
+            printf("%04X:%04X inquiring\n", vid, pid);
+            break;
+        case msc_volume_mounted:
+            const char *xb = MSC_PRINT_MB;
+            double size = msc_volume_size[vol] / (1024 * 1024);
+            if (size >= 1000)
+            {
+                xb = MSC_PRINT_GB;
+                size /= 1024;
+            }
+            if (size >= 1000)
+            {
+                xb = MSC_PRINT_TB;
+                size /= 1024;
+            }
+            size = ceil(size * 10) / 10;
+            rtrims(msc_inquiry_resp[vol].vendor_id, 8);
+            rtrims(msc_inquiry_resp[vol].product_id, 16);
+            rtrims(msc_inquiry_resp[vol].product_rev, 4);
+            printf("%04X:%04X %s: %.1f %s %.8s %.16s rev %.4s\n",
+                   vid, pid,
+                   VolumeStr[vol],
+                   size, xb,
+                   msc_inquiry_resp[vol].vendor_id,
+                   msc_inquiry_resp[vol].product_id,
+                   msc_inquiry_resp[vol].product_rev);
+            break;
+        case msc_volume_inquiry_failed:
+            printf("%04X:%04X inquiry failed\n", vid, pid);
+            break;
+        case msc_volume_mount_failed:
+            printf("%04X:%04X mount failed (%d)\n", vid, pid, msc_mount_result[vol]);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+static bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
     uint8_t vol;
     for (vol = 0; vol < FF_VOLUMES; vol++)
@@ -101,35 +173,8 @@ bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_dat
         f_chdir("/");
     }
 
-    usb_set_status(dev_addr, "MSC %s %.8s %.16s rev %.4s",
-                   VolumeStr[vol],
-                   msc_inquiry_resp[vol].vendor_id,
-                   msc_inquiry_resp[vol].product_id,
-                   msc_inquiry_resp[vol].product_rev);
-
     return true;
 }
-
-#if 0
-    const char *xb = "MB";
-    double size = block_count * block_size / (1024 * 1024);
-    if (size >= 1000)
-    {
-        xb = "GB";
-        size /= 1024;
-    }
-    if (size >= 1000)
-    {
-        xb = "TB";
-        size /= 1024;
-    }
-    size = ceil(size * 10) / 10;
-    usb_set_status(dev_addr, "MSC %.1f %s %.8s %.16s rev %.4s",
-                   size, xb,
-                   msc_inquiry_resp[dev_addr].vendor_id,
-                   msc_inquiry_resp[dev_addr].product_id,
-                   msc_inquiry_resp[dev_addr].product_rev);
-#endif
 
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
