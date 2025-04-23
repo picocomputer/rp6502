@@ -89,8 +89,9 @@ static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
         *buf = cmd;
         return ram_mon_address;
     }
-    // 0:-9: is chdrive
-    if (cmd_len == 2 && cmd[1] == ':' && cmd[0] >= '0' && cmd[0] <= '9')
+    // *0:-*9: is chdrive
+    if (cmd_len >= 2 && cmd[cmd_len - 1] == ':' &&
+        cmd[cmd_len - 2] >= '0' && cmd[cmd_len - 2] <= '9')
     {
         *buf = cmd;
         return fil_mon_chdrive;

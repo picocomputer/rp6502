@@ -19,7 +19,7 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "LS (dir|drive)      - List contents of directory.\n"
     "CD (dir)            - Change or show current directory.\n"
     "MKDIR dir           - Make a new directory.\n"
-    "0:                  - 1:-8: Change current USB drive.\n"
+    "(USB)0:             - USB0:-USB7: Change current USB drive.\n"
     "LOAD file           - Load ROM file. Start if contains reset vector.\n"
     "INFO file           - Show help text, if any, contained in ROM file.\n"
     "INSTALL file        - Install ROM file on RIA.\n"

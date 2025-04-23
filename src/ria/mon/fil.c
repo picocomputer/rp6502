@@ -70,12 +70,9 @@ void fil_mon_mkdir(const char *args, size_t len)
 void fil_mon_chdrive(const char *args, size_t len)
 {
     (void)len;
-    assert(len >= 2 && args[1] == ':');
-    char s[3] = "0:";
-    s[0] = args[0];
     FRESULT result;
     DIR dir;
-    result = f_opendir(&dir, s);
+    result = f_opendir(&dir, args);
     if (result != FR_OK)
         printf("?Drive not found (%d)\n", result);
     if (result == FR_OK)
@@ -86,7 +83,7 @@ void fil_mon_chdrive(const char *args, size_t len)
     }
     if (result == FR_OK)
     {
-        result = f_chdrive(s);
+        result = f_chdrive(args);
         if (result != FR_OK)
             printf("?Unable to change drive (%d)\n", result);
     }

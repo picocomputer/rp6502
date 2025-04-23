@@ -208,7 +208,8 @@ void ria_write_buf(uint16_t addr)
         return;
     rw_addr = addr;
     rw_end = len;
-    rw_pos = 0;
+    // The first couple bytes may not write with very low clock speeds.
+    rw_pos = -2;
     action_state = action_state_write;
     main_run();
 }
@@ -221,7 +222,7 @@ void ria_write_buf(uint16_t addr)
 #define RIA_RW1 REGS(0xFFE8)
 #define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define RIA_ADDR1 REGSW(0xFFEA)
-static __attribute__((optimize("O1"))) void act_loop(void)
+static __attribute__((optimize("O3"))) void act_loop(void)
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
