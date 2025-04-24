@@ -69,10 +69,10 @@ in pins 5
 .side_set 1
 
 nowrite:
-nop             side 0 [10]
+nop             side 0 [9]
 .wrap_target
-nop             side 1 [13]
-mov x pins      side 1
+nop             side 1 [14]
+mov x pins      side 0
 mov osr x       side 0 ; writing is select==1 and write==0
 out x 2         side 0
 jmp x-- jmpsub  side 0 ; subtract 1
@@ -83,7 +83,7 @@ mov isr y       side 0 ; cortex base address
 in osr 5        side 0 ; bus address
 push noblock    side 0
 mov isr x       side 0 ; bus data
-push noblock    side 0 [5]
+push noblock    side 0 [4]
 .wrap
 
 
