@@ -12,6 +12,7 @@ target_include_directories(rp6502_ria PRIVATE
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
+    LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
 )
@@ -111,13 +112,15 @@ target_sources(rp6502_vga PRIVATE
     vga/usb/cdc.c
     vga/usb/descriptors.c
     vga/usb/serno.c
+    scanvideo/scanvideo.c
 )
 
 target_link_libraries(rp6502_vga PRIVATE
     pico_stdlib
     pico_multicore
     pico_unique_id
-    pico_scanvideo_dpi
+    hardware_pio
+    hardware_dma
     hardware_interp
     tinyusb_device
 )
@@ -128,6 +131,14 @@ pico_generate_pio_header(rp6502_vga
 
 pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.pio
+)
+
+pico_generate_pio_header(rp6502_vga
+    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/scanvideo.pio
+)
+
+pico_generate_pio_header(rp6502_vga
+    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/timing.pio
 )
 
 target_compile_definitions(rp6502_vga PRIVATE

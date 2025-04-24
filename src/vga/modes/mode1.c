@@ -6,12 +6,11 @@
 
 #include "modes/mode1.h"
 #include "modes/modes.h"
-#include "pico/scanvideo.h"
+#include "scanvideo/scanvideo.h"
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/color.h"
 #include "term/font.h"
-#include "pico/scanvideo.h"
 #include <string.h>
 
 typedef struct

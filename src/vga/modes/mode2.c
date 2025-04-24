@@ -9,7 +9,7 @@
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/color.h"
-#include "pico/scanvideo.h"
+#include "scanvideo/scanvideo.h"
 #include <string.h>
 
 typedef struct

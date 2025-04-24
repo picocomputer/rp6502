@@ -11,8 +11,8 @@
 #include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
-#include "pico/scanvideo.h"
-#include "pico/scanvideo/composable_scanline.h"
+#include "scanvideo/scanvideo.h"
+#include "scanvideo/composable_scanline.h"
 #include <stdio.h>
 
 #define TERM_STD_HEIGHT 30

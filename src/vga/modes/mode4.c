@@ -12,7 +12,7 @@
 #include "modes/mode4.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
-#include "pico/scanvideo.h"
+#include "scanvideo/scanvideo.h"
 #include "hardware/interp.h"
 #include <stdint.h>
 

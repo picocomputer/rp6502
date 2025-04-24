@@ -24,8 +24,6 @@ set(PICO_BOARD pico2 CACHE STRING "Board type")
 include(pico_sdk_import.cmake)
 
 set(PICO_TINYUSB_PATH ${CMAKE_CURRENT_LIST_DIR}/src/tinyusb)
-set(PICO_EXTRAS_PATH ${CMAKE_CURRENT_LIST_DIR}/src/pico-extras)
-add_subdirectory(${PICO_EXTRAS_PATH})
 
 project(RP6502 C CXX ASM)
 

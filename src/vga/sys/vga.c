@@ -11,8 +11,8 @@
 #include "term/term.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
-#include "pico/scanvideo.h"
-#include "pico/scanvideo/composable_scanline.h"
+#include "scanvideo/scanvideo.h"
+#include "scanvideo/composable_scanline.h"
 #include "hardware/dma.h"
 #include "hardware/clocks.h"
 #include <string.h>

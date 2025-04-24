@@ -5,7 +5,7 @@
  */
 
 #include "color.h"
-#include "pico/scanvideo.h"
+#include "scanvideo/scanvideo.h"
 
 // Black and white palette for 1bpp
 
