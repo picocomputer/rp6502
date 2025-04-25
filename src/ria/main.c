@@ -134,6 +134,7 @@ static void reset(void)
     ram_reset();
     rom_reset();
     vga_reset();
+    api_reset();
 }
 
 // Triggered once after init then after every PHI2 clock change.

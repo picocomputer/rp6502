@@ -55,6 +55,7 @@
 
 void api_task(void);
 void api_run(void);
+void api_reset(void);
 
 // How to build an API handler:
 // 1. The last fastcall argument is in API_A, API_AX or API_AXSREG.

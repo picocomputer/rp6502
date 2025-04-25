@@ -9,20 +9,21 @@
 #include "sys/cpu.h"
 #include "sys/ria.h"
 
+static uint8_t api_active_op = 0;
+
 void api_task(void)
 {
-    static uint8_t active_op = 0;
     // Latch called op in case 6502 app misbehaves
     if (cpu_active() && !ria_active() &&
-        !active_op && API_BUSY &&
+        !api_active_op && API_BUSY &&
         API_OP != 0x00 && API_OP != 0xFF)
-        active_op = API_OP;
-    if (active_op)
+        api_active_op = API_OP;
+    if (api_active_op)
     {
-        if (!main_api(active_op))
+        if (!main_api(api_active_op))
             api_return_errno(API_ENOSYS);
         if (!API_BUSY)
-            active_op = 0;
+            api_active_op = 0;
     }
 }
 
@@ -37,6 +38,11 @@ void api_run(void)
     *(int8_t *)&REGS(0xFFE9) = 1; // STEP1
     REGS(0xFFE8) = xram[0];       // RW1
     api_return_errno(0);
+}
+
+void api_reset(void)
+{
+    api_active_op = 0;
 }
 
 bool api_pop_uint8_end(uint8_t *data)
