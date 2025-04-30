@@ -1077,6 +1077,9 @@ static inline void top_up_timing_pio_fifo()
     }
 }
 
+static int32_t active_scanline_number;
+static int32_t vblank_scanline_number;
+
 void __isr __video_most_time_critical_func(isr_pio0_0)()
 {
 #if PICO_SCANVIDEO_ADJUST_BUS_PRIORITY
@@ -1094,6 +1097,8 @@ void __isr __video_most_time_critical_func(isr_pio0_0)()
             prepare_for_active_scanline_irqs_enabled();
         }
         DEBUG_PINS_CLR(video_irq, 1);
+        active_scanline_number++;
+        vblank_scanline_number = 0;
     }
 #if PICO_SCANVIDEO_ADJUST_BUS_PRIORITY
     bus_ctrl_hw->priority = 0;
@@ -1107,7 +1112,23 @@ void __isr __video_most_time_critical_func(isr_pio0_0)()
         DEBUG_PINS_SET(video_irq, 2);
         prepare_for_vblank_scanline_irqs_enabled();
         DEBUG_PINS_CLR(video_irq, 2);
+        vblank_scanline_number++;
+        active_scanline_number = 0;
     }
+}
+
+// The RP6502 VGA wants to wait until the last possible moment before trying to
+// fill buffers. This gives applications the most amount of time to do processing
+// during vsync. I couldn't figure out a hack from the official API, so I added this.
+// Note that this doesn't indicate when all buffers for a frame are finished, but it
+// leaves a safety margin to ensure this starts returning true before the buffers empty.
+bool scanvideo_vsync_pausing()
+{
+    bool late = active_scanline_number >=
+                timing_state.v_active - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1;
+    bool early = vblank_scanline_number <
+                 timing_state.v_total - timing_state.v_active - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT;
+    return late || early;
 }
 
 // irq for PIO FIFO

@@ -17,8 +17,6 @@
 #include "hardware/clocks.h"
 #include <string.h>
 
-#define VGA_VSYNC_BUSY_WAIT_HACK_US 750
-
 #define VGA_PROG_MAX 512
 typedef struct
 {
@@ -327,13 +325,14 @@ vga_render_loop(void)
                 // core 0 (other)
                 scanvideo_scanline_buffer_t *const scanline_buffer0 =
                     scanvideo_begin_scanline_generation(true);
+                while (vga_scanline_buffer_core0)
+                    tight_loop_contents();
                 if (scanvideo_scanline_number(scanline_buffer0->scanline_id) == 0)
                 {
                     ria_vsync();
-                    busy_wait_us_32(VGA_VSYNC_BUSY_WAIT_HACK_US);
+                    while (scanvideo_vsync_pausing())
+                        tight_loop_contents();
                 }
-                while (vga_scanline_buffer_core0)
-                    tight_loop_contents();
                 vga_scanline_buffer_core0 = scanline_buffer0;
                 // Scanvideo will reset to the last scanline, resync here
                 if (scanvideo_scanline_number(scanline_buffer0->scanline_id) == 1)
@@ -344,7 +343,8 @@ vga_render_loop(void)
                 if (scanvideo_scanline_number(scanline_buffer1->scanline_id) == 0)
                 {
                     ria_vsync();
-                    busy_wait_us_32(VGA_VSYNC_BUSY_WAIT_HACK_US);
+                    while (scanvideo_vsync_pausing())
+                        tight_loop_contents();
                 }
                 vga_render_scanline(scanline_buffer1);
             }

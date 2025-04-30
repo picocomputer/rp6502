@@ -243,6 +243,8 @@ extern "C"
 
     extern void scanvideo_wait_for_vblank();
 
+    extern bool scanvideo_vsync_pausing();
+
     extern uint32_t scanvideo_wait_for_scanline_complete(uint32_t scanline_id);
     /**
      * Acquire a scanline that needs generating. The scanline_id field indicates which scanline is required.
