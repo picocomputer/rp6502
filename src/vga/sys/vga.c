@@ -320,17 +320,16 @@ static void vga_render_scanline(void)
     }
     if (vga_scanline_num == -1)
     {
-        if (vga_scanvideo_mode_switching)
+        if (vga_scanvideo_mode_switching || !mutex_try_enter(&vga_mode_mutex, 0))
             return mutex_exit(&vga_scanline_mutex);
-        mutex_enter_blocking(&vga_mode_mutex); // pause mode switching
-        vga_scanline_num = 0;
+        vga_scanline_num = 0; // frame starts now
     }
     scanvideo_scanline_buffer_t *const scanline_buffer =
         scanvideo_begin_scanline_generation(false);
     if (!scanline_buffer)
         return mutex_exit(&vga_scanline_mutex);
     if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
-        vga_scanline_num = 0;
+        vga_scanline_num = 0; // safety net
     mutex_exit(&vga_scanline_mutex);
 
     // Scanline ready, do it.
