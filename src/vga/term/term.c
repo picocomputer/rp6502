@@ -15,6 +15,19 @@
 #include "scanvideo/composable_scanline.h"
 #include <stdio.h>
 
+// This terminal emulator supports a subset of xterm/ANSI codes.
+// It is designed to support 115200 bps without any flow control.
+// The logic herein will make more sense if you remember this:
+
+// 1. The screen data doesn't move when scrolling. Instead, the
+//    video begins rendering at y_offset and wraps around.
+// 2. The screen doesn't fully clear immediately. To keep the UART
+//    buffer from overflowing, lines are cleared in a background task
+//    and checked as the cursor moves into them.
+// 3. When lines wrap, they are marked so that you can backspace and
+//    move forward and back as if it's one long virtual line. This
+//    greatly simplifies line editor logic.
+
 #define TERM_STD_HEIGHT 30
 #define TERM_MAX_HEIGHT 32
 #define TERM_CSI_PARAM_MAX_LEN 16
