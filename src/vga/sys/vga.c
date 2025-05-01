@@ -17,6 +17,9 @@
 #include "hardware/clocks.h"
 #include <string.h>
 
+GCC_Pragma("GCC push_options");
+GCC_Pragma("GCC optimize(\"O3\")");
+
 #define VGA_PROG_MAX 512
 typedef struct
 {
@@ -36,7 +39,9 @@ typedef struct
 } vga_prog_t;
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
-static mutex_t vga_mutex;
+static mutex_t vga_mode_mutex;
+static mutex_t vga_scanline_mutex;
+static int16_t vga_scanline_num;
 static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
 static volatile vga_canvas_t vga_canvas_current;
@@ -237,16 +242,104 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x360_hd = {
     .xscale = 1,
     .yscale = 2};
 
-static void __attribute__((optimize("O1")))
-vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
+static void vga_scanvideo_switch(void)
 {
+    if (!vga_scanvideo_mode_switching ||
+        !mutex_try_enter(&vga_mode_mutex, 0))
+        return;
+
+    // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
+    // Until it does, a brute force shutdown between frames seems to work.
+
+    // Stop and release resources previously held by scanvideo_setup()
+    for (int i = 0; i < 3; i++)
+    {
+        dma_channel_abort(i);
+        if (dma_channel_is_claimed(i))
+            dma_channel_unclaim(i);
+    }
+    pio_clear_instruction_memory(pio0);
+
+    // scanvideo_timing_enable is almost able to stop itself
+    for (int sm = 0; sm < 4; sm++)
+        if (pio_sm_is_claimed(pio0, sm))
+            pio_sm_unclaim(pio0, sm);
+    scanvideo_timing_enable(false);
+    for (int sm = 0; sm < 4; sm++)
+        if (pio_sm_is_claimed(pio0, sm))
+            pio_sm_unclaim(pio0, sm);
+
+    // begin scanvideo setup with clock setup
+    uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
+    if (clk == 25200000)
+        clk = 25200000 * 8; // 201.6 MHz
+    else if (clk == 54000000)
+        clk = 54000000 * 4; // 216.0 MHz
+    else if (clk == 37125000)
+        clk = 37125000 * 4; // 148.5 MHz
+    assert(clk >= 120000000 && clk <= 266000000);
+    if (clk != clock_get_hz(clk_sys))
+    {
+        main_flush();
+        set_sys_clock_khz(clk / 1000, true);
+        main_reclock();
+    }
+
+    // These two calls are the main scanvideo startup.
+    // There's a memory leak in scanvideo_setup which is
+    // patched in the fork we use.
+    scanvideo_setup(vga_scanvideo_mode_selected);
+    scanvideo_timing_enable(true);
+
+    // Swap in the new config
+    vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
+    vga_display_current = vga_display_selected;
+    vga_canvas_current = vga_canvas_selected;
+    vga_scanvideo_mode_switching = false;
+
+    mutex_exit(&vga_mode_mutex);
+}
+
+static void vga_render_scanline(void)
+{
+    // check if any scanlines are ready to render
+    if (!mutex_try_enter(&vga_scanline_mutex, 0))
+        return;
+    if (scanvideo_vsync_pausing())
+    {
+        if (vga_scanline_num >= vga_scanvideo_mode_current->height)
+        {
+            ria_vsync();
+            mutex_exit(&vga_mode_mutex);
+            vga_scanline_num = -1;
+        }
+        if (vga_scanline_num == -1)
+        {
+            mutex_exit(&vga_scanline_mutex);
+            return;
+        }
+    }
+    if (vga_scanline_num == -1)
+    {
+        mutex_try_enter(&vga_mode_mutex, 0); // safer
+        vga_scanline_num = 0;
+    }
+    mutex_exit(&vga_scanline_mutex);
+    scanvideo_scanline_buffer_t *const scanline_buffer =
+        scanvideo_begin_scanline_generation(false);
+    if (!scanline_buffer)
+        return;
+    if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
+        vga_scanline_num = 0;
+
+    // scanline ready, do it
     const uint16_t width = vga_scanvideo_mode_current->width;
     const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
     uint32_t *const data[3] = {scanline_buffer->data, scanline_buffer->data2, scanline_buffer->data3};
     bool filled[3] = {false, false, false};
     uint32_t *foreground = NULL;
     vga_prog_t prog = vga_prog[scanline_id];
-    for (int16_t i = 0; i < 3; i++)
+    for (int8_t i = 0; i < 3; i++)
     {
         if (prog.fill_fn[i])
         {
@@ -272,7 +365,7 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
                               prog.sprite_length[i]);
         }
     }
-    for (int16_t i = 0; i < 3; i++)
+    for (int8_t i = 0; i < 3; i++)
     {
         uint16_t data_used;
         if (filled[i])
@@ -303,57 +396,10 @@ vga_render_scanline(scanvideo_scanline_buffer_t *scanline_buffer)
         }
     }
     scanvideo_end_scanline_generation(scanline_buffer);
-}
 
-static void __attribute__((optimize("O1")))
-vga_render_loop(void)
-{
-    assert(PICO_SCANVIDEO_PLANE_COUNT == 3);
-    while (true)
-    {
-        if (!vga_scanvideo_mode_switching)
-        {
-            // The vblank "pause" between frames happens after the
-            // first PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT scanlines
-            // have been rendered, not between frames. This is because
-            // the queue is always trying to stay that far ahead. The
-            // hack injects a pause where it's supposed to be.
-            mutex_enter_blocking(&vga_mutex);
-            const int16_t height = vga_scanvideo_mode_current->height;
-            for (int16_t i = 0; i < height; i++)
-            {
-                // core 0 (other)
-                scanvideo_scanline_buffer_t *const scanline_buffer0 =
-                    scanvideo_begin_scanline_generation(true);
-                while (vga_scanline_buffer_core0)
-                    tight_loop_contents();
-                if (scanvideo_scanline_number(scanline_buffer0->scanline_id) == 0)
-                {
-                    ria_vsync();
-                    while (scanvideo_vsync_pausing())
-                        tight_loop_contents();
-                }
-                vga_scanline_buffer_core0 = scanline_buffer0;
-                // Scanvideo will reset to the last scanline, resync here
-                if (scanvideo_scanline_number(scanline_buffer0->scanline_id) == 1)
-                    continue;
-                // core 1 (this)
-                scanvideo_scanline_buffer_t *const scanline_buffer1 =
-                    scanvideo_begin_scanline_generation(true);
-                if (scanvideo_scanline_number(scanline_buffer1->scanline_id) == 0)
-                {
-                    ria_vsync();
-                    while (scanvideo_vsync_pausing())
-                        tight_loop_contents();
-                }
-                vga_render_scanline(scanline_buffer1);
-            }
-            // safety
-            while (vga_scanline_buffer_core0)
-                tight_loop_contents();
-            mutex_exit(&vga_mutex);
-        }
-    }
+    mutex_enter_blocking(&vga_scanline_mutex);
+    vga_scanline_num++;
+    mutex_exit(&vga_scanline_mutex);
 }
 
 static void vga_scanvideo_update(void)
@@ -402,66 +448,6 @@ static void vga_scanvideo_update(void)
         vga_scanvideo_mode_switching = true;
 }
 
-static void vga_scanvideo_switch(void)
-{
-    if (vga_scanvideo_mode_switching)
-    {
-        if (!mutex_try_enter(&vga_mutex, 0))
-            return;
-
-        // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
-        // Until it does, a brute force shutdown between frames seems to work.
-
-        // Stop and release resources previously held by scanvideo_setup()
-        for (int i = 0; i < 3; i++)
-        {
-            dma_channel_abort(i);
-            if (dma_channel_is_claimed(i))
-                dma_channel_unclaim(i);
-        }
-        pio_clear_instruction_memory(pio0);
-
-        // scanvideo_timing_enable is almost able to stop itself
-        for (int sm = 0; sm < 4; sm++)
-            if (pio_sm_is_claimed(pio0, sm))
-                pio_sm_unclaim(pio0, sm);
-        scanvideo_timing_enable(false);
-        for (int sm = 0; sm < 4; sm++)
-            if (pio_sm_is_claimed(pio0, sm))
-                pio_sm_unclaim(pio0, sm);
-
-        // begin scanvideo setup with clock setup
-        uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
-        if (clk == 25200000)
-            clk = 25200000 * 8; // 201.6 MHz
-        else if (clk == 54000000)
-            clk = 54000000 * 4; // 216.0 MHz
-        else if (clk == 37125000)
-            clk = 37125000 * 4; // 148.5 MHz
-        assert(clk >= 120000000 && clk <= 266000000);
-        if (clk != clock_get_hz(clk_sys))
-        {
-            main_flush();
-            set_sys_clock_khz(clk / 1000, true);
-            main_reclock();
-        }
-
-        // These two calls are the main scanvideo startup.
-        // There's a memory leak in scanvideo_setup which is
-        // patched in the fork we use.
-        scanvideo_setup(vga_scanvideo_mode_selected);
-        scanvideo_timing_enable(true);
-
-        // Swap in the new config
-        vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
-        vga_display_current = vga_display_selected;
-        vga_canvas_current = vga_canvas_selected;
-        vga_scanvideo_mode_switching = false;
-
-        mutex_exit(&vga_mutex);
-    }
-}
-
 static void vga_reset_console_prog(void)
 {
     uint16_t xregs_console[] = {0, vga_console, 0, 0, 0};
@@ -504,12 +490,19 @@ int16_t vga_canvas_height(void)
     return vga_scanvideo_mode_selected->height;
 }
 
+static void vga_render_loop(void)
+{
+    while (true)
+        vga_render_scanline();
+}
+
 void vga_init(void)
 {
     // safety check for compiler alignment
     assert(!((uintptr_t)xram & 0xFFFF));
 
-    mutex_init(&vga_mutex);
+    mutex_init(&vga_mode_mutex);
+    mutex_init(&vga_scanline_mutex);
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
     vga_scanvideo_switch();
@@ -518,15 +511,8 @@ void vga_init(void)
 
 void vga_task(void)
 {
-    // Handle requests to change scanvideo modes
     vga_scanvideo_switch();
-
-    // Render a scanline if ready
-    if (vga_scanline_buffer_core0)
-    {
-        vga_render_scanline(vga_scanline_buffer_core0);
-        vga_scanline_buffer_core0 = NULL;
-    }
+    vga_render_scanline();
 }
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
@@ -599,3 +585,5 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
     }
     return true;
 }
+
+GCC_Pragma("GCC pop_options");
