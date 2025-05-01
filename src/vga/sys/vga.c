@@ -302,37 +302,38 @@ static void vga_scanvideo_switch(void)
 
 static void vga_render_scanline(void)
 {
-    // check if any scanlines are ready to render
+    // Check if any scanlines are ready to render.
+    // This also manages vsync timing for the RIA/6502 and a
+    // lock to ensure mode switching happens at the correct time.
     if (!mutex_try_enter(&vga_scanline_mutex, 0))
         return;
     if (scanvideo_vsync_pausing())
     {
         if (vga_scanline_num >= vga_scanvideo_mode_current->height)
         {
-            ria_vsync();
-            mutex_exit(&vga_mode_mutex);
-            vga_scanline_num = -1;
+            ria_vsync();                 // send to RIA
+            mutex_exit(&vga_mode_mutex); // ok to mode switch
+            vga_scanline_num = -1;       // do once
         }
         if (vga_scanline_num == -1)
-        {
-            mutex_exit(&vga_scanline_mutex);
-            return;
-        }
+            return mutex_exit(&vga_scanline_mutex);
     }
     if (vga_scanline_num == -1)
     {
-        mutex_try_enter(&vga_mode_mutex, 0); // safer
+        if (vga_scanvideo_mode_switching)
+            return mutex_exit(&vga_scanline_mutex);
+        mutex_enter_blocking(&vga_mode_mutex); // pause mode switching
         vga_scanline_num = 0;
     }
-    mutex_exit(&vga_scanline_mutex);
     scanvideo_scanline_buffer_t *const scanline_buffer =
         scanvideo_begin_scanline_generation(false);
     if (!scanline_buffer)
-        return;
+        return mutex_exit(&vga_scanline_mutex);
     if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
         vga_scanline_num = 0;
+    mutex_exit(&vga_scanline_mutex);
 
-    // scanline ready, do it
+    // Scanline ready, do it.
     const uint16_t width = vga_scanvideo_mode_current->width;
     const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
     uint32_t *const data[3] = {scanline_buffer->data, scanline_buffer->data2, scanline_buffer->data3};
@@ -397,6 +398,7 @@ static void vga_render_scanline(void)
     }
     scanvideo_end_scanline_generation(scanline_buffer);
 
+    // Wait to count until after scanvideo library has accepted buffer.
     mutex_enter_blocking(&vga_scanline_mutex);
     vga_scanline_num++;
     mutex_exit(&vga_scanline_mutex);
