@@ -75,7 +75,7 @@ bool main_prog(uint16_t *xregs)
     }
 }
 
-void main()
+int main()
 {
     init();
     while (1)

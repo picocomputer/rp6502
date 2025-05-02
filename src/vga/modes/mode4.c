@@ -273,7 +273,7 @@ static inline __attribute__((always_inline)) void __ram_func(sprite_sprite16)(
 static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     const mode4_sprite_t *sprites = (void *)&xram[config_ptr];
-    for (uint16_t i; i < length; i++)
+    for (uint16_t i = 0; i < length; i++)
     {
         const unsigned px_size = 2 ^ sprites[i].log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
@@ -355,7 +355,7 @@ void __ram_func(sprite_asprite16)(
         return;
     interp_hw_t *interp = interp0;
     affine_transform_t atrans;
-    for (uint16_t j; j < 6; j++)
+    for (uint16_t j = 0; j < 6; j++)
         atrans[j] = (int32_t)sp->transform[j] << 8;
     _setup_interp_affine(interp, isct, atrans);
     _setup_interp_pix_coordgen(interp, sp, sp_img, 1);
@@ -365,7 +365,7 @@ void __ram_func(sprite_asprite16)(
 static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     mode4_asprite_t *sprites = (void *)&xram[config_ptr];
-    for (uint16_t i; i < length; i++)
+    for (uint16_t i = 0; i < length; i++)
     {
         const unsigned px_size = 2 ^ sprites[i].log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);

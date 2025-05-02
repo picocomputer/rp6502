@@ -169,18 +169,25 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         {
         case 8:
             *rgb++ = palette[(glyph & 0x80) >> 7];
+            __attribute__((fallthrough));
         case 7:
             *rgb++ = palette[(glyph & 0x40) >> 6];
+            __attribute__((fallthrough));
         case 6:
             *rgb++ = palette[(glyph & 0x20) >> 5];
+            __attribute__((fallthrough));
         case 5:
             *rgb++ = palette[(glyph & 0x10) >> 4];
+            __attribute__((fallthrough));
         case 4:
             *rgb++ = palette[(glyph & 0x08) >> 3];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = palette[(glyph & 0x04) >> 2];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = palette[(glyph & 0x02) >> 1];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = palette[glyph & 0x01];
             glyph = font[(++data)->glyph_code];
@@ -214,13 +221,13 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 static bool
 mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
+    return mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
 mode1_render_1bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
+    return mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
 static bool
@@ -255,18 +262,25 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         {
         case 8:
             *rgb++ = colors[(glyph & 0x80) >> 7];
+            __attribute__((fallthrough));
         case 7:
             *rgb++ = colors[(glyph & 0x40) >> 6];
+            __attribute__((fallthrough));
         case 6:
             *rgb++ = colors[(glyph & 0x20) >> 5];
+            __attribute__((fallthrough));
         case 5:
             *rgb++ = colors[(glyph & 0x10) >> 4];
+            __attribute__((fallthrough));
         case 4:
             *rgb++ = colors[(glyph & 0x08) >> 3];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = colors[(glyph & 0x04) >> 2];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = colors[(glyph & 0x02) >> 1];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = colors[glyph & 0x01];
             glyph = font[(++data)->glyph_code];
@@ -302,13 +316,13 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 static bool
 mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
+    return mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
 mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
+    return mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
 static bool
@@ -343,18 +357,25 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
         {
         case 8:
             *rgb++ = colors[(glyph & 0x80) >> 7];
+            __attribute__((fallthrough));
         case 7:
             *rgb++ = colors[(glyph & 0x40) >> 6];
+            __attribute__((fallthrough));
         case 6:
             *rgb++ = colors[(glyph & 0x20) >> 5];
+            __attribute__((fallthrough));
         case 5:
             *rgb++ = colors[(glyph & 0x10) >> 4];
+            __attribute__((fallthrough));
         case 4:
             *rgb++ = colors[(glyph & 0x08) >> 3];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = colors[(glyph & 0x04) >> 2];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = colors[(glyph & 0x02) >> 1];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = colors[glyph & 0x01];
             glyph = font[(++data)->glyph_code];
@@ -390,13 +411,13 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
 static bool
 mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 8);
+    return mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
 mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 16);
+    return mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 16);
 }
 
 static bool
@@ -431,18 +452,25 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         {
         case 8:
             *rgb++ = colors[(glyph & 0x80) >> 7];
+            __attribute__((fallthrough));
         case 7:
             *rgb++ = colors[(glyph & 0x40) >> 6];
+            __attribute__((fallthrough));
         case 6:
             *rgb++ = colors[(glyph & 0x20) >> 5];
+            __attribute__((fallthrough));
         case 5:
             *rgb++ = colors[(glyph & 0x10) >> 4];
+            __attribute__((fallthrough));
         case 4:
             *rgb++ = colors[(glyph & 0x08) >> 3];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = colors[(glyph & 0x04) >> 2];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = colors[(glyph & 0x02) >> 1];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = colors[glyph & 0x01];
             glyph = font[(++data)->glyph_code];
@@ -478,13 +506,13 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 static bool
 mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
+    return mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
 mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
+    return mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
 static bool
@@ -516,18 +544,25 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         {
         case 8:
             *rgb++ = colors[(glyph & 0x80) >> 7];
+            __attribute__((fallthrough));
         case 7:
             *rgb++ = colors[(glyph & 0x40) >> 6];
+            __attribute__((fallthrough));
         case 6:
             *rgb++ = colors[(glyph & 0x20) >> 5];
+            __attribute__((fallthrough));
         case 5:
             *rgb++ = colors[(glyph & 0x10) >> 4];
+            __attribute__((fallthrough));
         case 4:
             *rgb++ = colors[(glyph & 0x08) >> 3];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = colors[(glyph & 0x04) >> 2];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = colors[(glyph & 0x02) >> 1];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = colors[glyph & 0x01];
             glyph = font[(++data)->glyph_code];
@@ -563,13 +598,13 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 static bool
 mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 8);
+    return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
 mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
+    return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
 bool mode1_prog(uint16_t *xregs)

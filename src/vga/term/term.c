@@ -361,7 +361,7 @@ static void term_out_lf(term_state_t *term, bool wrapping)
         if (++term->y_offset == TERM_MAX_HEIGHT)
             term->y_offset = 0;
         // scroll the wrapped and dirty flags
-        for (size_t y = 0; y < term->height - 1; y++)
+        for (uint8_t y = 0; y < term->height - 1; y++)
         {
             term->wrapped[y] = term->wrapped[y + 1];
             term->dirty[y] = term->dirty[y + 1];
@@ -412,7 +412,7 @@ static void term_out_cuu_1(term_state_t *term)
     {
         term->y--;
         term->ptr -= term->width;
-        if (term->ptr < 0)
+        if (term->ptr < term->mem)
             term->ptr += term->width * TERM_MAX_HEIGHT;
     }
 }
@@ -471,7 +471,7 @@ static void term_out_cub(term_state_t *term)
 static void term_out_dch(term_state_t *term)
 {
     unsigned max_chars = term->width - term->x;
-    for (unsigned i = term->y; i < term->height - 1; i++)
+    for (uint8_t i = term->y; i < term->height - 1; i++)
         if (term->wrapped[i])
             max_chars += term->width;
     uint16_t chars = term->csi_param[0];
@@ -520,7 +520,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
         term_out_cr(term);
     else if (ch == '\33')
         term->ansi_state = ansi_state_Fe;
-    else if (ch >= 32 && ch <= 255)
+    else if (ch >= 32)
         term_out_glyph(term, ch);
 }
 
@@ -719,6 +719,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
 static bool __attribute__((optimize("O3")))
 term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)(config_ptr);
     if (width == 320)
         return term_render_320(scanline_id, rgb);
     else

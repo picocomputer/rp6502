@@ -138,18 +138,25 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         {
         case 8:
             *rgb++ = palette[(glyph & 0x80) >> 7];
+            __attribute__((fallthrough));
         case 7:
             *rgb++ = palette[(glyph & 0x40) >> 6];
+            __attribute__((fallthrough));
         case 6:
             *rgb++ = palette[(glyph & 0x20) >> 5];
+            __attribute__((fallthrough));
         case 5:
             *rgb++ = palette[(glyph & 0x10) >> 4];
+            __attribute__((fallthrough));
         case 4:
             *rgb++ = palette[(glyph & 0x08) >> 3];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = palette[(glyph & 0x04) >> 2];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = palette[(glyph & 0x02) >> 1];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = palette[glyph & 0x01];
             tile_mem = mode2_get_glyph_tile_mem(config, 1, tile_size, col, row, row_data, &index);
@@ -222,10 +229,13 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         {
         case 4:
             *rgb++ = palette[(glyph & 0xC0) >> 6];
+            __attribute__((fallthrough));
         case 3:
             *rgb++ = palette[(glyph & 0x30) >> 4];
+            __attribute__((fallthrough));
         case 2:
             *rgb++ = palette[(glyph & 0x0C) >> 2];
+            __attribute__((fallthrough));
         case 1:
             *rgb++ = palette[glyph & 0x03];
             if (++index == tile_size / 4)

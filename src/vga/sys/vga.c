@@ -371,7 +371,7 @@ static void vga_render_scanline(void)
         if (filled[i])
         {
             data[i][0] = COMPOSABLE_RAW_RUN | (data[i][1] << 16);
-            data[i][1] = width - 3 | (data[i][1] & 0xFFFF0000);
+            data[i][1] = (width - 3) | (data[i][1] & 0xFFFF0000);
             data[i][width / 2 + 1] = COMPOSABLE_RAW_1P | (0 << 16);
             data[i][width / 2 + 2] = COMPOSABLE_EOL_SKIP_ALIGN;
             data_used = width / 2 + 3;

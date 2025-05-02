@@ -88,6 +88,7 @@ pico_set_program_name(rp6502_vga "RP6502 VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
 
 target_compile_options(rp6502_vga PRIVATE
+    -Wall -Wextra
     # Mode 4 needs:
     -fno-optimize-sibling-calls
     -fno-tree-vrp

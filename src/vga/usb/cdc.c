@@ -22,17 +22,25 @@ static void send_break_ms(uint16_t duration_ms)
 
 void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms)
 {
+    (void)itf;
+    (void)duration_ms;
     send_break_ms(duration_ms);
 }
 
 void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const *p_line_coding)
 {
-    // MacOS/Darwin isn't capable of sending a break with its CDC driver.
+    (void)itf;
+    (void)p_line_coding;
+    // TODO remove this hack after 31-DEC-2025
+    // TinyUSB used to have a bug where it didn't set the bit for supporting
+    // breaks. Windows ignores the bit. MacOS requires the bit. And Linux
+    // may or may not require the bit, newer kernels require the bit.
     // A common workaround is to drop the baud rate significantly so a
     // bit sequence of zeros will look like a break. Our implementation has
     // strict requirements of sending a full byte of zeros within 100ms
     // of changing the baud rate to 1200. e.g.
     // stty -F /dev/ttyACM1 1200 && echo -ne '\0' > /dev/ttyACM1
+    // This workaround is no longer needed.
     if (p_line_coding->bit_rate == 1200)
         faux_break_timer = make_timeout_time_ms(100);
 }

@@ -88,7 +88,7 @@ void ria_backchan(uint16_t word)
             version_pos = version_dev + 1;
         break;
     case 2: // send ack
-        uart_write_blocking(STD_UART_INTERFACE, "VGA1", 4);
+        uart_write_blocking(STD_UART_INTERFACE, (uint8_t *)"VGA1", 4);
         break;
     }
 }
