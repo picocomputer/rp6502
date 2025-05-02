@@ -12,6 +12,9 @@
 #include "scanvideo/scanvideo.h"
 #include <string.h>
 
+GCC_Pragma("GCC push_options");
+GCC_Pragma("GCC optimize(\"O3\")");
+
 typedef struct
 {
     bool x_wrap;
@@ -25,7 +28,7 @@ typedef struct
     uint16_t xram_tile_ptr;
 } mode2_config_t;
 
-static volatile const uint8_t *__attribute__((optimize("O1")))
+static volatile const uint8_t *
 mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
@@ -48,7 +51,7 @@ mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_
     return rv;
 }
 
-static volatile const uint16_t *__attribute__((optimize("O1")))
+static volatile const uint16_t *
 mode2_get_palette(mode2_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -59,7 +62,7 @@ mode2_get_palette(mode2_config_t *config, int16_t bpp)
     return color_256;
 }
 
-static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) int16_t
 mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     int16_t width_px = config->width_tiles * 8;
@@ -96,7 +99,7 @@ mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static inline __attribute__((always_inline)) uint16_t __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) uint16_t
 mode2_get_glyph_tile_mem(mode2_config_t *config, int16_t bpp, int16_t tile_size,
                          int16_t col, int16_t row, volatile const uint8_t *row_data, uint16_t *index)
 {
@@ -108,7 +111,7 @@ mode2_get_glyph_tile_mem(mode2_config_t *config, int16_t bpp, int16_t tile_size,
     return (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row;
 }
 
-static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) bool
 mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
     if (config_ptr > 0x10000 - sizeof(mode2_config_t))
@@ -180,19 +183,19 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_1bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) bool
 mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
     if (config_ptr > 0x10000 - sizeof(mode2_config_t))
@@ -252,19 +255,19 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_2bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_2bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_2bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_2bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) bool
 mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
     if (config_ptr > 0x10000 - sizeof(mode2_config_t))
@@ -310,19 +313,19 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_4bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static inline __attribute__((always_inline)) bool __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) bool
 mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
     if (config_ptr > 0x10000 - sizeof(mode2_config_t))
@@ -355,13 +358,13 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode2_render_8bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode2_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
@@ -412,3 +415,5 @@ bool mode2_prog(uint16_t *xregs)
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }
+
+GCC_Pragma("GCC pop_options");

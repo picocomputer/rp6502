@@ -542,7 +542,8 @@ decl_func sprite_ablit16_loop
 
 .macro sprite_ablit16_alpha_loop_body n
 
-    // overflow is broken or changed on RP3250
+    // overflow is checked by the CPU
+    // see errata RP2350-E1 in RP3250 datasheet
     // this used to work on the RP2040
     //   ldr r1, [r3, #CTRL0_OFFS]
     //   lsrs r1, #SIO_INTERP0_CTRL_LANE0_OVERF_LSB + 1

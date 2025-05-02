@@ -676,7 +676,7 @@ void term_task(void)
     term_clean_task(&term_80);
 }
 
-static inline bool __attribute__((optimize("O1")))
+static inline bool __attribute__((optimize("O3")))
 term_render_320(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
@@ -696,7 +696,7 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     return true;
 }
 
-static inline bool __attribute__((optimize("O1")))
+static inline bool __attribute__((optimize("O3")))
 term_render_640(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
@@ -716,7 +716,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool __attribute__((optimize("O3")))
 term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (width == 320)

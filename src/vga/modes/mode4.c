@@ -16,6 +16,9 @@
 #include "hardware/interp.h"
 #include <stdint.h>
 
+GCC_Pragma("GCC push_options");
+GCC_Pragma("GCC optimize(\"O3\")");
+
 typedef struct
 {
     int16_t x_pos_px;
@@ -294,8 +297,9 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
 // i.e. the non-constant parts in row-major order
 
 // Set up an interpolator to follow a straight line through u,v space
-static inline __attribute__((always_inline)) void _setup_interp_affine(interp_hw_t *interp, intersect_t isct,
-                                                                       const affine_transform_t atrans)
+static inline __attribute__((always_inline)) void
+_setup_interp_affine(interp_hw_t *interp, intersect_t isct,
+                     const affine_transform_t atrans)
 {
     // Calculate the u,v coord of the first sample. Note that we are iterating
     // *backward* along the raster span because this is faster (yes)
@@ -342,7 +346,7 @@ static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
 }
 
 // Note we do NOT save/restore the interpolator!
-__attribute__((optimize("O1"))) void __ram_func(sprite_asprite16)(
+void __ram_func(sprite_asprite16)(
     uint16_t *scanbuf, const mode4_asprite_t *sp, const void *sp_img,
     uint raster_y, uint raster_w)
 {
@@ -358,7 +362,7 @@ __attribute__((optimize("O1"))) void __ram_func(sprite_asprite16)(
     sprite_ablit16_alpha_loop(scanbuf + MAX(0, sp->x_pos_px), isct.size_x, 0xFFFF0000 << sp->log_size);
 }
 
-__attribute__((optimize("O1"))) static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
 {
     mode4_asprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i; i < length; i++)
@@ -406,3 +410,5 @@ bool mode4_prog(uint16_t *xregs)
 
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, render_fn);
 }
+
+GCC_Pragma("GCC pop_options");

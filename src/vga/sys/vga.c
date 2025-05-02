@@ -507,6 +507,7 @@ void vga_init(void)
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
     vga_scanvideo_switch();
+    mutex_try_enter(&vga_mode_mutex, 0);
     multicore_launch_core1(vga_render_loop);
 }
 

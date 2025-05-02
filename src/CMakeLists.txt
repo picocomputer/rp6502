@@ -87,6 +87,15 @@ pico_add_extra_outputs(rp6502_vga)
 pico_set_program_name(rp6502_vga "RP6502 VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
 
+target_compile_options(rp6502_vga PRIVATE
+    # Mode 4 needs:
+    -fno-optimize-sibling-calls
+    -fno-tree-vrp
+    # Mode 1 needs:
+    -fno-ipa-sra
+    -fno-tree-slp-vectorize
+)
+
 target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src

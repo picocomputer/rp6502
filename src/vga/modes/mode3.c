@@ -12,6 +12,9 @@
 #include "scanvideo/scanvideo.h"
 #include <string.h>
 
+GCC_Pragma("GCC push_options");
+GCC_Pragma("GCC optimize(\"O3\")");
+
 typedef struct
 {
     bool x_wrap;
@@ -24,7 +27,7 @@ typedef struct
     uint16_t xram_palette_ptr;
 } mode3_config_t;
 
-static volatile const uint8_t *__attribute__((optimize("O1")))
+static volatile const uint8_t *
 mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
 {
     int16_t row = scanline_id - config->y_pos_px;
@@ -45,7 +48,7 @@ mode3_scanline_to_data(int16_t scanline_id, mode3_config_t *config, int16_t bpp)
     return &xram[config->xram_data_ptr + row * sizeof_row];
 }
 
-static volatile const uint16_t *__attribute__((optimize("O1")))
+static volatile const uint16_t *
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -56,7 +59,7 @@ mode3_get_palette(mode3_config_t *config, int16_t bpp)
     return color_256;
 }
 
-static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) int16_t
 mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     if (*col < 0)
@@ -92,7 +95,7 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -156,7 +159,7 @@ mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -220,7 +223,7 @@ mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -270,7 +273,7 @@ mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -320,7 +323,7 @@ mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_4bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -354,7 +357,7 @@ mode3_render_4bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_4bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -388,7 +391,7 @@ mode3_render_4bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -410,7 +413,7 @@ mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     if (config_ptr > 0x10000 - sizeof(mode3_config_t))
@@ -476,3 +479,5 @@ bool mode3_prog(uint16_t *xregs)
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }
+
+GCC_Pragma("GCC pop_options");

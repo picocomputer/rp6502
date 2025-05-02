@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) void
 modes_render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits >> 4)
@@ -215,7 +215,7 @@ modes_render_1bpp(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
     }
 }
 
-static inline __attribute__((always_inline)) void __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) void
 modes_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
 {
     switch (bits & 0xF)

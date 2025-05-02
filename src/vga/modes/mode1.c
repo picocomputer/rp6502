@@ -13,6 +13,9 @@
 #include "term/font.h"
 #include <string.h>
 
+GCC_Pragma("GCC push_options");
+GCC_Pragma("GCC optimize(\"O3\")");
+
 typedef struct
 {
     bool x_wrap;
@@ -58,7 +61,7 @@ typedef struct
     uint16_t bg_color;
 } mode1_16bpp_data_t;
 
-static volatile const uint8_t *__attribute__((optimize("O1")))
+static volatile const uint8_t *
 mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
@@ -79,7 +82,7 @@ mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_
     return &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
 }
 
-static volatile const uint16_t *__attribute__((optimize("O1")))
+static volatile const uint16_t *
 mode1_get_palette(mode1_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
@@ -90,7 +93,7 @@ mode1_get_palette(mode1_config_t *config, int16_t bpp)
     return color_256;
 }
 
-static volatile const uint8_t *__attribute__((optimize("O1")))
+static volatile const uint8_t *
 mode1_get_font(mode1_config_t *config, int16_t font_height)
 {
     if (config->xram_font_ptr <= 0x10000 - 256 * font_height)
@@ -100,7 +103,7 @@ mode1_get_font(mode1_config_t *config, int16_t font_height)
     return font16;
 }
 
-static inline __attribute__((always_inline)) int16_t __attribute__((optimize("O1")))
+static inline __attribute__((always_inline)) int16_t
 mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
 {
     int16_t width_px = config->width_chars * 8;
@@ -137,7 +140,7 @@ mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                   uint16_t config_ptr, int16_t font_height)
 {
@@ -208,19 +211,19 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_1bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                   uint16_t config_ptr, int16_t font_height)
 {
@@ -296,19 +299,19 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
                    uint16_t config_ptr, int16_t font_height)
 {
@@ -384,19 +387,19 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                   uint16_t config_ptr, int16_t font_height)
 {
@@ -472,19 +475,19 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
                    uint16_t config_ptr, int16_t font_height)
 {
@@ -557,13 +560,13 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     return true;
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
-static bool __attribute__((optimize("O1")))
+static bool
 mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
@@ -620,3 +623,5 @@ bool mode1_prog(uint16_t *xregs)
 
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }
+
+GCC_Pragma("GCC pop_options");
