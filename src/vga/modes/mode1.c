@@ -13,8 +13,9 @@
 #include "term/font.h"
 #include <string.h>
 
+// tree-slp-vectorize causes the example mode1.c to stutter
 GCC_Pragma("GCC push_options");
-GCC_Pragma("GCC optimize(\"O3\")");
+GCC_Pragma("GCC optimize(\"O3\", \"no-tree-slp-vectorize\")");
 
 typedef struct
 {

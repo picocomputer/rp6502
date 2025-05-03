@@ -346,7 +346,8 @@ static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
 }
 
 // Note we do NOT save/restore the interpolator!
-void __ram_func(sprite_asprite16)(
+// optimize-sibling-calls breaks sprite_ablit16_alpha_loop
+__attribute__((optimize("no-optimize-sibling-calls"))) void __ram_func(sprite_asprite16)(
     uint16_t *scanbuf, const mode4_asprite_t *sp, const void *sp_img,
     uint raster_y, uint raster_w)
 {

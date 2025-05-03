@@ -109,7 +109,7 @@ static struct
 static int8_t psg_sine_table[256];
 
 static void
-    __attribute__((optimize("O1")))
+    __attribute__((optimize("O3")))
     __isr
     __time_critical_func(psg_irq_handler)()
 {
