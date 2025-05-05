@@ -159,7 +159,7 @@ static bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const 
     }
     const uint32_t block_count = tuh_msc_get_block_count(dev_addr, cb_data->cbw->lun);
     const uint32_t block_size = tuh_msc_get_block_size(dev_addr, cb_data->cbw->lun);
-    msc_volume_size[vol] = block_count * block_size;
+    msc_volume_size[vol] = (uint64_t)block_count * (uint64_t)block_size;
 
     TCHAR volstr[6] = "USB0:";
     volstr[3] += vol;
