@@ -222,9 +222,10 @@ void ria_write_buf(uint16_t addr)
 #define RIA_RW1 REGS(0xFFE8)
 #define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define RIA_ADDR1 REGSW(0xFFEA)
-// optimize-sibling-calls causes instability
-__attribute__((optimize("O3", "no-optimize-sibling-calls"))) static void
-act_loop(void)
+// This becomes unstable every time I tried to get to O3 by trurning off
+// specific optimizations. The annoying bit is that different hardware doesn't
+// behave the same. I'm giving up and leaving this at O1, which is plenty fast.
+__attribute__((optimize("O1"))) static void act_loop(void)
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
