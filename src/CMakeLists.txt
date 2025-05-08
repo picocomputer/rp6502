@@ -12,6 +12,7 @@ target_include_directories(rp6502_ria PRIVATE
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
+    pico_flash_bank_get_storage_offset_func=lfs_get_bt_storage_offset
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
@@ -32,6 +33,12 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_flash
     tinyusb_host
 )
+
+if (PICO_BOARD STREQUAL "pico2_w")
+target_link_libraries(rp6502_ria PRIVATE
+    pico_cyw43_arch_none
+)
+endif()
 
 pico_generate_pio_header(rp6502_ria
     ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.pio
@@ -128,6 +135,12 @@ target_link_libraries(rp6502_vga PRIVATE
     hardware_interp
     tinyusb_device
 )
+
+if (PICO_BOARD STREQUAL "pico2_w")
+target_link_libraries(rp6502_vga PRIVATE
+    pico_cyw43_arch_none
+)
+endif()
 
 pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio
