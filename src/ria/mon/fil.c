@@ -246,7 +246,7 @@ void fil_mon_unlink(const char *args, size_t len)
         printf("?Failed to unlink file (%d)\n", result);
 }
 
-void fil_task(void)
+void __not_in_flash_func(fil_task)(void)
 {
     // Close file after reset or error condition
     if (fil_state == FIL_IDLE && fil_fat.obj.fs)
@@ -257,7 +257,7 @@ void fil_task(void)
     }
 }
 
-bool fil_active(void)
+bool __not_in_flash_func(fil_active)(void)
 {
     return fil_state == FIL_COMMAND;
 }

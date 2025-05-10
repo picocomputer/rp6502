@@ -68,7 +68,7 @@ static int cpu_getchar_fifo(void)
     return -1;
 }
 
-void cpu_task(void)
+void __not_in_flash_func(cpu_task)(void)
 {
     // Enforce minimum RESB time
     if (cpu_run_requested && !gpio_get(CPU_RESB_PIN))
@@ -114,7 +114,7 @@ void cpu_stop(void)
     }
 }
 
-bool cpu_active(void)
+bool __not_in_flash_func(cpu_active)(void)
 {
     return cpu_run_requested;
 }
@@ -238,7 +238,7 @@ void cpu_stdin_request(void)
     }
 }
 
-bool cpu_stdin_ready(void)
+bool __not_in_flash_func(cpu_stdin_ready)(void)
 {
     return !cpu_readline_active;
 }

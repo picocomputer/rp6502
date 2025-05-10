@@ -3,7 +3,6 @@
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
 pico_set_program_name(rp6502_ria "RP6502 RIA")
-pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}

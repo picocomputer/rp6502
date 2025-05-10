@@ -379,7 +379,7 @@ void kbd_init(void)
     kbd_stop();
 }
 
-void kbd_task(void)
+void __not_in_flash_func(kbd_task)(void)
 {
     if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
     {

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <pico.h>
 #include "main.h"
 #include "api/api.h"
 #include "sys/cpu.h"
@@ -11,7 +12,7 @@
 
 static uint8_t api_active_op = 0;
 
-void api_task(void)
+void __not_in_flash_func(api_task)(void)
 {
     // Latch called op in case 6502 app misbehaves
     if (cpu_active() && !ria_active() &&

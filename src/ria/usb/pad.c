@@ -75,7 +75,7 @@ void pad_stop(void)
     pad_xram = 0xFFFF;
 }
 
-void pad_task(void)
+void __not_in_flash_func(pad_task)(void)
 {
     pad_disconnect_check();
 }

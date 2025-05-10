@@ -55,7 +55,7 @@ void aud_reclock(uint32_t sys_clk_khz)
     aud_reclock_fn(sys_clk_khz);
 }
 
-void aud_task(void)
+void __not_in_flash_func(aud_task)(void)
 {
     aud_task_fn();
 }
