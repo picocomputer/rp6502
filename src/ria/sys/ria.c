@@ -225,7 +225,7 @@ void ria_write_buf(uint16_t addr)
 // This becomes unstable every time I tried to get to O3 by trurning off
 // specific optimizations. The annoying bit is that different hardware doesn't
 // behave the same. I'm giving up and leaving this at O1, which is plenty fast.
-__attribute__((optimize("O1"))) static void act_loop(void)
+__attribute__((optimize("O1"))) static void __not_in_flash_func(act_loop)(void)
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
