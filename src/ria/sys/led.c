@@ -5,11 +5,8 @@
  */
 
 #include "sys/led.h"
+#include "net/net.h"
 #include "pico/stdlib.h"
-
-#ifdef CYW43_WL_GPIO_LED_PIN
-#include "pico/cyw43_arch.h"
-#endif
 
 void led_init(void)
 {
@@ -19,7 +16,8 @@ void led_init(void)
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
 #endif
-#ifdef CYW43_WL_GPIO_LED_PIN
-    cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+#ifdef RASPBERRYPI_PICO2_W
+    // LED is connected to cyw43
+    net_led(true);
 #endif
 }

@@ -149,6 +149,7 @@ void __not_in_flash_func(vga_task)(void)
 {
     if (vga_state == VGA_REQUEST_TEST)
     {
+        // TODO this state locks up if a reset happens
         vga_state = VGA_TESTING;
         com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, 4);
         vga_pix_backchannel_request();

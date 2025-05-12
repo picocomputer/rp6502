@@ -64,6 +64,7 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/rom.c
     ria/mon/set.c
     ria/mon/vip.c
+    ria/net/net.c
     ria/sys/cfg.c
     ria/sys/com.c
     ria/sys/cpu.c

@@ -17,6 +17,7 @@
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
+#include "net/net.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -48,16 +49,21 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void __not_in_flash_func(init)(void)
 {
+    // Need a moment for RP6502-VGA to boot at power on.
+    // This isn't ideal since it delays warm boots too.
+    // TODO look into making vga_init() block for this time.
+    absolute_time_t timer = delayed_by_ms(get_absolute_time(), 110);
+
     // STDIO not available until after these inits.
     cpu_init();
+    net_init(); // variable time
     ria_init();
     pix_init();
     vga_init();
     com_init();
 
-    // Wait a moment for RP6502-VGA to boot at power on.
-    // This isn't ideal since it delays warm boots too.
-    busy_wait_ms(120);
+    // Hold here for VGA
+    busy_wait_until(timer);
 
     // Print startup message.
     sys_init();
@@ -96,6 +102,7 @@ void __not_in_flash_func(main_task)(void)
     pad_task();
     vga_task();
     std_task();
+    net_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
