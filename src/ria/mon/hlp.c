@@ -35,12 +35,19 @@ static const char __in_flash("helptext") hlp_text_help[] =
 static const char __in_flash("helptext") hlp_text_set[] =
     "Settings:\n"
     "HELP SET attr       - Show information about a setting.\n"
-    "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
+    "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET CP (cp)         - Query or set code page.\n"
-    "SET VGA (0|1|2)     - Query or set display type for VGA output.";
+    "SET VGA (0|1|2)     - Query or set display type for VGA output."
+#ifdef RASPBERRYPI_PICO2_W
+    "\n"
+    "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
+    "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
+    "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none."
+#endif
+    "";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"

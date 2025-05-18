@@ -35,8 +35,8 @@ static uint8_t cfg_vga_display;
 
 #ifdef RASPBERRYPI_PICO2_W
 static char cfg_net_rfcc[3];
-// static char cfg_net_ssid[33];
-// static char cfg_net_pass[64];
+static char cfg_net_ssid[33];
+static char cfg_net_pass[65];
 #endif /* RASPBERRYPI_PICO2_W */
 
 // Optional string can replace boot string
@@ -78,6 +78,8 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+D%d\n"
 #ifdef RASPBERRYPI_PICO2_W
                                "+F%s\n"
+                               "+W%s\n"
+                               "+K%s\n"
 #endif /* RASPBERRYPI_PICO2_W */
                                "%s",
                                CFG_VERSION,
@@ -88,6 +90,8 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_vga_display,
 #ifdef RASPBERRYPI_PICO2_W
                                cfg_net_rfcc,
+                               cfg_net_ssid,
+                               cfg_net_pass,
 #endif /* RASPBERRYPI_PICO2_W */
                                opt_str);
         if (lfsresult < 0)
@@ -145,6 +149,12 @@ static void cfg_load_with_boot_opt(bool boot_only)
 #ifdef RASPBERRYPI_PICO2_W
         case 'F':
             parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
+            break;
+        case 'W':
+            parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
+            break;
+        case 'K':
+            parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
             break;
 #endif /* RASPBERRYPI_PICO2_W */
         default:
@@ -261,12 +271,12 @@ uint8_t cfg_get_vga(void)
 
 #ifdef RASPBERRYPI_PICO2_W
 
-bool cfg_set_rfcc(const char *cc)
+bool cfg_set_rfcc(const char *rfcc)
 {
-    size_t len = strlen(cc);
+    size_t len = strlen(rfcc);
     if (len == 0 || len == 2)
     {
-        strcpy(cfg_net_rfcc, cc);
+        strcpy(cfg_net_rfcc, rfcc);
         cfg_save_with_boot_opt(NULL);
         return true;
     }
@@ -276,6 +286,41 @@ bool cfg_set_rfcc(const char *cc)
 const char *cfg_get_rfcc(void)
 {
     return cfg_net_rfcc;
+}
+
+bool cfg_set_ssid(const char *ssid)
+{
+    size_t len = strlen(ssid);
+    if (len < sizeof(cfg_net_ssid) - 1)
+    {
+        if (!len)
+            cfg_net_pass[0] = 0;
+        strcpy(cfg_net_ssid, ssid);
+        cfg_save_with_boot_opt(NULL);
+        return true;
+    }
+    return false;
+}
+
+const char *cfg_get_ssid(void)
+{
+    return cfg_net_ssid;
+}
+
+bool cfg_set_pass(const char *pass)
+{
+    if (strlen(cfg_net_ssid) && strlen(pass) < sizeof(cfg_net_pass) - 1)
+    {
+        strcpy(cfg_net_pass, pass);
+        cfg_save_with_boot_opt(NULL);
+        return true;
+    }
+    return false;
+}
+
+const char *cfg_get_pass(void)
+{
+    return cfg_net_pass;
 }
 
 #endif /* RASPBERRYPI_PICO2_W */

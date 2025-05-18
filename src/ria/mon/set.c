@@ -194,22 +194,74 @@ static void set_print_rfcc(void)
 
 static void set_rfcc(const char *args, size_t len)
 {
-    char cc[3];
+    char rfcc[3];
     if (len)
     {
         if (args[0] == '-' && parse_end(++args, --len))
         {
             cfg_set_rfcc("");
         }
-        else if (!parse_string(&args, &len, cc, sizeof(cc)) ||
+        else if (!parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
                  !parse_end(args, len) ||
-                 !cfg_set_rfcc(cc))
+                 !cfg_set_rfcc(rfcc))
         {
             printf("?invalid argument\n");
             return;
         }
     }
     set_print_rfcc();
+}
+
+static void set_print_ssid(void)
+{
+    const char *cc = cfg_get_ssid();
+    printf("SSID: %s\n", strlen(cc) ? cc : "(none)");
+}
+
+static void set_ssid(const char *args, size_t len)
+{
+    char ssid[33];
+    if (len)
+    {
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_ssid("");
+        }
+        else if (!parse_string(&args, &len, ssid, sizeof(ssid)) ||
+                 !parse_end(args, len) ||
+                 !cfg_set_ssid(ssid))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_ssid();
+}
+
+static void set_print_pass(void)
+{
+    const char *pass = cfg_get_pass();
+    printf("PASS: %s\n", strlen(pass) ? "(set)" : "(none)");
+}
+
+static void set_pass(const char *args, size_t len)
+{
+    char pass[65];
+    if (len)
+    {
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_pass("");
+        }
+        else if (!parse_string(&args, &len, pass, sizeof(pass)) ||
+                 !parse_end(args, len) ||
+                 !cfg_set_pass(pass))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_pass();
 }
 
 typedef void (*set_function)(const char *, size_t);
@@ -227,8 +279,8 @@ static struct
     {3, "vga", set_vga},
 #ifdef RASPBERRYPI_PICO2_W
     {4, "rfcc", set_rfcc},
-// {4, "ssid", set_ssid},
-// {4, "pass", set_pass},
+    {4, "ssid", set_ssid},
+    {4, "pass", set_pass},
 #endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
@@ -243,8 +295,8 @@ static void set_print_all(void)
     set_print_vga();
 #ifdef RASPBERRYPI_PICO2_W
     set_print_rfcc();
-    // set_print_ssid();
-    // set_print_pass();
+    set_print_ssid();
+    set_print_pass();
 #endif
 }
 
