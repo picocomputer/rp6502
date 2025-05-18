@@ -49,7 +49,14 @@ static const char __in_flash("helptext") hlp_text_about[] =
     "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
     "            FatFs - Copyright (c) 20xx ChaN.\n"
     "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
-    "                    Copyright (c) 2017 Arm Limited.";
+    "                    Copyright (c) 2017 Arm Limited."
+#ifdef RASPBERRYPI_PICO2_W
+    "\n"
+    "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
+    "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
+    "                                            Computer Science."
+#endif
+    "";
 
 static const char __in_flash("helptext") hlp_text_system[] =
     "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
@@ -73,7 +80,7 @@ static const char __in_flash("helptext") hlp_text_system[] =
 
 static const char __in_flash("helptext") hlp_text_dir[] =
     "LS (also aliased as DIR) and CD are used to navigate USB mass storage\n"
-    "devices. You can change to a different USB device with 1: to 8:. Use the\n"
+    "devices. You can change to a different USB device with 0: to 7:. Use the\n"
     "STATUS command to get a list of mounted drives.";
 
 static const char __in_flash("helptext") hlp_text_mkdir[] =
@@ -203,9 +210,9 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "supported by all display types. Display type is used to maintain square\n"
     "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
     "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
-    "  0 - 640x480\n"
-    "  1 - 640x480 and 1280x720, 16:9 modes will not letterbox\n"
-    "  2 - 1280x1024, all graphics modes will letterbox";
+    "  0 - 640x480, for 4:3 displays\n"
+    "  1 - 640x480 and 1280x720, for 16:9 displays\n"
+    "  2 - 1280x1024, for 5:4 SXGA displays";
 
 static struct
 {

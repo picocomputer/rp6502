@@ -35,9 +35,9 @@ static uint8_t cfg_vga_display;
 
 #ifdef RASPBERRYPI_PICO2_W
 static char cfg_net_rfcc[3];
-static char cfg_net_ssid[33];
-static char cfg_net_pass[64];
-#endif
+// static char cfg_net_ssid[33];
+// static char cfg_net_pass[64];
+#endif /* RASPBERRYPI_PICO2_W */
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -76,6 +76,9 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+C%d\n"
                                "+S%d\n"
                                "+D%d\n"
+#ifdef RASPBERRYPI_PICO2_W
+                               "+F%s\n"
+#endif /* RASPBERRYPI_PICO2_W */
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
@@ -83,6 +86,9 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_caps,
                                cfg_codepage,
                                cfg_vga_display,
+#ifdef RASPBERRYPI_PICO2_W
+                               cfg_net_rfcc,
+#endif /* RASPBERRYPI_PICO2_W */
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -109,36 +115,41 @@ static void cfg_load_with_boot_opt(bool boot_only)
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
     {
+        if (mbuf[0] != '+')
+            break;
+        if (boot_only)
+            continue;
         size_t len = strlen((char *)mbuf);
         while (len && mbuf[len - 1] == '\n')
             len--;
         mbuf[len] = 0;
-        if (len < 3 || mbuf[0] != '+')
-            break;
         const char *str = (char *)mbuf + 2;
         len -= 2;
-        uint32_t val;
-        if (!boot_only && parse_uint32(&str, &len, &val))
-            switch (mbuf[1])
-            {
-            case 'P':
-                cfg_phi2_khz = val;
-                break;
-            case 'R':
-                cfg_reset_ms = val;
-                break;
-            case 'C':
-                cfg_caps = val;
-                break;
-            case 'S':
-                cfg_codepage = val;
-                break;
-            case 'D':
-                cfg_vga_display = val;
-                break;
-            default:
-                break;
-            }
+        switch (mbuf[1])
+        {
+        case 'P':
+            parse_uint32(&str, &len, &cfg_phi2_khz);
+            break;
+        case 'R':
+            parse_uint8(&str, &len, &cfg_reset_ms);
+            break;
+        case 'C':
+            parse_uint8(&str, &len, &cfg_caps);
+            break;
+        case 'S':
+            parse_uint32(&str, &len, &cfg_codepage);
+            break;
+        case 'D':
+            parse_uint8(&str, &len, &cfg_vga_display);
+            break;
+#ifdef RASPBERRYPI_PICO2_W
+        case 'F':
+            parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
+            break;
+#endif /* RASPBERRYPI_PICO2_W */
+        default:
+            break;
+        }
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
@@ -247,3 +258,24 @@ uint8_t cfg_get_vga(void)
 {
     return cfg_vga_display;
 }
+
+#ifdef RASPBERRYPI_PICO2_W
+
+bool cfg_set_rfcc(const char *cc)
+{
+    size_t len = strlen(cc);
+    if (len == 0 || len == 2)
+    {
+        strcpy(cfg_net_rfcc, cc);
+        cfg_save_with_boot_opt(NULL);
+        return true;
+    }
+    return false;
+}
+
+const char *cfg_get_rfcc(void)
+{
+    return cfg_net_rfcc;
+}
+
+#endif /* RASPBERRYPI_PICO2_W */

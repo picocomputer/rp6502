@@ -62,6 +62,28 @@ bool parse_string(const char **args, size_t *len, char *dest, size_t size)
     return false;
 }
 
+bool parse_uint8(const char **args, size_t *len, uint8_t *result)
+{
+    uint32_t result32;
+    if (parse_uint32(args, len, &result32) && result32 < 0x100)
+    {
+        *result = result32;
+        return true;
+    }
+    return false;
+}
+
+bool parse_uint16(const char **args, size_t *len, uint16_t *result)
+{
+    uint32_t result32;
+    if (parse_uint32(args, len, &result32) && result32 < 0x10000)
+    {
+        *result = result32;
+        return true;
+    }
+    return false;
+}
+
 bool parse_uint32(const char **args, size_t *len, uint32_t *result)
 {
     size_t i;

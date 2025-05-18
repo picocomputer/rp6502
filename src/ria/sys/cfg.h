@@ -30,5 +30,7 @@ bool cfg_set_codepage(uint32_t cp);
 uint16_t cfg_get_codepage(void);
 bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga(void);
+bool cfg_set_rfcc(const char *cc);
+const char *cfg_get_rfcc(void);
 
 #endif /* _CFG_H_ */

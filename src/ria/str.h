@@ -31,6 +31,12 @@ int strnicmp(const char *string1, const char *string2, int n);
 bool parse_string(const char **args, size_t *len, char *dest, size_t size);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
+bool parse_uint8(const char **args, size_t *len, uint8_t *result);
+
+// A single argument in hex or decimal. e.g. 0x0, $0, 0
+bool parse_uint16(const char **args, size_t *len, uint16_t *result);
+
+// A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool parse_uint32(const char **args, size_t *len, uint32_t *result);
 
 // A ROM name converted to upper case.
