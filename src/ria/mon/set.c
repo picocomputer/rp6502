@@ -199,6 +199,11 @@ static struct
     {4, "boot", set_boot},
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
+#ifdef RASPBERRYPI_PICO2_W
+// {3, "rfcc", set_rfcc},
+// {3, "ssid", set_ssid},
+// {3, "pass", set_pass},
+#endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
@@ -210,6 +215,11 @@ static void set_print_all(void)
     set_print_boot();
     set_print_code_page();
     set_print_vga();
+#ifdef RASPBERRYPI_PICO2_W
+    // set_print_rfcc();
+    // set_print_ssid();
+    // set_print_pass();
+#endif
 }
 
 void set_mon_set(const char *args, size_t len)

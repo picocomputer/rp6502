@@ -62,6 +62,7 @@ void net_task(void)
         cyw43_arch_enable_sta_mode();
         net_state = net_state_ready;
         // printf("sta_mode %d\n", net_error); ////////
+        break;
     default:
         break;
     }

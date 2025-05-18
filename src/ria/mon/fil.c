@@ -71,19 +71,15 @@ void fil_mon_mkdir(const char *args, size_t len)
 void fil_mon_chdrive(const char *args, size_t len)
 {
     (void)len;
-    FRESULT result;
+    FRESULT result = FR_INVALID_DRIVE;
     DIR dir;
-    char s[10];
-    while (len && args[len - 1] == ' ')
-        len--;
-    if (len < 10)
+    char s[7]; // up to "USB99:\0"
+    if (len &&
+        parse_string(&args, &len, s, sizeof(s)) &&
+        parse_end(args, len))
     {
-        memcpy(s, args, len);
-        s[len] = 0;
         result = f_opendir(&dir, s);
     }
-    else
-        result = FR_INVALID_DRIVE;
     if (result != FR_OK)
         printf("?Drive not found (%d)\n", result);
     if (result == FR_OK)

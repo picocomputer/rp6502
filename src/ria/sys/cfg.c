@@ -19,6 +19,9 @@
 // +R0         | RESB
 // +S437       | Code Page
 // +D0         | VGA display type
+// +FUS        | RF Country Code
+// +WMyWiFi    | WiFi SSID
+// +KsEkRiT    | WiFi Password
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
@@ -29,6 +32,12 @@ static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
 static uint8_t cfg_vga_display;
+
+#ifdef RASPBERRYPI_PICO2_W
+static char cfg_net_rfcc[3];
+static char cfg_net_ssid[33];
+static char cfg_net_pass[64];
+#endif
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
