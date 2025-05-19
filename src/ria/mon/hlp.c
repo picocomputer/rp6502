@@ -221,6 +221,20 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "  1 - 640x480 and 1280x720, for 16:9 displays\n"
     "  2 - 1280x1024, for 5:4 SXGA displays";
 
+static const char __in_flash("helptext") hlp_text_rfcc[] =
+    "Set this so the CYW43 can use the best radio frequencies for your country.\n"
+    "Using \"-\" will clear the country code and default to a worldwide setting.\n"
+    "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
+    "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
+    "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.";
+
+static const char __in_flash("helptext") hlp_text_ssid[] =
+    "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"
+    "disable WiFi.";
+
+static const char __in_flash("helptext") hlp_text_pass[] =
+    "This is the password for your WiFi network. Use \"-\" to clear password.";
+
 static struct
 {
     size_t cmd_len;
@@ -273,6 +287,11 @@ static struct
     {4, "boot", hlp_text_boot},
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
+#ifdef RASPBERRYPI_PICO2_W
+    {4, "rfcc", hlp_text_rfcc},
+    {4, "ssid", hlp_text_ssid},
+    {4, "pass", hlp_text_pass},
+#endif
 };
 static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;
 

@@ -6,11 +6,13 @@
 
 #include "str.h"
 #include "api/oem.h"
+#include "net/net.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
+#include <ctype.h>
 
 // Configuration is a plain ASCII file on the LFS. e.g.
 // +V1         | Version - Must be first
@@ -273,11 +275,23 @@ uint8_t cfg_get_vga(void)
 
 bool cfg_set_rfcc(const char *rfcc)
 {
+    char cc[3] = {0, 0, 0};
     size_t len = strlen(rfcc);
+    if (len == 2)
+    {
+        cc[0] = toupper(rfcc[0]);
+        cc[1] = toupper(rfcc[1]);
+        if (!net_validate_country_code(cc))
+            return false;
+    }
     if (len == 0 || len == 2)
     {
-        strcpy(cfg_net_rfcc, rfcc);
-        cfg_save_with_boot_opt(NULL);
+        if (strcmp(cfg_net_rfcc, cc))
+        {
+            strcpy(cfg_net_rfcc, cc);
+            net_reset_radio();
+            cfg_save_with_boot_opt(NULL);
+        }
         return true;
     }
     return false;
@@ -293,10 +307,13 @@ bool cfg_set_ssid(const char *ssid)
     size_t len = strlen(ssid);
     if (len < sizeof(cfg_net_ssid) - 1)
     {
-        if (!len)
+        if (strcmp(cfg_net_ssid, ssid))
+        {
             cfg_net_pass[0] = 0;
-        strcpy(cfg_net_ssid, ssid);
-        cfg_save_with_boot_opt(NULL);
+            strcpy(cfg_net_ssid, ssid);
+            net_reset_radio();
+            cfg_save_with_boot_opt(NULL);
+        }
         return true;
     }
     return false;
@@ -311,8 +328,12 @@ bool cfg_set_pass(const char *pass)
 {
     if (strlen(cfg_net_ssid) && strlen(pass) < sizeof(cfg_net_pass) - 1)
     {
-        strcpy(cfg_net_pass, pass);
-        cfg_save_with_boot_opt(NULL);
+        if (strcmp(cfg_net_pass, pass))
+        {
+            strcpy(cfg_net_pass, pass);
+            net_reset_radio();
+            cfg_save_with_boot_opt(NULL);
+        }
         return true;
     }
     return false;

@@ -12,5 +12,7 @@
 void net_init(void);
 void net_task(void);
 void net_led(bool ison);
+bool net_validate_country_code(char *cc);
+void net_reset_radio(void);
 
 #endif /* _NET_H_ */
