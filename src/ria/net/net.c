@@ -77,6 +77,7 @@ typedef enum
     net_state_off,
     net_state_initialized,
     net_state_init_failed,
+    net_state_connect,
     net_state_connecting,
     net_state_connected,
     net_state_connect_failed,
@@ -89,7 +90,6 @@ bool net_led_requested;
 
 void net_init(void)
 {
-    // net_task();
 }
 
 bool net_validate_country_code(char *cc)
@@ -116,27 +116,31 @@ void net_reset_radio(void)
     printf("reset radio\n"); ////////
     switch (net_state)
     {
-    case net_state_connecting:
-        cyw43_arch_disable_sta_mode();
-        __attribute__((fallthrough));
-    case net_state_initialized:
-        cyw43_arch_deinit();
-        __attribute__((fallthrough));
-    case net_state_off:
-    case net_state_init_failed:
+    case net_state_connect:
     case net_state_connected:
     case net_state_connect_failed:
+    case net_state_connecting:
+        cyw43_arch_disable_sta_mode();
+        net_state = net_state_initialized;
+        break;
+    case net_state_initialized:
+        cyw43_arch_deinit();
+        net_state = net_state_off;
+        break;
+    case net_state_off:
+    case net_state_init_failed:
         break;
     }
-    net_state = net_state_off;
 }
 
 void __not_in_flash_func(net_task)(void)
 {
+    static bool debug_final_printed;
+
     switch (net_state)
     {
     case net_state_off:
-        if (vga_active() || !cfg_get_ssid()[0])
+        if (vga_active())
             break;
         // cyw43 driver blocks here while the cores boot
         // this prevents an awkward pause in the boot message
@@ -147,14 +151,62 @@ void __not_in_flash_func(net_task)(void)
         else
             net_state = net_state_initialized;
         assert(net_error == 0);
-        printf("init %d\n", net_error); ////////
+        printf("net_state_off\n"); ////////
         break;
     case net_state_initialized:
+        if (!cfg_get_ssid()[0])
+            break;
         cyw43_arch_enable_sta_mode();
-        net_state = net_state_connecting;
-        printf("sta_mode %d\n", net_error); ////////
+        net_state = net_state_connect;
+        printf("net_state_initialized\n"); ////////
         break;
-    default:
+    case net_state_connect:
+        cyw43_arch_wifi_connect_async(
+            cfg_get_ssid(), cfg_get_pass(),
+            strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN);
+        net_state = net_state_connecting;
+        printf("net_state_connect\n"); ////////
+        break;
+    case net_state_connecting:
+        int net_link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+        switch (net_link_status)
+        {
+        case CYW43_LINK_DOWN:
+        case CYW43_LINK_JOIN:
+        case CYW43_LINK_NOIP:
+            break;
+        case CYW43_LINK_UP:
+            net_state = net_state_connected;
+            break;
+        case CYW43_LINK_FAIL:
+        case CYW43_LINK_NONET:
+        case CYW43_LINK_BADAUTH:
+            net_state = net_state_connect_failed;
+            break;
+        }
+        if (net_link_status < 0)
+            printf("net_state_connecting %d\n", net_link_status); ////////
+        break;
+    case net_state_init_failed:
+        if (!debug_final_printed)
+        {
+            debug_final_printed = true;
+            printf("net_state_init_failed\n"); ////////
+        }
+        break;
+    case net_state_connect_failed:
+        if (!debug_final_printed)
+        {
+            debug_final_printed = true;
+            printf("net_state_connect_failed\n"); ////////
+        }
+        break;
+    case net_state_connected:
+        if (!debug_final_printed)
+        {
+            debug_final_printed = true;
+            printf("net_state_connected\n"); ////////
+        }
         break;
     }
 

@@ -49,7 +49,7 @@ int strnicmp(const char *string1, const char *string2, int n)
 bool parse_string(const char **args, size_t *len, char *dest, size_t size)
 {
     size_t cpylen = *len;
-    while (cpylen && *args[cpylen - 1] == ' ')
+    while (cpylen && (*args)[cpylen - 1] == ' ')
         cpylen--;
     if (cpylen < size)
     {
