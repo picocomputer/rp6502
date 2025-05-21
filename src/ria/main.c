@@ -18,6 +18,7 @@
 #include "mon/ram.h"
 #include "mon/rom.h"
 #include "net/net.h"
+#include "net/ntp.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -81,6 +82,7 @@ static void __not_in_flash_func(init)(void)
     rom_init();
     led_init();
     clk_init();
+    ntp_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
@@ -103,6 +105,7 @@ void __not_in_flash_func(main_task)(void)
     vga_task();
     std_task();
     net_task();
+    ntp_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().

@@ -84,7 +84,6 @@ typedef enum
     net_state_connect_failed,
 } net_state_t;
 net_state_t net_state;
-int net_error;
 
 bool net_led_status;
 bool net_led_requested;
@@ -143,12 +142,10 @@ void __not_in_flash_func(net_task)(void)
         // cyw43 driver blocks here while the cores boot
         // this prevents an awkward pause in the boot message
         com_flush();
-        net_error = cyw43_arch_init_with_country(net_country_code());
-        if (net_error)
+        if (cyw43_arch_init_with_country(net_country_code()))
             net_state = net_state_init_failed;
         else
             net_state = net_state_initialized;
-        assert(net_error == 0);
         break;
     case net_state_initialized:
         if (!cfg_get_ssid()[0])
@@ -210,7 +207,7 @@ void net_print_status(void)
 {
     uint8_t mac[6];
     cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
-    printf("WiFi MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+    printf("WiFi MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     printf("WiFi Status: ");
@@ -252,6 +249,11 @@ void net_print_status(void)
         puts("internal error");
         break;
     }
+}
+
+bool net_ready(void)
+{
+    return net_state == net_state_connected;
 }
 
 #endif /* RASPBERRYPI_PICO2_W */
