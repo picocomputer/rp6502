@@ -9,6 +9,7 @@
 #ifndef RASPBERRYPI_PICO2_W
 void net_init(void) {}
 void net_task(void) {}
+void net_print_status(void) {}
 #else
 
 #include "net/net.h"
@@ -113,7 +114,6 @@ static uint32_t net_country_code(void)
 
 void net_reset_radio(void)
 {
-    printf("reset radio\n"); ////////
     switch (net_state)
     {
     case net_state_connect:
@@ -135,8 +135,6 @@ void net_reset_radio(void)
 
 void __not_in_flash_func(net_task)(void)
 {
-    static bool debug_final_printed;
-
     switch (net_state)
     {
     case net_state_off:
@@ -151,21 +149,18 @@ void __not_in_flash_func(net_task)(void)
         else
             net_state = net_state_initialized;
         assert(net_error == 0);
-        printf("net_state_off\n"); ////////
         break;
     case net_state_initialized:
         if (!cfg_get_ssid()[0])
             break;
         cyw43_arch_enable_sta_mode();
         net_state = net_state_connect;
-        printf("net_state_initialized\n"); ////////
         break;
     case net_state_connect:
         cyw43_arch_wifi_connect_async(
             cfg_get_ssid(), cfg_get_pass(),
             strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN);
         net_state = net_state_connecting;
-        printf("net_state_connect\n"); ////////
         break;
     case net_state_connecting:
         int net_link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
@@ -184,29 +179,10 @@ void __not_in_flash_func(net_task)(void)
             net_state = net_state_connect_failed;
             break;
         }
-        if (net_link_status < 0)
-            printf("net_state_connecting %d\n", net_link_status); ////////
         break;
     case net_state_init_failed:
-        if (!debug_final_printed)
-        {
-            debug_final_printed = true;
-            printf("net_state_init_failed\n"); ////////
-        }
-        break;
     case net_state_connect_failed:
-        if (!debug_final_printed)
-        {
-            debug_final_printed = true;
-            printf("net_state_connect_failed\n"); ////////
-        }
-        break;
     case net_state_connected:
-        if (!debug_final_printed)
-        {
-            debug_final_printed = true;
-            printf("net_state_connected\n"); ////////
-        }
         break;
     }
 
@@ -228,6 +204,54 @@ void __not_in_flash_func(net_task)(void)
 void net_led(bool ison)
 {
     net_led_requested = ison;
+}
+
+void net_print_status(void)
+{
+    uint8_t mac[6];
+    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
+    printf("WiFi MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    printf("WiFi Status: ");
+    switch (net_state)
+    {
+    case net_state_initialized:
+        if (cfg_get_ssid()[0])
+            puts("initialized");
+        else
+            puts("not configured");
+        break;
+    case net_state_connect:
+    case net_state_connecting:
+        puts("connecting");
+        break;
+    case net_state_connected:
+        const uint8_t *ip4 = (const uint8_t *)netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]);
+        printf("connected as %d.%d.%d.%d\n", ip4[0], ip4[1], ip4[2], ip4[3]);
+        break;
+    case net_state_connect_failed:
+        switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
+        {
+        case CYW43_LINK_NOIP:
+            puts("no IP address");
+            break;
+        case CYW43_LINK_NONET:
+            puts("ssid not found");
+            break;
+        case CYW43_LINK_BADAUTH:
+            puts("auth failed");
+            break;
+        default:
+            puts("connect failed");
+            break;
+        }
+        break;
+    case net_state_off:
+    case net_state_init_failed:
+        puts("internal error");
+        break;
+    }
 }
 
 #endif /* RASPBERRYPI_PICO2_W */
