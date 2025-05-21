@@ -227,7 +227,7 @@ void net_print_status(void)
         puts("connecting");
         break;
     case net_state_connected:
-        const uint8_t *ip4 = (const uint8_t *)netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]);
+        const uint8_t *ip4 = (uint8_t *)&ip4_addr_get_u32(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]));
         printf("connected as %d.%d.%d.%d\n", ip4[0], ip4[1], ip4[2], ip4[3]);
         break;
     case net_state_connect_failed:
