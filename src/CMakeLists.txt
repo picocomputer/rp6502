@@ -3,6 +3,7 @@
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
 pico_set_program_name(rp6502_ria "RP6502 RIA")
+pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -11,6 +12,7 @@ target_include_directories(rp6502_ria PRIVATE
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
+    CYW43_CONFIG_FILE="${CMAKE_CURRENT_LIST_DIR}/ria/cyw43_config.h"
     pico_flash_bank_get_storage_offset_func=lfs_get_bt_storage_offset
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1

@@ -7,9 +7,9 @@
 #include "pico.h"
 
 #ifndef RASPBERRYPI_PICO2_W
-void net_init(void) {}
-void net_task(void) {}
-void net_print_status(void) {}
+void ntp_init(void) {}
+void ntp_task(void) {}
+void ntp_print_status(void) {}
 #else
 
 #include "net/net.h"

@@ -155,6 +155,7 @@ bool ria_print_error_message(void)
 void ria_read_buf(uint16_t addr)
 {
     assert(!cpu_active());
+    action_result = -1;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -177,8 +178,8 @@ void ria_read_buf(uint16_t addr)
 void ria_verify_buf(uint16_t addr)
 {
     assert(!cpu_active());
-    // avoid forbidden areas
     action_result = -1;
+    // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
@@ -197,6 +198,7 @@ void ria_verify_buf(uint16_t addr)
 void ria_write_buf(uint16_t addr)
 {
     assert(!cpu_active());
+    action_result = -1;
     // avoid forbidden area
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
