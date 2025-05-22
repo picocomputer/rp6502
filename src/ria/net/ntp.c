@@ -7,7 +7,6 @@
 #include "pico.h"
 
 #ifndef RASPBERRYPI_PICO2_W
-void ntp_init(void) {}
 void ntp_task(void) {}
 void ntp_print_status(void) {}
 #else
@@ -143,10 +142,6 @@ void ntp_task(void)
 }
 
 void ntp_print_status(void)
-{
-}
-
-void ntp_init(void)
 {
 }
 

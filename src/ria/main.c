@@ -32,14 +32,6 @@
 #include "usb/mou.h"
 #include "usb/pad.h"
 
-// It's important to keep the hot path in RAM (__not_in_flash_func).
-// The flash XIP is slow enough that not having xx_task() in RAM
-// will cause problems. The xx_active() functions are usually used
-// to short circuit xx_task() so put those in RAM too. Some API
-// ops would do well in RAM, like stdio read and writes, but not
-// necessarily opens and closes. There's plenty of RAM so if
-// you're on the fence about something, put it in RAM.
-
 /**************************************/
 /* All kernel modules register below. */
 /**************************************/
@@ -57,7 +49,6 @@ static void init(void)
 
     // STDIO not available until after these inits.
     cpu_init();
-    net_init(); // variable time
     ria_init();
     pix_init();
     vga_init();
@@ -82,7 +73,6 @@ static void init(void)
     rom_init();
     led_init();
     clk_init();
-    ntp_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);

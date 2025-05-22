@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include <pico.h>
 #include "main.h"
 #include "api/api.h"
 #include "sys/cpu.h"

@@ -7,7 +7,6 @@
 #include "pico.h"
 
 #ifndef RASPBERRYPI_PICO2_W
-void net_init(void) {}
 void net_task(void) {}
 void net_print_status(void) {}
 #else
@@ -89,10 +88,6 @@ net_state_t net_state;
 bool net_led_status;
 bool net_led_requested;
 
-void net_init(void)
-{
-}
-
 bool net_validate_country_code(char *cc)
 {
     if (!cc[0] || !cc[1] || cc[2] != 0)
@@ -121,8 +116,7 @@ void net_reset_radio(void)
     case net_state_connect_failed:
     case net_state_connecting:
         cyw43_arch_disable_sta_mode();
-        net_state = net_state_initialized;
-        break;
+        __attribute__((fallthrough));
     case net_state_initialized:
         cyw43_arch_deinit();
         net_state = net_state_off;
