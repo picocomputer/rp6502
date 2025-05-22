@@ -144,7 +144,7 @@ static bool mon_suspended(void)
            std_active();
 }
 
-void __not_in_flash_func(mon_task)(void)
+void mon_task(void)
 {
     if (needs_prompt && !mon_suspended())
     {

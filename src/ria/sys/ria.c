@@ -33,7 +33,7 @@ static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 static volatile bool irq_enabled;
 
-void __not_in_flash_func(ria_trigger_irq)(void)
+void ria_trigger_irq(void)
 {
     if (irq_enabled & 0x01)
         gpio_put(CPU_IRQB_PIN, false);
@@ -116,12 +116,12 @@ void ria_stop(void)
     }
 }
 
-bool __not_in_flash_func(ria_active)(void)
+bool ria_active(void)
 {
     return action_state != action_state_idle;
 }
 
-void __not_in_flash_func(ria_task)(void)
+void ria_task(void)
 {
     // check on watchdog unless we explicitly ended or errored
     if (ria_active() && action_result == -1)

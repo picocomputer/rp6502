@@ -145,7 +145,7 @@ void vga_reclock(uint32_t sys_clk_khz)
     pio_sm_set_clkdiv(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, div);
 }
 
-void __not_in_flash_func(vga_task)(void)
+void vga_task(void)
 {
     if (vga_state == VGA_REQUEST_TEST)
     {
@@ -236,14 +236,14 @@ bool vga_set_vga(uint32_t display_type)
     return true;
 }
 
-bool __not_in_flash_func(vga_active)(void)
+bool vga_active(void)
 {
     return vga_state == VGA_REQUEST_TEST ||
            vga_state == VGA_TESTING ||
            vga_state == VGA_VERSIONING;
 }
 
-bool __not_in_flash_func(vga_backchannel)(void)
+bool vga_backchannel(void)
 {
     return vga_state == VGA_VERSIONING ||
            vga_state == VGA_CONNECTED ||

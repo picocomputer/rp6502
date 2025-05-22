@@ -44,7 +44,7 @@ volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
 
-static void __not_in_flash_func(com_tx_task)(void)
+static void com_tx_task(void)
 {
     // We sacrifice the UART TX FIFO so PIX STDOUT can keep pace.
     // 115_200 baud doesn't need flow control, but PIX will send
@@ -409,7 +409,7 @@ void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t siz
     com_ctrl_bits = ctrl_bits;
 }
 
-void __not_in_flash_func(com_task)(void)
+void com_task(void)
 {
     com_tx_task();
 

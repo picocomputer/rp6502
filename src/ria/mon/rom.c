@@ -412,7 +412,7 @@ void rom_init(void)
     rom_load((char *)boot, boot_len);
 }
 
-void __not_in_flash_func(rom_task)(void)
+void rom_task(void)
 {
     switch (rom_state)
     {
@@ -454,7 +454,7 @@ void __not_in_flash_func(rom_task)(void)
     }
 }
 
-bool __not_in_flash_func(rom_active)(void)
+bool rom_active(void)
 {
     return rom_state != ROM_IDLE;
 }

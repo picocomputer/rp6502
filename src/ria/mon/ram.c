@@ -202,7 +202,7 @@ void ram_mon_binary(const char *args, size_t len)
     printf("?invalid argument\n");
 }
 
-void __not_in_flash_func(ram_task)(void)
+void ram_task(void)
 {
     if (ria_active())
         return;
@@ -226,7 +226,7 @@ void __not_in_flash_func(ram_task)(void)
     }
 }
 
-bool __not_in_flash_func(ram_active)(void)
+bool ram_active(void)
 {
     return cmd_state != SYS_IDLE;
 }

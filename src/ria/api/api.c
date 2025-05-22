@@ -12,7 +12,7 @@
 
 static uint8_t api_active_op = 0;
 
-void __not_in_flash_func(api_task)(void)
+void api_task(void)
 {
     // Latch called op in case 6502 app misbehaves
     if (cpu_active() && !ria_active() &&

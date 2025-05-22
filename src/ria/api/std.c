@@ -29,23 +29,23 @@ static volatile size_t std_out_head;
 static volatile uint8_t std_out_buf[32];
 #define STD_OUT_BUF(pos) std_out_buf[(pos) & 0x1F]
 
-static inline bool __not_in_flash_func(std_out_buf_writable)()
+static inline bool std_out_buf_writable()
 {
     return (((std_out_head + 1) & 0x1F) != (std_out_tail & 0x1F));
 }
 
-static inline void __not_in_flash_func(std_out_buf_write)(char ch)
+static inline void std_out_buf_write(char ch)
 {
     STD_OUT_BUF(++std_out_head) = ch;
 }
 
-bool __not_in_flash_func(std_active)(void)
+bool std_active(void)
 {
     // Active until stdout is empty
     return (((std_out_head) & 0x1F) != (std_out_tail & 0x1F));
 }
 
-void __not_in_flash_func(std_task)(void)
+void std_task(void)
 {
     // 6502 applications write to std_out_buf which we route
     // through the Pi Pico STDIO driver for CR/LR translation.
@@ -107,7 +107,7 @@ void std_api_close(void)
     return api_return_ax(0);
 }
 
-void __not_in_flash_func(std_api_read_xstack)(void)
+void std_api_read_xstack(void)
 {
     uint8_t *buf;
     uint16_t count;
@@ -156,7 +156,7 @@ void __not_in_flash_func(std_api_read_xstack)(void)
     api_return_released();
 }
 
-void __not_in_flash_func(std_api_read_xram)(void)
+void std_api_read_xram(void)
 {
     static uint16_t xram_addr;
     if (std_in_count >= 0)
@@ -210,7 +210,7 @@ void __not_in_flash_func(std_api_read_xram)(void)
 }
 
 // Non-blocking write
-static void __not_in_flash_func(std_out_write)(char *ptr)
+static void std_out_write(char *ptr)
 {
     static void *std_out_ptr;
     if (ptr)
@@ -224,7 +224,7 @@ static void __not_in_flash_func(std_out_write)(char *ptr)
     }
 }
 
-void __not_in_flash_func(std_api_write_xstack)(void)
+void std_api_write_xstack(void)
 {
     if (std_xram_count >= 0)
         return std_out_write(NULL);
@@ -251,7 +251,7 @@ void __not_in_flash_func(std_api_write_xstack)(void)
     return api_return_ax(bw);
 }
 
-void __not_in_flash_func(std_api_write_xram)(void)
+void std_api_write_xram(void)
 {
     if (std_xram_count >= 0)
         return std_out_write(NULL);

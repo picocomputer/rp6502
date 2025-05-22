@@ -48,7 +48,7 @@
 // starting the UART before printing. Please list subtleties.
 
 // Initialization event for power up, reboot command, or reboot button.
-static void __not_in_flash_func(init)(void)
+static void init(void)
 {
     // Need a moment for RP6502-VGA to boot at power on.
     // This isn't ideal since it delays warm boots too.
@@ -94,7 +94,7 @@ static void __not_in_flash_func(init)(void)
 
 // These tasks run when FatFs is blocking.
 // Calling FatFs in here may cause undefined behavior.
-void __not_in_flash_func(main_task)(void)
+void main_task(void)
 {
     tuh_task();
     cpu_task();
@@ -109,7 +109,7 @@ void __not_in_flash_func(main_task)(void)
 }
 
 // Tasks that call FatFs should be here instead of main_task().
-static void __not_in_flash_func(task)(void)
+static void task(void)
 {
     api_task();
     com_task();
@@ -120,7 +120,7 @@ static void __not_in_flash_func(task)(void)
 }
 
 // Event to start running the 6502.
-static void __not_in_flash_func(run)(void)
+static void run(void)
 {
     vga_run();
     api_run();
@@ -130,7 +130,7 @@ static void __not_in_flash_func(run)(void)
 }
 
 // Event to stop the 6502.
-static void __not_in_flash_func(stop)(void)
+static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
@@ -144,7 +144,7 @@ static void __not_in_flash_func(stop)(void)
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
-static void __not_in_flash_func(reset)(void)
+static void reset(void)
 {
     com_reset();
     fil_reset();
@@ -159,7 +159,7 @@ static void __not_in_flash_func(reset)(void)
 // Divider is used when PHI2 less than 4 MHz to
 // maintain a minimum system clock of 120 MHz.
 // From 4 to 8 MHz increases system clock to 240 MHz.
-void __not_in_flash_func(main_reclock)(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     com_reclock();
     cpu_reclock();
@@ -170,7 +170,7 @@ void __not_in_flash_func(main_reclock)(uint32_t sys_clk_khz, uint16_t clkdiv_int
 }
 
 // PIX XREG writes to the RIA device will notify here.
-bool __not_in_flash_func(main_pix)(uint8_t ch, uint8_t addr, uint16_t word)
+bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
 {
     (void)addr;
     switch (ch * 256 + addr)
@@ -191,7 +191,7 @@ bool __not_in_flash_func(main_pix)(uint8_t ch, uint8_t addr, uint16_t word)
 // This will repeatedly trigger until API_BUSY is false so
 // IO operations can hold busy while waiting for data.
 // Be sure any state is reset in a stop() handler.
-bool __not_in_flash_func(main_api)(uint8_t operation)
+bool main_api(uint8_t operation)
 {
     switch (operation)
     {
@@ -267,13 +267,13 @@ static enum state {
     stopping,
 } volatile main_state;
 
-void __not_in_flash_func(main_run)(void)
+void main_run(void)
 {
     if (main_state != running)
         main_state = starting;
 }
 
-void __not_in_flash_func(main_stop)(void)
+void main_stop(void)
 {
     if (main_state == starting)
         main_state = stopped;
@@ -281,17 +281,17 @@ void __not_in_flash_func(main_stop)(void)
         main_state = stopping;
 }
 
-void __not_in_flash_func(main_break)(void)
+void main_break(void)
 {
     is_breaking = true;
 }
 
-bool __not_in_flash_func(main_active)(void)
+bool main_active(void)
 {
     return main_state != stopped;
 }
 
-int __not_in_flash_func(main)(void)
+int main(void)
 {
     init();
 

@@ -133,7 +133,7 @@ void net_reset_radio(void)
     }
 }
 
-void __not_in_flash_func(net_task)(void)
+void net_task(void)
 {
     switch (net_state)
     {
@@ -250,7 +250,7 @@ void net_print_status(void)
     }
 }
 
-bool __not_in_flash_func(net_ready)(void)
+bool net_ready(void)
 {
     return net_state == net_state_connected;
 }

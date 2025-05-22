@@ -84,7 +84,7 @@ static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
     pbuf_free(p);
 }
 
-void __not_in_flash_func(ntp_task)(void)
+void ntp_task(void)
 {
     if (ntp_state == ntp_state_internal_error)
         return;

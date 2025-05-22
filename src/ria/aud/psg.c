@@ -262,7 +262,7 @@ static void psg_reclock(uint32_t sys_clk_khz)
     pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (PSG_RATE / 1000.f));
 }
 
-static void __not_in_flash_func(psg_task)(void)
+static void psg_task(void)
 {
 
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
