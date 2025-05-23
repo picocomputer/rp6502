@@ -20,7 +20,7 @@ target_compile_definitions(rp6502_ria PRIVATE
 )
 
 target_compile_options(rp6502_ria PRIVATE
-  -Wall -Wextra
+    -Wall -Wextra
 )
 
 target_link_libraries(rp6502_ria PRIVATE
@@ -138,15 +138,6 @@ target_link_libraries(rp6502_vga PRIVATE
     hardware_interp
     tinyusb_device
 )
-
-# Using pico_cyw43_arch_none doesn't work, the pico_cyw43_arch_lwip_poll
-# from rp6502_ria locks in the library options so we get a whole IP stack
-# instead of just the minimum we need to turn on the power LED.
-# if (PICO_BOARD STREQUAL "pico2_w")
-# target_link_libraries(rp6502_vga PRIVATE
-#     pico_cyw43_arch_none
-# )
-# endif()
 
 pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio

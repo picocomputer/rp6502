@@ -16,6 +16,7 @@ void ntp_print_status(void) {}
 #include "lwip/dns.h"
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
+#include "pico/aon_timer.h"
 #include <string.h>
 
 #define NTP_SERVER "pool.ntp.org"
@@ -32,6 +33,7 @@ typedef enum
     ntp_state_request,
     ntp_state_request_wait,
     ntp_state_request_fail,
+    ntp_state_set_time_fail,
     ntp_state_success,
     ntp_state_internal_error,
 } ntp_state_t;
@@ -48,12 +50,10 @@ static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *a
     {
         ntp_server_address = *ipaddr;
         ntp_state = ntp_state_request;
-        printf("ntp address %s\n", ipaddr_ntoa(ipaddr)); /////////
     }
     else
     {
         ntp_state = ntp_state_dns_fail;
-        printf("ntp dns request failed\n"); ///////////
     }
 }
 
@@ -72,14 +72,16 @@ static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
         uint32_t seconds_since_1900 = seconds_buf[0] << 24 | seconds_buf[1] << 16 | seconds_buf[2] << 8 | seconds_buf[3];
         uint32_t seconds_since_1970 = seconds_since_1900 - NTP_DELTA;
         time_t epoch = seconds_since_1970;
-        ntp_state = ntp_state_success;
-        printf("ntp_state_success: %lld\n", epoch);
+        struct timespec ts;
+        ts.tv_sec = epoch;
+        ts.tv_nsec = 0;
+        if (aon_timer_set_time(&ts))
+            ntp_state = ntp_state_success;
+        else
+            ntp_state = ntp_state_set_time_fail;
     }
     else
-    {
         ntp_state = ntp_state_request_fail;
-        printf("ntp_state_request_fail\n");
-    }
     pbuf_free(p);
 }
 
@@ -97,16 +99,12 @@ void ntp_task(void)
     case ntp_state_init:
         ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp_pcb)
-        {
             ntp_state = ntp_state_internal_error;
-            printf("ntp_state_internal_error\n"); ///////////
-        }
         else
         {
             ntp_state = ntp_state_dns;
-            printf("ntp_state_init\n"); ///////////
+            udp_recv(ntp_pcb, ntp_recv, NULL);
         }
-        udp_recv(ntp_pcb, ntp_recv, NULL);
         break;
     case ntp_state_dns:
         err_t err = dns_gethostbyname(NTP_SERVER, &ntp_server_address, ntp_dns_found, NULL);
@@ -114,7 +112,6 @@ void ntp_task(void)
             ntp_state = ntp_state_request;
         else
             ntp_state = ntp_state_dns_wait;
-        printf("ntp_state_dns\n"); ///////////
         break;
     case ntp_state_request:
         struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, NTP_MSG_LEN, PBUF_RAM);
@@ -124,18 +121,13 @@ void ntp_task(void)
         udp_sendto(ntp_pcb, p, &ntp_server_address, NTP_PORT);
         pbuf_free(p);
         ntp_state = ntp_state_request_wait;
-        printf("ntp_state_request\n"); ///////////
         break;
     case ntp_state_dns_wait:
-        break;
     case ntp_state_dns_fail:
-        break;
     case ntp_state_request_wait:
-        break;
     case ntp_state_request_fail:
-        break;
+    case ntp_state_set_time_fail:
     case ntp_state_success:
-        break;
     case ntp_state_internal_error:
         break;
     }
@@ -143,6 +135,57 @@ void ntp_task(void)
 
 void ntp_print_status(void)
 {
+    printf("NTP Status: ");
+    switch (ntp_state)
+    {
+    case ntp_state_init:
+        puts("no network");
+        break;
+    case ntp_state_dns:
+    case ntp_state_dns_wait:
+        puts("DNS lookup");
+        break;
+    case ntp_state_dns_fail:
+        puts("DNS fail");
+        break;
+    case ntp_state_request:
+    case ntp_state_request_wait:
+        puts("requested");
+        break;
+    case ntp_state_request_fail:
+        puts("failed");
+        break;
+    case ntp_state_set_time_fail:
+        puts("set time failure");
+        break;
+    case ntp_state_success:
+        puts("success");
+        break;
+    case ntp_state_internal_error:
+        puts("internal error");
+        break;
+    }
+
+    printf("Time: ");
+    struct timespec ts;
+    if (!aon_timer_get_time(&ts))
+    {
+        puts("get time failure");
+    }
+    else
+    {
+        // TODO make time zone configurable
+        setenv("TZ", "UTC0", 1);
+        // setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
+        // setenv("TZ", "<GMT-3>+3", 1);
+        tzset();
+
+        char buf[100];
+        struct tm tminfo;
+        localtime_r(&ts.tv_sec, &tminfo);
+        strftime(buf, sizeof(buf), "%c %z %Z", &tminfo);
+        printf("%s\n", buf);
+    }
 }
 
 #endif /* RASPBERRYPI_PICO2_W */
