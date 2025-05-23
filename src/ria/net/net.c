@@ -7,8 +7,10 @@
 #include "pico.h"
 
 #ifndef RASPBERRYPI_PICO2_W
-void net_task(void) {}
-void net_print_status(void) {}
+void net_task() {}
+void net_reclock() {}
+void net_reset_radio() {}
+void net_print_status() {}
 #else
 
 #include "api/std.h"
@@ -17,6 +19,7 @@ void net_print_status(void) {}
 #include "sys/com.h"
 #include "sys/vga.h"
 #include "pico/cyw43_arch.h"
+#include "pico/cyw43_driver.h"
 
 // These are from cyw43_arch.h
 static const char COUNTRY_CODES[] = {
@@ -249,6 +252,18 @@ void net_print_status(void)
 bool net_ready(void)
 {
     return net_state == net_state_connected;
+}
+
+void net_reclock(uint32_t sys_clk_khz)
+{
+    // CYW43439 datasheet says 50MHz for SPI
+    // It easily runs 85MHz+ so we push it to 66MHz
+    if (sys_clk_khz > 198000)
+        cyw43_set_pio_clkdiv_int_frac8(4, 0);
+    if (sys_clk_khz > 132000)
+        cyw43_set_pio_clkdiv_int_frac8(3, 0);
+    else
+        cyw43_set_pio_clkdiv_int_frac8(2, 0);
 }
 
 #endif /* RASPBERRYPI_PICO2_W */

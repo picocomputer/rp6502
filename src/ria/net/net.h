@@ -7,9 +7,11 @@
 #ifndef _NET_H_
 #define _NET_H_
 
+#include <stdint.h>
 #include <stdbool.h>
 
 void net_task(void);
+void net_reclock(uint32_t sys_clk_khz);
 void net_print_status(void);
 void net_led(bool ison);
 bool net_validate_country_code(char *cc);

@@ -157,6 +157,7 @@ void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac
     ria_reclock(clkdiv_int, clkdiv_frac);
     pix_reclock(clkdiv_int, clkdiv_frac);
     aud_reclock(sys_clk_khz);
+    net_reclock(sys_clk_khz);
 }
 
 // PIX XREG writes to the RIA device will notify here.
