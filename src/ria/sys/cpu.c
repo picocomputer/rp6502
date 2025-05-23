@@ -142,10 +142,10 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz,
                                     uint8_t *clkdiv_frac)
 {
     *sys_clk_khz = freq_khz * 32;
-    if (*sys_clk_khz < 120 * 1000)
+    if (*sys_clk_khz < 128 * 1000)
     {
-        *sys_clk_khz = 120 * 1000;
-        float clkdiv = 120000.f / 32.f / freq_khz;
+        *sys_clk_khz = 128 * 1000;
+        float clkdiv = 128000.f / 32.f / freq_khz;
         *clkdiv_int = clkdiv;
         *clkdiv_frac = (clkdiv - *clkdiv_int) * (1u << 8u);
     }

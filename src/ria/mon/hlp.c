@@ -176,12 +176,12 @@ static const char __in_flash("helptext") hlp_text_caps[] =
     "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
 
 static const char __in_flash("helptext") hlp_text_phi2[] =
-    "PHI2 is the 6502 clock speed in kHz. The valid range is 1-8000 but not all\n"
+    "PHI2 is the 6502 clock speed in kHz. The valid range is 1000-8000 but not all\n"
     "frequencies are available. In that case, the next highest frequency will\n"
     "be automatically calculated and selected. Faster than the default speed of\n"
     "4000 kHz (4 MHz) requires \"Advanced CMOS\" glue logic (74ACxx) as well as\n"
     "overclocking of the Pi Pico RIA, which is handled automatically. The Pi Pico\n"
-    "RIA will run at 240MHz for 8MHz, which is much lower than the 400+ MHz that\n"
+    "RIA will run at 256MHz for 8MHz, which is much lower than the 400+ MHz that\n"
     "it is capable of. Setting is saved on the RIA flash.";
 
 static const char __in_flash("helptext") hlp_text_resb[] =
