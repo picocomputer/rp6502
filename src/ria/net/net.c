@@ -132,9 +132,11 @@ void net_task(void)
     switch (net_state)
     {
     case net_state_off:
-        // this ensures a clean boot message without pauses
-        if (vga_active() || std_active())
+        if (vga_active())
             break;
+        // cyw43 driver blocks here while the cores boot
+        // this prevents an awkward pause in the boot message
+        com_flush();
         if (cyw43_arch_init_with_country(net_country_code()))
             net_state = net_state_init_failed;
         else
