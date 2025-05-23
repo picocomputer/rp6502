@@ -204,12 +204,8 @@ void net_led(bool ison)
 
 void net_print_status(void)
 {
-    uint8_t mac[6];
-    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
-    printf("WiFi MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    printf("WiFi Status: ");
+    // print state
+    printf("WiFi: ");
     switch (net_state)
     {
     case net_state_initialized:
@@ -223,8 +219,7 @@ void net_print_status(void)
         puts("connecting");
         break;
     case net_state_connected:
-        const uint8_t *ip4 = (uint8_t *)&ip4_addr_get_u32(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]));
-        printf("connected as %d.%d.%d.%d\n", ip4[0], ip4[1], ip4[2], ip4[3]);
+        puts("connected");
         break;
     case net_state_connect_failed:
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
@@ -247,6 +242,33 @@ void net_print_status(void)
     case net_state_init_failed:
         puts("internal error");
         break;
+    }
+
+    // print MAC address
+    uint8_t mac[6];
+    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
+    printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    // print IP addresses
+    if (net_state == net_state_connected)
+    {
+        struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
+        if (!ip4_addr_isany_val(*netif_ip4_addr(netif)))
+        {
+            const ip4_addr_t *ip4 = netif_ip4_addr(netif);
+            printf("IPv4: %s\n", ip4addr_ntoa(ip4));
+        }
+#if LWIP_IPV6
+        for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++)
+        {
+            if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)))
+            {
+                const ip6_addr_t *ip6 = netif_ip6_addr(netif, i);
+                printf("IPv6: %s\n", ip6addr_ntoa(ip6));
+            }
+        }
+#endif
     }
 }
 
