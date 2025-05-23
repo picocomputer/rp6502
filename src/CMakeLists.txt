@@ -2,7 +2,11 @@
 
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
-pico_set_program_name(rp6502_ria "RP6502 RIA")
+if (PICO_BOARD STREQUAL "pico2_w")
+    pico_set_program_name(rp6502_ria "RP6502 RIA W")
+else()
+    pico_set_program_name(rp6502_ria "RP6502 RIA")
+endif()
 pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
