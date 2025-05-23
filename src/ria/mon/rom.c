@@ -177,7 +177,7 @@ static bool rom_next_chunk(void)
 static void rom_loading(void)
 {
     // vga connection setup is unreliable at some clock speeds
-    // if we don't give it a chance to finish
+    // if we don't give it a chance to finish before loading
     if (vga_active())
         return;
     if (rom_eof())
