@@ -556,7 +556,7 @@ void ria_init(void)
     ria_act_pio_init();
 }
 
-void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void ria_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     // chip_select doesn't reclock
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);

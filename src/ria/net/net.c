@@ -8,7 +8,8 @@
 
 #ifndef RASPBERRYPI_PICO2_W
 void net_task() {}
-void net_reclock() {}
+void net_pre_reclock() {}
+void net_post_reclock() {}
 void net_reset_radio() {}
 void net_print_status() {}
 #else
@@ -254,7 +255,12 @@ bool net_ready(void)
     return net_state == net_state_connected;
 }
 
-void net_reclock(uint32_t sys_clk_khz)
+void net_pre_reclock(void)
+{
+    net_reset_radio();
+}
+
+void net_post_reclock(uint32_t sys_clk_khz)
 {
     // CYW43439 datasheet says 50MHz for SPI
     // It easily runs 85MHz+ so we push it to 66MHz

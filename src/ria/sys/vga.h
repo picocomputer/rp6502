@@ -18,7 +18,7 @@ void vga_task(void);
 void vga_run(void);
 void vga_stop(void);
 void vga_reset(void);
-void vga_reclock(uint32_t sys_clk_khz);
+void vga_post_reclock(uint32_t sys_clk_khz);
 
 // Active at startup and when reconnecting.
 bool vga_active(void);

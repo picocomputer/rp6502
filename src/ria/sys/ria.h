@@ -21,7 +21,7 @@ void ria_init(void);
 void ria_task(void);
 void ria_run();
 void ria_stop();
-void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
+void ria_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 // Trigger IRQ when enabled
 void ria_trigger_irq(void);

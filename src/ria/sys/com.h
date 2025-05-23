@@ -17,11 +17,10 @@
 void com_task(void);
 void com_init(void);
 void com_reset(void);
-void com_reclock(void);
+void com_pre_reclock(void);
+void com_post_reclock(void);
 
-// Blocks until all buffers empty.
-// This is called before a clock change.
-// It shouldn't be used elsewhere.
+// Blocks until all buffers empty. Use sparingly.
 void com_flush(void);
 
 // Both types of reads guarantee this callback unless a

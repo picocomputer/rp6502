@@ -86,7 +86,12 @@ void com_flush(void)
         tight_loop_contents();
 }
 
-void com_reclock(void)
+void com_pre_reclock(void)
+{
+    com_flush();
+}
+
+void com_post_reclock(void)
 {
     uart_init(COM_UART, COM_UART_BAUD_RATE);
 }

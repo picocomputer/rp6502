@@ -38,7 +38,7 @@ void cpu_init(void)
     gpio_set_dir(CPU_RESB_PIN, true);
 }
 
-void cpu_reclock(void)
+void cpu_post_reclock(void)
 {
     if (!gpio_get(CPU_RESB_PIN))
         cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
@@ -176,12 +176,10 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
     cpu_compute_phi2_clocks(phi2_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    // TODO we should probably have a pre and post reclock
-    com_flush();
-    net_reset_radio();
+    main_pre_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
     bool ok = set_sys_clock_khz(sys_clk_khz, false);
     if (ok)
-        main_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
+        main_post_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
     return ok;
 }
 

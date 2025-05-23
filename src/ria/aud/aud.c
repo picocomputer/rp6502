@@ -50,7 +50,7 @@ void aud_stop(void)
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
 }
 
-void aud_reclock(uint32_t sys_clk_khz)
+void aud_post_reclock(uint32_t sys_clk_khz)
 {
     aud_reclock_fn(sys_clk_khz);
 }

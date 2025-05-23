@@ -145,19 +145,28 @@ static void reset(void)
     api_reset();
 }
 
+void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
+{
+    (void)sys_clk_khz;
+    (void)clkdiv_int;
+    (void)clkdiv_frac;
+    com_pre_reclock();
+    net_pre_reclock();
+}
+
 // Triggered once after init then after every PHI2 clock change.
 // Divider is used when PHI2 less than 4 MHz to
 // maintain a minimum system clock of 120 MHz.
 // From 4 to 8 MHz increases system clock to 240 MHz.
-void main_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
-    com_reclock();
-    cpu_reclock();
-    vga_reclock(sys_clk_khz);
-    ria_reclock(clkdiv_int, clkdiv_frac);
-    pix_reclock(clkdiv_int, clkdiv_frac);
-    aud_reclock(sys_clk_khz);
-    net_reclock(sys_clk_khz);
+    com_post_reclock();
+    cpu_post_reclock();
+    vga_post_reclock(sys_clk_khz);
+    ria_post_reclock(clkdiv_int, clkdiv_frac);
+    pix_post_reclock(clkdiv_int, clkdiv_frac);
+    aud_post_reclock(sys_clk_khz);
+    net_post_reclock(sys_clk_khz);
 }
 
 // PIX XREG writes to the RIA device will notify here.
@@ -286,7 +295,7 @@ int main(void)
 {
     init();
 
-    // Trigger main_reclock()
+    // Trigger a reclock
     cpu_set_phi2_khz(cfg_get_phi2_khz());
 
     while (true)
