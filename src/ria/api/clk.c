@@ -9,8 +9,10 @@
 
 #include "api/api.h"
 #include "api/clk.h"
+#include "sys/cfg.h"
 #include "hardware/timer.h"
 #include "pico/aon_timer.h"
+#include <stdlib.h>
 
 #define CLK_ID_REALTIME 0
 
@@ -20,11 +22,22 @@ void clk_init(void)
 {
     const struct timespec ts = {0, 0};
     aon_timer_start(&ts);
+    cfg_set_time_zone(clk_set_time_zone(cfg_get_time_zone()));
 }
 
 void clk_run(void)
 {
     clk_clock_start = time_us_64();
+}
+
+const char *clk_set_time_zone(const char *tz)
+{
+    const char *time_zone = "UTC0";
+    if (strlen(tz))
+        time_zone = tz;
+    setenv("TZ", time_zone, 1);
+    tzset();
+    return time_zone;
 }
 
 void clk_api_clock(void)

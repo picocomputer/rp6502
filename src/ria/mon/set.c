@@ -264,6 +264,27 @@ static void set_pass(const char *args, size_t len)
     set_print_pass();
 }
 
+static void set_print_time_zone(void)
+{
+    printf("TZ  : %s\n", cfg_get_time_zone());
+}
+
+static void set_time_zone(const char *args, size_t len)
+{
+    char tz[65];
+    if (len)
+    {
+        if (!parse_string(&args, &len, tz, sizeof(tz)) ||
+            !parse_end(args, len) ||
+            !cfg_set_time_zone(tz))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_time_zone();
+}
+
 typedef void (*set_function)(const char *, size_t);
 static struct
 {
@@ -275,6 +296,7 @@ static struct
     {4, "phi2", set_phi2},
     {4, "resb", set_resb},
     {4, "boot", set_boot},
+    {2, "tz", set_time_zone},
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
 #ifdef RASPBERRYPI_PICO2_W
@@ -291,6 +313,7 @@ static void set_print_all(void)
     set_print_resb();
     set_print_caps();
     set_print_boot();
+    set_print_time_zone();
     set_print_code_page();
     set_print_vga();
 #ifdef RASPBERRYPI_PICO2_W

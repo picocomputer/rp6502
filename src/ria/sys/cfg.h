@@ -36,5 +36,7 @@ bool cfg_set_ssid(const char *ssid);
 const char *cfg_get_ssid(void);
 bool cfg_set_pass(const char *pass);
 const char *cfg_get_pass(void);
+bool cfg_set_time_zone(const char *pass);
+const char *cfg_get_time_zone(void);
 
 #endif /* _CFG_H_ */

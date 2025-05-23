@@ -174,12 +174,6 @@ void ntp_print_status(void)
     }
     else
     {
-        // TODO make time zone configurable
-        setenv("TZ", "UTC0", 1);
-        // setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
-        // setenv("TZ", "<GMT-3>+3", 1);
-        tzset();
-
         char buf[100];
         struct tm tminfo;
         localtime_r(&ts.tv_sec, &tminfo);

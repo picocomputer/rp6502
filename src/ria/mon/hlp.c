@@ -39,6 +39,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
     "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
+    "SET TZ (tz)         - Query or set time zone.\n"
     "SET CP (cp)         - Query or set code page.\n"
     "SET VGA (0|1|2)     - Query or set display type for VGA output."
 #ifdef RASPBERRYPI_PICO2_W
@@ -199,6 +200,12 @@ static const char __in_flash("helptext") hlp_text_boot[] =
     "the argument will have the system boot into the monitor you are using now.\n"
     "Setting is saved on the RIA flash.";
 
+static const char __in_flash("helptext") hlp_text_time_zone[] =
+    "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
+    "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
+    "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
+    "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
+
 static const char __in_flash("helptext") hlp_text_code_page[] =
     "SET CP selects a code page for system text. The following is supported:\n"
     "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
@@ -285,6 +292,7 @@ static struct
     {4, "phi2", hlp_text_phi2},
     {4, "resb", hlp_text_resb},
     {4, "boot", hlp_text_boot},
+    {2, "tz", hlp_text_time_zone},
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
 #ifdef RASPBERRYPI_PICO2_W

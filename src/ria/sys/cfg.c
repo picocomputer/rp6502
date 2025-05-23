@@ -5,6 +5,7 @@
  */
 
 #include "str.h"
+#include "api/clk.h"
 #include "api/oem.h"
 #include "net/net.h"
 #include "sys/cfg.h"
@@ -19,6 +20,7 @@
 // +P8000      | PHI2
 // +C0         | Caps
 // +R0         | RESB
+// +TUTC0      | Time Zone
 // +S437       | Code Page
 // +D0         | VGA display type
 // +FUS        | RF Country Code
@@ -34,6 +36,7 @@ static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
 static uint8_t cfg_vga_display;
+static char cfg_time_zone[65];
 
 #ifdef RASPBERRYPI_PICO2_W
 static char cfg_net_rfcc[3];
@@ -76,6 +79,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+P%d\n"
                                "+R%d\n"
                                "+C%d\n"
+                               "+T%s\n"
                                "+S%d\n"
                                "+D%d\n"
 #ifdef RASPBERRYPI_PICO2_W
@@ -88,6 +92,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_phi2_khz,
                                cfg_reset_ms,
                                cfg_caps,
+                               cfg_time_zone,
                                cfg_codepage,
                                cfg_vga_display,
 #ifdef RASPBERRYPI_PICO2_W
@@ -141,6 +146,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
             break;
         case 'C':
             parse_uint8(&str, &len, &cfg_caps);
+            break;
+        case 'T':
+            parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
             break;
         case 'S':
             parse_uint32(&str, &len, &cfg_codepage);
@@ -342,6 +350,26 @@ bool cfg_set_pass(const char *pass)
 const char *cfg_get_pass(void)
 {
     return cfg_net_pass;
+}
+
+bool cfg_set_time_zone(const char *tz)
+{
+    if (strlen(tz) < sizeof(cfg_time_zone) - 1)
+    {
+        const char *time_zone = clk_set_time_zone(tz);
+        if (strcmp(cfg_time_zone, time_zone))
+        {
+            strcpy(cfg_time_zone, time_zone);
+            cfg_save_with_boot_opt(NULL);
+        }
+        return true;
+    }
+    return false;
+}
+
+const char *cfg_get_time_zone(void)
+{
+    return cfg_time_zone;
 }
 
 #endif /* RASPBERRYPI_PICO2_W */
