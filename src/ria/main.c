@@ -45,7 +45,7 @@ static void init(void)
     // Need a moment for RP6502-VGA to boot at power on.
     // This isn't ideal since it delays warm boots too.
     // TODO look into making vga_init() block for this time.
-    absolute_time_t timer = delayed_by_ms(get_absolute_time(), 110);
+    absolute_time_t timer = make_timeout_time_ms(110);
 
     // STDIO not available until after these inits.
     cpu_init();

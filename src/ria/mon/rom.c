@@ -13,6 +13,7 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/vga.h"
 #include "fatfs/ff.h"
 
 static enum {
@@ -175,13 +176,17 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
+    // vga connection setup is unreliable at some clock speeds
+    // if we don't give it a chance to finish
+    if (vga_active())
+        return;
     if (rom_eof())
     {
         rom_state = ROM_IDLE;
         if (rom_FFFC && rom_FFFD)
             main_run();
         else
-            printf("Loaded. No reset vector.\n");
+            printf("Loaded.\n");
         return;
     }
     if (!rom_next_chunk())
