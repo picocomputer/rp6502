@@ -260,7 +260,7 @@ void net_reclock(uint32_t sys_clk_khz)
     // It easily runs 85MHz+ so we push it to 66MHz
     if (sys_clk_khz > 198000)
         cyw43_set_pio_clkdiv_int_frac8(4, 0);
-    if (sys_clk_khz > 132000)
+    else if (sys_clk_khz > 132000)
         cyw43_set_pio_clkdiv_int_frac8(3, 0);
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
