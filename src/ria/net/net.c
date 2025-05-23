@@ -23,6 +23,7 @@ void net_print_status() {}
 #include "pico/cyw43_driver.h"
 
 // These are from cyw43_arch.h
+// Change the help if you change these
 static const char COUNTRY_CODES[] = {
     'A', 'U', // AUSTRALIA
     'A', 'T', // AUSTRIA
