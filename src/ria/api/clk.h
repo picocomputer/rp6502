@@ -22,5 +22,6 @@ void clk_api_clock(void);
 void clk_api_get_res(void);
 void clk_api_get_time(void);
 void clk_api_set_time(void);
+void clk_api_get_time_zone(void);
 
 #endif /* _CLK_H_ */

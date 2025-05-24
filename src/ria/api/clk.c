@@ -104,3 +104,27 @@ void clk_api_set_time(void)
     else
         return api_return_errno(API_EINVAL);
 }
+
+void clk_api_get_time_zone(void)
+{
+    struct __attribute__((packed)) cc65_timezone
+    {
+        bool daylight;    /* True if daylight savings time active */
+        int32_t timezone; /* Number of seconds behind UTC */
+        char tzname[5];   /* Name of timezone, e.g. CET */
+        char dstname[5];  /* Name when daylight true, e.g. CEST */
+    } tz = {0, 0, "UTC", ""};
+    static_assert(15 == sizeof(tz));
+
+    uint8_t clock_id = API_A;
+    if (clock_id == CLK_ID_REALTIME)
+    {
+        for (size_t i = sizeof(tz); i;)
+            if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
+                return api_return_errno(API_EINVAL);
+        api_sync_xstack();
+        return api_return_ax(0);
+    }
+    else
+        return api_return_errno(API_EINVAL);
+}

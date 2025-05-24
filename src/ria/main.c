@@ -225,6 +225,9 @@ bool main_api(uint8_t operation)
     case 0x12:
         clk_api_set_time();
         break;
+    case 0x13:
+        clk_api_get_time_zone();
+        break;
     case 0x14:
         std_api_open();
         break;
