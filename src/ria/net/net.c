@@ -142,6 +142,7 @@ void net_task(void)
         // cyw43 driver blocks here while the cores boot
         // this prevents an awkward pause in the boot message
         com_flush();
+        CYW43_NONE_PM;
         if (cyw43_arch_init_with_country(net_country_code()))
             net_state = net_state_init_failed;
         else

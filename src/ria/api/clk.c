@@ -109,12 +109,29 @@ void clk_api_get_time_zone(void)
 {
     struct __attribute__((packed)) cc65_timezone
     {
-        bool daylight;    /* True if daylight savings time active */
+        int8_t daylight;  /* True if daylight savings time active */
         int32_t timezone; /* Number of seconds behind UTC */
         char tzname[5];   /* Name of timezone, e.g. CET */
         char dstname[5];  /* Name when daylight true, e.g. CEST */
-    } tz = {0, 0, "UTC", ""};
+    } tz;
     static_assert(15 == sizeof(tz));
+
+    struct timespec ts;
+    if (!aon_timer_get_time(&ts))
+        return api_return_errno(API_EUNKNOWN);
+
+    struct tm local_tm = *localtime(&ts.tv_sec);
+    struct tm gm_tm = *gmtime(&ts.tv_sec);
+    gm_tm.tm_isdst = local_tm.tm_isdst; // This can't be right
+    time_t local_sec = mktime(&local_tm);
+    time_t gm_sec = mktime(&gm_tm);
+
+    tz.daylight = local_tm.tm_isdst;
+    tz.timezone = (int32_t)difftime(local_sec, gm_sec);
+    strncpy(tz.tzname, tzname[0], 4);
+    tz.tzname[4] = '\0';
+    strncpy(tz.dstname, tzname[1], 4);
+    tz.dstname[4] = '\0';
 
     uint8_t clock_id = API_A;
     if (clock_id == CLK_ID_REALTIME)
