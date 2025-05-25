@@ -12,6 +12,7 @@ void net_pre_reclock() {}
 void net_post_reclock() {}
 void net_reset_radio() {}
 void net_print_status() {}
+bool net_in_startup() { return false; }
 #else
 
 #include "api/std.h"
@@ -273,6 +274,22 @@ void net_print_status(void)
             }
         }
 #endif
+    }
+}
+
+bool net_in_startup(void)
+{
+    // any states that can block will return true
+    switch (net_state)
+    {
+    case net_state_off:
+    case net_state_initialized:
+    case net_state_connect:
+        return true;
+        break;
+    default:
+        return false;
+        break;
     }
 }
 
