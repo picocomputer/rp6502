@@ -9,6 +9,7 @@
 #include "api/api.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
+#include "net/net.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
 #include "sys/pix.h"
@@ -177,9 +178,10 @@ static bool rom_next_chunk(void)
 
 static void rom_wait_load(void)
 {
-    // vga connection setup is unreliable at some clock speeds
-    // if we don't give it a chance to finish before loading
-    if (!vga_active())
+    // VGA connection setup is unreliable at some clock speeds
+    // if we don't give it a chance to finish before loading.
+    // Network startup blocking causes watchdog timouts.
+    if (!vga_active() && !net_in_startup())
         rom_state = ROM_LOADING;
 }
 
