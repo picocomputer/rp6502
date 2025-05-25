@@ -245,6 +245,26 @@ uint8_t cfg_get_caps(void)
     return cfg_caps;
 }
 
+bool cfg_set_time_zone(const char *tz)
+{
+    if (strlen(tz) < sizeof(cfg_time_zone) - 1)
+    {
+        const char *time_zone = clk_set_time_zone(tz);
+        if (strcmp(cfg_time_zone, time_zone))
+        {
+            strcpy(cfg_time_zone, time_zone);
+            cfg_save_with_boot_opt(NULL);
+        }
+        return true;
+    }
+    return false;
+}
+
+const char *cfg_get_time_zone(void)
+{
+    return cfg_time_zone;
+}
+
 bool cfg_set_codepage(uint32_t cp)
 {
     if (cp > UINT16_MAX)
@@ -350,26 +370,6 @@ bool cfg_set_pass(const char *pass)
 const char *cfg_get_pass(void)
 {
     return cfg_net_pass;
-}
-
-bool cfg_set_time_zone(const char *tz)
-{
-    if (strlen(tz) < sizeof(cfg_time_zone) - 1)
-    {
-        const char *time_zone = clk_set_time_zone(tz);
-        if (strcmp(cfg_time_zone, time_zone))
-        {
-            strcpy(cfg_time_zone, time_zone);
-            cfg_save_with_boot_opt(NULL);
-        }
-        return true;
-    }
-    return false;
-}
-
-const char *cfg_get_time_zone(void)
-{
-    return cfg_time_zone;
 }
 
 #endif /* RASPBERRYPI_PICO2_W */
