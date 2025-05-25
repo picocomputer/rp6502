@@ -116,8 +116,16 @@ void clk_api_get_time_zone(void)
     } tz;
     static_assert(15 == sizeof(tz));
 
+    uint8_t clock_id = API_A;
+    uint32_t requested_time;
+    api_pop_uint32_end(&requested_time);
+    if (clock_id != CLK_ID_REALTIME)
+        return api_return_errno(API_EINVAL);
+
     struct timespec ts;
-    if (!aon_timer_get_time(&ts))
+    if (requested_time)
+        ts.tv_sec = requested_time;
+    else if (!aon_timer_get_time(&ts))
         return api_return_errno(API_EUNKNOWN);
 
     struct tm local_tm = *localtime(&ts.tv_sec);
@@ -133,15 +141,9 @@ void clk_api_get_time_zone(void)
     strncpy(tz.dstname, tzname[1], 4);
     tz.dstname[4] = '\0';
 
-    uint8_t clock_id = API_A;
-    if (clock_id == CLK_ID_REALTIME)
-    {
-        for (size_t i = sizeof(tz); i;)
-            if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
-                return api_return_errno(API_EINVAL);
-        api_sync_xstack();
-        return api_return_ax(0);
-    }
-    else
-        return api_return_errno(API_EINVAL);
+    for (size_t i = sizeof(tz); i;)
+        if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
+            return api_return_errno(API_EINVAL);
+    api_sync_xstack();
+    return api_return_ax(0);
 }

@@ -15,9 +15,11 @@ void net_print_status() {}
 #else
 
 #include "api/std.h"
+#include "mon/ram.h"
 #include "net/net.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
+#include "sys/ria.h"
 #include "sys/vga.h"
 #include "pico/cyw43_arch.h"
 #include "pico/cyw43_driver.h"
@@ -137,11 +139,26 @@ void net_task(void)
     switch (net_state)
     {
     case net_state_off:
-        if (vga_active())
-            break;
-        // cyw43 driver blocks here while the cores boot
-        // this prevents an awkward pause in the boot message
-        com_flush();
+    case net_state_init_failed:
+        break;
+    default:
+        if (net_led_requested != net_led_status)
+        {
+            net_led_status = net_led_requested;
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, net_led_status);
+        }
+        cyw43_arch_poll();
+    }
+
+    // The CYW43xx driver has blocking delays during setup.
+    // These have short timeouts that don't tolerate pauses.
+    if (vga_active() || ria_active() || ram_active())
+        return;
+
+    switch (net_state)
+    {
+    case net_state_off:
+        com_flush(); // prevent awkward pause during boot message
         CYW43_NONE_PM;
         if (cyw43_arch_init_with_country(net_country_code()))
             net_state = net_state_init_failed;
@@ -161,8 +178,7 @@ void net_task(void)
         net_state = net_state_connecting;
         break;
     case net_state_connecting:
-        int net_link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-        switch (net_link_status)
+        switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_DOWN:
         case CYW43_LINK_JOIN:
@@ -182,20 +198,6 @@ void net_task(void)
     case net_state_connect_failed:
     case net_state_connected:
         break;
-    }
-
-    switch (net_state)
-    {
-    case net_state_off:
-    case net_state_init_failed:
-        break;
-    default:
-        if (net_led_requested != net_led_status)
-        {
-            net_led_status = net_led_requested;
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, net_led_status);
-        }
-        cyw43_arch_poll();
     }
 }
 
@@ -286,8 +288,10 @@ void net_pre_reclock(void)
 
 void net_post_reclock(uint32_t sys_clk_khz)
 {
-    // CYW43439 datasheet says 50MHz for SPI
-    // It easily runs 85MHz+ so we push it to 66MHz
+    // CYW43439 datasheet says 50MHz for SPI.
+    // The Raspberry Pi SDK only provides for a 2,0 divider,
+    // which is 75MHz for a non-overclocked 150MHz system clock.
+    // It easily runs 85MHz+ so we push it to 66MHz.
     if (sys_clk_khz > 198000)
         cyw43_set_pio_clkdiv_int_frac8(4, 0);
     else if (sys_clk_khz > 132000)
