@@ -5,6 +5,7 @@
  */
 
 #include "str.h"
+#include <string.h>
 
 bool char_is_hex(char ch)
 {
@@ -43,6 +44,44 @@ int strnicmp(const char *string1, const char *string2, int n)
         string2++;
     }
     return 0;
+}
+
+bool parse_string(const char **args, size_t *len, char *dest, size_t size)
+{
+    size_t cpylen = *len;
+    while (cpylen && (*args)[cpylen - 1] == ' ')
+        cpylen--;
+    if (cpylen < size)
+    {
+        memcpy(dest, *args, cpylen);
+        dest[cpylen] = 0;
+        *len -= cpylen;
+        *args += cpylen;
+        return true;
+    }
+    return false;
+}
+
+bool parse_uint8(const char **args, size_t *len, uint8_t *result)
+{
+    uint32_t result32;
+    if (parse_uint32(args, len, &result32) && result32 < 0x100)
+    {
+        *result = result32;
+        return true;
+    }
+    return false;
+}
+
+bool parse_uint16(const char **args, size_t *len, uint16_t *result)
+{
+    uint32_t result32;
+    if (parse_uint32(args, len, &result32) && result32 < 0x10000)
+    {
+        *result = result32;
+        return true;
+    }
+    return false;
 }
 
 bool parse_uint32(const char **args, size_t *len, uint32_t *result)

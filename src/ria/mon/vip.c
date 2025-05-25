@@ -72,7 +72,7 @@ void vip_print(void)
         vips[i] = vips[swap];
         vips[swap] = tmp;
     }
-    printf("          Patrons - %s", vips[0]);
+    printf("             VIPs - %s", vips[0]);
     unsigned col = 20 + strlen(vips[0]) + 2;
     for (unsigned i = 1; i < VIP_COUNT - 1; i++)
     {

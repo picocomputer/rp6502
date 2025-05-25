@@ -30,5 +30,13 @@ bool cfg_set_codepage(uint32_t cp);
 uint16_t cfg_get_codepage(void);
 bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga(void);
+bool cfg_set_rfcc(const char *rfcc);
+const char *cfg_get_rfcc(void);
+bool cfg_set_ssid(const char *ssid);
+const char *cfg_get_ssid(void);
+bool cfg_set_pass(const char *pass);
+const char *cfg_get_pass(void);
+bool cfg_set_time_zone(const char *pass);
+const char *cfg_get_time_zone(void);
 
 #endif /* _CFG_H_ */

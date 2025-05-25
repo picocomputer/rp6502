@@ -18,7 +18,7 @@ static absolute_time_t pix_ack_timer;
 
 #define PIX_ACK_TIMEOUT_MS 2
 
-void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void pix_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     pio_sm_set_clkdiv_int_frac(PIX_PIO, PIX_SM, clkdiv_int, clkdiv_frac);
 }

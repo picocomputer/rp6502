@@ -186,6 +186,105 @@ static void set_vga(const char *args, size_t len)
     set_print_vga();
 }
 
+static void set_print_rfcc(void)
+{
+    const char *cc = cfg_get_rfcc();
+    printf("RFCC: %s\n", strlen(cc) ? cc : "Worldwide");
+}
+
+static void set_rfcc(const char *args, size_t len)
+{
+    char rfcc[3];
+    if (len)
+    {
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_rfcc("");
+        }
+        else if (!parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
+                 !parse_end(args, len) ||
+                 !cfg_set_rfcc(rfcc))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_rfcc();
+}
+
+static void set_print_ssid(void)
+{
+    const char *cc = cfg_get_ssid();
+    printf("SSID: %s\n", strlen(cc) ? cc : "(none)");
+}
+
+static void set_ssid(const char *args, size_t len)
+{
+    char ssid[33];
+    if (len)
+    {
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_ssid("");
+        }
+        else if (!parse_string(&args, &len, ssid, sizeof(ssid)) ||
+                 !parse_end(args, len) ||
+                 !cfg_set_ssid(ssid))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_ssid();
+}
+
+static void set_print_pass(void)
+{
+    const char *pass = cfg_get_pass();
+    printf("PASS: %s\n", strlen(pass) ? "(set)" : "(none)");
+}
+
+static void set_pass(const char *args, size_t len)
+{
+    char pass[65];
+    if (len)
+    {
+        if (args[0] == '-' && parse_end(++args, --len))
+        {
+            cfg_set_pass("");
+        }
+        else if (!parse_string(&args, &len, pass, sizeof(pass)) ||
+                 !parse_end(args, len) ||
+                 !cfg_set_pass(pass))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_pass();
+}
+
+static void set_print_time_zone(void)
+{
+    printf("TZ  : %s\n", cfg_get_time_zone());
+}
+
+static void set_time_zone(const char *args, size_t len)
+{
+    char tz[65];
+    if (len)
+    {
+        if (!parse_string(&args, &len, tz, sizeof(tz)) ||
+            !parse_end(args, len) ||
+            !cfg_set_time_zone(tz))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_time_zone();
+}
+
 typedef void (*set_function)(const char *, size_t);
 static struct
 {
@@ -197,8 +296,14 @@ static struct
     {4, "phi2", set_phi2},
     {4, "resb", set_resb},
     {4, "boot", set_boot},
+    {2, "tz", set_time_zone},
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
+#ifdef RASPBERRYPI_PICO2_W
+    {4, "rfcc", set_rfcc},
+    {4, "ssid", set_ssid},
+    {4, "pass", set_pass},
+#endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
@@ -208,8 +313,14 @@ static void set_print_all(void)
     set_print_resb();
     set_print_caps();
     set_print_boot();
+    set_print_time_zone();
     set_print_code_page();
     set_print_vga();
+#ifdef RASPBERRYPI_PICO2_W
+    set_print_rfcc();
+    set_print_ssid();
+    set_print_pass();
+#endif
 }
 
 void set_mon_set(const char *args, size_t len)

@@ -35,12 +35,20 @@ static const char __in_flash("helptext") hlp_text_help[] =
 static const char __in_flash("helptext") hlp_text_set[] =
     "Settings:\n"
     "HELP SET attr       - Show information about a setting.\n"
-    "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
     "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
+    "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
+    "SET TZ (tz)         - Query or set time zone.\n"
     "SET CP (cp)         - Query or set code page.\n"
-    "SET VGA (0|1|2)     - Query or set display type for VGA output.";
+    "SET VGA (0|1|2)     - Query or set display type for VGA output."
+#ifdef RASPBERRYPI_PICO2_W
+    "\n"
+    "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
+    "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
+    "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none."
+#endif
+    "";
 
 static const char __in_flash("helptext") hlp_text_about[] =
     "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
@@ -49,7 +57,14 @@ static const char __in_flash("helptext") hlp_text_about[] =
     "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
     "            FatFs - Copyright (c) 20xx ChaN.\n"
     "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
-    "                    Copyright (c) 2017 Arm Limited.";
+    "                    Copyright (c) 2017 Arm Limited."
+#ifdef RASPBERRYPI_PICO2_W
+    "\n"
+    "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
+    "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
+    "                                            Computer Science."
+#endif
+    "";
 
 static const char __in_flash("helptext") hlp_text_system[] =
     "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
@@ -73,7 +88,7 @@ static const char __in_flash("helptext") hlp_text_system[] =
 
 static const char __in_flash("helptext") hlp_text_dir[] =
     "LS (also aliased as DIR) and CD are used to navigate USB mass storage\n"
-    "devices. You can change to a different USB device with 1: to 8:. Use the\n"
+    "devices. You can change to a different USB device with 0: to 7:. Use the\n"
     "STATUS command to get a list of mounted drives.";
 
 static const char __in_flash("helptext") hlp_text_mkdir[] =
@@ -162,12 +177,12 @@ static const char __in_flash("helptext") hlp_text_caps[] =
     "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
 
 static const char __in_flash("helptext") hlp_text_phi2[] =
-    "PHI2 is the 6502 clock speed in kHz. The valid range is 1-8000 but not all\n"
+    "PHI2 is the 6502 clock speed in kHz. The valid range is 1000-8000 but not all\n"
     "frequencies are available. In that case, the next highest frequency will\n"
     "be automatically calculated and selected. Faster than the default speed of\n"
     "4000 kHz (4 MHz) requires \"Advanced CMOS\" glue logic (74ACxx) as well as\n"
     "overclocking of the Pi Pico RIA, which is handled automatically. The Pi Pico\n"
-    "RIA will run at 240MHz for 8MHz, which is much lower than the 400+ MHz that\n"
+    "RIA will run at 256MHz for 8MHz, which is much lower than the 400+ MHz that\n"
     "it is capable of. Setting is saved on the RIA flash.";
 
 static const char __in_flash("helptext") hlp_text_resb[] =
@@ -184,6 +199,12 @@ static const char __in_flash("helptext") hlp_text_boot[] =
     "provide the instant-on experience of classic 8-bit computers. Using \"-\" for\n"
     "the argument will have the system boot into the monitor you are using now.\n"
     "Setting is saved on the RIA flash.";
+
+static const char __in_flash("helptext") hlp_text_time_zone[] =
+    "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
+    "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
+    "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
+    "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
 
 static const char __in_flash("helptext") hlp_text_code_page[] =
     "SET CP selects a code page for system text. The following is supported:\n"
@@ -203,9 +224,23 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "supported by all display types. Display type is used to maintain square\n"
     "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
     "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
-    "  0 - 640x480\n"
-    "  1 - 640x480 and 1280x720, 16:9 modes will not letterbox\n"
-    "  2 - 1280x1024, all graphics modes will letterbox";
+    "  0 - 640x480, for 4:3 displays\n"
+    "  1 - 640x480 and 1280x720, for 16:9 displays\n"
+    "  2 - 1280x1024, for 5:4 SXGA displays";
+
+static const char __in_flash("helptext") hlp_text_rfcc[] =
+    "Set this so the CYW43 can use the best radio frequencies for your country.\n"
+    "Using \"-\" will clear the country code and default to a worldwide setting.\n"
+    "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
+    "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
+    "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.";
+
+static const char __in_flash("helptext") hlp_text_ssid[] =
+    "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"
+    "disable WiFi.";
+
+static const char __in_flash("helptext") hlp_text_pass[] =
+    "This is the password for your WiFi network. Use \"-\" to clear password.";
 
 static struct
 {
@@ -257,8 +292,14 @@ static struct
     {4, "phi2", hlp_text_phi2},
     {4, "resb", hlp_text_resb},
     {4, "boot", hlp_text_boot},
+    {2, "tz", hlp_text_time_zone},
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
+#ifdef RASPBERRYPI_PICO2_W
+    {4, "rfcc", hlp_text_rfcc},
+    {4, "ssid", hlp_text_ssid},
+    {4, "pass", hlp_text_pass},
+#endif
 };
 static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;
 

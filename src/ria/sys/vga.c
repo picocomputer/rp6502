@@ -84,7 +84,7 @@ static void vga_read(bool timeout, const char *buf, size_t length)
         pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
         // Wait for version
         vga_state = VGA_VERSIONING;
-        vga_version_watchdog = delayed_by_ms(get_absolute_time(), VGA_VERSION_WATCHDOG_MS);
+        vga_version_watchdog = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
     }
     else
         vga_state = VGA_NOT_FOUND;
@@ -96,7 +96,7 @@ static void vga_backchannel_command(uint8_t byte)
     switch (byte & 0xF0)
     {
     case 0x80:
-        vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+        vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
         static uint8_t vframe;
         if (scalar < (vframe & 0xF))
             vframe = (vframe & 0xF0) + 0x10;
@@ -139,7 +139,7 @@ void vga_init(void)
     vga_needs_reset = true;
 }
 
-void vga_reclock(uint32_t sys_clk_khz)
+void vga_post_reclock(uint32_t sys_clk_khz)
 {
     float div = (float)sys_clk_khz * 1000 / (8 * VGA_BACKCHANNEL_BAUDRATE);
     pio_sm_set_clkdiv(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, div);
@@ -149,6 +149,7 @@ void vga_task(void)
 {
     if (vga_state == VGA_REQUEST_TEST)
     {
+        // TODO this state locks up if a reset happens
         vga_state = VGA_TESTING;
         com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, 4);
         vga_pix_backchannel_request();
@@ -162,12 +163,12 @@ void vga_task(void)
             vga_backchannel_command(byte);
         else if (vga_state == VGA_VERSIONING)
         {
-            vga_version_watchdog = delayed_by_ms(get_absolute_time(), VGA_VERSION_WATCHDOG_MS);
+            vga_version_watchdog = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
             if (byte == '\r' || byte == '\n')
             {
                 if (vga_version_message_length > 0 && vga_state == VGA_VERSIONING)
                 {
-                    vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+                    vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
                     vga_state = VGA_CONNECTED;
                     vga_version_message_length = 0;
                     vga_print_status();
@@ -184,7 +185,7 @@ void vga_task(void)
     if (vga_state == VGA_VERSIONING &&
         absolute_time_diff_us(get_absolute_time(), vga_version_watchdog) < 0)
     {
-        vga_vsync_watchdog = delayed_by_ms(get_absolute_time(), VGA_VSYNC_WATCHDOG_MS);
+        vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
         vga_state = VGA_NO_VERSION;
         vga_print_status();
     }

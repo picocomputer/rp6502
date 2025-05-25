@@ -155,6 +155,7 @@ bool ria_print_error_message(void)
 void ria_read_buf(uint16_t addr)
 {
     assert(!cpu_active());
+    action_result = -1;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -177,8 +178,8 @@ void ria_read_buf(uint16_t addr)
 void ria_verify_buf(uint16_t addr)
 {
     assert(!cpu_active());
-    // avoid forbidden areas
     action_result = -1;
+    // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF && mbuf[len] != REGS(addr + len))
@@ -197,6 +198,7 @@ void ria_verify_buf(uint16_t addr)
 void ria_write_buf(uint16_t addr)
 {
     assert(!cpu_active());
+    action_result = -1;
     // avoid forbidden area
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -208,8 +210,7 @@ void ria_write_buf(uint16_t addr)
         return;
     rw_addr = addr;
     rw_end = len;
-    // The first couple bytes may not write with very low clock speeds.
-    rw_pos = -2;
+    rw_pos = 0;
     action_state = action_state_write;
     main_run();
 }
@@ -225,7 +226,7 @@ void ria_write_buf(uint16_t addr)
 // This becomes unstable every time I tried to get to O3 by trurning off
 // specific optimizations. The annoying bit is that different hardware doesn't
 // behave the same. I'm giving up and leaving this at O1, which is plenty fast.
-__attribute__((optimize("O1"))) static void __not_in_flash_func(act_loop)(void)
+__attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_loop)(void)
 {
     // In here we bypass the usual SDK calls as needed for performance.
     while (true)
@@ -543,11 +544,10 @@ void ria_init(void)
         hw_set_bits(&pio2->input_sync_bypass, 1u << i);
     }
 
-    // Lower CPU0 on crossbar by raising others
-    bus_ctrl_hw->priority |=
-        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS |
-        BUSCTRL_BUS_PRIORITY_PROC1_BITS;
+    // CPU1 is time critical all the time.
+    // It might be tempting to raise DMA_R/W here,
+    // but this causes problems with ria_write_buf.
+    bus_ctrl_hw->priority |= BUSCTRL_BUS_PRIORITY_PROC1_BITS;
 
     // the inits
     ria_cs_rwb_pio_init();
@@ -556,7 +556,7 @@ void ria_init(void)
     ria_act_pio_init();
 }
 
-void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void ria_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     // chip_select doesn't reclock
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);

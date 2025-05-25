@@ -13,6 +13,7 @@
 #include "mon/ram.h"
 #include "mon/rom.h"
 #include "mon/set.h"
+#include "net/net.h"
 #include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/sys.h"
@@ -141,7 +142,8 @@ static bool mon_suspended(void)
            rom_active() ||
            vga_active() ||
            fil_active() ||
-           std_active();
+           std_active() ||
+           net_in_startup();
 }
 
 void mon_task(void)

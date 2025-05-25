@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "net/net.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
@@ -37,7 +38,7 @@ void cpu_init(void)
     gpio_set_dir(CPU_RESB_PIN, true);
 }
 
-void cpu_reclock(void)
+void cpu_post_reclock(void)
 {
     if (!gpio_get(CPU_RESB_PIN))
         cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
@@ -140,11 +141,11 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz,
                                     uint16_t *clkdiv_int,
                                     uint8_t *clkdiv_frac)
 {
-    *sys_clk_khz = freq_khz * 30;
-    if (*sys_clk_khz < 120 * 1000)
+    *sys_clk_khz = freq_khz * 32;
+    if (*sys_clk_khz < 128 * 1000)
     {
-        *sys_clk_khz = 120 * 1000;
-        float clkdiv = 120000.f / 30.f / freq_khz;
+        *sys_clk_khz = 128 * 1000;
+        float clkdiv = 128000.f / 32.f / freq_khz;
         *clkdiv_int = clkdiv;
         *clkdiv_frac = (clkdiv - *clkdiv_int) * (1u << 8u);
     }
@@ -166,7 +167,7 @@ uint32_t cpu_validate_phi2_khz(uint32_t freq_khz)
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
     cpu_compute_phi2_clocks(freq_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    return sys_clk_khz / 30.f / (clkdiv_int + clkdiv_frac / 256.f);
+    return sys_clk_khz / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
 }
 
 bool cpu_set_phi2_khz(uint32_t phi2_khz)
@@ -175,10 +176,10 @@ bool cpu_set_phi2_khz(uint32_t phi2_khz)
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
     cpu_compute_phi2_clocks(phi2_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    com_flush();
+    main_pre_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
     bool ok = set_sys_clock_khz(sys_clk_khz, false);
     if (ok)
-        main_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
+        main_post_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
     return ok;
 }
 

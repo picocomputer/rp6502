@@ -9,8 +9,10 @@
 
 #include "api/api.h"
 #include "api/clk.h"
+#include "sys/cfg.h"
 #include "hardware/timer.h"
 #include "pico/aon_timer.h"
+#include <stdlib.h>
 
 #define CLK_ID_REALTIME 0
 
@@ -20,11 +22,22 @@ void clk_init(void)
 {
     const struct timespec ts = {0, 0};
     aon_timer_start(&ts);
+    cfg_set_time_zone(clk_set_time_zone(cfg_get_time_zone()));
 }
 
 void clk_run(void)
 {
     clk_clock_start = time_us_64();
+}
+
+const char *clk_set_time_zone(const char *tz)
+{
+    const char *time_zone = "UTC0";
+    if (strlen(tz))
+        time_zone = tz;
+    setenv("TZ", time_zone, 1);
+    tzset();
+    return time_zone;
 }
 
 void clk_api_clock(void)
@@ -90,4 +103,47 @@ void clk_api_set_time(void)
     }
     else
         return api_return_errno(API_EINVAL);
+}
+
+void clk_api_get_time_zone(void)
+{
+    struct __attribute__((packed)) cc65_timezone
+    {
+        int8_t daylight;  /* True if daylight savings time active */
+        int32_t timezone; /* Number of seconds behind UTC */
+        char tzname[5];   /* Name of timezone, e.g. CET */
+        char dstname[5];  /* Name when daylight true, e.g. CEST */
+    } tz;
+    static_assert(15 == sizeof(tz));
+
+    uint8_t clock_id = API_A;
+    uint32_t requested_time;
+    api_pop_uint32_end(&requested_time);
+    if (clock_id != CLK_ID_REALTIME)
+        return api_return_errno(API_EINVAL);
+
+    struct timespec ts;
+    if (requested_time)
+        ts.tv_sec = requested_time;
+    else if (!aon_timer_get_time(&ts))
+        return api_return_errno(API_EUNKNOWN);
+
+    struct tm local_tm = *localtime(&ts.tv_sec);
+    struct tm gm_tm = *gmtime(&ts.tv_sec);
+    gm_tm.tm_isdst = local_tm.tm_isdst; // This can't be right
+    time_t local_sec = mktime(&local_tm);
+    time_t gm_sec = mktime(&gm_tm);
+
+    tz.daylight = local_tm.tm_isdst;
+    tz.timezone = (int32_t)difftime(local_sec, gm_sec);
+    strncpy(tz.tzname, tzname[0], 4);
+    tz.tzname[4] = '\0';
+    strncpy(tz.dstname, tzname[1], 4);
+    tz.dstname[4] = '\0';
+
+    for (size_t i = sizeof(tz); i;)
+        if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
+            return api_return_errno(API_EINVAL);
+    api_sync_xstack();
+    return api_return_ax(0);
 }

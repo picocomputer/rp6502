@@ -2,7 +2,11 @@
 
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
-pico_set_program_name(rp6502_ria "RP6502 RIA")
+if (PICO_BOARD STREQUAL "pico2_w")
+    pico_set_program_name(rp6502_ria "RP6502 RIA W")
+else()
+    pico_set_program_name(rp6502_ria "RP6502 RIA")
+endif()
 pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
@@ -12,6 +16,7 @@ target_include_directories(rp6502_ria PRIVATE
 )
 
 target_compile_definitions(rp6502_ria PRIVATE
+    CYW43_CONFIG_FILE="${CMAKE_CURRENT_LIST_DIR}/ria/cyw43_config.h"
     pico_flash_bank_get_storage_offset_func=lfs_get_bt_storage_offset
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
@@ -19,7 +24,7 @@ target_compile_definitions(rp6502_ria PRIVATE
 )
 
 target_compile_options(rp6502_ria PRIVATE
-  -Wall -Wextra
+    -Wall -Wextra
 )
 
 target_link_libraries(rp6502_ria PRIVATE
@@ -36,7 +41,7 @@ target_link_libraries(rp6502_ria PRIVATE
 
 if (PICO_BOARD STREQUAL "pico2_w")
 target_link_libraries(rp6502_ria PRIVATE
-    pico_cyw43_arch_none
+    pico_cyw43_arch_lwip_poll
 )
 endif()
 
@@ -65,6 +70,8 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/rom.c
     ria/mon/set.c
     ria/mon/vip.c
+    ria/net/net.c
+    ria/net/ntp.c
     ria/sys/cfg.c
     ria/sys/com.c
     ria/sys/cpu.c
@@ -136,12 +143,6 @@ target_link_libraries(rp6502_vga PRIVATE
     tinyusb_device
 )
 
-if (PICO_BOARD STREQUAL "pico2_w")
-target_link_libraries(rp6502_vga PRIVATE
-    pico_cyw43_arch_none
-)
-endif()
-
 pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio
 )
@@ -179,7 +180,7 @@ set_property(TARGET rp6502_ria rp6502_vga
     RP6502_VERSION=""
     RP6502_CODE_PAGE=850
     RP6502_KEYBOARD=EN_US
-    RP6502_MIN_PHI2=500
+    RP6502_MIN_PHI2=1000
     RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0
 )

@@ -20,7 +20,7 @@ void cpu_init(void);
 void cpu_task(void);
 void cpu_run(void);
 void cpu_stop(void);
-void cpu_reclock(void);
+void cpu_post_reclock(void);
 void cpu_api_phi2(void);
 
 // The CPU is active when RESB is high or when
@@ -33,7 +33,7 @@ bool cpu_active(void);
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz);
 bool cpu_set_phi2_khz(uint32_t freq_khz);
 
-// Return calculated reset time. May be higher than requested
+// Return calculated reset time. May be higher than configured
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us();
 
