@@ -186,6 +186,30 @@ static void set_vga(const char *args, size_t len)
     set_print_vga();
 }
 
+static void set_print_rf(void)
+{
+    printf("RF  : %s\n", cfg_get_rf() ? "On" : "Off");
+}
+
+static void set_rf(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            cfg_set_rf(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_rf();
+}
+
 static void set_print_rfcc(void)
 {
     const char *cc = cfg_get_rfcc();
@@ -300,6 +324,7 @@ static struct
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
 #ifdef RASPBERRYPI_PICO2_W
+    {2, "rf", set_rf},
     {4, "rfcc", set_rfcc},
     {4, "ssid", set_ssid},
     {4, "pass", set_pass},
@@ -317,6 +342,7 @@ static void set_print_all(void)
     set_print_code_page();
     set_print_vga();
 #ifdef RASPBERRYPI_PICO2_W
+    set_print_rf();
     set_print_rfcc();
     set_print_ssid();
     set_print_pass();

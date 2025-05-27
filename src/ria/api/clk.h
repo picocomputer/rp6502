@@ -13,6 +13,7 @@
 
 void clk_init(void);
 void clk_run(void);
+void clk_print_status(void);
 const char *clk_set_time_zone(const char *tz);
 
 /* The API implementaiton for time support

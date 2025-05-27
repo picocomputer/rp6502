@@ -136,14 +136,37 @@ void net_reset_radio(void)
     {
     case net_state_connect:
     case net_state_connected:
-    case net_state_connect_failed:
     case net_state_connecting:
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+        __attribute__((fallthrough));
+    case net_state_connect_failed:
         cyw43_arch_disable_sta_mode();
         __attribute__((fallthrough));
     case net_state_initialized:
         cyw43_arch_deinit();
         net_state = net_state_off;
         break;
+    case net_state_off:
+    case net_state_init_failed:
+        break;
+    }
+    net_retry_initial_retry_count = 0;
+}
+
+void net_disconnect(void)
+{
+    switch (net_state)
+    {
+    case net_state_connect:
+    case net_state_connected:
+    case net_state_connecting:
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+        __attribute__((fallthrough));
+    case net_state_connect_failed:
+        cyw43_arch_disable_sta_mode();
+        net_state = net_state_initialized;
+        __attribute__((fallthrough));
+    case net_state_initialized:
     case net_state_off:
     case net_state_init_failed:
         break;
@@ -182,13 +205,15 @@ void net_task(void)
             net_state = net_state_initialized;
         break;
     case net_state_initialized:
-        if (!cfg_get_ssid()[0])
+        if (!cfg_get_ssid()[0] || !cfg_get_rf())
             break;
         cyw43_arch_enable_sta_mode();
         net_state = net_state_connect;
         break;
     case net_state_connect:
         DBG("NET connecting\n");
+        // Power management may be buggy, turn it off
+        cyw43_wifi_pm(&cyw43_state, CYW43_DEFAULT_PM & ~0xf);
         cyw43_arch_wifi_connect_async(
             cfg_get_ssid(), cfg_get_pass(),
             strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN);
@@ -249,7 +274,9 @@ void net_print_status(void)
     switch (net_state)
     {
     case net_state_initialized:
-        if (cfg_get_ssid()[0])
+        if (!cfg_get_rf())
+            puts("radio off");
+        else if (cfg_get_ssid()[0])
             puts("initialized");
         else
             puts("not configured");
@@ -315,17 +342,7 @@ void net_print_status(void)
 bool net_in_startup(void)
 {
     // any states that can block will return true
-    switch (net_state)
-    {
-    case net_state_off:
-    case net_state_initialized:
-    case net_state_connect:
-        return true;
-        break;
-    default:
-        return false;
-        break;
-    }
+    return net_state == net_state_off;
 }
 
 bool net_ready(void)

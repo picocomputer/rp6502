@@ -44,6 +44,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET VGA (0|1|2)     - Query or set display type for VGA output."
 #ifdef RASPBERRYPI_PICO2_W
     "\n"
+    "SET RF (0|1)        - Disdable or enable radio.\n"
     "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
     "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
     "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none."
@@ -228,6 +229,9 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "  1 - 640x480 and 1280x720, for 16:9 displays\n"
     "  2 - 1280x1024, for 5:4 SXGA displays";
 
+static const char __in_flash("helptext") hlp_text_rf[] =
+    "SET RF (0|1) turns the radio off or on.";
+
 static const char __in_flash("helptext") hlp_text_rfcc[] =
     "Set this so the CYW43 can use the best radio frequencies for your country.\n"
     "Using \"-\" will clear the country code and default to a worldwide setting.\n"
@@ -296,6 +300,7 @@ static struct
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
 #ifdef RASPBERRYPI_PICO2_W
+    {2, "rf", hlp_text_rf},
     {4, "rfcc", hlp_text_rfcc},
     {4, "ssid", hlp_text_ssid},
     {4, "pass", hlp_text_pass},

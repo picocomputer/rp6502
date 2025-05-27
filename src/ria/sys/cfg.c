@@ -23,6 +23,7 @@
 // +TUTC0      | Time Zone
 // +S437       | Code Page
 // +D0         | VGA display type
+// +E1         | RF Enabled
 // +FUS        | RF Country Code
 // +WMyWiFi    | WiFi SSID
 // +KsEkRiT    | WiFi Password
@@ -39,6 +40,7 @@ static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
 
 #ifdef RASPBERRYPI_PICO2_W
+static uint8_t cfg_net_rf = 1;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
@@ -83,6 +85,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+S%d\n"
                                "+D%d\n"
 #ifdef RASPBERRYPI_PICO2_W
+                               "+E%d\n"
                                "+F%s\n"
                                "+W%s\n"
                                "+K%s\n"
@@ -96,6 +99,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_codepage,
                                cfg_vga_display,
 #ifdef RASPBERRYPI_PICO2_W
+                               cfg_net_rf,
                                cfg_net_rfcc,
                                cfg_net_ssid,
                                cfg_net_pass,
@@ -157,6 +161,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
             parse_uint8(&str, &len, &cfg_vga_display);
             break;
 #ifdef RASPBERRYPI_PICO2_W
+        case 'E':
+            parse_uint8(&str, &len, &cfg_net_rf);
+            break;
         case 'F':
             parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
             break;
@@ -300,6 +307,23 @@ uint8_t cfg_get_vga(void)
 }
 
 #ifdef RASPBERRYPI_PICO2_W
+
+bool cfg_set_rf(uint8_t rf)
+{
+    bool ok = true;
+    if (rf <= 1 && cfg_net_rf != rf)
+    {
+        cfg_net_rf = rf;
+        net_disconnect();
+        cfg_save_with_boot_opt(NULL);
+    }
+    return ok;
+}
+
+uint8_t cfg_get_rf(void)
+{
+    return cfg_net_rf;
+}
 
 bool cfg_set_rfcc(const char *rfcc)
 {

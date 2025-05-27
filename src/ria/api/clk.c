@@ -12,6 +12,7 @@
 #include "sys/cfg.h"
 #include "hardware/timer.h"
 #include "pico/aon_timer.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 #define CLK_ID_REALTIME 0
@@ -28,6 +29,24 @@ void clk_init(void)
 void clk_run(void)
 {
     clk_clock_start = time_us_64();
+}
+
+void clk_print_status(void)
+{
+    printf("Time: ");
+    struct timespec ts;
+    if (!aon_timer_get_time(&ts))
+    {
+        puts("get time failure");
+    }
+    else
+    {
+        char buf[100];
+        struct tm tminfo;
+        localtime_r(&ts.tv_sec, &tminfo);
+        strftime(buf, sizeof(buf), "%c %z %Z", &tminfo);
+        printf("%s\n", buf);
+    }
 }
 
 const char *clk_set_time_zone(const char *tz)

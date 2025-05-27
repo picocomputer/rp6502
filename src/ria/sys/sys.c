@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "api/clk.h"
 #include "net/net.h"
 #include "net/ntp.h"
 #include "sys/sys.h"
@@ -47,6 +48,7 @@ void sys_mon_status(const char *args, size_t len)
     vga_print_status();
     net_print_status();
     ntp_print_status();
+    clk_print_status();
     hid_print_status();
     msc_print_status();
 }

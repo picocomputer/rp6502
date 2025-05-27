@@ -225,21 +225,6 @@ void ntp_print_status(void)
         puts("internal error");
         break;
     }
-
-    printf("Time: ");
-    struct timespec ts;
-    if (!aon_timer_get_time(&ts))
-    {
-        puts("get time failure");
-    }
-    else
-    {
-        char buf[100];
-        struct tm tminfo;
-        localtime_r(&ts.tv_sec, &tminfo);
-        strftime(buf, sizeof(buf), "%c %z %Z", &tminfo);
-        printf("%s\n", buf);
-    }
 }
 
 #endif /* RASPBERRYPI_PICO2_W */
