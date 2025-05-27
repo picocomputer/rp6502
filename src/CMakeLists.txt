@@ -2,12 +2,16 @@
 
 add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
-if (PICO_BOARD STREQUAL "pico2_w")
+pico_set_binary_type(rp6502_ria copy_to_ram)
+
+if (PICO_BOARD STREQUAL "pico2_w" OR
+    PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
+    target_compile_definitions(rp6502_ria PRIVATE RP6502_RIA_W)
+    target_link_libraries(rp6502_ria PRIVATE pico_cyw43_arch_lwip_poll)
     pico_set_program_name(rp6502_ria "RP6502 RIA W")
 else()
     pico_set_program_name(rp6502_ria "RP6502 RIA")
 endif()
-pico_set_binary_type(rp6502_ria copy_to_ram)
 
 target_include_directories(rp6502_ria PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -38,12 +42,6 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_flash
     tinyusb_host
 )
-
-if (PICO_BOARD STREQUAL "pico2_w")
-target_link_libraries(rp6502_ria PRIVATE
-    pico_cyw43_arch_lwip_poll
-)
-endif()
 
 pico_generate_pio_header(rp6502_ria
     ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.pio

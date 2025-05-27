@@ -43,7 +43,7 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-#ifndef RASPBERRYPI_PICO2_W
+#ifndef RP6502_RIA_W
     // Need a moment for RP6502-VGA to boot at power on.
     // copy_to_ram takes longer on pico_w so it doesn't
     // need any delay for VGA to do its copy_to_ram.
@@ -57,7 +57,7 @@ static void init(void)
     vga_init();
     com_init();
 
-#ifndef RASPBERRYPI_PICO2_W
+#ifndef RP6502_RIA_W
     busy_wait_until(timer);
 #endif
 

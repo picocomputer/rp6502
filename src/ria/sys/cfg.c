@@ -40,12 +40,12 @@ static uint32_t cfg_codepage;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
 
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
 static uint8_t cfg_net_rf = 1;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
@@ -85,12 +85,12 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+T%s\n"
                                "+S%d\n"
                                "+D%d\n"
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
                                "+E%d\n"
                                "+F%s\n"
                                "+W%s\n"
                                "+K%s\n"
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
@@ -99,12 +99,12 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_time_zone,
                                cfg_codepage,
                                cfg_vga_display,
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
                                cfg_net_rf,
                                cfg_net_rfcc,
                                cfg_net_ssid,
                                cfg_net_pass,
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */
                                opt_str);
         if (lfsresult < 0)
             printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
@@ -161,7 +161,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         case 'D':
             parse_uint8(&str, &len, &cfg_vga_display);
             break;
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
         case 'E':
             parse_uint8(&str, &len, &cfg_net_rf);
             break;
@@ -174,7 +174,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         case 'K':
             parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
             break;
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */
         default:
             break;
         }
@@ -307,7 +307,7 @@ uint8_t cfg_get_vga(void)
     return cfg_vga_display;
 }
 
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
 
 bool cfg_set_rf(uint8_t rf)
 {
@@ -397,4 +397,4 @@ const char *cfg_get_pass(void)
     return cfg_net_pass;
 }
 
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */

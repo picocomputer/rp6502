@@ -6,12 +6,12 @@
 
 #include "pico.h"
 
-#ifndef RASPBERRYPI_PICO2_W
+#ifndef RP6502_RIA_W
 void cyw_task() {}
 void cyw_pre_reclock() {}
 void cyw_post_reclock() {}
 void cyw_reset_radio() {}
-bool cyw_ready() { return false; }
+bool cyw_initializing() { return false; }
 #else
 
 #include "mon/ram.h"
@@ -188,4 +188,4 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
 }
 
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */

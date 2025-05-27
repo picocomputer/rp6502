@@ -16,7 +16,7 @@ void led_init(void)
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
     gpio_put(PICO_DEFAULT_LED_PIN, 1);
 #endif
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     // LED is connected to cyw43
     cyw_led(true);
 #endif

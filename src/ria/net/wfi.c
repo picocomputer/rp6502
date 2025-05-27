@@ -6,7 +6,7 @@
 
 #include "pico.h"
 
-#ifndef RASPBERRYPI_PICO2_W
+#ifndef RP6502_RIA_W
 void wfi_task() {}
 void wfi_print_status() {}
 #else
@@ -198,4 +198,4 @@ bool wfi_ready(void)
     return wfi_state == wfi_state_connected;
 }
 
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */

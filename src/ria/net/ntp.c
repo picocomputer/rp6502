@@ -6,7 +6,7 @@
 
 #include "pico.h"
 
-#ifndef RASPBERRYPI_PICO2_W
+#ifndef RP6502_RIA_W
 void ntp_task() {}
 void ntp_print_status() {}
 #else
@@ -226,4 +226,4 @@ void ntp_print_status(void)
     }
 }
 
-#endif /* RASPBERRYPI_PICO2_W */
+#endif /* RP6502_RIA_W */

@@ -42,7 +42,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET TZ (tz)         - Query or set time zone.\n"
     "SET CP (cp)         - Query or set code page.\n"
     "SET VGA (0|1|2)     - Query or set display type for VGA output."
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     "\n"
     "SET RF (0|1)        - Disdable or enable radio.\n"
     "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
@@ -59,7 +59,7 @@ static const char __in_flash("helptext") hlp_text_about[] =
     "            FatFs - Copyright (c) 20xx ChaN.\n"
     "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
     "                    Copyright (c) 2017 Arm Limited."
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     "\n"
     "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
     "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
@@ -299,7 +299,7 @@ static struct
     {2, "tz", hlp_text_time_zone},
     {2, "cp", hlp_text_code_page},
     {3, "vga", hlp_text_vga},
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     {2, "rf", hlp_text_rf},
     {4, "rfcc", hlp_text_rfcc},
     {4, "ssid", hlp_text_ssid},

@@ -51,7 +51,7 @@ static const struct lfs_config cfg = {
 // stepping back for a while is probably better.
 uint32_t lfs_get_bt_storage_offset(void)
 {
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     // WARNING: Verify PICO_FLASH_BANK_TOTAL_SIZE matches btstack_flash_bank.h
     const uint32_t PICO_FLASH_BANK_TOTAL_SIZE = (FLASH_SECTOR_SIZE * 2u);
 #else

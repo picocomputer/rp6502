@@ -323,7 +323,7 @@ static struct
     {2, "tz", set_time_zone},
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     {2, "rf", set_rf},
     {4, "rfcc", set_rfcc},
     {4, "ssid", set_ssid},
@@ -341,7 +341,7 @@ static void set_print_all(void)
     set_print_time_zone();
     set_print_code_page();
     set_print_vga();
-#ifdef RASPBERRYPI_PICO2_W
+#ifdef RP6502_RIA_W
     set_print_rf();
     set_print_rfcc();
     set_print_ssid();
