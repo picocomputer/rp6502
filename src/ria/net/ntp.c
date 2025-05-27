@@ -17,7 +17,15 @@ void ntp_print_status() {}
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 #include "pico/aon_timer.h"
+#include "pico/time.h"
 #include <string.h>
+#include <stdio.h>
+
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NTP)
+#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define DBG(...)
+#endif
 
 #define NTP_SERVER "pool.ntp.org"
 #define NTP_MSG_LEN 48
@@ -42,6 +50,27 @@ ntp_state_t ntp_state;
 ip_addr_t ntp_server_address;
 struct udp_pcb *ntp_pcb;
 
+bool ntp_success_at_least_once;
+int ntp_retry_retry_count;
+absolute_time_t ntp_retry_timer;
+
+// Be agressive 5 times then back off
+#define NTP_RETRY_RETRIES 5
+#define NTP_RETRY_RETRY_SECS 2
+#define NTP_RETRY_UNSET_SECS 60
+#define NTP_RETRY_REFRESH_SECS (24 * 3600)
+
+static void ntp_retry(void)
+{
+    if (ntp_retry_retry_count < NTP_RETRY_RETRIES)
+    {
+        ntp_retry_retry_count++;
+        ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_RETRY_SECS * 1000);
+    }
+    else
+        ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_UNSET_SECS * 1000);
+}
+
 static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg)
 {
     (void)arg;
@@ -53,6 +82,8 @@ static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *a
     }
     else
     {
+        DBG("NTP DNS fail\n");
+        ntp_retry();
         ntp_state = ntp_state_dns_fail;
     }
 }
@@ -76,12 +107,25 @@ static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_ad
         ts.tv_sec = epoch;
         ts.tv_nsec = 0;
         if (aon_timer_set_time(&ts))
+        {
+            DBG("NTP success\n");
+            ntp_success_at_least_once = true;
+            ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_REFRESH_SECS * 1000);
             ntp_state = ntp_state_success;
+        }
         else
+        {
+            DBG("NTP set time fail\n");
+            ntp_retry();
             ntp_state = ntp_state_set_time_fail;
+        }
     }
     else
+    {
+        DBG("NTP request failed\n");
+        ntp_retry();
         ntp_state = ntp_state_request_fail;
+    }
     pbuf_free(p);
 }
 
@@ -89,14 +133,18 @@ void ntp_task(void)
 {
     if (ntp_state == ntp_state_internal_error)
         return;
+
     if (!net_ready())
     {
         ntp_state = ntp_state_init;
         return;
     }
+
     switch (ntp_state)
     {
     case ntp_state_init:
+        DBG("NTP started\n");
+        ntp_retry_retry_count = 0;
         ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp_pcb)
             ntp_state = ntp_state_internal_error;
@@ -129,6 +177,18 @@ void ntp_task(void)
     case ntp_state_set_time_fail:
     case ntp_state_success:
     case ntp_state_internal_error:
+        break;
+    }
+
+    switch (ntp_state)
+    {
+    case ntp_state_dns_fail:
+    case ntp_state_request_fail:
+    case ntp_state_set_time_fail:
+        if (absolute_time_diff_us(get_absolute_time(), ntp_retry_timer) < 0)
+            ntp_state = ntp_state_init;
+        break;
+    default:
         break;
     }
 }

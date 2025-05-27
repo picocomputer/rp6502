@@ -123,10 +123,8 @@ void clk_api_get_time_zone(void)
         return api_return_errno(API_EINVAL);
 
     struct timespec ts;
-    if (requested_time)
-        ts.tv_sec = requested_time;
-    else if (!aon_timer_get_time(&ts))
-        return api_return_errno(API_EUNKNOWN);
+    ts.tv_sec = requested_time;
+    ts.tv_nsec = 0;
 
     struct tm local_tm = *localtime(&ts.tv_sec);
     struct tm gm_tm = *gmtime(&ts.tv_sec);

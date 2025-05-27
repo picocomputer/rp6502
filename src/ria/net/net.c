@@ -24,6 +24,13 @@ bool net_in_startup() { return false; }
 #include "sys/vga.h"
 #include "pico/cyw43_arch.h"
 #include "pico/cyw43_driver.h"
+#include <stdio.h>
+
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NET)
+#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define DBG(...)
+#endif
 
 // These are from cyw43_arch.h
 // Change the help if you change these
@@ -96,6 +103,14 @@ net_state_t net_state;
 bool net_led_status;
 bool net_led_requested;
 
+int net_retry_initial_retry_count;
+absolute_time_t net_retry_timer;
+
+// Be agressive 5 times then back off
+#define NET_RETRY_INITIAL_RETRIES 5
+#define NET_RETRY_INITIAL_SECS 2
+#define NET_RETRY_SECS 60
+
 bool net_validate_country_code(char *cc)
 {
     if (!cc[0] || !cc[1] || cc[2] != 0)
@@ -133,6 +148,7 @@ void net_reset_radio(void)
     case net_state_init_failed:
         break;
     }
+    net_retry_initial_retry_count = 0;
 }
 
 void net_task(void)
@@ -160,7 +176,6 @@ void net_task(void)
     {
     case net_state_off:
         com_flush(); // prevent awkward pause during boot message
-        CYW43_NONE_PM;
         if (cyw43_arch_init_with_country(net_country_code()))
             net_state = net_state_init_failed;
         else
@@ -173,6 +188,7 @@ void net_task(void)
         net_state = net_state_connect;
         break;
     case net_state_connect:
+        DBG("NET connecting\n");
         cyw43_arch_wifi_connect_async(
             cfg_get_ssid(), cfg_get_pass(),
             strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN);
@@ -186,11 +202,23 @@ void net_task(void)
         case CYW43_LINK_NOIP:
             break;
         case CYW43_LINK_UP:
+            DBG("NET connected\n");
             net_state = net_state_connected;
             break;
         case CYW43_LINK_FAIL:
         case CYW43_LINK_NONET:
         case CYW43_LINK_BADAUTH:
+            cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+            if (net_retry_initial_retry_count < NET_RETRY_INITIAL_RETRIES)
+            {
+                DBG("NET connect failed (%d), retry %ds\n", net_state, NET_RETRY_INITIAL_SECS);
+                net_retry_timer = make_timeout_time_ms(NET_RETRY_INITIAL_SECS * 1000);
+            }
+            else
+            {
+                DBG("NET connect failed (%d), retry %ds\n", net_state, NET_RETRY_SECS);
+                net_retry_timer = make_timeout_time_ms(NET_RETRY_SECS * 1000);
+            }
             net_state = net_state_connect_failed;
             break;
         }
@@ -199,6 +227,13 @@ void net_task(void)
     case net_state_connect_failed:
     case net_state_connected:
         break;
+    }
+
+    if (net_state == net_state_connect_failed &&
+        absolute_time_diff_us(get_absolute_time(), net_retry_timer) < 0)
+    {
+        net_retry_initial_retry_count++;
+        net_state = net_state_connect;
     }
 }
 
