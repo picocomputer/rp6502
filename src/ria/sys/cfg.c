@@ -7,7 +7,8 @@
 #include "str.h"
 #include "api/clk.h"
 #include "api/oem.h"
-#include "net/net.h"
+#include "net/cyw.h"
+#include "net/wfi.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
@@ -314,7 +315,7 @@ bool cfg_set_rf(uint8_t rf)
     if (rf <= 1 && cfg_net_rf != rf)
     {
         cfg_net_rf = rf;
-        net_disconnect();
+        wfi_disconnect();
         cfg_save_with_boot_opt(NULL);
     }
     return ok;
@@ -333,7 +334,7 @@ bool cfg_set_rfcc(const char *rfcc)
     {
         cc[0] = toupper(rfcc[0]);
         cc[1] = toupper(rfcc[1]);
-        if (!net_validate_country_code(cc))
+        if (!cyw_validate_country_code(cc))
             return false;
     }
     if (len == 0 || len == 2)
@@ -341,7 +342,7 @@ bool cfg_set_rfcc(const char *rfcc)
         if (strcmp(cfg_net_rfcc, cc))
         {
             strcpy(cfg_net_rfcc, cc);
-            net_reset_radio();
+            cyw_reset_radio();
             cfg_save_with_boot_opt(NULL);
         }
         return true;
@@ -363,7 +364,7 @@ bool cfg_set_ssid(const char *ssid)
         {
             cfg_net_pass[0] = 0;
             strcpy(cfg_net_ssid, ssid);
-            net_reset_radio();
+            wfi_disconnect();
             cfg_save_with_boot_opt(NULL);
         }
         return true;
@@ -383,7 +384,7 @@ bool cfg_set_pass(const char *pass)
         if (strcmp(cfg_net_pass, pass))
         {
             strcpy(cfg_net_pass, pass);
-            net_reset_radio();
+            wfi_disconnect();
             cfg_save_with_boot_opt(NULL);
         }
         return true;

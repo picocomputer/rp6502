@@ -17,8 +17,9 @@
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
-#include "net/net.h"
+#include "net/cyw.h"
 #include "net/ntp.h"
+#include "net/wfi.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -97,7 +98,8 @@ void main_task(void)
     pad_task();
     vga_task();
     std_task();
-    net_task();
+    cyw_task();
+    wfi_task();
     ntp_task();
 }
 
@@ -154,7 +156,7 @@ void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_
     (void)clkdiv_int;
     (void)clkdiv_frac;
     com_pre_reclock();
-    net_pre_reclock();
+    cyw_pre_reclock();
 }
 
 // Triggered once after init then after every PHI2 clock change.
@@ -169,7 +171,7 @@ void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv
     ria_post_reclock(clkdiv_int, clkdiv_frac);
     pix_post_reclock(clkdiv_int, clkdiv_frac);
     aud_post_reclock(sys_clk_khz);
-    net_post_reclock(sys_clk_khz);
+    cyw_post_reclock(sys_clk_khz);
 }
 
 // PIX XREG writes to the RIA device will notify here.

@@ -5,7 +5,7 @@
  */
 
 #include "sys/led.h"
-#include "net/net.h"
+#include "net/cyw.h"
 #include "pico/stdlib.h"
 
 void led_init(void)
@@ -18,6 +18,6 @@ void led_init(void)
 #endif
 #ifdef RASPBERRYPI_PICO2_W
     // LED is connected to cyw43
-    net_led(true);
+    cyw_led(true);
 #endif
 }

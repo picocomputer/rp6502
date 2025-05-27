@@ -9,7 +9,7 @@
 #include "api/api.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
-#include "net/net.h"
+#include "net/cyw.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
 #include "sys/pix.h"
@@ -180,8 +180,8 @@ static void rom_wait_load(void)
 {
     // VGA connection setup is unreliable at some clock speeds
     // if we don't give it a chance to finish before loading.
-    // Network startup blocking causes watchdog timouts.
-    if (!vga_active() && !net_in_startup())
+    // CYW43xx startup blocking causes watchdog timeouts.
+    if (!vga_active() && cyw_initializing())
         rom_state = ROM_LOADING;
 }
 

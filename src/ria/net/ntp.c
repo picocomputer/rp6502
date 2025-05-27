@@ -11,17 +11,16 @@ void ntp_task() {}
 void ntp_print_status() {}
 #else
 
-#include "net/net.h"
 #include "net/ntp.h"
+#include "net/wfi.h"
 #include "lwip/dns.h"
-#include "lwip/pbuf.h"
 #include "lwip/udp.h"
 #include "pico/aon_timer.h"
 #include "pico/time.h"
 #include <string.h>
-#include <stdio.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NTP)
+#include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
 #else
 #define DBG(...)
@@ -134,7 +133,7 @@ void ntp_task(void)
     if (ntp_state == ntp_state_internal_error)
         return;
 
-    if (!net_ready())
+    if (!wfi_ready())
     {
         ntp_state = ntp_state_init;
         return;

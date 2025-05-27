@@ -6,7 +6,6 @@
 
 #include "main.h"
 #include "api/api.h"
-#include "net/net.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
