@@ -20,10 +20,17 @@
 static void sys_print_status(void)
 {
     puts(RP6502_NAME);
+#ifdef RP6502_RIA_W
+    if (strlen(RP6502_VERSION))
+        puts("RIA W Version " RP6502_VERSION);
+    else
+        puts("RIA W " __DATE__ " " __TIME__);
+#else
     if (strlen(RP6502_VERSION))
         puts("RIA Version " RP6502_VERSION);
     else
         puts("RIA " __DATE__ " " __TIME__);
+#endif
 }
 
 void sys_mon_reboot(const char *args, size_t len)

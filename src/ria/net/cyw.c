@@ -131,7 +131,9 @@ void cyw_task(void)
         if (cyw_led_requested != cyw_led_status)
         {
             cyw_led_status = cyw_led_requested;
+#ifdef CYW43_WL_GPIO_LED_PIN
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+#endif
         }
         cyw43_arch_poll();
     }

@@ -194,7 +194,7 @@ void ntp_task(void)
 
 void ntp_print_status(void)
 {
-    printf("NTP: ");
+    printf("NTP : ");
     switch (ntp_state)
     {
     case ntp_state_init:
