@@ -1,31 +1,4 @@
-//
-//   Pico WiFi modem: a Pico W based RS232<->WiFi modem
-//   with Hayes style AT commands and blinking LEDs.
-//
-//   A "let's learn about the Pico W and lwIP" project. It
-//   betrays its ESP8266 + Arduino IDE roots in its
-//   structure; certainly no one would start a Pico
-//   project from scratch and write it this way!
-//
-//   Originally based on
-//   Original Source Copyright (C) 2016 Jussi Salin <salinjus@gmail.com>
-//   Additions (C) 2018 Daniel Jameson, Stardot Contributors
-//   Additions (C) 2018 Paul Rickards <rickards@gmail.com>
-//   Additions 2020-2022 Wayne Hortensius
-//
-//   This program is free software: you can redistribute it and/or modify
-//   it under the tertms of the GNU General Public License as published by
-//   the Free Software Foundation, either version 3 of the License, or
-//   (at your option) any later version.
-//
-//   This program is distributed in the hope that it will be useful,
-//   but WITHOUT ANY WARRANTY; without even the implied warranty of
-//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//   GNU General Public License for more details.
-//
-//   You should have received a copy of the GNU General Public License
-//   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-//
+
 #include <string.h>
 #include <time.h>
 #include <malloc.h>
@@ -33,10 +6,9 @@
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
-#include "hardware/i2c.h"
 #include "hardware/sync.h"
 
-#include "wifi_modem.h"
+#include "modem.h"
 #include "types.h"
 #include "globals.h"
 
@@ -45,10 +17,10 @@
 #include "lwip/dns.h"
 
 #include "tusb.h"
-#include "usb_cdc.h"
+// #include "usb_cdc.h"
 
 #include "ser_hal.h"
-#include "wifi_modem.h"
+#include "modem.h"
 // #include "eeprom.h"
 #include "lfs.h"
 #include "tcp_support.h"
@@ -60,15 +32,15 @@
 // =============================================================
 void setup(void)
 {
-    bool ok = true;
+    // bool ok = true;
 
-    tud_init(TUD_OPT_RHPORT);
+    // tud_init(TUD_OPT_RHPORT);
     stdio_init_all();
-    cdc_init();
-    do
-    {
-        tud_task();
-    } while (!tud_ready());
+    // cdc_init();
+    // do
+    // {
+    //     tud_task();
+    // } while (!tud_ready());
 
     // gpio_init(DTR);
     // gpio_set_dir(DTR, INPUT);
@@ -99,7 +71,7 @@ void setup(void)
 #endif
 
     // initEEPROM();
-    initLFS();
+    // initLFS();
     readSettings(&settings);
 
     if (settings.magicNumber != MAGIC_NUMBER)
@@ -203,11 +175,11 @@ void tud_umount_cb(void)
 }
 
 // =============================================================
-void loop(void)
+void modem_run(void)
 {
 
-    tud_task();
-    cdc_task();
+    // tud_task();
+    // cdc_task();
 
     checkForIncomingCall();
 
@@ -281,6 +253,9 @@ void loop(void)
 
             case DTR_RESET:
                 resetToNvram(NULL);
+                break;
+
+            case DTR_IGNORE:
                 break;
             }
         }
@@ -532,12 +507,12 @@ void doAtCmds(char *atCmd)
     }
 }
 
-int main(void)
-{
-    setup();
-    while (true)
-    {
-        loop();
-    }
-    return 0;
-}
+// int main(void)
+// {
+//     setup();
+//     while (true)
+//     {
+//         loop();
+//     }
+//     return 0;
+// }

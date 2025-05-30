@@ -17,7 +17,8 @@ FIL std_fil[STD_FIL_MAX];
 #define STD_FIL_STDIN 0
 #define STD_FIL_STDOUT 1
 #define STD_FIL_STDERR 2
-#define STD_FIL_OFFS 3
+#define STD_FIL_MODEM 3
+#define STD_FIL_OFFS 4
 static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 
 static int32_t std_xram_count = -1;

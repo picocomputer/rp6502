@@ -5,6 +5,7 @@ static volatile bool dnsLookupFinished = false;
 
 static void dnsLookupDone(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
+    (void)name;
     ip_addr_t *resolved = (ip_addr_t *)arg;
     if (ipaddr && ipaddr->addr)
     {
@@ -81,6 +82,7 @@ err_t tcpClientClose(TCP_CLIENT_T *client)
 // NB: the PCB may have already been freed when this function is called
 static void tcpClientErr(void *arg, err_t err)
 {
+    (void)err;
     TCP_CLIENT_T *client = (TCP_CLIENT_T *)arg;
 
     if (client)
@@ -143,6 +145,8 @@ static err_t tcpSend(TCP_CLIENT_T *client)
 
 static err_t tcpSent(void *arg, struct tcp_pcb *tpcb, u16_t len)
 {
+    (void)tpcb;
+    (void)len;
     TCP_CLIENT_T *client = (TCP_CLIENT_T *)arg;
     err_t err = ERR_OK;
 
@@ -162,6 +166,7 @@ static err_t tcpSent(void *arg, struct tcp_pcb *tpcb, u16_t len)
 // sending any data in the txBuff again.
 static err_t tcpPoll(void *arg, struct tcp_pcb *tpcb)
 {
+    (void)tpcb;
     TCP_CLIENT_T *client = (TCP_CLIENT_T *)arg;
     err_t err = ERR_OK;
 #ifndef NDEBUG
@@ -179,6 +184,8 @@ static err_t tcpPoll(void *arg, struct tcp_pcb *tpcb)
 
 static err_t tcpRecv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
+    (void)tpcb;
+    (void)err;
     TCP_CLIENT_T *client = (TCP_CLIENT_T *)arg;
 
     if (!p)
@@ -230,6 +237,7 @@ static err_t tcpRecv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 
 static err_t tcpHasConnected(void *arg, struct tcp_pcb *tpcb, err_t err)
 {
+    (void)tpcb;
     TCP_CLIENT_T *client = (TCP_CLIENT_T *)arg;
 
     client->connectFinished = true;
@@ -300,6 +308,7 @@ TCP_CLIENT_T *tcpConnect(TCP_CLIENT_T *client, const char *host, int portNum)
 // NB: the PCB may have already been freed when this function is called
 static void tcpServerErr(void *arg, err_t err)
 {
+    (void)err;
     TCP_SERVER_T *server = (TCP_SERVER_T *)arg;
 
     if (server)
@@ -431,7 +440,7 @@ uint16_t tcpBytesAvailable(TCP_CLIENT_T *client)
     return 0;
 }
 
-int tcpReadByte(TCP_CLIENT_T *client, int rqstTimeout = -1)
+int tcpReadByte(TCP_CLIENT_T *client, int rqstTimeout) // rqstTimeout = -1
 {
     int c;
     uint32_t timeout = 0;
@@ -485,7 +494,7 @@ uint16_t tcpReadBytesUntil(TCP_CLIENT_T *client, uint8_t terminator, char *buf, 
         {
             if (client->rxBuffLen)
             {
-                c = tcpReadByte(client);
+                c = tcpReadByte(client, -1);
                 if (c != terminator)
                 {
                     *p++ = (char)c;

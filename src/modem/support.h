@@ -204,7 +204,7 @@ int receiveTcpData()
     uint8_t txBuf[256];
     uint16_t txLen;
 
-    int rxByte = tcpReadByte(tcpClient);
+    int rxByte = tcpReadByte(tcpClient, -1);
     ++bytesIn;
 
     if (sessionTelnetType != NO_TELNET && rxByte == IAC)
@@ -735,27 +735,27 @@ void trim(char *str)
 // 2. A pointer to the optional port
 // 3. The numeric value of the port (if not specified, 23)
 //
-void getHostAndPort(char *number, char *&host, char *&port, int &portNum)
+void getHostAndPort(char *number, char **host, char **port, int *portNum)
 {
     char *ptr;
 
-    port = strrchr(number, ':');
+    *port = strrchr(number, ':');
     if (!port)
     {
-        portNum = TELNET_PORT;
+        *portNum = TELNET_PORT;
     }
     else
     {
         *port++ = NUL;
-        portNum = atoi(port);
+        *portNum = atoi(*port);
     }
-    host = number;
-    while (*host && isspace(*host))
+    *host = number;
+    while (**host && isspace((unsigned char)**host))
     {
-        ++host;
+        ++(*host);
     }
-    ptr = host;
-    while (*ptr && !isspace(*ptr))
+    ptr = *host;
+    while (*ptr && !isspace((unsigned char)*ptr))
     {
         ++ptr;
     }
@@ -907,7 +907,7 @@ void inPasswordMode()
 //
 static uint8_t numLines = 0;
 
-static bool PagedOut(const char *str, bool reset = false)
+static bool PagedOut(const char *str, bool reset) // reset = false
 {
     char c = ' ';
 

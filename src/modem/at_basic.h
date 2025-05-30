@@ -43,6 +43,7 @@ char *wifiConnection(char *atCmd)
         break;
     case '0':
         ++atCmd;
+        __attribute__((fallthrough));
     case NUL:
         cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
         if (!atCmd[0])
@@ -143,9 +144,9 @@ char *dialNumber(char *atCmd)
     char *host, *port, *ptr;
     char tempNumber[MAX_SPEED_DIAL_LEN + 1];
     int portNum;
-    ip_addr_t remoteAddr;
+    // ip_addr_t remoteAddr;
 
-    getHostAndPort(atCmd, host, port, portNum);
+    getHostAndPort(atCmd, &host, &port, &portNum);
     if (!port)
     {
         // check for host names that are 7 identical digits long
@@ -170,7 +171,7 @@ char *dialNumber(char *atCmd)
         {
             strncpy(tempNumber, settings.speedDial[host[0] - '0'], MAX_SPEED_DIAL_LEN);
             tempNumber[MAX_SPEED_DIAL_LEN] = NUL;
-            getHostAndPort(tempNumber, host, port, portNum);
+            getHostAndPort(tempNumber, &host, &port, &portNum);
         }
         else
         {
@@ -181,7 +182,7 @@ char *dialNumber(char *atCmd)
                 {
                     strncpy(tempNumber, settings.speedDial[i], MAX_SPEED_DIAL_LEN);
                     tempNumber[MAX_SPEED_DIAL_LEN] = NUL;
-                    getHostAndPort(tempNumber, host, port, portNum);
+                    getHostAndPort(tempNumber, &host, &port, &portNum);
                     break;
                 }
             }
@@ -439,7 +440,7 @@ char *showHelp(char *atCmd)
                 "%-40s%s",
                 helpStrs[i],
                 helpStrs[i + NUM_HELP_STRS / 2]);
-            if (PagedOut(helpLine))
+            if (PagedOut(helpLine, false))
             {
                 break; // user responded with ^C, quit
             }
@@ -450,7 +451,7 @@ char *showHelp(char *atCmd)
         // single column
         for (int i = 0; i < NUM_HELP_STRS; ++i)
         {
-            if (PagedOut(helpStrs[i]))
+            if (PagedOut(helpStrs[i], false))
             {
                 break; // user responded with ^C, quit
             }
@@ -479,10 +480,10 @@ char *showNetworkInfo(char *atCmd)
       // end of a page
         if (PagedOut("Pico WiFi modem", true))
             break;
-        if (PagedOut("Build......: " __DATE__ " " __TIME__))
+        if (PagedOut("Build......: " __DATE__ " " __TIME__, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Baud.......: %lu", settings.serialSpeed);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         strncpy(infoLine, "WiFi status: ", (sizeof infoLine) - 1);
         infoLine[(sizeof infoLine) - 1] = 0;
@@ -515,22 +516,22 @@ char *showNetworkInfo(char *atCmd)
             break;
         }
         infoLine[(sizeof infoLine) - 1] = 0;
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "SSID.......: %s", settings.ssid);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         if (wifiStatus == CYW43_LINK_JOIN)
         {
             int32_t rssi;
             cyw43_ioctl(&cyw43_state, 254, sizeof rssi, (uint8_t *)&rssi, CYW43_ITF_STA);
             snprintf(infoLine, sizeof infoLine, "RSSI.......: %d dBm", rssi);
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
         }
         if (cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac) != ERR_OK)
         {
-            if (PagedOut("MAC address: ?"))
+            if (PagedOut("MAC address: ?", false))
                 break;
         }
         else
@@ -538,65 +539,65 @@ char *showNetworkInfo(char *atCmd)
             snprintf(infoLine, sizeof infoLine,
                      "MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
         }
         if (wifiStatus == CYW43_LINK_JOIN)
         {
             snprintf(infoLine, sizeof infoLine, "IP address.: %s", ip4addr_ntoa(netif_ip4_addr(&cyw43_state.netif[0])));
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
             snprintf(infoLine, sizeof infoLine, "Gateway....: %s", ip4addr_ntoa(netif_ip4_gw(&cyw43_state.netif[0])));
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
             snprintf(infoLine, sizeof infoLine, "Subnet mask: %s", ip4addr_ntoa(netif_ip4_netmask(&cyw43_state.netif[0])));
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
         }
         snprintf(infoLine, sizeof infoLine, "mDNS name..: %s.local", settings.mdnsName);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Server port: %u", settings.listenPort);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Bytes in...: %lu", bytesIn);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Bytes out..: %lu", bytesOut);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
 #ifndef NDEBUG
         snprintf(infoLine, sizeof infoLine, "Max totLen.: %u", maxTotLen);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Max rxBuff.: %u", maxRxBuffLen);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Max txBuff.: %u", maxTxBuffLen);
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
 #endif
         snprintf(infoLine, sizeof infoLine, "Heap free..: %lu", getFreeHeap());
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Pgm. size..: %lu", getProgramSize());
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         snprintf(infoLine, sizeof infoLine, "Pgm. free..: %lu", getFreeProgramSpace());
-        if (PagedOut(infoLine))
+        if (PagedOut(infoLine, false))
             break;
         if (tcpIsConnected(tcpClient))
         {
             snprintf(infoLine, sizeof infoLine, "Call status: CONNECTED TO %s", ip4addr_ntoa(&tcpClient->pcb->remote_ip));
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
             snprintf(infoLine, sizeof infoLine, "Call length: %s", connectTimeString());
-            if (PagedOut(infoLine))
+            if (PagedOut(infoLine, false))
                 break;
         }
         else
         {
-            if (PagedOut("Call status: NOT CONNECTED"))
+            if (PagedOut("Call status: NOT CONNECTED", false))
                 break;
         }
     } while (false);

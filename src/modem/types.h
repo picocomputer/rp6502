@@ -2,7 +2,7 @@
 #define _TYPES_H
 #include "pico/stdlib.h"
 #include "lwip/dns.h"
-#include "wifi_modem.h"
+#include "modem.h"
 
 typedef enum ResultCodes
 {

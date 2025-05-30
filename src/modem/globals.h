@@ -1,6 +1,6 @@
 #ifndef _GLOBALS_H
 #define _GLOBALS_H
-#include "wifi_modem.h"
+#include "modem.h"
 // globals
 const char okStr[] = {"OK"};
 const char connectStr[] = {"CONNECT"};

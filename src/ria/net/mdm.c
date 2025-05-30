@@ -20,8 +20,11 @@ void mdm_task() {}
 #define DBG(...)
 #endif
 
+void modem_run(void);
+
 void mdm_task()
 {
+    modem_run();
 }
 
 #endif /* RP6502_RIA_W */
