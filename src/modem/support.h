@@ -198,29 +198,66 @@ void sendSerialData()
 // TSPEED (terminal speed), LOC (terminal location) and
 // NAWS (terminal columns and rows).
 //
-int receiveTcpData()
+// Non-blocking, state-machine version of receiveTcpData()
+// Returns -1 if no data available or still processing a Telnet sequence.
+//
+int receiveTcpData(void)
 {
-    static char lastc = 0;
-    uint8_t txBuf[256];
-    uint16_t txLen;
-
-    int rxByte = tcpReadByte(tcpClient, -1);
-    ++bytesIn;
-
-    if (sessionTelnetType != NO_TELNET && rxByte == IAC)
+    enum
     {
-        rxByte = tcpReadByte(tcpClient, 1000);
+        RX_IDLE,
+        RX_IAC,
+        RX_IAC_CMD,
+        RX_SB_DATA,
+        RX_SB_WAIT_SE
+    };
+    static int rx_state = RX_IDLE;
+    static char lastc = 0;
+    static uint8_t telnet_cmd1 = 0, telnet_cmd2 = 0;
+    static uint8_t sb_option = 0;
+    static uint8_t txBuf[256];
+    static uint16_t txLen = 0;
+
+    int rxByte;
+
+    switch (rx_state)
+    {
+    case RX_IDLE:
+        rxByte = tcpReadByte(tcpClient, 0); // Non-blocking
+        if (rxByte < 0)
+            return -1;
+        ++bytesIn;
+
+        if (sessionTelnetType != NO_TELNET && rxByte == IAC)
+        {
+            rx_state = RX_IAC;
+            return -1;
+        }
+        // Telnet sends <CR> as <CR><NUL>
+        if (lastc == CR && (char)rxByte == 0 && sessionTelnetType == REAL_TELNET)
+        {
+            rxByte = -1;
+        }
+        lastc = (char)rxByte;
+        return rxByte;
+
+    case RX_IAC:
+        rxByte = tcpReadByte(tcpClient, 0);
+        if (rxByte < 0)
+            return -1;
         ++bytesIn;
         if (rxByte == DM)
         { // ignore data marks
-            rxByte = -1;
+            rx_state = RX_IDLE;
+            return -1;
         }
         else if (rxByte == BRK)
         { // break?
             ser_set_break(ser0, true);
-            sleep_ms(300);
+            sleep_ms(300); ////////////////// TODO
             ser_set_break(ser0, false);
-            rxByte = -1;
+            rx_state = RX_IDLE;
+            return -1;
         }
         else if (rxByte == AYT)
         { // are you there?
@@ -252,148 +289,167 @@ int receiveTcpData()
 #else
             bytesOut += tcpWriteStr(tcpClient, "\r\n[Yes]\r\n");
 #endif
-            rxByte = -1;
+            rx_state = RX_IDLE;
+            return -1;
         }
-        else if (rxByte != IAC)
-        { // 2 times 0xff is just an escaped real 0xff
-          // rxByte has now the first byte of the actual non-escaped control code
-#if IAC_DEBUG
-            printf("[%u,", rxByte);
-#endif
-            uint8_t cmdByte1 = rxByte;
-            if (cmdByte1 == DO || cmdByte1 == DONT || cmdByte1 == WILL || cmdByte1 == WONT || cmdByte1 == SB)
+        else if (rxByte == IAC)
+        {
+            rx_state = RX_IDLE;
+            lastc = IAC;
+            return IAC; // Escaped 0xFF
+        }
+        else
+        {
+            telnet_cmd1 = rxByte;
+            if (telnet_cmd1 == DO || telnet_cmd1 == DONT || telnet_cmd1 == WILL || telnet_cmd1 == WONT || telnet_cmd1 == SB)
             {
-                rxByte = tcpReadByte(tcpClient, 1000);
-                ++bytesIn;
+                rx_state = RX_IAC_CMD;
+                return -1;
             }
-            uint8_t cmdByte2 = rxByte;
-#if IAC_DEBUG
-            printf("%u", rxByte);
-#endif
-            txLen = 0;
-            switch (cmdByte1)
+            else
             {
-            case DO:
-                switch (cmdByte2)
+                // Single-byte command
+                rx_state = RX_IDLE;
+                return -1;
+            }
+        }
+        break;
+
+    case RX_IAC_CMD:
+        rxByte = tcpReadByte(tcpClient, 0);
+        if (rxByte < 0)
+            return -1;
+        telnet_cmd2 = rxByte;
+        txLen = 0;
+        // Handle Telnet negotiation (see original code for details)
+        switch (telnet_cmd1)
+        {
+        case DO:
+            switch (telnet_cmd2)
+            {
+            case BINARY:
+            case ECHO:
+            case SUP_GA:
+            case TTYPE:
+            case TSPEED:
+                if (amClient || (telnet_cmd2 != SUP_GA && telnet_cmd2 != ECHO))
                 {
-                case BINARY:
-                case ECHO:
-                case SUP_GA:
-                case TTYPE:
-                case TSPEED:
-                    if (amClient || (cmdByte2 != SUP_GA && cmdByte2 != ECHO))
-                    {
-                        // in a server connection, we've already sent out
-                        // WILL SUP_GA and WILL ECHO so we shouldn't again
-                        // to prevent an endless round robin of WILLs and
-                        // DOs SUP_GA/ECHO echoing back and forth
-                        txBuf[txLen++] = IAC;
-                        txBuf[txLen++] = WILL;
-                        txBuf[txLen++] = cmdByte2;
-                        bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
-                    }
-                    break;
-                case LOC:
-                case NAWS:
+
+                    // in a server connection, we've already sent out
+                    // WILL SUP_GA and WILL ECHO so we shouldn't again
+                    // to prevent an endless round robin of WILLs and
+                    // DOs SUP_GA/ECHO echoing back and forth
                     txBuf[txLen++] = IAC;
                     txBuf[txLen++] = WILL;
-                    txBuf[txLen++] = cmdByte2;
-                    txBuf[txLen++] = IAC;
-                    txBuf[txLen++] = SB;
-                    txBuf[txLen++] = cmdByte2;
-
-                    switch (cmdByte2)
-                    {
-                    case NAWS: // window size
-                        txBuf[txLen++] = (uint8_t)0;
-                        txBuf[txLen++] = settings.width;
-                        txBuf[txLen++] = (uint8_t)0;
-                        txBuf[txLen++] = settings.height;
-                        break;
-                    case LOC: // terminal location
-                        txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%s", settings.location);
-                        break;
-                    }
-                    txBuf[txLen++] = IAC;
-                    txBuf[txLen++] = SE;
+                    txBuf[txLen++] = telnet_cmd2;
                     bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
-                    break;
-                default:
-                    txBuf[txLen++] = IAC;
-                    txBuf[txLen++] = WONT;
-                    txBuf[txLen++] = cmdByte2;
-                    bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
-                    break;
                 }
                 break;
-            case WILL:
-                // Server wants to do option, allow most
+            case LOC:
+            case NAWS:
                 txBuf[txLen++] = IAC;
-                switch (cmdByte2)
+                txBuf[txLen++] = WILL;
+                txBuf[txLen++] = telnet_cmd2;
+                txBuf[txLen++] = IAC;
+                txBuf[txLen++] = SB;
+                txBuf[txLen++] = telnet_cmd2;
+                switch (telnet_cmd2)
                 {
-                case LINEMODE:
-                case NAWS:
-                case LFLOW:
-                case NEW_ENVIRON:
-                case XDISPLOC:
-                    txBuf[txLen++] = DONT;
+                case NAWS: // window size
+                    txBuf[txLen++] = (uint8_t)0;
+                    txBuf[txLen++] = settings.width;
+                    txBuf[txLen++] = (uint8_t)0;
+                    txBuf[txLen++] = settings.height;
                     break;
-                default:
-                    txBuf[txLen++] = DO;
+                case LOC: // terminal location
+                    txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%s", settings.location);
                     break;
                 }
-                txBuf[txLen++] = cmdByte2;
+                txBuf[txLen++] = IAC;
+                txBuf[txLen++] = SE;
                 bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
                 break;
-            case SB:
-                switch (cmdByte2)
-                {
-                case TTYPE:
-                case TSPEED:
-                    do
-                    {
-                        rxByte = tcpReadByte(tcpClient, 10);
-                        if (rxByte != -1)
-                        {
-                            ++bytesIn;
-                        }
-                    } while (rxByte != SE); // discard rest of cmd
-                    txBuf[txLen++] = IAC;
-                    txBuf[txLen++] = SB;
-                    txBuf[txLen++] = cmdByte2;
-                    txBuf[txLen++] = VLSUP;
-                    switch (cmdByte2)
-                    {
-                    case TTYPE: // terminal type
-                        txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%s", settings.terminal);
-                        break;
-                    case TSPEED: // terminal speed
-                        txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%lu,%lu", settings.serialSpeed, settings.serialSpeed);
-                        break;
-                    }
-                    txBuf[txLen++] = IAC;
-                    txBuf[txLen++] = SE;
-                    bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
-                    break;
-                default:
-                    break;
-                }
+            default:
+                txBuf[txLen++] = IAC;
+                txBuf[txLen++] = WONT;
+                txBuf[txLen++] = telnet_cmd2;
+                bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
                 break;
             }
-            rxByte = -1;
+            break;
+        case WILL:
+            // Server wants to do option, allow most
+            txBuf[txLen++] = IAC;
+            switch (telnet_cmd2)
+            {
+            case LINEMODE:
+            case NAWS:
+            case LFLOW:
+            case NEW_ENVIRON:
+            case XDISPLOC:
+                txBuf[txLen++] = DONT;
+                break;
+            default:
+                txBuf[txLen++] = DO;
+                break;
+            }
+            txBuf[txLen++] = telnet_cmd2;
+            bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
+            break;
+        case SB:
+            sb_option = telnet_cmd2;
+            rx_state = RX_SB_DATA;
+            return -1;
         }
-#if IAC_DEBUG
-        printf("]");
-#endif
+        rx_state = RX_IDLE;
+        return -1;
+
+    case RX_SB_DATA:
+        // Wait for SE (end of subnegotiation)
+        rxByte = tcpReadByte(tcpClient, 0);
+        if (rxByte < 0)
+            return -1;
+        if (rxByte == IAC)
+        {
+            rx_state = RX_SB_WAIT_SE;
+        }
+        // else discard
+        return -1;
+
+    case RX_SB_WAIT_SE:
+        rxByte = tcpReadByte(tcpClient, 0);
+        if (rxByte < 0)
+            return -1;
+        if (rxByte == SE) // discard rest of cmd
+        {
+            // Respond to TTYPE or TSPEED
+            txLen = 0;
+            txBuf[txLen++] = IAC;
+            txBuf[txLen++] = SB;
+            txBuf[txLen++] = sb_option;
+            txBuf[txLen++] = VLSUP;
+            switch (sb_option)
+            {
+            case TTYPE: // terminal type
+                txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%s", settings.terminal);
+                break;
+            case TSPEED: // terminal speed
+                txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%lu,%lu", settings.serialSpeed, settings.serialSpeed);
+                break;
+            }
+            txBuf[txLen++] = IAC;
+            txBuf[txLen++] = SE;
+            bytesOut += tcpWriteBuf(tcpClient, txBuf, txLen);
+            rx_state = RX_IDLE;
+        }
+        else
+        {
+            rx_state = RX_SB_DATA;
+        }
+        return -1;
     }
-    // Telnet sends <CR> as <CR><NUL>
-    // We filter out that <NUL> here
-    if (lastc == CR && (char)rxByte == 0 && sessionTelnetType == REAL_TELNET)
-    {
-        rxByte = -1;
-    }
-    lastc = (char)rxByte;
-    return rxByte;
+    rx_state = RX_IDLE;
+    return -1;
 }
 
 //
