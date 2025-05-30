@@ -27,11 +27,6 @@ typedef struct Settings
     uint16_t magicNumber;
     char ssid[MAX_SSID_LEN + 1];
     char wifiPassword[MAX_WIFI_PWD_LEN + 1];
-    uint32_t serialSpeed;
-    uint8_t dataBits;
-    uart_parity_t parity;
-    uint8_t stopBits;
-    bool rtsCts;
     uint8_t width, height;
     char escChar;
     char alias[SPEED_DIAL_SLOTS][MAX_ALIAS_LEN + 1];

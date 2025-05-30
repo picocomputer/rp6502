@@ -28,24 +28,6 @@ bool ser_get(unsigned int signal)
     }
 }
 
-unsigned int ser_set_baudrate(ser_inst_t ser, unsigned int baudrate)
-{
-    // Setting is done from the host
-    // cdc_line_coding_t line_coding;
-    // tud_cdc_n_get_line_coding((uint8_t)ser, &line_coding);
-    // return line_coding.bit_rate;
-}
-
-void ser_set_format(ser_inst_t ser, unsigned int dataBits, unsigned int stopBits, ser_parity_t parity)
-{
-    // Setting is done from the host
-}
-
-void ser_set_translate_crlf(ser_inst_t ser, bool translate)
-{
-    // uart_set_translate_crlf(uarts[ser],translate);
-}
-
 bool ser_is_readable(ser_inst_t ser)
 {
     // return tud_cdc_n_available((unsigned int)ser) != 0;
@@ -114,9 +96,4 @@ void ser_set_break(ser_inst_t ser, bool en)
         // tud_cdc_n_write_char((unsigned int)ser, (char)243); // Send BRK. Assumes Telnet. ok?
         // tud_cdc_n_write_flush((unsigned int)ser);
     }
-}
-
-void ser_set_hw_flow(ser_inst_t ser, bool cts, bool rts)
-{
-    // uart_set_hw_flow(uarts[ser], cts, rts);
 }

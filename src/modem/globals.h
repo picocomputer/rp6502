@@ -16,7 +16,7 @@ TCP_SERVER_T tcpServer;
 // incantation to switch from line mode to character mode
 const uint8_t toCharModeMagic[] = {IAC, WILL, SUP_GA, IAC, WILL, ECHO, IAC, WONT, LINEMODE};
 uint32_t bytesIn = 0, bytesOut = 0;
-unsigned long connectTime = 0;
+uint64_t connectTime = 0;
 char atCmd[MAX_CMD_LEN + 1], lastCmd[MAX_CMD_LEN + 1];
 unsigned atCmdLen = 0;
 enum
@@ -28,9 +28,9 @@ enum
 } state = CMD_NOT_IN_CALL;
 bool ringing = false;    // no incoming call
 uint8_t ringCount = 0;   // current incoming call ring count
-uint32_t nextRingMs = 0; // time of mext RING result
+uint64_t nextRingMs = 0; // time of mext RING result
 uint8_t escCount = 0;    // Go to AT mode at "+++" sequence, that has to be counted
-uint32_t guardTime = 0;  // When did we last receive a "+++" sequence
+uint64_t guardTime = 0;  // When did we last receive a "+++" sequence
 char password[MAX_PWD_LEN + 1];
 uint8_t passwordTries = 0; // # of unsuccessful tries at incoming password
 uint8_t passwordLen = 0;

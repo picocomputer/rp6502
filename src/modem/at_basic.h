@@ -141,7 +141,7 @@ char *speedDialNumber(char *atCmd)
 //
 char *dialNumber(char *atCmd)
 {
-    char *host, *port, *ptr;
+    char *host, *port;
     char tempNumber[MAX_SPEED_DIAL_LEN + 1];
     int portNum;
     // ip_addr_t remoteAddr;
@@ -482,9 +482,6 @@ char *showNetworkInfo(char *atCmd)
             break;
         if (PagedOut("Build......: " __DATE__ " " __TIME__, false))
             break;
-        snprintf(infoLine, sizeof infoLine, "Baud.......: %lu", settings.serialSpeed);
-        if (PagedOut(infoLine, false))
-            break;
         strncpy(infoLine, "WiFi status: ", (sizeof infoLine) - 1);
         infoLine[(sizeof infoLine) - 1] = 0;
         maxCatChars = (sizeof infoLine) - strlen(infoLine);
@@ -577,15 +574,6 @@ char *showNetworkInfo(char *atCmd)
         if (PagedOut(infoLine, false))
             break;
 #endif
-        snprintf(infoLine, sizeof infoLine, "Heap free..: %lu", getFreeHeap());
-        if (PagedOut(infoLine, false))
-            break;
-        snprintf(infoLine, sizeof infoLine, "Pgm. size..: %lu", getProgramSize());
-        if (PagedOut(infoLine, false))
-            break;
-        snprintf(infoLine, sizeof infoLine, "Pgm. free..: %lu", getFreeProgramSpace());
-        if (PagedOut(infoLine, false))
-            break;
         if (tcpIsConnected(tcpClient))
         {
             snprintf(infoLine, sizeof infoLine, "Call status: CONNECTED TO %s", ip4addr_ntoa(&tcpClient->pcb->remote_ip));
@@ -702,65 +690,6 @@ char *doQuiet(char *atCmd)
     default:
         sendResult(R_ERROR);
         break;
-    }
-    return atCmd;
-}
-
-//
-// ATRD Displays the UTC date and time from NIST in the format
-// ATRT "YY-MM-DD HH:MM:SS"
-//
-char *doDateTime(char *atCmd)
-{
-    bool ok = false;
-    uint16_t len;
-
-    if (!tcpIsConnected(tcpClient))
-    {
-        char result[80], *ptr;
-        tcpClient = tcpConnect(&tcpClient0, NIST_HOST, NIST_PORT);
-        if (tcpClient)
-        {
-            ser_set(DCD, ACTIVE);
-            // read date/time from NIST
-            result[0] = tcpReadByte(tcpClient, 1000);
-            if (result[0] == '\n')
-            { // leading LF
-                len = tcpReadBytesUntil(tcpClient, '\n', result, (sizeof result) - 1);
-                if (len)
-                { // string read?
-                    result[len] = NUL;
-                    ptr = strtok(result, " ");
-                    if (ptr)
-                    { // found Julian day?
-                        ptr = strtok(NULL, " ");
-                        if (ptr)
-                        { // found date?
-                            printf("%s ", ptr);
-                            ptr = strtok(NULL, " ");
-                            if (ptr)
-                            { // found time?
-                                printf("%s\r\n", ptr);
-                                ok = true;
-                            }
-                        }
-                    }
-                }
-            }
-            tcpClientClose(tcpClient);
-            ser_set(DCD, !ACTIVE);
-        }
-    }
-    if (ok)
-    {
-        if (!atCmd[0])
-        {
-            sendResult(R_OK);
-        }
-    }
-    else
-    {
-        sendResult(R_ERROR);
     }
     return atCmd;
 }

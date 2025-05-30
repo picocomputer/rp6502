@@ -2,7 +2,7 @@
 #define _MODEM_H
 
 #define DEBUG 0
-#define DEFAULT_SPEED 9600
+#define DISPLAY_SPEED 9600
 
 #define RING_INTERVAL 1500
 #define MAX_CMD_LEN 256
@@ -66,9 +66,6 @@
 #define DONT ((uint8_t)254)
 #define IAC ((uint8_t)255)
 
-#define NIST_HOST "time.nist.gov"
-#define NIST_PORT 13
-
 #define ACTIVE LOW // RS232 control signals are active low
 
 #define RTS 2 // (GPIO02) input
@@ -83,19 +80,7 @@
 #define HIGH true
 #define LOW false
 
-// I2C EEPROM definitions
-#define I2C_ADDR 0x50
-#define I2C_SDA 16
-#define I2C_SCL 17
-#define I2C_BAUD 100000
-
 #define TCP_CLIENT_RX_BUF_SIZE 20000
 #define TCP_CLIENT_TX_BUF_SIZE 1100
-
-#ifndef NDEBUG
-#define POLL_STATE_LED 8
-#define RXBUFF_OVFL 9
-#define TXBUFF_OVFL 10
-#endif
 
 #endif

@@ -27,6 +27,8 @@ int char_to_int(char ch)
 
 int strnicmp(const char *string1, const char *string2, int n)
 {
+    // TODO can we use this?
+    // int strncasecmp(const char *, const char *, size_t) __pure;
     while (n--)
     {
         if (!*string1 && !*string2)

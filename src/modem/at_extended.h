@@ -6,11 +6,6 @@ char *factoryDefaults(char *atCmd)
     settings.magicNumber = MAGIC_NUMBER;
     settings.ssid[0] = NUL;
     settings.wifiPassword[0] = NUL;
-    settings.serialSpeed = DEFAULT_SPEED;
-    settings.dataBits = 8;
-    settings.parity = UART_PARITY_NONE;
-    settings.stopBits = 1;
-    settings.rtsCts = false;
     settings.width = 80;
     settings.height = 24;
     settings.escChar = ESC_CHAR;
@@ -19,7 +14,7 @@ char *factoryDefaults(char *atCmd)
         settings.alias[i][0] = NUL;
         settings.speedDial[i][0] = NUL;
     }
-    strcpy(settings.mdnsName, "picomodem");
+    strcpy(settings.mdnsName, "picocomputer");
     settings.autoAnswer = 0;
     settings.listenPort = 0;
     strcpy(settings.busyMsg, "Sorry, the system is currently busy. Please try again later.");
@@ -105,43 +100,6 @@ char *doDtrHandling(char *atCmd)
             break;
         }
         gpio_set_irq_enabled(DTR, GPIO_IRQ_EDGE_RISE, settings.dtrHandling != DTR_IGNORE);
-        if (atCmd[0])
-        {
-            ++atCmd;
-        }
-        if (!atCmd[0])
-        {
-            sendResult(R_OK);
-        }
-        break;
-    default:
-        sendResult(R_ERROR);
-        break;
-    }
-    return atCmd;
-}
-
-//
-// AT&K? query flow control setting
-// AT&K0 disable RTS/CTS flow control
-// AT&K1 enable RTS/CTS flow control
-//
-char *doFlowControl(char *atCmd)
-{
-    switch (atCmd[0])
-    {
-    case '?':
-        ++atCmd;
-        printf("%u\r\n", settings.rtsCts);
-        if (!atCmd[0])
-        {
-            sendResult(R_OK);
-        }
-        break;
-    case '0':
-    case '1':
-    case NUL:
-        settings.rtsCts = atCmd[0] == '1';
         if (atCmd[0])
         {
             ++atCmd;

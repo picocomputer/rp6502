@@ -37,18 +37,9 @@ extern "C"
         ser0,
         ser1
     } ser_inst_t;
-    typedef enum
-    {
-        SER_PARITY_NONE,
-        SER_PARITY_EVEN,
-        SER_PARITY_ODD
-    } ser_parity_t;
 
     void ser_set(unsigned int signal, bool val);
     bool ser_get(unsigned int signal);
-    unsigned int ser_set_baudrate(ser_inst_t ser, unsigned int baudrate);
-    void ser_set_format(ser_inst_t ser, unsigned int dataBits, unsigned int stopBits, ser_parity_t parity);
-    void ser_set_translate_crlf(ser_inst_t ser, bool translate);
     bool ser_is_readable(ser_inst_t ser);
     bool ser_is_writeable(ser_inst_t ser);
     char ser_getc(ser_inst_t ser);
@@ -57,7 +48,6 @@ extern "C"
     void ser_tx_wait_blocking(ser_inst_t ser);
     void ser_puts(ser_inst_t ser, const char *s);
     void ser_set_break(ser_inst_t ser, bool en);
-    void ser_set_hw_flow(ser_inst_t ser, bool cts, bool rts);
 
 #ifdef __cplusplus
 }

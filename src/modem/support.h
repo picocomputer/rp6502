@@ -5,32 +5,6 @@ void crlf(void)
     ser_puts(ser0, "\r\n");
 }
 
-uint32_t getTotalHeap(void)
-{
-    extern char __StackLimit, __bss_end__;
-
-    return &__StackLimit - &__bss_end__;
-}
-
-uint32_t getFreeHeap(void)
-{
-    struct mallinfo m = mallinfo();
-
-    return getTotalHeap() - m.uordblks;
-}
-
-uint32_t getProgramSize(void)
-{
-    extern char __flash_binary_start, __flash_binary_end;
-
-    return &__flash_binary_end - &__flash_binary_start;
-}
-
-uint32_t getFreeProgramSpace()
-{
-    return PICO_FLASH_SIZE_BYTES - getProgramSize();
-}
-
 // DTR low to high interrupt handler
 void dtrIrq(uint gpio, uint32_t events)
 {
@@ -111,7 +85,7 @@ void inAtCommandMode()
 //
 void sendSerialData()
 {
-    static uint32_t lastSerialData = 0;
+    static uint64_t lastSerialData = 0;
     // in telnet mode, we might have to escape every single char,
     // so don't use more than half the buffer
     size_t maxBufSize = (sessionTelnetType != NO_TELNET) ? TX_BUF_SIZE / 2 : TX_BUF_SIZE;
@@ -126,7 +100,7 @@ void sendSerialData()
         *p++ = ser_getc(ser0);
     }
 
-    uint32_t serialInterval = millis() - lastSerialData;
+    uint64_t serialInterval = millis() - lastSerialData;
     // if more than 1 second since the last character,
     // start the online escape sequence counter over again
     if (escCount && serialInterval >= GUARD_TIME)
@@ -201,6 +175,8 @@ void sendSerialData()
 // Non-blocking, state-machine version of receiveTcpData()
 // Returns -1 if no data available or still processing a Telnet sequence.
 //
+// TODO this needs to reset
+//
 int receiveTcpData(void)
 {
     enum
@@ -223,7 +199,7 @@ int receiveTcpData(void)
     switch (rx_state)
     {
     case RX_IDLE:
-        rxByte = tcpReadByte(tcpClient, 0); // Non-blocking
+        rxByte = tcpReadByte(tcpClient);
         if (rxByte < 0)
             return -1;
         ++bytesIn;
@@ -242,7 +218,7 @@ int receiveTcpData(void)
         return rxByte;
 
     case RX_IAC:
-        rxByte = tcpReadByte(tcpClient, 0);
+        rxByte = tcpReadByte(tcpClient);
         if (rxByte < 0)
             return -1;
         ++bytesIn;
@@ -276,16 +252,16 @@ int receiveTcpData(void)
                 lastTcpWriteErr = ERR_OK;
                 bytesOut += tcpWriteStr(tcpClient, tBuf);
             }
-            if (gpio_get_out_level(RXBUFF_OVFL))
-            {
-                gpio_put(RXBUFF_OVFL, LOW);
-                bytesOut += tcpWriteStr(tcpClient, "RXBUFF_OVFL\r\n");
-            }
-            if (gpio_get_out_level(TXBUFF_OVFL))
-            {
-                gpio_put(TXBUFF_OVFL, LOW);
-                bytesOut += tcpWriteStr(tcpClient, "TXBUFF_OVFL\r\n");
-            }
+            // if (gpio_get_out_level(RXBUFF_OVFL))
+            // {
+            //     gpio_put(RXBUFF_OVFL, LOW);
+            //     bytesOut += tcpWriteStr(tcpClient, "RXBUFF_OVFL\r\n");
+            // }
+            // if (gpio_get_out_level(TXBUFF_OVFL))
+            // {
+            //     gpio_put(TXBUFF_OVFL, LOW);
+            //     bytesOut += tcpWriteStr(tcpClient, "TXBUFF_OVFL\r\n");
+            // }
 #else
             bytesOut += tcpWriteStr(tcpClient, "\r\n[Yes]\r\n");
 #endif
@@ -316,7 +292,7 @@ int receiveTcpData(void)
         break;
 
     case RX_IAC_CMD:
-        rxByte = tcpReadByte(tcpClient, 0);
+        rxByte = tcpReadByte(tcpClient);
         if (rxByte < 0)
             return -1;
         telnet_cmd2 = rxByte;
@@ -406,7 +382,7 @@ int receiveTcpData(void)
 
     case RX_SB_DATA:
         // Wait for SE (end of subnegotiation)
-        rxByte = tcpReadByte(tcpClient, 0);
+        rxByte = tcpReadByte(tcpClient);
         if (rxByte < 0)
             return -1;
         if (rxByte == IAC)
@@ -417,7 +393,7 @@ int receiveTcpData(void)
         return -1;
 
     case RX_SB_WAIT_SE:
-        rxByte = tcpReadByte(tcpClient, 0);
+        rxByte = tcpReadByte(tcpClient);
         if (rxByte < 0)
             return -1;
         if (rxByte == SE) // discard rest of cmd
@@ -434,7 +410,7 @@ int receiveTcpData(void)
                 txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%s", settings.terminal);
                 break;
             case TSPEED: // terminal speed
-                txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%lu,%lu", settings.serialSpeed, settings.serialSpeed);
+                txLen += snprintf((char *)txBuf + txLen, (sizeof txBuf) - txLen, "%u,%u", DISPLAY_SPEED, DISPLAY_SPEED);
                 break;
             }
             txBuf[txLen++] = IAC;
@@ -457,7 +433,7 @@ int receiveTcpData(void)
 //
 char *connectTimeString(void)
 {
-    unsigned long now = millis();
+    uint64_t now = millis();
     int hours, mins, secs;
     static char result[9];
 
@@ -510,7 +486,7 @@ void sendResult(int resultCode)
                 ser_puts(ser0, connectStr);
                 if (settings.extendedCodes)
                 {
-                    printf(" %lu", settings.serialSpeed);
+                    printf(" %u", DISPLAY_SPEED);
                 }
                 break;
 
@@ -672,82 +648,6 @@ void checkForIncomingCall()
     }
 }
 
-#if OTA_UPDATE_ENABLED
-//
-// setup for OTA sketch updates
-//
-void setupOTAupdates()
-{
-    ArduinoOTA.setHostname(settings.mdnsName);
-
-    ArduinoOTA.onStart([]()
-                       {
-      printf("OTA upload start\r\n");
-      ser_set(DSR, !ACTIVE); });
-
-    ArduinoOTA.onEnd([]()
-                     {
-      printf("OTA upload end - programming\r\n"));
-      ser_tx_wait_blocking(ser0); // allow serial output to finish
-      ser_set(TXEN, HIGH);        // before disabling the TX output
-                     });
-
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total)
-                          {
-      unsigned int pct = progress / (total / 100);
-      static unsigned int lastPct = 999;
-      if( pct != lastPct ) {
-         lastPct = pct;
-         if( settings.serialSpeed >= 4800 || pct % 10 == 0 ) {
-            printf("Progress: %u%%\r", pct);
-         }
-      } });
-
-    ArduinoOTA.onError([](ota_error_t errorno)
-                       {
-      print("OTA Error - ");
-      switch( errorno ) {
-         case OTA_AUTH_ERROR:
-            printf("Auth failed\r\n");
-            break;
-         case OTA_BEGIN_ERROR:
-            printf("Begin failed\r\n");
-            break;
-         case OTA_CONNECT_ERROR:
-            printf("Connect failed\r\n");
-            break;
-         case OTA_RECEIVE_ERROR:
-            printf("Receive failed\r\n");
-            break;
-         case OTA_END_ERROR:
-            printf("End failed\r\n");
-            break;
-         default:
-            printf("Unknown (%u)\r\n", errorno);
-            break;
-      }
-      sendResult(R_ERROR); });
-    ArduinoOTA.begin();
-}
-#endif
-
-void setHardwareFlow(bool state)
-{
-    /*
-    if( state ) {
-       gpio_set_function(CTS, GPIO_FUNC_UART);
-       gpio_set_function(RTS, GPIO_FUNC_UART);
-    } else {
-       gpio_init(CTS);
-       gpio_init(RTS);
-       gpio_set_dir(CTS, OUTPUT);
-       gpio_put(CTS, ACTIVE);
-       gpio_set_dir(RTS, INPUT);
-    }
-    */
-    ser_set_hw_flow(ser0, state, state);
-}
-
 // trim leading and trailing blanks from a string
 void trim(char *str)
 {
@@ -824,19 +724,17 @@ void getHostAndPort(char *number, char **host, char **port, int *portNum)
 void displayCurrentSettings(void)
 {
     printf("Active Profile:\r\n");
-    printf("Baud.......: %lu\r\n", settings.serialSpeed);
     printf("SSID.......: %s\r\n", settings.ssid);
     printf("Pass.......: %s\r\n", settings.wifiPassword);
     printf("mDNS name..: %s.local\r\n", settings.mdnsName);
     printf("Server port: %u\r\n", settings.listenPort);
     printf("Busy msg...: %s\r\n", settings.busyMsg);
-    printf("E%u Q%u V%u X%u &D%u &K%u NET%u S0=%u S2=%u\r\n",
+    printf("E%u Q%u V%u X%u &D%u NET%u S0=%u S2=%u\r\n",
            settings.echo,
            settings.quiet,
            settings.verbose,
            settings.extendedCodes,
            settings.dtrHandling,
-           settings.rtsCts,
            settings.telnet,
            settings.autoAnswer,
            settings.escChar);
@@ -861,19 +759,17 @@ void displayStoredSettings(void)
 
     readSettings(&temp);
     printf("Stored Profile:\r\n");
-    printf("Baud.......: %lu\r\n", temp.serialSpeed);
     printf("SSID.......: %s\r\n", temp.ssid);
     printf("Pass.......: %s\r\n", temp.wifiPassword);
     printf("mDNS name..: %s.local\r\n", temp.mdnsName);
     printf("Server port: %u\r\n", temp.listenPort);
     printf("Busy Msg...: %s\r\n", temp.busyMsg);
-    printf("E%u Q%u V%u X%u &D%u &K%u NET%u S0=%u S2=%u\r\n",
+    printf("E%u Q%u V%u X%u &D%u NET%u S0=%u S2=%u\r\n",
            temp.echo,
            temp.quiet,
            temp.verbose,
            temp.extendedCodes,
            temp.dtrHandling,
-           temp.rtsCts,
            temp.telnet,
            temp.autoAnswer,
            temp.escChar);

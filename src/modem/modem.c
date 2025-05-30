@@ -56,19 +56,19 @@ void setup(void)
     // gpio_init(DSR);
     // gpio_set_dir(DSR, OUTPUT);
     // gpio_put(DSR, !ACTIVE);          // modem is not ready
-#ifndef NDEBUG
-    gpio_init(POLL_STATE_LED);
-    gpio_set_dir(POLL_STATE_LED, OUTPUT);
-    gpio_put(POLL_STATE_LED, LOW);
+    // #ifndef NDEBUG
+    //     gpio_init(POLL_STATE_LED);
+    //     gpio_set_dir(POLL_STATE_LED, OUTPUT);
+    //     gpio_put(POLL_STATE_LED, LOW);
 
-    gpio_init(RXBUFF_OVFL);
-    gpio_set_dir(RXBUFF_OVFL, OUTPUT);
-    gpio_put(RXBUFF_OVFL, LOW);
+    //     gpio_init(RXBUFF_OVFL);
+    //     gpio_set_dir(RXBUFF_OVFL, OUTPUT);
+    //     gpio_put(RXBUFF_OVFL, LOW);
 
-    gpio_init(TXBUFF_OVFL);
-    gpio_set_dir(TXBUFF_OVFL, OUTPUT);
-    gpio_put(TXBUFF_OVFL, LOW);
-#endif
+    //     gpio_init(TXBUFF_OVFL);
+    //     gpio_set_dir(TXBUFF_OVFL, OUTPUT);
+    //     gpio_put(TXBUFF_OVFL, LOW);
+    // #endif
 
     // initEEPROM();
     // initLFS();
@@ -81,10 +81,10 @@ void setup(void)
     }
     sessionTelnetType = settings.telnet;
 
-    ser_set_baudrate(ser0, settings.serialSpeed);
-    ser_set_format(ser0, settings.dataBits, settings.stopBits, (ser_parity_t)settings.parity);
-    ser_set_translate_crlf(ser0, false);
-    setHardwareFlow(settings.rtsCts);
+    // ser_set_baudrate(ser0, settings.serialSpeed);
+    // ser_set_format(ser0, settings.dataBits, settings.stopBits, (ser_parity_t)settings.parity);
+    // ser_set_translate_crlf(ser0, false);
+    // setHardwareFlow(settings.rtsCts);
 
     // enable interrupt when DTR goes inactive if we're not ignoring it
     gpio_set_irq_enabled_with_callback(DTR, GPIO_IRQ_EDGE_RISE, settings.dtrHandling != DTR_IGNORE, dtrIrq);
@@ -126,13 +126,6 @@ void setup(void)
     {
         tcpServerStart(&tcpServer, settings.listenPort);
     }
-
-#if OTA_UPDATE_ENABLED
-    if (settings.ssid[0] && cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP)
-    {
-        setupOTAupdates();
-    }
-#endif
 
     if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP || !settings.ssid[0])
     {
@@ -192,12 +185,6 @@ void modem_run(void)
     {
 
     case CMD_NOT_IN_CALL:
-#if OTA_UPDATE_ENABLED
-        if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP)
-        {
-            ArduinoOTA.handle();
-        }
-#endif
         inAtCommandMode();
         break;
 
@@ -309,16 +296,6 @@ void doAtCmds(char *atCmd)
                         // send Telnet "Are You There?"
                         atCmd = doAreYouThere(atCmd + 4);
                     }
-                    else if (!strncasecmp(atCmd, "$SB", 3))
-                    {
-                        // query/set serial speed
-                        atCmd = doSpeedChange(atCmd + 3);
-                    }
-                    else if (!strncasecmp(atCmd, "$SU", 3))
-                    {
-                        // query/set serial data configuration
-                        atCmd = doDataConfig(atCmd + 3);
-                    }
                     else if (!strncasecmp(atCmd, "$SSID", 5))
                     {
                         // query/set WiFi SSID
@@ -407,8 +384,8 @@ void doAtCmds(char *atCmd)
                     else if (!strncasecmp(atCmd, "Z", 1))
                     {
                         // reset to NVRAM
-                        // atCmd = resetToNvram(atCmd + 1);
-                        atCmd = atCmd + 1; // Skip - Hard reset drops USB, trouble on some devices. TODO softer ATZ implementation
+                        atCmd = resetToNvram(atCmd + 1);
+                        // atCmd = atCmd + 1; // Skip - Hard reset drops USB, trouble on some devices. TODO softer ATZ implementation
                     }
                     else if (!strncasecmp(atCmd, "&V", 2))
                     {
@@ -439,11 +416,6 @@ void doAtCmds(char *atCmd)
                     {
                         // query/set quiet mode
                         atCmd = doQuiet(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "RD", 2) || !strncasecmp(atCmd, "RT", 2))
-                    {
-                        // read time and date
-                        atCmd = doDateTime(atCmd + 2);
                     }
                     else if (!strncasecmp(atCmd, "V", 1))
                     {
@@ -484,11 +456,6 @@ void doAtCmds(char *atCmd)
                     {
                         // do telnet location
                         atCmd = doWindowSize(atCmd + 4);
-                    }
-                    else if (!strncasecmp(atCmd, "&K", 2))
-                    {
-                        // do RTS/CTS flow control
-                        atCmd = doFlowControl(atCmd + 2);
                     }
                     else if (!strncasecmp(atCmd, "$MDNS", 5))
                     {

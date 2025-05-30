@@ -37,9 +37,9 @@ bool dnsLookup(const char *name, ip_addr_t *resolved)
     return !ip4_addr_isany(resolved);
 }
 
-uint32_t millis(void)
+uint64_t millis(void)
 {
-    return to_ms_since_boot(get_absolute_time());
+    return time_us_64()/1000;
 }
 
 bool tcpIsConnected(TCP_CLIENT_T *client)
@@ -172,7 +172,7 @@ static err_t tcpPoll(void *arg, struct tcp_pcb *tpcb)
 #ifndef NDEBUG
     static bool pollState = false;
 
-    gpio_put(POLL_STATE_LED, pollState);
+    // gpio_put(POLL_STATE_LED, pollState);
     pollState = !pollState;
 #endif
     if (!client->waitingForAck && client->txBuffLen)
@@ -209,7 +209,7 @@ static err_t tcpRecv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 #ifndef NDEBUG
         if (client->rxBuffLen > TCP_CLIENT_RX_BUF_SIZE)
         {
-            gpio_put(RXBUFF_OVFL, HIGH);
+            // gpio_put(RXBUFF_OVFL, HIGH);
         }
         if (client->rxBuffLen > maxRxBuffLen)
         {
@@ -380,14 +380,14 @@ uint16_t tcpWriteBuf(TCP_CLIENT_T *client, const uint8_t *buf, uint16_t len)
         if (client->txBuffLen + len > TCP_CLIENT_TX_BUF_SIZE && client->connected)
         {
 #ifndef NDEBUG
-            gpio_put(TXBUFF_OVFL, HIGH);
+            // gpio_put(TXBUFF_OVFL, HIGH);
 #endif
             while (client->txBuffLen + len > TCP_CLIENT_TX_BUF_SIZE && client->connected)
             {
                 tight_loop_contents();
             }
 #ifndef NDEBUG
-            gpio_put(TXBUFF_OVFL, LOW);
+            // gpio_put(TXBUFF_OVFL, LOW);
 #endif
         }
         // lock out the lwIP thread now so that it can't end up calling
@@ -440,80 +440,28 @@ uint16_t tcpBytesAvailable(TCP_CLIENT_T *client)
     return 0;
 }
 
-int tcpReadByte(TCP_CLIENT_T *client, int rqstTimeout) // rqstTimeout = -1
+int tcpReadByte(TCP_CLIENT_T *client)
 {
-    int c;
-    uint32_t timeout = 0;
-    uint32_t ints;
-
-    if (client)
+    if (client && client->rxBuffLen)
     {
-        if (rqstTimeout > 0)
+        int c = client->rxBuff[client->rxBuffHead++];
+        if (client->rxBuffHead == TCP_CLIENT_RX_BUF_SIZE)
         {
-            timeout = millis() + rqstTimeout;
+            client->rxBuffHead = 0;
         }
-        do
+        uint32_t ints = save_and_disable_interrupts();
+        --client->rxBuffLen;
+        restore_interrupts(ints);
+        if (!client->rxBuffLen && client->totLen && client->pcb)
         {
-            if (client->rxBuffLen)
-            {
-                c = client->rxBuff[client->rxBuffHead++];
-                if (client->rxBuffHead == TCP_CLIENT_RX_BUF_SIZE)
-                {
-                    client->rxBuffHead = 0;
-                }
-                ints = save_and_disable_interrupts();
-                --client->rxBuffLen;
-                restore_interrupts(ints);
-                if (!client->rxBuffLen && client->totLen && client->pcb)
-                {
-                    cyw43_arch_lwip_begin();
-                    tcp_recved(client->pcb, client->totLen);
-                    client->totLen = 0;
-                    cyw43_arch_lwip_end();
-                }
-                return c;
-            }
-            else
-            {
-                tight_loop_contents();
-            }
-        } while (timeout > millis());
+            cyw43_arch_lwip_begin();
+            tcp_recved(client->pcb, client->totLen);
+            client->totLen = 0;
+            cyw43_arch_lwip_end();
+        }
+        return c;
     }
     return -1;
-}
-
-uint16_t tcpReadBytesUntil(TCP_CLIENT_T *client, uint8_t terminator, char *buf, uint16_t max_len)
-{
-    char *p = buf;
-    uint16_t c;
-
-    uint32_t timeout = millis() + 1000;
-    if (max_len > 0)
-    {
-        do
-        {
-            if (client->rxBuffLen)
-            {
-                c = tcpReadByte(client, -1);
-                if (c != terminator)
-                {
-                    *p++ = (char)c;
-                    --max_len;
-                    timeout = millis() + 1000;
-                }
-                else
-                {
-                    break;
-                }
-            }
-            else
-            {
-                tight_loop_contents();
-            }
-        } while (max_len > 0 && timeout > millis());
-        return p - buf;
-    }
-    return 0;
 }
 
 void tcpTxFlush(TCP_CLIENT_T *client)
