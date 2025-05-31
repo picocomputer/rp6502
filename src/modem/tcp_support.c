@@ -1,12 +1,6 @@
-#include "modem/support.h"
 #include "modem/tcp_support.h"
-#include "modem/modem.h"
-#include "modem/atc.h"
-#include "modem/ats.h"
 #include "modem/ser_cdc.h"
 #include "hardware/sync.h"
-#include "pico/time.h"
-#include <string.h>
 #include "pico/cyw43_arch.h"
 
 static volatile bool dnsLookupFinished = false;

@@ -1,5 +1,5 @@
-#ifndef _MODEM_H
-#define _MODEM_H
+#ifndef _MODEM_MODEM_H_
+#define _MODEM_MODEM_H_
 
 #define DEBUG 0
 #define DISPLAY_SPEED 9600
@@ -83,4 +83,4 @@
 #define TCP_CLIENT_RX_BUF_SIZE 20000
 #define TCP_CLIENT_TX_BUF_SIZE 1100
 
-#endif
+#endif /* _MODEM_MODEM_H_ */

@@ -24,35 +24,26 @@
  *
  */
 
-#ifndef _SER_HAL_H_
-#define _SER_HAL_H_
+#ifndef _MODEM_SER_CDC_H_
+#define _MODEM_SER_CDC_H_
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C"
+typedef enum
 {
-#endif
+    ser0,
+    ser1
+} ser_inst_t;
 
-    typedef enum
-    {
-        ser0,
-        ser1
-    } ser_inst_t;
+void ser_set(unsigned int signal, bool val);
+bool ser_get(unsigned int signal);
+bool ser_is_readable(ser_inst_t ser);
+bool ser_is_writeable(ser_inst_t ser);
+char ser_getc(ser_inst_t ser);
+void ser_putc(ser_inst_t ser, char c);
+void ser_putc_raw(ser_inst_t ser, char c);
+void ser_tx_wait_blocking(ser_inst_t ser);
+void ser_puts(ser_inst_t ser, const char *s);
+void ser_set_break(ser_inst_t ser, bool en);
 
-    void ser_set(unsigned int signal, bool val);
-    bool ser_get(unsigned int signal);
-    bool ser_is_readable(ser_inst_t ser);
-    bool ser_is_writeable(ser_inst_t ser);
-    char ser_getc(ser_inst_t ser);
-    void ser_putc(ser_inst_t ser, char c);
-    void ser_putc_raw(ser_inst_t ser, char c);
-    void ser_tx_wait_blocking(ser_inst_t ser);
-    void ser_puts(ser_inst_t ser, const char *s);
-    void ser_set_break(ser_inst_t ser, bool en);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* _SER_HAL_H_ */
+#endif /* _MODEM_SER_CDC_H_ */

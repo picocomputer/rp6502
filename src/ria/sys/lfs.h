@@ -15,9 +15,9 @@ extern lfs_t lfs_volume;
 
 // Use this to obtain a temporary lfs_file_config on the stack.
 #define _LFS_FILE_CONFIG_NAME(name) lfs_file_config_buffer_##name
-#define LFS_FILE_CONFIG(name)                             \
-    uint8_t _LFS_FILE_CONFIG_NAME(name)[FLASH_PAGE_SIZE]; \
-    struct lfs_file_config name = {                       \
+#define LFS_FILE_CONFIG(name, ...)                             \
+    __VA_ARGS__ uint8_t _LFS_FILE_CONFIG_NAME(name)[FLASH_PAGE_SIZE]; \
+    __VA_ARGS__ struct lfs_file_config name = {                       \
         .buffer = _LFS_FILE_CONFIG_NAME(name),            \
     };
 

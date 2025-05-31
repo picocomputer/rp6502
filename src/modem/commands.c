@@ -8,11 +8,9 @@
 
 #ifdef RP6502_RIA_W
 
-#include "lwip/dns.h"
 #include "pico/cyw43_arch.h"
 #include <string.h>
-#include "modem/atc.h"
-#include "modem/ats.h"
+#include "modem/commands.h"
 #include "ser_cdc.h"
 #include "tcp_support.h"
 #include "support.h"
@@ -20,7 +18,7 @@
 //
 // ATA manually answer an incoming call
 //
-char *answerCall(char *atCmd)
+static char *answerCall(char *atCmd)
 {
     tcpClient = serverGetClient(&tcpServer, &tcpClient0);
     ser_set(RI, !ACTIVE); // we've picked up so ringing stops
@@ -48,7 +46,7 @@ char *answerCall(char *atCmd)
 // ATC0 disconnect from WiFi network
 // ATC1 connect to WiFi network
 //
-char *wifiConnection(char *atCmd)
+static char *wifiConnection(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -132,33 +130,9 @@ char *wifiConnection(char *atCmd)
 }
 
 //
-// ATDSn speed dial a number
-//
-char *dialNumber(char *atCmd);
-
-char *speedDialNumber(char *atCmd)
-{
-    char number[MAX_SPEED_DIAL_LEN + 1];
-    char slot = atCmd[0];
-
-    if (isdigit(slot) && settings.speedDial[slot - '0'][0])
-    {
-        ++atCmd;
-        strncpy(number, settings.speedDial[slot - '0'], MAX_SPEED_DIAL_LEN);
-        number[MAX_SPEED_DIAL_LEN] = NUL;
-        dialNumber(number);
-    }
-    else
-    {
-        sendResult(R_ERROR);
-    }
-    return atCmd;
-}
-
-//
 // ATDThost[:port] dial a number
 //
-char *dialNumber(char *atCmd)
+static char *dialNumber(char *atCmd)
 {
     char *host, *port;
     char tempNumber[MAX_SPEED_DIAL_LEN + 1];
@@ -259,11 +233,33 @@ char *dialNumber(char *atCmd)
 }
 
 //
+// ATDSn speed dial a number
+//
+static char *speedDialNumber(char *atCmd)
+{
+    char number[MAX_SPEED_DIAL_LEN + 1];
+    char slot = atCmd[0];
+
+    if (isdigit(slot) && settings.speedDial[slot - '0'][0])
+    {
+        ++atCmd;
+        strncpy(number, settings.speedDial[slot - '0'], MAX_SPEED_DIAL_LEN);
+        number[MAX_SPEED_DIAL_LEN] = NUL;
+        dialNumber(number);
+    }
+    else
+    {
+        sendResult(R_ERROR);
+    }
+    return atCmd;
+}
+
+//
 // ATE? query command mode echo status
 // ATE0 disable command mode local echo
 // ATE1 enable command mode local echo
 //
-char *doEcho(char *atCmd)
+static char *doEcho(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -300,7 +296,7 @@ char *doEcho(char *atCmd)
 //
 // NOTE: http only: no https support
 //
-char *httpGet(char *atCmd)
+static char *httpGet(char *atCmd)
 {
     char *host, *path, *port;
     int portNum;
@@ -371,7 +367,7 @@ char *httpGet(char *atCmd)
 //
 // ATH go offline (if connected to a host)
 //
-char *hangup(char *atCmd)
+static char *hangup(char *atCmd)
 {
     if (tcpIsConnected(tcpClient))
     {
@@ -392,48 +388,48 @@ char *hangup(char *atCmd)
 // with an odd number of strings, add an empty string ("") at the end
 // to pad things out.
 //
-const char helpStr01[] = "Help..........: AT?";
-const char helpStr02[] = "Repeat command: A/";
-const char helpStr03[] = "Answer call...: ATA";
-const char helpStr04[] = "WiFi connect..: ATCn";
-const char helpStr05[] = "Speed dial....: ATDSn";
-const char helpStr06[] = "Dial host.....: ATDThost[:port]";
-const char helpStr07[] = "Command echo..: ATEn";
-const char helpStr08[] = "HTTP get......: ATGEThttp://host[/page]";
-const char helpStr09[] = "Hang up.......: ATH";
-const char helpStr10[] = "Network info..: ATI";
-const char helpStr11[] = "Handle Telnet.: ATNETn";
-const char helpStr12[] = "Leave cmd mode: ATO";
-const char helpStr13[] = "Quiet mode....: ATQn";
-const char helpStr14[] = "NIST date.time: ATRD/ATRT";
-const char helpStr15[] = "Auto answer...: ATS0=n";
-const char helpStr16[] = "Verbose mode..: ATVn";
-const char helpStr17[] = "Extended codes: ATXn";
-const char helpStr18[] = "Modem reset...: ATZ";
-const char helpStr19[] = "DTR handling..: AT&D";
-const char helpStr20[] = "Fact. defaults: AT&F";
-const char helpStr21[] = "Flow control..: AT&Kn";
-const char helpStr22[] = "Server passwd.: AT&R=server password";
-const char helpStr23[] = "Show settings.: AT&Vn";
-const char helpStr24[] = "Update NVRAM..: AT&W";
-const char helpStr25[] = "Set speed dial: AT&Zn=host[:port],alias";
-const char helpStr26[] = "Auto execute..: AT$AE=AT command";
-const char helpStr27[] = "Are You There?: AT$AYT";
-const char helpStr28[] = "Busy message..: AT$BM=busy message";
-const char helpStr29[] = "mDNS name.....: AT$MDNS=mDNS name";
-const char helpStr30[] = "WiFi password.: AT$PASS=WiFi password";
-const char helpStr31[] = "Serial speed..: AT$SB=n";
-const char helpStr32[] = "Server port...: AT$SP=n";
-const char helpStr33[] = "WiFi SSID.....: AT$SSID=ssid";
-const char helpStr34[] = "Data config...: AT$SU=dps";
-const char helpStr35[] = "Location......: AT$TTL=telnet location";
-const char helpStr36[] = "Terminal size.: AT$TTS=WxH";
-const char helpStr37[] = "Terminal type.: AT$TTY=terminal type";
-const char helpStr38[] = "Startup wait..: AT$W=n";
-const char helpStr39[] = "Query most commands followed by '?'";
-const char helpStr40[] = "e.g. ATQ?, AT&K?, AT$SSID?";
+static const char __in_flash("mdm_helptext") helpStr01[] = "Help..........: AT?";
+static const char __in_flash("mdm_helptext") helpStr02[] = "Repeat command: A/";
+static const char __in_flash("mdm_helptext") helpStr03[] = "Answer call...: ATA";
+static const char __in_flash("mdm_helptext") helpStr04[] = "WiFi connect..: ATCn";
+static const char __in_flash("mdm_helptext") helpStr05[] = "Speed dial....: ATDSn";
+static const char __in_flash("mdm_helptext") helpStr06[] = "Dial host.....: ATDThost[:port]";
+static const char __in_flash("mdm_helptext") helpStr07[] = "Command echo..: ATEn";
+static const char __in_flash("mdm_helptext") helpStr08[] = "HTTP get......: ATGEThttp://host[/page]";
+static const char __in_flash("mdm_helptext") helpStr09[] = "Hang up.......: ATH";
+static const char __in_flash("mdm_helptext") helpStr10[] = "Network info..: ATI";
+static const char __in_flash("mdm_helptext") helpStr11[] = "Handle Telnet.: ATNETn";
+static const char __in_flash("mdm_helptext") helpStr12[] = "Leave cmd mode: ATO";
+static const char __in_flash("mdm_helptext") helpStr13[] = "Quiet mode....: ATQn";
+static const char __in_flash("mdm_helptext") helpStr14[] = "NIST date.time: ATRD/ATRT";
+static const char __in_flash("mdm_helptext") helpStr15[] = "Auto answer...: ATS0=n";
+static const char __in_flash("mdm_helptext") helpStr16[] = "Verbose mode..: ATVn";
+static const char __in_flash("mdm_helptext") helpStr17[] = "Extended codes: ATXn";
+static const char __in_flash("mdm_helptext") helpStr18[] = "Modem reset...: ATZ";
+static const char __in_flash("mdm_helptext") helpStr19[] = "DTR handling..: AT&D";
+static const char __in_flash("mdm_helptext") helpStr20[] = "Fact. defaults: AT&F";
+static const char __in_flash("mdm_helptext") helpStr21[] = "Flow control..: AT&Kn";
+static const char __in_flash("mdm_helptext") helpStr22[] = "Server passwd.: AT&R=server password";
+static const char __in_flash("mdm_helptext") helpStr23[] = "Show settings.: AT&Vn";
+static const char __in_flash("mdm_helptext") helpStr24[] = "Update NVRAM..: AT&W";
+static const char __in_flash("mdm_helptext") helpStr25[] = "Set speed dial: AT&Zn=host[:port],alias";
+static const char __in_flash("mdm_helptext") helpStr26[] = "Auto execute..: AT$AE=AT command";
+static const char __in_flash("mdm_helptext") helpStr27[] = "Are You There?: AT$AYT";
+static const char __in_flash("mdm_helptext") helpStr28[] = "Busy message..: AT$BM=busy message";
+static const char __in_flash("mdm_helptext") helpStr29[] = "mDNS name.....: AT$MDNS=mDNS name";
+static const char __in_flash("mdm_helptext") helpStr30[] = "WiFi password.: AT$PASS=WiFi password";
+static const char __in_flash("mdm_helptext") helpStr31[] = "Serial speed..: AT$SB=n";
+static const char __in_flash("mdm_helptext") helpStr32[] = "Server port...: AT$SP=n";
+static const char __in_flash("mdm_helptext") helpStr33[] = "WiFi SSID.....: AT$SSID=ssid";
+static const char __in_flash("mdm_helptext") helpStr34[] = "Data config...: AT$SU=dps";
+static const char __in_flash("mdm_helptext") helpStr35[] = "Location......: AT$TTL=telnet location";
+static const char __in_flash("mdm_helptext") helpStr36[] = "Terminal size.: AT$TTS=WxH";
+static const char __in_flash("mdm_helptext") helpStr37[] = "Terminal type.: AT$TTY=terminal type";
+static const char __in_flash("mdm_helptext") helpStr38[] = "Startup wait..: AT$W=n";
+static const char __in_flash("mdm_helptext") helpStr39[] = "Query most commands followed by '?'";
+static const char __in_flash("mdm_helptext") helpStr40[] = "e.g. ATQ?, AT&K?, AT$SSID?";
 
-const char *const helpStrs[] = {
+static const char *const __in_flash("mdm_helptext") helpStrs[] = {
     helpStr01, helpStr02, helpStr03, helpStr04, helpStr05, helpStr06,
     helpStr07, helpStr08, helpStr09, helpStr10, helpStr11, helpStr12,
     helpStr13, helpStr14, helpStr15, helpStr16, helpStr17, helpStr18,
@@ -443,7 +439,7 @@ const char *const helpStrs[] = {
     helpStr37, helpStr38, helpStr39, helpStr40};
 #define NUM_HELP_STRS (sizeof(helpStrs) / sizeof(helpStrs[0]))
 
-char *showHelp(char *atCmd)
+static char *showHelp(char *atCmd)
 {
     char helpLine[80];
 
@@ -486,7 +482,7 @@ char *showHelp(char *atCmd)
 //
 // ATI: show network info
 //
-char *showNetworkInfo(char *atCmd)
+static char *showNetworkInfo(char *atCmd)
 {
     char infoLine[100];
     size_t maxCatChars;
@@ -621,7 +617,7 @@ char *showNetworkInfo(char *atCmd)
 // ATNET1 turn on true Telnet handling
 // ATNET2 turn on BBS (fake) Telnet handling
 //
-char *doTelnetMode(char *atCmd)
+static char *doTelnetMode(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -661,7 +657,7 @@ char *doTelnetMode(char *atCmd)
 //
 // ATO go online (if connected to a host)
 //
-char *goOnline(char *atCmd)
+static char *goOnline(char *atCmd)
 {
     if (tcpIsConnected(tcpClient))
     {
@@ -681,7 +677,7 @@ char *goOnline(char *atCmd)
 // ATQ0 disable quiet mode (results issued)
 // ATQ1 enable quiet mode (no results issued)
 //
-char *doQuiet(char *atCmd)
+static char *doQuiet(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -718,7 +714,7 @@ char *doQuiet(char *atCmd)
 // ATS0=0 disable auto answer
 // ATS0=n enable auto answer after n rings
 //
-char *doAutoAnswerConfig(char *atCmd)
+static char *doAutoAnswerConfig(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -761,7 +757,7 @@ char *doAutoAnswerConfig(char *atCmd)
 // ATS2=[128..255] disable escape character
 // ATS2=[0..127] set and enable escape character
 //
-char *doEscapeCharConfig(char *atCmd)
+static char *doEscapeCharConfig(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -804,7 +800,7 @@ char *doEscapeCharConfig(char *atCmd)
 // ATV0 disable verbose mode (results are shown as numbers)
 // ATV1 enable verbose nmode (results are shown as text)
 //
-char *doVerbose(char *atCmd)
+static char *doVerbose(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -841,7 +837,7 @@ char *doVerbose(char *atCmd)
 // ATX0 disable extended results
 // ATX1 enable extended results
 //
-char *doExtended(char *atCmd)
+static char *doExtended(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -958,7 +954,7 @@ char *factoryDefaults(char *atCmd)
 // AT&D2 hang up when DTR transitions to off
 // AT&D3 reset when DTR transitions to off
 //
-char *doDtrHandling(char *atCmd)
+static char *doDtrHandling(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1012,7 +1008,7 @@ char *doDtrHandling(char *atCmd)
 // AT&R? query incoming password
 // AT&R=set incoming password
 //
-char *doServerPassword(char *atCmd)
+static char *doServerPassword(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1043,7 +1039,7 @@ char *doServerPassword(char *atCmd)
 // AT&V0 display current settings
 // AT&V1 display NVRAM settings
 //
-char *displayAllSettings(char *atCmd)
+static char *displayAllSettings(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1075,7 +1071,7 @@ char *displayAllSettings(char *atCmd)
 //
 // AT&W: update NVRAM from current settings
 //
-char *updateNvram(char *atCmd)
+static char *updateNvram(char *atCmd)
 {
     writeSettings(&settings);
     if (!atCmd[0])
@@ -1089,7 +1085,7 @@ char *updateNvram(char *atCmd)
 // AT&Zn? show contents of speed dial slot n
 // AT&Zn=host,alias set speed dial slot n
 //
-char *doSpeedDialSlot(char *atCmd)
+static char *doSpeedDialSlot(char *atCmd)
 {
     int slot;
 
@@ -1159,7 +1155,7 @@ char *doSpeedDialSlot(char *atCmd)
 // AT$AE? query auto execute command string
 // AT$AE=auto execute command string
 //
-char *doAutoExecute(char *atCmd)
+static char *doAutoExecute(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1188,7 +1184,7 @@ char *doAutoExecute(char *atCmd)
 //
 // AT$AYT send "Are you there?" if in a Telnet session
 //
-char *doAreYouThere(char *atCmd)
+static char *doAreYouThere(char *atCmd)
 {
     static const uint8_t areYouThere[] = {IAC, AYT};
 
@@ -1209,7 +1205,7 @@ char *doAreYouThere(char *atCmd)
 // AT$BM?  query busy message
 // AT$BM=busy message set busy message
 //
-char *doBusyMessage(char *atCmd)
+static char *doBusyMessage(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1239,7 +1235,7 @@ char *doBusyMessage(char *atCmd)
 // AT$MDNS? query mDNS network name
 // AT$MDNS=mdnsname set mDNS network name
 //
-char *doMdnsName(char *atCmd)
+static char *doMdnsName(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1272,7 +1268,7 @@ char *doMdnsName(char *atCmd)
 // AT$PASS? query WiFi password
 // AT$PASS=password set WiFi password
 //
-char *doWiFiPassword(char *atCmd)
+static char *doWiFiPassword(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1304,7 +1300,7 @@ char *doWiFiPassword(char *atCmd)
 //         NOTE: n=0 will disable the inbound TCP port
 //               and a RING message will never be displayed
 //
-char *doServerPort(char *atCmd)
+static char *doServerPort(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1339,7 +1335,7 @@ char *doServerPort(char *atCmd)
 // AT$SSID? query WiFi SSID
 // AT$SSID=ssid set WiFi SSID
 //
-char *doSSID(char *atCmd)
+static char *doSSID(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1369,7 +1365,7 @@ char *doSSID(char *atCmd)
 // AT$TTL? query Telnet location
 // AT$TTL=location set Telnet location
 //
-char *doLocation(char *atCmd)
+static char *doLocation(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1399,7 +1395,7 @@ char *doLocation(char *atCmd)
 // AT$TTS? query Telnet window size
 // AT$TTS=WxH set Telnet window size (width x height)
 //
-char *doWindowSize(char *atCmd)
+static char *doWindowSize(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1447,7 +1443,7 @@ char *doWindowSize(char *atCmd)
 // AT$TTY? query Telnet terminal type
 // AT$TTY=terminal set Telnet terminal type
 //
-char *doTerminalType(char *atCmd)
+static char *doTerminalType(char *atCmd)
 {
     switch (atCmd[0])
     {
@@ -1478,7 +1474,7 @@ char *doTerminalType(char *atCmd)
 // AT$W=0 disable startup wait
 // AT$W=1 enable startup wait (wait for a CR on startup)
 //
-char *doStartupWait(char *atCmd)
+static char *doStartupWait(char *atCmd)
 {
     switch (atCmd[0])
     {

@@ -1,15 +1,10 @@
-#ifndef _TCP_SUPPORT_H_
-#define _TCP_SUPPORT_H_
+#ifndef _MODEM_TCP_SUPPORT_H_
+#define _MODEM_TCP_SUPPORT_H_
 
-// #include "hardware/sync.h"
 #include <stdint.h>
 #include <stdbool.h>
-#include "modem/ats.h"
-#include "lwip/err.h"
+#include "modem/settings.h"
 #include "lwip/tcp.h"
-// #include "tcp_types.h"     // for TCP_CLIENT_T, TCP_SERVER_T (replace with actual header if different)
-
-// static volatile bool dnsLookupFinished = false;
 
 void dnsLookupDone(const char *name, const ip_addr_t *ipaddr, void *arg);
 bool dnsLookup(const char *name, ip_addr_t *resolved);
@@ -36,4 +31,4 @@ void tcpTxFlush(TCP_CLIENT_T *client);
 bool serverHasClient(TCP_SERVER_T *server);
 TCP_CLIENT_T *serverGetClient(TCP_SERVER_T *server, TCP_CLIENT_T *client);
 
-#endif /* _TCP_SUPPORT_H_ */
+#endif /* _MODEM_TCP_SUPPORT_H_ */

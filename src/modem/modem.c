@@ -1,80 +1,12 @@
-
-#include <string.h>
-#include <time.h>
-#include <malloc.h>
-
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
-#include "hardware/watchdog.h"
-#include "hardware/sync.h"
-
-#include "modem.h"
-// #include "types.h"
-// #include "globals.h"
-
-#include "lwip/pbuf.h"
-#include "lwip/tcp.h"
-#include "lwip/dns.h"
-
-#include "tusb.h"
-// #include "usb_cdc.h"
-
 #include "modem/ser_cdc.h"
-#include "modem/atc.h"
-#include "modem/modem.h"
+#include "modem/commands.h"
 #include "modem/support.h"
 #include "modem/tcp_support.h"
-// #include "eeprom.h"
-// #include "modem/lfs.h"
-// #include "tcp_support.h"
-// #include "support.h"
 
-#include "modem/ats.h"
-
-
-// =============================================================
 void setup(void)
 {
-    // bool ok = true;
-
-    // tud_init(TUD_OPT_RHPORT);
-    stdio_init_all();
-    // cdc_init();
-    // do
-    // {
-    //     tud_task();
-    // } while (!tud_ready());
-
-    // gpio_init(DTR);
-    // gpio_set_dir(DTR, INPUT);
-
-    // gpio_init(RI);
-    // gpio_set_dir(RI, OUTPUT);
-    // gpio_put(RI, !ACTIVE);           // not ringing
-
-    // gpio_init(DCD);
-    // gpio_set_dir(DCD, OUTPUT);
-    // gpio_put(DCD, !ACTIVE);          // not connected
-
-    // gpio_init(DSR);
-    // gpio_set_dir(DSR, OUTPUT);
-    // gpio_put(DSR, !ACTIVE);          // modem is not ready
-    // #ifndef NDEBUG
-    //     gpio_init(POLL_STATE_LED);
-    //     gpio_set_dir(POLL_STATE_LED, OUTPUT);
-    //     gpio_put(POLL_STATE_LED, LOW);
-
-    //     gpio_init(RXBUFF_OVFL);
-    //     gpio_set_dir(RXBUFF_OVFL, OUTPUT);
-    //     gpio_put(RXBUFF_OVFL, LOW);
-
-    //     gpio_init(TXBUFF_OVFL);
-    //     gpio_set_dir(TXBUFF_OVFL, OUTPUT);
-    //     gpio_put(TXBUFF_OVFL, LOW);
-    // #endif
-
-    // initEEPROM();
-    // initLFS();
     readSettings(&settings);
 
     if (settings.magicNumber != MAGIC_NUMBER)
@@ -84,13 +16,8 @@ void setup(void)
     }
     sessionTelnetType = settings.telnet;
 
-    // ser_set_baudrate(ser0, settings.serialSpeed);
-    // ser_set_format(ser0, settings.dataBits, settings.stopBits, (ser_parity_t)settings.parity);
-    // ser_set_translate_crlf(ser0, false);
-    // setHardwareFlow(settings.rtsCts);
-
     // enable interrupt when DTR goes inactive if we're not ignoring it
-    gpio_set_irq_enabled_with_callback(DTR, GPIO_IRQ_EDGE_RISE, settings.dtrHandling != DTR_IGNORE, dtrIrq);
+    // gpio_set_irq_enabled_with_callback(DTR, GPIO_IRQ_EDGE_RISE, settings.dtrHandling != DTR_IGNORE, dtrIrq);
 
     if (settings.startupWait)
     {
@@ -156,18 +83,6 @@ void setup(void)
     {
         sendResult(R_ERROR); // SSID configured, but not connected
     }
-}
-
-// Invoked when device is mounted
-void tud_mount_cb(void)
-{
-    // blink_interval_ms = BLINK_MOUNTED;
-}
-
-// Invoked when device is unmounted
-void tud_umount_cb(void)
-{
-    // blink_interval_ms = BLINK_NOT_MOUNTED;
 }
 
 // =============================================================
@@ -257,13 +172,3 @@ void modem_run(void)
         break;
     }
 }
-
-// int main(void)
-// {
-//     setup();
-//     while (true)
-//     {
-//         loop();
-//     }
-//     return 0;
-// }

@@ -1,13 +1,7 @@
-#include <pico.h>
 #include <pico/stdlib.h>
-#include "modem/modem.h"
-#include "modem/support.h"
 #include "modem/tcp_support.h"
-#include "modem/atc.h"
-#include "modem/ats.h"
+#include "modem/commands.h"
 #include "modem/ser_cdc.h"
-#include "support.h"
-#include "hardware/gpio.h"
 #include <string.h>
 
 const char okStr[] = {"OK"};
@@ -21,15 +15,6 @@ const char *const resultCodes[] = {okStr, connectStr, ringStr, noCarrierStr, err
 void crlf(void)
 {
     ser_puts(ser0, "\r\n");
-}
-
-// DTR low to high interrupt handler
-void dtrIrq(unsigned int gpio, uint32_t events)
-{
-    if (gpio == DTR && (events & GPIO_IRQ_EDGE_RISE))
-    {
-        dtrWentInactive = true;
-    }
 }
 
 // return and reset DTR change indicator

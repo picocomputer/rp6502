@@ -1,5 +1,3 @@
-#include <stdbool.h>
-#include <stdint.h>
 #include "ser_cdc.h"
 #include "tusb.h"
 #include "modem.h"

@@ -1,12 +1,10 @@
-#ifndef _SUPPORT_H_
-#define _SUPPORT_H_
+#ifndef _MODEM_SUPPORT_H_
+#define _MODEM_SUPPORT_H_
 
 #include <stdbool.h>
 #include <stdint.h>
 
-void dtrIrq(unsigned int gpio, uint32_t events);
 void crlf(void);
-void dtrIrq(unsigned int gpio, uint32_t events);
 bool checkDtrIrq(void);
 void inAtCommandMode();
 void sendSerialData();
@@ -22,4 +20,4 @@ void displayStoredSettings(void);
 void inPasswordMode();
 bool PagedOut(const char *str, bool reset);
 
-#endif /* _SUPPORT_H_ */
+#endif /* _MODEM_SUPPORT_H_ */

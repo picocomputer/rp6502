@@ -32,7 +32,7 @@ static bool rom_FFFD;
 static bool is_reading_fat;
 static bool lfs_file_open;
 static lfs_file_t lfs_file;
-static LFS_FILE_CONFIG(lfs_file_config);
+LFS_FILE_CONFIG(lfs_file_config, static);
 static FIL fat_fil;
 
 static size_t rom_gets(void)

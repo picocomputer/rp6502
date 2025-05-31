@@ -4,12 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _ATS_H_
-#define _ATS_H_
+#ifndef _MODEM_SETTINGS_H_
+#define _MODEM_SETTINGS_H_
 
-#include <stdint.h>
 #include "modem.h"
-#include "lwip/tcp.h"
 #include "lwip/dns.h"
 
 typedef enum ResultCodes
@@ -119,4 +117,4 @@ extern err_t lastTcpWriteErr;
 bool readSettings(SETTINGS_T *p);
 bool writeSettings(SETTINGS_T *p);
 
-#endif /* _ATS_H_ */
+#endif /* _MODEM_SETTINGS_H_ */

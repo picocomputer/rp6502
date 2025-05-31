@@ -91,10 +91,10 @@ target_sources(rp6502_ria PRIVATE
     fatfs/ffunicode.c
     littlefs/lfs.c
     littlefs/lfs_util.c
-    modem/atc.c
-    modem/ats.c
+    modem/commands.c
     modem/modem.c
     modem/ser_cdc.c
+    modem/settings.c
     modem/support.c
     modem/tcp_support.c
 )

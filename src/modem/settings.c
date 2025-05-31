@@ -9,10 +9,7 @@
 
 #ifdef RP6502_RIA_W
 
-#include "modem.h"
-#include "modem/ats.h"
-#include "ser_cdc.h"
-#include "littlefs/lfs.h"
+#include "modem/settings.h"
 #include "sys/lfs.h"
 
 SETTINGS_T settings;
@@ -45,16 +42,14 @@ err_t lastTcpWriteErr = ERR_OK;
 static const char settings_fname[] = "settings.cfg";
 
 // lfs_t lfs_volume;
-lfs_file_t lfs_file;
+static lfs_file_t lfs_file;
+LFS_FILE_CONFIG(lfs_file_config, static);
+// X_LFS_FILE_CONFIG(foo);
 
 bool readSettings(SETTINGS_T *p)
 {
     bool ok = false;
-    uint8_t file_buffer[FLASH_PAGE_SIZE];
-    struct lfs_file_config file_config = {
-        .buffer = file_buffer,
-    };
-    if (lfs_file_opencfg(&lfs_volume, &lfs_file, settings_fname, LFS_O_RDONLY, &file_config) == LFS_ERR_OK)
+    if (lfs_file_opencfg(&lfs_volume, &lfs_file, settings_fname, LFS_O_RDONLY, &lfs_file_config) == LFS_ERR_OK)
     {
         if (lfs_file_read(&lfs_volume, &lfs_file, p, sizeof(SETTINGS_T)) == sizeof(SETTINGS_T))
             ok = true;
@@ -66,11 +61,7 @@ bool readSettings(SETTINGS_T *p)
 bool writeSettings(SETTINGS_T *p)
 {
     bool ok = false;
-    uint8_t file_buffer[FLASH_PAGE_SIZE];
-    struct lfs_file_config file_config = {
-        .buffer = file_buffer,
-    };
-    if (lfs_file_opencfg(&lfs_volume, &lfs_file, settings_fname, LFS_O_RDWR | LFS_O_CREAT, &file_config) == LFS_ERR_OK)
+    if (lfs_file_opencfg(&lfs_volume, &lfs_file, settings_fname, LFS_O_RDWR | LFS_O_CREAT, &lfs_file_config) == LFS_ERR_OK)
     {
         if (lfs_file_write(&lfs_volume, &lfs_file, p, sizeof(SETTINGS_T)) == sizeof(SETTINGS_T))
         {
