@@ -5,12 +5,15 @@
  */
 
 #include <pico.h>
-#include <string.h>
 
 #ifdef RP6502_RIA_W
 
 #include "modem/settings.h"
 #include "sys/lfs.h"
+#include <string.h>
+
+#define MAGIC_NUMBER 0x5678
+static const char __in_flash("modem") settings_fname[] = "settings.cfg";
 
 SETTINGS_T settings;
 TCP_CLIENT_T *tcpClient, tcpClient0, tcpDroppedClient;
@@ -39,15 +42,10 @@ uint16_t maxTxBuffLen = 0;
 err_t lastTcpWriteErr = ERR_OK;
 #endif
 
-static const char settings_fname[] = "settings.cfg";
-
-// lfs_t lfs_volume;
-static lfs_file_t lfs_file;
-LFS_FILE_CONFIG(lfs_file_config, static);
-// X_LFS_FILE_CONFIG(foo);
-
 bool readSettings(SETTINGS_T *p)
 {
+    lfs_file_t lfs_file;
+    LFS_FILE_CONFIG(lfs_file_config);
     bool ok = false;
     if (lfs_file_opencfg(&lfs_volume, &lfs_file, settings_fname, LFS_O_RDONLY, &lfs_file_config) == LFS_ERR_OK)
     {
@@ -60,6 +58,8 @@ bool readSettings(SETTINGS_T *p)
 
 bool writeSettings(SETTINGS_T *p)
 {
+    lfs_file_t lfs_file;
+    LFS_FILE_CONFIG(lfs_file_config);
     bool ok = false;
     if (lfs_file_opencfg(&lfs_volume, &lfs_file, settings_fname, LFS_O_RDWR | LFS_O_CREAT, &lfs_file_config) == LFS_ERR_OK)
     {
@@ -70,6 +70,48 @@ bool writeSettings(SETTINGS_T *p)
         lfs_file_close(&lfs_volume, &lfs_file);
     }
     return ok;
+}
+
+void loadDefaultSettings(SETTINGS_T *p)
+{
+    p->magicNumber = MAGIC_NUMBER;
+    p->ssid[0] = NUL;
+    p->wifiPassword[0] = NUL;
+    p->width = 80;
+    p->height = 24;
+    p->escChar = ESC_CHAR;
+    for (int i = 0; i < SPEED_DIAL_SLOTS; ++i)
+    {
+        p->alias[i][0] = NUL;
+        p->speedDial[i][0] = NUL;
+    }
+    strcpy(p->mdnsName, "picocomputer");
+    p->autoAnswer = 0;
+    p->listenPort = 0;
+    strcpy(p->busyMsg, "Sorry, the system is currently busy. Please try again later.");
+    p->serverPassword[0] = NUL;
+    p->echo = true;
+    p->telnet = REAL_TELNET;
+    p->autoExecute[0] = NUL;
+    strcpy(p->terminal, "ansi");
+    strcpy(p->location, "Computer Room");
+    p->startupWait = false;
+    p->extendedCodes = true;
+    p->verbose = true;
+    p->quiet = false;
+    p->dtrHandling = DTR_IGNORE;
+    strcpy(p->alias[0], "particles");
+    strcpy(p->speedDial[0], "+particlesbbs.dyndns.org:6400");
+    strcpy(p->alias[1], "altair");
+    strcpy(p->speedDial[1], "altair.virtualaltair.com:4667");
+    strcpy(p->alias[2], "heatwave");
+    strcpy(p->speedDial[2], "heatwave.ddns.net:9640");
+}
+
+void loadNvramSettings(SETTINGS_T *p)
+{
+    if (!readSettings(p) || p->magicNumber != MAGIC_NUMBER)
+        loadDefaultSettings(p);
 }
 
 #endif /* RP6502_RIA_W */

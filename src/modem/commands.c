@@ -388,48 +388,48 @@ static char *hangup(char *atCmd)
 // with an odd number of strings, add an empty string ("") at the end
 // to pad things out.
 //
-static const char __in_flash("mdm_helptext") helpStr01[] = "Help..........: AT?";
-static const char __in_flash("mdm_helptext") helpStr02[] = "Repeat command: A/";
-static const char __in_flash("mdm_helptext") helpStr03[] = "Answer call...: ATA";
-static const char __in_flash("mdm_helptext") helpStr04[] = "WiFi connect..: ATCn";
-static const char __in_flash("mdm_helptext") helpStr05[] = "Speed dial....: ATDSn";
-static const char __in_flash("mdm_helptext") helpStr06[] = "Dial host.....: ATDThost[:port]";
-static const char __in_flash("mdm_helptext") helpStr07[] = "Command echo..: ATEn";
-static const char __in_flash("mdm_helptext") helpStr08[] = "HTTP get......: ATGEThttp://host[/page]";
-static const char __in_flash("mdm_helptext") helpStr09[] = "Hang up.......: ATH";
-static const char __in_flash("mdm_helptext") helpStr10[] = "Network info..: ATI";
-static const char __in_flash("mdm_helptext") helpStr11[] = "Handle Telnet.: ATNETn";
-static const char __in_flash("mdm_helptext") helpStr12[] = "Leave cmd mode: ATO";
-static const char __in_flash("mdm_helptext") helpStr13[] = "Quiet mode....: ATQn";
-static const char __in_flash("mdm_helptext") helpStr14[] = "NIST date.time: ATRD/ATRT";
-static const char __in_flash("mdm_helptext") helpStr15[] = "Auto answer...: ATS0=n";
-static const char __in_flash("mdm_helptext") helpStr16[] = "Verbose mode..: ATVn";
-static const char __in_flash("mdm_helptext") helpStr17[] = "Extended codes: ATXn";
-static const char __in_flash("mdm_helptext") helpStr18[] = "Modem reset...: ATZ";
-static const char __in_flash("mdm_helptext") helpStr19[] = "DTR handling..: AT&D";
-static const char __in_flash("mdm_helptext") helpStr20[] = "Fact. defaults: AT&F";
-static const char __in_flash("mdm_helptext") helpStr21[] = "Flow control..: AT&Kn";
-static const char __in_flash("mdm_helptext") helpStr22[] = "Server passwd.: AT&R=server password";
-static const char __in_flash("mdm_helptext") helpStr23[] = "Show settings.: AT&Vn";
-static const char __in_flash("mdm_helptext") helpStr24[] = "Update NVRAM..: AT&W";
-static const char __in_flash("mdm_helptext") helpStr25[] = "Set speed dial: AT&Zn=host[:port],alias";
-static const char __in_flash("mdm_helptext") helpStr26[] = "Auto execute..: AT$AE=AT command";
-static const char __in_flash("mdm_helptext") helpStr27[] = "Are You There?: AT$AYT";
-static const char __in_flash("mdm_helptext") helpStr28[] = "Busy message..: AT$BM=busy message";
-static const char __in_flash("mdm_helptext") helpStr29[] = "mDNS name.....: AT$MDNS=mDNS name";
-static const char __in_flash("mdm_helptext") helpStr30[] = "WiFi password.: AT$PASS=WiFi password";
-static const char __in_flash("mdm_helptext") helpStr31[] = "Serial speed..: AT$SB=n";
-static const char __in_flash("mdm_helptext") helpStr32[] = "Server port...: AT$SP=n";
-static const char __in_flash("mdm_helptext") helpStr33[] = "WiFi SSID.....: AT$SSID=ssid";
-static const char __in_flash("mdm_helptext") helpStr34[] = "Data config...: AT$SU=dps";
-static const char __in_flash("mdm_helptext") helpStr35[] = "Location......: AT$TTL=telnet location";
-static const char __in_flash("mdm_helptext") helpStr36[] = "Terminal size.: AT$TTS=WxH";
-static const char __in_flash("mdm_helptext") helpStr37[] = "Terminal type.: AT$TTY=terminal type";
-static const char __in_flash("mdm_helptext") helpStr38[] = "Startup wait..: AT$W=n";
-static const char __in_flash("mdm_helptext") helpStr39[] = "Query most commands followed by '?'";
-static const char __in_flash("mdm_helptext") helpStr40[] = "e.g. ATQ?, AT&K?, AT$SSID?";
+static const char __in_flash("modem") helpStr01[] = "Help..........: AT?";
+static const char __in_flash("modem") helpStr02[] = "Repeat command: A/";
+static const char __in_flash("modem") helpStr03[] = "Answer call...: ATA";
+static const char __in_flash("modem") helpStr04[] = "WiFi connect..: ATCn";
+static const char __in_flash("modem") helpStr05[] = "Speed dial....: ATDSn";
+static const char __in_flash("modem") helpStr06[] = "Dial host.....: ATDThost[:port]";
+static const char __in_flash("modem") helpStr07[] = "Command echo..: ATEn";
+static const char __in_flash("modem") helpStr08[] = "HTTP get......: ATGEThttp://host[/page]";
+static const char __in_flash("modem") helpStr09[] = "Hang up.......: ATH";
+static const char __in_flash("modem") helpStr10[] = "Network info..: ATI";
+static const char __in_flash("modem") helpStr11[] = "Handle Telnet.: ATNETn";
+static const char __in_flash("modem") helpStr12[] = "Leave cmd mode: ATO";
+static const char __in_flash("modem") helpStr13[] = "Quiet mode....: ATQn";
+static const char __in_flash("modem") helpStr14[] = "NIST date.time: ATRD/ATRT";
+static const char __in_flash("modem") helpStr15[] = "Auto answer...: ATS0=n";
+static const char __in_flash("modem") helpStr16[] = "Verbose mode..: ATVn";
+static const char __in_flash("modem") helpStr17[] = "Extended codes: ATXn";
+static const char __in_flash("modem") helpStr18[] = "Modem reset...: ATZ";
+static const char __in_flash("modem") helpStr19[] = "DTR handling..: AT&D";
+static const char __in_flash("modem") helpStr20[] = "Fact. defaults: AT&F";
+static const char __in_flash("modem") helpStr21[] = "Flow control..: AT&Kn";
+static const char __in_flash("modem") helpStr22[] = "Server passwd.: AT&R=server password";
+static const char __in_flash("modem") helpStr23[] = "Show settings.: AT&Vn";
+static const char __in_flash("modem") helpStr24[] = "Update NVRAM..: AT&W";
+static const char __in_flash("modem") helpStr25[] = "Set speed dial: AT&Zn=host[:port],alias";
+static const char __in_flash("modem") helpStr26[] = "Auto execute..: AT$AE=AT command";
+static const char __in_flash("modem") helpStr27[] = "Are You There?: AT$AYT";
+static const char __in_flash("modem") helpStr28[] = "Busy message..: AT$BM=busy message";
+static const char __in_flash("modem") helpStr29[] = "mDNS name.....: AT$MDNS=mDNS name";
+static const char __in_flash("modem") helpStr30[] = "WiFi password.: AT$PASS=WiFi password";
+static const char __in_flash("modem") helpStr31[] = "Serial speed..: AT$SB=n";
+static const char __in_flash("modem") helpStr32[] = "Server port...: AT$SP=n";
+static const char __in_flash("modem") helpStr33[] = "WiFi SSID.....: AT$SSID=ssid";
+static const char __in_flash("modem") helpStr34[] = "Data config...: AT$SU=dps";
+static const char __in_flash("modem") helpStr35[] = "Location......: AT$TTL=telnet location";
+static const char __in_flash("modem") helpStr36[] = "Terminal size.: AT$TTS=WxH";
+static const char __in_flash("modem") helpStr37[] = "Terminal type.: AT$TTY=terminal type";
+static const char __in_flash("modem") helpStr38[] = "Startup wait..: AT$W=n";
+static const char __in_flash("modem") helpStr39[] = "Query most commands followed by '?'";
+static const char __in_flash("modem") helpStr40[] = "e.g. ATQ?, AT&K?, AT$SSID?";
 
-static const char *const __in_flash("mdm_helptext") helpStrs[] = {
+static const char *const __in_flash("modem") helpStrs[] = {
     helpStr01, helpStr02, helpStr03, helpStr04, helpStr05, helpStr06,
     helpStr07, helpStr08, helpStr09, helpStr10, helpStr11, helpStr12,
     helpStr13, helpStr14, helpStr15, helpStr16, helpStr17, helpStr18,
@@ -870,80 +870,26 @@ static char *doExtended(char *atCmd)
 }
 
 //
-// ATZ restart the sketch
+// ATZ load settings with saved NVRAM
 //
-char *resetToNvram(char *atCmd)
+static char *doResetToNvram(char *atCmd)
 {
-    ser_tx_wait_blocking(ser0); // allow for CR/LF to finish
-#ifdef NDEBUG
-#error TODO
-#endif
-    // watchdog_enable(1, false);
-    // while (true)
-    // {
-    //     tight_loop_contents();
-    // }
-    return atCmd; // should never actually get here...
+    loadNvramSettings(&settings);
+    sendResult(R_OK);
+    return atCmd;
 }
 
 //
 // AT&F reset NVRAM to defaults and load them into current settings
 //
-char *factoryDefaults(char *atCmd)
+static char *doFactoryDefaults(char *atCmd)
 {
-    settings.magicNumber = MAGIC_NUMBER;
-    settings.ssid[0] = NUL;
-    settings.wifiPassword[0] = NUL;
-    settings.width = 80;
-    settings.height = 24;
-    settings.escChar = ESC_CHAR;
-    for (int i = 0; i < SPEED_DIAL_SLOTS; ++i)
-    {
-        settings.alias[i][0] = NUL;
-        settings.speedDial[i][0] = NUL;
-    }
-    strcpy(settings.mdnsName, "picocomputer");
-    settings.autoAnswer = 0;
-    settings.listenPort = 0;
-    strcpy(settings.busyMsg, "Sorry, the system is currently busy. Please try again later.");
-    settings.serverPassword[0] = NUL;
-    settings.echo = true;
-    settings.telnet = REAL_TELNET;
-    settings.autoExecute[0] = NUL;
-    strcpy(settings.terminal, "ansi");
-    strcpy(settings.location, "Computer Room");
-    settings.startupWait = false;
-    settings.extendedCodes = true;
-    settings.verbose = true;
-    settings.quiet = false;
-    settings.dtrHandling = DTR_IGNORE;
-
-    strcpy(settings.alias[0], "particles");
-    strcpy(settings.speedDial[0], "+particlesbbs.dyndns.org:6400");
-    strcpy(settings.alias[1], "altair");
-    strcpy(settings.speedDial[1], "altair.virtualaltair.com:4667");
-    strcpy(settings.alias[2], "heatwave");
-    strcpy(settings.speedDial[2], "heatwave.ddns.net:9640");
-
+    loadDefaultSettings(&settings);
     bool ok = writeSettings(&settings);
-
-    if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP)
-    {
-        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-    }
-
-    if (atCmd)
-    {
-        atCmd += 2;
-        if (!atCmd[0] && ok)
-        {
-            sendResult(R_OK);
-        }
-        else if (!ok)
-        {
-            sendResult(R_ERROR);
-        }
-    }
+    if (ok)
+        sendResult(R_OK);
+    else
+        sendResult(R_ERROR);
     return atCmd;
 }
 
@@ -1636,8 +1582,7 @@ void doAtCmds(char *atCmd)
                     else if (!strncasecmp(atCmd, "Z", 1))
                     {
                         // reset to NVRAM
-                        atCmd = resetToNvram(atCmd + 1);
-                        // atCmd = atCmd + 1; // Skip - Hard reset drops USB, trouble on some devices. TODO softer ATZ implementation
+                        atCmd = doResetToNvram(atCmd + 1);
                     }
                     else if (!strncasecmp(atCmd, "&V", 2))
                     {
@@ -1657,7 +1602,7 @@ void doAtCmds(char *atCmd)
                     else if (!strncasecmp(atCmd, "&F", 2))
                     {
                         // factory defaults
-                        atCmd = factoryDefaults(atCmd);
+                        atCmd = doFactoryDefaults(atCmd + 2);
                     }
                     else if (!strncasecmp(atCmd, "E", 1))
                     {

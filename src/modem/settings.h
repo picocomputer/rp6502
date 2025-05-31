@@ -116,5 +116,8 @@ extern err_t lastTcpWriteErr;
 
 bool readSettings(SETTINGS_T *p);
 bool writeSettings(SETTINGS_T *p);
+void loadDefaultSettings(SETTINGS_T *p);
+void loadNvramSettings(SETTINGS_T *p);
+
 
 #endif /* _MODEM_SETTINGS_H_ */

@@ -7,13 +7,7 @@
 
 void setup(void)
 {
-    readSettings(&settings);
-
-    if (settings.magicNumber != MAGIC_NUMBER)
-    {
-        // no valid data in EEPROM/NVRAM, populate with defaults
-        factoryDefaults(NULL);
-    }
+    loadNvramSettings(&settings);
     sessionTelnetType = settings.telnet;
 
     // enable interrupt when DTR goes inactive if we're not ignoring it
@@ -96,7 +90,7 @@ void modem_run(void)
 
     if (settings.dtrHandling == DTR_RESET && checkDtrIrq())
     {
-        resetToNvram(NULL);
+        loadNvramSettings(&settings);
     }
 
     switch (state)
@@ -157,7 +151,7 @@ void modem_run(void)
                 break;
 
             case DTR_RESET:
-                resetToNvram(NULL);
+                loadNvramSettings(&settings);
                 break;
 
             case DTR_IGNORE:

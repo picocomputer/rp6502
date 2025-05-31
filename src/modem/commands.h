@@ -8,7 +8,5 @@
 #define _MODEM_COMMANDS_H_
 
 void doAtCmds(char *atCmd);
-char *factoryDefaults(char *atCmd);
-char *resetToNvram(char *atCmd);
 
 #endif /* _MODEM_COMMANDS_H_ */

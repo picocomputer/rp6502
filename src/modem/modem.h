@@ -10,7 +10,6 @@
 #define ESC_CHAR '+'
 #define ESC_COUNT 3
 #define GUARD_TIME 1000
-#define MAGIC_NUMBER 0x5678
 #define MAX_SSID_LEN 32
 #define MAX_WIFI_PWD_LEN 64
 #define DEFAULT_LISTEN_PORT 6400
