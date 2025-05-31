@@ -21,7 +21,8 @@ uint64_t clk_clock_start;
 
 void clk_init(void)
 {
-    const struct timespec ts = {0, 0};
+    // starting at noon avoids time zone wraparound
+    const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
     cfg_set_time_zone(clk_set_time_zone(cfg_get_time_zone()));
 }

@@ -1,6 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include "ser_hal.h"
+#include "ser_cdc.h"
 #include "tusb.h"
 #include "modem.h"
 
@@ -13,7 +13,7 @@ void ser_set(unsigned int signal, bool val)
 
 bool ser_get(unsigned int signal)
 {
-    uint8_t line_state;
+    uint8_t line_state = 3;
     if (signal == DTR || signal == RTS)
     {
         // line_state = tud_cdc_n_get_line_state(0);
@@ -30,21 +30,28 @@ bool ser_get(unsigned int signal)
 
 bool ser_is_readable(ser_inst_t ser)
 {
+    (void)ser;
     // return tud_cdc_n_available((unsigned int)ser) != 0;
+    return false;
 }
 
 bool ser_is_writeable(ser_inst_t ser)
 {
+    (void)ser;
     // return tud_cdc_n_write_available((unsigned int)ser) != 0;
+    return false;
 }
 
 char ser_getc(ser_inst_t ser)
 {
+    (void)ser;
     // return (char)tud_cdc_n_read_char((unsigned int)ser);
+    return -1;
 }
 
 void ser_putc(ser_inst_t ser, char c)
 {
+    (void)c;
     while (!ser_is_writeable(ser))
     {
         // tud_cdc_n_write_flush((unsigned int)ser);
@@ -56,6 +63,7 @@ void ser_putc(ser_inst_t ser, char c)
 
 void ser_putc_raw(ser_inst_t ser, char c)
 {
+    (void)c;
     while (!ser_is_writeable(ser))
     {
         // tud_cdc_n_write_flush((unsigned int)ser);
@@ -67,14 +75,18 @@ void ser_putc_raw(ser_inst_t ser, char c)
 
 void ser_tx_wait_blocking(ser_inst_t ser)
 {
+    (void)ser;
+
     // tud_cdc_n_write_flush((unsigned int)ser);
     // tud_task();
 }
 
 void ser_puts(ser_inst_t ser, const char *s)
 {
-    uint32_t written = 0;
-    uint32_t length = strlen(s);
+    (void)ser;
+    (void)s;
+    // uint32_t written = 0;
+    // uint32_t length = strlen(s);
     // do
     // {
     //     written += tud_cdc_n_write((unsigned int)ser, (char *)(s + written), length - written);

@@ -27,6 +27,8 @@
 #ifndef _SER_HAL_H_
 #define _SER_HAL_H_
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C"
 {

@@ -9,8 +9,8 @@
 #include "hardware/sync.h"
 
 #include "modem.h"
-#include "types.h"
-#include "globals.h"
+// #include "types.h"
+// #include "globals.h"
 
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
@@ -19,15 +19,18 @@
 #include "tusb.h"
 // #include "usb_cdc.h"
 
-#include "ser_hal.h"
-#include "modem.h"
+#include "modem/ser_cdc.h"
+#include "modem/atc.h"
+#include "modem/modem.h"
+#include "modem/support.h"
+#include "modem/tcp_support.h"
 // #include "eeprom.h"
-#include "lfs.h"
-#include "tcp_support.h"
-#include "support.h"
-#include "at_basic.h"
-#include "at_extended.h"
-#include "at_proprietary.h"
+// #include "modem/lfs.h"
+// #include "tcp_support.h"
+// #include "support.h"
+
+#include "modem/ats.h"
+
 
 // =============================================================
 void setup(void)
@@ -252,225 +255,6 @@ void modem_run(void)
             endCall(); // then hang up
         }
         break;
-    }
-}
-
-// =============================================================
-void doAtCmds(char *atCmd)
-{
-    size_t len;
-
-    trim(atCmd); // get rid of leading and trailing spaces
-    if (atCmd[0])
-    {
-        // is it an AT command?
-        if (strncasecmp(atCmd, "AT", 2))
-        {
-            sendResult(R_ERROR); // nope, time to die
-        }
-        else
-        {
-            // save command for possible future A/
-            strncpy(lastCmd, atCmd, MAX_CMD_LEN);
-            lastCmd[MAX_CMD_LEN] = NUL;
-            atCmd += 2; // skip over AT prefix
-            len = strlen(atCmd);
-
-            if (!atCmd[0])
-            {
-                // plain old AT
-                sendResult(R_OK);
-            }
-            else
-            {
-                trim(atCmd);
-                while (atCmd[0])
-                {
-                    if (!strncasecmp(atCmd, "?", 1))
-                    { // help message
-                        // help
-                        atCmd = showHelp(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "$AYT", 4))
-                    {
-                        // send Telnet "Are You There?"
-                        atCmd = doAreYouThere(atCmd + 4);
-                    }
-                    else if (!strncasecmp(atCmd, "$SSID", 5))
-                    {
-                        // query/set WiFi SSID
-                        atCmd = doSSID(atCmd + 5);
-                    }
-                    else if (!strncasecmp(atCmd, "$PASS", 5))
-                    {
-                        // query/set WiFi password
-                        atCmd = doWiFiPassword(atCmd + 5);
-                    }
-                    else if (!strncasecmp(atCmd, "C", 1))
-                    {
-                        // connect/disconnect to WiFi
-                        atCmd = wifiConnection(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "D", 1) && len > 2 && strchr("TPI", toupper(atCmd[1])))
-                    {
-                        // dial a number
-                        atCmd = dialNumber(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "DS", 2) && len == 3)
-                    {
-                        // speed dial a number
-                        atCmd = speedDialNumber(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "H0", 2))
-                    {
-                        // hang up call
-                        atCmd = hangup(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "H", 1) && !isdigit(atCmd[1]))
-                    {
-                        // hang up call
-                        atCmd = hangup(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "&Z", 2) && isdigit(atCmd[2]))
-                    {
-                        // speed dial query or set
-                        atCmd = doSpeedDialSlot(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "O", 1))
-                    {
-                        // go online
-                        atCmd = goOnline(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "GET", 3))
-                    {
-                        // get a web page (http only, no https)
-                        atCmd = httpGet(atCmd + 3);
-                    }
-                    else if (settings.listenPort && !strncasecmp(atCmd, "A", 1) && serverHasClient(&tcpServer))
-                    {
-                        // manually answer incoming connection
-                        atCmd = answerCall(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "S0", 2))
-                    {
-                        // query/set auto answer
-                        atCmd = doAutoAnswerConfig(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "S2", 2))
-                    {
-                        // query/set escape character
-                        atCmd = doEscapeCharConfig(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "$SP", 3))
-                    {
-                        // query set inbound TCP port
-                        atCmd = doServerPort(atCmd + 3);
-                    }
-                    else if (!strncasecmp(atCmd, "$BM", 3))
-                    {
-                        // query/set busy message
-                        atCmd = doBusyMessage(atCmd + 3);
-                    }
-                    else if (!strncasecmp(atCmd, "&R", 2))
-                    {
-                        // query/set require password
-                        atCmd = doServerPassword(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "I", 1))
-                    {
-                        // show network information
-                        atCmd = showNetworkInfo(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "Z", 1))
-                    {
-                        // reset to NVRAM
-                        atCmd = resetToNvram(atCmd + 1);
-                        // atCmd = atCmd + 1; // Skip - Hard reset drops USB, trouble on some devices. TODO softer ATZ implementation
-                    }
-                    else if (!strncasecmp(atCmd, "&V", 2))
-                    {
-                        // display current and stored settings
-                        atCmd = displayAllSettings(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "&W", 2))
-                    {
-                        // write settings to EEPROM
-                        atCmd = updateNvram(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "&D", 2))
-                    {
-                        // DTR transition handling
-                        atCmd = doDtrHandling(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "&F", 2))
-                    {
-                        // factory defaults
-                        atCmd = factoryDefaults(atCmd);
-                    }
-                    else if (!strncasecmp(atCmd, "E", 1))
-                    {
-                        // query/set command mode echo
-                        atCmd = doEcho(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "Q", 1))
-                    {
-                        // query/set quiet mode
-                        atCmd = doQuiet(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "V", 1))
-                    {
-                        // query/set verbose mode
-                        atCmd = doVerbose(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "X", 1))
-                    {
-                        // query/set extended result codes
-                        atCmd = doExtended(atCmd + 1);
-                    }
-                    else if (!strncasecmp(atCmd, "$W", 2))
-                    {
-                        // query/set startup wait
-                        atCmd = doStartupWait(atCmd + 2);
-                    }
-                    else if (!strncasecmp(atCmd, "NET", 3))
-                    {
-                        // query/set telnet mode
-                        atCmd = doTelnetMode(atCmd + 3);
-                    }
-                    else if (!strncasecmp(atCmd, "$AE", 3))
-                    {
-                        // do auto execute commands
-                        atCmd = doAutoExecute(atCmd + 3);
-                    }
-                    else if (!strncasecmp(atCmd, "$TTY", 4))
-                    {
-                        // do telnet terminal type
-                        atCmd = doTerminalType(atCmd + 4);
-                    }
-                    else if (!strncasecmp(atCmd, "$TTL", 4))
-                    {
-                        // do telnet location
-                        atCmd = doLocation(atCmd + 4);
-                    }
-                    else if (!strncasecmp(atCmd, "$TTS", 4))
-                    {
-                        // do telnet location
-                        atCmd = doWindowSize(atCmd + 4);
-                    }
-                    else if (!strncasecmp(atCmd, "$MDNS", 5))
-                    {
-                        // handle mDNS name
-                        atCmd = doMdnsName(atCmd + 5);
-                    }
-                    else
-                    {
-                        // unrecognized command
-                        sendResult(R_ERROR);
-                    }
-                    trim(atCmd);
-                }
-            }
-        }
     }
 }
 

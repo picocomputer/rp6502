@@ -1,8 +1,16 @@
-#ifndef _TYPES_H
-#define _TYPES_H
-#include "pico/stdlib.h"
-#include "lwip/dns.h"
+/*
+ * Copyright (c) 2023 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#ifndef _ATS_H_
+#define _ATS_H_
+
+#include <stdint.h>
 #include "modem.h"
+#include "lwip/tcp.h"
+#include "lwip/dns.h"
 
 typedef enum ResultCodes
 {
@@ -14,6 +22,7 @@ typedef enum ResultCodes
     R_NO_ANSWER,
     R_RING_IP
 } ResultCodes;
+
 typedef enum DtrStates
 {
     DTR_IGNORE,
@@ -21,6 +30,14 @@ typedef enum DtrStates
     DTR_END_CALL,
     DTR_RESET
 } DtrStates;
+
+typedef enum MdmState
+{
+    CMD_NOT_IN_CALL,
+    CMD_IN_CALL,
+    ONLINE,
+    PASSWORD
+} MdmStates;
 
 typedef struct Settings
 {
@@ -71,4 +88,35 @@ typedef struct TCP_SERVER_T_
     struct tcp_pcb *pcb;
     struct tcp_pcb *clientPcb;
 } TCP_SERVER_T;
+
+extern SETTINGS_T settings;
+extern TCP_CLIENT_T *tcpClient, tcpClient0, tcpDroppedClient;
+extern TCP_SERVER_T tcpServer;
+extern uint32_t bytesIn, bytesOut;
+extern uint64_t connectTime;
+extern char atCmd[MAX_CMD_LEN + 1], lastCmd[MAX_CMD_LEN + 1];
+extern unsigned atCmdLen;
+extern MdmStates state;
+extern bool ringing;        // no incoming call
+extern uint8_t ringCount;   // current incoming call ring count
+extern uint64_t nextRingMs; // time of mext RING result
+extern uint8_t escCount;    // Go to AT mode at "+++" sequence, that has to be counted
+extern uint64_t guardTime;  // When did we last receive a "+++" sequence
+extern char password[MAX_PWD_LEN + 1];
+extern uint8_t passwordTries; // # of unsuccessful tries at incoming password
+extern uint8_t passwordLen;
+extern uint8_t txBuf[TX_BUF_SIZE]; // Transmit Buffer
+extern uint8_t sessionTelnetType;
+extern volatile bool dtrWentInactive;
+extern bool amClient; // true if we've connected TO a remote server
+#ifndef NDEBUG
+extern volatile uint16_t maxTotLen;
+extern volatile uint16_t maxRxBuffLen;
+extern uint16_t maxTxBuffLen;
+extern err_t lastTcpWriteErr;
 #endif
+
+bool readSettings(SETTINGS_T *p);
+bool writeSettings(SETTINGS_T *p);
+
+#endif /* _ATS_H_ */
