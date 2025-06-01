@@ -82,4 +82,7 @@
 #define TCP_CLIENT_RX_BUF_SIZE 20000
 #define TCP_CLIENT_TX_BUF_SIZE 1100
 
+void endCall(void);
+void setStateOnline(void);
+
 #endif /* _MODEM_MODEM_H_ */

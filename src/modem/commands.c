@@ -30,13 +30,13 @@ static char *answerCall(char *atCmd)
         bytesOut += tcpWriteCharModeMagic(tcpClient);
     }
     sendResult(R_RING_IP);
-    sleep_ms(1000);
+    sleep_ms(1000); // TODO
     connectTime = millis();
     dtrWentInactive = false;
     sendResult(R_CONNECT);
     ser_set(DCD, ACTIVE); // we've got a carrier signal
     amClient = false;
-    state = ONLINE;
+    setStateOnline();
     ser_tx_wait_blocking(ser0); // drain the UART's Tx FIFO
     return atCmd;
 }
@@ -204,7 +204,7 @@ static char *dialNumber(char *atCmd)
         printf("DIALING %s:%u\r\n", host, portNum);
         ser_tx_wait_blocking(ser0);
     }
-    sleep_ms(2000); // delay for ZMP to be able to detect CONNECT
+    sleep_ms(2000); // TODO delay for ZMP to be able to detect CONNECT
     if (!ser_is_readable(ser0))
     {
         tcpClient = tcpConnect(&tcpClient0, host, portNum);
@@ -214,7 +214,7 @@ static char *dialNumber(char *atCmd)
             dtrWentInactive = false;
             sendResult(R_CONNECT);
             ser_set(DCD, ACTIVE);
-            state = ONLINE;
+            setStateOnline();
             amClient = true;
         }
         else
@@ -348,7 +348,7 @@ static char *httpGet(char *atCmd)
         sendResult(R_CONNECT);
         ser_set(DCD, ACTIVE);
         amClient = true;
-        state = ONLINE;
+        setStateOnline();
 
         // Send a HTTP request before continuing the connection as usual
         bytesOut += tcpWriteStr(tcpClient, "GET /");
@@ -661,7 +661,7 @@ static char *goOnline(char *atCmd)
 {
     if (tcpIsConnected(tcpClient))
     {
-        state = ONLINE;
+        setStateOnline();
         dtrWentInactive = false;
         sendResult(R_CONNECT);
     }
@@ -875,7 +875,10 @@ static char *doExtended(char *atCmd)
 static char *doResetToNvram(char *atCmd)
 {
     loadNvramSettings(&settings);
-    sendResult(R_OK);
+    if (!atCmd[0])
+    {
+        sendResult(R_OK);
+    }
     return atCmd;
 }
 
@@ -885,11 +888,10 @@ static char *doResetToNvram(char *atCmd)
 static char *doFactoryDefaults(char *atCmd)
 {
     loadDefaultSettings(&settings);
-    bool ok = writeSettings(&settings);
-    if (ok)
-        sendResult(R_OK);
-    else
+    if (!writeSettings(&settings))
         sendResult(R_ERROR);
+    else if (!atCmd[0])
+        sendResult(R_OK);
     return atCmd;
 }
 
@@ -987,30 +989,60 @@ static char *doServerPassword(char *atCmd)
 //
 static char *displayAllSettings(char *atCmd)
 {
+    SETTINGS_T temp_storage;
+    SETTINGS_T *s = NULL;
+
     switch (atCmd[0])
     {
     case '0':
         ++atCmd;
         __attribute__((fallthrough));
     case NUL:
-        displayCurrentSettings();
-        if (!atCmd[0])
-        {
-            sendResult(R_OK);
-        }
+        s = &settings;
         break;
     case '1':
         ++atCmd;
-        displayStoredSettings();
+        s = &temp_storage;
+        readSettings(s);
+        break;
+    default:
+        break;
+    }
+
+    if (!s)
+        sendResult(R_ERROR);
+    else
+    {
+        printf("Stored Profile:\r\n");
+        printf("SSID.......: %s\r\n", s->ssid);
+        printf("Pass.......: %s\r\n", s->wifiPassword);
+        printf("mDNS name..: %s.local\r\n", s->mdnsName);
+        printf("Server port: %u\r\n", s->listenPort);
+        printf("Busy Msg...: %s\r\n", s->busyMsg);
+        printf("E%u Q%u V%u X%u &D%u NET%u S0=%u S2=%u\r\n",
+               s->echo,
+               s->quiet,
+               s->verbose,
+               s->extendedCodes,
+               s->dtrHandling,
+               s->telnet,
+               s->autoAnswer,
+               s->escChar);
+
+        printf("Speed dial:\r\n");
+        for (int i = 0; i < SPEED_DIAL_SLOTS; i++)
+        {
+            if (s->speedDial[i][0])
+            {
+                printf("%u: %s,%s\r\n", i, s->speedDial[i], s->alias[i]);
+            }
+        }
         if (!atCmd[0])
         {
             sendResult(R_OK);
         }
-        break;
-    default:
-        sendResult(R_ERROR);
-        break;
     }
+
     return atCmd;
 }
 
@@ -1136,7 +1168,7 @@ static char *doAreYouThere(char *atCmd)
 
     if (tcpIsConnected(tcpClient) && settings.telnet != NO_TELNET)
     {
-        state = ONLINE;
+        setStateOnline();
         dtrWentInactive = false;
         bytesOut += tcpWriteBuf(tcpClient, areYouThere, sizeof areYouThere);
     }

@@ -29,14 +29,6 @@ typedef enum DtrStates
     DTR_RESET
 } DtrStates;
 
-typedef enum MdmState
-{
-    CMD_NOT_IN_CALL,
-    CMD_IN_CALL,
-    ONLINE,
-    PASSWORD
-} MdmStates;
-
 typedef struct Settings
 {
     uint16_t magicNumber;
@@ -94,7 +86,6 @@ extern uint32_t bytesIn, bytesOut;
 extern uint64_t connectTime;
 extern char atCmd[MAX_CMD_LEN + 1], lastCmd[MAX_CMD_LEN + 1];
 extern unsigned atCmdLen;
-extern MdmStates state;
 extern bool ringing;        // no incoming call
 extern uint8_t ringCount;   // current incoming call ring count
 extern uint64_t nextRingMs; // time of mext RING result
@@ -118,6 +109,5 @@ bool readSettings(SETTINGS_T *p);
 bool writeSettings(SETTINGS_T *p);
 void loadDefaultSettings(SETTINGS_T *p);
 void loadNvramSettings(SETTINGS_T *p);
-
 
 #endif /* _MODEM_SETTINGS_H_ */

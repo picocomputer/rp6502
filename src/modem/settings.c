@@ -22,7 +22,6 @@ uint32_t bytesIn = 0, bytesOut = 0;
 uint64_t connectTime = 0;
 char atCmd[MAX_CMD_LEN + 1], lastCmd[MAX_CMD_LEN + 1];
 unsigned atCmdLen = 0;
-MdmStates state = CMD_NOT_IN_CALL;
 bool ringing = false;    // no incoming call
 uint8_t ringCount = 0;   // current incoming call ring count
 uint64_t nextRingMs = 0; // time of mext RING result
