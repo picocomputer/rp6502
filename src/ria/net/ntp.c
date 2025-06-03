@@ -152,6 +152,7 @@ void ntp_task(void)
         break;
     case ntp_state_dns:
         err_t err = dns_gethostbyname(NTP_SERVER, &ntp_server_address, ntp_dns_found, NULL);
+        ntp_timeout_timer = make_timeout_time_ms(NTP_TIMEOUT_SECS * 1000);
         if (err == ERR_OK)
             ntp_state = ntp_state_request;
         else
@@ -168,6 +169,7 @@ void ntp_task(void)
         ntp_state = ntp_state_request_wait;
         break;
     case ntp_state_request_wait:
+    case ntp_state_dns_wait:
         if (absolute_time_diff_us(get_absolute_time(), ntp_timeout_timer) < 0)
         {
             DBG("NET NTP request timeout\n");
@@ -175,7 +177,6 @@ void ntp_task(void)
             ntp_state = ntp_state_request_timeout;
         }
         break;
-    case ntp_state_dns_wait:
     case ntp_state_success:
     case ntp_state_internal_error:
         break;
