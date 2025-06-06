@@ -18,7 +18,7 @@ static int lfs_erase(const struct lfs_config *c, lfs_block_t block);
 static int lfs_sync(const struct lfs_config *c);
 
 static_assert(!(LFS_DISK_BLOCKS % 8));
-#define LFS_LOOKAHEAD_SIZE LFS_DISK_BLOCKS / 8
+#define LFS_LOOKAHEAD_SIZE (LFS_DISK_BLOCKS / 8)
 #define LFS_DISK_SIZE (LFS_DISK_BLOCKS * FLASH_SECTOR_SIZE)
 
 lfs_t lfs_volume;

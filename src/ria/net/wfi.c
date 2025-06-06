@@ -138,7 +138,20 @@ void wfi_print_status(void)
         break;
     case wfi_state_connect:
     case wfi_state_connecting:
-        puts("connecting");
+        printf("connecting");
+        switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
+        {
+        case CYW43_LINK_JOIN:
+            puts(", joining");
+            break;
+        case CYW43_LINK_NOIP:
+            puts(", getting IP");
+            break;
+        case CYW43_LINK_DOWN:
+        default:
+            puts("");
+            break;
+        }
         break;
     case wfi_state_connected:
         puts("connected");
