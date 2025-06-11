@@ -150,8 +150,13 @@ static void reset(void)
     rom_reset();
     vga_reset();
     api_reset();
+    mdm_reset();
 }
 
+// Triggered once after init then before every PHI2 clock change.
+// Divider is used when PHI2 less than 4 MHz to
+// maintain a minimum system clock of 128 MHz.
+// From 4 to 8 MHz increases system clock to 256 MHz.
 void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     (void)sys_clk_khz;
@@ -162,9 +167,6 @@ void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_
 }
 
 // Triggered once after init then after every PHI2 clock change.
-// Divider is used when PHI2 less than 4 MHz to
-// maintain a minimum system clock of 120 MHz.
-// From 4 to 8 MHz increases system clock to 240 MHz.
 void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     com_post_reclock();

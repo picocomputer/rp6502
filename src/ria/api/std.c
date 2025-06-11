@@ -9,6 +9,7 @@
 #include "sys/com.h"
 #include "sys/cpu.h"
 #include "sys/pix.h"
+#include "net/mdm.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
 
@@ -64,6 +65,10 @@ void std_api_open(void)
     const unsigned char APPEND = 0x40;
     const unsigned char EXCL = 0x80;
 
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    api_zxstack();
+    if (mdm_open(path))
+        return api_return_ax(STD_FIL_MODEM);
     uint8_t flags = API_A;
     uint8_t mode = flags & RDWR; // RDWR are same bits
     if (flags & CREAT)
@@ -80,8 +85,6 @@ void std_api_open(void)
                 mode |= FA_OPEN_ALWAYS;
         }
     }
-    uint8_t *path = &xstack[xstack_ptr];
-    api_zxstack();
     int fd = 0;
     for (; fd < STD_FIL_MAX; fd++)
         if (!std_fil[fd].obj.fs)
@@ -89,7 +92,7 @@ void std_api_open(void)
     if (fd == STD_FIL_MAX)
         return api_return_errno(API_EMFILE);
     FIL *fp = &std_fil[fd];
-    FRESULT fresult = f_open(fp, (TCHAR *)path, mode);
+    FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
         return api_return_errno(API_EFATFS(fresult));
     return api_return_ax(fd + STD_FIL_OFFS);
@@ -98,6 +101,13 @@ void std_api_open(void)
 void std_api_close(void)
 {
     int fd = API_A;
+    if (fd == STD_FIL_MODEM)
+    {
+        if (mdm_close())
+            return api_return_ax(0);
+        else
+            return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
+    }
     if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         return api_return_errno(API_EINVAL);
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
