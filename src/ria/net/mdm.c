@@ -18,12 +18,28 @@
 #define DBG(...)
 #endif
 
-#define MDM_BUF_SIZE (TCP_MSS)
+#define MDM_TX_BUF_SIZE (TCP_MSS)
 #define MDM_AT_COMMAND_LEN 255
-static_assert(MDM_AT_COMMAND_LEN < MDM_BUF_SIZE);
+static_assert(MDM_AT_COMMAND_LEN < MDM_TX_BUF_SIZE);
 
-static char mdm_buf[MDM_BUF_SIZE];
-static size_t mdm_buf_len;
+static char mdm_tx_buf[MDM_TX_BUF_SIZE];
+static size_t mdm_tx_buf_len;
+
+#define MDM_RX_BUF_SIZE (83)
+
+static char mdm_rx_buf[MDM_RX_BUF_SIZE];
+static size_t mdm_rx_buf_len;
+static size_t mdm_rx_buf_pos;
+static int mdm_rx_callback_state;
+static int (*mdm_rx_callback_fn)(char *, size_t, int);
+
+// typedef enum
+// {
+//     mdm_state_command,
+//     mdm_state_connecting,
+//     mdm_state_connected,
+// } mdm_state_t;
+// static mdm_state_t mdm_state;
 
 typedef enum
 {
@@ -48,7 +64,9 @@ void mdm_stop(void)
 {
     nvr_read(&mdm_settings);
     mdm_is_open = false;
-    mdm_buf_len = 0;
+    mdm_tx_buf_len = 0;
+    mdm_rx_buf_len = 0;
+    mdm_rx_buf_pos = 0;
     mdm_in_command_mode = true;
 }
 
@@ -82,10 +100,40 @@ bool mdm_close(void)
     return true;
 }
 
-bool mdm_tx(char ch)
+void mdm_response(int (*fn)(char *, size_t, int), int state)
+{
+    assert(mdm_rx_callback_state == 0);
+    // if (mdm_rx_callback_state)
+    //     return;
+    mdm_rx_callback_state = state;
+    mdm_rx_callback_fn = fn;
+    if (!mdm_rx_buf_pos && !mdm_rx_buf_len)
+        mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
+}
+
+int mdm_rx(char *ch)
 {
     if (!mdm_is_open)
-        return false;
+        return -1;
+    // get next line, if needed and in progress
+    if (!mdm_rx_buf_pos && !mdm_rx_buf_len && mdm_rx_callback_state)
+        mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
+    // get from line buffer, if available
+    if (mdm_rx_buf_len)
+    {
+        *ch = mdm_rx_buf[mdm_rx_buf_pos++];
+        if (mdm_rx_buf_pos >= mdm_rx_buf_len)
+            mdm_rx_buf_pos = mdm_rx_buf_len = 0;
+        return 1;
+    }
+    // get from telnet filter, which gets from pbuf
+    return 0;
+}
+
+int mdm_tx(char ch)
+{
+    if (!mdm_is_open)
+        return -1;
     if (mdm_in_command_mode)
     {
         switch (mdm_at_state)
@@ -94,7 +142,7 @@ bool mdm_tx(char ch)
             if (ch == mdm_settings.crChar)
             {
                 mdm_at_state = mdm_at_state_char_a;
-                mdm_buf_len = 0;
+                mdm_tx_buf_len = 0;
             }
             break;
         case mdm_at_state_char_a:
@@ -114,21 +162,21 @@ bool mdm_tx(char ch)
         case mdm_at_state_reading:
             if (ch == mdm_settings.bsChar)
             {
-                if (mdm_buf_len == 0)
+                if (mdm_tx_buf_len == 0)
                     mdm_at_state = mdm_at_state_char_t;
                 else
-                    mdm_buf_len--;
+                    mdm_tx_buf_len--;
                 break;
             }
             else if (ch == mdm_settings.crChar)
             {
                 mdm_at_state = mdm_at_state_start;
-                mdm_buf[mdm_buf_len] = 0;
+                mdm_tx_buf[mdm_tx_buf_len] = 0;
                 // TODO process command
             }
-            else if (mdm_buf_len < MDM_AT_COMMAND_LEN)
+            else if (mdm_tx_buf_len < MDM_AT_COMMAND_LEN)
             {
-                mdm_buf[mdm_buf_len++] = ch;
+                mdm_tx_buf[mdm_tx_buf_len++] = ch;
             }
             break;
         }
@@ -143,13 +191,13 @@ bool mdm_tx(char ch)
                 // TODO
             }
         }
-        return true;
+        return 1;
     }
     else
     {
-        if (mdm_buf_len >= MDM_BUF_SIZE)
-            return false;
-        mdm_buf[mdm_buf_len++] = ch;
-        return true;
+        if (mdm_tx_buf_len >= MDM_TX_BUF_SIZE)
+            return 0;
+        mdm_tx_buf[mdm_tx_buf_len++] = ch;
+        return 1;
     }
 }
