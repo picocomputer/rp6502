@@ -10,7 +10,7 @@
 #include <stdbool.h>
 
 void mdm_task(void);
-void mdm_reset(void);
+void mdm_stop(void);
 void mdm_init(void);
 
 bool mdm_open(const char *);

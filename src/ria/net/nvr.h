@@ -12,8 +12,13 @@
 
 typedef struct
 {
+    uint8_t echo;
     uint8_t verbose;
     uint8_t auto_answer;
+    uint8_t escChar;
+    uint8_t crChar;
+    uint8_t lfChar;
+    uint8_t bsChar;
 } nvr_settings_t;
 
 bool nvr_write(const nvr_settings_t *);

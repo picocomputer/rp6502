@@ -139,6 +139,7 @@ static void stop(void)
     mou_stop();
     pad_stop();
     aud_stop();
+    mdm_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
@@ -151,7 +152,6 @@ static void reset(void)
     rom_reset();
     vga_reset();
     api_reset();
-    mdm_reset();
 }
 
 // Triggered once after init then before every PHI2 clock change.

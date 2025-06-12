@@ -19,17 +19,18 @@
 #endif
 
 // Configuration is a plain ASCII file on the LFS.
-// One settings per line. e.g.
-// V0
-// S0=1
-
-// The number is for multiple profiles (ATZ?/AT&W?) (not implemented yet)
+// One setting per line. e.g. "E1\nV1\nS0=0\n"
 static const char __in_flash("net_nvr") filename[] = "MODEM0.SYS";
 
 static void nvr_factory_reset(nvr_settings_t *settings)
 {
-    settings->verbose = 0;
-    settings->auto_answer = 0;
+    settings->echo = 1;        // E1
+    settings->verbose = 1;     // V1
+    settings->auto_answer = 0; // S0=0
+    settings->escChar = '+';   // S2=43
+    settings->crChar = '\r';   // S3=13
+    settings->lfChar = '\n';   // S4=10
+    settings->bsChar = '\b';   // S5=8
 }
 
 bool nvr_write(const nvr_settings_t *settings)
@@ -47,11 +48,21 @@ bool nvr_write(const nvr_settings_t *settings)
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
+                               "E%d\n"
                                "V%d\n"
                                "S0=%d\n"
+                               "S2=%d\n"
+                               "S3=%d\n"
+                               "S4=%d\n"
+                               "S5=%d\n"
                                "",
+                               settings->echo,
                                settings->verbose,
-                               settings->auto_answer);
+                               settings->auto_answer,
+                               settings->escChar,
+                               settings->crChar,
+                               settings->lfChar,
+                               settings->bsChar);
         if (lfsresult < 0)
             DBG("?Unable to write %s contents (%d)\n", filename, lfsresult);
     }
@@ -91,6 +102,9 @@ bool nvr_read(nvr_settings_t *settings)
         len -= 1;
         switch (mbuf[0])
         {
+        case 'E':
+            parse_uint8(&str, &len, &settings->echo);
+            break;
         case 'V':
             parse_uint8(&str, &len, &settings->verbose);
             break;
@@ -105,6 +119,18 @@ bool nvr_read(nvr_settings_t *settings)
             {
             case 0:
                 parse_uint8(&str, &len, &settings->auto_answer);
+                break;
+            case 2:
+                parse_uint8(&str, &len, &settings->escChar);
+                break;
+            case 3:
+                parse_uint8(&str, &len, &settings->crChar);
+                break;
+            case 4:
+                parse_uint8(&str, &len, &settings->lfChar);
+                break;
+            case 5:
+                parse_uint8(&str, &len, &settings->bsChar);
                 break;
             default:
                 break;

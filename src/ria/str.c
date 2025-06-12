@@ -114,7 +114,9 @@ bool parse_uint32(const char **args, size_t *len, uint32_t *result)
     for (; i < *len; i++)
     {
         char ch = (*args)[i];
-        if (!char_is_hex(ch))
+        if (base == 10 && (ch < '0' || ch > '9'))
+            break;
+        if (base == 16 && !char_is_hex(ch))
             break;
         uint32_t i = char_to_int(ch);
         if (i >= base)
