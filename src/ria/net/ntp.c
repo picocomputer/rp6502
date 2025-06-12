@@ -44,15 +44,15 @@ typedef enum
     ntp_state_success,
     ntp_state_internal_error,
 } ntp_state_t;
-ntp_state_t ntp_state;
+static ntp_state_t ntp_state;
 
-ip_addr_t ntp_server_address;
-struct udp_pcb *ntp_pcb;
+static ip_addr_t ntp_server_address;
+static struct udp_pcb *ntp_pcb;
 
-bool ntp_success_at_least_once;
-int ntp_retry_retry_count;
-absolute_time_t ntp_retry_timer;
-absolute_time_t ntp_timeout_timer;
+static bool ntp_success_at_least_once;
+static int ntp_retry_retry_count;
+static absolute_time_t ntp_retry_timer;
+static absolute_time_t ntp_timeout_timer;
 
 // Be agressive 5 times then back off
 #define NTP_RETRY_RETRIES 5

@@ -31,10 +31,10 @@ typedef enum
     wfi_state_connected,
     wfi_state_connect_failed,
 } wfi_state_t;
-wfi_state_t wfi_state;
+static wfi_state_t wfi_state;
 
-int wfi_retry_initial_retry_count;
-absolute_time_t wfi_retry_timer;
+static int wfi_retry_initial_retry_count;
+static absolute_time_t wfi_retry_timer;
 
 // Be agressive 5 times then back off
 #define WFI_RETRY_INITIAL_RETRIES 5

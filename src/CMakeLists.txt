@@ -71,6 +71,7 @@ target_sources(rp6502_ria PRIVATE
     ria/net/cyw.c
     ria/net/mdm.c
     ria/net/ntp.c
+    ria/net/nvr.c
     ria/net/wfi.c
     ria/sys/cfg.c
     ria/sys/com.c

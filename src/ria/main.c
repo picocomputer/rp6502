@@ -78,6 +78,7 @@ static void init(void)
     rom_init();
     led_init();
     clk_init();
+    mdm_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
