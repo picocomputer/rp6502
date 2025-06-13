@@ -48,13 +48,13 @@ bool nvr_write(const nvr_settings_t *settings)
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
-                               "E%d\n"
-                               "V%d\n"
-                               "S0=%d\n"
-                               "S2=%d\n"
-                               "S3=%d\n"
-                               "S4=%d\n"
-                               "S5=%d\n"
+                               "E%u\n"
+                               "V%u\n"
+                               "S0=%u\n"
+                               "S2=%u\n"
+                               "S3=%u\n"
+                               "S4=%u\n"
+                               "S5=%u\n"
                                "",
                                settings->echo,
                                settings->verbose,

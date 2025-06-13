@@ -23,7 +23,9 @@ FIL std_fil[STD_FIL_MAX];
 static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 
 static int32_t std_xram_count = -1;
-static int32_t std_in_count = -1;
+static int32_t std_cpu_count = -1;
+static int32_t std_mdm_count = -1;
+static UINT std_bytes_read;
 
 static volatile size_t std_out_tail;
 static volatile size_t std_out_head;
@@ -121,15 +123,31 @@ void std_api_read_xstack(void)
 {
     uint8_t *buf;
     uint16_t count;
-    UINT br;
-    if (std_in_count >= 0)
+    if (std_cpu_count >= 0)
     {
         if (!cpu_stdin_ready())
             return;
-        count = std_in_count;
-        std_in_count = -1;
+        count = std_cpu_count;
         buf = &xstack[XSTACK_SIZE - count];
-        br = cpu_stdin_read(buf, count);
+        std_bytes_read = cpu_stdin_read(buf, count);
+        std_cpu_count = -1;
+    }
+    else if (std_mdm_count >= 0)
+    {
+        count = std_mdm_count;
+        buf = &xstack[XSTACK_SIZE - count];
+        if (std_bytes_read < count)
+            switch (mdm_rx((char *)&buf[std_bytes_read]))
+            {
+            case -1:
+                return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
+            case 1:
+                std_bytes_read++;
+                return;
+            case 0:
+                break;
+            }
+        std_mdm_count = -1;
     }
     else
     {
@@ -140,41 +158,42 @@ void std_api_read_xstack(void)
             count > XSTACK_SIZE)
             return api_return_errno(API_EINVAL);
         buf = &xstack[XSTACK_SIZE - count];
-        if (!fd)
+        if (!fd) // stdin
         {
-            std_in_count = count;
+            std_cpu_count = count;
             cpu_stdin_request();
             return;
         }
-        FIL *fp = &std_fil[fd - STD_FIL_OFFS];
-        FRESULT fresult = f_read(fp, buf, count, &br);
-        if (fresult != FR_OK)
+        if (fd == STD_FIL_MODEM)
         {
-            API_ERRNO = fresult;
-            api_set_ax(-1);
+            std_mdm_count = count;
             return;
         }
+        FIL *fp = &std_fil[fd - STD_FIL_OFFS];
+        FRESULT fresult = f_read(fp, buf, count, &std_bytes_read);
+        if (fresult != FR_OK)
+            return api_return_errno(API_EFATFS(fresult));
     }
-    api_set_ax(br);
     xstack_ptr = XSTACK_SIZE;
-    if (br == count)
+    if (std_bytes_read == count)
         xstack_ptr -= count;
     else // relocate short read
-        for (UINT i = br; i;)
+        for (UINT i = std_bytes_read; i;)
             xstack[--xstack_ptr] = buf[--i];
     api_sync_xstack();
-    api_return_released();
+    api_return_ax(std_bytes_read);
 }
 
 void std_api_read_xram(void)
 {
+    // TODO STD_FIL_MODEM
     static uint16_t xram_addr;
-    if (std_in_count >= 0)
+    if (std_cpu_count >= 0)
     {
         if (!cpu_stdin_ready())
             return;
-        std_xram_count = cpu_stdin_read(&xram[xram_addr], std_in_count);
-        std_in_count = -1;
+        std_xram_count = cpu_stdin_read(&xram[xram_addr], std_cpu_count);
+        std_cpu_count = -1;
     }
     if (std_xram_count >= 0)
     {
@@ -195,10 +214,10 @@ void std_api_read_xram(void)
         (fd && fd < STD_FIL_OFFS) ||
         fd >= STD_FIL_MAX + STD_FIL_OFFS)
         return api_return_errno(API_EINVAL);
-    if (!fd)
+    if (!fd) // stdin
     {
         cpu_stdin_request();
-        std_in_count = std_xram_count = count;
+        std_cpu_count = count;
         return;
     }
     buf = &xram[xram_addr];
@@ -225,18 +244,18 @@ static void std_out_write(char *ptr)
     static void *std_out_ptr;
     if (ptr)
         std_out_ptr = ptr;
-    for (; std_xram_count && std_out_buf_writable(); --std_xram_count)
+    for (; std_cpu_count && std_out_buf_writable(); --std_cpu_count)
         std_out_buf_write(*(uint8_t *)std_out_ptr++);
-    if (!std_xram_count)
+    if (!std_cpu_count)
     {
-        std_xram_count = -1;
+        std_cpu_count = -1;
         api_return_released();
     }
 }
 
 void std_api_write_xstack(void)
 {
-    if (std_xram_count >= 0)
+    if (std_cpu_count >= 0)
         return std_out_write(NULL);
     uint8_t *buf;
     uint16_t count;
@@ -246,10 +265,10 @@ void std_api_write_xstack(void)
     count = XSTACK_SIZE - xstack_ptr;
     buf = &xstack[xstack_ptr];
     api_zxstack();
-    if (fd < STD_FIL_OFFS)
+    if (fd < STD_FIL_OFFS) // stdout stderr
     {
         api_set_ax(count);
-        std_xram_count = count;
+        std_cpu_count = count;
         std_out_write((char *)buf);
         return;
     }
@@ -263,7 +282,7 @@ void std_api_write_xstack(void)
 
 void std_api_write_xram(void)
 {
-    if (std_xram_count >= 0)
+    if (std_cpu_count >= 0)
         return std_out_write(NULL);
     uint8_t *buf;
     uint16_t xram_addr;
@@ -279,10 +298,10 @@ void std_api_write_xram(void)
         return api_return_errno(API_EINVAL);
     if (count > 0x7FFF)
         count = 0x7FFF;
-    if (fd < STD_FIL_OFFS)
+    if (fd < STD_FIL_OFFS) // stdout stderr
     {
         api_set_ax(count);
-        std_xram_count = count;
+        std_cpu_count = count;
         std_out_write((char *)buf);
         return;
     }
@@ -357,7 +376,8 @@ void std_api_rename(void)
 void std_stop(void)
 {
     std_xram_count = -1;
-    std_in_count = -1;
+    std_cpu_count = -1;
+    std_mdm_count = -1;
     for (int i = 0; i < STD_FIL_MAX; i++)
         if (std_fil[i].obj.fs)
             f_close(&std_fil[i]);

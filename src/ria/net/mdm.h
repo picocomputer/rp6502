@@ -16,4 +16,7 @@ void mdm_init(void);
 bool mdm_open(const char *);
 bool mdm_close(void);
 
+int mdm_rx(char *ch);
+int mdm_tx(char ch);
+
 #endif /* _MDM_H_ */

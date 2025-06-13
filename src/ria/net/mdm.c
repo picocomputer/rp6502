@@ -10,6 +10,7 @@
 #include "net/mdm.h"
 #include "net/nvr.h"
 #include "net/wfi.h"
+#include <string.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
 #include <stdio.h>
@@ -25,21 +26,23 @@ static_assert(MDM_AT_COMMAND_LEN < MDM_TX_BUF_SIZE);
 static char mdm_tx_buf[MDM_TX_BUF_SIZE];
 static size_t mdm_tx_buf_len;
 
-#define MDM_RX_BUF_SIZE (83)
+#define MDM_RX_BUF_SIZE (128)
 
 static char mdm_rx_buf[MDM_RX_BUF_SIZE];
-static size_t mdm_rx_buf_len;
-static size_t mdm_rx_buf_pos;
+static size_t mdm_rx_buf_head;
+static size_t mdm_rx_buf_tail;
+
 static int mdm_rx_callback_state;
 static int (*mdm_rx_callback_fn)(char *, size_t, int);
 
-// typedef enum
-// {
-//     mdm_state_command,
-//     mdm_state_connecting,
-//     mdm_state_connected,
-// } mdm_state_t;
-// static mdm_state_t mdm_state;
+typedef enum
+{
+    mdm_state_command_mode,
+    mdm_state_parsing,
+    mdm_state_connecting,
+    mdm_state_connected,
+} mdm_state_t;
+static mdm_state_t mdm_state;
 
 typedef enum
 {
@@ -65,8 +68,9 @@ void mdm_stop(void)
     nvr_read(&mdm_settings);
     mdm_is_open = false;
     mdm_tx_buf_len = 0;
-    mdm_rx_buf_len = 0;
-    mdm_rx_buf_pos = 0;
+    mdm_rx_buf_head = 0;
+    mdm_rx_buf_tail = 0;
+    mdm_rx_callback_state = 0;
     mdm_in_command_mode = true;
 }
 
@@ -100,15 +104,38 @@ bool mdm_close(void)
     return true;
 }
 
-void mdm_response(int (*fn)(char *, size_t, int), int state)
+static inline bool mdm_rx_buf_empty(void)
+{
+    return mdm_rx_buf_head == mdm_rx_buf_tail;
+}
+
+static inline bool mdm_rx_buf_full(void)
+{
+    return ((mdm_rx_buf_head + 1) % MDM_RX_BUF_SIZE) == mdm_rx_buf_tail;
+}
+
+static inline size_t mdm_rx_buf_count(void)
+{
+    if (mdm_rx_buf_head >= mdm_rx_buf_tail)
+        return mdm_rx_buf_head - mdm_rx_buf_tail;
+    else
+        return MDM_RX_BUF_SIZE - mdm_rx_buf_tail + mdm_rx_buf_head;
+}
+
+void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
 {
     assert(mdm_rx_callback_state == 0);
-    // if (mdm_rx_callback_state)
-    //     return;
     mdm_rx_callback_state = state;
     mdm_rx_callback_fn = fn;
-    if (!mdm_rx_buf_pos && !mdm_rx_buf_len)
-        mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
+}
+
+void mdm_response_append(char ch)
+{
+    if (!mdm_rx_buf_full())
+    {
+        mdm_rx_buf_head = (mdm_rx_buf_head + 1) % MDM_RX_BUF_SIZE;
+        mdm_rx_buf[mdm_rx_buf_head] = ch;
+    }
 }
 
 int mdm_rx(char *ch)
@@ -116,17 +143,28 @@ int mdm_rx(char *ch)
     if (!mdm_is_open)
         return -1;
     // get next line, if needed and in progress
-    if (!mdm_rx_buf_pos && !mdm_rx_buf_len && mdm_rx_callback_state)
-        mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
-    // get from line buffer, if available
-    if (mdm_rx_buf_len)
+    if (mdm_rx_buf_empty() && mdm_rx_callback_state)
     {
-        *ch = mdm_rx_buf[mdm_rx_buf_pos++];
-        if (mdm_rx_buf_pos >= mdm_rx_buf_len)
-            mdm_rx_buf_pos = mdm_rx_buf_len = 0;
+        mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
+        mdm_rx_buf_head = 0;
+        mdm_rx_buf_tail = strlen(mdm_rx_buf);
+        for (size_t i = 0; i < mdm_rx_buf_tail; i++)
+        {
+            if (mdm_rx_buf[i] == '\r')
+                mdm_rx_buf[i] = mdm_settings.crChar;
+            if (mdm_rx_buf[i] == '\n')
+                mdm_rx_buf[i] = mdm_settings.lfChar;
+        }
+    }
+    // get from line buffer, if available
+    if (!mdm_rx_buf_empty())
+    {
+        *ch = mdm_rx_buf[mdm_rx_buf_tail];
+        mdm_rx_buf_tail = (mdm_rx_buf_tail + 1) % MDM_RX_BUF_SIZE;
         return 1;
     }
     // get from telnet filter, which gets from pbuf
+    // TODO
     return 0;
 }
 
@@ -136,6 +174,8 @@ int mdm_tx(char ch)
         return -1;
     if (mdm_in_command_mode)
     {
+        if (mdm_rx_callback_state)
+            return 0;
         switch (mdm_at_state)
         {
         case mdm_at_state_start:
@@ -182,14 +222,19 @@ int mdm_tx(char ch)
         }
         if (mdm_settings.echo)
         {
-            if (ch == mdm_settings.bsChar)
+            if (ch == mdm_settings.crChar)
             {
-                // TODO
+                mdm_response_append(mdm_settings.crChar);
+                mdm_response_append(mdm_settings.lfChar);
+            }
+            else if (ch == mdm_settings.bsChar)
+            {
+                mdm_response_append(ch);
+                mdm_response_append(' ');
+                mdm_response_append(ch);
             }
             else
-            {
-                // TODO
-            }
+                mdm_response_append(ch);
         }
         return 1;
     }

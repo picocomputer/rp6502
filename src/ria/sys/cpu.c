@@ -161,7 +161,7 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz,
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz)
 {
     if (!freq_khz)
-        freq_khz = 4000;
+        freq_khz = RP6502_MAX_PHI2;
     uint32_t sys_clk_khz;
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;
@@ -190,7 +190,8 @@ void cpu_com_rx(uint8_t ch)
 }
 
 // Used by std.c to get stdin destined for the CPU.
-// Mixing RIA register input with read() calls isn't perfect.
+// Mixing RIA register input with read() calls isn't perfect,
+// should be considered underfined behavior, and is discouraged.
 // Even with a mutex, nulls may appear from RIA register.
 int cpu_getchar(void)
 {
