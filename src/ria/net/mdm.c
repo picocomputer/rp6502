@@ -53,6 +53,7 @@ typedef enum
 } mdm_at_state_t;
 static mdm_at_state_t mdm_at_state;
 static bool mdm_is_open;
+static bool mdm_was_opened;
 static bool mdm_in_command_mode;
 static nvr_settings_t mdm_settings;
 
@@ -65,8 +66,11 @@ void mdm_task()
 
 void mdm_stop(void)
 {
+    if (!mdm_was_opened)
+        return;
     nvr_read(&mdm_settings);
     mdm_is_open = false;
+    mdm_was_opened = false;
     mdm_tx_buf_len = 0;
     mdm_rx_buf_head = 0;
     mdm_rx_buf_tail = 0;
@@ -93,6 +97,7 @@ bool mdm_open(const char *filename)
         return false;
     // TODO populate command buffer with filename
     mdm_is_open = true;
+    mdm_was_opened = true;
     return true;
 }
 
