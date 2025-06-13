@@ -99,7 +99,6 @@ void main_task(void)
     kbd_task();
     pad_task();
     vga_task();
-    std_task();
     cyw_task();
     wfi_task();
     ntp_task();

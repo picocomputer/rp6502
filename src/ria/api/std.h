@@ -12,11 +12,7 @@
 /* Kernel events
  */
 
-void std_task(void);
 void std_stop(void);
-
-// Active until stdout buffer empty.
-bool std_active(void);
 
 /* The API implementation for stdio support.
  */

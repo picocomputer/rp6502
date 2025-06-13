@@ -27,37 +27,6 @@ static int32_t std_cpu_count = -1;
 static int32_t std_mdm_count = -1;
 static UINT std_bytes_read;
 
-static volatile size_t std_out_tail;
-static volatile size_t std_out_head;
-static volatile uint8_t std_out_buf[32];
-#define STD_OUT_BUF(pos) std_out_buf[(pos) & 0x1F]
-
-static inline bool std_out_buf_writable()
-{
-    return (((std_out_head + 1) & 0x1F) != (std_out_tail & 0x1F));
-}
-
-static inline void std_out_buf_write(char ch)
-{
-    STD_OUT_BUF(++std_out_head) = ch;
-}
-
-bool std_active(void)
-{
-    // Active until stdout is empty
-    return (((std_out_head) & 0x1F) != (std_out_tail & 0x1F));
-}
-
-void std_task(void)
-{
-    // 6502 applications write to std_out_buf which we route
-    // through the Pi Pico STDIO driver for CR/LR translation.
-    if ((&STD_OUT_BUF(std_out_head) != &STD_OUT_BUF(std_out_tail)) &&
-        (&COM_TX_BUF(com_tx_head + 1) != &COM_TX_BUF(com_tx_tail)) &&
-        (&COM_TX_BUF(com_tx_head + 2) != &COM_TX_BUF(com_tx_tail)))
-        putchar(STD_OUT_BUF(++std_out_tail));
-}
-
 void std_api_open(void)
 {
     // These match CC65 which is closer to POSIX than FatFs.
@@ -244,8 +213,8 @@ static void std_out_write(char *ptr)
     static void *std_out_ptr;
     if (ptr)
         std_out_ptr = ptr;
-    for (; std_cpu_count && std_out_buf_writable(); --std_cpu_count)
-        std_out_buf_write(*(uint8_t *)std_out_ptr++);
+    for (; std_cpu_count && com_tx_printable(); --std_cpu_count)
+        putchar(*(uint8_t *)std_out_ptr++);
     if (!std_cpu_count)
     {
         std_cpu_count = -1;

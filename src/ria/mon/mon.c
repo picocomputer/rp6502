@@ -6,7 +6,6 @@
 
 #include "main.h"
 #include "str.h"
-#include "api/std.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
@@ -142,7 +141,6 @@ static bool mon_suspended(void)
            rom_active() ||
            vga_active() ||
            fil_active() ||
-           std_active() ||
            cyw_initializing();
 }
 

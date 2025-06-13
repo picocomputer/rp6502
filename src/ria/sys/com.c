@@ -43,6 +43,7 @@ static uint32_t com_ctrl_bits;
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
+#define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
 static void com_tx_task(void)
 {

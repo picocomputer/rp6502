@@ -181,7 +181,7 @@ static void rom_wait_load(void)
     // VGA connection setup is unreliable at some clock speeds
     // if we don't give it a chance to finish before loading.
     // CYW43xx startup blocking causes watchdog timeouts.
-    if (!vga_active() && cyw_initializing())
+    if (!vga_active() && !cyw_initializing())
         rom_state = ROM_LOADING;
 }
 
