@@ -124,7 +124,7 @@ void std_api_read_xstack(void)
     {
         int16_t fd = API_A;
         if (!api_pop_uint16_end(&count) ||
-            (fd && fd < STD_FIL_OFFS) ||
+            (fd && fd < STD_FIL_MODEM) ||
             fd >= STD_FIL_MAX + STD_FIL_OFFS ||
             count > XSTACK_SIZE)
             return api_return_errno(API_EINVAL);
@@ -138,6 +138,7 @@ void std_api_read_xstack(void)
         if (fd == STD_FIL_MODEM)
         {
             std_mdm_count = count;
+            std_bytes_moved = 0;
             return;
         }
         FIL *fp = &std_fil[fd - STD_FIL_OFFS];
@@ -204,7 +205,7 @@ void std_api_read_xram(void)
     int16_t fd = API_A;
     if (!api_pop_uint16(&count) ||
         !api_pop_uint16_end(&xram_addr) ||
-        (fd && fd < STD_FIL_OFFS) ||
+        (fd && fd < STD_FIL_MODEM) ||
         fd >= STD_FIL_MAX + STD_FIL_OFFS)
         return api_return_errno(API_EINVAL);
     std_buf_ptr = (char *)&xram[xram_addr];

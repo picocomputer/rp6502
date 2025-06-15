@@ -56,6 +56,12 @@ static bool mdm_is_open;
 static bool mdm_in_command_mode;
 static nvr_settings_t mdm_settings;
 
+// Be nice to ANSI terminals using DEL
+static inline bool is_bs_or_del(char ch)
+{
+    return ch == mdm_settings.bsChar || ch == 127;
+}
+
 void modem_run(void); // TODO
 
 void mdm_task()
@@ -133,8 +139,8 @@ void mdm_response_append(char ch)
 {
     if (!mdm_rx_buf_full())
     {
-        mdm_rx_buf_head = (mdm_rx_buf_head + 1) % MDM_RX_BUF_SIZE;
         mdm_rx_buf[mdm_rx_buf_head] = ch;
+        mdm_rx_buf_head = (mdm_rx_buf_head + 1) % MDM_RX_BUF_SIZE;
     }
 }
 
@@ -186,13 +192,15 @@ int mdm_tx(char ch)
             }
             break;
         case mdm_at_state_char_a:
-            if (ch == 'a' || ch == 'A')
+            if (is_bs_or_del(ch))
+                (void)0;
+            else if (ch == 'a' || ch == 'A')
                 mdm_at_state = mdm_at_state_char_t;
             else
                 mdm_at_state = mdm_at_state_start;
             break;
         case mdm_at_state_char_t:
-            if (ch == mdm_settings.bsChar)
+            if (is_bs_or_del(ch))
                 mdm_at_state = mdm_at_state_char_a;
             else if (ch == 't' || ch == 'T')
                 mdm_at_state = mdm_at_state_reading;
@@ -200,7 +208,7 @@ int mdm_tx(char ch)
                 mdm_at_state = mdm_at_state_start;
             break;
         case mdm_at_state_reading:
-            if (ch == mdm_settings.bsChar)
+            if (is_bs_or_del(ch))
             {
                 if (mdm_tx_buf_len == 0)
                     mdm_at_state = mdm_at_state_char_t;
@@ -227,11 +235,11 @@ int mdm_tx(char ch)
                 mdm_response_append(mdm_settings.crChar);
                 mdm_response_append(mdm_settings.lfChar);
             }
-            else if (ch == mdm_settings.bsChar)
+            else if (is_bs_or_del(ch))
             {
-                mdm_response_append(ch);
+                mdm_response_append(mdm_settings.bsChar);
                 mdm_response_append(' ');
-                mdm_response_append(ch);
+                mdm_response_append(mdm_settings.bsChar);
             }
             else
                 mdm_response_append(ch);
