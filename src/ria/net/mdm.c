@@ -7,6 +7,7 @@
 #include "pico.h"
 #include "lwipopts.h"
 #include "str.h"
+#include "net/cmd.h"
 #include "net/mdm.h"
 #include "net/nvr.h"
 #include "net/wfi.h"
@@ -45,6 +46,7 @@ typedef enum
 } mdm_state_t;
 static mdm_state_t mdm_state;
 static const char *mdm_parse_str;
+static bool mdm_parse_result;
 static bool mdm_is_open;
 static nvr_settings_t mdm_settings;
 
@@ -66,6 +68,7 @@ void mdm_stop(void)
     mdm_rx_buf_head = 0;
     mdm_rx_buf_tail = 0;
     mdm_rx_callback_state = -1;
+    mdm_parse_result = true;
     mdm_state = mdm_state_command_mode;
 }
 
@@ -91,6 +94,7 @@ bool mdm_open(const char *filename)
     if (filename[0])
     {
         mdm_state = mdm_state_parsing;
+        mdm_parse_result = true;
         mdm_parse_str = filename;
     }
     return true;
@@ -200,6 +204,7 @@ static int mdm_tx_command_mode(char ch)
             if (!mdm_settings.echo && mdm_settings.verbose)
                 mdm_response_append_cr_lf();
             mdm_state = mdm_state_parsing;
+            mdm_parse_result = true;
             mdm_parse_str = &mdm_tx_buf[2];
         }
     }
@@ -226,6 +231,7 @@ static int mdm_tx_command_mode(char ch)
                 mdm_response_append_cr_lf();
             mdm_tx_buf_len = 0;
             mdm_state = mdm_state_parsing;
+            mdm_parse_result = true;
             mdm_parse_str = &mdm_tx_buf[2];
             return 1;
         }
@@ -268,7 +274,21 @@ void mdm_task()
 {
     if (mdm_state == mdm_state_parsing)
     {
-        mdm_set_response_fn(mdm_response_code, 0);
-        mdm_state = mdm_state_command_mode;
+        if (mdm_rx_callback_state >= 0)
+            return;
+        if (!mdm_parse_result)
+        {
+            mdm_set_response_fn(mdm_response_code, 4); // ERROR
+            mdm_state = mdm_state_command_mode;
+        }
+        else if (*mdm_parse_str == 0)
+        {
+            mdm_set_response_fn(mdm_response_code, 0); // OK
+            mdm_state = mdm_state_command_mode;
+        }
+        else
+        {
+            mdm_parse_result = cmd_parse(&mdm_parse_str);
+        }
     }
 }

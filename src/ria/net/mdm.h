@@ -19,4 +19,7 @@ bool mdm_close(void);
 int mdm_rx(char *ch);
 int mdm_tx(char ch);
 
+int mdm_response_code(char *buf, size_t buf_size, int state);
+void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
+
 #endif /* _MDM_H_ */
