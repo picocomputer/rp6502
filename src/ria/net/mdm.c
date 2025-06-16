@@ -44,9 +44,20 @@ typedef enum
     mdm_state_connected,
 } mdm_state_t;
 static mdm_state_t mdm_state;
-static char *mdm_parse_str;
+static const char *mdm_parse_str;
 static bool mdm_is_open;
 static nvr_settings_t mdm_settings;
+
+static const char __in_flash("net_mdm") str0[] = "OK";
+static const char __in_flash("net_mdm") str1[] = "CONNECT";
+static const char __in_flash("net_mdm") str2[] = "RING";
+static const char __in_flash("net_mdm") str3[] = "NO CARRIER";
+static const char __in_flash("net_mdm") str4[] = "ERROR";
+static const char __in_flash("net_mdm") str5[] = "CONNECT 1200";
+static const char __in_flash("net_mdm") str6[] = "NO DIALTONE";
+static const char __in_flash("net_mdm") str7[] = "BUSY";
+static const char __in_flash("net_mdm") str8[] = "NO ANSWER";
+static const char *const __in_flash("net_mdm") mdm_response_strings[] = {str0, str1, str2, str3, str4, str5, str6, str7, str8};
 
 void mdm_stop(void)
 {
@@ -54,7 +65,7 @@ void mdm_stop(void)
     mdm_tx_buf_len = 0;
     mdm_rx_buf_head = 0;
     mdm_rx_buf_tail = 0;
-    mdm_rx_callback_state = 0;
+    mdm_rx_callback_state = -1;
     mdm_state = mdm_state_command_mode;
 }
 
@@ -67,8 +78,6 @@ bool mdm_open(const char *filename)
 {
     if (mdm_is_open)
         return false;
-    while (*filename == ' ')
-        filename++;
     if (!strnicmp(filename, "AT:", 3))
         filename += 3;
     else if (!strnicmp(filename, "AT0:", 4))
@@ -77,7 +86,13 @@ bool mdm_open(const char *filename)
         return false;
     nvr_read(&mdm_settings);
     mdm_is_open = true;
-    // TODO populate command buffer with filename
+    // optionally process filename as AT command
+    // after nvram read. e.g. AT:&F
+    if (filename[0])
+    {
+        mdm_state = mdm_state_parsing;
+        mdm_parse_str = filename;
+    }
     return true;
 }
 
@@ -109,12 +124,12 @@ static inline size_t mdm_rx_buf_count(void)
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
 {
-    assert(mdm_rx_callback_state == 0);
+    assert(mdm_rx_callback_state == -1);
     mdm_rx_callback_state = state;
     mdm_rx_callback_fn = fn;
 }
 
-void mdm_response_append(char ch)
+static void mdm_response_append(char ch)
 {
     if (!mdm_rx_buf_full())
     {
@@ -123,7 +138,7 @@ void mdm_response_append(char ch)
     }
 }
 
-void mdm_response_append_cr_lf(void)
+static void mdm_response_append_cr_lf(void)
 {
     if (!(mdm_settings.crChar & 0x80))
         mdm_response_append(mdm_settings.crChar);
@@ -136,7 +151,7 @@ int mdm_rx(char *ch)
     if (!mdm_is_open)
         return -1;
     // get next line, if needed and in progress
-    if (mdm_rx_buf_empty() && mdm_rx_callback_state)
+    if (mdm_rx_buf_empty() && mdm_rx_callback_state >= 0)
     {
         mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
         mdm_rx_buf_head = strlen(mdm_rx_buf);
@@ -169,83 +184,91 @@ int mdm_rx(char *ch)
     return 0;
 }
 
+static int mdm_tx_command_mode(char ch)
+{
+    if (mdm_rx_callback_state >= 0)
+        return 0;
+    if (ch == mdm_settings.crChar)
+    {
+        if (mdm_settings.echo)
+            mdm_response_append_cr_lf();
+        mdm_tx_buf[mdm_tx_buf_len] = 0;
+        mdm_tx_buf_len = 0;
+        if ((mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
+            (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
+        {
+            if (!mdm_settings.echo && mdm_settings.verbose) // TODO move to parse?
+                mdm_response_append_cr_lf();
+            mdm_state = mdm_state_parsing;
+            mdm_parse_str = &mdm_tx_buf[2];
+        }
+    }
+    else if (ch == 127 || (!(mdm_settings.bsChar & 0x80) && ch == mdm_settings.bsChar))
+    {
+        if (mdm_settings.echo)
+        {
+            mdm_response_append(mdm_settings.bsChar);
+            mdm_response_append(' ');
+            mdm_response_append(mdm_settings.bsChar);
+        }
+        if (mdm_tx_buf_len)
+            mdm_tx_buf[--mdm_tx_buf_len] = 0;
+    }
+    else
+    {
+        if (mdm_settings.echo)
+            mdm_response_append(ch);
+        if (ch == '/' && mdm_tx_buf_len == 1 &&
+            (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
+            (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
+        {
+            if (mdm_settings.echo)
+                mdm_response_append_cr_lf();
+            mdm_tx_buf_len = 0;
+            mdm_state = mdm_state_parsing;
+            mdm_parse_str = &mdm_tx_buf[2];
+            return 1;
+        }
+        if (mdm_tx_buf_len < MDM_TX_BUF_SIZE - 1)
+            mdm_tx_buf[mdm_tx_buf_len++] = ch;
+    }
+    return 1;
+}
+
+static int mdm_tx_connected(char ch)
+{
+    if (mdm_tx_buf_len >= MDM_TX_BUF_SIZE)
+        return 0;
+    mdm_tx_buf[mdm_tx_buf_len++] = ch;
+    return 1;
+}
+
 int mdm_tx(char ch)
 {
     if (!mdm_is_open)
         return -1;
-
     if (mdm_state == mdm_state_command_mode)
-    {
-        if (mdm_rx_callback_state)
-            return 0;
-        if (ch == mdm_settings.crChar)
-        {
-            if (mdm_settings.echo)
-                mdm_response_append_cr_lf();
-            mdm_tx_buf[mdm_tx_buf_len] = 0;
-            mdm_tx_buf_len = 0;
-            if ((mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
-                (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
-            {
-                mdm_state = mdm_state_parsing;
-                mdm_parse_str = &mdm_tx_buf[2];
-            }
-        }
-        else if (ch == 127 || (!(mdm_settings.bsChar & 0x80) && ch == mdm_settings.bsChar))
-        {
-            if (mdm_settings.echo)
-            {
-                mdm_response_append(mdm_settings.bsChar);
-                mdm_response_append(' ');
-                mdm_response_append(mdm_settings.bsChar);
-            }
-            if (mdm_tx_buf_len)
-                mdm_tx_buf[--mdm_tx_buf_len] = 0;
-        }
-        else
-        {
-            if (mdm_settings.echo)
-                mdm_response_append(ch);
-            if (ch == '/' && mdm_tx_buf_len == 1 &&
-                (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
-                (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
-            {
-                if (mdm_settings.echo)
-                    mdm_response_append_cr_lf();
-                mdm_tx_buf_len = 0;
-                mdm_state = mdm_state_parsing;
-                mdm_parse_str = &mdm_tx_buf[2];
-                return 1;
-            }
-            if (mdm_tx_buf_len < MDM_TX_BUF_SIZE - 1)
-                mdm_tx_buf[mdm_tx_buf_len++] = ch;
-        }
-        return 1;
-    }
-
+        return mdm_tx_command_mode(ch);
     if (mdm_state == mdm_state_connected)
-    {
-        if (mdm_tx_buf_len >= MDM_TX_BUF_SIZE)
-            return 0;
-        mdm_tx_buf[mdm_tx_buf_len++] = ch;
-        return 1;
-    }
-
+        return mdm_tx_connected(ch);
     return 0;
 }
 
-int mdm_respond_ok(char *buf, size_t buf_size, int state)
+int mdm_response_code(char *buf, size_t buf_size, int state)
 {
-    (void)state;
-    snprintf(buf, buf_size, "OK %d\r\n", 1);
-    return 0;
+    assert(state >= 0 && (unsigned)state < sizeof(mdm_response_strings) / sizeof(char *));
+    if (mdm_settings.verbose)
+        snprintf(buf, buf_size, "%s\r\n", mdm_response_strings[state]);
+    else
+        snprintf(buf, buf_size, "%d\r", state);
+    return -1;
 }
 
 void mdm_task()
 {
     if (mdm_state == mdm_state_parsing)
     {
-        mdm_set_response_fn(mdm_respond_ok, 1);
+        mdm_set_response_fn(mdm_response_code, 0);
         mdm_state = mdm_state_command_mode;
     }
 }
