@@ -187,7 +187,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
     }
     const char *args = buf;
 
-    if (len == 0 || (len == 3 && !strnicmp("END", args, 3)))
+    if (len == 0 || (len == 3 && !strncasecmp("END", args, 3)))
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fat);

@@ -408,7 +408,7 @@ const char *help_text_lookup(const char *args, size_t len)
         if (args[cmd_len] == ' ')
             break;
     // SET command has another level of help
-    if (cmd_len == COMMANDS[0].cmd_len && !strnicmp(args, COMMANDS[0].cmd, cmd_len))
+    if (cmd_len == COMMANDS[0].cmd_len && !strncasecmp(args, COMMANDS[0].cmd, cmd_len))
     {
         args += cmd_len;
         len -= cmd_len;
@@ -422,14 +422,14 @@ const char *help_text_lookup(const char *args, size_t len)
             return COMMANDS[0].text;
         for (size_t i = 0; i < SETTINGS_COUNT; i++)
             if (set_len == SETTINGS[i].set_len)
-                if (!strnicmp(args, SETTINGS[i].cmd, set_len))
+                if (!strncasecmp(args, SETTINGS[i].cmd, set_len))
                     return SETTINGS[i].text;
         return NULL;
     }
     // Help for commands and a couple special words.
     for (size_t i = 1; i < COMMANDS_COUNT; i++)
         if (cmd_len == COMMANDS[i].cmd_len)
-            if (!strnicmp(args, COMMANDS[i].cmd, cmd_len))
+            if (!strncasecmp(args, COMMANDS[i].cmd, cmd_len))
                 return COMMANDS[i].text;
     return NULL;
 }

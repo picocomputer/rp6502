@@ -366,7 +366,7 @@ void set_mon_set(const char *args, size_t len)
     for (i = 0; i < SETTERS_COUNT; i++)
     {
         if (attr_len == SETTERS[i].attr_len &&
-            !strnicmp(args, SETTERS[i].attr, attr_len))
+            !strncasecmp(args, SETTERS[i].attr, attr_len))
         {
             SETTERS[i].func(&args[args_start], len - args_start);
             return;

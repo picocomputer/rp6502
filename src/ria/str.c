@@ -25,29 +25,6 @@ int char_to_int(char ch)
     return -1;
 }
 
-int strnicmp(const char *string1, const char *string2, int n)
-{
-    // TODO can we use this?
-    // int strncasecmp(const char *, const char *, size_t) __pure;
-    while (n--)
-    {
-        if (!*string1 && !*string2)
-            return 0;
-        int ch1 = *string1;
-        int ch2 = *string2;
-        if (ch1 >= 'a' && ch1 <= 'z')
-            ch1 -= 32;
-        if (ch2 >= 'a' && ch2 <= 'z')
-            ch2 -= 32;
-        int rc = ch1 - ch2;
-        if (rc)
-            return rc;
-        string1++;
-        string2++;
-    }
-    return 0;
-}
-
 bool parse_string(const char **args, size_t *len, char *dest, size_t size)
 {
     size_t cpylen = *len;

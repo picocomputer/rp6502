@@ -78,9 +78,9 @@ bool mdm_open(const char *filename)
 {
     if (mdm_is_open)
         return false;
-    if (!strnicmp(filename, "AT:", 3))
+    if (!strncasecmp(filename, "AT:", 3))
         filename += 3;
-    else if (!strnicmp(filename, "AT0:", 4))
+    else if (!strncasecmp(filename, "AT0:", 4))
         filename += 4;
     else
         return false;
@@ -197,7 +197,7 @@ static int mdm_tx_command_mode(char ch)
         if ((mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
             (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
         {
-            if (!mdm_settings.echo && mdm_settings.verbose) // TODO move to parse?
+            if (!mdm_settings.echo && mdm_settings.verbose)
                 mdm_response_append_cr_lf();
             mdm_state = mdm_state_parsing;
             mdm_parse_str = &mdm_tx_buf[2];
@@ -222,7 +222,7 @@ static int mdm_tx_command_mode(char ch)
             (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
             (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
         {
-            if (mdm_settings.echo)
+            if (mdm_settings.echo || mdm_settings.verbose)
                 mdm_response_append_cr_lf();
             mdm_tx_buf_len = 0;
             mdm_state = mdm_state_parsing;

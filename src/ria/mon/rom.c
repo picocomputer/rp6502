@@ -80,7 +80,7 @@ static bool rom_open(const char *name, bool is_fat)
         }
         lfs_file_open = true;
     }
-    if (rom_gets() != 8 || strnicmp("#!RP6502", (char *)mbuf, 8))
+    if (rom_gets() != 8 || strncasecmp("#!RP6502", (char *)mbuf, 8))
     {
         printf("?Missing RP6502 ROM header\n");
         rom_state = ROM_IDLE;
@@ -221,7 +221,7 @@ void rom_mon_install(const char *args, size_t len)
     while (lfs_name_len && args[lfs_name_len - 1] == ' ')
         lfs_name_len--;
     if (lfs_name_len > 7)
-        if (!strnicmp(".RP6502", args + lfs_name_len - 7, 7))
+        if (!strncasecmp(".RP6502", args + lfs_name_len - 7, 7))
             lfs_name_len -= 7;
     if (lfs_name_len > LFS_NAME_MAX)
         lfs_name_len = 0;

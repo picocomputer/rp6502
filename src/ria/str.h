@@ -24,9 +24,6 @@ bool char_is_hex(char ch);
 // Change chars 0-9 a-f A-F to a binary int, -1 on fail
 int char_to_int(char ch);
 
-// Case insensitive string compare with length limit
-int strnicmp(const char *string1, const char *string2, int n);
-
 // Parse everything else as a string, truncating trailing spaces.
 bool parse_string(const char **args, size_t *len, char *dest, size_t size);
 
