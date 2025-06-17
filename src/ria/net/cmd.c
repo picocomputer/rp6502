@@ -90,7 +90,7 @@ static int cmd_s_query_response(char *buf, size_t buf_size, int state)
         val = mdm_settings.bs_char;
         break;
     }
-    snprintf(buf, buf_size, "S%u:%03u\r\n", mdm_settings.s_pointer, val);
+    snprintf(buf, buf_size, "%u\r\n", val);
     return -1;
 }
 
