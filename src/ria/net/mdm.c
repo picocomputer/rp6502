@@ -193,7 +193,7 @@ static int mdm_tx_command_mode(char ch)
 {
     if (mdm_rx_callback_state >= 0)
         return 0;
-    if (ch == mdm_settings.cr_char)
+    if (ch == '\r' || (!(mdm_settings.cr_char & 0x80) && ch == mdm_settings.cr_char))
     {
         if (mdm_settings.echo)
             mdm_response_append_cr_lf();
@@ -220,7 +220,7 @@ static int mdm_tx_command_mode(char ch)
         if (mdm_tx_buf_len)
             mdm_tx_buf[--mdm_tx_buf_len] = 0;
     }
-    else
+    else if (ch >= 32 && ch < 127)
     {
         if (mdm_settings.echo)
             mdm_response_append(ch);

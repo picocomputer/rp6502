@@ -19,6 +19,7 @@ typedef struct nvr_settings_t
     uint8_t cr_char;
     uint8_t lf_char;
     uint8_t bs_char;
+    uint8_t s_pointer;
 } nvr_settings_t;
 
 void nvr_factory_reset(nvr_settings_t *settings);

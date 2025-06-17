@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
 #include "net/nvr.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
@@ -24,6 +23,7 @@ static const char __in_flash("net_nvr") filename[] = "MODEM0.SYS";
 
 void nvr_factory_reset(nvr_settings_t *settings)
 {
+    settings->s_pointer = 0;   // S0
     settings->echo = 1;        // E1
     settings->verbose = 1;     // V1
     settings->auto_answer = 0; // S0=0
@@ -77,6 +77,17 @@ bool nvr_write(const nvr_settings_t *settings)
     return true;
 }
 
+static int nvr_parse_num(const char **s)
+{
+    int num = 0;
+    while ((**s >= '0') && (**s <= '9'))
+    {
+        num = num * 10 + (**s - '0');
+        ++*s;
+    }
+    return num;
+}
+
 bool nvr_read(nvr_settings_t *settings)
 {
     nvr_factory_reset(settings);
@@ -98,39 +109,38 @@ bool nvr_read(nvr_settings_t *settings)
         while (len && mbuf[len - 1] == '\n')
             len--;
         mbuf[len] = 0;
-        const char *str = (char *)mbuf + 1;
+        const char *str = (char *)(mbuf + 1);
         len -= 1;
         switch (mbuf[0])
         {
         case 'E':
-            parse_uint8(&str, &len, &settings->echo);
+            settings->echo = nvr_parse_num(&str);
             break;
         case 'V':
-            parse_uint8(&str, &len, &settings->verbose);
+            settings->verbose = nvr_parse_num(&str);
             break;
         case 'S':
-            uint8_t s_register;
-            parse_uint8(&str, &len, &s_register);
+            uint8_t s_register = nvr_parse_num(&str);
             if (str[0] != '=')
                 break;
-            const char *str = (char *)mbuf + 1;
+            ++str;
             len -= 1;
             switch (s_register)
             {
             case 0:
-                parse_uint8(&str, &len, &settings->auto_answer);
+                settings->auto_answer = nvr_parse_num(&str);
                 break;
             case 2:
-                parse_uint8(&str, &len, &settings->esc_char);
+                settings->esc_char = nvr_parse_num(&str);
                 break;
             case 3:
-                parse_uint8(&str, &len, &settings->cr_char);
+                settings->cr_char = nvr_parse_num(&str);
                 break;
             case 4:
-                parse_uint8(&str, &len, &settings->lf_char);
+                settings->lf_char = nvr_parse_num(&str);
                 break;
             case 5:
-                parse_uint8(&str, &len, &settings->bs_char);
+                settings->bs_char = nvr_parse_num(&str);
                 break;
             default:
                 break;
