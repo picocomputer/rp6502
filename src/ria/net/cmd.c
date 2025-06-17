@@ -94,10 +94,10 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u \r\n\r\n",
                  mdm_settings.auto_answer,
                  0, // TODO ring counter
-                 mdm_settings.escChar,
-                 mdm_settings.crChar,
-                 mdm_settings.lfChar,
-                 mdm_settings.bsChar);
+                 mdm_settings.esc_char,
+                 mdm_settings.cr_char,
+                 mdm_settings.lf_char,
+                 mdm_settings.bs_char);
         break;
     case 3:
         snprintf(buf, buf_size, "STORED PROFILE:\r\n");
@@ -110,10 +110,10 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
     case 5:
         snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u \r\n\r\n",
                  nvr_settings.auto_answer,
-                 nvr_settings.escChar,
-                 nvr_settings.crChar,
-                 nvr_settings.lfChar,
-                 nvr_settings.bsChar);
+                 nvr_settings.esc_char,
+                 nvr_settings.cr_char,
+                 nvr_settings.lf_char,
+                 nvr_settings.bs_char);
         __attribute__((fallthrough));
     default:
         return -1;

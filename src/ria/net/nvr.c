@@ -27,10 +27,10 @@ void nvr_factory_reset(nvr_settings_t *settings)
     settings->echo = 1;        // E1
     settings->verbose = 1;     // V1
     settings->auto_answer = 0; // S0=0
-    settings->escChar = '+';   // S2=43
-    settings->crChar = '\r';   // S3=13
-    settings->lfChar = '\n';   // S4=10
-    settings->bsChar = '\b';   // S5=8
+    settings->esc_char = '+';  // S2=43
+    settings->cr_char = '\r';  // S3=13
+    settings->lf_char = '\n';  // S4=10
+    settings->bs_char = '\b';  // S5=8
 }
 
 bool nvr_write(const nvr_settings_t *settings)
@@ -59,10 +59,10 @@ bool nvr_write(const nvr_settings_t *settings)
                                settings->echo,
                                settings->verbose,
                                settings->auto_answer,
-                               settings->escChar,
-                               settings->crChar,
-                               settings->lfChar,
-                               settings->bsChar);
+                               settings->esc_char,
+                               settings->cr_char,
+                               settings->lf_char,
+                               settings->bs_char);
         if (lfsresult < 0)
             DBG("?Unable to write %s contents (%d)\n", filename, lfsresult);
     }
@@ -121,16 +121,16 @@ bool nvr_read(nvr_settings_t *settings)
                 parse_uint8(&str, &len, &settings->auto_answer);
                 break;
             case 2:
-                parse_uint8(&str, &len, &settings->escChar);
+                parse_uint8(&str, &len, &settings->esc_char);
                 break;
             case 3:
-                parse_uint8(&str, &len, &settings->crChar);
+                parse_uint8(&str, &len, &settings->cr_char);
                 break;
             case 4:
-                parse_uint8(&str, &len, &settings->lfChar);
+                parse_uint8(&str, &len, &settings->lf_char);
                 break;
             case 5:
-                parse_uint8(&str, &len, &settings->bsChar);
+                parse_uint8(&str, &len, &settings->bs_char);
                 break;
             default:
                 break;

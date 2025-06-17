@@ -145,10 +145,10 @@ static void mdm_response_append(char ch)
 
 static void mdm_response_append_cr_lf(void)
 {
-    if (!(mdm_settings.crChar & 0x80))
-        mdm_response_append(mdm_settings.crChar);
-    if (!(mdm_settings.lfChar & 0x80))
-        mdm_response_append(mdm_settings.lfChar);
+    if (!(mdm_settings.cr_char & 0x80))
+        mdm_response_append(mdm_settings.cr_char);
+    if (!(mdm_settings.lf_char & 0x80))
+        mdm_response_append(mdm_settings.lf_char);
 }
 
 int mdm_rx(char *ch)
@@ -166,9 +166,9 @@ int mdm_rx(char *ch)
         {
             uint8_t swap_ch = 0;
             if (mdm_rx_buf[i] == '\r')
-                swap_ch = mdm_rx_buf[i] = mdm_settings.crChar;
+                swap_ch = mdm_rx_buf[i] = mdm_settings.cr_char;
             if (mdm_rx_buf[i] == '\n')
-                swap_ch = mdm_rx_buf[i] = mdm_settings.lfChar;
+                swap_ch = mdm_rx_buf[i] = mdm_settings.lf_char;
             if (swap_ch & 0x80)
             {
                 for (size_t j = i; j < mdm_rx_buf_head; j++)
@@ -193,7 +193,7 @@ static int mdm_tx_command_mode(char ch)
 {
     if (mdm_rx_callback_state >= 0)
         return 0;
-    if (ch == mdm_settings.crChar)
+    if (ch == mdm_settings.cr_char)
     {
         if (mdm_settings.echo)
             mdm_response_append_cr_lf();
@@ -209,13 +209,13 @@ static int mdm_tx_command_mode(char ch)
             mdm_parse_str = &mdm_tx_buf[2];
         }
     }
-    else if (ch == 127 || (!(mdm_settings.bsChar & 0x80) && ch == mdm_settings.bsChar))
+    else if (ch == 127 || (!(mdm_settings.bs_char & 0x80) && ch == mdm_settings.bs_char))
     {
         if (mdm_settings.echo)
         {
-            mdm_response_append(mdm_settings.bsChar);
+            mdm_response_append(mdm_settings.bs_char);
             mdm_response_append(' ');
-            mdm_response_append(mdm_settings.bsChar);
+            mdm_response_append(mdm_settings.bs_char);
         }
         if (mdm_tx_buf_len)
             mdm_tx_buf[--mdm_tx_buf_len] = 0;

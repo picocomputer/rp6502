@@ -15,10 +15,10 @@ typedef struct nvr_settings_t
     uint8_t echo;
     uint8_t verbose;
     uint8_t auto_answer;
-    uint8_t escChar;
-    uint8_t crChar;
-    uint8_t lfChar;
-    uint8_t bsChar;
+    uint8_t esc_char;
+    uint8_t cr_char;
+    uint8_t lf_char;
+    uint8_t bs_char;
 } nvr_settings_t;
 
 void nvr_factory_reset(nvr_settings_t *settings);
