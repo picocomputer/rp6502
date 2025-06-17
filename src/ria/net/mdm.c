@@ -202,7 +202,7 @@ static int mdm_tx_command_mode(char ch)
         if ((mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
             (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
         {
-            if (!mdm_settings.echo && mdm_settings.verbose)
+            if (!mdm_settings.echo && !mdm_settings.quiet && mdm_settings.verbose)
                 mdm_response_append_cr_lf();
             mdm_state = mdm_state_parsing;
             mdm_parse_result = true;
@@ -228,7 +228,7 @@ static int mdm_tx_command_mode(char ch)
             (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
             (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
         {
-            if (mdm_settings.echo || mdm_settings.verbose)
+            if (mdm_settings.echo || (!mdm_settings.quiet && mdm_settings.verbose))
                 mdm_response_append_cr_lf();
             mdm_tx_buf_len = 0;
             mdm_state = mdm_state_parsing;
@@ -264,7 +264,10 @@ int mdm_tx(char ch)
 int mdm_response_code(char *buf, size_t buf_size, int state)
 {
     assert(state >= 0 && (unsigned)state < sizeof(mdm_response_strings) / sizeof(char *));
-    if (mdm_settings.verbose)
+    if (mdm_settings.quiet == 2 ||
+        (mdm_settings.quiet == 1 && state != 1 && state != 2 && state != 3))
+        buf[0] = 0;
+    else if (mdm_settings.verbose)
         snprintf(buf, buf_size, "%s\r\n", mdm_response_strings[state]);
     else
         snprintf(buf, buf_size, "%d\r", state);

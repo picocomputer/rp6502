@@ -25,6 +25,7 @@ void nvr_factory_reset(nvr_settings_t *settings)
 {
     settings->s_pointer = 0;   // S0
     settings->echo = 1;        // E1
+    settings->quiet = 0;       // Q0
     settings->verbose = 1;     // V1
     settings->auto_answer = 0; // S0=0
     settings->esc_char = '+';  // S2=43
@@ -49,6 +50,7 @@ bool nvr_write(const nvr_settings_t *settings)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
                                "E%u\n"
+                               "Q%u\n"
                                "V%u\n"
                                "S0=%u\n"
                                "S2=%u\n"
@@ -57,6 +59,7 @@ bool nvr_write(const nvr_settings_t *settings)
                                "S5=%u\n"
                                "",
                                settings->echo,
+                               settings->quiet,
                                settings->verbose,
                                settings->auto_answer,
                                settings->esc_char,
@@ -115,6 +118,9 @@ bool nvr_read(nvr_settings_t *settings)
         {
         case 'E':
             settings->echo = nvr_parse_num(&str);
+            break;
+        case 'Q':
+            settings->quiet = nvr_parse_num(&str);
             break;
         case 'V':
             settings->verbose = nvr_parse_num(&str);

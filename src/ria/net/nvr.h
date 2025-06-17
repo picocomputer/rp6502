@@ -13,6 +13,7 @@
 typedef struct nvr_settings_t
 {
     uint8_t echo;
+    uint8_t quiet;
     uint8_t verbose;
     uint8_t auto_answer;
     uint8_t esc_char;

@@ -47,6 +47,24 @@ static bool cmd_echo(const char **s)
     return false;
 }
 
+// Q0, Q1, Q2
+static bool cmd_quiet(const char **s)
+{
+    switch (cmd_parse_num(s))
+    {
+    case 0:
+        mdm_settings.quiet = 0;
+        return true;
+    case 1:
+        mdm_settings.quiet = 1;
+        return true;
+    case 2:
+        mdm_settings.quiet = 2;
+        return true;
+    }
+    return false;
+}
+
 static int cmd_s_query_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
@@ -185,12 +203,13 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "ACTIVE PROFILE:\r\n");
         break;
     case 1:
-        snprintf(buf, buf_size, "E%u V%u\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u\r\n",
                  mdm_settings.echo,
+                 mdm_settings.quiet,
                  mdm_settings.verbose);
         break;
     case 2:
-        snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u \r\n\r\n",
+        snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
                  mdm_settings.auto_answer,
                  0, // TODO ring counter
                  mdm_settings.esc_char,
@@ -202,12 +221,13 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "STORED PROFILE:\r\n");
         break;
     case 4:
-        snprintf(buf, buf_size, "E%u V%u\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u\r\n",
                  nvr_settings.echo,
+                 nvr_settings.quiet,
                  nvr_settings.verbose);
         break;
     case 5:
-        snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u \r\n\r\n",
+        snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
                  nvr_settings.auto_answer,
                  nvr_settings.esc_char,
                  nvr_settings.cr_char,
@@ -271,6 +291,8 @@ bool cmd_parse(const char **s)
     {
     case 'E':
         return cmd_echo(s);
+    case 'Q':
+        return cmd_quiet(s);
     case 'S':
         return cmd_s_pointer(s);
     case '?':
