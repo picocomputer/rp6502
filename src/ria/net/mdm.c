@@ -34,8 +34,8 @@ static char mdm_rx_buf[MDM_RX_BUF_SIZE];
 static size_t mdm_rx_buf_head;
 static size_t mdm_rx_buf_tail;
 
-static int mdm_rx_callback_state;
 static int (*mdm_rx_callback_fn)(char *, size_t, int);
+static int mdm_rx_callback_state;
 
 typedef enum
 {
@@ -48,7 +48,8 @@ static mdm_state_t mdm_state;
 static const char *mdm_parse_str;
 static bool mdm_parse_result;
 static bool mdm_is_open;
-static nvr_settings_t mdm_settings;
+
+nvr_settings_t mdm_settings;
 
 static const char __in_flash("net_mdm") str0[] = "OK";
 static const char __in_flash("net_mdm") str1[] = "CONNECT";
@@ -129,8 +130,8 @@ static inline size_t mdm_rx_buf_count(void)
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
 {
     assert(mdm_rx_callback_state == -1);
-    mdm_rx_callback_state = state;
     mdm_rx_callback_fn = fn;
+    mdm_rx_callback_state = state;
 }
 
 static void mdm_response_append(char ch)
@@ -290,5 +291,9 @@ void mdm_task()
         {
             mdm_parse_result = cmd_parse(&mdm_parse_str);
         }
+    }
+    if (mdm_state == mdm_state_connected)
+    {
+        // TODO
     }
 }

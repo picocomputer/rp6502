@@ -7,7 +7,7 @@
 #ifndef _MDM_H_
 #define _MDM_H_
 
-#include <stdbool.h>
+#include "net/nvr.h"
 
 void mdm_task(void);
 void mdm_stop(void);
@@ -19,6 +19,7 @@ bool mdm_close(void);
 int mdm_rx(char *ch);
 int mdm_tx(char ch);
 
+extern nvr_settings_t mdm_settings;
 int mdm_response_code(char *buf, size_t buf_size, int state);
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
 

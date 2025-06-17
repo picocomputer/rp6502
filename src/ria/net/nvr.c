@@ -22,7 +22,7 @@
 // One setting per line. e.g. "E1\nV1\nS0=0\n"
 static const char __in_flash("net_nvr") filename[] = "MODEM0.SYS";
 
-static void nvr_factory_reset(nvr_settings_t *settings)
+void nvr_factory_reset(nvr_settings_t *settings)
 {
     settings->echo = 1;        // E1
     settings->verbose = 1;     // V1

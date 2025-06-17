@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-typedef struct
+typedef struct nvr_settings_t
 {
     uint8_t echo;
     uint8_t verbose;
@@ -21,6 +21,7 @@ typedef struct
     uint8_t bsChar;
 } nvr_settings_t;
 
+void nvr_factory_reset(nvr_settings_t *settings);
 bool nvr_write(const nvr_settings_t *);
 bool nvr_read(nvr_settings_t *);
 
