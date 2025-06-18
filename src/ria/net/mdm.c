@@ -5,6 +5,17 @@
  */
 
 #include "pico.h"
+
+#ifndef RP6502_RIA_W
+void mdm_task(void) {}
+void mdm_stop(void) {}
+void mdm_init(void) {}
+bool mdm_open(const char *) { return false; }
+bool mdm_close(void) { return false; }
+int mdm_rx(char *) { return -1; }
+int mdm_tx(char) { return -1; }
+#else
+
 #include "lwipopts.h"
 #include "str.h"
 #include "net/cmd.h"
@@ -300,3 +311,5 @@ void mdm_task()
         // TODO
     }
 }
+
+#endif /* RP6502_RIA_W */

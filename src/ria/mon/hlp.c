@@ -229,6 +229,8 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "  1 - 640x480 and 1280x720, for 16:9 displays\n"
     "  2 - 1280x1024, for 5:4 SXGA displays";
 
+#ifdef RP6502_RIA_W
+
 static const char __in_flash("helptext") hlp_text_rf[] =
     "SET RF (0|1) turns the radio off or on.";
 
@@ -245,6 +247,8 @@ static const char __in_flash("helptext") hlp_text_ssid[] =
 
 static const char __in_flash("helptext") hlp_text_pass[] =
     "This is the password for your WiFi network. Use \"-\" to clear password.";
+
+#endif
 
 static struct
 {

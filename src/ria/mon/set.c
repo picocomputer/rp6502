@@ -186,6 +186,8 @@ static void set_vga(const char *args, size_t len)
     set_print_vga();
 }
 
+#ifdef RP6502_RIA_W
+
 static void set_print_rf(void)
 {
     printf("RF  : %s\n", cfg_get_rf() ? "On" : "Off");
@@ -287,6 +289,8 @@ static void set_pass(const char *args, size_t len)
     }
     set_print_pass();
 }
+
+#endif
 
 static void set_print_time_zone(void)
 {
