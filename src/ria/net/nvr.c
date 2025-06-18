@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -23,7 +23,7 @@ static const char __in_flash("net_nvr") filename[] = "MODEM0.SYS";
 
 void nvr_factory_reset(nvr_settings_t *settings)
 {
-    settings->s_pointer = 0;   // S0
+    settings->s_pointer = 0;   // S0 (not saved)
     settings->echo = 1;        // E1
     settings->quiet = 0;       // Q0
     settings->verbose = 1;     // V1
