@@ -38,8 +38,16 @@ void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t siz
 extern volatile size_t com_tx_tail;
 extern volatile size_t com_tx_head;
 extern volatile uint8_t com_tx_buf[32];
-#define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
+// Ensure space for newline expansion
+static inline bool com_tx_printable(void)
+{
+    return (
+        (((com_tx_head + 1) & 0x1F) != (com_tx_tail & 0x1F)) &&
+        (((com_tx_head + 2) & 0x1F) != (com_tx_tail & 0x1F)));
+}
+
+// Ensure space for com_tx_write()
 static inline bool com_tx_writable(void)
 {
     return (((com_tx_head + 1) & 0x1F) != (com_tx_tail & 0x1F));
@@ -47,7 +55,7 @@ static inline bool com_tx_writable(void)
 
 static inline void com_tx_write(char ch)
 {
-    COM_TX_BUF(++com_tx_head) = ch;
+    com_tx_buf[++com_tx_head & 0x1F] = ch;
 }
 
 #endif /* _COM_H_ */

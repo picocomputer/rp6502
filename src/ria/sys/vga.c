@@ -16,6 +16,7 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include <stdio.h>
+#include <strings.h>
 
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 10
@@ -72,7 +73,7 @@ static inline void vga_pix_backchannel_request(void)
 
 static void vga_read(bool timeout, const char *buf, size_t length)
 {
-    if (!timeout && length == 4 && !strnicmp("VGA1", buf, 4))
+    if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
     {
         // IO and buffers need to be in sync before switch
         com_flush();

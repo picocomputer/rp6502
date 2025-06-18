@@ -18,6 +18,7 @@
 #include "mon/ram.h"
 #include "mon/rom.h"
 #include "net/cyw.h"
+#include "net/mdm.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "sys/com.h"
@@ -77,6 +78,7 @@ static void init(void)
     rom_init();
     led_init();
     clk_init();
+    mdm_init();
 
     // TinyUSB
     tuh_init(TUH_OPT_RHPORT);
@@ -97,10 +99,10 @@ void main_task(void)
     kbd_task();
     pad_task();
     vga_task();
-    std_task();
     cyw_task();
     wfi_task();
     ntp_task();
+    mdm_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -136,6 +138,7 @@ static void stop(void)
     mou_stop();
     pad_stop();
     aud_stop();
+    mdm_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
@@ -150,6 +153,10 @@ static void reset(void)
     api_reset();
 }
 
+// Triggered once after init then before every PHI2 clock change.
+// Divider is used when PHI2 less than 4 MHz to
+// maintain a minimum system clock of 128 MHz.
+// From 4 to 8 MHz increases system clock to 256 MHz.
 void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     (void)sys_clk_khz;
@@ -160,9 +167,6 @@ void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_
 }
 
 // Triggered once after init then after every PHI2 clock change.
-// Divider is used when PHI2 less than 4 MHz to
-// maintain a minimum system clock of 120 MHz.
-// From 4 to 8 MHz increases system clock to 240 MHz.
 void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     com_post_reclock();

@@ -78,15 +78,15 @@ static void cfg_save_with_boot_opt(char *opt_str)
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
-                               "+V%d\n"
-                               "+P%d\n"
-                               "+R%d\n"
-                               "+C%d\n"
+                               "+V%u\n"
+                               "+P%u\n"
+                               "+R%u\n"
+                               "+C%u\n"
                                "+T%s\n"
-                               "+S%d\n"
-                               "+D%d\n"
+                               "+S%u\n"
+                               "+D%u\n"
 #ifdef RP6502_RIA_W
-                               "+E%d\n"
+                               "+E%u\n"
                                "+F%s\n"
                                "+W%s\n"
                                "+K%s\n"

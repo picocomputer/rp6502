@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -44,15 +44,15 @@ typedef enum
     ntp_state_success,
     ntp_state_internal_error,
 } ntp_state_t;
-ntp_state_t ntp_state;
+static ntp_state_t ntp_state;
 
-ip_addr_t ntp_server_address;
-struct udp_pcb *ntp_pcb;
+static ip_addr_t ntp_server_address;
+static struct udp_pcb *ntp_pcb;
 
-bool ntp_success_at_least_once;
-int ntp_retry_retry_count;
-absolute_time_t ntp_retry_timer;
-absolute_time_t ntp_timeout_timer;
+static bool ntp_success_at_least_once;
+static int ntp_retry_retry_count;
+static absolute_time_t ntp_retry_timer;
+static absolute_time_t ntp_timeout_timer;
 
 // Be agressive 5 times then back off
 #define NTP_RETRY_RETRIES 5
@@ -152,6 +152,7 @@ void ntp_task(void)
         break;
     case ntp_state_dns:
         err_t err = dns_gethostbyname(NTP_SERVER, &ntp_server_address, ntp_dns_found, NULL);
+        ntp_timeout_timer = make_timeout_time_ms(NTP_TIMEOUT_SECS * 1000);
         if (err == ERR_OK)
             ntp_state = ntp_state_request;
         else
@@ -168,6 +169,7 @@ void ntp_task(void)
         ntp_state = ntp_state_request_wait;
         break;
     case ntp_state_request_wait:
+    case ntp_state_dns_wait:
         if (absolute_time_diff_us(get_absolute_time(), ntp_timeout_timer) < 0)
         {
             DBG("NET NTP request timeout\n");
@@ -175,7 +177,6 @@ void ntp_task(void)
             ntp_state = ntp_state_request_timeout;
         }
         break;
-    case ntp_state_dns_wait:
     case ntp_state_success:
     case ntp_state_internal_error:
         break;

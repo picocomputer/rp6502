@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -31,10 +31,10 @@ typedef enum
     wfi_state_connected,
     wfi_state_connect_failed,
 } wfi_state_t;
-wfi_state_t wfi_state;
+static wfi_state_t wfi_state;
 
-int wfi_retry_initial_retry_count;
-absolute_time_t wfi_retry_timer;
+static int wfi_retry_initial_retry_count;
+static absolute_time_t wfi_retry_timer;
 
 // Be agressive 5 times then back off
 #define WFI_RETRY_INITIAL_RETRIES 5
@@ -60,6 +60,17 @@ void wfi_disconnect(void)
     wfi_retry_initial_retry_count = 0;
 }
 
+static int wfi_retry_connect(void)
+{
+    int secs = wfi_retry_initial_retry_count < WFI_RETRY_INITIAL_RETRIES
+                   ? WFI_RETRY_INITIAL_SECS
+                   : WFI_RETRY_SECS;
+    wfi_state = wfi_state_connect_failed;
+    wfi_retry_timer = make_timeout_time_ms(secs * 1000);
+    cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    return secs;
+}
+
 void wfi_task(void)
 {
     switch (wfi_state)
@@ -73,11 +84,22 @@ void wfi_task(void)
     case wfi_state_connect:
         DBG("NET WFI connecting\n");
         // Power management may be buggy, turn it off
-        cyw43_wifi_pm(&cyw43_state, CYW43_DEFAULT_PM & ~0xf);
-        cyw43_arch_wifi_connect_async(
-            cfg_get_ssid(), cfg_get_pass(),
-            strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN);
-        wfi_state = wfi_state_connecting;
+        if (cyw43_wifi_pm(&cyw43_state, CYW43_DEFAULT_PM & ~0xf))
+        {
+            int secs = wfi_retry_connect();
+            (void)secs;
+            DBG("NET WFI cyw43_wifi_pm failed, retry %ds\n", secs);
+        }
+        else if (cyw43_arch_wifi_connect_async(
+                     cfg_get_ssid(), cfg_get_pass(),
+                     strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
+        {
+            int secs = wfi_retry_connect();
+            (void)secs;
+            DBG("NET WFI cyw43_arch_wifi_connect_async failed, retry %ds\n", secs);
+        }
+        else
+            wfi_state = wfi_state_connecting;
         break;
     case wfi_state_connecting:
         int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
@@ -94,18 +116,9 @@ void wfi_task(void)
         case CYW43_LINK_FAIL:
         case CYW43_LINK_NONET:
         case CYW43_LINK_BADAUTH:
-            cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-            if (wfi_retry_initial_retry_count < WFI_RETRY_INITIAL_RETRIES)
-            {
-                DBG("NET WFI connect failed (%d), retry %ds\n", link_status, WFI_RETRY_INITIAL_SECS);
-                wfi_retry_timer = make_timeout_time_ms(WFI_RETRY_INITIAL_SECS * 1000);
-            }
-            else
-            {
-                DBG("NET WFI connect failed (%d), retry %ds\n", link_status, WFI_RETRY_SECS);
-                wfi_retry_timer = make_timeout_time_ms(WFI_RETRY_SECS * 1000);
-            }
-            wfi_state = wfi_state_connect_failed;
+            int secs = wfi_retry_connect();
+            (void)secs;
+            DBG("NET WFI connect failed (%d), retry %ds\n", link_status, secs);
             break;
         }
         break;
@@ -138,7 +151,20 @@ void wfi_print_status(void)
         break;
     case wfi_state_connect:
     case wfi_state_connecting:
-        puts("connecting");
+        printf("connecting");
+        switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
+        {
+        case CYW43_LINK_JOIN:
+            puts(", joining");
+            break;
+        case CYW43_LINK_NOIP:
+            puts(", getting IP");
+            break;
+        case CYW43_LINK_DOWN:
+        default:
+            puts("");
+            break;
+        }
         break;
     case wfi_state_connected:
         puts("connected");

@@ -229,6 +229,8 @@ static const char __in_flash("helptext") hlp_text_vga[] =
     "  1 - 640x480 and 1280x720, for 16:9 displays\n"
     "  2 - 1280x1024, for 5:4 SXGA displays";
 
+#ifdef RP6502_RIA_W
+
 static const char __in_flash("helptext") hlp_text_rf[] =
     "SET RF (0|1) turns the radio off or on.";
 
@@ -245,6 +247,8 @@ static const char __in_flash("helptext") hlp_text_ssid[] =
 
 static const char __in_flash("helptext") hlp_text_pass[] =
     "This is the password for your WiFi network. Use \"-\" to clear password.";
+
+#endif
 
 static struct
 {
@@ -408,7 +412,7 @@ const char *help_text_lookup(const char *args, size_t len)
         if (args[cmd_len] == ' ')
             break;
     // SET command has another level of help
-    if (cmd_len == COMMANDS[0].cmd_len && !strnicmp(args, COMMANDS[0].cmd, cmd_len))
+    if (cmd_len == COMMANDS[0].cmd_len && !strncasecmp(args, COMMANDS[0].cmd, cmd_len))
     {
         args += cmd_len;
         len -= cmd_len;
@@ -422,14 +426,14 @@ const char *help_text_lookup(const char *args, size_t len)
             return COMMANDS[0].text;
         for (size_t i = 0; i < SETTINGS_COUNT; i++)
             if (set_len == SETTINGS[i].set_len)
-                if (!strnicmp(args, SETTINGS[i].cmd, set_len))
+                if (!strncasecmp(args, SETTINGS[i].cmd, set_len))
                     return SETTINGS[i].text;
         return NULL;
     }
     // Help for commands and a couple special words.
     for (size_t i = 1; i < COMMANDS_COUNT; i++)
         if (cmd_len == COMMANDS[i].cmd_len)
-            if (!strnicmp(args, COMMANDS[i].cmd, cmd_len))
+            if (!strncasecmp(args, COMMANDS[i].cmd, cmd_len))
                 return COMMANDS[i].text;
     return NULL;
 }
