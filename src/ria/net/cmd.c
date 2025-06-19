@@ -4,10 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
 #include "net/cmd.h"
 #include "net/mdm.h"
-#include "net/nvr.h"
 #include <stdio.h>
 #include <ctype.h>
 
@@ -42,6 +40,19 @@ static bool cmd_echo(const char **s)
         return true;
     case 1:
         mdm_settings.echo = 1;
+        return true;
+    }
+    return false;
+}
+
+// F1
+static bool cmd_online_echo(const char **s)
+{
+    // F0 support was dropped in Hayes V.series.
+    // F1 succeeds for compatibility.
+    switch (cmd_parse_num(s))
+    {
+    case 1:
         return true;
     }
     return false;
@@ -173,7 +184,7 @@ static bool cmd_reset(const char **s)
     {
     case -1:
     case 0:
-        return nvr_read(&mdm_settings);
+        return mdm_read_settings(&mdm_settings);
     }
     return false;
 }
@@ -184,7 +195,7 @@ static bool cmd_load_factory(const char **s)
     switch (cmd_parse_num(s))
     {
     case -1:
-        nvr_factory_reset(&mdm_settings);
+        mdm_factory_settings(&mdm_settings);
         return true;
     }
     return false;
@@ -193,9 +204,9 @@ static bool cmd_load_factory(const char **s)
 // &V
 static int cmd_view_config_response(char *buf, size_t buf_size, int state)
 {
-    nvr_settings_t nvr_settings;
+    mdm_settings_t mdm_settings;
     if (state >= 4)
-        nvr_read(&nvr_settings);
+        mdm_read_settings(&mdm_settings);
 
     switch (state)
     {
@@ -222,17 +233,17 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     case 4:
         snprintf(buf, buf_size, "E%u Q%u V%u\r\n",
-                 nvr_settings.echo,
-                 nvr_settings.quiet,
-                 nvr_settings.verbose);
+                 mdm_settings.echo,
+                 mdm_settings.quiet,
+                 mdm_settings.verbose);
         break;
     case 5:
         snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
-                 nvr_settings.auto_answer,
-                 nvr_settings.esc_char,
-                 nvr_settings.cr_char,
-                 nvr_settings.lf_char,
-                 nvr_settings.bs_char);
+                 mdm_settings.auto_answer,
+                 mdm_settings.esc_char,
+                 mdm_settings.cr_char,
+                 mdm_settings.lf_char,
+                 mdm_settings.bs_char);
         __attribute__((fallthrough));
     default:
         return -1;
@@ -259,7 +270,7 @@ static bool cmd_save_nvram(const char **s)
     {
     case -1:
     case 0:
-        return nvr_write(&mdm_settings);
+        return mdm_write_settings(&mdm_settings);
     }
     return false;
 }
@@ -291,6 +302,8 @@ bool cmd_parse(const char **s)
     {
     case 'E':
         return cmd_echo(s);
+    case 'F':
+        return cmd_online_echo(s);
     case 'Q':
         return cmd_quiet(s);
     case 'S':
