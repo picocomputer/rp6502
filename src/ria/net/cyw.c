@@ -152,7 +152,12 @@ void cyw_task(void)
         if (cyw43_arch_init_with_country(cyw_country_code))
             cyw_state = cyw_state_init_failed;
         else
+        {
+            // cyw43_arch is full of blocking functions.
+            // This seems to block only after cyw43_arch_init.
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
             cyw_state = cyw_state_initialized;
+        }
     }
 }
 

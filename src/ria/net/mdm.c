@@ -217,6 +217,12 @@ int mdm_rx(char *ch)
     return 0;
 }
 
+static bool mdm_at_is_in_buffer(void)
+{
+    return (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
+           (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T');
+}
+
 static int mdm_tx_command_mode(char ch)
 {
     if (mdm_rx_callback_state >= 0)
@@ -227,8 +233,7 @@ static int mdm_tx_command_mode(char ch)
             mdm_response_append_cr_lf();
         mdm_tx_buf[mdm_tx_buf_len] = 0;
         mdm_tx_buf_len = 0;
-        if ((mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
-            (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
+        if (mdm_at_is_in_buffer())
         {
             if (!mdm_settings.echo && !mdm_settings.quiet && mdm_settings.verbose)
                 mdm_response_append_cr_lf();
@@ -252,9 +257,7 @@ static int mdm_tx_command_mode(char ch)
     {
         if (mdm_settings.echo)
             mdm_response_append(ch);
-        if (ch == '/' && mdm_tx_buf_len == 1 &&
-            (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
-            (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T'))
+        if (ch == '/' && mdm_tx_buf_len == 1 && mdm_at_is_in_buffer())
         {
             if (mdm_settings.echo || (!mdm_settings.quiet && mdm_settings.verbose))
                 mdm_response_append_cr_lf();

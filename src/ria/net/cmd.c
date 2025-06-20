@@ -6,8 +6,10 @@
 
 #include "net/cmd.h"
 #include "net/mdm.h"
+#include "sys/cfg.h"
 #include <stdio.h>
 #include <ctype.h>
+#include <strings.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NVR)
 #include <stdio.h>
@@ -15,6 +17,11 @@
 #else
 #define DBG(...)
 #endif
+
+// The design philosophy here is to use AT+XXX? and AT+XXX=YYY
+// for everything modern like WiFi and telnet configuration.
+// The traditional commands are then free to act like an actual
+// Hayes-like modem.
 
 // returns parsed number or -1 if no number
 static int cmd_parse_num(const char **s)
@@ -293,6 +300,42 @@ static bool cmd_parse_amp(const char **s)
     return false;
 }
 
+// +RF?
+static int cmd_plus_rf_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, "%u\r\n", cfg_get_rf());
+    return -1;
+}
+
+// +RF
+static bool cmd_plus_rf(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (toupper(ch))
+    {
+    case '=':
+        return cfg_set_rf(cmd_parse_num(s));
+    case '?':
+        mdm_set_response_fn(cmd_plus_rf_response, 0);
+        return true;
+    }
+    --*s;
+    return false;
+}
+
+// +
+static bool cmd_parse_modern(const char **s)
+{
+    if (!strncasecmp(*s, "RF", 2))
+    {
+        (*s) += 2;
+        return cmd_plus_rf(s);
+    }
+    return false;
+}
+
 // Parse AT command (without the AT)
 bool cmd_parse(const char **s)
 {
@@ -318,6 +361,8 @@ bool cmd_parse(const char **s)
         return cmd_reset(s);
     case '&':
         return cmd_parse_amp(s);
+    case '+':
+        return cmd_parse_modern(s);
     }
     --*s;
     return false;
