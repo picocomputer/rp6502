@@ -9,7 +9,7 @@
 #include "sys/cfg.h"
 #include <stdio.h>
 #include <ctype.h>
-#include <strings.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NVR)
 #include <stdio.h>
@@ -251,6 +251,19 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
                  mdm_settings.cr_char,
                  mdm_settings.lf_char,
                  mdm_settings.bs_char);
+        break;
+    case 6:
+        snprintf(buf, buf_size, "AT+RF=%u\r\n", cfg_get_rf());
+        break;
+    case 7:
+        const char *rfcc = cfg_get_rfcc();
+        snprintf(buf, buf_size, "AT+RFCC=%s\r\n", strlen(rfcc) ? rfcc : "(none) Worldwide");
+        break;
+    case 8:
+        snprintf(buf, buf_size, "AT+SSID=%s\r\n", cfg_get_ssid());
+        break;
+    case 9:
+        snprintf(buf, buf_size, "AT+PASS=%s\r\n", strlen(cfg_get_pass()) ? "(set)" : "(none)");
         __attribute__((fallthrough));
     default:
         return -1;
@@ -325,13 +338,110 @@ static bool cmd_plus_rf(const char **s)
     return false;
 }
 
+// +RFCC?
+static int cmd_plus_rfcc_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    const char *cc = cfg_get_rfcc();
+    snprintf(buf, buf_size, "%s\r\n", strlen(cc) ? cc : "Worldwide");
+    return -1;
+}
+
+// +RFCC
+static bool cmd_plus_rfcc(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (toupper(ch))
+    {
+    case '=':
+        bool result = cfg_set_rfcc(*s);
+        s += strlen(*s);
+        return result;
+    case '?':
+        mdm_set_response_fn(cmd_plus_rfcc_response, 0);
+        return true;
+    }
+    --*s;
+    return false;
+}
+
+// +SSID?
+static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, "%s\r\n", cfg_get_ssid());
+    return -1;
+}
+
+// +SSID
+static bool cmd_plus_ssid(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (toupper(ch))
+    {
+    case '=':
+        bool result = cfg_set_ssid(*s);
+        s += strlen(*s);
+        return result;
+    case '?':
+        mdm_set_response_fn(cmd_plus_ssid_response, 0);
+        return true;
+    }
+    --*s;
+    return false;
+}
+
+// +PASS?
+static int cmd_plus_pass_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, "%s\r\n", strlen(cfg_get_pass()) ? "(set)" : "(none)");
+    return -1;
+}
+
+// +PASS
+static bool cmd_plus_pass(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (toupper(ch))
+    {
+    case '=':
+        bool result = cfg_set_pass(*s);
+        s += strlen(*s);
+        return result;
+    case '?':
+        mdm_set_response_fn(cmd_plus_pass_response, 0);
+        return true;
+    }
+    --*s;
+    return false;
+}
+
 // +
 static bool cmd_parse_modern(const char **s)
 {
+    if (!strncasecmp(*s, "RFCC", 4))
+    {
+        (*s) += 4;
+        return cmd_plus_rfcc(s);
+    }
     if (!strncasecmp(*s, "RF", 2))
     {
         (*s) += 2;
         return cmd_plus_rf(s);
+    }
+    if (!strncasecmp(*s, "SSID", 4))
+    {
+        (*s) += 4;
+        return cmd_plus_ssid(s);
+    }
+    if (!strncasecmp(*s, "PASS", 4))
+    {
+        (*s) += 4;
+        return cmd_plus_pass(s);
     }
     return false;
 }
