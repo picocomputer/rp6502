@@ -211,10 +211,7 @@ static bool cmd_load_factory(const char **s)
 // &V
 static int cmd_view_config_response(char *buf, size_t buf_size, int state)
 {
-    mdm_settings_t mdm_settings;
-    if (state >= 4)
-        mdm_read_settings(&mdm_settings);
-
+    mdm_settings_t nvr_settings;
     switch (state)
     {
     case 0:
@@ -239,31 +236,33 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "STORED PROFILE:\r\n");
         break;
     case 4:
+        mdm_read_settings(&nvr_settings);
         snprintf(buf, buf_size, "E%u Q%u V%u\r\n",
-                 mdm_settings.echo,
-                 mdm_settings.quiet,
-                 mdm_settings.verbose);
+                 nvr_settings.echo,
+                 nvr_settings.quiet,
+                 nvr_settings.verbose);
         break;
     case 5:
+        mdm_read_settings(&nvr_settings);
         snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
-                 mdm_settings.auto_answer,
-                 mdm_settings.esc_char,
-                 mdm_settings.cr_char,
-                 mdm_settings.lf_char,
-                 mdm_settings.bs_char);
+                 nvr_settings.auto_answer,
+                 nvr_settings.esc_char,
+                 nvr_settings.cr_char,
+                 nvr_settings.lf_char,
+                 nvr_settings.bs_char);
         break;
     case 6:
-        snprintf(buf, buf_size, "AT+RF=%u\r\n", cfg_get_rf());
+        snprintf(buf, buf_size, "RIA SETTINGS:\r\n+RF=%u\r\n", cfg_get_rf());
         break;
     case 7:
         const char *rfcc = cfg_get_rfcc();
-        snprintf(buf, buf_size, "AT+RFCC=%s\r\n", strlen(rfcc) ? rfcc : "(none) Worldwide");
+        snprintf(buf, buf_size, "+RFCC=%s\r\n", strlen(rfcc) ? rfcc : "(none) Worldwide");
         break;
     case 8:
-        snprintf(buf, buf_size, "AT+SSID=%s\r\n", cfg_get_ssid());
+        snprintf(buf, buf_size, "+SSID=%s\r\n", cfg_get_ssid());
         break;
     case 9:
-        snprintf(buf, buf_size, "AT+PASS=%s\r\n", strlen(cfg_get_pass()) ? "(set)" : "(none)");
+        snprintf(buf, buf_size, "+PASS=%s\r\n", strlen(cfg_get_pass()) ? "(set)" : "(none)");
         __attribute__((fallthrough));
     default:
         return -1;
