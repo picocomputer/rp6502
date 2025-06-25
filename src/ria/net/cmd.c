@@ -4,19 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "net/cmd.h"
-#include "net/mdm.h"
-#include "sys/cfg.h"
-#include <stdio.h>
-#include <ctype.h>
-#include <string.h>
-
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NVR)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
 #else
 #define DBG(...)
 #endif
+
+#include "net/cmd.h"
+#include "net/mdm.h"
+#include "sys/cfg.h"
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
 
 // The design philosophy here is to use AT+XXX? and AT+XXX=YYY
 // for everything modern like WiFi and telnet configuration.
@@ -256,7 +256,7 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     case 7:
         const char *rfcc = cfg_get_rfcc();
-        snprintf(buf, buf_size, "+RFCC=%s\r\n", strlen(rfcc) ? rfcc : "(none) Worldwide");
+        snprintf(buf, buf_size, "+RFCC=%s\r\n", strlen(rfcc) ? rfcc : "(Worldwide)");
         break;
     case 8:
         snprintf(buf, buf_size, "+SSID=%s\r\n", cfg_get_ssid());

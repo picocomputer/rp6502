@@ -14,6 +14,13 @@ void cyw_reset_radio() {}
 bool cyw_initializing() { return false; }
 #else
 
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define DBG(...)
+#endif
+
 #include "mon/ram.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
@@ -23,13 +30,6 @@ bool cyw_initializing() { return false; }
 #include "sys/vga.h"
 #include "pico/cyw43_arch.h"
 #include "pico/cyw43_driver.h"
-
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
-#include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
-#else
-#define DBG(...)
-#endif
 
 // These are from cyw43_arch.h
 // Change the help if you change these

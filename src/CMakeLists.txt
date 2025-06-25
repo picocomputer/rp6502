@@ -72,6 +72,7 @@ target_sources(rp6502_ria PRIVATE
     ria/net/cyw.c
     ria/net/mdm.c
     ria/net/ntp.c
+    ria/net/tel.c
     ria/net/wfi.c
     ria/sys/cfg.c
     ria/sys/com.c
@@ -181,7 +182,7 @@ set_property(TARGET rp6502_ria rp6502_vga
     RP6502_VERSION=""
     RP6502_CODE_PAGE=850
     RP6502_KEYBOARD=EN_US
-    RP6502_MIN_PHI2=750
+    RP6502_MIN_PHI2=250
     RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0
 )

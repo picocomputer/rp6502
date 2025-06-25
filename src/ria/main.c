@@ -20,6 +20,7 @@
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/ntp.h"
+#include "net/tel.h"
 #include "net/wfi.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
@@ -102,7 +103,7 @@ void main_task(void)
     cyw_task();
     wfi_task();
     ntp_task();
-    mdm_task();
+    tel_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -114,6 +115,7 @@ static void task(void)
     ram_task();
     fil_task();
     rom_task();
+    mdm_task();
 }
 
 // Event to start running the 6502.

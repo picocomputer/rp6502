@@ -16,6 +16,15 @@ int mdm_rx(char *) { return -1; }
 int mdm_tx(char) { return -1; }
 #else
 
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define DBG(...) \
+    {            \
+    }
+#endif
+
 #include "lwipopts.h"
 #include "str.h"
 #include "net/cmd.h"
@@ -25,15 +34,6 @@ int mdm_tx(char) { return -1; }
 #include "sys/mem.h"
 #include <string.h>
 #include <stdio.h>
-
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
-#include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
-#else
-#define DBG(...) \
-    {            \
-    }
-#endif
 
 // Leave a little room for escaped telnet characters.
 #if TCP_MSS == 536 // does not fragment and good enough
@@ -157,7 +157,19 @@ static inline size_t mdm_rx_buf_count(void)
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
 {
-    assert(mdm_rx_callback_state == -1);
+    if (mdm_rx_callback_state >= 0)
+    {
+        // Responses aren't being consumed.
+        // This shouldn't happen, but what the
+        // 6502 app does is beyond our control.
+#ifndef NDEBUG
+        assert(mdm_rx_callback_state == -1);
+#endif
+        // Discard all the old data. This way the
+        // 6502 app doesn't get a mix of old and new
+        // data when it finally decides to wake up.
+        mdm_rx_buf_head = mdm_rx_buf_tail = 0;
+    }
     mdm_rx_callback_fn = fn;
     mdm_rx_callback_state = state;
 }

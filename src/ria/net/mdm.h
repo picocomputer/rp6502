@@ -45,7 +45,6 @@ int mdm_tx(char ch);
 extern mdm_settings_t mdm_settings;
 int mdm_response_code(char *buf, size_t buf_size, int state);
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
-
 void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);

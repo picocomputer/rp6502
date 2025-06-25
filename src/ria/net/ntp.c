@@ -11,6 +11,13 @@ void ntp_task() {}
 void ntp_print_status() {}
 #else
 
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NTP)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define DBG(...)
+#endif
+
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "lwip/dns.h"
@@ -18,13 +25,6 @@ void ntp_print_status() {}
 #include "pico/aon_timer.h"
 #include "pico/time.h"
 #include <string.h>
-
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NTP)
-#include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
-#else
-#define DBG(...)
-#endif
 
 #define NTP_SERVER "pool.ntp.org"
 #define NTP_MSG_LEN 48

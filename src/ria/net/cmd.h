@@ -9,6 +9,9 @@
 
 #include <stdbool.h>
 
+/* Utility
+ */
+
 bool cmd_parse(const char **s);
 
 #endif /* _CMD_H_ */
