@@ -37,6 +37,17 @@ static int cmd_parse_num(const char **s)
     return num;
 }
 
+// D
+static bool cmd_dial(const char **s)
+{
+    // Eat tone and pulse options
+    if (*s[0] == 'T' || *s[0] == 'P')
+        ++*s;
+    const char *address = *s;
+    (*s) += strlen(*s);
+    return mdm_dial(address);
+}
+
 // E0, E1
 static bool cmd_echo(const char **s)
 {
@@ -452,6 +463,8 @@ bool cmd_parse(const char **s)
     ++*s;
     switch (toupper(ch))
     {
+    case 'D':
+        return cmd_dial(s);
     case 'E':
         return cmd_echo(s);
     case 'F':

@@ -16,6 +16,8 @@ int mdm_rx(char *) { return -1; }
 int mdm_tx(char) { return -1; }
 #else
 
+#define DEBUG_RIA_NET_MDM ////////////////////
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
@@ -29,6 +31,7 @@ int mdm_tx(char) { return -1; }
 #include "str.h"
 #include "net/cmd.h"
 #include "net/mdm.h"
+#include "net/tel.h"
 #include "net/wfi.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
@@ -317,33 +320,6 @@ int mdm_response_code(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-void mdm_task()
-{
-    if (mdm_state == mdm_state_parsing)
-    {
-        if (mdm_rx_callback_state >= 0)
-            return;
-        if (!mdm_parse_result)
-        {
-            mdm_set_response_fn(mdm_response_code, 4); // ERROR
-            mdm_state = mdm_state_command_mode;
-        }
-        else if (*mdm_parse_str == 0)
-        {
-            mdm_set_response_fn(mdm_response_code, 0); // OK
-            mdm_state = mdm_state_command_mode;
-        }
-        else
-        {
-            mdm_parse_result = cmd_parse(&mdm_parse_str);
-        }
-    }
-    if (mdm_state == mdm_state_connected)
-    {
-        // TODO
-    }
-}
-
 void mdm_factory_settings(mdm_settings_t *settings)
 {
     settings->s_pointer = 0;   // S0 (not saved)
@@ -486,6 +462,47 @@ bool mdm_read_settings(mdm_settings_t *settings)
         return false;
     }
     return true;
+}
+
+void mdm_task()
+{
+    if (mdm_state == mdm_state_parsing)
+    {
+        if (mdm_rx_callback_state >= 0)
+            return;
+        if (!mdm_parse_result)
+        {
+            mdm_set_response_fn(mdm_response_code, 4); // ERROR
+            mdm_state = mdm_state_command_mode;
+        }
+        else if (*mdm_parse_str == 0)
+        {
+            if (mdm_state == mdm_state_parsing)
+            {
+                mdm_set_response_fn(mdm_response_code, 0); // OK
+                mdm_state = mdm_state_command_mode;
+            }
+        }
+        else
+        {
+            mdm_parse_result = cmd_parse(&mdm_parse_str);
+        }
+    }
+    if (mdm_state == mdm_state_connected)
+    {
+        // TODO
+    }
+}
+
+bool mdm_dial(const char *s)
+{
+    (void)s; ////////////// TODO
+    if (tel_open("192.168.1.65", 23))
+    {
+        mdm_state = mdm_state_connecting;
+        return true;
+    }
+    return false;
 }
 
 #endif /* RP6502_RIA_W */
