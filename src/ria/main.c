@@ -20,7 +20,6 @@
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/ntp.h"
-#include "net/tel.h"
 #include "net/wfi.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
@@ -103,7 +102,6 @@ void main_task(void)
     cyw_task();
     wfi_task();
     ntp_task();
-    tel_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -308,6 +306,9 @@ bool main_active(void)
 int main(void)
 {
     init();
+
+    // Hack to start WiFi chip before changing clock
+    cyw_task();
 
     // Trigger a reclock
     cpu_set_phi2_khz(cfg_get_phi2_khz());

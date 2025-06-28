@@ -61,8 +61,8 @@ static char mdm_rx_buf[MDM_RX_BUF_SIZE];
 static size_t mdm_rx_buf_head;
 static size_t mdm_rx_buf_tail;
 
-static int (*mdm_rx_callback_fn)(char *, size_t, int);
-static int mdm_rx_callback_state;
+static int (*mdm_rx_response_fn)(char *, size_t, int);
+static int mdm_rx_response_state;
 
 typedef enum
 {
@@ -95,16 +95,16 @@ static const char __in_flash("net_mdm") devicename0[] = "AT0:";
 
 void mdm_stop(void)
 {
+    tel_close(true);
     mdm_is_open = false;
     mdm_tx_buf_len = 0;
     mdm_rx_buf_head = 0;
     mdm_rx_buf_tail = 0;
-    mdm_rx_callback_state = -1;
+    mdm_rx_response_state = -1;
     mdm_parse_result = true;
     mdm_state = mdm_state_on_hook;
     mdm_in_command_mode = true;
     mdm_is_parsing = false;
-    // TODO tel_stop();
 }
 
 void mdm_init(void)
@@ -163,21 +163,21 @@ static inline size_t mdm_rx_buf_count(void)
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
 {
-    if (mdm_rx_callback_state >= 0)
+    if (mdm_rx_response_state >= 0)
     {
         // Responses aren't being consumed.
         // This shouldn't happen, but what the
         // 6502 app does is beyond our control.
 #ifndef NDEBUG
-        assert(mdm_rx_callback_state == -1);
+        assert(mdm_rx_response_state == -1);
 #endif
         // Discard all the old data. This way the
         // 6502 app doesn't get a mix of old and new
         // data when it finally decides to wake up.
         mdm_rx_buf_head = mdm_rx_buf_tail = 0;
     }
-    mdm_rx_callback_fn = fn;
-    mdm_rx_callback_state = state;
+    mdm_rx_response_fn = fn;
+    mdm_rx_response_state = state;
 }
 
 static void mdm_response_append(char ch)
@@ -202,9 +202,9 @@ int mdm_rx(char *ch)
     if (!mdm_is_open)
         return -1;
     // get next line, if needed and in progress
-    if (mdm_rx_buf_empty() && mdm_rx_callback_state >= 0)
+    if (mdm_rx_buf_empty() && mdm_rx_response_state >= 0)
     {
-        mdm_rx_callback_state = mdm_rx_callback_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_callback_state);
+        mdm_rx_response_state = mdm_rx_response_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_response_state);
         mdm_rx_buf_head = strlen(mdm_rx_buf);
         mdm_rx_buf_tail = 0;
         // Translate CR and LF chars to settings
@@ -242,7 +242,7 @@ static bool mdm_at_is_in_buffer(void)
 
 static int mdm_tx_command_mode(char ch)
 {
-    if (mdm_rx_callback_state >= 0)
+    if (mdm_rx_response_state >= 0)
         return 0;
     if (ch == '\r' || (!(mdm_settings.cr_char & 0x80) && ch == mdm_settings.cr_char))
     {
@@ -476,7 +476,7 @@ void mdm_task()
 {
     if (mdm_is_parsing)
     {
-        if (mdm_rx_callback_state >= 0)
+        if (mdm_rx_response_state >= 0)
             return;
         if (!mdm_parse_result)
         {
@@ -502,6 +502,7 @@ bool mdm_dial(const char *s)
     if (tel_open("192.168.1.65", 23))
     {
         mdm_state = mdm_state_dialing;
+        mdm_in_command_mode = false;
         return true;
     }
     return false;
@@ -527,7 +528,10 @@ bool mdm_hangup(void)
     if (mdm_state == mdm_state_dialing ||
         mdm_state == mdm_state_connected)
     {
+        mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
         mdm_state = mdm_state_on_hook;
+        mdm_in_command_mode = true;
+        tel_close(true);
         return true;
     }
     return false;

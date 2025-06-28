@@ -6,9 +6,7 @@
 
 #include "pico.h"
 
-#ifndef RP6502_RIA_W
-void tel_task() {}
-#else
+#ifdef RP6502_RIA_W
 
 #define DEBUG_RIA_NET_TEL ////////////////////
 
@@ -16,19 +14,20 @@ void tel_task() {}
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
 #else
-#define DBG(...)
+#define DBG(...) \
+    {            \
+    }
 #endif
 
 #include "net/mdm.h"
 #include "net/tel.h"
-#include "lwip/err.h"
 #include "lwip/tcp.h"
 #include "lwip/dns.h"
 #include "lwipopts.h"
 
 typedef enum
 {
-    tel_state_off,
+    tel_state_closed,
     tel_state_dns_lookup,
     tel_state_connecting,
     tel_state_connected_tcp,
@@ -36,38 +35,38 @@ typedef enum
 } tel_state_t;
 static tel_state_t tel_state;
 
-static struct tcp_pcb tel_pcb;
+static struct tcp_pcb *tel_pcb;
 static u16_t tel_port;
-static ip_addr_t tel_ipaddr;
 
 struct pbuf *tel_pbufs[PBUF_POOL_SIZE];
 static uint8_t tel_pbuf_head;
 static uint8_t tel_pbuf_tail;
 static u16_t tel_pbuf_pos;
 
-void tel_task()
+err_t tel_close(bool force)
 {
-}
-
-static err_t tel_close(void)
-{
-    // do we need to free pbufs?
-    tel_pbuf_pos = tel_pbuf_head = tel_pbuf_tail = 0;
-    err_t err = ERR_OK;
-    if (tel_state == tel_state_off || tel_state == tel_state_dns_lookup)
-        return err;
-    tcp_err(&tel_pcb, NULL);
-    tcp_recv(&tel_pcb, NULL);
-    tcp_sent(&tel_pcb, NULL);
-    tcp_poll(&tel_pcb, NULL, 0);
-    tcp_arg(&tel_pcb, NULL);
-    err = tcp_close(&tel_pcb);
-    if (err != ERR_OK)
+    if (force)
+        while (tel_pbuf_head != tel_pbuf_tail)
+            pbuf_free(tel_pbufs[tel_pbuf_tail++]);
+    if (tel_state == tel_state_closed)
+        return ERR_OK;
+    tel_state_t state = tel_state;
+    tel_state = tel_state_closed;
+    if (tel_pbuf_head == tel_pbuf_tail)
+        mdm_hangup();
+    switch (state)
     {
-        tcp_abort(&tel_pcb);
-        err = ERR_ABRT;
+    case tel_state_connecting:
+        tcp_abort(tel_pcb);
+        return ERR_ABRT;
+    case tel_state_connected_tcp:
+    case tel_state_connected_telnet:
+        return tcp_close(tel_pcb);
+    case tel_state_closed:
+    case tel_state_dns_lookup:
+        break;
     }
-    return err;
+    return ERR_OK;
 }
 
 int tel_rx(char *ch)
@@ -76,10 +75,19 @@ int tel_rx(char *ch)
         return 0;
     struct pbuf *p = tel_pbufs[tel_pbuf_tail];
     *ch = ((char *)p->payload)[tel_pbuf_pos];
-    if (++tel_pbuf_pos >= p->tot_len)
+    if (++tel_pbuf_pos >= p->len)
     {
-        pbuf_free(tel_pbufs[tel_pbuf_tail++]);
+        if (p->next)
+        {
+            tel_pbufs[tel_pbuf_tail] = p->next;
+            pbuf_ref(p->next);
+        }
+        else
+            tel_pbuf_tail++;
+        pbuf_free(p);
         tel_pbuf_pos = 0;
+        if (tel_pbuf_head == tel_pbuf_tail && tel_state == tel_state_closed)
+            mdm_hangup();
     }
     return 1;
 }
@@ -90,7 +98,7 @@ err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
     (void)tpcb;
     assert(err == ERR_OK);
     if (!p)
-        return tel_close();
+        return tel_close(false);
     tel_pbufs[tel_pbuf_head++] = p;
     return err;
 }
@@ -102,12 +110,10 @@ static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     assert(err == ERR_OK); // current version of library always sends ok
     DBG("NET TEL TCP Connected %d\n", err);
     mdm_connect();
-    tel_state = tel_state_connected_tcp; /////// maybe telnet
-
-    tcp_recv(&tel_pcb, tel_recv);
-    // tcp_sent(&tel_pcb, tel_sent);
-    // tcp_poll(&tel_pcb, tel_poll, 2);
-    tcp_nagle_disable(&tel_pcb);
+    tel_state = tel_state_connected_tcp;
+    tcp_recv(tel_pcb, tel_recv);
+    // tcp_sent(tel_pcb, tel_sent);
+    // tcp_poll(tel_pcb, tel_poll, 2);
 
     return ERR_OK;
 }
@@ -115,8 +121,9 @@ static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
 void tel_err(void *arg, err_t err)
 {
     (void)arg;
+    (void)err;
     DBG("NET TEL tcp_err %d\n", err);
-    tel_state = tel_state_off;
+    tel_close(true);
 }
 
 void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
@@ -126,25 +133,34 @@ void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     (void)arg;
     if (tel_state != tel_state_dns_lookup)
         return;
-    tel_pbuf_pos = tel_pbuf_head = tel_pbuf_tail = 0;
-    tcp_arg(&tel_pcb, NULL);
-    tcp_err(&tel_pcb, tel_err);
-    err_t err = tcp_connect(&tel_pcb, &tel_ipaddr, tel_port, tel_connected);
-    if (err != ERR_OK)
+    if (!ipaddr)
     {
-        DBG("NET TEL tcp_connect failed %d\n", err);
-        tel_state = tel_state_off;
+        DBG("NET TEL DNS did not resolve\n");
+        tel_close(true);
+        return;
+    }
+    tel_pcb = tcp_new_ip_type(IP_GET_TYPE(ipaddr));
+    if (!tel_pcb)
+    {
+        DBG("NET TEL tcp_new_ip_type failed\n");
+        tel_close(true);
         return;
     }
     DBG("NET TEL connecting\n");
     tel_state = tel_state_connecting;
+    tcp_nagle_disable(tel_pcb);
+    tcp_err(tel_pcb, tel_err);
+    err_t err = tcp_connect(tel_pcb, ipaddr, tel_port, tel_connected);
+    if (err != ERR_OK)
+        DBG("NET TEL tcp_connect failed %d\n", err);
 }
 
 bool tel_open(const char *hostname, uint16_t port)
 {
-    assert(tel_state == tel_state_off);
+    assert(tel_state == tel_state_closed);
+    ip_addr_t ipaddr;
     tel_port = port;
-    err_t err = dns_gethostbyname(hostname, &tel_ipaddr, tel_dns_found, NULL);
+    err_t err = dns_gethostbyname(hostname, &ipaddr, tel_dns_found, NULL);
     if (err == ERR_INPROGRESS)
     {
         DBG("NET TEL DNS looking up\n");
@@ -153,11 +169,12 @@ bool tel_open(const char *hostname, uint16_t port)
     }
     if (err == ERR_OK)
     {
-        DBG("NET TEL DNS in cache\n");
+        DBG("NET TEL DNS resolved locally\n");
         tel_state = tel_state_dns_lookup;
-        tel_dns_found(hostname, &tel_ipaddr, NULL);
-        return true;
+        tel_dns_found(hostname, &ipaddr, NULL);
+        return tel_state == tel_state_connecting;
     }
+    DBG("NET TEL dns_gethostbyname (%d)\n", err);
     return false;
 }
 
