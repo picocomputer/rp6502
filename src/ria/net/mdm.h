@@ -49,5 +49,7 @@ void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);
 bool mdm_dial(const char *s);
+bool mdm_connect(void);
+bool mdm_hangup(void);
 
 #endif /* _MDM_H_ */

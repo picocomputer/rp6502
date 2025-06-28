@@ -19,6 +19,7 @@ void tel_task() {}
 #define DBG(...)
 #endif
 
+#include "net/mdm.h"
 #include "net/tel.h"
 #include "lwip/err.h"
 #include "lwip/tcp.h"
@@ -100,6 +101,7 @@ static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     (void)tpcb;
     assert(err == ERR_OK); // current version of library always sends ok
     DBG("NET TEL TCP Connected %d\n", err);
+    mdm_connect();
     tel_state = tel_state_connected_tcp; /////// maybe telnet
 
     tcp_recv(&tel_pcb, tel_recv);

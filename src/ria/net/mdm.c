@@ -68,13 +68,16 @@ typedef enum
 {
     mdm_state_command_mode,
     mdm_state_parsing,
-    mdm_state_connecting,
+    mdm_state_dialing,
     mdm_state_connected,
 } mdm_state_t;
 static mdm_state_t mdm_state;
 static const char *mdm_parse_str;
 static bool mdm_parse_result;
 static bool mdm_is_open;
+
+// static bool mdm_is_parsing;
+// static bool mdm_in_command_mode;
 
 mdm_settings_t mdm_settings;
 
@@ -227,8 +230,7 @@ int mdm_rx(char *ch)
         mdm_rx_buf_tail = (mdm_rx_buf_tail + 1) % MDM_RX_BUF_SIZE;
         return 1;
     }
-    // get from telnet filter, which gets from pbuf
-    // TODO
+    // get from telephone emulator
     return tel_rx(ch);
 }
 
@@ -488,10 +490,6 @@ void mdm_task()
             mdm_parse_result = cmd_parse(&mdm_parse_str);
         }
     }
-    if (mdm_state == mdm_state_connected)
-    {
-        // TODO
-    }
 }
 
 bool mdm_dial(const char *s)
@@ -499,7 +497,32 @@ bool mdm_dial(const char *s)
     (void)s; ////////////// TODO
     if (tel_open("192.168.1.65", 23))
     {
-        mdm_state = mdm_state_connecting;
+        mdm_state = mdm_state_dialing;
+        return true;
+    }
+    return false;
+}
+
+bool mdm_connect(void)
+{
+    // TODO select correct message, need ATXn, >0 enables code 5
+    // mdm_set_response_fn(mdm_response_code, 1); // CONNECT
+    mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
+    if (mdm_state == mdm_state_dialing ||
+        mdm_state == mdm_state_connected)
+    {
+        mdm_state = mdm_state_connected;
+        return true;
+    }
+    return false;
+}
+
+bool mdm_hangup(void)
+{
+    if (mdm_state == mdm_state_dialing ||
+        mdm_state == mdm_state_connected)
+    {
+        mdm_state = mdm_state_command_mode;
         return true;
     }
     return false;
