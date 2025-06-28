@@ -16,6 +16,7 @@ typedef struct
     uint8_t echo;
     uint8_t quiet;
     uint8_t verbose;
+    uint8_t progress;
     uint8_t auto_answer;
     uint8_t esc_char;
     uint8_t cr_char;

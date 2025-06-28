@@ -195,6 +195,18 @@ static bool cmd_verbose(const char **s)
     return false;
 }
 
+// X0 - X4
+static bool cmd_progress(const char **s)
+{
+    int value = cmd_parse_num(s);
+    if (value >= 0 && value <= 4)
+    {
+        mdm_settings.progress = value;
+        return true;
+    }
+    return false;
+}
+
 // Z, Z0
 static bool cmd_reset(const char **s)
 {
@@ -229,10 +241,11 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "ACTIVE PROFILE:\r\n");
         break;
     case 1:
-        snprintf(buf, buf_size, "E%u Q%u V%u\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u X%u\r\n",
                  mdm_settings.echo,
                  mdm_settings.quiet,
-                 mdm_settings.verbose);
+                 mdm_settings.verbose,
+                 mdm_settings.progress);
         break;
     case 2:
         snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
@@ -248,10 +261,11 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     case 4:
         mdm_read_settings(&nvr_settings);
-        snprintf(buf, buf_size, "E%u Q%u V%u\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u X%u\r\n",
                  nvr_settings.echo,
                  nvr_settings.quiet,
-                 nvr_settings.verbose);
+                 nvr_settings.verbose,
+                 nvr_settings.progress);
         break;
     case 5:
         mdm_read_settings(&nvr_settings);
@@ -479,6 +493,8 @@ bool cmd_parse(const char **s)
         return cmd_s_set(s);
     case 'V':
         return cmd_verbose(s);
+    case 'X':
+        return cmd_progress(s);
     case 'Z':
         return cmd_reset(s);
     case '&':

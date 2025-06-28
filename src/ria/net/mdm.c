@@ -328,6 +328,7 @@ void mdm_factory_settings(mdm_settings_t *settings)
     settings->echo = 1;        // E1
     settings->quiet = 0;       // Q0
     settings->verbose = 1;     // V1
+    settings->progress = 0;    // X0
     settings->auto_answer = 0; // S0=0
     settings->esc_char = '+';  // S2=43
     settings->cr_char = '\r';  // S3=13
@@ -353,6 +354,7 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                "E%u\n"
                                "Q%u\n"
                                "V%u\n"
+                               "X%u\n"
                                "S0=%u\n"
                                "S2=%u\n"
                                "S3=%u\n"
@@ -362,6 +364,7 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                settings->echo,
                                settings->quiet,
                                settings->verbose,
+                               settings->progress,
                                settings->auto_answer,
                                settings->esc_char,
                                settings->cr_char,
@@ -425,6 +428,9 @@ bool mdm_read_settings(mdm_settings_t *settings)
             break;
         case 'V':
             settings->verbose = mdm_parse_settings_num(&str);
+            break;
+        case 'X':
+            settings->progress = mdm_parse_settings_num(&str);
             break;
         case 'S':
             uint8_t s_register = mdm_parse_settings_num(&str);
@@ -503,9 +509,10 @@ bool mdm_dial(const char *s)
 
 bool mdm_connect(void)
 {
-    // TODO select correct message, need ATXn, >0 enables code 5
-    // mdm_set_response_fn(mdm_response_code, 1); // CONNECT
-    mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
+    if (mdm_settings.progress > 0)
+        mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
+    else
+        mdm_set_response_fn(mdm_response_code, 1); // CONNECT
     if (mdm_state == mdm_state_dialing ||
         mdm_state == mdm_state_connected)
     {
