@@ -23,6 +23,7 @@ void tel_task() {}
 #include "lwip/err.h"
 #include "lwip/tcp.h"
 #include "lwip/dns.h"
+#include "lwipopts.h"
 
 typedef enum
 {
@@ -38,8 +39,59 @@ static struct tcp_pcb tel_pcb;
 static u16_t tel_port;
 static ip_addr_t tel_ipaddr;
 
+struct pbuf *tel_pbufs[PBUF_POOL_SIZE];
+static uint8_t tel_pbuf_head;
+static uint8_t tel_pbuf_tail;
+static u16_t tel_pbuf_pos;
+
 void tel_task()
 {
+}
+
+static err_t tel_close(void)
+{
+    // do we need to free pbufs?
+    tel_pbuf_pos = tel_pbuf_head = tel_pbuf_tail = 0;
+    err_t err = ERR_OK;
+    if (tel_state == tel_state_off || tel_state == tel_state_dns_lookup)
+        return err;
+    tcp_err(&tel_pcb, NULL);
+    tcp_recv(&tel_pcb, NULL);
+    tcp_sent(&tel_pcb, NULL);
+    tcp_poll(&tel_pcb, NULL, 0);
+    tcp_arg(&tel_pcb, NULL);
+    err = tcp_close(&tel_pcb);
+    if (err != ERR_OK)
+    {
+        tcp_abort(&tel_pcb);
+        err = ERR_ABRT;
+    }
+    return err;
+}
+
+int tel_rx(char *ch)
+{
+    if (tel_pbuf_head == tel_pbuf_tail)
+        return 0;
+    struct pbuf *p = tel_pbufs[tel_pbuf_tail];
+    *ch = ((char *)p->payload)[tel_pbuf_pos];
+    if (++tel_pbuf_pos >= p->tot_len)
+    {
+        pbuf_free(tel_pbufs[tel_pbuf_tail++]);
+        tel_pbuf_pos = 0;
+    }
+    return 1;
+}
+
+err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
+{
+    (void)arg;
+    (void)tpcb;
+    assert(err == ERR_OK);
+    if (!p)
+        return tel_close();
+    tel_pbufs[tel_pbuf_head++] = p;
+    return err;
 }
 
 static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
@@ -50,7 +102,7 @@ static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     DBG("NET TEL TCP Connected %d\n", err);
     tel_state = tel_state_connected_tcp; /////// maybe telnet
 
-    // tcp_recv(&tel_pcb, tel_recv);
+    tcp_recv(&tel_pcb, tel_recv);
     // tcp_sent(&tel_pcb, tel_sent);
     // tcp_poll(&tel_pcb, tel_poll, 2);
     tcp_nagle_disable(&tel_pcb);
@@ -70,6 +122,9 @@ void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     (void)name;
     (void)ipaddr;
     (void)arg;
+    if (tel_state != tel_state_dns_lookup)
+        return;
+    tel_pbuf_pos = tel_pbuf_head = tel_pbuf_tail = 0;
     tcp_arg(&tel_pcb, NULL);
     tcp_err(&tel_pcb, tel_err);
     err_t err = tcp_connect(&tel_pcb, &tel_ipaddr, tel_port, tel_connected);
@@ -97,6 +152,7 @@ bool tel_open(const char *hostname, uint16_t port)
     if (err == ERR_OK)
     {
         DBG("NET TEL DNS in cache\n");
+        tel_state = tel_state_dns_lookup;
         tel_dns_found(hostname, &tel_ipaddr, NULL);
         return true;
     }

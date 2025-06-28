@@ -11,6 +11,11 @@
  */
 
 void tel_task(void);
+
+/* Utility
+ */
+
+int tel_rx(char *ch);
 bool tel_open(const char *hostname, uint16_t port);
 
 #endif /* _TEL_H_ */

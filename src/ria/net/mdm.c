@@ -229,7 +229,7 @@ int mdm_rx(char *ch)
     }
     // get from telnet filter, which gets from pbuf
     // TODO
-    return 0;
+    return tel_rx(ch);
 }
 
 static bool mdm_at_is_in_buffer(void)
