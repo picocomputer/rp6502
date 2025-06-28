@@ -66,19 +66,16 @@ static int mdm_rx_callback_state;
 
 typedef enum
 {
-    mdm_state_command_mode,
-    mdm_state_parsing,
+    mdm_state_on_hook,
     mdm_state_dialing,
     mdm_state_connected,
 } mdm_state_t;
 static mdm_state_t mdm_state;
+static bool mdm_in_command_mode;
+static bool mdm_is_parsing;
 static const char *mdm_parse_str;
 static bool mdm_parse_result;
 static bool mdm_is_open;
-
-// static bool mdm_is_parsing;
-// static bool mdm_in_command_mode;
-
 mdm_settings_t mdm_settings;
 
 static const char __in_flash("net_mdm") str0[] = "OK";
@@ -104,7 +101,10 @@ void mdm_stop(void)
     mdm_rx_buf_tail = 0;
     mdm_rx_callback_state = -1;
     mdm_parse_result = true;
-    mdm_state = mdm_state_command_mode;
+    mdm_state = mdm_state_on_hook;
+    mdm_in_command_mode = true;
+    mdm_is_parsing = false;
+    // TODO tel_stop();
 }
 
 void mdm_init(void)
@@ -128,7 +128,7 @@ bool mdm_open(const char *filename)
     // after nvram read. e.g. AT:&F
     if (filename[0])
     {
-        mdm_state = mdm_state_parsing;
+        mdm_is_parsing = true;
         mdm_parse_result = true;
         mdm_parse_str = filename;
     }
@@ -254,7 +254,7 @@ static int mdm_tx_command_mode(char ch)
         {
             if (!mdm_settings.echo && !mdm_settings.quiet && mdm_settings.verbose)
                 mdm_response_append_cr_lf();
-            mdm_state = mdm_state_parsing;
+            mdm_is_parsing = true;
             mdm_parse_result = true;
             mdm_parse_str = &mdm_tx_buf[2];
         }
@@ -279,7 +279,7 @@ static int mdm_tx_command_mode(char ch)
             if (mdm_settings.echo || (!mdm_settings.quiet && mdm_settings.verbose))
                 mdm_response_append_cr_lf();
             mdm_tx_buf_len = 0;
-            mdm_state = mdm_state_parsing;
+            mdm_is_parsing = true;
             mdm_parse_result = true;
             mdm_parse_str = &mdm_tx_buf[2];
             return 1;
@@ -302,7 +302,7 @@ int mdm_tx(char ch)
 {
     if (!mdm_is_open)
         return -1;
-    if (mdm_state == mdm_state_command_mode)
+    if (mdm_in_command_mode && !mdm_is_parsing)
         return mdm_tx_command_mode(ch);
     if (mdm_state == mdm_state_connected)
         return mdm_tx_connected(ch);
@@ -468,22 +468,20 @@ bool mdm_read_settings(mdm_settings_t *settings)
 
 void mdm_task()
 {
-    if (mdm_state == mdm_state_parsing)
+    if (mdm_is_parsing)
     {
         if (mdm_rx_callback_state >= 0)
             return;
         if (!mdm_parse_result)
         {
+            mdm_is_parsing = false;
             mdm_set_response_fn(mdm_response_code, 4); // ERROR
-            mdm_state = mdm_state_command_mode;
         }
         else if (*mdm_parse_str == 0)
         {
-            if (mdm_state == mdm_state_parsing)
-            {
+            mdm_is_parsing = false;
+            if (mdm_state == mdm_state_on_hook)
                 mdm_set_response_fn(mdm_response_code, 0); // OK
-                mdm_state = mdm_state_command_mode;
-            }
         }
         else
         {
@@ -522,7 +520,7 @@ bool mdm_hangup(void)
     if (mdm_state == mdm_state_dialing ||
         mdm_state == mdm_state_connected)
     {
-        mdm_state = mdm_state_command_mode;
+        mdm_state = mdm_state_on_hook;
         return true;
     }
     return false;
