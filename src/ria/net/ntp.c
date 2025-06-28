@@ -141,7 +141,8 @@ void ntp_task(void)
     case ntp_state_init:
         DBG("NET NTP started\n");
         ntp_retry_retry_count = 0;
-        ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (!ntp_pcb)
+            ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp_pcb)
             ntp_state = ntp_state_internal_error;
         else

@@ -14,6 +14,6 @@
 
 int tel_rx(char *ch);
 bool tel_open(const char *hostname, uint16_t port);
-err_t tel_close(bool force);
+err_t tel_close(void);
 
 #endif /* _TEL_H_ */

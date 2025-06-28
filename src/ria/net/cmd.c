@@ -41,10 +41,10 @@ static int cmd_parse_num(const char **s)
 static bool cmd_dial(const char **s)
 {
     // Eat tone and pulse options
-    if (*s[0] == 'T' || *s[0] == 'P')
+    if ((*s)[0] == 'T' || (*s)[0] == 'P')
         ++*s;
     const char *address = *s;
-    (*s) += strlen(*s);
+    *s += strlen(*s);
     return mdm_dial(address);
 }
 
@@ -380,7 +380,7 @@ static bool cmd_plus_rfcc(const char **s)
     {
     case '=':
         bool result = cfg_set_rfcc(*s);
-        s += strlen(*s);
+        *s += strlen(*s);
         return result;
     case '?':
         mdm_set_response_fn(cmd_plus_rfcc_response, 0);
@@ -407,7 +407,7 @@ static bool cmd_plus_ssid(const char **s)
     {
     case '=':
         bool result = cfg_set_ssid(*s);
-        s += strlen(*s);
+        *s += strlen(*s);
         return result;
     case '?':
         mdm_set_response_fn(cmd_plus_ssid_response, 0);
@@ -434,7 +434,7 @@ static bool cmd_plus_pass(const char **s)
     {
     case '=':
         bool result = cfg_set_pass(*s);
-        s += strlen(*s);
+        *s += strlen(*s);
         return result;
     case '?':
         mdm_set_response_fn(cmd_plus_pass_response, 0);

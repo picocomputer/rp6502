@@ -95,7 +95,7 @@ static const char __in_flash("net_mdm") devicename0[] = "AT0:";
 
 void mdm_stop(void)
 {
-    tel_close(true);
+    tel_close();
     mdm_is_open = false;
     mdm_tx_buf_len = 0;
     mdm_rx_buf_head = 0;
@@ -531,7 +531,7 @@ bool mdm_hangup(void)
         mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
         mdm_state = mdm_state_on_hook;
         mdm_in_command_mode = true;
-        tel_close(true);
+        tel_close();
         return true;
     }
     return false;
