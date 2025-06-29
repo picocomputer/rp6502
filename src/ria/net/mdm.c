@@ -4,9 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/mdm.h"
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void mdm_init(void) {}
@@ -27,6 +26,10 @@ int mdm_tx(char) { return -1; }
     }
 #endif
 
+#include <pico.h>
+#include <string.h>
+#include <stdio.h>
+#include <pico/time.h>
 #include "lwipopts.h"
 #include "str.h"
 #include "net/cmd.h"
@@ -35,8 +38,6 @@ int mdm_tx(char) { return -1; }
 #include "net/wfi.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
-#include <string.h>
-#include <stdio.h>
 
 // Leave a little room for escaped telnet characters.
 #if TCP_MSS == 536 // does not fragment and good enough
@@ -46,6 +47,9 @@ int mdm_tx(char) { return -1; }
 #else
 #error unexpected TCP_MSS
 #endif
+
+#define MDM_ESCAPE_GUARD_TIME_US 1000000
+#define MDM_ESCAPE_COUNT 3
 
 // Old modems have 40 chars, Hayes V.series has 255.
 // We share mdm_tx_buf so might as well go big.
@@ -76,6 +80,10 @@ static bool mdm_is_parsing;
 static const char *mdm_parse_str;
 static bool mdm_parse_result;
 static bool mdm_is_open;
+static unsigned mdm_escape_count;
+static absolute_time_t mdm_escape_last_char;
+static absolute_time_t mdm_escape_guard;
+
 mdm_settings_t mdm_settings;
 
 static const char __in_flash("net_mdm") str0[] = "OK";
@@ -105,6 +113,7 @@ void mdm_stop(void)
     mdm_state = mdm_state_on_hook;
     mdm_in_command_mode = true;
     mdm_is_parsing = false;
+    mdm_escape_count = 0;
 }
 
 void mdm_init(void)
@@ -231,7 +240,9 @@ int mdm_rx(char *ch)
         return 1;
     }
     // get from telephone emulator
-    return tel_rx(ch);
+    if (!mdm_in_command_mode)
+        return tel_rx(ch);
+    return 0;
 }
 
 static bool mdm_at_is_in_buffer(void)
@@ -298,13 +309,33 @@ static int mdm_tx_connected(char ch)
     return 1;
 }
 
+static void mdm_tx_escape_observer(char ch)
+{
+    bool last_char_guarded = absolute_time_diff_us(mdm_escape_last_char, get_absolute_time()) >
+                             MDM_ESCAPE_GUARD_TIME_US;
+    if (mdm_escape_count && last_char_guarded)
+        mdm_escape_count = 0;
+    if (mdm_settings.esc_char < 128 && (mdm_escape_count || last_char_guarded))
+    {
+        if (ch != mdm_settings.esc_char)
+            mdm_escape_count = 0;
+        else if (++mdm_escape_count == MDM_ESCAPE_COUNT)
+            mdm_escape_guard = make_timeout_time_us(MDM_ESCAPE_GUARD_TIME_US);
+    }
+    mdm_escape_last_char = get_absolute_time();
+}
+
 int mdm_tx(char ch)
 {
     if (!mdm_is_open)
         return -1;
-    if (mdm_in_command_mode && !mdm_is_parsing)
-        return mdm_tx_command_mode(ch);
-    if (mdm_state == mdm_state_connected)
+    mdm_tx_escape_observer(ch);
+    if (mdm_in_command_mode)
+    {
+        if (!mdm_is_parsing)
+            return mdm_tx_command_mode(ch);
+    }
+    else if (mdm_state == mdm_state_connected)
         return mdm_tx_connected(ch);
     return 0;
 }
@@ -486,13 +517,21 @@ void mdm_task()
         else if (*mdm_parse_str == 0)
         {
             mdm_is_parsing = false;
-            if (mdm_state == mdm_state_on_hook)
+            if (mdm_state != mdm_state_dialing)
                 mdm_set_response_fn(mdm_response_code, 0); // OK
         }
         else
         {
             mdm_parse_result = cmd_parse(&mdm_parse_str);
         }
+    }
+    if (mdm_escape_count == MDM_ESCAPE_COUNT &&
+        absolute_time_diff_us(get_absolute_time(), mdm_escape_guard) < 0)
+    {
+        mdm_in_command_mode = true;
+        mdm_tx_buf_len = 0;
+        mdm_escape_count = 0;
+        mdm_set_response_fn(mdm_response_code, 0); // OK
     }
 }
 
