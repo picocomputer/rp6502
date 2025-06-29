@@ -265,7 +265,7 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
                  mdm_settings.progress);
         break;
     case 2:
-        snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
+        snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
                  mdm_settings.auto_answer,
                  0, // TODO ring counter
                  mdm_settings.esc_char,
@@ -274,7 +274,7 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
                  mdm_settings.bs_char);
         break;
     case 3:
-        snprintf(buf, buf_size, "STORED PROFILE:\r\n");
+        snprintf(buf, buf_size, "\r\nSTORED PROFILE:\r\n");
         break;
     case 4:
         mdm_read_settings(&nvr_settings);
@@ -286,7 +286,7 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     case 5:
         mdm_read_settings(&nvr_settings);
-        snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n\r\n",
+        snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
                  nvr_settings.auto_answer,
                  nvr_settings.esc_char,
                  nvr_settings.cr_char,
@@ -294,17 +294,16 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
                  nvr_settings.bs_char);
         break;
     case 6:
-        snprintf(buf, buf_size, "RIA SETTINGS:\r\n+RF=%u\r\n", cfg_get_rf());
+        snprintf(buf, buf_size, "\r\nPHONE BOOK:\r\n&Z0=%s\r\n", mdm_read_phonebook_entry(0));
         break;
     case 7:
-        const char *rfcc = cfg_get_rfcc();
-        snprintf(buf, buf_size, "+RFCC=%s\r\n", strlen(rfcc) ? rfcc : "(Worldwide)");
+        snprintf(buf, buf_size, "&Z1=%s\r\n", mdm_read_phonebook_entry(1));
         break;
     case 8:
-        snprintf(buf, buf_size, "+SSID=%s\r\n", cfg_get_ssid());
+        snprintf(buf, buf_size, "&Z2=%s\r\n", mdm_read_phonebook_entry(2));
         break;
     case 9:
-        snprintf(buf, buf_size, "+PASS=%s\r\n", strlen(cfg_get_pass()) ? "(set)" : "(none)");
+        snprintf(buf, buf_size, "&Z3=%s\r\n", mdm_read_phonebook_entry(3));
         __attribute__((fallthrough));
     default:
         return -1;
@@ -336,6 +335,27 @@ static bool cmd_save_nvram(const char **s)
     return false;
 }
 
+// &Z
+static bool cmd_save_phonebook(const char **s)
+{
+    int num = 0;
+    // supports hayes-ism AT&Z5551212
+    if ((*s)[0] == 0 || (*s)[0] == '=' || (*s)[1] == '=')
+    {
+        num = cmd_parse_num(s);
+        if (num == -1)
+            num = 0;
+        if (num >= MDM_PHONEBOOK_ENTRIES)
+            return false;
+        if ((*s)[0] != '=')
+            return false;
+        ++*s;
+    }
+    bool result = mdm_write_phonebook_entry(*s, num);
+    *s += strlen(*s);
+    return result;
+}
+
 // &
 static bool cmd_parse_amp(const char **s)
 {
@@ -349,6 +369,8 @@ static bool cmd_parse_amp(const char **s)
         return cmd_view_config(s);
     case 'W':
         return cmd_save_nvram(s);
+    case 'Z':
+        return cmd_save_phonebook(s);
     }
     --*s;
     return false;

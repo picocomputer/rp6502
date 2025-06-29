@@ -148,7 +148,8 @@ static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
 {
     (void)arg;
     (void)tpcb;
-    assert(err == ERR_OK); // current version of library always sends ok
+    (void)err;
+    assert(err == ERR_OK);
     DBG("NET TEL TCP Connected %d\n", err);
     tel_state = tel_state_connected;
     mdm_connect();

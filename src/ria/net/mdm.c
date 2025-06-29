@@ -95,7 +95,9 @@ static const char __in_flash("net_mdm") str7[] = "BUSY";
 static const char __in_flash("net_mdm") str8[] = "NO ANSWER";
 static const char *const __in_flash("net_mdm") mdm_response_strings[] = {str0, str1, str2, str3, str4, str5, str6, str7, str8};
 
-static const char __in_flash("net_mdm") filename[] = "MODEM0.SYS";
+static const char __in_flash("net_mdm") phone0_sys[] = "PHONE0.SYS";
+static const char __in_flash("net_mdm") phone0_tmp[] = "PHONE0.TMP";
+static const char __in_flash("net_mdm") modem0_sys[] = "MODEM0.SYS";
 static const char __in_flash("net_mdm") devicename[] = "AT:";
 static const char __in_flash("net_mdm") devicename0[] = "AT0:";
 
@@ -365,18 +367,88 @@ void mdm_factory_settings(mdm_settings_t *settings)
     settings->bs_char = '\b';  // S5=8
 }
 
+char *mdm_read_phonebook_entry(unsigned index)
+{
+    lfs_file_t lfs_file;
+    LFS_FILE_CONFIG(lfs_file_config);
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, phone0_sys,
+                                     LFS_O_RDONLY, &lfs_file_config);
+    mbuf[0] = 0;
+    if (lfsresult < 0)
+        return (char *)mbuf;
+    for (; lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file); index--)
+    {
+        size_t len = strlen((char *)mbuf);
+        while (len && mbuf[len - 1] == '\n')
+            len--;
+        mbuf[len] = 0;
+        if (index == 0)
+            break;
+    }
+    lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
+    if (lfsresult < 0)
+        DBG("?Unable to lfs_file_close %s (%d)\n", phone0_sys, lfsresult);
+    if (index)
+        mbuf[0] = 0;
+    return (char *)mbuf;
+}
+
+bool mdm_write_phonebook_entry(const char *entry, unsigned index)
+{
+    lfs_file_t lfs_file;
+    LFS_FILE_CONFIG(lfs_file_config);
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, phone0_tmp,
+                                     LFS_O_RDWR | LFS_O_CREAT,
+                                     &lfs_file_config);
+    if (lfsresult < 0)
+    {
+        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", phone0_tmp, lfsresult);
+        return false;
+    }
+    for (unsigned i = 0; i < MDM_PHONEBOOK_ENTRIES; i++)
+    {
+        if (i == index)
+            lfsresult = lfs_printf(&lfs_volume, &lfs_file, "%s\n", entry);
+        else
+            lfsresult = lfs_printf(&lfs_volume, &lfs_file, "%s\n", mdm_read_phonebook_entry(i));
+        if (lfsresult < 0)
+            DBG("?Unable to write %s contents (%d)\n", phone0_tmp, lfsresult);
+    }
+    int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
+    if (lfscloseresult < 0)
+        DBG("?Unable to lfs_file_close %s (%d)\n", phone0_tmp, lfscloseresult);
+    if (lfsresult < 0 || lfscloseresult < 0)
+    {
+        lfs_remove(&lfs_volume, phone0_tmp);
+        return false;
+    }
+    lfsresult = lfs_remove(&lfs_volume, phone0_sys);
+    if (lfsresult < 0 && lfsresult != LFS_ERR_NOENT)
+    {
+        DBG("?Unable to lfs_remove %s (%d)\n", phone0_sys, lfsresult);
+        return false;
+    }
+    lfsresult = lfs_rename(&lfs_volume, phone0_tmp, phone0_sys);
+    if (lfsresult < 0)
+    {
+        DBG("?Unable to lfs_rename (%d)\n", lfsresult);
+        return false;
+    }
+    return true;
+}
+
 bool mdm_write_settings(const mdm_settings_t *settings)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, filename,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, modem0_sys,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
     if (lfsresult < 0)
-        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", filename, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", modem0_sys, lfsresult);
     if (lfsresult >= 0)
         if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            DBG("?Unable to lfs_file_truncate %s (%d)\n", filename, lfsresult);
+            DBG("?Unable to lfs_file_truncate %s (%d)\n", modem0_sys, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -400,14 +472,14 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                settings->lf_char,
                                settings->bs_char);
         if (lfsresult < 0)
-            DBG("?Unable to write %s contents (%d)\n", filename, lfsresult);
+            DBG("?Unable to write %s contents (%d)\n", modem0_sys, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", filename, lfscloseresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", modem0_sys, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
     {
-        lfs_remove(&lfs_volume, filename);
+        lfs_remove(&lfs_volume, modem0_sys);
         return false;
     }
     return true;
@@ -429,14 +501,14 @@ bool mdm_read_settings(mdm_settings_t *settings)
     mdm_factory_settings(settings);
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, filename,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, modem0_sys,
                                      LFS_O_RDONLY, &lfs_file_config);
     mbuf[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult == LFS_ERR_NOENT)
             return true;
-        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", filename, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", modem0_sys, lfsresult);
         return false;
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
@@ -495,7 +567,7 @@ bool mdm_read_settings(mdm_settings_t *settings)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_file_close %s (%d)\n", filename, lfsresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", modem0_sys, lfsresult);
         return false;
     }
     return true;

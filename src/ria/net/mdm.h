@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MDM_PHONEBOOK_ENTRIES 4
+
 typedef struct
 {
     uint8_t echo;
@@ -49,6 +51,8 @@ void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
 void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);
+bool mdm_write_phonebook_entry(const char *entry, unsigned index);
+char *mdm_read_phonebook_entry(unsigned index);
 bool mdm_dial(const char *s);
 bool mdm_connect(void);
 bool mdm_hangup(void);
