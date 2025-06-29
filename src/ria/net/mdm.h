@@ -52,7 +52,7 @@ void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);
 bool mdm_write_phonebook_entry(const char *entry, unsigned index);
-char *mdm_read_phonebook_entry(unsigned index);
+const char *mdm_read_phonebook_entry(unsigned index);
 bool mdm_dial(const char *s);
 bool mdm_connect(void);
 bool mdm_hangup(void);

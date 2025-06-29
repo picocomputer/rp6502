@@ -33,11 +33,22 @@ static int cmd_parse_num(const char **s)
 // D
 static bool cmd_dial(const char **s)
 {
-    // Eat tone and pulse options
-    if ((*s)[0] == 'T' || (*s)[0] == 'P')
-        ++*s;
-    const char *address = *s;
-    *s += strlen(*s);
+    const char *address;
+    if (toupper((*s)[0]) == 'S' && (*s)[1] == '=')
+    {
+        *s += 2;
+        int num = cmd_parse_num(s);
+        if (num < 0)
+            num = 0;
+        if (num > MDM_PHONEBOOK_ENTRIES || (*s)[0])
+            return false;
+        address = mdm_read_phonebook_entry(num);
+    }
+    else
+    {
+        address = *s;
+        *s += strlen(*s);
+    }
     return mdm_dial(address);
 }
 
@@ -212,11 +223,11 @@ static bool cmd_verbose(const char **s)
     return false;
 }
 
-// X0 - X4
+// X0, X1
 static bool cmd_progress(const char **s)
 {
     int value = cmd_parse_num(s);
-    if (value >= 0 && value <= 4)
+    if (value >= 0 && value <= 1)
     {
         mdm_settings.progress = value;
         return true;
@@ -294,16 +305,19 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
                  nvr_settings.bs_char);
         break;
     case 6:
-        snprintf(buf, buf_size, "\r\nPHONE BOOK:\r\n&Z0=%s\r\n", mdm_read_phonebook_entry(0));
+        snprintf(buf, buf_size, "\r\nTELEPHONE NUMBERS:\r\n");
         break;
     case 7:
-        snprintf(buf, buf_size, "&Z1=%s\r\n", mdm_read_phonebook_entry(1));
+        snprintf(buf, buf_size, "0=%s\r\n", mdm_read_phonebook_entry(0));
         break;
     case 8:
-        snprintf(buf, buf_size, "&Z2=%s\r\n", mdm_read_phonebook_entry(2));
+        snprintf(buf, buf_size, "1=%s\r\n", mdm_read_phonebook_entry(1));
         break;
     case 9:
-        snprintf(buf, buf_size, "&Z3=%s\r\n", mdm_read_phonebook_entry(3));
+        snprintf(buf, buf_size, "2=%s\r\n", mdm_read_phonebook_entry(2));
+        break;
+    case 10:
+        snprintf(buf, buf_size, "3=%s\r\n", mdm_read_phonebook_entry(3));
         __attribute__((fallthrough));
     default:
         return -1;

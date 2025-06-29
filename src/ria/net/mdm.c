@@ -367,7 +367,7 @@ void mdm_factory_settings(mdm_settings_t *settings)
     settings->bs_char = '\b';  // S5=8
 }
 
-char *mdm_read_phonebook_entry(unsigned index)
+const char *mdm_read_phonebook_entry(unsigned index)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
@@ -485,17 +485,6 @@ bool mdm_write_settings(const mdm_settings_t *settings)
     return true;
 }
 
-static int mdm_parse_settings_num(const char **s)
-{
-    int num = 0;
-    while ((**s >= '0') && (**s <= '9'))
-    {
-        num = num * 10 + (**s - '0');
-        ++*s;
-    }
-    return num;
-}
-
 bool mdm_read_settings(mdm_settings_t *settings)
 {
     mdm_factory_settings(settings);
@@ -522,19 +511,19 @@ bool mdm_read_settings(mdm_settings_t *settings)
         switch (mbuf[0])
         {
         case 'E':
-            settings->echo = mdm_parse_settings_num(&str);
+            settings->echo = atoi(str);
             break;
         case 'Q':
-            settings->quiet = mdm_parse_settings_num(&str);
+            settings->quiet = atoi(str);
             break;
         case 'V':
-            settings->verbose = mdm_parse_settings_num(&str);
+            settings->verbose = atoi(str);
             break;
         case 'X':
-            settings->progress = mdm_parse_settings_num(&str);
+            settings->progress = atoi(str);
             break;
         case 'S':
-            uint8_t s_register = mdm_parse_settings_num(&str);
+            uint8_t s_register = atoi(str);
             if (str[0] != '=')
                 break;
             ++str;
@@ -542,19 +531,19 @@ bool mdm_read_settings(mdm_settings_t *settings)
             switch (s_register)
             {
             case 0:
-                settings->auto_answer = mdm_parse_settings_num(&str);
+                settings->auto_answer = atoi(str);
                 break;
             case 2:
-                settings->esc_char = mdm_parse_settings_num(&str);
+                settings->esc_char = atoi(str);
                 break;
             case 3:
-                settings->cr_char = mdm_parse_settings_num(&str);
+                settings->cr_char = atoi(str);
                 break;
             case 4:
-                settings->lf_char = mdm_parse_settings_num(&str);
+                settings->lf_char = atoi(str);
                 break;
             case 5:
-                settings->bs_char = mdm_parse_settings_num(&str);
+                settings->bs_char = atoi(str);
                 break;
             default:
                 break;
@@ -612,8 +601,23 @@ void mdm_task()
 
 bool mdm_dial(const char *s)
 {
-    (void)s; ////////////// TODO
-    if (tel_open("192.168.1.65", 23))
+    if (mdm_state != mdm_state_on_hook)
+        return false;
+    // Use mbuf to slice the string.
+    if (strlen(s) >= MBUF_SIZE)
+        return false;
+    char *buf = (char *)mbuf;
+    strcpy(buf, s);
+    u16_t port;
+    char *port_str = strrchr(buf, ':');
+    if (!port_str)
+        port = 23;
+    else
+    {
+        port_str++[0] = 0;
+        port = atoi(port_str);
+    }
+    if (tel_open(buf, port))
     {
         mdm_state = mdm_state_dialing;
         mdm_in_command_mode = false;
