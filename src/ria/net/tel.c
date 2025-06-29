@@ -43,41 +43,43 @@ static u16_t tel_pbuf_pos;
 
 err_t tel_close(void)
 {
-    if (tel_state == tel_state_connected)
+    tel_state_t state = tel_state;
+    tel_state = tel_state_closed;
+    if (state == tel_state_connected)
     {
         char c;
         while (tel_rx(&c))
         { // drop the rx buffer
         }
     }
-    if (tel_state == tel_state_closed)
+    if (state == tel_state_closed)
         return ERR_OK;
-    tel_state_t state = tel_state;
-    tel_state = tel_state_closed;
     if (tel_pbuf_head == tel_pbuf_tail)
         mdm_hangup();
-    switch (state)
-    {
-    case tel_state_connecting:
-        DBG("NET TEL tcp_abort\n");
-        tcp_abort(tel_pcb);
-        return ERR_ABRT;
-    case tel_state_connected:
-    case tel_state_closing:
-        DBG("NET TEL tcp_close\n");
-        err_t err = tcp_close(tel_pcb);
-        if (err != ERR_OK)
+    if (tel_pcb)
+        switch (state)
         {
-            DBG("NET TEL tcp_close failed\n");
+        case tel_state_connecting:
+            DBG("NET TEL tcp_abort\n");
             tcp_abort(tel_pcb);
-            err = ERR_ABRT;
+            tel_pcb = NULL;
+            return ERR_ABRT;
+        case tel_state_connected:
+        case tel_state_closing:
+            DBG("NET TEL tcp_close\n");
+            err_t err = tcp_close(tel_pcb);
+            if (err != ERR_OK)
+            {
+                DBG("NET TEL tcp_close failed\n");
+                tcp_abort(tel_pcb);
+                err = ERR_ABRT;
+            }
+            tel_pcb = NULL;
+            return err;
+        case tel_state_closed:
+        case tel_state_dns_lookup:
+            break;
         }
-        tel_pcb = NULL;
-        return err;
-    case tel_state_closed:
-    case tel_state_dns_lookup:
-        break;
-    }
     return ERR_OK;
 }
 

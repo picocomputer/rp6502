@@ -517,7 +517,7 @@ void mdm_task()
         else if (*mdm_parse_str == 0)
         {
             mdm_is_parsing = false;
-            if (mdm_state != mdm_state_dialing)
+            if (mdm_in_command_mode)
                 mdm_set_response_fn(mdm_response_code, 0); // OK
         }
         else
@@ -549,14 +549,15 @@ bool mdm_dial(const char *s)
 
 bool mdm_connect(void)
 {
-    if (mdm_settings.progress > 0)
-        mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
-    else
-        mdm_set_response_fn(mdm_response_code, 1); // CONNECT
     if (mdm_state == mdm_state_dialing ||
         mdm_state == mdm_state_connected)
     {
+        if (mdm_settings.progress > 0)
+            mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
+        else
+            mdm_set_response_fn(mdm_response_code, 1); // CONNECT
         mdm_state = mdm_state_connected;
+        mdm_in_command_mode = false;
         return true;
     }
     return false;

@@ -76,6 +76,30 @@ static bool cmd_online_echo(const char **s)
     return false;
 }
 
+// H, H0
+static bool cmd_hook(const char **s)
+{
+    switch (cmd_parse_num(s))
+    {
+    case -1:
+    case 0:
+        return mdm_hangup();
+    }
+    return false;
+}
+
+// O, O0
+static bool cmd_online(const char **s)
+{
+    switch (cmd_parse_num(s))
+    {
+    case -1:
+    case 0:
+        return mdm_connect();
+    }
+    return false;
+}
+
 // Q0, Q1, Q2
 static bool cmd_quiet(const char **s)
 {
@@ -483,6 +507,10 @@ bool cmd_parse(const char **s)
         return cmd_echo(s);
     case 'F':
         return cmd_online_echo(s);
+    case 'H':
+        return cmd_hook(s);
+    case 'O':
+        return cmd_online(s);
     case 'Q':
         return cmd_quiet(s);
     case 'S':
