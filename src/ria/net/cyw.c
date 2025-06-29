@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/cyw.h"
 void cyw_task() {}
 void cyw_pre_reclock() {}
-void cyw_post_reclock() {}
+void cyw_post_reclock(uint32_t) {}
 void cyw_reset_radio() {}
 bool cyw_initializing() { return false; }
 #else
@@ -21,6 +20,7 @@ bool cyw_initializing() { return false; }
 #define DBG(...)
 #endif
 
+#include "pico.h"
 #include "mon/ram.h"
 #include "net/cyw.h"
 #include "net/wfi.h"

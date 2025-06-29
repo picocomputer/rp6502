@@ -15,8 +15,6 @@ int mdm_rx(char *) { return -1; }
 int mdm_tx(char) { return -1; }
 #else
 
-#define DEBUG_RIA_NET_MDM ////////////////////
-
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
@@ -570,8 +568,7 @@ bool mdm_connect(void)
 
 bool mdm_hangup(void)
 {
-    if (mdm_state == mdm_state_dialing ||
-        mdm_state == mdm_state_connected)
+    if (mdm_state != mdm_state_on_hook)
     {
         mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
         mdm_state = mdm_state_on_hook;
@@ -580,6 +577,14 @@ bool mdm_hangup(void)
         return true;
     }
     return false;
+}
+
+void mdm_carrier_lost(void)
+{
+    // If the telephone connection is lost while
+    // we are escaped into command mode, hangup.
+    if (mdm_in_command_mode)
+        mdm_hangup();
 }
 
 #endif /* RP6502_RIA_W */

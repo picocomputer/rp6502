@@ -52,5 +52,6 @@ bool mdm_read_settings(mdm_settings_t *settings);
 bool mdm_dial(const char *s);
 bool mdm_connect(void);
 bool mdm_hangup(void);
+void mdm_carrier_lost(void);
 
 #endif /* _MDM_H_ */

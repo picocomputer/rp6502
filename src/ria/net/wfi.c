@@ -4,9 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/wfi.h"
 void wfi_task() {}
 void wfi_print_status() {}
 #else
@@ -18,6 +17,7 @@ void wfi_print_status() {}
 #define DBG(...)
 #endif
 
+#include "pico.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"

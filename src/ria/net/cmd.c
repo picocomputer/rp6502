@@ -4,13 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NVR)
-#include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
-#else
-#define DBG(...)
-#endif
-
 #include "net/cmd.h"
 #include "net/mdm.h"
 #include "sys/cfg.h"

@@ -4,9 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/ntp.h"
 void ntp_task() {}
 void ntp_print_status() {}
 #else
@@ -18,6 +17,7 @@ void ntp_print_status() {}
 #define DBG(...)
 #endif
 
+#include "pico.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "lwip/dns.h"

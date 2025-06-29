@@ -4,11 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifdef RP6502_RIA_W
-
-#define DEBUG_RIA_NET_TEL ////////////////////
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_TEL)
 #include <stdio.h>
@@ -17,6 +13,7 @@
 #define DBG(...)
 #endif
 
+#include "pico.h"
 #include "net/mdm.h"
 #include "net/tel.h"
 #include "lwip/tcp.h"
@@ -89,7 +86,8 @@ int tel_rx(char *ch)
         return 0;
     struct pbuf *p = tel_pbufs[tel_pbuf_tail];
     *ch = ((char *)p->payload)[tel_pbuf_pos];
-    tcp_recved(tel_pcb, 1);
+    if (tel_pcb)
+        tcp_recved(tel_pcb, 1);
     if (++tel_pbuf_pos >= p->len)
     {
         if (p->next)
@@ -111,6 +109,8 @@ int tel_rx(char *ch)
 
 bool tel_tx(char *ch, u16_t len)
 {
+    if (!tel_pcb)
+        return true; // drop data
     if (tel_state == tel_state_connected)
     {
         err_t err = tcp_write(tel_pcb, ch, len, TCP_WRITE_FLAG_COPY);
@@ -121,7 +121,7 @@ bool tel_tx(char *ch, u16_t len)
     return false;
 }
 
-err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
+static err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
     (void)arg;
     (void)tpcb;
@@ -130,6 +130,7 @@ err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
     if (!p)
     {
         tel_state = tel_state_closing;
+        mdm_carrier_lost();
         if (tel_pbuf_head == tel_pbuf_tail)
             tel_close();
         return ERR_OK;
@@ -149,15 +150,12 @@ static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     (void)tpcb;
     assert(err == ERR_OK); // current version of library always sends ok
     DBG("NET TEL TCP Connected %d\n", err);
-    mdm_connect();
     tel_state = tel_state_connected;
-    tcp_recv(tel_pcb, tel_recv);
-    // tcp_sent(tel_pcb, tel_sent); tcp_sent_fn
-    // tcp_poll(tel_pcb, tel_poll, 2);
+    mdm_connect();
     return ERR_OK;
 }
 
-void tel_err(void *arg, err_t err)
+static void tel_err(void *arg, err_t err)
 {
     (void)arg;
     (void)err;
@@ -165,7 +163,7 @@ void tel_err(void *arg, err_t err)
     tel_close();
 }
 
-void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
+static void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
     (void)name;
     (void)ipaddr;
@@ -189,6 +187,7 @@ void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     tel_state = tel_state_connecting;
     tcp_nagle_disable(tel_pcb);
     tcp_err(tel_pcb, tel_err);
+    tcp_recv(tel_pcb, tel_recv);
     err_t err = tcp_connect(tel_pcb, ipaddr, tel_port, tel_connected);
     if (err != ERR_OK)
     {
