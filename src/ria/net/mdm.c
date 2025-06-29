@@ -505,6 +505,11 @@ bool mdm_read_settings(mdm_settings_t *settings)
 
 void mdm_task()
 {
+    if (!mdm_in_command_mode && mdm_tx_buf_len)
+    {
+        if (tel_tx(mdm_tx_buf, mdm_tx_buf_len))
+            mdm_tx_buf_len = 0;
+    }
     if (mdm_is_parsing)
     {
         if (mdm_rx_response_state >= 0)

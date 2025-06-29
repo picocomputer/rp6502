@@ -13,7 +13,8 @@
  */
 
 int tel_rx(char *ch);
-bool tel_open(const char *hostname, uint16_t port);
+bool tel_tx(char *ch, u16_t len);
+bool tel_open(const char *hostname, u16_t port);
 err_t tel_close(void);
 
 #endif /* _TEL_H_ */
