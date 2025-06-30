@@ -23,7 +23,8 @@ typedef enum
     ansi_state_Fe,
     ansi_state_SS2,
     ansi_state_SS3,
-    ansi_state_CSI
+    ansi_state_CSI,
+    ansi_state_CSI_private,
 } ansi_state_t;
 
 static char com_buf[COM_BUF_SIZE];
@@ -325,6 +326,16 @@ static void com_line_state_CSI(char ch)
             com_csi_param_count = COM_CSI_PARAM_MAX_LEN;
         return;
     }
+    if (ch == '<' || ch == '=' || ch == '>' || ch == '?')
+    {
+        com_ansi_state = ansi_state_CSI_private;
+        return;
+    }
+    if (com_ansi_state == ansi_state_CSI_private)
+    {
+        com_ansi_state = ansi_state_C0;
+        return;
+    }
     com_ansi_state = ansi_state_C0;
     if (++com_csi_param_count > COM_CSI_PARAM_MAX_LEN)
         com_csi_param_count = COM_CSI_PARAM_MAX_LEN;
@@ -374,6 +385,7 @@ static void com_line_rx(uint8_t ch)
             com_line_state_SS3(ch);
             break;
         case ansi_state_CSI:
+        case ansi_state_CSI_private:
             com_line_state_CSI(ch);
             break;
         }
