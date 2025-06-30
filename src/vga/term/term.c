@@ -80,6 +80,19 @@ static term_state_t term_40;
 static term_state_t term_80;
 static int16_t term_scanline_begin;
 
+// You must move ptr when moving x and y. A row is contiguous,
+// but moving up or down rows may wraparound the mem buffer.
+// So call this any time you change rows.
+static void term_constrain_ptr(term_state_t *term)
+{
+    if (term->ptr < term->mem)
+        term->ptr += term->width * TERM_MAX_HEIGHT;
+    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
+        term->ptr -= term->width * TERM_MAX_HEIGHT;
+}
+
+// Make sure you call this any time you change rows.
+// It will process any pending screen clears on the row.
 static void term_clean_line(term_state_t *term, uint8_t y)
 {
     if (!term->dirty[y])
@@ -339,8 +352,7 @@ static void term_out_ht(term_state_t *term)
 static void term_out_lf(term_state_t *term, bool wrapping)
 {
     term->ptr += term->width;
-    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
-        term->ptr -= term->width * TERM_MAX_HEIGHT;
+    term_constrain_ptr(term);
     if (wrapping)
         term->wrapped[term->y] = wrapping;
     else if (term->wrapped[term->y])
@@ -412,8 +424,7 @@ static void term_out_cuu_1(term_state_t *term)
     {
         term->y--;
         term->ptr -= term->width;
-        if (term->ptr < term->mem)
-            term->ptr += term->width * TERM_MAX_HEIGHT;
+        term_constrain_ptr(term);
     }
 }
 
@@ -501,6 +512,40 @@ static void term_out_dch(term_state_t *term)
         if (++tp_dst >= tp_max)
             tp_dst -= term->width * TERM_MAX_HEIGHT;
     }
+}
+
+// Cursor Position
+static void term_out_cup(term_state_t *term)
+{
+    // row and col start 1-indexed
+    uint16_t row = term->csi_param[0];
+    if (row < 1)
+        row = 1;
+    if (row > term->height)
+        row = term->height;
+
+    uint16_t col = term->csi_param[1];
+    if (col < 1 || term->csi_param_count < 2)
+        col = 1;
+    if (col > term->width)
+        col = term->width;
+
+    int32_t row_dist = (int32_t)--row - term->y;
+    term->y = row;
+    int32_t col_dist = (int32_t)--col - term->x;
+    term->x = col;
+
+    term->ptr += row_dist * term->width;
+    term->ptr += col_dist;
+    term_constrain_ptr(term);
+    term_clean_line(term, row);
+}
+
+// Erase Display
+static void term_out_ed(term_state_t *term)
+{
+    if (term->csi_param[0] == 2)
+        return term_state_clear(term);
 }
 
 static void term_out_state_C0(term_state_t *term, char ch)
@@ -592,6 +637,12 @@ static void term_out_state_CSI(term_state_t *term, char ch)
         break;
     case 'P':
         term_out_dch(term);
+        break;
+    case 'H':
+        term_out_cup(term);
+        break;
+    case 'J':
+        term_out_ed(term);
         break;
     }
 }
