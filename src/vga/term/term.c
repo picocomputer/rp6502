@@ -64,6 +64,7 @@ typedef struct term_state
     uint16_t erase_fg_color;
     uint16_t erase_bg_color;
     uint8_t y_offset;
+    bool bold;
     uint16_t fg_color;
     uint16_t bg_color;
     term_data_t *mem;
@@ -146,6 +147,7 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
     term->height = TERM_STD_HEIGHT;
     term->line_wrap = true;
     term->mem = mem;
+    term->bold = false;
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
@@ -268,15 +270,18 @@ static void term_out_SGR(term_state_t *term)
         switch (param)
         {
         case 0: // reset
+            term->bold = false;
             term->fg_color = color_256[TERM_FG_COLOR_INDEX];
             term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 1: // bold intensity
+            term->bold = true;
             for (int i = 0; i < 8; i++)
                 if (term->fg_color == color_256[i])
                     term->fg_color = color_256[i + 8];
             break;
         case 22: // normal intensity
+            term->bold = false;
             for (int i = 8; i < 16; i++)
                 if (term->fg_color == color_256[i])
                     term->fg_color = color_256[i - 8];
@@ -289,7 +294,10 @@ static void term_out_SGR(term_state_t *term)
         case 35:
         case 36:
         case 37:
-            term->fg_color = color_256[param - 30];
+            if (term->bold)
+                term->fg_color = color_256[param - 30 + 8];
+            else
+                term->fg_color = color_256[param - 30];
             break;
         case 38:
             sgr_color(term, idx, &term->fg_color);
@@ -427,6 +435,38 @@ static void term_out_cuu_1(term_state_t *term)
         term_constrain_ptr(term);
         term_clean_line(term, term->y);
     }
+}
+
+// Cursor up
+static void term_out_CUU(term_state_t *term)
+{
+    uint16_t rows = term->csi_param[0];
+    if (rows < 1)
+        rows = 1;
+    uint16_t y = term->y;
+    while (rows && y > 0)
+        --rows, --y;
+    uint32_t row_dist = term->y - y;
+    term->y = y;
+    term->ptr -= row_dist * term->width;
+    term_constrain_ptr(term);
+    term_clean_line(term, y);
+}
+
+// Cursor down
+static void term_out_CUD(term_state_t *term)
+{
+    uint16_t rows = term->csi_param[0];
+    if (rows < 1)
+        rows = 1;
+    uint16_t y = term->y;
+    while (rows && y < term->height - 1)
+        --rows, ++y;
+    uint32_t row_dist = y - term->y;
+    term->y = y;
+    term->ptr += row_dist * term->width;
+    term_constrain_ptr(term);
+    term_clean_line(term, y);
 }
 
 // Cursor forward
@@ -629,6 +669,12 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     {
     case 'm':
         term_out_SGR(term);
+        break;
+    case 'A':
+        term_out_CUU(term);
+        break;
+    case 'B':
+        term_out_CUD(term);
         break;
     case 'C':
         term_out_CUF(term);
