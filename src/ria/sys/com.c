@@ -503,6 +503,8 @@ static void stdio_uart_set_chars_available_callback(void (*fn)(void *), void *pa
     const uint UART_IRQ = UART0_IRQ + uart_get_index(COM_UART);
     if (fn && !chars_available_callback)
     {
+        chars_available_callback = fn;
+        chars_available_param = param;
         irq_set_exclusive_handler(UART_IRQ, on_uart_rx);
         irq_set_enabled(UART_IRQ, true);
         uart_set_irq_enables(COM_UART, true, false);
@@ -512,9 +514,9 @@ static void stdio_uart_set_chars_available_callback(void (*fn)(void *), void *pa
         uart_set_irq_enables(COM_UART, false, false);
         irq_set_enabled(UART_IRQ, false);
         irq_remove_handler(UART_IRQ, on_uart_rx);
+        chars_available_callback = NULL;
+        chars_available_param = NULL;
     }
-    chars_available_callback = fn;
-    chars_available_param = param;
 }
 #endif
 
