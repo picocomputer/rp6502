@@ -40,7 +40,8 @@ typedef enum
     ansi_state_Fe,
     ansi_state_SS2,
     ansi_state_SS3,
-    ansi_state_CSI
+    ansi_state_CSI,
+    ansi_state_CSI_question,
 } ansi_state_t;
 
 typedef struct
@@ -611,13 +612,85 @@ static void term_out_CUP(term_state_t *term)
     term_set_cursor_position(term, --col, --row);
 }
 
+// Erase Line
+static void term_out_EL(term_state_t *term)
+{
+    switch (term->csi_param[0])
+    {
+    case 0: // to the end of the line
+    case 1: // to beginning of the line
+        term_data_t *row = &term->mem[(term->y_offset + term->y) * term->width];
+        if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
+            row -= term->width * TERM_MAX_HEIGHT;
+        uint16_t erase_fg_color = term->fg_color;
+        uint16_t erase_bg_color = term->bg_color;
+        uint8_t x, end;
+        if (!term->csi_param[0])
+        {
+            x = term->x;
+            end = term->width - 1;
+        }
+        else
+        {
+            x = 0;
+            end = term->x;
+        }
+        for (; x <= end; x++)
+        {
+            row[x].font_code = ' ';
+            row[x].fg_color = erase_fg_color;
+            row[x].bg_color = erase_bg_color;
+        }
+        break;
+    case 2: // full line
+        term->wrapped[term->y] = false;
+        term->dirty[term->y] = true;
+        term->erase_fg_color[term->y] = term->fg_color;
+        term->erase_bg_color[term->y] = term->bg_color;
+        term_clean_line(term, term->y);
+        break;
+    }
+}
+
 // Erase Display
 static void term_out_ED(term_state_t *term)
 {
-    if (term->csi_param[0] == 2)
+    switch (term->csi_param[0])
     {
-        // TODO
-        return term_out_FF(term);
+    case 0: //  to end of screen
+        for (size_t i = term->y + 1; i < term->height; i++)
+        {
+            term->wrapped[i] = false;
+            term->dirty[i] = true;
+            term->erase_fg_color[i] = term->fg_color;
+            term->erase_bg_color[i] = term->bg_color;
+        }
+        term->cleaned = false;
+        term_out_EL(term);
+        break;
+    case 1: //  to beginning of the screen
+        for (size_t i = 0; i < term->y; i++)
+        {
+            term->wrapped[i] = false;
+            term->dirty[i] = true;
+            term->erase_fg_color[i] = term->fg_color;
+            term->erase_bg_color[i] = term->bg_color;
+        }
+        term->cleaned = false;
+        term_out_EL(term);
+        break;
+    case 2: // full screen
+    case 3: // xterm
+        for (size_t i = 0; i < term->height; i++)
+        {
+            term->wrapped[i] = false;
+            term->dirty[i] = true;
+            term->erase_fg_color[i] = term->fg_color;
+            term->erase_bg_color[i] = term->bg_color;
+        }
+        term->cleaned = false;
+        term_clean_line(term, term->y);
+        break;
     }
 }
 
@@ -672,33 +745,8 @@ static void term_out_state_SS3(term_state_t *term, char ch)
     term->ansi_state = ansi_state_C0;
 }
 
-static void term_out_state_CSI(term_state_t *term, char ch)
+static void term_out_CSI(term_state_t *term, char ch)
 {
-    // Silently discard overflow parameters but still count to + 1.
-    if (ch >= '0' && ch <= '9')
-    {
-        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
-        {
-            term->csi_param[term->csi_param_count] *= 10;
-            term->csi_param[term->csi_param_count] += ch - '0';
-        }
-        return;
-    }
-    if (ch == ';' || ch == ':')
-    {
-        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
-            term->csi_separator[term->csi_param_count] = ch;
-        if (++term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
-            term->csi_param[term->csi_param_count] = 0;
-        else
-            term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
-        return;
-    }
-    term->ansi_state = ansi_state_C0;
-    if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
-        term->csi_separator[term->csi_param_count] = 0;
-    if (++term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
-        term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
     switch (ch)
     {
     case 'm':
@@ -731,7 +779,61 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     case 'J':
         term_out_ED(term);
         break;
+    case 'K':
+        term_out_EL(term);
+        break;
     }
+}
+
+static void term_out_CSI_question(term_state_t *term, char ch)
+{
+    (void)term;
+    (void)ch;
+}
+
+static void term_out_state_CSI(term_state_t *term, char ch)
+{
+    // Silently discard overflow parameters but still count to + 1.
+    if (ch >= '0' && ch <= '9')
+    {
+        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+        {
+            term->csi_param[term->csi_param_count] *= 10;
+            term->csi_param[term->csi_param_count] += ch - '0';
+        }
+        return;
+    }
+    if (ch == ';' || ch == ':')
+    {
+        if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+            term->csi_separator[term->csi_param_count] = ch;
+        if (++term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+            term->csi_param[term->csi_param_count] = 0;
+        else
+            term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
+        return;
+    }
+    if (ch == '?')
+    {
+        term->ansi_state = ansi_state_CSI_question;
+        return;
+    }
+    if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
+        term->csi_separator[term->csi_param_count] = 0;
+    if (++term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
+        term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
+    switch (term->ansi_state)
+    {
+    case ansi_state_CSI:
+        term_out_CSI(term, ch);
+        break;
+    case ansi_state_CSI_question:
+        term_out_CSI_question(term, ch);
+        break;
+    default:
+        break;
+    }
+    term->ansi_state = ansi_state_C0;
 }
 
 static void term_out_char(term_state_t *term, char ch)
@@ -754,6 +856,7 @@ static void term_out_char(term_state_t *term, char ch)
             term_out_state_SS3(term, ch);
             break;
         case ansi_state_CSI:
+        case ansi_state_CSI_question:
             term_out_state_CSI(term, ch);
             break;
         }
