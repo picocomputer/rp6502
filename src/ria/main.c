@@ -44,13 +44,6 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-#ifndef RP6502_RIA_W
-    // Need a moment for RP6502-VGA to boot at power on.
-    // copy_to_ram takes longer on pico_w so it doesn't
-    // need any delay for VGA to do its copy_to_ram.
-    absolute_time_t timer = make_timeout_time_ms(30);
-#endif
-
     // STDIO not available until after these inits.
     cpu_init();
     ria_init();
@@ -58,19 +51,15 @@ static void init(void)
     vga_init();
     com_init();
 
-#ifndef RP6502_RIA_W
-    busy_wait_until(timer);
-#endif
-
-    // Print startup message.
-    sys_init();
-
     // Load config before we continue.
     lfs_init();
     cfg_init();
 
-    // Misc kernel modules, add yours here.
+    // Print startup message after setting code page.
     oem_init();
+    sys_init();
+
+    // Misc kernel modules, add yours here.
     aud_init();
     kbd_init();
     mou_init();
@@ -133,6 +122,7 @@ static void stop(void)
     vga_stop(); // Must be before ria
     ria_stop();
     pix_stop();
+    oem_stop();
     std_stop();
     kbd_stop();
     mou_stop();
