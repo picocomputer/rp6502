@@ -63,8 +63,8 @@ typedef struct term_state
     bool wrapped[TERM_MAX_HEIGHT];
     bool dirty[TERM_MAX_HEIGHT];
     bool cleaned;
-    uint16_t erase_fg_color;
-    uint16_t erase_bg_color;
+    uint16_t erase_fg_color[TERM_MAX_HEIGHT];
+    uint16_t erase_bg_color[TERM_MAX_HEIGHT];
     uint8_t y_offset;
     bool bold;
     uint16_t fg_color;
@@ -104,11 +104,13 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     term_data_t *row = &term->mem[(term->y_offset + y) * term->width];
     if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
         row -= term->width * TERM_MAX_HEIGHT;
+    uint16_t erase_fg_color = term->erase_fg_color[y];
+    uint16_t erase_bg_color = term->erase_bg_color[y];
     for (size_t i = 0; i < term->width; i++)
     {
         row[i].font_code = ' ';
-        row[i].fg_color = term->erase_fg_color;
-        row[i].bg_color = term->erase_bg_color;
+        row[i].fg_color = erase_fg_color;
+        row[i].bg_color = erase_bg_color;
     }
 }
 
@@ -151,19 +153,18 @@ static void term_clean_task(term_state_t *term)
     term->cleaned = true;
 }
 
-static void term_state_clear(term_state_t *term)
+static void term_out_FF(term_state_t *term)
 {
     for (size_t i = 0; i < term->height; i++)
     {
         term->wrapped[i] = false;
         term->dirty[i] = true;
+        term->erase_fg_color[i] = term->fg_color;
+        term->erase_bg_color[i] = term->bg_color;
     }
-    term->erase_fg_color = term->fg_color;
-    term->erase_bg_color = term->bg_color;
-    term->x = 0;
     term->y = 0;
     term->y_offset = 0;
-    term->ptr = term->mem;
+    term->ptr = term->mem + term->x;
     term->cleaned = false;
     term_clean_line(term, 0);
 }
@@ -175,7 +176,8 @@ static void term_out_RIS(term_state_t *term)
     term->bold = false;
     term->save_x = 0;
     term->save_y = 0;
-    term_state_clear(term);
+    term->x = 0;
+    term_out_FF(term);
 }
 
 static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
@@ -439,11 +441,6 @@ static void term_out_LF(term_state_t *term, bool wrapping)
     term_clean_line(term, term->y);
 }
 
-static void term_out_FF(term_state_t *term)
-{
-    term_state_clear(term);
-}
-
 static void term_out_CR(term_state_t *term)
 {
     term->ptr -= term->x;
@@ -618,7 +615,10 @@ static void term_out_CUP(term_state_t *term)
 static void term_out_ED(term_state_t *term)
 {
     if (term->csi_param[0] == 2)
-        return term_state_clear(term);
+    {
+        // TODO
+        return term_out_FF(term);
+    }
 }
 
 static void term_out_state_C0(term_state_t *term, char ch)
