@@ -57,6 +57,8 @@ typedef struct term_state
     uint8_t height;
     uint8_t x;
     uint8_t y;
+    uint8_t save_x;
+    uint8_t save_y;
     bool line_wrap;
     bool wrapped[TERM_MAX_HEIGHT];
     bool dirty[TERM_MAX_HEIGHT];
@@ -110,6 +112,31 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     }
 }
 
+// Set a new cursor position, 0-indexed
+static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
+{
+    bool x_off_screen = false;
+    if (x == term->width)
+    {
+        x--;
+        x_off_screen = true;
+    }
+    int32_t col_dist = (int32_t)x - term->x;
+    int32_t row_dist = (int32_t)y - term->y;
+    term->x = x;
+    term->y = y;
+    term->ptr += col_dist;
+    term->ptr += row_dist * term->width;
+    term_constrain_ptr(term);
+    term_clean_line(term, y);
+    if (x_off_screen)
+    {
+        // ptr may go out of bounds here, this is correct
+        term->x++;
+        term->ptr++;
+    }
+}
+
 static void term_clean_task(term_state_t *term)
 {
     // Clean only one line per task
@@ -141,18 +168,25 @@ static void term_state_clear(term_state_t *term)
     term_clean_line(term, 0);
 }
 
+static void ansi_out_RIS(term_state_t *term)
+{
+    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
+    term->bold = false;
+    term->save_x = 0;
+    term->save_y = 0;
+    term_state_clear(term);
+}
+
 static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
 {
     term->width = width;
     term->height = TERM_STD_HEIGHT;
     term->line_wrap = true;
     term->mem = mem;
-    term->bold = false;
-    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
-    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
     term->ansi_state = ansi_state_C0;
-    term_state_clear(term);
+    ansi_out_RIS(term);
 }
 
 static void term_state_set_height(term_state_t *term, uint8_t height)
@@ -347,6 +381,19 @@ static void term_out_SGR(term_state_t *term)
     }
 }
 
+// Save cursor position
+static void term_out_SCP(term_state_t *term)
+{
+    term->save_x = term->x;
+    term->save_y = term->y;
+}
+
+// Restore cursor position
+static void term_out_RCP(term_state_t *term)
+{
+    term_set_cursor_position(term, term->save_x, term->save_y);
+}
+
 static void term_out_ht(term_state_t *term)
 {
     if (term->x < term->width)
@@ -425,18 +472,6 @@ static void term_out_glyph(term_state_t *term, char ch)
     term->ptr++;
 }
 
-// Cursor up by one line
-static void term_out_cuu_1(term_state_t *term)
-{
-    if (term->y)
-    {
-        term->y--;
-        term->ptr -= term->width;
-        term_constrain_ptr(term);
-        term_clean_line(term, term->y);
-    }
-}
-
 // Cursor up
 static void term_out_CUU(term_state_t *term)
 {
@@ -509,7 +544,12 @@ static void term_out_CUB(term_state_t *term)
             term->csi_param[0] = cols - term->x;
             term->ptr += term->width - term->x;
             term->x += term->width - term->x;
-            term_out_cuu_1(term);
+            if (term->y)
+            {
+                term->y--;
+                term->ptr -= term->width;
+                term_constrain_ptr(term);
+            }
             return term_out_CUB(term);
         }
         else
@@ -571,15 +611,7 @@ static void term_out_CUP(term_state_t *term)
     if (col > term->width)
         col = term->width;
 
-    int32_t row_dist = (int32_t)--row - term->y;
-    term->y = row;
-    int32_t col_dist = (int32_t)--col - term->x;
-    term->x = col;
-
-    term->ptr += row_dist * term->width;
-    term->ptr += col_dist;
-    term_constrain_ptr(term);
-    term_clean_line(term, row);
+    term_set_cursor_position(term, --col, --row);
 }
 
 // Erase Display
@@ -622,6 +654,8 @@ static void term_out_state_Fe(term_state_t *term, char ch)
         term->ansi_state = ansi_state_SS2;
     else if (ch == 'O')
         term->ansi_state = ansi_state_SS3;
+    else if (ch == 'c')
+        ansi_out_RIS(term);
     else
         term->ansi_state = ansi_state_C0;
 }
@@ -669,6 +703,12 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     {
     case 'm':
         term_out_SGR(term);
+        break;
+    case 's':
+        term_out_SCP(term);
+        break;
+    case 'u':
+        term_out_RCP(term);
         break;
     case 'A':
         term_out_CUU(term);
