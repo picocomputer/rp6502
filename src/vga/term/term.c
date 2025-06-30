@@ -258,7 +258,7 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     }
 }
 
-static void term_out_sgr(term_state_t *term)
+static void term_out_SGR(term_state_t *term)
 {
     if (term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
         return;
@@ -425,11 +425,12 @@ static void term_out_cuu_1(term_state_t *term)
         term->y--;
         term->ptr -= term->width;
         term_constrain_ptr(term);
+        term_clean_line(term, term->y);
     }
 }
 
 // Cursor forward
-static void term_out_cuf(term_state_t *term)
+static void term_out_CUF(term_state_t *term)
 {
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
@@ -443,7 +444,7 @@ static void term_out_cuf(term_state_t *term)
             term->csi_param[0] = cols - (term->width - term->x);
             term_out_cr(term);
             term_out_lf(term, true);
-            return term_out_cuf(term);
+            return term_out_CUF(term);
         }
         else
             cols = term->width - term->x;
@@ -453,7 +454,7 @@ static void term_out_cuf(term_state_t *term)
 }
 
 // Cursor backward
-static void term_out_cub(term_state_t *term)
+static void term_out_CUB(term_state_t *term)
 {
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
@@ -469,7 +470,7 @@ static void term_out_cub(term_state_t *term)
             term->ptr += term->width - term->x;
             term->x += term->width - term->x;
             term_out_cuu_1(term);
-            return term_out_cub(term);
+            return term_out_CUB(term);
         }
         else
             cols = term->x;
@@ -479,7 +480,7 @@ static void term_out_cub(term_state_t *term)
 }
 
 // Delete characters
-static void term_out_dch(term_state_t *term)
+static void term_out_DCH(term_state_t *term)
 {
     unsigned max_chars = term->width - term->x;
     for (uint8_t i = term->y; i < term->height - 1; i++)
@@ -515,7 +516,7 @@ static void term_out_dch(term_state_t *term)
 }
 
 // Cursor Position
-static void term_out_cup(term_state_t *term)
+static void term_out_CUP(term_state_t *term)
 {
     // row and col start 1-indexed
     uint16_t row = term->csi_param[0];
@@ -542,7 +543,7 @@ static void term_out_cup(term_state_t *term)
 }
 
 // Erase Display
-static void term_out_ed(term_state_t *term)
+static void term_out_ED(term_state_t *term)
 {
     if (term->csi_param[0] == 2)
         return term_state_clear(term);
@@ -553,7 +554,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
     if (ch == '\b')
     {
         term->csi_param[0] = 1;
-        term_out_cub(term);
+        term_out_CUB(term);
     }
     else if (ch == '\t')
         term_out_ht(term);
@@ -627,22 +628,22 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     switch (ch)
     {
     case 'm':
-        term_out_sgr(term);
+        term_out_SGR(term);
         break;
     case 'C':
-        term_out_cuf(term);
+        term_out_CUF(term);
         break;
     case 'D':
-        term_out_cub(term);
+        term_out_CUB(term);
         break;
     case 'P':
-        term_out_dch(term);
+        term_out_DCH(term);
         break;
     case 'H':
-        term_out_cup(term);
+        term_out_CUP(term);
         break;
     case 'J':
-        term_out_ed(term);
+        term_out_ED(term);
         break;
     }
 }
@@ -710,7 +711,7 @@ static void term_blink_cursor(term_state_t *term)
     if (absolute_time_diff_us(now, term->timer) < 0)
     {
         term_cursor_set_inv(term, !term->blink_state);
-        // 0.3ms drift to avoid blinking cursor trearing
+        // 0.3ms drift to avoid blinking cursor tearing
         if (term->x == term->width)
             // fast blink when off right side
             term->timer = delayed_by_us(now, 249700);
