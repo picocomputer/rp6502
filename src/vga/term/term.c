@@ -168,7 +168,7 @@ static void term_state_clear(term_state_t *term)
     term_clean_line(term, 0);
 }
 
-static void ansi_out_RIS(term_state_t *term)
+static void term_out_RIS(term_state_t *term)
 {
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
@@ -186,7 +186,7 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
     term->mem = mem;
     term->blink_state = 0;
     term->ansi_state = ansi_state_C0;
-    ansi_out_RIS(term);
+    term_out_RIS(term);
 }
 
 static void term_state_set_height(term_state_t *term, uint8_t height)
@@ -394,7 +394,7 @@ static void term_out_RCP(term_state_t *term)
     term_set_cursor_position(term, term->save_x, term->save_y);
 }
 
-static void term_out_ht(term_state_t *term)
+static void term_out_HT(term_state_t *term)
 {
     if (term->x < term->width)
     {
@@ -404,7 +404,7 @@ static void term_out_ht(term_state_t *term)
     }
 }
 
-static void term_out_lf(term_state_t *term, bool wrapping)
+static void term_out_LF(term_state_t *term, bool wrapping)
 {
     term->ptr += term->width;
     term_constrain_ptr(term);
@@ -413,7 +413,7 @@ static void term_out_lf(term_state_t *term, bool wrapping)
     else if (term->wrapped[term->y])
     {
         ++term->y;
-        return term_out_lf(term, false);
+        return term_out_LF(term, false);
     }
     if (++term->y == term->height)
     {
@@ -439,12 +439,12 @@ static void term_out_lf(term_state_t *term, bool wrapping)
     term_clean_line(term, term->y);
 }
 
-static void term_out_ff(term_state_t *term)
+static void term_out_FF(term_state_t *term)
 {
     term_state_clear(term);
 }
 
-static void term_out_cr(term_state_t *term)
+static void term_out_CR(term_state_t *term)
 {
     term->ptr -= term->x;
     term->x = 0;
@@ -456,8 +456,8 @@ static void term_out_glyph(term_state_t *term, char ch)
     {
         if (term->line_wrap)
         {
-            term_out_cr(term);
-            term_out_lf(term, true);
+            term_out_CR(term);
+            term_out_LF(term, true);
         }
         else
         {
@@ -517,8 +517,8 @@ static void term_out_CUF(term_state_t *term)
         if (term->wrapped[term->y])
         {
             term->csi_param[0] = cols - (term->width - term->x);
-            term_out_cr(term);
-            term_out_lf(term, true);
+            term_out_CR(term);
+            term_out_LF(term, true);
             return term_out_CUF(term);
         }
         else
@@ -629,13 +629,13 @@ static void term_out_state_C0(term_state_t *term, char ch)
         term_out_CUB(term);
     }
     else if (ch == '\t')
-        term_out_ht(term);
+        term_out_HT(term);
     else if (ch == '\n')
-        term_out_lf(term, false);
+        term_out_LF(term, false);
     else if (ch == '\f')
-        term_out_ff(term);
+        term_out_FF(term);
     else if (ch == '\r')
-        term_out_cr(term);
+        term_out_CR(term);
     else if (ch == '\33')
         term->ansi_state = ansi_state_Fe;
     else if (ch >= 32)
@@ -655,7 +655,7 @@ static void term_out_state_Fe(term_state_t *term, char ch)
     else if (ch == 'O')
         term->ansi_state = ansi_state_SS3;
     else if (ch == 'c')
-        ansi_out_RIS(term);
+        term_out_RIS(term);
     else
         term->ansi_state = ansi_state_C0;
 }
