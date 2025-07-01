@@ -54,5 +54,13 @@ uint16_t oem_set_codepage(uint16_t cp)
 
 void oem_api_codepage(void)
 {
-    return api_return_ax(cfg_get_codepage());
+    uint16_t cp = API_AX;
+    if (!cp)
+        cp = cfg_get_codepage();
+    return api_return_ax(oem_set_codepage(cp));
+}
+
+void oem_stop(void)
+{
+    oem_set_codepage(cfg_get_codepage());
 }

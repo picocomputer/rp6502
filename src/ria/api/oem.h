@@ -13,6 +13,7 @@
  */
 
 void oem_init(void);
+void oem_stop(void);
 
 // Attempt to change the code page.
 // On failure, preserve current value if possible.

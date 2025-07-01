@@ -36,12 +36,18 @@ static void init(void)
 
 static void task(void)
 {
-    vga_task();
+    // std_task is important
     term_task();
-    tud_task();
+    std_task();
     cdc_task();
-    pix_task();
+    std_task();
     ria_task();
+    std_task();
+    vga_task();
+    std_task();
+    tud_task();
+    std_task();
+    pix_task();
     std_task();
 }
 

@@ -311,14 +311,15 @@ uint8_t cfg_get_vga(void)
 
 bool cfg_set_rf(uint8_t rf)
 {
-    bool ok = true;
+    if (rf > 1)
+        return false;
     if (rf <= 1 && cfg_net_rf != rf)
     {
         cfg_net_rf = rf;
         wfi_disconnect();
         cfg_save_with_boot_opt(NULL);
     }
-    return ok;
+    return true;
 }
 
 uint8_t cfg_get_rf(void)

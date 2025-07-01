@@ -85,11 +85,6 @@ void pix_init(void)
     pio_gpio_init(VGA_PIX_PIO, 2);
     pio_gpio_init(VGA_PIX_PIO, 3);
 
-    // Raise DMA above CPU on crossbar
-    bus_ctrl_hw->priority |=
-        BUSCTRL_BUS_PRIORITY_DMA_R_BITS |
-        BUSCTRL_BUS_PRIORITY_DMA_W_BITS;
-
     dma_addr = (uint32_t)xram;
 
     // Two state machines, one program

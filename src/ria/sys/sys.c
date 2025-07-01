@@ -63,7 +63,7 @@ void sys_mon_status(const char *args, size_t len)
 void sys_init(void)
 {
     // Reset terminal.
-    puts("\30\33[0m\f");
+    puts("\30\33c");
     // Hello, world.
     sys_print_status();
 }

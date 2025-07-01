@@ -7,8 +7,10 @@
 #ifndef _CMD_H_
 #define _CMD_H_
 
-#include "net/nvr.h"
 #include <stdbool.h>
+
+/* Utility
+ */
 
 bool cmd_parse(const char **s);
 

@@ -544,11 +544,6 @@ void ria_init(void)
         hw_set_bits(&pio2->input_sync_bypass, 1u << i);
     }
 
-    // CPU1 is time critical all the time.
-    // It might be tempting to raise DMA_R/W here,
-    // but this causes problems with ria_write_buf.
-    bus_ctrl_hw->priority |= BUSCTRL_BUS_PRIORITY_PROC1_BITS;
-
     // the inits
     ria_cs_rwb_pio_init();
     ria_write_pio_init();

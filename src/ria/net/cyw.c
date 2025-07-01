@@ -4,16 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/cyw.h"
 void cyw_task() {}
 void cyw_pre_reclock() {}
-void cyw_post_reclock() {}
+void cyw_post_reclock(uint32_t) {}
 void cyw_reset_radio() {}
 bool cyw_initializing() { return false; }
 #else
 
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#else
+#define DBG(...)
+#endif
+
+#include "pico.h"
 #include "mon/ram.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
@@ -23,13 +30,6 @@ bool cyw_initializing() { return false; }
 #include "sys/vga.h"
 #include "pico/cyw43_arch.h"
 #include "pico/cyw43_driver.h"
-
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
-#include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
-#else
-#define DBG(...)
-#endif
 
 // These are from cyw43_arch.h
 // Change the help if you change these
@@ -152,7 +152,12 @@ void cyw_task(void)
         if (cyw43_arch_init_with_country(cyw_country_code))
             cyw_state = cyw_state_init_failed;
         else
+        {
+            // cyw43_arch is full of blocking functions.
+            // This seems to block only after cyw43_arch_init.
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
             cyw_state = cyw_state_initialized;
+        }
     }
 }
 

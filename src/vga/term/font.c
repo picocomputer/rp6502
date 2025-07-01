@@ -3511,9 +3511,8 @@ void font_set_codepage(uint16_t cp)
 
     if (current_cp == cp)
         return;
-    if (current_cp)
-        printf("\f");
     current_cp = cp;
+    printf("\30\33c");
 
     if (!cp)
         for (int row = 0; row < 16; row++)

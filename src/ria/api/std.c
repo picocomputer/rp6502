@@ -251,18 +251,18 @@ static void std_out_write(void)
 
 static void std_mdm_write(void)
 {
-    if (std_bytes_moved < std_mdm_count)
-        switch (mdm_tx(std_buf_ptr[std_bytes_moved]))
+    while (std_bytes_moved < std_mdm_count)
+    {
+        int tx = mdm_tx(std_buf_ptr[std_bytes_moved]);
+        if (tx == -1)
         {
-        case -1:
             std_mdm_count = -1;
             return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
-        case 1:
-            std_bytes_moved++;
-            return;
-        case 0:
-            break;
         }
+        if (tx == 0)
+            break;
+        std_bytes_moved++;
+    }
     std_mdm_count = -1;
     api_return_ax(std_bytes_moved);
 }

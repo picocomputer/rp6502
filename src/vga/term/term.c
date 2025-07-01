@@ -40,7 +40,11 @@ typedef enum
     ansi_state_Fe,
     ansi_state_SS2,
     ansi_state_SS3,
-    ansi_state_CSI
+    ansi_state_CSI,
+    ansi_state_CSI_less,
+    ansi_state_CSI_equal,
+    ansi_state_CSI_greater,
+    ansi_state_CSI_question,
 } ansi_state_t;
 
 typedef struct
@@ -57,13 +61,16 @@ typedef struct term_state
     uint8_t height;
     uint8_t x;
     uint8_t y;
+    uint8_t save_x;
+    uint8_t save_y;
     bool line_wrap;
     bool wrapped[TERM_MAX_HEIGHT];
     bool dirty[TERM_MAX_HEIGHT];
     bool cleaned;
-    uint16_t erase_fg_color;
-    uint16_t erase_bg_color;
+    uint16_t erase_fg_color[TERM_MAX_HEIGHT];
+    uint16_t erase_bg_color[TERM_MAX_HEIGHT];
     uint8_t y_offset;
+    bool bold;
     uint16_t fg_color;
     uint16_t bg_color;
     term_data_t *mem;
@@ -80,6 +87,19 @@ static term_state_t term_40;
 static term_state_t term_80;
 static int16_t term_scanline_begin;
 
+// You must move ptr when moving x and y. A row is contiguous,
+// but moving up or down rows may wraparound the mem buffer.
+// So call this any time you change rows.
+static void term_constrain_ptr(term_state_t *term)
+{
+    if (term->ptr < term->mem)
+        term->ptr += term->width * TERM_MAX_HEIGHT;
+    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
+        term->ptr -= term->width * TERM_MAX_HEIGHT;
+}
+
+// Make sure you call this any time you change rows.
+// It will process any pending screen clears on the row.
 static void term_clean_line(term_state_t *term, uint8_t y)
 {
     if (!term->dirty[y])
@@ -88,11 +108,38 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     term_data_t *row = &term->mem[(term->y_offset + y) * term->width];
     if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
         row -= term->width * TERM_MAX_HEIGHT;
+    uint16_t erase_fg_color = term->erase_fg_color[y];
+    uint16_t erase_bg_color = term->erase_bg_color[y];
     for (size_t i = 0; i < term->width; i++)
     {
         row[i].font_code = ' ';
-        row[i].fg_color = term->erase_fg_color;
-        row[i].bg_color = term->erase_bg_color;
+        row[i].fg_color = erase_fg_color;
+        row[i].bg_color = erase_bg_color;
+    }
+}
+
+// Set a new cursor position, 0-indexed
+static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
+{
+    bool x_off_screen = false;
+    if (x == term->width)
+    {
+        x--;
+        x_off_screen = true;
+    }
+    int32_t col_dist = (int32_t)x - term->x;
+    int32_t row_dist = (int32_t)y - term->y;
+    term->x = x;
+    term->y = y;
+    term->ptr += col_dist;
+    term->ptr += row_dist * term->width;
+    term_constrain_ptr(term);
+    term_clean_line(term, y);
+    if (x_off_screen)
+    {
+        // ptr may go out of bounds here, this is correct
+        term->x++;
+        term->ptr++;
     }
 }
 
@@ -110,21 +157,31 @@ static void term_clean_task(term_state_t *term)
     term->cleaned = true;
 }
 
-static void term_state_clear(term_state_t *term)
+static void term_out_FF(term_state_t *term)
 {
     for (size_t i = 0; i < term->height; i++)
     {
         term->wrapped[i] = false;
         term->dirty[i] = true;
+        term->erase_fg_color[i] = term->fg_color;
+        term->erase_bg_color[i] = term->bg_color;
     }
-    term->erase_fg_color = term->fg_color;
-    term->erase_bg_color = term->bg_color;
-    term->x = 0;
     term->y = 0;
     term->y_offset = 0;
-    term->ptr = term->mem;
+    term->ptr = term->mem + term->x;
     term->cleaned = false;
     term_clean_line(term, 0);
+}
+
+static void term_out_RIS(term_state_t *term)
+{
+    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
+    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
+    term->bold = false;
+    term->save_x = 0;
+    term->save_y = 0;
+    term->x = 0;
+    term_out_FF(term);
 }
 
 static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
@@ -133,11 +190,9 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
     term->height = TERM_STD_HEIGHT;
     term->line_wrap = true;
     term->mem = mem;
-    term->fg_color = color_256[TERM_FG_COLOR_INDEX];
-    term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->blink_state = 0;
     term->ansi_state = ansi_state_C0;
-    term_state_clear(term);
+    term_out_RIS(term);
 }
 
 static void term_state_set_height(term_state_t *term, uint8_t height)
@@ -245,7 +300,7 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     }
 }
 
-static void term_out_sgr(term_state_t *term)
+static void term_out_SGR(term_state_t *term)
 {
     if (term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
         return;
@@ -255,15 +310,18 @@ static void term_out_sgr(term_state_t *term)
         switch (param)
         {
         case 0: // reset
+            term->bold = false;
             term->fg_color = color_256[TERM_FG_COLOR_INDEX];
             term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 1: // bold intensity
+            term->bold = true;
             for (int i = 0; i < 8; i++)
                 if (term->fg_color == color_256[i])
                     term->fg_color = color_256[i + 8];
             break;
         case 22: // normal intensity
+            term->bold = false;
             for (int i = 8; i < 16; i++)
                 if (term->fg_color == color_256[i])
                     term->fg_color = color_256[i - 8];
@@ -276,7 +334,10 @@ static void term_out_sgr(term_state_t *term)
         case 35:
         case 36:
         case 37:
-            term->fg_color = color_256[param - 30];
+            if (term->bold)
+                term->fg_color = color_256[param - 30 + 8];
+            else
+                term->fg_color = color_256[param - 30];
             break;
         case 38:
             sgr_color(term, idx, &term->fg_color);
@@ -326,7 +387,20 @@ static void term_out_sgr(term_state_t *term)
     }
 }
 
-static void term_out_ht(term_state_t *term)
+// Save cursor position
+static void term_out_SCP(term_state_t *term)
+{
+    term->save_x = term->x;
+    term->save_y = term->y;
+}
+
+// Restore cursor position
+static void term_out_RCP(term_state_t *term)
+{
+    term_set_cursor_position(term, term->save_x, term->save_y);
+}
+
+static void term_out_HT(term_state_t *term)
 {
     if (term->x < term->width)
     {
@@ -336,17 +410,16 @@ static void term_out_ht(term_state_t *term)
     }
 }
 
-static void term_out_lf(term_state_t *term, bool wrapping)
+static void term_out_LF(term_state_t *term, bool wrapping)
 {
     term->ptr += term->width;
-    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
-        term->ptr -= term->width * TERM_MAX_HEIGHT;
+    term_constrain_ptr(term);
     if (wrapping)
         term->wrapped[term->y] = wrapping;
     else if (term->wrapped[term->y])
     {
         ++term->y;
-        return term_out_lf(term, false);
+        return term_out_LF(term, false);
     }
     if (++term->y == term->height)
     {
@@ -372,12 +445,7 @@ static void term_out_lf(term_state_t *term, bool wrapping)
     term_clean_line(term, term->y);
 }
 
-static void term_out_ff(term_state_t *term)
-{
-    term_state_clear(term);
-}
-
-static void term_out_cr(term_state_t *term)
+static void term_out_CR(term_state_t *term)
 {
     term->ptr -= term->x;
     term->x = 0;
@@ -389,8 +457,8 @@ static void term_out_glyph(term_state_t *term, char ch)
     {
         if (term->line_wrap)
         {
-            term_out_cr(term);
-            term_out_lf(term, true);
+            term_out_CR(term);
+            term_out_LF(term, true);
         }
         else
         {
@@ -405,20 +473,40 @@ static void term_out_glyph(term_state_t *term, char ch)
     term->ptr++;
 }
 
-// Cursor up by one line
-static void term_out_cuu_1(term_state_t *term)
+// Cursor up
+static void term_out_CUU(term_state_t *term)
 {
-    if (term->y)
-    {
-        term->y--;
-        term->ptr -= term->width;
-        if (term->ptr < term->mem)
-            term->ptr += term->width * TERM_MAX_HEIGHT;
-    }
+    uint16_t rows = term->csi_param[0];
+    if (rows < 1)
+        rows = 1;
+    uint16_t y = term->y;
+    while (rows && y > 0)
+        --rows, --y;
+    uint32_t row_dist = term->y - y;
+    term->y = y;
+    term->ptr -= row_dist * term->width;
+    term_constrain_ptr(term);
+    term_clean_line(term, y);
+}
+
+// Cursor down
+static void term_out_CUD(term_state_t *term)
+{
+    uint16_t rows = term->csi_param[0];
+    if (rows < 1)
+        rows = 1;
+    uint16_t y = term->y;
+    while (rows && y < term->height - 1)
+        --rows, ++y;
+    uint32_t row_dist = y - term->y;
+    term->y = y;
+    term->ptr += row_dist * term->width;
+    term_constrain_ptr(term);
+    term_clean_line(term, y);
 }
 
 // Cursor forward
-static void term_out_cuf(term_state_t *term)
+static void term_out_CUF(term_state_t *term)
 {
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
@@ -430,9 +518,9 @@ static void term_out_cuf(term_state_t *term)
         if (term->wrapped[term->y])
         {
             term->csi_param[0] = cols - (term->width - term->x);
-            term_out_cr(term);
-            term_out_lf(term, true);
-            return term_out_cuf(term);
+            term_out_CR(term);
+            term_out_LF(term, true);
+            return term_out_CUF(term);
         }
         else
             cols = term->width - term->x;
@@ -442,7 +530,7 @@ static void term_out_cuf(term_state_t *term)
 }
 
 // Cursor backward
-static void term_out_cub(term_state_t *term)
+static void term_out_CUB(term_state_t *term)
 {
     uint16_t cols = term->csi_param[0];
     if (cols < 1)
@@ -457,8 +545,13 @@ static void term_out_cub(term_state_t *term)
             term->csi_param[0] = cols - term->x;
             term->ptr += term->width - term->x;
             term->x += term->width - term->x;
-            term_out_cuu_1(term);
-            return term_out_cub(term);
+            if (term->y)
+            {
+                term->y--;
+                term->ptr -= term->width;
+                term_constrain_ptr(term);
+            }
+            return term_out_CUB(term);
         }
         else
             cols = term->x;
@@ -468,7 +561,7 @@ static void term_out_cub(term_state_t *term)
 }
 
 // Delete characters
-static void term_out_dch(term_state_t *term)
+static void term_out_DCH(term_state_t *term)
 {
     unsigned max_chars = term->width - term->x;
     for (uint8_t i = term->y; i < term->height - 1; i++)
@@ -503,21 +596,122 @@ static void term_out_dch(term_state_t *term)
     }
 }
 
+// Cursor Position
+static void term_out_CUP(term_state_t *term)
+{
+    // row and col start 1-indexed
+    uint16_t row = term->csi_param[0];
+    if (row < 1)
+        row = 1;
+    if (row > term->height)
+        row = term->height;
+
+    uint16_t col = term->csi_param[1];
+    if (col < 1 || term->csi_param_count < 2)
+        col = 1;
+    if (col > term->width)
+        col = term->width;
+
+    term_set_cursor_position(term, --col, --row);
+}
+
+// Erase Line
+static void term_out_EL(term_state_t *term)
+{
+    switch (term->csi_param[0])
+    {
+    case 0: // to the end of the line
+    case 1: // to beginning of the line
+        term_data_t *row = &term->mem[(term->y_offset + term->y) * term->width];
+        if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
+            row -= term->width * TERM_MAX_HEIGHT;
+        uint16_t erase_fg_color = term->fg_color;
+        uint16_t erase_bg_color = term->bg_color;
+        uint8_t x, end;
+        if (!term->csi_param[0])
+        {
+            x = term->x;
+            end = term->width - 1;
+        }
+        else
+        {
+            x = 0;
+            end = term->x;
+        }
+        for (; x <= end; x++)
+        {
+            row[x].font_code = ' ';
+            row[x].fg_color = erase_fg_color;
+            row[x].bg_color = erase_bg_color;
+        }
+        break;
+    case 2: // full line
+        term->wrapped[term->y] = false;
+        term->dirty[term->y] = true;
+        term->erase_fg_color[term->y] = term->fg_color;
+        term->erase_bg_color[term->y] = term->bg_color;
+        term_clean_line(term, term->y);
+        break;
+    }
+}
+
+// Erase Display
+static void term_out_ED(term_state_t *term)
+{
+    switch (term->csi_param[0])
+    {
+    case 0: //  to end of screen
+        for (size_t i = term->y + 1; i < term->height; i++)
+        {
+            term->wrapped[i] = false;
+            term->dirty[i] = true;
+            term->erase_fg_color[i] = term->fg_color;
+            term->erase_bg_color[i] = term->bg_color;
+        }
+        term->cleaned = false;
+        term_out_EL(term);
+        break;
+    case 1: //  to beginning of the screen
+        for (size_t i = 0; i < term->y; i++)
+        {
+            term->wrapped[i] = false;
+            term->dirty[i] = true;
+            term->erase_fg_color[i] = term->fg_color;
+            term->erase_bg_color[i] = term->bg_color;
+        }
+        term->cleaned = false;
+        term_out_EL(term);
+        break;
+    case 2: // full screen
+    case 3: // xterm
+        for (size_t i = 0; i < term->height; i++)
+        {
+            term->wrapped[i] = false;
+            term->dirty[i] = true;
+            term->erase_fg_color[i] = term->fg_color;
+            term->erase_bg_color[i] = term->bg_color;
+        }
+        term->cleaned = false;
+        term_clean_line(term, term->y);
+        break;
+    }
+}
+
 static void term_out_state_C0(term_state_t *term, char ch)
 {
     if (ch == '\b')
     {
         term->csi_param[0] = 1;
-        term_out_cub(term);
+        term_out_CUB(term);
     }
     else if (ch == '\t')
-        term_out_ht(term);
+        term_out_HT(term);
     else if (ch == '\n')
-        term_out_lf(term, false);
+        term_out_LF(term, false);
     else if (ch == '\f')
-        term_out_ff(term);
+        term_out_FF(term);
     else if (ch == '\r')
-        term_out_cr(term);
+        term_out_CR(term);
     else if (ch == '\33')
         term->ansi_state = ansi_state_Fe;
     else if (ch >= 32)
@@ -536,6 +730,8 @@ static void term_out_state_Fe(term_state_t *term, char ch)
         term->ansi_state = ansi_state_SS2;
     else if (ch == 'O')
         term->ansi_state = ansi_state_SS3;
+    else if (ch == 'c')
+        term_out_RIS(term);
     else
         term->ansi_state = ansi_state_C0;
 }
@@ -550,6 +746,46 @@ static void term_out_state_SS3(term_state_t *term, char ch)
 {
     (void)ch;
     term->ansi_state = ansi_state_C0;
+}
+
+static void term_out_CSI(term_state_t *term, char ch)
+{
+    switch (ch)
+    {
+    case 'm':
+        term_out_SGR(term);
+        break;
+    case 's':
+        term_out_SCP(term);
+        break;
+    case 'u':
+        term_out_RCP(term);
+        break;
+    case 'A':
+        term_out_CUU(term);
+        break;
+    case 'B':
+        term_out_CUD(term);
+        break;
+    case 'C':
+        term_out_CUF(term);
+        break;
+    case 'D':
+        term_out_CUB(term);
+        break;
+    case 'P':
+        term_out_DCH(term);
+        break;
+    case 'H':
+        term_out_CUP(term);
+        break;
+    case 'J':
+        term_out_ED(term);
+        break;
+    case 'K':
+        term_out_EL(term);
+        break;
+    }
 }
 
 static void term_out_state_CSI(term_state_t *term, char ch)
@@ -574,26 +810,38 @@ static void term_out_state_CSI(term_state_t *term, char ch)
             term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
         return;
     }
-    term->ansi_state = ansi_state_C0;
+    switch (ch)
+    {
+    case '<':
+        term->ansi_state = ansi_state_CSI_less;
+        return;
+    case '=':
+        term->ansi_state = ansi_state_CSI_equal;
+        return;
+    case '>':
+        term->ansi_state = ansi_state_CSI_greater;
+        return;
+    case '?':
+        term->ansi_state = ansi_state_CSI_question;
+        return;
+    }
     if (term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
         term->csi_separator[term->csi_param_count] = 0;
     if (++term->csi_param_count > TERM_CSI_PARAM_MAX_LEN)
         term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
-    switch (ch)
+    switch (term->ansi_state)
     {
-    case 'm':
-        term_out_sgr(term);
+    case ansi_state_CSI:
+        term_out_CSI(term, ch);
         break;
-    case 'C':
-        term_out_cuf(term);
-        break;
-    case 'D':
-        term_out_cub(term);
-        break;
-    case 'P':
-        term_out_dch(term);
+    case ansi_state_CSI_less:
+    case ansi_state_CSI_equal:
+    case ansi_state_CSI_greater:
+    case ansi_state_CSI_question:
+    default:
         break;
     }
+    term->ansi_state = ansi_state_C0;
 }
 
 static void term_out_char(term_state_t *term, char ch)
@@ -616,6 +864,10 @@ static void term_out_char(term_state_t *term, char ch)
             term_out_state_SS3(term, ch);
             break;
         case ansi_state_CSI:
+        case ansi_state_CSI_less:
+        case ansi_state_CSI_equal:
+        case ansi_state_CSI_greater:
+        case ansi_state_CSI_question:
             term_out_state_CSI(term, ch);
             break;
         }
@@ -632,7 +884,7 @@ static void term_out_chars(const char *buf, int length)
             term_out_char(&term_40, buf[i]);
             term_out_char(&term_80, buf[i]);
         }
-        term_40.timer = term_80.timer = get_absolute_time();
+        term_40.timer = term_80.timer = make_timeout_time_us(2000);
     }
 }
 
@@ -659,7 +911,7 @@ static void term_blink_cursor(term_state_t *term)
     if (absolute_time_diff_us(now, term->timer) < 0)
     {
         term_cursor_set_inv(term, !term->blink_state);
-        // 0.3ms drift to avoid blinking cursor trearing
+        // 0.3ms drift to avoid blinking cursor tearing
         if (term->x == term->width)
             // fast blink when off right side
             term->timer = delayed_by_us(now, 249700);

@@ -4,17 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/wfi.h"
 void wfi_task() {}
 void wfi_print_status() {}
 #else
-
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "sys/cfg.h"
-#include "pico/cyw43_arch.h"
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)
 #include <stdio.h>
@@ -22,6 +16,12 @@ void wfi_print_status() {}
 #else
 #define DBG(...)
 #endif
+
+#include "pico.h"
+#include "net/cyw.h"
+#include "net/wfi.h"
+#include "sys/cfg.h"
+#include "pico/cyw43_arch.h"
 
 typedef enum
 {

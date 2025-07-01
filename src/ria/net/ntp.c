@@ -4,20 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-
 #ifndef RP6502_RIA_W
+#include "net/ntp.h"
 void ntp_task() {}
 void ntp_print_status() {}
 #else
-
-#include "net/ntp.h"
-#include "net/wfi.h"
-#include "lwip/dns.h"
-#include "lwip/udp.h"
-#include "pico/aon_timer.h"
-#include "pico/time.h"
-#include <string.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NTP)
 #include <stdio.h>
@@ -25,6 +16,15 @@ void ntp_print_status() {}
 #else
 #define DBG(...)
 #endif
+
+#include "pico.h"
+#include "net/ntp.h"
+#include "net/wfi.h"
+#include "lwip/dns.h"
+#include "lwip/udp.h"
+#include "pico/aon_timer.h"
+#include "pico/time.h"
+#include <string.h>
 
 #define NTP_SERVER "pool.ntp.org"
 #define NTP_MSG_LEN 48
@@ -141,7 +141,8 @@ void ntp_task(void)
     case ntp_state_init:
         DBG("NET NTP started\n");
         ntp_retry_retry_count = 0;
-        ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (!ntp_pcb)
+            ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp_pcb)
             ntp_state = ntp_state_internal_error;
         else

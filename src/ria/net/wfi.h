@@ -10,7 +10,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Kernel events
+ */
+
 void wfi_task(void);
+
+/* Utility
+ */
+
 void wfi_print_status(void);
 void wfi_disconnect(void);
 bool wfi_ready(void);
