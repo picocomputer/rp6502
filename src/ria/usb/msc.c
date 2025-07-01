@@ -228,18 +228,21 @@ static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb
 
 DWORD get_fattime(void)
 {
+    struct timespec ts;
     struct tm tm;
-    if (aon_timer_get_time_calendar(&tm) &&
-        tm.tm_year + 1900 >= 1980 &&
-        tm.tm_year + 1900 <= 2107)
-        return ((DWORD)(tm.tm_year + 1900 - 1980) << 25) |
-               ((DWORD)(tm.tm_mon + 1) << 21) |
-               ((DWORD)tm.tm_mday << 16) |
-               ((WORD)tm.tm_hour << 11) |
-               ((WORD)tm.tm_min << 5) |
-               ((WORD)(tm.tm_sec >> 1));
-    else
-        return ((DWORD)0 << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
+    if (aon_timer_get_time(&ts))
+    {
+        time_t t = (time_t)ts.tv_sec;
+        localtime_r(&t, &tm);
+        if (tm.tm_year + 1900 >= 1980 && tm.tm_year + 1900 <= 2107)
+            return ((DWORD)(tm.tm_year + 1900 - 1980) << 25) |
+                   ((DWORD)(tm.tm_mon + 1) << 21) |
+                   ((DWORD)tm.tm_mday << 16) |
+                   ((WORD)tm.tm_hour << 11) |
+                   ((WORD)tm.tm_min << 5) |
+                   ((WORD)(tm.tm_sec >> 1));
+    }
+    return ((DWORD)0 << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
 }
 
 DSTATUS disk_status(BYTE pdrv)
