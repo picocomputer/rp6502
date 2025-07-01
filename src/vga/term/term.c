@@ -41,6 +41,9 @@ typedef enum
     ansi_state_SS2,
     ansi_state_SS3,
     ansi_state_CSI,
+    ansi_state_CSI_less,
+    ansi_state_CSI_equal,
+    ansi_state_CSI_greater,
     ansi_state_CSI_question,
 } ansi_state_t;
 
@@ -785,12 +788,6 @@ static void term_out_CSI(term_state_t *term, char ch)
     }
 }
 
-static void term_out_CSI_question(term_state_t *term, char ch)
-{
-    (void)term;
-    (void)ch;
-}
-
 static void term_out_state_CSI(term_state_t *term, char ch)
 {
     // Silently discard overflow parameters but still count to + 1.
@@ -813,8 +810,18 @@ static void term_out_state_CSI(term_state_t *term, char ch)
             term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
         return;
     }
-    if (ch == '?')
+    switch (ch)
     {
+    case '<':
+        term->ansi_state = ansi_state_CSI_less;
+        return;
+    case '=':
+        term->ansi_state = ansi_state_CSI_equal;
+        return;
+    case '>':
+        term->ansi_state = ansi_state_CSI_greater;
+        return;
+    case '?':
         term->ansi_state = ansi_state_CSI_question;
         return;
     }
@@ -827,9 +834,10 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     case ansi_state_CSI:
         term_out_CSI(term, ch);
         break;
+    case ansi_state_CSI_less:
+    case ansi_state_CSI_equal:
+    case ansi_state_CSI_greater:
     case ansi_state_CSI_question:
-        term_out_CSI_question(term, ch);
-        break;
     default:
         break;
     }
@@ -856,6 +864,9 @@ static void term_out_char(term_state_t *term, char ch)
             term_out_state_SS3(term, ch);
             break;
         case ansi_state_CSI:
+        case ansi_state_CSI_less:
+        case ansi_state_CSI_equal:
+        case ansi_state_CSI_greater:
         case ansi_state_CSI_question:
             term_out_state_CSI(term, ch);
             break;
