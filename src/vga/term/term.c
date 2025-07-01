@@ -8,6 +8,7 @@
 #include "term/color.h"
 #include "term/font.h"
 #include "term/term.h"
+#include "sys/std.h"
 #include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -420,6 +421,25 @@ static void term_out_RCP(term_state_t *term)
     term_set_cursor_position(term, term->save_x, term->save_y);
 }
 
+// Device Status Report
+static void term_out_DSR(term_state_t *term)
+{
+    if (term->csi_param[0] == 6)
+    {
+        int16_t height = vga_canvas_height();
+        if ((height == 180 || height == 240)
+                ? term->width == 40
+                : term->width == 80)
+        {
+            int x = term->x;
+            int y = term->y;
+            if (x == term->width)
+                x--;
+            std_in_write_ansi_CPR(y + 1, x + 1);
+        }
+    }
+}
+
 static void term_out_HT(term_state_t *term)
 {
     if (term->x < term->width)
@@ -785,6 +805,9 @@ static void term_out_CSI(term_state_t *term, char ch)
         break;
     case 'u':
         term_out_RCP(term);
+        break;
+    case 'n':
+        term_out_DSR(term);
         break;
     case 'A':
         term_out_CUU(term);
