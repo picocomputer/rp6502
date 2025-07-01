@@ -13,7 +13,7 @@
 // Only the code page specified by RP6502_CODE_PAGE is installed to flash.
 // To include all code pages, set RP6502_CODE_PAGE to 0 (CMmakeLists.txt).
 // This is the default for when RP6502_CODE_PAGE == 0.
-#define DEFAULT_CODE_PAGE 850
+#define DEFAULT_CODE_PAGE 437
 
 void oem_init(void)
 {
