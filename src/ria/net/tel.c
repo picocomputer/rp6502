@@ -116,6 +116,8 @@ bool tel_tx(char *ch, u16_t len)
         err_t err = tcp_write(tel_pcb, ch, len, TCP_WRITE_FLAG_COPY);
         if (err == ERR_CONN)
             tel_close();
+        if (err == ERR_OK)
+            err = tcp_output(tel_pcb);
         return err == ERR_OK;
     }
     return false;
