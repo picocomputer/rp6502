@@ -719,23 +719,28 @@ static void term_out_ED(term_state_t *term)
 
 static void term_out_state_C0(term_state_t *term, char ch)
 {
-    if (ch == '\b')
+    switch (ch)
     {
+    case '\0': // NUL
+    case '\a': // BEL
+        break;
+    case '\b': // BS
         term->csi_param[0] = 1;
-        term_out_CUB(term);
-    }
-    else if (ch == '\t')
-        term_out_HT(term);
-    else if (ch == '\n')
-        term_out_LF(term, false);
-    else if (ch == '\f')
-        term_out_FF(term);
-    else if (ch == '\r')
-        term_out_CR(term);
-    else if (ch == '\33')
+        return term_out_CUB(term);
+    case '\t': // HT
+        return term_out_HT(term);
+    case '\n': // LF
+        return term_out_LF(term, false);
+    case '\f': // FF
+        return term_out_FF(term);
+    case '\r': // CR
+        return term_out_CR(term);
+    case '\33': // ESC
         term->ansi_state = ansi_state_Fe;
-    else if (ch >= 32)
-        term_out_glyph(term, ch);
+        break;
+    default:
+        return term_out_glyph(term, ch);
+    }
 }
 
 static void term_out_state_Fe(term_state_t *term, char ch)
