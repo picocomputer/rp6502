@@ -20,7 +20,7 @@
 // +V1         | Version - Must be first
 // +P8000      | PHI2
 // +C0         | Caps
-// +R0         | RESB
+// +R0         | RESB (retired)
 // +TUTC0      | Time Zone
 // +S437       | Code Page
 // +D0         | VGA display type
@@ -34,7 +34,6 @@
 static const char filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
-static uint8_t cfg_reset_ms;
 static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
 static uint8_t cfg_vga_display;
@@ -80,7 +79,6 @@ static void cfg_save_with_boot_opt(char *opt_str)
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
                                "+V%u\n"
                                "+P%u\n"
-                               "+R%u\n"
                                "+C%u\n"
                                "+T%s\n"
                                "+S%u\n"
@@ -94,7 +92,6 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
-                               cfg_reset_ms,
                                cfg_caps,
                                cfg_time_zone,
                                cfg_codepage,
@@ -145,9 +142,6 @@ static void cfg_load_with_boot_opt(bool boot_only)
         {
         case 'P':
             parse_uint32(&str, &len, &cfg_phi2_khz);
-            break;
-        case 'R':
-            parse_uint8(&str, &len, &cfg_reset_ms);
             break;
         case 'C':
             parse_uint8(&str, &len, &cfg_caps);
@@ -222,21 +216,6 @@ bool cfg_set_phi2_khz(uint32_t freq_khz)
 uint32_t cfg_get_phi2_khz(void)
 {
     return cpu_validate_phi2_khz(cfg_phi2_khz);
-}
-
-// Specify a minimum time for reset low. 0=auto
-void cfg_set_reset_ms(uint8_t ms)
-{
-    if (cfg_reset_ms != ms)
-    {
-        cfg_reset_ms = ms;
-        cfg_save_with_boot_opt(NULL);
-    }
-}
-
-uint8_t cfg_get_reset_ms(void)
-{
-    return cfg_reset_ms;
 }
 
 void cfg_set_caps(uint8_t mode)

@@ -36,7 +36,6 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "Settings:\n"
     "HELP SET attr       - Show information about a setting.\n"
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
-    "SET RESB (ms)       - Query or set RESB hold time. Set to 0 for auto.\n"
     "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET TZ (tz)         - Query or set time zone.\n"
@@ -44,7 +43,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET VGA (0|1|2)     - Query or set display type for VGA output."
 #ifdef RP6502_RIA_W
     "\n"
-    "SET RF (0|1)        - Disdable or enable radio.\n"
+    "SET RF (0|1)        - Disable or enable radio.\n"
     "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
     "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
     "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none."
@@ -186,13 +185,6 @@ static const char __in_flash("helptext") hlp_text_phi2[] =
     "RIA will run at 256MHz for 8MHz, which is much lower than the 400+ MHz that\n"
     "it is capable of. Setting is saved on the RIA flash.";
 
-static const char __in_flash("helptext") hlp_text_resb[] =
-    "RESB is the minimum time in milliseconds that the RESB line is held low for\n"
-    "a 6502 reset. This should be left on auto (0) unless you have installed extra\n"
-    "hardware that needs more than 2 cycles of PHI2 while in reset. The range is\n"
-    "0-255ms but beware that large delays will affect loading ROMs. Setting is\n"
-    "saved on the RIA flash.";
-
 static const char __in_flash("helptext") hlp_text_boot[] =
     "BOOT selects an installed ROM to be automatically loaded and started when the\n"
     "system is power up or rebooted. For example, you might want the system to\n"
@@ -298,7 +290,6 @@ static struct
 } const SETTINGS[] = {
     {4, "caps", hlp_text_caps},
     {4, "phi2", hlp_text_phi2},
-    {4, "resb", hlp_text_resb},
     {4, "boot", hlp_text_boot},
     {2, "tz", hlp_text_time_zone},
     {2, "cp", hlp_text_code_page},

@@ -78,7 +78,7 @@ void wfi_task(void)
     case wfi_state_off:
         if (!cyw_ready() || !cfg_get_ssid()[0] || !cfg_get_rf())
             break;
-        cyw43_arch_enable_sta_mode();
+        cyw43_arch_enable_sta_mode(); // cyw43_wifi_set_up
         wfi_state = wfi_state_connect;
         break;
     case wfi_state_connect:

@@ -122,13 +122,18 @@ void cpu_api_phi2(void)
 
 uint32_t cpu_get_reset_us(void)
 {
-    uint32_t reset_ms = cfg_get_reset_ms();
+#ifndef RP6502_RESB_US
+#define RP6502_RESB_US 0
+#endif
+    // If provided, use RP6502_RESB_US unless PHI2 speed needs
+    // longer for 8 clock cycles (7 required, 1 for safety).
     uint32_t phi2_khz = cfg_get_phi2_khz();
-    if (!reset_ms)
-        return (2000000 / phi2_khz + 999) / 1000;
-    if (phi2_khz == 1 && reset_ms == 1)
-        return 2000;
-    return reset_ms * 1000;
+    uint32_t reset_us = 8000 / phi2_khz;
+    if (!RP6502_RESB_US)
+        return reset_us;
+    return RP6502_RESB_US < reset_us
+               ? reset_us
+               : RP6502_RESB_US;
 }
 
 static void cpu_compute_phi2_clocks(uint32_t freq_khz,
