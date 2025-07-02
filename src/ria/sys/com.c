@@ -10,6 +10,7 @@
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
+#include "usb/kbd.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include <stdio.h>
@@ -489,73 +490,37 @@ static void com_stdio_out_chars(const char *buf, int len)
     }
 }
 
-// Below is mostly the same as the Pi Pico SDK.
-// We need lower level access to the out_chars
-// so it can be used for pacing PIX STDOUT.
-// If the Pi Pico SDK authors read this, what you made
-// is generally good but please expose the callbacks.
-
-#if PICO_STDIO_UART_SUPPORT_CHARS_AVAILABLE_CALLBACK
-static void (*chars_available_callback)(void *);
-static void *chars_available_param;
-
-static void on_uart_rx(void)
+static int com_stdio_in_chars(char *buf, int length)
 {
-    if (chars_available_callback)
-    {
-        // Interrupts will go off until the uart is read, so disable them
-        uart_set_irq_enables(COM_UART, false, false);
-        chars_available_callback(chars_available_param);
-    }
-}
+    // To avoid crossing the streams, we wait for a 1ms
+    // pause on the UART before injecting keystrokes, then
+    // keyboard buffer is emptied before returning to UART.
+    static const int uart_pause_us = 1000;
+    static absolute_time_t uart_timer;
+    static bool in_keyboard = false;
 
-static void stdio_uart_set_chars_available_callback(void (*fn)(void *), void *param)
-{
-    static_assert(UART1_IRQ == UART0_IRQ + 1, "");
-    const uint UART_IRQ = UART0_IRQ + uart_get_index(COM_UART);
-    if (fn && !chars_available_callback)
+    absolute_time_t now = get_absolute_time();
+    if (in_keyboard || absolute_time_diff_us(now, uart_timer) < 0)
     {
-        chars_available_callback = fn;
-        chars_available_param = param;
-        irq_set_exclusive_handler(UART_IRQ, on_uart_rx);
-        irq_set_enabled(UART_IRQ, true);
-        uart_set_irq_enables(COM_UART, true, false);
+        int i = kbd_stdio_in_chars(buf, length);
+        if (i != PICO_ERROR_NO_DATA)
+        {
+            in_keyboard = true;
+            return i;
+        }
+        in_keyboard = false;
     }
-    else if (!fn && chars_available_callback)
-    {
-        uart_set_irq_enables(COM_UART, false, false);
-        irq_set_enabled(UART_IRQ, false);
-        irq_remove_handler(UART_IRQ, on_uart_rx);
-        chars_available_callback = NULL;
-        chars_available_param = NULL;
-    }
-}
-#endif
-
-static int stdio_uart_in_chars(char *buf, int length)
-{
+    if (!uart_is_readable(COM_UART))
+        return PICO_ERROR_NO_DATA;
+    uart_timer = delayed_by_us(now, uart_pause_us);
     int i = 0;
     while (i < length && uart_is_readable(COM_UART))
-    {
         buf[i++] = uart_getc(COM_UART);
-    }
-#if PICO_STDIO_UART_SUPPORT_CHARS_AVAILABLE_CALLBACK
-    if (chars_available_callback)
-    {
-        // Re-enable interrupts after reading a character
-        uart_set_irq_enables(COM_UART, true, false);
-    }
-#endif
     return i ? i : PICO_ERROR_NO_DATA;
 }
 
 static stdio_driver_t com_stdio_app = {
     .out_chars = com_stdio_out_chars,
-    .in_chars = stdio_uart_in_chars,
-#if PICO_STDIO_UART_SUPPORT_CHARS_AVAILABLE_CALLBACK
-    .set_chars_available_callback = stdio_uart_set_chars_available_callback,
-#endif
-#if PICO_STDIO_ENABLE_CRLF_SUPPORT
-    .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
-#endif
+    .in_chars = com_stdio_in_chars,
+    .crlf_enabled = true,
 };

@@ -152,7 +152,7 @@ void vga_task(void)
     {
         // TODO this state locks up if a reset happens
         vga_state = VGA_TESTING;
-        com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, 4);
+        com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
         vga_pix_backchannel_request();
     }
 

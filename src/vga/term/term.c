@@ -946,9 +946,7 @@ void term_init(void)
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = term_out_chars,
-#if PICO_STDIO_ENABLE_CRLF_SUPPORT
-        .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
-#endif
+        .crlf_enabled = true,
     };
     stdio_set_driver_enabled(&term_stdio, true);
 }

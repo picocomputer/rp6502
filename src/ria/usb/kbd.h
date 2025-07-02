@@ -25,4 +25,7 @@ bool kbd_xreg(uint16_t word);
 // Send LEDs to keyboards in next task.
 void kbd_hid_leds_dirty();
 
+// Handler for stdio_driver_t
+int kbd_stdio_in_chars(char *buf, int length);
+
 #endif /* _KBD_H_ */
