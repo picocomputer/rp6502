@@ -8,6 +8,7 @@
 #include "term/color.h"
 #include "term/font.h"
 #include "term/term.h"
+#include "sys/std.h"
 #include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -71,8 +72,11 @@ typedef struct term_state
     uint16_t erase_bg_color[TERM_MAX_HEIGHT];
     uint8_t y_offset;
     bool bold;
+    bool blink;
     uint16_t fg_color;
     uint16_t bg_color;
+    uint8_t fg_color_index;
+    uint8_t bg_color_index;
     term_data_t *mem;
     term_data_t *ptr;
     absolute_time_t timer;
@@ -175,9 +179,12 @@ static void term_out_FF(term_state_t *term)
 
 static void term_out_RIS(term_state_t *term)
 {
+    term->fg_color_index = TERM_FG_COLOR_INDEX;
+    term->bg_color_index = TERM_BG_COLOR_INDEX;
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->bold = false;
+    term->blink = false;
     term->save_x = 0;
     term->save_y = 0;
     term->x = 0;
@@ -311,20 +318,27 @@ static void term_out_SGR(term_state_t *term)
         {
         case 0: // reset
             term->bold = false;
+            term->blink = false;
+            term->fg_color_index = TERM_FG_COLOR_INDEX;
+            term->bg_color_index = TERM_BG_COLOR_INDEX;
             term->fg_color = color_256[TERM_FG_COLOR_INDEX];
             term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 1: // bold intensity
             term->bold = true;
-            for (int i = 0; i < 8; i++)
-                if (term->fg_color == color_256[i])
-                    term->fg_color = color_256[i + 8];
+            term->fg_color = color_256[term->fg_color_index + 8];
+            break;
+        case 5: // blink (background brightness, IBM VGA quirk)
+            term->blink = true;
+            term->bg_color = color_256[term->bg_color_index + 8];
             break;
         case 22: // normal intensity
             term->bold = false;
-            for (int i = 8; i < 16; i++)
-                if (term->fg_color == color_256[i])
-                    term->fg_color = color_256[i - 8];
+            term->fg_color = color_256[term->fg_color_index];
+            break;
+        case 25: // not blink
+            term->blink = false;
+            term->bg_color = color_256[term->bg_color_index];
             break;
         case 30: // foreground color
         case 31:
@@ -334,15 +348,17 @@ static void term_out_SGR(term_state_t *term)
         case 35:
         case 36:
         case 37:
-            if (term->bold)
-                term->fg_color = color_256[param - 30 + 8];
+            term->fg_color_index = param - 30;
+            if (!term->bold)
+                term->fg_color = color_256[term->fg_color_index];
             else
-                term->fg_color = color_256[param - 30];
+                term->fg_color = color_256[term->fg_color_index + 8];
             break;
         case 38:
             sgr_color(term, idx, &term->fg_color);
             return;
         case 39:
+            term->fg_color_index = TERM_FG_COLOR_INDEX;
             term->fg_color = color_256[TERM_FG_COLOR_INDEX];
             break;
         case 40: // background color
@@ -353,12 +369,17 @@ static void term_out_SGR(term_state_t *term)
         case 45:
         case 46:
         case 47:
-            term->bg_color = color_256[param - 40];
+            term->bg_color_index = param - 40;
+            if (!term->blink)
+                term->bg_color = color_256[term->bg_color_index];
+            else
+                term->bg_color = color_256[term->bg_color_index + 8];
             break;
         case 48:
             sgr_color(term, idx, &term->bg_color);
             return;
         case 49:
+            term->bg_color_index = TERM_BG_COLOR_INDEX;
             term->bg_color = color_256[TERM_BG_COLOR_INDEX];
             break;
         case 58: // Underline not supported, but eat colors
@@ -398,6 +419,25 @@ static void term_out_SCP(term_state_t *term)
 static void term_out_RCP(term_state_t *term)
 {
     term_set_cursor_position(term, term->save_x, term->save_y);
+}
+
+// Device Status Report
+static void term_out_DSR(term_state_t *term)
+{
+    if (term->csi_param[0] == 6)
+    {
+        int16_t height = vga_canvas_height();
+        if ((height == 180 || height == 240)
+                ? term->width == 40
+                : term->width == 80)
+        {
+            int x = term->x;
+            int y = term->y;
+            if (x == term->width)
+                x--;
+            std_in_write_ansi_CPR(y + 1, x + 1);
+        }
+    }
 }
 
 static void term_out_HT(term_state_t *term)
@@ -699,23 +739,28 @@ static void term_out_ED(term_state_t *term)
 
 static void term_out_state_C0(term_state_t *term, char ch)
 {
-    if (ch == '\b')
+    switch (ch)
     {
+    case '\0': // NUL
+    case '\a': // BEL
+        break;
+    case '\b': // BS
         term->csi_param[0] = 1;
-        term_out_CUB(term);
-    }
-    else if (ch == '\t')
-        term_out_HT(term);
-    else if (ch == '\n')
-        term_out_LF(term, false);
-    else if (ch == '\f')
-        term_out_FF(term);
-    else if (ch == '\r')
-        term_out_CR(term);
-    else if (ch == '\33')
+        return term_out_CUB(term);
+    case '\t': // HT
+        return term_out_HT(term);
+    case '\n': // LF
+        return term_out_LF(term, false);
+    case '\f': // FF
+        return term_out_FF(term);
+    case '\r': // CR
+        return term_out_CR(term);
+    case '\33': // ESC
         term->ansi_state = ansi_state_Fe;
-    else if (ch >= 32)
-        term_out_glyph(term, ch);
+        break;
+    default:
+        return term_out_glyph(term, ch);
+    }
 }
 
 static void term_out_state_Fe(term_state_t *term, char ch)
@@ -760,6 +805,9 @@ static void term_out_CSI(term_state_t *term, char ch)
         break;
     case 'u':
         term_out_RCP(term);
+        break;
+    case 'n':
+        term_out_DSR(term);
         break;
     case 'A':
         term_out_CUU(term);
@@ -898,9 +946,7 @@ void term_init(void)
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = term_out_chars,
-#if PICO_STDIO_ENABLE_CRLF_SUPPORT
-        .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
-#endif
+        .crlf_enabled = true,
     };
     stdio_set_driver_enabled(&term_stdio, true);
 }

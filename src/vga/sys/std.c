@@ -4,25 +4,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include <sys/std.h>
+#include "tusb.h"
+#include "sys/std.h"
 
 // IN is sourced by USB CDC
-// IN is sunk here to UART
+// IN is sunk here to STD UART
 size_t std_in_head;
 size_t std_in_tail;
-uint8_t std_in_buf[STD_IN_BUF_SIZE];
-#define STD_IN_BUF(pos) std_in_buf[(pos) & (STD_IN_BUF_SIZE - 1)]
+char std_in_buf[STD_IN_BUF_SIZE];
+#define STD_IN_BUF(pos) std_in_buf[(pos) % STD_IN_BUF_SIZE]
 
-// OUT is sourced here from STD UART or PIX
+// OUT is sourced here from STD UART
 // OUT is sourced from PIX $F:03
 // OUT is sunk here to stdio
 // OUT is sunk by USB CDC
 size_t std_out_tail;
 size_t std_out_head;
-uint8_t std_out_buf[STD_OUT_BUF_SIZE];
-#define STD_OUT_BUF(pos) std_out_buf[(pos) & (STD_OUT_BUF_SIZE - 1)]
-
-bool is_breaking;
+char std_out_buf[STD_OUT_BUF_SIZE];
+#define STD_OUT_BUF(pos) std_out_buf[(pos) % STD_OUT_BUF_SIZE]
 
 size_t std_in_free(void)
 {
@@ -32,6 +31,18 @@ size_t std_in_free(void)
 bool std_in_empty(void)
 {
     return &STD_IN_BUF(std_in_head) == &STD_IN_BUF(std_in_tail);
+}
+
+// Reports the cursor position
+void std_in_write_ansi_CPR(int row, int col)
+{
+    // If USB terminal connected, let it respond instead of us
+    if (!tud_cdc_connected() && std_in_empty())
+    {
+        snprintf(std_in_buf, STD_IN_BUF_SIZE, "\33[%u;%uR", row, col);
+        std_in_tail = STD_OUT_BUF_SIZE - 1;
+        std_in_head = strlen(std_in_buf) - 1;
+    }
 }
 
 void std_in_write(char ch)
@@ -78,7 +89,6 @@ void std_reclock(void)
 void std_set_break(bool en)
 {
     uart_set_break(STD_UART_INTERFACE, en);
-    is_breaking = en;
 }
 
 void std_task(void)

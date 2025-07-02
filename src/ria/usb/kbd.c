@@ -13,18 +13,8 @@
 #include "usb/kbd_eng.h"
 #include "usb/kbd_pol.h"
 #include "usb/kbd_swe.h"
-#include "pico/stdio/driver.h"
 #include "fatfs/ff.h"
 #include "string.h"
-
-static int kbd_stdio_in_chars(char *buf, int length);
-
-static stdio_driver_t kbd_stdio_app = {
-    .in_chars = kbd_stdio_in_chars,
-#if PICO_STDIO_ENABLE_CRLF_SUPPORT
-    .crlf_enabled = PICO_STDIO_DEFAULT_CRLF
-#endif
-};
 
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
@@ -283,7 +273,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
 }
 
-static int kbd_stdio_in_chars(char *buf, int length)
+int kbd_stdio_in_chars(char *buf, int length)
 {
     int i = 0;
     while (i < length && &KBD_KEY_QUEUE(kbd_key_queue_tail) != &KBD_KEY_QUEUE(kbd_key_queue_head))
@@ -375,7 +365,6 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
 
 void kbd_init(void)
 {
-    stdio_set_driver_enabled(&kbd_stdio_app, true);
     kbd_stop();
 }
 
