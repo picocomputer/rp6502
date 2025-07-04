@@ -177,7 +177,7 @@ static const char __in_flash("helptext") hlp_text_caps[] =
     "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
 
 static const char __in_flash("helptext") hlp_text_phi2[] =
-    "PHI2 is the 6502 clock speed in kHz. The valid range is 750-8000 but not all\n"
+    "PHI2 is the 6502 clock speed in kHz. The valid range is 800-8000 but not all\n"
     "frequencies are available. In that case, the next highest frequency will\n"
     "be automatically calculated and selected. Faster than the default speed of\n"
     "4000 kHz (4 MHz) requires \"Advanced CMOS\" glue logic (74ACxx) as well as\n"

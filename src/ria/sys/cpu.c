@@ -125,10 +125,10 @@ uint32_t cpu_get_reset_us(void)
 #ifndef RP6502_RESB_US
 #define RP6502_RESB_US 0
 #endif
-    // If provided, use RP6502_RESB_US unless PHI2 speed needs
-    // longer for 8 clock cycles (7 required, 1 for safety).
-    uint32_t phi2_khz = cfg_get_phi2_khz();
-    uint32_t reset_us = 8000 / phi2_khz;
+    // If provided, use RP6502_RESB_US unless PHI2
+    // speed needs longer for 2 clock cycles.
+    // One extra microsecond to get ceil.
+    uint32_t reset_us = 2000 / cfg_get_phi2_khz() + 1;
     if (!RP6502_RESB_US)
         return reset_us;
     return RP6502_RESB_US < reset_us
