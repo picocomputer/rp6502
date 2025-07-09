@@ -22,7 +22,7 @@ void pix_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 /* API to set XREGs
  */
 
-void pix_api_xreg(void);
+bool pix_api_xreg(void);
 void pix_ack(void);
 void pix_nak(void);
 

@@ -56,7 +56,7 @@ void pix_ack(void)
     if (pix_send_count == 0)
     {
         api_zxstack();
-        return api_return_ax(0);
+        api_return_ax(0);
     }
 }
 
@@ -64,10 +64,10 @@ void pix_nak(void)
 {
     pix_wait_for_vga_ack = false;
     pix_send_count = 0;
-    return api_return_errno(API_EINVAL);
+    api_return_errno(API_EINVAL);
 }
 
-void pix_api_xreg(void)
+bool pix_api_xreg(void)
 {
     static uint8_t pix_device;
     static uint8_t pix_channel;
@@ -82,7 +82,7 @@ void pix_api_xreg(void)
             pix_send_count = 0;
             return api_return_errno(API_EIO);
         }
-        return;
+        return api_working();
     }
 
     // In progress, send one xreg
@@ -106,7 +106,7 @@ void pix_api_xreg(void)
                 return api_return_ax(0);
             }
         }
-        return;
+        return api_working();
     }
 
     // Setup for new call
@@ -150,4 +150,5 @@ void pix_api_xreg(void)
         pix_wait_for_vga_ack = true;
         pix_ack_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
     }
+    return api_working();
 }

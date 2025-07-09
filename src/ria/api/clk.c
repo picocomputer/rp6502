@@ -60,12 +60,12 @@ const char *clk_set_time_zone(const char *tz)
     return time_zone;
 }
 
-void clk_api_clock(void)
+bool clk_api_clock(void)
 {
     return api_return_axsreg((time_us_64() - clk_clock_start) / 10000);
 }
 
-void clk_api_get_res(void)
+bool clk_api_get_res(void)
 {
     uint8_t clock_id = API_A;
     if (clock_id == CLK_ID_REALTIME)
@@ -84,7 +84,7 @@ void clk_api_get_res(void)
         return api_return_errno(API_EINVAL);
 }
 
-void clk_api_get_time(void)
+bool clk_api_get_time(void)
 {
     uint8_t clock_id = API_A;
     if (clock_id == CLK_ID_REALTIME)
@@ -103,7 +103,7 @@ void clk_api_get_time(void)
         return api_return_errno(API_EINVAL);
 }
 
-void clk_api_set_time(void)
+bool clk_api_set_time(void)
 {
     uint8_t clock_id = API_A;
     if (clock_id == CLK_ID_REALTIME)
@@ -125,7 +125,7 @@ void clk_api_set_time(void)
         return api_return_errno(API_EINVAL);
 }
 
-void clk_api_get_time_zone(void)
+bool clk_api_get_time_zone(void)
 {
     struct __attribute__((packed)) cc65_timezone
     {

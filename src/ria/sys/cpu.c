@@ -115,7 +115,7 @@ bool cpu_active(void)
     return cpu_run_requested;
 }
 
-void cpu_api_phi2(void)
+bool cpu_api_phi2(void)
 {
     return api_return_ax(cfg_get_phi2_khz());
 }
@@ -258,7 +258,7 @@ size_t cpu_stdin_read(uint8_t *buf, size_t count)
     return i;
 }
 
-void cpu_api_stdin_opt(void)
+bool cpu_api_stdin_opt(void)
 {
     uint8_t str_length = API_A;
     uint32_t ctrl_bits;

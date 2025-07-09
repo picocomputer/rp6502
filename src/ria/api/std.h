@@ -17,14 +17,14 @@ void std_stop(void);
 /* The API implementation for stdio support.
  */
 
-void std_api_open(void);
-void std_api_close(void);
-void std_api_read_xstack(void);
-void std_api_read_xram(void);
-void std_api_write_xstack(void);
-void std_api_write_xram(void);
-void std_api_lseek(void);
-void std_api_unlink(void);
-void std_api_rename(void);
+bool std_api_open(void);
+bool std_api_close(void);
+bool std_api_read_xstack(void);
+bool std_api_read_xram(void);
+bool std_api_write_xstack(void);
+bool std_api_write_xram(void);
+bool std_api_lseek(void);
+bool std_api_unlink(void);
+bool std_api_rename(void);
 
 #endif /* _STD_H_ */

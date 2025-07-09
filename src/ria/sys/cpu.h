@@ -21,7 +21,7 @@ void cpu_task(void);
 void cpu_run(void);
 void cpu_stop(void);
 void cpu_post_reclock(void);
-void cpu_api_phi2(void);
+bool cpu_api_phi2(void);
 
 // The CPU is active when RESB is high or when
 // we're waiting for the RESB timer.
@@ -49,6 +49,6 @@ bool cpu_stdin_ready(void);
 size_t cpu_stdin_read(uint8_t *buf, size_t count);
 
 // API sets STDIN options
-void cpu_api_stdin_opt(void);
+bool cpu_api_stdin_opt(void);
 
 #endif /* _CPU_H_ */
