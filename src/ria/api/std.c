@@ -191,7 +191,7 @@ void std_api_read_xram(void)
     if (std_xram_count >= 0)
     {
         uint16_t xram_addr = std_buf_ptr - (char *)xram;
-        for (; std_xram_count && pix_ready(); --std_xram_count, ++xram_addr)
+        for (; std_xram_count && pix_ready(); --std_xram_count, ++xram_addr, ++std_buf_ptr)
             pix_send(PIX_DEVICE_XRAM, 0, xram[xram_addr], xram_addr);
         if (!std_xram_count)
         {
