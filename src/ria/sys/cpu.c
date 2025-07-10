@@ -43,24 +43,6 @@ void cpu_post_reclock(void)
         cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
 
-static int cpu_caps(int ch)
-{
-    switch (cfg_get_caps())
-    {
-    case 1:
-        if (ch >= 'A' && ch <= 'Z')
-        {
-            ch += 32;
-            break;
-        }
-        // fall through
-    case 2:
-        if (ch >= 'a' && ch <= 'z')
-            ch -= 32;
-    }
-    return ch;
-}
-
 static int cpu_getchar_fifo(void)
 {
     if (&CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
@@ -80,7 +62,7 @@ void cpu_task(void)
 
     // Move UART FIFO into action loop
     if (cpu_rx_char < 0)
-        cpu_rx_char = cpu_caps(cpu_getchar_fifo());
+        cpu_rx_char = cpu_getchar_fifo();
 }
 
 static void clear_com_rx_fifo()
@@ -203,21 +185,21 @@ int cpu_getchar(void)
         int ch = REGS(0xFFE2);
         // Replace char with null
         REGS(0xFFE2) = 0;
-        return cpu_caps(ch);
+        return ch;
     }
-    // Steal char from action loop queue
+    // Steal char from ria.c action loop queue
     if (cpu_rx_char >= 0)
     {
         int ch = cpu_rx_char;
         cpu_rx_char = -1;
-        return cpu_caps(ch);
+        return ch;
     }
     // Get char from FIFO
     int ch = cpu_getchar_fifo();
     // Get char from UART
     if (ch < 0)
         ch = getchar_timeout_us(0);
-    return cpu_caps(ch);
+    return ch;
 }
 
 static void cpu_enter(bool timeout, const char *buf, size_t length)

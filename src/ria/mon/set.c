@@ -75,31 +75,6 @@ static void set_boot(const char *args, size_t len)
     set_print_boot();
 }
 
-static void set_print_caps(void)
-{
-    const char *const caps_labels[] = {"normal", "inverted", "forced"};
-    printf("CAPS: %s\n", caps_labels[cfg_get_caps()]);
-}
-
-static void set_caps(const char *args, size_t len)
-{
-    uint32_t val;
-    if (len)
-    {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
-        {
-            cfg_set_caps(val);
-        }
-        else
-        {
-            printf("?invalid argument\n");
-            return;
-        }
-    }
-    set_print_caps();
-}
-
 static void set_print_code_page()
 {
 #if (RP6502_CODE_PAGE)
@@ -284,7 +259,6 @@ static struct
     const char *const attr;
     set_function func;
 } const SETTERS[] = {
-    {4, "caps", set_caps},
     {4, "phi2", set_phi2},
     {4, "boot", set_boot},
     {2, "tz", set_time_zone},
@@ -302,7 +276,6 @@ static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 static void set_print_all(void)
 {
     set_print_phi2();
-    set_print_caps();
     set_print_boot();
     set_print_time_zone();
     set_print_code_page();

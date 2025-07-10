@@ -19,7 +19,7 @@
 // Configuration is a plain ASCII file on the LFS. e.g.
 // +V1         | Version - Must be first
 // +P8000      | PHI2
-// +C0         | Caps
+// +C0         | Caps (retired)
 // +R0         | RESB (retired)
 // +TUTC0      | Time Zone
 // +S437       | Code Page
@@ -34,7 +34,6 @@
 static const char filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
-static uint8_t cfg_caps;
 static uint32_t cfg_codepage;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
@@ -79,7 +78,6 @@ static void cfg_save_with_boot_opt(char *opt_str)
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
                                "+V%u\n"
                                "+P%u\n"
-                               "+C%u\n"
                                "+T%s\n"
                                "+S%u\n"
                                "+D%u\n"
@@ -92,7 +90,6 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "%s",
                                CFG_VERSION,
                                cfg_phi2_khz,
-                               cfg_caps,
                                cfg_time_zone,
                                cfg_codepage,
                                cfg_vga_display,
@@ -142,9 +139,6 @@ static void cfg_load_with_boot_opt(bool boot_only)
         {
         case 'P':
             parse_uint32(&str, &len, &cfg_phi2_khz);
-            break;
-        case 'C':
-            parse_uint8(&str, &len, &cfg_caps);
             break;
         case 'T':
             parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
@@ -216,20 +210,6 @@ bool cfg_set_phi2_khz(uint32_t freq_khz)
 uint32_t cfg_get_phi2_khz(void)
 {
     return cpu_validate_phi2_khz(cfg_phi2_khz);
-}
-
-void cfg_set_caps(uint8_t mode)
-{
-    if (mode <= 2 && cfg_caps != mode)
-    {
-        cfg_caps = mode;
-        cfg_save_with_boot_opt(NULL);
-    }
-}
-
-uint8_t cfg_get_caps(void)
-{
-    return cfg_caps;
 }
 
 bool cfg_set_time_zone(const char *tz)

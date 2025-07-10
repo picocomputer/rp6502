@@ -40,7 +40,6 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "Settings:\n"
     "HELP SET attr       - Show information about a setting.\n"
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
-    "SET CAPS (0|1|2)    - Invert or force caps while 6502 is running.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET TZ (tz)         - Query or set time zone.\n"
     "SET CP (cp)         - Query or set code page.\n"
@@ -167,15 +166,6 @@ static const char __in_flash("helptext") hlp_text_status[] =
     "including a list of USB devices and their ID. The USB ID is also the drive\n"
     "number for mass storage devices (MSC). Up to 8 devices are supported.";
 
-static const char __in_flash("helptext") hlp_text_set_caps[] =
-    "CAPS is intended for software that doesn't recognize lower case, like many\n"
-    "versions of BASIC. This is only in effect while 6502 software is running.\n"
-    "It will translate both USB keyboards and the serial port. Setting is saved\n"
-    "on the RIA flash.\n"
-    "  0 = Normal.\n"
-    "  1 = Inverted. Uppercase is lowered. Lowercase is uppered.\n"
-    "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
-
 static const char __in_flash("helptext") hlp_text_set_phi2[] =
     "PHI2 is the 6502 clock speed in kHz. The valid range is 800-8000 but not all\n"
     "frequencies are available. In that case, the next highest frequency will\n"
@@ -284,7 +274,6 @@ static struct
     const char *const cmd;
     const char *const text;
 } const SETTINGS[] = {
-    {4, "caps", hlp_text_set_caps},
     {4, "phi2", hlp_text_set_phi2},
     {4, "boot", hlp_text_set_boot},
     {2, "tz", hlp_text_set_tz},
