@@ -14,21 +14,25 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "Commands:\n"
     "HELP (command|rom)  - This help or expanded help for command or rom.\n"
     "HELP ABOUT|SYSTEM   - About includes credits. System for general usage.\n"
-    "STATUS              - Show hardware status and USB devices.\n"
+#ifdef RP6502_RIA_W
+    "STATUS              - Show status of system, WiFi, and USB devices.\n"
+#else
+    "STATUS              - Show status of system and USB devices.\n"
+#endif
     "SET (attr) (value)  - Change or show settings.\n"
     "LS (dir|drive)      - List contents of directory.\n"
     "CD (dir)            - Change or show current directory.\n"
-    "MKDIR dir           - Make a new directory.\n"
     "(USB)0:             - USB0:-USB7: Change current USB drive.\n"
     "LOAD file           - Load ROM file. Start if contains reset vector.\n"
     "INFO file           - Show help text, if any, contained in ROM file.\n"
     "INSTALL file        - Install ROM file on RIA.\n"
-    "REMOVE rom          - Remove ROM from RIA.\n"
-    "REBOOT              - Cold start. Load and start selected boot ROM.\n"
-    "RESET               - Start 6502 at current reset vector ($FFFC).\n"
     "rom                 - Load and start an installed ROM.\n"
+    "REMOVE rom          - Remove ROM from RIA.\n"
+    "REBOOT              - Reboot the RIA. Will load selected boot ROM.\n"
+    "RESET               - Start 6502 at current reset vector ($FFFC).\n"
+    "MKDIR dir           - Make a new directory.\n"
+    "UNLINK file|dir     - Delete a file or empty directory.\n"
     "UPLOAD file         - Write file. Binary chunks follow.\n"
-    "UNLINK file|dir     - Delete file or empty directory.\n"
     "BINARY addr len crc - Write memory. Binary data follows.\n"
     "0000 (00 00 ...)    - Read or write memory.";
 
@@ -70,14 +74,12 @@ static const char __in_flash("helptext") hlp_text_system[] =
     "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
     "similar. Instead, this monitor is used to prepare the 6502 RAM with software\n"
     "that would normally be on a ROM chip. The 6502 is currently in-reset right\n"
-    "now; the RESB line is low. What you are seeing is coming from the Pi Pico RIA.\n"
+    "now; the RESB line is low. What you are seeing is coming from the RP6502 RIA.\n"
     "You can return to this monitor at any time by pressing CTRL-ALT-DEL or sending\n"
-    "a break to the console. Since these signals are handled by the Pi Pico RIA,\n"
-    "they will always stop the 6502. The Pi Pico RIA does not have direct access to\n"
-    "the 6502 RAM. Sourcing dual port RAM is unreliable, so a different approach is\n"
-    "used. To read or write RAM, the 6502 is briefly started and a program is run in\n"
-    "$FFF0-$FFF9. Many of the commands use this technique. The most basic is\n"
-    "accessed by typing a hex address as a command:\n"
+    "a break to the serial port. Since these signals are handled by the RP6502 RIA,\n"
+    "they will always stop even a crashed 6502. This monitor can do scripted things\n"
+    "that are useful for developing software. It also provides interactive commands\n"
+    "like typing a hex address to see the corresponding RAM value:\n"
     "]0200\n"
     "0200 DA DA DA DA DA DA DA DA DA DA DA DA DA DA DA DA\n"
     "The 64KB of extended memory (XRAM) is mapped from $10000 to $1FFFF.\n"
@@ -96,7 +98,7 @@ static const char __in_flash("helptext") hlp_text_mkdir[] =
 
 static const char __in_flash("helptext") hlp_text_load[] =
     "LOAD and INFO read ROM files from a USB drive. A ROM file contains both\n"
-    "ASCII information for the user, and binary information for the RP6502.\n"
+    "ASCII information for the user and binary information for the system.\n"
     "Lines may end with either LF or CRLF. The first line must be:\n"
     "#!RP6502\n"
     "This is followed by HELP/INFO lines that begin with a # and a space:\n"
@@ -110,35 +112,33 @@ static const char __in_flash("helptext") hlp_text_load[] =
     "6502 will be reset (started) immediately after loading.";
 
 static const char __in_flash("helptext") hlp_text_install[] =
-    "INSTALL and REMOVE manage the ROMs installed in the Pi Pico RIA flash memory.\n"
+    "INSTALL and REMOVE manage the ROMs installed in the RP6502 RIA flash memory.\n"
     "ROM files must contain a reset vector to be installed. A list of installed\n"
     "ROMs is shown on the base HELP screen. Once installed, these ROMs become an\n"
     "integrated part of the system and can be loaded manually by simply using their\n"
     "name like any other command. The ROM name must not conflict with any other\n"
-    "system command and may only contain up to 16 ASCII letters. If the file\n"
-    "contains an extension, it must be \".rp6502\", which will be stripped upon\n"
-    "install.";
+    "system command, must start with a letter, and may only contain up to 16 ASCII\n"
+    "letters and numbers. If the file contains an extension, it must be \".rp6502\",\n"
+    "which will be stripped upon install.";
 
 static const char __in_flash("helptext") hlp_text_reboot[] =
-    "REBOOT will restart the Pi Pico RIA. It does the same thing as pressing a\n"
+    "REBOOT will restart the RP6502 RIA. It does the same thing as pressing a\n"
     "reset button attached to the Pi Pico or interrupting the power supply.";
 
 static const char __in_flash("helptext") hlp_text_reset[] =
     "RESET will restart the 6502 by bringing RESB high. This is mainly used for\n"
-    "automated testing by a script on another system connected to the console.\n"
+    "automated testing by a script on another system connected to the monitor.\n"
     "For example, a build script can compile a program, upload it directly to\n"
     "6502 RAM, start it with this RESET, then optionally continue to send and\n"
     "receive data to ensure proper operation of the program.";
 
 static const char __in_flash("helptext") hlp_text_upload[] =
-    "UPLOAD is used to send a file from another system using the console port.\n"
+    "UPLOAD is used to send a file from another system connected to the monitor.\n"
     "The file may be any type with any name and will overwrite an existing file\n"
     "of the same name. For example, you can send a ROM file along with other\n"
     "files containing graphics or level data for a game. Then you can LOAD the\n"
-    "game and test it. Think \"XMODEM/YMODEM\" but easier to implement with modern\n"
-    "scripting languages. The upload is initiated with the BINARY command\n"
-    "specifying the file name.\n"
-    "]BINARY filename.bin\n"
+    "game and test it. The upload is initiated with a filename.\n"
+    "]UPLOAD filename.bin\n"
     "The system will respond with a \"}\" prompt or an error message starting with\n"
     "a \"?\". Any error will abort the upload and return you to the monitor.\n"
     "There is no retry as this is not intended to be used on lossy connections.\n"
@@ -152,7 +152,7 @@ static const char __in_flash("helptext") hlp_text_upload[] =
 
 static const char __in_flash("helptext") hlp_text_unlink[] =
     "UNLINK removes a file. Its intended use is for scripting on another system\n"
-    "connected to the console. For example, you might want to delete save data\n"
+    "connected to the monitor. For example, you might want to delete save data\n"
     "as part of automated testing. You'll probably use this once manually after\n"
     "attempting to use the UPLOAD command from a keyboard. ;)";
 
@@ -167,39 +167,35 @@ static const char __in_flash("helptext") hlp_text_status[] =
     "including a list of USB devices and their ID. The USB ID is also the drive\n"
     "number for mass storage devices (MSC). Up to 8 devices are supported.";
 
-static const char __in_flash("helptext") hlp_text_caps[] =
+static const char __in_flash("helptext") hlp_text_set_caps[] =
     "CAPS is intended for software that doesn't recognize lower case, like many\n"
     "versions of BASIC. This is only in effect while 6502 software is running.\n"
-    "It will translate both USB keyboards and the serial console. Setting is\n"
-    "saved on the RIA flash.\n"
+    "It will translate both USB keyboards and the serial port. Setting is saved\n"
+    "on the RIA flash.\n"
     "  0 = Normal.\n"
     "  1 = Inverted. Uppercase is lowered. Lowercase is uppered.\n"
     "  2 = Forced. Lowercase is uppered. Everything is uppercase always.";
 
-static const char __in_flash("helptext") hlp_text_phi2[] =
+static const char __in_flash("helptext") hlp_text_set_phi2[] =
     "PHI2 is the 6502 clock speed in kHz. The valid range is 800-8000 but not all\n"
     "frequencies are available. In that case, the next highest frequency will\n"
-    "be automatically calculated and selected. Faster than the default speed of\n"
-    "4000 kHz (4 MHz) requires \"Advanced CMOS\" glue logic (74ACxx) as well as\n"
-    "overclocking of the Pi Pico RIA, which is handled automatically. The Pi Pico\n"
-    "RIA will run at 256MHz for 8MHz, which is much lower than the 400+ MHz that\n"
-    "it is capable of. Setting is saved on the RIA flash.";
+    "be automatically calculated and selected. Setting is saved on the RIA flash.";
 
-static const char __in_flash("helptext") hlp_text_boot[] =
+static const char __in_flash("helptext") hlp_text_set_boot[] =
     "BOOT selects an installed ROM to be automatically loaded and started when the\n"
-    "system is power up or rebooted. For example, you might want the system to\n"
+    "system is powered up or rebooted. For example, you might want the system to\n"
     "immediately boot into BASIC or an operating system CLI. This is used to\n"
     "provide the instant-on experience of classic 8-bit computers. Using \"-\" for\n"
     "the argument will have the system boot into the monitor you are using now.\n"
     "Setting is saved on the RIA flash.";
 
-static const char __in_flash("helptext") hlp_text_time_zone[] =
+static const char __in_flash("helptext") hlp_text_set_tz[] =
     "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
     "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
     "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
     "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
 
-static const char __in_flash("helptext") hlp_text_code_page[] =
+static const char __in_flash("helptext") hlp_text_set_cp[] =
     "SET CP selects a code page for system text. The following is supported:\n"
     "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
     "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
@@ -212,7 +208,7 @@ static const char __in_flash("helptext") hlp_text_code_page[] =
     "";
 #endif
 
-static const char __in_flash("helptext") hlp_text_vga[] =
+static const char __in_flash("helptext") hlp_text_set_vga[] =
     "SET VGA selects the display type for VGA output. All canvas resolutions are\n"
     "supported by all display types. Display type is used to maintain square\n"
     "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
@@ -223,21 +219,21 @@ static const char __in_flash("helptext") hlp_text_vga[] =
 
 #ifdef RP6502_RIA_W
 
-static const char __in_flash("helptext") hlp_text_rf[] =
-    "SET RF (0|1) turns the radio off or on.";
+static const char __in_flash("helptext") hlp_text_set_rf[] =
+    "SET RF (0|1) turns all radios off or on.";
 
-static const char __in_flash("helptext") hlp_text_rfcc[] =
+static const char __in_flash("helptext") hlp_text_set_rfcc[] =
     "Set this so the CYW43 can use the best radio frequencies for your country.\n"
     "Using \"-\" will clear the country code and default to a worldwide setting.\n"
     "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
     "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
     "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.";
 
-static const char __in_flash("helptext") hlp_text_ssid[] =
+static const char __in_flash("helptext") hlp_text_set_ssid[] =
     "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"
     "disable WiFi.";
 
-static const char __in_flash("helptext") hlp_text_pass[] =
+static const char __in_flash("helptext") hlp_text_set_pass[] =
     "This is the password for your WiFi network. Use \"-\" to clear password.";
 
 #endif
@@ -288,17 +284,17 @@ static struct
     const char *const cmd;
     const char *const text;
 } const SETTINGS[] = {
-    {4, "caps", hlp_text_caps},
-    {4, "phi2", hlp_text_phi2},
-    {4, "boot", hlp_text_boot},
-    {2, "tz", hlp_text_time_zone},
-    {2, "cp", hlp_text_code_page},
-    {3, "vga", hlp_text_vga},
+    {4, "caps", hlp_text_set_caps},
+    {4, "phi2", hlp_text_set_phi2},
+    {4, "boot", hlp_text_set_boot},
+    {2, "tz", hlp_text_set_tz},
+    {2, "cp", hlp_text_set_cp},
+    {3, "vga", hlp_text_set_vga},
 #ifdef RP6502_RIA_W
-    {2, "rf", hlp_text_rf},
-    {4, "rfcc", hlp_text_rfcc},
-    {4, "ssid", hlp_text_ssid},
-    {4, "pass", hlp_text_pass},
+    {2, "rf", hlp_text_set_rf},
+    {4, "rfcc", hlp_text_set_rfcc},
+    {4, "ssid", hlp_text_set_ssid},
+    {4, "pass", hlp_text_set_pass},
 #endif
 };
 static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;
