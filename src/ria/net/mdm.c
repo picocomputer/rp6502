@@ -45,26 +45,24 @@ int mdm_tx(char) { return -1; }
 #else
 #error unexpected TCP_MSS
 #endif
+static char mdm_tx_buf[MDM_TX_BUF_SIZE];
+static size_t mdm_tx_buf_len;
 
 #define MDM_ESCAPE_GUARD_TIME_US 1000000
 #define MDM_ESCAPE_COUNT 3
 
 // Old modems have 40 chars, Hayes V.series has 255.
-// We share mdm_tx_buf so might as well go big.
 #define MDM_AT_COMMAND_LEN (255)
-static_assert(MDM_AT_COMMAND_LEN < MDM_TX_BUF_SIZE);
+static char mdm_cmd_buf[MDM_AT_COMMAND_LEN + 1];
+static size_t mdm_cmd_buf_len;
 
-static char mdm_tx_buf[MDM_TX_BUF_SIZE];
-static size_t mdm_tx_buf_len;
-
-#define MDM_RX_BUF_SIZE (128)
-
-static char mdm_rx_buf[MDM_RX_BUF_SIZE];
-static size_t mdm_rx_buf_head;
-static size_t mdm_rx_buf_tail;
-
-static int (*mdm_rx_response_fn)(char *, size_t, int);
-static int mdm_rx_response_state;
+// Must fit 80 columns plus a couple CRLFs
+#define MDM_RESPONSE_BUF_SIZE (128)
+static char mdm_response_buf[MDM_RESPONSE_BUF_SIZE];
+static size_t mdm_response_buf_head;
+static size_t mdm_response_buf_tail;
+static int (*mdm_response_fn)(char *, size_t, int);
+static int mdm_response_state;
 
 typedef enum
 {
@@ -105,10 +103,11 @@ void mdm_stop(void)
 {
     tel_close();
     mdm_is_open = false;
+    mdm_cmd_buf_len = 0;
     mdm_tx_buf_len = 0;
-    mdm_rx_buf_head = 0;
-    mdm_rx_buf_tail = 0;
-    mdm_rx_response_state = -1;
+    mdm_response_buf_head = 0;
+    mdm_response_buf_tail = 0;
+    mdm_response_state = -1;
     mdm_parse_result = true;
     mdm_state = mdm_state_on_hook;
     mdm_in_command_mode = true;
@@ -152,49 +151,49 @@ bool mdm_close(void)
     return true;
 }
 
-static inline bool mdm_rx_buf_empty(void)
+static inline bool mdm_response_buf_empty(void)
 {
-    return mdm_rx_buf_head == mdm_rx_buf_tail;
+    return mdm_response_buf_head == mdm_response_buf_tail;
 }
 
-static inline bool mdm_rx_buf_full(void)
+static inline bool mdm_response_buf_full(void)
 {
-    return ((mdm_rx_buf_head + 1) % MDM_RX_BUF_SIZE) == mdm_rx_buf_tail;
+    return ((mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
 }
 
-static inline size_t mdm_rx_buf_count(void)
+static inline size_t mdm_response_buf_count(void)
 {
-    if (mdm_rx_buf_head >= mdm_rx_buf_tail)
-        return mdm_rx_buf_head - mdm_rx_buf_tail;
+    if (mdm_response_buf_head >= mdm_response_buf_tail)
+        return mdm_response_buf_head - mdm_response_buf_tail;
     else
-        return MDM_RX_BUF_SIZE - mdm_rx_buf_tail + mdm_rx_buf_head;
+        return MDM_RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
 }
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
 {
-    if (mdm_rx_response_state >= 0)
+    if (mdm_response_state >= 0)
     {
+#ifndef NDEBUG
+        assert(false);
+#endif
         // Responses aren't being consumed.
         // This shouldn't happen, but what the
         // 6502 app does is beyond our control.
-#ifndef NDEBUG
-        assert(mdm_rx_response_state == -1);
-#endif
         // Discard all the old data. This way the
         // 6502 app doesn't get a mix of old and new
         // data when it finally decides to wake up.
-        mdm_rx_buf_head = mdm_rx_buf_tail = 0;
+        mdm_response_buf_head = mdm_response_buf_tail = 0;
     }
-    mdm_rx_response_fn = fn;
-    mdm_rx_response_state = state;
+    mdm_response_fn = fn;
+    mdm_response_state = state;
 }
 
 static void mdm_response_append(char ch)
 {
-    if (!mdm_rx_buf_full())
+    if (!mdm_response_buf_full())
     {
-        mdm_rx_buf[mdm_rx_buf_head] = ch;
-        mdm_rx_buf_head = (mdm_rx_buf_head + 1) % MDM_RX_BUF_SIZE;
+        mdm_response_buf[mdm_response_buf_head] = ch;
+        mdm_response_buf_head = (mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE;
     }
 }
 
@@ -211,32 +210,32 @@ int mdm_rx(char *ch)
     if (!mdm_is_open)
         return -1;
     // get next line, if needed and in progress
-    if (mdm_rx_buf_empty() && mdm_rx_response_state >= 0)
+    if (mdm_response_buf_empty() && mdm_response_state >= 0)
     {
-        mdm_rx_response_state = mdm_rx_response_fn(mdm_rx_buf, MDM_RX_BUF_SIZE, mdm_rx_response_state);
-        mdm_rx_buf_head = strlen(mdm_rx_buf);
-        mdm_rx_buf_tail = 0;
+        mdm_response_state = mdm_response_fn(mdm_response_buf, MDM_RESPONSE_BUF_SIZE, mdm_response_state);
+        mdm_response_buf_head = strlen(mdm_response_buf);
+        mdm_response_buf_tail = 0;
         // Translate CR and LF chars to settings
-        for (size_t i = 0; i < mdm_rx_buf_head; i++)
+        for (size_t i = 0; i < mdm_response_buf_head; i++)
         {
             uint8_t swap_ch = 0;
-            if (mdm_rx_buf[i] == '\r')
-                swap_ch = mdm_rx_buf[i] = mdm_settings.cr_char;
-            if (mdm_rx_buf[i] == '\n')
-                swap_ch = mdm_rx_buf[i] = mdm_settings.lf_char;
+            if (mdm_response_buf[i] == '\r')
+                swap_ch = mdm_response_buf[i] = mdm_settings.cr_char;
+            if (mdm_response_buf[i] == '\n')
+                swap_ch = mdm_response_buf[i] = mdm_settings.lf_char;
             if (swap_ch & 0x80)
             {
-                for (size_t j = i; j < mdm_rx_buf_head; j++)
-                    mdm_rx_buf[j] = mdm_rx_buf[j + 1];
-                mdm_rx_buf_head--;
+                for (size_t j = i; j < mdm_response_buf_head; j++)
+                    mdm_response_buf[j] = mdm_response_buf[j + 1];
+                mdm_response_buf_head--;
             }
         }
     }
     // get from line buffer, if available
-    if (!mdm_rx_buf_empty())
+    if (!mdm_response_buf_empty())
     {
-        *ch = mdm_rx_buf[mdm_rx_buf_tail];
-        mdm_rx_buf_tail = (mdm_rx_buf_tail + 1) % MDM_RX_BUF_SIZE;
+        *ch = mdm_response_buf[mdm_response_buf_tail];
+        mdm_response_buf_tail = (mdm_response_buf_tail + 1) % MDM_RESPONSE_BUF_SIZE;
         return 1;
     }
     // get from telephone emulator
@@ -245,29 +244,29 @@ int mdm_rx(char *ch)
     return 0;
 }
 
-static bool mdm_at_is_in_buffer(void)
+static bool mdm_cmd_buf_is_at_command(void)
 {
-    return (mdm_tx_buf[0] == 'a' || mdm_tx_buf[0] == 'A') &&
-           (mdm_tx_buf[1] == 't' || mdm_tx_buf[1] == 'T');
+    return (mdm_cmd_buf[0] == 'a' || mdm_cmd_buf[0] == 'A') &&
+           (mdm_cmd_buf[1] == 't' || mdm_cmd_buf[1] == 'T');
 }
 
 static int mdm_tx_command_mode(char ch)
 {
-    if (mdm_rx_response_state >= 0)
+    if (mdm_response_state >= 0)
         return 0;
     if (ch == '\r' || (!(mdm_settings.cr_char & 0x80) && ch == mdm_settings.cr_char))
     {
         if (mdm_settings.echo)
             mdm_response_append_cr_lf();
-        mdm_tx_buf[mdm_tx_buf_len] = 0;
-        mdm_tx_buf_len = 0;
-        if (mdm_at_is_in_buffer())
+        mdm_cmd_buf[mdm_cmd_buf_len] = 0;
+        mdm_cmd_buf_len = 0;
+        if (mdm_cmd_buf_is_at_command())
         {
             if (!mdm_settings.echo && !mdm_settings.quiet && mdm_settings.verbose)
                 mdm_response_append_cr_lf();
             mdm_is_parsing = true;
             mdm_parse_result = true;
-            mdm_parse_str = &mdm_tx_buf[2];
+            mdm_parse_str = &mdm_cmd_buf[2];
         }
     }
     else if (ch == 127 || (!(mdm_settings.bs_char & 0x80) && ch == mdm_settings.bs_char))
@@ -278,25 +277,31 @@ static int mdm_tx_command_mode(char ch)
             mdm_response_append(' ');
             mdm_response_append(mdm_settings.bs_char);
         }
-        if (mdm_tx_buf_len)
-            mdm_tx_buf[--mdm_tx_buf_len] = 0;
+        if (mdm_cmd_buf_len)
+            mdm_cmd_buf[--mdm_cmd_buf_len] = 0;
     }
     else if (ch >= 32 && ch < 127)
     {
         if (mdm_settings.echo)
             mdm_response_append(ch);
-        if (ch == '/' && mdm_tx_buf_len == 1 && mdm_at_is_in_buffer())
+        if (ch == '/' && mdm_cmd_buf_len == 1)
         {
             if (mdm_settings.echo || (!mdm_settings.quiet && mdm_settings.verbose))
                 mdm_response_append_cr_lf();
-            mdm_tx_buf_len = 0;
+            mdm_cmd_buf_len = 0;
             mdm_is_parsing = true;
-            mdm_parse_result = true;
-            mdm_parse_str = &mdm_tx_buf[2];
+            if (mdm_cmd_buf_is_at_command())
+            {
+
+                mdm_parse_result = true;
+                mdm_parse_str = &mdm_cmd_buf[2];
+            }
+            else
+                mdm_parse_result = false; // instant error
             return 1;
         }
-        if (mdm_tx_buf_len < MDM_TX_BUF_SIZE - 1)
-            mdm_tx_buf[mdm_tx_buf_len++] = ch;
+        if (mdm_cmd_buf_len < MDM_AT_COMMAND_LEN)
+            mdm_cmd_buf[mdm_cmd_buf_len++] = ch;
     }
     return 1;
 }
@@ -337,6 +342,8 @@ int mdm_tx(char ch)
     }
     else if (mdm_state == mdm_state_connected)
         return mdm_tx_connected(ch);
+    else if (mdm_state == mdm_state_dialing)
+        return 1;
     return 0;
 }
 
@@ -571,7 +578,7 @@ void mdm_task()
     }
     if (mdm_is_parsing)
     {
-        if (mdm_rx_response_state >= 0)
+        if (mdm_response_state >= 0)
             return;
         if (!mdm_parse_result)
         {
@@ -593,7 +600,7 @@ void mdm_task()
         absolute_time_diff_us(get_absolute_time(), mdm_escape_guard) < 0)
     {
         mdm_in_command_mode = true;
-        mdm_tx_buf_len = 0;
+        mdm_cmd_buf_len = 0;
         mdm_escape_count = 0;
         mdm_set_response_fn(mdm_response_code, 0); // OK
     }
