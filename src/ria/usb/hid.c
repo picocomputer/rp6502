@@ -24,7 +24,12 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
     case HID_ITF_PROTOCOL_MOUSE:
         mou_report((hid_mouse_report_t const *)report);
         break;
+    case HID_ITF_PROTOCOL_NONE:
+        // Assume generic gamepad if not keyboard or mouse
+        pad_report(dev_addr, report);
+        break;
     default:
+        // Future: handle other protocols if needed
         pad_report(dev_addr, report);
         break;
     }
@@ -35,6 +40,7 @@ void hid_print_status(void)
 {
     int count_keyboard = 0;
     int count_mouse = 0;
+    int count_gamepad = 0;
     int count_unspecified = 0;
     for (int idx = 0; idx < CFG_TUH_HID; idx++)
     {
@@ -50,14 +56,19 @@ void hid_print_status(void)
                 count_mouse++;
                 break;
             case HID_ITF_PROTOCOL_NONE:
+                // Try to distinguish gamepads if possible, otherwise count as gamepad
+                count_gamepad++;
+                break;
+            default:
                 count_unspecified++;
                 break;
             }
         }
     }
-    printf("USB HID: %d keyboard%s, %d %s",
+    printf("USB HID: %d keyboard%s, %d %s, %d gamepad%s",
            count_keyboard, count_keyboard == 1 ? "" : "s",
-           count_mouse, count_mouse == 1 ? "mouse" : "mice");
+           count_mouse, count_mouse == 1 ? "mouse" : "mice",
+           count_gamepad, count_gamepad == 1 ? "" : "s");
     if (count_unspecified)
         printf(", %d unspecified\n", count_unspecified);
     else
