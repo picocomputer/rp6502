@@ -30,7 +30,6 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/hid.h"
 #include "usb/kbd.h"
 #include "usb/mou.h"
 #include "usb/pad.h"
@@ -92,7 +91,6 @@ void main_task(void)
     cyw_task();
     wfi_task();
     ntp_task();
-    hid_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().

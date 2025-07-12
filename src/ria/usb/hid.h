@@ -8,6 +8,5 @@
 #define _HID_H_
 
 void hid_print_status(void);
-void hid_task(void);
 
 #endif /* _HID_H_ */
