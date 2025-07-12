@@ -20,6 +20,12 @@ void pad_task(void);
 // Set the extended register value.
 bool pad_xreg(uint16_t word);
 
+// Parse HID report descriptor for gamepad.
+bool pad_parse_descriptor(uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len);
+
+// Clean up descriptor when device is disconnected.
+void pad_cleanup_descriptor(uint8_t dev_addr);
+
 // Process HID gamepad report.
 void pad_report(uint8_t dev_addr, uint8_t const *report);
 

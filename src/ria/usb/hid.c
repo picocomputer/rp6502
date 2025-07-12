@@ -77,16 +77,25 @@ void hid_print_status(void)
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
 {
-    (void)(desc_report);
-    (void)(desc_len);
     hid_dev_addr[idx] = dev_addr;
-    if (tuh_hid_interface_protocol(dev_addr, idx) == HID_ITF_PROTOCOL_KEYBOARD)
+
+    uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);
+    if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
+    {
         kbd_hid_leds_dirty();
+    }
+    else if (itf_protocol == HID_ITF_PROTOCOL_NONE)
+    {
+        pad_parse_descriptor(dev_addr, desc_report, desc_len);
+    }
+
     tuh_hid_receive_report(dev_addr, idx);
 }
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
-    (void)(dev_addr);
     hid_dev_addr[idx] = 0;
+
+    // Clean up gamepad descriptor if this was a gamepad device
+    pad_cleanup_descriptor(dev_addr);
 }

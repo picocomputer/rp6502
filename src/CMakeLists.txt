@@ -22,6 +22,7 @@ target_include_directories(rp6502_ria PRIVATE
 target_compile_definitions(rp6502_ria PRIVATE
     CYW43_CONFIG_FILE="${CMAKE_CURRENT_LIST_DIR}/ria/cyw43_config.h"
     pico_flash_bank_get_storage_offset_func=lfs_get_bt_storage_offset
+    PICO_FLASH_ASSUME_CORE1_SAFE=1
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
@@ -41,6 +42,8 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_pwm
     hardware_flash
     tinyusb_host
+    pico_btstack_ble
+    pico_btstack_cyw43
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -84,6 +87,7 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/ria.c
     ria/sys/sys.c
     ria/sys/vga.c
+    ria/usb/des.c
     ria/usb/hid.c
     ria/usb/kbd.c
     ria/usb/mou.c
