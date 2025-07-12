@@ -25,12 +25,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
         mou_report((hid_mouse_report_t const *)report);
         break;
     case HID_ITF_PROTOCOL_NONE:
-        // Assume generic gamepad if not keyboard or mouse
-        pad_report(dev_addr, report);
-        break;
-    default:
-        // Future: handle other protocols if needed
-        pad_report(dev_addr, report);
+        pad_report(dev_addr, report, len);
         break;
     }
     tuh_hid_receive_report(dev_addr, idx);

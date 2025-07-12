@@ -27,6 +27,6 @@ bool pad_parse_descriptor(uint8_t dev_addr, uint8_t const *desc_report, uint16_t
 void pad_cleanup_descriptor(uint8_t dev_addr);
 
 // Process HID gamepad report.
-void pad_report(uint8_t dev_addr, uint8_t const *report);
+void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len);
 
 #endif /* _PAD_H_ */

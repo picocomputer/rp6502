@@ -123,7 +123,7 @@ bool des_parse_report_descriptor(pad_descriptor_t *descriptors, uint8_t max_desc
         else if (usage_item.usage_page == 0x09) // Button page
         {
             // For buttons, we want to track the first button's position and total button count
-            if (desc->buttons_offset == 0 || usage_item.bit_pos < desc->buttons_offset)
+            if (desc->buttons_size == 0 || usage_item.bit_pos < desc->buttons_offset)
             {
                 desc->buttons_offset = usage_item.bit_pos;
             }
