@@ -36,6 +36,7 @@ typedef struct
  * @return true if parsing was successful, false otherwise
  */
 bool des_parse_report_descriptor(pad_descriptor_t *descriptors, uint8_t max_descriptors,
-                                uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len);
+                                 uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len,
+                                 uint16_t vendor_id, uint16_t product_id);
 
 #endif // _DES_H_

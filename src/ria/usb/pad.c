@@ -58,8 +58,8 @@
 
 // } sony_ds4_report_t;
 
-#define PAD_TIMEOUT_TIME_MS 100  // Increased from 10ms for better stability
-#define PAD_DPAD_INVALID_OFFSET 6  // Offset for D-pad invalid marker
+#define PAD_TIMEOUT_TIME_MS 100   // Increased from 10ms for better stability
+#define PAD_DPAD_INVALID_OFFSET 6 // Offset for D-pad invalid marker
 
 static absolute_time_t pad_p1_timer;
 static absolute_time_t pad_p2_timer;
@@ -103,7 +103,8 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
 
     // Check if we have enough bytes in the report
     uint8_t bytes_needed = (bit_offset + bit_size + 7) / 8;
-    if (bytes_needed > report_len) {
+    if (bytes_needed > report_len)
+    {
         DBG("pad_extract_bits: Not enough data in report. Need %d bytes, have %d\n", bytes_needed, report_len);
         return 0;
     }
@@ -137,7 +138,7 @@ static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t const *report,
     // Clear the gamepad report
     memset(gamepad_report, 0, sizeof(hid_gamepad_report_t));
 
-    // return; //////////////////
+    // DBG("pad_parse_report_to_gamepad: dev_addr=%d, report_len=%d\n", dev_addr, report_len);
 
     // Extract analog sticks
     if (desc->x_size > 0)
@@ -219,9 +220,11 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool pad_parse_descriptor(uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len)
+bool pad_parse_descriptor(uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len,
+                          uint16_t vendor_id, uint16_t product_id)
 {
-    return des_parse_report_descriptor(pad_descriptors, CFG_TUH_HID, dev_addr, desc_report, desc_len);
+    return des_parse_report_descriptor(pad_descriptors, CFG_TUH_HID, dev_addr, desc_report, desc_len,
+                                       vendor_id, product_id);
 }
 
 void pad_cleanup_descriptor(uint8_t dev_addr)
@@ -252,18 +255,25 @@ void pad_cleanup_descriptor(uint8_t dev_addr)
 
 void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
 {
+    // DBG("pad_report: dev_addr=%d, len=%d\n", dev_addr, len);
+
     // Check if this device has a valid descriptor
     pad_descriptor_t *desc = pad_get_descriptor(dev_addr);
-    if (!desc) {
+    if (!desc)
+    {
         DBG("pad_report: No descriptor for dev_addr %d\n", dev_addr);
         return;
     }
 
+    // DBG("pad_report: Found descriptor for dev_addr %d, report_id=%d\n", dev_addr, desc->report_id);
+
     // Skip report ID check if no report ID is expected, or validate if one is expected
     const uint8_t *report_data = report;
     uint16_t report_data_len = len;
-    if (desc->report_id != 0) {
-        if (len == 0 || report[0] != desc->report_id) {
+    if (desc->report_id != 0)
+    {
+        if (len == 0 || report[0] != desc->report_id)
+        {
             DBG("pad_report: Report ID mismatch. Expected %d, got %d\n", desc->report_id, len > 0 ? report[0] : -1);
             return;
         }
@@ -291,7 +301,8 @@ void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
     }
 
     // Exit early if no player slot is available
-    if (!player) {
+    if (!player)
+    {
         DBG("pad_report: No player slot available for dev_addr %d\n", dev_addr);
         return;
     }

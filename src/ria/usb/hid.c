@@ -75,13 +75,26 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_dev_addr[idx] = dev_addr;
 
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);
+    printf("HID device mounted: dev_addr=%d, idx=%d, protocol=%d, desc_len=%d\n",
+           dev_addr, idx, itf_protocol, desc_len);
+
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
     {
         kbd_hid_leds_dirty();
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_NONE)
     {
-        pad_parse_descriptor(dev_addr, desc_report, desc_len);
+        uint16_t vendor_id;
+        uint16_t product_id;
+        if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
+        {
+            printf("HID gamepad: VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
+            pad_parse_descriptor(dev_addr, desc_report, desc_len, vendor_id, product_id);
+        }
+        else
+        {
+            printf("Failed to get VID/PID for dev_addr %d\n", dev_addr);
+        }
     }
 
     tuh_hid_receive_report(dev_addr, idx);
