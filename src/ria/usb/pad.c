@@ -305,3 +305,13 @@ void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
         }
     }
 }
+
+uint8_t pad_get_report_id(uint8_t dev_addr)
+{
+    pad_descriptor_t *desc = pad_get_descriptor(dev_addr);
+    if (desc)
+    {
+        return desc->report_id;
+    }
+    return 0; // Default to no report ID
+}

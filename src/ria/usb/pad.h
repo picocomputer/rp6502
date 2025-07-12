@@ -30,4 +30,7 @@ void pad_cleanup_descriptor(uint8_t dev_addr);
 // Process HID gamepad report.
 void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len);
 
+// Get report ID for a specific device.
+uint8_t pad_get_report_id(uint8_t dev_addr);
+
 #endif /* _PAD_H_ */
