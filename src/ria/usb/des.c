@@ -61,7 +61,7 @@ static const pad_descriptor_t ds5_descriptor = {
     .hat_offset = 7 * 8, // Byte 7, lower nibble (D-pad)
     .hat_size = 4,
     .buttons_offset = 7 * 8 + 4, // Byte 7 upper nibble + byte 8
-    .buttons_size = 12};
+    .buttons_size = 14};
 
 // Function to detect Sony controller type
 static const pad_descriptor_t *detect_sony_controller(uint16_t vendor_id, uint16_t product_id)

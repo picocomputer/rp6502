@@ -19,44 +19,18 @@
     }
 #endif
 
-// Sony DS4 report layout
-// https://www.psdevwiki.com/ps4/DS4-USB
-// typedef struct TU_ATTR_PACKED
-// {
-//     uint8_t lx, ly, rx, ry; // analog sticks
+typedef struct TU_ATTR_PACKED
+{
+  uint8_t  x;         ///< Delta x  movement of left analog-stick
+  uint8_t  y;         ///< Delta y  movement of left analog-stick
+  uint8_t  z;         ///< Delta z  movement of right analog-joystick
+  uint8_t  rz;        ///< Delta Rz movement of right analog-joystick
+  uint8_t  rx;        ///< Delta Rx movement of analog left trigger
+  uint8_t  ry;        ///< Delta Ry movement of analog right trigger
+  uint8_t hat;       ///< Buttons mask for currently pressed buttons in the DPad/hat
+  uint32_t buttons;  ///< Buttons mask for currently pressed buttons
+}pad_gamepad_report_t;
 
-//     struct
-//     {
-//         uint8_t dpad : 4; // (8=released, 7=NW, 6=W, 5=SW, 4=S, 3=SE, 2=E, 1=NE, 0=N)
-//         uint8_t square : 1;
-//         uint8_t cross : 1;
-//         uint8_t circle : 1;
-//         uint8_t triangle : 1;
-//     };
-
-//     struct
-//     {
-//         uint8_t l1 : 1;
-//         uint8_t r1 : 1;
-//         uint8_t l2 : 1;
-//         uint8_t r2 : 1;
-//         uint8_t share : 1;
-//         uint8_t option : 1;
-//         uint8_t l3 : 1;
-//         uint8_t r3 : 1;
-//     };
-
-//     struct
-//     {
-//         uint8_t psbtn : 1;
-//         uint8_t tpadbtn : 1;
-//         uint8_t counter : 6;
-//     };
-
-//     uint8_t l2_trigger;
-//     uint8_t r2_trigger;
-
-// } sony_ds4_report_t;
 
 #define PAD_TIMEOUT_TIME_MS 100   // Increased from 10ms for better stability
 #define PAD_DPAD_INVALID_OFFSET 6 // Offset for D-pad invalid marker
@@ -76,7 +50,7 @@ static void pad_disconnect_check(void)
         if (absolute_time_diff_us(get_absolute_time(), pad_p1_timer) < 0)
             xram[pad_xram + PAD_DPAD_INVALID_OFFSET] = 0x0F;
         if (absolute_time_diff_us(get_absolute_time(), pad_p2_timer) < 0)
-            xram[pad_xram + sizeof(hid_gamepad_report_t) + PAD_DPAD_INVALID_OFFSET] = 0x0F;
+            xram[pad_xram + sizeof(pad_gamepad_report_t) + PAD_DPAD_INVALID_OFFSET] = 0x0F;
     }
 }
 
@@ -127,7 +101,7 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
     return value;
 }
 
-static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t const *report, uint16_t report_len, hid_gamepad_report_t *gamepad_report)
+static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
 {
     pad_descriptor_t *desc = pad_get_descriptor(dev_addr);
     if (!desc)
@@ -136,7 +110,7 @@ static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t const *report,
     // DBG("pad_parse_report_to_gamepad");
 
     // Clear the gamepad report
-    memset(gamepad_report, 0, sizeof(hid_gamepad_report_t));
+    memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
 
     // DBG("pad_parse_report_to_gamepad: dev_addr=%d, report_len=%d\n", dev_addr, report_len);
 
@@ -144,39 +118,39 @@ static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t const *report,
     if (desc->x_size > 0)
     {
         uint32_t raw_x = pad_extract_bits(report, report_len, desc->x_offset, desc->x_size);
-        // Convert to signed 8-bit value (assuming 8-bit or larger input)
-        gamepad_report->x = (int8_t)((raw_x >> (desc->x_size > 8 ? desc->x_size - 8 : 0)) - 128);
+        // Convert to unsigned 8-bit value (0-255)
+        gamepad_report->x = (uint8_t)(raw_x >> (desc->x_size > 8 ? desc->x_size - 8 : 0));
     }
 
     if (desc->y_size > 0)
     {
         uint32_t raw_y = pad_extract_bits(report, report_len, desc->y_offset, desc->y_size);
-        gamepad_report->y = (int8_t)((raw_y >> (desc->y_size > 8 ? desc->y_size - 8 : 0)) - 128);
+        gamepad_report->y = (uint8_t)(raw_y >> (desc->y_size > 8 ? desc->y_size - 8 : 0));
     }
 
     if (desc->z_size > 0)
     {
         uint32_t raw_z = pad_extract_bits(report, report_len, desc->z_offset, desc->z_size);
-        gamepad_report->z = (int8_t)((raw_z >> (desc->z_size > 8 ? desc->z_size - 8 : 0)) - 128);
+        gamepad_report->z = (uint8_t)(raw_z >> (desc->z_size > 8 ? desc->z_size - 8 : 0));
     }
 
     if (desc->rz_size > 0)
     {
         uint32_t raw_rz = pad_extract_bits(report, report_len, desc->rz_offset, desc->rz_size);
-        gamepad_report->rz = (int8_t)((raw_rz >> (desc->rz_size > 8 ? desc->rz_size - 8 : 0)) - 128);
+        gamepad_report->rz = (uint8_t)(raw_rz >> (desc->rz_size > 8 ? desc->rz_size - 8 : 0));
     }
 
     // Extract triggers
     if (desc->rx_size > 0)
     {
         uint32_t raw_rx = pad_extract_bits(report, report_len, desc->rx_offset, desc->rx_size);
-        gamepad_report->rx = (int8_t)(raw_rx >> (desc->rx_size > 8 ? desc->rx_size - 8 : 0));
+        gamepad_report->rx = (uint8_t)(raw_rx >> (desc->rx_size > 8 ? desc->rx_size - 8 : 0));
     }
 
     if (desc->ry_size > 0)
     {
         uint32_t raw_ry = pad_extract_bits(report, report_len, desc->ry_offset, desc->ry_size);
-        gamepad_report->ry = (int8_t)(raw_ry >> (desc->ry_size > 8 ? desc->ry_size - 8 : 0));
+        gamepad_report->ry = (uint8_t)(raw_ry >> (desc->ry_size > 8 ? desc->ry_size - 8 : 0));
     }
 
     // Extract D-pad/hat
@@ -213,7 +187,7 @@ void pad_task(void)
 
 bool pad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(hid_gamepad_report_t) * 2)
+    if (word != 0xFFFF && word > 0x10000 - sizeof(pad_gamepad_report_t) * 2)
         return false;
     pad_xram = word;
     pad_disconnect_check();
@@ -313,9 +287,9 @@ void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
         pad_p1_dev_addr = dev_addr;
         if (pad_xram != 0xFFFF)
         {
-            hid_gamepad_report_t gamepad_report;
+            pad_gamepad_report_t gamepad_report;
             pad_parse_report_to_gamepad(dev_addr, report_data, report_data_len, &gamepad_report);
-            memcpy(&xram[pad_xram], &gamepad_report, sizeof(hid_gamepad_report_t));
+            memcpy(&xram[pad_xram], &gamepad_report, sizeof(pad_gamepad_report_t));
         }
     }
 
@@ -325,9 +299,9 @@ void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
         pad_p2_dev_addr = dev_addr;
         if (pad_xram != 0xFFFF)
         {
-            hid_gamepad_report_t gamepad_report;
+            pad_gamepad_report_t gamepad_report;
             pad_parse_report_to_gamepad(dev_addr, report_data, report_data_len, &gamepad_report);
-            memcpy(&xram[pad_xram + sizeof(hid_gamepad_report_t)], &gamepad_report, sizeof(hid_gamepad_report_t));
+            memcpy(&xram[pad_xram + sizeof(pad_gamepad_report_t)], &gamepad_report, sizeof(pad_gamepad_report_t));
         }
     }
 }
