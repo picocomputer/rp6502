@@ -23,8 +23,7 @@
 // Pre-computed Sony controller descriptors
 static const pad_descriptor_t ds4_descriptor = {
     .valid = true,
-    .dev_addr = 0, // Will be set dynamically
-    .report_id = 1, // DS4 uses report ID 1 for input reports
+    .report_id = 1,    // DS4 uses report ID 1 for input reports
     .x_offset = 0 * 8, // Byte 0 (left stick X) - after report ID is stripped
     .x_size = 8,
     .y_offset = 1 * 8, // Byte 1 (left stick Y)
@@ -40,12 +39,11 @@ static const pad_descriptor_t ds4_descriptor = {
     .hat_offset = 4 * 8, // Byte 4, lower nibble (D-pad)
     .hat_size = 4,
     .buttons_offset = 4 * 8 + 4, // Byte 4 upper nibble + bytes 5-6
-    .buttons_size = 14}; // 4 bits (byte 4 upper) + 8 bits (byte 5) + 4 bits (byte 6 lower)
+    .buttons_size = 14};         // 4 bits (byte 4 upper) + 8 bits (byte 5) + 4 bits (byte 6 lower)
 
 static const pad_descriptor_t ds5_descriptor = {
     .valid = true,
-    .dev_addr = 0, // Will be set dynamically
-    .report_id = 1, // DualSense uses report ID 1 for input reports
+    .report_id = 1,    // DualSense uses report ID 1 for input reports
     .x_offset = 0 * 8, // Byte 0 (left stick X) - after report ID is stripped
     .x_size = 8,
     .y_offset = 1 * 8, // Byte 1 (left stick Y)
@@ -104,39 +102,10 @@ static const pad_descriptor_t *detect_sony_controller(uint16_t vendor_id, uint16
     return NULL; // Not a Sony controller
 }
 
-bool des_parse_report_descriptor(pad_descriptor_t *descriptors, uint8_t max_descriptors,
+bool des_parse_report_descriptor(pad_descriptor_t *desc,
                                  uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len,
                                  uint16_t vendor_id, uint16_t product_id)
 {
-    // Find an existing descriptor for this device or allocate a new one
-    pad_descriptor_t *desc = NULL;
-
-    // First, check if we already have a descriptor for this device
-    for (uint8_t i = 0; i < max_descriptors; i++)
-    {
-        if (descriptors[i].valid && descriptors[i].dev_addr == dev_addr)
-        {
-            desc = &descriptors[i];
-            break;
-        }
-    }
-
-    // If not found, find an empty slot
-    if (!desc)
-    {
-        for (uint8_t i = 0; i < max_descriptors; i++)
-        {
-            if (!descriptors[i].valid)
-            {
-                desc = &descriptors[i];
-                break;
-            }
-        }
-    }
-
-    if (!desc)
-        return false;
-
     DBG("des_parse_report_descriptor: dev_addr=%d, vid=0x%04X, pid=0x%04X, desc_len=%d\n",
         dev_addr, vendor_id, product_id, desc_len);
 
@@ -146,7 +115,6 @@ bool des_parse_report_descriptor(pad_descriptor_t *descriptors, uint8_t max_desc
     {
         DBG("Detected Sony controller, using pre-computed descriptor\n");
         *desc = *sony_desc;        // Copy the pre-computed descriptor
-        desc->dev_addr = dev_addr; // Set the device address
 
         DBG("Sony controller descriptor loaded:\n");
         DBG("  Report ID: %d\n", desc->report_id);
@@ -167,7 +135,6 @@ bool des_parse_report_descriptor(pad_descriptor_t *descriptors, uint8_t max_desc
     // Initialize descriptor
     memset(desc, 0, sizeof(pad_descriptor_t));
     desc->valid = true;
-    desc->dev_addr = dev_addr;
 
     // Use BTstack HID parser to parse the descriptor
     btstack_hid_usage_iterator_t usage_iterator;

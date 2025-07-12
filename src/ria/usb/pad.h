@@ -21,16 +21,13 @@ void pad_task(void);
 bool pad_xreg(uint16_t word);
 
 // Parse HID report descriptor for gamepad.
-bool pad_parse_descriptor(uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len,
+bool pad_parse_descriptor(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                           uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
-void pad_cleanup_descriptor(uint8_t dev_addr);
+void pad_cleanup_descriptor(uint8_t idx);
 
 // Process HID gamepad report.
-void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len);
-
-// Get report ID for a specific device.
-uint8_t pad_get_report_id(uint8_t dev_addr);
+void pad_report(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len);
 
 #endif /* _PAD_H_ */

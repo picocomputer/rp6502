@@ -21,24 +21,21 @@
 
 typedef struct TU_ATTR_PACKED
 {
-  uint8_t  x;         ///< Delta x  movement of left analog-stick
-  uint8_t  y;         ///< Delta y  movement of left analog-stick
-  uint8_t  z;         ///< Delta z  movement of right analog-joystick
-  uint8_t  rz;        ///< Delta Rz movement of right analog-joystick
-  uint8_t  rx;        ///< Delta Rx movement of analog left trigger
-  uint8_t  ry;        ///< Delta Ry movement of analog right trigger
-  uint8_t hat;       ///< Buttons mask for currently pressed buttons in the DPad/hat
-  uint32_t buttons;  ///< Buttons mask for currently pressed buttons
-}pad_gamepad_report_t;
-
+    uint8_t x;        ///< Delta x  movement of left analog-stick
+    uint8_t y;        ///< Delta y  movement of left analog-stick
+    uint8_t z;        ///< Delta z  movement of right analog-joystick
+    uint8_t rz;       ///< Delta Rz movement of right analog-joystick
+    uint8_t rx;       ///< Delta Rx movement of analog left trigger
+    uint8_t ry;       ///< Delta Ry movement of analog right trigger
+    uint8_t hat;      ///< Buttons mask for currently pressed buttons in the DPad/hat
+    uint32_t buttons; ///< Buttons mask for currently pressed buttons
+} pad_gamepad_report_t;
 
 #define PAD_TIMEOUT_TIME_MS 100   // Increased from 10ms for better stability
 #define PAD_DPAD_INVALID_OFFSET 6 // Offset for D-pad invalid marker
 
-static absolute_time_t pad_p1_timer;
-static absolute_time_t pad_p2_timer;
-static uint8_t pad_p1_dev_addr;
-static uint8_t pad_p2_dev_addr;
+static int16_t pad_p1_dev_idx;
+static int16_t pad_p2_dev_idx;
 static uint16_t pad_xram = 0xFFFF;
 static pad_descriptor_t pad_descriptors[CFG_TUH_HID] = {0};
 
@@ -47,24 +44,11 @@ static void pad_disconnect_check(void)
     // Set dpad invalid to indicate no controller detected
     if (pad_xram != 0xFFFF)
     {
-        if (absolute_time_diff_us(get_absolute_time(), pad_p1_timer) < 0)
+        if (pad_p1_dev_idx == -1)
             xram[pad_xram + PAD_DPAD_INVALID_OFFSET] = 0x0F;
-        if (absolute_time_diff_us(get_absolute_time(), pad_p2_timer) < 0)
+        if (pad_p2_dev_idx == -1)
             xram[pad_xram + sizeof(pad_gamepad_report_t) + PAD_DPAD_INVALID_OFFSET] = 0x0F;
     }
-}
-
-static pad_descriptor_t *pad_get_descriptor(uint8_t dev_addr)
-{
-    // Find descriptor for this specific device address
-    for (uint8_t i = 0; i < CFG_TUH_HID; i++)
-    {
-        if (pad_descriptors[i].valid && pad_descriptors[i].dev_addr == dev_addr)
-        {
-            return &pad_descriptors[i];
-        }
-    }
-    return NULL;
 }
 
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint8_t bit_offset, uint8_t bit_size)
@@ -101,11 +85,9 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
     return value;
 }
 
-static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
+static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
 {
-    pad_descriptor_t *desc = pad_get_descriptor(dev_addr);
-    if (!desc)
-        return;
+    pad_descriptor_t *desc = &pad_descriptors[idx];
 
     // DBG("pad_parse_report_to_gamepad");
 
@@ -178,11 +160,12 @@ void pad_init(void)
 void pad_stop(void)
 {
     pad_xram = 0xFFFF;
+    pad_p1_dev_idx = -1;
+    pad_p2_dev_idx = -1;
 }
 
 void pad_task(void)
 {
-    pad_disconnect_check();
 }
 
 bool pad_xreg(uint16_t word)
@@ -194,50 +177,36 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool pad_parse_descriptor(uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len,
+bool pad_parse_descriptor(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                           uint16_t vendor_id, uint16_t product_id)
 {
-    return des_parse_report_descriptor(pad_descriptors, CFG_TUH_HID, dev_addr, desc_report, desc_len,
+    return des_parse_report_descriptor(&pad_descriptors[idx], dev_addr, desc_report, desc_len,
                                        vendor_id, product_id);
 }
 
-void pad_cleanup_descriptor(uint8_t dev_addr)
+void pad_cleanup_descriptor(uint8_t idx)
 {
-    // Find and invalidate descriptor for this device
-    for (uint8_t i = 0; i < CFG_TUH_HID; i++)
-    {
-        if (pad_descriptors[i].valid && pad_descriptors[i].dev_addr == dev_addr)
-        {
-            pad_descriptors[i].valid = false;
-            pad_descriptors[i].dev_addr = 0;
-            break;
-        }
-    }
-
+    pad_descriptors[idx].valid = false;
     // Clean up player assignments if this device was assigned
-    if (pad_p1_dev_addr == dev_addr)
+    if (pad_p1_dev_idx == idx)
     {
-        pad_p1_dev_addr = 0;
-        pad_p1_timer = nil_time; // Force immediate timeout
+        pad_p1_dev_idx = -1;
     }
-    if (pad_p2_dev_addr == dev_addr)
+    if (pad_p2_dev_idx == idx)
     {
-        pad_p2_dev_addr = 0;
-        pad_p2_timer = nil_time; // Force immediate timeout
+        pad_p2_dev_idx = -1;
     }
+    pad_disconnect_check();
 }
 
-void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
+void pad_report(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
 {
     // DBG("pad_report: dev_addr=%d, len=%d\n", dev_addr, len);
 
-    // Check if this device has a valid descriptor
-    pad_descriptor_t *desc = pad_get_descriptor(dev_addr);
-    if (!desc)
-    {
-        DBG("pad_report: No descriptor for dev_addr %d\n", dev_addr);
+    pad_descriptor_t *desc = &pad_descriptors[idx];
+
+    if (!desc->valid)
         return;
-    }
 
     // DBG("pad_report: Found descriptor for dev_addr %d, report_id=%d\n", dev_addr, desc->report_id);
 
@@ -256,22 +225,20 @@ void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
     }
 
     uint8_t player = 0;
-    absolute_time_t now = get_absolute_time();
 
     // Check if this device is already assigned to a player
-    if (pad_p1_dev_addr == dev_addr && absolute_time_diff_us(now, pad_p1_timer) >= 0)
+    if (pad_p1_dev_idx == idx)
         player = 1;
-    else if (pad_p2_dev_addr == dev_addr && absolute_time_diff_us(now, pad_p2_timer) >= 0)
+    else if (pad_p2_dev_idx == idx)
         player = 2;
 
     // If not assigned, try to assign to an available player slot
     if (!player)
     {
-        if (absolute_time_diff_us(now, pad_p1_timer) < 0) // Player 1 slot timed out
+        if (pad_p1_dev_idx == -1)
             player = 1;
-        else if (absolute_time_diff_us(now, pad_p2_timer) < 0) // Player 2 slot timed out
+        else if (pad_p2_dev_idx == -1)
             player = 2;
-        // If both slots are active, ignore this device for now
     }
 
     // Exit early if no player slot is available
@@ -283,35 +250,23 @@ void pad_report(uint8_t dev_addr, uint8_t const *report, uint16_t len)
 
     if (player == 1)
     {
-        pad_p1_timer = make_timeout_time_ms(PAD_TIMEOUT_TIME_MS);
-        pad_p1_dev_addr = dev_addr;
+        pad_p1_dev_idx = idx;
         if (pad_xram != 0xFFFF)
         {
             pad_gamepad_report_t gamepad_report;
-            pad_parse_report_to_gamepad(dev_addr, report_data, report_data_len, &gamepad_report);
+            pad_parse_report_to_gamepad(idx, report_data, report_data_len, &gamepad_report);
             memcpy(&xram[pad_xram], &gamepad_report, sizeof(pad_gamepad_report_t));
         }
     }
 
     if (player == 2)
     {
-        pad_p2_timer = make_timeout_time_ms(PAD_TIMEOUT_TIME_MS);
-        pad_p2_dev_addr = dev_addr;
+        pad_p2_dev_idx = idx;
         if (pad_xram != 0xFFFF)
         {
             pad_gamepad_report_t gamepad_report;
-            pad_parse_report_to_gamepad(dev_addr, report_data, report_data_len, &gamepad_report);
+            pad_parse_report_to_gamepad(idx, report_data, report_data_len, &gamepad_report);
             memcpy(&xram[pad_xram + sizeof(pad_gamepad_report_t)], &gamepad_report, sizeof(pad_gamepad_report_t));
         }
     }
-}
-
-uint8_t pad_get_report_id(uint8_t dev_addr)
-{
-    pad_descriptor_t *desc = pad_get_descriptor(dev_addr);
-    if (desc)
-    {
-        return desc->report_id;
-    }
-    return 0; // Default to no report ID
 }

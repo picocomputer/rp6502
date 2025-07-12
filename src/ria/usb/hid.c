@@ -38,7 +38,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
         mou_report((hid_mouse_report_t const *)report);
         break;
     case HID_ITF_PROTOCOL_NONE:
-        pad_report(dev_addr, report, len);
+        pad_report(dev_addr, idx, report, len);
         break;
     }
 
@@ -106,7 +106,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
         {
             DBG("HID gamepad: VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
-            pad_parse_descriptor(dev_addr, desc_report, desc_len, vendor_id, product_id);
+            pad_parse_descriptor(dev_addr, idx, desc_report, desc_len, vendor_id, product_id);
         }
         else
         {
@@ -123,5 +123,5 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
     hid_dev_addr[idx] = 0;
 
     // Clean up gamepad descriptor if this was a gamepad device
-    pad_cleanup_descriptor(dev_addr);
+    pad_cleanup_descriptor(idx);
 }

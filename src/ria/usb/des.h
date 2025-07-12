@@ -14,7 +14,6 @@
 typedef struct
 {
     bool valid;
-    uint8_t dev_addr; // Device address this descriptor belongs to
     uint8_t report_id;
     uint8_t x_offset, x_size;             // Left stick X
     uint8_t y_offset, y_size;             // Left stick Y
@@ -35,7 +34,7 @@ typedef struct
  * @param desc_len Length of descriptor data
  * @return true if parsing was successful, false otherwise
  */
-bool des_parse_report_descriptor(pad_descriptor_t *descriptors, uint8_t max_descriptors,
+bool des_parse_report_descriptor(pad_descriptor_t *desc,
                                  uint8_t dev_addr, uint8_t const *desc_report, uint16_t desc_len,
                                  uint16_t vendor_id, uint16_t product_id);
 
