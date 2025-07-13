@@ -39,16 +39,6 @@ static int8_t pad_player_idx[PAD_PLAYER_LEN];
 static uint16_t pad_xram = 0xFFFF;
 static pad_descriptor_t pad_descriptors[CFG_TUH_HID];
 
-static void pad_disconnect_check(void)
-{
-    // Set dpad invalid to indicate no controller detected
-    static const unsigned hat_pos = (unsigned)(&((pad_gamepad_report_t *)0)->hat);
-    if (pad_xram != 0xFFFF)
-        for (int i = 0; i < PAD_PLAYER_LEN; i++)
-            if (pad_player_idx[i] == -1)
-                xram[pad_xram + (i * sizeof(pad_gamepad_report_t)) + hat_pos] = 0x0F;
-}
-
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint8_t bit_offset, uint8_t bit_size)
 {
     if (bit_size == 0 || bit_size > 32)
@@ -75,11 +65,17 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
 
 static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
 {
-    pad_descriptor_t *desc = &pad_descriptors[idx];
-
     // Clear the gamepad report
     memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
     gamepad_report->hat = 8;
+    gamepad_report->x = 127;
+    gamepad_report->y = 127;
+    gamepad_report->z = 127;
+    gamepad_report->rz = 127;
+    if (report_len == 0)
+        return;
+
+    pad_descriptor_t *desc = &pad_descriptors[idx];
 
     // Extract analog sticks
     if (desc->x_size > 0)
@@ -146,29 +142,60 @@ void pad_stop(void)
         pad_player_idx[i] = -1;
 }
 
+static void pad_reset_xram(uint8_t player)
+{
+    if (pad_xram == 0xFFFF)
+        return;
+    pad_gamepad_report_t gamepad_report;
+    pad_parse_report_to_gamepad(0, 0, 0, &gamepad_report); // get blank
+    if (pad_player_idx[player] == -1)
+        gamepad_report.hat = 0xF;
+    memcpy(&xram[pad_xram + player * sizeof(pad_gamepad_report_t)],
+           &gamepad_report,
+           sizeof(pad_gamepad_report_t));
+}
+
 bool pad_xreg(uint16_t word)
 {
     if (word != 0xFFFF && word > 0x10000 - sizeof(pad_gamepad_report_t) * PAD_PLAYER_LEN)
         return false;
     pad_xram = word;
-    pad_disconnect_check();
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        pad_reset_xram(i);
     return true;
 }
 
-void pad_report_descriptor(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
-                           uint16_t vendor_id, uint16_t product_id)
+void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+               uint16_t vendor_id, uint16_t product_id)
 {
-    des_report_descriptor(&pad_descriptors[idx], desc_report, desc_len,
+    pad_descriptor_t *pad_desc = &pad_descriptors[idx];
+    des_report_descriptor(pad_desc, desc_report, desc_len,
                           vendor_id, product_id);
+
+    // Try to assign to an available player slot
+    if (pad_desc->valid)
+    {
+        for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        {
+            if (pad_player_idx[i] == -1)
+            {
+                pad_player_idx[i] = idx;
+                pad_reset_xram(i);
+                break;
+            }
+        }
+    }
 }
 
-void pad_invalidate(uint8_t idx)
+void pad_umount(uint8_t idx)
 {
     pad_descriptors[idx].valid = false;
     for (int i = 0; i < PAD_PLAYER_LEN; i++)
         if (pad_player_idx[i] == idx)
+        {
             pad_player_idx[i] = -1;
-    pad_disconnect_check();
+            pad_reset_xram(i);
+        }
 }
 
 void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
@@ -194,7 +221,7 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
 
     int player = -1;
 
-    // Check if this device is already assigned to a player
+    // Check if this device is assigned to a player
     for (int i = 0; i < PAD_PLAYER_LEN; i++)
     {
         if (pad_player_idx[i] == idx)
@@ -204,25 +231,8 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
         }
     }
 
-    // If not assigned, try to assign to an available player slot
-    if (player == -1)
-    {
-        for (int i = 0; i < PAD_PLAYER_LEN; i++)
-        {
-            if (pad_player_idx[i] == -1)
-            {
-                player = i;
-                break;
-            }
-        }
-
-        if (player == -1)
-            DBG("pad_report: No player slot available.\n");
-    }
-
     if (player != -1)
     {
-        pad_player_idx[player] = idx;
         if (pad_xram != 0xFFFF)
         {
             pad_gamepad_report_t gamepad_report;
