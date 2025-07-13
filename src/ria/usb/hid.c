@@ -33,7 +33,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
     {
     case HID_ITF_PROTOCOL_KEYBOARD:
         // TODO dev_addr likely not needed
-        kbd_report(dev_addr, idx, (hid_keyboard_report_t const *)report);
+        kbd_report(idx, (hid_keyboard_report_t const *)report);
         break;
     case HID_ITF_PROTOCOL_MOUSE:
         mou_report((hid_mouse_report_t const *)report);

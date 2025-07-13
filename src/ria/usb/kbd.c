@@ -322,13 +322,11 @@ static void kbd_prev_report_to_xram()
     }
 }
 
-void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const *report)
+void kbd_report(uint8_t instance, hid_keyboard_report_t const *report)
 {
-    static uint8_t prev_dev_addr = 0;
     static uint8_t prev_instance = 0;
     // Only support key presses on one keyboard at a time.
-    if (kbd_prev_report.keycode[0] >= HID_KEY_A &&
-        ((prev_dev_addr != dev_addr) || (prev_instance != instance)))
+    if (kbd_prev_report.keycode[0] >= HID_KEY_A && prev_instance != instance)
         return;
 
     // Extract presses for queue
@@ -356,7 +354,6 @@ void kbd_report(uint8_t dev_addr, uint8_t instance, hid_keyboard_report_t const 
                 kbd_queue_key(modifier, keycode, true);
         }
     }
-    prev_dev_addr = dev_addr;
     prev_instance = instance;
     kbd_prev_report = *report;
     kbd_prev_report.modifier = modifier;

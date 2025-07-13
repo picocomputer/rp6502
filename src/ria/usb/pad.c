@@ -35,10 +35,9 @@ typedef struct TU_ATTR_PACKED
     uint8_t button2; // buttons
 } pad_gamepad_report_t;
 
-#define PAD_TIMEOUT_TIME_MS 100 // Increased from 10ms for better stability
+#define PAD_PLAYER_LEN 4
 
-static int16_t pad_p1_dev_idx;
-static int16_t pad_p2_dev_idx;
+static int8_t pad_player_idx[PAD_PLAYER_LEN];
 static uint16_t pad_xram = 0xFFFF;
 static pad_descriptor_t pad_descriptors[CFG_TUH_HID];
 
@@ -49,10 +48,11 @@ static void pad_disconnect_check(void)
     // Set dpad invalid to indicate no controller detected
     if (pad_xram != 0xFFFF)
     {
-        if (pad_p1_dev_idx == -1)
-            xram[pad_xram + (0 * sizeof(pad_gamepad_report_t)) + hat_pos] = 0x0F;
-        if (pad_p2_dev_idx == -1)
-            xram[pad_xram + (1 * sizeof(pad_gamepad_report_t)) + hat_pos] = 0x0F;
+        for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        {
+            if (pad_player_idx[i] == -1)
+                xram[pad_xram + (i * sizeof(pad_gamepad_report_t)) + hat_pos] = 0x0F;
+        }
     }
 }
 
@@ -154,13 +154,13 @@ void pad_init(void)
 void pad_stop(void)
 {
     pad_xram = 0xFFFF;
-    pad_p1_dev_idx = -1;
-    pad_p2_dev_idx = -1;
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        pad_player_idx[i] = -1;
 }
 
 bool pad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(pad_gamepad_report_t) * 2)
+    if (word != 0xFFFF && word > 0x10000 - sizeof(pad_gamepad_report_t) * PAD_PLAYER_LEN)
         return false;
     pad_xram = word;
     pad_disconnect_check();
@@ -178,27 +178,18 @@ void pad_cleanup_descriptor(uint8_t idx)
 {
     pad_descriptors[idx].valid = false;
     // Clean up player assignments if this device was assigned
-    if (pad_p1_dev_idx == idx)
-    {
-        pad_p1_dev_idx = -1;
-    }
-    if (pad_p2_dev_idx == idx)
-    {
-        pad_p2_dev_idx = -1;
-    }
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        if (pad_player_idx[i] == idx)
+            pad_player_idx[i] = -1;
     pad_disconnect_check();
 }
 
 void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    // DBG("pad_report: dev_addr=%d, len=%d\n", dev_addr, len);
-
     pad_descriptor_t *desc = &pad_descriptors[idx];
 
     if (!desc->valid)
         return;
-
-    // DBG("pad_report: Found descriptor for dev_addr %d, report_id=%d\n", dev_addr, desc->report_id);
 
     // Skip report ID check if no report ID is expected, or validate if one is expected
     const uint8_t *report_data = report;
@@ -214,44 +205,42 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
         report_data_len = len - 1;
     }
 
-    uint8_t player = 0;
+    int player = -1;
 
     // Check if this device is already assigned to a player
-    if (pad_p1_dev_idx == idx)
-        player = 1;
-    else if (pad_p2_dev_idx == idx)
-        player = 2;
-
-    // If not assigned, try to assign to an available player slot
-    if (!player)
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
     {
-        if (pad_p1_dev_idx == -1)
-            player = 1;
-        else if (pad_p2_dev_idx == -1)
-            player = 2;
-        else
-            DBG("pad_report: No player slot available.\n");
-    }
-
-    if (player == 1)
-    {
-        pad_p1_dev_idx = idx;
-        if (pad_xram != 0xFFFF)
+        if (pad_player_idx[i] == idx)
         {
-            pad_gamepad_report_t gamepad_report;
-            pad_parse_report_to_gamepad(idx, report_data, report_data_len, &gamepad_report);
-            memcpy(&xram[pad_xram], &gamepad_report, sizeof(pad_gamepad_report_t));
+            player = i;
+            break;
         }
     }
 
-    if (player == 2)
+    // If not assigned, try to assign to an available player slot
+    if (player == -1)
     {
-        pad_p2_dev_idx = idx;
+        for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        {
+            if (pad_player_idx[i] == -1)
+            {
+                player = i;
+                break;
+            }
+        }
+
+        if (player == -1)
+            DBG("pad_report: No player slot available.\n");
+    }
+
+    if (player != -1)
+    {
+        pad_player_idx[player] = idx;
         if (pad_xram != 0xFFFF)
         {
             pad_gamepad_report_t gamepad_report;
             pad_parse_report_to_gamepad(idx, report_data, report_data_len, &gamepad_report);
-            memcpy(&xram[pad_xram + sizeof(pad_gamepad_report_t)], &gamepad_report, sizeof(pad_gamepad_report_t));
+            memcpy(&xram[pad_xram + player * sizeof(pad_gamepad_report_t)], &gamepad_report, sizeof(pad_gamepad_report_t));
         }
     }
 }
