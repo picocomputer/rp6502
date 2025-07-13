@@ -37,8 +37,8 @@ static const pad_descriptor_t *des_sony_ds4_controller(uint16_t vendor_id, uint1
         .hat_offset = 4 * 8, // Byte 4, lower nibble (D-pad)
         .hat_size = 4,
         .button_offsets = {
-            // DS4 button layout: Square, X, Circle, Triangle, L1, R1, L2, R2, Share, Options, L3, R3, PS, Touchpad
-            36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+            // DS4 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2, Share, Options, PS, L3, R3, Touchpad
+            37, 38, 36, 39, 40, 41, 42, 43, 44, 45, 48, 46, 47, 49,
             // Mark unused buttons with 0xFFFF
             0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -52,21 +52,11 @@ static const pad_descriptor_t *des_sony_ds4_controller(uint16_t vendor_id, uint1
             return &ds4_descriptor;
         }
     }
-    if (vendor_id == 0x0F0D) // Hori
+    if (vendor_id == 0x0C12) // Zeroplus/Cirka
     {
         switch (product_id)
         {
-        case 0x00EE: // Hori Real Arcade Pro 4 Kai (PS4)
-        case 0x011C: // Hori Fighting Commander (PS4)
-            return &ds4_descriptor;
-        }
-    }
-    if (vendor_id == 0x146B) // BigBen/Nacon
-    {
-        switch (product_id)
-        {
-        case 0x0D01: // Nacon Revolution Pro Controller
-        case 0x0D02: // Nacon Revolution Pro Controller 2
+        case 0x1E1A: // Cirka Wired Controller
             return &ds4_descriptor;
         }
     }
@@ -93,8 +83,8 @@ static const pad_descriptor_t *des_sony_ds5_controller(uint16_t vendor_id, uint1
         .hat_offset = 7 * 8, // Byte 7, lower nibble (D-pad)
         .hat_size = 4,
         .button_offsets = {
-            // DS5 button layout: Square, X, Circle, Triangle, L1, R1, L2, R2, Create, Options, L3, R3, PS, Touchpad
-            60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
+            // DS5 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2, Create, Options, PS, L3, R3, Touchpad
+            61, 62, 60, 63, 64, 65, 66, 67, 68, 69, 72, 70, 71, 73,
             // Mark unused buttons with 0xFFFF
             0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -108,6 +98,32 @@ static const pad_descriptor_t *des_sony_ds5_controller(uint16_t vendor_id, uint1
         }
     }
     return NULL;
+}
+
+static void des_remap_8bitdo_dinput(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+{
+    (void)product_id;
+    if (vendor_id != 0x2DC8) // 8BitDo
+        return;
+    DBG("Remapping 8BitDo Dinput buttons.\n");
+    // All 8BitDo controllers in dinput mode have "gaps" in their buttons.
+    uint16_t save2 = desc->button_offsets[2];
+    uint16_t save5 = desc->button_offsets[5];
+    desc->button_offsets[2] = desc->button_offsets[3];
+    desc->button_offsets[3] = desc->button_offsets[4];
+    for (int i = 4; i <= 12; i++)
+        desc->button_offsets[i] = desc->button_offsets[i + 2];
+    if (product_id == 0x5006) // M30 wired
+    {
+        // The M30 (Sega) controller has an unsual mapping
+        // for the guide button when wired.
+        uint16_t save10 = desc->button_offsets[10];
+        desc->button_offsets[10] = save2;
+        save2 = save10;
+    }
+    // Drops the gaps at the end, not sure what uses this.
+    desc->button_offsets[13] = save2;
+    desc->button_offsets[14] = save5;
 }
 
 static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *desc_report, uint16_t desc_len)
@@ -186,28 +202,34 @@ void des_report_descriptor(pad_descriptor_t *desc,
                            uint8_t const *desc_report, uint16_t desc_len,
                            uint16_t vendor_id, uint16_t product_id)
 {
-    DBG("Reeceived HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
+    DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
     pad_descriptor_t const *found;
     desc->valid = false;
 
+    // Sony DualShock 4 controllers don't have a descriptor
     if ((found = des_sony_ds4_controller(vendor_id, product_id)))
     {
         DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
         *desc = *found;
     }
 
+    // Sony DualShock 5 controllers don't have a descriptor
     if ((found = des_sony_ds5_controller(vendor_id, product_id)))
     {
         DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
         *desc = *found;
     }
 
+    // Parse the HID descriptor for most controllers
     if (!desc->valid)
     {
         des_parse_generic_controller(desc, desc_report, desc_len);
         if (desc->valid)
             DBG("Detected generic controller, using parsed descriptor.\n");
     }
+
+    // Remap the buttons for known vendors and products
+    des_remap_8bitdo_dinput(desc, vendor_id, product_id);
 
     if (!desc->valid)
         DBG("HID descriptor not a gamepad.\n")

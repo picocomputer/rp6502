@@ -36,7 +36,7 @@ typedef struct TU_ATTR_PACKED
 #define PAD_PLAYER_LEN 4
 
 static int8_t pad_player_idx[PAD_PLAYER_LEN];
-static uint16_t pad_xram = 0xFFFF;
+static uint16_t pad_xram;
 static pad_descriptor_t pad_descriptors[CFG_TUH_HID];
 
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint8_t bit_offset, uint8_t bit_size)
@@ -133,13 +133,13 @@ static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint
 void pad_init(void)
 {
     pad_stop();
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        pad_player_idx[i] = -1;
 }
 
 void pad_stop(void)
 {
     pad_xram = 0xFFFF;
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
-        pad_player_idx[i] = -1;
 }
 
 static void pad_reset_xram(uint8_t player)
