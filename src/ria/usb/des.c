@@ -6,7 +6,6 @@
 
 #include "des.h"
 #include "btstack.h"
-#include "btstack_hid.h"
 #include <string.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
@@ -183,9 +182,9 @@ static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *
         desc->valid = true;
 }
 
-void des_parse_report_descriptor(pad_descriptor_t *desc,
-                                 uint8_t const *desc_report, uint16_t desc_len,
-                                 uint16_t vendor_id, uint16_t product_id)
+void des_report_descriptor(pad_descriptor_t *desc,
+                           uint8_t const *desc_report, uint16_t desc_len,
+                           uint16_t vendor_id, uint16_t product_id)
 {
     DBG("Reeceived HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
     pad_descriptor_t const *found;

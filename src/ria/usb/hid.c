@@ -101,7 +101,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
         {
             DBG("HID gamepad: VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
-            pad_parse_descriptor(idx, desc_report, desc_len, vendor_id, product_id);
+            pad_report_descriptor(idx, desc_report, desc_len, vendor_id, product_id);
             valid = pad_is_valid(idx);
         }
         else

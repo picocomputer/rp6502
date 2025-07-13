@@ -43,7 +43,6 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_flash
     tinyusb_host
     pico_btstack_ble
-    pico_btstack_cyw43
 )
 
 pico_generate_pio_header(rp6502_ria

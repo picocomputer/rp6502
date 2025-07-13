@@ -155,11 +155,11 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-void pad_parse_descriptor(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
-                          uint16_t vendor_id, uint16_t product_id)
+void pad_report_descriptor(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+                           uint16_t vendor_id, uint16_t product_id)
 {
-    des_parse_report_descriptor(&pad_descriptors[idx], desc_report, desc_len,
-                                vendor_id, product_id);
+    des_report_descriptor(&pad_descriptors[idx], desc_report, desc_len,
+                          vendor_id, product_id);
 }
 
 void pad_invalidate(uint8_t idx)

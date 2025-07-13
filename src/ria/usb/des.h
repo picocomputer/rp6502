@@ -44,7 +44,7 @@ typedef struct
  * @param desc_len Length of descriptor data
  * @return true if parsing was successful, false otherwise
  */
-void des_parse_report_descriptor(pad_descriptor_t *desc,
+void des_report_descriptor(pad_descriptor_t *desc,
                                  uint8_t const *desc_report, uint16_t desc_len,
                                  uint16_t vendor_id, uint16_t product_id);
 
