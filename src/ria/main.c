@@ -86,7 +86,6 @@ void main_task(void)
     ria_task();
     aud_task();
     kbd_task();
-    pad_task();
     vga_task();
     cyw_task();
     wfi_task();
