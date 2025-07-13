@@ -255,3 +255,8 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
         }
     }
 }
+
+bool pad_is_valid(uint8_t idx)
+{
+    return pad_descriptors[idx].valid;
+}

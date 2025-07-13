@@ -66,8 +66,8 @@ void hid_print_status(void)
                 count_mouse++;
                 break;
             case HID_ITF_PROTOCOL_NONE:
-                // TODO check for valid descriptor
-                count_gamepad++;
+                if (pad_is_valid(idx))
+                    count_gamepad++;
                 break;
             }
         }

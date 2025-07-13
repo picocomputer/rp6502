@@ -29,4 +29,6 @@ void pad_cleanup_descriptor(uint8_t idx);
 // Process HID gamepad report.
 void pad_report(uint8_t idx, uint8_t const *report, uint16_t len);
 
+bool pad_is_valid(uint8_t idx);
+
 #endif /* _PAD_H_ */
