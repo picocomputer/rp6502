@@ -24,7 +24,7 @@ void pad_parse_descriptor(uint8_t idx, uint8_t const *desc_report, uint16_t desc
                           uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
-void pad_cleanup_descriptor(uint8_t idx);
+void pad_invalidate(uint8_t idx);
 
 // Process HID gamepad report.
 void pad_report(uint8_t idx, uint8_t const *report, uint16_t len);

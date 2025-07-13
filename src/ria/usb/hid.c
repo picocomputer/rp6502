@@ -11,8 +11,6 @@
 #include "usb/pad.h"
 #include "pico/time.h"
 
-#define DEBUG_RIA_USB_HID //////////////
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_HID)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
@@ -32,7 +30,6 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
     switch (itf_protocol)
     {
     case HID_ITF_PROTOCOL_KEYBOARD:
-        // TODO dev_addr likely not needed
         kbd_report(idx, (hid_keyboard_report_t const *)report);
         break;
     case HID_ITF_PROTOCOL_MOUSE:
@@ -80,6 +77,7 @@ void hid_print_status(void)
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
 {
+    bool valid = false;
     hid_dev_addr[idx] = dev_addr;
 
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);
@@ -89,7 +87,12 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
 
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
     {
+        valid = true;
         kbd_hid_leds_dirty();
+    }
+    else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)
+    {
+        valid = true;
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_NONE)
     {
@@ -99,6 +102,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         {
             DBG("HID gamepad: VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
             pad_parse_descriptor(idx, desc_report, desc_len, vendor_id, product_id);
+            valid = pad_is_valid(idx);
         }
         else
         {
@@ -106,7 +110,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         }
     }
 
-    if (!tuh_hid_receive_report(dev_addr, idx))
+    if (valid && !tuh_hid_receive_report(dev_addr, idx))
         DBG("tuh_hid_receive_report failed");
 }
 
@@ -114,5 +118,5 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
     (void)dev_addr;
     hid_dev_addr[idx] = 0;
-    pad_cleanup_descriptor(idx);
+    pad_invalidate(idx);
 }

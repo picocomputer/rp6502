@@ -10,8 +10,6 @@
 #include "sys/mem.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_PAD /////////////////////////////
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_PAD)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
@@ -43,17 +41,12 @@ static pad_descriptor_t pad_descriptors[CFG_TUH_HID];
 
 static void pad_disconnect_check(void)
 {
-    static const unsigned hat_pos = (unsigned)(&((pad_gamepad_report_t *)0)->hat);
-
     // Set dpad invalid to indicate no controller detected
+    static const unsigned hat_pos = (unsigned)(&((pad_gamepad_report_t *)0)->hat);
     if (pad_xram != 0xFFFF)
-    {
         for (int i = 0; i < PAD_PLAYER_LEN; i++)
-        {
             if (pad_player_idx[i] == -1)
                 xram[pad_xram + (i * sizeof(pad_gamepad_report_t)) + hat_pos] = 0x0F;
-        }
-    }
 }
 
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint8_t bit_offset, uint8_t bit_size)
@@ -67,20 +60,15 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
     if (bytes_needed > report_len)
         return 0;
 
-    uint32_t value = 0;
-
     // Extract value across multiple bytes if needed
+    uint32_t value = 0;
     for (uint8_t i = 0; i < (bit_size + 7) / 8 && i < 4 && (byte_offset + i) < report_len; i++)
-    {
         value |= ((uint32_t)report[byte_offset + i]) << (i * 8);
-    }
 
     // Shift and mask to get the desired bits
     value >>= bit_shift;
     if (bit_size < 32)
-    {
         value &= (1UL << bit_size) - 1;
-    }
 
     return value;
 }
@@ -174,10 +162,9 @@ void pad_parse_descriptor(uint8_t idx, uint8_t const *desc_report, uint16_t desc
                                 vendor_id, product_id);
 }
 
-void pad_cleanup_descriptor(uint8_t idx)
+void pad_invalidate(uint8_t idx)
 {
     pad_descriptors[idx].valid = false;
-    // Clean up player assignments if this device was assigned
     for (int i = 0; i < PAD_PLAYER_LEN; i++)
         if (pad_player_idx[i] == idx)
             pad_player_idx[i] = -1;

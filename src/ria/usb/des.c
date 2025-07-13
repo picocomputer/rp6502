@@ -9,8 +9,6 @@
 #include "btstack_hid.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_DES /////////////////////////////
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
