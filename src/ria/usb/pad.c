@@ -8,6 +8,7 @@
 #include "usb/pad.h"
 #include "usb/des.h"
 #include "sys/mem.h"
+#include <stdlib.h>
 #include <string.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_PAD)
@@ -64,6 +65,37 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
         value &= (1UL << bit_size) - 1;
 
     return value;
+}
+
+static uint8_t pad_encode_hat(uint8_t x_raw, uint8_t y_raw)
+{
+    // Calculate offset from center (127)
+    int8_t x = x_raw - 127;
+    int8_t y = 127 - y_raw; // Invert Y so positive is up (north)
+
+    // Check deadzone
+    if ((x > -32 && x < 32) && (y > -32 && y < 32))
+        return 8; // No direction
+
+    // Determine direction based on octant
+    // First check if we're in a primarily cardinal direction
+    if (y > abs(x) * 2)
+        return 0; // North
+    if (x > abs(y) * 2)
+        return 2; // East
+    if (y < -abs(x) * 2)
+        return 4; // SouthH
+    if (x < -abs(y) * 2)
+        return 6; // West
+
+    // If not cardinal, then we're in a diagonal
+    if (y > 0 && x > 0)
+        return 1; // North-East
+    if (y < 0 && x > 0)
+        return 3; // South-East
+    if (y < 0 && x < 0)
+        return 5;                  // South-West
+    /* y > 0 && x < 0 */ return 7; // North-West
 }
 
 static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
@@ -139,7 +171,12 @@ static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint
     gamepad_report->button0 = buttons & 0xFF;
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
 
-    // TODO normalize L2/R2 and stick hats
+    // Generate hat values for sticks
+    uint8_t hat_l = pad_encode_hat(gamepad_report->x, gamepad_report->y);
+    uint8_t hat_r = pad_encode_hat(gamepad_report->z, gamepad_report->rz);
+    gamepad_report->sticks = hat_l | (hat_r << 4);
+
+    // TODO normalize L2/R2
 }
 
 void pad_init(void)

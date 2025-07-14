@@ -179,6 +179,7 @@ static void term_out_FF(term_state_t *term)
 
 static void term_out_RIS(term_state_t *term)
 {
+    term->ansi_state = ansi_state_C0;
     term->fg_color_index = TERM_FG_COLOR_INDEX;
     term->bg_color_index = TERM_BG_COLOR_INDEX;
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
@@ -198,7 +199,6 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
     term->line_wrap = true;
     term->mem = mem;
     term->blink_state = 0;
-    term->ansi_state = ansi_state_C0;
     term_out_RIS(term);
 }
 

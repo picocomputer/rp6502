@@ -185,11 +185,9 @@ static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *
         }
         else if (usage_item.usage_page == 0x09) // Button page
         {
-            uint16_t count = usage_item.size;
-            uint16_t bit_pos = usage_item.bit_pos;
             uint8_t button_index = usage_item.usage - 1; // Buttons 1-indexed
-            while (count-- && button_index < PAD_MAX_BUTTONS)
-                desc->button_offsets[button_index++] = bit_pos++;
+            if (button_index < PAD_MAX_BUTTONS)
+                desc->button_offsets[button_index] = usage_item.bit_pos;
         }
     }
 
