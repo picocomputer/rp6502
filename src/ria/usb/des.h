@@ -10,12 +10,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define PAD_MAX_BUTTONS 24
+#define PAD_MAX_BUTTONS 16
 
 // HID Report Descriptor parsing state
 typedef struct
 {
     bool valid;
+    bool sony;
     uint8_t report_id;
     uint16_t x_offset; // Left stick X
     uint8_t x_size;
@@ -45,7 +46,7 @@ typedef struct
  * @return true if parsing was successful, false otherwise
  */
 void des_report_descriptor(pad_descriptor_t *desc,
-                                 uint8_t const *desc_report, uint16_t desc_len,
-                                 uint16_t vendor_id, uint16_t product_id);
+                           uint8_t const *desc_report, uint16_t desc_len,
+                           uint16_t vendor_id, uint16_t product_id);
 
 #endif // _DES_H_

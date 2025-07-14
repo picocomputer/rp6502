@@ -19,18 +19,21 @@
     }
 #endif
 
+// hat values: 0-7 clockwise, 0 = north, 8 = no press
+// Feature bit 0x80 is on when valid controller connected
+// Feature bit 0x40 is on when Sony-style controller detected
 typedef struct TU_ATTR_PACKED
 {
+    uint8_t hat;     // hat (0x0F) and feature (0xF0) bits
+    uint8_t sticks;  // left (0x0F) and right (0xF0) sticks as hat values
+    uint8_t button0; // buttons
+    uint8_t button1; // buttons
     uint8_t x;       // left analog-stick
     uint8_t y;       // left analog-stick
     uint8_t z;       // right analog-stick
     uint8_t rz;      // right analog-stick
     uint8_t rx;      // analog left trigger
     uint8_t ry;      // analog right trigger
-    uint8_t hat;     // DPad/hat, 0-7 clockwise, 0 = north, 8 = no press, 15 = offline
-    uint8_t button0; // buttons
-    uint8_t button1; // buttons
-    uint8_t button2; // buttons
 } pad_gamepad_report_t;
 
 #define PAD_PLAYER_LEN 4
@@ -65,9 +68,11 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
 
 static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
 {
-    // Clear the gamepad report
+
+    // Default empty gamepad report
     memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
-    gamepad_report->hat = 8;
+    gamepad_report->hat = 0x08;
+    gamepad_report->sticks = 0x88;
     gamepad_report->x = 127;
     gamepad_report->y = 127;
     gamepad_report->z = 127;
@@ -120,6 +125,12 @@ static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint
         gamepad_report->hat = (uint8_t)raw_hat;
     }
 
+    // Add feature bits to hat
+    if (desc->valid)
+        gamepad_report->hat |= 0x80;
+    if (desc->sony)
+        gamepad_report->hat |= 0x40;
+
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < PAD_MAX_BUTTONS && desc->button_offsets[i] != 0xFF; i++)
@@ -127,7 +138,8 @@ static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint
             buttons |= (1UL << i);
     gamepad_report->button0 = buttons & 0xFF;
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
-    gamepad_report->button2 = (buttons & 0xFF0000) >> 16;
+
+    // TODO normalize L2/R2 and stick hats
 }
 
 void pad_init(void)
@@ -148,8 +160,6 @@ static void pad_reset_xram(uint8_t player)
         return;
     pad_gamepad_report_t gamepad_report;
     pad_parse_report_to_gamepad(0, 0, 0, &gamepad_report); // get blank
-    if (pad_player_idx[player] == -1)
-        gamepad_report.hat = 0xF;
     memcpy(&xram[pad_xram + player * sizeof(pad_gamepad_report_t)],
            &gamepad_report,
            sizeof(pad_gamepad_report_t));
