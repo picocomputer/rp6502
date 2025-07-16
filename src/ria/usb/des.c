@@ -10,7 +10,7 @@
 #include "usb/xinput.h"
 #include <string.h>
 
-// #define DEBUG_RIA_USB_DES
+#define DEBUG_RIA_USB_DES
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
@@ -33,18 +33,32 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     .report_id = 0,    // Xbox One uses no report ID for input reports
     .x_offset = 6 * 8, // Byte 6 (left stick X) - 16-bit signed
     .x_size = 16,
+    .x_logical_min = -32768, // 16-bit signed range
+    .x_logical_max = 32767,
     .y_offset = 8 * 8, // Byte 8 (left stick Y) - 16-bit signed
     .y_size = 16,
+    .y_logical_min = -32768, // 16-bit signed range
+    .y_logical_max = 32767,
     .z_offset = 10 * 8, // Byte 10 (right stick X) - 16-bit signed
     .z_size = 16,
+    .z_logical_min = -32768, // 16-bit signed range
+    .z_logical_max = 32767,
     .rz_offset = 12 * 8, // Byte 12 (right stick Y) - 16-bit signed
     .rz_size = 16,
+    .rz_logical_min = -32768, // 16-bit signed range
+    .rz_logical_max = 32767,
     .rx_offset = 4 * 8, // Byte 4 (left trigger) - 16-bit (10-bit actual)
     .rx_size = 16,
+    .rx_logical_min = 0, // Triggers are unsigned 0-1023 (10-bit in 16-bit field)
+    .rx_logical_max = 1023,
     .ry_offset = 4 * 8 + 16, // Byte 6 (right trigger) - 16-bit (10-bit actual)
     .ry_size = 16,
+    .ry_logical_min = 0, // Triggers are unsigned 0-1023 (10-bit in 16-bit field)
+    .ry_logical_max = 1023,
     .hat_offset = 0, // Xbox One uses individual dpad buttons, not hat switch
     .hat_size = 0,
+    .hat_logical_min = 0,
+    .hat_logical_max = 0,
     .button_offsets = {
         // Xbox One GIP report button layout based on GP2040-CE XBOneDescriptors.h
         // Byte 2 contains A, B, X, Y buttons
@@ -73,18 +87,32 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
     .report_id = 1,
     .x_offset = 0 * 8, // Byte 0 (left stick X) - after report ID is stripped
     .x_size = 8,
+    .x_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .x_logical_max = 255,
     .y_offset = 1 * 8, // Byte 1 (left stick Y)
     .y_size = 8,
+    .y_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .y_logical_max = 255,
     .z_offset = 2 * 8, // Byte 2 (right stick X)
     .z_size = 8,
+    .z_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .z_logical_max = 255,
     .rz_offset = 3 * 8, // Byte 3 (right stick Y)
     .rz_size = 8,
+    .rz_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .rz_logical_max = 255,
     .rx_offset = 7 * 8, // Byte 7 (L2 trigger) - after report ID is stripped
     .rx_size = 8,
+    .rx_logical_min = 0, // DS4 triggers are 8-bit unsigned 0-255
+    .rx_logical_max = 255,
     .ry_offset = 8 * 8, // Byte 8 (R2 trigger)
     .ry_size = 8,
+    .ry_logical_min = 0, // DS4 triggers are 8-bit unsigned 0-255
+    .ry_logical_max = 255,
     .hat_offset = 4 * 8, // Byte 4, lower nibble (D-pad)
     .hat_size = 4,
+    .hat_logical_min = 0, // Hat values 0-7, 8=none
+    .hat_logical_max = 8,
     .button_offsets = {
         // DS4 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2, Share, Options, L3, R3, PS, Touchpad
         37, 38, 36, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
@@ -119,18 +147,32 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds5_descriptor = {
     .report_id = 1,
     .x_offset = 0 * 8, // Byte 0 (left stick X) - after report ID is stripped
     .x_size = 8,
+    .x_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .x_logical_max = 255,
     .y_offset = 1 * 8, // Byte 1 (left stick Y)
     .y_size = 8,
+    .y_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .y_logical_max = 255,
     .z_offset = 2 * 8, // Byte 2 (right stick X)
     .z_size = 8,
+    .z_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .z_logical_max = 255,
     .rz_offset = 3 * 8, // Byte 3 (right stick Y)
     .rz_size = 8,
+    .rz_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .rz_logical_max = 255,
     .rx_offset = 4 * 8, // Byte 4 (L2 trigger) - after report ID is stripped
     .rx_size = 8,
+    .rx_logical_min = 0, // DS5 triggers are 8-bit unsigned 0-255
+    .rx_logical_max = 255,
     .ry_offset = 5 * 8, // Byte 5 (R2 trigger)
     .ry_size = 8,
+    .ry_logical_min = 0, // DS5 triggers are 8-bit unsigned 0-255
+    .ry_logical_max = 255,
     .hat_offset = 7 * 8, // Byte 7, lower nibble (D-pad)
     .hat_size = 4,
+    .hat_logical_min = 0, // Hat values 0-7, 8=none
+    .hat_logical_max = 8,
     .button_offsets = {
         // DS5 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2, Create, Options, L3, R3, PS, Touchpad
         61, 62, 60, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
@@ -205,30 +247,44 @@ static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *
             case 0x30: // X axis (left stick X)
                 desc->x_offset = usage_item.bit_pos;
                 desc->x_size = usage_item.size;
+                desc->x_logical_min = usage_iterator.global_logical_minimum;
+                desc->x_logical_max = usage_iterator.global_logical_maximum;
                 break;
             case 0x31: // Y axis (left stick Y)
                 desc->y_offset = usage_item.bit_pos;
                 desc->y_size = usage_item.size;
+                desc->y_logical_min = usage_iterator.global_logical_minimum;
+                desc->y_logical_max = usage_iterator.global_logical_maximum;
                 break;
             case 0x32: // Z axis (right stick X)
                 desc->z_offset = usage_item.bit_pos;
                 desc->z_size = usage_item.size;
+                desc->z_logical_min = usage_iterator.global_logical_minimum;
+                desc->z_logical_max = usage_iterator.global_logical_maximum;
                 break;
             case 0x35: // Rz axis (right stick Y)
                 desc->rz_offset = usage_item.bit_pos;
                 desc->rz_size = usage_item.size;
+                desc->rz_logical_min = usage_iterator.global_logical_minimum;
+                desc->rz_logical_max = usage_iterator.global_logical_maximum;
                 break;
             case 0x33: // Rx axis (left trigger)
                 desc->rx_offset = usage_item.bit_pos;
                 desc->rx_size = usage_item.size;
+                desc->rx_logical_min = usage_iterator.global_logical_minimum;
+                desc->rx_logical_max = usage_iterator.global_logical_maximum;
                 break;
             case 0x34: // Ry axis (right trigger)
                 desc->ry_offset = usage_item.bit_pos;
                 desc->ry_size = usage_item.size;
+                desc->ry_logical_min = usage_iterator.global_logical_minimum;
+                desc->ry_logical_max = usage_iterator.global_logical_maximum;
                 break;
             case 0x39: // Hat switch (D-pad)
                 desc->hat_offset = usage_item.bit_pos;
                 desc->hat_size = usage_item.size;
+                desc->hat_logical_min = usage_iterator.global_logical_minimum;
+                desc->hat_logical_max = usage_iterator.global_logical_maximum;
                 break;
             }
         }

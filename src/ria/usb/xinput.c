@@ -143,9 +143,9 @@ int xinput_xbox_controller_type(uint8_t dev_addr)
 
         tusb_desc_interface_t const *desc_itf = (tusb_desc_interface_t const *)p_desc;
 
-        DBG("XInput: Interface %u - Class=0x%02X, Subclass=0x%02X, Protocol=0x%02X\n",
-            desc_itf->bInterfaceNumber, desc_itf->bInterfaceClass,
-            desc_itf->bInterfaceSubClass, desc_itf->bInterfaceProtocol);
+        // DBG("XInput: Interface %u - Class=0x%02X, Subclass=0x%02X, Protocol=0x%02X\n",
+        //     desc_itf->bInterfaceNumber, desc_itf->bInterfaceClass,
+        //     desc_itf->bInterfaceSubClass, desc_itf->bInterfaceProtocol);
 
         // Check for Xbox controller interface patterns
         if (desc_itf->bInterfaceClass == 0xFF) // Vendor Specific

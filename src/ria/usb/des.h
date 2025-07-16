@@ -21,18 +21,32 @@ typedef struct
     uint8_t report_id;
     uint16_t x_offset; // Left stick X
     uint8_t x_size;
+    int32_t x_logical_min; // Left stick X logical minimum
+    int32_t x_logical_max; // Left stick X logical maximum
     uint16_t y_offset; // Left stick Y
     uint8_t y_size;
+    int32_t y_logical_min; // Left stick Y logical minimum
+    int32_t y_logical_max; // Left stick Y logical maximum
     uint16_t z_offset; // Right stick X (Z axis)
     uint8_t z_size;
+    int32_t z_logical_min; // Right stick X logical minimum
+    int32_t z_logical_max; // Right stick X logical maximum
     uint16_t rz_offset; // Right stick Y (Rz axis)
     uint8_t rz_size;
+    int32_t rz_logical_min; // Right stick Y logical minimum
+    int32_t rz_logical_max; // Right stick Y logical maximum
     uint16_t rx_offset; // Left trigger (Rx axis)
     uint8_t rx_size;
+    int32_t rx_logical_min; // Left trigger logical minimum
+    int32_t rx_logical_max; // Left trigger logical maximum
     uint16_t ry_offset; // Right trigger (Ry axis)
     uint8_t ry_size;
+    int32_t ry_logical_min; // Right trigger logical minimum
+    int32_t ry_logical_max; // Right trigger logical maximum
     uint16_t hat_offset; // D-pad/hat
     uint8_t hat_size;
+    int32_t hat_logical_min; // D-pad/hat logical minimum
+    int32_t hat_logical_max; // D-pad/hat logical maximum
     // Button bit offsets, 0xFFFF = unused
     uint16_t button_offsets[PAD_MAX_BUTTONS];
 } pad_descriptor_t;

@@ -31,10 +31,10 @@ typedef struct TU_ATTR_PACKED
     uint8_t sticks;  // left (0x0F) and right (0xF0) sticks as hat values
     uint8_t button0; // buttons
     uint8_t button1; // buttons
-    uint8_t x;       // left analog-stick
-    uint8_t y;       // left analog-stick
-    uint8_t z;       // right analog-stick
-    uint8_t rz;      // right analog-stick
+    int8_t x;        // left analog-stick
+    int8_t y;        // left analog-stick
+    int8_t z;        // right analog-stick
+    int8_t rz;       // right analog-stick
     uint8_t rx;      // analog left trigger
     uint8_t ry;      // analog right trigger
 } pad_gamepad_report_t;
@@ -70,11 +70,117 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
     return value;
 }
 
-static uint8_t pad_encode_hat(uint8_t x_raw, uint8_t y_raw)
+static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    // Calculate offset from center (127)
-    int8_t x = x_raw - 127;
-    int8_t y = 127 - y_raw; // Invert Y so positive is up (north)
+    // Handle signed values by treating them as such
+    int32_t signed_value;
+    if (bit_size <= 8)
+    {
+        signed_value = (int8_t)raw_value;
+    }
+    else if (bit_size <= 16)
+    {
+        signed_value = (int16_t)raw_value;
+    }
+    else
+    {
+        signed_value = (int32_t)raw_value;
+    }
+
+    // If the value appears to be outside the expected range, extend sign
+    if (logical_min < 0 && bit_size < 32)
+    {
+        // Sign extend for negative logical minimum
+        uint32_t sign_bit = 1UL << (bit_size - 1);
+        if (raw_value & sign_bit)
+        {
+            signed_value = (int32_t)(raw_value | (~((1UL << bit_size) - 1)));
+        }
+        else
+        {
+            signed_value = (int32_t)raw_value;
+        }
+    }
+
+    // Clamp to logical range
+    if (signed_value < logical_min) signed_value = logical_min;
+    if (signed_value > logical_max) signed_value = logical_max;
+
+    // Scale to 0-255 range
+    int32_t range = logical_max - logical_min;
+    if (range == 0) return 127; // Avoid division by zero
+
+    int32_t normalized = signed_value - logical_min;
+    return (uint8_t)((normalized * 255) / range);
+}
+
+static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
+{
+    // Handle signed values by treating them as such
+    int32_t signed_value;
+    if (bit_size <= 8)
+    {
+        signed_value = (int8_t)raw_value;
+    }
+    else if (bit_size <= 16)
+    {
+        signed_value = (int16_t)raw_value;
+    }
+    else
+    {
+        signed_value = (int32_t)raw_value;
+    }
+
+    // If the value appears to be outside the expected range, extend sign
+    if (logical_min < 0 && bit_size < 32)
+    {
+        // Sign extend for negative logical minimum
+        uint32_t sign_bit = 1UL << (bit_size - 1);
+        if (raw_value & sign_bit)
+        {
+            signed_value = (int32_t)(raw_value | (~((1UL << bit_size) - 1)));
+        }
+        else
+        {
+            signed_value = (int32_t)raw_value;
+        }
+    }
+    else if (logical_min >= 0)
+    {
+        // For unsigned logical ranges (like 0-255), treat raw_value as unsigned
+        signed_value = (int32_t)raw_value;
+    }
+
+    // Clamp to logical range
+    if (signed_value < logical_min) signed_value = logical_min;
+    if (signed_value > logical_max) signed_value = logical_max;
+
+    // Scale to -128 to 127 range
+    int32_t range = logical_max - logical_min;
+    if (range == 0) return 0; // Avoid division by zero
+
+    // For unsigned logical ranges, map the center to 0
+    if (logical_min >= 0)
+    {
+        // Map logical range to -128 to 127, with center at 0
+        int32_t center = logical_min + range / 2;
+        int32_t offset = signed_value - center;
+        // Scale the offset to fit in -128 to 127 range
+        return (int8_t)((offset * 255) / range);
+    }
+    else
+    {
+        // For signed logical ranges, use standard scaling
+        int32_t normalized = signed_value - logical_min;
+        return (int8_t)((normalized * 255) / range - 128);
+    }
+}
+
+static uint8_t pad_encode_hat(int8_t x_raw, int8_t y_raw)
+{
+    // x_raw and y_raw are already centered at 0
+    int8_t x = x_raw;
+    int8_t y = -y_raw; // Invert Y so positive is up (north)
 
     // Check deadzone
     if ((x > -PAD_DEADZONE && x < PAD_DEADZONE) && (y > -PAD_DEADZONE && y < PAD_DEADZONE))
@@ -116,10 +222,10 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
     memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
     gamepad_report->hat = 0x08;
     gamepad_report->sticks = 0x88;
-    gamepad_report->x = 127;
-    gamepad_report->y = 127;
-    gamepad_report->z = 127;
-    gamepad_report->rz = 127;
+    gamepad_report->x = 0;
+    gamepad_report->y = 0;
+    gamepad_report->z = 0;
+    gamepad_report->rz = 0;
     if (report_len == 0)
         return;
 
@@ -135,13 +241,13 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         uint32_t raw_x = pad_extract_bits(report, report_len, desc->x_offset, desc->x_size);
         if (is_xbox_one && desc->x_size == 16)
         {
-            // Xbox One uses 16-bit signed values, convert to 8-bit range
+            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
             int16_t signed_x = (int16_t)raw_x;
-            gamepad_report->x = (uint8_t)((signed_x + 32768) >> 8);
+            gamepad_report->x = (int8_t)(signed_x >> 8);
         }
         else
         {
-            gamepad_report->x = (uint8_t)(raw_x >> (desc->x_size > 8 ? desc->x_size - 8 : 0));
+            gamepad_report->x = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
         }
     }
     if (desc->y_size > 0)
@@ -149,13 +255,13 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         uint32_t raw_y = pad_extract_bits(report, report_len, desc->y_offset, desc->y_size);
         if (is_xbox_one && desc->y_size == 16)
         {
-            // Xbox One uses 16-bit signed values, convert to 8-bit range
+            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
             int16_t signed_y = (int16_t)raw_y;
-            gamepad_report->y = (uint8_t)((signed_y + 32768) >> 8);
+            gamepad_report->y = (int8_t)(signed_y >> 8);
         }
         else
         {
-            gamepad_report->y = (uint8_t)(raw_y >> (desc->y_size > 8 ? desc->y_size - 8 : 0));
+            gamepad_report->y = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
         }
     }
     if (desc->z_size > 0)
@@ -163,13 +269,13 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         uint32_t raw_z = pad_extract_bits(report, report_len, desc->z_offset, desc->z_size);
         if (is_xbox_one && desc->z_size == 16)
         {
-            // Xbox One uses 16-bit signed values, convert to 8-bit range
+            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
             int16_t signed_z = (int16_t)raw_z;
-            gamepad_report->z = (uint8_t)((signed_z + 32768) >> 8);
+            gamepad_report->z = (int8_t)(signed_z >> 8);
         }
         else
         {
-            gamepad_report->z = (uint8_t)(raw_z >> (desc->z_size > 8 ? desc->z_size - 8 : 0));
+            gamepad_report->z = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
         }
     }
     if (desc->rz_size > 0)
@@ -177,13 +283,13 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         uint32_t raw_rz = pad_extract_bits(report, report_len, desc->rz_offset, desc->rz_size);
         if (is_xbox_one && desc->rz_size == 16)
         {
-            // Xbox One uses 16-bit signed values, convert to 8-bit range
+            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
             int16_t signed_rz = (int16_t)raw_rz;
-            gamepad_report->rz = (uint8_t)((signed_rz + 32768) >> 8);
+            gamepad_report->rz = (int8_t)(signed_rz >> 8);
         }
         else
         {
-            gamepad_report->rz = (uint8_t)(raw_rz >> (desc->rz_size > 8 ? desc->rz_size - 8 : 0));
+            gamepad_report->rz = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
         }
     }
 
@@ -198,7 +304,7 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         }
         else
         {
-            gamepad_report->rx = (uint8_t)(raw_rx >> (desc->rx_size > 8 ? desc->rx_size - 8 : 0));
+            gamepad_report->rx = pad_scale_analog(raw_rx, desc->rx_size, desc->rx_logical_min, desc->rx_logical_max);
         }
     }
     if (desc->ry_size > 0)
@@ -211,7 +317,7 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         }
         else
         {
-            gamepad_report->ry = (uint8_t)(raw_ry >> (desc->ry_size > 8 ? desc->ry_size - 8 : 0));
+            gamepad_report->ry = pad_scale_analog(raw_ry, desc->ry_size, desc->ry_logical_min, desc->ry_logical_max);
         }
     }
 
