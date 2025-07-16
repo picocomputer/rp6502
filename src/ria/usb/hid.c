@@ -9,6 +9,7 @@
 #include "usb/kbd.h"
 #include "usb/mou.h"
 #include "usb/pad.h"
+#include "usb/xinput.h"
 #include "pico/time.h"
 
 #define DEBUG_RIA_USB_HID
@@ -103,6 +104,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
         {
             DBG("HID gamepad: VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
+
+            // Normal HID gamepad (Xbox controllers are handled at device level by xinput module)
             pad_mount(idx, desc_report, desc_len, vendor_id, product_id);
             valid = pad_is_valid(idx);
         }

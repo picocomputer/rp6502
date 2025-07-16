@@ -38,6 +38,11 @@ void pad_umount(uint8_t idx);
 // Process HID gamepad report.
 void pad_report(uint8_t idx, uint8_t const *report, uint16_t len);
 
+// Xbox controller support (for XInput via vendor interface)
+void pad_mount_xbox_controller(uint8_t idx, uint16_t vendor_id, uint16_t product_id);
+void pad_umount_xbox_controller(uint8_t idx);
+void pad_report_xbox_controller(uint8_t idx, uint8_t const *report, uint16_t len);
+
 bool pad_is_valid(uint8_t idx);
 
 #endif /* _PAD_H_ */

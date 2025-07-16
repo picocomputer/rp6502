@@ -92,6 +92,7 @@ target_sources(rp6502_ria PRIVATE
     ria/usb/mou.c
     ria/usb/msc.c
     ria/usb/pad.c
+    ria/usb/xinput.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c

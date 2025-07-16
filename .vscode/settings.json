@@ -3,7 +3,7 @@
         "src/fatfs": true,
         "src/littlefs": true,
         "src/pico-extras": true,
-        "src/tinyusb": true,
+        // "src/tinyusb": true,
     },
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {

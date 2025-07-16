@@ -387,3 +387,106 @@ bool pad_is_valid(uint8_t idx)
 {
     return pad_descriptors[idx].valid;
 }
+
+void pad_mount_xbox_controller(uint8_t idx, uint16_t vendor_id, uint16_t product_id)
+{
+    if (idx >= CFG_TUH_HID)
+        return;
+
+    pad_descriptor_t *desc = &pad_descriptors[idx];
+
+    // Create a fake descriptor for Xbox One controller
+    // This sets up the parsing parameters for Xbox One GIP reports
+    memset(desc, 0, sizeof(pad_descriptor_t));
+
+    desc->valid = true;
+    desc->sony = false;
+    desc->report_id = 0; // Xbox One doesn't use report IDs in vendor mode
+
+    // Xbox One GIP report structure (after 4-byte header):
+    // Byte 0: D-pad buttons (individual bits, not hat)
+    // Byte 1: Menu/Guide buttons
+    // Byte 2: Face buttons (A, B, X, Y) + shoulder buttons
+    // Byte 3: Stick buttons (L3, R3)
+    // Bytes 4-5: Left trigger (16-bit)
+    // Bytes 6-7: Right trigger (16-bit)
+    // Bytes 8-9: Left stick X (16-bit signed)
+    // Bytes 10-11: Left stick Y (16-bit signed)
+    // Bytes 12-13: Right stick X (16-bit signed)
+    // Bytes 14-15: Right stick Y (16-bit signed)
+
+    // Set up analog stick parsing (16-bit signed values)
+    desc->x_offset = 8 * 8;   // Byte 8, bit 0
+    desc->x_size = 16;
+    desc->y_offset = 10 * 8;  // Byte 10, bit 0
+    desc->y_size = 16;
+    desc->z_offset = 12 * 8;  // Byte 12, bit 0
+    desc->z_size = 16;
+    desc->rz_offset = 14 * 8; // Byte 14, bit 0
+    desc->rz_size = 16;
+
+    // Set up trigger parsing (16-bit values, 10-bit precision)
+    desc->rx_offset = 4 * 8;  // Byte 4, bit 0 (left trigger)
+    desc->rx_size = 16;
+    desc->ry_offset = 6 * 8;  // Byte 6, bit 0 (right trigger)
+    desc->ry_size = 16;
+
+    // Xbox One sends D-pad as individual bits, not as hat
+    desc->hat_offset = 0;
+    desc->hat_size = 0;
+
+    // Set up button mappings for Xbox One controller
+    // Face buttons (A, B, X, Y) are in byte 2, bits 0-3
+    desc->button_offsets[0] = 2 * 8 + 0; // A button
+    desc->button_offsets[1] = 2 * 8 + 1; // B button
+    desc->button_offsets[2] = 2 * 8 + 2; // X button
+    desc->button_offsets[3] = 2 * 8 + 3; // Y button
+
+    // Shoulder buttons are in byte 2, bits 4-5
+    desc->button_offsets[4] = 2 * 8 + 4; // LB (left bumper)
+    desc->button_offsets[5] = 2 * 8 + 5; // RB (right bumper)
+
+    // Trigger buttons will be handled as analog in parsing code
+    desc->button_offsets[6] = 0xFFFF; // LT (will be set based on analog value)
+    desc->button_offsets[7] = 0xFFFF; // RT (will be set based on analog value)
+
+    // Start/Select equivalents are in byte 1
+    desc->button_offsets[8] = 1 * 8 + 2; // Menu button (Start)
+    desc->button_offsets[9] = 1 * 8 + 3; // View button (Select)
+
+    // Stick clicks are in byte 3
+    desc->button_offsets[10] = 3 * 8 + 0; // L3 (left stick click)
+    desc->button_offsets[11] = 3 * 8 + 1; // R3 (right stick click)
+
+    // Guide button is in byte 1, bit 0
+    desc->button_offsets[12] = 1 * 8 + 0; // Guide/Xbox button
+
+    // Mark remaining buttons as unused
+    for (int i = 13; i < PAD_MAX_BUTTONS; i++) {
+        desc->button_offsets[i] = 0xFFFF;
+    }
+
+    DBG("pad_mount_xbox_controller: Xbox controller mounted at idx %d\n", idx);
+
+    // Try to assign to an available player slot
+    for (int i = 0; i < PAD_PLAYER_LEN; i++) {
+        if (pad_player_idx[i] == -1) {
+            pad_player_idx[i] = idx;
+            pad_reset_xram(i);
+            DBG("pad_mount_xbox_controller: Assigned to player %d\n", i);
+            break;
+        }
+    }
+}
+
+void pad_umount_xbox_controller(uint8_t idx)
+{
+    DBG("pad_umount_xbox_controller: Unmounting Xbox controller at idx %d\n", idx);
+    pad_umount(idx);
+}
+
+void pad_report_xbox_controller(uint8_t idx, uint8_t const *report, uint16_t len)
+{
+    DBG("pad_report_xbox_controller: Received report from idx %d, len %d\n", idx, len);
+    pad_report(idx, report, len);
+}
