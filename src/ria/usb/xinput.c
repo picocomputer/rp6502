@@ -22,10 +22,11 @@
 #endif
 
 // Xbox One controller vendor/product IDs
-typedef struct {
+typedef struct
+{
     uint16_t vendor_id;
     uint16_t product_id;
-    const char* name;
+    const char *name;
 } xbox_controller_t;
 
 static const xbox_controller_t xbox_controllers[] = {
@@ -43,14 +44,15 @@ static const xbox_controller_t xbox_controllers[] = {
     {0x045E, 0x0B21, "Xbox Series X/S Controller (Bluetooth)"},
 
     // Third-party controllers
-    {0x0E6F, 0x0000, "PDP Xbox Controller"}, // Range match - any PDP controller
+    {0x0E6F, 0x0000, "PDP Xbox Controller"},    // Range match - any PDP controller
     {0x24C6, 0x0000, "PowerA Xbox Controller"}, // Range match - any PowerA controller
-    {0x0F0D, 0x0000, "Hori Xbox Controller"}, // Range match - any Hori controller
-    {0x1532, 0x0000, "Razer Xbox Controller"}, // Range match - any Razer controller
+    {0x0F0D, 0x0000, "Hori Xbox Controller"},   // Range match - any Hori controller
+    {0x1532, 0x0000, "Razer Xbox Controller"},  // Range match - any Razer controller
 };
 
 // Xbox controller tracking
-typedef struct {
+typedef struct
+{
     uint8_t dev_addr;
     uint16_t vendor_id;
     uint16_t product_id;
@@ -61,7 +63,7 @@ typedef struct {
     uint8_t ep_out;
 } xbox_device_t;
 
-static xbox_device_t xbox_devices[CFG_TUH_DEVICE_MAX];
+static xbox_device_t xbox_devices[PAD_PLAYER_LEN];
 
 void xinput_init(void)
 {
@@ -71,11 +73,14 @@ void xinput_init(void)
 
 bool xinput_is_xbox_controller(uint16_t vendor_id, uint16_t product_id)
 {
-    for (size_t i = 0; i < sizeof(xbox_controllers) / sizeof(xbox_controllers[0]); i++) {
-        if (xbox_controllers[i].vendor_id == vendor_id) {
+    for (size_t i = 0; i < sizeof(xbox_controllers) / sizeof(xbox_controllers[0]); i++)
+    {
+        if (xbox_controllers[i].vendor_id == vendor_id)
+        {
             // For third-party controllers, we use 0x0000 as wildcard for product_id
             if (xbox_controllers[i].product_id == 0x0000 ||
-                xbox_controllers[i].product_id == product_id) {
+                xbox_controllers[i].product_id == product_id)
+            {
                 return true;
             }
         }
@@ -83,12 +88,15 @@ bool xinput_is_xbox_controller(uint16_t vendor_id, uint16_t product_id)
     return false;
 }
 
-static const char* xinput_get_controller_name(uint16_t vendor_id, uint16_t product_id)
+static const char *xinput_get_controller_name(uint16_t vendor_id, uint16_t product_id)
 {
-    for (size_t i = 0; i < sizeof(xbox_controllers) / sizeof(xbox_controllers[0]); i++) {
-        if (xbox_controllers[i].vendor_id == vendor_id) {
+    for (size_t i = 0; i < sizeof(xbox_controllers) / sizeof(xbox_controllers[0]); i++)
+    {
+        if (xbox_controllers[i].vendor_id == vendor_id)
+        {
             if (xbox_controllers[i].product_id == 0x0000 ||
-                xbox_controllers[i].product_id == product_id) {
+                xbox_controllers[i].product_id == product_id)
+            {
                 return xbox_controllers[i].name;
             }
         }
@@ -98,8 +106,10 @@ static const char* xinput_get_controller_name(uint16_t vendor_id, uint16_t produ
 
 static int xinput_find_device_slot(uint8_t dev_addr)
 {
-    for (int i = 0; i < CFG_TUH_DEVICE_MAX; i++) {
-        if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr) {
+    for (int i = 0; i < CFG_TUH_DEVICE_MAX; i++)
+    {
+        if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)
+        {
             return i;
         }
     }
@@ -108,8 +118,10 @@ static int xinput_find_device_slot(uint8_t dev_addr)
 
 static int xinput_find_free_slot(void)
 {
-    for (int i = 0; i < CFG_TUH_DEVICE_MAX; i++) {
-        if (!xbox_devices[i].valid) {
+    for (int i = 0; i < CFG_TUH_DEVICE_MAX; i++)
+    {
+        if (!xbox_devices[i].valid)
+        {
             return i;
         }
     }
@@ -119,18 +131,21 @@ static int xinput_find_free_slot(void)
 void xinput_check_device(uint8_t dev_addr)
 {
     uint16_t vendor_id, product_id;
-    if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id)) {
+    if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
+    {
         return;
     }
 
     DBG("XInput: Checking device dev_addr=%d, VID=0x%04X, PID=0x%04X\n",
         dev_addr, vendor_id, product_id);
 
-    if (xinput_is_xbox_controller(vendor_id, product_id)) {
+    if (xinput_is_xbox_controller(vendor_id, product_id))
+    {
         DBG("XInput: Found Xbox controller: %s\n", xinput_get_controller_name(vendor_id, product_id));
 
         int slot = xinput_find_free_slot();
-        if (slot >= 0) {
+        if (slot >= 0)
+        {
             xbox_devices[slot].dev_addr = dev_addr;
             xbox_devices[slot].vendor_id = vendor_id;
             xbox_devices[slot].product_id = product_id;
@@ -138,10 +153,12 @@ void xinput_check_device(uint8_t dev_addr)
             xbox_devices[slot].is_xinput = true;
 
             // Create a gamepad descriptor for the pad module using slot index
-            pad_mount_xbox_controller( CFG_TUH_HID + slot, vendor_id, product_id);
+            pad_mount_xbox_controller(CFG_TUH_HID + slot, vendor_id, product_id);
 
             DBG("XInput: Xbox controller mounted in slot %d\n", slot);
-        } else {
+        }
+        else
+        {
             DBG("XInput: No free slots for Xbox controller\n");
         }
     }
@@ -150,11 +167,12 @@ void xinput_check_device(uint8_t dev_addr)
 void xinput_device_unmount(uint8_t dev_addr)
 {
     int slot = xinput_find_device_slot(dev_addr);
-    if (slot >= 0) {
+    if (slot >= 0)
+    {
         DBG("XInput: Unmounting Xbox controller from slot %d\n", slot);
 
         // Notify pad module using slot index
-        pad_umount_xbox_controller(CFG_TUH_HID+ slot);
+        pad_umount_xbox_controller(CFG_TUH_HID + slot);
 
         // Clear the slot
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));

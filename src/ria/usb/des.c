@@ -31,10 +31,10 @@
 static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor = {
     .valid = true,
     .sony = false,
-    .report_id = 0,  // Xbox One uses no report ID for input reports
-    .x_offset = 6 * 8,  // Byte 6 (left stick X) - 16-bit signed
+    .report_id = 0,    // Xbox One uses no report ID for input reports
+    .x_offset = 6 * 8, // Byte 6 (left stick X) - 16-bit signed
     .x_size = 16,
-    .y_offset = 8 * 8,  // Byte 8 (left stick Y) - 16-bit signed
+    .y_offset = 8 * 8, // Byte 8 (left stick Y) - 16-bit signed
     .y_size = 16,
     .z_offset = 10 * 8, // Byte 10 (right stick X) - 16-bit signed
     .z_size = 16,
@@ -44,31 +44,29 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     .rx_size = 16,
     .ry_offset = 4 * 8 + 16, // Byte 6 (right trigger) - 16-bit (10-bit actual)
     .ry_size = 16,
-    .hat_offset = 0,    // Xbox One uses individual dpad buttons, not hat switch
+    .hat_offset = 0, // Xbox One uses individual dpad buttons, not hat switch
     .hat_size = 0,
     .button_offsets = {
         // Xbox One GIP report button layout based on GP2040-CE XBOneDescriptors.h
         // Byte 2 contains A, B, X, Y buttons
-        2 * 8 + 0,  // A button (byte 2, bit 0) - B1 mapping
-        2 * 8 + 1,  // B button (byte 2, bit 1) - B2 mapping
-        2 * 8 + 2,  // X button (byte 2, bit 2) - B3 mapping
-        2 * 8 + 3,  // Y button (byte 2, bit 3) - B4 mapping
-        2 * 8 + 4,  // Left shoulder (byte 2, bit 4) - L1 mapping
-        2 * 8 + 5,  // Right shoulder (byte 2, bit 5) - R1 mapping
+        2 * 8 + 0, // A button (byte 2, bit 0) - B1 mapping
+        2 * 8 + 1, // B button (byte 2, bit 1) - B2 mapping
+        2 * 8 + 2, // X button (byte 2, bit 2) - B3 mapping
+        2 * 8 + 3, // Y button (byte 2, bit 3) - B4 mapping
+        2 * 8 + 4, // Left shoulder (byte 2, bit 4) - L1 mapping
+        2 * 8 + 5, // Right shoulder (byte 2, bit 5) - R1 mapping
         // L2/R2 are analog triggers, mapped through rx/ry
-        0xFFFF,     // L2 (analog trigger)
-        0xFFFF,     // R2 (analog trigger)
-        1 * 8 + 2,  // View/Back button (byte 1, bit 2) - S1 mapping
-        1 * 8 + 3,  // Menu/Start button (byte 1, bit 3) - S2 mapping
-        2 * 8 + 6,  // Left stick click (byte 2, bit 6) - L3 mapping
-        2 * 8 + 7,  // Right stick click (byte 2, bit 7) - R3 mapping
+        0xFFFF,    // L2 (analog trigger)
+        0xFFFF,    // R2 (analog trigger)
+        1 * 8 + 2, // View/Back button (byte 1, bit 2) - S1 mapping
+        1 * 8 + 3, // Menu/Start button (byte 1, bit 3) - S2 mapping
+        2 * 8 + 6, // Left stick click (byte 2, bit 6) - L3 mapping
+        2 * 8 + 7, // Right stick click (byte 2, bit 7) - R3 mapping
         // Guide button is handled separately via virtual keycode
-        0xFFFF,     // Guide (A1) - handled separately
-        0xFFFF,     // A2 - unused
-        0xFFFF,     // Extra buttons unused
-        0xFFFF
-    }
-};
+        0xFFFF, // Guide (A1) - handled separately
+        0xFFFF, // A2 - unused
+        0xFFFF, // Extra buttons unused
+        0xFFFF}};
 
 static void des_xbox_one_controller(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
 {

@@ -350,7 +350,7 @@ void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
     }
 }
 
-void pad_umount( uint8_t idx)
+void pad_umount(uint8_t idx)
 {
     // Find the descriptor by dev_addr and idx
     int player = pad_find_player_by_idx(idx);
@@ -362,7 +362,7 @@ void pad_umount( uint8_t idx)
     pad_reset_xram(player);
 }
 
-void pad_report( uint8_t idx, uint8_t const *report, uint16_t len)
+void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
 {
     int player = pad_find_player_by_idx(idx);
     if (player < 0)
@@ -397,7 +397,7 @@ bool pad_is_valid(uint8_t idx)
     return pad_find_player_by_idx(idx) >= 0;
 }
 
-void pad_mount_xbox_controller( uint8_t idx, uint16_t vendor_id, uint16_t product_id)
+void pad_mount_xbox_controller(uint8_t idx, uint16_t vendor_id, uint16_t product_id)
 {
     // Find an available descriptor slot
     pad_descriptor_t *desc = NULL;
@@ -431,14 +431,14 @@ void pad_mount_xbox_controller( uint8_t idx, uint16_t vendor_id, uint16_t produc
     DBG("pad_mount_xbox_controller: Xbox controller mounted with idx %d\n", idx);
 }
 
-void pad_umount_xbox_controller( uint8_t idx)
+void pad_umount_xbox_controller(uint8_t idx)
 {
-    DBG("pad_umount_xbox_controller: Unmounting Xbox controller with idx %d\n",  idx);
-    pad_umount( idx);
+    DBG("pad_umount_xbox_controller: Unmounting Xbox controller with idx %d\n", idx);
+    pad_umount(idx);
 }
 
-void pad_report_xbox_controller( uint8_t idx, uint8_t const *report, uint16_t len)
+void pad_report_xbox_controller(uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    DBG("pad_report_xbox_controller: Received report from idx %d, len %d\n",  idx, len);
-    pad_report( idx, report, len);
+    DBG("pad_report_xbox_controller: Received report from idx %d, len %d\n", idx, len);
+    pad_report(idx, report, len);
 }

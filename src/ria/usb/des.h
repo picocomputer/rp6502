@@ -17,7 +17,7 @@ typedef struct
 {
     bool valid;
     bool sony;
-    uint8_t idx;         // USB interface index
+    uint8_t idx; // HID is 0..CFG_TUH_HID, Xinput is CFG_TUH_HID..CFG_TUH_HID+PAD_PLAYER_LEN
     uint8_t report_id;
     uint16_t x_offset; // Left stick X
     uint8_t x_size;
