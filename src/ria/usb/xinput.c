@@ -138,7 +138,7 @@ void xinput_check_device(uint8_t dev_addr)
             xbox_devices[slot].is_xinput = true;
 
             // Create a gamepad descriptor for the pad module using slot index
-            pad_mount_xbox_controller(dev_addr, slot, vendor_id, product_id);
+            pad_mount_xbox_controller( CFG_TUH_HID + slot, vendor_id, product_id);
 
             DBG("XInput: Xbox controller mounted in slot %d\n", slot);
         } else {
@@ -154,7 +154,7 @@ void xinput_device_unmount(uint8_t dev_addr)
         DBG("XInput: Unmounting Xbox controller from slot %d\n", slot);
 
         // Notify pad module using slot index
-        pad_umount_xbox_controller(dev_addr, slot);
+        pad_umount_xbox_controller(CFG_TUH_HID+ slot);
 
         // Clear the slot
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));

@@ -42,12 +42,9 @@ typedef struct TU_ATTR_PACKED
 // Deadzone should be generous enough for moderately worn sticks.
 // Apps should use analog values if they want to tighten it up.
 #define PAD_DEADZONE 32
-#define PAD_PLAYER_LEN 4
 
-static uint8_t pad_player_dev_addr[PAD_PLAYER_LEN]; // Track dev_addr for each player
-static uint8_t pad_player_idx[PAD_PLAYER_LEN];      // Track idx for each player
 static uint16_t pad_xram;
-static pad_descriptor_t pad_descriptors[CFG_TUH_HID];
+static pad_descriptor_t pad_players[PAD_PLAYER_LEN];
 
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint8_t bit_offset, uint8_t bit_size)
 {
@@ -104,19 +101,15 @@ static uint8_t pad_encode_hat(uint8_t x_raw, uint8_t y_raw)
     /* y > 0 && x < 0 */ return 7; // North-West
 }
 
-static pad_descriptor_t *pad_find_descriptor_by_dev_addr_idx(uint8_t dev_addr, uint8_t idx)
+int pad_find_player_by_idx(uint8_t idx)
 {
-    for (int i = 0; i < CFG_TUH_HID; i++)
-    {
-        if (pad_descriptors[i].valid && pad_descriptors[i].dev_addr == dev_addr && pad_descriptors[i].idx == idx)
-        {
-            return &pad_descriptors[i];
-        }
-    }
-    return NULL;
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+        if (pad_players[i].idx == idx && pad_players[i].valid)
+            return i;
+    return -1;
 }
 
-static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
+static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
 {
 
     // Default empty gamepad report
@@ -130,12 +123,7 @@ static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t idx, uint8_t c
     if (report_len == 0)
         return;
 
-    pad_descriptor_t *desc = pad_find_descriptor_by_dev_addr_idx(dev_addr, idx);
-    if (!desc)
-    {
-        DBG("pad_parse_report_to_gamepad: No descriptor found for dev_addr %d, idx %d\n", dev_addr, idx);
-        return;
-    }
+    pad_descriptor_t *desc = &pad_players[player];
 
     // Check if this is an Xbox One controller (detect by report structure)
     bool is_xbox_one = (desc->hat_size == 0 && desc->x_size == 16 && desc->y_size == 16 &&
@@ -302,11 +290,6 @@ static void pad_parse_report_to_gamepad(uint8_t dev_addr, uint8_t idx, uint8_t c
 void pad_init(void)
 {
     pad_stop();
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
-    {
-        pad_player_dev_addr[i] = 0; // 0 means no device assigned
-        pad_player_idx[i] = 0;      // 0 means no idx assigned
-    }
 }
 
 void pad_stop(void)
@@ -319,7 +302,7 @@ static void pad_reset_xram(uint8_t player)
     if (pad_xram == 0xFFFF)
         return;
     pad_gamepad_report_t gamepad_report;
-    pad_parse_report_to_gamepad(0, 0, 0, 0, &gamepad_report); // get blank
+    pad_parse_report_to_gamepad(0, 0, 0, &gamepad_report); // get blank
     memcpy(&xram[pad_xram + player * (sizeof(pad_gamepad_report_t))],
            &gamepad_report, sizeof(pad_gamepad_report_t));
 }
@@ -334,16 +317,18 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-void pad_mount(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id)
 {
     // Find an available descriptor slot
     pad_descriptor_t *pad_desc = NULL;
-    for (int i = 0; i < CFG_TUH_HID; i++)
+    int player;
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
     {
-        if (!pad_descriptors[i].valid)
+        if (!pad_players[i].valid)
         {
-            pad_desc = &pad_descriptors[i];
+            pad_desc = &pad_players[i];
+            player = i;
             break;
         }
     }
@@ -360,50 +345,29 @@ void pad_mount(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16
     // Try to assign to an available player slot
     if (pad_desc->valid)
     {
-        pad_desc->dev_addr = dev_addr; // Store the device address
-        pad_desc->idx = idx;           // Store the interface index
-        for (int i = 0; i < PAD_PLAYER_LEN; i++)
-        {
-            if (pad_player_dev_addr[i] == 0) // 0 means no device assigned
-            {
-                pad_player_dev_addr[i] = dev_addr;
-                pad_player_idx[i] = idx;
-                pad_reset_xram(i); // TODO this should set connected bit too
-                break;
-            }
-        }
+        pad_desc->idx = idx;    // Store the interface index
+        pad_reset_xram(player); // TODO this should set connected bit too
     }
 }
 
-void pad_umount(uint8_t dev_addr, uint8_t idx)
+void pad_umount( uint8_t idx)
 {
     // Find the descriptor by dev_addr and idx
-    pad_descriptor_t *desc = pad_find_descriptor_by_dev_addr_idx(dev_addr, idx);
-    if (!desc)
-    {
-        DBG("pad_umount: No descriptor found for dev_addr %d, idx %d\n", dev_addr, idx);
+    int player = pad_find_player_by_idx(idx);
+    if (player < 0)
         return;
-    }
-
+    pad_descriptor_t *desc = &pad_players[player];
     desc->valid = false;
-    desc->dev_addr = 0;
     desc->idx = 0;
-
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
-        if (pad_player_dev_addr[i] == dev_addr && pad_player_idx[i] == idx)
-        {
-            pad_player_dev_addr[i] = 0; // Clear the assignment
-            pad_player_idx[i] = 0;      // Clear the idx assignment
-            pad_reset_xram(i);
-        }
+    pad_reset_xram(player);
 }
 
-void pad_report(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
+void pad_report( uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    pad_descriptor_t *desc = pad_find_descriptor_by_dev_addr_idx(dev_addr, idx);
-
-    if (!desc || !desc->valid)
+    int player = pad_find_player_by_idx(idx);
+    if (player < 0)
         return;
+    pad_descriptor_t *desc = &pad_players[player];
 
     // Skip report ID check if no report ID is expected, or validate if one is expected
     const uint8_t *report_data = report;
@@ -419,45 +383,29 @@ void pad_report(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t l
         report_data_len = len - 1;
     }
 
-    int player = -1;
-
-    // Check if this device is assigned to a player
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+    if (pad_xram != 0xFFFF)
     {
-        if (pad_player_dev_addr[i] == dev_addr && pad_player_idx[i] == idx)
-        {
-            player = i;
-            break;
-        }
-    }
-
-    if (player != -1)
-    {
-        if (pad_xram != 0xFFFF)
-        {
-            pad_gamepad_report_t gamepad_report;
-            pad_parse_report_to_gamepad(dev_addr, idx, report_data, report_data_len, &gamepad_report);
-            memcpy(&xram[pad_xram + player * (sizeof(pad_gamepad_report_t))],
-                   &gamepad_report, sizeof(pad_gamepad_report_t));
-        }
+        pad_gamepad_report_t gamepad_report;
+        pad_parse_report_to_gamepad(player, report_data, report_data_len, &gamepad_report);
+        memcpy(&xram[pad_xram + player * (sizeof(pad_gamepad_report_t))],
+               &gamepad_report, sizeof(pad_gamepad_report_t));
     }
 }
 
-bool pad_is_valid(uint8_t dev_addr, uint8_t idx)
+bool pad_is_valid(uint8_t idx)
 {
-    pad_descriptor_t *desc = pad_find_descriptor_by_dev_addr_idx(dev_addr, idx);
-    return desc != NULL && desc->valid;
+    return pad_find_player_by_idx(idx) >= 0;
 }
 
-void pad_mount_xbox_controller(uint8_t dev_addr, uint8_t idx, uint16_t vendor_id, uint16_t product_id)
+void pad_mount_xbox_controller( uint8_t idx, uint16_t vendor_id, uint16_t product_id)
 {
     // Find an available descriptor slot
     pad_descriptor_t *desc = NULL;
-    for (int i = 0; i < CFG_TUH_HID; i++)
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
     {
-        if (!pad_descriptors[i].valid)
+        if (!pad_players[i].valid)
         {
-            desc = &pad_descriptors[i];
+            desc = &pad_players[i];
             break;
         }
     }
@@ -468,104 +416,29 @@ void pad_mount_xbox_controller(uint8_t dev_addr, uint8_t idx, uint16_t vendor_id
         return;
     }
 
-    // Create a fake descriptor for Xbox One controller
-    // This sets up the parsing parameters for Xbox One GIP reports
-    memset(desc, 0, sizeof(pad_descriptor_t));
+    // Use des.c to build the descriptor for Xbox controllers
+    // Pass NULL for desc_report since Xbox controllers use pre-defined descriptors
+    des_report_descriptor(desc, NULL, 0, vendor_id, product_id);
 
-    desc->valid = true;
-    desc->dev_addr = dev_addr; // Store the device address
-    desc->idx = idx;           // Store the interface index
-    desc->sony = false;
-    desc->report_id = 0; // Xbox One doesn't use report IDs in vendor mode
-
-    // Xbox One GIP report structure (after 4-byte header):
-    // Byte 0: D-pad buttons (individual bits, not hat)
-    // Byte 1: Menu/Guide buttons
-    // Byte 2: Face buttons (A, B, X, Y) + shoulder buttons
-    // Byte 3: Stick buttons (L3, R3)
-    // Bytes 4-5: Left trigger (16-bit)
-    // Bytes 6-7: Right trigger (16-bit)
-    // Bytes 8-9: Left stick X (16-bit signed)
-    // Bytes 10-11: Left stick Y (16-bit signed)
-    // Bytes 12-13: Right stick X (16-bit signed)
-    // Bytes 14-15: Right stick Y (16-bit signed)
-
-    // Set up analog stick parsing (16-bit signed values)
-    desc->x_offset = 8 * 8; // Byte 8, bit 0
-    desc->x_size = 16;
-    desc->y_offset = 10 * 8; // Byte 10, bit 0
-    desc->y_size = 16;
-    desc->z_offset = 12 * 8; // Byte 12, bit 0
-    desc->z_size = 16;
-    desc->rz_offset = 14 * 8; // Byte 14, bit 0
-    desc->rz_size = 16;
-
-    // Set up trigger parsing (16-bit values, 10-bit precision)
-    desc->rx_offset = 4 * 8; // Byte 4, bit 0 (left trigger)
-    desc->rx_size = 16;
-    desc->ry_offset = 6 * 8; // Byte 6, bit 0 (right trigger)
-    desc->ry_size = 16;
-
-    // Xbox One sends D-pad as individual bits, not as hat
-    desc->hat_offset = 0;
-    desc->hat_size = 0;
-
-    // Set up button mappings for Xbox One controller
-    // Face buttons (A, B, X, Y) are in byte 2, bits 0-3
-    desc->button_offsets[0] = 2 * 8 + 0; // A button
-    desc->button_offsets[1] = 2 * 8 + 1; // B button
-    desc->button_offsets[2] = 2 * 8 + 2; // X button
-    desc->button_offsets[3] = 2 * 8 + 3; // Y button
-
-    // Shoulder buttons are in byte 2, bits 4-5
-    desc->button_offsets[4] = 2 * 8 + 4; // LB (left bumper)
-    desc->button_offsets[5] = 2 * 8 + 5; // RB (right bumper)
-
-    // Trigger buttons will be handled as analog in parsing code
-    desc->button_offsets[6] = 0xFFFF; // LT (will be set based on analog value)
-    desc->button_offsets[7] = 0xFFFF; // RT (will be set based on analog value)
-
-    // Start/Select equivalents are in byte 1
-    desc->button_offsets[8] = 1 * 8 + 2; // Menu button (Start)
-    desc->button_offsets[9] = 1 * 8 + 3; // View button (Select)
-
-    // Stick clicks are in byte 3
-    desc->button_offsets[10] = 3 * 8 + 0; // L3 (left stick click)
-    desc->button_offsets[11] = 3 * 8 + 1; // R3 (right stick click)
-
-    // Guide button is in byte 1, bit 0
-    desc->button_offsets[12] = 1 * 8 + 0; // Guide/Xbox button
-
-    // Mark remaining buttons as unused
-    for (int i = 13; i < PAD_MAX_BUTTONS; i++)
+    if (!desc->valid)
     {
-        desc->button_offsets[i] = 0xFFFF;
+        DBG("pad_mount_xbox_controller: Failed to create descriptor for VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
+        return;
     }
 
-    DBG("pad_mount_xbox_controller: Xbox controller mounted with dev_addr %d\n", dev_addr);
-
-    // Try to assign to an available player slot
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
-    {
-        if (pad_player_dev_addr[i] == 0)
-        { // 0 means unassigned
-            pad_player_dev_addr[i] = dev_addr;
-            pad_player_idx[i] = idx;
-            pad_reset_xram(i);
-            DBG("pad_mount_xbox_controller: Assigned to player %d\n", i);
-            break;
-        }
-    }
+    // Set device-specific information
+    desc->idx = idx;
+    DBG("pad_mount_xbox_controller: Xbox controller mounted with idx %d\n", idx);
 }
 
-void pad_umount_xbox_controller(uint8_t dev_addr, uint8_t idx)
+void pad_umount_xbox_controller( uint8_t idx)
 {
-    DBG("pad_umount_xbox_controller: Unmounting Xbox controller with dev_addr %d, idx %d\n", dev_addr, idx);
-    pad_umount(dev_addr, idx);
+    DBG("pad_umount_xbox_controller: Unmounting Xbox controller with idx %d\n",  idx);
+    pad_umount( idx);
 }
 
-void pad_report_xbox_controller(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
+void pad_report_xbox_controller( uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    DBG("pad_report_xbox_controller: Received report from dev_addr %d, idx %d, len %d\n", dev_addr, idx, len);
-    pad_report(dev_addr, idx, report, len);
+    DBG("pad_report_xbox_controller: Received report from idx %d, len %d\n",  idx, len);
+    pad_report( idx, report, len);
 }

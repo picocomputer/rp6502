@@ -39,7 +39,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
         mou_report((hid_mouse_report_t const *)report);
         break;
     case HID_ITF_PROTOCOL_NONE:
-        pad_report(dev_addr, idx, report, len);
+        pad_report(idx, report, len);
         break;
     }
 
@@ -66,7 +66,7 @@ void hid_print_status(void)
                 count_mouse++;
                 break;
             case HID_ITF_PROTOCOL_NONE:
-                if (pad_is_valid(dev_addr, idx))
+                if (pad_is_valid(idx))
                     count_gamepad++;
                 break;
             }
@@ -104,8 +104,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
         {
             // Normal HID gamepad (Xbox controllers are handled at device level by xinput module)
-            pad_mount(dev_addr, idx, desc_report, desc_len, vendor_id, product_id);
-            valid = pad_is_valid(dev_addr, idx);
+            pad_mount(idx, desc_report, desc_len, vendor_id, product_id);
+            valid = pad_is_valid(idx);
             DBG("HID gamepad: VID=0x%04X, PID=0x%04X, valid=%d\n", vendor_id, product_id, valid);
         }
         else
@@ -120,6 +120,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
+    (void)dev_addr;
     hid_dev_addr[idx] = 0;
-    pad_umount(dev_addr, idx);
+    pad_umount(idx);
 }

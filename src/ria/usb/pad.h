@@ -19,6 +19,8 @@
  * - Third-party Xbox One compatible controllers (PDP, PowerA, Hori, Razer)
  */
 
+ #define PAD_PLAYER_LEN 4
+
 /* Kernel events
  */
 
@@ -29,20 +31,20 @@ void pad_stop(void);
 bool pad_xreg(uint16_t word);
 
 // Parse HID report descriptor for gamepad.
-void pad_mount(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
-void pad_umount(uint8_t dev_addr, uint8_t idx);
+void pad_umount( uint8_t idx);
 
 // Process HID gamepad report.
-void pad_report(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len);
+void pad_report( uint8_t idx, uint8_t const *report, uint16_t len);
 
 // Xbox controller support (for XInput via vendor interface)
-void pad_mount_xbox_controller(uint8_t dev_addr, uint8_t idx, uint16_t vendor_id, uint16_t product_id);
-void pad_umount_xbox_controller(uint8_t dev_addr, uint8_t idx);
-void pad_report_xbox_controller(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len);
+void pad_mount_xbox_controller( uint8_t idx, uint16_t vendor_id, uint16_t product_id);
+void pad_umount_xbox_controller( uint8_t idx);
+void pad_report_xbox_controller( uint8_t idx, uint8_t const *report, uint16_t len);
 
-bool pad_is_valid(uint8_t dev_addr, uint8_t idx);
+bool pad_is_valid(uint8_t idx);
 
 #endif /* _PAD_H_ */
