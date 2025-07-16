@@ -11,6 +11,8 @@
 #include "usb/pad.h"
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_HID
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_HID)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);

@@ -10,6 +10,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Gamepad USB HID support with Xbox One XInput protocol
+ *
+ * Supports:
+ * - Generic HID gamepads
+ * - Sony DualShock 4 and DualSense controllers
+ * - Xbox One and Xbox Series X/S controllers using XInput protocol
+ * - Third-party Xbox One compatible controllers (PDP, PowerA, Hori, Razer)
+ */
+
 /* Kernel events
  */
 

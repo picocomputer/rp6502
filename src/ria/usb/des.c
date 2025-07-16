@@ -9,6 +9,8 @@
 #include "btstack.h"
 #include <string.h>
 
+#define DEBUG_RIA_USB_DES
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
@@ -17,6 +19,138 @@
     {            \
     }
 #endif
+
+// Xbox One XInput controller descriptors
+// Based on Xbox One GameInput Protocol (GIP) as implemented in GP2040-CE
+// Xbox One controllers use a specific report structure:
+// - No report ID for input reports
+// - 16-bit signed analog stick values
+// - 16-bit trigger values (10-bit actual precision)
+// - D-pad as individual button bits (not hat switch)
+// - GIP header followed by button/analog data
+static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor = {
+    .valid = true,
+    .sony = false,
+    .report_id = 0,  // Xbox One uses no report ID for input reports
+    .x_offset = 6 * 8,  // Byte 6 (left stick X) - 16-bit signed
+    .x_size = 16,
+    .y_offset = 8 * 8,  // Byte 8 (left stick Y) - 16-bit signed
+    .y_size = 16,
+    .z_offset = 10 * 8, // Byte 10 (right stick X) - 16-bit signed
+    .z_size = 16,
+    .rz_offset = 12 * 8, // Byte 12 (right stick Y) - 16-bit signed
+    .rz_size = 16,
+    .rx_offset = 4 * 8, // Byte 4 (left trigger) - 16-bit (10-bit actual)
+    .rx_size = 16,
+    .ry_offset = 4 * 8 + 16, // Byte 6 (right trigger) - 16-bit (10-bit actual)
+    .ry_size = 16,
+    .hat_offset = 0,    // Xbox One uses individual dpad buttons, not hat switch
+    .hat_size = 0,
+    .button_offsets = {
+        // Xbox One GIP report button layout based on GP2040-CE XBOneDescriptors.h
+        // Byte 2 contains A, B, X, Y buttons
+        2 * 8 + 0,  // A button (byte 2, bit 0) - B1 mapping
+        2 * 8 + 1,  // B button (byte 2, bit 1) - B2 mapping
+        2 * 8 + 2,  // X button (byte 2, bit 2) - B3 mapping
+        2 * 8 + 3,  // Y button (byte 2, bit 3) - B4 mapping
+        2 * 8 + 4,  // Left shoulder (byte 2, bit 4) - L1 mapping
+        2 * 8 + 5,  // Right shoulder (byte 2, bit 5) - R1 mapping
+        // L2/R2 are analog triggers, mapped through rx/ry
+        0xFFFF,     // L2 (analog trigger)
+        0xFFFF,     // R2 (analog trigger)
+        1 * 8 + 2,  // View/Back button (byte 1, bit 2) - S1 mapping
+        1 * 8 + 3,  // Menu/Start button (byte 1, bit 3) - S2 mapping
+        2 * 8 + 6,  // Left stick click (byte 2, bit 6) - L3 mapping
+        2 * 8 + 7,  // Right stick click (byte 2, bit 7) - R3 mapping
+        // Guide button is handled separately via virtual keycode
+        0xFFFF,     // Guide (A1) - handled separately
+        0xFFFF,     // A2 - unused
+        0xFFFF,     // Extra buttons unused
+        0xFFFF
+    }
+};
+
+static void des_xbox_one_controller(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+{
+    if (vendor_id == 0x045E) // Microsoft
+    {
+        switch (product_id)
+        {
+        case 0x02D1: // Xbox One Controller
+        case 0x02DD: // Xbox One Controller (Firmware 2015)
+        case 0x02E3: // Xbox One Elite Controller
+        case 0x02EA: // Xbox One S Controller
+        case 0x02FD: // Xbox One S Controller (Bluetooth)
+        case 0x0B00: // Xbox One Elite Controller Series 2
+        case 0x0B05: // Xbox One Elite Controller Series 2 (Bluetooth)
+        case 0x0B12: // Xbox Series X/S Controller
+        case 0x0B13: // Xbox Series X/S Controller (Bluetooth)
+        case 0x0B20: // Xbox Series X/S Controller (new firmware)
+        case 0x0B21: // Xbox Series X/S Controller (newer firmware)
+            *desc = xbox_one_descriptor;
+            DBG("Detected Xbox One controller (PID: 0x%04X)\n", product_id);
+            break;
+        }
+    }
+    // Third-party Xbox One compatible controllers
+    if (vendor_id == 0x0E6F) // PDP (Performance Designed Products)
+    {
+        switch (product_id)
+        {
+        case 0x0139: // PDP Xbox One Afterglow
+        case 0x013A: // PDP Xbox One Rock Candy
+        case 0x0146: // PDP Xbox One Rock Candy
+        case 0x0147: // PDP Xbox One Afterglow
+        case 0x015C: // PDP Xbox One Afterglow
+        case 0x015D: // PDP Xbox One Rock Candy
+        case 0x02A4: // PDP Xbox One Wired Controller
+        case 0x02A6: // PDP Xbox One Controller
+            *desc = xbox_one_descriptor;
+            DBG("Detected PDP Xbox One controller (PID: 0x%04X)\n", product_id);
+            break;
+        }
+    }
+    if (vendor_id == 0x24C6) // PowerA
+    {
+        switch (product_id)
+        {
+        case 0x541A: // PowerA Xbox One Mini Pro Ex
+        case 0x542A: // PowerA Xbox One Pro Ex
+        case 0x543A: // PowerA Xbox One Mini Pro Ex
+        case 0x561A: // PowerA FUSION Pro Controller
+        case 0x581A: // PowerA FUSION Pro Controller
+        case 0x591A: // PowerA FUSION Pro Controller
+        case 0x791A: // PowerA FUSION Pro Controller for Xbox Series X|S
+            *desc = xbox_one_descriptor;
+            DBG("Detected PowerA Xbox One controller (PID: 0x%04X)\n", product_id);
+            break;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori
+    {
+        switch (product_id)
+        {
+        case 0x0067: // Horipad for Xbox One
+        case 0x0078: // Hori Real Arcade Pro V Kai Xbox One
+        case 0x00C5: // Hori Fighting Commander for Xbox One
+            *desc = xbox_one_descriptor;
+            DBG("Detected Hori Xbox One controller (PID: 0x%04X)\n", product_id);
+            break;
+        }
+    }
+    if (vendor_id == 0x1532) // Razer
+    {
+        switch (product_id)
+        {
+        case 0x0A03: // Razer Wildcat for Xbox One
+        case 0x0A14: // Razer Wolverine Ultimate for Xbox One
+        case 0x0A15: // Razer Wolverine Tournament Edition
+            *desc = xbox_one_descriptor;
+            DBG("Detected Razer Xbox One controller (PID: 0x%04X)\n", product_id);
+            break;
+        }
+    }
+}
 
 static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
     .valid = true,
@@ -204,6 +338,14 @@ void des_report_descriptor(pad_descriptor_t *desc,
 {
     DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
     desc->valid = false;
+
+    // Xbox One controllers use XInput protocol
+    if (!desc->valid)
+    {
+        des_xbox_one_controller(desc, vendor_id, product_id);
+        if (desc->valid)
+            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
+    }
 
     // Sony DualShock 4 controllers don't have a descriptor
     if (!desc->valid)
