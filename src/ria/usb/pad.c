@@ -37,6 +37,9 @@ typedef struct TU_ATTR_PACKED
     uint8_t ry;      // analog right trigger
 } pad_gamepad_report_t;
 
+// Deadzone should be generous enough for moderately worn sticks.
+// Apps should use analog values if they want to tighten it up.
+#define PAD_DEADZONE 32
 #define PAD_PLAYER_LEN 4
 
 static int8_t pad_player_idx[PAD_PLAYER_LEN];
@@ -74,7 +77,7 @@ static uint8_t pad_encode_hat(uint8_t x_raw, uint8_t y_raw)
     int8_t y = 127 - y_raw; // Invert Y so positive is up (north)
 
     // Check deadzone
-    if ((x > -32 && x < 32) && (y > -32 && y < 32))
+    if ((x > -PAD_DEADZONE && x < PAD_DEADZONE) && (y > -PAD_DEADZONE && y < PAD_DEADZONE))
         return 8; // No direction
 
     // Determine direction based on octant
@@ -176,7 +179,17 @@ static void pad_parse_report_to_gamepad(uint8_t idx, uint8_t const *report, uint
     uint8_t hat_r = pad_encode_hat(gamepad_report->z, gamepad_report->rz);
     gamepad_report->sticks = hat_l | (hat_r << 4);
 
-    // TODO normalize L2/R2
+    // If L2/R2 buttons pressed without any analog movement
+    if ((buttons & (1 << 6)) && (gamepad_report->rx == 0))
+        gamepad_report->rx = 255;
+    if ((buttons & (1 << 7)) && (gamepad_report->ry == 0))
+        gamepad_report->ry = 255;
+
+    // If L2/R2 analog movement ensure button press
+    if (gamepad_report->rx > PAD_DEADZONE)
+        gamepad_report->button0 |= (1 << 6); // L2
+    if (gamepad_report->ry > PAD_DEADZONE)
+        gamepad_report->button0 |= (1 << 7); // R2
 }
 
 void pad_init(void)
