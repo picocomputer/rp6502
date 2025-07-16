@@ -21,4 +21,6 @@
 
 void xinput_init(void);
 
+int xinput_xbox_controller_type(uint8_t dev_addr);
+
 #endif /* _XINPUT_H_ */

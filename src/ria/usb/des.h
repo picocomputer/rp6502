@@ -48,6 +48,6 @@ typedef struct
  */
 void des_report_descriptor(pad_descriptor_t *desc,
                            uint8_t const *desc_report, uint16_t desc_len,
-                           uint16_t vendor_id, uint16_t product_id);
+                           uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id);
 
 #endif // _DES_H_

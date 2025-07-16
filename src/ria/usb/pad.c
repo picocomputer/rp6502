@@ -318,7 +318,7 @@ bool pad_xreg(uint16_t word)
 }
 
 void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
-               uint16_t vendor_id, uint16_t product_id)
+               uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {
     // Find an available descriptor slot
     pad_descriptor_t *pad_desc = NULL;
@@ -340,7 +340,7 @@ void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
     }
 
     des_report_descriptor(pad_desc, desc_report, desc_len,
-                          vendor_id, product_id);
+                          dev_addr, vendor_id, product_id);
 
     // Try to assign to an available player slot
     if (pad_desc->valid)
@@ -395,46 +395,6 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
 bool pad_is_valid(uint8_t idx)
 {
     return pad_find_player_by_idx(idx) >= 0;
-}
-
-void pad_mount_xbox_controller(uint8_t idx, uint16_t vendor_id, uint16_t product_id)
-{
-    // Find an available descriptor slot
-    pad_descriptor_t *desc = NULL;
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
-    {
-        if (!pad_players[i].valid)
-        {
-            desc = &pad_players[i];
-            break;
-        }
-    }
-
-    if (!desc)
-    {
-        DBG("pad_mount_xbox_controller: No available descriptor slots\n");
-        return;
-    }
-
-    // Use des.c to build the descriptor for Xbox controllers
-    // Pass NULL for desc_report since Xbox controllers use pre-defined descriptors
-    des_report_descriptor(desc, NULL, 0, vendor_id, product_id);
-
-    if (!desc->valid)
-    {
-        DBG("pad_mount_xbox_controller: Failed to create descriptor for VID=0x%04X, PID=0x%04X\n", vendor_id, product_id);
-        return;
-    }
-
-    // Set device-specific information
-    desc->idx = idx;
-    DBG("pad_mount_xbox_controller: Xbox controller mounted with idx %d\n", idx);
-}
-
-void pad_umount_xbox_controller(uint8_t idx)
-{
-    DBG("pad_umount_xbox_controller: Unmounting Xbox controller with idx %d\n", idx);
-    pad_umount(idx);
 }
 
 void pad_report_xbox_controller(uint8_t idx, uint8_t const *report, uint16_t len)
