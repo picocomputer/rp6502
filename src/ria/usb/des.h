@@ -17,6 +17,8 @@ typedef struct
 {
     bool valid;
     bool sony;
+    uint8_t dev_addr;    // USB device address
+    uint8_t idx;         // USB interface index
     uint8_t report_id;
     uint16_t x_offset; // Left stick X
     uint8_t x_size;

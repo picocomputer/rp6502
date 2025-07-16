@@ -145,7 +145,7 @@ void xinput_check_device(uint8_t dev_addr)
             next_hid_slot = (next_hid_slot + 1) % CFG_TUH_HID;
 
             // Create a gamepad descriptor for the pad module
-            pad_mount_xbox_controller(xbox_devices[slot].assigned_hid_slot, vendor_id, product_id);
+            pad_mount_xbox_controller(dev_addr, xbox_devices[slot].assigned_hid_slot, vendor_id, product_id);
 
             DBG("XInput: Xbox controller mounted in slot %d, assigned HID slot %d\n",
                 slot, xbox_devices[slot].assigned_hid_slot);
@@ -162,7 +162,7 @@ void xinput_device_unmount(uint8_t dev_addr)
         DBG("XInput: Unmounting Xbox controller from slot %d\n", slot);
 
         // Notify pad module
-        pad_umount_xbox_controller(xbox_devices[slot].assigned_hid_slot);
+        pad_umount_xbox_controller(dev_addr, xbox_devices[slot].assigned_hid_slot);
 
         // Clear the slot
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
@@ -172,12 +172,14 @@ void xinput_device_unmount(uint8_t dev_addr)
 // TinyUSB device-level callbacks
 void tuh_mount_cb(uint8_t dev_addr)
 {
+    return;
     DBG("XInput: Device mounted at address %d\n", dev_addr);
     xinput_check_device(dev_addr);
 }
 
 void tuh_umount_cb(uint8_t dev_addr)
 {
+    return;
     DBG("XInput: Device unmounted at address %d\n", dev_addr);
     xinput_device_unmount(dev_addr);
 }

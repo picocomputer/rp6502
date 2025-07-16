@@ -9,7 +9,7 @@
 #include "btstack.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_DES
+// #define DEBUG_RIA_USB_DES
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
