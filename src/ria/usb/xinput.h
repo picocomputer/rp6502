@@ -21,7 +21,4 @@
 
 void xinput_init(void);
 
-// Check if device is a known Xbox controller
-bool xinput_is_xbox_controller(uint16_t vendor_id, uint16_t product_id);
-
 #endif /* _XINPUT_H_ */
