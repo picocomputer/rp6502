@@ -59,16 +59,13 @@ typedef struct {
     uint8_t interface_num;
     uint8_t ep_in;
     uint8_t ep_out;
-    uint8_t assigned_hid_slot; // Which HID slot we're using for pad module
 } xbox_device_t;
 
 static xbox_device_t xbox_devices[CFG_TUH_DEVICE_MAX];
-static uint8_t next_hid_slot = 0; // For assigning fake HID slots to Xbox controllers
 
 void xinput_init(void)
 {
     memset(xbox_devices, 0, sizeof(xbox_devices));
-    next_hid_slot = 0;
     DBG("XInput: Initialized (device-level detection)\n");
 }
 
@@ -140,15 +137,10 @@ void xinput_check_device(uint8_t dev_addr)
             xbox_devices[slot].valid = true;
             xbox_devices[slot].is_xinput = true;
 
-            // Assign a fake HID slot for the pad module
-            xbox_devices[slot].assigned_hid_slot = next_hid_slot;
-            next_hid_slot = (next_hid_slot + 1) % CFG_TUH_HID;
+            // Create a gamepad descriptor for the pad module using slot index
+            pad_mount_xbox_controller(dev_addr, slot, vendor_id, product_id);
 
-            // Create a gamepad descriptor for the pad module
-            pad_mount_xbox_controller(dev_addr, xbox_devices[slot].assigned_hid_slot, vendor_id, product_id);
-
-            DBG("XInput: Xbox controller mounted in slot %d, assigned HID slot %d\n",
-                slot, xbox_devices[slot].assigned_hid_slot);
+            DBG("XInput: Xbox controller mounted in slot %d\n", slot);
         } else {
             DBG("XInput: No free slots for Xbox controller\n");
         }
@@ -161,8 +153,8 @@ void xinput_device_unmount(uint8_t dev_addr)
     if (slot >= 0) {
         DBG("XInput: Unmounting Xbox controller from slot %d\n", slot);
 
-        // Notify pad module
-        pad_umount_xbox_controller(dev_addr, xbox_devices[slot].assigned_hid_slot);
+        // Notify pad module using slot index
+        pad_umount_xbox_controller(dev_addr, slot);
 
         // Clear the slot
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
