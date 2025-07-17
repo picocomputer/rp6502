@@ -195,27 +195,30 @@ static uint8_t pad_encode_hat(int8_t x_raw, int8_t y_raw)
 
     // Check deadzone
     if ((x > -PAD_DEADZONE && x < PAD_DEADZONE) && (y > -PAD_DEADZONE && y < PAD_DEADZONE))
-        return 8; // No direction
+        return 0; // No direction
 
+    // Convert to direction bits (same format as D-pad processing)
+    // Bit 0 = North (1), Bit 1 = South (2), Bit 2 = West (4), Bit 3 = East (8)
     // Determine direction based on octant
     // First check if we're in a primarily cardinal direction
     if (y > abs(x) * 2)
-        return 0; // North
+        return 1; // North
     if (x > abs(y) * 2)
-        return 2; // East
+        return 8; // East
     if (y < -abs(x) * 2)
-        return 4; // SouthH
+        return 2; // South
     if (x < -abs(y) * 2)
-        return 6; // West
+        return 4; // West
 
     // If not cardinal, then we're in a diagonal
     if (y > 0 && x > 0)
-        return 1; // North-East
+        return 9; // North-East (1 + 8)
     if (y < 0 && x > 0)
-        return 3; // South-East
+        return 10; // South-East (2 + 8)
     if (y < 0 && x < 0)
-        return 5;                  // South-West
-    /* y > 0 && x < 0 */ return 7; // North-West
+        return 6; // South-West (2 + 4)
+    /* y > 0 && x < 0 */
+    return 5; // North-West (1 + 4)
 }
 
 int pad_find_player_by_idx(uint8_t idx)
