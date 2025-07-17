@@ -23,7 +23,7 @@
 
 // Xbox One controllers use a specific report structure:
 // - No report ID for input reports
-// - 2-byte GIP header (report type + packet type)
+// - 2-byte GIP header (command, sequence)
 // - 16-bit signed analog stick values
 // - 16-bit trigger values (10-bit actual precision)
 // - D-pad as individual button bits (not hat switch)
@@ -31,28 +31,28 @@
 static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor = {
     .valid = true,
     .sony = false,
-    .report_id = 0,    // Xbox One uses no report ID for input reports
-    .x_offset = 8 * 8, // Byte 8-9 (left stick X) - 16-bit signed little endian
+    .report_id = 0,     // Xbox One uses no report ID for input reports
+    .x_offset = 10 * 8, // Byte 10-11 (left stick X) - 16-bit signed little endian
     .x_size = 16,
     .x_logical_min = -32768, // 16-bit signed range
     .x_logical_max = 32767,
-    .y_offset = 10 * 8, // Byte 10-11 (left stick Y) - 16-bit signed little endian
+    .y_offset = 12 * 8, // Byte 12-13 (left stick Y) - 16-bit signed little endian
     .y_size = 16,
     .y_logical_min = -32768, // 16-bit signed range
     .y_logical_max = 32767,
-    .z_offset = 12 * 8, // Byte 12-13 (right stick X) - 16-bit signed little endian
+    .z_offset = 14 * 8, // Byte 14-15 (right stick X) - 16-bit signed little endian
     .z_size = 16,
     .z_logical_min = -32768, // 16-bit signed range
     .z_logical_max = 32767,
-    .rz_offset = 14 * 8, // Byte 14-15 (right stick Y) - 16-bit signed little endian
+    .rz_offset = 16 * 8, // Byte 16-17 (right stick Y) - 16-bit signed little endian
     .rz_size = 16,
     .rz_logical_min = -32768, // 16-bit signed range
     .rz_logical_max = 32767,
-    .rx_offset = 4 * 8, // Byte 4-5 (left trigger) - 16-bit unsigned little endian
+    .rx_offset = 6 * 8, // Byte 6-7 (left trigger) - 16-bit unsigned little endian
     .rx_size = 16,
     .rx_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
     .rx_logical_max = 65535,
-    .ry_offset = 6 * 8, // Byte 6-7 (right trigger) - 16-bit unsigned little endian
+    .ry_offset = 8 * 8, // Byte 8-9 (right trigger) - 16-bit unsigned little endian
     .ry_size = 16,
     .ry_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
     .ry_logical_max = 65535,
@@ -65,29 +65,29 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     // Share, Options, L3, R3, PS, Touchpad
 
     .button_offsets = {
-        // Xbox One Gamepad Input Protocol button layout (bytes 2-3, little endian)
-        2 * 8 + 0, // A button (bit 0 of byte 2)
-        2 * 8 + 1, // B button (bit 1 of byte 2)
-        2 * 8 + 2, // X button (bit 2 of byte 2)
-        2 * 8 + 3, // Y button (bit 3 of byte 2)
-        2 * 8 + 4, // Left shoulder (bit 4 of byte 2)
-        2 * 8 + 5, // Right shoulder (bit 5 of byte 2)
-        2 * 8 + 6, // View/Back button (bit 6 of byte 2)
-        2 * 8 + 7, // Menu/Start button (bit 7 of byte 2)
+        // Xbox One Gamepad Input Protocol button layout (bytes 2-5, after 2-byte GIP header)
+        4 * 8 + 0, // A button (bit 0 of byte 4)
+        4 * 8 + 1, // B button (bit 1 of byte 4)
+        4 * 8 + 2, // X button (bit 2 of byte 4)
+        4 * 8 + 3, // Y button (bit 3 of byte 4)
+        4 * 8 + 4, // Left shoulder (bit 4 of byte 4)
+        4 * 8 + 5, // Right shoulder (bit 5 of byte 4)
+        3 * 8 + 2, // View/Back button (bit 2 of byte 3)
+        3 * 8 + 3, // Menu/Start button (bit 3 of byte 3)
         //
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        3 * 8 + 0, // Left stick click (bit 0 of byte 3)
-        3 * 8 + 1, // Right stick click (bit 1 of byte 3)
-        3 * 8 + 2, // Xbox guide button (bit 2 of byte 3)
+        5 * 8 + 0, // Left stick click (bit 0 of byte 5)
+        5 * 8 + 1, // Right stick click (bit 1 of byte 5)
+        3 * 8 + 0, // Xbox guide button (bit 0 of byte 3)
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        3 * 8 + 4, // D-pad Up (bit 4 of byte 3)
-        3 * 8 + 5, // D-pad Down (bit 5 of byte 3)
-        3 * 8 + 6, // D-pad Left (bit 6 of byte 3)
-        3 * 8 + 7, // D-pad Right (bit 7 of byte 3)
+        2 * 8 + 0, // D-pad Up (bit 0 of byte 2)
+        2 * 8 + 1, // D-pad Down (bit 1 of byte 2)
+        2 * 8 + 2, // D-pad Left (bit 2 of byte 2)
+        2 * 8 + 3, // D-pad Right (bit 3 of byte 2)
     }};
 
 // Xbox 360 controllers use a different report structure than Xbox One:
