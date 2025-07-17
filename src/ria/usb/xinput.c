@@ -31,10 +31,10 @@ typedef struct
     uint8_t interface_num;
     uint8_t ep_in;
     uint8_t ep_out;
-    uint8_t slot_idx;               // pad slot index (CFG_TUH_HID + slot)
-    uint8_t report_buffer[64];      // buffer for incoming reports
-    tusb_desc_endpoint_t ep_in_desc;   // IN endpoint descriptor
-    tusb_desc_endpoint_t ep_out_desc;  // OUT endpoint descriptor
+    uint8_t slot_idx;                 // pad slot index (CFG_TUH_HID + slot)
+    uint8_t report_buffer[64];        // buffer for incoming reports
+    tusb_desc_endpoint_t ep_in_desc;  // IN endpoint descriptor
+    tusb_desc_endpoint_t ep_out_desc; // OUT endpoint descriptor
 } xbox_device_t;
 
 static xbox_device_t xbox_devices[PAD_PLAYER_LEN];
@@ -170,7 +170,8 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     xbox_devices[slot].ep_out = ep_out;
     xbox_devices[slot].slot_idx = CFG_TUH_HID + slot;
     xbox_devices[slot].ep_in_desc = ep_in_desc;
-    if (ep_out != 0) {
+    if (ep_out != 0)
+    {
         xbox_devices[slot].ep_out_desc = ep_out_desc;
     }
 
@@ -257,36 +258,13 @@ bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, ui
     if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0)
     {
         // DBG("XInput: Received %lu bytes from slot %d: ", xferred_bytes, slot);
-        // for (uint32_t i = 0; i < xferred_bytes && i < 20; i++) // Show first 20 bytes
+        // for (uint32_t i = 0; i < xferred_bytes && i < 10; i++) // Show first 10 bytes
         // {
         //     DBG("%02X ", xbox_devices[slot].report_buffer[i]);
         // }
         // DBG("\n");
 
-        // Check if this is a GIP message and what type
-        if (xferred_bytes >= 3 && xbox_devices[slot].report_buffer[0] == 0x02)
-        {
-            uint8_t flags = xbox_devices[slot].report_buffer[1];
-            if (flags == 0x20)
-            {
-                DBG("XInput: Received GIP status message (ignoring)\n");
-            }
-            else if (flags == 0x01)
-            {
-                // DBG("XInput: Received GIP input report - processing\n");
-                // Process the Xbox controller data
-                pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
-            }
-            else
-            {
-                DBG("XInput: Unknown GIP message type 0x%02X\n", flags);
-            }
-        }
-        else
-        {
-            // Non-GIP data, process as-is
-            pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
-        }
+        pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
 
         // Restart the transfer to continue receiving reports
         xinput_start_interrupt_transfer(dev_addr, slot);
@@ -348,9 +326,8 @@ static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot)
         .ep_addr = xbox_devices[slot].ep_in,
         .buflen = sizeof(xbox_devices[slot].report_buffer),
         .buffer = xbox_devices[slot].report_buffer,
-        .complete_cb = NULL,  // Use class driver callback instead
-        .user_data = (uintptr_t)slot
-    };
+        .complete_cb = NULL, // Use class driver callback instead
+        .user_data = (uintptr_t)slot};
 
     if (!tuh_edpt_xfer(&xfer))
     {
@@ -374,7 +351,7 @@ static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
     // Xbox One GIP initialization packet to start input reports
     // This tells the controller to start sending input data
     static const uint8_t xbox_one_init[] = {
-        0x05, 0x20, 0x00, 0x01, 0x00  // GIP command to enable input reports
+        0x05, 0x20, 0x00, 0x01, 0x00 // GIP command to enable input reports
     };
 
     DBG("XInput: Sending Xbox One initialization command\n");
@@ -383,10 +360,9 @@ static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
         .daddr = dev_addr,
         .ep_addr = xbox_devices[slot].ep_out,
         .buflen = sizeof(xbox_one_init),
-        .buffer = (void*)xbox_one_init,
+        .buffer = (void *)xbox_one_init,
         .complete_cb = NULL,
-        .user_data = (uintptr_t)slot
-    };
+        .user_data = (uintptr_t)slot};
 
     if (!tuh_edpt_xfer(&xfer))
     {
@@ -476,17 +452,16 @@ int xinput_xbox_controller_type(uint8_t dev_addr)
 
 // Define the XInput class driver
 static const usbh_class_driver_t xinput_class_driver = {
-    .name       = "XInput",
-    .init       = xinputh_init,
-    .deinit     = NULL,  // No cleanup needed
-    .open       = xinputh_open,
+    .name = "XInput",
+    .init = xinputh_init,
+    .deinit = NULL, // No cleanup needed
+    .open = xinputh_open,
     .set_config = xinputh_set_config,
-    .xfer_cb    = xinputh_xfer_cb,
-    .close      = xinputh_close
-};
+    .xfer_cb = xinputh_xfer_cb,
+    .close = xinputh_close};
 
 // Required callback for TinyUSB to get application drivers
-usbh_class_driver_t const* usbh_app_driver_get_cb(uint8_t* driver_count)
+usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 {
     *driver_count = 1;
     return &xinput_class_driver;

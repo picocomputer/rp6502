@@ -31,31 +31,31 @@
 static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor = {
     .valid = true,
     .sony = false,
-    .report_id = 0,     // Xbox One uses no report ID for input reports
-    .x_offset = 10 * 8, // Byte 10-11 (left stick X) - 16-bit signed little endian
+    .report_id = 0x20, // GIP message ID
+    .x_offset = 9 * 8, // Byte 9-10 (left stick X) - 16-bit signed little endian
     .x_size = 16,
     .x_logical_min = -32768, // 16-bit signed range
     .x_logical_max = 32767,
-    .y_offset = 12 * 8, // Byte 12-13 (left stick Y) - 16-bit signed little endian
+    .y_offset = 11 * 8, // Byte 11-12 (left stick Y) - 16-bit signed little endian
     .y_size = 16,
     .y_logical_min = -32768, // 16-bit signed range
     .y_logical_max = 32767,
-    .z_offset = 14 * 8, // Byte 14-15 (right stick X) - 16-bit signed little endian
+    .z_offset = 13 * 8, // Byte 13-14 (right stick X) - 16-bit signed little endian
     .z_size = 16,
     .z_logical_min = -32768, // 16-bit signed range
     .z_logical_max = 32767,
-    .rz_offset = 16 * 8, // Byte 16-17 (right stick Y) - 16-bit signed little endian
+    .rz_offset = 15 * 8, // Byte 15-16 (right stick Y) - 16-bit signed little endian
     .rz_size = 16,
     .rz_logical_min = -32768, // 16-bit signed range
     .rz_logical_max = 32767,
-    .rx_offset = 6 * 8, // Byte 6-7 (left trigger) - 16-bit unsigned little endian
-    .rx_size = 16,
+    .rx_offset = 5 * 8, // Byte 5-6 (left trigger) - 16-bit unsigned little endian
+    .rx_size = 10,
     .rx_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
-    .rx_logical_max = 65535,
-    .ry_offset = 8 * 8, // Byte 8-9 (right trigger) - 16-bit unsigned little endian
-    .ry_size = 16,
+    .rx_logical_max = 1023,
+    .ry_offset = 7 * 8, // Byte 7-8 (right trigger) - 16-bit unsigned little endian
+    .ry_size = 10,
     .ry_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
-    .ry_logical_max = 65535,
+    .ry_logical_max = 1023,
     .hat_offset = 0, // Xbox One uses individual dpad buttons, not hat switch
     .hat_size = 0,
     .hat_logical_min = 0,
@@ -66,28 +66,28 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
 
     .button_offsets = {
         // Xbox One Gamepad Input Protocol button layout (GIP_CMD_INPUT reports)
-        4 * 8 + 4, // A button (bit 4 of byte 4)
-        4 * 8 + 5, // B button (bit 5 of byte 4)
-        4 * 8 + 6, // X button (bit 6 of byte 4)
-        4 * 8 + 7, // Y button (bit 7 of byte 4)
-        5 * 8 + 4, // Left shoulder/LB (bit 4 of byte 5)
-        5 * 8 + 5, // Right shoulder/RB (bit 5 of byte 5)
-        4 * 8 + 3, // View/Select button (bit 3 of byte 4)
-        4 * 8 + 2, // Menu/Start button (bit 2 of byte 4)
+        3 * 8 + 4, // A button (bit 4 of byte 3)
+        3 * 8 + 5, // B button (bit 5 of byte 3)
+        3 * 8 + 6, // X button (bit 6 of byte 3)
+        3 * 8 + 7, // Y button (bit 7 of byte 3)
+        4 * 8 + 4, // Left shoulder/LB (bit 4 of byte 4)
+        4 * 8 + 5, // Right shoulder/RB (bit 5 of byte 4)
+        3 * 8 + 3, // View/Select button (bit 3 of byte 3)
+        3 * 8 + 2, // Menu/Start button (bit 2 of byte 3)
         //
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        5 * 8 + 6, // Left stick click (bit 6 of byte 5)
-        5 * 8 + 7, // Right stick click (bit 7 of byte 5)
+        4 * 8 + 6, // Left stick click (bit 1 of byte 4)
+        4 * 8 + 7, // Right stick click (bit 0 of byte 4)
         0xFFFF,    // Xbox guide button (sent via separate GIP_CMD_VIRTUAL_KEY report)
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        5 * 8 + 0, // D-pad Up (bit 0 of byte 5)
-        5 * 8 + 1, // D-pad Down (bit 1 of byte 5)
-        5 * 8 + 2, // D-pad Left (bit 2 of byte 5)
-        5 * 8 + 3, // D-pad Right (bit 3 of byte 5)
+        4 * 8 + 0, // D-pad Up (bit 0 of byte 4)
+        4 * 8 + 1, // D-pad Down (bit 1 of byte 4)
+        4 * 8 + 2, // D-pad Left (bit 2 of byte 4)
+        4 * 8 + 3, // D-pad Right (bit 3 of byte 4)
     }};
 
 // Xbox 360 controllers use a different report structure than Xbox One:
@@ -129,30 +129,30 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_360_descriptor 
     .hat_logical_min = 0,
     .hat_logical_max = 0,
     .button_offsets = {
-        // Xbox 360 button layout based on XInput standard
-        // Byte 2 contains A, B, X, Y buttons
-        2 * 8 + 0, // A button - B1 mapping
-        2 * 8 + 1, // B button - B2 mapping
-        2 * 8 + 2, // X button - B3 mapping
-        2 * 8 + 3, // Y button - B4 mapping
-        2 * 8 + 4, // Left shoulder - L1 mapping
-        2 * 8 + 5, // Right shoulder - R1 mapping
-        2 * 8 + 6, // Back button - S1 mapping
-        2 * 8 + 7, // Start button - S2 mapping
+        // Xbox 360 button layout based on XInput standard (matches Linux xpad driver)
+        // Face buttons are in byte 3, bits 4-7
+        3 * 8 + 4, // A button (bit 4 of byte 3)
+        3 * 8 + 5, // B button (bit 5 of byte 3)
+        3 * 8 + 6, // X button (bit 6 of byte 3)
+        3 * 8 + 7, // Y button (bit 7 of byte 3)
+        3 * 8 + 0, // Left shoulder/LB (bit 0 of byte 3)
+        3 * 8 + 1, // Right shoulder/RB (bit 1 of byte 3)
+        2 * 8 + 5, // Back/Select button (bit 5 of byte 2)
+        2 * 8 + 4, // Start button (bit 4 of byte 2)
         //
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        3 * 8 + 6, // Left stick click - L3 mapping
-        3 * 8 + 7, // Right stick click - R3 mapping
-        0xFFFF,    // Xbox guide button sent by virtual keycode TODO
+        2 * 8 + 6, // Left stick click (bit 6 of byte 2)
+        2 * 8 + 7, // Right stick click (bit 7 of byte 2)
+        3 * 8 + 2, // Xbox guide button (bit 2 of byte 3)
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        3 * 8 + 0, // D-pad Up
-        3 * 8 + 1, // D-pad Down
-        3 * 8 + 2, // D-pad Left
-        3 * 8 + 3  // D-pad Right
+        2 * 8 + 0, // D-pad Up (bit 0 of byte 2)
+        2 * 8 + 1, // D-pad Down (bit 1 of byte 2)
+        2 * 8 + 2, // D-pad Left (bit 2 of byte 2)
+        2 * 8 + 3  // D-pad Right (bit 3 of byte 2)
     }};
 
 static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
@@ -188,9 +188,9 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
     .hat_logical_min = 0, // Hat values 0-7, 8=none
     .hat_logical_max = 8,
     .button_offsets = {
-        // X, Circle, Square, Triangle, L1, R1, L2, R2
+        // X, Circle, Square, Triangle, L1, R1, Share, Options
         37, 38, 36, 39, 40, 41, 44, 45,
-        // Share, Options, L3, R3, PS, Touchpad, Unused, Unused
+        // L2, R2, L3, R3, PS, Touchpad, Unused, Unused
         42, 43, 46, 47, 48, 49, 0xFFFF, 0xFFFF,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
@@ -250,9 +250,9 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds5_descriptor = {
     .hat_logical_min = 0, // Hat values 0-7, 8=none
     .hat_logical_max = 8,
     .button_offsets = {
-        // X, Circle, Square, Triangle, L1, R1, L2, R2
+        // X, Circle, Square, Triangle, L1, R1, Create, Options
         61, 62, 60, 63, 64, 65, 68, 69,
-        // Create, Options, L3, R3, PS, Touchpad, Unused, Unused
+        // L2, R2, L3, R3, PS, Touchpad, Unused, Unused
         66, 67, 70, 71, 72, 73, 0xFFFF, 0xFFF,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
