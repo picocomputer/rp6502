@@ -46,6 +46,11 @@ typedef struct TU_ATTR_PACKED
 static uint16_t pad_xram;
 static pad_descriptor_t pad_players[PAD_PLAYER_LEN];
 
+// Forward declarations
+static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
+static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
+static uint8_t pad_encode_hat(int8_t x_raw, int8_t y_raw);
+
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint8_t bit_offset, uint8_t bit_size)
 {
     if (bit_size == 0 || bit_size > 32)
@@ -282,11 +287,39 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
     // Extract D-pad/hat
     if (desc->hat_size > 0)
     {
+        // Standard HID hat switch - convert to individual button format
         uint32_t raw_hat = pad_extract_bits(report, report_len, desc->hat_offset, desc->hat_size);
-        if (raw_hat > 8)
-            raw_hat = 8;
-        // TODO raw_hat need to be in xbox up/down/left/right format
-        gamepad_report->hat = (uint8_t)raw_hat;
+        // Convert HID hat format (0-7 clockwise, 8=none) to individual direction bits
+        switch (raw_hat)
+        {
+        case 0: // North
+            gamepad_report->hat = 1;
+            break;
+        case 1: // North-East
+            gamepad_report->hat = 9;
+            break;
+        case 2: // East
+            gamepad_report->hat = 8;
+            break;
+        case 3: // South-East
+            gamepad_report->hat = 10;
+            break;
+        case 4: // South
+            gamepad_report->hat = 2;
+            break;
+        case 5: // South-West
+            gamepad_report->hat = 6;
+            break;
+        case 6: // West
+            gamepad_report->hat = 4;
+            break;
+        case 7: // North-West
+            gamepad_report->hat = 5;
+            break;
+        default: // No direction (8) or invalid
+            gamepad_report->hat = 0;
+            break;
+        }
     }
     else
     {
