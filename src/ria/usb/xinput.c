@@ -53,7 +53,7 @@ void xinput_init(void)
 
 static int xinput_find_device_slot(uint8_t dev_addr)
 {
-    for (int i = 0; i < CFG_TUH_DEVICE_MAX; i++)
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
     {
         if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)
         {
@@ -65,7 +65,7 @@ static int xinput_find_device_slot(uint8_t dev_addr)
 
 static int xinput_find_free_slot(void)
 {
-    for (int i = 0; i < CFG_TUH_DEVICE_MAX; i++)
+    for (int i = 0; i < PAD_PLAYER_LEN; i++)
     {
         if (!xbox_devices[i].valid)
         {
