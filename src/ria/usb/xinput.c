@@ -41,6 +41,7 @@ static xbox_device_t xbox_devices[PAD_PLAYER_LEN];
 
 // Forward declarations
 static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot);
+static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot);
 
 void xinput_init(void)
 {
@@ -233,6 +234,12 @@ bool xinputh_set_config(uint8_t dev_addr, uint8_t itf_num)
     // Start receiving reports
     xinput_start_interrupt_transfer(dev_addr, slot);
 
+    // Send Xbox One initialization command if applicable
+    if (xbox_devices[slot].ep_out != 0)
+    {
+        xinput_send_xbox_one_init(dev_addr, slot);
+    }
+
     return true;
 }
 
@@ -249,10 +256,37 @@ bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, ui
 
     if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0)
     {
-        // DBG("XInput: Received %lu bytes from slot %d\n", xferred_bytes, slot);
+        DBG("XInput: Received %lu bytes from slot %d: ", xferred_bytes, slot);
+        for (uint32_t i = 0; i < xferred_bytes && i < 20; i++) // Show first 20 bytes
+        {
+            DBG("%02X ", xbox_devices[slot].report_buffer[i]);
+        }
+        DBG("\n");
 
-        // Process the Xbox controller data
-        pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
+        // Check if this is a GIP message and what type
+        if (xferred_bytes >= 3 && xbox_devices[slot].report_buffer[0] == 0x02)
+        {
+            uint8_t flags = xbox_devices[slot].report_buffer[1];
+            if (flags == 0x20)
+            {
+                DBG("XInput: Received GIP status message (ignoring)\n");
+            }
+            else if (flags == 0x01)
+            {
+                DBG("XInput: Received GIP input report - processing\n");
+                // Process the Xbox controller data
+                pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
+            }
+            else
+            {
+                DBG("XInput: Unknown GIP message type 0x%02X\n", flags);
+            }
+        }
+        else
+        {
+            // Non-GIP data, process as-is
+            pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
+        }
 
         // Restart the transfer to continue receiving reports
         xinput_start_interrupt_transfer(dev_addr, slot);
@@ -325,6 +359,38 @@ static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot)
     else
     {
         // DBG("XInput: Started interrupt transfer for slot %d\n", slot);
+    }
+}
+
+// Send Xbox One initialization command to start input reports
+static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
+{
+    if (xbox_devices[slot].ep_out == 0)
+    {
+        DBG("XInput: No OUT endpoint for Xbox One init\n");
+        return;
+    }
+
+    // Xbox One GIP initialization packet to start input reports
+    // This tells the controller to start sending input data
+    static const uint8_t xbox_one_init[] = {
+        0x05, 0x20, 0x00, 0x01, 0x00  // GIP command to enable input reports
+    };
+
+    DBG("XInput: Sending Xbox One initialization command\n");
+
+    tuh_xfer_t xfer = {
+        .daddr = dev_addr,
+        .ep_addr = xbox_devices[slot].ep_out,
+        .buflen = sizeof(xbox_one_init),
+        .buffer = (void*)xbox_one_init,
+        .complete_cb = NULL,
+        .user_data = (uintptr_t)slot
+    };
+
+    if (!tuh_edpt_xfer(&xfer))
+    {
+        DBG("XInput: Failed to send Xbox One init command\n");
     }
 }
 

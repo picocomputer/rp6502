@@ -245,26 +245,73 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
 
     pad_descriptor_t *desc = &pad_players[player];
 
+    // Debug output for Xbox controllers - show raw report data
+    if (desc && !desc->sony && desc->report_id == 0) // Xbox controllers
+    {
+        DBG("Xbox controller report (len=%d): ", report_len);
+        for (int i = 0; i < report_len && i < 20; i++) // Show first 20 bytes
+        {
+            DBG("%02X ", report[i]);
+        }
+        DBG("\n");
+
+        // Decode GIP message type if this looks like GIP protocol
+        if (report_len >= 3 && report[0] == 0x02) {
+            DBG("GIP Message: type=0x%02X, flags=0x%02X, counter=0x%02X\n", report[0], report[1], report[2]);
+            if (report[1] == 0x20) {
+                DBG("  -> This appears to be a GIP status/info message, not input data\n");
+            } else if (report[1] == 0x01) {
+                DBG("  -> This appears to be a GIP input report\n");
+            }
+        }
+
+        // Show byte-by-byte analysis
+        if (report_len >= 16) {
+            DBG("Byte analysis: [0]=%02X [1]=%02X [2]=%02X [3]=%02X [4-5]=%02X%02X [6-7]=%02X%02X [8-9]=%02X%02X [10-11]=%02X%02X [12-13]=%02X%02X [14-15]=%02X%02X\n",
+                report[0], report[1], report[2], report[3],
+                report[5], report[4], report[7], report[6],
+                report[9], report[8], report[11], report[10],
+                report[13], report[12], report[15], report[14]);
+        }
+
+        DBG("Descriptor offsets: x=%d(%d), y=%d(%d), z=%d(%d), rz=%d(%d), rx=%d(%d), ry=%d(%d)\n",
+            desc->x_offset / 8, desc->x_size, desc->y_offset / 8, desc->y_size,
+            desc->z_offset / 8, desc->z_size, desc->rz_offset / 8, desc->rz_size,
+            desc->rx_offset / 8, desc->rx_size, desc->ry_offset / 8, desc->ry_size);
+    }
+
     // Extract analog sticks
     if (desc->x_size > 0)
     {
         uint32_t raw_x = pad_extract_bits(report, report_len, desc->x_offset, desc->x_size);
         gamepad_report->x = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
+        if (desc && !desc->sony && desc->report_id == 0) { // Xbox debug
+            DBG("Left stick X: raw=0x%04lX, scaled=%d\n", raw_x, gamepad_report->x);
+        }
     }
     if (desc->y_size > 0)
     {
         uint32_t raw_y = pad_extract_bits(report, report_len, desc->y_offset, desc->y_size);
         gamepad_report->y = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
+        if (desc && !desc->sony && desc->report_id == 0) { // Xbox debug
+            DBG("Left stick Y: raw=0x%04lX, scaled=%d\n", raw_y, gamepad_report->y);
+        }
     }
     if (desc->z_size > 0)
     {
         uint32_t raw_z = pad_extract_bits(report, report_len, desc->z_offset, desc->z_size);
         gamepad_report->z = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
+        if (desc && !desc->sony && desc->report_id == 0) { // Xbox debug
+            DBG("Right stick X: raw=0x%04lX, scaled=%d\n", raw_z, gamepad_report->z);
+        }
     }
     if (desc->rz_size > 0)
     {
         uint32_t raw_rz = pad_extract_bits(report, report_len, desc->rz_offset, desc->rz_size);
         gamepad_report->rz = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
+        if (desc && !desc->sony && desc->report_id == 0) { // Xbox debug
+            DBG("Right stick Y: raw=0x%04lX, scaled=%d\n", raw_rz, gamepad_report->rz);
+        }
     }
 
     // Extract triggers
@@ -287,11 +334,20 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
     gamepad_report->button0 = buttons & 0xFF;
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
 
+    if (desc && !desc->sony && desc->report_id == 0 && buttons != 0) { // Xbox debug - only show when buttons pressed
+        DBG("Buttons: raw_buttons=0x%08lX, button0=0x%02X, button1=0x%02X\n", buttons, gamepad_report->button0, gamepad_report->button1);
+    }
+
     // Extract D-pad/hat
     if (desc->hat_size > 0)
     {
         // Standard HID hat switch - convert to individual button format
         uint32_t raw_hat = pad_extract_bits(report, report_len, desc->hat_offset, desc->hat_size);
+
+        if (desc && !desc->sony && desc->report_id == 0 && raw_hat != 8) { // Xbox debug - don't show when no direction
+            DBG("D-pad: raw_hat=%lu, hat_offset=%u, hat_size=%u\n", raw_hat, desc->hat_offset, desc->hat_size);
+        }
+
         // Convert HID hat format (0-7 clockwise, 8=none) to individual direction bits
         switch (raw_hat)
         {
@@ -449,10 +505,13 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
         report_data_len = len - 1;
     }
 
+    pad_gamepad_report_t gamepad_report;
+    pad_parse_report_to_gamepad(player, report_data, report_data_len, &gamepad_report);
+
     if (pad_xram != 0xFFFF)
     {
-        pad_gamepad_report_t gamepad_report;
-        pad_parse_report_to_gamepad(player, report_data, report_data_len, &gamepad_report);
+        // pad_gamepad_report_t gamepad_report;
+        // pad_parse_report_to_gamepad(player, report_data, report_data_len, &gamepad_report);
         memcpy(&xram[pad_xram + player * (sizeof(pad_gamepad_report_t))],
                &gamepad_report, sizeof(pad_gamepad_report_t));
     }

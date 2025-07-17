@@ -23,6 +23,7 @@
 
 // Xbox One controllers use a specific report structure:
 // - No report ID for input reports
+// - 2-byte GIP header (report type + packet type)
 // - 16-bit signed analog stick values
 // - 16-bit trigger values (10-bit actual precision)
 // - D-pad as individual button bits (not hat switch)
@@ -31,30 +32,30 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     .valid = true,
     .sony = false,
     .report_id = 0,    // Xbox One uses no report ID for input reports
-    .x_offset = 6 * 8, // Byte 6 (left stick X) - 16-bit signed
+    .x_offset = 8 * 8, // Byte 8-9 (left stick X) - 16-bit signed little endian
     .x_size = 16,
     .x_logical_min = -32768, // 16-bit signed range
     .x_logical_max = 32767,
-    .y_offset = 8 * 8, // Byte 8 (left stick Y) - 16-bit signed
+    .y_offset = 10 * 8, // Byte 10-11 (left stick Y) - 16-bit signed little endian
     .y_size = 16,
     .y_logical_min = -32768, // 16-bit signed range
     .y_logical_max = 32767,
-    .z_offset = 10 * 8, // Byte 10 (right stick X) - 16-bit signed
+    .z_offset = 12 * 8, // Byte 12-13 (right stick X) - 16-bit signed little endian
     .z_size = 16,
     .z_logical_min = -32768, // 16-bit signed range
     .z_logical_max = 32767,
-    .rz_offset = 12 * 8, // Byte 12 (right stick Y) - 16-bit signed
+    .rz_offset = 14 * 8, // Byte 14-15 (right stick Y) - 16-bit signed little endian
     .rz_size = 16,
     .rz_logical_min = -32768, // 16-bit signed range
     .rz_logical_max = 32767,
-    .rx_offset = 4 * 8, // Byte 4 (left trigger) - 16-bit (10-bit actual)
+    .rx_offset = 4 * 8, // Byte 4-5 (left trigger) - 16-bit unsigned little endian
     .rx_size = 16,
-    .rx_logical_min = 0, // Triggers are unsigned 0-1023 (10-bit in 16-bit field)
-    .rx_logical_max = 1023,
-    .ry_offset = 4 * 8 + 16, // Byte 6 (right trigger) - 16-bit (10-bit actual)
+    .rx_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
+    .rx_logical_max = 65535,
+    .ry_offset = 6 * 8, // Byte 6-7 (right trigger) - 16-bit unsigned little endian
     .ry_size = 16,
-    .ry_logical_min = 0, // Triggers are unsigned 0-1023 (10-bit in 16-bit field)
-    .ry_logical_max = 1023,
+    .ry_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
+    .ry_logical_max = 65535,
     .hat_offset = 0, // Xbox One uses individual dpad buttons, not hat switch
     .hat_size = 0,
     .hat_logical_min = 0,
@@ -64,29 +65,29 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     // Share, Options, L3, R3, PS, Touchpad
 
     .button_offsets = {
-        // Xbox One Gamepad Input Protocol button layout
-        2 * 8 + 0, // A button
-        2 * 8 + 1, // B button
-        2 * 8 + 2, // X button
-        2 * 8 + 3, // Y button
-        2 * 8 + 4, // Left shoulder - L1 mapping
-        2 * 8 + 5, // Right shoulder - R1 mapping
-        1 * 8 + 2, // View/Back button - S1 mapping
-        1 * 8 + 3, // Menu/Start button - S2 mapping
+        // Xbox One Gamepad Input Protocol button layout (bytes 2-3, little endian)
+        2 * 8 + 0, // A button (bit 0 of byte 2)
+        2 * 8 + 1, // B button (bit 1 of byte 2)
+        2 * 8 + 2, // X button (bit 2 of byte 2)
+        2 * 8 + 3, // Y button (bit 3 of byte 2)
+        2 * 8 + 4, // Left shoulder (bit 4 of byte 2)
+        2 * 8 + 5, // Right shoulder (bit 5 of byte 2)
+        2 * 8 + 6, // View/Back button (bit 6 of byte 2)
+        2 * 8 + 7, // Menu/Start button (bit 7 of byte 2)
         //
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        2 * 8 + 6, // Left stick click - L3 mapping
-        2 * 8 + 7, // Right stick click - R3 mapping
-        0xFFFF,    // Xbox guide button sent by virtual keycode TODO
+        3 * 8 + 0, // Left stick click (bit 0 of byte 3)
+        3 * 8 + 1, // Right stick click (bit 1 of byte 3)
+        3 * 8 + 2, // Xbox guide button (bit 2 of byte 3)
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        1 * 8 + 0, // D-pad Up
-        1 * 8 + 1, // D-pad Down
-        1 * 8 + 4, // D-pad Left
-        1 * 8 + 5, // D-pad Right
+        3 * 8 + 4, // D-pad Up (bit 4 of byte 3)
+        3 * 8 + 5, // D-pad Down (bit 5 of byte 3)
+        3 * 8 + 6, // D-pad Left (bit 6 of byte 3)
+        3 * 8 + 7, // D-pad Right (bit 7 of byte 3)
     }};
 
 // Xbox 360 controllers use a different report structure than Xbox One:
@@ -394,20 +395,20 @@ void des_report_descriptor(pad_descriptor_t *desc,
     DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
     desc->valid = false;
 
-    // Xbox One controllers use XInput protocol
+    // Xbox controllers use XInput protocol
     if (!desc->valid)
     {
         switch (xinput_xbox_controller_type(dev_addr))
         {
         case 1:
-            *desc = xbox_one_descriptor;
+            *desc = xbox_360_descriptor;
+            DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
             break;
         case 2:
-            *desc = xbox_360_descriptor;
+            *desc = xbox_one_descriptor;
+            DBG("Detected Xbox One/Series controller, using pre-computed descriptor.\n");
             break;
         }
-        if (desc->valid)
-            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
     }
 
     // Sony DualShock 4 controllers don't have a descriptor
