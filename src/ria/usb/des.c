@@ -398,16 +398,20 @@ void des_report_descriptor(pad_descriptor_t *desc,
     // Xbox controllers use XInput protocol
     if (!desc->valid)
     {
-        switch (xinput_xbox_controller_type(dev_addr))
+        if (xinput_is_xbox_one(dev_addr))
         {
-        case 1:
+            *desc = xbox_one_descriptor;
+            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
+        }
+    }
+
+    // Xbox controllers use XInput protocol
+    if (!desc->valid)
+    {
+        if (xinput_is_xbox_360(dev_addr))
+        {
             *desc = xbox_360_descriptor;
             DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
-            break;
-        case 2:
-            *desc = xbox_one_descriptor;
-            DBG("Detected Xbox One/Series controller, using pre-computed descriptor.\n");
-            break;
         }
     }
 

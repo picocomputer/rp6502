@@ -28,6 +28,7 @@ typedef struct
 {
     uint8_t dev_addr;
     bool valid;
+    bool is_xbone;
     uint8_t interface_num;
     uint8_t ep_in;
     uint8_t ep_out;
@@ -97,20 +98,21 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
 
     // Xbox One/Series: Class=0xFF, Subclass=0x47, Protocol=0xD0
     // Xbox 360: Class=0xFF, Subclass=0x5D, Protocol=0x01 or 0x02
-    bool is_xbox = false;
+    bool is_x360 = false;
+    bool is_xbone = false;
     if (desc_itf->bInterfaceSubClass == 0x47 && desc_itf->bInterfaceProtocol == 0xD0)
     {
-        is_xbox = true; // Xbox One/Series
+        is_xbone = true;
         DBG("XInput: Detected Xbox One/Series controller interface\n");
     }
     else if (desc_itf->bInterfaceSubClass == 0x5D &&
              (desc_itf->bInterfaceProtocol == 0x01 || desc_itf->bInterfaceProtocol == 0x02))
     {
-        is_xbox = true; // Xbox 360
+        is_x360 = true;
         DBG("XInput: Detected Xbox 360 controller interface\n");
     }
 
-    if (!is_xbox)
+    if (!is_xbone && !is_x360)
     {
         return false;
     }
@@ -165,6 +167,7 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     // Initialize slot
     xbox_devices[slot].dev_addr = dev_addr;
     xbox_devices[slot].valid = true;
+    xbox_devices[slot].is_xbone = is_xbone;
     xbox_devices[slot].interface_num = desc_itf->bInterfaceNumber;
     xbox_devices[slot].ep_in = ep_in;
     xbox_devices[slot].ep_out = ep_out;
@@ -370,80 +373,16 @@ static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
     }
 }
 
-// Legacy functions for checking Xbox controller types - kept for potential future use
-int xinput_xbox_controller_type(uint8_t dev_addr)
+bool xinput_is_xbox_one(uint8_t dev_addr)
 {
-    // This function is now mainly for reference/debugging
-    // The actual detection is done in the class driver open function
+    int slot = xinput_find_device_slot(dev_addr);
+    return slot >= 0 && xbox_devices[slot].is_xbone;
+}
 
-    // Buffer to hold configuration descriptor
-    uint8_t config_desc_buffer[256];
-
-    // Get configuration descriptor synchronously
-    tusb_xfer_result_t result = tuh_descriptor_get_configuration_sync(
-        dev_addr, 0, config_desc_buffer, sizeof(config_desc_buffer));
-
-    if (result != XFER_RESULT_SUCCESS)
-    {
-        DBG("XInput: Failed to get configuration descriptor\n");
-        return 0;
-    }
-
-    tusb_desc_configuration_t const *desc_cfg = (tusb_desc_configuration_t const *)config_desc_buffer;
-    uint8_t const *desc_end = config_desc_buffer + tu_le16toh(desc_cfg->wTotalLength);
-    uint8_t const *p_desc = tu_desc_next(desc_cfg);
-
-    // Parse each interface
-    while (p_desc < desc_end)
-    {
-        // Skip interface association descriptors
-        if (TUSB_DESC_INTERFACE_ASSOCIATION == tu_desc_type(p_desc))
-        {
-            p_desc = tu_desc_next(p_desc);
-            continue;
-        }
-
-        // Must be interface descriptor
-        if (TUSB_DESC_INTERFACE != tu_desc_type(p_desc))
-        {
-            p_desc = tu_desc_next(p_desc);
-            continue;
-        }
-
-        tusb_desc_interface_t const *desc_itf = (tusb_desc_interface_t const *)p_desc;
-
-        // Check for Xbox controller interface patterns
-        if (desc_itf->bInterfaceClass == 0xFF) // Vendor Specific
-        {
-            // Xbox One/Series: Class=0xFF, Subclass=0x47, Protocol=0xD0
-            if (desc_itf->bInterfaceSubClass == 0x47 && desc_itf->bInterfaceProtocol == 0xD0)
-            {
-                return 2; // Xbox One/Series
-            }
-
-            // Xbox 360: Class=0xFF, Subclass=0x5D, Protocol=0x01 or 0x02
-            if (desc_itf->bInterfaceSubClass == 0x5D &&
-                (desc_itf->bInterfaceProtocol == 0x01 || desc_itf->bInterfaceProtocol == 0x02))
-            {
-                return 1; // Xbox 360
-            }
-        }
-
-        // Move to next interface
-        uint16_t itf_len = sizeof(tusb_desc_interface_t);
-        uint8_t const *next_desc = tu_desc_next(p_desc);
-
-        while (next_desc < desc_end && tu_desc_type(next_desc) != TUSB_DESC_INTERFACE &&
-               tu_desc_type(next_desc) != TUSB_DESC_INTERFACE_ASSOCIATION)
-        {
-            itf_len += tu_desc_len(next_desc);
-            next_desc = tu_desc_next(next_desc);
-        }
-
-        p_desc += itf_len;
-    }
-
-    return 0; // No Xbox controller found
+bool xinput_is_xbox_360(uint8_t dev_addr)
+{
+    int slot = xinput_find_device_slot(dev_addr);
+    return slot >= 0 && !xbox_devices[slot].is_xbone;
 }
 
 //--------------------------------------------------------------------+

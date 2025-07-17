@@ -20,6 +20,7 @@
 
 void xinput_init(void);
 
-int xinput_xbox_controller_type(uint8_t dev_addr);
+bool xinput_is_xbox_one(uint8_t dev_addr);
+bool xinput_is_xbox_360(uint8_t dev_addr);
 
 #endif /* _XINPUT_H_ */
