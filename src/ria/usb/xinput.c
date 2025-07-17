@@ -38,11 +38,20 @@ typedef struct
     tusb_desc_endpoint_t ep_out_desc; // OUT endpoint descriptor
 } xbox_device_t;
 
+// Configuration state machine states
+enum
+{
+    CONFIG_START_TRANSFERS = 0,
+    CONFIG_SEND_XBOX_ONE_INIT,
+    CONFIG_COMPLETE
+};
+
 static xbox_device_t xbox_devices[PAD_PLAYER_LEN];
 
 // Forward declarations
 static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot);
 static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot);
+static void process_set_config(tuh_xfer_t *xfer);
 
 void xinput_init(void)
 {
@@ -197,54 +206,103 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
         return false;
     }
 
+    // Open the endpoints immediately (like HID does)
+    if (ep_in != 0)
+    {
+        if (!tuh_edpt_open(dev_addr, &ep_in_desc))
+        {
+            DBG("XInput: Failed to open IN endpoint during open\n");
+            return false;
+        }
+        DBG("XInput: Opened IN endpoint 0x%02X during open\n", ep_in);
+    }
+
+    if (ep_out != 0)
+    {
+        if (!tuh_edpt_open(dev_addr, &ep_out_desc))
+        {
+            DBG("XInput: Failed to open OUT endpoint during open\n");
+            return false;
+        }
+        DBG("XInput: Opened OUT endpoint 0x%02X during open\n", ep_out);
+    }
+
     DBG("XInput: Successfully opened Xbox controller in slot %d\n", slot);
     return true;
 }
 
 bool xinputh_set_config(uint8_t dev_addr, uint8_t itf_num)
 {
-    (void)itf_num;
-
     DBG("XInput: Set config called for dev_addr=%d, itf_num=%d\n", dev_addr, itf_num);
 
-    int slot = xinput_find_device_slot(dev_addr);
-    if (slot < 0)
-    {
-        DBG("XInput: Device not found in set_config\n");
-        return false;
-    }
+    // Create a fake transfer to kick off the state machine (like HID does)
+    tusb_control_request_t request;
+    request.wIndex = tu_htole16((uint16_t)itf_num);
 
-    // Open the endpoints
-    if (xbox_devices[slot].ep_in != 0)
-    {
-        if (!tuh_edpt_open(dev_addr, &xbox_devices[slot].ep_in_desc))
-        {
-            DBG("XInput: Failed to open IN endpoint\n");
-            return false;
-        }
-        DBG("XInput: Opened IN endpoint 0x%02X\n", xbox_devices[slot].ep_in);
-    }
+    tuh_xfer_t xfer;
+    xfer.daddr = dev_addr;
+    xfer.result = XFER_RESULT_SUCCESS;
+    xfer.setup = &request;
+    xfer.user_data = CONFIG_START_TRANSFERS;
 
-    if (xbox_devices[slot].ep_out != 0)
-    {
-        if (!tuh_edpt_open(dev_addr, &xbox_devices[slot].ep_out_desc))
-        {
-            DBG("XInput: Failed to open OUT endpoint\n");
-            return false;
-        }
-        DBG("XInput: Opened OUT endpoint 0x%02X\n", xbox_devices[slot].ep_out);
-    }
-
-    // Start receiving reports
-    xinput_start_interrupt_transfer(dev_addr, slot);
-
-    // Send Xbox One initialization command if applicable
-    if (xbox_devices[slot].ep_out != 0)
-    {
-        xinput_send_xbox_one_init(dev_addr, slot);
-    }
+    // Start the configuration state machine
+    process_set_config(&xfer);
 
     return true;
+}
+
+static void process_set_config(tuh_xfer_t *xfer)
+{
+    // Process the configuration state machine
+    uintptr_t const state = xfer->user_data;
+    uint8_t const itf_num = (uint8_t)tu_le16toh(xfer->setup->wIndex);
+    uint8_t const daddr = xfer->daddr;
+
+    int slot = xinput_find_device_slot(daddr);
+    if (slot < 0)
+    {
+        DBG("XInput: Device not found in process_set_config\n");
+        return;
+    }
+
+    switch (state)
+    {
+    case CONFIG_START_TRANSFERS:
+        // Start receiving input reports
+        xinput_start_interrupt_transfer(daddr, slot);
+
+        // If this is Xbox One and we have an OUT endpoint, send init command
+        if (xbox_devices[slot].is_xbone && xbox_devices[slot].ep_out != 0)
+        {
+            xinput_send_xbox_one_init(daddr, slot);
+            // Continue to next state after init is sent
+            xfer->user_data = CONFIG_SEND_XBOX_ONE_INIT;
+            // For now, proceed directly to complete since we don't wait for init response
+            process_set_config(xfer);
+        }
+        else
+        {
+            // No Xbox One init needed, go directly to completion
+            xfer->user_data = CONFIG_COMPLETE;
+            process_set_config(xfer);
+        }
+        break;
+
+    case CONFIG_SEND_XBOX_ONE_INIT:
+        // Xbox One init was sent, now complete
+        xfer->user_data = CONFIG_COMPLETE;
+        process_set_config(xfer);
+        break;
+
+    case CONFIG_COMPLETE:
+        DBG("XInput: Configuration complete for slot %d\n", slot);
+        // Notify usbh that driver enumeration is complete
+        usbh_driver_set_config_complete(daddr, itf_num);
+        break;
+
+    default:
+        break;
+    }
 }
 
 bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
