@@ -341,16 +341,16 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
     gamepad_report->sticks = hat_l | (hat_r << 4);
 
     // If L2/R2 buttons pressed without any analog movement
-    if ((buttons & (1 << 6)) && (gamepad_report->rx == 0))
+    if ((buttons & (1 << 8)) && (gamepad_report->rx == 0))
         gamepad_report->rx = 255;
-    if ((buttons & (1 << 7)) && (gamepad_report->ry == 0))
+    if ((buttons & (1 << 9)) && (gamepad_report->ry == 0))
         gamepad_report->ry = 255;
 
     // If L2/R2 analog movement ensure button press
     if (gamepad_report->rx > PAD_DEADZONE)
-        gamepad_report->button0 |= (1 << 6); // L2
+        gamepad_report->button1 |= (1 << 0); // L2 (bit 8 -> button1 bit 0)
     if (gamepad_report->ry > PAD_DEADZONE)
-        gamepad_report->button0 |= (1 << 7); // R2
+        gamepad_report->button1 |= (1 << 1); // R2 (bit 9 -> button1 bit 1)
 }
 
 void pad_init(void)

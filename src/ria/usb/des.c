@@ -71,22 +71,22 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
         2 * 8 + 3, // Y button
         2 * 8 + 4, // Left shoulder - L1 mapping
         2 * 8 + 5, // Right shoulder - R1 mapping
-        0xFFFF,    // L2
-        0xFFFF,    // R2
+        1 * 8 + 2, // View/Back button - S1 mapping
+        1 * 8 + 3, // Menu/Start button - S2 mapping
         //
-        1 * 8 + 2, // View/Back button (byte 1, bit 2) - S1 mapping
-        1 * 8 + 3, // Menu/Start button (byte 1, bit 3) - S2 mapping
-        2 * 8 + 6, // Left stick click (byte 2, bit 6) - L3 mapping
-        2 * 8 + 7, // Right stick click (byte 2, bit 7) - R3 mapping
+        0xFFFF,    // L2 (analog trigger)
+        0xFFFF,    // R2 (analog trigger)
+        2 * 8 + 6, // Left stick click - L3 mapping
+        2 * 8 + 7, // Right stick click - R3 mapping
         0xFFFF,    // Xbox guide button sent by virtual keycode TODO
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        1 * 8 + 0, // D-pad Up (byte 1, bit 0)
-        1 * 8 + 1, // D-pad Down (byte 1, bit 1)
-        1 * 8 + 4, // D-pad Left (byte 1, bit 4)
-        1 * 8 + 5, // D-pad Right (byte 1, bit 5)
+        1 * 8 + 0, // D-pad Up
+        1 * 8 + 1, // D-pad Down
+        1 * 8 + 4, // D-pad Left
+        1 * 8 + 5, // D-pad Right
     }};
 
 // Xbox 360 controllers use a different report structure than Xbox One:
@@ -130,28 +130,28 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_360_descriptor 
     .button_offsets = {
         // Xbox 360 button layout based on XInput standard
         // Byte 2 contains A, B, X, Y buttons
-        2 * 8 + 0, // A button (byte 2, bit 0) - B1 mapping
-        2 * 8 + 1, // B button (byte 2, bit 1) - B2 mapping
-        2 * 8 + 2, // X button (byte 2, bit 2) - B3 mapping
-        2 * 8 + 3, // Y button (byte 2, bit 3) - B4 mapping
-        2 * 8 + 4, // Left shoulder (byte 2, bit 4) - L1 mapping
-        2 * 8 + 5, // Right shoulder (byte 2, bit 5) - R1 mapping
+        2 * 8 + 0, // A button - B1 mapping
+        2 * 8 + 1, // B button - B2 mapping
+        2 * 8 + 2, // X button - B3 mapping
+        2 * 8 + 3, // Y button - B4 mapping
+        2 * 8 + 4, // Left shoulder - L1 mapping
+        2 * 8 + 5, // Right shoulder - R1 mapping
+        2 * 8 + 6, // Back button - S1 mapping
+        2 * 8 + 7, // Start button - S2 mapping
+        //
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        //
-        2 * 8 + 6, // Back button (byte 2, bit 6) - S1 mapping
-        2 * 8 + 7, // Start button (byte 2, bit 7) - S2 mapping
-        3 * 8 + 6, // Left stick click (byte 3, bit 6) - L3 mapping
-        3 * 8 + 7, // Right stick click (byte 3, bit 7) - R3 mapping
+        3 * 8 + 6, // Left stick click - L3 mapping
+        3 * 8 + 7, // Right stick click - R3 mapping
         0xFFFF,    // Xbox guide button sent by virtual keycode TODO
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        3 * 8 + 0, // D-pad Up (byte 3, bit 0)
-        3 * 8 + 1, // D-pad Down (byte 3, bit 1)
-        3 * 8 + 2, // D-pad Left (byte 3, bit 2)
-        3 * 8 + 3  // D-pad Right (byte 3, bit 3)
+        3 * 8 + 0, // D-pad Up
+        3 * 8 + 1, // D-pad Down
+        3 * 8 + 2, // D-pad Left
+        3 * 8 + 3  // D-pad Right
     }};
 
 static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
@@ -188,9 +188,9 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
     .hat_logical_max = 8,
     .button_offsets = {
         // X, Circle, Square, Triangle, L1, R1, L2, R2
-        37, 38, 36, 39, 40, 41, 42, 43,
+        37, 38, 36, 39, 40, 41, 44, 45,
         // Share, Options, L3, R3, PS, Touchpad, Unused, Unused
-        44, 45, 46, 47, 48, 49, 0xFFFF, 0xFFFF,
+        42, 43, 46, 47, 48, 49, 0xFFFF, 0xFFFF,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -250,9 +250,9 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds5_descriptor = {
     .hat_logical_max = 8,
     .button_offsets = {
         // X, Circle, Square, Triangle, L1, R1, L2, R2
-        61, 62, 60, 63, 64, 65, 66, 67,
+        61, 62, 60, 63, 64, 65, 68, 69,
         // Create, Options, L3, R3, PS, Touchpad, Unused, Unused
-        68, 69, 70, 71, 72, 73, 0xFFFF, 0xFFF,
+        66, 67, 70, 71, 72, 73, 0xFFFF, 0xFFF,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -275,25 +275,32 @@ static void des_remap_8bitdo_dinput(pad_descriptor_t *desc, uint16_t vendor_id, 
         return;
     DBG("Remapping 8BitDo Dinput buttons.\n");
     // All 8BitDo controllers in DInput mode have "gaps" in their buttons.
-    uint16_t save2 = desc->button_offsets[2];
-    uint16_t save5 = desc->button_offsets[5];
+    uint16_t temp2 = desc->button_offsets[2];
+    uint16_t temp5 = desc->button_offsets[5];
     desc->button_offsets[2] = desc->button_offsets[3];
     desc->button_offsets[3] = desc->button_offsets[4];
     for (int i = 4; i <= 9; i++)
         desc->button_offsets[i] = desc->button_offsets[i + 2];
     desc->button_offsets[10] = desc->button_offsets[13];
     desc->button_offsets[11] = desc->button_offsets[14];
-    if (product_id == 0x5006) // M30 wired
+    // Swap buttons 6,7 with 8,9
+    uint16_t temp6 = desc->button_offsets[6];
+    uint16_t temp7 = desc->button_offsets[7];
+    desc->button_offsets[6] = desc->button_offsets[8];
+    desc->button_offsets[7] = desc->button_offsets[9];
+    desc->button_offsets[8] = temp6;
+    desc->button_offsets[9] = temp7;
+    // M30 wired special case
+    if (product_id == 0x5006)
     {
-        // The M30 (Sega) controller has an unsual mapping
-        // for the guide button when wired.
-        uint16_t save12 = desc->button_offsets[12];
-        desc->button_offsets[12] = save2;
-        save2 = save12;
+        // unsual mapping for the guide button only when wired.
+        uint16_t temp12 = desc->button_offsets[12];
+        desc->button_offsets[12] = temp2;
+        temp2 = temp12;
     }
     // Drop the gaps at the end, not sure what uses this.
-    desc->button_offsets[13] = save2;
-    desc->button_offsets[14] = save5;
+    desc->button_offsets[13] = temp2;
+    desc->button_offsets[14] = temp5;
 }
 
 static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *desc_report, uint16_t desc_len)
