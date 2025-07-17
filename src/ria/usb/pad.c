@@ -77,6 +77,11 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
 
 static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
+    // Check for polarity reversal (logical_min > logical_max)
+    bool reversed = logical_min > logical_max;
+    int32_t actual_min = reversed ? logical_max : logical_min;
+    int32_t actual_max = reversed ? logical_min : logical_max;
+
     // Handle signed values by treating them as such
     int32_t signed_value;
     if (bit_size <= 8)
@@ -93,7 +98,7 @@ static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t lo
     }
 
     // If the value appears to be outside the expected range, extend sign
-    if (logical_min < 0 && bit_size < 32)
+    if (actual_min < 0 && bit_size < 32)
     {
         // Sign extend for negative logical minimum
         uint32_t sign_bit = 1UL << (bit_size - 1);
@@ -107,23 +112,34 @@ static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t lo
         }
     }
 
-    // Clamp to logical range
-    if (signed_value < logical_min)
-        signed_value = logical_min;
-    if (signed_value > logical_max)
-        signed_value = logical_max;
+    // Clamp to actual logical range
+    if (signed_value < actual_min)
+        signed_value = actual_min;
+    if (signed_value > actual_max)
+        signed_value = actual_max;
 
     // Scale to 0-255 range
-    int32_t range = logical_max - logical_min;
+    int32_t range = actual_max - actual_min;
     if (range == 0)
         return 127; // Avoid division by zero
 
-    int32_t normalized = signed_value - logical_min;
-    return (uint8_t)((normalized * 255) / range);
+    int32_t normalized = signed_value - actual_min;
+    uint8_t result = (uint8_t)((normalized * 255) / range);
+
+    // Apply polarity reversal if needed
+    if (reversed)
+        result = 255 - result;
+
+    return result;
 }
 
 static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
+    // Check for polarity reversal (logical_min > logical_max)
+    bool reversed = logical_min > logical_max;
+    int32_t actual_min = reversed ? logical_max : logical_min;
+    int32_t actual_max = reversed ? logical_min : logical_max;
+
     // Handle signed values by treating them as such
     int32_t signed_value;
     if (bit_size <= 8)
@@ -140,7 +156,7 @@ static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int3
     }
 
     // If the value appears to be outside the expected range, extend sign
-    if (logical_min < 0 && bit_size < 32)
+    if (actual_min < 0 && bit_size < 32)
     {
         // Sign extend for negative logical minimum
         uint32_t sign_bit = 1UL << (bit_size - 1);
@@ -153,38 +169,46 @@ static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int3
             signed_value = (int32_t)raw_value;
         }
     }
-    else if (logical_min >= 0)
+    else if (actual_min >= 0)
     {
         // For unsigned logical ranges (like 0-255), treat raw_value as unsigned
         signed_value = (int32_t)raw_value;
     }
 
-    // Clamp to logical range
-    if (signed_value < logical_min)
-        signed_value = logical_min;
-    if (signed_value > logical_max)
-        signed_value = logical_max;
+    // Clamp to actual logical range
+    if (signed_value < actual_min)
+        signed_value = actual_min;
+    if (signed_value > actual_max)
+        signed_value = actual_max;
 
     // Scale to -128 to 127 range
-    int32_t range = logical_max - logical_min;
+    int32_t range = actual_max - actual_min;
     if (range == 0)
         return 0; // Avoid division by zero
 
+    int8_t result;
+
     // For unsigned logical ranges, map the center to 0
-    if (logical_min >= 0)
+    if (actual_min >= 0)
     {
         // Map logical range to -128 to 127, with center at 0
-        int32_t center = logical_min + range / 2;
+        int32_t center = actual_min + range / 2;
         int32_t offset = signed_value - center;
         // Scale the offset to fit in -128 to 127 range
-        return (int8_t)((offset * 255) / range);
+        result = (int8_t)((offset * 255) / range);
     }
     else
     {
         // For signed logical ranges, use standard scaling
-        int32_t normalized = signed_value - logical_min;
-        return (int8_t)((normalized * 255) / range - 128);
+        int32_t normalized = signed_value - actual_min;
+        result = (int8_t)((normalized * 255) / range - 128);
     }
+
+    // Apply polarity reversal if needed
+    if (reversed)
+        result = 255 - result;
+
+    return result;
 }
 
 static uint8_t pad_encode_hat(int8_t x_raw, int8_t y_raw)
@@ -346,7 +370,7 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
     if ((buttons & (1 << 9)) && (gamepad_report->ry == 0))
         gamepad_report->ry = 255;
 
-    // If L2/R2 analog movement ensure button press
+    // If L2/R2 analog movement, ensure button press
     if (gamepad_report->rx > PAD_DEADZONE)
         gamepad_report->button1 |= (1 << 0); // L2 (bit 8 -> button1 bit 0)
     if (gamepad_report->ry > PAD_DEADZONE)
