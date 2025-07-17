@@ -12,8 +12,7 @@
 
 /* Xbox One XInput protocol support
  *
- * Uses device-level mount callbacks to detect Xbox controllers
- * and handle them through a virtual HID interface
+ * Implements a TinyUSB class driver for Xbox controllers
  */
 
 /* Kernel events
