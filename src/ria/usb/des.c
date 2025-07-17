@@ -65,29 +65,29 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     // Share, Options, L3, R3, PS, Touchpad
 
     .button_offsets = {
-        // Xbox One Gamepad Input Protocol button layout (bytes 2-5, after 2-byte GIP header)
-        4 * 8 + 0, // A button (bit 0 of byte 4)
-        4 * 8 + 1, // B button (bit 1 of byte 4)
-        4 * 8 + 2, // X button (bit 2 of byte 4)
-        4 * 8 + 3, // Y button (bit 3 of byte 4)
-        4 * 8 + 4, // Left shoulder (bit 4 of byte 4)
-        4 * 8 + 5, // Right shoulder (bit 5 of byte 4)
-        3 * 8 + 2, // View/Back button (bit 2 of byte 3)
-        3 * 8 + 3, // Menu/Start button (bit 3 of byte 3)
+        // Xbox One Gamepad Input Protocol button layout (GIP_CMD_INPUT reports)
+        4 * 8 + 4, // A button (bit 4 of byte 4)
+        4 * 8 + 5, // B button (bit 5 of byte 4)
+        4 * 8 + 6, // X button (bit 6 of byte 4)
+        4 * 8 + 7, // Y button (bit 7 of byte 4)
+        5 * 8 + 4, // Left shoulder/LB (bit 4 of byte 5)
+        5 * 8 + 5, // Right shoulder/RB (bit 5 of byte 5)
+        4 * 8 + 3, // View/Select button (bit 3 of byte 4)
+        4 * 8 + 2, // Menu/Start button (bit 2 of byte 4)
         //
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        5 * 8 + 0, // Left stick click (bit 0 of byte 5)
-        5 * 8 + 1, // Right stick click (bit 1 of byte 5)
-        3 * 8 + 0, // Xbox guide button (bit 0 of byte 3)
+        5 * 8 + 6, // Left stick click (bit 6 of byte 5)
+        5 * 8 + 7, // Right stick click (bit 7 of byte 5)
+        0xFFFF,    // Xbox guide button (sent via separate GIP_CMD_VIRTUAL_KEY report)
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        2 * 8 + 0, // D-pad Up (bit 0 of byte 2)
-        2 * 8 + 1, // D-pad Down (bit 1 of byte 2)
-        2 * 8 + 2, // D-pad Left (bit 2 of byte 2)
-        2 * 8 + 3, // D-pad Right (bit 3 of byte 2)
+        5 * 8 + 0, // D-pad Up (bit 0 of byte 5)
+        5 * 8 + 1, // D-pad Down (bit 1 of byte 5)
+        5 * 8 + 2, // D-pad Left (bit 2 of byte 5)
+        5 * 8 + 3, // D-pad Right (bit 3 of byte 5)
     }};
 
 // Xbox 360 controllers use a different report structure than Xbox One:

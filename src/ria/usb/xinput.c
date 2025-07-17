@@ -256,12 +256,12 @@ bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, ui
 
     if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0)
     {
-        DBG("XInput: Received %lu bytes from slot %d: ", xferred_bytes, slot);
-        for (uint32_t i = 0; i < xferred_bytes && i < 20; i++) // Show first 20 bytes
-        {
-            DBG("%02X ", xbox_devices[slot].report_buffer[i]);
-        }
-        DBG("\n");
+        // DBG("XInput: Received %lu bytes from slot %d: ", xferred_bytes, slot);
+        // for (uint32_t i = 0; i < xferred_bytes && i < 20; i++) // Show first 20 bytes
+        // {
+        //     DBG("%02X ", xbox_devices[slot].report_buffer[i]);
+        // }
+        // DBG("\n");
 
         // Check if this is a GIP message and what type
         if (xferred_bytes >= 3 && xbox_devices[slot].report_buffer[0] == 0x02)
@@ -273,7 +273,7 @@ bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, ui
             }
             else if (flags == 0x01)
             {
-                DBG("XInput: Received GIP input report - processing\n");
+                // DBG("XInput: Received GIP input report - processing\n");
                 // Process the Xbox controller data
                 pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
             }
