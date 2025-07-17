@@ -59,8 +59,76 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
     .hat_size = 0,
     .hat_logical_min = 0,
     .hat_logical_max = 0,
+
+    // DS4 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2,
+    // Share, Options, L3, R3, PS, Touchpad
+
     .button_offsets = {
-        // Xbox One GIP report button layout based on GP2040-CE XBOneDescriptors.h
+        // Xbox One Gamepad Input Protocol button layout
+        2 * 8 + 0, // A button
+        2 * 8 + 1, // B button
+        2 * 8 + 2, // X button
+        2 * 8 + 3, // Y button
+        2 * 8 + 4, // Left shoulder - L1 mapping
+        2 * 8 + 5, // Right shoulder - R1 mapping
+        0xFFFF,    // L2
+        0xFFFF,    // R2
+        //
+        1 * 8 + 2, // View/Back button (byte 1, bit 2) - S1 mapping
+        1 * 8 + 3, // Menu/Start button (byte 1, bit 3) - S2 mapping
+        2 * 8 + 6, // Left stick click (byte 2, bit 6) - L3 mapping
+        2 * 8 + 7, // Right stick click (byte 2, bit 7) - R3 mapping
+        0xFFFF,    // Xbox guide button sent by virtual keycode TODO
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        //
+        1 * 8 + 0, // D-pad Up (byte 1, bit 0)
+        1 * 8 + 1, // D-pad Down (byte 1, bit 1)
+        1 * 8 + 4, // D-pad Left (byte 1, bit 4)
+        1 * 8 + 5, // D-pad Right (byte 1, bit 5)
+    }};
+
+// Xbox 360 controllers use a different report structure than Xbox One:
+// - No report ID for input reports
+// - 16-bit signed analog stick values
+// - 8-bit trigger values (0-255)
+// - D-pad as individual button bits (not hat switch)
+// - Different button layout and offsets
+static const pad_descriptor_t __in_flash("hid_descriptors") xbox_360_descriptor = {
+    .valid = true,
+    .sony = false,
+    .report_id = 0,    // Xbox 360 uses no report ID for input reports
+    .x_offset = 6 * 8, // Byte 6 (left stick X) - 16-bit signed
+    .x_size = 16,
+    .x_logical_min = -32768, // 16-bit signed range
+    .x_logical_max = 32767,
+    .y_offset = 8 * 8, // Byte 8 (left stick Y) - 16-bit signed
+    .y_size = 16,
+    .y_logical_min = -32768, // 16-bit signed range
+    .y_logical_max = 32767,
+    .z_offset = 10 * 8, // Byte 10 (right stick X) - 16-bit signed
+    .z_size = 16,
+    .z_logical_min = -32768, // 16-bit signed range
+    .z_logical_max = 32767,
+    .rz_offset = 12 * 8, // Byte 12 (right stick Y) - 16-bit signed
+    .rz_size = 16,
+    .rz_logical_min = -32768, // 16-bit signed range
+    .rz_logical_max = 32767,
+    .rx_offset = 4 * 8, // Byte 4 (left trigger) - 8-bit unsigned
+    .rx_size = 8,
+    .rx_logical_min = 0, // Triggers are unsigned 0-255 (8-bit)
+    .rx_logical_max = 255,
+    .ry_offset = 5 * 8, // Byte 5 (right trigger) - 8-bit unsigned
+    .ry_size = 8,
+    .ry_logical_min = 0, // Triggers are unsigned 0-255 (8-bit)
+    .ry_logical_max = 255,
+    .hat_offset = 0, // Xbox 360 uses individual dpad buttons, not hat switch
+    .hat_size = 0,
+    .hat_logical_min = 0,
+    .hat_logical_max = 0,
+    .button_offsets = {
+        // Xbox 360 button layout based on XInput standard
         // Byte 2 contains A, B, X, Y buttons
         2 * 8 + 0, // A button (byte 2, bit 0) - B1 mapping
         2 * 8 + 1, // B button (byte 2, bit 1) - B2 mapping
@@ -68,18 +136,23 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
         2 * 8 + 3, // Y button (byte 2, bit 3) - B4 mapping
         2 * 8 + 4, // Left shoulder (byte 2, bit 4) - L1 mapping
         2 * 8 + 5, // Right shoulder (byte 2, bit 5) - R1 mapping
-        // L2/R2 are analog triggers, mapped through rx/ry
         0xFFFF,    // L2 (analog trigger)
         0xFFFF,    // R2 (analog trigger)
-        1 * 8 + 2, // View/Back button (byte 1, bit 2) - S1 mapping
-        1 * 8 + 3, // Menu/Start button (byte 1, bit 3) - S2 mapping
-        2 * 8 + 6, // Left stick click (byte 2, bit 6) - L3 mapping
-        2 * 8 + 7, // Right stick click (byte 2, bit 7) - R3 mapping
-        // Guide button is handled separately via virtual keycode
-        0xFFFF, // Guide (A1) - handled separately
-        0xFFFF, // A2 - unused
-        0xFFFF, // Extra buttons unused
-        0xFFFF}};
+        //
+        2 * 8 + 6, // Back button (byte 2, bit 6) - S1 mapping
+        2 * 8 + 7, // Start button (byte 2, bit 7) - S2 mapping
+        3 * 8 + 6, // Left stick click (byte 3, bit 6) - L3 mapping
+        3 * 8 + 7, // Right stick click (byte 3, bit 7) - R3 mapping
+        0xFFFF,    // Xbox guide button sent by virtual keycode TODO
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        //
+        3 * 8 + 0, // D-pad Up (byte 3, bit 0)
+        3 * 8 + 1, // D-pad Down (byte 3, bit 1)
+        3 * 8 + 2, // D-pad Left (byte 3, bit 2)
+        3 * 8 + 3  // D-pad Right (byte 3, bit 3)
+    }};
 
 static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
     .valid = true,
@@ -114,10 +187,12 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
     .hat_logical_min = 0, // Hat values 0-7, 8=none
     .hat_logical_max = 8,
     .button_offsets = {
-        // DS4 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2, Share, Options, L3, R3, PS, Touchpad
-        37, 38, 36, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-        // Mark unused buttons with 0xFFFF
-        0xFFFF, 0xFFFF}};
+        // X, Circle, Square, Triangle, L1, R1, L2, R2
+        37, 38, 36, 39, 40, 41, 42, 43,
+        // Share, Options, L3, R3, PS, Touchpad, Unused, Unused
+        44, 45, 46, 47, 48, 49, 0xFFFF, 0xFFFF,
+        // Hat buttons computed from HID hat
+        0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
 static void des_sony_ds4_controller(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
@@ -174,10 +249,12 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds5_descriptor = {
     .hat_logical_min = 0, // Hat values 0-7, 8=none
     .hat_logical_max = 8,
     .button_offsets = {
-        // DS5 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2, Create, Options, L3, R3, PS, Touchpad
-        61, 62, 60, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
-        // Mark unused buttons with 0xFFFF
-        0xFFFF, 0xFFFF}};
+        // X, Circle, Square, Triangle, L1, R1, L2, R2
+        61, 62, 60, 63, 64, 65, 66, 67,
+        // Create, Options, L3, R3, PS, Touchpad, Unused, Unused
+        68, 69, 70, 71, 72, 73, 0xFFFF, 0xFFF,
+        // Hat buttons computed from HID hat
+        0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
 static void des_sony_ds5_controller(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
@@ -319,7 +396,7 @@ void des_report_descriptor(pad_descriptor_t *desc,
             *desc = xbox_one_descriptor;
             break;
         case 2:
-            // *desc = xbox_360_descriptor; // TODO
+            *desc = xbox_360_descriptor;
             break;
         }
         if (desc->valid)

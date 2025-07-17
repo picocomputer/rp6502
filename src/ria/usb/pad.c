@@ -103,12 +103,15 @@ static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t lo
     }
 
     // Clamp to logical range
-    if (signed_value < logical_min) signed_value = logical_min;
-    if (signed_value > logical_max) signed_value = logical_max;
+    if (signed_value < logical_min)
+        signed_value = logical_min;
+    if (signed_value > logical_max)
+        signed_value = logical_max;
 
     // Scale to 0-255 range
     int32_t range = logical_max - logical_min;
-    if (range == 0) return 127; // Avoid division by zero
+    if (range == 0)
+        return 127; // Avoid division by zero
 
     int32_t normalized = signed_value - logical_min;
     return (uint8_t)((normalized * 255) / range);
@@ -152,12 +155,15 @@ static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int3
     }
 
     // Clamp to logical range
-    if (signed_value < logical_min) signed_value = logical_min;
-    if (signed_value > logical_max) signed_value = logical_max;
+    if (signed_value < logical_min)
+        signed_value = logical_min;
+    if (signed_value > logical_max)
+        signed_value = logical_max;
 
     // Scale to -128 to 127 range
     int32_t range = logical_max - logical_min;
-    if (range == 0) return 0; // Avoid division by zero
+    if (range == 0)
+        return 0; // Avoid division by zero
 
     // For unsigned logical ranges, map the center to 0
     if (logical_min >= 0)
@@ -231,141 +237,39 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
 
     pad_descriptor_t *desc = &pad_players[player];
 
-    // Check if this is an Xbox One controller (detect by report structure)
-    bool is_xbox_one = (desc->hat_size == 0 && desc->x_size == 16 && desc->y_size == 16 &&
-                        desc->z_size == 16 && desc->rz_size == 16 && desc->rx_size == 16);
-
     // Extract analog sticks
     if (desc->x_size > 0)
     {
         uint32_t raw_x = pad_extract_bits(report, report_len, desc->x_offset, desc->x_size);
-        if (is_xbox_one && desc->x_size == 16)
-        {
-            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
-            int16_t signed_x = (int16_t)raw_x;
-            gamepad_report->x = (int8_t)(signed_x >> 8);
-        }
-        else
-        {
-            gamepad_report->x = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
-        }
+        gamepad_report->x = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
     }
     if (desc->y_size > 0)
     {
         uint32_t raw_y = pad_extract_bits(report, report_len, desc->y_offset, desc->y_size);
-        if (is_xbox_one && desc->y_size == 16)
-        {
-            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
-            int16_t signed_y = (int16_t)raw_y;
-            gamepad_report->y = (int8_t)(signed_y >> 8);
-        }
-        else
-        {
-            gamepad_report->y = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
-        }
+        gamepad_report->y = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
     }
     if (desc->z_size > 0)
     {
         uint32_t raw_z = pad_extract_bits(report, report_len, desc->z_offset, desc->z_size);
-        if (is_xbox_one && desc->z_size == 16)
-        {
-            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
-            int16_t signed_z = (int16_t)raw_z;
-            gamepad_report->z = (int8_t)(signed_z >> 8);
-        }
-        else
-        {
-            gamepad_report->z = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
-        }
+        gamepad_report->z = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
     }
     if (desc->rz_size > 0)
     {
         uint32_t raw_rz = pad_extract_bits(report, report_len, desc->rz_offset, desc->rz_size);
-        if (is_xbox_one && desc->rz_size == 16)
-        {
-            // Xbox One uses 16-bit signed values, convert to signed 8-bit range
-            int16_t signed_rz = (int16_t)raw_rz;
-            gamepad_report->rz = (int8_t)(signed_rz >> 8);
-        }
-        else
-        {
-            gamepad_report->rz = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
-        }
+        gamepad_report->rz = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
     }
 
     // Extract triggers
     if (desc->rx_size > 0)
     {
         uint32_t raw_rx = pad_extract_bits(report, report_len, desc->rx_offset, desc->rx_size);
-        if (is_xbox_one && desc->rx_size == 16)
-        {
-            // Xbox One uses 16-bit trigger values (10-bit actual), scale to 8-bit
-            gamepad_report->rx = (uint8_t)(raw_rx >> 2); // Scale down from 10-bit to 8-bit
-        }
-        else
-        {
-            gamepad_report->rx = pad_scale_analog(raw_rx, desc->rx_size, desc->rx_logical_min, desc->rx_logical_max);
-        }
+        gamepad_report->rx = pad_scale_analog(raw_rx, desc->rx_size, desc->rx_logical_min, desc->rx_logical_max);
     }
     if (desc->ry_size > 0)
     {
         uint32_t raw_ry = pad_extract_bits(report, report_len, desc->ry_offset, desc->ry_size);
-        if (is_xbox_one && desc->ry_size == 16)
-        {
-            // Xbox One uses 16-bit trigger values (10-bit actual), scale to 8-bit
-            gamepad_report->ry = (uint8_t)(raw_ry >> 2); // Scale down from 10-bit to 8-bit
-        }
-        else
-        {
-            gamepad_report->ry = pad_scale_analog(raw_ry, desc->ry_size, desc->ry_logical_min, desc->ry_logical_max);
-        }
+        gamepad_report->ry = pad_scale_analog(raw_ry, desc->ry_size, desc->ry_logical_min, desc->ry_logical_max);
     }
-
-    // Extract D-pad/hat
-    if (is_xbox_one)
-    {
-        // Xbox One sends D-pad as individual button bits in byte 1
-        uint8_t dpad_byte = (report_len > 1) ? report[1] : 0;
-        uint8_t hat_value = 8; // Default to no press
-
-        bool up = (dpad_byte & (1 << 0)) != 0;
-        bool down = (dpad_byte & (1 << 1)) != 0;
-        bool left = (dpad_byte & (1 << 2)) != 0;
-        bool right = (dpad_byte & (1 << 3)) != 0;
-
-        // Convert individual dpad buttons to hat values (0-7 clockwise from north, 8=no press)
-        if (up && !down && !left && !right)
-            hat_value = 0; // North
-        else if (up && !down && !left && right)
-            hat_value = 1; // North-East
-        else if (!up && !down && !left && right)
-            hat_value = 2; // East
-        else if (!up && down && !left && right)
-            hat_value = 3; // South-East
-        else if (!up && down && !left && !right)
-            hat_value = 4; // South
-        else if (!up && down && left && !right)
-            hat_value = 5; // South-West
-        else if (!up && !down && left && !right)
-            hat_value = 6; // West
-        else if (up && !down && left && !right)
-            hat_value = 7; // North-West
-
-        gamepad_report->hat = hat_value;
-    }
-    else if (desc->hat_size > 0)
-    {
-        uint32_t raw_hat = pad_extract_bits(report, report_len, desc->hat_offset, desc->hat_size);
-        if (raw_hat > 8)
-            raw_hat = 8;
-        gamepad_report->hat = (uint8_t)raw_hat;
-    }
-
-    // Add feature bits to hat
-    if (desc->valid)
-        gamepad_report->hat |= 0x80;
-    if (desc->sony)
-        gamepad_report->hat |= 0x40;
 
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
@@ -374,6 +278,26 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
             buttons |= (1UL << i);
     gamepad_report->button0 = buttons & 0xFF;
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
+
+    // Extract D-pad/hat
+    if (desc->hat_size > 0)
+    {
+        uint32_t raw_hat = pad_extract_bits(report, report_len, desc->hat_offset, desc->hat_size);
+        if (raw_hat > 8)
+            raw_hat = 8;
+        // TODO raw_hat need to be in xbox up/down/left/right format
+        gamepad_report->hat = (uint8_t)raw_hat;
+    }
+    else
+    {
+        gamepad_report->hat = (buttons & 0xF0000) >> 16;
+    }
+
+    // Add feature bits to hat
+    if (desc->valid)
+        gamepad_report->hat |= 0x80;
+    if (desc->sony)
+        gamepad_report->hat |= 0x40;
 
     // Generate hat values for sticks
     uint8_t hat_l = pad_encode_hat(gamepad_report->x, gamepad_report->y);

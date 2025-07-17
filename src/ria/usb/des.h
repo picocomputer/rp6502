@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define PAD_MAX_BUTTONS 16
+#define PAD_MAX_BUTTONS 20
 
 // HID Report Descriptor parsing state
 typedef struct
