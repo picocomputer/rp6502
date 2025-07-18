@@ -46,12 +46,8 @@ static const des_gamepad_t __in_flash("hid_descriptors") xbox_one_descriptor = {
     .ry_size = 10,
     .ry_logical_min = 0,
     .ry_logical_max = 1023,
-
-    // DS4 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2,
-    // Share, Options, L3, R3, PS, Touchpad
-
     .button_offsets = {
-        // Xbox One Gamepad Input Protocol buttons (byte * 8 + bit):
+        // Xbox One Gamepad Input Protocol buttons
         3 * 8 + 4, // A button
         3 * 8 + 5, // B button
         3 * 8 + 6, // X button
@@ -110,7 +106,7 @@ static const des_gamepad_t __in_flash("hid_descriptors") xbox_360_descriptor = {
     .ry_logical_min = 0,
     .ry_logical_max = 255,
     .button_offsets = {
-        // Xbox 360 USB report button layout (byte * 8 + bit):
+        // Xbox 360 USB report button layout
         3 * 8 + 4, // A button
         3 * 8 + 5, // B button
         3 * 8 + 6, // X button
@@ -139,34 +135,34 @@ static const des_gamepad_t __in_flash("hid_descriptors") ds4_descriptor = {
     .valid = true,
     .sony = true,
     .report_id = 1,
-    .x_offset = 0 * 8, // Byte 0 (left stick X) - after report ID is stripped
+    .x_offset = 0 * 8, // left stick X
     .x_size = 8,
-    .x_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .x_logical_min = 0,
     .x_logical_max = 255,
-    .y_offset = 1 * 8, // Byte 1 (left stick Y)
+    .y_offset = 1 * 8, // left stick Y
     .y_size = 8,
-    .y_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .y_logical_min = 0,
     .y_logical_max = 255,
-    .z_offset = 2 * 8, // Byte 2 (right stick X)
+    .z_offset = 2 * 8, // right stick X
     .z_size = 8,
-    .z_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .z_logical_min = 0,
     .z_logical_max = 255,
-    .rz_offset = 3 * 8, // Byte 3 (right stick Y)
+    .rz_offset = 3 * 8, // right stick Y
     .rz_size = 8,
-    .rz_logical_min = 0, // DS4 uses 8-bit unsigned 0-255
+    .rz_logical_min = 0,
     .rz_logical_max = 255,
-    .rx_offset = 7 * 8, // Byte 7 (L2 trigger) - after report ID is stripped
+    .rx_offset = 7 * 8, // L2 trigger
     .rx_size = 8,
-    .rx_logical_min = 0, // DS4 triggers are 8-bit unsigned 0-255
+    .rx_logical_min = 0,
     .rx_logical_max = 255,
-    .ry_offset = 8 * 8, // Byte 8 (R2 trigger)
+    .ry_offset = 8 * 8, // R2 trigger
     .ry_size = 8,
-    .ry_logical_min = 0, // DS4 triggers are 8-bit unsigned 0-255
+    .ry_logical_min = 0,
     .ry_logical_max = 255,
-    .hat_offset = 4 * 8, // Byte 4, lower nibble (D-pad)
+    .hat_offset = 4 * 8, // D-pad
     .hat_size = 4,
-    .hat_logical_min = 0, // Hat values 0-7, 8=none
-    .hat_logical_max = 8,
+    .hat_logical_min = 0,
+    .hat_logical_max = 7,
     .button_offsets = {
         // X, Circle, Square, Triangle, L1, R1, Share, Options
         37, 38, 36, 39, 40, 41, 44, 45,
@@ -201,34 +197,34 @@ static const des_gamepad_t __in_flash("hid_descriptors") ds5_descriptor = {
     .valid = true,
     .sony = true,
     .report_id = 1,
-    .x_offset = 0 * 8, // Byte 0 (left stick X) - after report ID is stripped
+    .x_offset = 0 * 8, // left stick X
     .x_size = 8,
-    .x_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .x_logical_min = 0,
     .x_logical_max = 255,
-    .y_offset = 1 * 8, // Byte 1 (left stick Y)
+    .y_offset = 1 * 8, // left stick Y
     .y_size = 8,
-    .y_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .y_logical_min = 0,
     .y_logical_max = 255,
-    .z_offset = 2 * 8, // Byte 2 (right stick X)
+    .z_offset = 2 * 8, // right stick X
     .z_size = 8,
-    .z_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .z_logical_min = 0,
     .z_logical_max = 255,
-    .rz_offset = 3 * 8, // Byte 3 (right stick Y)
+    .rz_offset = 3 * 8, // right stick Y
     .rz_size = 8,
-    .rz_logical_min = 0, // DS5 uses 8-bit unsigned 0-255
+    .rz_logical_min = 0,
     .rz_logical_max = 255,
-    .rx_offset = 4 * 8, // Byte 4 (L2 trigger) - after report ID is stripped
+    .rx_offset = 4 * 8, // L2 trigger
     .rx_size = 8,
-    .rx_logical_min = 0, // DS5 triggers are 8-bit unsigned 0-255
+    .rx_logical_min = 0,
     .rx_logical_max = 255,
-    .ry_offset = 5 * 8, // Byte 5 (R2 trigger)
+    .ry_offset = 5 * 8, // R2 trigger
     .ry_size = 8,
-    .ry_logical_min = 0, // DS5 triggers are 8-bit unsigned 0-255
+    .ry_logical_min = 0,
     .ry_logical_max = 255,
-    .hat_offset = 7 * 8, // Byte 7, lower nibble (D-pad)
+    .hat_offset = 7 * 8, // D-pad
     .hat_size = 4,
-    .hat_logical_min = 0, // Hat values 0-7, 8=none
-    .hat_logical_max = 8,
+    .hat_logical_min = 0,
+    .hat_logical_max = 7,
     .button_offsets = {
         // X, Circle, Square, Triangle, L1, R1, Create, Options
         61, 62, 60, 63, 64, 65, 68, 69,

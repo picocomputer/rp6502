@@ -302,7 +302,7 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
 
     // Extract D-pad/hat
-    if (desc->hat_size > 0)
+    if (desc->hat_size == 4 && desc->hat_logical_min == 0 && desc->hat_logical_max == 7)
     {
         // Standard HID hat switch - convert to individual button format
         uint32_t raw_hat = pad_extract_bits(report, report_len, desc->hat_offset, desc->hat_size);
