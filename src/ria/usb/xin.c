@@ -191,17 +191,17 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     int slot = xin_find_device_slot(dev_addr);
     if (slot < 0)
         return false;
+    xbox_device_t *device = &xbox_devices[slot];
 
     // If this is Xbox One, send init command
-    if (xbox_devices[slot].is_xbox_one)
+    if (device->is_xbox_one)
     {
         // Xbox One GIP initialization packet to start input reports
         static const uint8_t xbox_one_init[] = {
-            0x05, 0x20, 0x00, 0x01, 0x00 // GIP command to enable input reports
-        };
+            0x05, 0x20, 0x00, 0x01, 0x00};
         tuh_xfer_t xfer = {
             .daddr = dev_addr,
-            .ep_addr = xbox_devices[slot].ep_out,
+            .ep_addr = device->ep_out,
             .buflen = sizeof(xbox_one_init),
             .buffer = (void *)xbox_one_init,
             .complete_cb = NULL,
