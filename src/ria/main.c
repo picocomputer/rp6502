@@ -33,6 +33,7 @@
 #include "usb/kbd.h"
 #include "usb/mou.h"
 #include "usb/pad.h"
+#include "usb/xin.h"
 
 /**************************************/
 /* All kernel modules register below. */
@@ -90,6 +91,7 @@ void main_task(void)
     cyw_task();
     wfi_task();
     ntp_task();
+    xin_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().

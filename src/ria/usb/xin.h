@@ -15,6 +15,8 @@
  * Implements a TinyUSB class driver for Xbox controllers
  */
 
+void xin_task(void);
+
 bool xin_is_xbox_one(uint8_t dev_addr);
 bool xin_is_xbox_360(uint8_t dev_addr);
 

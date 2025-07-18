@@ -10,6 +10,7 @@
 #include "usb/pad.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
+#include "common/tusb_common.h"
 #include <string.h>
 
 #define DEBUG_RIA_USB_XIN
@@ -209,11 +210,24 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
         if (!tuh_edpt_xfer(&xfer))
             DBG("XInput: Failed to send Xbox One init command\n");
     }
+    else
+    {
+        // Xbox 360 activation command, sets player LED
+        uint8_t led_cmd[] = {
+            0x01, 0x03, (uint8_t)(0x08 + (slot & 0x03))};
+        tuh_xfer_t led_xfer = {
+            .daddr = dev_addr,
+            .ep_addr = device->ep_out,
+            .buflen = sizeof(led_cmd),
+            .buffer = led_cmd,
+            .complete_cb = NULL,
+            .user_data = (uintptr_t)slot};
+        if (!tuh_edpt_xfer(&led_xfer))
+            DBG("XInput: Failed to send LED command\n");
+    }
 
-    // Configuration complete
     DBG("XInput: Configuration complete for slot %d\n", slot);
     usbh_driver_set_config_complete(dev_addr, itf_num);
-
     return true;
 }
 
@@ -282,4 +296,9 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 {
     *driver_count = 1;
     return &xin_class_driver;
+}
+
+void xin_task(void)
+{
+    // TODO
 }
