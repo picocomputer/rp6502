@@ -17,12 +17,13 @@
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define DBG(...) \
-    {            \
-    }
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+// c'mon tusb, there has to be a better way
+#define XIN_360_DELAY_MS 1000
 
 // Xbox controller tracking
 typedef struct
@@ -33,6 +34,8 @@ typedef struct
     uint8_t ep_in;
     uint8_t ep_out;
     uint8_t report_buffer[64]; // XInput max 64 bytes
+    bool start_360_pending;
+    uint32_t start_360_ms;
 } xbox_device_t;
 
 static xbox_device_t xbox_devices[PAD_MAX_PLAYERS];
@@ -192,16 +195,17 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     int slot = xin_find_device_slot(dev_addr);
     if (slot < 0)
         return false;
+
     xbox_device_t *device = &xbox_devices[slot];
 
-    // If this is Xbox One, send init command
+    // Send initialization packet after config is set
     if (device->is_xbox_one)
     {
         // Xbox One GIP initialization packet to start input reports
         static const uint8_t xbox_one_init[] = {
             0x05, 0x20, 0x00, 0x01, 0x00};
         tuh_xfer_t xfer = {
-            .daddr = dev_addr,
+            .daddr = device->dev_addr,
             .ep_addr = device->ep_out,
             .buflen = sizeof(xbox_one_init),
             .buffer = (void *)xbox_one_init,
@@ -212,18 +216,9 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     }
     else
     {
-        // Xbox 360 activation command, sets player LED
-        uint8_t led_cmd[] = {
-            0x01, 0x03, (uint8_t)(0x08 + (slot & 0x03))};
-        tuh_xfer_t led_xfer = {
-            .daddr = dev_addr,
-            .ep_addr = device->ep_out,
-            .buflen = sizeof(led_cmd),
-            .buffer = led_cmd,
-            .complete_cb = NULL,
-            .user_data = (uintptr_t)slot};
-        if (!tuh_edpt_xfer(&led_xfer))
-            DBG("XInput: Failed to send LED command\n");
+        // Defer Xbox 360 LED command which starts the in transfers
+        device->start_360_pending = true;
+        device->start_360_ms = to_ms_since_boot(get_absolute_time()) + XIN_360_DELAY_MS;
     }
 
     DBG("XInput: Configuration complete for slot %d\n", slot);
@@ -300,5 +295,25 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 
 void xin_task(void)
 {
-    // TODO
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    for (int slot = 0; slot < PAD_MAX_PLAYERS; ++slot)
+    {
+        xbox_device_t *device = &xbox_devices[slot];
+        if (device->valid && device->start_360_pending && now >= device->start_360_ms)
+        {
+            device->start_360_pending = false;
+            uint8_t led_cmd[] = {0x01, 0x03, (uint8_t)(0x08 + (slot & 0x03))};
+            tuh_xfer_t led_xfer = {
+                .daddr = device->dev_addr,
+                .ep_addr = device->ep_out,
+                .buflen = sizeof(led_cmd),
+                .buffer = led_cmd,
+                .complete_cb = NULL,
+                .user_data = (uintptr_t)slot};
+            if (!tuh_edpt_xfer(&led_xfer))
+                DBG("XInput: Failed to send deferred LED command\n");
+            else
+                DBG("XInput: Sent deferred Xbox 360 LED command for slot %d\n", slot);
+        }
+    }
 }

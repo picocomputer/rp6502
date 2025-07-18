@@ -17,9 +17,7 @@
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
 #else
-#define DBG(...) \
-    {            \
-    }
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 static uint8_t hid_dev_addr[CFG_TUH_HID];

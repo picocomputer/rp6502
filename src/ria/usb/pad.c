@@ -17,9 +17,7 @@
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
 #else
-#define DBG(...) \
-    {            \
-    }
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // hat bits: 0-up, 1-down, 2-left, 3-right
