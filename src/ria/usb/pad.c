@@ -11,9 +11,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define DEBUG_RIA_USB_PAD
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_PAD)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif

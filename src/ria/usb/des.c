@@ -10,14 +10,16 @@
 #include "usb/xin.h"
 #include <string.h>
 
+#define DEBUG_RIA_USB_DES
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static const des_gamepad_t __in_flash("hid_descriptors") xbox_one_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") des_xbox_one = {
     .valid = true,
     .report_id = 0x20, // GIP message ID
     .x_offset = 9 * 8, // left stick X
@@ -76,7 +78,7 @@ static const des_gamepad_t __in_flash("hid_descriptors") xbox_one_descriptor = {
 // - 8-bit trigger values (0-255)
 // - D-pad as individual button bits (not hat switch)
 // - Different button layout and offsets
-static const des_gamepad_t __in_flash("hid_descriptors") xbox_360_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") des_xbox_360 = {
     .valid = true,
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
     .x_offset = 6 * 8, // left stick X
@@ -129,7 +131,7 @@ static const des_gamepad_t __in_flash("hid_descriptors") xbox_360_descriptor = {
         2 * 8 + 3  // D-pad Right
     }};
 
-static const des_gamepad_t __in_flash("hid_descriptors") ds4_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") des_sony_ds4 = {
     .valid = true,
     .sony = true,
     .report_id = 1,
@@ -169,7 +171,7 @@ static const des_gamepad_t __in_flash("hid_descriptors") ds4_descriptor = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
+static bool des_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
     {
@@ -185,7 +187,7 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         case 0x0E04: // DualShock 4 (rare, but reported)
         case 0x0E6F: // DualShock 4 (special edition, sometimes used for DS4)
         case 0x0EBA: // DualShock 4 (special edition, sometimes used for DS4)
-            *desc = ds4_descriptor;
+            return true;
         }
     }
     if (vendor_id == 0x0C12) // Zeroplus/Cirka
@@ -195,7 +197,7 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         case 0x1E1A: // Cirka Wired Controller
         case 0x0E10: // Zeroplus PS4 compatible controller
         case 0x0E20: // Zeroplus PS4 compatible controller (alternate)
-            *desc = ds4_descriptor;
+            return true;
         }
     }
     if (vendor_id == 0x20D6) // PowerA
@@ -203,7 +205,7 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         switch (product_id)
         {
         case 0xA711: // PowerA PS4 Wired Controller
-            *desc = ds4_descriptor;
+            return true;
         }
     }
     if (vendor_id == 0x24C6) // PowerA (formerly BDA, LLC)
@@ -211,7 +213,7 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         switch (product_id)
         {
         case 0x5501: // PowerA PS4 Wired Controller
-            *desc = ds4_descriptor;
+            return true;
         }
     }
     if (vendor_id == 0x0F0D) // Hori
@@ -225,13 +227,14 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         case 0x00EE: // Hori PS4 Fighting Commander
         case 0x00F6: // Hori PS4 Mini Gamepad (alternate)
         case 0x00F7: // Hori PS4 Mini Gamepad (alternate)
-            *desc = ds4_descriptor;
+            return true;
         }
     }
+    return false;
 }
 
 // TODO this is untested as I don't have a DS5 gamepad
-static const des_gamepad_t __in_flash("hid_descriptors") ds5_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") des_sony_ds5 = {
     .valid = true,
     .sony = true,
     .report_id = 1,
@@ -271,7 +274,7 @@ static const des_gamepad_t __in_flash("hid_descriptors") ds5_descriptor = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static void des_sony_ds5_controller(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
+static bool des_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
     {
@@ -287,7 +290,7 @@ static void des_sony_ds5_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         case 0x0EA6: // DualSense (special edition Sterling Silver)
         case 0x0EBA: // DualSense (special edition Cobalt Blue)
         case 0x0ED0: // DualSense (special edition Midnight Black V2)
-            *desc = ds5_descriptor;
+            return true;
         }
     }
     if (vendor_id == 0x0F0D) // Hori (third-party DualSense compatible)
@@ -297,9 +300,10 @@ static void des_sony_ds5_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         case 0x0184: // Hori DualSense compatible (Onyx Plus, etc)
         case 0x019C: // Hori Fighting Commander OCTA for PS5
         case 0x01A0: // Hori Fighting Stick α for PS5
-            *desc = ds5_descriptor;
+            return true;
         }
     }
+    return false;
 }
 
 static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
@@ -336,7 +340,7 @@ static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uin
     desc->button_offsets[14] = temp5;
 }
 
-static void des_parse_generic_controller(des_gamepad_t *desc, uint8_t const *desc_report, uint16_t desc_len)
+static void des_parse_hid_controller(des_gamepad_t *desc, uint8_t const *desc_report, uint16_t desc_len)
 {
     memset(desc, 0, sizeof(des_gamepad_t));
     desc->hid = true;
@@ -428,54 +432,47 @@ void des_report_descriptor(des_gamepad_t *desc,
     DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
     desc->valid = false;
 
-    // Xbox controllers use XInput protocol
-    if (!desc->valid)
-    {
-        if (xin_is_xbox_one(dev_addr))
-        {
-            *desc = xbox_one_descriptor;
-            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
-        }
-    }
+    des_parse_hid_controller(desc, desc_report, desc_len);
+    DBG("Parsed valid=%d hid=%d\n", desc->valid, desc->hid);
+
+    // Only HID gamepads may pass. Except...
+    // Xbox and Sony don't always have a descriptor.
+    if (desc_len && !desc->valid)
+        return;
 
     // Xbox controllers use XInput protocol
-    if (!desc->valid)
+    if (xin_is_xbox_one(dev_addr))
     {
-        if (xin_is_xbox_360(dev_addr))
-        {
-            *desc = xbox_360_descriptor;
-            DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
-        }
+        *desc = des_xbox_one;
+        DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
     }
 
-    // Sony DualShock 4 controllers don't have a descriptor
-    if (!desc->valid)
+    // Xbox controllers use XInput protocol
+    if (xin_is_xbox_360(dev_addr))
     {
-        des_sony_ds4_controller(desc, vendor_id, product_id);
-        if (desc->valid)
-            DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
+        *desc = des_xbox_360;
+        DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
     }
 
-    // Sony DualShock 5 controllers don't have a descriptor
-    if (!desc->valid)
+    // Sony DualShock 4 controllers don't have HID descriptor
+    if (des_is_sony_ds4(vendor_id, product_id))
     {
-        des_sony_ds5_controller(desc, vendor_id, product_id);
-        if (desc->valid)
-            DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
+        *desc = des_sony_ds4;
+        DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
     }
 
-    // Parse the HID descriptor for most controllers
-    if (!desc->valid)
+    // Sony DualShock 5 controllers don't have HID descriptor
+    if (des_is_sony_ds5(vendor_id, product_id))
     {
-        des_parse_generic_controller(desc, desc_report, desc_len);
-        if (desc->valid)
-            DBG("Detected generic controller, using parsed descriptor.\n");
+        *desc = des_sony_ds5;
+        DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
     }
 
-    if (desc->hid)
+    if (desc->valid && desc->hid)
     {
         // Remap HID buttons for known vendors and products
         des_remap_8bitdo_dinput(desc, vendor_id, product_id);
+        // add yours here
     }
 
     if (!desc->valid)
