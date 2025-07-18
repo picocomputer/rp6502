@@ -10,8 +10,6 @@
 #include "usb/xin.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_DES
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -306,6 +304,26 @@ static bool des_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
     return false;
 }
 
+static inline void swap(des_gamepad_t *desc, int a, int b)
+{
+    uint16_t temp = desc->button_offsets[a];
+    desc->button_offsets[a] = desc->button_offsets[b];
+    desc->button_offsets[b] = temp;
+}
+
+static void des_remap_playstation_classic(des_gamepad_t *desc, uint16_t vendor_id)
+{
+    if (vendor_id != 0x054C) // Sony Interactive Entertainment
+        return;
+    desc->sony = true;
+    swap(desc, 0, 2); // buttons
+    swap(desc, 2, 3); // buttons
+    swap(desc, 4, 8); // l1/l2
+    swap(desc, 5, 9); // r1/r2
+    swap(desc, 4, 6); // l1/bt
+    swap(desc, 5, 7); // r1/st
+}
+
 static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x2DC8) // 8BitDo
@@ -321,12 +339,8 @@ static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uin
     desc->button_offsets[10] = desc->button_offsets[13];
     desc->button_offsets[11] = desc->button_offsets[14];
     // Swap buttons 6,7 with 8,9
-    uint16_t temp6 = desc->button_offsets[6];
-    uint16_t temp7 = desc->button_offsets[7];
-    desc->button_offsets[6] = desc->button_offsets[8];
-    desc->button_offsets[7] = desc->button_offsets[9];
-    desc->button_offsets[8] = temp6;
-    desc->button_offsets[9] = temp7;
+    swap(desc, 6, 8);
+    swap(desc, 7, 9);
     // M30 wired special case
     if (product_id == 0x5006)
     {
@@ -343,7 +357,6 @@ static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uin
 static void des_parse_hid_controller(des_gamepad_t *desc, uint8_t const *desc_report, uint16_t desc_len)
 {
     memset(desc, 0, sizeof(des_gamepad_t));
-    desc->hid = true;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
         desc->button_offsets[i] = 0xFFFF;
 
@@ -429,50 +442,51 @@ void des_report_descriptor(des_gamepad_t *desc,
                            uint8_t const *desc_report, uint16_t desc_len,
                            uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {
-    DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d\n", vendor_id, product_id, desc_len);
     desc->valid = false;
 
     des_parse_hid_controller(desc, desc_report, desc_len);
-    DBG("Parsed valid=%d hid=%d\n", desc->valid, desc->hid);
 
-    // Only HID gamepads may pass. Except...
-    // Xbox and Sony don't always have a descriptor.
-    if (desc_len && !desc->valid)
-        return;
+    DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
+        vendor_id, product_id, desc_len, desc->valid);
 
-    // Xbox controllers use XInput protocol
-    if (xin_is_xbox_one(dev_addr))
+    // Remap HID buttons for known vendors and products
+    if (desc->valid)
     {
-        *desc = des_xbox_one;
-        DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
-    }
-
-    // Xbox controllers use XInput protocol
-    if (xin_is_xbox_360(dev_addr))
-    {
-        *desc = des_xbox_360;
-        DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
-    }
-
-    // Sony DualShock 4 controllers don't have HID descriptor
-    if (des_is_sony_ds4(vendor_id, product_id))
-    {
-        *desc = des_sony_ds4;
-        DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
-    }
-
-    // Sony DualShock 5 controllers don't have HID descriptor
-    if (des_is_sony_ds5(vendor_id, product_id))
-    {
-        *desc = des_sony_ds5;
-        DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
-    }
-
-    if (desc->valid && desc->hid)
-    {
-        // Remap HID buttons for known vendors and products
+        des_remap_playstation_classic(desc, vendor_id);
         des_remap_8bitdo_dinput(desc, vendor_id, product_id);
         // add yours here
+    }
+
+    // Non HID controllers use a pre-computed descriptor
+    if (desc_len == 0)
+    {
+        // Xbox controllers use XInput protocol
+        if (xin_is_xbox_one(dev_addr))
+        {
+            *desc = des_xbox_one;
+            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
+        }
+
+        // Xbox controllers use XInput protocol
+        if (xin_is_xbox_360(dev_addr))
+        {
+            *desc = des_xbox_360;
+            DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
+        }
+
+        // Sony DualShock 4 controllers
+        if (des_is_sony_ds4(vendor_id, product_id))
+        {
+            *desc = des_sony_ds4;
+            DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
+        }
+
+        // Sony DualShock 5 controllers
+        if (des_is_sony_ds5(vendor_id, product_id))
+        {
+            *desc = des_sony_ds5;
+            DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
+        }
     }
 
     if (!desc->valid)

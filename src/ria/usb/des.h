@@ -22,7 +22,6 @@ typedef struct
 {
     bool valid;
     bool sony;
-    bool hid;
     uint8_t idx;       // HID is 0..CFG_TUH_HID, Xinput is CFG_TUH_HID..CFG_TUH_HID+PAD_MAX_PLAYERS
     uint8_t report_id; // If non zero, the first report byte must match and will be skipped
     uint16_t x_offset; // Left stick X
