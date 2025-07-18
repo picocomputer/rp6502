@@ -13,8 +13,6 @@
 #include "common/tusb_common.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_XIN
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)

@@ -10,8 +10,6 @@
 #include "usb/xin.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_DES
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
@@ -481,7 +479,7 @@ void des_report_descriptor(des_gamepad_t *desc,
     }
 
     if (!desc->valid)
-        DBG("HID descriptor not a gamepad.\n")
+        DBG("HID descriptor not a gamepad.\n");
     else
     {
         DBG("HID descriptor parsing result:\n");
