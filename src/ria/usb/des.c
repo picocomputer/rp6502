@@ -177,9 +177,16 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
     {
         switch (product_id)
         {
-        case 0x05C4: // DualShock 4 Controller
-        case 0x09CC: // DualShock 4 Controller (2nd generation)
+        case 0x05C4: // DualShock 4 Controller (1st gen)
+        case 0x09CC: // DualShock 4 Controller (2nd gen)
         case 0x0BA0: // DualShock 4 USB receiver
+        case 0x0DAE: // DualShock 4 (special edition variant)
+        case 0x0DF2: // DualShock 4 (special edition variant)
+        case 0x0CDA: // DualShock 4 (Asia region, special edition)
+        case 0x0D9A: // DualShock 4 (Japan region, special edition)
+        case 0x0E04: // DualShock 4 (rare, but reported)
+        case 0x0E6F: // DualShock 4 (special edition, sometimes used for DS4)
+        case 0x0EBA: // DualShock 4 (special edition, sometimes used for DS4)
             *desc = ds4_descriptor;
         }
     }
@@ -188,11 +195,44 @@ static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         switch (product_id)
         {
         case 0x1E1A: // Cirka Wired Controller
+        case 0x0E10: // Zeroplus PS4 compatible controller
+        case 0x0E20: // Zeroplus PS4 compatible controller (alternate)
+            *desc = ds4_descriptor;
+        }
+    }
+    if (vendor_id == 0x20D6) // PowerA
+    {
+        switch (product_id)
+        {
+        case 0xA711: // PowerA PS4 Wired Controller
+            *desc = ds4_descriptor;
+        }
+    }
+    if (vendor_id == 0x24C6) // PowerA (formerly BDA, LLC)
+    {
+        switch (product_id)
+        {
+        case 0x5501: // PowerA PS4 Wired Controller
+            *desc = ds4_descriptor;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori
+    {
+        switch (product_id)
+        {
+        case 0x0055: // Hori PS4 Mini Wired Gamepad (alternate)
+        case 0x005E: // Hori PS4 Mini Wired Gamepad
+        case 0x00C5: // Hori PS4 Fighting Commander (alternate)
+        case 0x00D9: // Hori PS4 Fighting Stick Mini
+        case 0x00EE: // Hori PS4 Fighting Commander
+        case 0x00F6: // Hori PS4 Mini Gamepad (alternate)
+        case 0x00F7: // Hori PS4 Mini Gamepad (alternate)
             *desc = ds4_descriptor;
         }
     }
 }
 
+// TODO this is untested as I don't have a DS5 gamepad
 static const des_gamepad_t __in_flash("hid_descriptors") ds5_descriptor = {
     .valid = true,
     .sony = true,
@@ -241,6 +281,24 @@ static void des_sony_ds5_controller(des_gamepad_t *desc, uint16_t vendor_id, uin
         {
         case 0x0CE6: // DualSense Controller
         case 0x0DF2: // DualSense Edge Controller
+        case 0x0E5C: // DualSense (special edition Spider-Man 2)
+        case 0x0E8A: // DualSense (special edition FF16)
+        case 0x0E9A: // DualSense (special edition LeBron James)
+        case 0x0E6F: // DualSense (special edition Gray Camouflage)
+        case 0x0E9C: // DualSense (special edition Volcanic Red)
+        case 0x0EA6: // DualSense (special edition Sterling Silver)
+        case 0x0EBA: // DualSense (special edition Cobalt Blue)
+        case 0x0ED0: // DualSense (special edition Midnight Black V2)
+            *desc = ds5_descriptor;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori (third-party DualSense compatible)
+    {
+        switch (product_id)
+        {
+        case 0x0184: // Hori DualSense compatible (Onyx Plus, etc)
+        case 0x019C: // Hori Fighting Commander OCTA for PS5
+        case 0x01A0: // Hori Fighting Stick α for PS5
             *desc = ds5_descriptor;
         }
     }
