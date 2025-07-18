@@ -234,14 +234,25 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
 
     if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0)
     {
-        // Handle just like an HID gamepad report
-        pad_report(xin_slot_to_pad_idx(slot), xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
+        xbox_device_t *device = &xbox_devices[slot];
+        uint8_t *report = device->report_buffer;
+        // For Xbox One/Series, check for GIP_CMD_VIRTUAL_KEY 0x07
+        if (device->is_xbox_one && xferred_bytes > 4 && report[0] == 0x07)
+        {
+            uint8_t guide = report[4] & 0x01;
+            DBG("XInput: GUIDE button state: %d\n", guide);
+        }
+        else
+        {
+            // Handle just like an HID gamepad report
+            pad_report(xin_slot_to_pad_idx(slot), report, (uint16_t)xferred_bytes);
+        }
         // Restart the transfer to continue receiving reports
         tuh_xfer_t xfer = {
             .daddr = dev_addr,
-            .ep_addr = xbox_devices[slot].ep_in,
-            .buflen = sizeof(xbox_devices[slot].report_buffer),
-            .buffer = xbox_devices[slot].report_buffer,
+            .ep_addr = device->ep_in,
+            .buflen = sizeof(device->report_buffer),
+            .buffer = device->report_buffer,
             .complete_cb = NULL,
             .user_data = (uintptr_t)slot};
         if (!tuh_edpt_xfer(&xfer))
