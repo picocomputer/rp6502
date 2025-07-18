@@ -26,30 +26,15 @@
 // Xbox controller tracking
 typedef struct
 {
-    uint8_t dev_addr;
     bool valid;
     bool is_xbox_one; // If not it's Xbox 360
-    uint8_t interface_num;
+    uint8_t dev_addr;
     uint8_t ep_in;
     uint8_t ep_out;
-    uint8_t report_buffer[64];        // Xbox controllers use up to 64 bytes
-    tusb_desc_endpoint_t ep_in_desc;  // IN endpoint descriptor
-    tusb_desc_endpoint_t ep_out_desc; // OUT endpoint descriptor
+    uint8_t report_buffer[64]; // XInput max 64 bytes
 } xbox_device_t;
 
-// Configuration state machine
-enum
-{
-    CONFIG_START_TRANSFERS = 0,
-    CONFIG_SEND_XBOX_ONE_INIT,
-    CONFIG_COMPLETE
-};
-
 static xbox_device_t xbox_devices[PAD_MAX_PLAYERS];
-
-// Forward declarations
-static void xin_start_interrupt_transfer(uint8_t dev_addr, int slot);
-static void xin_send_xbox_one_init(uint8_t dev_addr, int slot);
 
 static int xin_find_device_slot(uint8_t dev_addr)
 {
@@ -84,11 +69,9 @@ bool xin_is_xbox_360(uint8_t dev_addr)
     return slot >= 0 && !xbox_devices[slot].is_xbox_one;
 }
 
-// Class driver implementation
 static bool xin_class_driver_init(void)
 {
     memset(xbox_devices, 0, sizeof(xbox_devices));
-    DBG("XInput: Class driver initialized\n");
     return true;
 }
 
@@ -162,11 +145,8 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     xbox_devices[slot].dev_addr = dev_addr;
     xbox_devices[slot].valid = true;
     xbox_devices[slot].is_xbox_one = is_xbox_one;
-    xbox_devices[slot].interface_num = desc_itf->bInterfaceNumber;
     xbox_devices[slot].ep_in = ep_in;
     xbox_devices[slot].ep_out = ep_out;
-    xbox_devices[slot].ep_in_desc = ep_in_desc;
-    xbox_devices[slot].ep_out_desc = ep_out_desc;
 
     // Mount in pad system
     uint16_t vendor_id, product_id;
@@ -206,195 +186,85 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     return true;
 }
 
-static void process_set_config(tuh_xfer_t *xfer)
-{
-    // Process the configuration state machine
-    uintptr_t const state = xfer->user_data;
-    uint8_t const itf_num = (uint8_t)tu_le16toh(xfer->setup->wIndex);
-    uint8_t const daddr = xfer->daddr;
-
-    int slot = xin_find_device_slot(daddr);
-    if (slot < 0)
-        return;
-
-    switch (state)
-    {
-    case CONFIG_START_TRANSFERS:
-        xin_start_interrupt_transfer(daddr, slot);
-
-        // If this is Xbox One, send init command
-        if (xbox_devices[slot].is_xbox_one)
-        {
-            xin_send_xbox_one_init(daddr, slot);
-            xfer->user_data = CONFIG_SEND_XBOX_ONE_INIT;
-            process_set_config(xfer);
-        }
-        else // XBox 360, no init needed
-        {
-            xfer->user_data = CONFIG_COMPLETE;
-            process_set_config(xfer);
-        }
-        break;
-
-    case CONFIG_SEND_XBOX_ONE_INIT:
-        // Xbox One init was sent, now complete
-        xfer->user_data = CONFIG_COMPLETE;
-        process_set_config(xfer);
-        break;
-
-    case CONFIG_COMPLETE:
-        DBG("XInput: Configuration complete for slot %d\n", slot);
-        // Notify usbh that driver enumeration is complete
-        usbh_driver_set_config_complete(daddr, itf_num);
-        break;
-
-    default:
-        break;
-    }
-}
-
 static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
 {
-    // Create a fake transfer to kick off the state machine (like HID does)
-    tusb_control_request_t request;
-    request.wIndex = tu_htole16((uint16_t)itf_num);
+    int slot = xin_find_device_slot(dev_addr);
+    if (slot < 0)
+        return false;
 
-    tuh_xfer_t xfer;
-    xfer.daddr = dev_addr;
-    xfer.result = XFER_RESULT_SUCCESS;
-    xfer.setup = &request;
-    xfer.user_data = CONFIG_START_TRANSFERS;
+    // If this is Xbox One, send init command
+    if (xbox_devices[slot].is_xbox_one)
+    {
+        // Xbox One GIP initialization packet to start input reports
+        static const uint8_t xbox_one_init[] = {
+            0x05, 0x20, 0x00, 0x01, 0x00 // GIP command to enable input reports
+        };
+        tuh_xfer_t xfer = {
+            .daddr = dev_addr,
+            .ep_addr = xbox_devices[slot].ep_out,
+            .buflen = sizeof(xbox_one_init),
+            .buffer = (void *)xbox_one_init,
+            .complete_cb = NULL,
+            .user_data = (uintptr_t)slot};
+        if (!tuh_edpt_xfer(&xfer))
+            DBG("XInput: Failed to send Xbox One init command\n");
+    }
 
-    // Start the configuration state machine
-    process_set_config(&xfer);
+    // Configuration complete
+    DBG("XInput: Configuration complete for slot %d\n", slot);
+    usbh_driver_set_config_complete(dev_addr, itf_num);
 
     return true;
 }
 
-bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
+static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
 {
     (void)ep_addr;
 
     int slot = xin_find_device_slot(dev_addr);
     if (slot < 0)
-    {
-        DBG("XInput: Unknown device in xfer_cb\n");
         return false;
-    }
 
     if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0)
     {
-        // DBG("XInput: Received %lu bytes from slot %d: ", xferred_bytes, slot);
-        // for (uint32_t i = 0; i < xferred_bytes && i < 10; i++) // Show first 10 bytes
-        // {
-        //     DBG("%02X ", xbox_devices[slot].report_buffer[i]);
-        // }
-        // DBG("\n");
-
+        // Handle just like an HID gamepad report
         pad_report(xin_slot_to_pad_idx(slot), xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
-
         // Restart the transfer to continue receiving reports
-        xin_start_interrupt_transfer(dev_addr, slot);
+        tuh_xfer_t xfer = {
+            .daddr = dev_addr,
+            .ep_addr = xbox_devices[slot].ep_in,
+            .buflen = sizeof(xbox_devices[slot].report_buffer),
+            .buffer = xbox_devices[slot].report_buffer,
+            .complete_cb = NULL,
+            .user_data = (uintptr_t)slot};
+        if (!tuh_edpt_xfer(&xfer))
+            DBG("XInput: Failed to start interrupt transfer for slot %d\n", slot);
     }
     else
-    {
         DBG("XInput: Transfer failed for slot %d, result=%d, len=%lu\n", slot, result, xferred_bytes);
-
-        // On failure, try to restart
-        // xin_start_interrupt_transfer(dev_addr, slot);
-    }
 
     return true;
 }
 
-void xin_class_driver_close(uint8_t dev_addr)
+static void xin_class_driver_close(uint8_t dev_addr)
 {
-    DBG("XInput: Close called for dev_addr=%d\n", dev_addr);
-
     int slot = xin_find_device_slot(dev_addr);
-    if (slot >= 0)
-    {
-        DBG("XInput: Closing Xbox controller from slot %d\n", slot);
-
-        // Abort any ongoing transfers and close endpoints
-        if (xbox_devices[slot].ep_in != 0)
-        {
-            tuh_edpt_abort_xfer(dev_addr, xbox_devices[slot].ep_in);
-            tuh_edpt_close(dev_addr, xbox_devices[slot].ep_in);
-            DBG("XInput: Closed IN endpoint 0x%02X\n", xbox_devices[slot].ep_in);
-        }
-
-        if (xbox_devices[slot].ep_out != 0)
-        {
-            tuh_edpt_abort_xfer(dev_addr, xbox_devices[slot].ep_out);
-            tuh_edpt_close(dev_addr, xbox_devices[slot].ep_out);
-            DBG("XInput: Closed OUT endpoint 0x%02X\n", xbox_devices[slot].ep_out);
-        }
-
-        // Notify pad module using slot index
-        pad_umount(xin_slot_to_pad_idx(slot));
-
-        // Clear the slot
-        memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
-    }
-}
-
-// Start interrupt transfer for Xbox controller
-static void xin_start_interrupt_transfer(uint8_t dev_addr, int slot)
-{
-    if (xbox_devices[slot].ep_in == 0)
-    {
-        DBG("XInput: No IN endpoint to start transfer\n");
+    if (slot < 0)
         return;
-    }
 
-    tuh_xfer_t xfer = {
-        .daddr = dev_addr,
-        .ep_addr = xbox_devices[slot].ep_in,
-        .buflen = sizeof(xbox_devices[slot].report_buffer),
-        .buffer = xbox_devices[slot].report_buffer,
-        .complete_cb = NULL, // Use class driver callback instead
-        .user_data = (uintptr_t)slot};
+    DBG("XInput: Closing Xbox controller from slot %d\n", slot);
 
-    if (!tuh_edpt_xfer(&xfer))
-    {
-        DBG("XInput: Failed to start interrupt transfer for slot %d\n", slot);
-    }
-    else
-    {
-        // DBG("XInput: Started interrupt transfer for slot %d\n", slot);
-    }
-}
+    // Abort any ongoing transfers and close endpoints
+    tuh_edpt_abort_xfer(dev_addr, xbox_devices[slot].ep_in);
+    tuh_edpt_close(dev_addr, xbox_devices[slot].ep_in);
+    tuh_edpt_abort_xfer(dev_addr, xbox_devices[slot].ep_out);
+    tuh_edpt_close(dev_addr, xbox_devices[slot].ep_out);
 
-// Send Xbox One initialization command to start input reports
-static void xin_send_xbox_one_init(uint8_t dev_addr, int slot)
-{
-    if (xbox_devices[slot].ep_out == 0)
-    {
-        DBG("XInput: No OUT endpoint for Xbox One init\n");
-        return;
-    }
+    // Notify pad module to unmount
+    pad_umount(xin_slot_to_pad_idx(slot));
 
-    // Xbox One GIP initialization packet to start input reports
-    // This tells the controller to start sending input data
-    static const uint8_t xbox_one_init[] = {
-        0x05, 0x20, 0x00, 0x01, 0x00 // GIP command to enable input reports
-    };
-
-    DBG("XInput: Sending Xbox One initialization command\n");
-
-    tuh_xfer_t xfer = {
-        .daddr = dev_addr,
-        .ep_addr = xbox_devices[slot].ep_out,
-        .buflen = sizeof(xbox_one_init),
-        .buffer = (void *)xbox_one_init,
-        .complete_cb = NULL,
-        .user_data = (uintptr_t)slot};
-
-    if (!tuh_edpt_xfer(&xfer))
-    {
-        DBG("XInput: Failed to send Xbox One init command\n");
-    }
+    // Clear the slot
+    memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
 }
 
 // Define the XInput class driver
