@@ -33,7 +33,6 @@
 #include "usb/kbd.h"
 #include "usb/mou.h"
 #include "usb/pad.h"
-#include "usb/xinput.h"
 
 /**************************************/
 /* All kernel modules register below. */
@@ -65,7 +64,6 @@ static void init(void)
     kbd_init();
     mou_init();
     pad_init();
-    xinput_init();
     rom_init();
     led_init();
     clk_init();

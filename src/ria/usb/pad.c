@@ -402,7 +402,7 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {
     // Find an available descriptor slot
@@ -420,8 +420,8 @@ void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
 
     if (!pad_desc)
     {
-        DBG("pad_mount: No available descriptor slots\n");
-        return;
+        DBG("pad_mount: No available descriptor slots, max players reached\n");
+        return false;
     }
 
     des_report_descriptor(pad_desc, desc_report, desc_len,
@@ -432,7 +432,9 @@ void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
     {
         pad_desc->idx = idx;    // Store the interface index
         pad_reset_xram(player); // TODO this should set connected bit too
+        return true;
     }
+    return false;
 }
 
 void pad_umount(uint8_t idx)

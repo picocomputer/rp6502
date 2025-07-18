@@ -7,7 +7,7 @@
 #include "pico.h"
 #include "btstack.h"
 #include "usb/des.h"
-#include "usb/xinput.h"
+#include "usb/xin.h"
 #include <string.h>
 
 #define DEBUG_RIA_USB_DES
@@ -391,7 +391,7 @@ void des_report_descriptor(des_gamepad_t *desc,
     // Xbox controllers use XInput protocol
     if (!desc->valid)
     {
-        if (xinput_is_xbox_one(dev_addr))
+        if (xin_is_xbox_one(dev_addr))
         {
             *desc = xbox_one_descriptor;
             DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
@@ -401,7 +401,7 @@ void des_report_descriptor(des_gamepad_t *desc,
     // Xbox controllers use XInput protocol
     if (!desc->valid)
     {
-        if (xinput_is_xbox_360(dev_addr))
+        if (xin_is_xbox_360(dev_addr))
         {
             *desc = xbox_360_descriptor;
             DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");

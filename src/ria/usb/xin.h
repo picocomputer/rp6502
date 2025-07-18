@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _XINPUT_H_
-#define _XINPUT_H_
+#ifndef _XIN_H_
+#define _XIN_H_
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -15,12 +15,7 @@
  * Implements a TinyUSB class driver for Xbox controllers
  */
 
-/* Kernel events
- */
+bool xin_is_xbox_one(uint8_t dev_addr);
+bool xin_is_xbox_360(uint8_t dev_addr);
 
-void xinput_init(void);
-
-bool xinput_is_xbox_one(uint8_t dev_addr);
-bool xinput_is_xbox_360(uint8_t dev_addr);
-
-#endif /* _XINPUT_H_ */
+#endif /* _XIN_H_ */

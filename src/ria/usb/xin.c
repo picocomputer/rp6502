@@ -6,15 +6,15 @@
 
 #include "tusb_config.h"
 #include "tusb.h"
-#include "usb/xinput.h"
+#include "usb/xin.h"
 #include "usb/pad.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 #include <string.h>
 
-#define DEBUG_RIA_USB_XINPUT
+#define DEBUG_RIA_USB_XIN
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XINPUT)
+#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__);
 #else
@@ -37,7 +37,7 @@ typedef struct
     tusb_desc_endpoint_t ep_out_desc; // OUT endpoint descriptor
 } xbox_device_t;
 
-// Configuration state machine states
+// Configuration state machine
 enum
 {
     CONFIG_START_TRANSFERS = 0,
@@ -48,65 +48,57 @@ enum
 static xbox_device_t xbox_devices[PAD_MAX_PLAYERS];
 
 // Forward declarations
-static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot);
-static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot);
-static void process_set_config(tuh_xfer_t *xfer);
+static void xin_start_interrupt_transfer(uint8_t dev_addr, int slot);
+static void xin_send_xbox_one_init(uint8_t dev_addr, int slot);
 
-void xinput_init(void)
-{
-    // This function is called from application code, not the class driver system
-    memset(xbox_devices, 0, sizeof(xbox_devices));
-}
-
-static int xinput_find_device_slot(uint8_t dev_addr)
+static int xin_find_device_slot(uint8_t dev_addr)
 {
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-    {
         if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)
-        {
             return i;
-        }
-    }
     return -1;
 }
 
-static int xinput_find_free_slot(void)
+static int xin_find_free_slot(void)
 {
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-    {
         if (!xbox_devices[i].valid)
-        {
             return i;
-        }
-    }
     return -1;
 }
 
-static uint8_t xinput_slot_to_pad_idx(int slot)
+static uint8_t xin_slot_to_pad_idx(int slot)
 {
     return CFG_TUH_HID + slot;
 }
 
-// Class driver implementation
-bool xinputh_init(void)
+bool xin_is_xbox_one(uint8_t dev_addr)
 {
-    // Called by TinyUSB during initialization
+    int slot = xin_find_device_slot(dev_addr);
+    return slot >= 0 && xbox_devices[slot].is_xbox_one;
+}
+
+bool xin_is_xbox_360(uint8_t dev_addr)
+{
+    int slot = xin_find_device_slot(dev_addr);
+    return slot >= 0 && !xbox_devices[slot].is_xbox_one;
+}
+
+// Class driver implementation
+static bool xin_class_driver_init(void)
+{
     memset(xbox_devices, 0, sizeof(xbox_devices));
     DBG("XInput: Class driver initialized\n");
     return true;
 }
 
-bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
-    DBG("XInput: Class driver open called for dev_addr=%d, interface=%d\n", dev_addr, desc_itf->bInterfaceNumber);
-
-    // Check if this is an Xbox controller interface
-    if (desc_itf->bInterfaceClass != 0xFF) // Must be vendor specific
-    {
+    // Must be vendor specific to proceed
+    if (desc_itf->bInterfaceClass != 0xFF)
         return false;
-    }
 
     // Xbox One/Series: Class=0xFF, Subclass=0x47, Protocol=0xD0
     // Xbox 360: Class=0xFF, Subclass=0x5D, Protocol=0x01 or 0x02
@@ -129,52 +121,42 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
         return false;
     }
 
-    // Find a free slot
-    int slot = xinput_find_free_slot();
-    if (slot < 0)
-    {
-        DBG("XInput: No free slots available\n");
-        return false;
-    }
-
-    // Parse endpoints
+    // All Xinput controllers have in and out endpoints
     uint8_t const *p_desc = (uint8_t const *)desc_itf;
     uint8_t const *desc_end = p_desc + max_len;
-    p_desc = tu_desc_next(p_desc); // Skip interface descriptor
-
     uint8_t ep_in = 0, ep_out = 0;
     tusb_desc_endpoint_t ep_in_desc = {0}, ep_out_desc = {0};
-
+    p_desc = tu_desc_next(p_desc); // Skip interface descriptor
     while (p_desc < desc_end)
     {
         if (tu_desc_type(p_desc) == TUSB_DESC_ENDPOINT)
         {
             tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
-
             if (desc_ep->bmAttributes.xfer == TUSB_XFER_INTERRUPT)
             {
                 if (tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_IN)
                 {
                     ep_in = desc_ep->bEndpointAddress;
                     ep_in_desc = *desc_ep;
-                    DBG("XInput: Found interrupt IN endpoint 0x%02X\n", ep_in);
                 }
                 else if (tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_OUT)
                 {
                     ep_out = desc_ep->bEndpointAddress;
                     ep_out_desc = *desc_ep;
-                    DBG("XInput: Found interrupt OUT endpoint 0x%02X\n", ep_out);
                 }
             }
         }
         p_desc = tu_desc_next(p_desc);
     }
-
-    if (ep_in == 0)
+    if (ep_in == 0 || ep_out == 0)
     {
-        DBG("XInput: No interrupt IN endpoint found\n");
         return false;
     }
+
+    // Find a free slot
+    int slot = xin_find_free_slot();
+    if (slot < 0)
+        return false;
 
     // Initialize slot
     xbox_devices[slot].dev_addr = dev_addr;
@@ -184,18 +166,14 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     xbox_devices[slot].ep_in = ep_in;
     xbox_devices[slot].ep_out = ep_out;
     xbox_devices[slot].ep_in_desc = ep_in_desc;
-    if (ep_out != 0)
-    {
-        xbox_devices[slot].ep_out_desc = ep_out_desc;
-    }
+    xbox_devices[slot].ep_out_desc = ep_out_desc;
 
     // Mount in pad system
     uint16_t vendor_id, product_id;
     if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
     {
-        uint8_t pad_idx = xinput_slot_to_pad_idx(slot);
-        pad_mount(pad_idx, 0, 0, dev_addr, vendor_id, product_id);
-        if (!pad_is_valid(pad_idx))
+        uint8_t pad_idx = xin_slot_to_pad_idx(slot);
+        if (!pad_mount(pad_idx, 0, 0, dev_addr, vendor_id, product_id))
         {
             DBG("XInput: Failed to mount in pad system\n");
             memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
@@ -204,53 +182,27 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     }
     else
     {
-        DBG("XInput: Failed to get VID/PID\n");
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
         return false;
     }
 
     // Open the endpoints immediately (like HID does)
-    if (ep_in != 0)
+    if (!tuh_edpt_open(dev_addr, &ep_in_desc))
     {
-        if (!tuh_edpt_open(dev_addr, &ep_in_desc))
-        {
-            DBG("XInput: Failed to open IN endpoint during open\n");
-            return false;
-        }
-        DBG("XInput: Opened IN endpoint 0x%02X during open\n", ep_in);
+        DBG("XInput: Failed to open IN endpoint during open\n");
+        memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
+        return false;
     }
-
-    if (ep_out != 0)
+    if (!tuh_edpt_open(dev_addr, &ep_out_desc))
     {
-        if (!tuh_edpt_open(dev_addr, &ep_out_desc))
-        {
-            DBG("XInput: Failed to open OUT endpoint during open\n");
-            return false;
-        }
-        DBG("XInput: Opened OUT endpoint 0x%02X during open\n", ep_out);
+        DBG("XInput: Failed to open OUT endpoint during open\n");
+        tuh_edpt_abort_xfer(dev_addr, ep_in);
+        tuh_edpt_close(dev_addr, ep_in);
+        memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
+        return false;
     }
 
     DBG("XInput: Successfully opened Xbox controller in slot %d\n", slot);
-    return true;
-}
-
-bool xinputh_set_config(uint8_t dev_addr, uint8_t itf_num)
-{
-    DBG("XInput: Set config called for dev_addr=%d, itf_num=%d\n", dev_addr, itf_num);
-
-    // Create a fake transfer to kick off the state machine (like HID does)
-    tusb_control_request_t request;
-    request.wIndex = tu_htole16((uint16_t)itf_num);
-
-    tuh_xfer_t xfer;
-    xfer.daddr = dev_addr;
-    xfer.result = XFER_RESULT_SUCCESS;
-    xfer.setup = &request;
-    xfer.user_data = CONFIG_START_TRANSFERS;
-
-    // Start the configuration state machine
-    process_set_config(&xfer);
-
     return true;
 }
 
@@ -261,31 +213,24 @@ static void process_set_config(tuh_xfer_t *xfer)
     uint8_t const itf_num = (uint8_t)tu_le16toh(xfer->setup->wIndex);
     uint8_t const daddr = xfer->daddr;
 
-    int slot = xinput_find_device_slot(daddr);
+    int slot = xin_find_device_slot(daddr);
     if (slot < 0)
-    {
-        DBG("XInput: Device not found in process_set_config\n");
         return;
-    }
 
     switch (state)
     {
     case CONFIG_START_TRANSFERS:
-        // Start receiving input reports
-        xinput_start_interrupt_transfer(daddr, slot);
+        xin_start_interrupt_transfer(daddr, slot);
 
-        // If this is Xbox One and we have an OUT endpoint, send init command
-        if (xbox_devices[slot].is_xbox_one && xbox_devices[slot].ep_out != 0)
+        // If this is Xbox One, send init command
+        if (xbox_devices[slot].is_xbox_one)
         {
-            xinput_send_xbox_one_init(daddr, slot);
-            // Continue to next state after init is sent
+            xin_send_xbox_one_init(daddr, slot);
             xfer->user_data = CONFIG_SEND_XBOX_ONE_INIT;
-            // For now, proceed directly to complete since we don't wait for init response
             process_set_config(xfer);
         }
-        else
+        else // XBox 360, no init needed
         {
-            // No Xbox One init needed, go directly to completion
             xfer->user_data = CONFIG_COMPLETE;
             process_set_config(xfer);
         }
@@ -308,11 +253,29 @@ static void process_set_config(tuh_xfer_t *xfer)
     }
 }
 
-bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
+static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
+{
+    // Create a fake transfer to kick off the state machine (like HID does)
+    tusb_control_request_t request;
+    request.wIndex = tu_htole16((uint16_t)itf_num);
+
+    tuh_xfer_t xfer;
+    xfer.daddr = dev_addr;
+    xfer.result = XFER_RESULT_SUCCESS;
+    xfer.setup = &request;
+    xfer.user_data = CONFIG_START_TRANSFERS;
+
+    // Start the configuration state machine
+    process_set_config(&xfer);
+
+    return true;
+}
+
+bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
 {
     (void)ep_addr;
 
-    int slot = xinput_find_device_slot(dev_addr);
+    int slot = xin_find_device_slot(dev_addr);
     if (slot < 0)
     {
         DBG("XInput: Unknown device in xfer_cb\n");
@@ -328,27 +291,27 @@ bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, ui
         // }
         // DBG("\n");
 
-        pad_report(xinput_slot_to_pad_idx(slot), xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
+        pad_report(xin_slot_to_pad_idx(slot), xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
 
         // Restart the transfer to continue receiving reports
-        xinput_start_interrupt_transfer(dev_addr, slot);
+        xin_start_interrupt_transfer(dev_addr, slot);
     }
     else
     {
         DBG("XInput: Transfer failed for slot %d, result=%d, len=%lu\n", slot, result, xferred_bytes);
 
         // On failure, try to restart
-        // xinput_start_interrupt_transfer(dev_addr, slot);
+        // xin_start_interrupt_transfer(dev_addr, slot);
     }
 
     return true;
 }
 
-void xinputh_close(uint8_t dev_addr)
+void xin_class_driver_close(uint8_t dev_addr)
 {
     DBG("XInput: Close called for dev_addr=%d\n", dev_addr);
 
-    int slot = xinput_find_device_slot(dev_addr);
+    int slot = xin_find_device_slot(dev_addr);
     if (slot >= 0)
     {
         DBG("XInput: Closing Xbox controller from slot %d\n", slot);
@@ -369,7 +332,7 @@ void xinputh_close(uint8_t dev_addr)
         }
 
         // Notify pad module using slot index
-        pad_umount(xinput_slot_to_pad_idx(slot));
+        pad_umount(xin_slot_to_pad_idx(slot));
 
         // Clear the slot
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
@@ -377,7 +340,7 @@ void xinputh_close(uint8_t dev_addr)
 }
 
 // Start interrupt transfer for Xbox controller
-static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot)
+static void xin_start_interrupt_transfer(uint8_t dev_addr, int slot)
 {
     if (xbox_devices[slot].ep_in == 0)
     {
@@ -404,7 +367,7 @@ static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot)
 }
 
 // Send Xbox One initialization command to start input reports
-static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
+static void xin_send_xbox_one_init(uint8_t dev_addr, int slot)
 {
     if (xbox_devices[slot].ep_out == 0)
     {
@@ -434,35 +397,19 @@ static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
     }
 }
 
-bool xinput_is_xbox_one(uint8_t dev_addr)
-{
-    int slot = xinput_find_device_slot(dev_addr);
-    return slot >= 0 && xbox_devices[slot].is_xbox_one;
-}
-
-bool xinput_is_xbox_360(uint8_t dev_addr)
-{
-    int slot = xinput_find_device_slot(dev_addr);
-    return slot >= 0 && !xbox_devices[slot].is_xbox_one;
-}
-
-//--------------------------------------------------------------------+
-// Application driver implementation for TinyUSB
-//--------------------------------------------------------------------+
-
 // Define the XInput class driver
-static const usbh_class_driver_t xinput_class_driver = {
+static const usbh_class_driver_t xin_class_driver = {
     .name = "XInput",
-    .init = xinputh_init,
-    .deinit = NULL, // No cleanup needed
-    .open = xinputh_open,
-    .set_config = xinputh_set_config,
-    .xfer_cb = xinputh_xfer_cb,
-    .close = xinputh_close};
+    .init = xin_class_driver_init,
+    .deinit = NULL,
+    .open = xin_class_driver_open,
+    .set_config = xin_class_driver_set_config,
+    .xfer_cb = xin_class_driver_xfer_cb,
+    .close = xin_class_driver_close};
 
 // Required callback for TinyUSB to get application drivers
 usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 {
     *driver_count = 1;
-    return &xinput_class_driver;
+    return &xin_class_driver;
 }
