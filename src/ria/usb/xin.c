@@ -33,7 +33,7 @@ typedef struct
     uint8_t ep_out;
     uint8_t report_buffer[64]; // XInput max 64 bytes
     bool start_360_pending;
-    uint32_t start_360_ms;
+    absolute_time_t start_360_time;
 } xbox_device_t;
 
 static xbox_device_t xbox_devices[PAD_MAX_PLAYERS];
@@ -216,7 +216,7 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     {
         // Defer Xbox 360 LED command which starts the in transfers
         device->start_360_pending = true;
-        device->start_360_ms = to_ms_since_boot(get_absolute_time()) + XIN_360_DELAY_MS;
+        device->start_360_time = delayed_by_us(get_absolute_time(), XIN_360_DELAY_MS * 1000);
     }
 
     DBG("XInput: Configuration complete for slot %d\n", slot);
@@ -304,11 +304,11 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 
 void xin_task(void)
 {
-    uint32_t now = to_ms_since_boot(get_absolute_time());
+    absolute_time_t now = get_absolute_time();
     for (int slot = 0; slot < PAD_MAX_PLAYERS; ++slot)
     {
         xbox_device_t *device = &xbox_devices[slot];
-        if (device->valid && device->start_360_pending && now >= device->start_360_ms)
+        if (device->valid && device->start_360_pending && absolute_time_diff_us(now, device->start_360_time) <= 0)
         {
             device->start_360_pending = false;
             uint8_t led_cmd[] = {0x01, 0x03, (uint8_t)(0x08 + (slot & 0x03))};
