@@ -28,12 +28,11 @@ typedef struct
 {
     uint8_t dev_addr;
     bool valid;
-    bool is_xbone;
+    bool is_xbox_one; // If not it's Xbox 360
     uint8_t interface_num;
     uint8_t ep_in;
     uint8_t ep_out;
-    uint8_t slot_idx;                 // pad slot index (CFG_TUH_HID + slot)
-    uint8_t report_buffer[64];        // buffer for incoming reports
+    uint8_t report_buffer[64];        // Xbox controllers use up to 64 bytes
     tusb_desc_endpoint_t ep_in_desc;  // IN endpoint descriptor
     tusb_desc_endpoint_t ep_out_desc; // OUT endpoint descriptor
 } xbox_device_t;
@@ -46,7 +45,7 @@ enum
     CONFIG_COMPLETE
 };
 
-static xbox_device_t xbox_devices[PAD_PLAYER_LEN];
+static xbox_device_t xbox_devices[PAD_MAX_PLAYERS];
 
 // Forward declarations
 static void xinput_start_interrupt_transfer(uint8_t dev_addr, int slot);
@@ -57,12 +56,11 @@ void xinput_init(void)
 {
     // This function is called from application code, not the class driver system
     memset(xbox_devices, 0, sizeof(xbox_devices));
-    DBG("XInput: Initialized\n");
 }
 
 static int xinput_find_device_slot(uint8_t dev_addr)
 {
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
         if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)
         {
@@ -74,7 +72,7 @@ static int xinput_find_device_slot(uint8_t dev_addr)
 
 static int xinput_find_free_slot(void)
 {
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
         if (!xbox_devices[i].valid)
         {
@@ -82,6 +80,11 @@ static int xinput_find_free_slot(void)
         }
     }
     return -1;
+}
+
+static uint8_t xinput_slot_to_pad_idx(int slot)
+{
+    return CFG_TUH_HID + slot;
 }
 
 // Class driver implementation
@@ -108,10 +111,10 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     // Xbox One/Series: Class=0xFF, Subclass=0x47, Protocol=0xD0
     // Xbox 360: Class=0xFF, Subclass=0x5D, Protocol=0x01 or 0x02
     bool is_x360 = false;
-    bool is_xbone = false;
+    bool is_xbox_one = false;
     if (desc_itf->bInterfaceSubClass == 0x47 && desc_itf->bInterfaceProtocol == 0xD0)
     {
-        is_xbone = true;
+        is_xbox_one = true;
         DBG("XInput: Detected Xbox One/Series controller interface\n");
     }
     else if (desc_itf->bInterfaceSubClass == 0x5D &&
@@ -121,7 +124,7 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
         DBG("XInput: Detected Xbox 360 controller interface\n");
     }
 
-    if (!is_xbone && !is_x360)
+    if (!is_xbox_one && !is_x360)
     {
         return false;
     }
@@ -176,11 +179,10 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     // Initialize slot
     xbox_devices[slot].dev_addr = dev_addr;
     xbox_devices[slot].valid = true;
-    xbox_devices[slot].is_xbone = is_xbone;
+    xbox_devices[slot].is_xbox_one = is_xbox_one;
     xbox_devices[slot].interface_num = desc_itf->bInterfaceNumber;
     xbox_devices[slot].ep_in = ep_in;
     xbox_devices[slot].ep_out = ep_out;
-    xbox_devices[slot].slot_idx = CFG_TUH_HID + slot;
     xbox_devices[slot].ep_in_desc = ep_in_desc;
     if (ep_out != 0)
     {
@@ -191,8 +193,9 @@ bool xinputh_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const 
     uint16_t vendor_id, product_id;
     if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
     {
-        pad_mount(xbox_devices[slot].slot_idx, 0, 0, dev_addr, vendor_id, product_id);
-        if (!pad_is_valid(xbox_devices[slot].slot_idx))
+        uint8_t pad_idx = xinput_slot_to_pad_idx(slot);
+        pad_mount(pad_idx, 0, 0, dev_addr, vendor_id, product_id);
+        if (!pad_is_valid(pad_idx))
         {
             DBG("XInput: Failed to mount in pad system\n");
             memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
@@ -272,7 +275,7 @@ static void process_set_config(tuh_xfer_t *xfer)
         xinput_start_interrupt_transfer(daddr, slot);
 
         // If this is Xbox One and we have an OUT endpoint, send init command
-        if (xbox_devices[slot].is_xbone && xbox_devices[slot].ep_out != 0)
+        if (xbox_devices[slot].is_xbox_one && xbox_devices[slot].ep_out != 0)
         {
             xinput_send_xbox_one_init(daddr, slot);
             // Continue to next state after init is sent
@@ -325,7 +328,7 @@ bool xinputh_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, ui
         // }
         // DBG("\n");
 
-        pad_report(xbox_devices[slot].slot_idx, xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
+        pad_report(xinput_slot_to_pad_idx(slot), xbox_devices[slot].report_buffer, (uint16_t)xferred_bytes);
 
         // Restart the transfer to continue receiving reports
         xinput_start_interrupt_transfer(dev_addr, slot);
@@ -366,7 +369,7 @@ void xinputh_close(uint8_t dev_addr)
         }
 
         // Notify pad module using slot index
-        pad_umount(xbox_devices[slot].slot_idx);
+        pad_umount(xinput_slot_to_pad_idx(slot));
 
         // Clear the slot
         memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));
@@ -434,13 +437,13 @@ static void xinput_send_xbox_one_init(uint8_t dev_addr, int slot)
 bool xinput_is_xbox_one(uint8_t dev_addr)
 {
     int slot = xinput_find_device_slot(dev_addr);
-    return slot >= 0 && xbox_devices[slot].is_xbone;
+    return slot >= 0 && xbox_devices[slot].is_xbox_one;
 }
 
 bool xinput_is_xbox_360(uint8_t dev_addr)
 {
     int slot = xinput_find_device_slot(dev_addr);
-    return slot >= 0 && !xbox_devices[slot].is_xbone;
+    return slot >= 0 && !xbox_devices[slot].is_xbox_one;
 }
 
 //--------------------------------------------------------------------+

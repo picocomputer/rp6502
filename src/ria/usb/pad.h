@@ -19,7 +19,7 @@
  * - Third-party Xbox One compatible controllers (PDP, PowerA, Hori, Razer)
  */
 
-#define PAD_PLAYER_LEN 4
+#define PAD_MAX_PLAYERS 4
 
 /* Kernel events
  */

@@ -21,14 +21,7 @@
     }
 #endif
 
-// Xbox One controllers use a specific report structure:
-// - No report ID for input reports
-// - 2-byte GIP header (command, sequence)
-// - 16-bit signed analog stick values
-// - 16-bit trigger values (10-bit actual precision)
-// - D-pad as individual button bits (not hat switch)
-// - GIP header followed by button/analog data
-static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") xbox_one_descriptor = {
     .valid = true,
     .sony = false,
     .report_id = 0x20, // GIP message ID
@@ -96,7 +89,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_one_descriptor 
 // - 8-bit trigger values (0-255)
 // - D-pad as individual button bits (not hat switch)
 // - Different button layout and offsets
-static const pad_descriptor_t __in_flash("hid_descriptors") xbox_360_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") xbox_360_descriptor = {
     .valid = true,
     .sony = false,
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
@@ -155,7 +148,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") xbox_360_descriptor 
         2 * 8 + 3  // D-pad Right (bit 3 of byte 2)
     }};
 
-static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") ds4_descriptor = {
     .valid = true,
     .sony = true,
     .report_id = 1,
@@ -195,7 +188,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds4_descriptor = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static void des_sony_ds4_controller(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+static void des_sony_ds4_controller(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
     {
@@ -217,7 +210,7 @@ static void des_sony_ds4_controller(pad_descriptor_t *desc, uint16_t vendor_id, 
     }
 }
 
-static const pad_descriptor_t __in_flash("hid_descriptors") ds5_descriptor = {
+static const des_gamepad_t __in_flash("hid_descriptors") ds5_descriptor = {
     .valid = true,
     .sony = true,
     .report_id = 1,
@@ -257,7 +250,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") ds5_descriptor = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static void des_sony_ds5_controller(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+static void des_sony_ds5_controller(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
     {
@@ -270,7 +263,7 @@ static void des_sony_ds5_controller(pad_descriptor_t *desc, uint16_t vendor_id, 
     }
 }
 
-static void des_remap_8bitdo_dinput(pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x2DC8) // 8BitDo
         return;
@@ -304,9 +297,9 @@ static void des_remap_8bitdo_dinput(pad_descriptor_t *desc, uint16_t vendor_id, 
     desc->button_offsets[14] = temp5;
 }
 
-static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *desc_report, uint16_t desc_len)
+static void des_parse_generic_controller(des_gamepad_t *desc, uint8_t const *desc_report, uint16_t desc_len)
 {
-    memset(desc, 0, sizeof(pad_descriptor_t));
+    memset(desc, 0, sizeof(des_gamepad_t));
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
         desc->button_offsets[i] = 0xFFFF;
 
@@ -388,7 +381,7 @@ static void des_parse_generic_controller(pad_descriptor_t *desc, uint8_t const *
         desc->valid = true;
 }
 
-void des_report_descriptor(pad_descriptor_t *desc,
+void des_report_descriptor(des_gamepad_t *desc,
                            uint8_t const *desc_report, uint16_t desc_len,
                            uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {

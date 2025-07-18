@@ -22,34 +22,29 @@
     }
 #endif
 
-// hat values: 0-7 clockwise, 0 = north, 8 = no press
+// hat bits: 0-up, 1-down, 2-left, 3-right
 // Feature bit 0x80 is on when valid controller connected
 // Feature bit 0x40 is on when Sony-style controller detected
 typedef struct TU_ATTR_PACKED
 {
     uint8_t hat;     // hat (0x0F) and feature (0xF0) bits
-    uint8_t sticks;  // left (0x0F) and right (0xF0) sticks as hat values
+    uint8_t sticks;  // left (0x0F) and right (0xF0) sticks
     uint8_t button0; // buttons
     uint8_t button1; // buttons
-    int8_t x;        // left analog-stick
-    int8_t y;        // left analog-stick
-    int8_t z;        // right analog-stick
-    int8_t rz;       // right analog-stick
-    uint8_t rx;      // analog left trigger
-    uint8_t ry;      // analog right trigger
+    int8_t lx;       // left analog-stick
+    int8_t ly;       // left analog-stick
+    int8_t rx;       // right analog-stick
+    int8_t ry;       // right analog-stick
+    uint8_t lt;      // analog left trigger
+    uint8_t rt;      // analog right trigger
 } pad_gamepad_report_t;
 
-// Deadzone should be generous enough for moderately worn sticks.
+// Deadzone is generous enough for moderately worn sticks.
 // Apps should use analog values if they want to tighten it up.
 #define PAD_DEADZONE 32
 
 static uint16_t pad_xram;
-static pad_descriptor_t pad_players[PAD_PLAYER_LEN];
-
-// Forward declarations
-static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
-static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
-static uint8_t pad_encode_hat(int8_t x_raw, int8_t y_raw);
+static des_gamepad_t pad_players[PAD_MAX_PLAYERS];
 
 static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
@@ -247,7 +242,7 @@ static uint8_t pad_encode_hat(int8_t x_raw, int8_t y_raw)
 
 int pad_find_player_by_idx(uint8_t idx)
 {
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
         if (pad_players[i].idx == idx && pad_players[i].valid)
             return i;
     return -1;
@@ -260,47 +255,47 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
     memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
     gamepad_report->hat = 0x08;
     gamepad_report->sticks = 0x88;
-    gamepad_report->x = 0;
-    gamepad_report->y = 0;
-    gamepad_report->z = 0;
-    gamepad_report->rz = 0;
+    gamepad_report->lx = 0;
+    gamepad_report->ly = 0;
+    gamepad_report->rx = 0;
+    gamepad_report->ry = 0;
     if (report_len == 0)
         return;
 
-    pad_descriptor_t *desc = &pad_players[player];
+    des_gamepad_t *desc = &pad_players[player];
 
     // Extract analog sticks
     if (desc->x_size > 0)
     {
         uint32_t raw_x = pad_extract_bits(report, report_len, desc->x_offset, desc->x_size);
-        gamepad_report->x = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
+        gamepad_report->lx = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
     }
     if (desc->y_size > 0)
     {
         uint32_t raw_y = pad_extract_bits(report, report_len, desc->y_offset, desc->y_size);
-        gamepad_report->y = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
+        gamepad_report->ly = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
     }
     if (desc->z_size > 0)
     {
         uint32_t raw_z = pad_extract_bits(report, report_len, desc->z_offset, desc->z_size);
-        gamepad_report->z = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
+        gamepad_report->rx = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
     }
     if (desc->rz_size > 0)
     {
         uint32_t raw_rz = pad_extract_bits(report, report_len, desc->rz_offset, desc->rz_size);
-        gamepad_report->rz = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
+        gamepad_report->ry = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
     }
 
     // Extract triggers
     if (desc->rx_size > 0)
     {
         uint32_t raw_rx = pad_extract_bits(report, report_len, desc->rx_offset, desc->rx_size);
-        gamepad_report->rx = pad_scale_analog(raw_rx, desc->rx_size, desc->rx_logical_min, desc->rx_logical_max);
+        gamepad_report->lt = pad_scale_analog(raw_rx, desc->rx_size, desc->rx_logical_min, desc->rx_logical_max);
     }
     if (desc->ry_size > 0)
     {
         uint32_t raw_ry = pad_extract_bits(report, report_len, desc->ry_offset, desc->ry_size);
-        gamepad_report->ry = pad_scale_analog(raw_ry, desc->ry_size, desc->ry_logical_min, desc->ry_logical_max);
+        gamepad_report->rt = pad_scale_analog(raw_ry, desc->ry_size, desc->ry_logical_min, desc->ry_logical_max);
     }
 
     // Extract buttons using individual bit offsets
@@ -360,20 +355,20 @@ static void pad_parse_report_to_gamepad(int player, uint8_t const *report, uint1
         gamepad_report->hat |= 0x40;
 
     // Generate hat values for sticks
-    uint8_t hat_l = pad_encode_hat(gamepad_report->x, gamepad_report->y);
-    uint8_t hat_r = pad_encode_hat(gamepad_report->z, gamepad_report->rz);
+    uint8_t hat_l = pad_encode_hat(gamepad_report->lx, gamepad_report->ly);
+    uint8_t hat_r = pad_encode_hat(gamepad_report->rx, gamepad_report->ry);
     gamepad_report->sticks = hat_l | (hat_r << 4);
 
     // If L2/R2 buttons pressed without any analog movement
-    if ((buttons & (1 << 8)) && (gamepad_report->rx == 0))
-        gamepad_report->rx = 255;
-    if ((buttons & (1 << 9)) && (gamepad_report->ry == 0))
-        gamepad_report->ry = 255;
+    if ((buttons & (1 << 8)) && (gamepad_report->lt == 0))
+        gamepad_report->lt = 255;
+    if ((buttons & (1 << 9)) && (gamepad_report->rt == 0))
+        gamepad_report->rt = 255;
 
     // If L2/R2 analog movement, ensure button press
-    if (gamepad_report->rx > PAD_DEADZONE)
+    if (gamepad_report->lt > PAD_DEADZONE)
         gamepad_report->button1 |= (1 << 0); // L2 (bit 8 -> button1 bit 0)
-    if (gamepad_report->ry > PAD_DEADZONE)
+    if (gamepad_report->rt > PAD_DEADZONE)
         gamepad_report->button1 |= (1 << 1); // R2 (bit 9 -> button1 bit 1)
 }
 
@@ -399,10 +394,10 @@ static void pad_reset_xram(uint8_t player)
 
 bool pad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_gamepad_report_t)) * PAD_PLAYER_LEN)
+    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_gamepad_report_t)) * PAD_MAX_PLAYERS)
         return false;
     pad_xram = word;
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
         pad_reset_xram(i);
     return true;
 }
@@ -411,9 +406,9 @@ void pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {
     // Find an available descriptor slot
-    pad_descriptor_t *pad_desc = NULL;
+    des_gamepad_t *pad_desc = NULL;
     int player;
-    for (int i = 0; i < PAD_PLAYER_LEN; i++)
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
         if (!pad_players[i].valid)
         {
@@ -446,7 +441,7 @@ void pad_umount(uint8_t idx)
     int player = pad_find_player_by_idx(idx);
     if (player < 0)
         return;
-    pad_descriptor_t *desc = &pad_players[player];
+    des_gamepad_t *desc = &pad_players[player];
     desc->valid = false;
     desc->idx = 0;
     pad_reset_xram(player);
@@ -457,7 +452,7 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
     int player = pad_find_player_by_idx(idx);
     if (player < 0)
         return;
-    pad_descriptor_t *desc = &pad_players[player];
+    des_gamepad_t *desc = &pad_players[player];
 
     // Skip report ID check if no report ID is expected, or validate if one is expected
     const uint8_t *report_data = report;
