@@ -79,7 +79,10 @@ static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t lo
     int32_t signed_value;
     if (bit_size <= 8)
     {
-        signed_value = (int8_t)raw_value;
+        if (logical_min >= 0)
+            signed_value = (uint8_t)raw_value;
+        else
+            signed_value = (int8_t)raw_value;
     }
     else if (bit_size <= 16)
     {

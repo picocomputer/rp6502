@@ -21,64 +21,59 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static const des_gamepad_t __in_flash("hid_descriptors") xbox_one_descriptor = {
     .valid = true,
-    .sony = false,
     .report_id = 0x20, // GIP message ID
-    .x_offset = 9 * 8, // Byte 9-10 (left stick X) - 16-bit signed little endian
+    .x_offset = 9 * 8, // left stick X
     .x_size = 16,
-    .x_logical_min = -32768, // 16-bit signed range
+    .x_logical_min = -32768,
     .x_logical_max = 32767,
-    .y_offset = 11 * 8, // Byte 11-12 (left stick Y) - 16-bit signed little endian
+    .y_offset = 11 * 8, // left stick Y
     .y_size = 16,
-    .y_logical_min = 32767, // 16-bit signed range
+    .y_logical_min = 32767,
     .y_logical_max = -32768,
-    .z_offset = 13 * 8, // Byte 13-14 (right stick X) - 16-bit signed little endian
+    .z_offset = 13 * 8, // right stick X
     .z_size = 16,
-    .z_logical_min = -32768, // 16-bit signed range
+    .z_logical_min = -32768,
     .z_logical_max = 32767,
-    .rz_offset = 15 * 8, // Byte 15-16 (right stick Y) - 16-bit signed little endian
+    .rz_offset = 15 * 8, // right stick Y
     .rz_size = 16,
-    .rz_logical_min = 32767, // 16-bit signed range
+    .rz_logical_min = 32767,
     .rz_logical_max = -32768,
-    .rx_offset = 5 * 8, // Byte 5-6 (left trigger) - 16-bit unsigned little endian
+    .rx_offset = 5 * 8, // left trigger
     .rx_size = 10,
-    .rx_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
+    .rx_logical_min = 0,
     .rx_logical_max = 1023,
-    .ry_offset = 7 * 8, // Byte 7-8 (right trigger) - 16-bit unsigned little endian
+    .ry_offset = 7 * 8, // right trigger
     .ry_size = 10,
-    .ry_logical_min = 0, // Triggers are unsigned 0-65535 (full 16-bit range)
+    .ry_logical_min = 0,
     .ry_logical_max = 1023,
-    .hat_offset = 0, // Xbox One uses individual dpad buttons, not hat switch
-    .hat_size = 0,
-    .hat_logical_min = 0,
-    .hat_logical_max = 0,
 
     // DS4 button layout: X, Circle, Square, Triangle, L1, R1, L2, R2,
     // Share, Options, L3, R3, PS, Touchpad
 
     .button_offsets = {
-        // Xbox One Gamepad Input Protocol button layout (GIP_CMD_INPUT reports)
-        3 * 8 + 4, // A button (bit 4 of byte 3)
-        3 * 8 + 5, // B button (bit 5 of byte 3)
-        3 * 8 + 6, // X button (bit 6 of byte 3)
-        3 * 8 + 7, // Y button (bit 7 of byte 3)
-        4 * 8 + 4, // Left shoulder/LB (bit 4 of byte 4)
-        4 * 8 + 5, // Right shoulder/RB (bit 5 of byte 4)
-        3 * 8 + 3, // View/Select button (bit 3 of byte 3)
-        3 * 8 + 2, // Menu/Start button (bit 2 of byte 3)
+        // Xbox One Gamepad Input Protocol buttons (byte * 8 + bit):
+        3 * 8 + 4, // A button
+        3 * 8 + 5, // B button
+        3 * 8 + 6, // X button
+        3 * 8 + 7, // Y button
+        4 * 8 + 4, // Left shoulder/LB
+        4 * 8 + 5, // Right shoulder/RB
+        3 * 8 + 3, // View/Select button
+        3 * 8 + 2, // Menu/Start button
         //
-        0xFFFF,    // L2 (analog trigger)
-        0xFFFF,    // R2 (analog trigger)
-        4 * 8 + 6, // Left stick click (bit 1 of byte 4)
-        4 * 8 + 7, // Right stick click (bit 0 of byte 4)
+        0xFFFF,    // L2
+        0xFFFF,    // R2
+        4 * 8 + 6, // Left stick click
+        4 * 8 + 7, // Right stick click
         0xFFFF,    // Xbox guide button (sent via separate GIP_CMD_VIRTUAL_KEY report)
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        4 * 8 + 0, // D-pad Up (bit 0 of byte 4)
-        4 * 8 + 1, // D-pad Down (bit 1 of byte 4)
-        4 * 8 + 2, // D-pad Left (bit 2 of byte 4)
-        4 * 8 + 3, // D-pad Right (bit 3 of byte 4)
+        4 * 8 + 0, // D-pad Up
+        4 * 8 + 1, // D-pad Down
+        4 * 8 + 2, // D-pad Left
+        4 * 8 + 3, // D-pad Right
     }};
 
 // Xbox 360 controllers use a different report structure than Xbox One:
@@ -89,61 +84,55 @@ static const des_gamepad_t __in_flash("hid_descriptors") xbox_one_descriptor = {
 // - Different button layout and offsets
 static const des_gamepad_t __in_flash("hid_descriptors") xbox_360_descriptor = {
     .valid = true,
-    .sony = false,
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
-    .x_offset = 6 * 8, // Byte 6 (left stick X) - 16-bit signed
+    .x_offset = 6 * 8, // left stick X
     .x_size = 16,
-    .x_logical_min = -32768, // 16-bit signed range
+    .x_logical_min = -32768,
     .x_logical_max = 32767,
-    .y_offset = 8 * 8, // Byte 8 (left stick Y) - 16-bit signed
+    .y_offset = 8 * 8, // left stick Y
     .y_size = 16,
-    .y_logical_min = -32768, // 16-bit signed range
-    .y_logical_max = 32767,
-    .z_offset = 10 * 8, // Byte 10 (right stick X) - 16-bit signed
+    .y_logical_min = 32767,
+    .y_logical_max = -32768,
+    .z_offset = 10 * 8, // right stick X
     .z_size = 16,
-    .z_logical_min = -32768, // 16-bit signed range
+    .z_logical_min = -32768,
     .z_logical_max = 32767,
-    .rz_offset = 12 * 8, // Byte 12 (right stick Y) - 16-bit signed
+    .rz_offset = 12 * 8, // right stick Y
     .rz_size = 16,
-    .rz_logical_min = -32768, // 16-bit signed range
-    .rz_logical_max = 32767,
-    .rx_offset = 4 * 8, // Byte 4 (left trigger) - 8-bit unsigned
+    .rz_logical_min = 32767,
+    .rz_logical_max = -32768,
+    .rx_offset = 4 * 8, // left trigger
     .rx_size = 8,
-    .rx_logical_min = 0, // Triggers are unsigned 0-255 (8-bit)
+    .rx_logical_min = 0,
     .rx_logical_max = 255,
-    .ry_offset = 5 * 8, // Byte 5 (right trigger) - 8-bit unsigned
+    .ry_offset = 5 * 8, // right trigger
     .ry_size = 8,
-    .ry_logical_min = 0, // Triggers are unsigned 0-255 (8-bit)
+    .ry_logical_min = 0,
     .ry_logical_max = 255,
-    .hat_offset = 0, // Xbox 360 uses individual dpad buttons, not hat switch
-    .hat_size = 0,
-    .hat_logical_min = 0,
-    .hat_logical_max = 0,
     .button_offsets = {
-        // Xbox 360 button layout based on XInput standard (matches Linux xpad driver)
-        // Face buttons are in byte 3, bits 4-7
-        3 * 8 + 4, // A button (bit 4 of byte 3)
-        3 * 8 + 5, // B button (bit 5 of byte 3)
-        3 * 8 + 6, // X button (bit 6 of byte 3)
-        3 * 8 + 7, // Y button (bit 7 of byte 3)
-        3 * 8 + 0, // Left shoulder/LB (bit 0 of byte 3)
-        3 * 8 + 1, // Right shoulder/RB (bit 1 of byte 3)
-        2 * 8 + 5, // Back/Select button (bit 5 of byte 2)
-        2 * 8 + 4, // Start button (bit 4 of byte 2)
+        // Xbox 360 USB report button layout (byte * 8 + bit):
+        3 * 8 + 4, // A button
+        3 * 8 + 5, // B button
+        3 * 8 + 6, // X button
+        3 * 8 + 7, // Y button
+        3 * 8 + 0, // Left shoulder/LB
+        3 * 8 + 1, // Right shoulder/RB
+        2 * 8 + 5, // Back button
+        2 * 8 + 4, // Start button
         //
-        0xFFFF,    // L2 (analog trigger)
-        0xFFFF,    // R2 (analog trigger)
-        2 * 8 + 6, // Left stick click (bit 6 of byte 2)
-        2 * 8 + 7, // Right stick click (bit 7 of byte 2)
-        3 * 8 + 2, // Xbox guide button (bit 2 of byte 3)
+        0xFFFF,    // L2
+        0xFFFF,    // R2
+        2 * 8 + 6, // Left stick click
+        2 * 8 + 7, // Right stick click
+        3 * 8 + 2, // Guide button
         0xFFFF,    // unused
         0xFFFF,    // unused
         0xFFFF,    // unused
         //
-        2 * 8 + 0, // D-pad Up (bit 0 of byte 2)
-        2 * 8 + 1, // D-pad Down (bit 1 of byte 2)
-        2 * 8 + 2, // D-pad Left (bit 2 of byte 2)
-        2 * 8 + 3  // D-pad Right (bit 3 of byte 2)
+        2 * 8 + 0, // D-pad Up
+        2 * 8 + 1, // D-pad Down
+        2 * 8 + 2, // D-pad Left
+        2 * 8 + 3  // D-pad Right
     }};
 
 static const des_gamepad_t __in_flash("hid_descriptors") ds4_descriptor = {
@@ -298,6 +287,7 @@ static void des_remap_8bitdo_dinput(des_gamepad_t *desc, uint16_t vendor_id, uin
 static void des_parse_generic_controller(des_gamepad_t *desc, uint8_t const *desc_report, uint16_t desc_len)
 {
     memset(desc, 0, sizeof(des_gamepad_t));
+    desc->hid = true;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
         desc->button_offsets[i] = 0xFFFF;
 
@@ -430,8 +420,11 @@ void des_report_descriptor(des_gamepad_t *desc,
             DBG("Detected generic controller, using parsed descriptor.\n");
     }
 
-    // Remap the buttons for known vendors and products
-    des_remap_8bitdo_dinput(desc, vendor_id, product_id);
+    if (desc->hid)
+    {
+        // Remap HID buttons for known vendors and products
+        des_remap_8bitdo_dinput(desc, vendor_id, product_id);
+    }
 
     if (!desc->valid)
         DBG("HID descriptor not a gamepad.\n")
