@@ -16,7 +16,7 @@
  */
 
 void xin_task(void);
-
+int xin_count(void);
 bool xin_is_xbox_one(uint8_t dev_addr);
 bool xin_is_xbox_360(uint8_t dev_addr);
 

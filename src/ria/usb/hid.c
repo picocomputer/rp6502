@@ -9,6 +9,7 @@
 #include "usb/kbd.h"
 #include "usb/mou.h"
 #include "usb/pad.h"
+#include "usb/xin.h"
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_HID)
 #include <stdio.h>
@@ -45,7 +46,8 @@ void hid_print_status(void)
 {
     int count_keyboard = 0;
     int count_mouse = 0;
-    int count_gamepad = 0;
+    int count_gamepad = xin_count();
+
     for (int idx = 0; idx < CFG_TUH_HID; idx++)
     {
         uint8_t dev_addr = hid_dev_addr[idx];
@@ -66,10 +68,11 @@ void hid_print_status(void)
             }
         }
     }
-    printf("USB HID: %d keyboard%s, %d %s, %d gamepad%s",
+
+    printf("USB : %d keyboard%s, %d %s, %d gamepad%s",
            count_keyboard, count_keyboard == 1 ? "" : "s",
            count_mouse, count_mouse == 1 ? "mouse" : "mice",
-           count_gamepad, count_gamepad == 1 ? "\n" : "s\n");
+           count_gamepad, count_gamepad == 1 ? "" : "s");
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
