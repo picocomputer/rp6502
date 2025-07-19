@@ -10,11 +10,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Xbox One XInput protocol support
- *
- * Implements a TinyUSB class driver for Xbox controllers
- */
-
 void xin_task(void);
 int xin_count(void);
 bool xin_is_xbox_one(uint8_t dev_addr);
