@@ -21,7 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // c'mon tusb, there has to be a better way
-#define XIN_360_DELAY_MS 1000
+#define XIN_START_360_DELAY_MS 1000
 
 // Xbox controller tracking
 typedef struct
@@ -54,6 +54,7 @@ static int xin_find_free_slot(void)
     return -1;
 }
 
+// We can use the same indexing as hid as long as we keep clear
 static uint8_t xin_slot_to_pad_idx(int slot)
 {
     return CFG_TUH_HID + slot;
@@ -85,8 +86,6 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     if (desc_itf->bInterfaceClass != 0xFF)
         return false;
 
-    // Xbox One/Series: Class=0xFF, Subclass=0x47, Protocol=0xD0
-    // Xbox 360: Class=0xFF, Subclass=0x5D, Protocol=0x01 or 0x02
     bool is_x360 = false;
     bool is_xbox_one = false;
     if (desc_itf->bInterfaceSubClass == 0x47 && desc_itf->bInterfaceProtocol == 0xD0)
@@ -102,9 +101,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     }
 
     if (!is_xbox_one && !is_x360)
-    {
         return false;
-    }
 
     // All Xinput controllers have in and out endpoints
     uint8_t const *p_desc = (uint8_t const *)desc_itf;
@@ -134,9 +131,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         p_desc = tu_desc_next(p_desc);
     }
     if (ep_in == 0 || ep_out == 0)
-    {
         return false;
-    }
 
     // Find a free slot
     int slot = xin_find_free_slot();
@@ -216,7 +211,8 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     {
         // Defer Xbox 360 LED command which starts the in transfers
         device->start_360_pending = true;
-        device->start_360_time = delayed_by_us(get_absolute_time(), XIN_360_DELAY_MS * 1000);
+        device->start_360_time = delayed_by_us(get_absolute_time(),
+                                               XIN_START_360_DELAY_MS * 1000);
     }
 
     DBG("XInput: Configuration complete for slot %d\n", slot);

@@ -311,6 +311,7 @@ void pad_stop(void)
     pad_xram = 0xFFFF;
 }
 
+// Provides first and final updates in xram
 static void pad_reset_xram(int player_idx)
 {
     if (pad_xram == 0xFFFF)
@@ -334,7 +335,6 @@ bool pad_xreg(uint16_t word)
 bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
                uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {
-    // Find an available descriptor slot
     des_gamepad_t *gamepad = NULL;
     int player;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
@@ -346,21 +346,17 @@ bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
             break;
         }
     }
-
     if (!gamepad)
     {
         DBG("pad_mount: No available descriptor slots, max players reached\n");
         return false;
     }
-
     des_report_descriptor(gamepad, desc_report, desc_len,
                           dev_addr, vendor_id, product_id);
-
-    // Try to assign to an available player slot
     if (gamepad->valid)
     {
-        gamepad->idx = idx;     // Store the interface index
-        pad_reset_xram(player); // TODO this should set connected bit too
+        gamepad->idx = idx;
+        pad_reset_xram(player);
         return true;
     }
     return false;
@@ -390,7 +386,6 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
     uint16_t report_data_len = len;
     if (gamepad->report_id != 0)
     {
-        // DBG("report_id expected \\x%02X got \\x%02X", gamepad->report_id, report[0]);
         if (len == 0 || report[0] != gamepad->report_id)
             return;
         // Skip report ID byte
@@ -423,7 +418,7 @@ void pad_home_button(uint8_t idx, bool pressed)
     // Inject out of band home button into reports
     gamepad->home_pressed = pressed;
 
-    // Update the correct home button bit in xram
+    // Update the home button bit in xram
     if (pad_xram != 0xFFFF)
     {
         uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_report_t)) + 3];
