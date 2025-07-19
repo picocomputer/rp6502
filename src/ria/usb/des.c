@@ -76,28 +76,28 @@ static const des_gamepad_t __in_flash("hid_descriptors") des_xbox_one = {
     .report_id = 0x20, // GIP message ID
     .x_offset = 9 * 8, // left stick X
     .x_size = 16,
-    .x_logical_min = -32768,
-    .x_logical_max = 32767,
+    .x_min = -32768,
+    .x_max = 32767,
     .y_offset = 11 * 8, // left stick Y
     .y_size = 16,
-    .y_logical_min = 32767,
-    .y_logical_max = -32768,
+    .y_min = 32767,
+    .y_max = -32768,
     .z_offset = 13 * 8, // right stick X
     .z_size = 16,
-    .z_logical_min = -32768,
-    .z_logical_max = 32767,
+    .z_min = -32768,
+    .z_max = 32767,
     .rz_offset = 15 * 8, // right stick Y
     .rz_size = 16,
-    .rz_logical_min = 32767,
-    .rz_logical_max = -32768,
+    .rz_min = 32767,
+    .rz_max = -32768,
     .rx_offset = 5 * 8, // left trigger
     .rx_size = 10,
-    .rx_logical_min = 0,
-    .rx_logical_max = 1023,
+    .rx_min = 0,
+    .rx_max = 1023,
     .ry_offset = 7 * 8, // right trigger
     .ry_size = 10,
-    .ry_logical_min = 0,
-    .ry_logical_max = 1023,
+    .ry_min = 0,
+    .ry_max = 1023,
     .button_offsets = {
         // Xbox One Gamepad Input Protocol buttons
         3 * 8 + 4, // A button
@@ -129,28 +129,28 @@ static const des_gamepad_t __in_flash("hid_descriptors") des_xbox_360 = {
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
     .x_offset = 6 * 8, // left stick X
     .x_size = 16,
-    .x_logical_min = -32768,
-    .x_logical_max = 32767,
+    .x_min = -32768,
+    .x_max = 32767,
     .y_offset = 8 * 8, // left stick Y
     .y_size = 16,
-    .y_logical_min = 32767,
-    .y_logical_max = -32768,
+    .y_min = 32767,
+    .y_max = -32768,
     .z_offset = 10 * 8, // right stick X
     .z_size = 16,
-    .z_logical_min = -32768,
-    .z_logical_max = 32767,
+    .z_min = -32768,
+    .z_max = 32767,
     .rz_offset = 12 * 8, // right stick Y
     .rz_size = 16,
-    .rz_logical_min = 32767,
-    .rz_logical_max = -32768,
+    .rz_min = 32767,
+    .rz_max = -32768,
     .rx_offset = 4 * 8, // left trigger
     .rx_size = 8,
-    .rx_logical_min = 0,
-    .rx_logical_max = 255,
+    .rx_min = 0,
+    .rx_max = 255,
     .ry_offset = 5 * 8, // right trigger
     .ry_size = 8,
-    .ry_logical_min = 0,
-    .ry_logical_max = 255,
+    .ry_min = 0,
+    .ry_max = 255,
     .button_offsets = {
         // Xbox 360 USB report button layout
         3 * 8 + 4, // A button
@@ -183,32 +183,32 @@ static const des_gamepad_t __in_flash("hid_descriptors") des_sony_ds4 = {
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
     .x_size = 8,
-    .x_logical_min = 0,
-    .x_logical_max = 255,
+    .x_min = 0,
+    .x_max = 255,
     .y_offset = 1 * 8, // left stick Y
     .y_size = 8,
-    .y_logical_min = 0,
-    .y_logical_max = 255,
+    .y_min = 0,
+    .y_max = 255,
     .z_offset = 2 * 8, // right stick X
     .z_size = 8,
-    .z_logical_min = 0,
-    .z_logical_max = 255,
+    .z_min = 0,
+    .z_max = 255,
     .rz_offset = 3 * 8, // right stick Y
     .rz_size = 8,
-    .rz_logical_min = 0,
-    .rz_logical_max = 255,
+    .rz_min = 0,
+    .rz_max = 255,
     .rx_offset = 7 * 8, // L2 trigger
     .rx_size = 8,
-    .rx_logical_min = 0,
-    .rx_logical_max = 255,
+    .rx_min = 0,
+    .rx_max = 255,
     .ry_offset = 8 * 8, // R2 trigger
     .ry_size = 8,
-    .ry_logical_min = 0,
-    .ry_logical_max = 255,
+    .ry_min = 0,
+    .ry_max = 255,
     .hat_offset = 4 * 8, // D-pad
     .hat_size = 4,
-    .hat_logical_min = 0,
-    .hat_logical_max = 7,
+    .hat_min = 0,
+    .hat_max = 7,
     .button_offsets = {
         // X, Circle, Square, Triangle, L1, R1, Share, Options
         37, 38, 36, 39, 40, 41, 44, 45,
@@ -223,32 +223,32 @@ static const des_gamepad_t __in_flash("hid_descriptors") des_sony_ds5 = {
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
     .x_size = 8,
-    .x_logical_min = 0,
-    .x_logical_max = 255,
+    .x_min = 0,
+    .x_max = 255,
     .y_offset = 1 * 8, // left stick Y
     .y_size = 8,
-    .y_logical_min = 0,
-    .y_logical_max = 255,
+    .y_min = 0,
+    .y_max = 255,
     .z_offset = 2 * 8, // right stick X
     .z_size = 8,
-    .z_logical_min = 0,
-    .z_logical_max = 255,
+    .z_min = 0,
+    .z_max = 255,
     .rz_offset = 3 * 8, // right stick Y
     .rz_size = 8,
-    .rz_logical_min = 0,
-    .rz_logical_max = 255,
+    .rz_min = 0,
+    .rz_max = 255,
     .rx_offset = 4 * 8, // L2 trigger
     .rx_size = 8,
-    .rx_logical_min = 0,
-    .rx_logical_max = 255,
+    .rx_min = 0,
+    .rx_max = 255,
     .ry_offset = 5 * 8, // R2 trigger
     .ry_size = 8,
-    .ry_logical_min = 0,
-    .ry_logical_max = 255,
+    .ry_min = 0,
+    .ry_max = 255,
     .hat_offset = 7 * 8, // D-pad
     .hat_size = 4,
-    .hat_logical_min = 0,
-    .hat_logical_max = 7,
+    .hat_min = 0,
+    .hat_max = 7,
     .button_offsets = {
         // X, Circle, Square, Triangle, L1, R1, Create, Options
         61, 62, 60, 63, 64, 65, 68, 69,
@@ -377,44 +377,44 @@ static void des_parse_hid_controller(des_gamepad_t *gamepad, uint8_t const *desc
             case 0x30: // X axis (left stick X)
                 gamepad->x_offset = item.bit_pos;
                 gamepad->x_size = item.size;
-                gamepad->x_logical_min = iterator.global_logical_minimum;
-                gamepad->x_logical_max = iterator.global_logical_maximum;
+                gamepad->x_min = iterator.global_logical_minimum;
+                gamepad->x_max = iterator.global_logical_maximum;
                 break;
             case 0x31: // Y axis (left stick Y)
                 gamepad->y_offset = item.bit_pos;
                 gamepad->y_size = item.size;
-                gamepad->y_logical_min = iterator.global_logical_minimum;
-                gamepad->y_logical_max = iterator.global_logical_maximum;
+                gamepad->y_min = iterator.global_logical_minimum;
+                gamepad->y_max = iterator.global_logical_maximum;
                 break;
             case 0x32: // Z axis (right stick X)
                 gamepad->z_offset = item.bit_pos;
                 gamepad->z_size = item.size;
-                gamepad->z_logical_min = iterator.global_logical_minimum;
-                gamepad->z_logical_max = iterator.global_logical_maximum;
+                gamepad->z_min = iterator.global_logical_minimum;
+                gamepad->z_max = iterator.global_logical_maximum;
                 break;
             case 0x35: // Rz axis (right stick Y)
                 gamepad->rz_offset = item.bit_pos;
                 gamepad->rz_size = item.size;
-                gamepad->rz_logical_min = iterator.global_logical_minimum;
-                gamepad->rz_logical_max = iterator.global_logical_maximum;
+                gamepad->rz_min = iterator.global_logical_minimum;
+                gamepad->rz_max = iterator.global_logical_maximum;
                 break;
             case 0x33: // Rx axis (left trigger)
                 gamepad->rx_offset = item.bit_pos;
                 gamepad->rx_size = item.size;
-                gamepad->rx_logical_min = iterator.global_logical_minimum;
-                gamepad->rx_logical_max = iterator.global_logical_maximum;
+                gamepad->rx_min = iterator.global_logical_minimum;
+                gamepad->rx_max = iterator.global_logical_maximum;
                 break;
             case 0x34: // Ry axis (right trigger)
                 gamepad->ry_offset = item.bit_pos;
                 gamepad->ry_size = item.size;
-                gamepad->ry_logical_min = iterator.global_logical_minimum;
-                gamepad->ry_logical_max = iterator.global_logical_maximum;
+                gamepad->ry_min = iterator.global_logical_minimum;
+                gamepad->ry_max = iterator.global_logical_maximum;
                 break;
             case 0x39: // Hat switch (D-pad)
                 gamepad->hat_offset = item.bit_pos;
                 gamepad->hat_size = item.size;
-                gamepad->hat_logical_min = iterator.global_logical_minimum;
-                gamepad->hat_logical_max = iterator.global_logical_maximum;
+                gamepad->hat_min = iterator.global_logical_minimum;
+                gamepad->hat_max = iterator.global_logical_maximum;
                 break;
             }
         }

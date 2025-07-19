@@ -103,12 +103,6 @@ static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t lo
 
 static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    // Fast path for common cases
-    if (logical_min == 0 && logical_max == 255)
-        return (int8_t)(raw_value - 128);
-    if (logical_min == -128 && logical_max == 127)
-        return (int8_t)raw_value;
-
     // Handle reversed polarity
     bool reversed = logical_min > logical_max;
     int32_t min = reversed ? logical_max : logical_min;
@@ -206,34 +200,34 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     if (gamepad->x_size > 0)
     {
         uint32_t raw_x = pad_extract_bits(report, report_len, gamepad->x_offset, gamepad->x_size);
-        gamepad_report->lx = pad_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_logical_min, gamepad->x_logical_max);
+        gamepad_report->lx = pad_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_min, gamepad->x_max);
     }
     if (gamepad->y_size > 0)
     {
         uint32_t raw_y = pad_extract_bits(report, report_len, gamepad->y_offset, gamepad->y_size);
-        gamepad_report->ly = pad_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_logical_min, gamepad->y_logical_max);
+        gamepad_report->ly = pad_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_min, gamepad->y_max);
     }
     if (gamepad->z_size > 0)
     {
         uint32_t raw_z = pad_extract_bits(report, report_len, gamepad->z_offset, gamepad->z_size);
-        gamepad_report->rx = pad_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_logical_min, gamepad->z_logical_max);
+        gamepad_report->rx = pad_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_min, gamepad->z_max);
     }
     if (gamepad->rz_size > 0)
     {
         uint32_t raw_rz = pad_extract_bits(report, report_len, gamepad->rz_offset, gamepad->rz_size);
-        gamepad_report->ry = pad_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_logical_min, gamepad->rz_logical_max);
+        gamepad_report->ry = pad_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_min, gamepad->rz_max);
     }
 
     // Extract triggers
     if (gamepad->rx_size > 0)
     {
         uint32_t raw_rx = pad_extract_bits(report, report_len, gamepad->rx_offset, gamepad->rx_size);
-        gamepad_report->lt = pad_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_logical_min, gamepad->rx_logical_max);
+        gamepad_report->lt = pad_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_min, gamepad->rx_max);
     }
     if (gamepad->ry_size > 0)
     {
         uint32_t raw_ry = pad_extract_bits(report, report_len, gamepad->ry_offset, gamepad->ry_size);
-        gamepad_report->rt = pad_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_logical_min, gamepad->ry_logical_max);
+        gamepad_report->rt = pad_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_min, gamepad->ry_max);
     }
 
     // Extract buttons using individual bit offsets
@@ -245,7 +239,7 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
 
     // Extract D-pad/hat
-    if (gamepad->hat_size == 4 && gamepad->hat_logical_min == 0 && gamepad->hat_logical_max == 7)
+    if (gamepad->hat_size == 4 && gamepad->hat_min == 0 && gamepad->hat_max == 7)
     {
         // Convert HID hat format to individual direction bits
         uint32_t raw_hat = pad_extract_bits(report, report_len, gamepad->hat_offset, gamepad->hat_size);
@@ -296,7 +290,7 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     if ((buttons & (1 << 9)) && (gamepad_report->rt == 0))
         gamepad_report->rt = 255;
 
-    // Inject xbox one home button
+    // Inject Xbox One home button
     if (gamepad->home_pressed)
         gamepad_report->button1 |= (1 << 4); // Home
 

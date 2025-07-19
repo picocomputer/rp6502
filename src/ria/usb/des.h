@@ -27,32 +27,32 @@ typedef struct
     uint8_t report_id; // If non zero, the first report byte must match and will be skipped
     uint16_t x_offset; // Left stick X
     uint8_t x_size;
-    int32_t x_logical_min;
-    int32_t x_logical_max;
+    int32_t x_min;
+    int32_t x_max;
     uint16_t y_offset; // Left stick Y
     uint8_t y_size;
-    int32_t y_logical_min;
-    int32_t y_logical_max;
+    int32_t y_min;
+    int32_t y_max;
     uint16_t z_offset; // Right stick X (Z axis)
     uint8_t z_size;
-    int32_t z_logical_min;
-    int32_t z_logical_max;
+    int32_t z_min;
+    int32_t z_max;
     uint16_t rz_offset; // Right stick Y (Rz axis)
     uint8_t rz_size;
-    int32_t rz_logical_min;
-    int32_t rz_logical_max;
+    int32_t rz_min;
+    int32_t rz_max;
     uint16_t rx_offset; // Left trigger (Rx axis)
     uint8_t rx_size;
-    int32_t rx_logical_min;
-    int32_t rx_logical_max;
+    int32_t rx_min;
+    int32_t rx_max;
     uint16_t ry_offset; // Right trigger (Ry axis)
     uint8_t ry_size;
-    int32_t ry_logical_min;
-    int32_t ry_logical_max;
+    int32_t ry_min;
+    int32_t ry_max;
     uint16_t hat_offset; // D-pad/hat
     uint8_t hat_size;
-    int32_t hat_logical_min;
-    int32_t hat_logical_max;
+    int32_t hat_min;
+    int32_t hat_max;
     // Button bit offsets, 0xFFFF = unused
     uint16_t button_offsets[PAD_MAX_BUTTONS];
 } des_gamepad_t;
