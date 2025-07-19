@@ -36,7 +36,7 @@ static wfi_state_t wfi_state;
 static int wfi_retry_initial_retry_count;
 static absolute_time_t wfi_retry_timer;
 
-// Be agressive 5 times then back off
+// Be aggressive 5 times then back off
 #define WFI_RETRY_INITIAL_RETRIES 5
 #define WFI_RETRY_INITIAL_SECS 2
 #define WFI_RETRY_SECS 60

@@ -132,8 +132,8 @@ bool mdm_open(const char *filename)
         return false;
     mdm_read_settings(&mdm_settings);
     mdm_is_open = true;
-    // optionally process filename as AT command
-    // after nvram read. e.g. AT:&F
+    // Optionally process filename as AT command
+    // after NVRAM read. e.g. AT:&F
     if (filename[0])
     {
         mdm_is_parsing = true;
@@ -209,7 +209,7 @@ int mdm_rx(char *ch)
 {
     if (!mdm_is_open)
         return -1;
-    // get next line, if needed and in progress
+    // Get next line, if needed and in progress
     if (mdm_response_buf_empty() && mdm_response_state >= 0)
     {
         mdm_response_state = mdm_response_fn(mdm_response_buf, MDM_RESPONSE_BUF_SIZE, mdm_response_state);
@@ -231,14 +231,14 @@ int mdm_rx(char *ch)
             }
         }
     }
-    // get from line buffer, if available
+    // Get from line buffer, if available
     if (!mdm_response_buf_empty())
     {
         *ch = mdm_response_buf[mdm_response_buf_tail];
         mdm_response_buf_tail = (mdm_response_buf_tail + 1) % MDM_RESPONSE_BUF_SIZE;
         return 1;
     }
-    // get from telephone emulator
+    // Get from telephone emulator
     if (!mdm_in_command_mode)
         return tel_rx(ch);
     return 0;
@@ -297,7 +297,7 @@ static int mdm_tx_command_mode(char ch)
                 mdm_parse_str = &mdm_cmd_buf[2];
             }
             else
-                mdm_parse_result = false; // instant error
+                mdm_parse_result = false; // immediate error
             return 1;
         }
         if (mdm_cmd_buf_len < MDM_AT_COMMAND_LEN)
@@ -665,7 +665,7 @@ bool mdm_hangup(void)
 void mdm_carrier_lost(void)
 {
     // If the telephone connection is lost while
-    // we are escaped into command mode, hangup.
+    // we are escaped into command mode, hang up.
     if (mdm_in_command_mode)
         mdm_hangup();
 }

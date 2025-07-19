@@ -51,7 +51,7 @@ static const char __in_flash("msc_print") MSC_PRINT_MB[] = "MB";
 static const char __in_flash("msc_print") MSC_PRINT_GB[] = "GB";
 static const char __in_flash("msc_print") MSC_PRINT_TB[] = "TB";
 static const char __in_flash("msc_print") MSC_PRINT_COUNT[] =
-    "USB MSC: %d device%s\n";
+    ", %d storage\n";
 static const char __in_flash("msc_print") MSC_PRINT_INQUIRING[] =
     "%s: inquiring\n";
 static const char __in_flash("msc_print") MSC_PRINT_MOUNTED[] =
@@ -98,7 +98,7 @@ void msc_print_status(void)
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
         if (msc_volume_status[vol] != msc_volume_free)
             count++;
-    printf(MSC_PRINT_COUNT, count, count == 1 ? "" : "s");
+    printf(MSC_PRINT_COUNT, count);
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         switch (msc_volume_status[vol])

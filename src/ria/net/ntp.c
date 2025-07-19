@@ -54,7 +54,7 @@ static int ntp_retry_retry_count;
 static absolute_time_t ntp_retry_timer;
 static absolute_time_t ntp_timeout_timer;
 
-// Be agressive 5 times then back off
+// Be aggressive 5 times then back off
 #define NTP_RETRY_RETRIES 5
 #define NTP_RETRY_RETRY_SECS 2
 #define NTP_RETRY_UNSET_SECS 60

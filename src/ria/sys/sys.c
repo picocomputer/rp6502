@@ -22,9 +22,9 @@ static void sys_print_status(void)
     puts(RP6502_NAME);
 #ifdef RP6502_RIA_W
     if (strlen(RP6502_VERSION))
-        puts("RIA W Version " RP6502_VERSION);
+        puts("RIA Version " RP6502_VERSION " W");
     else
-        puts("RIA W " __DATE__ " " __TIME__);
+        puts("RIA " __DATE__ " " __TIME__ " W");
 #else
     if (strlen(RP6502_VERSION))
         puts("RIA Version " RP6502_VERSION);
