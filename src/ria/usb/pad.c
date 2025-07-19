@@ -18,12 +18,12 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// hat bits: 0-up, 1-down, 2-left, 3-right
+// dpad bits: 0-up, 1-down, 2-left, 3-right
 // Feature bit 0x80 is on when valid controller connected
 // Feature bit 0x40 is on when Sony-style controller detected
 typedef struct TU_ATTR_PACKED
 {
-    uint8_t hat;     // hat (0x0F) and feature (0xF0) bits
+    uint8_t dpad;    // dpad (0x0F) and feature (0xF0) bits
     uint8_t sticks;  // left (0x0F) and right (0xF0) sticks
     uint8_t button0; // buttons
     uint8_t button1; // buttons
@@ -33,7 +33,7 @@ typedef struct TU_ATTR_PACKED
     int8_t ry;       // right analog-stick
     uint8_t lt;      // analog left trigger
     uint8_t rt;      // analog right trigger
-} pad_gamepad_report_t;
+} pad_report_t;
 
 // Deadzone is generous enough for moderately worn sticks.
 // Apps should use analog values if they want to tighten it up.
@@ -42,24 +42,24 @@ typedef struct TU_ATTR_PACKED
 static uint16_t pad_xram;
 static des_gamepad_t pad_players[PAD_MAX_PLAYERS];
 
-static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
+static uint32_t pad_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
-    if (bit_size == 0 || bit_size > 32)
+    if (!bit_size || bit_size > 32)
         return 0;
 
-    uint8_t byte_offset = bit_offset / 8;
-    uint8_t bit_shift = bit_offset % 8;
-    uint8_t bytes_needed = (bit_offset + bit_size + 7) / 8;
-    if (bytes_needed > report_len)
+    uint16_t start_byte = bit_offset / 8;
+    uint8_t start_bit = bit_offset % 8;
+    uint16_t end_byte = (bit_offset + bit_size - 1) / 8;
+
+    if (end_byte >= report_len)
         return 0;
 
-    // Extract value across multiple bytes if needed
+    // Extract up to 4 bytes into a 32-bit value
     uint32_t value = 0;
-    for (uint8_t i = 0; i < (bit_size + 7) / 8 && i < 4 && (byte_offset + i) < report_len; i++)
-        value |= ((uint32_t)report[byte_offset + i]) << (i * 8);
+    for (uint8_t i = 0; i < 4 && (start_byte + i) < report_len; ++i)
+        value |= ((uint32_t)report[start_byte + i]) << (8 * i);
 
-    // Shift and mask to get the desired bits
-    value >>= bit_shift;
+    value >>= start_bit;
     if (bit_size < 32)
         value &= (1UL << bit_size) - 1;
 
@@ -68,59 +68,33 @@ static uint32_t pad_extract_bits(uint8_t const *report, uint16_t report_len, uin
 
 static uint8_t pad_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    // Check for polarity reversal (logical_min > logical_max)
+    // Handle reversed polarity
     bool reversed = logical_min > logical_max;
-    int32_t actual_min = reversed ? logical_max : logical_min;
-    int32_t actual_max = reversed ? logical_min : logical_max;
+    int32_t min = reversed ? logical_max : logical_min;
+    int32_t max = reversed ? logical_min : logical_max;
 
-    // Handle signed values by treating them as such
-    int32_t signed_value;
-    if (bit_size <= 8)
+    // Sign-extend raw_value if needed
+    int32_t value = (int32_t)raw_value;
+    if (min < 0 && bit_size < 32)
     {
-        if (logical_min >= 0)
-            signed_value = (uint8_t)raw_value;
-        else
-            signed_value = (int8_t)raw_value;
-    }
-    else if (bit_size <= 16)
-    {
-        signed_value = (int16_t)raw_value;
-    }
-    else
-    {
-        signed_value = (int32_t)raw_value;
-    }
-
-    // If the value appears to be outside the expected range, extend sign
-    if (actual_min < 0 && bit_size < 32)
-    {
-        // Sign extend for negative logical minimum
         uint32_t sign_bit = 1UL << (bit_size - 1);
         if (raw_value & sign_bit)
-        {
-            signed_value = (int32_t)(raw_value | (~((1UL << bit_size) - 1)));
-        }
-        else
-        {
-            signed_value = (int32_t)raw_value;
-        }
+            value |= ~((1UL << bit_size) - 1);
     }
 
-    // Clamp to actual logical range
-    if (signed_value < actual_min)
-        signed_value = actual_min;
-    if (signed_value > actual_max)
-        signed_value = actual_max;
+    // Clamp to logical range
+    if (value < min)
+        value = min;
+    if (value > max)
+        value = max;
 
-    // Scale to 0-255 range
-    int32_t range = actual_max - actual_min;
+    // Scale to 0-255
+    int32_t range = max - min;
     if (range == 0)
-        return 127; // Avoid division by zero
+        return 127;
+    uint8_t result = (uint8_t)(((value - min) * 255) / range);
 
-    int32_t normalized = signed_value - actual_min;
-    uint8_t result = (uint8_t)((normalized * 255) / range);
-
-    // Apply polarity reversal if needed
+    // Reverse if needed
     if (reversed)
         result = 255 - result;
 
@@ -131,77 +105,49 @@ static int8_t pad_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int3
 {
     // Fast path for common cases
     if (logical_min == 0 && logical_max == 255)
-    {
-        // Common unsigned 8-bit case: map 0-255 to -128 to 127
         return (int8_t)(raw_value - 128);
-    }
     if (logical_min == -128 && logical_max == 127)
-    {
-        // Already in target range
         return (int8_t)raw_value;
-    }
 
-    // Check for polarity reversal before swapping
+    // Handle reversed polarity
     bool reversed = logical_min > logical_max;
-    if (reversed)
+    int32_t min = reversed ? logical_max : logical_min;
+    int32_t max = reversed ? logical_min : logical_max;
+
+    // Sign-extend raw_value if needed
+    int32_t value = (int32_t)raw_value;
+    if (min < 0 && bit_size < 32)
     {
-        int32_t temp = logical_min;
-        logical_min = logical_max;
-        logical_max = temp;
+        uint32_t sign_bit = 1UL << (bit_size - 1);
+        if (raw_value & sign_bit)
+            value |= ~((1UL << bit_size) - 1);
     }
 
-    // Fast sign extension for common bit sizes
-    int32_t signed_value;
-    if (bit_size <= 8)
-        signed_value = (int8_t)raw_value;
-    else if (bit_size <= 16)
-        signed_value = (int16_t)raw_value;
-    else
-    {
-        // Manual sign extension for other sizes
-        if (logical_min < 0 && (raw_value & (1UL << (bit_size - 1))))
-            signed_value = (int32_t)(raw_value | (~((1UL << bit_size) - 1)));
-        else
-            signed_value = (int32_t)raw_value;
-    }
+    // Clamp to logical range
+    if (value < min)
+        value = min;
+    if (value > max)
+        value = max;
 
-    // Clamp to range
-    if (signed_value < logical_min)
-        signed_value = logical_min;
-    if (signed_value > logical_max)
-        signed_value = logical_max;
-
-    // Fast scaling calculation
-    int32_t range = logical_max - logical_min;
+    int32_t range = max - min;
     if (range == 0)
         return 0;
 
-    int8_t result;
-    if (logical_min >= 0)
-    {
-        // Unsigned logical range: center at 0
-        int32_t center = logical_min + (range >> 1);
-        int32_t offset = signed_value - center;
-        // Scale the offset to fit in -128 to 127 range
-        result = (int8_t)((offset * 255) / range);
-    }
-    else
-    {
-        // Signed logical range: direct mapping
-        int32_t normalized = signed_value - logical_min;
-        result = (int8_t)((normalized * 255) / range - 128);
-    }
+    // Scale to -128..127, ensuring 256 values
+    // Map min to -128, max to 127
+    int32_t scaled = ((value - min) * 255 + (range / 2)) / range - 128;
+    int8_t result = (int8_t)scaled;
 
-    // Apply polarity reversal if needed
+    // Reverse if needed
     if (reversed)
-        result = -result - 1; // Proper reversal for signed values
+        result = -result - 1;
 
     return result;
 }
 
 static uint8_t pad_encode_stick(int8_t x, int8_t y)
 {
-    // Deadzone check - simple and reliable
+    // Deadzone check
     if (x >= -PAD_DEADZONE && x <= PAD_DEADZONE &&
         y >= -PAD_DEADZONE && y <= PAD_DEADZONE)
         return 0; // No direction
@@ -240,18 +186,17 @@ static int pad_find_player_by_idx(uint8_t idx)
     return -1;
 }
 
-static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, uint16_t report_len, pad_gamepad_report_t *gamepad_report)
+static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, uint16_t report_len, pad_report_t *gamepad_report)
 {
-
     // Default empty gamepad report
-    memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
+    memset(gamepad_report, 0, sizeof(pad_report_t));
 
-    // Add feature bits to hat
+    // Add feature bits to dpad
     des_gamepad_t *gamepad = &pad_players[player_idx];
     if (gamepad->valid)
-        gamepad_report->hat |= 0x80;
+        gamepad_report->dpad |= 0x80;
     if (gamepad->sony)
-        gamepad_report->hat |= 0x40;
+        gamepad_report->dpad |= 0x40;
 
     // A blank report was requested
     if (report_len == 0)
@@ -302,46 +247,45 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     // Extract D-pad/hat
     if (gamepad->hat_size == 4 && gamepad->hat_logical_min == 0 && gamepad->hat_logical_max == 7)
     {
-        // Standard HID hat switch - convert to individual button format
+        // Convert HID hat format to individual direction bits
         uint32_t raw_hat = pad_extract_bits(report, report_len, gamepad->hat_offset, gamepad->hat_size);
-        // Convert HID hat format (0-7 clockwise, 8=none) to individual direction bits
         switch (raw_hat)
         {
         case 0: // North
-            gamepad_report->hat |= 1;
+            gamepad_report->dpad |= 1;
             break;
         case 1: // North-East
-            gamepad_report->hat |= 9;
+            gamepad_report->dpad |= 9;
             break;
         case 2: // East
-            gamepad_report->hat |= 8;
+            gamepad_report->dpad |= 8;
             break;
         case 3: // South-East
-            gamepad_report->hat |= 10;
+            gamepad_report->dpad |= 10;
             break;
         case 4: // South
-            gamepad_report->hat |= 2;
+            gamepad_report->dpad |= 2;
             break;
         case 5: // South-West
-            gamepad_report->hat |= 6;
+            gamepad_report->dpad |= 6;
             break;
         case 6: // West
-            gamepad_report->hat |= 4;
+            gamepad_report->dpad |= 4;
             break;
         case 7: // North-West
-            gamepad_report->hat |= 5;
+            gamepad_report->dpad |= 5;
             break;
         default: // No direction (8) or invalid
-            gamepad_report->hat |= 0;
+            gamepad_report->dpad |= 0;
             break;
         }
     }
     else
     {
-        gamepad_report->hat |= (buttons & 0xF0000) >> 16;
+        gamepad_report->dpad |= (buttons & 0xF0000) >> 16;
     }
 
-    // Generate hat values for sticks
+    // Generate dpad values for sticks
     uint8_t stick_l = pad_encode_stick(gamepad_report->lx, gamepad_report->ly);
     uint8_t stick_r = pad_encode_stick(gamepad_report->rx, gamepad_report->ry);
     gamepad_report->sticks = stick_l | (stick_r << 4);
@@ -377,15 +321,15 @@ static void pad_reset_xram(int player_idx)
 {
     if (pad_xram == 0xFFFF)
         return;
-    pad_gamepad_report_t gamepad_report;
+    pad_report_t gamepad_report;
     pad_parse_report_to_gamepad(player_idx, 0, 0, &gamepad_report); // get blank
-    memcpy(&xram[pad_xram + player_idx * (sizeof(pad_gamepad_report_t))],
-           &gamepad_report, sizeof(pad_gamepad_report_t));
+    memcpy(&xram[pad_xram + player_idx * (sizeof(pad_report_t))],
+           &gamepad_report, sizeof(pad_report_t));
 }
 
 bool pad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_gamepad_report_t)) * PAD_MAX_PLAYERS)
+    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_report_t)) * PAD_MAX_PLAYERS)
         return false;
     pad_xram = word;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
@@ -463,10 +407,10 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
     // Parse report and send it to xram
     if (pad_xram != 0xFFFF)
     {
-        pad_gamepad_report_t gamepad_report;
+        pad_report_t gamepad_report;
         pad_parse_report_to_gamepad(player, report_data, report_data_len, &gamepad_report);
-        memcpy(&xram[pad_xram + player * (sizeof(pad_gamepad_report_t))],
-               &gamepad_report, sizeof(pad_gamepad_report_t));
+        memcpy(&xram[pad_xram + player * (sizeof(pad_report_t))],
+               &gamepad_report, sizeof(pad_report_t));
     }
 }
 
@@ -488,7 +432,7 @@ void pad_home_button(uint8_t idx, bool pressed)
     // Update the correct home button bit in xram
     if (pad_xram != 0xFFFF)
     {
-        uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_gamepad_report_t)) + 3];
+        uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_report_t)) + 3];
         if (pressed)
             *button1 |= (1 << 4);
         else
