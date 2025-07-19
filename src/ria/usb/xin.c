@@ -312,8 +312,8 @@ void xin_task(void)
         if (device->valid && device->start_360_pending && absolute_time_diff_us(now, device->start_360_time) <= 0)
         {
             device->start_360_pending = false;
-            // TODO this can set the player number LED
-            uint8_t led_cmd[] = {0x01, 0x03, (uint8_t)(0x08 + 0)};
+            int pnum = pad_get_player_num(xin_slot_to_pad_idx(slot));
+            uint8_t led_cmd[] = {0x01, 0x03, (uint8_t)(0x08 + (pnum & 0x03))};
             tuh_xfer_t led_xfer = {
                 .daddr = device->dev_addr,
                 .ep_addr = device->ep_out,

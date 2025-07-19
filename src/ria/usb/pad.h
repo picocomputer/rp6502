@@ -44,4 +44,6 @@ bool pad_is_valid(uint8_t idx);
 
 void pad_home_button(uint8_t idx, bool pressed);
 
+int pad_get_player_num(uint8_t idx);
+
 #endif /* _PAD_H_ */

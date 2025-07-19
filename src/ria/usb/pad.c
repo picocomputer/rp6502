@@ -495,3 +495,8 @@ void pad_home_button(uint8_t idx, bool pressed)
             *button1 &= ~(1 << 4);
     }
 }
+
+int pad_get_player_num(uint8_t idx)
+{
+    return pad_find_player_by_idx(idx);
+}
