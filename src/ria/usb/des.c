@@ -8,7 +8,9 @@
 #include "btstack.h"
 #include "usb/des.h"
 #include "usb/xin.h"
-#include <string.h>
+
+// If you're here to remap HID buttons on a new HID gamepad, create
+// a new des_remap_ function and add it to des_report_descriptor().
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_DES)
 #include <stdio.h>
@@ -17,17 +19,25 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// If you're here to remap HID buttons on a new HID gamepad, create
-// a new des_remap_ function and add it to des_report_descriptor().
+// Please submit your tested controllers without worry about space.
+// des_report_descriptor() is only called once when a device is
+// mounted so everything here is in EEPROM, not RAM.
+#ifndef __in_flash_func
+#define __in_flash_func(func_name) __in_flash(__STRING(func_name)) func_name
+#endif
+#ifndef __no_inline_in_flash_func
+#define __no_inline_in_flash_func(func_name) __noinline __in_flash_func(func_name)
+#endif
 
-static inline void swap(des_gamepad_t *gamepad, int a, int b)
+static inline void __in_flash_func(swap)(des_gamepad_t *gamepad, int a, int b)
 {
     uint16_t temp = gamepad->button_offsets[a];
     gamepad->button_offsets[a] = gamepad->button_offsets[b];
     gamepad->button_offsets[b] = temp;
 }
 
-static void des_remap_playstation_classic(des_gamepad_t *gamepad, uint16_t vendor_id)
+static void __in_flash_func(des_remap_playstation_classic)(
+    des_gamepad_t *gamepad, uint16_t vendor_id)
 {
     if (vendor_id != 0x054C) // Sony Interactive Entertainment
         return;
@@ -40,8 +50,8 @@ static void des_remap_playstation_classic(des_gamepad_t *gamepad, uint16_t vendo
     swap(gamepad, 5, 7); // r1/st
 }
 
-static void des_remap_8bitdo_dinput(des_gamepad_t *gamepad,
-                                    uint16_t vendor_id, uint16_t product_id)
+static void __in_flash_func(des_remap_8bitdo_dinput)(
+    des_gamepad_t *gamepad, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x2DC8) // 8BitDo
         return;
@@ -69,6 +79,100 @@ static void des_remap_8bitdo_dinput(des_gamepad_t *gamepad,
     // Drop the gaps at the end, not sure what uses this.
     gamepad->button_offsets[13] = temp2;
     gamepad->button_offsets[14] = temp5;
+}
+
+static bool __in_flash_func(des_is_sony_ds4)(uint16_t vendor_id, uint16_t product_id)
+{
+    if (vendor_id == 0x054C) // Sony Interactive Entertainment
+    {
+        switch (product_id)
+        {
+        case 0x05C4: // DualShock 4 Controller (1st gen)
+        case 0x09CC: // DualShock 4 Controller (2nd gen)
+        case 0x0BA0: // DualShock 4 USB receiver
+        case 0x0DAE: // DualShock 4 (special edition variant)
+        case 0x0DF2: // DualShock 4 (special edition variant)
+        case 0x0CDA: // DualShock 4 (Asia region, special edition)
+        case 0x0D9A: // DualShock 4 (Japan region, special edition)
+        case 0x0E04: // DualShock 4 (rare, but reported)
+        case 0x0E6F: // DualShock 4 (special edition, sometimes used for DS4)
+        case 0x0EBA: // DualShock 4 (special edition, sometimes used for DS4)
+            return true;
+        }
+    }
+    if (vendor_id == 0x0C12) // Zeroplus/Cirka
+    {
+        switch (product_id)
+        {
+        case 0x1E1A: // Cirka Wired Controller
+        case 0x0E10: // Zeroplus PS4 compatible controller
+        case 0x0E20: // Zeroplus PS4 compatible controller
+            return true;
+        }
+    }
+    if (vendor_id == 0x20D6) // PowerA
+    {
+        switch (product_id)
+        {
+        case 0xA711: // PowerA PS4 Wired Controller
+            return true;
+        }
+    }
+    if (vendor_id == 0x24C6) // PowerA (formerly BDA, LLC)
+    {
+        switch (product_id)
+        {
+        case 0x5501: // PowerA PS4 Wired Controller
+            return true;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori
+    {
+        switch (product_id)
+        {
+        case 0x0055: // Hori PS4 Mini Wired Gamepad
+        case 0x005E: // Hori PS4 Mini Wired Gamepad
+        case 0x00C5: // Hori PS4 Fighting Commander
+        case 0x00D9: // Hori PS4 Fighting Stick Mini
+        case 0x00EE: // Hori PS4 Fighting Commander
+        case 0x00F6: // Hori PS4 Mini Gamepad
+        case 0x00F7: // Hori PS4 Mini Gamepad
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool __in_flash_func(des_is_sony_ds5)(uint16_t vendor_id, uint16_t product_id)
+{
+    if (vendor_id == 0x054C) // Sony Interactive Entertainment
+    {
+        switch (product_id)
+        {
+        case 0x0CE6: // DualSense Controller
+        case 0x0DF2: // DualSense Edge Controller
+        case 0x0E5C: // DualSense (special edition Spider-Man 2)
+        case 0x0E8A: // DualSense (special edition FF16)
+        case 0x0E9A: // DualSense (special edition LeBron James)
+        case 0x0E6F: // DualSense (special edition Gray Camouflage)
+        case 0x0E9C: // DualSense (special edition Volcanic Red)
+        case 0x0EA6: // DualSense (special edition Sterling Silver)
+        case 0x0EBA: // DualSense (special edition Cobalt Blue)
+        case 0x0ED0: // DualSense (special edition Midnight Black V2)
+            return true;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori (third-party DualSense compatible)
+    {
+        switch (product_id)
+        {
+        case 0x0184: // Hori DualSense compatible (Onyx Plus, etc)
+        case 0x019C: // Hori Fighting Commander OCTA for PS5
+        case 0x01A0: // Hori Fighting Stick α for PS5
+            return true;
+        }
+    }
+    return false;
 }
 
 static const des_gamepad_t __in_flash("hid_descriptors") des_xbox_one = {
@@ -257,101 +361,8 @@ static const des_gamepad_t __in_flash("hid_descriptors") des_sony_ds5 = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static bool des_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
-{
-    if (vendor_id == 0x054C) // Sony Interactive Entertainment
-    {
-        switch (product_id)
-        {
-        case 0x05C4: // DualShock 4 Controller (1st gen)
-        case 0x09CC: // DualShock 4 Controller (2nd gen)
-        case 0x0BA0: // DualShock 4 USB receiver
-        case 0x0DAE: // DualShock 4 (special edition variant)
-        case 0x0DF2: // DualShock 4 (special edition variant)
-        case 0x0CDA: // DualShock 4 (Asia region, special edition)
-        case 0x0D9A: // DualShock 4 (Japan region, special edition)
-        case 0x0E04: // DualShock 4 (rare, but reported)
-        case 0x0E6F: // DualShock 4 (special edition, sometimes used for DS4)
-        case 0x0EBA: // DualShock 4 (special edition, sometimes used for DS4)
-            return true;
-        }
-    }
-    if (vendor_id == 0x0C12) // Zeroplus/Cirka
-    {
-        switch (product_id)
-        {
-        case 0x1E1A: // Cirka Wired Controller
-        case 0x0E10: // Zeroplus PS4 compatible controller
-        case 0x0E20: // Zeroplus PS4 compatible controller
-            return true;
-        }
-    }
-    if (vendor_id == 0x20D6) // PowerA
-    {
-        switch (product_id)
-        {
-        case 0xA711: // PowerA PS4 Wired Controller
-            return true;
-        }
-    }
-    if (vendor_id == 0x24C6) // PowerA (formerly BDA, LLC)
-    {
-        switch (product_id)
-        {
-        case 0x5501: // PowerA PS4 Wired Controller
-            return true;
-        }
-    }
-    if (vendor_id == 0x0F0D) // Hori
-    {
-        switch (product_id)
-        {
-        case 0x0055: // Hori PS4 Mini Wired Gamepad
-        case 0x005E: // Hori PS4 Mini Wired Gamepad
-        case 0x00C5: // Hori PS4 Fighting Commander
-        case 0x00D9: // Hori PS4 Fighting Stick Mini
-        case 0x00EE: // Hori PS4 Fighting Commander
-        case 0x00F6: // Hori PS4 Mini Gamepad
-        case 0x00F7: // Hori PS4 Mini Gamepad
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool des_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
-{
-    if (vendor_id == 0x054C) // Sony Interactive Entertainment
-    {
-        switch (product_id)
-        {
-        case 0x0CE6: // DualSense Controller
-        case 0x0DF2: // DualSense Edge Controller
-        case 0x0E5C: // DualSense (special edition Spider-Man 2)
-        case 0x0E8A: // DualSense (special edition FF16)
-        case 0x0E9A: // DualSense (special edition LeBron James)
-        case 0x0E6F: // DualSense (special edition Gray Camouflage)
-        case 0x0E9C: // DualSense (special edition Volcanic Red)
-        case 0x0EA6: // DualSense (special edition Sterling Silver)
-        case 0x0EBA: // DualSense (special edition Cobalt Blue)
-        case 0x0ED0: // DualSense (special edition Midnight Black V2)
-            return true;
-        }
-    }
-    if (vendor_id == 0x0F0D) // Hori (third-party DualSense compatible)
-    {
-        switch (product_id)
-        {
-        case 0x0184: // Hori DualSense compatible (Onyx Plus, etc)
-        case 0x019C: // Hori Fighting Commander OCTA for PS5
-        case 0x01A0: // Hori Fighting Stick α for PS5
-            return true;
-        }
-    }
-    return false;
-}
-
-static void des_parse_hid_controller(des_gamepad_t *gamepad, uint8_t const *desc_report, uint16_t desc_len)
+static void __in_flash_func(des_parse_hid_controller)(
+    des_gamepad_t *gamepad, uint8_t const *desc_report, uint16_t desc_len)
 {
     memset(gamepad, 0, sizeof(des_gamepad_t));
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
@@ -433,9 +444,10 @@ static void des_parse_hid_controller(des_gamepad_t *gamepad, uint8_t const *desc
         gamepad->valid = true;
 }
 
-void des_report_descriptor(des_gamepad_t *gamepad,
-                           uint8_t const *desc_report, uint16_t desc_len,
-                           uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
+void __no_inline_in_flash_func(des_report_descriptor)(
+    des_gamepad_t *gamepad,
+    uint8_t const *desc_report, uint16_t desc_len,
+    uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
 {
     gamepad->valid = false;
     des_parse_hid_controller(gamepad, desc_report, desc_len);
