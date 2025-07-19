@@ -11,8 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DEBUG_RIA_USB_PAD
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_PAD)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -249,10 +247,10 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     memset(gamepad_report, 0, sizeof(pad_gamepad_report_t));
 
     // Add feature bits to hat
-    des_gamepad_t *desc = &pad_players[player_idx];
-    if (desc->valid)
+    des_gamepad_t *gamepad = &pad_players[player_idx];
+    if (gamepad->valid)
         gamepad_report->hat |= 0x80;
-    if (desc->sony)
+    if (gamepad->sony)
         gamepad_report->hat |= 0x40;
 
     // A blank report was requested
@@ -260,52 +258,52 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
         return;
 
     // Extract analog sticks
-    if (desc->x_size > 0)
+    if (gamepad->x_size > 0)
     {
-        uint32_t raw_x = pad_extract_bits(report, report_len, desc->x_offset, desc->x_size);
-        gamepad_report->lx = pad_scale_analog_signed(raw_x, desc->x_size, desc->x_logical_min, desc->x_logical_max);
+        uint32_t raw_x = pad_extract_bits(report, report_len, gamepad->x_offset, gamepad->x_size);
+        gamepad_report->lx = pad_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_logical_min, gamepad->x_logical_max);
     }
-    if (desc->y_size > 0)
+    if (gamepad->y_size > 0)
     {
-        uint32_t raw_y = pad_extract_bits(report, report_len, desc->y_offset, desc->y_size);
-        gamepad_report->ly = pad_scale_analog_signed(raw_y, desc->y_size, desc->y_logical_min, desc->y_logical_max);
+        uint32_t raw_y = pad_extract_bits(report, report_len, gamepad->y_offset, gamepad->y_size);
+        gamepad_report->ly = pad_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_logical_min, gamepad->y_logical_max);
     }
-    if (desc->z_size > 0)
+    if (gamepad->z_size > 0)
     {
-        uint32_t raw_z = pad_extract_bits(report, report_len, desc->z_offset, desc->z_size);
-        gamepad_report->rx = pad_scale_analog_signed(raw_z, desc->z_size, desc->z_logical_min, desc->z_logical_max);
+        uint32_t raw_z = pad_extract_bits(report, report_len, gamepad->z_offset, gamepad->z_size);
+        gamepad_report->rx = pad_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_logical_min, gamepad->z_logical_max);
     }
-    if (desc->rz_size > 0)
+    if (gamepad->rz_size > 0)
     {
-        uint32_t raw_rz = pad_extract_bits(report, report_len, desc->rz_offset, desc->rz_size);
-        gamepad_report->ry = pad_scale_analog_signed(raw_rz, desc->rz_size, desc->rz_logical_min, desc->rz_logical_max);
+        uint32_t raw_rz = pad_extract_bits(report, report_len, gamepad->rz_offset, gamepad->rz_size);
+        gamepad_report->ry = pad_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_logical_min, gamepad->rz_logical_max);
     }
 
     // Extract triggers
-    if (desc->rx_size > 0)
+    if (gamepad->rx_size > 0)
     {
-        uint32_t raw_rx = pad_extract_bits(report, report_len, desc->rx_offset, desc->rx_size);
-        gamepad_report->lt = pad_scale_analog(raw_rx, desc->rx_size, desc->rx_logical_min, desc->rx_logical_max);
+        uint32_t raw_rx = pad_extract_bits(report, report_len, gamepad->rx_offset, gamepad->rx_size);
+        gamepad_report->lt = pad_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_logical_min, gamepad->rx_logical_max);
     }
-    if (desc->ry_size > 0)
+    if (gamepad->ry_size > 0)
     {
-        uint32_t raw_ry = pad_extract_bits(report, report_len, desc->ry_offset, desc->ry_size);
-        gamepad_report->rt = pad_scale_analog(raw_ry, desc->ry_size, desc->ry_logical_min, desc->ry_logical_max);
+        uint32_t raw_ry = pad_extract_bits(report, report_len, gamepad->ry_offset, gamepad->ry_size);
+        gamepad_report->rt = pad_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_logical_min, gamepad->ry_logical_max);
     }
 
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-        if (pad_extract_bits(report, report_len, desc->button_offsets[i], 1))
+        if (pad_extract_bits(report, report_len, gamepad->button_offsets[i], 1))
             buttons |= (1UL << i);
     gamepad_report->button0 = buttons & 0xFF;
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
 
     // Extract D-pad/hat
-    if (desc->hat_size == 4 && desc->hat_logical_min == 0 && desc->hat_logical_max == 7)
+    if (gamepad->hat_size == 4 && gamepad->hat_logical_min == 0 && gamepad->hat_logical_max == 7)
     {
         // Standard HID hat switch - convert to individual button format
-        uint32_t raw_hat = pad_extract_bits(report, report_len, desc->hat_offset, desc->hat_size);
+        uint32_t raw_hat = pad_extract_bits(report, report_len, gamepad->hat_offset, gamepad->hat_size);
         // Convert HID hat format (0-7 clockwise, 8=none) to individual direction bits
         switch (raw_hat)
         {
@@ -354,11 +352,15 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     if ((buttons & (1 << 9)) && (gamepad_report->rt == 0))
         gamepad_report->rt = 255;
 
+    // Inject xbox one home button
+    if (gamepad->home_pressed)
+        gamepad_report->button1 |= (1 << 4); // Home
+
     // If L2/R2 analog movement, ensure button press
     if (gamepad_report->lt > PAD_DEADZONE)
-        gamepad_report->button1 |= (1 << 0); // L2 (bit 8 -> button1 bit 0)
+        gamepad_report->button1 |= (1 << 0); // L2
     if (gamepad_report->rt > PAD_DEADZONE)
-        gamepad_report->button1 |= (1 << 1); // R2 (bit 9 -> button1 bit 1)
+        gamepad_report->button1 |= (1 << 1); // R2
 }
 
 void pad_init(void)
@@ -450,6 +452,7 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
     uint16_t report_data_len = len;
     if (gamepad->report_id != 0)
     {
+        // DBG("report_id expected \\x%02X got \\x%02X", gamepad->report_id, report[0]);
         if (len == 0 || report[0] != gamepad->report_id)
             return;
         // Skip report ID byte
@@ -470,4 +473,25 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
 bool pad_is_valid(uint8_t idx)
 {
     return pad_find_player_by_idx(idx) >= 0;
+}
+
+void pad_home_button(uint8_t idx, bool pressed)
+{
+    int player = pad_find_player_by_idx(idx);
+    if (player < 0)
+        return;
+    des_gamepad_t *gamepad = &pad_players[player];
+
+    // Inject out of band home button into reports
+    gamepad->home_pressed = pressed;
+
+    // Update the correct home button bit in xram
+    if (pad_xram != 0xFFFF)
+    {
+        uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_gamepad_report_t)) + 3];
+        if (pressed)
+            *button1 |= (1 << 4);
+        else
+            *button1 &= ~(1 << 4);
+    }
 }

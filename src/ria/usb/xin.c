@@ -239,8 +239,9 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
         // For Xbox One/Series, check for GIP_CMD_VIRTUAL_KEY 0x07
         if (device->is_xbox_one && xferred_bytes > 4 && report[0] == 0x07)
         {
-            uint8_t guide = report[4] & 0x01;
-            DBG("XInput: GUIDE button state: %d\n", guide);
+            uint8_t home = report[4] & 0x01;
+            DBG("XInput: home button state: %d\n", home);
+            pad_home_button(xin_slot_to_pad_idx(slot), home);
         }
         else
         {
@@ -311,7 +312,8 @@ void xin_task(void)
         if (device->valid && device->start_360_pending && absolute_time_diff_us(now, device->start_360_time) <= 0)
         {
             device->start_360_pending = false;
-            uint8_t led_cmd[] = {0x01, 0x03, (uint8_t)(0x08 + (slot & 0x03))};
+            // TODO this can set the player number LED
+            uint8_t led_cmd[] = {0x01, 0x03, (uint8_t)(0x08 + 0)};
             tuh_xfer_t led_xfer = {
                 .daddr = device->dev_addr,
                 .ep_addr = device->ep_out,
