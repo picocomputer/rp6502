@@ -43,6 +43,7 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_flash
     tinyusb_host
     pico_btstack_ble
+    pico_btstack_classic
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -70,6 +71,7 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/rom.c
     ria/mon/set.c
     ria/mon/vip.c
+    ria/net/btx.c
     ria/net/cmd.c
     ria/net/cyw.c
     ria/net/mdm.c

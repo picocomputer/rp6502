@@ -15,13 +15,14 @@ bool cyw_initializing() { return false; }
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define DBG(...)
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #include "pico.h"
 #include "mon/ram.h"
+#include "net/btx.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -111,6 +112,7 @@ bool cyw_validate_country_code(char *cc)
 void cyw_reset_radio(void)
 {
     wfi_disconnect();
+    btx_disconnect();
     switch (cyw_state)
     {
     case cyw_state_initialized:

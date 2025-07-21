@@ -17,6 +17,7 @@
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
+#include "net/btx.h"
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/ntp.h"
@@ -92,6 +93,7 @@ void main_task(void)
     wfi_task();
     ntp_task();
     xin_task();
+    btx_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
