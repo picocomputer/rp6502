@@ -21,7 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // c'mon tusb, there has to be a better way
-#define XIN_START_360_DELAY_MS 1000
+#define XIN_START_360_DELAY_MS 900
 
 // Xbox controller tracking
 typedef struct
@@ -228,35 +228,36 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
     if (slot < 0)
         return false;
 
-    if (result == XFER_RESULT_SUCCESS && xferred_bytes > 0)
+    if (result != XFER_RESULT_SUCCESS)
     {
-        xbox_device_t *device = &xbox_devices[slot];
-        uint8_t *report = device->report_buffer;
-        // For Xbox One/Series, check for GIP_CMD_VIRTUAL_KEY 0x07
-        if (device->is_xbox_one && xferred_bytes > 4 && report[0] == 0x07)
-        {
-            uint8_t home = report[4] & 0x01;
-            DBG("XInput: home button state: %d\n", home);
-            pad_home_button(xin_slot_to_pad_idx(slot), home);
-        }
-        else
-        {
-            // Handle just like an HID gamepad report
-            pad_report(xin_slot_to_pad_idx(slot), report, (uint16_t)xferred_bytes);
-        }
-        // Restart the transfer to continue receiving reports
-        tuh_xfer_t xfer = {
-            .daddr = dev_addr,
-            .ep_addr = device->ep_in,
-            .buflen = sizeof(device->report_buffer),
-            .buffer = device->report_buffer,
-            .complete_cb = NULL,
-            .user_data = (uintptr_t)slot};
-        if (!tuh_edpt_xfer(&xfer))
-            DBG("XInput: Failed to start interrupt transfer for slot %d\n", slot);
+        DBG("XInput: Transfer failed for slot %d, result=%d, len=%lu\n", slot, result, xferred_bytes);
+        return false;
+    }
+
+    xbox_device_t *device = &xbox_devices[slot];
+    uint8_t *report = device->report_buffer;
+    // For Xbox One/Series, check for GIP_CMD_VIRTUAL_KEY 0x07
+    if (device->is_xbox_one && xferred_bytes > 4 && report[0] == 0x07)
+    {
+        uint8_t home = report[4] & 0x01;
+        DBG("XInput: home button state: %d\n", home);
+        pad_home_button(xin_slot_to_pad_idx(slot), home);
     }
     else
-        DBG("XInput: Transfer failed for slot %d, result=%d, len=%lu\n", slot, result, xferred_bytes);
+    {
+        // Handle just like an HID gamepad report
+        pad_report(xin_slot_to_pad_idx(slot), report, (uint16_t)xferred_bytes);
+    }
+    // Restart the transfer to continue receiving reports
+    tuh_xfer_t xfer = {
+        .daddr = dev_addr,
+        .ep_addr = device->ep_in,
+        .buflen = sizeof(device->report_buffer),
+        .buffer = device->report_buffer,
+        .complete_cb = NULL,
+        .user_data = (uintptr_t)slot};
+    if (!tuh_edpt_xfer(&xfer))
+        DBG("XInput: Failed to start interrupt transfer for slot %d\n", slot);
 
     return true;
 }
