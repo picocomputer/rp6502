@@ -30,6 +30,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // BTStack includes - for Classic HID Host
 #include "btstack.h"
+#include <stdarg.h>
+#include "hci_dump.h"
+#include "hci_dump_embedded_stdout.h"
+
 #include "classic/hid_host.h"
 #include "classic/sdp_server.h"
 #include "classic/sdp_util.h"
@@ -273,6 +277,10 @@ static void btx_init_stack(void)
 {
     if (btx_initialized)
         return;
+
+    // BTstack packet logging
+    hci_dump_init(hci_dump_embedded_stdout_get_instance());
+    hci_dump_enable_packet_log(true);
 
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
