@@ -27,11 +27,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <string.h>
 #include "pico/time.h"
 
-// BTStack includes
+// BTStack includes - minimal set for Classic HID only
 #include "btstack.h"
 #include "classic/hid_host.h"
-#include "ble/gatt_client.h"
-#include "ble/sm.h"
 
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btx_slot_to_pad_idx(int slot)
@@ -39,36 +37,26 @@ static uint8_t btx_slot_to_pad_idx(int slot)
     return CFG_TUH_HID + PAD_MAX_PLAYERS + slot;
 }
 
-// Connection tracking for both Classic and BLE
+// Connection tracking for Classic HID only
 typedef struct
 {
     bool active;
-    bool is_ble;                    // true for BLE, false for Classic
-    union {
-        uint16_t classic_cid;       // Classic HID connection ID
-        hci_con_handle_t ble_handle; // BLE connection handle
-    };
+    uint16_t classic_cid; // Classic HID connection ID
     bd_addr_t remote_addr;
-    uint8_t placeholder[8];         // Reserved for future use
 } btx_connection_t;
 
 static btx_connection_t btx_connections[PAD_MAX_PLAYERS];
 static bool btx_initialized = false;
 static bool btx_pairing_mode = false;
 
-// BTStack state
+// BTStack state - Classic HID only
 static btstack_packet_callback_registration_t hci_event_callback_registration;
-static bd_addr_t remote_addr;
 
-// BLE state
-static bool btx_ble_scanning = false;
-static gatt_client_service_t hid_service;
-static gatt_client_characteristic_t hid_report_characteristic;
-static gatt_client_notification_t hid_notification;
+// Storage for HID descriptors - Classic only
+static uint8_t hid_descriptor_storage[100]; // Classic HID descriptor storage (minimal)
 
 // Forward declarations
 static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
-static void btx_hid_host_setup(void);
 
 static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
@@ -82,275 +70,137 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     switch (event_type)
     {
-        case BTSTACK_EVENT_STATE:
-            if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
-            {
-                DBG("BTX: Bluetooth stack ready\n");
-                if (btx_pairing_mode)
-                {
-                    DBG("BTX: Making device discoverable for pairing\n");
-                    gap_discoverable_control(1);
-                    gap_connectable_control(1);
+    case BTSTACK_EVENT_STATE:
+        if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
+        {
+            DBG("BTX: Bluetooth stack ready\n");
 
-                    // Start BLE scanning for HID devices
-                    if (!btx_ble_scanning)
-                    {
-                        gap_set_scan_parameters(0, 0x0030, 0x0030); // 30ms interval/window
-                        gap_start_scan();
-                        btx_ble_scanning = true;
-                        DBG("BTX: Started BLE scanning for HID devices\n");
-                    }
-                }
+            if (btx_pairing_mode)
+            {
+                DBG("BTX: Making device discoverable for pairing\n");
+                gap_discoverable_control(1);
+                gap_connectable_control(1);
             }
-            break;    case HCI_EVENT_PIN_CODE_REQUEST:
-        DBG("BTX: Pin code request - using 0000\n");
-        hci_event_pin_code_request_get_bd_addr(packet, remote_addr);
-        gap_pin_code_response(remote_addr, "0000");
+        }
         break;
+
+    case HCI_EVENT_PIN_CODE_REQUEST:
+    {
+        bd_addr_t event_addr;
+        hci_event_pin_code_request_get_bd_addr(packet, event_addr);
+        DBG("BTX: PIN code request, responding with '0000'\n");
+        gap_pin_code_response(event_addr, "0000");
+    }
+    break;
 
     case HCI_EVENT_USER_CONFIRMATION_REQUEST:
-        DBG("BTX: Auto-confirming pairing request\n");
-        hci_event_user_confirmation_request_get_bd_addr(packet, remote_addr);
-        gap_ssp_confirmation_response(remote_addr);
-        break;
-
-    case GAP_EVENT_ADVERTISING_REPORT:
-        {
-            // Check if this is a HID device advertisement
-            const uint8_t *adv_data = gap_event_advertising_report_get_data(packet);
-            uint8_t adv_len = gap_event_advertising_report_get_data_length(packet);
-            bd_addr_t adv_addr;
-            gap_event_advertising_report_get_address(packet, adv_addr);
-
-            // Look for HID service UUID (0x1812) in advertisement
-            ad_context_t context;
-            for (ad_iterator_init(&context, adv_len, adv_data); ad_iterator_has_more(&context); ad_iterator_next(&context))
-            {
-                uint8_t data_type = ad_iterator_get_data_type(&context);
-                uint8_t size = ad_iterator_get_data_len(&context);
-                const uint8_t *data = ad_iterator_get_data(&context);
-
-                if ((data_type == BLUETOOTH_DATA_TYPE_COMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS ||
-                     data_type == BLUETOOTH_DATA_TYPE_INCOMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS) && size >= 2)
-                {
-                    for (int i = 0; i < size; i += 2)
-                    {
-                        uint16_t uuid = little_endian_read_16(data, i);
-                        if (uuid == 0x1812) // HID Service UUID
-                        {
-                            DBG("BTX: Found BLE HID device, connecting...\n");
-                            gap_stop_scan();
-                            btx_ble_scanning = false;
-                            gap_connect(adv_addr, gap_event_advertising_report_get_address_type(packet));
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-        break;
-
-    case HCI_EVENT_LE_META:
-        switch (hci_event_le_meta_get_subevent_code(packet))
-        {
-        case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
-            {
-                hci_con_handle_t handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
-                uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
-
-                if (status == ERROR_CODE_SUCCESS)
-                {
-                    // Find a free slot for BLE connection
-                    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-                    {
-                        if (!btx_connections[i].active)
-                        {
-                            btx_connections[i].active = true;
-                            btx_connections[i].is_ble = true;
-                            btx_connections[i].ble_handle = handle;
-                            hci_subevent_le_connection_complete_get_peer_address(packet, btx_connections[i].remote_addr);
-
-                            DBG("BTX: BLE HID device connected at slot %d, handle=0x%04x\n", i, handle);
-
-                            // Start GATT service discovery for HID service
-                            gatt_client_discover_primary_services_by_uuid16(btx_packet_handler, handle, 0x1812);
-
-                            // Exit pairing mode after successful connection
-                            if (btx_pairing_mode)
-                            {
-                                btx_pairing_mode = false;
-                                gap_discoverable_control(0);
-                                DBG("BTX: Pairing mode disabled after BLE connection\n");
-                            }
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    DBG("BTX: BLE connection failed with status 0x%02x\n", status);
-                }
-            }
-            break;
-        }
-        break;
-
-    case GATT_EVENT_SERVICE_QUERY_RESULT:
-        gatt_event_service_query_result_get_service(packet, &hid_service);
-        DBG("BTX: Found HID service on BLE device\n");
-        break;
-
-    case GATT_EVENT_QUERY_COMPLETE:
-        {
-            uint8_t status = gatt_event_query_complete_get_att_status(packet);
-            if (status == ATT_ERROR_SUCCESS)
-            {
-                if (hid_service.start_group_handle != 0 && hid_report_characteristic.start_handle == 0)
-                {
-                    // Service discovery complete, now discover characteristics
-                    hci_con_handle_t handle = gatt_event_query_complete_get_handle(packet);
-                    gatt_client_discover_characteristics_for_service_by_uuid16(btx_packet_handler, handle, &hid_service, 0x2A4D);
-                }
-                else if (hid_report_characteristic.start_handle != 0)
-                {
-                    // Characteristic discovery complete, enable notifications
-                    hci_con_handle_t handle = gatt_event_query_complete_get_handle(packet);
-                    gatt_client_listen_for_characteristic_value_updates(&hid_notification, btx_packet_handler, handle, &hid_report_characteristic);
-                    gatt_client_write_client_characteristic_configuration(btx_packet_handler, handle, &hid_report_characteristic, GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION);
-
-                    DBG("BTX: Enabled HID report notifications for BLE device\n");
-
-                    // TODO: Get HID descriptor and call pad_mount() for BLE device
-                    // For now, just mark as ready
-                }
-            }
-        }
-        break;
-
-    case GATT_EVENT_CHARACTERISTIC_QUERY_RESULT:
-        gatt_event_characteristic_query_result_get_characteristic(packet, &hid_report_characteristic);
-        DBG("BTX: Found HID report characteristic on BLE device\n");
-        break;
-
-    case GATT_EVENT_NOTIFICATION:
-        {
-            // Process BLE HID report
-            hci_con_handle_t handle = gatt_event_notification_get_handle(packet);
-            uint16_t value_length = gatt_event_notification_get_value_length(packet);
-            const uint8_t *value = gatt_event_notification_get_value(packet);
-
-            // Find the slot for this BLE connection
-            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-            {
-                if (btx_connections[i].active && btx_connections[i].is_ble &&
-                    btx_connections[i].ble_handle == handle)
-                {
-                    pad_report(btx_slot_to_pad_idx(i), (uint8_t*)value, value_length);
-                    break;
-                }
-            }
-        }
-        break;
+    {
+        bd_addr_t event_addr;
+        hci_event_user_confirmation_request_get_bd_addr(packet, event_addr);
+        uint32_t numeric_value = hci_event_user_confirmation_request_get_numeric_value(packet);
+        DBG("BTX: SSP User Confirmation Request: %lu - Auto accepting\n", (unsigned long)numeric_value);
+        gap_ssp_confirmation_response(event_addr);
+    }
+    break;
 
     case HCI_EVENT_HID_META:
-        switch (hci_event_hid_meta_get_subevent_code(packet))
+    {
+        uint8_t subevent = hci_event_hid_meta_get_subevent_code(packet);
+        switch (subevent)
         {
+        case HID_SUBEVENT_INCOMING_CONNECTION:
+        {
+            uint16_t cid = hid_subevent_incoming_connection_get_hid_cid(packet);
+            DBG("BTX: Incoming HID connection, CID: %u\n", cid);
+            hid_host_accept_connection(cid, HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT);
+        }
+        break;
+
         case HID_SUBEVENT_CONNECTION_OPENED:
         {
-            bd_addr_t event_addr;
-            hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
-            uint16_t cid = hid_subevent_connection_opened_get_hid_cid(packet);
             uint8_t status = hid_subevent_connection_opened_get_status(packet);
-
             if (status == ERROR_CODE_SUCCESS)
             {
-                // Find a free slot
+                uint16_t cid = hid_subevent_connection_opened_get_hid_cid(packet);
+                bd_addr_t addr;
+                hid_subevent_connection_opened_get_bd_addr(packet, addr);
+
+                // Find an empty slot
                 for (int i = 0; i < PAD_MAX_PLAYERS; i++)
                 {
                     if (!btx_connections[i].active)
                     {
                         btx_connections[i].active = true;
-                        DBG("BTX: HID gamepad connected at slot %d, cid=0x%04x\n", i, cid);
+                        btx_connections[i].classic_cid = cid;
+                        memcpy(btx_connections[i].remote_addr, addr, BD_ADDR_LEN);
 
-                        // TODO: Get HID descriptor and call pad_mount()
-                        // For now, just mark as connected
+                        // TODO: Implement HID descriptor retrieval and pad_mount
+                        // For now, we'll handle raw HID reports in pad_report()
+
+                        DBG("BTX: HID gamepad connected at slot %d, CID: %u\n", i, cid);
+
+                        // Exit pairing mode after successful connection
+                        if (btx_pairing_mode)
+                        {
+                            btx_pairing_mode = false;
+                            gap_discoverable_control(0);
+                            gap_connectable_control(0);
+                            DBG("BTX: Pairing mode disabled after connection\n");
+                        }
                         break;
                     }
-                }
-
-                // Exit pairing mode after successful connection
-                if (btx_pairing_mode)
-                {
-                    btx_pairing_mode = false;
-                    gap_discoverable_control(0);
-                    DBG("BTX: Pairing mode disabled after successful connection\n");
                 }
             }
             else
             {
-                DBG("BTX: HID connection failed with status 0x%02x\n", status);
+                DBG("BTX: HID connection failed, status: 0x%02x\n", status);
             }
-            break;
         }
+        break;
+
+        case HID_SUBEVENT_REPORT:
+        {
+            uint16_t cid = hid_subevent_report_get_hid_cid(packet);
+            const uint8_t *report = hid_subevent_report_get_report(packet);
+            uint16_t report_len = hid_subevent_report_get_report_len(packet);
+
+            // Find the connection for this CID
+            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+            {
+                if (btx_connections[i].active && btx_connections[i].classic_cid == cid)
+                {
+                    // Process HID report and send to gamepad system
+                    pad_report(btx_slot_to_pad_idx(i), report, report_len);
+                    break;
+                }
+            }
+        }
+        break;
 
         case HID_SUBEVENT_CONNECTION_CLOSED:
         {
             uint16_t cid = hid_subevent_connection_closed_get_hid_cid(packet);
-            DBG("BTX: HID gamepad disconnected, cid=0x%04x\n", cid);
 
-            // Find and disconnect the slot
+            // Find and clean up the connection
             for (int i = 0; i < PAD_MAX_PLAYERS; i++)
             {
-                if (btx_connections[i].active)
+                if (btx_connections[i].active && btx_connections[i].classic_cid == cid)
                 {
-                    btx_connections[i].active = false;
                     pad_umount(btx_slot_to_pad_idx(i));
-                    DBG("BTX: Freed slot %d\n", i);
+                    btx_connections[i].active = false;
+                    DBG("BTX: HID gamepad disconnected from slot %d\n", i);
                     break;
                 }
             }
-            break;
-        }
-
-        case HID_SUBEVENT_REPORT:
-        {
-            // Process HID report
-            const uint8_t *report = hid_subevent_report_get_report(packet);
-            uint16_t report_len = hid_subevent_report_get_report_len(packet);
-
-            // Find the slot for this connection
-            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-            {
-                if (btx_connections[i].active)
-                {
-                    // TODO: Map cid to slot properly
-                    pad_report(btx_slot_to_pad_idx(i), (uint8_t *)report, report_len);
-                    break;
-                }
-            }
-            break;
-        }
         }
         break;
+        }
+    }
+    break;
 
     default:
         break;
     }
-}
-
-static void btx_hid_host_setup(void)
-{
-    // Initialize HID Host
-    hid_host_init(NULL, 0);
-
-    // Register for HCI events
-    hci_event_callback_registration.callback = &btx_packet_handler;
-    hci_add_event_handler(&hci_event_callback_registration);
-
-    // Register for HID events
-    hid_host_register_packet_handler(&btx_packet_handler);
-
-    DBG("BTX: HID host setup complete\n");
 }
 
 static void btx_init_stack(void)
@@ -361,20 +211,31 @@ static void btx_init_stack(void)
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
 
-    // Initialize BTStack HID host services
-    btx_hid_host_setup();
+    // Initialize BTStack components in proper order (based on BTStack examples)
+    // 1. Initialize L2CAP first
+    l2cap_init();
 
-    // Set up GAP for device discovery and pairing
-    gap_set_class_of_device(0x2540);  // Peripheral, Joystick/Gamepad
-    gap_set_local_name("RP6502 RIA"); // TODO nobody will ever see this
+    // 2. Initialize HID Host for Classic
+    hid_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
+    hid_host_register_packet_handler(btx_packet_handler);
 
-    // Enable SSP (Secure Simple Pairing)
-    gap_set_bondable_mode(1);
-    gap_ssp_set_io_capability(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    sm_set_authentication_requirements(0x01); // General bonding, no MITM
+    // 3. Configure GAP
+    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
+    hci_set_master_slave_policy(HCI_ROLE_MASTER);
+    gap_set_class_of_device(0x2540); // Peripheral, Gaming/Toy
+    gap_set_local_name("RP6502 RIA");
+
+    // 4. Enable SSP with automatic accept
+    gap_ssp_set_enable(1);
+    gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+    gap_ssp_set_auto_accept(1);
+
+    // 5. Register for HCI events - this is the critical step that was causing crashes
+    hci_event_callback_registration.callback = &btx_packet_handler;
+    hci_add_event_handler(&hci_event_callback_registration);
 
     btx_initialized = true;
-    DBG("BTX: Bluetooth gamepad infrastructure initialized\n");
+    DBG("BTX: Bluetooth Classic HID gamepad infrastructure initialized\n");
 }
 
 void btx_task(void)
@@ -386,69 +247,47 @@ void btx_task(void)
     if (!btx_initialized)
     {
         btx_init_stack();
+        return;
     }
 
-    // Process BTStack events
+    // Let BTStack process events
     btstack_run_loop_execute();
-
-    // Auto-disable pairing mode after 60 seconds
-    static uint32_t pairing_start_time = 0;
-    if (btx_pairing_mode)
-    {
-        if (pairing_start_time == 0)
-        {
-            pairing_start_time = to_us_since_boot(get_absolute_time()) / 1000;
-        }
-        else if ((to_us_since_boot(get_absolute_time()) / 1000) - pairing_start_time > 60000)
-        {
-            btx_pairing_mode = false;
-            gap_discoverable_control(0);
-            pairing_start_time = 0;
-            DBG("BTX: Pairing mode timed out after 60 seconds\n");
-            printf("BTX: Pairing mode disabled (timeout)\n");
-        }
-    }
-    else
-    {
-        pairing_start_time = 0;
-    }
 }
 
 void btx_start_pairing(void)
 {
     if (!cyw_ready())
     {
-        DBG("BTX: Cannot start pairing - Bluetooth radio not ready\n");
+        printf("BTX: Bluetooth radio not ready\n");
         return;
     }
 
     if (!btx_initialized)
     {
         btx_init_stack();
+        return;
     }
 
-    // Start pairing mode
-    btx_pairing_mode = true;
-
-    // Make device discoverable and connectable for 60 seconds
-    gap_discoverable_control(1);
-    gap_connectable_control(1);
-
-    // Set inquiry scan and page scan to be more responsive
-    hci_send_cmd(&hci_write_inquiry_scan_activity, 0x800, 0x12); // 1.28s interval, 11.25ms window
-    hci_send_cmd(&hci_write_page_scan_activity, 0x800, 0x12);    // 1.28s interval, 11.25ms window
-
-    DBG("BTX: Starting Bluetooth gamepad pairing mode\n");
-    printf("BTX: Bluetooth gamepad pairing started - put your gamepad in pairing mode now\n");
-    printf("BTX: Device is discoverable as 'RP6502 RIA' for 60 seconds\n");
+    if (btx_pairing_mode)
+    {
+        // Already in pairing mode, turn it off
+        btx_pairing_mode = false;
+        gap_discoverable_control(0);
+        gap_connectable_control(0);
+        printf("BTX: Pairing mode disabled\n");
+    }
+    else
+    {
+        // Start pairing mode
+        btx_pairing_mode = true;
+        gap_discoverable_control(1);
+        gap_connectable_control(1);
+        printf("BTX: Pairing mode enabled - put your gamepad in pairing mode\n");
+    }
 }
 
-void btx_disconnect(void)
+void btx_disconnect_all(void)
 {
-    if (!btx_initialized)
-        return;
-
-    // Disconnect all active Bluetooth gamepad connections
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
         if (btx_connections[i].active)
@@ -477,7 +316,7 @@ void btx_print_status(void)
         return;
     }
 
-    printf("BTX: Bluetooth gamepad support active\n");
+    printf("BTX: Bluetooth Classic HID gamepad support active\n");
     printf("BTX: Pairing mode: %s\n", btx_pairing_mode ? "ON" : "OFF");
 
     int active_count = 0;
@@ -486,7 +325,7 @@ void btx_print_status(void)
         if (btx_connections[i].active)
         {
             active_count++;
-            printf("  Slot %d: pad_idx=%d (active)\n", i, btx_slot_to_pad_idx(i));
+            printf("  Slot %d: pad_idx=%d, CID=0x%04x (active)\n", i, btx_slot_to_pad_idx(i), btx_connections[i].classic_cid);
         }
     }
 

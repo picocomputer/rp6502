@@ -21,7 +21,7 @@ void btx_reset(void);
 
 void btx_start_pairing(void); // initiate Bluetooth gamepad pairing mode
 
-void btx_disconnect(void); // called before cyw radio is turned off
+void btx_disconnect_all(void); // called before cyw radio is turned off
 
 void btx_print_status(void);
 

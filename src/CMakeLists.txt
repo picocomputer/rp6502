@@ -42,7 +42,6 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_pwm
     hardware_flash
     tinyusb_host
-    pico_btstack_ble
     pico_btstack_classic
 )
 

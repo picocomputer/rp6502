@@ -112,7 +112,7 @@ bool cyw_validate_country_code(char *cc)
 void cyw_reset_radio(void)
 {
     wfi_disconnect();
-    btx_disconnect();
+    btx_disconnect_all();
     switch (cyw_state)
     {
     case cyw_state_initialized:
