@@ -31,7 +31,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // BTStack includes - minimal set for Classic HID only
 #include "btstack.h"
 #include "classic/hid_host.h"
+#include "classic/sdp_server.h"
+#include "classic/sdp_util.h"
 #include "l2cap.h"
+#include "bluetooth_data_types.h"
 
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btx_slot_to_pad_idx(int slot)
@@ -85,11 +88,14 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 printf("BTX: Device is now discoverable for pairing\n");
                 gap_discoverable_control(1);
                 gap_connectable_control(1);
+                // Ensure scan modes are enabled
+                hci_send_cmd(&hci_write_scan_enable, 0x03);
             }
         }
         else
         {
             DBG("BTX: Bluetooth stack state: %d\n", btstack_event_state_get_state(packet));
+            printf("BTX: Bluetooth stack state: %d\n", btstack_event_state_get_state(packet));
         }
         break;
 
@@ -115,6 +121,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     case HCI_EVENT_INQUIRY_RESULT:
     {
         DBG("BTX: Inquiry result received\n");
+        printf("BTX: Device being discovered by remote device\n");
         // We're not actively doing inquiry, but log if we receive this
     }
     break;
@@ -122,6 +129,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     case HCI_EVENT_INQUIRY_COMPLETE:
     {
         DBG("BTX: Inquiry complete\n");
+        printf("BTX: Inquiry process completed\n");
     }
     break;
 
@@ -178,6 +186,34 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             DBG("BTX: ACL connection failed, status: 0x%02x\n", status);
             printf("BTX: ACL connection failed, status: 0x%02x\n", status);
+        }
+    }
+    break;
+
+    case HCI_EVENT_COMMAND_COMPLETE:
+    {
+        uint16_t opcode = little_endian_read_16(packet, 3);
+        if (opcode == HCI_OPCODE_HCI_WRITE_SCAN_ENABLE)
+        {
+            uint8_t status = packet[5];
+            if (status == 0)
+            {
+                printf("BTX: Scan mode successfully enabled\n");
+            }
+            else
+            {
+                printf("BTX: Failed to enable scan mode, status: 0x%02x\n", status);
+            }
+        }
+        else if (opcode == HCI_OPCODE_HCI_WRITE_INQUIRY_SCAN_ACTIVITY)
+        {
+            uint8_t status = packet[5];
+            printf("BTX: Inquiry scan activity set, status: 0x%02x\n", status);
+        }
+        else if (opcode == HCI_OPCODE_HCI_WRITE_PAGE_SCAN_ACTIVITY)
+        {
+            uint8_t status = packet[5];
+            printf("BTX: Page scan activity set, status: 0x%02x\n", status);
         }
     }
     break;
@@ -305,6 +341,17 @@ static void btx_init_stack(void)
     // Initialize L2CAP (required for HID Host)
     l2cap_init();
 
+    // Initialize SDP Server
+    sdp_init();
+
+    // Add HID Host service record to make us visible to HID devices
+    // This advertises that we accept HID connections
+    uint8_t hid_service_buffer[250];
+    uint8_t *hid_service = hid_service_buffer;
+    de_create_sequence(hid_service);
+    de_add_number(hid_service, DE_UINT, DE_SIZE_16, BLUETOOTH_SERVICE_CLASS_HUMAN_INTERFACE_DEVICE_SERVICE);
+    sdp_register_service(hid_service_buffer);
+
     // Initialize HID Host for Classic
     hid_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
     hid_host_register_packet_handler(btx_packet_handler);
@@ -314,15 +361,19 @@ static void btx_init_stack(void)
     hci_add_event_handler(&hci_event_callback_registration);
 
     // Configure GAP - act as a receiver/host for HID devices
-    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE);
-    hci_set_master_slave_policy(0x00);
-    gap_set_class_of_device(0x000100); // Generic computer - can accept HID connections
-    gap_set_local_name("RP6502 RIA W");
+    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
+    hci_set_master_slave_policy(0x01); // Allow role switching (0x01 = switch allowed)
+    /* gap_set_class_of_device(0x2540); // Computer/Desktop with HID capability - what gamepads expect */
+    gap_set_class_of_device(0x2508); // Toy/Game with HID capability - try more specific gaming device
+    gap_set_local_name("RP6502-RIA-W");
 
     // Enable SSP with automatic accept
     gap_ssp_set_enable(1);
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
     gap_ssp_set_auto_accept(1);
+
+    // Set page scan parameters for better discoverability
+    gap_set_page_scan_activity(0x0800, 0x0012); // More frequent page scans
 
     btx_initialized = true;
     DBG("BTX: Bluetooth Classic HID gamepad infrastructure initialized\n");
@@ -384,10 +435,21 @@ bool btx_start_pairing(void)
         // Start pairing mode with 60 second timeout
         btx_pairing_mode = true;
         btx_pairing_timeout = make_timeout_time_ms(60000); // 60 seconds
+
+        // Explicitly set discoverable and connectable
+        printf("BTX: Setting device discoverable and connectable...\n");
         gap_discoverable_control(1);
         gap_connectable_control(1);
+
+        // Set inquiry scan parameters for better discoverability
+        hci_send_cmd(&hci_write_inquiry_scan_activity, 0x0800, 0x0012); // Faster scanning
+        hci_send_cmd(&hci_write_page_scan_activity, 0x0800, 0x0012);    // Faster paging
+
+        // Also try to set the inquiry scan and page scan manually
+        hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan enabled
+
         printf("BTX: Pairing mode enabled for 60 seconds - put your gamepad in pairing mode\n");
-        printf("BTX: Device discoverable as 'RP6502 RIA W'\n");
+        printf("BTX: Device discoverable as 'RP6502-RIA-W'\n");
         printf("BTX: For PS4/PS5: Hold Share + PS buttons until light bar flashes\n");
         printf("BTX: For Xbox: Hold Xbox button + Pair button until Xbox button flashes\n");
         printf("BTX: For Switch Pro: Hold Sync button until lights flash\n");
@@ -449,7 +511,7 @@ void btx_print_status(void)
 
     if (btx_pairing_mode)
     {
-        printf("  Device discoverable as 'RP6502 RIA'\n");
+        printf("  Device discoverable as 'RP6502-RIA-W'\n");
         printf("  Put your gamepad in pairing mode to connect\n");
     }
     else
