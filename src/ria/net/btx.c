@@ -117,6 +117,139 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gap_ssp_confirmation_response(event_addr);
         break;
 
+    case HCI_EVENT_IO_CAPABILITY_REQUEST:
+        hci_event_io_capability_request_get_bd_addr(packet, event_addr);
+        printf("BTX: IO Capability Request from %s - responding with NoInputNoOutput\n", bd_addr_to_str(event_addr));
+        // For gamepads, we want to use "NoInputNoOutput" to avoid PIN requirements
+        // Note: IO capabilities are set during initialization, this event just confirms the request
+        break;
+
+    case HCI_EVENT_INQUIRY_RESULT:
+    {
+        bd_addr_t addr;
+        hci_event_inquiry_result_get_bd_addr(packet, addr);
+        uint32_t cod = hci_event_inquiry_result_get_class_of_device(packet);
+
+        printf("BTX: Inquiry result from %s, CoD: 0x%06lx\n", bd_addr_to_str(addr), (unsigned long)cod);
+
+        // Check if this looks like a gamepad
+        // Major device class 0x05 = Peripheral, Minor class bits for joystick/gamepad
+        uint8_t major_class = (cod >> 8) & 0x1F;
+        uint8_t minor_class = (cod >> 2) & 0x3F;
+
+        printf("BTX: Device analysis - Major: 0x%02x, Minor: 0x%02x\n", major_class, minor_class);
+
+        if (major_class == 0x05) { // Peripheral device
+            // PS4/PS5 controllers often report as pointing devices (0x02) or other peripheral types
+            // Accept any peripheral device as a potential gamepad since many controllers
+            // don't properly set their minor class to joystick/gamepad
+            printf("BTX: *** FOUND POTENTIAL GAMEPAD! *** %s (CoD: 0x%06lx)\n", bd_addr_to_str(addr), (unsigned long)cod);
+            printf("BTX: Attempting to connect to peripheral device (likely gamepad)...\n");
+
+            // Try to connect to this peripheral device
+            hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
+        } else if (major_class == 0x01) {
+            printf("BTX: Found computer device (might be phone/tablet with gamepad app)\n");
+        } else {
+            printf("BTX: Device not a peripheral (major class: 0x%02x)\n", major_class);
+        }
+        break;
+    }
+
+    case HCI_EVENT_INQUIRY_COMPLETE:
+        printf("BTX: Inquiry complete\n");
+        break;
+
+    case HCI_EVENT_REMOTE_NAME_REQUEST_COMPLETE:
+        status = hci_event_remote_name_request_complete_get_status(packet);
+        hci_event_remote_name_request_complete_get_bd_addr(packet, event_addr);
+        if (status == 0) {
+            char name_buffer[248];
+            const char* remote_name = (const char*)hci_event_remote_name_request_complete_get_remote_name(packet);
+            int name_len = strlen(remote_name);
+            if (name_len > 247) name_len = 247;
+            memcpy(name_buffer, remote_name, name_len);
+            name_buffer[name_len] = 0;
+            printf("BTX: Remote name for %s: '%s'\n", bd_addr_to_str(event_addr), name_buffer);
+        } else {
+            printf("BTX: Remote name request failed for %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
+        }
+        break;
+
+    case HCI_EVENT_CONNECTION_REQUEST:
+        hci_event_connection_request_get_bd_addr(packet, event_addr);
+        uint32_t class_of_device = hci_event_connection_request_get_class_of_device(packet);
+        printf("BTX: *** INCOMING CONNECTION REQUEST! ***\n");
+        printf("BTX: Connection request from %s, CoD: 0x%06lx\n", bd_addr_to_str(event_addr), (unsigned long)class_of_device);
+
+        // Check if this is a gamepad trying to connect to us
+        uint8_t major_class = (class_of_device >> 8) & 0x1F;
+
+        if (major_class == 0x05) { // Peripheral device
+            printf("BTX: This appears to be a gamepad connecting to us!\n");
+        }
+
+        // Accept the connection - this is important for gamepad pairing
+        hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_SLAVE);
+        printf("BTX: Accepting connection as slave device\n");
+        break;
+
+    case HCI_EVENT_CONNECTION_COMPLETE:
+        status = hci_event_connection_complete_get_status(packet);
+        hci_event_connection_complete_get_bd_addr(packet, event_addr);
+        if (status == 0) {
+            uint16_t handle = hci_event_connection_complete_get_connection_handle(packet);
+            printf("BTX: ACL connection established with %s, handle: 0x%04x\n", bd_addr_to_str(event_addr), handle);
+
+            // For gamepads, we need to start authentication/pairing immediately
+            printf("BTX: Starting authentication for gamepad connection...\n");
+            hci_send_cmd(&hci_authentication_requested, handle);
+        } else {
+            printf("BTX: ACL connection failed with %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
+        }
+        break;
+
+    case HCI_EVENT_DISCONNECTION_COMPLETE:
+        status = hci_event_disconnection_complete_get_status(packet);
+        if (status == 0) {
+            uint16_t handle = hci_event_disconnection_complete_get_connection_handle(packet);
+            printf("BTX: ACL disconnection complete, handle: 0x%04x\n", handle);
+        }
+        break;
+
+    case HCI_EVENT_AUTHENTICATION_COMPLETE_EVENT:
+        status = hci_event_authentication_complete_get_status(packet);
+        uint16_t handle = hci_event_authentication_complete_get_connection_handle(packet);
+        if (status == 0) {
+            printf("BTX: Authentication successful for handle: 0x%04x\n", handle);
+            printf("BTX: Gamepad should now be ready for HID connection\n");
+        } else {
+            printf("BTX: Authentication failed for handle: 0x%04x, status: 0x%02x\n", handle, status);
+        }
+        break;
+
+    case HCI_EVENT_ENCRYPTION_CHANGE:
+        status = packet[2];
+        handle = little_endian_read_16(packet, 3);
+        uint8_t encryption_enabled = packet[5];
+        if (status == 0) {
+            printf("BTX: Encryption %s for handle: 0x%04x\n",
+                   encryption_enabled ? "enabled" : "disabled", handle);
+        } else {
+            printf("BTX: Encryption change failed for handle: 0x%04x, status: 0x%02x\n", handle, status);
+        }
+        break;
+
+    case HCI_EVENT_LINK_KEY_REQUEST:
+        hci_event_link_key_request_get_bd_addr(packet, event_addr);
+        printf("BTX: Link key request from %s - sending negative reply\n", bd_addr_to_str(event_addr));
+        hci_send_cmd(&hci_link_key_request_negative_reply, event_addr);
+        break;
+
+    case HCI_EVENT_LINK_KEY_NOTIFICATION:
+        printf("BTX: Link key notification received\n");
+        break;
+
     case HCI_EVENT_HID_META:
     {
         uint8_t subevent = hci_event_hid_meta_get_subevent_code(packet);
@@ -263,11 +396,60 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     }
     break;
 
+    case HCI_EVENT_COMMAND_COMPLETE:
+    {
+        uint16_t opcode = little_endian_read_16(packet, 3);
+        uint8_t status = packet[5];
+
+        // Check for scan enable command completion
+        if (opcode == 0x0C1A) { // HCI_Write_Scan_Enable
+            if (status == 0) {
+                printf("BTX: Scan enable command completed successfully\n");
+            } else {
+                printf("BTX: Scan enable command failed with status: 0x%02x\n", status);
+            }
+        }
+        // Check for inquiry command completion
+        else if (opcode == 0x0401) { // HCI_Inquiry
+            if (status == 0) {
+                printf("BTX: Inquiry command started successfully\n");
+            } else {
+                printf("BTX: Inquiry command failed with status: 0x%02x\n", status);
+            }
+        }
+        // Check for inquiry cancel completion
+        else if (opcode == 0x0402) { // HCI_Inquiry_Cancel
+            printf("BTX: Inquiry cancel command completed, status: 0x%02x\n", status);
+        }
+        break;
+    }
+
+    case HCI_EVENT_COMMAND_STATUS:
+    {
+        uint8_t status = packet[2];
+        uint16_t opcode = little_endian_read_16(packet, 4);
+
+        if (opcode == 0x0401) { // HCI_Inquiry
+            if (status == 0) {
+                printf("BTX: Inquiry command accepted and running\n");
+            } else {
+                printf("BTX: Inquiry command rejected with status: 0x%02x\n", status);
+            }
+        }
+        break;
+    }
+
     default:
-        // Don't spam for common events, only log significant ones
-        if (event_type != 0x0e && event_type != 0x6e)
-        { // Skip command complete and nr connections changed
-            DBG("BTX: Unhandled event 0x%02x\n", event_type);
+        // Log all unhandled events to help debug gamepad pairing issues
+        // Skip common flow control events but log inquiry-related ones
+        if (event_type != 0x6e) { // HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS
+            printf("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
+            // Also print the first few bytes for debugging
+            printf("BTX: Event data: ");
+            for (int i = 0; i < (size < 8 ? size : 8); i++) {
+                printf("%02x ", packet[i]);
+            }
+            printf("\n");
         }
         break;
     }
@@ -306,9 +488,9 @@ static void btx_init_stack(void)
     hci_add_event_handler(&hci_event_callback_registration);
     printf("BTX: HCI event handler registered\n");
 
-    // Create and register SDP record for HID host capability (enhanced for gamepad support)
-    // Based on BTStack examples with additional attributes for better gamepad compatibility
-    static uint8_t hid_host_sdp_service_buffer[200]; // Increased size for more attributes
+    // Create an SDP record that advertises HID service to attract gamepads
+    // This makes us look like a device that accepts HID connections (like a PC or console)
+    static uint8_t hid_host_sdp_service_buffer[150];
     uint32_t hid_host_service_record_handle = sdp_create_service_record_handle();
 
     de_create_sequence(hid_host_sdp_service_buffer);
@@ -317,11 +499,31 @@ static void btx_init_stack(void)
     de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_SERVICE_RECORD_HANDLE);
     de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_32, hid_host_service_record_handle);
 
-    // 0x0001 "Service Class ID List"
+    // 0x0001 "Service Class ID List" - Advertise HID service to attract gamepads
     de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_SERVICE_CLASS_ID_LIST);
     uint8_t *attribute = de_push_sequence(hid_host_sdp_service_buffer);
     {
+        // Advertise as HID service - this is what gamepads look for
         de_add_number(attribute, DE_UUID, DE_SIZE_16, BLUETOOTH_SERVICE_CLASS_HUMAN_INTERFACE_DEVICE_SERVICE);
+    }
+    de_pop_sequence(hid_host_sdp_service_buffer, attribute);
+
+    // 0x0004 "Protocol Descriptor List" - L2CAP and HID protocols
+    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_PROTOCOL_DESCRIPTOR_LIST);
+    attribute = de_push_sequence(hid_host_sdp_service_buffer);
+    {
+        uint8_t* l2cap_service = de_push_sequence(attribute);
+        {
+            de_add_number(l2cap_service, DE_UUID, DE_SIZE_16, BLUETOOTH_PROTOCOL_L2CAP);
+            de_add_number(l2cap_service, DE_UINT, DE_SIZE_16, PSM_HID_CONTROL);
+        }
+        de_pop_sequence(attribute, l2cap_service);
+
+        uint8_t* hid_service = de_push_sequence(attribute);
+        {
+            de_add_number(hid_service, DE_UUID, DE_SIZE_16, BLUETOOTH_PROTOCOL_HIDP);
+        }
+        de_pop_sequence(attribute, hid_service);
     }
     de_pop_sequence(hid_host_sdp_service_buffer, attribute);
 
@@ -331,25 +533,15 @@ static void btx_init_stack(void)
     {
         de_add_number(attribute, DE_UUID, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_PUBLIC_BROWSE_ROOT);
     }
-    de_pop_sequence(hid_host_sdp_service_buffer, attribute);
-
-    // 0x0100 "Service Name"
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, 0x0100);
-    de_add_data(hid_host_sdp_service_buffer, DE_STRING, 13, (uint8_t *)"RP6502-Console");
-
-    // 0x0101 "Service Description" - Adding this helps with certain gamepads
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, 0x0101);
-    de_add_data(hid_host_sdp_service_buffer, DE_STRING, 20, (uint8_t *)"Game Controller Host");
-
-    // Register the enhanced SDP record
+    de_pop_sequence(hid_host_sdp_service_buffer, attribute);    // Register the HID service SDP record
     uint8_t sdp_result = sdp_register_service(hid_host_sdp_service_buffer);
     if (sdp_result == 0)
     {
-        printf("BTX: HID host SDP service record registered successfully\n");
+        printf("BTX: HID service SDP record registered successfully\n");
     }
     else
     {
-        printf("BTX: Failed to register HID host SDP service record, error: 0x%02x\n", sdp_result);
+        printf("BTX: Failed to register HID service SDP record, error: 0x%02x\n", sdp_result);
     }
 
     // Configure GAP for HID Host following BTStack example patterns
@@ -361,23 +553,37 @@ static void btx_init_stack(void)
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
     printf("BTX: Master/slave policy set to prefer master role\n");
 
-    // Set Class of Device for HID support (Joystick + Game Pad)
-    // See https://www.bluetooth.com/specifications/assigned-numbers/baseband/
-    // 0x002580 = Desktop, Computer, Joystick/Gamepad Minor Device (0x05) with Rendering service (bit 11)
-    gap_set_class_of_device(0x002580);
+    // Set Class of Device to indicate HID capability
+    // 0x002540 = Computer Major Class (0x01), Desktop Minor Class (0x01), with HID service bit set (0x02)
+    // This tells gamepads we're a computer that accepts HID connections
+    gap_set_class_of_device(0x002540);
     gap_set_local_name("RP6502-Console");
-    printf("BTX: Class of Device (gamepad host) and name configured\n");
+    printf("BTX: Class of Device (computer with HID) and name configured\n");
 
-    // Enable SSP with simple configuration
-    gap_ssp_set_enable(1);
+    // Configure SSP for modern gamepad compatibility (most PS4/PS5 controllers use SSP)
+    gap_ssp_set_enable(1);  // Enable SSP
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    gap_ssp_set_auto_accept(1);
-    printf("BTX: SSP enabled with auto-accept\n");
+    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
+    printf("BTX: SSP enabled with NoInputNoOutput IO capability for gamepad compatibility\n");
+
+    // Set a simple PIN for legacy pairing
+    gap_set_bondable_mode(1);
+    printf("BTX: Bondable mode enabled for legacy pairing\n");
 
     // Make discoverable to allow HID devices to initiate connection (BTStack pattern)
     // This is ESSENTIAL for gamepad pairing - they need to find and connect to us
     gap_discoverable_control(1);
     gap_connectable_control(1);
+
+    // Enable inquiry scan mode explicitly for better gamepad compatibility
+    hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
+    printf("BTX: Enabled both inquiry and page scan modes\n");
+
+    // Set inquiry scan parameters for better visibility
+    // Make inquiry scan more frequent and longer window for better gamepad discovery
+    hci_send_cmd(&hci_write_inquiry_scan_activity, 0x1000, 0x0800); // interval=0x1000, window=0x0800
+    printf("BTX: Enhanced inquiry scan parameters for better gamepad discovery\n");
+
     printf("BTX: Made discoverable and connectable for HID device connections\n");
 
     btx_initialized = true;
@@ -399,12 +605,52 @@ void btx_task(void)
         btx_init_stack();
         return;
     }
+
+    // Periodically ensure we stay discoverable and connectable
+    static uint32_t last_status_check = 0;
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+
+    if (now - last_status_check > 30000) { // Every 30 seconds
+        last_status_check = now;
+
+        // Re-enable discoverable/connectable mode to ensure it stays active
+        gap_discoverable_control(1);
+        gap_connectable_control(1);
+        printf("BTX: Status check - device should be visible as 'RP6502-Console'\n");
+        printf("BTX: CoD: 0x002540 (Computer with HID), Legacy pairing enabled\n");
+        printf("BTX: Advertising HID service - gamepads should see us as HID-capable device\n");
+        printf("BTX: Also performing active gamepad discovery when pairing mode enabled\n");
+        printf("BTX: Try scanning for Bluetooth devices on your phone to verify visibility\n");
+
+        // Also make sure scan modes are still enabled
+        hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
+    }
 }
 
 bool btx_start_pairing(void)
 {
-    // we are always in pairing mode.
-    // DO NOT IMPLEMENT THIS YET!
+    if (!btx_initialized) {
+        printf("BTX: Cannot start pairing - not initialized\n");
+        return false;
+    }
+
+    btx_pairing_mode = true;
+
+    // Make sure we're discoverable and connectable for incoming connections
+    gap_discoverable_control(1);
+    gap_connectable_control(1);
+
+    printf("BTX: *** STARTING ACTIVE GAMEPAD SEARCH ***\n");
+    printf("BTX: Put your gamepad in pairing mode now\n");
+    printf("BTX: Device is also discoverable as 'RP6502-Console' for reverse connections\n");
+
+    // Try a simple inquiry first to see if the command works at all
+    printf("BTX: Attempting inquiry with LAP 0x9E8B33, length 0x08 (10.24s), num_responses 0x00 (unlimited)\n");
+
+    // Send inquiry command and check if it gets accepted
+    uint8_t result = hci_send_cmd(&hci_inquiry, 0x9E8B33, 0x08, 0x00);
+    printf("BTX: hci_send_cmd returned: %d\n", result);
+
     return true;
 }
 
