@@ -211,28 +211,24 @@ static void btx_init_stack(void)
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
 
-    // Initialize BTStack components in proper order (based on BTStack examples)
-    // 1. Initialize L2CAP first
-    l2cap_init();
+    // Register for HCI events - must be done before hci_power_control
+    hci_event_callback_registration.callback = &btx_packet_handler;
+    hci_add_event_handler(&hci_event_callback_registration);
 
-    // 2. Initialize HID Host for Classic
+    // Initialize HID Host for Classic
     hid_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
     hid_host_register_packet_handler(btx_packet_handler);
 
-    // 3. Configure GAP
+    // Configure GAP
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
     gap_set_class_of_device(0x2540); // Peripheral, Gaming/Toy
     gap_set_local_name("RP6502 RIA");
 
-    // 4. Enable SSP with automatic accept
+    // Enable SSP with automatic accept
     gap_ssp_set_enable(1);
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
     gap_ssp_set_auto_accept(1);
-
-    // 5. Register for HCI events - this is the critical step that was causing crashes
-    hci_event_callback_registration.callback = &btx_packet_handler;
-    hci_add_event_handler(&hci_event_callback_registration);
 
     btx_initialized = true;
     DBG("BTX: Bluetooth Classic HID gamepad infrastructure initialized\n");
