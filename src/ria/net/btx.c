@@ -11,7 +11,9 @@ void btx_start_pairing(void) {}
 void btx_print_status(void) {}
 #else
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)
+#define DEBUG_RIA_NET_BTX
+
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BTX)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -28,6 +30,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // BTStack includes
 #include "btstack.h"
 #include "classic/hid_host.h"
+#include "ble/gatt_client.h"
+#include "ble/sm.h"
 
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btx_slot_to_pad_idx(int slot)
@@ -35,11 +39,17 @@ static uint8_t btx_slot_to_pad_idx(int slot)
     return CFG_TUH_HID + PAD_MAX_PLAYERS + slot;
 }
 
-// Simple connection tracking
+// Connection tracking for both Classic and BLE
 typedef struct
 {
     bool active;
-    uint8_t placeholder[16]; // Placeholder for future connection data
+    bool is_ble;                    // true for BLE, false for Classic
+    union {
+        uint16_t classic_cid;       // Classic HID connection ID
+        hci_con_handle_t ble_handle; // BLE connection handle
+    };
+    bd_addr_t remote_addr;
+    uint8_t placeholder[8];         // Reserved for future use
 } btx_connection_t;
 
 static btx_connection_t btx_connections[PAD_MAX_PLAYERS];
@@ -49,6 +59,12 @@ static bool btx_pairing_mode = false;
 // BTStack state
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static bd_addr_t remote_addr;
+
+// BLE state
+static bool btx_ble_scanning = false;
+static gatt_client_service_t hid_service;
+static gatt_client_characteristic_t hid_report_characteristic;
+static gatt_client_notification_t hid_notification;
 
 // Forward declarations
 static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
@@ -66,20 +82,27 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     switch (event_type)
     {
-    case BTSTACK_EVENT_STATE:
-        if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
-        {
-            DBG("BTX: Bluetooth stack ready\n");
-            if (btx_pairing_mode)
+        case BTSTACK_EVENT_STATE:
+            if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
             {
-                DBG("BTX: Making device discoverable for pairing\n");
-                gap_discoverable_control(1);
-                gap_connectable_control(1);
-            }
-        }
-        break;
+                DBG("BTX: Bluetooth stack ready\n");
+                if (btx_pairing_mode)
+                {
+                    DBG("BTX: Making device discoverable for pairing\n");
+                    gap_discoverable_control(1);
+                    gap_connectable_control(1);
 
-    case HCI_EVENT_PIN_CODE_REQUEST:
+                    // Start BLE scanning for HID devices
+                    if (!btx_ble_scanning)
+                    {
+                        gap_set_scan_parameters(0, 0x0030, 0x0030); // 30ms interval/window
+                        gap_start_scan();
+                        btx_ble_scanning = true;
+                        DBG("BTX: Started BLE scanning for HID devices\n");
+                    }
+                }
+            }
+            break;    case HCI_EVENT_PIN_CODE_REQUEST:
         DBG("BTX: Pin code request - using 0000\n");
         hci_event_pin_code_request_get_bd_addr(packet, remote_addr);
         gap_pin_code_response(remote_addr, "0000");
@@ -89,6 +112,144 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         DBG("BTX: Auto-confirming pairing request\n");
         hci_event_user_confirmation_request_get_bd_addr(packet, remote_addr);
         gap_ssp_confirmation_response(remote_addr);
+        break;
+
+    case GAP_EVENT_ADVERTISING_REPORT:
+        {
+            // Check if this is a HID device advertisement
+            const uint8_t *adv_data = gap_event_advertising_report_get_data(packet);
+            uint8_t adv_len = gap_event_advertising_report_get_data_length(packet);
+            bd_addr_t adv_addr;
+            gap_event_advertising_report_get_address(packet, adv_addr);
+
+            // Look for HID service UUID (0x1812) in advertisement
+            ad_context_t context;
+            for (ad_iterator_init(&context, adv_len, adv_data); ad_iterator_has_more(&context); ad_iterator_next(&context))
+            {
+                uint8_t data_type = ad_iterator_get_data_type(&context);
+                uint8_t size = ad_iterator_get_data_len(&context);
+                const uint8_t *data = ad_iterator_get_data(&context);
+
+                if ((data_type == BLUETOOTH_DATA_TYPE_COMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS ||
+                     data_type == BLUETOOTH_DATA_TYPE_INCOMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS) && size >= 2)
+                {
+                    for (int i = 0; i < size; i += 2)
+                    {
+                        uint16_t uuid = little_endian_read_16(data, i);
+                        if (uuid == 0x1812) // HID Service UUID
+                        {
+                            DBG("BTX: Found BLE HID device, connecting...\n");
+                            gap_stop_scan();
+                            btx_ble_scanning = false;
+                            gap_connect(adv_addr, gap_event_advertising_report_get_address_type(packet));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        break;
+
+    case HCI_EVENT_LE_META:
+        switch (hci_event_le_meta_get_subevent_code(packet))
+        {
+        case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
+            {
+                hci_con_handle_t handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+                uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
+
+                if (status == ERROR_CODE_SUCCESS)
+                {
+                    // Find a free slot for BLE connection
+                    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+                    {
+                        if (!btx_connections[i].active)
+                        {
+                            btx_connections[i].active = true;
+                            btx_connections[i].is_ble = true;
+                            btx_connections[i].ble_handle = handle;
+                            hci_subevent_le_connection_complete_get_peer_address(packet, btx_connections[i].remote_addr);
+
+                            DBG("BTX: BLE HID device connected at slot %d, handle=0x%04x\n", i, handle);
+
+                            // Start GATT service discovery for HID service
+                            gatt_client_discover_primary_services_by_uuid16(btx_packet_handler, handle, 0x1812);
+
+                            // Exit pairing mode after successful connection
+                            if (btx_pairing_mode)
+                            {
+                                btx_pairing_mode = false;
+                                gap_discoverable_control(0);
+                                DBG("BTX: Pairing mode disabled after BLE connection\n");
+                            }
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    DBG("BTX: BLE connection failed with status 0x%02x\n", status);
+                }
+            }
+            break;
+        }
+        break;
+
+    case GATT_EVENT_SERVICE_QUERY_RESULT:
+        gatt_event_service_query_result_get_service(packet, &hid_service);
+        DBG("BTX: Found HID service on BLE device\n");
+        break;
+
+    case GATT_EVENT_QUERY_COMPLETE:
+        {
+            uint8_t status = gatt_event_query_complete_get_att_status(packet);
+            if (status == ATT_ERROR_SUCCESS)
+            {
+                if (hid_service.start_group_handle != 0 && hid_report_characteristic.start_handle == 0)
+                {
+                    // Service discovery complete, now discover characteristics
+                    hci_con_handle_t handle = gatt_event_query_complete_get_handle(packet);
+                    gatt_client_discover_characteristics_for_service_by_uuid16(btx_packet_handler, handle, &hid_service, 0x2A4D);
+                }
+                else if (hid_report_characteristic.start_handle != 0)
+                {
+                    // Characteristic discovery complete, enable notifications
+                    hci_con_handle_t handle = gatt_event_query_complete_get_handle(packet);
+                    gatt_client_listen_for_characteristic_value_updates(&hid_notification, btx_packet_handler, handle, &hid_report_characteristic);
+                    gatt_client_write_client_characteristic_configuration(btx_packet_handler, handle, &hid_report_characteristic, GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION);
+
+                    DBG("BTX: Enabled HID report notifications for BLE device\n");
+
+                    // TODO: Get HID descriptor and call pad_mount() for BLE device
+                    // For now, just mark as ready
+                }
+            }
+        }
+        break;
+
+    case GATT_EVENT_CHARACTERISTIC_QUERY_RESULT:
+        gatt_event_characteristic_query_result_get_characteristic(packet, &hid_report_characteristic);
+        DBG("BTX: Found HID report characteristic on BLE device\n");
+        break;
+
+    case GATT_EVENT_NOTIFICATION:
+        {
+            // Process BLE HID report
+            hci_con_handle_t handle = gatt_event_notification_get_handle(packet);
+            uint16_t value_length = gatt_event_notification_get_value_length(packet);
+            const uint8_t *value = gatt_event_notification_get_value(packet);
+
+            // Find the slot for this BLE connection
+            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+            {
+                if (btx_connections[i].active && btx_connections[i].is_ble &&
+                    btx_connections[i].ble_handle == handle)
+                {
+                    pad_report(btx_slot_to_pad_idx(i), (uint8_t*)value, value_length);
+                    break;
+                }
+            }
+        }
         break;
 
     case HCI_EVENT_HID_META:
