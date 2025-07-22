@@ -49,6 +49,7 @@ typedef struct
 static btx_connection_t btx_connections[PAD_MAX_PLAYERS];
 static bool btx_initialized = false;
 static bool btx_pairing_mode = false;
+static absolute_time_t btx_pairing_timeout;
 
 // BTStack state - Classic HID only
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -226,8 +227,8 @@ static void btx_init_stack(void)
     // Configure GAP
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
-    gap_set_class_of_device(0x2540); // Peripheral, Gaming/Toy
-    gap_set_local_name("RP6502 RIA");
+    gap_set_class_of_device(0x002540); // Computer, Desktop workstation - HID Host
+    gap_set_local_name("RP6502 RIA W");
 
     // Enable SSP with automatic accept
     gap_ssp_set_enable(1);
@@ -251,6 +252,16 @@ void btx_task(void)
     {
         btx_init_stack();
         return;
+    }
+
+    // Check for pairing mode timeout (60 seconds)
+    if (btx_pairing_mode && absolute_time_diff_us(btx_pairing_timeout, get_absolute_time()) > 0)
+    {
+        btx_pairing_mode = false;
+        gap_discoverable_control(0);
+        gap_connectable_control(0);
+        DBG("BTX: Pairing mode timed out\n");
+        printf("BTX: Pairing mode timed out after 60 seconds\n");
     }
 
     // For Pico SDK with CYW43, the BTStack run loop is handled automatically
@@ -282,11 +293,13 @@ void btx_start_pairing(void)
     }
     else
     {
-        // Start pairing mode
+        // Start pairing mode with 60 second timeout
         btx_pairing_mode = true;
+        btx_pairing_timeout = make_timeout_time_ms(60000); // 60 seconds
         gap_discoverable_control(1);
         gap_connectable_control(1);
-        printf("BTX: Pairing mode enabled - put your gamepad in pairing mode\n");
+        printf("BTX: Pairing mode enabled for 60 seconds - put your gamepad in pairing mode\n");
+        printf("BTX: Device discoverable as 'RP6502 RIA'\n");
     }
 }
 
