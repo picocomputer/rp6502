@@ -30,6 +30,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // BTStack includes - minimal set for Classic HID only
 #include "btstack.h"
 #include "classic/hid_host.h"
+#include "l2cap.h"
 
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btx_slot_to_pad_idx(int slot)
@@ -211,13 +212,16 @@ static void btx_init_stack(void)
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
 
-    // Register for HCI events - must be done before hci_power_control
-    hci_event_callback_registration.callback = &btx_packet_handler;
-    hci_add_event_handler(&hci_event_callback_registration);
+    // Initialize L2CAP (required for HID Host)
+    l2cap_init();
 
     // Initialize HID Host for Classic
     hid_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
     hid_host_register_packet_handler(btx_packet_handler);
+
+    // Register for HCI events - must be done before hci_power_control
+    hci_event_callback_registration.callback = &btx_packet_handler;
+    hci_add_event_handler(&hci_event_callback_registration);
 
     // Configure GAP
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
@@ -232,6 +236,9 @@ static void btx_init_stack(void)
 
     btx_initialized = true;
     DBG("BTX: Bluetooth Classic HID gamepad infrastructure initialized\n");
+
+    // Start the Bluetooth stack
+    hci_power_control(HCI_POWER_ON);
 }
 
 void btx_task(void)
@@ -246,8 +253,9 @@ void btx_task(void)
         return;
     }
 
-    // Let BTStack process events
-    btstack_run_loop_execute();
+    // For Pico SDK with CYW43, the BTStack run loop is handled automatically
+    // We don't need to call btstack_run_loop_execute() here as it would block
+    // The Pico SDK integration handles the BTStack event processing
 }
 
 void btx_start_pairing(void)
