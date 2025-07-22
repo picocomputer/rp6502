@@ -201,9 +201,15 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t handle = hci_event_connection_complete_get_connection_handle(packet);
             DBG("BTX: ACL connection established with %s, handle: 0x%04x\n", bd_addr_to_str(event_addr), handle);
 
-            // Don't force authentication immediately - let the gamepad initiate the HID connection first
-            // Some gamepads prefer to establish HID connection before authentication
-            DBG("BTX: Waiting for gamepad to initiate HID connection...\n");
+            // Now initiate HID connection to the gamepad - this is the key step!
+            DBG("BTX: Initiating HID connection to gamepad...\n");
+            uint16_t hid_cid;
+            uint8_t hid_status = hid_host_connect(event_addr, HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT, &hid_cid);
+            if (hid_status == ERROR_CODE_SUCCESS) {
+                DBG("BTX: HID connection request sent successfully, CID: 0x%04x\n", hid_cid);
+            } else {
+                DBG("BTX: Failed to initiate HID connection, status: 0x%02x\n", hid_status);
+            }
         } else {
             DBG("BTX: ACL connection failed with %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
         }

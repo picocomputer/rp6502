@@ -2,8 +2,8 @@
 #define _PICO_BTSTACK_BTSTACK_CONFIG_H
 
 // BTstack features that can be enabled
-// #define ENABLE_LOG_INFO
-// #define ENABLE_LOG_ERROR
+#define ENABLE_LOG_INFO
+#define ENABLE_LOG_ERROR
 #define ENABLE_PRINTF_HEXDUMP
 // #define ENABLE_SCO_OVER_HCI
 // #define WANT_HCI_DUMP 1
