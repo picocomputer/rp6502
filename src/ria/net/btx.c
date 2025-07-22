@@ -32,7 +32,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "btstack.h"
 #include "classic/hid_host.h"
 #include "l2cap.h"
-#include "pico/btstack_run_loop_async_context.h"
 
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btx_slot_to_pad_idx(int slot)
@@ -78,13 +77,19 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             DBG("BTX: Bluetooth stack ready\n");
+            printf("BTX: Bluetooth stack ready\n");
 
             if (btx_pairing_mode)
             {
                 DBG("BTX: Making device discoverable for pairing\n");
+                printf("BTX: Device is now discoverable for pairing\n");
                 gap_discoverable_control(1);
                 gap_connectable_control(1);
             }
+        }
+        else
+        {
+            DBG("BTX: Bluetooth stack state: %d\n", btstack_event_state_get_state(packet));
         }
         break;
 
@@ -125,8 +130,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         bd_addr_t event_addr;
         hci_event_remote_name_request_complete_get_bd_addr(packet, event_addr);
         uint8_t status = hci_event_remote_name_request_complete_get_status(packet);
-        if (status == 0) {
-            const char* name = hci_event_remote_name_request_complete_get_remote_name(packet);
+        if (status == 0)
+        {
+            const char *name = hci_event_remote_name_request_complete_get_remote_name(packet);
             DBG("BTX: Remote name request complete: %s\n", name);
         }
     }
@@ -138,12 +144,40 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         hci_event_connection_request_get_bd_addr(packet, event_addr);
         uint32_t cod = hci_event_connection_request_get_class_of_device(packet);
         DBG("BTX: Connection request from device, CoD: 0x%06lx\n", (unsigned long)cod);
+        printf("BTX: Connection request from device, CoD: 0x%06lx\n", (unsigned long)cod);
 
-        // Accept connection requests when in pairing mode
-        if (btx_pairing_mode) {
-            DBG("BTX: Accepting connection request\n");
-            // Use the low-level HCI command to accept the connection
-            hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
+        // Accept connection requests when in pairing mode OR if we're already paired
+        if (btx_pairing_mode)
+        {
+            DBG("BTX: Accepting connection request (pairing mode)\n");
+            printf("BTX: Accepting connection request (pairing mode)\n");
+            hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_SLAVE);
+        }
+        else
+        {
+            // Check if this device is already paired (TODO: implement proper pairing database)
+            DBG("BTX: Accepting connection request (assuming known device)\n");
+            printf("BTX: Accepting connection request (assuming known device)\n");
+            hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_SLAVE);
+        }
+    }
+    break;
+
+    case HCI_EVENT_CONNECTION_COMPLETE:
+    {
+        uint8_t status = hci_event_connection_complete_get_status(packet);
+        if (status == ERROR_CODE_SUCCESS)
+        {
+            bd_addr_t event_addr;
+            hci_event_connection_complete_get_bd_addr(packet, event_addr);
+            uint16_t handle = hci_event_connection_complete_get_connection_handle(packet);
+            DBG("BTX: ACL connection established, handle: 0x%04x\n", handle);
+            printf("BTX: ACL connection established, handle: 0x%04x\n", handle);
+        }
+        else
+        {
+            DBG("BTX: ACL connection failed, status: 0x%02x\n", status);
+            printf("BTX: ACL connection failed, status: 0x%02x\n", status);
         }
     }
     break;
@@ -157,6 +191,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             uint16_t cid = hid_subevent_incoming_connection_get_hid_cid(packet);
             DBG("BTX: Incoming HID connection, CID: %u\n", cid);
+            printf("BTX: Incoming HID connection, CID: %u\n", cid);
             hid_host_accept_connection(cid, HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT);
         }
         break;
@@ -179,10 +214,18 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                         btx_connections[i].classic_cid = cid;
                         memcpy(btx_connections[i].remote_addr, addr, BD_ADDR_LEN);
 
-                        // TODO: Implement HID descriptor retrieval and pad_mount
-                        // For now, we'll handle raw HID reports in pad_report()
+                        // Mount the gamepad with no descriptor for now (Bluetooth HID)
+                        // TODO: Retrieve and parse HID descriptor for better compatibility
+                        bool mounted = pad_mount(btx_slot_to_pad_idx(i), NULL, 0, 0, 0, 0);
+                        if (!mounted)
+                        {
+                            DBG("BTX: Failed to mount gamepad at slot %d\n", i);
+                            btx_connections[i].active = false;
+                            break;
+                        }
 
-                        DBG("BTX: HID gamepad connected at slot %d, CID: %u\n", i, cid);
+                        DBG("BTX: HID gamepad connected at slot %d, CID: %u, pad_idx: %d\n",
+                            i, cid, btx_slot_to_pad_idx(i));
 
                         // Exit pairing mode after successful connection
                         if (btx_pairing_mode)
@@ -256,10 +299,8 @@ static void btx_init_stack(void)
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
 
-    // Initialize BTStack memory system and run loop first
-    // This must be done before any other BTStack functions
-    btstack_memory_init();
-    btstack_run_loop_init(btstack_run_loop_async_context_get_instance(cyw43_arch_async_context()));
+    // Note: BTStack memory and run loop are automatically initialized by pico_btstack_cyw43
+    // when cyw43_arch_init() is called. We don't need to do it again here.
 
     // Initialize L2CAP (required for HID Host)
     l2cap_init();
@@ -272,10 +313,10 @@ static void btx_init_stack(void)
     hci_event_callback_registration.callback = &btx_packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
 
-    // Configure GAP
-    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE | LM_LINK_POLICY_ENABLE_ROLE_SWITCH);
-    hci_set_master_slave_policy(HCI_ROLE_MASTER);
-    gap_set_class_of_device(0x002540); // Computer, Desktop workstation - HID Host
+    // Configure GAP - act as a receiver/host for HID devices
+    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE);
+    hci_set_master_slave_policy(0x00);
+    gap_set_class_of_device(0x000100); // Generic computer - can accept HID connections
     gap_set_local_name("RP6502 RIA W");
 
     // Enable SSP with automatic accept
@@ -347,6 +388,9 @@ bool btx_start_pairing(void)
         gap_connectable_control(1);
         printf("BTX: Pairing mode enabled for 60 seconds - put your gamepad in pairing mode\n");
         printf("BTX: Device discoverable as 'RP6502 RIA W'\n");
+        printf("BTX: For PS4/PS5: Hold Share + PS buttons until light bar flashes\n");
+        printf("BTX: For Xbox: Hold Xbox button + Pair button until Xbox button flashes\n");
+        printf("BTX: For Switch Pro: Hold Sync button until lights flash\n");
     }
     return true;
 }
