@@ -26,11 +26,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
+#include "pico/cyw43_arch.h"
 
 // BTStack includes - minimal set for Classic HID only
 #include "btstack.h"
 #include "classic/hid_host.h"
 #include "l2cap.h"
+#include "pico/btstack_run_loop_async_context.h"
 
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btx_slot_to_pad_idx(int slot)
@@ -102,6 +104,47 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         uint32_t numeric_value = hci_event_user_confirmation_request_get_numeric_value(packet);
         DBG("BTX: SSP User Confirmation Request: %lu - Auto accepting\n", (unsigned long)numeric_value);
         gap_ssp_confirmation_response(event_addr);
+    }
+    break;
+
+    case HCI_EVENT_INQUIRY_RESULT:
+    {
+        DBG("BTX: Inquiry result received\n");
+        // We're not actively doing inquiry, but log if we receive this
+    }
+    break;
+
+    case HCI_EVENT_INQUIRY_COMPLETE:
+    {
+        DBG("BTX: Inquiry complete\n");
+    }
+    break;
+
+    case HCI_EVENT_REMOTE_NAME_REQUEST_COMPLETE:
+    {
+        bd_addr_t event_addr;
+        hci_event_remote_name_request_complete_get_bd_addr(packet, event_addr);
+        uint8_t status = hci_event_remote_name_request_complete_get_status(packet);
+        if (status == 0) {
+            const char* name = hci_event_remote_name_request_complete_get_remote_name(packet);
+            DBG("BTX: Remote name request complete: %s\n", name);
+        }
+    }
+    break;
+
+    case HCI_EVENT_CONNECTION_REQUEST:
+    {
+        bd_addr_t event_addr;
+        hci_event_connection_request_get_bd_addr(packet, event_addr);
+        uint32_t cod = hci_event_connection_request_get_class_of_device(packet);
+        DBG("BTX: Connection request from device, CoD: 0x%06lx\n", (unsigned long)cod);
+
+        // Accept connection requests when in pairing mode
+        if (btx_pairing_mode) {
+            DBG("BTX: Accepting connection request\n");
+            // Use the low-level HCI command to accept the connection
+            hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
+        }
     }
     break;
 
@@ -213,6 +256,11 @@ static void btx_init_stack(void)
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
 
+    // Initialize BTStack memory system and run loop first
+    // This must be done before any other BTStack functions
+    btstack_memory_init();
+    btstack_run_loop_init(btstack_run_loop_async_context_get_instance(cyw43_arch_async_context()));
+
     // Initialize L2CAP (required for HID Host)
     l2cap_init();
 
@@ -269,18 +317,17 @@ void btx_task(void)
     // The Pico SDK integration handles the BTStack event processing
 }
 
-void btx_start_pairing(void)
+bool btx_start_pairing(void)
 {
     if (!cyw_ready())
     {
         printf("BTX: Bluetooth radio not ready\n");
-        return;
+        return false;
     }
 
     if (!btx_initialized)
     {
-        btx_init_stack();
-        return;
+        return false;
     }
 
     if (btx_pairing_mode)
@@ -299,8 +346,9 @@ void btx_start_pairing(void)
         gap_discoverable_control(1);
         gap_connectable_control(1);
         printf("BTX: Pairing mode enabled for 60 seconds - put your gamepad in pairing mode\n");
-        printf("BTX: Device discoverable as 'RP6502 RIA'\n");
+        printf("BTX: Device discoverable as 'RP6502 RIA W'\n");
     }
+    return true;
 }
 
 void btx_disconnect_all(void)

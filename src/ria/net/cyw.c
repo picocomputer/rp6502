@@ -163,11 +163,6 @@ void cyw_task(void)
             // This seems to block only once after cyw43_arch_init.
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
 
-            // Initialize BTStack memory system and run loop
-            // This must be done after cyw43_arch_init but before using any BTStack features
-            btstack_memory_init();
-            btstack_run_loop_init(btstack_run_loop_async_context_get_instance(cyw43_arch_async_context()));
-
             cyw_state = cyw_state_initialized;
         }
     }
