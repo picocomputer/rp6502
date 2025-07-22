@@ -14,6 +14,7 @@
  */
 
 void btx_task(void);
+void btx_reset(void);
 
 /* Utility
  */
