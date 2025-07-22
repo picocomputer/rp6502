@@ -201,9 +201,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t handle = hci_event_connection_complete_get_connection_handle(packet);
             printf("BTX: ACL connection established with %s, handle: 0x%04x\n", bd_addr_to_str(event_addr), handle);
 
-            // For gamepads, we need to start authentication/pairing immediately
-            printf("BTX: Starting authentication for gamepad connection...\n");
-            hci_send_cmd(&hci_authentication_requested, handle);
+            // Don't force authentication immediately - let the gamepad initiate the HID connection first
+            // Some gamepads prefer to establish HID connection before authentication
+            printf("BTX: Waiting for gamepad to initiate HID connection...\n");
         } else {
             printf("BTX: ACL connection failed with %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
         }
@@ -221,10 +221,14 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         status = hci_event_authentication_complete_get_status(packet);
         uint16_t handle = hci_event_authentication_complete_get_connection_handle(packet);
         if (status == 0) {
-            printf("BTX: Authentication successful for handle: 0x%04x\n", handle);
+            printf("BTX: *** AUTHENTICATION SUCCESSFUL *** for handle: 0x%04x\n", handle);
             printf("BTX: Gamepad should now be ready for HID connection\n");
+
+            // After successful authentication, we should be ready to accept HID connections
+            // The gamepad will now try to connect to our HID service
         } else {
             printf("BTX: Authentication failed for handle: 0x%04x, status: 0x%02x\n", handle, status);
+            printf("BTX: This may prevent HID connection establishment\n");
         }
         break;
 
@@ -259,11 +263,11 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             uint16_t hid_cid = hid_subevent_incoming_connection_get_hid_cid(packet);
             hid_subevent_incoming_connection_get_address(packet, event_addr);
-            printf("BTX: Incoming HID connection from %s\n", bd_addr_to_str(event_addr));
+            printf("BTX: *** INCOMING HID CONNECTION *** from %s, CID: 0x%04x\n", bd_addr_to_str(event_addr), hid_cid);
 
             // Always accept incoming HID connections when discoverable (BTStack pattern)
             hid_host_accept_connection(hid_cid, HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT);
-            printf("BTX: Accepting incoming HID connection\n");
+            printf("BTX: Accepting incoming HID connection with report protocol mode\n");
         }
         break;
 
@@ -279,6 +283,8 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
             hid_subevent_connection_opened_get_bd_addr(packet, event_addr);
 
+            printf("BTX: HID_SUBEVENT_CONNECTION_OPENED - CID: 0x%04x, Address: %s\n", hid_cid, bd_addr_to_str(event_addr));
+
             // Find an empty slot
             for (int i = 0; i < PAD_MAX_PLAYERS; i++)
             {
@@ -288,12 +294,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                     btx_connections[i].hid_cid = hid_cid;
                     memcpy(btx_connections[i].remote_addr, event_addr, BD_ADDR_LEN);
 
-                    // We'll wait for HID_SUBEVENT_DESCRIPTOR_AVAILABLE before mounting the gamepad
                     printf("BTX: HID Host connected to gamepad at slot %d, CID: 0x%04x\n", i, hid_cid);
-                    printf("BTX: Waiting for HID descriptor before mounting gamepad...\n");
+                    printf("BTX: Waiting for HID descriptor to be automatically retrieved...\n");
 
-                    // Note: Keep discoverable for multiple device connections
-                    // Don't disable discoverability automatically like the old code did
                     printf("BTX: Connection opened successfully! Remaining discoverable for additional devices.\n");
                     break;
                 }
@@ -312,6 +315,18 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             {
                 if (btx_connections[i].active && btx_connections[i].hid_cid == hid_cid)
                 {
+                    // Debug: Print first report from each gamepad
+                    static bool first_report[PAD_MAX_PLAYERS] = {false};
+                    if (!first_report[i]) {
+                        first_report[i] = true;
+                        printf("BTX: First HID report from slot %d (CID: 0x%04x), length: %d bytes\n", i, hid_cid, report_len);
+                        printf("BTX: Report data: ");
+                        for (int j = 0; j < (report_len < 16 ? report_len : 16); j++) {
+                            printf("%02x ", report[j]);
+                        }
+                        printf("\n");
+                    }
+
                     // Process HID report and send to gamepad system
                     pad_report(btx_slot_to_pad_idx(i), report, report_len);
                     break;
@@ -325,6 +340,8 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t hid_cid = hid_subevent_descriptor_available_get_hid_cid(packet);
             status = hid_subevent_descriptor_available_get_status(packet);
 
+            printf("BTX: HID_SUBEVENT_DESCRIPTOR_AVAILABLE - CID: 0x%04x, Status: 0x%02x\n", hid_cid, status);
+
             // Find the connection for this HID CID
             for (int i = 0; i < PAD_MAX_PLAYERS; i++)
             {
@@ -336,6 +353,15 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                         uint16_t descriptor_len = hid_descriptor_storage_get_descriptor_len(hid_cid);
 
                         printf("BTX: HID descriptor available for gamepad at slot %d, length: %d bytes\n", i, descriptor_len);
+
+                        // Print first few bytes of descriptor for debugging
+                        if (descriptor && descriptor_len > 0) {
+                            printf("BTX: Descriptor data (first 16 bytes): ");
+                            for (int j = 0; j < (descriptor_len < 16 ? descriptor_len : 16); j++) {
+                                printf("%02x ", descriptor[j]);
+                            }
+                            printf("\n");
+                        }
 
                         // Now that we have the descriptor, mount the gamepad with it
                         bool mounted = pad_mount(btx_slot_to_pad_idx(i), descriptor, descriptor_len, 0, 0, 0);
@@ -442,7 +468,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     default:
         // Log all unhandled events to help debug gamepad pairing issues
         // Skip common flow control events but log inquiry-related ones
-        if (event_type != 0x6e) { // HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS
+        if (event_type != 0x6e && event_type != 0x13) { // Skip HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS and HCI_EVENT_NUMBER_OF_COMPLETED_DATA_BLOCKS
             printf("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
             // Also print the first few bytes for debugging
             printf("BTX: Event data: ");
@@ -461,8 +487,8 @@ static void btx_init_stack(void)
         return;
 
     // BTstack packet logging
-    hci_dump_init(hci_dump_embedded_stdout_get_instance());
-    hci_dump_enable_packet_log(true);
+    // hci_dump_init(hci_dump_embedded_stdout_get_instance());
+    // hci_dump_enable_packet_log(true);
 
     // Clear connection array
     memset(btx_connections, 0, sizeof(btx_connections));
@@ -487,62 +513,6 @@ static void btx_init_stack(void)
     hci_event_callback_registration.callback = &btx_packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
     printf("BTX: HCI event handler registered\n");
-
-    // Create an SDP record that advertises HID service to attract gamepads
-    // This makes us look like a device that accepts HID connections (like a PC or console)
-    static uint8_t hid_host_sdp_service_buffer[150];
-    uint32_t hid_host_service_record_handle = sdp_create_service_record_handle();
-
-    de_create_sequence(hid_host_sdp_service_buffer);
-
-    // 0x0000 "Service Record Handle"
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_SERVICE_RECORD_HANDLE);
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_32, hid_host_service_record_handle);
-
-    // 0x0001 "Service Class ID List" - Advertise HID service to attract gamepads
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_SERVICE_CLASS_ID_LIST);
-    uint8_t *attribute = de_push_sequence(hid_host_sdp_service_buffer);
-    {
-        // Advertise as HID service - this is what gamepads look for
-        de_add_number(attribute, DE_UUID, DE_SIZE_16, BLUETOOTH_SERVICE_CLASS_HUMAN_INTERFACE_DEVICE_SERVICE);
-    }
-    de_pop_sequence(hid_host_sdp_service_buffer, attribute);
-
-    // 0x0004 "Protocol Descriptor List" - L2CAP and HID protocols
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_PROTOCOL_DESCRIPTOR_LIST);
-    attribute = de_push_sequence(hid_host_sdp_service_buffer);
-    {
-        uint8_t* l2cap_service = de_push_sequence(attribute);
-        {
-            de_add_number(l2cap_service, DE_UUID, DE_SIZE_16, BLUETOOTH_PROTOCOL_L2CAP);
-            de_add_number(l2cap_service, DE_UINT, DE_SIZE_16, PSM_HID_CONTROL);
-        }
-        de_pop_sequence(attribute, l2cap_service);
-
-        uint8_t* hid_service = de_push_sequence(attribute);
-        {
-            de_add_number(hid_service, DE_UUID, DE_SIZE_16, BLUETOOTH_PROTOCOL_HIDP);
-        }
-        de_pop_sequence(attribute, hid_service);
-    }
-    de_pop_sequence(hid_host_sdp_service_buffer, attribute);
-
-    // 0x0005 "Public Browse Group"
-    de_add_number(hid_host_sdp_service_buffer, DE_UINT, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_BROWSE_GROUP_LIST);
-    attribute = de_push_sequence(hid_host_sdp_service_buffer);
-    {
-        de_add_number(attribute, DE_UUID, DE_SIZE_16, BLUETOOTH_ATTRIBUTE_PUBLIC_BROWSE_ROOT);
-    }
-    de_pop_sequence(hid_host_sdp_service_buffer, attribute);    // Register the HID service SDP record
-    uint8_t sdp_result = sdp_register_service(hid_host_sdp_service_buffer);
-    if (sdp_result == 0)
-    {
-        printf("BTX: HID service SDP record registered successfully\n");
-    }
-    else
-    {
-        printf("BTX: Failed to register HID service SDP record, error: 0x%02x\n", sdp_result);
-    }
 
     // Configure GAP for HID Host following BTStack example patterns
     // Set default link policy to allow sniff mode and role switching (from BTStack examples)
