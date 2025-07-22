@@ -226,6 +226,10 @@ static const char __in_flash("helptext") hlp_text_set_ssid[] =
 static const char __in_flash("helptext") hlp_text_set_pass[] =
     "This is the password for your WiFi network. Use \"-\" to clear password.";
 
+static const char __in_flash("helptext") hlp_text_set_bt[] =
+    "Start Bluetooth gamepad pairing mode. Put your gamepad in pairing mode\n"
+    "and run this command to allow it to connect to the RP6502.";
+
 #endif
 
 static struct
@@ -284,6 +288,7 @@ static struct
     {4, "rfcc", hlp_text_set_rfcc},
     {4, "ssid", hlp_text_set_ssid},
     {4, "pass", hlp_text_set_pass},
+    {2, "bt", hlp_text_set_bt},
 #endif
 };
 static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;

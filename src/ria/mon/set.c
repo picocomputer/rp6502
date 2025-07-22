@@ -8,6 +8,9 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
+#ifdef RP6502_RIA_W
+#include "net/btx.h"
+#endif
 
 static void set_print_phi2(void)
 {
@@ -252,6 +255,20 @@ static void set_time_zone(const char *args, size_t len)
     set_print_time_zone();
 }
 
+#ifdef RP6502_RIA_W
+static void set_bt(const char *args, size_t len)
+{
+    if (!parse_end(args, len))
+    {
+        printf("?invalid argument\n");
+        return;
+    }
+
+    printf("Starting Bluetooth gamepad pairing...\n");
+    btx_start_pairing();
+}
+#endif
+
 typedef void (*set_function)(const char *, size_t);
 static struct
 {
@@ -269,6 +286,7 @@ static struct
     {4, "rfcc", set_rfcc},
     {4, "ssid", set_ssid},
     {4, "pass", set_pass},
+    {2, "bt", set_bt},
 #endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
