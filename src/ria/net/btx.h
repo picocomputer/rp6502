@@ -25,6 +25,4 @@ void btx_disconnect_all(void); // called before cyw radio is turned off
 
 void btx_print_status(void);
 
-void btx_toggle_ssp(void); // toggle Secure Simple Pairing mode for compatibility testing
-
 #endif /* _BTX_H_ */
