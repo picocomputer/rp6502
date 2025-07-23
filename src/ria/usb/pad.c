@@ -353,6 +353,8 @@ bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
         DBG("pad_mount: No available descriptor slots, max players reached\n");
         return false;
     }
+    DBG("pad_mount: mounting player %d\n", player);
+
     des_report_descriptor(gamepad, desc_report, desc_len,
                           dev_addr, vendor_id, product_id);
     if (gamepad->valid)
