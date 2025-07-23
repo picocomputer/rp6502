@@ -102,7 +102,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     switch (event_type)
     {
     case BTSTACK_EVENT_STATE:
-    {
         uint8_t state = btstack_event_state_get_state(packet);
         DBG("BTX: BTSTACK_EVENT_STATE: %d\n", state);
         if (state == HCI_STATE_WORKING)
@@ -119,8 +118,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             DBG("BTX: Bluetooth stack state: %d (not working yet)\n", state);
         }
-    }
-    break;
+        break;
 
     case HCI_EVENT_PIN_CODE_REQUEST:
         hci_event_pin_code_request_get_bd_addr(packet, event_addr);
@@ -139,7 +137,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     case HCI_EVENT_IO_CAPABILITY_REQUEST:
         hci_event_io_capability_request_get_bd_addr(packet, event_addr);
-        DBG("BTX: *** IO CAPABILITY REQUEST *** from %s\n", bd_addr_to_str(event_addr));
 
         // Check if we have stored device capabilities from a previous IO Capability Response
         int conn_slot = find_connection_by_addr(event_addr);
@@ -180,9 +177,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         break;
     }
 
-    case HCI_EVENT_INQUIRY_COMPLETE:
-        DBG("BTX: Inquiry complete\n");
-        break;
+        // case HCI_EVENT_INQUIRY_COMPLETE:
+        //     DBG("BTX: Inquiry complete\n");
+        //     break;
 
     case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
     {
@@ -195,67 +192,12 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         DBG("BTX: Inquiry result with RSSI from %s, CoD: 0x%06lx, RSSI: %d dBm\n",
             bd_addr_to_str(addr), (unsigned long)cod, rssi);
 
-        // Check if this looks like a gamepad
-        uint8_t major_class = (cod >> 8) & 0x1F;
-        uint8_t minor_class = (cod >> 2) & 0x3F;
-
-        // Decode Class of Device for better understanding
-        const char *major_desc = "Unknown";
-        switch (major_class)
-        {
-        case 0x00:
-            major_desc = "Miscellaneous";
-            break;
-        case 0x01:
-            major_desc = "Computer";
-            break;
-        case 0x02:
-            major_desc = "Phone";
-            break;
-        case 0x03:
-            major_desc = "LAN/Network";
-            break;
-        case 0x04:
-            major_desc = "Audio/Video";
-            break;
-        case 0x05:
-            major_desc = "Peripheral";
-            break;
-        case 0x06:
-            major_desc = "Imaging";
-            break;
-        case 0x07:
-            major_desc = "Wearable";
-            break;
-        case 0x08:
-            major_desc = "Toy";
-            break;
-        case 0x09:
-            major_desc = "Health";
-            break;
-        case 0x1F:
-            major_desc = "Uncategorized";
-            break;
-        }
-
-        DBG("BTX: Device analysis (RSSI) - Major: 0x%02x (%s), Minor: 0x%02x\n", major_class, major_desc, minor_class);
-
-        // Check for HID service bit (bit 13 in CoD)
-        bool has_hid_service = (cod & (1 << 13)) != 0;
-        DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
-
-        // Don't try to guess what's a gamepad from Class of Device
-        // Just connect to everything and let pad_mount() determine if it's actually a gamepad
-        DBG("BTX: Found device %s (CoD: 0x%06lx) via RSSI inquiry - attempting connection\n", bd_addr_to_str(addr), (unsigned long)cod);
-        DBG("BTX: Will determine if it's a gamepad after HID connection is established\n");
-
         // Try to connect to this device
         hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
     }
 
     case 0x2F: // HCI_EVENT_EXTENDED_INQUIRY_RESULT
-    {
         bd_addr_t addr;
         // For extended inquiry result, the BD_ADDR is at offset 3-8
         memcpy(addr, packet + 3, BD_ADDR_LEN);
@@ -269,7 +211,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         bool has_hid_service = (cod & (1 << 13)) != 0;
         DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
-
         // Don't try to guess what's a gamepad from Class of Device
         // Just connect to everything and let pad_mount() determine if it's actually a gamepad
         DBG("BTX: Found device %s (CoD: 0x%06lx) via extended inquiry - attempting connection\n", bd_addr_to_str(addr), (unsigned long)cod);
@@ -278,49 +219,48 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         // Try to connect to this device
         hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
-    }
 
-    case HCI_EVENT_REMOTE_NAME_REQUEST_COMPLETE:
-        status = hci_event_remote_name_request_complete_get_status(packet);
-        hci_event_remote_name_request_complete_get_bd_addr(packet, event_addr);
-        if (status == 0)
-        {
-            char name_buffer[248];
-            const char *remote_name = (const char *)hci_event_remote_name_request_complete_get_remote_name(packet);
-            int name_len = strlen(remote_name);
-            if (name_len > 247)
-                name_len = 247;
-            memcpy(name_buffer, remote_name, name_len);
-            name_buffer[name_len] = 0;
-            DBG("BTX: Remote name for %s: '%s'\n", bd_addr_to_str(event_addr), name_buffer);
+        // case HCI_EVENT_REMOTE_NAME_REQUEST_COMPLETE:
+        //     status = hci_event_remote_name_request_complete_get_status(packet);
+        //     hci_event_remote_name_request_complete_get_bd_addr(packet, event_addr);
+        //     if (status == 0)
+        //     {
+        //         char name_buffer[248];
+        //         const char *remote_name = (const char *)hci_event_remote_name_request_complete_get_remote_name(packet);
+        //         int name_len = strlen(remote_name);
+        //         if (name_len > 247)
+        //             name_len = 247;
+        //         memcpy(name_buffer, remote_name, name_len);
+        //         name_buffer[name_len] = 0;
+        //         DBG("BTX: Remote name for %s: '%s'\n", bd_addr_to_str(event_addr), name_buffer);
 
-            // Check if this is an Xbox controller - they need special handling
-            bool is_xbox_controller = (strstr(name_buffer, "Xbox") != NULL) ||
-                                      (strstr(name_buffer, "XBOX") != NULL);
+        //         // Check if this is an Xbox controller - they need special handling
+        //         bool is_xbox_controller = (strstr(name_buffer, "Xbox") != NULL) ||
+        //                                   (strstr(name_buffer, "XBOX") != NULL);
 
-            if (is_xbox_controller)
-            {
-                DBG("BTX: *** XBOX CONTROLLER DETECTED *** - using optimized pairing approach\n");
-                DBG("BTX: Xbox controllers often disconnect quickly if authentication isn't handled properly\n");
+        //         if (is_xbox_controller)
+        //         {
+        //             DBG("BTX: *** XBOX CONTROLLER DETECTED *** - using optimized pairing approach\n");
+        //             DBG("BTX: Xbox controllers often disconnect quickly if authentication isn't handled properly\n");
 
-                // Find the connection for this device and trigger authentication immediately
-                int slot = find_connection_by_addr(event_addr);
-                if (slot >= 0)
-                {
-                    DBG("BTX: Triggering immediate authentication for Xbox controller at slot %d\n", slot);
-                    hci_send_cmd(&hci_authentication_requested, btx_connections[slot].acl_handle);
-                }
-                else
-                {
-                    DBG("BTX: Could not find connection slot for Xbox controller\n");
-                }
-            }
-        }
-        else
-        {
-            DBG("BTX: Remote name request failed for %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
-        }
-        break;
+        //             // Find the connection for this device and trigger authentication immediately
+        //             int slot = find_connection_by_addr(event_addr);
+        //             if (slot >= 0)
+        //             {
+        //                 DBG("BTX: Triggering immediate authentication for Xbox controller at slot %d\n", slot);
+        //                 hci_send_cmd(&hci_authentication_requested, btx_connections[slot].acl_handle);
+        //             }
+        //             else
+        //             {
+        //                 DBG("BTX: Could not find connection slot for Xbox controller\n");
+        //             }
+        //         }
+        //     }
+        //     else
+        //     {
+        //         DBG("BTX: Remote name request failed for %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
+        //     }
+        //     break;
 
     case HCI_EVENT_CONNECTION_REQUEST:
         hci_event_connection_request_get_bd_addr(packet, event_addr);
@@ -329,26 +269,19 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
         // Decode the incoming device's Class of Device
         uint8_t major_class = (class_of_device >> 8) & 0x1F;
-        uint8_t minor_class = (class_of_device >> 2) & 0x3F;
-
-        bool has_hid_service = (class_of_device & (1 << 13)) != 0;
-        DBG("BTX: Incoming device - Major: 0x%02x, Minor: 0x%02x, HID service: %s\n",
-            major_class, minor_class, has_hid_service ? "Yes" : "No");
-
-        // Debug mode: Accept all incoming connections
-        // Only accept connections from devices that likely have gamepads
-        if (!has_hid_service && major_class != 0x05)
+        // uint8_t minor_class = (class_of_device >> 2) & 0x3F;
         {
-            if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
+            bool has_hid_service = (class_of_device & (1 << 13)) != 0;
+            if (!has_hid_service && major_class != 0x05)
             {
-                // DBG("BTX: Rejecting connection - device does not advertise HID service and is not a likely gamepad\n");
-                // hci_send_cmd(&hci_reject_connection_request, event_addr, ERROR_CODE_CONNECTION_REJECTED_DUE_TO_LIMITED_RESOURCES);
-                break;
+                if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
+                {
+                    // DBG("BTX: Rejecting connection - device does not advertise HID service and is not a likely gamepad\n");
+                    // hci_send_cmd(&hci_reject_connection_request, event_addr, ERROR_CODE_CONNECTION_REJECTED_DUE_TO_LIMITED_RESOURCES);
+                    break;
+                }
             }
         }
-
-        // Accept connection requests from devices that could be gamepads
-        // Let pad_mount() determine later if it's actually a gamepad
         DBG("BTX: Accepting connection from potential gamepad device\n");
         // HCI_ROLE_MASTER or HCI_ROLE_SLAVE
         hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
@@ -392,8 +325,8 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 DBG("BTX: Device: %s, Handle: 0x%04x\n", bd_addr_to_str(event_addr), handle);
 
                 // Request remote name to help identify the device
-                DBG("BTX: Requesting remote name for device identification...\n");
-                hci_send_cmd(&hci_remote_name_request, event_addr, 0x01, 0x00, 0x00);
+                // DBG("BTX: Requesting remote name for device identification...\n");
+                // hci_send_cmd(&hci_remote_name_request, event_addr, 0x01, 0x00, 0x00);
 
                 // Some gamepads need us to initiate authentication explicitly
                 // Wait a bit first to let the connection stabilize
@@ -893,6 +826,7 @@ void btx_task(void)
                 DBG("BTX: Attempting to trigger authentication manually (one time only)...\n");
 
                 // Try to trigger authentication manually - but only once
+                // this is needed by ds4
                 hci_send_cmd(&hci_authentication_requested, btx_connections[i].acl_handle);
                 auth_attempted[i] = true;
             }
