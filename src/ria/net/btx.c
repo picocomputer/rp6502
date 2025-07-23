@@ -43,7 +43,6 @@ typedef struct
     uint16_t acl_handle;             // ACL connection handle
     bool authenticated;              // Whether authentication is complete
     bool hid_attempted;              // Whether we've already attempted HID connection
-    uint32_t hid_attempt_time;       // When we attempted HID connection (for timeout)
     bool descriptor_requested;       // Whether we've requested a HID descriptor
     bool mounted_without_descriptor; // Whether we successfully mounted without descriptor
 
@@ -57,9 +56,6 @@ typedef struct
 static btx_connection_t btx_connections[PAD_MAX_PLAYERS];
 static bool btx_initialized = false;
 static bool btx_pairing_mode = false;
-
-// Debug mode: Accept all incoming connections (for troubleshooting 8BitDo issues)
-static bool btx_accept_all_incoming = false;
 
 // BTStack state - Classic HID Host
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -179,92 +175,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         bd_addr_t addr;
         hci_event_inquiry_result_get_bd_addr(packet, addr);
         uint32_t cod = hci_event_inquiry_result_get_class_of_device(packet);
-
-        // DBG("BTX: Inquiry result from %s, CoD: 0x%06lx\n", bd_addr_to_str(addr), (unsigned long)cod);
-
-        // // Check if this looks like a gamepad
-        // // Major device class 0x05 = Peripheral, Minor class bits for joystick/gamepad
-        // uint8_t major_class = (cod >> 8) & 0x1F;
-        // uint8_t minor_class = (cod >> 2) & 0x3F;
-
-        // // Decode Class of Device for better understanding
-        // const char *major_desc = "Unknown";
-        // switch (major_class)
-        // {
-        // case 0x00:
-        //     major_desc = "Miscellaneous";
-        //     break;
-        // case 0x01:
-        //     major_desc = "Computer";
-        //     break;
-        // case 0x02:
-        //     major_desc = "Phone";
-        //     break;
-        // case 0x03:
-        //     major_desc = "LAN/Network";
-        //     break;
-        // case 0x04:
-        //     major_desc = "Audio/Video";
-        //     break;
-        // case 0x05:
-        //     major_desc = "Peripheral";
-        //     break;
-        // case 0x06:
-        //     major_desc = "Imaging";
-        //     break;
-        // case 0x07:
-        //     major_desc = "Wearable";
-        //     break;
-        // case 0x08:
-        //     major_desc = "Toy";
-        //     break;
-        // case 0x09:
-        //     major_desc = "Health";
-        //     break;
-        // case 0x1F:
-        //     major_desc = "Uncategorized";
-        //     break;
-        // }
-
-        // DBG("BTX: Device analysis - Major: 0x%02x (%s), Minor: 0x%02x\n", major_class, major_desc, minor_class);
-
-        // // Check for HID service bit (bit 13 in CoD)
-        // bool has_hid_service = (cod & (1 << 13)) != 0;
-        // DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
-
-        // // Debug mode: Accept all devices during inquiry
-        // if (btx_accept_all_incoming)
-        // {
-        //     DBG("BTX: DEBUG MODE: Accepting device %s regardless of classification\n", bd_addr_to_str(addr));
-        // }
-        // else
-        // {
-        //     // Only attempt connection to devices that advertise HID service or are likely gamepads
-        //     if (!has_hid_service && major_class != 0x05)
-        //     {
-        //         // Special case: Some gamepads might be classified as "Toy" or "Miscellaneous"
-        //         // Also allow Audio/Video devices as some gamepads incorrectly classify themselves
-        //         if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
-        //         {
-        //             DBG("BTX: Device %s does not advertise HID service and is not a likely gamepad device\n", bd_addr_to_str(addr));
-        //             DBG("BTX: Major class 0x%02x (%s) - skipping connection\n", major_class, major_desc);
-        //             DBG("BTX: Continuing inquiry for actual gamepad devices...\n");
-        //             break;
-        //         }
-        //         else
-        //         {
-        //             DBG("BTX: Device %s might be a gamepad despite Class of Device classification\n", bd_addr_to_str(addr));
-        //             DBG("BTX: Major class 0x%02x (%s) - attempting connection anyway\n", major_class, major_desc);
-        //         }
-        //     }
-        // }
-
-        // // Don't try to guess what's a gamepad from Class of Device
-        // // Just connect to everything and let pad_mount() determine if it's actually a gamepad
         DBG("BTX: Found device %s (CoD: 0x%06lx) - attempting connection\n", bd_addr_to_str(addr), (unsigned long)cod);
-        DBG("BTX: Will determine if it's a gamepad after HID connection is established\n");
-
-        // Try to connect to this device
         hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
     }
@@ -273,7 +184,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         DBG("BTX: Inquiry complete\n");
         break;
 
-    case 0x22: // HCI_EVENT_INQUIRY_RESULT_WITH_RSSI
+    case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
     {
         bd_addr_t addr;
         // For inquiry result with RSSI, BD_ADDR is at offset 3-8, similar to basic inquiry
@@ -333,33 +244,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         bool has_hid_service = (cod & (1 << 13)) != 0;
         DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
-        // Debug mode: Accept all devices during inquiry
-        if (btx_accept_all_incoming)
-        {
-            DBG("BTX: DEBUG MODE: Accepting device %s regardless of classification\n", bd_addr_to_str(addr));
-        }
-        else
-        {
-            // Only attempt connection to devices that advertise HID service or are likely gamepads
-            if (!has_hid_service && major_class != 0x05)
-            {
-                // Special case: Some gamepads might be classified as "Toy" or "Miscellaneous"
-                // Also allow Audio/Video devices as some gamepads incorrectly classify themselves
-                if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
-                {
-                    DBG("BTX: Device %s does not advertise HID service and is not a likely gamepad device\n", bd_addr_to_str(addr));
-                    DBG("BTX: Major class 0x%02x (%s) - skipping connection\n", major_class, major_desc);
-                    DBG("BTX: Continuing inquiry for actual gamepad devices...\n");
-                    break;
-                }
-                else
-                {
-                    DBG("BTX: Device %s might be a gamepad despite Class of Device classification\n", bd_addr_to_str(addr));
-                    DBG("BTX: Major class 0x%02x (%s) - attempting connection anyway\n", major_class, major_desc);
-                }
-            }
-        }
-
         // Don't try to guess what's a gamepad from Class of Device
         // Just connect to everything and let pad_mount() determine if it's actually a gamepad
         DBG("BTX: Found device %s (CoD: 0x%06lx) via RSSI inquiry - attempting connection\n", bd_addr_to_str(addr), (unsigned long)cod);
@@ -381,81 +265,10 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         DBG("BTX: Extended inquiry result from %s, CoD: 0x%06lx, RSSI: %d dBm\n",
             bd_addr_to_str(addr), (unsigned long)cod, (int8_t)rssi);
 
-        // Check if this looks like a gamepad
-        uint8_t major_class = (cod >> 8) & 0x1F;
-        uint8_t minor_class = (cod >> 2) & 0x3F;
-
-        // Decode Class of Device for better understanding
-        const char *major_desc = "Unknown";
-        switch (major_class)
-        {
-        case 0x00:
-            major_desc = "Miscellaneous";
-            break;
-        case 0x01:
-            major_desc = "Computer";
-            break;
-        case 0x02:
-            major_desc = "Phone";
-            break;
-        case 0x03:
-            major_desc = "LAN/Network";
-            break;
-        case 0x04:
-            major_desc = "Audio/Video";
-            break;
-        case 0x05:
-            major_desc = "Peripheral";
-            break;
-        case 0x06:
-            major_desc = "Imaging";
-            break;
-        case 0x07:
-            major_desc = "Wearable";
-            break;
-        case 0x08:
-            major_desc = "Toy";
-            break;
-        case 0x09:
-            major_desc = "Health";
-            break;
-        case 0x1F:
-            major_desc = "Uncategorized";
-            break;
-        }
-
-        DBG("BTX: Extended device analysis - Major: 0x%02x (%s), Minor: 0x%02x\n", major_class, major_desc, minor_class);
-
         // Check for HID service bit (bit 13 in CoD)
         bool has_hid_service = (cod & (1 << 13)) != 0;
         DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
-        // Debug mode: Accept all devices during inquiry
-        if (btx_accept_all_incoming)
-        {
-            DBG("BTX: DEBUG MODE: Accepting device %s regardless of classification\n", bd_addr_to_str(addr));
-        }
-        else
-        {
-            // Only attempt connection to devices that advertise HID service or are likely gamepads
-            if (!has_hid_service && major_class != 0x05)
-            {
-                // Special case: Some gamepads might be classified as "Toy" or "Miscellaneous"
-                // Also allow Audio/Video devices as some gamepads incorrectly classify themselves
-                if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
-                {
-                    DBG("BTX: Device %s does not advertise HID service and is not a likely gamepad device\n", bd_addr_to_str(addr));
-                    DBG("BTX: Major class 0x%02x (%s) - skipping connection\n", major_class, major_desc);
-                    DBG("BTX: Continuing inquiry for actual gamepad devices...\n");
-                    break;
-                }
-                else
-                {
-                    DBG("BTX: Device %s might be a gamepad despite Class of Device classification\n", bd_addr_to_str(addr));
-                    DBG("BTX: Major class 0x%02x (%s) - attempting connection anyway\n", major_class, major_desc);
-                }
-            }
-        }
 
         // Don't try to guess what's a gamepad from Class of Device
         // Just connect to everything and let pad_mount() determine if it's actually a gamepad
@@ -512,96 +325,33 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     case HCI_EVENT_CONNECTION_REQUEST:
         hci_event_connection_request_get_bd_addr(packet, event_addr);
         uint32_t class_of_device = hci_event_connection_request_get_class_of_device(packet);
-        DBG("BTX: *** INCOMING CONNECTION REQUEST! ***\n");
         DBG("BTX: Connection request from %s, CoD: 0x%06lx\n", bd_addr_to_str(event_addr), (unsigned long)class_of_device);
 
         // Decode the incoming device's Class of Device
         uint8_t major_class = (class_of_device >> 8) & 0x1F;
         uint8_t minor_class = (class_of_device >> 2) & 0x3F;
-        const char *major_desc = "Unknown";
-        switch (major_class)
-        {
-        case 0x00:
-            major_desc = "Miscellaneous";
-            break;
-        case 0x01:
-            major_desc = "Computer";
-            break;
-        case 0x02:
-            major_desc = "Phone";
-            break;
-        case 0x03:
-            major_desc = "LAN/Network";
-            break;
-        case 0x04:
-            major_desc = "Audio/Video";
-            break;
-        case 0x05:
-            major_desc = "Peripheral";
-            break;
-        case 0x06:
-            major_desc = "Imaging";
-            break;
-        case 0x07:
-            major_desc = "Wearable";
-            break;
-        case 0x08:
-            major_desc = "Toy";
-            break;
-        case 0x09:
-            major_desc = "Health";
-            break;
-        case 0x1F:
-            major_desc = "Uncategorized";
-            break;
-        }
 
         bool has_hid_service = (class_of_device & (1 << 13)) != 0;
-        DBG("BTX: Incoming device - Major: 0x%02x (%s), Minor: 0x%02x, HID service: %s\n",
-            major_class, major_desc, minor_class, has_hid_service ? "Yes" : "No");
+        DBG("BTX: Incoming device - Major: 0x%02x, Minor: 0x%02x, HID service: %s\n",
+            major_class, minor_class, has_hid_service ? "Yes" : "No");
 
         // Debug mode: Accept all incoming connections
-        if (btx_accept_all_incoming)
+        // Only accept connections from devices that likely have gamepads
+        if (!has_hid_service && major_class != 0x05)
         {
-            DBG("BTX: DEBUG MODE: Accepting ALL incoming connections (btx_accept_all_incoming=true)\n");
-            DBG("BTX: This helps identify 8BitDo or other problematic gamepad classifications\n");
-        }
-        else
-        {
-            // Only accept connections from devices that likely have gamepads
-            if (!has_hid_service && major_class != 0x05)
+            if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
             {
-                // Special case: Some gamepads might be classified as "Toy" or "Miscellaneous"
-                // Also allow Audio/Video devices as some gamepads incorrectly classify themselves
-                if (major_class != 0x08 && major_class != 0x00 && major_class != 0x04)
-                {
-                    DBG("BTX: Rejecting connection - device does not advertise HID service and is not a likely gamepad\n");
-                    DBG("BTX: Major class 0x%02x (%s) appears to be a computer/phone, not a gamepad\n", major_class, major_desc);
-
-                    // For debugging: Let's see if we're rejecting 8BitDo gamepads by mistake
-                    DBG("BTX: If this was an 8BitDo or similar gamepad, it may have wrong classification\n");
-                    DBG("BTX: Consider temporarily accepting all incoming connections for testing\n");
-
-                    hci_send_cmd(&hci_reject_connection_request, event_addr, ERROR_CODE_CONNECTION_REJECTED_DUE_TO_LIMITED_RESOURCES);
-                    break;
-                }
-                else
-                {
-                    DBG("BTX: Device might be a gamepad despite Class of Device - accepting connection\n");
-                    DBG("BTX: Major class 0x%02x (%s) could be a gamepad\n", major_class, major_desc);
-                }
-            }
-            else
-            {
-                DBG("BTX: Device has proper HID service or Peripheral classification - accepting\n");
+                // DBG("BTX: Rejecting connection - device does not advertise HID service and is not a likely gamepad\n");
+                // hci_send_cmd(&hci_reject_connection_request, event_addr, ERROR_CODE_CONNECTION_REJECTED_DUE_TO_LIMITED_RESOURCES);
+                break;
             }
         }
 
         // Accept connection requests from devices that could be gamepads
         // Let pad_mount() determine later if it's actually a gamepad
         DBG("BTX: Accepting connection from potential gamepad device\n");
-        hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_SLAVE);
-        DBG("BTX: Accepting connection as slave device\n");
+        // HCI_ROLE_MASTER or HCI_ROLE_SLAVE
+        hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
         break;
 
     case HCI_EVENT_CONNECTION_COMPLETE: // TODO this should be HID_SUBEVENT_INCOMING_CONNECTION
@@ -631,7 +381,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 btx_connections[slot].authenticated = false;
                 btx_connections[slot].hid_attempted = false;
                 btx_connections[slot].hid_cid = 0;
-                btx_connections[slot].hid_attempt_time = 0;
 
                 // Initialize device capability tracking
                 btx_connections[slot].capability_known = false;
@@ -658,50 +407,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             {
                 DBG("BTX: No free slots to track connection - this may cause issues\n");
             }
-
-            // Don't attempt HID connection immediately - wait for authentication to complete
-            DBG("BTX: Waiting for authentication to complete before attempting HID connection\n");
-            DBG("BTX: If device disconnects quickly, it may not like our connection parameters\n");
-        }
-        else
-        {
-            const char *conn_error = "Unknown connection error";
-            switch (status)
-            {
-            case 0x04:
-                conn_error = "Page Timeout";
-                break;
-            case 0x05:
-                conn_error = "Authentication Failure";
-                break;
-            case 0x08:
-                conn_error = "Connection Timeout";
-                break;
-            case 0x0E:
-                conn_error = "Connection Rejected - Limited Resources";
-                break;
-            case 0x0F:
-                conn_error = "Connection Rejected - Security Reasons";
-                break;
-            case 0x11:
-                conn_error = "Connection Accept Timeout Exceeded";
-                break;
-            case 0x16:
-                conn_error = "Connection Terminated by Local Host";
-                break;
-            }
-            DBG("BTX: ACL connection failed with %s, status: 0x%02x (%s)\n",
-                bd_addr_to_str(event_addr), status, conn_error);
-
-            // Provide troubleshooting advice based on error
-            if (status == 0x04)
-            {
-                DBG("BTX: Page Timeout - device may not be responding or is too far away\n");
-            }
-            else if (status == 0x0F)
-            {
-                DBG("BTX: Security rejection - device may require different security settings\n");
-            }
         }
         break;
 
@@ -723,87 +428,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             DBG("BTX: ACL disconnection complete, handle: 0x%04x, reason: 0x%02x, device: %s\n",
                 handle, reason, device_addr);
 
-            // Decode the disconnection reason for better debugging
-            const char *reason_desc = "Unknown reason";
-            switch (reason)
-            {
-            case 0x05:
-                reason_desc = "Authentication Failure";
-                break;
-            case 0x06:
-                reason_desc = "PIN or Key Missing";
-                break;
-            case 0x08:
-                reason_desc = "Connection Timeout";
-                break;
-            case 0x0E:
-                reason_desc = "Connection Rejected - Limited Resources";
-                break;
-            case 0x0F:
-                reason_desc = "Connection Rejected - Security Reasons";
-                break;
-            case 0x13:
-                reason_desc = "Connection Terminated - User Ended Connection";
-                break;
-            case 0x16:
-                reason_desc = "Connection Terminated by Local Host";
-                break;
-            case 0x22:
-                reason_desc = "LMP Response Timeout";
-                break;
-            case 0x28:
-                reason_desc = "Instant Passed";
-                break;
-            case 0x2A:
-                reason_desc = "Parameter Out of Mandatory Range";
-                break;
-            case 0x3D:
-                reason_desc = "Connection Rejected - No Suitable Channel Found";
-                break;
-            }
-            DBG("BTX: Disconnection reason: %s (0x%02x)\n", reason_desc, reason);
-
-            // Provide specific troubleshooting advice based on disconnection reason
-            if (reason == 0x05)
-            {
-                DBG("BTX: Authentication failure - device may need different pairing approach\n");
-                DBG("BTX: Try toggling SSP mode or check if device needs factory reset\n");
-            }
-            else if (reason == 0x08)
-            {
-                DBG("BTX: Connection timeout - device may not be responding properly\n");
-                DBG("BTX: Ensure device is in correct pairing mode and try again\n");
-            }
-            else if (reason == 0x13)
-            {
-                DBG("BTX: Device ended the connection - this is normal behavior\n");
-                DBG("BTX: Device may have finished what it needed to do\n");
-
-                // Special advice for Xbox controllers that disconnect with reason 0x13
-                if (slot >= 0)
-                {
-                    // Check if this was an Xbox controller by looking at any cached name info
-                    // Since we don't store the name, we'll give general Xbox advice
-                    DBG("BTX: If this was an Xbox controller, this is a common issue:\n");
-                    DBG("BTX:   1. Xbox controllers are very timing-sensitive during pairing\n");
-                    DBG("BTX:   2. They often disconnect if authentication doesn't start quickly enough\n");
-                    DBG("BTX:   3. Try putting the controller in pairing mode again immediately\n");
-                    DBG("BTX:   4. Some Xbox controllers require being connected to Windows first\n");
-                    DBG("BTX:   5. Try holding the Xbox button + pairing button for 6+ seconds to reset\n");
-                    DBG("BTX:   6. Modern Xbox controllers may need SSP instead of PIN pairing\n");
-                }
-            }
-            else if (reason == 0x22)
-            {
-                DBG("BTX: LMP Response Timeout - device may not support our link mode\n");
-                DBG("BTX: Try different link policy settings or SSP mode\n");
-            }
-            else if (reason == 0x0F)
-            {
-                DBG("BTX: Security rejection - device requires different security level\n");
-                DBG("BTX: Try enabling SSP or check authentication requirements\n");
-            }
-
             // Clean up connection tracking
             if (slot >= 0)
             {
@@ -818,7 +442,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 btx_connections[slot].hid_cid = 0;
                 btx_connections[slot].authenticated = false;
                 btx_connections[slot].hid_attempted = false;
-                btx_connections[slot].hid_attempt_time = 0;
 
                 // Clear device capability tracking
                 btx_connections[slot].capability_known = false;
@@ -1030,15 +653,11 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                         if (mounted)
                         {
                             DBG("BTX: *** GAMEPAD CONFIRMED! *** Mounted with fallback method at slot %d\n", i);
-                            DBG("BTX: This gamepad works without sending a HID descriptor\n");
                             btx_connections[i].mounted_without_descriptor = true;
                         }
                         else
                         {
                             DBG("BTX: Device at slot %d is NOT a gamepad - fallback pad_mount returned false\n", i);
-                            DBG("BTX: Disconnecting non-gamepad device\n");
-
-                            // Clean up the connection since it's not a gamepad
                             hid_host_disconnect(hid_cid);
                             btx_connections[i].active = false;
                         }
@@ -1223,26 +842,7 @@ static void btx_init_stack(void)
     gap_set_bondable_mode(1);
     DBG("BTX: Bondable mode enabled\n");
 
-    // // Make discoverable to allow HID devices to initiate connection (BTStack pattern)
-    // // This is ESSENTIAL for gamepad pairing - they need to find and connect to us
-    // gap_discoverable_control(1);
-    // gap_connectable_control(1);
-
-    // // Enable inquiry scan mode explicitly for better gamepad compatibility
-    // hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
-    // DBG("BTX: Enabled both inquiry and page scan modes\n");
-
-    // // Set inquiry scan parameters for better visibility
-    // // Make inquiry scan more frequent and longer window for better gamepad discovery
-    // hci_send_cmd(&hci_write_inquiry_scan_activity, 0x1000, 0x0800); // interval=0x1000, window=0x0800
-    // DBG("BTX: Enhanced inquiry scan parameters for better gamepad discovery\n");
-
     btx_initialized = true;
-
-    // Enable debug mode for 8BitDo troubleshooting
-    btx_accept_all_incoming = true;
-    DBG("BTX: DEBUG MODE ENABLED - Accepting all incoming connections\n");
-    DBG("BTX: This helps with 8BitDo and other gamepads that may have unusual classifications\n");
 
     // Start the Bluetooth stack - this should be last
     hci_power_control(HCI_POWER_ON);
@@ -1261,10 +861,10 @@ void btx_task(void)
         return;
     }
 
-    uint32_t now = to_ms_since_boot(get_absolute_time());
+    absolute_time_t now = get_absolute_time();
 
     // Static arrays to track connection timing and authentication attempts
-    static uint32_t connection_start_time[PAD_MAX_PLAYERS] = {0};
+    static absolute_time_t connection_start_time[PAD_MAX_PLAYERS] = {0};
     static bool auth_attempted[PAD_MAX_PLAYERS] = {false};
 
     // Check for connections that might need authentication help
@@ -1283,7 +883,7 @@ void btx_task(void)
             // and we haven't already tried manual authentication
             if (!btx_connections[i].authenticated &&
                 !auth_attempted[i] &&
-                (now - connection_start_time[i]) > 3000)
+                absolute_time_diff_us(connection_start_time[i], now) > 3000 * 1000)
             {
 
                 DBG("BTX: Connection at slot %d has been waiting for authentication for >3s\n", i);
@@ -1373,10 +973,6 @@ void btx_print_status(void)
         DBG("BTX: Bluetooth gamepad support not initialized\n");
         return;
     }
-
-    DBG("BTX: Bluetooth Classic HID gamepad support active\n");
-    DBG("BTX: Pairing mode: %s\n", btx_pairing_mode ? "ON" : "OFF");
-    DBG("BTX: Debug mode (accept all incoming): %s\n", btx_accept_all_incoming ? "ENABLED" : "DISABLED");
 
     int active_count = 0;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
