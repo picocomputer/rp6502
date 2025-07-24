@@ -37,14 +37,12 @@ static uint8_t btx_slot_to_pad_idx(int slot)
 // Connection tracking for Classic HID Host
 typedef struct
 {
-    bool active;
-    uint16_t hid_cid; // BTStack HID connection ID
+    absolute_time_t addr_valid_until;
     bd_addr_t remote_addr;
-    uint16_t acl_handle; // ACL connection handle
-    bool is_pairing;     // True if this connection was initiated during pairing/inquiry
+    uint16_t hid_cid; // HID connection ID, BTStack leaves 0 for unused
 } btx_connection_t;
 
-static btx_connection_t btx_connections[PAD_MAX_PLAYERS];
+static btx_connection_t btx_connections[MAX_NR_HCI_CONNECTIONS];
 static bool btx_initialized = false;
 
 // BTStack state - Classic HID Host
@@ -53,42 +51,37 @@ static btstack_packet_callback_registration_t hci_event_callback_registration;
 // Storage for HID descriptors - Classic only
 static uint8_t hid_descriptor_storage[500]; // HID descriptor storage
 
-static int find_connection_by_handle(uint16_t handle)
+static int find_connection_by_hid_cid(uint16_t hid_cid)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-    {
-        if (btx_connections[i].active && btx_connections[i].acl_handle == handle)
-        {
+    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
+        if (btx_connections[i].hid_cid == hid_cid)
             return i;
-        }
-    }
     return -1;
 }
 
 static int find_connection_by_addr(bd_addr_t addr)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-    {
-        if (btx_connections[i].active && memcmp(btx_connections[i].remote_addr, addr, BD_ADDR_LEN) == 0)
-        {
+    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
+        if (memcmp(btx_connections[i].remote_addr, addr, BD_ADDR_LEN) == 0 &&
+            absolute_time_diff_us(btx_connections[i].addr_valid_until,
+                                  get_absolute_time()) < 0)
             return i;
-        }
-    }
     return -1;
 }
 
-// Helper to create a connection entry with pairing flag
-static int create_connection_entry(bd_addr_t addr, bool is_pairing)
+#define BTX_CONNECTION_TIMEOUT_SECS 10 // TODO 10? 60?
+
+static int create_connection_entry(bd_addr_t addr)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
     {
-        if (!btx_connections[i].active)
+        if (btx_connections[i].hid_cid == 0 &&
+            absolute_time_diff_us(btx_connections[i].addr_valid_until,
+                                  get_absolute_time()) > 0)
         {
-            btx_connections[i].active = true;
+
+            btx_connections[i].addr_valid_until = make_timeout_time_ms(BTX_CONNECTION_TIMEOUT_SECS * 1000);
             memcpy(btx_connections[i].remote_addr, addr, BD_ADDR_LEN);
-            btx_connections[i].is_pairing = is_pairing;
-            btx_connections[i].hid_cid = 0;
-            btx_connections[i].acl_handle = 0;
             return i;
         }
     }
@@ -121,32 +114,30 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     case HCI_EVENT_PIN_CODE_REQUEST:
         hci_event_pin_code_request_get_bd_addr(packet, event_addr);
-        const char *pin = "0000"; // Default fallback
-        DBG("BTX: PIN code request from %s, using default PIN '%s'\n", bd_addr_to_str(event_addr), pin);
+        const char *pin = "0000"; // Always 0000
+        DBG("BTX: HCI_EVENT_PIN_CODE_REQUEST from %s, using PIN '%s'\n", bd_addr_to_str(event_addr), pin);
         gap_pin_code_response(event_addr, pin);
         break;
 
     case HCI_EVENT_USER_CONFIRMATION_REQUEST:
         hci_event_user_confirmation_request_get_bd_addr(packet, event_addr);
         uint32_t numeric_value = hci_event_user_confirmation_request_get_numeric_value(packet);
-        DBG("BTX: SSP User Confirmation from %s: %lu - Auto accepting\n", bd_addr_to_str(event_addr), (unsigned long)numeric_value);
-        // This is CRITICAL for gamepad pairing - must accept the confirmation
+        DBG("BTX: HCI_EVENT_USER_CONFIRMATION_REQUEST from %s: %lu\n", bd_addr_to_str(event_addr), (unsigned long)numeric_value);
         gap_ssp_confirmation_response(event_addr);
         break;
 
     case HCI_EVENT_USER_PASSKEY_REQUEST:
         hci_event_user_passkey_request_get_bd_addr(packet, event_addr);
-        DBG("BTX: User passkey requested from %s - auto responding with '0000'\n", bd_addr_to_str(event_addr));
-        // For Classic Bluetooth, respond directly with the HCI command
+        DBG("BTX: HCI_EVENT_USER_PASSKEY_REQUEST from %s - using 0\n", bd_addr_to_str(event_addr));
         hci_send_cmd(&hci_user_passkey_request_reply, event_addr, 0);
         break;
 
     case HCI_EVENT_IO_CAPABILITY_REQUEST:
         hci_event_io_capability_request_get_bd_addr(packet, event_addr);
         DBG("BTX: HCI_EVENT_IO_CAPABILITY_REQUEST\n");
-        uint8_t io_capability = SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT;                           // NoInputNoOutput is best for gamepad compatibility
-        uint8_t oob_data_present = 0x00;                                                        // No OOB data initially
-        uint8_t auth_requirement = SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING; // Use general bonding
+        uint8_t io_capability = SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT;
+        uint8_t oob_data_present = 0x00;
+        uint8_t auth_requirement = SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING;
         hci_send_cmd(&hci_io_capability_request_reply, event_addr, io_capability, oob_data_present, auth_requirement);
         break;
 
@@ -158,7 +149,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     {
         bd_addr_t addr;
         hci_event_inquiry_result_get_bd_addr(packet, addr);
-        DBG("BTX: HCI_EVENT_INQUIRY_RESULT\n");
+        DBG("BTX: HCI_EVENT_INQUIRY_RESULT from %s\n", bd_addr_to_str(event_addr));
 
         uint32_t cod = hci_event_inquiry_result_get_class_of_device(packet);
         bool has_hid_service = (cod & (1 << 13)) != 0;
@@ -166,8 +157,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
         // if (has_hid_service)
         {
-            // Create connection entry marked as pairing before initiating ACL connection
-            create_connection_entry(addr, true);
             hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         }
         break;
@@ -177,7 +166,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     {
         bd_addr_t addr;
         hci_event_inquiry_result_with_rssi_get_bd_addr(packet, addr);
-        DBG("BTX: HCI_EVENT_INQUIRY_RESULT\n");
+        DBG("BTX: HCI_EVENT_INQUIRY_RESULT_WITH_RSSI from %s\n", bd_addr_to_str(event_addr));
 
         uint32_t cod = hci_event_inquiry_result_with_rssi_get_class_of_device(packet);
         bool has_hid_service = (cod & (1 << 13)) != 0;
@@ -185,8 +174,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
         // if (has_hid_service)
         {
-            // Create connection entry marked as pairing before initiating ACL connection
-            create_connection_entry(addr, true);
             hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         }
         break;
@@ -196,7 +183,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     {
         bd_addr_t addr;
         hci_event_extended_inquiry_response_get_bd_addr(packet, addr);
-        DBG("BTX: HCI_EVENT_INQUIRY_RESULT\n");
+        DBG("BTX: HCI_EVENT_EXTENDED_INQUIRY_RESPONSE from %s\n", bd_addr_to_str(event_addr));
 
         uint32_t cod = hci_event_extended_inquiry_response_get_class_of_device(packet);
         bool has_hid_service = (cod & (1 << 13)) != 0;
@@ -204,8 +191,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
         // if (has_hid_service)
         {
-            // Create connection entry marked as pairing before initiating ACL connection
-            create_connection_entry(addr, true);
             hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         }
         break;
@@ -214,36 +199,28 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     case HCI_EVENT_CONNECTION_REQUEST:
         hci_event_connection_request_get_bd_addr(packet, event_addr);
         uint32_t cod = hci_event_connection_request_get_class_of_device(packet);
-        DBG("BTX: Connection request from %s, CoD: 0x%06lx\n", bd_addr_to_str(event_addr), (unsigned long)cod);
+        DBG("BTX: HCI_EVENT_CONNECTION_REQUEST from %s, CoD: 0x%06lx\n", bd_addr_to_str(event_addr), (unsigned long)cod);
 
+        // This doesn't work, xbox has this bit off
         bool has_hid_service = (cod & (1 << 13)) != 0;
         DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
         // if (has_hid_service)
         {
             // Create connection entry marked as non-pairing (normal reconnection)
-            create_connection_entry(event_addr, false);
+            create_connection_entry(event_addr);
             hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
         }
         break;
 
     case HCI_EVENT_CONNECTION_COMPLETE:
-        status = hci_event_connection_complete_get_status(packet);
+        DBG("BTX: HCI_EVENT_CONNECTION_COMPLETE\n");
         hci_event_connection_complete_get_bd_addr(packet, event_addr);
+        status = hci_event_connection_complete_get_status(packet);
         if (status == 0)
         {
-            uint16_t handle = hci_event_connection_complete_get_connection_handle(packet);
-            uint8_t link_type = hci_event_connection_complete_get_link_type(packet);
-            uint8_t encryption = hci_event_connection_complete_get_encryption_enabled(packet);
-
-            const char *link_type_str = (link_type == 0x00) ? "SCO" : (link_type == 0x01) ? "ACL"
-                                                                  : (link_type == 0x02)   ? "eSCO"
-                                                                                          : "Unknown";
-
-            DBG("BTX: %s connection established with %s, handle: 0x%04x, encryption: %s\n",
-                link_type_str, bd_addr_to_str(event_addr), handle, encryption ? "Yes" : "No");
-
             // Only process ACL connections for gamepads (link_type == 0x01)
+            uint8_t link_type = hci_event_connection_complete_get_link_type(packet);
             if (link_type != 0x01)
             {
                 DBG("BTX: Ignoring non-ACL connection (link_type: 0x%02x)\n", link_type);
@@ -252,43 +229,30 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
             // Find the existing connection entry created during inquiry or connection request
             int slot = find_connection_by_addr(event_addr);
-            if (slot >= 0)
+            if (slot < 0)
             {
-                // Update the ACL handle for the existing connection
-                btx_connections[slot].acl_handle = handle;
-
-                DBG("BTX: Device: %s, Handle: 0x%04x (slot %d, pairing=%s)\n",
-                    bd_addr_to_str(event_addr), handle, slot,
-                    btx_connections[slot].is_pairing ? "yes" : "no");
-
-                // Only initiate HID connection for pairing connections
-                // Normal reconnections will have the device initiate HID connection to us
-                if (btx_connections[slot].is_pairing)
+                DBG("BTX: Initiating HID connection\n");
+                slot = create_connection_entry(event_addr);
+                if (slot < 0)
                 {
-                    DBG("BTX: Pairing connection - initiating HID connection\n");
-                    uint8_t hid_status = hid_host_connect(event_addr,
-                                                          HID_PROTOCOL_MODE_REPORT,
-                                                          &btx_connections[slot].hid_cid);
-                    if (hid_status == ERROR_CODE_SUCCESS)
-                    {
-                        DBG("BTX: HID connection initiated to %s, HID CID: 0x%04x\n",
-                            bd_addr_to_str(event_addr), btx_connections[slot].hid_cid);
-                    }
-                    else
-                    {
-                        DBG("BTX: Failed to initiate HID connection to %s, status: 0x%02x\n",
-                            bd_addr_to_str(event_addr), hid_status);
-                    }
+                    DBG("BTX: No slot available, should not happen\n");
+                    break;
                 }
-                else
+                uint8_t hid_status = hid_host_connect(event_addr,
+                                                      HID_PROTOCOL_MODE_REPORT,
+                                                      &btx_connections[slot].hid_cid);
+                if (hid_status != ERROR_CODE_SUCCESS)
                 {
-                    DBG("BTX: Normal reconnection - waiting for device to initiate HID connection\n");
+                    DBG("BTX: Failed to initiate HID connection to %s, status: 0x%02x\n",
+                        bd_addr_to_str(event_addr), hid_status);
                 }
             }
             else
             {
-                DBG("BTX: No connection entry found for %s - this shouldn't happen\n", bd_addr_to_str(event_addr));
+                DBG("BTX: Waiting for HID connection\n");
             }
+            // Refresh timeout
+            btx_connections[slot].addr_valid_until = make_timeout_time_ms(BTX_CONNECTION_TIMEOUT_SECS * 1000);
         }
         break;
 
@@ -298,25 +262,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     case HCI_EVENT_DISCONNECTION_COMPLETE:
         DBG("BTX: HCI_EVENT_DISCONNECTION_COMPLETE\n");
-        status = hci_event_disconnection_complete_get_status(packet);
-        if (status == 0)
-        {
-            uint16_t handle = hci_event_disconnection_complete_get_connection_handle(packet);
-
-            // Find the connection to get the address for better debugging
-            int slot = find_connection_by_handle(handle);
-            if (slot >= 0)
-            {
-                pad_umount(btx_slot_to_pad_idx(slot));
-                btx_connections[slot].active = false;
-                btx_connections[slot].is_pairing = false; // Reset pairing flag
-                DBG("BTX: Connection slot %d fully cleaned up and available for reuse\n", slot);
-            }
-        }
-        else
-        {
-            DBG("BTX: Disconnection complete event failed, status: 0x%02x\n", status);
-        }
         break;
 
     case HCI_EVENT_HID_META:
@@ -330,13 +275,14 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             uint16_t hid_cid = hid_subevent_incoming_connection_get_hid_cid(packet);
             hid_subevent_incoming_connection_get_address(packet, event_addr);
-            DBG("BTX: *** INCOMING HID CONNECTION *** from %s, CID: 0x%04x\n", bd_addr_to_str(event_addr), hid_cid);
+            DBG("BTX: HID_SUBEVENT_INCOMING_CONNECTION from %s, CID: 0x%04x\n", bd_addr_to_str(event_addr), hid_cid);
 
             // Find the existing ACL connection and store the hid_cid
             int slot = find_connection_by_addr(event_addr);
             if (slot >= 0)
             {
                 btx_connections[slot].hid_cid = hid_cid;
+                btx_connections[slot].addr_valid_until = 0;
                 DBG("BTX: Stored HID CID 0x%04x for connection slot %d\n", hid_cid, slot);
             }
 
@@ -352,12 +298,12 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t report_len = hid_subevent_report_get_report_len(packet);
 
             // Find the connection for this HID CID
-            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+            for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
             {
-                if (btx_connections[i].active && btx_connections[i].hid_cid == hid_cid)
+                if (btx_connections[i].hid_cid == hid_cid)
                 {
                     // Debug: Print first report from each gamepad
-                    static bool first_report[PAD_MAX_PLAYERS] = {false};
+                    static bool first_report[MAX_NR_HCI_CONNECTIONS] = {false};
                     if (!first_report[i])
                     {
                         first_report[i] = true;
@@ -371,7 +317,8 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                     }
 
                     // Process HID report and send to gamepad system
-                    pad_report(btx_slot_to_pad_idx(i), report, report_len);
+                    if (report_len)
+                        pad_report(btx_slot_to_pad_idx(i), report + 1, report_len - 1);
                     break;
                 }
             }
@@ -386,9 +333,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             DBG("BTX: HID_SUBEVENT_DESCRIPTOR_AVAILABLE - CID: 0x%04x, Status: 0x%02x\n", hid_cid, status);
 
             // Find the connection for this HID CID
-            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+            for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
             {
-                if (btx_connections[i].active && btx_connections[i].hid_cid == hid_cid)
+                if (btx_connections[i].hid_cid == hid_cid)
                 {
                     if (status == ERROR_CODE_SUCCESS)
                     {
@@ -417,10 +364,8 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                         else
                         {
                             DBG("BTX: Device at slot %d is NOT a gamepad - pad_mount returned false\n", i);
-                            // Clean up the HID connection since it's not a gamepad, but keep ACL connection tracking
                             hid_host_disconnect(hid_cid);
-                            btx_connections[i].hid_cid = 0; // Clear HID CID but keep connection active for ACL cleanup
-                            DBG("BTX: HID connection disconnected for non-gamepad device, ACL connection still active\n");
+                            btx_connections[i].hid_cid = 0;
                         }
                     }
                     else
@@ -443,12 +388,12 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             DBG("BTX: HID_SUBEVENT_CONNECTION_CLOSED (0x03) - CID: 0x%04x\n", hid_cid);
 
             // Find the connection and clean up HID-specific resources
-            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+            for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
             {
-                if (btx_connections[i].active && btx_connections[i].hid_cid == hid_cid)
+                if (btx_connections[i].hid_cid == hid_cid)
                 {
                     pad_umount(btx_slot_to_pad_idx(i));
-                    btx_connections[i].active = false;
+                    btx_connections[i].hid_cid = 0;
                     DBG("BTX: HID connection closed for slot %d\n", i);
                     break;
                 }
@@ -465,36 +410,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         break;
 
         default:
-            // Provide context for common subevents
-            const char *subevent_name = "Unknown";
-            switch (subevent)
-            {
-            case 0x04:
-                subevent_name = "CAN_SEND_NOW";
-                break;
-            case 0x05:
-                subevent_name = "SUSPEND";
-                break;
-            case 0x06:
-                subevent_name = "EXIT_SUSPEND";
-                break;
-            case 0x07:
-                subevent_name = "VIRTUAL_CABLE_UNPLUG";
-                break;
-            case 0x08:
-                subevent_name = "GET_REPORT_RESPONSE";
-                break;
-            case 0x09:
-                subevent_name = "SET_REPORT_RESPONSE";
-                break;
-            case 0x0A:
-                subevent_name = "GET_PROTOCOL_RESPONSE";
-                break;
-            case 0x0B:
-                subevent_name = "SET_PROTOCOL_RESPONSE";
-                break;
-            }
-            DBG("BTX: Unhandled HID subevent: 0x%02x (%s) (size: %d)\n", subevent, subevent_name, size);
+            DBG("BTX: Unhandled HID subevent: 0x%02x (size: %d)\n", subevent, size);
             if (size <= 32)
             {
                 DBG("BTX: HID event data: ");
@@ -510,26 +426,16 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     break;
 
     default:
-        // Log events that might be relevant to gamepad pairing
-        // Skip common flow control events and unknown inquiry variations
-        if (event_type != 0x6e && event_type != 0x13 && // Skip flow control events
-            event_type != 0x12 && event_type != 0x61 && // Skip role change and mode change (now handled)
-            event_type != 0x1b && event_type != 0x0b && // Skip max slots and packet type change
-            event_type != 0x23 && event_type != 0xdc && // Skip QoS setup and unknown inquiry variant
-            event_type != 0xe0 && event_type != 0x73 && // Skip unknown authentication-related event and event 0x73
-            event_type != 0xff)                         // Skip vendor-specific events (handled above)
+        DBG("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
+        // Print first few bytes for debugging only for potentially important events
+        if (size <= 16)
         {
-            // DBG("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
-            // // Print first few bytes for debugging only for potentially important events
-            // if (size <= 16)
-            // {
-            //     DBG("BTX: Event data: ");
-            //     for (int i = 0; i < size; i++)
-            //     {
-            //         DBG("%02x ", packet[i]);
-            //     }
-            //     DBG("\n");
-            // }
+            DBG("BTX: Event data: ");
+            for (int i = 0; i < size; i++)
+            {
+                DBG("%02x ", packet[i]);
+            }
+            DBG("\n");
         }
         break;
     }
@@ -629,30 +535,32 @@ bool btx_start_pairing(void)
 
     // Try a simple inquiry first to see if the command works at all
     DBG("BTX: Attempting inquiry with LAP 0x9E8B33, length 0x08 (10.24s), num_responses 0x00 (unlimited)\n");
+    // 0x9E8B33: General/Unlimited Inquiry Access Code (GIAC)
+    // TODO what is correct length? 5-15 in examples
     uint8_t result = hci_send_cmd(&hci_inquiry, 0x9E8B33, 0x08, 0x00);
     DBG("BTX: hci_send_cmd returned: %d\n", result);
 
-    // Enable inquiry scan mode explicitly for better gamepad compatibility
-    hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
-    DBG("BTX: Enabled both inquiry and page scan modes\n");
+    // // Enable inquiry scan mode explicitly for better gamepad compatibility
+    // hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
+    // DBG("BTX: Enabled both inquiry and page scan modes\n");
 
-    // Set inquiry scan parameters for better visibility
-    // Make inquiry scan more frequent and longer window for better gamepad discovery
-    hci_send_cmd(&hci_write_inquiry_scan_activity, 0x1000, 0x0800); // interval=0x1000, window=0x0800
-    DBG("BTX: Enhanced inquiry scan parameters for better gamepad discovery\n");
+    // // Set inquiry scan parameters for better visibility
+    // // Make inquiry scan more frequent and longer window for better gamepad discovery
+    // hci_send_cmd(&hci_write_inquiry_scan_activity, 0x1000, 0x0800); // interval=0x1000, window=0x0800
+    // DBG("BTX: Enhanced inquiry scan parameters for better gamepad discovery\n");
 
     return true;
 }
 
 void btx_disconnect_all(void)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
     {
-        if (btx_connections[i].active)
+        if (btx_connections[i].hid_cid)
         {
             // Clean up gamepad registration
             pad_umount(btx_slot_to_pad_idx(i));
-            btx_connections[i].active = false;
+            btx_connections[i].hid_cid = false;
         }
     }
 
@@ -674,9 +582,9 @@ void btx_print_status(void)
     }
 
     int active_count = 0;
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
     {
-        if (btx_connections[i].active)
+        if (btx_connections[i].hid_cid)
         {
             active_count++;
             DBG("  Slot %d: pad_idx=%d, HID_CID=0x%04x (active)\n", i, btx_slot_to_pad_idx(i), btx_connections[i].hid_cid);

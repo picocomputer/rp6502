@@ -388,18 +388,14 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
     // Skip report ID check if no report ID is expected, or validate if one is expected
     const uint8_t *report_data = report;
     uint16_t report_data_len = len;
-    // if (gamepad->report_id != 0)
-    // {
-    //     if (len == 0 || report[0] != gamepad->report_id)
-    //         return;
-    //     // Skip report ID byte
-    //     report_data = &report[1];
-    //     report_data_len = len - 1;
-    // }
-
-    //TODO this is a hack for bluetooth testing, it breaks other gamepads
-    report_data = &report[2];
-    report_data_len = len - 2;
+    if (gamepad->report_id != 0)
+    {
+        if (len == 0 || report[0] != gamepad->report_id)
+            return;
+        // Skip report ID byte
+        report_data = &report[1];
+        report_data_len = len - 1;
+    }
 
     // Parse report and send it to xram
     if (pad_xram != 0xFFFF)
