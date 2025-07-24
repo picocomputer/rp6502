@@ -9,7 +9,7 @@
 #include "sys/cpu.h"
 #include "sys/lfs.h"
 #ifdef RP6502_RIA_W
-#include "net/btx.h"
+#include "net/btc.h"
 #endif
 
 static void set_print_phi2(void)
@@ -265,7 +265,7 @@ static void set_bt(const char *args, size_t len)
     }
 
     printf("Starting Bluetooth gamepad pairing...\n");
-    btx_start_pairing();
+    btc_start_pairing();
 }
 #endif
 

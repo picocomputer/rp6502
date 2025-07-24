@@ -22,7 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #include "pico.h"
 #include "mon/ram.h"
-#include "net/btx.h"
+#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -116,7 +116,7 @@ bool cyw_validate_country_code(char *cc)
 void cyw_reset_radio(void)
 {
     wfi_disconnect();
-    btx_cyw_resetting();
+    btc_cyw_resetting();
     switch (cyw_state)
     {
     case cyw_state_initialized:

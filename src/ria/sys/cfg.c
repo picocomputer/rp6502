@@ -7,7 +7,7 @@
 #include "str.h"
 #include "api/clk.h"
 #include "api/oem.h"
-#include "net/btx.h"
+#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"

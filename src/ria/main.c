@@ -17,7 +17,7 @@
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
-#include "net/btx.h"
+#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/ntp.h"
@@ -93,7 +93,7 @@ void main_task(void)
     wfi_task();
     ntp_task();
     xin_task();
-    btx_task();
+    btc_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
@@ -144,7 +144,7 @@ static void reset(void)
     ram_reset();
     rom_reset();
     vga_reset();
-    btx_reset();
+    btc_reset();
 }
 
 // Triggered once after init then before every PHI2 clock change.
