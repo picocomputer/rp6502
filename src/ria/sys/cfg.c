@@ -7,6 +7,7 @@
 #include "str.h"
 #include "api/clk.h"
 #include "api/oem.h"
+#include "net/btx.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -275,7 +276,7 @@ bool cfg_set_rf(uint8_t rf)
     if (rf <= 1 && cfg_net_rf != rf)
     {
         cfg_net_rf = rf;
-        wfi_disconnect();
+        cyw_reset_radio();
         cfg_save_with_boot_opt(NULL);
     }
     return true;

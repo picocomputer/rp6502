@@ -116,7 +116,7 @@ bool cyw_validate_country_code(char *cc)
 void cyw_reset_radio(void)
 {
     wfi_disconnect();
-    btx_disconnect_all();
+    btx_cyw_resetting();
     switch (cyw_state)
     {
     case cyw_state_initialized:
@@ -144,7 +144,7 @@ void cyw_task(void)
         cyw43_arch_poll();
     }
 
-    if (cyw_state == cyw_state_off)
+    if (cyw_state == cyw_state_off && cfg_get_rf())
     {
         // The CYW43xx driver has blocking delays during setup.
         // These have short timeouts that don't tolerate pauses.
@@ -175,7 +175,7 @@ void cyw_led(bool ison)
 
 bool cyw_initializing(void)
 {
-    return cyw_state == cyw_state_off;
+    return cyw_state == cyw_state_off && cfg_get_rf();
 }
 
 bool cyw_ready(void)

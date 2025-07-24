@@ -7,8 +7,8 @@
 #ifndef RP6502_RIA_W
 #include "net/wfi.h"
 void btx_task(void) {}
+void btx_reset(void) {}
 void btx_start_pairing(void) {}
-void btx_print_status(void) {}
 #else
 
 #define DEBUG_RIA_NET_BTX
@@ -43,13 +43,19 @@ typedef struct
 } btx_connection_t;
 
 static btx_connection_t btx_connections[MAX_NR_HCI_CONNECTIONS];
-static bool btx_initialized = false;
+static bool btx_initialized;
+
+// Although everything looks like it support mutiple gamepads,
+// once HID is opened the global SDP connection is locked to a
+// single gamepad. If a second gamepad tries to hid_host_connect
+// then the btstack stops requesting HID descriptors forever.
+static bool btx_subevent_opened;
 
 // BTStack state - Classic HID Host
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 
 // Storage for HID descriptors - Classic only
-static uint8_t hid_descriptor_storage[500]; // HID descriptor storage
+static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
 
 static int find_connection_by_hid_cid(uint16_t hid_cid)
 {
@@ -146,53 +152,18 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         break;
 
     case HCI_EVENT_INQUIRY_RESULT:
+    case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
+    case HCI_EVENT_EXTENDED_INQUIRY_RESPONSE:
     {
-        bd_addr_t addr;
-        hci_event_inquiry_result_get_bd_addr(packet, addr);
+        hci_event_inquiry_result_get_bd_addr(packet, event_addr);
         DBG("BTX: HCI_EVENT_INQUIRY_RESULT from %s\n", bd_addr_to_str(event_addr));
 
         uint32_t cod = hci_event_inquiry_result_get_class_of_device(packet);
         bool has_hid_service = (cod & (1 << 13)) != 0;
         DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
-        // if (has_hid_service)
-        {
-            hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
-        }
-        break;
-    }
-
-    case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
-    {
-        bd_addr_t addr;
-        hci_event_inquiry_result_with_rssi_get_bd_addr(packet, addr);
-        DBG("BTX: HCI_EVENT_INQUIRY_RESULT_WITH_RSSI from %s\n", bd_addr_to_str(event_addr));
-
-        uint32_t cod = hci_event_inquiry_result_with_rssi_get_class_of_device(packet);
-        bool has_hid_service = (cod & (1 << 13)) != 0;
-        DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
-
-        // if (has_hid_service)
-        {
-            hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
-        }
-        break;
-    }
-
-    case HCI_EVENT_EXTENDED_INQUIRY_RESPONSE:
-    {
-        bd_addr_t addr;
-        hci_event_extended_inquiry_response_get_bd_addr(packet, addr);
-        DBG("BTX: HCI_EVENT_EXTENDED_INQUIRY_RESPONSE from %s\n", bd_addr_to_str(event_addr));
-
-        uint32_t cod = hci_event_extended_inquiry_response_get_class_of_device(packet);
-        bool has_hid_service = (cod & (1 << 13)) != 0;
-        DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
-
-        // if (has_hid_service)
-        {
-            hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
-        }
+        // don't create_connection_entry now so we try to hid_host_connect later
+        hci_send_cmd(&hci_create_connection, event_addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
     }
 
@@ -205,19 +176,22 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         bool has_hid_service = (cod & (1 << 13)) != 0;
         DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
-        // if (has_hid_service)
-        {
-            // Create connection entry marked as non-pairing (normal reconnection)
-            create_connection_entry(event_addr);
-            hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
-        }
+        // create_connection_entry now so we don't try to hid_host_connect later
+        create_connection_entry(event_addr);
+        hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
         break;
 
     case HCI_EVENT_CONNECTION_COMPLETE:
         DBG("BTX: HCI_EVENT_CONNECTION_COMPLETE\n");
         hci_event_connection_complete_get_bd_addr(packet, event_addr);
         status = hci_event_connection_complete_get_status(packet);
-        if (status == 0)
+        if (btx_subevent_opened)
+        {
+            uint16_t connection_handle = hci_event_connection_complete_get_connection_handle(packet);
+            DBG("BTX: Already have active connection, disconnecting (handle: 0x%04x)\n", connection_handle);
+            hci_send_cmd(&hci_disconnect, connection_handle, ERROR_CODE_REMOTE_USER_TERMINATED_CONNECTION);
+        }
+        else if (status == 0)
         {
             // Only process ACL connections for gamepads (link_type == 0x01)
             uint8_t link_type = hci_event_connection_complete_get_link_type(packet);
@@ -297,31 +271,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             const uint8_t *report = hid_subevent_report_get_report(packet);
             uint16_t report_len = hid_subevent_report_get_report_len(packet);
 
-            // Find the connection for this HID CID
-            for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-            {
-                if (btx_connections[i].hid_cid == hid_cid)
-                {
-                    // Debug: Print first report from each gamepad
-                    static bool first_report[MAX_NR_HCI_CONNECTIONS] = {false};
-                    if (!first_report[i])
-                    {
-                        first_report[i] = true;
-                        DBG("BTX: First HID report from slot %d (CID: 0x%04x), length: %d bytes\n", i, hid_cid, report_len);
-                        DBG("BTX: Report data: ");
-                        for (int j = 0; j < (report_len < 16 ? report_len : 16); j++)
-                        {
-                            DBG("%02x ", report[j]);
-                        }
-                        DBG("\n");
-                    }
-
-                    // Process HID report and send to gamepad system
-                    if (report_len)
-                        pad_report(btx_slot_to_pad_idx(i), report + 1, report_len - 1);
-                    break;
-                }
-            }
+            int slot = find_connection_by_hid_cid(hid_cid);
+            if (slot >= 0 && report_len)
+                pad_report(btx_slot_to_pad_idx(slot), report + 1, report_len - 1);
         }
         break;
 
@@ -332,111 +284,87 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
             DBG("BTX: HID_SUBEVENT_DESCRIPTOR_AVAILABLE - CID: 0x%04x, Status: 0x%02x\n", hid_cid, status);
 
-            // Find the connection for this HID CID
-            for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
+            int slot = find_connection_by_hid_cid(hid_cid);
+            if (slot >= 0)
             {
-                if (btx_connections[i].hid_cid == hid_cid)
+                if (status == ERROR_CODE_SUCCESS)
                 {
-                    if (status == ERROR_CODE_SUCCESS)
+                    const uint8_t *descriptor = hid_descriptor_storage_get_descriptor_data(hid_cid);
+                    uint16_t descriptor_len = hid_descriptor_storage_get_descriptor_len(hid_cid);
+                    bool mounted = pad_mount(btx_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0, 0);
+                    if (mounted)
                     {
-                        const uint8_t *descriptor = hid_descriptor_storage_get_descriptor_data(hid_cid);
-                        uint16_t descriptor_len = hid_descriptor_storage_get_descriptor_len(hid_cid);
-
-                        DBG("BTX: HID descriptor available for device at slot %d, length: %d bytes\n", i, descriptor_len);
-
-                        // Print first few bytes of descriptor for debugging
-                        if (descriptor && descriptor_len > 0)
-                        {
-                            DBG("BTX: Descriptor data (first 16 bytes): ");
-                            for (int j = 0; j < (descriptor_len < 16 ? descriptor_len : 16); j++)
-                            {
-                                DBG("%02x ", descriptor[j]);
-                            }
-                            DBG("\n");
-                        }
-
-                        // Try to mount the device - pad_mount will return true only for actual gamepads
-                        bool mounted = pad_mount(btx_slot_to_pad_idx(i), descriptor, descriptor_len, 0, 0, 0);
-                        if (mounted)
-                        {
-                            DBG("BTX: *** GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", i);
-                        }
-                        else
-                        {
-                            DBG("BTX: Device at slot %d is NOT a gamepad - pad_mount returned false\n", i);
-                            hid_host_disconnect(hid_cid);
-                            btx_connections[i].hid_cid = 0;
-                        }
+                        DBG("BTX: *** GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", slot);
+                        break;
                     }
-                    else
-                    {
-                        DBG("BTX: Failed to get HID descriptor for device at slot %d, status: 0x%02x\n", i, status);
-                    }
-                    break;
                 }
             }
+            DBG("BTX: Failed to get HID descriptor for device at slot %d, status: 0x%02x\n", slot, status);
+            hid_host_disconnect(hid_cid);
         }
         break;
 
         case HID_SUBEVENT_CONNECTION_OPENED:
-            DBG("BTX: HID_SUBEVENT_CONNECTION_OPENED\n");
-            break;
+        {
+            uint8_t status = hid_subevent_connection_opened_get_status(packet);
+            uint16_t hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
+            DBG("BTX: HID_SUBEVENT_CONNECTION_OPENED - CID: 0x%04x, status: 0x%02x\n", hid_cid, status);
+            if (status == ERROR_CODE_SUCCESS)
+            {
+                btx_subevent_opened = true;
+            }
+            else
+            {
+                DBG("BTX: HID connection failed, status: 0x%02x\n", status);
+            }
+        }
+        break;
 
         case HID_SUBEVENT_CONNECTION_CLOSED:
         {
             uint16_t hid_cid = hid_subevent_connection_closed_get_hid_cid(packet);
             DBG("BTX: HID_SUBEVENT_CONNECTION_CLOSED (0x03) - CID: 0x%04x\n", hid_cid);
 
-            // Find the connection and clean up HID-specific resources
-            for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-            {
-                if (btx_connections[i].hid_cid == hid_cid)
-                {
-                    pad_umount(btx_slot_to_pad_idx(i));
-                    btx_connections[i].hid_cid = 0;
-                    DBG("BTX: HID connection closed for slot %d\n", i);
-                    break;
-                }
-            }
-        }
-        break;
+            btx_subevent_opened = false;
 
-        case HID_SUBEVENT_SNIFF_SUBRATING_PARAMS:
-        {
-            uint16_t hid_cid = little_endian_read_16(packet, 3); // CID is typically at offset 3
-            DBG("BTX: HID_SUBEVENT_SNIFF_SUBRATING_PARAMS (0x0e) - CID: 0x%04x (power)\n", hid_cid);
-            // This is a power management event, no action needed
+            int slot = find_connection_by_hid_cid(hid_cid);
+            if (slot >= 0)
+            {
+                pad_umount(btx_slot_to_pad_idx(slot));
+                btx_connections[slot].hid_cid = 0;
+                DBG("BTX: HID connection closed for slot %d\n", slot);
+            }
         }
         break;
 
         default:
-            DBG("BTX: Unhandled HID subevent: 0x%02x (size: %d)\n", subevent, size);
-            if (size <= 32)
-            {
-                DBG("BTX: HID event data: ");
-                for (int i = 0; i < size; i++)
-                {
-                    DBG("%02x ", packet[i]);
-                }
-                DBG("\n");
-            }
+            // DBG("BTX: Unhandled HID subevent: 0x%02x (size: %d)\n", subevent, size);
+            // if (size <= 32)
+            // {
+            //     DBG("BTX: HID event data: ");
+            //     for (int i = 0; i < size; i++)
+            //     {
+            //         DBG("%02x ", packet[i]);
+            //     }
+            //     DBG("\n");
+            // }
             break;
         }
     }
     break;
 
     default:
-        DBG("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
-        // Print first few bytes for debugging only for potentially important events
-        if (size <= 16)
-        {
-            DBG("BTX: Event data: ");
-            for (int i = 0; i < size; i++)
-            {
-                DBG("%02x ", packet[i]);
-            }
-            DBG("\n");
-        }
+        // DBG("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
+        // // Print first few bytes for debugging only for potentially important events
+        // if (size <= 16)
+        // {
+        //     DBG("BTX: Event data: ");
+        //     for (int i = 0; i < size; i++)
+        //     {
+        //         DBG("%02x ", packet[i]);
+        //     }
+        //     DBG("\n");
+        // }
         break;
     }
 }
@@ -552,54 +480,24 @@ bool btx_start_pairing(void)
     return true;
 }
 
-void btx_disconnect_all(void)
+void btx_cyw_resetting(void)
 {
+    btx_initialized = false;
     for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
     {
         if (btx_connections[i].hid_cid)
         {
             // Clean up gamepad registration
             pad_umount(btx_slot_to_pad_idx(i));
-            btx_connections[i].hid_cid = false;
+            btx_connections[i].hid_cid = 0;
         }
     }
-
     DBG("BTX: All Bluetooth gamepad connections disconnected\n");
-}
-
-void btx_print_status(void)
-{
-    if (!cyw_ready())
-    {
-        DBG("BTX: Bluetooth radio not ready\n");
-        return;
-    }
-
-    if (!btx_initialized)
-    {
-        DBG("BTX: Bluetooth gamepad support not initialized\n");
-        return;
-    }
-
-    int active_count = 0;
-    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-    {
-        if (btx_connections[i].hid_cid)
-        {
-            active_count++;
-            DBG("  Slot %d: pad_idx=%d, HID_CID=0x%04x (active)\n", i, btx_slot_to_pad_idx(i), btx_connections[i].hid_cid);
-        }
-    }
-
-    if (active_count == 0)
-    {
-        DBG("  No active Bluetooth gamepad connections\n");
-    }
 }
 
 void btx_reset(void)
 {
-    // TODO when called will interrupt pairing session
+    // TODO shutdown pairing session?
 }
 
 #endif /* RP6502_RIA_W */
