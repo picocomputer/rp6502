@@ -40,17 +40,7 @@ typedef struct
     bool active;
     uint16_t hid_cid; // BTStack HID connection ID
     bd_addr_t remote_addr;
-    uint16_t acl_handle;             // ACL connection handle
-    bool authenticated;              // Whether authentication is complete
-    bool hid_attempted;              // Whether we've already attempted HID connection
-    bool descriptor_requested;       // Whether we've requested a HID descriptor
-    bool mounted_without_descriptor; // Whether we successfully mounted without descriptor
-
-    // Device capability tracking from IO Capability Response
-    bool capability_known;           // Whether we've received the device's IO Capability Response
-    uint8_t device_io_capability;    // Device's reported IO capability
-    uint8_t device_oob_data_present; // Device's reported OOB data status
-    uint8_t device_auth_requirement; // Device's reported authentication requirement
+    uint16_t acl_handle; // ACL connection handle
 } btx_connection_t;
 
 static btx_connection_t btx_connections[PAD_MAX_PLAYERS];
@@ -107,11 +97,10 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         if (state == HCI_STATE_WORKING)
         {
             DBG("BTX: Bluetooth Classic HID Host ready and working!\n");
-
             // Always re-enable discoverable/connectable when stack becomes ready
             // This is essential because the stack may reset discoverability during initialization
-            // gap_discoverable_control(1);
-            // gap_connectable_control(1);
+            gap_discoverable_control(1);
+            gap_connectable_control(1);
             // DBG("BTX: Re-enabled discoverable/connectable in working state\n");
         }
         else
@@ -135,36 +124,34 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gap_ssp_confirmation_response(event_addr);
         break;
 
+    case HCI_EVENT_USER_PASSKEY_REQUEST:
+        hci_event_user_passkey_request_get_bd_addr(packet, event_addr);
+        DBG("BTX: User passkey requested from %s - auto responding with '0000'\n", bd_addr_to_str(event_addr));
+        // For Classic Bluetooth, respond directly with the HCI command
+        hci_send_cmd(&hci_user_passkey_request_reply, event_addr, 0);
+        break;
+
     case HCI_EVENT_IO_CAPABILITY_REQUEST:
         hci_event_io_capability_request_get_bd_addr(packet, event_addr);
 
         // Check if we have stored device capabilities from a previous IO Capability Response
-        int conn_slot = find_connection_by_addr(event_addr);
+        // int conn_slot = find_connection_by_addr(event_addr);
         uint8_t io_capability;
         uint8_t oob_data_present;
         uint8_t auth_requirement;
 
-        if (conn_slot >= 0 && btx_connections[conn_slot].capability_known)
-        {
-            // Use device's reported capabilities to configure our response
-            io_capability = btx_connections[conn_slot].device_io_capability;
-            oob_data_present = btx_connections[conn_slot].device_oob_data_present;
-            auth_requirement = btx_connections[conn_slot].device_auth_requirement;
+        // Use settings optimized for gamepad pairing
+        io_capability = SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT;                           // NoInputNoOutput is best for gamepad compatibility
+        oob_data_present = 0x00;                                                        // No OOB data initially
+        auth_requirement = SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING; // Use general bonding
 
-            DBG("BTX: Using stored device capabilities: IO=0x%02x, OOB=%d, Auth=0x%02x\n",
-                io_capability, oob_data_present, auth_requirement);
-        }
-        else
-        {
-            // Use conservative defaults for first-time pairing
-            io_capability = 0x00;    // DisplayOnly (most compatible)
-            oob_data_present = 0x00; // No OOB data initially
-            auth_requirement = 0x00; // No MITM protection initially
-
-            DBG("BTX: No stored capabilities - using defaults: DisplayOnly (0x00), OOB=No, Auth=0x%02x\n", auth_requirement);
-        }
+        DBG("BTX: HCI_EVENT_IO_CAPABILITY_REQUEST\n");
 
         hci_send_cmd(&hci_io_capability_request_reply, event_addr, io_capability, oob_data_present, auth_requirement);
+        break;
+
+    case HCI_EVENT_INQUIRY_COMPLETE:
+        DBG("BTX: Inquiry complete\n");
         break;
 
     case HCI_EVENT_INQUIRY_RESULT:
@@ -173,13 +160,10 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         hci_event_inquiry_result_get_bd_addr(packet, addr);
         uint32_t cod = hci_event_inquiry_result_get_class_of_device(packet);
         DBG("BTX: Found device %s (CoD: 0x%06lx) - attempting connection\n", bd_addr_to_str(addr), (unsigned long)cod);
+        // hci_send_cmd(&hci_inquiry_cancel);
         hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
     }
-
-        // case HCI_EVENT_INQUIRY_COMPLETE:
-        //     DBG("BTX: Inquiry complete\n");
-        //     break;
 
     case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
     {
@@ -193,19 +177,18 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             bd_addr_to_str(addr), (unsigned long)cod, rssi);
 
         // Try to connect to this device
+        // hci_send_cmd(&hci_inquiry_cancel);
         hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
     }
 
-    case 0x2F: // HCI_EVENT_EXTENDED_INQUIRY_RESULT
+    case HCI_EVENT_EXTENDED_INQUIRY_RESPONSE:
+    {
         bd_addr_t addr;
         // For extended inquiry result, the BD_ADDR is at offset 3-8
         memcpy(addr, packet + 3, BD_ADDR_LEN);
         uint32_t cod = little_endian_read_24(packet, 9); // Class of Device at offset 9-11
-        uint8_t rssi = packet[2];                        // RSSI at offset 2
-
-        DBG("BTX: Extended inquiry result from %s, CoD: 0x%06lx, RSSI: %d dBm\n",
-            bd_addr_to_str(addr), (unsigned long)cod, (int8_t)rssi);
+        // uint8_t rssi = packet[2];                        // RSSI at offset 2
 
         // Check for HID service bit (bit 13 in CoD)
         bool has_hid_service = (cod & (1 << 13)) != 0;
@@ -217,50 +200,10 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         DBG("BTX: Will determine if it's a gamepad after HID connection is established\n");
 
         // Try to connect to this device
+        // hci_send_cmd(&hci_inquiry_cancel);
         hci_send_cmd(&hci_create_connection, addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
         break;
-
-        // case HCI_EVENT_REMOTE_NAME_REQUEST_COMPLETE:
-        //     status = hci_event_remote_name_request_complete_get_status(packet);
-        //     hci_event_remote_name_request_complete_get_bd_addr(packet, event_addr);
-        //     if (status == 0)
-        //     {
-        //         char name_buffer[248];
-        //         const char *remote_name = (const char *)hci_event_remote_name_request_complete_get_remote_name(packet);
-        //         int name_len = strlen(remote_name);
-        //         if (name_len > 247)
-        //             name_len = 247;
-        //         memcpy(name_buffer, remote_name, name_len);
-        //         name_buffer[name_len] = 0;
-        //         DBG("BTX: Remote name for %s: '%s'\n", bd_addr_to_str(event_addr), name_buffer);
-
-        //         // Check if this is an Xbox controller - they need special handling
-        //         bool is_xbox_controller = (strstr(name_buffer, "Xbox") != NULL) ||
-        //                                   (strstr(name_buffer, "XBOX") != NULL);
-
-        //         if (is_xbox_controller)
-        //         {
-        //             DBG("BTX: *** XBOX CONTROLLER DETECTED *** - using optimized pairing approach\n");
-        //             DBG("BTX: Xbox controllers often disconnect quickly if authentication isn't handled properly\n");
-
-        //             // Find the connection for this device and trigger authentication immediately
-        //             int slot = find_connection_by_addr(event_addr);
-        //             if (slot >= 0)
-        //             {
-        //                 DBG("BTX: Triggering immediate authentication for Xbox controller at slot %d\n", slot);
-        //                 hci_send_cmd(&hci_authentication_requested, btx_connections[slot].acl_handle);
-        //             }
-        //             else
-        //             {
-        //                 DBG("BTX: Could not find connection slot for Xbox controller\n");
-        //             }
-        //         }
-        //     }
-        //     else
-        //     {
-        //         DBG("BTX: Remote name request failed for %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
-        //     }
-        //     break;
+    }
 
     case HCI_EVENT_CONNECTION_REQUEST:
         hci_event_connection_request_get_bd_addr(packet, event_addr);
@@ -278,7 +221,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 {
                     // DBG("BTX: Rejecting connection - device does not advertise HID service and is not a likely gamepad\n");
                     // hci_send_cmd(&hci_reject_connection_request, event_addr, ERROR_CODE_CONNECTION_REJECTED_DUE_TO_LIMITED_RESOURCES);
-                    break;
+                    // break;
                 }
             }
         }
@@ -287,7 +230,7 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         hci_send_cmd(&hci_accept_connection_request, event_addr, HCI_ROLE_MASTER);
         break;
 
-    case HCI_EVENT_CONNECTION_COMPLETE: // TODO this should be HID_SUBEVENT_INCOMING_CONNECTION
+    case HCI_EVENT_CONNECTION_COMPLETE:
         status = hci_event_connection_complete_get_status(packet);
         hci_event_connection_complete_get_bd_addr(packet, event_addr);
         if (status == 0)
@@ -311,30 +254,27 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 btx_connections[slot].active = true;
                 btx_connections[slot].acl_handle = handle;
                 memcpy(btx_connections[slot].remote_addr, event_addr, BD_ADDR_LEN);
-                btx_connections[slot].authenticated = false;
-                btx_connections[slot].hid_attempted = false;
                 btx_connections[slot].hid_cid = 0;
 
-                // Initialize device capability tracking
-                btx_connections[slot].capability_known = false;
-                btx_connections[slot].device_io_capability = 0;
-                btx_connections[slot].device_oob_data_present = 0;
-                btx_connections[slot].device_auth_requirement = 0;
+                DBG("BTX: Device: %s, Handle: 0x%04x (slot %d) - initiating HID connection\n", bd_addr_to_str(event_addr), handle, slot);
 
-                DBG("BTX: Tracking ACL connection at slot %d - waiting for authentication before HID attempt\n", slot);
-                DBG("BTX: Device: %s, Handle: 0x%04x\n", bd_addr_to_str(event_addr), handle);
-
-                // Request remote name to help identify the device
-                // DBG("BTX: Requesting remote name for device identification...\n");
-                // hci_send_cmd(&hci_remote_name_request, event_addr, 0x01, 0x00, 0x00);
-
-                // Some gamepads need us to initiate authentication explicitly
-                // Wait a bit first to let the connection stabilize
-                DBG("BTX: Will attempt authentication in 100ms to allow connection to stabilize\n");
-
-                // hci_send_cmd(&hci_authentication_requested, btx_connections[slot].acl_handle);
-
-                //////////////////////////////////////
+                // Initiate HID connection to the device (most gamepads expect host to connect)
+                uint8_t hid_status = hid_host_connect(event_addr,
+                                                      HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT,
+                                                      &btx_connections[slot].hid_cid);
+                if (hid_status == ERROR_CODE_SUCCESS)
+                {
+                    DBG("BTX: HID connection initiated to %s, HID CID: 0x%04x\n",
+                        bd_addr_to_str(event_addr), btx_connections[slot].hid_cid);
+                }
+                else
+                {
+                    DBG("BTX: Failed to initiate HID connection to %s, status: 0x%02x\n",
+                        bd_addr_to_str(event_addr), hid_status);
+                    // Clear HID CID but keep ACL connection tracking active for proper cleanup
+                    btx_connections[slot].hid_cid = 0;
+                    DBG("BTX: HID connection initiation failed, ACL connection still active\n");
+                }
             }
             else
             {
@@ -356,31 +296,39 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             if (slot >= 0)
             {
                 device_addr = bd_addr_to_str(btx_connections[slot].remote_addr);
+                DBG("BTX: ACL disconnection complete, handle: 0x%04x, reason: 0x%02x, device: %s (slot %d)\n",
+                    handle, reason, device_addr, slot);
             }
-
-            DBG("BTX: ACL disconnection complete, handle: 0x%04x, reason: 0x%02x, device: %s\n",
-                handle, reason, device_addr);
+            else
+            {
+                DBG("BTX: ACL disconnection complete, handle: 0x%04x, reason: 0x%02x, device: %s\n",
+                    handle, reason, device_addr);
+                DBG("BTX: Connection slot not found - checking all active connections:\n");
+                for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+                {
+                    if (btx_connections[i].active)
+                    {
+                        DBG("BTX:   Slot %d: handle=0x%04x, addr=%s, hid_cid=0x%04x\n",
+                            i, btx_connections[i].acl_handle, bd_addr_to_str(btx_connections[i].remote_addr), btx_connections[i].hid_cid);
+                    }
+                }
+            }
 
             // Clean up connection tracking
             if (slot >= 0)
             {
-                DBG("BTX: Cleaning up connection tracking for slot %d\n", slot);
+                DBG("BTX: Cleaning up connection tracking for slot %d (was HID_CID: 0x%04x)\n", slot, btx_connections[slot].hid_cid);
                 if (btx_connections[slot].hid_cid != 0)
                 {
                     // HID connection should be cleaned up by HID_SUBEVENT_CONNECTION_CLOSED
                     // but make sure gamepad is unmounted
+                    DBG("BTX: Warning: HID connection was not properly closed before ACL disconnection\n");
                     pad_umount(btx_slot_to_pad_idx(slot));
                 }
                 btx_connections[slot].active = false;
                 btx_connections[slot].hid_cid = 0;
-                btx_connections[slot].authenticated = false;
-                btx_connections[slot].hid_attempted = false;
 
-                // Clear device capability tracking
-                btx_connections[slot].capability_known = false;
-                btx_connections[slot].device_io_capability = 0;
-                btx_connections[slot].device_oob_data_present = 0;
-                btx_connections[slot].device_auth_requirement = 0;
+                DBG("BTX: Connection slot %d fully cleaned up and available for reuse\n", slot);
             }
         }
         else
@@ -389,81 +337,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         }
         break;
 
-    case HCI_EVENT_LINK_KEY_REQUEST:
-        hci_event_link_key_request_get_bd_addr(packet, event_addr);
-
-        // Check if this is an Xbox controller for special handling
-        bool is_xbox = (event_addr[0] == 0x9C) || (event_addr[0] == 0x58) || (event_addr[0] == 0x88);
-
-        if (is_xbox)
-        {
-            DBG("BTX: Link key request from XBOX CONTROLLER %s - forcing fresh authentication\n", bd_addr_to_str(event_addr));
-            DBG("BTX: This should trigger IO Capability Request and SSP authentication\n");
-        }
-        else
-        {
-            DBG("BTX: Link key request from %s - sending negative reply to force PIN authentication\n", bd_addr_to_str(event_addr));
-            DBG("BTX: This should trigger a PIN code request next\n");
-        }
-
-        // Always send negative reply to force fresh authentication (no stored keys)
-        hci_send_cmd(&hci_link_key_request_negative_reply, event_addr);
+    case HCI_EVENT_AUTHENTICATION_COMPLETE:
+        DBG("BTX: HCI_EVENT_AUTHENTICATION_COMPLETE\n");
         break;
-
-    case HCI_EVENT_LINK_KEY_NOTIFICATION:
-        DBG("BTX: Link key notification received\n");
-        break;
-
-    case HCI_EVENT_ROLE_CHANGE:
-    {
-        status = packet[2];
-        hci_event_role_change_get_bd_addr(packet, event_addr);
-        uint8_t new_role = packet[9];
-        if (status == 0)
-        {
-            DBG("BTX: Role change successful for %s, new role: %s\n",
-                bd_addr_to_str(event_addr),
-                new_role == HCI_ROLE_MASTER ? "MASTER" : "SLAVE");
-        }
-        else
-        {
-            DBG("BTX: Role change failed for %s, status: 0x%02x\n", bd_addr_to_str(event_addr), status);
-        }
-        break;
-    }
-
-    case HCI_EVENT_MODE_CHANGE:
-    {
-        status = packet[2];
-        uint16_t handle = little_endian_read_16(packet, 3);
-        uint8_t current_mode = packet[5];
-        uint16_t interval = little_endian_read_16(packet, 6);
-        if (status == 0)
-        {
-            const char *mode_str = "UNKNOWN";
-            switch (current_mode)
-            {
-            case 0x00:
-                mode_str = "ACTIVE";
-                break;
-            case 0x01:
-                mode_str = "HOLD";
-                break;
-            case 0x02:
-                mode_str = "SNIFF";
-                break;
-            case 0x03:
-                mode_str = "PARK";
-                break;
-            }
-            DBG("BTX: Mode change to %s for handle 0x%04x, interval: %d\n", mode_str, handle, interval);
-        }
-        else
-        {
-            DBG("BTX: Mode change failed for handle 0x%04x, status: 0x%02x\n", handle, status);
-        }
-        break;
-    }
 
     case HCI_EVENT_HID_META:
     {
@@ -485,14 +361,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                 btx_connections[slot].hid_cid = hid_cid;
                 DBG("BTX: Stored HID CID 0x%04x for connection slot %d\n", hid_cid, slot);
             }
-            else
-            {
-                DBG("BTX: WARNING: Could not find ACL connection slot for HID connection from %s\n", bd_addr_to_str(event_addr));
-            }
 
             // Always accept incoming HID connections when discoverable (BTStack pattern)
             hid_host_accept_connection(hid_cid, HID_PROTOCOL_MODE_REPORT_WITH_FALLBACK_TO_BOOT);
-            DBG("BTX: Accepting incoming HID connection with report protocol mode\n");
         }
         break;
 
@@ -564,36 +435,19 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                         if (mounted)
                         {
                             DBG("BTX: *** GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", i);
-                            btx_connections[i].mounted_without_descriptor = false; // Mounted with descriptor
                         }
                         else
                         {
                             DBG("BTX: Device at slot %d is NOT a gamepad - pad_mount returned false\n", i);
-                            DBG("BTX: Disconnecting non-gamepad device\n");
-
-                            // Clean up the connection since it's not a gamepad
+                            // Clean up the HID connection since it's not a gamepad, but keep ACL connection tracking
                             hid_host_disconnect(hid_cid);
-                            btx_connections[i].active = false;
+                            btx_connections[i].hid_cid = 0; // Clear HID CID but keep connection active for ACL cleanup
+                            DBG("BTX: HID connection disconnected for non-gamepad device, ACL connection still active\n");
                         }
                     }
                     else
                     {
                         DBG("BTX: Failed to get HID descriptor for device at slot %d, status: 0x%02x\n", i, status);
-
-                        // Device never sent descriptor - try fallback mounting with synthesized USB IDs
-                        DBG("BTX: Trying immediate mount without descriptor\n");
-                        bool mounted = pad_mount(btx_slot_to_pad_idx(i), NULL, 0, 0, 0, 0);
-                        if (mounted)
-                        {
-                            DBG("BTX: *** GAMEPAD CONFIRMED! *** Mounted with fallback method at slot %d\n", i);
-                            btx_connections[i].mounted_without_descriptor = true;
-                        }
-                        else
-                        {
-                            DBG("BTX: Device at slot %d is NOT a gamepad - fallback pad_mount returned false\n", i);
-                            hid_host_disconnect(hid_cid);
-                            btx_connections[i].active = false;
-                        }
                     }
                     break;
                 }
@@ -601,8 +455,9 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         }
         break;
 
-        case HID_SUBEVENT_CONNECTION_CLOSED:
-        {
+        case HID_SUBEVENT_CONNECTION_OPENED:
+            DBG("BTX: HID_SUBEVENT_CONNECTION_OPENED\n");
+
             uint16_t hid_cid = hid_subevent_connection_closed_get_hid_cid(packet);
 
             // Find and clean up the connection
@@ -610,17 +465,71 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             {
                 if (btx_connections[i].active && btx_connections[i].hid_cid == hid_cid)
                 {
+                    // hci_send_cmd(&hci_authentication_requested, btx_connections[i].acl_handle);
+                    break;
+                }
+            }
+
+            break;
+
+        case HID_SUBEVENT_CONNECTION_CLOSED:
+        {
+            uint16_t hid_cid = hid_subevent_connection_closed_get_hid_cid(packet);
+            DBG("BTX: HID_SUBEVENT_CONNECTION_CLOSED (0x03) - CID: 0x%04x\n", hid_cid);
+
+            // Find the connection and clean up HID-specific resources
+            for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+            {
+                if (btx_connections[i].active && btx_connections[i].hid_cid == hid_cid)
+                {
                     pad_umount(btx_slot_to_pad_idx(i));
-                    btx_connections[i].active = false;
-                    DBG("BTX: HID Host disconnected from gamepad at slot %d\n", i);
+                    btx_connections[i].hid_cid = 0; // Clear HID CID but keep connection active
+                    DBG("BTX: HID connection closed for slot %d (ACL connection still active, awaiting ACL disconnection)\n", i);
                     break;
                 }
             }
         }
         break;
 
+        case HID_SUBEVENT_SNIFF_SUBRATING_PARAMS:
+        {
+            uint16_t hid_cid = little_endian_read_16(packet, 3); // CID is typically at offset 3
+            DBG("BTX: HID_SUBEVENT_SNIFF_SUBRATING_PARAMS (0x0e) - CID: 0x%04x (power management event)\n", hid_cid);
+            // This is a power management event, no action needed
+        }
+        break;
+
         default:
-            DBG("BTX: Unknown HID subevent: 0x%02x (size: %d)\n", subevent, size);
+            // Provide context for common subevents
+            const char *subevent_name = "Unknown";
+            switch (subevent)
+            {
+            case 0x04:
+                subevent_name = "CAN_SEND_NOW";
+                break;
+            case 0x05:
+                subevent_name = "SUSPEND";
+                break;
+            case 0x06:
+                subevent_name = "EXIT_SUSPEND";
+                break;
+            case 0x07:
+                subevent_name = "VIRTUAL_CABLE_UNPLUG";
+                break;
+            case 0x08:
+                subevent_name = "GET_REPORT_RESPONSE";
+                break;
+            case 0x09:
+                subevent_name = "SET_REPORT_RESPONSE";
+                break;
+            case 0x0A:
+                subevent_name = "GET_PROTOCOL_RESPONSE";
+                break;
+            case 0x0B:
+                subevent_name = "SET_PROTOCOL_RESPONSE";
+                break;
+            }
+            DBG("BTX: Unhandled HID subevent: 0x%02x (%s) (size: %d)\n", subevent, subevent_name, size);
             if (size <= 32)
             {
                 DBG("BTX: HID event data: ");
@@ -634,59 +543,6 @@ static void btx_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         }
     }
     break;
-
-    case BTSTACK_EVENT_SCAN_MODE_CHANGED:
-    {
-        uint8_t discoverable = packet[2];
-        uint8_t connectable = packet[3];
-        DBG("BTX: Discoverable mode %d, connectable %d\n", discoverable, connectable);
-    }
-    break;
-
-    case HCI_EVENT_COMMAND_STATUS:
-    {
-        uint8_t status = packet[2];
-        uint16_t opcode = little_endian_read_16(packet, 4);
-
-        if (opcode == 0x0401)
-        { // HCI_Inquiry
-            if (status == 0)
-            {
-                DBG("BTX: Inquiry command accepted and running\n");
-            }
-            else
-            {
-                DBG("BTX: Inquiry command rejected with status: 0x%02x\n", status);
-            }
-        }
-        break;
-    }
-
-    case HCI_EVENT_IO_CAPABILITY_RESPONSE:
-    {
-        hci_event_io_capability_response_get_bd_addr(packet, event_addr);
-        uint8_t io_capability = hci_event_io_capability_response_get_io_capability(packet);
-        uint8_t oob_data_present = hci_event_io_capability_response_get_oob_data_present(packet);
-        uint8_t auth_requirement = hci_event_io_capability_response_get_authentication_requirements(packet);
-
-        // Store the device's actual requirements for future reference
-        int conn_slot = find_connection_by_addr(event_addr);
-        if (conn_slot >= 0)
-        {
-            btx_connections[conn_slot].capability_known = true;
-            btx_connections[conn_slot].device_io_capability = io_capability;
-            btx_connections[conn_slot].device_oob_data_present = oob_data_present;
-            btx_connections[conn_slot].device_auth_requirement = auth_requirement;
-            DBG("BTX: Stored device capabilities for slot %d: IO=0x%02x, OOB=%d, Auth=0x%02x\n",
-                conn_slot, io_capability, oob_data_present, auth_requirement);
-        }
-        else
-        {
-            DBG("BTX: Could not find connection slot to store device capabilities\n");
-        }
-
-        break;
-    }
 
     default:
         // Log events that might be relevant to gamepad pairing
@@ -763,15 +619,12 @@ static void btx_init_stack(void)
     // Enable SSP by default for modern gamepads
     gap_ssp_set_enable(1); // Enable SSP for modern gamepad compatibility
 
-    // Set IO capabilities for SSP - NoInputNoOutput is optimal for Xbox controllers
     // This is the GLOBAL default that will be used when IO Capability Request handler doesn't trigger
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    DBG("BTX: SSP enabled with NoInputNoOutput capability (global default for Xbox compatibility)\n");
 
-    // Set authentication requirements for SSP - no MITM for Xbox controllers
-    // Xbox controllers are very strict about these parameters
-    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_NO_BONDING);
-    DBG("BTX: SSP authentication set to no MITM protection (global default for Xbox compatibility)\n"); // Set bondable mode for both SSP and legacy pairing
+    // Set authentication requirements for SSP - use dedicated bonding for better gamepad compatibility
+    // Many gamepads expect bonding to store the pairing information permanently
+    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
     gap_set_bondable_mode(1);
     DBG("BTX: Bondable mode enabled\n");
 
@@ -792,51 +645,6 @@ void btx_task(void)
     {
         btx_init_stack();
         return;
-    }
-
-    absolute_time_t now = get_absolute_time();
-
-    // Static arrays to track connection timing and authentication attempts
-    static absolute_time_t connection_start_time[PAD_MAX_PLAYERS] = {0};
-    static bool auth_attempted[PAD_MAX_PLAYERS] = {false};
-
-    // Check for connections that might need authentication help
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-    {
-        if (btx_connections[i].active)
-        {
-            // Initialize timing for new connections
-            if (connection_start_time[i] == 0)
-            {
-                connection_start_time[i] = now;
-                auth_attempted[i] = false;
-            }
-
-            // If we've had an ACL connection for more than 3 seconds without authentication
-            // and we haven't already tried manual authentication
-            if (!btx_connections[i].authenticated &&
-                !auth_attempted[i] &&
-                absolute_time_diff_us(connection_start_time[i], now) > 3000 * 1000)
-            {
-
-                DBG("BTX: Connection at slot %d has been waiting for authentication for >3s\n", i);
-                DBG("BTX: Device: %s, Handle: 0x%04x\n",
-                    bd_addr_to_str(btx_connections[i].remote_addr),
-                    btx_connections[i].acl_handle);
-                DBG("BTX: Attempting to trigger authentication manually (one time only)...\n");
-
-                // Try to trigger authentication manually - but only once
-                // this is needed by ds4
-                hci_send_cmd(&hci_authentication_requested, btx_connections[i].acl_handle);
-                auth_attempted[i] = true;
-            }
-        }
-        else if (connection_start_time[i] != 0)
-        {
-            // Reset tracking when connection becomes inactive
-            connection_start_time[i] = 0;
-            auth_attempted[i] = false;
-        }
     }
 }
 
@@ -861,6 +669,7 @@ bool btx_start_pairing(void)
     // Make sure we're discoverable and connectable for incoming connections
     gap_discoverable_control(1);
     gap_connectable_control(1);
+    DBG("BTX: Enabled discoverable and connectable modes\n");
 
     // Try a simple inquiry first to see if the command works at all
     DBG("BTX: Attempting inquiry with LAP 0x9E8B33, length 0x08 (10.24s), num_responses 0x00 (unlimited)\n");
