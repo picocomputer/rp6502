@@ -7,7 +7,6 @@
 #ifndef RP6502_RIA_W
 #include "net/wfi.h"
 void btc_task(void) {}
-void btc_reset(void) {}
 void btc_start_pairing(void) {}
 #else
 
@@ -35,8 +34,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // then the btstack stops requesting HID descriptors forever.
 static_assert(MAX_NR_HID_HOST_CONNECTIONS == 1);
 
-#define BTC_CONNECTION_TIMEOUT_SECS 10
-
 // We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t btc_slot_to_pad_idx(int slot)
 {
@@ -44,11 +41,15 @@ static uint8_t btc_slot_to_pad_idx(int slot)
 }
 
 // Connection tracking for Classic HID Host
+#define BTC_CONNECTION_TIMEOUT_SECS 6
+#define BTC_HCI_TO_HID_TIMEOUT_SECS 10
 typedef struct
 {
+    // Until a connection has hid_cid, it is at risk of timing out
     absolute_time_t addr_valid_until;
     bd_addr_t remote_addr;
-    uint16_t hid_cid; // HID connection ID, BTStack leaves 0 for unused
+    // HID connection ID, BTStack leaves 0 for unused
+    uint16_t hid_cid;
 } btc_connection_t;
 
 static btc_connection_t btc_connections[MAX_NR_HCI_CONNECTIONS];
@@ -87,8 +88,8 @@ static int create_connection_entry(bd_addr_t addr)
                                   get_absolute_time()) > 0)
         {
 
-            btc_connections[i].addr_valid_until = make_timeout_time_ms(BTC_CONNECTION_TIMEOUT_SECS * 1000);
             memcpy(btc_connections[i].remote_addr, addr, BD_ADDR_LEN);
+            btc_connections[i].addr_valid_until = make_timeout_time_ms(BTC_CONNECTION_TIMEOUT_SECS * 1000);
             return i;
         }
     }
@@ -110,38 +111,37 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     switch (event_type)
     {
     case BTSTACK_EVENT_STATE:
-        uint8_t state = btstack_event_state_get_state(packet);
-        if (state == HCI_STATE_WORKING)
+        if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
-            DBG("BTX: Bluetooth Classic HID Host ready and working!\n");
-            gap_discoverable_control(1);
-            gap_connectable_control(1);
+            DBG("BTC: Bluetooth Classic HID Host ready and working!\n");
+            gap_discoverable_control(0); // HID host typically not discoverable
+            gap_connectable_control(1);  // Must be connectable for gamepads
         }
         break;
 
     case HCI_EVENT_PIN_CODE_REQUEST:
         hci_event_pin_code_request_get_bd_addr(packet, event_addr);
         const char *pin = "0000"; // Always 0000
-        DBG("BTX: HCI_EVENT_PIN_CODE_REQUEST from %s, using PIN '%s'\n", bd_addr_to_str(event_addr), pin);
+        DBG("BTC: HCI_EVENT_PIN_CODE_REQUEST from %s, using PIN '%s'\n", bd_addr_to_str(event_addr), pin);
         gap_pin_code_response(event_addr, pin);
         break;
 
     case HCI_EVENT_USER_CONFIRMATION_REQUEST:
         hci_event_user_confirmation_request_get_bd_addr(packet, event_addr);
         uint32_t numeric_value = hci_event_user_confirmation_request_get_numeric_value(packet);
-        DBG("BTX: HCI_EVENT_USER_CONFIRMATION_REQUEST from %s: %lu\n", bd_addr_to_str(event_addr), (unsigned long)numeric_value);
+        DBG("BTC: HCI_EVENT_USER_CONFIRMATION_REQUEST from %s: %lu\n", bd_addr_to_str(event_addr), (unsigned long)numeric_value);
         gap_ssp_confirmation_response(event_addr);
         break;
 
     case HCI_EVENT_USER_PASSKEY_REQUEST:
         hci_event_user_passkey_request_get_bd_addr(packet, event_addr);
-        DBG("BTX: HCI_EVENT_USER_PASSKEY_REQUEST from %s - using 0\n", bd_addr_to_str(event_addr));
+        DBG("BTC: HCI_EVENT_USER_PASSKEY_REQUEST from %s - using 0\n", bd_addr_to_str(event_addr));
         hci_send_cmd(&hci_user_passkey_request_reply, event_addr, 0);
         break;
 
     case HCI_EVENT_IO_CAPABILITY_REQUEST:
         hci_event_io_capability_request_get_bd_addr(packet, event_addr);
-        DBG("BTX: HCI_EVENT_IO_CAPABILITY_REQUEST\n");
+        DBG("BTC: HCI_EVENT_IO_CAPABILITY_REQUEST\n");
         uint8_t io_capability = SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT;
         uint8_t oob_data_present = 0x00;
         uint8_t auth_requirement = SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING;
@@ -149,19 +149,20 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         break;
 
     case HCI_EVENT_INQUIRY_COMPLETE:
-        DBG("BTX: HCI_EVENT_INQUIRY_COMPLETE\n");
+        DBG("BTC: HCI_EVENT_INQUIRY_COMPLETE\n");
+        uint8_t result = hci_send_cmd(&hci_inquiry, 0x9E8B33, 0x08, 0x00);
+        DBG("BTC: hci_send_cmd returned: %d\n", result);
         break;
 
     case HCI_EVENT_INQUIRY_RESULT:
     case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
-    case HCI_EVENT_EXTENDED_INQUIRY_RESPONSE:
     {
         hci_event_inquiry_result_get_bd_addr(packet, event_addr);
-        DBG("BTX: HCI_EVENT_INQUIRY_RESULT from %s\n", bd_addr_to_str(event_addr));
+        DBG("BTC: HCI_EVENT_INQUIRY_RESULT from %s\n", bd_addr_to_str(event_addr));
 
         uint32_t cod = hci_event_inquiry_result_get_class_of_device(packet);
         bool has_hid_service = (cod & (1 << 13)) != 0;
-        DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
+        DBG("BTC: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
         // don't create_connection_entry now so we try to hid_host_connect later
         hci_send_cmd(&hci_create_connection, event_addr, 0xCC18, 0x01, 0x00, 0x00, 0x01);
@@ -171,11 +172,11 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     case HCI_EVENT_CONNECTION_REQUEST:
         hci_event_connection_request_get_bd_addr(packet, event_addr);
         uint32_t cod = hci_event_connection_request_get_class_of_device(packet);
-        DBG("BTX: HCI_EVENT_CONNECTION_REQUEST from %s, CoD: 0x%06lx\n", bd_addr_to_str(event_addr), (unsigned long)cod);
+        DBG("BTC: HCI_EVENT_CONNECTION_REQUEST from %s, CoD: 0x%06lx\n", bd_addr_to_str(event_addr), (unsigned long)cod);
 
         // This doesn't work, xbox has this bit off
         bool has_hid_service = (cod & (1 << 13)) != 0;
-        DBG("BTX: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
+        DBG("BTC: HID service bit: %s\n", has_hid_service ? "Present" : "Not present");
 
         // create_connection_entry now so we don't try to hid_host_connect later
         create_connection_entry(event_addr);
@@ -183,16 +184,15 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         break;
 
     case HCI_EVENT_CONNECTION_COMPLETE:
-        DBG("BTX: HCI_EVENT_CONNECTION_COMPLETE\n");
+        DBG("BTC: HCI_EVENT_CONNECTION_COMPLETE\n");
         hci_event_connection_complete_get_bd_addr(packet, event_addr);
-        status = hci_event_connection_complete_get_status(packet);
-        if (status == 0)
+        if (!hci_event_connection_complete_get_status(packet))
         {
             // Only process ACL connections for gamepads (link_type == 0x01)
             uint8_t link_type = hci_event_connection_complete_get_link_type(packet);
             if (link_type != 0x01)
             {
-                DBG("BTX: Ignoring non-ACL connection (link_type: 0x%02x)\n", link_type);
+                DBG("BTC: Ignoring non-ACL connection (link_type: 0x%02x)\n", link_type);
                 break;
             }
 
@@ -200,11 +200,11 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             int slot = find_connection_by_addr(event_addr);
             if (slot < 0)
             {
-                DBG("BTX: Initiating HID connection\n");
+                DBG("BTC: Initiating HID connection\n");
                 slot = create_connection_entry(event_addr);
                 if (slot < 0)
                 {
-                    DBG("BTX: No slot available, should not happen\n");
+                    DBG("BTC: No slot available, should not happen\n");
                     break;
                 }
                 uint8_t hid_status = hid_host_connect(event_addr,
@@ -212,31 +212,30 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                                                       &btc_connections[slot].hid_cid);
                 if (hid_status != ERROR_CODE_SUCCESS)
                 {
-                    DBG("BTX: Failed to initiate HID connection to %s, status: 0x%02x\n",
+                    DBG("BTC: Failed to initiate HID connection to %s, status: 0x%02x\n",
                         bd_addr_to_str(event_addr), hid_status);
                 }
             }
             else
             {
-                DBG("BTX: Waiting for HID connection\n");
+                DBG("BTC: Waiting for HID connection\n");
             }
             // Refresh timeout
-            btc_connections[slot].addr_valid_until = make_timeout_time_ms(BTC_CONNECTION_TIMEOUT_SECS * 1000);
+            btc_connections[slot].addr_valid_until = make_timeout_time_ms(BTC_HCI_TO_HID_TIMEOUT_SECS * 1000);
         }
         break;
 
     case HCI_EVENT_AUTHENTICATION_COMPLETE:
-        DBG("BTX: HCI_EVENT_AUTHENTICATION_COMPLETE\n");
+        DBG("BTC: HCI_EVENT_AUTHENTICATION_COMPLETE\n");
         break;
 
     case HCI_EVENT_DISCONNECTION_COMPLETE:
-        DBG("BTX: HCI_EVENT_DISCONNECTION_COMPLETE\n");
+        DBG("BTC: HCI_EVENT_DISCONNECTION_COMPLETE\n");
         break;
 
     case HCI_EVENT_HID_META:
     {
         uint8_t subevent = hci_event_hid_meta_get_subevent_code(packet);
-        // DBG("BTX: HID META EVENT - Subevent: 0x%02x\n", subevent);
 
         switch (subevent)
         {
@@ -244,7 +243,7 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             uint16_t hid_cid = hid_subevent_incoming_connection_get_hid_cid(packet);
             hid_subevent_incoming_connection_get_address(packet, event_addr);
-            DBG("BTX: HID_SUBEVENT_INCOMING_CONNECTION from %s, CID: 0x%04x\n", bd_addr_to_str(event_addr), hid_cid);
+            DBG("BTC: HID_SUBEVENT_INCOMING_CONNECTION from %s, CID: 0x%04x\n", bd_addr_to_str(event_addr), hid_cid);
 
             // Find the existing ACL connection and store the hid_cid
             int slot = find_connection_by_addr(event_addr);
@@ -252,7 +251,7 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             {
                 btc_connections[slot].hid_cid = hid_cid;
                 btc_connections[slot].addr_valid_until = 0;
-                DBG("BTX: Stored HID CID 0x%04x for connection slot %d\n", hid_cid, slot);
+                DBG("BTC: Stored HID CID 0x%04x for connection slot %d\n", hid_cid, slot);
             }
 
             // Always accept incoming HID connections when discoverable (BTStack pattern)
@@ -277,7 +276,7 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t hid_cid = hid_subevent_descriptor_available_get_hid_cid(packet);
             status = hid_subevent_descriptor_available_get_status(packet);
 
-            DBG("BTX: HID_SUBEVENT_DESCRIPTOR_AVAILABLE - CID: 0x%04x, Status: 0x%02x\n", hid_cid, status);
+            DBG("BTC: HID_SUBEVENT_DESCRIPTOR_AVAILABLE - CID: 0x%04x, Status: 0x%02x\n", hid_cid, status);
 
             int slot = find_connection_by_hid_cid(hid_cid);
             if (slot >= 0)
@@ -289,12 +288,12 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                     bool mounted = pad_mount(btc_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0, 0);
                     if (mounted)
                     {
-                        DBG("BTX: *** GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", slot);
+                        DBG("BTC: *** GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", slot);
                         break;
                     }
                 }
             }
-            DBG("BTX: Failed to get HID descriptor for device at slot %d, status: 0x%02x\n", slot, status);
+            DBG("BTC: Failed to get HID descriptor for device at slot %d, status: 0x%02x\n", slot, status);
             hid_host_disconnect(hid_cid);
         }
         break;
@@ -303,31 +302,31 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             uint8_t status = hid_subevent_connection_opened_get_status(packet);
             uint16_t hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
-            DBG("BTX: HID_SUBEVENT_CONNECTION_OPENED - CID: 0x%04x, status: 0x%02x\n", hid_cid, status);
+            DBG("BTC: HID_SUBEVENT_CONNECTION_OPENED - CID: 0x%04x, status: 0x%02x\n", hid_cid, status);
             if (status != ERROR_CODE_SUCCESS)
-                DBG("BTX: HID connection failed, status: 0x%02x\n", status);
+                DBG("BTC: HID connection failed, status: 0x%02x\n", status);
         }
         break;
 
         case HID_SUBEVENT_CONNECTION_CLOSED:
         {
             uint16_t hid_cid = hid_subevent_connection_closed_get_hid_cid(packet);
-            DBG("BTX: HID_SUBEVENT_CONNECTION_CLOSED (0x03) - CID: 0x%04x\n", hid_cid);
+            DBG("BTC: HID_SUBEVENT_CONNECTION_CLOSED (0x03) - CID: 0x%04x\n", hid_cid);
             int slot = find_connection_by_hid_cid(hid_cid);
             if (slot >= 0)
             {
                 pad_umount(btc_slot_to_pad_idx(slot));
                 btc_connections[slot].hid_cid = 0;
-                DBG("BTX: HID connection closed for slot %d\n", slot);
+                DBG("BTC: HID connection closed for slot %d\n", slot);
             }
         }
         break;
 
         default:
-            // DBG("BTX: Unhandled HID subevent: 0x%02x (size: %d)\n", subevent, size);
+            // DBG("BTC: Unhandled HID subevent: 0x%02x (size: %d)\n", subevent, size);
             // if (size <= 32)
             // {
-            //     DBG("BTX: HID event data: ");
+            //     DBG("BTC: HID event data: ");
             //     for (int i = 0; i < size; i++)
             //     {
             //         DBG("%02x ", packet[i]);
@@ -340,11 +339,11 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
     break;
 
     default:
-        // DBG("BTX: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
+        // DBG("BTC: Unhandled HCI event 0x%02x (size: %d)\n", event_type, size);
         // // Print first few bytes for debugging only for potentially important events
         // if (size <= 16)
         // {
-        //     DBG("BTX: Event data: ");
+        //     DBG("BTC: Event data: ");
         //     for (int i = 0; i < size; i++)
         //     {
         //         DBG("%02x ", packet[i]);
@@ -365,35 +364,27 @@ static void btc_init_stack(void)
 
     // Initialize L2CAP (required for HID Host) - MUST be first
     l2cap_init();
-    DBG("BTX: L2CAP initialized\n");
 
     // Initialize SDP Server (needed for service records)
     sdp_init();
-    DBG("BTX: SDP server initialized\n");
 
     // Initialize HID Host BEFORE setting GAP parameters
     hid_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
     hid_host_register_packet_handler(btc_packet_handler);
-    DBG("BTX: HID host initialized and packet handler registered\n");
 
     // Register for HCI events BEFORE configuring GAP
     hci_event_callback_registration.callback = &btc_packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
-    DBG("BTX: HCI event handler registered\n");
 
     // Set default link policy to allow sniff mode
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE);
-    DBG("BTX: Link policy configured for sniff mode\n");
 
     // Try to become master on incoming connections (from BTStack example)
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
-    DBG("BTX: Master/slave policy set to prefer master role\n");
 
     // Set Class of Device to indicate HID capability
     // 0x002140 = Computer Major Class (0x01), Desktop Minor Class (0x01), with HID service bit 13 set
     gap_set_class_of_device(0x002140);
-    gap_set_local_name("RP6502");
-    DBG("BTX: Class of Device (computer with HID) and name configured\n");
 
     // Enable SSP by default for modern gamepads
     gap_ssp_set_enable(1); // Enable SSP for modern gamepad compatibility
@@ -405,11 +396,10 @@ static void btc_init_stack(void)
     // Many gamepads expect bonding to store the pairing information permanently
     gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
     gap_set_bondable_mode(1);
-    DBG("BTX: Bondable mode enabled\n");
 
     // Start the Bluetooth stack - this should be last
     hci_power_control(HCI_POWER_ON);
-    DBG("BTX: HCI power on command sent\n");
+    DBG("BTC: HCI power on command sent\n");
 }
 
 void btc_task(void)
@@ -430,39 +420,38 @@ bool btc_start_pairing(void)
 {
     if (!btc_initialized)
     {
-        DBG("BTX: Cannot start pairing - not initialized\n");
+        DBG("BTC: Cannot start pairing - not initialized\n");
         return false;
     }
 
-    DBG("BTX: *** STARTING ACTIVE GAMEPAD SEARCH ***\n");
+    DBG("BTC: *** STARTING ACTIVE GAMEPAD SEARCH ***\n");
 
     // Clear any existing link keys to prevent "PIN or Key Missing" errors
-    // This is especially important for Xbox One gamepads and other devices
-    // that may have stale bonding information from previous pairing attempts
     gap_delete_all_link_keys();
-    DBG("BTX: Cleared all existing link keys to prevent authentication errors\n");
 
     // Try a simple inquiry first to see if the command works at all
-    DBG("BTX: Attempting inquiry with LAP 0x9E8B33, length 0x08 (10.24s), num_responses 0x00 (unlimited)\n");
+    DBG("BTC: Attempting inquiry with LAP 0x9E8B33, length 0x08 (10.24s), num_responses 0x00 (unlimited)\n");
     // 0x9E8B33: General/Unlimited Inquiry Access Code (GIAC)
     // TODO what is correct length? 5-15 in examples
     uint8_t result = hci_send_cmd(&hci_inquiry, 0x9E8B33, 0x08, 0x00);
-    DBG("BTX: hci_send_cmd returned: %d\n", result);
+    DBG("BTC: hci_send_cmd returned: %d\n", result);
 
     // // Enable inquiry scan mode explicitly for better gamepad compatibility
     // hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
-    // DBG("BTX: Enabled both inquiry and page scan modes\n");
+    // DBG("BTC: Enabled both inquiry and page scan modes\n");
 
     // // Set inquiry scan parameters for better visibility
     // // Make inquiry scan more frequent and longer window for better gamepad discovery
     // hci_send_cmd(&hci_write_inquiry_scan_activity, 0x1000, 0x0800); // interval=0x1000, window=0x0800
-    // DBG("BTX: Enhanced inquiry scan parameters for better gamepad discovery\n");
+    // DBG("BTC: Enhanced inquiry scan parameters for better gamepad discovery\n");
 
     return true;
 }
 
-void btc_cyw_resetting(void)
+void btc_shutdown(void)
 {
+    if (btc_initialized)
+        hci_power_control(HCI_POWER_OFF);
     btc_initialized = false;
     for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
     {
@@ -473,12 +462,7 @@ void btc_cyw_resetting(void)
             btc_connections[i].hid_cid = 0;
         }
     }
-    DBG("BTX: All Bluetooth gamepad connections disconnected\n");
-}
-
-void btc_reset(void)
-{
-    // TODO shutdown pairing session?
+    DBG("BTC: All Bluetooth gamepad connections disconnected\n");
 }
 
 #endif /* RP6502_RIA_W */

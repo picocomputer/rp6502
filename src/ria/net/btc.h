@@ -14,13 +14,12 @@
  */
 
 void btc_task(void);
-void btc_reset(void);
 
 /* Utility
  */
 
 bool btc_start_pairing(void); // initiate Bluetooth gamepad pairing mode
 
-void btc_cyw_resetting(void); // called before cyw radio is turned off
+void btc_shutdown(void); // called before cyw radio is turned off
 
 #endif /* _BTX_H_ */

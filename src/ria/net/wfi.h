@@ -19,7 +19,7 @@ void wfi_task(void);
  */
 
 void wfi_print_status(void);
-void wfi_disconnect(void);
+void wfi_shutdown(void);
 bool wfi_ready(void);
 
 #endif /* _WFI_H_ */

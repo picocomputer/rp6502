@@ -115,8 +115,8 @@ bool cyw_validate_country_code(char *cc)
 
 void cyw_reset_radio(void)
 {
-    wfi_disconnect();
-    btc_cyw_resetting();
+    wfi_shutdown();
+    btc_shutdown();
     switch (cyw_state)
     {
     case cyw_state_initialized:

@@ -325,7 +325,7 @@ bool cfg_set_ssid(const char *ssid)
         {
             cfg_net_pass[0] = 0;
             strcpy(cfg_net_ssid, ssid);
-            wfi_disconnect();
+            wfi_shutdown();
             cfg_save_with_boot_opt(NULL);
         }
         return true;
@@ -345,7 +345,7 @@ bool cfg_set_pass(const char *pass)
         if (strcmp(cfg_net_pass, pass))
         {
             strcpy(cfg_net_pass, pass);
-            wfi_disconnect();
+            wfi_shutdown();
             cfg_save_with_boot_opt(NULL);
         }
         return true;

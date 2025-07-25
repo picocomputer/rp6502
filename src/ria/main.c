@@ -144,7 +144,6 @@ static void reset(void)
     ram_reset();
     rom_reset();
     vga_reset();
-    btc_reset();
 }
 
 // Triggered once after init then before every PHI2 clock change.

@@ -58,9 +58,11 @@ static const char __in_flash("helptext") hlp_text_about[] =
     "     Pi Pico SDKs - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
     "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
     "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
+    "          BTstack - Copyright (c) 2009 BlueKitchen GmbH\n"
     "            FatFs - Copyright (c) 20xx ChaN.\n"
     "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
     "                    Copyright (c) 2017 Arm Limited."
+// Note that BTstack HID descriptor parsing is used for non-W builds
 #ifdef RP6502_RIA_W
     "\n"
     "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"

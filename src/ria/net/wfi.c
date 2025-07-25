@@ -41,7 +41,7 @@ static absolute_time_t wfi_retry_timer;
 #define WFI_RETRY_INITIAL_SECS 2
 #define WFI_RETRY_SECS 60
 
-void wfi_disconnect(void)
+void wfi_shutdown(void)
 {
     switch (wfi_state)
     {
