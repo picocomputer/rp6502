@@ -31,6 +31,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <string.h>
 #include "pico/time.h"
 
+// Standard Bluetooth HID Report Map characteristic UUID
+#define ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP 0x2A4B
+
 // We can use the same indexing as hid and xin and btc so long as we keep clear
 static uint8_t ble_slot_to_pad_idx(int slot)
 {
@@ -68,23 +71,6 @@ static int ble_num_connected(void)
     return num;
 }
 
-static void ble_hid_report_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
-{
-    UNUSED(packet_type);
-    UNUSED(channel);
-
-    if (size < 4)
-        return; // Need at least handle + data
-
-    UNUSED(packet); // Remove unused variable warnings for now
-
-    // Find connection by GATT handle (simplified - would need proper handle mapping)
-    for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-    {
-        // TODO
-    }
-}
-
 static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     UNUSED(channel);
@@ -119,7 +105,7 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gap_event_advertising_report_get_address(packet, event_addr);
         addr_type = gap_event_advertising_report_get_address_type(packet);
         UNUSED(gap_event_advertising_report_get_advertising_event_type(packet)); // Suppress unused warning
-        uint8_t rssi = gap_event_advertising_report_get_rssi(packet);
+        UNUSED(gap_event_advertising_report_get_rssi(packet)); // Suppress unused warning
         uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
         const uint8_t *data = gap_event_advertising_report_get_data(packet);
 
@@ -152,27 +138,17 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
             // Restart scanning to discover more BLE gamepads
             gap_start_scan();
-
-            // Check if GATT client is ready before discovering services
-            if (gatt_client_is_ready(connection_handle))
-            {
-                uint8_t status = gatt_client_discover_primary_services_by_uuid16(ble_hid_report_handler,
-                                                                                 connection_handle,
-                                                                                 ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
-                if (status != ERROR_CODE_SUCCESS)
-                {
-                    DBG("BLE: Failed to start service discovery, status: 0x%02x\n", status);
-                }
-            }
-            else
-            {
-                DBG("BLE: GATT client not ready for connection handle 0x%04x\n", connection_handle);
-            }
             break;
 
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
             connection_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
             DBG("BLE: Connection Update Complete - Handle: 0x%04x\n", connection_handle);
+
+            // Start HID service discovery - only here after connection parameters are set
+            DBG("BLE: Starting HID service discovery...\n");
+            gatt_client_discover_primary_services_by_uuid16(ble_packet_handler,
+                                                            connection_handle,
+                                                            ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
             break;
         }
         break;
@@ -192,9 +168,10 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gatt_client_service_t service;
         gatt_event_service_query_result_get_service(packet, &service);
 
-        DBG("BLE: HID Service found - Handle: 0x%04x, discovering characteristics...\n", connection_handle);
+        DBG("BLE: HID Service found - Handle: 0x%04x, UUID: 0x%04x, discovering characteristics...\n",
+            connection_handle, service.uuid16);
 
-        gatt_client_discover_characteristics_for_service(ble_hid_report_handler,
+        gatt_client_discover_characteristics_for_service(ble_packet_handler,
                                                          connection_handle, &service);
         break;
     }
@@ -205,13 +182,20 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gatt_client_characteristic_t characteristic;
         gatt_event_characteristic_query_result_get_characteristic(packet, &characteristic);
 
+        DBG("BLE: Found characteristic - Handle: 0x%04x, UUID: 0x%04x\n",
+            connection_handle, characteristic.uuid16);
+
         // Check if this is the Report Map characteristic (0x2A4B)
         if (characteristic.uuid16 == ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP)
         {
             DBG("BLE: Found Report Map characteristic, reading HID descriptor...\n");
             // Read the HID descriptor
-            gatt_client_read_value_of_characteristic(ble_hid_report_handler,
+            gatt_client_read_value_of_characteristic(ble_packet_handler,
                                                      connection_handle, &characteristic);
+        }
+        else
+        {
+            DBG("BLE: Found characteristic UUID: 0x%04x (not Report Map)\n", characteristic.uuid16);
         }
         break;
     }
