@@ -5,6 +5,7 @@
  */
 
 #include "btstack.h"
+#include "ble/gatt-service/hids_client.h"
 #include "net/ble.h"
 
 #if !defined(RP6502_RIA_W) || !defined(ENABLE_BLE)
@@ -31,31 +32,18 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <string.h>
 #include "pico/time.h"
 
-// Standard Bluetooth HID Report Map characteristic UUID
-#define ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP 0x2A4B
+// BLE HID connection tracking
 
 // We can use the same indexing as hid and xin and btc so long as we keep clear
+// TODO keep for later
 static uint8_t ble_slot_to_pad_idx(int slot)
 {
     return CFG_TUH_HID + PAD_MAX_PLAYERS + MAX_NR_HCI_CONNECTIONS + slot;
 }
 
-// Connection tracking for BLE HID devices
-#define BLE_CONNECTION_TIMEOUT_SECS 10
-#define BLE_MAX_CONNECTIONS 4
-typedef struct
-{
-    uint8_t unknown; // TODO
-    // bd_addr_t remote_addr;
-    // uint16_t connection_handle;
-    // bool connected;
-    // bool hid_service_found;
-} ble_connection_t;
-
-static ble_connection_t ble_connections[BLE_MAX_CONNECTIONS];
 static bool ble_initialized;
 
-// BTStack state - BLE Central and GATT Client
+// BTStack state - BLE Central and HIDS Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static btstack_packet_callback_registration_t sm_event_callback_registration;
 
@@ -65,10 +53,95 @@ static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
 static int ble_num_connected(void)
 {
     int num = 0;
-    for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-        if (ble_connections[i].unknown)
-            ++num;
+    // for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
+    //     if (ble_connections[i].connected)
+    //         ++num;
     return num;
+}
+
+static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
+{
+    UNUSED(packet_type);
+    UNUSED(channel);
+    UNUSED(size);
+
+    if (packet_type != HCI_EVENT_PACKET)
+        return;
+
+    uint8_t event_type = hci_event_packet_get_type(packet);
+
+    if (event_type != HCI_EVENT_GATTSERVICE_META)
+        return;
+
+    uint8_t subevent_code = hci_event_gattservice_meta_get_subevent_code(packet);
+
+    switch (subevent_code)
+    {
+    case GATTSERVICE_SUBEVENT_HID_SERVICE_CONNECTED:
+    {
+        uint16_t cid = gattservice_subevent_hid_service_connected_get_hids_cid(packet);
+        uint8_t status = gattservice_subevent_hid_service_connected_get_status(packet);
+        if (status == ERROR_CODE_SUCCESS)
+        {
+            DBG("BLE: HID service connected successfully, CID: 0x%04x\n", cid);
+
+            // Access the HID descriptor that was automatically retrieved during connection
+            const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
+            uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
+
+            if (descriptor && descriptor_len > 0)
+            {
+                DBG("BLE: HID descriptor available (%d bytes)\n", descriptor_len);
+
+                // Print first few bytes of descriptor for debugging
+                DBG("BLE: Descriptor data: ");
+                for (int i = 0; i < (descriptor_len < 16 ? descriptor_len : 16); i++)
+                {
+                    DBG("%02x ", descriptor[i]);
+                }
+                DBG("\n");
+            }
+            else
+            {
+                DBG("BLE: No HID descriptor available yet\n");
+            }
+        }
+        else
+        {
+            DBG("BLE: HID service connection failed, CID: 0x%04x, status: 0x%02x\n", cid, status);
+        }
+        break;
+    }
+
+    case GATTSERVICE_SUBEVENT_HID_REPORT:
+    {
+        // Handle incoming HID reports (gamepad input)
+        uint16_t cid = gattservice_subevent_hid_report_get_hids_cid(packet);
+        uint8_t service_index = gattservice_subevent_hid_report_get_service_index(packet);
+        uint8_t report_id = gattservice_subevent_hid_report_get_report_id(packet);
+        const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
+        uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
+
+        DBG("BLE: Got HID report (CID: 0x%04x, service %d, id %d, %d bytes) - gamepad data!\n",
+            cid, service_index, report_id, report_len);
+
+        // TODO: Process the HID report data for gamepad input
+        // This is where you would parse the report and update gamepad state
+
+        break;
+    }
+
+    case GATTSERVICE_SUBEVENT_HID_SERVICE_DISCONNECTED:
+    {
+        uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
+        DBG("BLE: HID service disconnected, CID: 0x%04x\n", cid);
+        break;
+    }
+
+    default:
+        DBG("BLE: Unhandled HIDS client event: 0x%02x\n", subevent_code);
+        break;
+    }
 }
 
 static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -90,27 +163,18 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             DBG("BLE: Bluetooth LE Central ready and working!\n");
-
-            // Set up scanning parameters - always ready to discover BLE gamepads
             gap_set_scan_parameters(0, 0x0030, 0x0030);
-
-            // Start scanning by default so we can always discover BLE gamepads
             gap_start_scan();
-
             DBG("BLE: Started scanning - ready to discover BLE gamepads\n");
         }
         break;
+
     case GAP_EVENT_ADVERTISING_REPORT:
     {
         gap_event_advertising_report_get_address(packet, event_addr);
         addr_type = gap_event_advertising_report_get_address_type(packet);
-        UNUSED(gap_event_advertising_report_get_advertising_event_type(packet)); // Suppress unused warning
-        UNUSED(gap_event_advertising_report_get_rssi(packet)); // Suppress unused warning
         uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
         const uint8_t *data = gap_event_advertising_report_get_data(packet);
-
-        // DBG("BLE: Advertisement from %s (type: %d, RSSI: %d dBm)\n",
-        //     bd_addr_to_str(event_addr), addr_type, rssi);
 
         // Check if this device advertises HID service (gamepad)
         if (ad_data_contains_uuid16(data_length, (uint8_t *)data, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
@@ -144,11 +208,18 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             connection_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
             DBG("BLE: Connection Update Complete - Handle: 0x%04x\n", connection_handle);
 
-            // Start HID service discovery - only here after connection parameters are set
-            DBG("BLE: Starting HID service discovery...\n");
-            gatt_client_discover_primary_services_by_uuid16(ble_packet_handler,
-                                                            connection_handle,
-                                                            ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
+            // Start HID service discovery using HIDS client
+            hci_con_handle_t hids_cid;
+            uint8_t status = hids_client_connect(connection_handle, ble_hids_client_handler,
+                                                 HID_PROTOCOL_MODE_REPORT, &hids_cid);
+            if (status == ERROR_CODE_SUCCESS)
+            {
+                DBG("BLE: HIDS client connection started, CID: 0x%04x\n", hids_cid);
+            }
+            else
+            {
+                DBG("BLE: HIDS client connection failed: 0x%02x\n", status);
+            }
             break;
         }
         break;
@@ -158,87 +229,11 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         connection_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", connection_handle);
 
-        // BLE gamepad disconnected - restart scanning to discover more gamepads
+        // Restart scanning to discover more gamepads
         gap_start_scan();
         break;
 
-    case GATT_EVENT_SERVICE_QUERY_RESULT:
-    {
-        connection_handle = gatt_event_service_query_result_get_handle(packet);
-        gatt_client_service_t service;
-        gatt_event_service_query_result_get_service(packet, &service);
-
-        DBG("BLE: HID Service found - Handle: 0x%04x, UUID: 0x%04x, discovering characteristics...\n",
-            connection_handle, service.uuid16);
-
-        gatt_client_discover_characteristics_for_service(ble_packet_handler,
-                                                         connection_handle, &service);
-        break;
-    }
-
-    case GATT_EVENT_CHARACTERISTIC_QUERY_RESULT:
-    {
-        connection_handle = gatt_event_characteristic_query_result_get_handle(packet);
-        gatt_client_characteristic_t characteristic;
-        gatt_event_characteristic_query_result_get_characteristic(packet, &characteristic);
-
-        DBG("BLE: Found characteristic - Handle: 0x%04x, UUID: 0x%04x\n",
-            connection_handle, characteristic.uuid16);
-
-        // Check if this is the Report Map characteristic (0x2A4B)
-        if (characteristic.uuid16 == ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP)
-        {
-            DBG("BLE: Found Report Map characteristic, reading HID descriptor...\n");
-            // Read the HID descriptor
-            gatt_client_read_value_of_characteristic(ble_packet_handler,
-                                                     connection_handle, &characteristic);
-        }
-        else
-        {
-            DBG("BLE: Found characteristic UUID: 0x%04x (not Report Map)\n", characteristic.uuid16);
-        }
-        break;
-    }
-
-    case GATT_EVENT_CHARACTERISTIC_VALUE_QUERY_RESULT:
-    {
-        connection_handle = gatt_event_characteristic_value_query_result_get_handle(packet);
-        uint16_t value_length = gatt_event_characteristic_value_query_result_get_value_length(packet);
-        const uint8_t *value = gatt_event_characteristic_value_query_result_get_value(packet);
-
-        DBG("BLE: Got HID descriptor (%d bytes), checking if it's a gamepad...\n", value_length);
-
-        int slot = 0; //////// TODO
-        if (slot >= 0)
-        {
-            // Try to mount with the actual HID descriptor
-            bool mounted = pad_mount(ble_slot_to_pad_idx(slot), value, value_length, 0, 0, 0);
-            if (mounted)
-            {
-                DBG("BLE: *** HID GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", slot);
-            }
-            else
-            {
-                DBG("BLE: HID descriptor indicates non-gamepad device, disconnecting...\n");
-                gap_disconnect(connection_handle);
-            }
-        }
-        break;
-    }
-
-    case GATT_EVENT_QUERY_COMPLETE:
-        connection_handle = gatt_event_query_complete_get_handle(packet);
-        uint8_t att_status = gatt_event_query_complete_get_att_status(packet);
-
-        DBG("BLE: GATT Query Complete - Handle: 0x%04x, Status: 0x%02x\n",
-            connection_handle, att_status);
-
-        if (att_status != ATT_ERROR_SUCCESS)
-            gap_disconnect(connection_handle);
-        break;
-
     default:
-        // DBG("BLE: Unhandled HCI event 0x%02x\n", event_type);
         break;
     }
 }
@@ -280,9 +275,6 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
 static void ble_init_stack(void)
 {
-    // Clear connection array
-    memset(ble_connections, 0, sizeof(ble_connections));
-
     // Initialize L2CAP
     l2cap_init();
 
@@ -308,7 +300,7 @@ static void ble_init_stack(void)
     // Start the Bluetooth stack
     hci_power_control(HCI_POWER_ON);
 
-    DBG("BLE: Initialized\n");
+    DBG("BLE: Initialized with HIDS client\n");
 }
 
 void ble_task(void)
