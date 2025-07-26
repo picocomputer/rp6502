@@ -59,44 +59,6 @@ static btstack_packet_callback_registration_t sm_event_callback_registration;
 // Storage for HID descriptors - BLE only
 static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
 
-// static int find_connection_by_handle(uint16_t connection_handle)
-// {
-//     for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-//         if (ble_connections[i].connected && ble_connections[i].connection_handle == connection_handle)
-//             return i;
-//     return -1;
-// }
-
-// static int create_connection_entry(bd_addr_t addr, uint8_t addr_type, uint16_t connection_handle)
-// {
-//     for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-//     {
-//         if (!ble_connections[i].connected)
-//         {
-//             memcpy(ble_connections[i].remote_addr, addr, BD_ADDR_LEN);
-//             // ble_connections[i].addr_type = addr_type;
-//             ble_connections[i].connection_handle = connection_handle;
-//             ble_connections[i].connected = true;
-//             ble_connections[i].hid_service_found = false;
-//             return i;
-//         }
-//     }
-//     return -1;
-// }
-
-// static void remove_connection_entry(int slot)
-// {
-//     if (slot >= 0 && slot < BLE_MAX_CONNECTIONS)
-//     {
-//         if (ble_connections[slot].connected)
-//         {
-//             pad_umount(ble_slot_to_pad_idx(slot));
-//             memset(&ble_connections[slot], 0, sizeof(ble_connection_t));
-//             DBG("BLE: Removed connection slot %d\n", slot);
-//         }
-//     }
-// }
-
 static int ble_num_connected(void)
 {
     int num = 0;
@@ -142,24 +104,35 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             DBG("BLE: Bluetooth LE Central ready and working!\n");
-            gap_set_scan_parameters(0, 0x0030, 0x0030); // Set scan parameters
+
+            // Set up scanning parameters - always ready to discover BLE gamepads
+            gap_set_scan_parameters(0, 0x0030, 0x0030);
+
+            // Start scanning by default so we can always discover BLE gamepads
+            gap_start_scan();
+
+            DBG("BLE: Started scanning - ready to discover BLE gamepads\n");
         }
         break;
-
     case GAP_EVENT_ADVERTISING_REPORT:
     {
         gap_event_advertising_report_get_address(packet, event_addr);
         addr_type = gap_event_advertising_report_get_address_type(packet);
         UNUSED(gap_event_advertising_report_get_advertising_event_type(packet)); // Suppress unused warning
         uint8_t rssi = gap_event_advertising_report_get_rssi(packet);
-        // uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
-        // const uint8_t *data = gap_event_advertising_report_get_data(packet);
+        uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
+        const uint8_t *data = gap_event_advertising_report_get_data(packet);
 
-        DBG("BLE: Advertisement from %s (type: %d, RSSI: %d dBm)\n",
-            bd_addr_to_str(event_addr), addr_type, rssi);
+        // DBG("BLE: Advertisement from %s (type: %d, RSSI: %d dBm)\n",
+        //     bd_addr_to_str(event_addr), addr_type, rssi);
 
-        gap_stop_scan();
-        gap_connect(event_addr, addr_type);
+        // Check if this device advertises HID service (gamepad)
+        if (ad_data_contains_uuid16(data_length, (uint8_t *)data, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
+        {
+            DBG("BLE: Found HID device, connecting...\n");
+            gap_stop_scan(); // Stop scanning while connecting
+            gap_connect(event_addr, addr_type);
+        }
         break;
     }
 
@@ -177,9 +150,24 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             DBG("BLE: LE Connection Complete - Handle: 0x%04x, Address: %s\n",
                 connection_handle, bd_addr_to_str(event_addr));
 
-            gatt_client_discover_primary_services_by_uuid16(ble_hid_report_handler,
-                                                            connection_handle,
-                                                            ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
+            // Restart scanning to discover more BLE gamepads
+            gap_start_scan();
+
+            // Check if GATT client is ready before discovering services
+            if (gatt_client_is_ready(connection_handle))
+            {
+                uint8_t status = gatt_client_discover_primary_services_by_uuid16(ble_hid_report_handler,
+                                                                                 connection_handle,
+                                                                                 ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
+                if (status != ERROR_CODE_SUCCESS)
+                {
+                    DBG("BLE: Failed to start service discovery, status: 0x%02x\n", status);
+                }
+            }
+            else
+            {
+                DBG("BLE: GATT client not ready for connection handle 0x%04x\n", connection_handle);
+            }
             break;
 
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
@@ -194,6 +182,8 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         connection_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", connection_handle);
 
+        // BLE gamepad disconnected - restart scanning to discover more gamepads
+        gap_start_scan();
         break;
 
     case GATT_EVENT_SERVICE_QUERY_RESULT:
@@ -350,36 +340,56 @@ void ble_task(void)
 void ble_set_config(uint8_t bt)
 {
     if (bt == 0)
+    {
         ble_shutdown();
+        return;
+    }
+
+    // BLE stack should always be initialized to scan for and connect to gamepads
+    if (!ble_initialized && cyw_ready())
+    {
+        ble_init_stack();
+        ble_initialized = true;
+    }
+
+    if (!ble_initialized)
+        return;
+
     if (bt == 2)
     {
-        gap_set_scan_parameters(0, 0x0030, 0x0030); // Active scanning
+        // Pairing mode - actively scan for BLE gamepads
         gap_start_scan();
+        DBG("BLE: Pairing mode enabled - actively scanning for BLE gamepads\n");
     }
-    else
-        gap_stop_scan();
+    else if (bt == 1)
+    {
+        // Normal mode - still scan but maybe less aggressively (for now, same as pairing mode)
+        gap_start_scan();
+        DBG("BLE: Normal mode - scanning for BLE gamepads\n");
+    }
 }
-
 void ble_shutdown(void)
 {
     if (ble_initialized)
     {
-        // gap_stop_scan();
+        // Stop scanning for BLE gamepads
+        gap_stop_scan();
 
-        // gap_disconnect all active connections ?? TODO
+        // TODO: Disconnect all active connections
 
         hci_power_control(HCI_POWER_OFF);
+
+        DBG("BLE: Shutdown complete - stopped scanning\n");
     }
 
     ble_initialized = false;
-    DBG("BLE: All Bluetooth LE gamepad connections disconnected\n");
 }
 
 void ble_print_status(void)
 {
     printf("BLE : %s%s%s\n",
            cfg_get_bt() ? "On" : "Off",
-           false ? ", Pairing" : "??",
+           cfg_get_bt() == 2 ? ", Pairing" : "",
            ble_num_connected() ? ", Connected" : "");
 }
 
