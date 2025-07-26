@@ -8,6 +8,7 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
+#include "net/ble.h"
 #include "net/btc.h"
 
 static void set_print_phi2(void)
@@ -233,6 +234,7 @@ static void set_pass(const char *args, size_t len)
 static void set_print_bt(void)
 {
     btc_print_status();
+    ble_print_status();
 }
 
 static void set_bt(const char *args, size_t len)
