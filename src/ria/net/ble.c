@@ -61,17 +61,15 @@ static int ble_num_connected(void)
 
 static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
-    UNUSED(packet_type);
     UNUSED(channel);
     UNUSED(size);
 
-    if (packet_type != HCI_EVENT_PACKET)
+    // For HIDS client, packet_type should be the GATT service meta event type (0xf2)
+    if (packet_type != 0xf2)
+    {
+        DBG("BLE: HIDS client handler - unexpected packet type, returning\n");
         return;
-
-    uint8_t event_type = hci_event_packet_get_type(packet);
-
-    if (event_type != HCI_EVENT_GATTSERVICE_META)
-        return;
+    }
 
     uint8_t subevent_code = hci_event_gattservice_meta_get_subevent_code(packet);
 
@@ -100,6 +98,18 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
                     DBG("%02x ", descriptor[i]);
                 }
                 DBG("\n");
+
+                // Enable notifications for HID input reports - this is crucial!
+                DBG("BLE: Enabling HID input report notifications...\n");
+                uint8_t enable_status = hids_client_enable_notifications(cid);
+                if (enable_status == ERROR_CODE_SUCCESS)
+                {
+                    DBG("BLE: Successfully requested HID notification enablement\n");
+                }
+                else
+                {
+                    DBG("BLE: Failed to enable HID notifications, status: 0x%02x\n", enable_status);
+                }
             }
             else
             {
@@ -122,8 +132,16 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
 
-        DBG("BLE: Got HID report (CID: 0x%04x, service %d, id %d, %d bytes) - gamepad data!\n",
+        DBG("BLE: Got HID report (CID: 0x%04x, service %d, id %d, %d bytes)\n",
             cid, service_index, report_id, report_len);
+
+        // Print the raw report data for debugging
+        DBG("BLE: Report data: ");
+        for (int i = 0; i < report_len && i < 16; i++)
+        {
+            DBG("%02x ", report[i]);
+        }
+        DBG("\n");
 
         // TODO: Process the HID report data for gamepad input
         // This is where you would parse the report and update gamepad state
@@ -135,6 +153,20 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         DBG("BLE: HID service disconnected, CID: 0x%04x\n", cid);
+        break;
+    }
+
+    case GATTSERVICE_SUBEVENT_HID_REPORT_WRITTEN:
+    {
+        uint16_t cid = gattservice_subevent_hid_report_written_get_hids_cid(packet);
+        DBG("BLE: HID report written, CID: 0x%04x\n", cid);
+        break;
+    }
+
+    case GATTSERVICE_SUBEVENT_HID_INFORMATION:
+    {
+        uint16_t cid = gattservice_subevent_hid_information_get_hids_cid(packet);
+        DBG("BLE: HID information received, CID: 0x%04x\n", cid);
         break;
     }
 
@@ -233,8 +265,6 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gap_start_scan();
         break;
 
-    default:
-        break;
     }
 }
 
