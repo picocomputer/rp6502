@@ -36,12 +36,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // We can use the same indexing as hid and xin and btc so long as we keep clear
 // TODO keep for later
-static uint8_t ble_slot_to_pad_idx(int slot)
+static uint8_t ble_cid_to_pad_idx(int cid)
 {
-    return CFG_TUH_HID + PAD_MAX_PLAYERS + MAX_NR_HCI_CONNECTIONS + slot;
+    return CFG_TUH_HID + PAD_MAX_PLAYERS + MAX_NR_HCI_CONNECTIONS + cid;
 }
 
 static bool ble_initialized;
+static bool ble_pairing;
 
 // BTStack state - BLE Central and HIDS Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -64,14 +65,30 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     UNUSED(channel);
     UNUSED(size);
 
-    // For HIDS client, packet_type should be the GATT service meta event type (0xf2)
-    if (packet_type != 0xf2)
+    uint8_t subevent_code;
+
+    // HIDS client callback can receive either HCI_EVENT_PACKET or HCI_EVENT_GATTSERVICE_META directly
+    if (packet_type == HCI_EVENT_PACKET)
     {
-        DBG("BLE: HIDS client handler - unexpected packet type, returning\n");
+        // Standard BTstack events wrapped in HCI_EVENT_PACKET
+        uint8_t event_type = hci_event_packet_get_type(packet);
+        if (event_type != HCI_EVENT_GATTSERVICE_META)
+        {
+            DBG("BLE: HIDS client handler - unexpected event type 0x%02x in HCI packet, returning\n", event_type);
+            return;
+        }
+        subevent_code = hci_event_gattservice_meta_get_subevent_code(packet);
+    }
+    else if (packet_type == HCI_EVENT_GATTSERVICE_META)
+    {
+        // HID reports come directly as HCI_EVENT_GATTSERVICE_META (0xf2)
+        subevent_code = hci_event_gattservice_meta_get_subevent_code(packet);
+    }
+    else
+    {
+        DBG("BLE: HIDS client handler - unexpected packet type 0x%02x, returning\n", packet_type);
         return;
     }
-
-    uint8_t subevent_code = hci_event_gattservice_meta_get_subevent_code(packet);
 
     switch (subevent_code)
     {
@@ -132,16 +149,22 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
 
-        DBG("BLE: Got HID report (CID: 0x%04x, service %d, id %d, %d bytes)\n",
-            cid, service_index, report_id, report_len);
-
-        // Print the raw report data for debugging
-        DBG("BLE: Report data: ");
-        for (int i = 0; i < report_len && i < 16; i++)
+        static bool printed = false;
+        if (!printed)
         {
-            DBG("%02x ", report[i]);
+            printed = true;
+
+            DBG("BLE: Got HID report (CID: 0x%04x, service %d, id %d, %d bytes)\n",
+                cid, service_index, report_id, report_len);
+
+            // Print the raw report data for debugging
+            DBG("BLE: Report data: ");
+            for (int i = 0; i < report_len && i < 16; i++)
+            {
+                DBG("%02x ", report[i]);
+            }
+            DBG("\n");
         }
-        DBG("\n");
 
         // TODO: Process the HID report data for gamepad input
         // This is where you would parse the report and update gamepad state
@@ -176,7 +199,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     }
 }
 
-static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
+static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     UNUSED(channel);
     UNUSED(size);
@@ -231,22 +254,17 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
             DBG("BLE: LE Connection Complete - Handle: 0x%04x, Address: %s\n",
                 connection_handle, bd_addr_to_str(event_addr));
-
-            // Restart scanning to discover more BLE gamepads
-            gap_start_scan();
             break;
 
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
             connection_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
             DBG("BLE: Connection Update Complete - Handle: 0x%04x\n", connection_handle);
 
-            // Start HID service discovery using HIDS client
-            hci_con_handle_t hids_cid;
             uint8_t status = hids_client_connect(connection_handle, ble_hids_client_handler,
-                                                 HID_PROTOCOL_MODE_REPORT, &hids_cid);
+                                                 HID_PROTOCOL_MODE_REPORT, NULL);
             if (status == ERROR_CODE_SUCCESS)
             {
-                DBG("BLE: HIDS client connection started, CID: 0x%04x\n", hids_cid);
+                DBG("BLE: HIDS client connection started\n");
             }
             else
             {
@@ -264,7 +282,6 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         // Restart scanning to discover more gamepads
         gap_start_scan();
         break;
-
     }
 }
 
@@ -280,12 +297,23 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
     {
     case SM_EVENT_JUST_WORKS_REQUEST:
         DBG("BLE: SM Just Works Request\n");
-        sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+        if (ble_pairing)
+            sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
         break;
 
     case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
         DBG("BLE: SM Numeric Comparison Request\n");
-        sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
+        if (ble_pairing)
+            sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
+        break;
+
+    case SM_EVENT_AUTHORIZATION_REQUEST:
+        DBG("BLE: SM Authorization Request\n");
+        if (!ble_pairing)
+        {
+            DBG("BLE: Declining authorization - not in pairing mode\n");
+            sm_bonding_decline(sm_event_authorization_request_get_handle(packet));
+        }
         break;
 
     case SM_EVENT_PASSKEY_DISPLAY_NUMBER:
@@ -320,7 +348,7 @@ static void ble_init_stack(void)
     hids_client_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
 
     // Register for HCI events
-    hci_event_callback_registration.callback = &ble_packet_handler;
+    hci_event_callback_registration.callback = &ble_hci_packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
 
     // Register for SM events
@@ -351,36 +379,16 @@ void ble_set_config(uint8_t bt)
         return;
     }
 
-    // BLE stack should always be initialized to scan for and connect to gamepads
-    if (!ble_initialized && cyw_ready())
-    {
-        ble_init_stack();
-        ble_initialized = true;
-    }
-
-    if (!ble_initialized)
-        return;
-
     if (bt == 2)
-    {
-        // Pairing mode - actively scan for BLE gamepads
-        gap_start_scan();
-        DBG("BLE: Pairing mode enabled - actively scanning for BLE gamepads\n");
-    }
-    else if (bt == 1)
-    {
-        // Normal mode - still scan but maybe less aggressively (for now, same as pairing mode)
-        gap_start_scan();
-        DBG("BLE: Normal mode - scanning for BLE gamepads\n");
-    }
+        ble_pairing = true;
+    else
+        ble_pairing = false;
 }
+
 void ble_shutdown(void)
 {
     if (ble_initialized)
     {
-        // Stop scanning for BLE gamepads
-        gap_stop_scan();
-
         // TODO: Disconnect all active connections
 
         hci_power_control(HCI_POWER_OFF);
@@ -396,7 +404,7 @@ void ble_print_status(void)
     printf("BLE : %s%s%s\n",
            cfg_get_bt() ? "On" : "Off",
            cfg_get_bt() == 2 ? ", Pairing" : "",
-           ble_num_connected() ? ", Connected" : "");
+           cfg_get_bt() == 3 ? ", Connected" : "");
 }
 
 #endif /* RP6502_RIA_W && ENABLE_BLE */
