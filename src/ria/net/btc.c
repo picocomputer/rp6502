@@ -56,6 +56,7 @@ typedef struct
 static btc_connection_t btc_connections[MAX_NR_HCI_CONNECTIONS];
 static bool btc_initialized;
 static bool btc_pairing;
+static absolute_time_t btc_next_inquiry;
 
 // BTStack state - Classic HID Host
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -107,15 +108,6 @@ static int btc_num_connected(void)
     return num;
 }
 
-static void btc_start_inquiry(void)
-{
-    // 0x9E8B33: General/Unlimited Inquiry Access Code (GIAC)
-    static const int BTC_INQUIRY_LAP = 0x9E8B33;
-    // 0x08: Inquiry length (10.24s)
-    static const int BTC_INQUIRY_LEN = 0x08;
-    hci_send_cmd(&hci_inquiry, BTC_INQUIRY_LAP, BTC_INQUIRY_LEN, 0x00);
-}
-
 static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     UNUSED(channel);
@@ -135,8 +127,6 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         {
             DBG("BTC: Bluetooth Classic HID Host ready and working!\n");
             gap_connectable_control(1);
-            if (btc_pairing)
-                btc_start_inquiry();
         }
         break;
 
@@ -171,9 +161,6 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     case HCI_EVENT_INQUIRY_COMPLETE:
         DBG("BTC: HCI_EVENT_INQUIRY_COMPLETE\n");
-        // Begin another inquiry if we're in pairing mode
-        if (btc_pairing)
-            btc_start_inquiry();
         break;
 
     case HCI_EVENT_INQUIRY_RESULT:
@@ -314,6 +301,7 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
                     bool mounted = pad_mount(btc_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0, 0);
                     if (mounted)
                     {
+                        btc_pairing = false;
                         DBG("BTC: *** GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", slot);
                         break;
                     }
@@ -330,7 +318,15 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             uint16_t hid_cid = hid_subevent_connection_opened_get_hid_cid(packet);
             DBG("BTC: HID_SUBEVENT_CONNECTION_OPENED - CID: 0x%04x, status: 0x%02x\n", hid_cid, status);
             if (status != ERROR_CODE_SUCCESS)
+            {
                 DBG("BTC: HID connection failed, status: 0x%02x\n", status);
+                int slot = find_connection_by_hid_cid(hid_cid);
+                if (slot >= 0)
+                {
+                    btc_connections[slot].hid_cid = 0;
+                    DBG("BTC: Cleaned up failed connection slot %d\n", slot);
+                }
+            }
         }
         break;
 
@@ -434,28 +430,30 @@ void btc_task(void)
         btc_initialized = true;
         return;
     }
+
+    // Handle periodic inquiry while in pairing mode
+    if (btc_initialized && btc_pairing)
+    {
+        if (absolute_time_diff_us(btc_next_inquiry, get_absolute_time()) > 0)
+        {
+            // 0x9E8B33: General/Unlimited Inquiry Access Code (GIAC)
+            static const int BTC_INQUIRY_LAP = 0x9E8B33;
+            // 0x05: Inquiry length (6.4s)
+            static const int BTC_INQUIRY_LEN = 0x05;
+            hci_send_cmd(&hci_inquiry, BTC_INQUIRY_LAP, BTC_INQUIRY_LEN, 0x00);
+            btc_next_inquiry = make_timeout_time_ms(10000); // 10 seconds
+        }
+    }
 }
 
 void btc_set_config(uint8_t bt)
 {
     if (bt == 0)
-    {
         btc_shutdown();
-    }
     if (bt == 2 && !btc_num_connected())
-    {
         btc_pairing = true;
-        if (btc_initialized)
-        {
-            // Clear any existing link keys to prevent "PIN or Key Missing" errors
-            gap_delete_all_link_keys();
-            btc_start_inquiry();
-        }
-    }
     else
-    {
         btc_pairing = false;
-    }
 }
 
 void btc_shutdown(void)
@@ -467,7 +465,6 @@ void btc_shutdown(void)
     {
         if (btc_connections[i].hid_cid)
         {
-            // Clean up gamepad registration
             pad_umount(btc_slot_to_pad_idx(i));
             btc_connections[i].hid_cid = 0;
         }
