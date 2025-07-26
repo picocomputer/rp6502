@@ -12,8 +12,6 @@ void btc_task(void) {}
 void btc_print_status() {}
 #else
 
-#define DEBUG_RIA_NET_BTX
-
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BTX)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else

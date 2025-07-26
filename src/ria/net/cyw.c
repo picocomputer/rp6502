@@ -32,10 +32,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "pico/cyw43_arch.h"
 #include "pico/cyw43_driver.h"
 
-// BTStack includes for initialization
-#include "btstack.h"
-#include "pico/btstack_run_loop_async_context.h"
-
 // These are from cyw43_arch.h
 // Change the help if you change these
 static const char COUNTRY_CODES[] = {
