@@ -15,13 +15,14 @@ bool cyw_initializing() { return false; }
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define DBG(...)
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #include "pico.h"
 #include "mon/ram.h"
+#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -110,7 +111,8 @@ bool cyw_validate_country_code(char *cc)
 
 void cyw_reset_radio(void)
 {
-    wfi_disconnect();
+    wfi_shutdown();
+    btc_shutdown();
     switch (cyw_state)
     {
     case cyw_state_initialized:
@@ -138,7 +140,7 @@ void cyw_task(void)
         cyw43_arch_poll();
     }
 
-    if (cyw_state == cyw_state_off)
+    if (cyw_state == cyw_state_off && cfg_get_rf())
     {
         // The CYW43xx driver has blocking delays during setup.
         // These have short timeouts that don't tolerate pauses.
@@ -154,8 +156,9 @@ void cyw_task(void)
         else
         {
             // cyw43_arch is full of blocking functions.
-            // This seems to block only after cyw43_arch_init.
+            // This seems to block only once after cyw43_arch_init.
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+
             cyw_state = cyw_state_initialized;
         }
     }
@@ -168,7 +171,7 @@ void cyw_led(bool ison)
 
 bool cyw_initializing(void)
 {
-    return cyw_state == cyw_state_off;
+    return cyw_state == cyw_state_off && cfg_get_rf();
 }
 
 bool cyw_ready(void)

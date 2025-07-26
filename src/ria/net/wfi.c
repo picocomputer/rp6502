@@ -12,9 +12,9 @@ void wfi_print_status() {}
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define DBG(...)
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #include "pico.h"
@@ -41,7 +41,7 @@ static absolute_time_t wfi_retry_timer;
 #define WFI_RETRY_INITIAL_SECS 2
 #define WFI_RETRY_SECS 60
 
-void wfi_disconnect(void)
+void wfi_shutdown(void)
 {
     switch (wfi_state)
     {
@@ -76,7 +76,7 @@ void wfi_task(void)
     switch (wfi_state)
     {
     case wfi_state_off:
-        if (!cyw_ready() || !cfg_get_ssid()[0] || !cfg_get_rf())
+        if (!cyw_ready() || !cfg_get_ssid()[0])
             break;
         cyw43_arch_enable_sta_mode(); // cyw43_wifi_set_up
         wfi_state = wfi_state_connect;

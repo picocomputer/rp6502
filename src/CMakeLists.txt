@@ -7,7 +7,7 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 if (PICO_BOARD STREQUAL "pico2_w" OR
     PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
     target_compile_definitions(rp6502_ria PRIVATE RP6502_RIA_W)
-    target_link_libraries(rp6502_ria PRIVATE pico_cyw43_arch_lwip_poll)
+    target_link_libraries(rp6502_ria PRIVATE pico_cyw43_arch_lwip_poll pico_btstack_cyw43)
     pico_set_program_name(rp6502_ria "RP6502 RIA W")
 else()
     pico_set_program_name(rp6502_ria "RP6502 RIA")
@@ -42,7 +42,7 @@ target_link_libraries(rp6502_ria PRIVATE
     hardware_pwm
     hardware_flash
     tinyusb_host
-    pico_btstack_ble
+    pico_btstack_classic
 )
 
 pico_generate_pio_header(rp6502_ria
@@ -70,6 +70,7 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/rom.c
     ria/mon/set.c
     ria/mon/vip.c
+    ria/net/btc.c
     ria/net/cmd.c
     ria/net/cyw.c
     ria/net/mdm.c

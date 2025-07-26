@@ -8,6 +8,7 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
+#include "net/btc.h"
 
 static void set_print_phi2(void)
 {
@@ -229,6 +230,30 @@ static void set_pass(const char *args, size_t len)
     set_print_pass();
 }
 
+static void set_print_bt(void)
+{
+    btc_print_status();
+}
+
+static void set_bt(const char *args, size_t len)
+{
+    uint32_t val;
+    if (len)
+    {
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            cfg_set_bt(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_bt();
+}
+
 #endif
 
 static void set_print_time_zone(void)
@@ -269,6 +294,7 @@ static struct
     {4, "rfcc", set_rfcc},
     {4, "ssid", set_ssid},
     {4, "pass", set_pass},
+    {2, "bt", set_bt},
 #endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
@@ -285,6 +311,7 @@ static void set_print_all(void)
     set_print_rfcc();
     set_print_ssid();
     set_print_pass();
+    set_print_bt();
 #endif
 }
 

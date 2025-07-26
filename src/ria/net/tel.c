@@ -8,9 +8,9 @@
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_TEL)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__);
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define DBG(...)
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #include "pico.h"

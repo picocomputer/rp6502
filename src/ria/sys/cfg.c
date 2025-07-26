@@ -7,6 +7,7 @@
 #include "str.h"
 #include "api/clk.h"
 #include "api/oem.h"
+#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -28,6 +29,7 @@
 // +FUS        | RF Country Code
 // +WMyWiFi    | WiFi SSID
 // +KsEkRiT    | WiFi Password
+// +B1         | Bluetooth Enabled
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
@@ -43,6 +45,7 @@ static uint8_t cfg_net_rf = 1;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
+static uint8_t cfg_net_bt = 1;
 #endif /* RP6502_RIA_W */
 
 // Optional string can replace boot string
@@ -86,6 +89,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+F%s\n"
                                "+W%s\n"
                                "+K%s\n"
+                               "+B%u\n"
 #endif /* RP6502_RIA_W */
                                "%s",
                                CFG_VERSION,
@@ -98,6 +102,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_net_rfcc,
                                cfg_net_ssid,
                                cfg_net_pass,
+                               cfg_net_bt,
 #endif /* RP6502_RIA_W */
                                opt_str);
         if (lfsresult < 0)
@@ -161,6 +166,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
             break;
         case 'K':
             parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
+            break;
+        case 'B':
+            parse_uint8(&str, &len, &cfg_net_bt);
             break;
 #endif /* RP6502_RIA_W */
         default:
@@ -275,7 +283,7 @@ bool cfg_set_rf(uint8_t rf)
     if (rf <= 1 && cfg_net_rf != rf)
     {
         cfg_net_rf = rf;
-        wfi_disconnect();
+        cyw_reset_radio();
         cfg_save_with_boot_opt(NULL);
     }
     return true;
@@ -324,7 +332,7 @@ bool cfg_set_ssid(const char *ssid)
         {
             cfg_net_pass[0] = 0;
             strcpy(cfg_net_ssid, ssid);
-            wfi_disconnect();
+            wfi_shutdown();
             cfg_save_with_boot_opt(NULL);
         }
         return true;
@@ -344,7 +352,7 @@ bool cfg_set_pass(const char *pass)
         if (strcmp(cfg_net_pass, pass))
         {
             strcpy(cfg_net_pass, pass);
-            wfi_disconnect();
+            wfi_shutdown();
             cfg_save_with_boot_opt(NULL);
         }
         return true;
@@ -355,6 +363,26 @@ bool cfg_set_pass(const char *pass)
 const char *cfg_get_pass(void)
 {
     return cfg_net_pass;
+}
+
+bool cfg_set_bt(uint8_t bt)
+{
+    if (bt > 2)
+        return false;
+    btc_set_config(bt);
+    if (bt == 2)
+        bt = 1;
+    if (cfg_net_bt != bt)
+    {
+        cfg_net_bt = bt;
+        cfg_save_with_boot_opt(NULL);
+    }
+    return true;
+}
+
+uint8_t cfg_get_bt(void)
+{
+    return cfg_net_bt;
 }
 
 #endif /* RP6502_RIA_W */
