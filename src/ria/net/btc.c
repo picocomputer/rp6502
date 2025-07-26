@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef RP6502_RIA_W
-#include "net/wfi.h"
+#include "btstack.h"
+#include "net/btc.h"
+
+#if !defined(RP6502_RIA_W) || !defined(ENABLE_CLASSIC)
 void btc_task(void) {}
-// void btc_set_config(void) {}
+void btc_print_status() {}
 #else
 
 #define DEBUG_RIA_NET_BTX
@@ -20,14 +22,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #include "pico.h"
 #include "tusb_config.h"
-#include "net/btc.h"
 #include "net/cyw.h"
 #include "sys/cfg.h"
 #include "usb/pad.h"
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
-#include "btstack.h"
 
 // Although everything looks like it support mutiple gamepads,
 // once HID is opened the global SDP connection is locked to a

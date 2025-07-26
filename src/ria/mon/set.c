@@ -8,9 +8,7 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
-#ifdef RP6502_RIA_W
 #include "net/btc.h"
-#endif
 
 static void set_print_phi2(void)
 {
@@ -232,29 +230,6 @@ static void set_pass(const char *args, size_t len)
     set_print_pass();
 }
 
-#endif
-
-static void set_print_time_zone(void)
-{
-    printf("TZ  : %s\n", cfg_get_time_zone());
-}
-
-static void set_time_zone(const char *args, size_t len)
-{
-    char tz[65];
-    if (len)
-    {
-        if (!parse_string(&args, &len, tz, sizeof(tz)) ||
-            !parse_end(args, len) ||
-            !cfg_set_time_zone(tz))
-        {
-            printf("?invalid argument\n");
-            return;
-        }
-    }
-    set_print_time_zone();
-}
-
 static void set_print_bt(void)
 {
     btc_print_status();
@@ -277,6 +252,29 @@ static void set_bt(const char *args, size_t len)
         }
     }
     set_print_bt();
+}
+
+#endif
+
+static void set_print_time_zone(void)
+{
+    printf("TZ  : %s\n", cfg_get_time_zone());
+}
+
+static void set_time_zone(const char *args, size_t len)
+{
+    char tz[65];
+    if (len)
+    {
+        if (!parse_string(&args, &len, tz, sizeof(tz)) ||
+            !parse_end(args, len) ||
+            !cfg_set_time_zone(tz))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_time_zone();
 }
 
 typedef void (*set_function)(const char *, size_t);
