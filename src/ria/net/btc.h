@@ -18,8 +18,10 @@ void btc_task(void);
 /* Utility
  */
 
-bool btc_start_pairing(void); // initiate Bluetooth gamepad pairing mode
+void btc_set_config(uint8_t bt); // initiate Bluetooth gamepad pairing mode
 
 void btc_shutdown(void); // called before cyw radio is turned off
+
+void btc_print_status(void);
 
 #endif /* _BTX_H_ */

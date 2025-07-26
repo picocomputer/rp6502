@@ -255,19 +255,29 @@ static void set_time_zone(const char *args, size_t len)
     set_print_time_zone();
 }
 
-#ifdef RP6502_RIA_W
+static void set_print_bt(void)
+{
+    btc_print_status();
+}
+
 static void set_bt(const char *args, size_t len)
 {
-    if (!parse_end(args, len))
+    uint32_t val;
+    if (len)
     {
-        printf("?invalid argument\n");
-        return;
+        if (parse_uint32(&args, &len, &val) &&
+            parse_end(args, len))
+        {
+            cfg_set_bt(val);
+        }
+        else
+        {
+            printf("?invalid argument\n");
+            return;
+        }
     }
-
-    printf("Starting Bluetooth gamepad pairing...\n");
-    btc_start_pairing();
+    set_print_bt();
 }
-#endif
 
 typedef void (*set_function)(const char *, size_t);
 static struct
@@ -303,6 +313,7 @@ static void set_print_all(void)
     set_print_rfcc();
     set_print_ssid();
     set_print_pass();
+    set_print_bt();
 #endif
 }
 

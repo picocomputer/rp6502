@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/clk.h"
+#include "net/btc.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "sys/sys.h"
@@ -56,6 +57,7 @@ void sys_mon_status(const char *args, size_t len)
     wfi_print_status();
     ntp_print_status();
     clk_print_status();
+    btc_print_status();
     hid_print_status();
     msc_print_status();
 }

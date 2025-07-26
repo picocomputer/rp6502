@@ -7,7 +7,7 @@
 #ifndef RP6502_RIA_W
 #include "net/wfi.h"
 void btc_task(void) {}
-void btc_start_pairing(void) {}
+// void btc_set_config(void) {}
 #else
 
 #define DEBUG_RIA_NET_BTX
@@ -22,6 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "tusb_config.h"
 #include "net/btc.h"
 #include "net/cyw.h"
+#include "sys/cfg.h"
 #include "usb/pad.h"
 #include <stdio.h>
 #include <string.h>
@@ -54,6 +55,7 @@ typedef struct
 
 static btc_connection_t btc_connections[MAX_NR_HCI_CONNECTIONS];
 static bool btc_initialized;
+static bool btc_pairing;
 
 // BTStack state - Classic HID Host
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -96,6 +98,24 @@ static int create_connection_entry(bd_addr_t addr)
     return -1;
 }
 
+static int btc_num_connected(void)
+{
+    int num = 0;
+    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
+        if (btc_connections[i].hid_cid)
+            ++num;
+    return num;
+}
+
+static void btc_start_inquiry(void)
+{
+    // 0x9E8B33: General/Unlimited Inquiry Access Code (GIAC)
+    static const int BTC_INQUIRY_LAP = 0x9E8B33;
+    // 0x08: Inquiry length (10.24s)
+    static const int BTC_INQUIRY_LEN = 0x08;
+    hci_send_cmd(&hci_inquiry, BTC_INQUIRY_LAP, BTC_INQUIRY_LEN, 0x00);
+}
+
 static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     UNUSED(channel);
@@ -114,44 +134,46 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             DBG("BTC: Bluetooth Classic HID Host ready and working!\n");
-            gap_discoverable_control(0); // HID host typically not discoverable
-            gap_connectable_control(1);  // Must be connectable for gamepads
+            gap_connectable_control(1);
+            if (btc_pairing)
+                btc_start_inquiry();
         }
         break;
 
     case HCI_EVENT_PIN_CODE_REQUEST:
         hci_event_pin_code_request_get_bd_addr(packet, event_addr);
         const char *pin = "0000"; // Always 0000
-        DBG("BTC: HCI_EVENT_PIN_CODE_REQUEST from %s, using PIN '%s'\n", bd_addr_to_str(event_addr), pin);
-        gap_pin_code_response(event_addr, pin);
+        DBG("BTC: HCI_EVENT_PIN_CODE_REQUEST from %s\n", bd_addr_to_str(event_addr));
+        if (btc_pairing)
+            gap_pin_code_response(event_addr, pin);
+        else
+            gap_pin_code_negative(event_addr);
         break;
 
     case HCI_EVENT_USER_CONFIRMATION_REQUEST:
         hci_event_user_confirmation_request_get_bd_addr(packet, event_addr);
-        uint32_t numeric_value = hci_event_user_confirmation_request_get_numeric_value(packet);
-        DBG("BTC: HCI_EVENT_USER_CONFIRMATION_REQUEST from %s: %lu\n", bd_addr_to_str(event_addr), (unsigned long)numeric_value);
-        gap_ssp_confirmation_response(event_addr);
+        DBG("BTC: HCI_EVENT_USER_CONFIRMATION_REQUEST from %s\n", bd_addr_to_str(event_addr));
+        if (btc_pairing)
+            gap_ssp_confirmation_response(event_addr);
+        else
+            gap_ssp_confirmation_negative(event_addr);
+
         break;
 
     case HCI_EVENT_USER_PASSKEY_REQUEST:
         hci_event_user_passkey_request_get_bd_addr(packet, event_addr);
-        DBG("BTC: HCI_EVENT_USER_PASSKEY_REQUEST from %s - using 0\n", bd_addr_to_str(event_addr));
-        hci_send_cmd(&hci_user_passkey_request_reply, event_addr, 0);
-        break;
-
-    case HCI_EVENT_IO_CAPABILITY_REQUEST:
-        hci_event_io_capability_request_get_bd_addr(packet, event_addr);
-        DBG("BTC: HCI_EVENT_IO_CAPABILITY_REQUEST\n");
-        uint8_t io_capability = SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT;
-        uint8_t oob_data_present = 0x00;
-        uint8_t auth_requirement = SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING;
-        hci_send_cmd(&hci_io_capability_request_reply, event_addr, io_capability, oob_data_present, auth_requirement);
+        DBG("BTC: HCI_EVENT_USER_PASSKEY_REQUEST from %s\n", bd_addr_to_str(event_addr));
+        if (btc_pairing)
+            hci_send_cmd(&hci_user_passkey_request_reply, event_addr, 0);
+        else
+            hci_send_cmd(&hci_user_passkey_request_negative_reply, event_addr, 0);
         break;
 
     case HCI_EVENT_INQUIRY_COMPLETE:
         DBG("BTC: HCI_EVENT_INQUIRY_COMPLETE\n");
-        uint8_t result = hci_send_cmd(&hci_inquiry, 0x9E8B33, 0x08, 0x00);
-        DBG("BTC: hci_send_cmd returned: %d\n", result);
+        // Begin another inquiry if we're in pairing mode
+        if (btc_pairing)
+            btc_start_inquiry();
         break;
 
     case HCI_EVENT_INQUIRY_RESULT:
@@ -227,6 +249,10 @@ static void btc_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
 
     case HCI_EVENT_AUTHENTICATION_COMPLETE:
         DBG("BTC: HCI_EVENT_AUTHENTICATION_COMPLETE\n");
+        status = hci_event_authentication_complete_get_status(packet);
+        // On success, turn off pairing mode
+        if (status == 0)
+            btc_pairing = false;
         break;
 
     case HCI_EVENT_DISCONNECTION_COMPLETE:
@@ -379,36 +405,30 @@ static void btc_init_stack(void)
     // Set default link policy to allow sniff mode
     gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_SNIFF_MODE);
 
-    // Try to become master on incoming connections (from BTStack example)
+    // Remaining master is the role we want
     hci_set_master_slave_policy(HCI_ROLE_MASTER);
+    gap_set_allow_role_switch(false);
 
-    // Set Class of Device to indicate HID capability
-    // 0x002140 = Computer Major Class (0x01), Desktop Minor Class (0x01), with HID service bit 13 set
+    //  * Computer Major Class (0x01)
+    //  * Desktop Minor Class (0x01)
+    //  * HID service bit 13 set
     gap_set_class_of_device(0x002140);
 
-    // Enable SSP by default for modern gamepads
-    gap_ssp_set_enable(1); // Enable SSP for modern gamepad compatibility
-
-    // This is the GLOBAL default that will be used when IO Capability Request handler doesn't trigger
+    // Enable SSP for modern gamepads
+    gap_ssp_set_enable(1);
     gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-
-    // Set authentication requirements for SSP - use dedicated bonding for better gamepad compatibility
-    // Many gamepads expect bonding to store the pairing information permanently
     gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
     gap_set_bondable_mode(1);
 
-    // Start the Bluetooth stack - this should be last
+    // Start the Bluetooth stack
     hci_power_control(HCI_POWER_ON);
-    DBG("BTC: HCI power on command sent\n");
+
+    DBG("BTC: Initialized\n");
 }
 
 void btc_task(void)
 {
-    // Only initialize and run if CYW43 radio is ready
-    if (!cyw_ready())
-        return;
-
-    if (!btc_initialized)
+    if (!btc_initialized && cyw_ready() && cfg_get_bt())
     {
         btc_init_stack();
         btc_initialized = true;
@@ -416,36 +436,26 @@ void btc_task(void)
     }
 }
 
-bool btc_start_pairing(void)
+void btc_set_config(uint8_t bt)
 {
-    if (!btc_initialized)
+    if (bt == 0)
     {
-        DBG("BTC: Cannot start pairing - not initialized\n");
-        return false;
+        btc_shutdown();
     }
-
-    DBG("BTC: *** STARTING ACTIVE GAMEPAD SEARCH ***\n");
-
-    // Clear any existing link keys to prevent "PIN or Key Missing" errors
-    gap_delete_all_link_keys();
-
-    // Try a simple inquiry first to see if the command works at all
-    DBG("BTC: Attempting inquiry with LAP 0x9E8B33, length 0x08 (10.24s), num_responses 0x00 (unlimited)\n");
-    // 0x9E8B33: General/Unlimited Inquiry Access Code (GIAC)
-    // TODO what is correct length? 5-15 in examples
-    uint8_t result = hci_send_cmd(&hci_inquiry, 0x9E8B33, 0x08, 0x00);
-    DBG("BTC: hci_send_cmd returned: %d\n", result);
-
-    // // Enable inquiry scan mode explicitly for better gamepad compatibility
-    // hci_send_cmd(&hci_write_scan_enable, 0x03); // Both inquiry and page scan
-    // DBG("BTC: Enabled both inquiry and page scan modes\n");
-
-    // // Set inquiry scan parameters for better visibility
-    // // Make inquiry scan more frequent and longer window for better gamepad discovery
-    // hci_send_cmd(&hci_write_inquiry_scan_activity, 0x1000, 0x0800); // interval=0x1000, window=0x0800
-    // DBG("BTC: Enhanced inquiry scan parameters for better gamepad discovery\n");
-
-    return true;
+    if (bt == 2 && !btc_num_connected())
+    {
+        btc_pairing = true;
+        if (btc_initialized)
+        {
+            // Clear any existing link keys to prevent "PIN or Key Missing" errors
+            gap_delete_all_link_keys();
+            btc_start_inquiry();
+        }
+    }
+    else
+    {
+        btc_pairing = false;
+    }
 }
 
 void btc_shutdown(void)
@@ -463,6 +473,14 @@ void btc_shutdown(void)
         }
     }
     DBG("BTC: All Bluetooth gamepad connections disconnected\n");
+}
+
+void btc_print_status(void)
+{
+    printf("BT  : %s%s%s\n",
+           cfg_get_bt() ? "On" : "Off",
+           btc_pairing ? ", Pairing" : "",
+           btc_num_connected() ? ", Connected" : "");
 }
 
 #endif /* RP6502_RIA_W */

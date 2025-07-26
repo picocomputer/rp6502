@@ -49,7 +49,8 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET RF (0|1)        - Disable or enable radio.\n"
     "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
     "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
-    "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none."
+    "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none.\n"
+    "SET BT (0|1|2)      - Disable or enable Bluetooth. 2 starts pairing."
 #endif
     "";
 
@@ -229,8 +230,8 @@ static const char __in_flash("helptext") hlp_text_set_pass[] =
     "This is the password for your WiFi network. Use \"-\" to clear password.";
 
 static const char __in_flash("helptext") hlp_text_set_bt[] =
-    "Start Bluetooth gamepad pairing mode. Put your gamepad in pairing mode\n"
-    "and run this command to allow it to connect to the RP6502.";
+    "Setting 0 disables Bluetooth. Setting 1 enables. Setting 2 enters pairing\n"
+    "mode if no controller is connected and will remain active until successful.";
 
 #endif
 
