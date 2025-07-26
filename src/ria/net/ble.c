@@ -14,7 +14,9 @@ void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
 #else
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BTX)
+#define DEBUG_RIA_NET_BLE
+
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -40,20 +42,15 @@ static uint8_t ble_slot_to_pad_idx(int slot)
 #define BLE_MAX_CONNECTIONS 4
 typedef struct
 {
-    bd_addr_t remote_addr;
-    uint8_t addr_type;
-    uint16_t connection_handle;
-    uint16_t hids_cid;
-    bool connected;
-    bool hid_service_found;
-    absolute_time_t connection_timeout;
+    uint8_t unknown; // TODO
+    // bd_addr_t remote_addr;
+    // uint16_t connection_handle;
+    // bool connected;
+    // bool hid_service_found;
 } ble_connection_t;
 
 static ble_connection_t ble_connections[BLE_MAX_CONNECTIONS];
 static bool ble_initialized;
-static bool ble_scanning;
-static bool ble_pairing;
-static absolute_time_t ble_next_scan;
 
 // BTStack state - BLE Central and GATT Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -62,51 +59,49 @@ static btstack_packet_callback_registration_t sm_event_callback_registration;
 // Storage for HID descriptors - BLE only
 static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
 
-static int find_connection_by_handle(uint16_t connection_handle)
-{
-    for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-        if (ble_connections[i].connected && ble_connections[i].connection_handle == connection_handle)
-            return i;
-    return -1;
-}
+// static int find_connection_by_handle(uint16_t connection_handle)
+// {
+//     for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
+//         if (ble_connections[i].connected && ble_connections[i].connection_handle == connection_handle)
+//             return i;
+//     return -1;
+// }
 
-static int create_connection_entry(bd_addr_t addr, uint8_t addr_type, uint16_t connection_handle)
-{
-    for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-    {
-        if (!ble_connections[i].connected)
-        {
-            memcpy(ble_connections[i].remote_addr, addr, BD_ADDR_LEN);
-            ble_connections[i].addr_type = addr_type;
-            ble_connections[i].connection_handle = connection_handle;
-            ble_connections[i].connected = true;
-            ble_connections[i].hid_service_found = false;
-            ble_connections[i].hids_cid = 0;
-            ble_connections[i].connection_timeout = make_timeout_time_ms(BLE_CONNECTION_TIMEOUT_SECS * 1000);
-            return i;
-        }
-    }
-    return -1;
-}
+// static int create_connection_entry(bd_addr_t addr, uint8_t addr_type, uint16_t connection_handle)
+// {
+//     for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
+//     {
+//         if (!ble_connections[i].connected)
+//         {
+//             memcpy(ble_connections[i].remote_addr, addr, BD_ADDR_LEN);
+//             // ble_connections[i].addr_type = addr_type;
+//             ble_connections[i].connection_handle = connection_handle;
+//             ble_connections[i].connected = true;
+//             ble_connections[i].hid_service_found = false;
+//             return i;
+//         }
+//     }
+//     return -1;
+// }
 
-static void remove_connection_entry(int slot)
-{
-    if (slot >= 0 && slot < BLE_MAX_CONNECTIONS)
-    {
-        if (ble_connections[slot].connected)
-        {
-            pad_umount(ble_slot_to_pad_idx(slot));
-            memset(&ble_connections[slot], 0, sizeof(ble_connection_t));
-            DBG("BLE: Removed connection slot %d\n", slot);
-        }
-    }
-}
+// static void remove_connection_entry(int slot)
+// {
+//     if (slot >= 0 && slot < BLE_MAX_CONNECTIONS)
+//     {
+//         if (ble_connections[slot].connected)
+//         {
+//             pad_umount(ble_slot_to_pad_idx(slot));
+//             memset(&ble_connections[slot], 0, sizeof(ble_connection_t));
+//             DBG("BLE: Removed connection slot %d\n", slot);
+//         }
+//     }
+// }
 
 static int ble_num_connected(void)
 {
     int num = 0;
     for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-        if (ble_connections[i].connected)
+        if (ble_connections[i].unknown)
             ++num;
     return num;
 }
@@ -124,13 +119,7 @@ static void ble_hid_report_handler(uint8_t packet_type, uint16_t channel, uint8_
     // Find connection by GATT handle (simplified - would need proper handle mapping)
     for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
     {
-        if (ble_connections[i].connected && ble_connections[i].hid_service_found)
-        {
-            // For now, just report empty data - proper implementation would parse packet
-            uint8_t dummy_report = 0;
-            pad_report(ble_slot_to_pad_idx(i), &dummy_report, 1);
-            break; // For now, just use first connected device
-        }
+        // TODO
     }
 }
 
@@ -163,45 +152,14 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         addr_type = gap_event_advertising_report_get_address_type(packet);
         UNUSED(gap_event_advertising_report_get_advertising_event_type(packet)); // Suppress unused warning
         uint8_t rssi = gap_event_advertising_report_get_rssi(packet);
-        uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
-        const uint8_t *data = gap_event_advertising_report_get_data(packet);
+        // uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
+        // const uint8_t *data = gap_event_advertising_report_get_data(packet);
 
         DBG("BLE: Advertisement from %s (type: %d, RSSI: %d dBm)\n",
             bd_addr_to_str(event_addr), addr_type, rssi);
 
-        // Look for HID service UUID in advertisement data
-        bool has_hid_service = false;
-        ad_context_t context;
-        for (ad_iterator_init(&context, data_length, data); ad_iterator_has_more(&context); ad_iterator_next(&context))
-        {
-            uint8_t data_type = ad_iterator_get_data_type(&context);
-            uint8_t data_size = ad_iterator_get_data_len(&context);
-            const uint8_t *ad_data = ad_iterator_get_data(&context);
-
-            // Check for 16-bit Service UUIDs (0x1812 = HID Service)
-            if (data_type == BLUETOOTH_DATA_TYPE_COMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS ||
-                data_type == BLUETOOTH_DATA_TYPE_INCOMPLETE_LIST_OF_16_BIT_SERVICE_CLASS_UUIDS)
-            {
-                for (int i = 0; i < data_size; i += 2)
-                {
-                    uint16_t uuid = little_endian_read_16(ad_data, i);
-                    if (uuid == ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE)
-                    {
-                        has_hid_service = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Connect to devices advertising HID service during pairing mode
-        if (has_hid_service && ble_pairing && ble_num_connected() < BLE_MAX_CONNECTIONS)
-        {
-            DBG("BLE: Found HID device, attempting connection...\n");
-            gap_stop_scan();
-            ble_scanning = false;
-            gap_connect(event_addr, addr_type);
-        }
+        gap_stop_scan();
+        gap_connect(event_addr, addr_type);
         break;
     }
 
@@ -219,15 +177,9 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             DBG("BLE: LE Connection Complete - Handle: 0x%04x, Address: %s\n",
                 connection_handle, bd_addr_to_str(event_addr));
 
-            int slot = create_connection_entry(event_addr, addr_type, connection_handle);
-            if (slot >= 0)
-            {
-                DBG("BLE: Created connection slot %d\n", slot);
-                // Start service discovery for HID service
-                gatt_client_discover_primary_services_by_uuid16(ble_hid_report_handler,
-                                                                connection_handle,
-                                                                ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
-            }
+            gatt_client_discover_primary_services_by_uuid16(ble_hid_report_handler,
+                                                            connection_handle,
+                                                            ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE);
             break;
 
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
@@ -242,9 +194,6 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         connection_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", connection_handle);
 
-        int slot = find_connection_by_handle(connection_handle);
-        if (slot >= 0)
-            remove_connection_entry(slot);
         break;
 
     case GATT_EVENT_SERVICE_QUERY_RESULT:
@@ -253,20 +202,51 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
         gatt_client_service_t service;
         gatt_event_service_query_result_get_service(packet, &service);
 
-        DBG("BLE: HID Service found - Handle: 0x%04x, Start: 0x%04x, End: 0x%04x\n",
-            connection_handle, service.start_group_handle, service.end_group_handle);
+        DBG("BLE: HID Service found - Handle: 0x%04x, discovering characteristics...\n", connection_handle);
 
-        slot = find_connection_by_handle(connection_handle);
+        gatt_client_discover_characteristics_for_service(ble_hid_report_handler,
+                                                         connection_handle, &service);
+        break;
+    }
+
+    case GATT_EVENT_CHARACTERISTIC_QUERY_RESULT:
+    {
+        connection_handle = gatt_event_characteristic_query_result_get_handle(packet);
+        gatt_client_characteristic_t characteristic;
+        gatt_event_characteristic_query_result_get_characteristic(packet, &characteristic);
+
+        // Check if this is the Report Map characteristic (0x2A4B)
+        if (characteristic.uuid16 == ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP)
+        {
+            DBG("BLE: Found Report Map characteristic, reading HID descriptor...\n");
+            // Read the HID descriptor
+            gatt_client_read_value_of_characteristic(ble_hid_report_handler,
+                                                     connection_handle, &characteristic);
+        }
+        break;
+    }
+
+    case GATT_EVENT_CHARACTERISTIC_VALUE_QUERY_RESULT:
+    {
+        connection_handle = gatt_event_characteristic_value_query_result_get_handle(packet);
+        uint16_t value_length = gatt_event_characteristic_value_query_result_get_value_length(packet);
+        const uint8_t *value = gatt_event_characteristic_value_query_result_get_value(packet);
+
+        DBG("BLE: Got HID descriptor (%d bytes), checking if it's a gamepad...\n", value_length);
+
+        int slot = 0; //////// TODO
         if (slot >= 0)
         {
-            ble_connections[slot].hid_service_found = true;
-            // For simplicity, assume successful mount - in real implementation,
-            // would discover characteristics and enable notifications
-            bool mounted = pad_mount(ble_slot_to_pad_idx(slot), NULL, 0, 0, 0, 0);
+            // Try to mount with the actual HID descriptor
+            bool mounted = pad_mount(ble_slot_to_pad_idx(slot), value, value_length, 0, 0, 0);
             if (mounted)
             {
-                ble_pairing = false;
                 DBG("BLE: *** HID GAMEPAD CONFIRMED! *** Successfully mounted at slot %d\n", slot);
+            }
+            else
+            {
+                DBG("BLE: HID descriptor indicates non-gamepad device, disconnecting...\n");
+                gap_disconnect(connection_handle);
             }
         }
         break;
@@ -280,14 +260,7 @@ static void ble_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *p
             connection_handle, att_status);
 
         if (att_status != ATT_ERROR_SUCCESS)
-        {
-            slot = find_connection_by_handle(connection_handle);
-            if (slot >= 0 && !ble_connections[slot].hid_service_found)
-            {
-                DBG("BLE: HID service not found, disconnecting...\n");
-                gap_disconnect(connection_handle);
-            }
-        }
+            gap_disconnect(connection_handle);
         break;
 
     default:
@@ -372,76 +345,33 @@ void ble_task(void)
         ble_initialized = true;
         return;
     }
-
-    // Handle periodic scanning while in pairing mode
-    if (ble_initialized && ble_pairing && !ble_scanning)
-    {
-        if (absolute_time_diff_us(ble_next_scan, get_absolute_time()) > 0)
-        {
-            DBG("BLE: Starting scan for HID devices...\n");
-            gap_set_scan_parameters(0, 0x0030, 0x0030); // Active scanning
-            gap_start_scan();
-            ble_scanning = true;
-            ble_next_scan = make_timeout_time_ms(10000); // 10 seconds
-        }
-    }
-
-    // Check for connection timeouts
-    if (ble_initialized)
-    {
-        absolute_time_t now = get_absolute_time();
-        for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-        {
-            if (ble_connections[i].connected &&
-                !ble_connections[i].hid_service_found &&
-                absolute_time_diff_us(ble_connections[i].connection_timeout, now) > 0)
-            {
-                DBG("BLE: Connection timeout for slot %d\n", i);
-                gap_disconnect(ble_connections[i].connection_handle);
-            }
-        }
-    }
 }
 
 void ble_set_config(uint8_t bt)
 {
     if (bt == 0)
         ble_shutdown();
-    else if (bt == 2 && ble_num_connected() < BLE_MAX_CONNECTIONS)
-        ble_pairing = true;
-    else
-        ble_pairing = false;
-
-    if (ble_pairing && ble_scanning)
+    if (bt == 2)
     {
-        gap_stop_scan();
-        ble_scanning = false;
+        gap_set_scan_parameters(0, 0x0030, 0x0030); // Active scanning
+        gap_start_scan();
     }
+    else
+        gap_stop_scan();
 }
 
 void ble_shutdown(void)
 {
     if (ble_initialized)
     {
-        if (ble_scanning)
-        {
-            gap_stop_scan();
-            ble_scanning = false;
-        }
+        // gap_stop_scan();
 
-        // Disconnect all active connections
-        for (int i = 0; i < BLE_MAX_CONNECTIONS; i++)
-        {
-            if (ble_connections[i].connected)
-                gap_disconnect(ble_connections[i].connection_handle);
-        }
+        // gap_disconnect all active connections ?? TODO
 
         hci_power_control(HCI_POWER_OFF);
     }
 
     ble_initialized = false;
-    ble_pairing = false;
-    memset(ble_connections, 0, sizeof(ble_connections));
     DBG("BLE: All Bluetooth LE gamepad connections disconnected\n");
 }
 
@@ -449,7 +379,7 @@ void ble_print_status(void)
 {
     printf("BLE : %s%s%s\n",
            cfg_get_bt() ? "On" : "Off",
-           ble_pairing ? ", Pairing" : "",
+           false ? ", Pairing" : "??",
            ble_num_connected() ? ", Connected" : "");
 }
 
