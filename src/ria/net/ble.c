@@ -59,14 +59,14 @@ absolute_time_t ble_scan_paused_until;
 
 void ble_start_scan(void)
 {
-    if (ble_scan_paused_until)
-        ble_scan_paused_until = make_timeout_time_ms(1000);
+    // if (ble_scan_paused_until)
+    //     ble_scan_paused_until = make_timeout_time_ms(1000);
 }
 
 void ble_stop_scan(void)
 {
     gap_stop_scan();
-    ble_scan_paused_until = make_timeout_time_ms(BLE_SCAN_PAUSE_MS);
+    ble_scan_paused_until = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
 }
 
 static int ble_num_connected(void)
@@ -108,9 +108,25 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     case GATTSERVICE_SUBEVENT_HID_SERVICE_CONNECTED:
     {
         uint16_t cid = gattservice_subevent_hid_service_connected_get_hids_cid(packet);
-        // Sometimes status is ERROR_CODE_UNSPECIFIED_ERROR instead of ERROR_CODE_SUCCESS.
-        // If status is ignored, everything works correctly.
-        DBG("BLE: HID service connected successfully, CID: 0x%04x\n", cid);
+        uint8_t status = gattservice_subevent_hid_service_connected_get_status(packet);
+        uint8_t protocol_mode = gattservice_subevent_hid_service_connected_get_protocol_mode(packet);
+        uint8_t num_instances = gattservice_subevent_hid_service_connected_get_num_instances(packet);
+
+        DBG("BLE: HID service connection result - CID: 0x%04x, Status: 0x%02x, Protocol: %d, Services: %d\n",
+            cid, status, protocol_mode, num_instances);
+
+        if (status != ERROR_CODE_SUCCESS) {
+            if (status == ERROR_CODE_UNSPECIFIED_ERROR) {
+                DBG("BLE: HID service connection returned ERROR_CODE_UNSPECIFIED_ERROR (0x%02x) - proceeding anyway (Xbox controller quirk)\n", status);
+                // Xbox controllers often return this error but the connection works fine
+            } else {
+                DBG("BLE: HID service connection failed with status 0x%02x - disconnecting\n", status);
+                // Connection genuinely failed, clean up
+                return;
+            }
+        } else {
+            DBG("BLE: HID service connected successfully, CID: 0x%04x\n", cid);
+        }
 
         // Access the HID descriptor that was automatically retrieved during connection
         const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
@@ -128,18 +144,18 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             }
             DBG("\n");
 
-            // Enable notifications for HID input reports - this is crucial!
-            DBG("BLE: Enabling HID input report notifications...\n");
-            // ERROR_CODE_COMMAND_DISALLOWED why?
-            uint8_t enable_status = hids_client_enable_notifications(cid);
-            if (enable_status == ERROR_CODE_SUCCESS)
-            {
-                DBG("BLE: Successfully requested HID notification enablement\n");
-            }
-            else
-            {
-                DBG("BLE: Failed to enable HID notifications, status: 0x%02x\n", enable_status);
-            }
+            // // Enable notifications for HID input reports - this is crucial!
+            // DBG("BLE: Enabling HID input report notifications...\n");
+            // // ERROR_CODE_COMMAND_DISALLOWED why?
+            // uint8_t enable_status = hids_client_enable_notifications(cid);
+            // if (enable_status == ERROR_CODE_SUCCESS)
+            // {
+            //     DBG("BLE: Successfully requested HID notification enablement\n");
+            // }
+            // else
+            // {
+            //     DBG("BLE: Failed to enable HID notifications, status: 0x%02x\n", enable_status);
+            // }
         }
         else
         {
@@ -373,7 +389,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
         {
             DBG("BLE: Bonding successful - bonding information stored\n");
-            ble_pairing = false; // Reset bonding flag after successful bonding
+            // ble_pairing = false; // Reset bonding flag after successful bonding
         }
         else
         {
