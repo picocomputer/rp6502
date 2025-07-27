@@ -42,7 +42,7 @@ static uint8_t ble_cid_to_pad_idx(int cid)
 }
 
 static bool ble_initialized;
-static bool ble_bonding;
+static bool ble_pairing;
 
 // BTStack state - BLE Central and HIDS Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -50,6 +50,24 @@ static btstack_packet_callback_registration_t sm_event_callback_registration;
 
 // Storage for HID descriptors - BLE only
 static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
+
+// We have to pause scanning during gap_connect.
+// This seems the only reliable way to keep scanning.
+#define BLE_SCAN_PAUSE_MS (10 * 1000)
+#define BLE_CONNECT_TIMEOUT_MS (30 * 1000)
+absolute_time_t ble_scan_paused_until;
+
+void ble_start_scan(void)
+{
+    if (ble_scan_paused_until)
+        ble_scan_paused_until = make_timeout_time_ms(1000);
+}
+
+void ble_stop_scan(void)
+{
+    gap_stop_scan();
+    ble_scan_paused_until = make_timeout_time_ms(BLE_SCAN_PAUSE_MS);
+}
 
 static int ble_num_connected(void)
 {
@@ -90,47 +108,43 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     case GATTSERVICE_SUBEVENT_HID_SERVICE_CONNECTED:
     {
         uint16_t cid = gattservice_subevent_hid_service_connected_get_hids_cid(packet);
-        uint8_t status = gattservice_subevent_hid_service_connected_get_status(packet);
-        if (status == ERROR_CODE_SUCCESS)
+        // Sometimes status is ERROR_CODE_UNSPECIFIED_ERROR instead of ERROR_CODE_SUCCESS.
+        // If status is ignored, everything works correctly.
+        DBG("BLE: HID service connected successfully, CID: 0x%04x\n", cid);
+
+        // Access the HID descriptor that was automatically retrieved during connection
+        const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
+        uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
+
+        if (descriptor && descriptor_len > 0)
         {
-            DBG("BLE: HID service connected successfully, CID: 0x%04x\n", cid);
+            DBG("BLE: HID descriptor available (%d bytes)\n", descriptor_len);
 
-            // Access the HID descriptor that was automatically retrieved during connection
-            const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
-            uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
-
-            if (descriptor && descriptor_len > 0)
+            // Print first few bytes of descriptor for debugging
+            DBG("BLE: Descriptor data: ");
+            for (int i = 0; i < (descriptor_len < 16 ? descriptor_len : 16); i++)
             {
-                DBG("BLE: HID descriptor available (%d bytes)\n", descriptor_len);
+                DBG("%02x ", descriptor[i]);
+            }
+            DBG("\n");
 
-                // Print first few bytes of descriptor for debugging
-                DBG("BLE: Descriptor data: ");
-                for (int i = 0; i < (descriptor_len < 16 ? descriptor_len : 16); i++)
-                {
-                    DBG("%02x ", descriptor[i]);
-                }
-                DBG("\n");
-
-                // Enable notifications for HID input reports - this is crucial!
-                DBG("BLE: Enabling HID input report notifications...\n");
-                uint8_t enable_status = hids_client_enable_notifications(cid);
-                if (enable_status == ERROR_CODE_SUCCESS)
-                {
-                    DBG("BLE: Successfully requested HID notification enablement\n");
-                }
-                else
-                {
-                    DBG("BLE: Failed to enable HID notifications, status: 0x%02x\n", enable_status);
-                }
+            // Enable notifications for HID input reports - this is crucial!
+            DBG("BLE: Enabling HID input report notifications...\n");
+            // ERROR_CODE_COMMAND_DISALLOWED why?
+            uint8_t enable_status = hids_client_enable_notifications(cid);
+            if (enable_status == ERROR_CODE_SUCCESS)
+            {
+                DBG("BLE: Successfully requested HID notification enablement\n");
             }
             else
             {
-                DBG("BLE: No HID descriptor available yet\n");
+                DBG("BLE: Failed to enable HID notifications, status: 0x%02x\n", enable_status);
             }
         }
         else
         {
-            DBG("BLE: HID service connection failed, CID: 0x%04x, status: 0x%02x\n", cid, status);
+            DBG("BLE: CRITICAL - No HID descriptor available! Cannot parse gamepad input without it.\n");
+            return;
         }
         break;
     }
@@ -138,7 +152,18 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     case GATTSERVICE_SUBEVENT_HID_SERVICE_DISCONNECTED:
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
-        DBG("BLE: HID service disconnected, CID: 0x%04x\n", cid);
+        uint8_t pad_idx = ble_cid_to_pad_idx(cid);
+
+        DBG("BLE: HID service disconnected - CID: 0x%04x, Pad Index: %d\n",
+            cid, pad_idx);
+        DBG("BLE: Packet details - Type: 0x%02x, Channel: 0x%04x, Size: %d\n",
+            packet_type, channel, size);
+        DBG("BLE: Subevent code: 0x%02x, CID from packet: 0x%04x\n",
+            hci_event_gattservice_meta_get_subevent_code(packet), cid);
+
+        // TODO: Clean up gamepad state for this CID
+        // pad_disconnect(pad_idx);
+
         break;
     }
 
@@ -195,7 +220,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             DBG("BLE: Bluetooth LE Central ready and working!\n");
-            gap_set_scan_parameters(0, 0x0030, 0x0030);
             gap_start_scan();
             DBG("BLE: Started scanning - ready to discover BLE gamepads\n");
         }
@@ -232,18 +256,19 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 }
             }
 
-            if (!ble_bonding && !is_bonded)
+            if (!ble_pairing && !is_bonded)
             {
-                DBG("BLE: Found HID device %s but bonding disabled and device not bonded - ignoring\n",
+                DBG("BLE: Found HID device %s but pairing disabled and device not bonded - ignoring\n",
                     bd_addr_to_str(event_addr));
                 return;
             }
 
-            if (ble_bonding || is_bonded)
+            if (ble_pairing || is_bonded)
             {
                 DBG("BLE: Found HID device %s, connecting... (bonded: %s)\n",
                     bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
-                // gap_stop_scan(); // Stop scanning while connecting
+                ble_stop_scan(); // Stop scanning while connecting
+                gap_connect_cancel();
                 gap_connect(event_addr, addr_type);
             }
         }
@@ -284,7 +309,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 DBG("BLE: LE Connection failed - Status: 0x%02x, Address: %s\n",
                     status, bd_addr_to_str(event_addr));
             }
-            gap_start_scan();
+            ble_start_scan();
             break;
 
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
@@ -315,7 +340,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
     {
     case SM_EVENT_JUST_WORKS_REQUEST:
         DBG("BLE: SM Just Works Request\n");
-        if (ble_bonding)
+        if (ble_pairing)
             sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
         else
             sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
@@ -323,7 +348,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
     case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
         DBG("BLE: SM Numeric Comparison Request\n");
-        if (ble_bonding)
+        if (ble_pairing)
             sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
         else
             sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
@@ -331,7 +356,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
     case SM_EVENT_AUTHORIZATION_REQUEST:
         DBG("BLE: SM Authorization Request\n");
-        if (ble_bonding)
+        if (ble_pairing)
             sm_authorization_grant(sm_event_authorization_request_get_handle(packet));
         else
             sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
@@ -348,7 +373,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
         {
             DBG("BLE: Bonding successful - bonding information stored\n");
-            ble_bonding = false; // Reset bonding flag after successful bonding
+            ble_pairing = false; // Reset bonding flag after successful bonding
         }
         else
         {
@@ -402,6 +427,12 @@ void ble_task(void)
         ble_initialized = true;
         return;
     }
+
+    if (ble_scan_paused_until && absolute_time_diff_us(get_absolute_time(), ble_scan_paused_until) < 0)
+    {
+        gap_start_scan();
+        ble_scan_paused_until = 0;
+    }
 }
 
 void ble_set_config(uint8_t bt)
@@ -415,12 +446,12 @@ void ble_set_config(uint8_t bt)
     if (bt == 2)
     {
         DBG("BLE: Enabling bonding mode - new devices can now bond\n");
-        ble_bonding = true;
+        ble_pairing = true;
     }
     else
     {
         DBG("BLE: Disabling bonding mode - preventing new device bonding\n");
-        ble_bonding = false;
+        ble_pairing = false;
     }
 }
 
@@ -442,7 +473,7 @@ void ble_print_status(void)
 {
     printf("BLE : %s%s\n",
            cfg_get_bt() ? "On" : "Off",
-           ble_bonding ? ", Bonding Enabled" : ", Bonding Disabled");
+           ble_pairing ? ", Pairing" : "");
 }
 
 #endif /* RP6502_RIA_W && ENABLE_BLE */
