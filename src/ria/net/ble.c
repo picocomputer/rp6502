@@ -51,22 +51,17 @@ static btstack_packet_callback_registration_t sm_event_callback_registration;
 // Storage for HID descriptors - BLE only
 static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
 
-// We have to pause scanning during gap_connect.
-// This seems the only reliable way to keep scanning.
-#define BLE_SCAN_PAUSE_MS (10 * 1000)
+// We pause scanning during the entire connect sequence
+// becase BTStack only has state to manage one at a time.
 #define BLE_CONNECT_TIMEOUT_MS (30 * 1000)
-absolute_time_t ble_scan_paused_until;
+absolute_time_t ble_con_expires_at;
+hci_con_handle_t ble_con_handle;
 
-void ble_start_scan(void)
+static inline void ble_restart_scan(void)
 {
-    // if (ble_scan_paused_until)
-    //     ble_scan_paused_until = make_timeout_time_ms(1000);
-}
-
-void ble_stop_scan(void)
-{
-    gap_stop_scan();
-    ble_scan_paused_until = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
+    // If pending, fire it off immediately.
+    if (ble_con_expires_at)
+        ble_con_expires_at = get_absolute_time();
 }
 
 static int ble_num_connected(void)
@@ -115,16 +110,15 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         DBG("BLE: HID service connection result - CID: 0x%04x, Status: 0x%02x, Protocol: %d, Services: %d\n",
             cid, status, protocol_mode, num_instances);
 
-        if (status != ERROR_CODE_SUCCESS) {
-            if (status == ERROR_CODE_UNSPECIFIED_ERROR) {
-                DBG("BLE: HID service connection returned ERROR_CODE_UNSPECIFIED_ERROR (0x%02x) - proceeding anyway (Xbox controller quirk)\n", status);
-                // Xbox controllers often return this error but the connection works fine
-            } else {
+        if (status != ERROR_CODE_SUCCESS)
+        {
+            {
                 DBG("BLE: HID service connection failed with status 0x%02x - disconnecting\n", status);
-                // Connection genuinely failed, clean up
                 return;
             }
-        } else {
+        }
+        else
+        {
             DBG("BLE: HID service connected successfully, CID: 0x%04x\n", cid);
         }
 
@@ -143,24 +137,10 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
                 DBG("%02x ", descriptor[i]);
             }
             DBG("\n");
-
-            // // Enable notifications for HID input reports - this is crucial!
-            // DBG("BLE: Enabling HID input report notifications...\n");
-            // // ERROR_CODE_COMMAND_DISALLOWED why?
-            // uint8_t enable_status = hids_client_enable_notifications(cid);
-            // if (enable_status == ERROR_CODE_SUCCESS)
-            // {
-            //     DBG("BLE: Successfully requested HID notification enablement\n");
-            // }
-            // else
-            // {
-            //     DBG("BLE: Failed to enable HID notifications, status: 0x%02x\n", enable_status);
-            // }
         }
         else
         {
             DBG("BLE: CRITICAL - No HID descriptor available! Cannot parse gamepad input without it.\n");
-            return;
         }
         break;
     }
@@ -228,7 +208,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     uint8_t event_type = hci_event_packet_get_type(packet);
     bd_addr_t event_addr;
     uint8_t addr_type;
-    uint16_t connection_handle;
+    hci_con_handle_t connection_handle;
 
     switch (event_type)
     {
@@ -237,7 +217,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         {
             DBG("BLE: Bluetooth LE Central ready and working!\n");
             gap_start_scan();
-            DBG("BLE: Started scanning - ready to discover BLE gamepads\n");
         }
         break;
 
@@ -274,22 +253,35 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
             if (!ble_pairing && !is_bonded)
             {
-                DBG("BLE: Found HID device %s but pairing disabled and device not bonded - ignoring\n",
+                DBG("BLE: Found HID device %s but new bonding is disabled\n",
                     bd_addr_to_str(event_addr));
                 return;
             }
 
             if (ble_pairing || is_bonded)
             {
-                DBG("BLE: Found HID device %s, connecting... (bonded: %s)\n",
-                    bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
-                ble_stop_scan(); // Stop scanning while connecting
-                gap_connect_cancel();
-                gap_connect(event_addr, addr_type);
+
+                if (ERROR_CODE_SUCCESS == gap_connect(event_addr, addr_type))
+                {
+                    DBG("BLE: Found HID device %s, connecting... (bonded: %s)\n",
+                        bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                    gap_stop_scan();
+                    ble_con_expires_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
+                    ble_con_handle = HCI_CON_HANDLE_INVALID;
+                }
+                else
+                {
+                    DBG("BLE: Found HID device %s, connect failed. (bonded: %s)\n",
+                        bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                }
             }
         }
         break;
     }
+
+        // case GAP_EVENT_AUTO_CONNECTION_COMPLETE:
+        //     DBG("BLE: GAP_EVENT_AUTO_CONNECTION_COMPLETE\n");
+        //     break;
 
     case HCI_EVENT_LE_META:
     {
@@ -303,34 +295,31 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             addr_type = hci_subevent_le_connection_complete_get_peer_address_type(packet);
             uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
 
-            if (status == ERROR_CODE_SUCCESS)
-            {
-                DBG("BLE: LE Connection Complete - Handle: 0x%04x, Address: %s\n",
-                    connection_handle, bd_addr_to_str(event_addr));
+            ble_con_handle = connection_handle;
 
-                // Connect to HIDS service immediately - BTStack handles the rest
-                uint8_t hids_status = hids_client_connect(connection_handle, ble_hids_client_handler,
-                                                          HID_PROTOCOL_MODE_REPORT, NULL);
-                if (hids_status == ERROR_CODE_SUCCESS)
-                {
-                    DBG("BLE: HIDS client connection started successfully\n");
-                }
-                else
-                {
-                    DBG("BLE: HIDS client connection failed: 0x%02x\n", hids_status);
-                }
-            }
-            else
+            if (status != ERROR_CODE_SUCCESS)
             {
+                ble_restart_scan();
                 DBG("BLE: LE Connection failed - Status: 0x%02x, Address: %s\n",
                     status, bd_addr_to_str(event_addr));
+                break;
             }
-            ble_start_scan();
+
+            DBG("BLE: LE Connection Complete - Handle: 0x%04x, Address: %s\n",
+                connection_handle, bd_addr_to_str(event_addr));
+
+            // Connect to HIDS service immediately - BTStack handles the rest
+            uint8_t hids_status = hids_client_connect(connection_handle, ble_hids_client_handler,
+                                                      HID_PROTOCOL_MODE_REPORT, NULL);
+            if (hids_status != ERROR_CODE_SUCCESS)
+                DBG("BLE: HIDS client connection failed: 0x%02x\n", hids_status);
             break;
 
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
             connection_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
             DBG("BLE: Connection Update Complete - Handle: 0x%04x\n", connection_handle);
+            if (connection_handle == ble_con_handle)
+                ble_restart_scan();
             break;
         }
         break;
@@ -339,7 +328,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     case HCI_EVENT_DISCONNECTION_COMPLETE:
         connection_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", connection_handle);
-        // BTStack handles cleanup automatically
+        if (connection_handle == ble_con_handle)
+            ble_restart_scan();
         break;
     }
 }
@@ -384,12 +374,10 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         break;
 
     case SM_EVENT_PAIRING_COMPLETE:
-        DBG("BLE: SM Pairing Complete - Status: 0x%02x\n",
-            sm_event_pairing_complete_get_status(packet));
         if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Bonding successful - bonding information stored\n");
-            // ble_pairing = false; // Reset bonding flag after successful bonding
+            DBG("BLE: Pairing complete - disabling pairing mode\n");
+            ble_pairing = false;
         }
         else
         {
@@ -406,6 +394,10 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
 static void ble_init_stack(void)
 {
+    // Globals
+    ble_con_expires_at = 0;
+    ble_con_handle = HCI_CON_HANDLE_INVALID;
+
     // Initialize L2CAP
     l2cap_init();
 
@@ -441,13 +433,15 @@ void ble_task(void)
     {
         ble_init_stack();
         ble_initialized = true;
-        return;
     }
 
-    if (ble_scan_paused_until && absolute_time_diff_us(get_absolute_time(), ble_scan_paused_until) < 0)
+    if (ble_initialized && ble_con_expires_at &&
+        absolute_time_diff_us(get_absolute_time(), ble_con_expires_at) < 0)
     {
+        ble_con_expires_at = 0;
+        ble_con_handle = HCI_CON_HANDLE_INVALID;
         gap_start_scan();
-        ble_scan_paused_until = 0;
+        DBG("BLE: restarting gap_start_scan\n");
     }
 }
 
@@ -476,6 +470,7 @@ void ble_shutdown(void)
     if (ble_initialized)
     {
         // TODO: Disconnect all active connections
+        gap_auto_connection_stop_all();
 
         hci_power_control(HCI_POWER_OFF);
 
