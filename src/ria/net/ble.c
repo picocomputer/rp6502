@@ -224,12 +224,59 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     {
         gap_event_advertising_report_get_address(packet, event_addr);
         addr_type = gap_event_advertising_report_get_address_type(packet);
+
         uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
         const uint8_t *data = gap_event_advertising_report_get_data(packet);
 
-        // Check if this device advertises HID service (gamepad)
+        // Check if this device advertises HID service using BTStack's utility
         if (ad_data_contains_uuid16(data_length, (uint8_t *)data, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
         {
+            ad_context_t context;
+            uint16_t appearance = 0;
+            for (ad_iterator_init(&context, data_length, data);
+                 ad_iterator_has_more(&context);
+                 ad_iterator_next(&context))
+            {
+                uint8_t data_type = ad_iterator_get_data_type(&context);
+                uint8_t size = ad_iterator_get_data_len(&context);
+                const uint8_t *ad_data = ad_iterator_get_data(&context);
+                if (data_type == BLUETOOTH_DATA_TYPE_APPEARANCE && size >= 2)
+                {
+                    appearance = little_endian_read_16(ad_data, 0);
+                    break;
+                }
+            }
+
+            // Filter by device type based on appearance
+            const char *device_type = "Unknown";
+            bool should_connect = false;
+
+            switch (appearance)
+            {
+            case 0x03C1: // Keyboard
+                device_type = "Keyboard";
+                should_connect = true;
+                break;
+            case 0x03C2: // Mouse
+                device_type = "Mouse";
+                should_connect = true;
+                break;
+            case 0x03C4: // Gamepad
+                device_type = "Gamepad";
+                should_connect = true;
+                break;
+            default:
+                device_type = "Other HID";
+                should_connect = false;
+                break;
+            }
+
+            DBG("BLE: Found %s device %s (appearance: 0x%04X)\n",
+                device_type, bd_addr_to_str(event_addr), appearance);
+
+            if (!should_connect)
+                break;
+
             // Check if we should connect based on bonding status
             // Look up device in LE device database to check if it's bonded
             bool is_bonded = false;
@@ -253,26 +300,28 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
             if (!ble_pairing && !is_bonded)
             {
-                DBG("BLE: Found HID device %s but new bonding is disabled\n",
-                    bd_addr_to_str(event_addr));
+                DBG("BLE: Found HID %s %s but new bonding is disabled\n",
+                    device_type, bd_addr_to_str(event_addr));
                 return;
             }
 
             if (ble_pairing || is_bonded)
             {
-
                 if (ERROR_CODE_SUCCESS == gap_connect(event_addr, addr_type))
                 {
-                    DBG("BLE: Found HID device %s, connecting... (bonded: %s)\n",
-                        bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
                     gap_stop_scan();
+                    DBG("BLE: Found HID %s %s, connecting... (bonded: %s)\n",
+                        device_type, bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
                     ble_con_expires_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
                     ble_con_handle = HCI_CON_HANDLE_INVALID;
                 }
                 else
                 {
-                    DBG("BLE: Found HID device %s, connect failed. (bonded: %s)\n",
-                        bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                    // Are we restarting the scan too soon? BTStack seems to get stuck on connect sometimes.
+                    // gap_connect_cancel();
+                    gap_start_scan();
+                    DBG("BLE: Found HID %s %s, connect failed. (bonded: %s)\n",
+                        device_type, bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
                 }
             }
         }
@@ -318,6 +367,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
             connection_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
             DBG("BLE: Connection Update Complete - Handle: 0x%04x\n", connection_handle);
+            // TODO this isn't hit on pairing, look for a better place
             if (connection_handle == ble_con_handle)
                 ble_restart_scan();
             break;
