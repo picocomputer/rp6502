@@ -21,7 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // dpad bits: 0-up, 1-down, 2-left, 3-right
 // Feature bit 0x80 is on when valid controller connected
 // Feature bit 0x40 is on when Sony-style controller detected
-typedef struct TU_ATTR_PACKED
+typedef struct
 {
     uint8_t dpad;    // dpad (0x0F) and feature (0xF0) bits
     uint8_t sticks;  // left (0x0F) and right (0xF0) sticks
