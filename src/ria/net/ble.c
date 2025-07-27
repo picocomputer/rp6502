@@ -199,22 +199,24 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             DBG("%02x ", descriptor[i]);
         }
         DBG("\n");
+
+        bool mounted = pad_mount(ble_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0, 0);
+        if (mounted)
+        {
+            DBG("BLE: gamepad mounted player %d\n",
+                pad_get_player_num(ble_slot_to_pad_idx(slot)));
+        }
+
         break;
     }
 
     case GATTSERVICE_SUBEVENT_HID_SERVICE_DISCONNECTED:
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
-
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
-        DBG("BLE: Packet details - Type: 0x%02x, Channel: 0x%04x, Size: %d\n",
-            packet_type, channel, size);
-        DBG("BLE: Subevent code: 0x%02x, CID from packet: 0x%04x\n",
-            hci_event_gattservice_meta_get_subevent_code(packet), cid);
-
-        // TODO: Clean up gamepad state for this CID
-        // pad_disconnect(pad_idx);
-
+        int slot = ble_get_slot_by_cid(cid);
+        if (slot >= 0)
+            pad_umount(ble_slot_to_pad_idx(slot));
         break;
     }
 
@@ -226,6 +228,15 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         uint8_t report_id = gattservice_subevent_hid_report_get_report_id(packet);
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
+
+        int slot = ble_get_slot_by_cid(cid);
+        if (slot < 0)
+        {
+            DBG("BLE: ble_get_slot_by_cid failed\n");
+            break;
+        }
+
+        pad_report(ble_slot_to_pad_idx(slot), report, report_len);
 
         static bool printed = false;
         if (!printed)
