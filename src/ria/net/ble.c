@@ -211,9 +211,41 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         // Check if this device advertises HID service (gamepad)
         if (ad_data_contains_uuid16(data_length, (uint8_t *)data, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
         {
-            DBG("BLE: Found HID device, connecting...\n");
-            gap_stop_scan(); // Stop scanning while connecting
-            gap_connect(event_addr, addr_type);
+            // Check if we should connect based on bonding status
+            // Look up device in LE device database to check if it's bonded
+            bool is_bonded = false;
+            for (int i = 0; i < le_device_db_max_count(); i++)
+            {
+                int db_addr_type = BD_ADDR_TYPE_UNKNOWN;
+                bd_addr_t db_addr;
+                le_device_db_info(i, &db_addr_type, db_addr, NULL);
+
+                // Skip unused entries
+                if (db_addr_type == BD_ADDR_TYPE_UNKNOWN)
+                    continue;
+
+                // Check if this entry matches our device
+                if ((db_addr_type == addr_type) && (memcmp(db_addr, event_addr, 6) == 0))
+                {
+                    is_bonded = true;
+                    break;
+                }
+            }
+
+            if (!ble_bonding && !is_bonded)
+            {
+                DBG("BLE: Found HID device %s but bonding disabled and device not bonded - ignoring\n",
+                    bd_addr_to_str(event_addr));
+                return;
+            }
+
+            if (ble_bonding || is_bonded)
+            {
+                DBG("BLE: Found HID device %s, connecting... (bonded: %s)\n",
+                    bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                // gap_stop_scan(); // Stop scanning while connecting
+                gap_connect(event_addr, addr_type);
+            }
         }
         break;
     }
@@ -283,16 +315,26 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
     {
     case SM_EVENT_JUST_WORKS_REQUEST:
         DBG("BLE: SM Just Works Request\n");
-        sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+        if (ble_bonding)
+            sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+        else
+            sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
         break;
 
     case SM_EVENT_NUMERIC_COMPARISON_REQUEST:
         DBG("BLE: SM Numeric Comparison Request\n");
-        sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
+        if (ble_bonding)
+            sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
+        else
+            sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
         break;
 
     case SM_EVENT_AUTHORIZATION_REQUEST:
         DBG("BLE: SM Authorization Request\n");
+        if (ble_bonding)
+            sm_authorization_grant(sm_event_authorization_request_get_handle(packet));
+        else
+            sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
         break;
 
     case SM_EVENT_PASSKEY_DISPLAY_NUMBER:
@@ -306,7 +348,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
         {
             DBG("BLE: Bonding successful - bonding information stored\n");
-            ble_bonding = false;
+            ble_bonding = false; // Reset bonding flag after successful bonding
         }
         else
         {
@@ -315,35 +357,8 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         }
         break;
 
-    case SM_EVENT_REENCRYPTION_STARTED:
-    {
-        bd_addr_t addr;
-        sm_event_reencryption_started_get_address(packet, addr);
-        DBG("BLE: Re-encryption started for bonded device %s\n", bd_addr_to_str(addr));
-    }
-    break;
-
-    case SM_EVENT_REENCRYPTION_COMPLETE:
-    {
-        bd_addr_t addr;
-        uint8_t status = sm_event_reencryption_complete_get_status(packet);
-        sm_event_reencryption_complete_get_address(packet, addr);
-        if (status == ERROR_CODE_SUCCESS)
-        {
-            DBG("BLE: Re-encryption successful for bonded device %s\n", bd_addr_to_str(addr));
-        }
-        else
-        {
-            DBG("BLE: Re-encryption failed for %s, status: 0x%02x\n", bd_addr_to_str(addr), status);
-            if (status == ERROR_CODE_PIN_OR_KEY_MISSING)
-            {
-                DBG("BLE: Bonding information missing - device may need to re-pair\n");
-            }
-        }
-    }
-    break;
-
-    default:
+    case SM_EVENT_PAIRING_STARTED:
+        DBG("BLE: SM Pairing Started\n");
         break;
     }
 }
@@ -356,6 +371,7 @@ static void ble_init_stack(void)
     // Initialize Security Manager for BLE pairing
     sm_init();
     sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+    // Require bonding and secure connections for all devices
     sm_set_authentication_requirements(SM_AUTHREQ_SECURE_CONNECTION | SM_AUTHREQ_BONDING);
 
     // Initialize GATT Client
@@ -397,9 +413,15 @@ void ble_set_config(uint8_t bt)
     }
 
     if (bt == 2)
+    {
+        DBG("BLE: Enabling bonding mode - new devices can now bond\n");
         ble_bonding = true;
+    }
     else
+    {
+        DBG("BLE: Disabling bonding mode - preventing new device bonding\n");
         ble_bonding = false;
+    }
 }
 
 void ble_shutdown(void)
@@ -420,7 +442,7 @@ void ble_print_status(void)
 {
     printf("BLE : %s%s\n",
            cfg_get_bt() ? "On" : "Off",
-           ble_bonding ? ", Bonding" : "");
+           ble_bonding ? ", Bonding Enabled" : ", Bonding Disabled");
 }
 
 #endif /* RP6502_RIA_W && ENABLE_BLE */
