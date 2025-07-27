@@ -169,7 +169,8 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
 
         if (status != ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: HID service connection failed with status 0x%02x - disconnecting\n", status);
+            // TODO investigate why xbox sometimes gives ERROR_CODE_UNSPECIFIED_ERROR when pairing
+            DBG("BLE: HID service connection failed with status 0x%02x\n", status);
             break;
         }
 
@@ -206,7 +207,6 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             DBG("BLE: gamepad mounted player %d\n",
                 pad_get_player_num(ble_slot_to_pad_idx(slot)));
         }
-
         break;
     }
 

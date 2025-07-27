@@ -435,6 +435,24 @@ static void __in_flash_func(des_parse_hid_controller)(
             if (button_index < PAD_MAX_BUTTONS)
                 gamepad->button_offsets[button_index] = item.bit_pos;
         }
+        else if (item.usage_page == 0x02) // Simulation Controls
+        {
+            switch (item.usage)
+            {
+            case 0xC5: // Brake
+                gamepad->rx_offset = item.bit_pos;
+                gamepad->rx_size = item.size;
+                gamepad->rx_min = iterator.global_logical_minimum;
+                gamepad->rx_max = iterator.global_logical_maximum;
+                break;
+            case 0xC4: // Accelerator
+                gamepad->ry_offset = item.bit_pos;
+                gamepad->ry_size = item.size;
+                gamepad->ry_min = iterator.global_logical_minimum;
+                gamepad->ry_max = iterator.global_logical_maximum;
+                break;
+            }
+        }
     }
 
     // If it quacks like a joystick
