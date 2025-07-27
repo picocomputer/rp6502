@@ -429,29 +429,29 @@ static void __in_flash_func(des_parse_hid_controller)(
                 break;
             }
         }
-        else if (item.usage_page == 0x09) // Button page
-        {
-            uint8_t button_index = item.usage - 1; // Buttons 1-indexed
-            if (button_index < PAD_MAX_BUTTONS)
-                gamepad->button_offsets[button_index] = item.bit_pos;
-        }
         else if (item.usage_page == 0x02) // Simulation Controls
         {
             switch (item.usage)
             {
-            case 0xC5: // Brake
+            case 0xC5: // Brake (left trigger)
                 gamepad->rx_offset = item.bit_pos;
                 gamepad->rx_size = item.size;
                 gamepad->rx_min = iterator.global_logical_minimum;
                 gamepad->rx_max = iterator.global_logical_maximum;
                 break;
-            case 0xC4: // Accelerator
+            case 0xC4: // Accelerator (right trigger)
                 gamepad->ry_offset = item.bit_pos;
                 gamepad->ry_size = item.size;
                 gamepad->ry_min = iterator.global_logical_minimum;
                 gamepad->ry_max = iterator.global_logical_maximum;
                 break;
             }
+        }
+        else if (item.usage_page == 0x09) // Button page
+        {
+            uint8_t button_index = item.usage - 1; // Buttons 1-indexed
+            if (button_index < PAD_MAX_BUTTONS)
+                gamepad->button_offsets[button_index] = item.bit_pos;
         }
     }
 
@@ -463,9 +463,9 @@ static void __in_flash_func(des_parse_hid_controller)(
 }
 
 void __no_inline_in_flash_func(des_report_descriptor)(
-    des_gamepad_t *gamepad,
+    uint8_t idx, des_gamepad_t *gamepad,
     uint8_t const *desc_report, uint16_t desc_len,
-    uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
+    uint16_t vendor_id, uint16_t product_id)
 {
     gamepad->valid = false;
     des_parse_hid_controller(gamepad, desc_report, desc_len);
@@ -485,14 +485,14 @@ void __no_inline_in_flash_func(des_report_descriptor)(
     if (desc_len == 0)
     {
         // Xbox controllers use XInput protocol
-        if (xin_is_xbox_one(dev_addr))
+        if (xin_is_xbox_one(idx))
         {
             *gamepad = des_xbox_one;
             DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
         }
 
         // Xbox controllers use XInput protocol
-        if (xin_is_xbox_360(dev_addr))
+        if (xin_is_xbox_360(idx))
         {
             *gamepad = des_xbox_360;
             DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");

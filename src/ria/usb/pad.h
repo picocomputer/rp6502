@@ -23,7 +23,7 @@ bool pad_xreg(uint16_t word);
 
 // Parse HID report descriptor for gamepad.
 bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
-               uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id);
+               uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
 void pad_umount(uint8_t idx);

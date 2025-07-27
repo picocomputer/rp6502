@@ -201,7 +201,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         }
         DBG("\n");
 
-        bool mounted = pad_mount(ble_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0, 0);
+        bool mounted = pad_mount(ble_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0);
         if (mounted)
         {
             DBG("BLE: gamepad mounted player %d\n",

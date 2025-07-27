@@ -307,7 +307,7 @@ bool pad_xreg(uint16_t word)
 }
 
 bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
-               uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
+               uint16_t vendor_id, uint16_t product_id)
 {
     des_gamepad_t *gamepad = NULL;
     int player;
@@ -327,8 +327,8 @@ bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    des_report_descriptor(gamepad, desc_report, desc_len,
-                          dev_addr, vendor_id, product_id);
+    des_report_descriptor(idx, gamepad, desc_report, desc_len,
+                          vendor_id, product_id);
     if (gamepad->valid)
     {
         gamepad->idx = idx;
