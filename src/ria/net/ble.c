@@ -195,7 +195,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
 
         if (!descriptor || descriptor_len <= 0)
         {
-            DBG("BLE: CRITICAL - No HID descriptor available! Cannot parse gamepad input without it.\n");
+            DBG("BLE: No HID descriptor available!\n");
             break;
         }
 
@@ -405,9 +405,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             }
             else
             {
-                // Are we restarting the scan too soon? BTStack seems to get stuck on connect sometimes.
-                // gap_connect_cancel();
-                // gap_start_scan();
                 DBG("BLE: Found HID %s, connect failed. (bonded: %s)\n",
                     bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
             }
@@ -449,7 +446,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 mode = HID_PROTOCOL_MODE_BOOT;
 
             DBG("BLE: LE Connection Complete - Address: %s, %s\n",
-                bd_addr_to_str(event_addr), mode ? "REPORT" : "BOOT");
+                bd_addr_to_str(event_addr), mode == HID_PROTOCOL_MODE_BOOT ? "BOOT" : "REPORT");
 
             uint8_t hids_status = hids_client_connect(con_handle, ble_hids_client_handler,
                                                       mode, &ble_connections[slot].hids_cid);
