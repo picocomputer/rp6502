@@ -21,7 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // dpad bits: 0-up, 1-down, 2-left, 3-right
 // Feature bit 0x80 is on when valid controller connected
 // Feature bit 0x40 is on when Sony-style controller detected
-typedef struct TU_ATTR_PACKED
+typedef struct
 {
     uint8_t dpad;    // dpad (0x0F) and feature (0xF0) bits
     uint8_t sticks;  // left (0x0F) and right (0xF0) sticks
@@ -239,40 +239,14 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     gamepad_report->button1 = (buttons & 0xFF00) >> 8;
 
     // Extract D-pad/hat
-    if (gamepad->hat_size == 4 && gamepad->hat_min == 0 && gamepad->hat_max == 7)
+    if (gamepad->hat_size == 4 && gamepad->hat_max - gamepad->hat_min == 7)
     {
         // Convert HID hat format to individual direction bits
+        static const uint8_t hat_to_pad[] = {1, 9, 8, 10, 2, 6, 4, 5};
         uint32_t raw_hat = pad_extract_bits(report, report_len, gamepad->hat_offset, gamepad->hat_size);
-        switch (raw_hat)
-        {
-        case 0: // North
-            gamepad_report->dpad |= 1;
-            break;
-        case 1: // North-East
-            gamepad_report->dpad |= 9;
-            break;
-        case 2: // East
-            gamepad_report->dpad |= 8;
-            break;
-        case 3: // South-East
-            gamepad_report->dpad |= 10;
-            break;
-        case 4: // South
-            gamepad_report->dpad |= 2;
-            break;
-        case 5: // South-West
-            gamepad_report->dpad |= 6;
-            break;
-        case 6: // West
-            gamepad_report->dpad |= 4;
-            break;
-        case 7: // North-West
-            gamepad_report->dpad |= 5;
-            break;
-        default: // No direction (8) or invalid
-            gamepad_report->dpad |= 0;
-            break;
-        }
+        unsigned index = raw_hat - gamepad->hat_min;
+        if (index < 8)
+            gamepad_report->dpad |= hat_to_pad[index];
     }
     else
     {
@@ -333,7 +307,7 @@ bool pad_xreg(uint16_t word)
 }
 
 bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
-               uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id)
+               uint16_t vendor_id, uint16_t product_id)
 {
     des_gamepad_t *gamepad = NULL;
     int player;
@@ -353,8 +327,8 @@ bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    des_report_descriptor(gamepad, desc_report, desc_len,
-                          dev_addr, vendor_id, product_id);
+    des_report_descriptor(idx, gamepad, desc_report, desc_len,
+                          vendor_id, product_id);
     if (gamepad->valid)
     {
         gamepad->idx = idx;

@@ -7,6 +7,7 @@
 #include "str.h"
 #include "api/clk.h"
 #include "api/oem.h"
+#include "net/ble.h"
 #include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
@@ -369,6 +370,7 @@ bool cfg_set_bt(uint8_t bt)
 {
     if (bt > 2)
         return false;
+    ble_set_config(bt);
     btc_set_config(bt);
     if (bt == 2)
         bt = 1;

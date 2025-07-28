@@ -9,7 +9,9 @@
 
 #if !defined(RP6502_RIA_W) || !defined(ENABLE_CLASSIC)
 void btc_task(void) {}
-void btc_print_status() {}
+void btc_shutdown(void) {}
+void btc_print_status(void) {}
+void btc_set_config(uint8_t) {}
 #else
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BTX)

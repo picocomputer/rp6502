@@ -60,16 +60,16 @@ static uint8_t xin_slot_to_pad_idx(int slot)
     return CFG_TUH_HID + slot;
 }
 
-bool xin_is_xbox_one(uint8_t dev_addr)
+bool xin_is_xbox_one(uint8_t idx)
 {
-    int slot = xin_find_device_slot(dev_addr);
-    return slot >= 0 && xbox_devices[slot].is_xbox_one;
+    idx -= CFG_TUH_HID;
+    return idx < PAD_MAX_PLAYERS && xbox_devices[idx].is_xbox_one;
 }
 
-bool xin_is_xbox_360(uint8_t dev_addr)
+bool xin_is_xbox_360(uint8_t idx)
 {
-    int slot = xin_find_device_slot(dev_addr);
-    return slot >= 0 && !xbox_devices[slot].is_xbox_one;
+    idx -= CFG_TUH_HID;
+    return idx < PAD_MAX_PLAYERS && !xbox_devices[idx].is_xbox_one;
 }
 
 static bool xin_class_driver_init(void)
@@ -150,7 +150,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
     {
         uint8_t pad_idx = xin_slot_to_pad_idx(slot);
-        if (!pad_mount(pad_idx, 0, 0, dev_addr, vendor_id, product_id))
+        if (!pad_mount(pad_idx, 0, 0, vendor_id, product_id))
         {
             DBG("XInput: Failed to mount in pad system\n");
             memset(&xbox_devices[slot], 0, sizeof(xbox_device_t));

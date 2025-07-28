@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "tusb.h"
 #include "main.h"
 #include "api/api.h"
 #include "sys/cfg.h"
@@ -22,6 +23,7 @@
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_keycode;
 static hid_keyboard_report_t kbd_prev_report;
+static uint8_t kbd_prev_report_idx;
 static char kbd_key_queue[16];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
@@ -322,11 +324,15 @@ static void kbd_prev_report_to_xram()
     }
 }
 
-void kbd_report(uint8_t instance, hid_keyboard_report_t const *report)
+void kbd_report(uint8_t idx, void const *report_ptr, size_t size)
 {
-    static uint8_t prev_instance = 0;
+    if (size < sizeof(hid_keyboard_report_t))
+        return;
+
+    hid_keyboard_report_t const *report = report_ptr;
+
     // Only support key presses on one keyboard at a time.
-    if (kbd_prev_report.keycode[0] >= HID_KEY_A && prev_instance != instance)
+    if (kbd_prev_report.keycode[0] >= HID_KEY_A && kbd_prev_report_idx != idx)
         return;
 
     // Extract presses for queue
@@ -354,7 +360,7 @@ void kbd_report(uint8_t instance, hid_keyboard_report_t const *report)
                 kbd_queue_key(modifier, keycode, true);
         }
     }
-    prev_instance = instance;
+    kbd_prev_report_idx = idx;
     kbd_prev_report = *report;
     kbd_prev_report.modifier = modifier;
     kbd_prev_report_to_xram();
@@ -385,9 +391,9 @@ void kbd_task(void)
     {
         kdb_hid_leds_need_report = false;
         for (uint8_t dev_addr = 1; dev_addr <= CFG_TUH_DEVICE_MAX; dev_addr++)
-            for (uint8_t instance = 0; instance < CFG_TUH_HID; instance++)
-                if (tuh_hid_interface_protocol(dev_addr, instance) == HID_ITF_PROTOCOL_KEYBOARD)
-                    tuh_hid_set_report(dev_addr, instance, 0, HID_REPORT_TYPE_OUTPUT,
+            for (uint8_t idx = 0; idx < CFG_TUH_HID; idx++)
+                if (tuh_hid_interface_protocol(dev_addr, idx) == HID_ITF_PROTOCOL_KEYBOARD)
+                    tuh_hid_set_report(dev_addr, idx, 0, HID_REPORT_TYPE_OUTPUT,
                                        &kdb_hid_leds, sizeof(kdb_hid_leds));
     }
 }

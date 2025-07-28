@@ -74,8 +74,8 @@ typedef struct
  * @param vendor_id    USB or Bluetooth vendor ID of the device.
  * @param product_id   USB or Bluetooth product ID of the device.
  */
-void des_report_descriptor(des_gamepad_t *desc,
+void des_report_descriptor(uint8_t idx, des_gamepad_t *desc,
                            uint8_t const *desc_report, uint16_t desc_len,
-                           uint8_t dev_addr, uint16_t vendor_id, uint16_t product_id);
+                           uint16_t vendor_id, uint16_t product_id);
 
 #endif // _DES_H_
