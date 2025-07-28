@@ -28,10 +28,10 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
     switch (itf_protocol)
     {
     case HID_ITF_PROTOCOL_KEYBOARD:
-        kbd_report(idx, (hid_keyboard_report_t const *)report);
+        kbd_report(idx, report, len);
         break;
     case HID_ITF_PROTOCOL_MOUSE:
-        mou_report((hid_mouse_report_t const *)report);
+        mou_report(idx, report, len);
         break;
     case HID_ITF_PROTOCOL_NONE:
         pad_report(idx, report, len);

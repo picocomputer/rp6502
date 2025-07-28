@@ -20,8 +20,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // Please submit your tested controllers without worry about space.
-// des_report_descriptor() is only called once when a device is
-// mounted so everything here is in EEPROM, not RAM.
 #ifndef __in_flash_func
 #define __in_flash_func(func_name) __in_flash(__STRING(func_name)) func_name
 #endif
@@ -42,6 +40,7 @@ static bool __in_flash_func(des_remap_playstation_classic)(
     (void)product_id;
     if (vendor_id != 0x054C) // Sony Interactive Entertainment
         return false;
+    DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
     gamepad->sony = true;
     swap(gamepad, 0, 2); // buttons
     swap(gamepad, 2, 3); // buttons
@@ -57,22 +56,23 @@ static bool __in_flash_func(des_remap_8bitdo_m30)(
 {
     if (vendor_id == 0x2DC8 && product_id == 0x5006)
     {
-        // This gamepad is strange. It has different mappings in XInput and DInput.
-        // The wired DInput is just a little off, so we patch it real quick.
-        DBG("8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+        // The 8BitDo M30 is a Sega-style gamepad with wonky button mappings.
+        // It has different L1/R1/L2/R2 mappings for XInput and DInput.
+        DBG("DES: 8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
         // Disable analog triggers, they will be emulated by pad.c
         gamepad->rx_size = 0;
         gamepad->ry_size = 0;
-        // home is on 2
+        // home is on 2 which is normally unused
         swap(gamepad, 2, 12);
     }
-    return false;
+    return false; // continue to dinput remap
 }
 
 static void __in_flash_func(des_remap_dinput)(des_gamepad_t *gamepad)
 {
-    DBG("Remapping HID DInput buttons.\n");
-    // HID is mostly standard with strange gaps at index 2 and 5.
+    // The majority of HID gamepads use DInput button layout.
+    DBG("DES: Remapping HID DInput buttons.\n");
+    // Close the gaps at index 2 and 5
     uint16_t temp2 = gamepad->button_offsets[2];
     uint16_t temp5 = gamepad->button_offsets[5];
     gamepad->button_offsets[2] = gamepad->button_offsets[3];
@@ -84,7 +84,8 @@ static void __in_flash_func(des_remap_dinput)(des_gamepad_t *gamepad)
     // Swap buttons 6,7 with 8,9
     swap(gamepad, 6, 8);
     swap(gamepad, 7, 9);
-    // Drop the gaps at the end, not sure what uses this.
+    // Move the gaps to the end where the gamepad tester can see.
+    // This will help with gamepads needing a remap.
     gamepad->button_offsets[13] = temp2;
     gamepad->button_offsets[14] = temp5;
 }
@@ -481,43 +482,34 @@ void __no_inline_in_flash_func(des_report_descriptor)(
     DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
         vendor_id, product_id, desc_len, gamepad->valid);
 
-    // Remap HID buttons for known vendors and products
-    if (gamepad->valid)
-    {
-        if (!( // Add your gamepad override here to the OR chain.
-               // It should return true if the override is complete.
-               // Return false to continue through the ORs until
-               // a standard DInput remap is applied.
-                des_remap_8bitdo_m30(gamepad, vendor_id, product_id) ||
-                des_remap_playstation_classic(gamepad, vendor_id, product_id)))
-            des_remap_dinput(gamepad);
-    }
+    if (gamepad->valid &&
+        !( // Add your gamepad override here to the OR chain.
+           // It should return true if the override is complete.
+           // Return false to continue through the ORs until
+           // a standard DInput remap is applied.
+            des_remap_8bitdo_m30(gamepad, vendor_id, product_id) ||
+            des_remap_playstation_classic(gamepad, vendor_id, product_id)))
+        // The default remap is DInput
+        des_remap_dinput(gamepad);
 
     // Non HID controllers use a pre-computed descriptor
     if (desc_len == 0)
     {
-        // Xbox controllers use XInput protocol
         if (xin_is_xbox_one(idx))
         {
             *gamepad = des_xbox_one;
             DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
         }
-
-        // Xbox controllers use XInput protocol
         if (xin_is_xbox_360(idx))
         {
             *gamepad = des_xbox_360;
             DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
         }
-
-        // Sony DualShock 4 controllers
         if (des_is_sony_ds4(vendor_id, product_id))
         {
             *gamepad = des_sony_ds4;
             DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
         }
-
-        // Sony DualShock 5 controllers
         if (des_is_sony_ds5(vendor_id, product_id))
         {
             *gamepad = des_sony_ds5;

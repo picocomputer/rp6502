@@ -27,10 +27,16 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "tusb_config.h"
 #include "net/cyw.h"
 #include "sys/cfg.h"
+#include "usb/kbd.h"
+#include "usb/mou.h"
 #include "usb/pad.h"
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
+
+#define BLE_APPEARANCE_KBD 0x03C1
+#define BLE_APPEARANCE_MOU 0x03C2
+#define BLE_APPEARANCE_PAD 0x03C4
 
 // BLE HID connection tracking
 typedef struct
@@ -39,6 +45,7 @@ typedef struct
     bd_addr_t addr;
     hci_con_handle_t hci_con_handle;
     uint16_t hids_cid;
+    uint16_t appearance;
 } ble_connection_t;
 
 ble_connection_t ble_connections[MAX_NR_HCI_CONNECTIONS];
@@ -76,9 +83,9 @@ static int ble_num_connected(void)
     return num;
 }
 
-// We can use the same indexing as hid and xin so long as we keep clear
 static uint8_t ble_slot_to_pad_idx(int slot)
 {
+    // We can use the same indexing as hid and xin so long as we keep clear
     return CFG_TUH_HID + PAD_MAX_PLAYERS + slot;
 }
 
@@ -89,6 +96,7 @@ static void ble_release_slot(int slot)
     ble_connections[slot].addr_type = BD_ADDR_TYPE_UNKNOWN;
     ble_connections[slot].hci_con_handle = HCI_CON_HANDLE_INVALID;
     ble_connections[slot].hids_cid = 0; // cids start at 1
+    ble_connections[slot].appearance = 0;
 }
 
 static int ble_get_empty_slot(void)
@@ -236,7 +244,19 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             break;
         }
 
-        pad_report(ble_slot_to_pad_idx(slot), report, report_len);
+        switch (ble_connections[slot].appearance)
+        {
+        case BLE_APPEARANCE_KBD:
+            kbd_report(ble_slot_to_pad_idx(slot), report, report_len);
+            break;
+        case BLE_APPEARANCE_MOU:
+            mou_report(ble_slot_to_pad_idx(slot), report, report_len);
+            break;
+        case BLE_APPEARANCE_PAD:
+        default:
+            pad_report(ble_slot_to_pad_idx(slot), report, report_len);
+            break;
+        }
 
         static bool printed = false;
         if (!printed)
@@ -271,12 +291,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     if (packet_type != HCI_EVENT_PACKET)
         return;
 
-    uint8_t event_type = hci_event_packet_get_type(packet);
-    bd_addr_t event_addr;
-    uint8_t addr_type;
-    hci_con_handle_t connection_handle;
-
-    switch (event_type)
+    switch (hci_event_packet_get_type(packet))
     {
     case BTSTACK_EVENT_STATE:
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
@@ -288,8 +303,9 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
     case GAP_EVENT_ADVERTISING_REPORT:
     {
+        bd_addr_t event_addr;
         gap_event_advertising_report_get_address(packet, event_addr);
-        addr_type = gap_event_advertising_report_get_address_type(packet);
+        uint8_t addr_type = gap_event_advertising_report_get_address_type(packet);
 
         uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
         const uint8_t *data = gap_event_advertising_report_get_data(packet);
@@ -337,27 +353,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             break;
         }
 
-        // Filter by device type based on appearance
-        const char *device_type = "Unknown";
-
-        switch (appearance)
-        {
-        case 0x03C1:
-            device_type = "Keyboard";
-            break;
-        case 0x03C2:
-            device_type = "Mouse";
-            break;
-        case 0x03C4:
-            device_type = "Gamepad";
-            break;
-        default:
-            device_type = "Other";
-            break;
-        }
-
-        DBG("BLE: Found %s device %s (appearance: 0x%04X)\n",
-            device_type, bd_addr_to_str(event_addr), appearance);
+        DBG("BLE: Found device %s (appearance: 0x%04X)\n",
+            bd_addr_to_str(event_addr), appearance);
 
         // Check if we should connect based on bonding status
         // Look up device in LE device database to check if it's bonded
@@ -382,9 +379,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
         if (!ble_pairing && !is_bonded)
         {
-            DBG("BLE: Found HID %s %s but new pairing is disabled\n",
-                device_type, bd_addr_to_str(event_addr));
-            return;
+            DBG("BLE: Found HID %s but new pairing is disabled\n", bd_addr_to_str(event_addr));
+            break;
         }
 
         if (ble_pairing || is_bonded)
@@ -400,19 +396,20 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             if (ERROR_CODE_SUCCESS == gap_connect(event_addr, addr_type))
             {
                 gap_stop_scan();
-                DBG("BLE: Found HID %s %s, connecting... (bonded: %s)\n",
-                    device_type, bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                DBG("BLE: Found HID %s, connecting... (bonded: %s)\n",
+                    bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
                 ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
                 memcpy(ble_newest_connection->addr, event_addr, sizeof(bd_addr_t));
                 ble_newest_connection->addr_type = addr_type;
+                ble_newest_connection->appearance = appearance;
             }
             else
             {
                 // Are we restarting the scan too soon? BTStack seems to get stuck on connect sometimes.
                 // gap_connect_cancel();
                 // gap_start_scan();
-                DBG("BLE: Found HID %s %s, connect failed. (bonded: %s)\n",
-                    device_type, bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                DBG("BLE: Found HID %s, connect failed. (bonded: %s)\n",
+                    bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
             }
         }
         break;
@@ -421,14 +418,14 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     case HCI_EVENT_LE_META:
     {
         uint8_t subevent_code = hci_event_le_meta_get_subevent_code(packet);
-
         switch (subevent_code)
         {
         case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
-            connection_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+            bd_addr_t event_addr;
             hci_subevent_le_connection_complete_get_peer_address(packet, event_addr);
-            addr_type = hci_subevent_le_connection_complete_get_peer_address_type(packet);
+            uint8_t addr_type = hci_subevent_le_connection_complete_get_peer_address_type(packet);
             uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
+            hci_con_handle_t con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
 
             if (status != ERROR_CODE_SUCCESS)
             {
@@ -444,37 +441,33 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 DBG("BLE: ble_get_slot_by_addr failed\n");
                 break;
             }
-            ble_connections[slot].hci_con_handle = connection_handle;
+            ble_connections[slot].hci_con_handle = con_handle;
 
-            DBG("BLE: LE Connection Complete - Handle: 0x%04x, Address: %s\n",
-                connection_handle, bd_addr_to_str(event_addr));
+            hid_protocol_mode_t mode = HID_PROTOCOL_MODE_REPORT;
+            if (ble_connections[slot].appearance == BLE_APPEARANCE_KBD ||
+                ble_connections[slot].appearance == BLE_APPEARANCE_MOU)
+                mode = HID_PROTOCOL_MODE_BOOT;
 
-            // TODO get boot on mouse/kb
-            uint8_t hids_status = hids_client_connect(connection_handle, ble_hids_client_handler,
-                                                      HID_PROTOCOL_MODE_REPORT,
-                                                      &ble_connections[slot].hids_cid);
+            DBG("BLE: LE Connection Complete - Address: %s, %s\n",
+                bd_addr_to_str(event_addr), mode ? "REPORT" : "BOOT");
+
+            uint8_t hids_status = hids_client_connect(con_handle, ble_hids_client_handler,
+                                                      mode, &ble_connections[slot].hids_cid);
             if (hids_status != ERROR_CODE_SUCCESS)
                 DBG("BLE: HIDS client connection failed: 0x%02x\n", hids_status);
-            break;
-
-        case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
-            connection_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
-            DBG("BLE: Connection Update Complete - Handle: 0x%04x\n", connection_handle);
-            // TODO this isn't hit on pairing, look for a better place
-            // if (ble_newest_connection->hci_con_handle == connection_handle)
-            //     ble_restart_scan();
-            break;
         }
         break;
     }
 
     case HCI_EVENT_DISCONNECTION_COMPLETE:
-        connection_handle = hci_event_disconnection_complete_get_connection_handle(packet);
-        DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", connection_handle);
-        if (ble_newest_connection->hci_con_handle == connection_handle)
+    {
+        hci_con_handle_t con_handle = hci_event_disconnection_complete_get_connection_handle(packet);
+        DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", con_handle);
+        if (ble_newest_connection->hci_con_handle == con_handle)
             ble_restart_scan();
-        ble_release_slot(ble_get_slot_by_handle(connection_handle));
+        ble_release_slot(ble_get_slot_by_handle(con_handle));
         break;
+    }
     }
 }
 

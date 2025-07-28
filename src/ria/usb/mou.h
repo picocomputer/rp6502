@@ -7,8 +7,6 @@
 #ifndef _MOU_H_
 #define _MOU_H_
 
-#include "tusb.h"
-
 /* Kernel events
  */
 
@@ -19,6 +17,6 @@ void mou_stop(void);
 bool mou_xreg(uint16_t word);
 
 // Process HID keyboard report.
-void mou_report(hid_mouse_report_t const *report);
+void mou_report(uint8_t idx, void const *report, size_t size);
 
 #endif /* _MOU_H_ */

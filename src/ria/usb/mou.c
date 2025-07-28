@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "tusb.h"
 #include "usb/mou.h"
 #include "sys/mem.h"
 
@@ -35,13 +36,20 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-void mou_report(hid_mouse_report_t const *report)
+void mou_report(uint8_t idx, void const *report, size_t size)
 {
-    mou_xram_data.buttons = report->buttons;
-    mou_xram_data.x += report->x;
-    mou_xram_data.y += report->y;
-    mou_xram_data.wheel += report->wheel;
-    mou_xram_data.pan += report->pan;
+    (void)idx;
+    hid_mouse_report_t const *mouse = report;
+    if (size >= 1)
+        mou_xram_data.buttons = mouse->buttons;
+    if (size >= 2)
+        mou_xram_data.x += mouse->x;
+    if (size >= 3)
+        mou_xram_data.y += mouse->y;
+    if (size >= 4)
+        mou_xram_data.wheel += mouse->wheel;
+    if (size >= 5)
+        mou_xram_data.pan += mouse->pan;
     if (mou_xram != 0xFFFF)
         memcpy(&xram[mou_xram], &mou_xram_data, sizeof(mou_xram_data));
 }
