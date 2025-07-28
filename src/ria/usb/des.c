@@ -36,11 +36,12 @@ static inline void __in_flash_func(swap)(des_gamepad_t *gamepad, int a, int b)
     gamepad->button_offsets[b] = temp;
 }
 
-static void __in_flash_func(des_remap_playstation_classic)(
-    des_gamepad_t *gamepad, uint16_t vendor_id)
+static bool __in_flash_func(des_remap_playstation_classic)(
+    des_gamepad_t *gamepad, uint16_t vendor_id, uint16_t product_id)
 {
+    (void)product_id;
     if (vendor_id != 0x054C) // Sony Interactive Entertainment
-        return;
+        return false;
     gamepad->sony = true;
     swap(gamepad, 0, 2); // buttons
     swap(gamepad, 2, 3); // buttons
@@ -48,15 +49,30 @@ static void __in_flash_func(des_remap_playstation_classic)(
     swap(gamepad, 5, 9); // r1/r2
     swap(gamepad, 4, 6); // l1/bt
     swap(gamepad, 5, 7); // r1/st
+    return true;         // buttons are final, no dinput remap
 }
 
-static void __in_flash_func(des_remap_8bitdo_dinput)(
+static bool __in_flash_func(des_remap_8bitdo_m30)(
     des_gamepad_t *gamepad, uint16_t vendor_id, uint16_t product_id)
 {
-    if (vendor_id != 0x2DC8) // 8BitDo
-        return;
-    DBG("Remapping 8BitDo Dinput buttons.\n");
-    // All 8BitDo controllers in DInput mode have "gaps" in their buttons.
+    if (vendor_id == 0x2DC8 && product_id == 0x5006)
+    {
+        // This gamepad is strange. It has different mappings in XInput and DInput.
+        // The wired DInput is just a little off, so we patch it real quick.
+        DBG("8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+        // Disable analog triggers, they will be emulated by pad.c
+        gamepad->rx_size = 0;
+        gamepad->ry_size = 0;
+        // home is on 2
+        swap(gamepad, 2, 12);
+    }
+    return false;
+}
+
+static void __in_flash_func(des_remap_dinput)(des_gamepad_t *gamepad)
+{
+    DBG("Remapping HID DInput buttons.\n");
+    // HID is mostly standard with strange gaps at index 2 and 5.
     uint16_t temp2 = gamepad->button_offsets[2];
     uint16_t temp5 = gamepad->button_offsets[5];
     gamepad->button_offsets[2] = gamepad->button_offsets[3];
@@ -68,14 +84,6 @@ static void __in_flash_func(des_remap_8bitdo_dinput)(
     // Swap buttons 6,7 with 8,9
     swap(gamepad, 6, 8);
     swap(gamepad, 7, 9);
-    // M30 special case
-    if (product_id == 0x5006)
-    {
-        // The home button only when wired (pid=0x5006)
-        uint16_t temp12 = gamepad->button_offsets[12];
-        gamepad->button_offsets[12] = temp2;
-        temp2 = temp12;
-    }
     // Drop the gaps at the end, not sure what uses this.
     gamepad->button_offsets[13] = temp2;
     gamepad->button_offsets[14] = temp5;
@@ -476,9 +484,13 @@ void __no_inline_in_flash_func(des_report_descriptor)(
     // Remap HID buttons for known vendors and products
     if (gamepad->valid)
     {
-        des_remap_playstation_classic(gamepad, vendor_id);
-        des_remap_8bitdo_dinput(gamepad, vendor_id, product_id);
-        // add yours here
+        if (!( // Add your gamepad override here to the OR chain.
+               // It should return true if the override is complete.
+               // Return false to continue through the ORs until
+               // a standard DInput remap is applied.
+                des_remap_8bitdo_m30(gamepad, vendor_id, product_id) ||
+                des_remap_playstation_classic(gamepad, vendor_id, product_id)))
+            des_remap_dinput(gamepad);
     }
 
     // Non HID controllers use a pre-computed descriptor
