@@ -5,7 +5,7 @@
  */
 
 #include "tusb.h"
-#include "usb/mou.h"
+#include "hid/mou.h"
 #include "sys/mem.h"
 
 static struct

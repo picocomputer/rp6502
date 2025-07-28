@@ -13,11 +13,13 @@
 #include "api/std.h"
 #include "aud/aud.h"
 #include "aud/psg.h"
+#include "hid/kbd.h"
+#include "hid/mou.h"
+#include "hid/pad.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
-#include "net/btc.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/mdm.h"
@@ -32,9 +34,6 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/kbd.h"
-#include "usb/mou.h"
-#include "usb/pad.h"
 #include "usb/xin.h"
 
 /**************************************/
@@ -63,12 +62,12 @@ static void init(void)
     sys_init();
 
     // Misc kernel modules, add yours here.
+    led_init();
     aud_init();
     kbd_init();
     mou_init();
     pad_init();
     rom_init();
-    led_init();
     clk_init();
     mdm_init();
 
@@ -94,7 +93,6 @@ void main_task(void)
     wfi_task();
     ntp_task();
     xin_task();
-    btc_task();
     ble_task();
 }
 

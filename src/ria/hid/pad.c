@@ -5,8 +5,8 @@
  */
 
 #include "tusb_config.h"
-#include "usb/pad.h"
-#include "usb/des.h"
+#include "hid/pad.h"
+#include "hid/des.h"
 #include "sys/mem.h"
 #include <stdlib.h>
 #include <string.h>

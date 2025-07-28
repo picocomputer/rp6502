@@ -23,7 +23,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "pico.h"
 #include "mon/ram.h"
 #include "net/ble.h"
-#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -114,7 +113,6 @@ void cyw_reset_radio(void)
 {
     wfi_shutdown();
     ble_shutdown();
-    btc_shutdown();
     switch (cyw_state)
     {
     case cyw_state_initialized:

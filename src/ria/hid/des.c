@@ -6,7 +6,7 @@
 
 #include "pico.h"
 #include "btstack.h"
-#include "usb/des.h"
+#include "hid/des.h"
 #include "usb/xin.h"
 
 // If you're here to remap HID buttons on a new HID gamepad, create

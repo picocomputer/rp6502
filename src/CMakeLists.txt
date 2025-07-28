@@ -63,6 +63,10 @@ target_sources(rp6502_ria PRIVATE
     ria/api/std.c
     ria/aud/aud.c
     ria/aud/psg.c
+    ria/hid/des.c
+    ria/hid/kbd.c
+    ria/hid/mou.c
+    ria/hid/pad.c
     ria/mon/fil.c
     ria/mon/hlp.c
     ria/mon/mon.c
@@ -71,7 +75,6 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/set.c
     ria/mon/vip.c
     ria/net/ble.c
-    ria/net/btc.c
     ria/net/cmd.c
     ria/net/cyw.c
     ria/net/mdm.c
@@ -88,12 +91,8 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/ria.c
     ria/sys/sys.c
     ria/sys/vga.c
-    ria/usb/des.c
     ria/usb/hid.c
-    ria/usb/kbd.c
-    ria/usb/mou.c
     ria/usb/msc.c
-    ria/usb/pad.c
     ria/usb/xin.c
     fatfs/ff.c
     fatfs/ffunicode.c

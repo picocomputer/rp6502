@@ -6,9 +6,9 @@
 
 #include "tusb.h"
 #include "usb/hid.h"
-#include "usb/kbd.h"
-#include "usb/mou.h"
-#include "usb/pad.h"
+#include "hid/kbd.h"
+#include "hid/mou.h"
+#include "hid/pad.h"
 #include "usb/xin.h"
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_HID)

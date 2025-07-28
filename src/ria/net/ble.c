@@ -27,9 +27,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "tusb_config.h"
 #include "net/cyw.h"
 #include "sys/cfg.h"
-#include "usb/kbd.h"
-#include "usb/mou.h"
-#include "usb/pad.h"
+#include "hid/kbd.h"
+#include "hid/mou.h"
+#include "hid/pad.h"
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
@@ -565,7 +565,7 @@ static void ble_init_stack(void)
 
 void ble_task(void)
 {
-    if (!ble_initialized && cyw_ready() && cfg_get_bt())
+    if (!ble_initialized && cyw_ready() && cfg_get_ble())
     {
         ble_init_stack();
         ble_initialized = true;
@@ -618,7 +618,7 @@ void ble_shutdown(void)
 void ble_print_status(void)
 {
     printf("BLE : %s%s\n",
-           cfg_get_bt() ? "On" : "Off",
+           cfg_get_ble() ? "On" : "Off",
            ble_pairing ? ", Pairing" : "");
 }
 

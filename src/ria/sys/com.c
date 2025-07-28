@@ -10,7 +10,7 @@
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
-#include "usb/kbd.h"
+#include "hid/kbd.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
 #include <stdio.h>

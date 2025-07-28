@@ -7,7 +7,7 @@
 #include "tusb_config.h"
 #include "tusb.h"
 #include "usb/xin.h"
-#include "usb/pad.h"
+#include "hid/pad.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 #include "common/tusb_common.h"
