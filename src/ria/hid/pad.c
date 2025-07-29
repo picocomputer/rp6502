@@ -4,21 +4,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <pico.h>
+#include "btstack.h"
 #include "tusb_config.h"
 #include "hid/pad.h"
 #include "hid/des.h"
 #include "sys/mem.h"
-#include <stdlib.h>
-#include <string.h>
+#include "usb/xin.h"
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_PAD)
+#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// dpad bits: 0-up, 1-down, 2-left, 3-right
+// If you're here to remap HID buttons on a new HID gamepad, create
+// a new pad_remap_ function and add it to pad_distill_descriptor().
+
+// This is the report we generate for XRAM.
+// Direction bits: 0-up, 1-down, 2-left, 3-right
 // Feature bit 0x80 is on when valid controller connected
 // Feature bit 0x40 is on when Sony-style controller detected
 typedef struct
@@ -36,11 +41,561 @@ typedef struct
 } pad_report_t;
 
 // Deadzone is generous enough for moderately worn sticks.
-// Apps should use analog values if they want to tighten it up.
-#define PAD_DEADZONE 32
+// This is only for the analog to digital comversions so
+// it doesn't need to be first-person shooter tight.
+#define PAD_DEADZONE 24
 
+// Room for button0 and button1 plus a dpad if needed.
+#define PAD_MAX_BUTTONS 20
+
+// Gamepad descriptors are normalized to this structure.
+typedef struct
+{
+    bool valid;
+    bool sony;         // Indicates gamepad uses sony button labels
+    bool home_pressed; // Used to inject the out of band home button on xbox one
+    uint8_t slot;      // HID protocol drivers use slots assigned in hid.h
+    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
+    uint16_t x_offset; // Left stick X
+    uint8_t x_size;
+    int32_t x_min;
+    int32_t x_max;
+    uint16_t y_offset; // Left stick Y
+    uint8_t y_size;
+    int32_t y_min;
+    int32_t y_max;
+    uint16_t z_offset; // Right stick X (Z axis)
+    uint8_t z_size;
+    int32_t z_min;
+    int32_t z_max;
+    uint16_t rz_offset; // Right stick Y (Rz axis)
+    uint8_t rz_size;
+    int32_t rz_min;
+    int32_t rz_max;
+    uint16_t rx_offset; // Left trigger (Rx axis)
+    uint8_t rx_size;
+    int32_t rx_min;
+    int32_t rx_max;
+    uint16_t ry_offset; // Right trigger (Ry axis)
+    uint8_t ry_size;
+    int32_t ry_min;
+    int32_t ry_max;
+    uint16_t hat_offset; // D-pad/hat
+    uint8_t hat_size;
+    int32_t hat_min;
+    int32_t hat_max;
+    // Button bit offsets, 0xFFFF = unused
+    uint16_t button_offsets[PAD_MAX_BUTTONS];
+} pad_descriptor_t;
+
+// Where in XRAM to place reports, 0xFFFF when disabled.
 static uint16_t pad_xram;
-static des_gamepad_t pad_players[PAD_MAX_PLAYERS];
+
+// Parsed descriptor structure for fast report parsing.
+static pad_descriptor_t pad_descriptors[PAD_MAX_PLAYERS];
+
+static inline void pad_swap_buttons(pad_descriptor_t *desc, int b0, int b1)
+{
+    uint16_t temp = desc->button_offsets[b0];
+    desc->button_offsets[b0] = desc->button_offsets[b1];
+    desc->button_offsets[b1] = temp;
+}
+
+// These are USB controllers for the Classic, a remake of the PS1/PSOne.
+static bool pad_remap_playstation_classic(
+    pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+{
+    (void)product_id;
+    if (vendor_id != 0x054C) // Sony Interactive Entertainment
+        return false;
+    DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+    desc->sony = true;
+    pad_swap_buttons(desc, 0, 2); // buttons
+    pad_swap_buttons(desc, 2, 3); // buttons
+    pad_swap_buttons(desc, 4, 8); // l1/l2
+    pad_swap_buttons(desc, 5, 9); // r1/r2
+    pad_swap_buttons(desc, 4, 6); // l1/bt
+    pad_swap_buttons(desc, 5, 7); // r1/st
+    return true;                  // buttons are final, no dinput remap
+}
+
+// The 8BitDo M30 is a Sega-style gamepad with wonky button mappings.
+// It has different L1/R1/L2/R2 mappings for XInput and DInput, which we leave alone.
+static bool pad_remap_8bitdo_m30(
+    pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+{
+    if (vendor_id == 0x2DC8 && product_id == 0x5006)
+    {
+        DBG("DES: 8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+        // Disable emulated analog triggers that are sometimes reversed.
+        // The emulation is added back by the report parser.
+        desc->rx_size = 0;
+        desc->ry_size = 0;
+        // home is on 2, move it to 12
+        pad_swap_buttons(desc, 2, 12);
+    }
+    return false; // continue to dinput remap
+}
+
+// The defacto standard for HID gamepad buttons is DInput.
+static void pad_remap_dinput(pad_descriptor_t *desc)
+{
+    DBG("DES: Remapping HID DInput buttons.\n");
+    // Close the gaps at index 2 and 5, which seem to be
+    // reserved for C and Z on Sega-like six button pads.
+    uint16_t temp2 = desc->button_offsets[2];
+    uint16_t temp5 = desc->button_offsets[5];
+    desc->button_offsets[2] = desc->button_offsets[3];
+    desc->button_offsets[3] = desc->button_offsets[4];
+    for (int i = 4; i <= 9; i++)
+        desc->button_offsets[i] = desc->button_offsets[i + 2];
+    desc->button_offsets[10] = desc->button_offsets[13];
+    desc->button_offsets[11] = desc->button_offsets[14];
+    // Swap L2,R2 buttons with Sel/Start. This puts all the
+    // SNES buttons in the first button byte.
+    pad_swap_buttons(desc, 6, 8);
+    pad_swap_buttons(desc, 7, 9);
+    // Move the 2 and 5 gaps to the end.
+    desc->button_offsets[13] = temp2;
+    desc->button_offsets[14] = temp5;
+}
+
+// Sony DualShock 4 detection
+static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
+{
+    if (vendor_id == 0x054C) // Sony Interactive Entertainment
+    {
+        switch (product_id)
+        {
+        case 0x05C4: // DualShock 4 Controller (1st gen)
+        case 0x09CC: // DualShock 4 Controller (2nd gen)
+        case 0x0BA0: // DualShock 4 USB receiver
+        case 0x0DAE: // DualShock 4 (special edition variant)
+        case 0x0DF2: // DualShock 4 (special edition variant)
+        case 0x0CDA: // DualShock 4 (Asia region, special edition)
+        case 0x0D9A: // DualShock 4 (Japan region, special edition)
+        case 0x0E04: // DualShock 4 (rare, but reported)
+        case 0x0E6F: // DualShock 4 (special edition, sometimes used for DS4)
+        case 0x0EBA: // DualShock 4 (special edition, sometimes used for DS4)
+            return true;
+        }
+    }
+    if (vendor_id == 0x0C12) // Zeroplus/Cirka
+    {
+        switch (product_id)
+        {
+        case 0x1E1A: // Cirka Wired Controller
+        case 0x0E10: // Zeroplus PS4 compatible controller
+        case 0x0E20: // Zeroplus PS4 compatible controller
+            return true;
+        }
+    }
+    if (vendor_id == 0x20D6) // PowerA
+    {
+        switch (product_id)
+        {
+        case 0xA711: // PowerA PS4 Wired Controller
+            return true;
+        }
+    }
+    if (vendor_id == 0x24C6) // PowerA (formerly BDA, LLC)
+    {
+        switch (product_id)
+        {
+        case 0x5501: // PowerA PS4 Wired Controller
+            return true;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori
+    {
+        switch (product_id)
+        {
+        case 0x0055: // Hori PS4 Mini Wired Gamepad
+        case 0x005E: // Hori PS4 Mini Wired Gamepad
+        case 0x00C5: // Hori PS4 Fighting Commander
+        case 0x00D9: // Hori PS4 Fighting Stick Mini
+        case 0x00EE: // Hori PS4 Fighting Commander
+        case 0x00F6: // Hori PS4 Mini Gamepad
+        case 0x00F7: // Hori PS4 Mini Gamepad
+            return true;
+        }
+    }
+    return false;
+}
+
+// Sony DualSense 5 detection
+static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
+{
+    if (vendor_id == 0x054C) // Sony Interactive Entertainment
+    {
+        switch (product_id)
+        {
+        case 0x0CE6: // DualSense Controller
+        case 0x0DF2: // DualSense Edge Controller
+        case 0x0E5C: // DualSense (special edition Spider-Man 2)
+        case 0x0E8A: // DualSense (special edition FF16)
+        case 0x0E9A: // DualSense (special edition LeBron James)
+        case 0x0E6F: // DualSense (special edition Gray Camouflage)
+        case 0x0E9C: // DualSense (special edition Volcanic Red)
+        case 0x0EA6: // DualSense (special edition Sterling Silver)
+        case 0x0EBA: // DualSense (special edition Cobalt Blue)
+        case 0x0ED0: // DualSense (special edition Midnight Black V2)
+            return true;
+        }
+    }
+    if (vendor_id == 0x0F0D) // Hori (third-party DualSense compatible)
+    {
+        switch (product_id)
+        {
+        case 0x0184: // Hori DualSense compatible (Onyx Plus, etc)
+        case 0x019C: // Hori Fighting Commander OCTA for PS5
+        case 0x01A0: // Hori Fighting Stick α for PS5
+            return true;
+        }
+    }
+    return false;
+}
+
+// XBox One/Series descriptor for XInput
+static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_one = {
+    .valid = true,
+    .report_id = 0x20, // GIP message ID
+    .x_offset = 9 * 8, // left stick X
+    .x_size = 16,
+    .x_min = -32768,
+    .x_max = 32767,
+    .y_offset = 11 * 8, // left stick Y
+    .y_size = 16,
+    .y_min = 32767,
+    .y_max = -32768,
+    .z_offset = 13 * 8, // right stick X
+    .z_size = 16,
+    .z_min = -32768,
+    .z_max = 32767,
+    .rz_offset = 15 * 8, // right stick Y
+    .rz_size = 16,
+    .rz_min = 32767,
+    .rz_max = -32768,
+    .rx_offset = 5 * 8, // left trigger
+    .rx_size = 10,
+    .rx_min = 0,
+    .rx_max = 1023,
+    .ry_offset = 7 * 8, // right trigger
+    .ry_size = 10,
+    .ry_min = 0,
+    .ry_max = 1023,
+    .button_offsets = {
+        // Xbox One Gamepad Input Protocol buttons
+        3 * 8 + 4, // A button
+        3 * 8 + 5, // B button
+        3 * 8 + 6, // X button
+        3 * 8 + 7, // Y button
+        4 * 8 + 4, // Left shoulder/LB
+        4 * 8 + 5, // Right shoulder/RB
+        3 * 8 + 3, // View/Select button
+        3 * 8 + 2, // Menu/Start button
+        //
+        0xFFFF,    // L2
+        0xFFFF,    // R2
+        4 * 8 + 6, // Left stick click
+        4 * 8 + 7, // Right stick click
+        0xFFFF,    // Home button
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        //
+        4 * 8 + 0, // D-pad Up
+        4 * 8 + 1, // D-pad Down
+        4 * 8 + 2, // D-pad Left
+        4 * 8 + 3, // D-pad Right
+    }};
+
+// XBox 360 descriptor for XInput
+static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_360 = {
+    .valid = true,
+    .report_id = 0,    // Xbox 360 uses no report ID for input reports
+    .x_offset = 6 * 8, // left stick X
+    .x_size = 16,
+    .x_min = -32768,
+    .x_max = 32767,
+    .y_offset = 8 * 8, // left stick Y
+    .y_size = 16,
+    .y_min = 32767,
+    .y_max = -32768,
+    .z_offset = 10 * 8, // right stick X
+    .z_size = 16,
+    .z_min = -32768,
+    .z_max = 32767,
+    .rz_offset = 12 * 8, // right stick Y
+    .rz_size = 16,
+    .rz_min = 32767,
+    .rz_max = -32768,
+    .rx_offset = 4 * 8, // left trigger
+    .rx_size = 8,
+    .rx_min = 0,
+    .rx_max = 255,
+    .ry_offset = 5 * 8, // right trigger
+    .ry_size = 8,
+    .ry_min = 0,
+    .ry_max = 255,
+    .button_offsets = {
+        // Xbox 360 USB report button layout
+        3 * 8 + 4, // A button
+        3 * 8 + 5, // B button
+        3 * 8 + 6, // X button
+        3 * 8 + 7, // Y button
+        3 * 8 + 0, // Left shoulder/LB
+        3 * 8 + 1, // Right shoulder/RB
+        2 * 8 + 5, // Back button
+        2 * 8 + 4, // Start button
+        //
+        0xFFFF,    // L2
+        0xFFFF,    // R2
+        2 * 8 + 6, // Left stick click
+        2 * 8 + 7, // Right stick click
+        3 * 8 + 2, // Home button
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        0xFFFF,    // unused
+        //
+        2 * 8 + 0, // D-pad Up
+        2 * 8 + 1, // D-pad Down
+        2 * 8 + 2, // D-pad Left
+        2 * 8 + 3  // D-pad Right
+    }};
+
+// Sony DualShock 4 is HID but presents no descriptor
+static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = {
+    .valid = true,
+    .sony = true,
+    .report_id = 1,
+    .x_offset = 0 * 8, // left stick X
+    .x_size = 8,
+    .x_min = 0,
+    .x_max = 255,
+    .y_offset = 1 * 8, // left stick Y
+    .y_size = 8,
+    .y_min = 0,
+    .y_max = 255,
+    .z_offset = 2 * 8, // right stick X
+    .z_size = 8,
+    .z_min = 0,
+    .z_max = 255,
+    .rz_offset = 3 * 8, // right stick Y
+    .rz_size = 8,
+    .rz_min = 0,
+    .rz_max = 255,
+    .rx_offset = 7 * 8, // L2 trigger
+    .rx_size = 8,
+    .rx_min = 0,
+    .rx_max = 255,
+    .ry_offset = 8 * 8, // R2 trigger
+    .ry_size = 8,
+    .ry_min = 0,
+    .ry_max = 255,
+    .hat_offset = 4 * 8, // D-pad
+    .hat_size = 4,
+    .hat_min = 0,
+    .hat_max = 7,
+    .button_offsets = {
+        // X, Circle, Square, Triangle, L1, R1, Share, Options
+        37, 38, 36, 39, 40, 41, 44, 45,
+        // L2, R2, L3, R3, PS, Touchpad, Unused, Unused
+        42, 43, 46, 47, 48, 49, 0xFFFF, 0xFFFF,
+        // Hat buttons computed from HID hat
+        0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
+
+// Sony DualSense 5 is HID but presents no descriptor
+static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = {
+    .valid = true,
+    .sony = true,
+    .report_id = 1,
+    .x_offset = 0 * 8, // left stick X
+    .x_size = 8,
+    .x_min = 0,
+    .x_max = 255,
+    .y_offset = 1 * 8, // left stick Y
+    .y_size = 8,
+    .y_min = 0,
+    .y_max = 255,
+    .z_offset = 2 * 8, // right stick X
+    .z_size = 8,
+    .z_min = 0,
+    .z_max = 255,
+    .rz_offset = 3 * 8, // right stick Y
+    .rz_size = 8,
+    .rz_min = 0,
+    .rz_max = 255,
+    .rx_offset = 4 * 8, // L2 trigger
+    .rx_size = 8,
+    .rx_min = 0,
+    .rx_max = 255,
+    .ry_offset = 5 * 8, // R2 trigger
+    .ry_size = 8,
+    .ry_min = 0,
+    .ry_max = 255,
+    .hat_offset = 7 * 8, // D-pad
+    .hat_size = 4,
+    .hat_min = 0,
+    .hat_max = 7,
+    .button_offsets = {
+        // X, Circle, Square, Triangle, L1, R1, Create, Options
+        61, 62, 60, 63, 64, 65, 68, 69,
+        // L2, R2, L3, R3, PS, Touchpad, Mute, Unused
+        66, 67, 70, 71, 72, 73, 74, 0xFFFF,
+        // Hat buttons computed from HID hat
+        0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
+
+static void pad_parse_descriptor(
+    pad_descriptor_t *desc, uint8_t const *desc_data, uint16_t desc_len)
+{
+    memset(desc, 0, sizeof(pad_descriptor_t));
+    for (int i = 0; i < PAD_MAX_BUTTONS; i++)
+        desc->button_offsets[i] = 0xFFFF;
+
+    // Use BTstack HID parser to parse the descriptor
+    btstack_hid_usage_iterator_t iterator;
+    btstack_hid_usage_iterator_init(&iterator, desc_data, desc_len, HID_REPORT_TYPE_INPUT);
+    while (btstack_hid_usage_iterator_has_more(&iterator))
+    {
+        btstack_hid_usage_item_t item;
+        btstack_hid_usage_iterator_get_item(&iterator, &item);
+
+        // Store report ID if this is the first one we encounter
+        if (desc->report_id == 0 && item.report_id != 0xFFFF)
+            desc->report_id = item.report_id;
+
+        // Map usages to gamepad fields
+        if (item.usage_page == 0x01) // Generic Desktop
+        {
+            switch (item.usage)
+            {
+            case 0x30: // X axis (left stick X)
+                desc->x_offset = item.bit_pos;
+                desc->x_size = item.size;
+                desc->x_min = iterator.global_logical_minimum;
+                desc->x_max = iterator.global_logical_maximum;
+                break;
+            case 0x31: // Y axis (left stick Y)
+                desc->y_offset = item.bit_pos;
+                desc->y_size = item.size;
+                desc->y_min = iterator.global_logical_minimum;
+                desc->y_max = iterator.global_logical_maximum;
+                break;
+            case 0x32: // Z axis (right stick X)
+                desc->z_offset = item.bit_pos;
+                desc->z_size = item.size;
+                desc->z_min = iterator.global_logical_minimum;
+                desc->z_max = iterator.global_logical_maximum;
+                break;
+            case 0x35: // Rz axis (right stick Y)
+                desc->rz_offset = item.bit_pos;
+                desc->rz_size = item.size;
+                desc->rz_min = iterator.global_logical_minimum;
+                desc->rz_max = iterator.global_logical_maximum;
+                break;
+            case 0x33: // Rx axis (left trigger)
+                desc->rx_offset = item.bit_pos;
+                desc->rx_size = item.size;
+                desc->rx_min = iterator.global_logical_minimum;
+                desc->rx_max = iterator.global_logical_maximum;
+                break;
+            case 0x34: // Ry axis (right trigger)
+                desc->ry_offset = item.bit_pos;
+                desc->ry_size = item.size;
+                desc->ry_min = iterator.global_logical_minimum;
+                desc->ry_max = iterator.global_logical_maximum;
+                break;
+            case 0x39: // Hat switch (D-pad)
+                desc->hat_offset = item.bit_pos;
+                desc->hat_size = item.size;
+                desc->hat_min = iterator.global_logical_minimum;
+                desc->hat_max = iterator.global_logical_maximum;
+                break;
+            }
+        }
+        else if (item.usage_page == 0x02) // Simulation Controls
+        {
+            switch (item.usage)
+            {
+            case 0xC5: // Brake (left trigger)
+                desc->rx_offset = item.bit_pos;
+                desc->rx_size = item.size;
+                desc->rx_min = iterator.global_logical_minimum;
+                desc->rx_max = iterator.global_logical_maximum;
+                break;
+            case 0xC4: // Accelerator (right trigger)
+                desc->ry_offset = item.bit_pos;
+                desc->ry_size = item.size;
+                desc->ry_min = iterator.global_logical_minimum;
+                desc->ry_max = iterator.global_logical_maximum;
+                break;
+            }
+        }
+        else if (item.usage_page == 0x09) // Button page
+        {
+            uint8_t button_index = item.usage - 1; // Buttons 1-indexed
+            if (button_index < PAD_MAX_BUTTONS)
+                desc->button_offsets[button_index] = item.bit_pos;
+        }
+    }
+
+    // If it quacks like a joystick
+    if (desc->x_size || desc->y_size || desc->z_size ||
+        desc->rz_size || desc->rx_size || desc->ry_size ||
+        desc->hat_size || desc->button_offsets[0] != 0xFFFF)
+        desc->valid = true;
+}
+
+static void pad_distill_descriptor(
+    uint8_t slot, pad_descriptor_t *desc,
+    uint8_t const *desc_data, uint16_t desc_len,
+    uint16_t vendor_id, uint16_t product_id)
+{
+    desc->valid = false;
+    pad_parse_descriptor(desc, desc_data, desc_len);
+
+    DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
+        vendor_id, product_id, desc_len, desc->valid);
+
+    if (desc->valid &&
+        !( // Add your gamepad override here to the OR chain.
+           // It should return true if the override is complete.
+           // Return false to continue through the ORs until
+           // a standard DInput remap is applied.
+            pad_remap_8bitdo_m30(desc, vendor_id, product_id) ||
+            pad_remap_playstation_classic(desc, vendor_id, product_id)))
+        // The default remap is DInput
+        pad_remap_dinput(desc);
+
+    // Non HID controllers use a pre-computed descriptor
+    if (desc_len == 0)
+    {
+        if (xin_is_xbox_one(slot))
+        {
+            *desc = pad_desc_xbox_one;
+            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
+        }
+        if (xin_is_xbox_360(slot))
+        {
+            *desc = pad_desc_xbox_360;
+            DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
+        }
+        if (pad_is_sony_ds4(vendor_id, product_id))
+        {
+            *desc = pad_desc_sony_ds4;
+            DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
+        }
+        if (pad_is_sony_ds5(vendor_id, product_id))
+        {
+            *desc = pad_desc_sony_ds5;
+            DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
+        }
+    }
+
+    if (!desc->valid)
+        DBG("HID descriptor not a gamepad.\n");
+}
 
 static uint32_t pad_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
@@ -175,22 +730,22 @@ static uint8_t pad_encode_stick(int8_t x, int8_t y)
 static int pad_find_player_by_slot(uint8_t slot)
 {
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-        if (pad_players[i].slot == slot && pad_players[i].valid)
+        if (pad_descriptors[i].slot == slot && pad_descriptors[i].valid)
             return i;
     return -1;
 }
 
-static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, uint16_t report_len, pad_report_t *gamepad_report)
+static void pad_parse_report(int player, uint8_t const *data, uint16_t report_len, pad_report_t *report)
 {
     // Default empty gamepad report
-    memset(gamepad_report, 0, sizeof(pad_report_t));
+    memset(report, 0, sizeof(pad_report_t));
 
     // Add feature bits to dpad
-    des_gamepad_t *gamepad = &pad_players[player_idx];
+    pad_descriptor_t *gamepad = &pad_descriptors[player];
     if (gamepad->valid)
-        gamepad_report->dpad |= 0x80;
+        report->dpad |= 0x80;
     if (gamepad->sony)
-        gamepad_report->dpad |= 0x40;
+        report->dpad |= 0x40;
 
     // A blank report was requested
     if (report_len == 0)
@@ -199,80 +754,81 @@ static void pad_parse_report_to_gamepad(int player_idx, uint8_t const *report, u
     // Extract analog sticks
     if (gamepad->x_size > 0)
     {
-        uint32_t raw_x = pad_extract_bits(report, report_len, gamepad->x_offset, gamepad->x_size);
-        gamepad_report->lx = pad_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_min, gamepad->x_max);
+        uint32_t raw_x = pad_extract_bits(data, report_len, gamepad->x_offset, gamepad->x_size);
+        report->lx = pad_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_min, gamepad->x_max);
     }
     if (gamepad->y_size > 0)
     {
-        uint32_t raw_y = pad_extract_bits(report, report_len, gamepad->y_offset, gamepad->y_size);
-        gamepad_report->ly = pad_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_min, gamepad->y_max);
+        uint32_t raw_y = pad_extract_bits(data, report_len, gamepad->y_offset, gamepad->y_size);
+        report->ly = pad_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_min, gamepad->y_max);
     }
     if (gamepad->z_size > 0)
     {
-        uint32_t raw_z = pad_extract_bits(report, report_len, gamepad->z_offset, gamepad->z_size);
-        gamepad_report->rx = pad_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_min, gamepad->z_max);
+        uint32_t raw_z = pad_extract_bits(data, report_len, gamepad->z_offset, gamepad->z_size);
+        report->rx = pad_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_min, gamepad->z_max);
     }
     if (gamepad->rz_size > 0)
     {
-        uint32_t raw_rz = pad_extract_bits(report, report_len, gamepad->rz_offset, gamepad->rz_size);
-        gamepad_report->ry = pad_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_min, gamepad->rz_max);
+        uint32_t raw_rz = pad_extract_bits(data, report_len, gamepad->rz_offset, gamepad->rz_size);
+        report->ry = pad_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_min, gamepad->rz_max);
     }
 
     // Extract triggers
     if (gamepad->rx_size > 0)
     {
-        uint32_t raw_rx = pad_extract_bits(report, report_len, gamepad->rx_offset, gamepad->rx_size);
-        gamepad_report->lt = pad_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_min, gamepad->rx_max);
+        uint32_t raw_rx = pad_extract_bits(data, report_len, gamepad->rx_offset, gamepad->rx_size);
+        report->lt = pad_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_min, gamepad->rx_max);
     }
     if (gamepad->ry_size > 0)
     {
-        uint32_t raw_ry = pad_extract_bits(report, report_len, gamepad->ry_offset, gamepad->ry_size);
-        gamepad_report->rt = pad_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_min, gamepad->ry_max);
+        uint32_t raw_ry = pad_extract_bits(data, report_len, gamepad->ry_offset, gamepad->ry_size);
+        report->rt = pad_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_min, gamepad->ry_max);
     }
 
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-        if (pad_extract_bits(report, report_len, gamepad->button_offsets[i], 1))
+        if (pad_extract_bits(data, report_len, gamepad->button_offsets[i], 1))
             buttons |= (1UL << i);
-    gamepad_report->button0 = buttons & 0xFF;
-    gamepad_report->button1 = (buttons & 0xFF00) >> 8;
+    report->button0 = buttons & 0xFF;
+    report->button1 = (buttons & 0xFF00) >> 8;
 
     // Extract D-pad/hat
     if (gamepad->hat_size == 4 && gamepad->hat_max - gamepad->hat_min == 7)
     {
         // Convert HID hat format to individual direction bits
         static const uint8_t hat_to_pad[] = {1, 9, 8, 10, 2, 6, 4, 5};
-        uint32_t raw_hat = pad_extract_bits(report, report_len, gamepad->hat_offset, gamepad->hat_size);
+        uint32_t raw_hat = pad_extract_bits(data, report_len, gamepad->hat_offset, gamepad->hat_size);
         unsigned index = raw_hat - gamepad->hat_min;
         if (index < 8)
-            gamepad_report->dpad |= hat_to_pad[index];
+            report->dpad |= hat_to_pad[index];
     }
     else
     {
-        gamepad_report->dpad |= (buttons & 0xF0000) >> 16;
+        // Look for xbone-style discrete dpad buttons in 16-19
+        report->dpad |= (buttons & 0xF0000) >> 16;
     }
 
     // Generate dpad values for sticks
-    uint8_t stick_l = pad_encode_stick(gamepad_report->lx, gamepad_report->ly);
-    uint8_t stick_r = pad_encode_stick(gamepad_report->rx, gamepad_report->ry);
-    gamepad_report->sticks = stick_l | (stick_r << 4);
+    uint8_t stick_l = pad_encode_stick(report->lx, report->ly);
+    uint8_t stick_r = pad_encode_stick(report->rx, report->ry);
+    report->sticks = stick_l | (stick_r << 4);
 
     // If L2/R2 buttons pressed without any analog movement
-    if ((buttons & (1 << 8)) && (gamepad_report->lt == 0))
-        gamepad_report->lt = 255;
-    if ((buttons & (1 << 9)) && (gamepad_report->rt == 0))
-        gamepad_report->rt = 255;
+    if ((buttons & (1 << 8)) && (report->lt == 0))
+        report->lt = 255;
+    if ((buttons & (1 << 9)) && (report->rt == 0))
+        report->rt = 255;
 
     // Inject Xbox One home button
     if (gamepad->home_pressed)
-        gamepad_report->button1 |= (1 << 4); // Home
+        report->button1 |= (1 << 4); // Home
 
     // If L2/R2 analog movement, ensure button press
-    if (gamepad_report->lt > PAD_DEADZONE)
-        gamepad_report->button1 |= (1 << 0); // L2
-    if (gamepad_report->rt > PAD_DEADZONE)
-        gamepad_report->button1 |= (1 << 1); // R2
+    if (report->lt > PAD_DEADZONE)
+        report->button1 |= (1 << 0); // L2
+    if (report->rt > PAD_DEADZONE)
+        report->button1 |= (1 << 1); // R2
 }
 
 void pad_init(void)
@@ -286,13 +842,13 @@ void pad_stop(void)
 }
 
 // Provides first and final updates in xram
-static void pad_reset_xram(int player_idx)
+static void pad_reset_xram(int player)
 {
     if (pad_xram == 0xFFFF)
         return;
     pad_report_t gamepad_report;
-    pad_parse_report_to_gamepad(player_idx, 0, 0, &gamepad_report); // get blank
-    memcpy(&xram[pad_xram + player_idx * (sizeof(pad_report_t))],
+    pad_parse_report(player, 0, 0, &gamepad_report); // get blank
+    memcpy(&xram[pad_xram + player * (sizeof(pad_report_t))],
            &gamepad_report, sizeof(pad_report_t));
 }
 
@@ -306,16 +862,16 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool pad_mount(uint8_t slot, uint8_t const *desc_report, uint16_t desc_len,
+bool pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id)
 {
-    des_gamepad_t *gamepad = NULL;
+    pad_descriptor_t *gamepad = NULL;
     int player;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
-        if (!pad_players[i].valid)
+        if (!pad_descriptors[i].valid)
         {
-            gamepad = &pad_players[i];
+            gamepad = &pad_descriptors[i];
             player = i;
             break;
         }
@@ -327,8 +883,8 @@ bool pad_mount(uint8_t slot, uint8_t const *desc_report, uint16_t desc_len,
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    des_report_descriptor(slot, gamepad, desc_report, desc_len,
-                          vendor_id, product_id);
+    pad_distill_descriptor(slot, gamepad, desc_data, desc_len,
+                           vendor_id, product_id);
     if (gamepad->valid)
     {
         gamepad->slot = slot;
@@ -344,28 +900,29 @@ void pad_umount(uint8_t slot)
     int player = pad_find_player_by_slot(slot);
     if (player < 0)
         return;
-    des_gamepad_t *gamepad = &pad_players[player];
+    pad_descriptor_t *gamepad = &pad_descriptors[player];
     gamepad->valid = false;
     gamepad->slot = 0;
     pad_reset_xram(player);
 }
 
-void pad_report(uint8_t slot, uint8_t const *report, uint16_t len)
+void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)
 {
     int player = pad_find_player_by_slot(slot);
     if (player < 0)
         return;
-    des_gamepad_t *gamepad = &pad_players[player];
+    pad_descriptor_t *descriptor = &pad_descriptors[player];
 
-    // Skip report ID check if no report ID is expected, or validate if one is expected
-    const uint8_t *report_data = report;
+    // Skip report ID check if no report ID is expected,
+    // or validate if one is expected
+    const uint8_t *report_data = data;
     uint16_t report_data_len = len;
-    if (gamepad->report_id != 0)
+    if (descriptor->report_id != 0)
     {
-        if (len == 0 || report[0] != gamepad->report_id)
+        if (len == 0 || data[0] != descriptor->report_id)
             return;
         // Skip report ID byte
-        report_data = &report[1];
+        report_data = &data[1];
         report_data_len = len - 1;
     }
 
@@ -373,7 +930,7 @@ void pad_report(uint8_t slot, uint8_t const *report, uint16_t len)
     if (pad_xram != 0xFFFF)
     {
         pad_report_t gamepad_report;
-        pad_parse_report_to_gamepad(player, report_data, report_data_len, &gamepad_report);
+        pad_parse_report(player, report_data, report_data_len, &gamepad_report);
         memcpy(&xram[pad_xram + player * (sizeof(pad_report_t))],
                &gamepad_report, sizeof(pad_report_t));
     }
@@ -384,12 +941,14 @@ bool pad_is_valid(uint8_t slot)
     return pad_find_player_by_slot(slot) >= 0;
 }
 
+// This is for XBox One/Series gamepads which send
+// the home button down a different path.
 void pad_home_button(uint8_t slot, bool pressed)
 {
     int player = pad_find_player_by_slot(slot);
     if (player < 0)
         return;
-    des_gamepad_t *gamepad = &pad_players[player];
+    pad_descriptor_t *gamepad = &pad_descriptors[player];
 
     // Inject out of band home button into reports
     gamepad->home_pressed = pressed;
@@ -405,6 +964,7 @@ void pad_home_button(uint8_t slot, bool pressed)
     }
 }
 
+// Useful for gamepads that indicate player number.
 int pad_get_player_num(uint8_t slot)
 {
     return pad_find_player_by_slot(slot);
