@@ -12,6 +12,8 @@
 #include "sys/mem.h"
 #include "usb/xin.h"
 
+#define DEBUG_RIA_HID_PAD
+
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -47,6 +49,8 @@ typedef struct
 
 // Room for button0 and button1 plus a dpad if needed.
 #define PAD_MAX_BUTTONS 20
+
+#define PAD_HOME_BUTTON 12
 
 // Gamepad descriptors are normalized to this structure.
 typedef struct
@@ -102,12 +106,12 @@ static inline void pad_swap_buttons(pad_descriptor_t *desc, int b0, int b1)
 }
 
 // These are USB controllers for the Classic, a remake of the PS1/PSOne.
-static bool pad_remap_playstation_classic(
+static void pad_remap_playstation_classic(
     pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
     (void)product_id;
     if (vendor_id != 0x054C) // Sony Interactive Entertainment
-        return false;
+        return;
     DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
     desc->sony = true;
     pad_swap_buttons(desc, 0, 2); // buttons
@@ -116,48 +120,25 @@ static bool pad_remap_playstation_classic(
     pad_swap_buttons(desc, 5, 9); // r1/r2
     pad_swap_buttons(desc, 4, 6); // l1/bt
     pad_swap_buttons(desc, 5, 7); // r1/st
-    return true;                  // buttons are final, no dinput remap
 }
 
 // The 8BitDo M30 is a Sega-style gamepad with wonky button mappings.
 // It has different L1/R1/L2/R2 mappings for XInput and DInput, which we leave alone.
-static bool pad_remap_8bitdo_m30(
+// Sadly, remapping C/Z into the correct place would mean a confusing third mapping.
+// The barrier to a better map is that we can't detect an M30 using a USB Bluetooth adapter.
+// The wired DInput mode is unlike any other 8BitDo device so we fix it up here.
+static void pad_remap_8bitdo_m30(
     pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
 {
-    if (vendor_id == 0x2DC8 && product_id == 0x5006)
-    {
-        DBG("DES: 8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
-        // Disable emulated analog triggers that are sometimes reversed.
-        // The emulation is added back by the report parser.
-        desc->rx_size = 0;
-        desc->ry_size = 0;
-        // home is on 2, move it to 12
-        pad_swap_buttons(desc, 2, 12);
-    }
-    return false; // continue to dinput remap
-}
-
-// The defacto standard for HID gamepad buttons is DInput.
-static void pad_remap_dinput(pad_descriptor_t *desc)
-{
-    DBG("DES: Remapping HID DInput buttons.\n");
-    // Close the gaps at index 2 and 5, which seem to be
-    // reserved for C and Z on Sega-like six button pads.
-    uint16_t temp2 = desc->button_offsets[2];
-    uint16_t temp5 = desc->button_offsets[5];
-    desc->button_offsets[2] = desc->button_offsets[3];
-    desc->button_offsets[3] = desc->button_offsets[4];
-    for (int i = 4; i <= 9; i++)
-        desc->button_offsets[i] = desc->button_offsets[i + 2];
-    desc->button_offsets[10] = desc->button_offsets[13];
-    desc->button_offsets[11] = desc->button_offsets[14];
-    // Swap L2,R2 buttons with Sel/Start. This puts all the
-    // SNES buttons in the first button byte.
-    pad_swap_buttons(desc, 6, 8);
-    pad_swap_buttons(desc, 7, 9);
-    // Move the 2 and 5 gaps to the end.
-    desc->button_offsets[13] = temp2;
-    desc->button_offsets[14] = temp5;
+    if (vendor_id != 0x2DC8 || product_id != 0x5006)
+        return;
+    DBG("DES: 8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+    // Our analog trigger emulation conflicts
+    // with the M30's reversed analog triggers.
+    desc->rx_size = 0;
+    desc->ry_size = 0;
+    // home is on 2 because reasons
+    pad_swap_buttons(desc, 2, PAD_HOME_BUTTON);
 }
 
 // Sony DualShock 4 detection
@@ -288,20 +269,20 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_one = 
         // Xbox One Gamepad Input Protocol buttons
         3 * 8 + 4, // A button
         3 * 8 + 5, // B button
+        0xFFFF,    // C unused
         3 * 8 + 6, // X button
         3 * 8 + 7, // Y button
+        0xFFFF,    // Z unused
         4 * 8 + 4, // Left shoulder/LB
         4 * 8 + 5, // Right shoulder/RB
-        3 * 8 + 3, // View/Select button
-        3 * 8 + 2, // Menu/Start button
         //
         0xFFFF,    // L2
         0xFFFF,    // R2
+        3 * 8 + 3, // View/Select button
+        3 * 8 + 2, // Menu/Start button
+        0xFFFF,    // Home button
         4 * 8 + 6, // Left stick click
         4 * 8 + 7, // Right stick click
-        0xFFFF,    // Home button
-        0xFFFF,    // unused
-        0xFFFF,    // unused
         0xFFFF,    // unused
         //
         4 * 8 + 0, // D-pad Up
@@ -342,20 +323,20 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_360 = 
         // Xbox 360 USB report button layout
         3 * 8 + 4, // A button
         3 * 8 + 5, // B button
+        0xFFFF,    // C unused
         3 * 8 + 6, // X button
         3 * 8 + 7, // Y button
+        0xFFFF,    // Z unused
         3 * 8 + 0, // Left shoulder/LB
         3 * 8 + 1, // Right shoulder/RB
-        2 * 8 + 5, // Back button
-        2 * 8 + 4, // Start button
         //
         0xFFFF,    // L2
         0xFFFF,    // R2
+        2 * 8 + 5, // Back button
+        2 * 8 + 4, // Start button
+        3 * 8 + 2, // Home button
         2 * 8 + 6, // Left stick click
         2 * 8 + 7, // Right stick click
-        3 * 8 + 2, // Home button
-        0xFFFF,    // unused
-        0xFFFF,    // unused
         0xFFFF,    // unused
         //
         2 * 8 + 0, // D-pad Up
@@ -398,10 +379,10 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = 
     .hat_min = 0,
     .hat_max = 7,
     .button_offsets = {
-        // X, Circle, Square, Triangle, L1, R1, Share, Options
-        37, 38, 36, 39, 40, 41, 44, 45,
-        // L2, R2, L3, R3, PS, Touchpad, Unused, Unused
-        42, 43, 46, 47, 48, 49, 0xFFFF, 0xFFFF,
+        // X, Circle, Unused, Square, Triangle, Unused, L1, R1
+        37, 38, 0xFFFF, 36, 39, 0xFFFF, 40, 41,
+        // L2, R2, Share, Options, L3, R3, PS, Touchpad
+        42, 43, 44, 45, 46, 47, 48, 49,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -439,10 +420,10 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = 
     .hat_min = 0,
     .hat_max = 7,
     .button_offsets = {
-        // X, Circle, Square, Triangle, L1, R1, Create, Options
-        61, 62, 60, 63, 64, 65, 68, 69,
-        // L2, R2, L3, R3, PS, Touchpad, Mute, Unused
-        66, 67, 70, 71, 72, 73, 74, 0xFFFF,
+        // X, Circle, Unused, Square, Triangle, Unused, L1, R1
+        61, 62, 0xFFFF, 60, 63, 0xFFFF, 64, 65,
+        // L2, R2, Create, Options, L3, R3, PS, Touchpad
+        66, 67, 68, 69, 70, 71, 72, 73,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -558,15 +539,9 @@ static void pad_distill_descriptor(
     DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
         vendor_id, product_id, desc_len, desc->valid);
 
-    if (desc->valid &&
-        !( // Add your gamepad override here to the OR chain.
-           // It should return true if the override is complete.
-           // Return false to continue through the ORs until
-           // a standard DInput remap is applied.
-            pad_remap_8bitdo_m30(desc, vendor_id, product_id) ||
-            pad_remap_playstation_classic(desc, vendor_id, product_id)))
-        // The default remap is DInput
-        pad_remap_dinput(desc);
+    // Add your gamepad override here.
+    pad_remap_8bitdo_m30(desc, vendor_id, product_id);
+    pad_remap_playstation_classic(desc, vendor_id, product_id);
 
     // Non HID controllers use a pre-computed descriptor
     if (desc_len == 0)
@@ -822,7 +797,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
 
     // Inject Xbox One home button
     if (gamepad->home_pressed)
-        report->button1 |= (1 << 4); // Home
+        report->button1 |= (1 << (PAD_HOME_BUTTON - 8));
 
     // If L2/R2 analog movement, ensure button press
     if (report->lt > PAD_DEADZONE)
@@ -958,9 +933,9 @@ void pad_home_button(uint8_t slot, bool pressed)
     {
         uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_report_t)) + 3];
         if (pressed)
-            *button1 |= (1 << 4);
+            *button1 |= (1 << (PAD_HOME_BUTTON - 8));
         else
-            *button1 &= ~(1 << 4);
+            *button1 &= ~(1 << (PAD_HOME_BUTTON - 8));
     }
 }
 
