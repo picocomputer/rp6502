@@ -45,7 +45,7 @@ typedef struct
 // Deadzone is generous enough for moderately worn sticks.
 // This is only for the analog to digital comversions so
 // it doesn't need to be first-person shooter tight.
-#define PAD_DEADZONE 24
+#define PAD_DEADZONE 32
 
 // Room for button0 and button1 plus a dpad if needed.
 #define PAD_MAX_BUTTONS 20
