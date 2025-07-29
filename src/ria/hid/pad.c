@@ -172,10 +172,10 @@ static uint8_t pad_encode_stick(int8_t x, int8_t y)
     return result;
 }
 
-static int pad_find_player_by_idx(uint8_t idx)
+static int pad_find_player_by_slot(uint8_t slot)
 {
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-        if (pad_players[i].idx == idx && pad_players[i].valid)
+        if (pad_players[i].slot == slot && pad_players[i].valid)
             return i;
     return -1;
 }
@@ -306,7 +306,7 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+bool pad_mount(uint8_t slot, uint8_t const *desc_report, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id)
 {
     des_gamepad_t *gamepad = NULL;
@@ -327,32 +327,32 @@ bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    des_report_descriptor(idx, gamepad, desc_report, desc_len,
+    des_report_descriptor(slot, gamepad, desc_report, desc_len,
                           vendor_id, product_id);
     if (gamepad->valid)
     {
-        gamepad->idx = idx;
+        gamepad->slot = slot;
         pad_reset_xram(player);
         return true;
     }
     return false;
 }
 
-void pad_umount(uint8_t idx)
+void pad_umount(uint8_t slot)
 {
-    // Find the descriptor by dev_addr and idx
-    int player = pad_find_player_by_idx(idx);
+    // Find the descriptor by dev_addr and slot
+    int player = pad_find_player_by_slot(slot);
     if (player < 0)
         return;
     des_gamepad_t *gamepad = &pad_players[player];
     gamepad->valid = false;
-    gamepad->idx = 0;
+    gamepad->slot = 0;
     pad_reset_xram(player);
 }
 
-void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
+void pad_report(uint8_t slot, uint8_t const *report, uint16_t len)
 {
-    int player = pad_find_player_by_idx(idx);
+    int player = pad_find_player_by_slot(slot);
     if (player < 0)
         return;
     des_gamepad_t *gamepad = &pad_players[player];
@@ -379,14 +379,14 @@ void pad_report(uint8_t idx, uint8_t const *report, uint16_t len)
     }
 }
 
-bool pad_is_valid(uint8_t idx)
+bool pad_is_valid(uint8_t slot)
 {
-    return pad_find_player_by_idx(idx) >= 0;
+    return pad_find_player_by_slot(slot) >= 0;
 }
 
-void pad_home_button(uint8_t idx, bool pressed)
+void pad_home_button(uint8_t slot, bool pressed)
 {
-    int player = pad_find_player_by_idx(idx);
+    int player = pad_find_player_by_slot(slot);
     if (player < 0)
         return;
     des_gamepad_t *gamepad = &pad_players[player];
@@ -405,7 +405,7 @@ void pad_home_button(uint8_t idx, bool pressed)
     }
 }
 
-int pad_get_player_num(uint8_t idx)
+int pad_get_player_num(uint8_t slot)
 {
-    return pad_find_player_by_idx(idx);
+    return pad_find_player_by_slot(slot);
 }

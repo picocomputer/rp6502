@@ -69,7 +69,7 @@ void hid_print_status(void)
         }
     }
 
-    printf("USB : %d keyboard%s, %d %s, %d gamepad%s",
+    printf("%d keyboard%s, %d %s, %d gamepad%s",
            count_keyboard, count_keyboard == 1 ? "" : "s",
            count_mouse, count_mouse == 1 ? "mouse" : "mice",
            count_gamepad, count_gamepad == 1 ? "" : "s");

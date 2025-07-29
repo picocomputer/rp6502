@@ -5,7 +5,6 @@
  */
 
 #include "main.h"
-#include "tusb.h"
 #include "api/api.h"
 #include "api/clk.h"
 #include "api/oem.h"
@@ -34,6 +33,7 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/usb.h"
 #include "usb/xin.h"
 
 /**************************************/
@@ -62,6 +62,7 @@ static void init(void)
     sys_init();
 
     // Misc kernel modules, add yours here.
+    usb_init();
     led_init();
     aud_init();
     kbd_init();
@@ -70,9 +71,6 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
-
-    // TinyUSB
-    tuh_init(TUH_OPT_RHPORT);
 }
 
 // Tasks events are repeatedly called by the main kernel loop.
@@ -83,7 +81,7 @@ static void init(void)
 // Calling FatFs in here may cause undefined behavior.
 void main_task(void)
 {
-    tuh_task();
+    usb_task();
     cpu_task();
     ria_task();
     aud_task();

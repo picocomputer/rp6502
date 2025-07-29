@@ -7,6 +7,7 @@
 #include "btstack.h"
 #include "ble/gatt-service/hids_client.h"
 #include "net/ble.h"
+#include "usb/hid.h"
 
 #if !defined(RP6502_RIA_W) || !defined(ENABLE_BLE)
 void ble_task(void) {}
@@ -83,23 +84,23 @@ static int ble_num_connected(void)
     return num;
 }
 
-static uint8_t ble_slot_to_pad_idx(int slot)
+static uint8_t ble_idx_to_hid_slot(int idx)
 {
     // We can use the same indexing as hid and xin so long as we keep clear
-    return CFG_TUH_HID + PAD_MAX_PLAYERS + slot;
+    return HID_BLE_START + idx;
 }
 
-static void ble_release_slot(int slot)
+static void ble_clear_index(int index)
 {
-    if (slot < 0)
+    if (index < 0)
         return;
-    ble_connections[slot].addr_type = BD_ADDR_TYPE_UNKNOWN;
-    ble_connections[slot].hci_con_handle = HCI_CON_HANDLE_INVALID;
-    ble_connections[slot].hids_cid = 0; // cids start at 1
-    ble_connections[slot].appearance = 0;
+    ble_connections[index].addr_type = BD_ADDR_TYPE_UNKNOWN;
+    ble_connections[index].hci_con_handle = HCI_CON_HANDLE_INVALID;
+    ble_connections[index].hids_cid = 0; // cids start at 1
+    ble_connections[index].appearance = 0;
 }
 
-static int ble_get_empty_slot(void)
+static int ble_get_empty_index(void)
 {
     for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
         if (ble_connections[i].addr_type == BD_ADDR_TYPE_UNKNOWN)
@@ -107,7 +108,7 @@ static int ble_get_empty_slot(void)
     return -1; // Not found
 }
 
-static int ble_get_slot_by_addr(bd_addr_type_t addr_type, const uint8_t *addr)
+static int ble_get_index_by_addr(bd_addr_type_t addr_type, const uint8_t *addr)
 {
     for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
         if (ble_connections[i].addr_type == addr_type &&
@@ -116,7 +117,7 @@ static int ble_get_slot_by_addr(bd_addr_type_t addr_type, const uint8_t *addr)
     return -1; // Not found
 }
 
-static int ble_get_slot_by_handle(hci_con_handle_t handle)
+static int ble_get_index_by_handle(hci_con_handle_t handle)
 {
     for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
         if (ble_connections[i].hci_con_handle == handle)
@@ -124,7 +125,7 @@ static int ble_get_slot_by_handle(hci_con_handle_t handle)
     return -1; // Not found
 }
 
-static int ble_get_slot_by_cid(uint16_t hids_cid)
+static int ble_get_index_by_cid(uint16_t hids_cid)
 {
     for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
     {
@@ -182,10 +183,10 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             break;
         }
 
-        int slot = ble_get_slot_by_cid(cid);
-        if (slot < 0)
+        int index = ble_get_index_by_cid(cid);
+        if (index < 0)
         {
-            DBG("BLE: ble_get_slot_by_cid failed\n");
+            DBG("BLE: ble_get_index_by_cid failed\n");
             break;
         }
 
@@ -209,11 +210,11 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         }
         DBG("\n");
 
-        bool mounted = pad_mount(ble_slot_to_pad_idx(slot), descriptor, descriptor_len, 0, 0);
+        bool mounted = pad_mount(ble_idx_to_hid_slot(index), descriptor, descriptor_len, 0, 0);
         if (mounted)
         {
             DBG("BLE: gamepad mounted player %d\n",
-                pad_get_player_num(ble_slot_to_pad_idx(slot)));
+                pad_get_player_num(ble_idx_to_hid_slot(index)));
         }
         break;
     }
@@ -222,9 +223,9 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
-        int slot = ble_get_slot_by_cid(cid);
-        if (slot >= 0)
-            pad_umount(ble_slot_to_pad_idx(slot));
+        int index = ble_get_index_by_cid(cid);
+        if (index >= 0)
+            pad_umount(ble_idx_to_hid_slot(index));
         break;
     }
 
@@ -237,24 +238,24 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
 
-        int slot = ble_get_slot_by_cid(cid);
-        if (slot < 0)
+        int index = ble_get_index_by_cid(cid);
+        if (index < 0)
         {
-            DBG("BLE: ble_get_slot_by_cid failed\n");
+            DBG("BLE: ble_get_index_by_cid failed\n");
             break;
         }
 
-        switch (ble_connections[slot].appearance)
+        switch (ble_connections[index].appearance)
         {
         case BLE_APPEARANCE_KBD:
-            kbd_report(ble_slot_to_pad_idx(slot), report, report_len);
+            kbd_report(ble_idx_to_hid_slot(index), report, report_len);
             break;
         case BLE_APPEARANCE_MOU:
-            mou_report(ble_slot_to_pad_idx(slot), report, report_len);
+            mou_report(ble_idx_to_hid_slot(index), report, report_len);
             break;
         case BLE_APPEARANCE_PAD:
         default:
-            pad_report(ble_slot_to_pad_idx(slot), report, report_len);
+            pad_report(ble_idx_to_hid_slot(index), report, report_len);
             break;
         }
 
@@ -385,13 +386,13 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
         if (ble_pairing || is_bonded)
         {
-            int slot = ble_get_empty_slot();
-            if (slot < 0)
+            int index = ble_get_empty_index();
+            if (index < 0)
             {
-                DBG("BLE: ble_get_empty_slot failed\n");
+                DBG("BLE: ble_get_empty_index failed\n");
                 break;
             }
-            ble_newest_connection = &ble_connections[slot];
+            ble_newest_connection = &ble_connections[index];
 
             if (ERROR_CODE_SUCCESS == gap_connect(event_addr, addr_type))
             {
@@ -432,24 +433,24 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 break;
             }
 
-            int slot = ble_get_slot_by_addr(addr_type, event_addr);
-            if (slot < 0)
+            int index = ble_get_index_by_addr(addr_type, event_addr);
+            if (index < 0)
             {
-                DBG("BLE: ble_get_slot_by_addr failed\n");
+                DBG("BLE: ble_get_index_by_addr failed\n");
                 break;
             }
-            ble_connections[slot].hci_con_handle = con_handle;
+            ble_connections[index].hci_con_handle = con_handle;
 
             hid_protocol_mode_t mode = HID_PROTOCOL_MODE_REPORT;
-            if (ble_connections[slot].appearance == BLE_APPEARANCE_KBD ||
-                ble_connections[slot].appearance == BLE_APPEARANCE_MOU)
+            if (ble_connections[index].appearance == BLE_APPEARANCE_KBD ||
+                ble_connections[index].appearance == BLE_APPEARANCE_MOU)
                 mode = HID_PROTOCOL_MODE_BOOT;
 
             DBG("BLE: LE Connection Complete - Address: %s, %s\n",
                 bd_addr_to_str(event_addr), mode == HID_PROTOCOL_MODE_BOOT ? "BOOT" : "REPORT");
 
             uint8_t hids_status = hids_client_connect(con_handle, ble_hids_client_handler,
-                                                      mode, &ble_connections[slot].hids_cid);
+                                                      mode, &ble_connections[index].hids_cid);
             if (hids_status != ERROR_CODE_SUCCESS)
                 DBG("BLE: HIDS client connection failed: 0x%02x\n", hids_status);
         }
@@ -462,7 +463,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", con_handle);
         if (ble_newest_connection->hci_con_handle == con_handle)
             ble_restart_scan();
-        ble_release_slot(ble_get_slot_by_handle(con_handle));
+        ble_clear_index(ble_get_index_by_handle(con_handle));
         break;
     }
     }
@@ -531,7 +532,7 @@ static void ble_init_stack(void)
     // Globals
     ble_scan_restarts_at = 0;
     for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        ble_release_slot(i);
+        ble_clear_index(i);
     ble_newest_connection = &ble_connections[0];
 
     // Initialize L2CAP

@@ -93,6 +93,7 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/vga.c
     ria/usb/hid.c
     ria/usb/msc.c
+    ria/usb/usb.c
     ria/usb/xin.c
     fatfs/ff.c
     fatfs/ffunicode.c

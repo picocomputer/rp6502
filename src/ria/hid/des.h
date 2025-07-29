@@ -23,7 +23,7 @@ typedef struct
     bool valid;
     bool sony;         // Indicates gamepad uses sony button labels
     bool home_pressed; // Used to inject the out of band home button on xbox one
-    uint8_t idx;       // HID is 0..CFG_TUH_HID, Xinput is CFG_TUH_HID..CFG_TUH_HID+PAD_MAX_PLAYERS
+    uint8_t slot;      // HID is 0..CFG_TUH_HID, Xinput is CFG_TUH_HID..CFG_TUH_HID+PAD_MAX_PLAYERS
     uint8_t report_id; // If non zero, the first report byte must match and will be skipped
     uint16_t x_offset; // Left stick X
     uint8_t x_size;
@@ -74,7 +74,7 @@ typedef struct
  * @param vendor_id    USB or Bluetooth vendor ID of the device.
  * @param product_id   USB or Bluetooth product ID of the device.
  */
-void des_report_descriptor(uint8_t idx, des_gamepad_t *desc,
+void des_report_descriptor(uint8_t slot, des_gamepad_t *desc,
                            uint8_t const *desc_report, uint16_t desc_len,
                            uint16_t vendor_id, uint16_t product_id);
 

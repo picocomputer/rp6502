@@ -472,7 +472,7 @@ static void __in_flash_func(des_parse_hid_controller)(
 }
 
 void __no_inline_in_flash_func(des_report_descriptor)(
-    uint8_t idx, des_gamepad_t *gamepad,
+    uint8_t slot, des_gamepad_t *gamepad,
     uint8_t const *desc_report, uint16_t desc_len,
     uint16_t vendor_id, uint16_t product_id)
 {
@@ -495,12 +495,12 @@ void __no_inline_in_flash_func(des_report_descriptor)(
     // Non HID controllers use a pre-computed descriptor
     if (desc_len == 0)
     {
-        if (xin_is_xbox_one(idx))
+        if (xin_is_xbox_one(slot))
         {
             *gamepad = des_xbox_one;
             DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
         }
-        if (xin_is_xbox_360(idx))
+        if (xin_is_xbox_360(slot))
         {
             *gamepad = des_xbox_360;
             DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
