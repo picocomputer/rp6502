@@ -12,7 +12,7 @@
 #include "sys/mem.h"
 #include <string.h>
 
-#define DEBUG_RIA_HID_MOU
+// #define DEBUG_RIA_HID_MOU
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_MOU)
 #include <stdio.h>
@@ -44,20 +44,12 @@ typedef struct
     uint16_t button_offsets[8];
     uint16_t x_offset; // X axis
     uint8_t x_size;
-    int32_t x_min;
-    int32_t x_max;
     uint16_t y_offset; // Y axis
     uint8_t y_size;
-    int32_t y_min;
-    int32_t y_max;
     uint16_t wheel_offset; // Wheel/scroll wheel
     uint8_t wheel_size;
-    int32_t wheel_min;
-    int32_t wheel_max;
     uint16_t pan_offset; // Horizontal pan/tilt
     uint8_t pan_size;
-    int32_t pan_min;
-    int32_t pan_max;
 } mou_descriptor_t;
 
 static mou_descriptor_t mou_descriptors[MOU_MAX_MICE];
@@ -124,26 +116,18 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
             case 0x30: // X axis
                 desc->x_offset = item.bit_pos;
                 desc->x_size = item.size;
-                desc->x_min = iterator.global_logical_minimum;
-                desc->x_max = iterator.global_logical_maximum;
                 break;
             case 0x31: // Y axis
                 desc->y_offset = item.bit_pos;
                 desc->y_size = item.size;
-                desc->y_min = iterator.global_logical_minimum;
-                desc->y_max = iterator.global_logical_maximum;
                 break;
             case 0x38: // Wheel
                 desc->wheel_offset = item.bit_pos;
                 desc->wheel_size = item.size;
-                desc->wheel_min = iterator.global_logical_minimum;
-                desc->wheel_max = iterator.global_logical_maximum;
                 break;
             case 0x3C: // Pan/horizontal wheel
                 desc->pan_offset = item.bit_pos;
                 desc->pan_size = item.size;
-                desc->pan_min = iterator.global_logical_minimum;
-                desc->pan_max = iterator.global_logical_maximum;
                 break;
             }
         }
@@ -166,10 +150,10 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
 
     // Debug print parsed descriptor
     DBG("mou_parse_descriptor: report_id=%d, valid=%d\n", desc->report_id, desc->valid);
-    DBG("  X: offset=%d, size=%d, min=%d, max=%d\n", desc->x_offset, desc->x_size, desc->x_min, desc->x_max);
-    DBG("  Y: offset=%d, size=%d, min=%d, max=%d\n", desc->y_offset, desc->y_size, desc->y_min, desc->y_max);
-    DBG("  Wheel: offset=%d, size=%d, min=%d, max=%d\n", desc->wheel_offset, desc->wheel_size, desc->wheel_min, desc->wheel_max);
-    DBG("  Pan: offset=%d, size=%d, min=%d, max=%d\n", desc->pan_offset, desc->pan_size, desc->pan_min, desc->pan_max);
+    DBG("  X: offset=%d, size=%d\n", desc->x_offset, desc->x_size);
+    DBG("  Y: offset=%d, size=%d\n", desc->y_offset, desc->y_size);
+    DBG("  Wheel: offset=%d, size=%d\n", desc->wheel_offset, desc->wheel_size);
+    DBG("  Pan: offset=%d, size=%d\n", desc->pan_offset, desc->pan_size);
     DBG("  Buttons: [%d,%d,%d,%d,%d,%d,%d,%d]\n",
         desc->button_offsets[0], desc->button_offsets[1], desc->button_offsets[2], desc->button_offsets[3],
         desc->button_offsets[4], desc->button_offsets[5], desc->button_offsets[6], desc->button_offsets[7]);

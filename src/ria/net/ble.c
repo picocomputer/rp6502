@@ -178,7 +178,6 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
 
         if (status != ERROR_CODE_SUCCESS)
         {
-            // TODO investigate why xbox sometimes gives ERROR_CODE_UNSPECIFIED_ERROR when pairing
             DBG("BLE: HID service connection failed with status 0x%02x\n", status);
             break;
         }
@@ -251,7 +250,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             break;
         }
 
-        kbd_report(ble_idx_to_hid_slot(index), report, report_len);
+        // kbd_report(ble_idx_to_hid_slot(index), report, report_len);
         mou_report(ble_idx_to_hid_slot(index), report, report_len);
         pad_report(ble_idx_to_hid_slot(index), report, report_len);
 
