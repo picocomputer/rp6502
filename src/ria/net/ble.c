@@ -176,16 +176,29 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         DBG("BLE: HID service connection result - CID: 0x%04x, Status: 0x%02x, Protocol: %d, Services: %d\n",
             cid, status, protocol_mode, num_instances);
 
-        if (status != ERROR_CODE_SUCCESS)
-        {
-            DBG("BLE: HID service connection failed with status 0x%02x\n", status);
-            break;
-        }
-
         int index = ble_get_index_by_cid(cid);
         if (index < 0)
         {
             DBG("BLE: ble_get_index_by_cid failed\n");
+            break;
+        }
+
+        if (status != ERROR_CODE_SUCCESS)
+        {
+            DBG("BLE: HID service connection failed with status 0x%02x\n", status);
+            if (ble_connections[index].hci_con_handle != HCI_CON_HANDLE_INVALID)
+            {
+                DBG("BLE: Disconnecting HCI connection handle 0x%04x due to HID service failure\n",
+                    ble_connections[index].hci_con_handle);
+                gap_disconnect(ble_connections[index].hci_con_handle);
+            }
+            if (status == ERROR_CODE_UNSPECIFIED_ERROR)
+            {
+                // XBox gamepads end up here when the bonding is invalid/old/whatevs
+                // TODO is there a way to catch this on hci layer?
+                DBG("BLE: ERROR_CODE_UNSPECIFIED_ERROR deleting bonding\n");
+                gap_delete_bonding(ble_connections[index].addr_type, ble_connections[index].addr);
+            }
             break;
         }
 
@@ -403,7 +416,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             }
             ble_newest_connection = &ble_connections[index];
 
-            if (ERROR_CODE_SUCCESS == gap_connect(event_addr, addr_type))
+            uint8_t connect_status = gap_connect(event_addr, addr_type);
+            if (connect_status == ERROR_CODE_SUCCESS)
             {
                 gap_stop_scan();
                 DBG("BLE: Found HID %s, connecting... (bonded: %s)\n",
@@ -415,8 +429,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             }
             else
             {
-                DBG("BLE: Found HID %s, connect failed. (bonded: %s)\n",
-                    bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
+                DBG("BLE: Found HID %s, connect failed with status 0x%02x (bonded: %s)\n",
+                    bd_addr_to_str(event_addr), connect_status, is_bonded ? "yes" : "no");
             }
         }
         break;
