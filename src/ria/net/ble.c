@@ -452,9 +452,9 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             ble_connections[index].hci_con_handle = con_handle;
 
             hid_protocol_mode_t mode = HID_PROTOCOL_MODE_REPORT;
-            if (ble_connections[index].appearance == BLE_APPEARANCE_KBD ||
-                ble_connections[index].appearance == BLE_APPEARANCE_MOU)
-                mode = HID_PROTOCOL_MODE_BOOT;
+            // if (ble_connections[index].appearance == BLE_APPEARANCE_KBD ||
+            //     ble_connections[index].appearance == BLE_APPEARANCE_MOU)
+            //     mode = HID_PROTOCOL_MODE_BOOT;
 
             DBG("BLE: LE Connection Complete - Address: %s, %s\n",
                 bd_addr_to_str(event_addr), mode == HID_PROTOCOL_MODE_BOOT ? "BOOT" : "REPORT");
