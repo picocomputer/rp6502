@@ -739,7 +739,7 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
+bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id)
 {
     pad_descriptor_t *gamepad = NULL;

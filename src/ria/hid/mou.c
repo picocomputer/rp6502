@@ -159,7 +159,7 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
         desc->button_offsets[4], desc->button_offsets[5], desc->button_offsets[6], desc->button_offsets[7]);
 }
 
-bool mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
 {
     int desc_idx = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)

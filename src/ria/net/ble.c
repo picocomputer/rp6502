@@ -58,8 +58,8 @@ static bool ble_pairing;
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static btstack_packet_callback_registration_t sm_event_callback_registration;
 
-// Storage for HID descriptors - BLE only
-static uint8_t hid_descriptor_storage[512]; // HID descriptor storage
+// Enough storage for 8 HID descriptors
+static uint8_t hid_descriptor_storage[2048];
 
 // We pause scanning during the entire connect sequence
 // becase BTStack only has state to manage one at a time.
