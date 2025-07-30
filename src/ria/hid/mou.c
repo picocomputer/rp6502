@@ -7,6 +7,7 @@
 #include <pico.h>
 #include "btstack.h"
 #include "tusb_config.h"
+#include "hid/des.h"
 #include "hid/mou.h"
 #include "sys/mem.h"
 #include <string.h>
@@ -22,24 +23,17 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define MOU_MAX_MICE 4
 
-typedef struct
+// This is the report we generate for XRAM.
+static struct
 {
     uint8_t buttons;
     uint8_t x;
     uint8_t y;
     uint8_t wheel;
     uint8_t pan;
-} mou_xram_t;
+} mou_state;
 
 static uint16_t mou_xram = 0xFFFF;
-
-static struct
-{
-    uint16_t x;
-    uint16_t y;
-    uint16_t wheel;
-    uint16_t pan;
-} mou_state;
 
 // Mouse descriptors are normalized to this structure.
 typedef struct
@@ -78,19 +72,6 @@ static int find_descriptor_by_slot(int slot)
     return -1;
 }
 
-static void mou_update_xram(uint8_t buttons)
-{
-    if (mou_xram == 0xFFFF)
-        return;
-    mou_xram_t mouse;
-    mouse.buttons = buttons;
-    mouse.x = mou_state.x >> 8;
-    mouse.y = mou_state.y >> 8;
-    mouse.wheel = mou_state.wheel >> 8;
-    mouse.pan = mou_state.pan >> 8;
-    memcpy(&xram[mou_xram], &mouse, sizeof(mouse));
-}
-
 void mou_init(void)
 {
     mou_stop();
@@ -103,74 +84,12 @@ void mou_stop(void)
 
 bool mou_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(mou_xram_t))
+    if (word != 0xFFFF && word > 0x10000 - sizeof(mou_state))
         return false;
     mou_xram = word;
-    mou_update_xram(0);
+    if (mou_xram != 0xFFFF)
+        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
     return true;
-}
-
-// Extract bits from HID report data similar to pad.c
-static uint32_t mou_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
-{
-    if (!bit_size || bit_size > 32)
-        return 0;
-
-    uint16_t start_byte = bit_offset / 8;
-    uint8_t start_bit = bit_offset % 8;
-    uint16_t end_byte = (bit_offset + bit_size - 1) / 8;
-
-    if (end_byte >= report_len)
-        return 0;
-
-    // Extract up to 4 bytes into a 32-bit value
-    uint32_t value = 0;
-    for (uint8_t i = 0; i < 4 && (start_byte + i) < report_len; ++i)
-        value |= ((uint32_t)report[start_byte + i]) << (i * 8);
-
-    value >>= start_bit;
-    if (bit_size < 32)
-        value &= (1ULL << bit_size) - 1;
-
-    return value;
-}
-
-// Scale analog values similar to pad.c
-static int16_t mou_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
-{
-    // Handle reversed polarity
-    bool reversed = logical_min > logical_max;
-    int32_t min = reversed ? logical_max : logical_min;
-    int32_t max = reversed ? logical_min : logical_max;
-
-    // Sign-extend raw_value if needed
-    int32_t value = (int32_t)raw_value;
-    if (min < 0 && bit_size < 32)
-    {
-        uint32_t sign_bit = 1ULL << (bit_size - 1);
-        if (value & sign_bit)
-            value |= ~((1ULL << bit_size) - 1);
-    }
-
-    // Clamp to logical range
-    if (value < min)
-        value = min;
-    if (value > max)
-        value = max;
-
-    int32_t range = max - min;
-    if (range == 0)
-        return 0;
-
-    // Scale to -32768..32767
-    int32_t scaled = ((value - min) * 65535 + (range / 2)) / range - 32768;
-    int16_t result = (int16_t)scaled;
-
-    // Reverse if needed
-    if (reversed)
-        result = -result;
-
-    return result;
 }
 
 // Parse HID descriptor to extract mouse report structure
@@ -238,6 +157,7 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
         }
     }
 
+    // TODO joysticks look like this too
     // Validate if we have basic mouse functionality
     desc->valid = (desc->x_size > 0 || desc->y_size > 0 ||
                    desc->button_offsets[0] != 0xFFFF ||
@@ -314,78 +234,55 @@ void mou_report(uint8_t slot, void const *data, size_t size)
     {
         if (desc->button_offsets[i] != 0xFFFF)
         {
-            uint32_t button_val = mou_extract_bits(report_data, report_data_len,
+            uint32_t button_val = des_extract_bits(report_data, report_data_len,
                                                    desc->button_offsets[i], 1);
             if (button_val)
                 buttons |= (1 << i);
         }
     }
+    mou_state.buttons = buttons;
 
     // Extract movement data
-    int16_t delta_x = 0, delta_y = 0, delta_wheel = 0, delta_pan = 0;
-
     if (desc->x_size > 0)
-    {
-        uint32_t raw_x = mou_extract_bits(report_data, report_data_len,
+        mou_state.x += des_extract_signed(report_data, report_data_len,
                                           desc->x_offset, desc->x_size);
-        delta_x = mou_scale_analog_signed(raw_x, desc->x_size, desc->x_min, desc->x_max);
-    }
-
     if (desc->y_size > 0)
-    {
-        uint32_t raw_y = mou_extract_bits(report_data, report_data_len,
+        mou_state.y += des_extract_signed(report_data, report_data_len,
                                           desc->y_offset, desc->y_size);
-        delta_y = mou_scale_analog_signed(raw_y, desc->y_size, desc->y_min, desc->y_max);
-    }
-
     if (desc->wheel_size > 0)
-    {
-        uint32_t raw_wheel = mou_extract_bits(report_data, report_data_len,
+        mou_state.wheel += des_extract_signed(report_data, report_data_len,
                                               desc->wheel_offset, desc->wheel_size);
-        delta_wheel = mou_scale_analog_signed(raw_wheel, desc->wheel_size,
-                                              desc->wheel_min, desc->wheel_max);
-    }
-
     if (desc->pan_size > 0)
-    {
-        uint32_t raw_pan = mou_extract_bits(report_data, report_data_len,
+        mou_state.pan += des_extract_signed(report_data, report_data_len,
                                             desc->pan_offset, desc->pan_size);
-        delta_pan = mou_scale_analog_signed(raw_pan, desc->pan_size,
-                                            desc->pan_min, desc->pan_max);
-    }
-
-    // Update accumulated state
-    mou_state.x += (int16_t)delta_x << 8;
-    mou_state.y += (int16_t)delta_y << 8;
-    mou_state.wheel += (int16_t)delta_wheel << 8;
-    mou_state.pan += (int16_t)delta_pan << 8;
 
     // Update XRAM with new state
-    mou_update_xram(buttons);
+    if (mou_xram != 0xFFFF)
+        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
 }
 
 void mou_report_boot(uint8_t slot, void const *data, size_t size)
 {
     (void)slot;
-
-    /// Standard HID Boot Protocol Mouse Report.
     typedef struct TU_ATTR_PACKED
     {
-        uint8_t buttons; /**< buttons mask for currently pressed buttons in the mouse. */
-        int8_t x;        /**< Current delta x movement of the mouse. */
-        int8_t y;        /**< Current delta y movement on the mouse. */
-        int8_t wheel;    /**< Current delta wheel movement on the mouse. */
-        int8_t pan;      // using AC Pan
-    } hid_mouse_report_t;
-    hid_mouse_report_t *mouse = (hid_mouse_report_t *)data;
-    if (size >= 2)
-        mou_state.x += (int16_t)mouse->x << 8;
-    if (size >= 3)
-        mou_state.y += (int16_t)mouse->y << 8;
-    if (size >= 4)
-        mou_state.wheel += (int16_t)mouse->wheel << 8;
-    if (size >= 5)
-        mou_state.pan += (int16_t)mouse->pan << 8;
+        uint8_t buttons;
+        int8_t x;
+        int8_t y;
+        int8_t wheel;
+        int8_t pan;
+    } mou_hid_boot_t;
+    mou_hid_boot_t *mouse = (mou_hid_boot_t *)data;
     if (size >= 1)
-        mou_update_xram(mouse->buttons);
+        mou_state.buttons += mouse->buttons;
+    if (size >= 2)
+        mou_state.x += mouse->x;
+    if (size >= 3)
+        mou_state.y += mouse->y;
+    if (size >= 4)
+        mou_state.wheel += mouse->wheel;
+    if (size >= 5)
+        mou_state.pan += mouse->pan;
+    if (mou_xram != 0xFFFF)
+        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
 }
