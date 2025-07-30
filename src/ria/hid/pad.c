@@ -12,8 +12,6 @@
 #include "sys/mem.h"
 #include "usb/xin.h"
 
-#define DEBUG_RIA_HID_PAD
-
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)

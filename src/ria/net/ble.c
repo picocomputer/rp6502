@@ -216,6 +216,12 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             DBG("BLE: gamepad mounted player %d\n",
                 pad_get_player_num(ble_idx_to_hid_slot(index)));
         }
+
+        mounted = mou_mount(ble_idx_to_hid_slot(index), descriptor, descriptor_len);
+        if (mounted)
+        {
+            DBG("BLE: mouse mounted\n");
+        }
         break;
     }
 
@@ -245,19 +251,23 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             break;
         }
 
-        switch (ble_connections[index].appearance)
-        {
-        case BLE_APPEARANCE_KBD:
-            kbd_report(ble_idx_to_hid_slot(index), report, report_len);
-            break;
-        case BLE_APPEARANCE_MOU:
-            mou_report(ble_idx_to_hid_slot(index), report, report_len);
-            break;
-        case BLE_APPEARANCE_PAD:
-        default:
-            pad_report(ble_idx_to_hid_slot(index), report, report_len);
-            break;
-        }
+        kbd_report(ble_idx_to_hid_slot(index), report, report_len);
+        mou_report(ble_idx_to_hid_slot(index), report, report_len);
+        pad_report(ble_idx_to_hid_slot(index), report, report_len);
+
+        // switch (ble_connections[index].appearance)
+        // {
+        // case BLE_APPEARANCE_KBD:
+        //     kbd_report(ble_idx_to_hid_slot(index), report, report_len);
+        //     break;
+        // case BLE_APPEARANCE_MOU:
+        //     mou_report_boot(ble_idx_to_hid_slot(index), report, report_len);
+        //     break;
+        // case BLE_APPEARANCE_PAD:
+        // default:
+        //     pad_report(ble_idx_to_hid_slot(index), report, report_len);
+        //     break;
+        // }
 
         static bool printed = false;
         if (!printed)
