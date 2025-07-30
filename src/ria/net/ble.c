@@ -185,20 +185,9 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
 
         if (status != ERROR_CODE_SUCCESS)
         {
+            // Sometimes BTstack will send us failures at the same time the sm layer is
+            // failing SM_EVENT_REENCRYPTION_COMPLETE with ERROR_CODE_PIN_OR_KEY_MISSING.
             DBG("BLE: HID service connection failed with status 0x%02x\n", status);
-            if (ble_connections[index].hci_con_handle != HCI_CON_HANDLE_INVALID)
-            {
-                DBG("BLE: Disconnecting HCI connection handle 0x%04x due to HID service failure\n",
-                    ble_connections[index].hci_con_handle);
-                gap_disconnect(ble_connections[index].hci_con_handle);
-            }
-            if (status == ERROR_CODE_UNSPECIFIED_ERROR)
-            {
-                // XBox gamepads end up here when the bonding is invalid/old/whatevs
-                // TODO is there a way to catch this on hci layer?
-                DBG("BLE: ERROR_CODE_UNSPECIFIED_ERROR deleting bonding\n");
-                gap_delete_bonding(ble_connections[index].addr_type, ble_connections[index].addr);
-            }
             break;
         }
 
@@ -297,9 +286,6 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             }
             DBG("\n");
         }
-
-        // TODO: Process the HID report data for gamepad input
-        // This is where you would parse the report and update gamepad state
 
         break;
     }
@@ -515,7 +501,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (ble_pairing)
             sm_numeric_comparison_confirm(sm_event_numeric_comparison_request_get_handle(packet));
         else
-            sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
+            sm_bonding_decline(sm_event_numeric_comparison_request_get_handle(packet));
         break;
 
     case SM_EVENT_AUTHORIZATION_REQUEST:
@@ -523,7 +509,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (ble_pairing)
             sm_authorization_grant(sm_event_authorization_request_get_handle(packet));
         else
-            sm_bonding_decline(sm_event_just_works_request_get_handle(packet));
+            sm_bonding_decline(sm_event_authorization_request_get_handle(packet));
         break;
 
     case SM_EVENT_PASSKEY_DISPLAY_NUMBER:
@@ -544,9 +530,25 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         }
         break;
 
-    case SM_EVENT_PAIRING_STARTED:
-        DBG("BLE: SM Pairing Started\n");
+    case SM_EVENT_REENCRYPTION_COMPLETE:
+    {
+        hci_con_handle_t handle = sm_event_reencryption_complete_get_handle(packet);
+        uint8_t status = sm_event_reencryption_complete_get_status(packet);
+        if (status != ERROR_CODE_SUCCESS)
+        {
+            DBG("BLE: Re-encryption failed with status 0x%02x\n", status);
+            if (status == ERROR_CODE_PIN_OR_KEY_MISSING)
+            {
+                DBG("BLE: 0x06 PIN_OR_KEY_MISSING - deleting bond\n");
+                bd_addr_t addr;
+                uint8_t addr_type = sm_event_reencryption_complete_get_addr_type(packet);
+                sm_event_reencryption_complete_get_address(packet, addr);
+                gap_delete_bonding(addr_type, addr);
+            }
+            gap_disconnect(handle);
+        }
         break;
+    }
     }
 }
 
@@ -614,12 +616,12 @@ void ble_set_config(uint8_t bt)
 
     if (bt == 2)
     {
-        DBG("BLE: Enabling bonding mode - new devices can now bond\n");
+        DBG("BLE: Enabling pairing mode - new devices can now bond\n");
         ble_pairing = true;
     }
     else
     {
-        DBG("BLE: Disabling bonding mode - preventing new device bonding\n");
+        DBG("BLE: Disabling pairing mode - preventing new device pairing\n");
         ble_pairing = false;
     }
 }
@@ -627,15 +629,7 @@ void ble_set_config(uint8_t bt)
 void ble_shutdown(void)
 {
     if (ble_initialized)
-    {
-        // TODO: Disconnect all active connections
-        gap_auto_connection_stop_all();
-
         hci_power_control(HCI_POWER_OFF);
-
-        DBG("BLE: Shutdown complete - stopped scanning\n");
-    }
-
     ble_initialized = false;
 }
 
