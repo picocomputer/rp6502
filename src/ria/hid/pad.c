@@ -5,12 +5,13 @@
  */
 
 #include <pico.h>
-#include "btstack.h"
+#include "btstack_hid_parser.h"
 #include "tusb_config.h"
 #include "hid/pad.h"
 #include "hid/des.h"
 #include "sys/mem.h"
 #include "usb/xin.h"
+#include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
 #include <stdio.h>
@@ -802,8 +803,6 @@ void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)
         return;
     pad_descriptor_t *descriptor = &pad_descriptors[player];
 
-    // Skip report ID check if no report ID is expected,
-    // or validate if one is expected
     const uint8_t *report_data = data;
     uint16_t report_data_len = len;
     if (descriptor->report_id != 0)

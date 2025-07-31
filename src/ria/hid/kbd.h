@@ -20,9 +20,6 @@ void kbd_report(uint8_t idx, void const *report, size_t size);
 // Set the extended register value.
 bool kbd_xreg(uint16_t word);
 
-// Send LEDs to keyboards in next task.
-void kbd_hid_leds_dirty();
-
 // Handler for stdio_driver_t
 int kbd_stdio_in_chars(char *buf, int length);
 

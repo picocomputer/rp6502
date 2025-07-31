@@ -18,7 +18,28 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+static bool hid_leds_dirty;
+static uint8_t hid_leds;
 static uint8_t hid_dev_addr[CFG_TUH_HID];
+
+void hid_set_leds(uint8_t leds)
+{
+    hid_leds = leds;
+    hid_leds_dirty = true;
+}
+
+void hid_task(void)
+{
+    if (hid_leds_dirty)
+    {
+        hid_leds_dirty = false;
+        for (uint8_t dev_addr = 1; dev_addr <= CFG_TUH_DEVICE_MAX; dev_addr++)
+            for (uint8_t idx = 0; idx < CFG_TUH_HID; idx++)
+                if (tuh_hid_interface_protocol(dev_addr, idx) == HID_ITF_PROTOCOL_KEYBOARD)
+                    tuh_hid_set_report(dev_addr, idx, 0, HID_REPORT_TYPE_OUTPUT,
+                                       &hid_leds, sizeof(hid_leds));
+    }
+}
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
 {
@@ -88,7 +109,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
     {
         valid = true;
-        kbd_hid_leds_dirty();
+        hid_leds_dirty = true;
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)
     {

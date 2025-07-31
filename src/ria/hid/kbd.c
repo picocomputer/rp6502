@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "tusb.h"
+#include "btstack_hid_parser.h"
 #include "main.h"
 #include "api/api.h"
 #include "sys/cfg.h"
@@ -14,11 +14,104 @@
 #include "hid/kbd_eng.h"
 #include "hid/kbd_pol.h"
 #include "hid/kbd_swe.h"
+#include "usb/hid.h"
 #include "fatfs/ff.h"
-#include "string.h"
+#include "pico/time.h"
+#include <stdio.h>
+#include <string.h>
+
+// TODO SCROLLOCK
+
+#define DEBUG_RIA_HID_KBD
+
+#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
+
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t modifier;   /**< Keyboard modifier (KEYBOARD_MODIFIER_* masks). */
+    uint8_t reserved;   /**< Reserved for OEM use, always set to 0. */
+    uint8_t keycode[6]; /**< Key codes of the currently pressed keys. */
+} hid_keyboard_report_t;
+
+#define TU_BIT(n) (1UL << (n))
+
+typedef enum
+{
+    KEYBOARD_MODIFIER_LEFTCTRL = TU_BIT(0),   ///< Left Control
+    KEYBOARD_MODIFIER_LEFTSHIFT = TU_BIT(1),  ///< Left Shift
+    KEYBOARD_MODIFIER_LEFTALT = TU_BIT(2),    ///< Left Alt
+    KEYBOARD_MODIFIER_LEFTGUI = TU_BIT(3),    ///< Left Window
+    KEYBOARD_MODIFIER_RIGHTCTRL = TU_BIT(4),  ///< Right Control
+    KEYBOARD_MODIFIER_RIGHTSHIFT = TU_BIT(5), ///< Right Shift
+    KEYBOARD_MODIFIER_RIGHTALT = TU_BIT(6),   ///< Right Alt
+    KEYBOARD_MODIFIER_RIGHTGUI = TU_BIT(7)    ///< Right Window
+} hid_keyboard_modifier_bm_t;
+
+typedef enum
+{
+    KEYBOARD_LED_NUMLOCK = TU_BIT(0),    ///< Num Lock LED
+    KEYBOARD_LED_CAPSLOCK = TU_BIT(1),   ///< Caps Lock LED
+    KEYBOARD_LED_SCROLLLOCK = TU_BIT(2), ///< Scroll Lock LED
+    KEYBOARD_LED_COMPOSE = TU_BIT(3),    ///< Composition Mode
+    KEYBOARD_LED_KANA = TU_BIT(4)        ///< Kana mode
+} hid_keyboard_led_bm_t;
+
+#define HID_KEY_NONE 0x00
+#define HID_KEY_A 0x04
+#define HID_KEY_Z 0x1D
+#define HID_KEY_BACKSPACE 0x2A
+#define HID_KEY_CAPS_LOCK 0x39
+#define HID_KEY_F1 0x3A
+#define HID_KEY_F2 0x3B
+#define HID_KEY_F3 0x3C
+#define HID_KEY_F4 0x3D
+#define HID_KEY_F5 0x3E
+#define HID_KEY_F6 0x3F
+#define HID_KEY_F7 0x40
+#define HID_KEY_F8 0x41
+#define HID_KEY_F9 0x42
+#define HID_KEY_F10 0x43
+#define HID_KEY_F11 0x44
+#define HID_KEY_F12 0x45
+#define HID_KEY_SCROLL_LOCK 0x47
+#define HID_KEY_INSERT 0x49
+#define HID_KEY_HOME 0x4A
+#define HID_KEY_PAGE_UP 0x4B
+#define HID_KEY_DELETE 0x4C
+#define HID_KEY_END 0x4D
+#define HID_KEY_PAGE_DOWN 0x4E
+#define HID_KEY_ARROW_RIGHT 0x4F
+#define HID_KEY_ARROW_LEFT 0x50
+#define HID_KEY_ARROW_DOWN 0x51
+#define HID_KEY_ARROW_UP 0x52
+#define HID_KEY_NUM_LOCK 0x53
+#define HID_KEY_KEYPAD_1 0x59
+#define HID_KEY_KEYPAD_2 0x5A
+#define HID_KEY_KEYPAD_3 0x5B
+#define HID_KEY_KEYPAD_4 0x5C
+#define HID_KEY_KEYPAD_5 0x5D
+#define HID_KEY_KEYPAD_6 0x5E
+#define HID_KEY_KEYPAD_7 0x5F
+#define HID_KEY_KEYPAD_8 0x60
+#define HID_KEY_KEYPAD_9 0x61
+#define HID_KEY_KEYPAD_0 0x62
+#define HID_KEY_KEYPAD_DECIMAL 0x63
+#define HID_KEY_CONTROL_LEFT 0xE0
+#define HID_KEY_SHIFT_LEFT 0xE1
+#define HID_KEY_ALT_LEFT 0xE2
+#define HID_KEY_GUI_LEFT 0xE3
+#define HID_KEY_CONTROL_RIGHT 0xE4
+#define HID_KEY_SHIFT_RIGHT 0xE5
+#define HID_KEY_ALT_RIGHT 0xE6
+#define HID_KEY_GUI_RIGHT 0xE7
 
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_keycode;
@@ -28,7 +121,6 @@ static char kbd_key_queue[16];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
-static bool kdb_hid_leds_need_report;
 static uint16_t kbd_xram;
 static uint8_t kbd_xram_keys[32];
 
@@ -38,11 +130,6 @@ static uint8_t kbd_xram_keys[32];
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
-
-void kbd_hid_leds_dirty()
-{
-    kdb_hid_leds_need_report = true;
-}
 
 static void kbd_queue_str(const char *str)
 {
@@ -209,11 +296,11 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         case HID_KEY_NUM_LOCK:
             kdb_hid_leds ^= KEYBOARD_LED_NUMLOCK;
-            kbd_hid_leds_dirty();
+            hid_set_leds(kdb_hid_leds);
             break;
         case HID_KEY_CAPS_LOCK:
             kdb_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
-            kbd_hid_leds_dirty();
+            hid_set_leds(kdb_hid_leds);
             break;
         }
     // Special key handler
@@ -385,16 +472,6 @@ void kbd_task(void)
             }
         }
         kbd_repeat_keycode = 0;
-    }
-
-    if (kdb_hid_leds_need_report)
-    {
-        kdb_hid_leds_need_report = false;
-        for (uint8_t dev_addr = 1; dev_addr <= CFG_TUH_DEVICE_MAX; dev_addr++)
-            for (uint8_t idx = 0; idx < CFG_TUH_HID; idx++)
-                if (tuh_hid_interface_protocol(dev_addr, idx) == HID_ITF_PROTOCOL_KEYBOARD)
-                    tuh_hid_set_report(dev_addr, idx, 0, HID_REPORT_TYPE_OUTPUT,
-                                       &kdb_hid_leds, sizeof(kdb_hid_leds));
     }
 }
 

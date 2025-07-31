@@ -5,7 +5,7 @@
  */
 
 #include <pico.h>
-#include "btstack.h"
+#include "btstack_hid_parser.h"
 #include "tusb_config.h"
 #include "hid/des.h"
 #include "hid/mou.h"
@@ -201,12 +201,11 @@ void mou_report(uint8_t slot, void const *data, size_t size)
     const uint8_t *report_data = (const uint8_t *)data;
     uint16_t report_data_len = size;
 
-    // Skip report ID check if no report ID is expected,
-    // or validate if one is expected
     if (desc->report_id != 0)
     {
         if (report_data_len == 0 || report_data[0] != desc->report_id)
             return;
+        // Skip report ID byte
         report_data++;
         report_data_len--;
     }
@@ -247,7 +246,7 @@ void mou_report(uint8_t slot, void const *data, size_t size)
 void mou_report_boot(uint8_t slot, void const *data, size_t size)
 {
     (void)slot;
-    typedef struct TU_ATTR_PACKED
+    typedef struct
     {
         uint8_t buttons;
         int8_t x;

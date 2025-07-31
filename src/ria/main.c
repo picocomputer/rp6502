@@ -33,6 +33,7 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/hid.h"
 #include "usb/usb.h"
 #include "usb/xin.h"
 
@@ -90,6 +91,7 @@ void main_task(void)
     cyw_task();
     wfi_task();
     ntp_task();
+    hid_task();
     xin_task();
     ble_task();
 }

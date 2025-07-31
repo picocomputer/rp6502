@@ -19,6 +19,8 @@
 #define HID_BLE_START (HID_XIN_START + HID_XIN_SLOTS)
 #define HID_BLE_SLOTS (MAX_NR_HCI_CONNECTIONS)
 
+void hid_task(void);
 void hid_print_status(void);
+void hid_set_leds(uint8_t leds);
 
 #endif /* _HID_H_ */
