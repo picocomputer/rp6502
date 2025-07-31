@@ -445,13 +445,14 @@ static void pad_parse_descriptor(
         btstack_hid_usage_item_t item;
         btstack_hid_usage_iterator_get_item(&iterator, &item);
 
-        // Store report ID if this is the first one we encounter
-        if (desc->report_id == 0 && item.report_id != 0xFFFF)
-            desc->report_id = item.report_id;
+        // Log each HID usage item
+        // DBG("HID item: usage_page=0x%02x, usage=0x%02x, report_id=0x%04x\n",
+        //     item.usage_page, item.usage, item.report_id);
 
-        // Map usages to gamepad fields
+        bool get_report_id = false;
         if (item.usage_page == 0x01) // Generic Desktop
         {
+            get_report_id = true;
             switch (item.usage)
             {
             case 0x30: // X axis (left stick X)
@@ -501,6 +502,7 @@ static void pad_parse_descriptor(
         }
         else if (item.usage_page == 0x02) // Simulation Controls
         {
+            get_report_id = true;
             switch (item.usage)
             {
             case 0xC5: // Brake (left trigger)
@@ -519,10 +521,14 @@ static void pad_parse_descriptor(
         }
         else if (item.usage_page == 0x09) // Button page
         {
+            get_report_id = true;
             uint8_t button_index = item.usage - 1; // Buttons 1-indexed
             if (button_index < PAD_MAX_BUTTONS)
                 desc->button_offsets[button_index] = item.bit_pos;
         }
+        // Store report ID if this is the first one we encounter
+        if (get_report_id && desc->report_id == 0 && item.report_id != 0xFFFF)
+            desc->report_id = item.report_id;
     }
 
     // If it creaks like a gamepad.

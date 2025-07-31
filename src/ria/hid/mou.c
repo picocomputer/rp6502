@@ -12,8 +12,6 @@
 #include "sys/mem.h"
 #include <string.h>
 
-// #define DEBUG_RIA_HID_MOU
-
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_MOU)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -105,13 +103,14 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
         btstack_hid_usage_item_t item;
         btstack_hid_usage_iterator_get_item(&iterator, &item);
 
-        // Store report ID if this is the first one we encounter
-        if (desc->report_id == 0 && item.report_id != 0xFFFF)
-            desc->report_id = item.report_id;
+        // Log each HID usage item
+        // DBG("HID item: page=0x%02x, usage=0x%02x, report_id=0x%04x\n",
+        //     item.usage_page, item.usage, item.report_id);
 
-        // Map usages to mouse fields
+        bool get_report_id = false;
         if (item.usage_page == 0x01) // Generic Desktop
         {
+            get_report_id = true;
             switch (item.usage)
             {
             case 0x30: // X axis
@@ -135,12 +134,14 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
         }
         else if (item.usage_page == 0x09) // Button page
         {
-            // Map buttons to offsets
+            get_report_id = true;
             if (item.usage >= 1 && item.usage <= 8)
-            {
                 desc->button_offsets[item.usage - 1] = item.bit_pos;
-            }
         }
+
+        // Store report ID if this is the first one we encounter
+        if (get_report_id && desc->report_id == 0 && item.report_id != 0xFFFF)
+            desc->report_id = item.report_id;
     }
 
     // If it squeaks like a mouse.
