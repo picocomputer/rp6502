@@ -54,11 +54,12 @@ typedef struct
 typedef struct
 {
     bool valid;
-    bool sony;         // Indicates gamepad uses sony button labels
-    bool home_pressed; // Used to inject the out of band home button on xbox one
-    uint8_t slot;      // HID protocol drivers use slots assigned in hid.h
-    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
-    uint16_t x_offset; // Left stick X
+    bool sony;           // Indicates gamepad uses sony button labels
+    bool home_pressed;   // Used to inject the out of band home button on xbox one
+    uint8_t slot;        // HID protocol drivers use slots assigned in hid.h
+    uint8_t report_id;   // If non zero, the first report byte must match and will be skipped
+    uint16_t x_absolute; // Will be true for gamepads
+    uint16_t x_offset;   // Left stick X
     uint8_t x_size;
     int32_t x_min;
     int32_t x_max;
@@ -238,6 +239,7 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 // XBox One/Series descriptor for XInput
 static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_one = {
     .valid = true,
+    .x_absolute = true,
     .report_id = 0x20, // GIP message ID
     .x_offset = 9 * 8, // left stick X
     .x_size = 16,
@@ -292,6 +294,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_one = 
 // XBox 360 descriptor for XInput
 static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_360 = {
     .valid = true,
+    .x_absolute = true,
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
     .x_offset = 6 * 8, // left stick X
     .x_size = 16,
@@ -346,6 +349,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_360 = 
 // Sony DualShock 4 is HID but presents no descriptor
 static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = {
     .valid = true,
+    .x_absolute = true,
     .sony = true,
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
@@ -387,6 +391,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = 
 // Sony DualSense 5 is HID but presents no descriptor
 static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = {
     .valid = true,
+    .x_absolute = true,
     .sony = true,
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
@@ -454,6 +459,7 @@ static void pad_parse_descriptor(
                 desc->x_size = item.size;
                 desc->x_min = iterator.global_logical_minimum;
                 desc->x_max = iterator.global_logical_maximum;
+                desc->x_absolute = !(iterator.descriptor_item.item_value & 0x04);
                 break;
             case 0x31: // Y axis (left stick Y)
                 desc->y_offset = item.bit_pos;
@@ -519,11 +525,11 @@ static void pad_parse_descriptor(
         }
     }
 
-    // TODO Mice have x_size, y_size, and buttons
-    // If it quacks like a joystick
-    if (desc->x_size || desc->y_size || desc->z_size ||
-        desc->rz_size || desc->rx_size || desc->ry_size ||
-        desc->hat_size || desc->button_offsets[0] != 0xFFFF)
+    // If it creaks like a gamepad.
+    if (desc->x_absolute && desc->button_offsets[0] != 0xFFFF &&
+        (desc->x_size || desc->y_size || desc->z_size ||
+         desc->rz_size || desc->rx_size || desc->ry_size ||
+         desc->hat_size))
         desc->valid = true;
 }
 
@@ -740,7 +746,7 @@ bool pad_xreg(uint16_t word)
 }
 
 bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
-               uint16_t vendor_id, uint16_t product_id)
+                                       uint16_t vendor_id, uint16_t product_id)
 {
     pad_descriptor_t *gamepad = NULL;
     int player;

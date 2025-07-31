@@ -42,6 +42,7 @@ typedef struct
     uint8_t slot;      // HID protocol drivers use slots assigned in hid.h
     uint8_t report_id; // If non zero, the first report byte must match and will be skipped
     uint16_t button_offsets[8];
+    bool x_relative;   // Will be true for mice
     uint16_t x_offset; // X axis
     uint8_t x_size;
     uint16_t y_offset; // Y axis
@@ -116,6 +117,7 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
             case 0x30: // X axis
                 desc->x_offset = item.bit_pos;
                 desc->x_size = item.size;
+                desc->x_relative = (iterator.descriptor_item.item_value & 0x04) != 0;
                 break;
             case 0x31: // Y axis
                 desc->y_offset = item.bit_pos;
@@ -141,16 +143,12 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
         }
     }
 
-    // TODO joysticks look like this too
-    // Validate if we have basic mouse functionality
-    desc->valid = (desc->x_size > 0 || desc->y_size > 0 ||
-                   desc->button_offsets[0] != 0xFFFF ||
-                   desc->button_offsets[1] != 0xFFFF ||
-                   desc->button_offsets[2] != 0xFFFF);
+    // If it squeaks like a mouse.
+    desc->valid = desc->x_relative && desc->x_size > 0;
 
     // Debug print parsed descriptor
     DBG("mou_parse_descriptor: report_id=%d, valid=%d\n", desc->report_id, desc->valid);
-    DBG("  X: offset=%d, size=%d\n", desc->x_offset, desc->x_size);
+    DBG("  X: offset=%d, size=%d, relative=%d\n", desc->x_offset, desc->x_size, desc->x_relative);
     DBG("  Y: offset=%d, size=%d\n", desc->y_offset, desc->y_size);
     DBG("  Wheel: offset=%d, size=%d\n", desc->wheel_offset, desc->wheel_size);
     DBG("  Pan: offset=%d, size=%d\n", desc->pan_offset, desc->pan_size);
