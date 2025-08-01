@@ -20,8 +20,6 @@
 #include <stdio.h>
 #include <string.h>
 
-// TODO SCROLLOCK
-
 #define DEBUG_RIA_HID_KBD
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
@@ -33,6 +31,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
+
+#define KBD_MODIFIER_BYTE (HID_KEY_CONTROL_LEFT >> 3)
 
 typedef struct
 {
@@ -117,11 +117,21 @@ static char kbd_key_queue[16];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds;
+static uint16_t kbd_xram;
+static uint8_t kbd_keys[32];
+
+typedef struct
+{
+    bool valid;
+    uint8_t slot; // HID slot
+    uint8_t keys[32];
+} kbd_connection_t;
+
+#define KBD_MAX_KEYBOARDS 4
+static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
 static uint8_t kbd_prev_report_idx;
 static hid_keyboard_report_t kbd_prev_report;
-static uint16_t kbd_xram;
-static uint8_t kbd_xram_keys[32];
 
 #define KBD_KEY_QUEUE(pos) kbd_key_queue[(pos) & 0x0F]
 
@@ -129,6 +139,14 @@ static uint8_t kbd_xram_keys[32];
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
+
+static int kbd_get_connection_by_slot(uint8_t slot)
+{
+    for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
+        if (kbd_connections[i].valid && kbd_connections[i].slot == slot)
+            return i;
+    return -1;
+}
 
 static void kbd_send_leds()
 {
@@ -397,7 +415,7 @@ static void kbd_prev_report_to_xram()
                 phantom = true;
         // Preserve previous keys in phantom state
         if (!phantom)
-            memset(kbd_xram_keys, 0, sizeof(kbd_xram_keys));
+            memset(kbd_keys, 0, sizeof(kbd_keys));
         bool any_key = false;
         for (uint8_t i = 0; i < 6; i++)
         {
@@ -405,22 +423,99 @@ static void kbd_prev_report_to_xram()
             if (keycode >= HID_KEY_A)
             {
                 any_key = true;
-                kbd_xram_keys[keycode >> 3] |= 1 << (keycode & 7);
+                kbd_keys[keycode >> 3] |= 1 << (keycode & 7);
             }
         }
         // modifier maps directly
-        kbd_xram_keys[HID_KEY_CONTROL_LEFT >> 3] = kbd_prev_report.modifier;
+        kbd_keys[KBD_MODIFIER_BYTE] = kbd_prev_report.modifier;
 
         // No key pressed
         if (!any_key && !kbd_prev_report.modifier && !phantom)
-            kbd_xram_keys[0] |= 1;
+            kbd_keys[0] |= 1;
 
         // NUMLOCK CAPSLOCK SCROLLLOCK
-        kbd_xram_keys[0] |= (kdb_hid_leds & 7) << 1;
+        kbd_keys[0] |= (kdb_hid_leds & 7) << 1;
 
         // Send it to xram
-        memcpy(&xram[kbd_xram], kbd_xram_keys, sizeof(kbd_xram_keys));
+        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
     }
+}
+
+void kbd_init(void)
+{
+    kbd_stop();
+    kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
+    kbd_send_leds();
+}
+
+void kbd_task(void)
+{
+    if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
+    {
+        for (uint8_t i = 0; i < 6; i++)
+        {
+            uint8_t keycode = kbd_prev_report.keycode[5 - i];
+            if (kbd_repeat_keycode == keycode)
+            {
+                kbd_queue_key(kbd_prev_report.modifier, keycode, false);
+                return;
+            }
+        }
+        kbd_repeat_keycode = 0;
+    }
+}
+
+void kbd_stop(void)
+{
+    kbd_xram = 0xFFFF;
+}
+
+bool kbd_xreg(uint16_t word)
+{
+    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
+        return false;
+    kbd_xram = word;
+    kbd_prev_report_to_xram();
+    return true;
+}
+
+// Parse HID report descriptor
+bool kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
+{
+    int conn_num = -1;
+    for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
+        if (!kbd_connections[i].valid)
+            conn_num = i;
+    if (conn_num < 0)
+        return false;
+
+    memset(kbd_connections, 0, sizeof(kbd_connections));
+    kbd_connections[conn_num].slot = slot;
+    // TODO kbd_parse_desc will set valid
+    kbd_connections[conn_num].valid = true;
+    return true;
+}
+
+// Clean up descriptor when device is disconnected.
+void kbd_umount(uint8_t slot)
+{
+    int conn_num = kbd_get_connection_by_slot(slot);
+    if (conn_num < 0)
+        return;
+    kbd_connections[conn_num].valid = false;
+}
+
+void kbd_report_boot(uint8_t slot, uint8_t const *data, size_t size)
+{
+    typedef struct
+    {
+        uint8_t modifier;
+        uint8_t reserved;
+        uint8_t keycode[6];
+    } kbd_boot_t;
+    kbd_boot_t const *report = (void *)data;
+
+    // KBD_MODIFIER_BYTE
 }
 
 void kbd_report(uint8_t slot, void const *report_ptr, size_t size)
@@ -463,42 +558,4 @@ void kbd_report(uint8_t slot, void const *report_ptr, size_t size)
     kbd_prev_report = *report;
     kbd_prev_report.modifier = modifier;
     kbd_prev_report_to_xram();
-}
-
-void kbd_init(void)
-{
-    kbd_stop();
-    kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
-    kbd_send_leds();
-}
-
-void kbd_task(void)
-{
-    if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
-    {
-        for (uint8_t i = 0; i < 6; i++)
-        {
-            uint8_t keycode = kbd_prev_report.keycode[5 - i];
-            if (kbd_repeat_keycode == keycode)
-            {
-                kbd_queue_key(kbd_prev_report.modifier, keycode, false);
-                return;
-            }
-        }
-        kbd_repeat_keycode = 0;
-    }
-}
-
-void kbd_stop(void)
-{
-    kbd_xram = 0xFFFF;
-}
-
-bool kbd_xreg(uint16_t word)
-{
-    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_xram_keys))
-        return false;
-    kbd_xram = word;
-    kbd_prev_report_to_xram();
-    return true;
 }

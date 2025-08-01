@@ -49,18 +49,18 @@ typedef struct
     uint8_t wheel_size;
     uint16_t pan_offset; // Horizontal pan/tilt
     uint8_t pan_size;
-} mou_descriptor_t;
+} mou_connection_t;
 
-static mou_descriptor_t mou_descriptors[MOU_MAX_MICE];
+static mou_connection_t mou_connections[MOU_MAX_MICE];
 
-static int find_descriptor_by_slot(int slot)
+static mou_connection_t *find_connection_by_slot(int slot)
 {
     for (int i = 0; i < MOU_MAX_MICE; ++i)
     {
-        if (mou_descriptors[i].valid && mou_descriptors[i].slot == slot)
-            return i;
+        if (mou_connections[i].valid && mou_connections[i].slot == slot)
+            return &mou_connections[i];
     }
-    return -1;
+    return NULL;
 }
 
 void mou_init(void)
@@ -84,12 +84,12 @@ bool mou_xreg(uint16_t word)
 }
 
 // Parse HID descriptor to extract mouse report structure
-static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_data, uint16_t desc_len)
+static void mou_parse_descriptor(mou_connection_t *conn, uint8_t const *desc_data, uint16_t desc_len)
 {
     // Initialize all fields
-    memset(desc, 0, sizeof(mou_descriptor_t));
+    memset(conn, 0, sizeof(mou_connection_t));
     for (int i = 0; i < 8; i++)
-        desc->button_offsets[i] = 0xFFFF;
+        conn->button_offsets[i] = 0xFFFF;
 
     if (desc_len == 0)
         return;
@@ -114,21 +114,21 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
             switch (item.usage)
             {
             case 0x30: // X axis
-                desc->x_offset = item.bit_pos;
-                desc->x_size = item.size;
-                desc->x_relative = (iterator.descriptor_item.item_value & 0x04) != 0;
+                conn->x_offset = item.bit_pos;
+                conn->x_size = item.size;
+                conn->x_relative = (iterator.descriptor_item.item_value & 0x04) != 0;
                 break;
             case 0x31: // Y axis
-                desc->y_offset = item.bit_pos;
-                desc->y_size = item.size;
+                conn->y_offset = item.bit_pos;
+                conn->y_size = item.size;
                 break;
             case 0x38: // Wheel
-                desc->wheel_offset = item.bit_pos;
-                desc->wheel_size = item.size;
+                conn->wheel_offset = item.bit_pos;
+                conn->wheel_size = item.size;
                 break;
             case 0x3C: // Pan/horizontal wheel
-                desc->pan_offset = item.bit_pos;
-                desc->pan_size = item.size;
+                conn->pan_offset = item.bit_pos;
+                conn->pan_size = item.size;
                 break;
             }
         }
@@ -136,33 +136,33 @@ static void mou_parse_descriptor(mou_descriptor_t *desc, uint8_t const *desc_dat
         {
             get_report_id = true;
             if (item.usage >= 1 && item.usage <= 8)
-                desc->button_offsets[item.usage - 1] = item.bit_pos;
+                conn->button_offsets[item.usage - 1] = item.bit_pos;
         }
 
         // Store report ID if this is the first one we encounter
-        if (get_report_id && desc->report_id == 0 && item.report_id != 0xFFFF)
-            desc->report_id = item.report_id;
+        if (get_report_id && conn->report_id == 0 && item.report_id != 0xFFFF)
+            conn->report_id = item.report_id;
     }
 
     // If it squeaks like a mouse.
-    desc->valid = desc->x_relative && desc->x_size > 0;
+    conn->valid = conn->x_relative && conn->x_size > 0;
 
     // Debug print parsed descriptor
-    DBG("mou_parse_descriptor: report_id=%d, valid=%d\n", desc->report_id, desc->valid);
-    DBG("  X: offset=%d, size=%d, relative=%d\n", desc->x_offset, desc->x_size, desc->x_relative);
-    DBG("  Y: offset=%d, size=%d\n", desc->y_offset, desc->y_size);
-    DBG("  Wheel: offset=%d, size=%d\n", desc->wheel_offset, desc->wheel_size);
-    DBG("  Pan: offset=%d, size=%d\n", desc->pan_offset, desc->pan_size);
+    DBG("mou_parse_descriptor: report_id=%d, valid=%d\n", conn->report_id, conn->valid);
+    DBG("  X: offset=%d, size=%d, relative=%d\n", conn->x_offset, conn->x_size, conn->x_relative);
+    DBG("  Y: offset=%d, size=%d\n", conn->y_offset, conn->y_size);
+    DBG("  Wheel: offset=%d, size=%d\n", conn->wheel_offset, conn->wheel_size);
+    DBG("  Pan: offset=%d, size=%d\n", conn->pan_offset, conn->pan_size);
     DBG("  Buttons: [%d,%d,%d,%d,%d,%d,%d,%d]\n",
-        desc->button_offsets[0], desc->button_offsets[1], desc->button_offsets[2], desc->button_offsets[3],
-        desc->button_offsets[4], desc->button_offsets[5], desc->button_offsets[6], desc->button_offsets[7]);
+        conn->button_offsets[0], conn->button_offsets[1], conn->button_offsets[2], conn->button_offsets[3],
+        conn->button_offsets[4], conn->button_offsets[5], conn->button_offsets[6], conn->button_offsets[7]);
 }
 
 bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
 {
     int desc_idx = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
-        if (!mou_descriptors[i].valid)
+        if (!mou_connections[i].valid)
         {
             desc_idx = i;
             break;
@@ -170,40 +170,38 @@ bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, u
     if (desc_idx < 0)
         return false;
 
-    mou_descriptor_t *desc = &mou_descriptors[desc_idx];
+    mou_connection_t *conn = &mou_connections[desc_idx];
 
-    // Process raw HID descriptor into desc
-    mou_parse_descriptor(desc, desc_data, desc_len);
-    desc->slot = slot;
+    // Process raw HID descriptor into conn
+    mou_parse_descriptor(conn, desc_data, desc_len);
+    conn->slot = slot;
 
     DBG("mou_mount: slot=%d, valid=%d, x_size=%d, y_size=%d\n",
-        slot, desc->valid, desc->x_size, desc->y_size);
+        slot, conn->valid, conn->x_size, conn->y_size);
 
-    return desc->valid;
+    return conn->valid;
 }
 
 void mou_umount(uint8_t slot)
 {
-    int desc_idx = find_descriptor_by_slot(slot);
-    if (desc_idx < 0)
+    mou_connection_t *conn = find_connection_by_slot(slot);
+    if (conn == NULL)
         return;
-    mou_descriptor_t *desc = &mou_descriptors[desc_idx];
-    desc->valid = false;
+    conn->valid = false;
 }
 
 void mou_report(uint8_t slot, void const *data, size_t size)
 {
-    int desc_idx = find_descriptor_by_slot(slot);
-    if (desc_idx < 0)
+    mou_connection_t *conn = find_connection_by_slot(slot);
+    if (conn == NULL)
         return;
-    mou_descriptor_t *desc = &mou_descriptors[desc_idx];
 
     const uint8_t *report_data = (const uint8_t *)data;
     uint16_t report_data_len = size;
 
-    if (desc->report_id != 0)
+    if (conn->report_id != 0)
     {
-        if (report_data_len == 0 || report_data[0] != desc->report_id)
+        if (report_data_len == 0 || report_data[0] != conn->report_id)
             return;
         // Skip report ID byte
         report_data++;
@@ -214,10 +212,10 @@ void mou_report(uint8_t slot, void const *data, size_t size)
     uint8_t buttons = 0;
     for (int i = 0; i < 8; i++)
     {
-        if (desc->button_offsets[i] != 0xFFFF)
+        if (conn->button_offsets[i] != 0xFFFF)
         {
             uint32_t button_val = des_extract_bits(report_data, report_data_len,
-                                                   desc->button_offsets[i], 1);
+                                                   conn->button_offsets[i], 1);
             if (button_val)
                 buttons |= (1 << i);
         }
@@ -225,18 +223,18 @@ void mou_report(uint8_t slot, void const *data, size_t size)
     mou_state.buttons = buttons;
 
     // Extract movement data
-    if (desc->x_size > 0)
+    if (conn->x_size > 0)
         mou_state.x += des_extract_signed(report_data, report_data_len,
-                                          desc->x_offset, desc->x_size);
-    if (desc->y_size > 0)
+                                          conn->x_offset, conn->x_size);
+    if (conn->y_size > 0)
         mou_state.y += des_extract_signed(report_data, report_data_len,
-                                          desc->y_offset, desc->y_size);
-    if (desc->wheel_size > 0)
+                                          conn->y_offset, conn->y_size);
+    if (conn->wheel_size > 0)
         mou_state.wheel += des_extract_signed(report_data, report_data_len,
-                                              desc->wheel_offset, desc->wheel_size);
-    if (desc->pan_size > 0)
+                                              conn->wheel_offset, conn->wheel_size);
+    if (conn->pan_size > 0)
         mou_state.pan += des_extract_signed(report_data, report_data_len,
-                                            desc->pan_offset, desc->pan_size);
+                                            conn->pan_offset, conn->pan_size);
 
     // Update XRAM with new state
     if (mou_xram != 0xFFFF)

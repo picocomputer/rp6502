@@ -31,8 +31,6 @@ void pad_umount(uint8_t slot);
 // Process HID gamepad report.
 void pad_report(uint8_t slot, uint8_t const *data, uint16_t len);
 
-bool pad_is_valid(uint8_t slot);
-
 void pad_home_button(uint8_t slot, bool pressed);
 
 int pad_get_player_num(uint8_t slot);

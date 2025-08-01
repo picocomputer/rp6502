@@ -76,6 +76,7 @@ void hid_print_status(void)
         {
             switch (tuh_hid_interface_protocol(dev_addr, idx))
             {
+            // TODO count the valid mounts instead
             case HID_ITF_PROTOCOL_KEYBOARD:
                 count_keyboard++;
                 break;
@@ -83,8 +84,7 @@ void hid_print_status(void)
                 count_mouse++;
                 break;
             case HID_ITF_PROTOCOL_NONE:
-                if (pad_is_valid(idx))
-                    count_gamepad++;
+                count_gamepad++;
                 break;
             }
         }
@@ -108,7 +108,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
 
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
     {
-        valid = true;
+        valid = kbd_mount(idx, desc_report, desc_len);
         hid_leds_dirty = true; // TODO retest
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)
@@ -137,4 +137,5 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
     (void)dev_addr;
     hid_dev_addr[idx] = 0;
     pad_umount(idx);
+    kbd_umount(idx);
 }

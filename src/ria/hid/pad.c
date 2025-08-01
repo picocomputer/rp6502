@@ -39,7 +39,7 @@ typedef struct
     int8_t ry;       // right analog-stick
     uint8_t lt;      // analog left trigger
     uint8_t rt;      // analog right trigger
-} pad_report_t;
+} pad_xram_t;
 
 // Deadzone is generous enough for moderately worn sticks.
 // This is only for the analog to digital comversions so
@@ -90,36 +90,36 @@ typedef struct
     int32_t hat_max;
     // Button bit offsets, 0xFFFF = unused
     uint16_t button_offsets[PAD_MAX_BUTTONS];
-} pad_descriptor_t;
+} pad_connection_t;
 
 // Where in XRAM to place reports, 0xFFFF when disabled.
 static uint16_t pad_xram;
 
 // Parsed descriptor structure for fast report parsing.
-static pad_descriptor_t pad_descriptors[PAD_MAX_PLAYERS];
+static pad_connection_t pad_connections[PAD_MAX_PLAYERS];
 
-static inline void pad_swap_buttons(pad_descriptor_t *desc, int b0, int b1)
+static inline void pad_swap_buttons(pad_connection_t *conn, int b0, int b1)
 {
-    uint16_t temp = desc->button_offsets[b0];
-    desc->button_offsets[b0] = desc->button_offsets[b1];
-    desc->button_offsets[b1] = temp;
+    uint16_t temp = conn->button_offsets[b0];
+    conn->button_offsets[b0] = conn->button_offsets[b1];
+    conn->button_offsets[b1] = temp;
 }
 
 // These are USB controllers for the Classic, a remake of the PS1/PSOne.
 static void pad_remap_playstation_classic(
-    pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+    pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     (void)product_id;
     if (vendor_id != 0x054C) // Sony Interactive Entertainment
         return;
     DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
-    desc->sony = true;
-    pad_swap_buttons(desc, 0, 2); // buttons
-    pad_swap_buttons(desc, 2, 3); // buttons
-    pad_swap_buttons(desc, 4, 8); // l1/l2
-    pad_swap_buttons(desc, 5, 9); // r1/r2
-    pad_swap_buttons(desc, 4, 6); // l1/bt
-    pad_swap_buttons(desc, 5, 7); // r1/st
+    conn->sony = true;
+    pad_swap_buttons(conn, 0, 2); // buttons
+    pad_swap_buttons(conn, 2, 3); // buttons
+    pad_swap_buttons(conn, 4, 8); // l1/l2
+    pad_swap_buttons(conn, 5, 9); // r1/r2
+    pad_swap_buttons(conn, 4, 6); // l1/bt
+    pad_swap_buttons(conn, 5, 7); // r1/st
 }
 
 // The 8BitDo M30 is a Sega-style gamepad with wonky button mappings.
@@ -128,17 +128,17 @@ static void pad_remap_playstation_classic(
 // The barrier to a better map is that we can't detect an M30 using a USB Bluetooth adapter.
 // The wired DInput mode is unlike any other 8BitDo device so we fix it up here.
 static void pad_remap_8bitdo_m30(
-    pad_descriptor_t *desc, uint16_t vendor_id, uint16_t product_id)
+    pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x2DC8 || product_id != 0x5006)
         return;
     DBG("DES: 8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
     // Our analog trigger emulation conflicts
     // with the M30's reversed analog triggers.
-    desc->rx_size = 0;
-    desc->ry_size = 0;
+    conn->rx_size = 0;
+    conn->ry_size = 0;
     // home is on 2 because reasons
-    pad_swap_buttons(desc, 2, PAD_HOME_BUTTON);
+    pad_swap_buttons(conn, 2, PAD_HOME_BUTTON);
 }
 
 // Sony DualShock 4 detection
@@ -238,7 +238,7 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 }
 
 // XBox One/Series descriptor for XInput
-static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_one = {
+static const pad_connection_t __in_flash("hid_descriptors") pad_desc_xbox_one = {
     .valid = true,
     .x_absolute = true,
     .report_id = 0x20, // GIP message ID
@@ -293,7 +293,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_one = 
     }};
 
 // XBox 360 descriptor for XInput
-static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_360 = {
+static const pad_connection_t __in_flash("hid_descriptors") pad_desc_xbox_360 = {
     .valid = true,
     .x_absolute = true,
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
@@ -348,7 +348,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_xbox_360 = 
     }};
 
 // Sony DualShock 4 is HID but presents no descriptor
-static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = {
+static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = {
     .valid = true,
     .x_absolute = true,
     .sony = true,
@@ -390,7 +390,7 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = 
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
 // Sony DualSense 5 is HID but presents no descriptor
-static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = {
+static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = {
     .valid = true,
     .x_absolute = true,
     .sony = true,
@@ -432,11 +432,11 @@ static const pad_descriptor_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = 
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
 static void pad_parse_descriptor(
-    pad_descriptor_t *desc, uint8_t const *desc_data, uint16_t desc_len)
+    pad_connection_t *conn, uint8_t const *desc_data, uint16_t desc_len)
 {
-    memset(desc, 0, sizeof(pad_descriptor_t));
+    memset(conn, 0, sizeof(pad_connection_t));
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-        desc->button_offsets[i] = 0xFFFF;
+        conn->button_offsets[i] = 0xFFFF;
 
     // Use BTstack HID parser to parse the descriptor
     btstack_hid_usage_iterator_t iterator;
@@ -457,47 +457,47 @@ static void pad_parse_descriptor(
             switch (item.usage)
             {
             case 0x30: // X axis (left stick X)
-                desc->x_offset = item.bit_pos;
-                desc->x_size = item.size;
-                desc->x_min = iterator.global_logical_minimum;
-                desc->x_max = iterator.global_logical_maximum;
-                desc->x_absolute = !(iterator.descriptor_item.item_value & 0x04);
+                conn->x_offset = item.bit_pos;
+                conn->x_size = item.size;
+                conn->x_min = iterator.global_logical_minimum;
+                conn->x_max = iterator.global_logical_maximum;
+                conn->x_absolute = !(iterator.descriptor_item.item_value & 0x04);
                 break;
             case 0x31: // Y axis (left stick Y)
-                desc->y_offset = item.bit_pos;
-                desc->y_size = item.size;
-                desc->y_min = iterator.global_logical_minimum;
-                desc->y_max = iterator.global_logical_maximum;
+                conn->y_offset = item.bit_pos;
+                conn->y_size = item.size;
+                conn->y_min = iterator.global_logical_minimum;
+                conn->y_max = iterator.global_logical_maximum;
                 break;
             case 0x32: // Z axis (right stick X)
-                desc->z_offset = item.bit_pos;
-                desc->z_size = item.size;
-                desc->z_min = iterator.global_logical_minimum;
-                desc->z_max = iterator.global_logical_maximum;
+                conn->z_offset = item.bit_pos;
+                conn->z_size = item.size;
+                conn->z_min = iterator.global_logical_minimum;
+                conn->z_max = iterator.global_logical_maximum;
                 break;
             case 0x35: // Rz axis (right stick Y)
-                desc->rz_offset = item.bit_pos;
-                desc->rz_size = item.size;
-                desc->rz_min = iterator.global_logical_minimum;
-                desc->rz_max = iterator.global_logical_maximum;
+                conn->rz_offset = item.bit_pos;
+                conn->rz_size = item.size;
+                conn->rz_min = iterator.global_logical_minimum;
+                conn->rz_max = iterator.global_logical_maximum;
                 break;
             case 0x33: // Rx axis (left trigger)
-                desc->rx_offset = item.bit_pos;
-                desc->rx_size = item.size;
-                desc->rx_min = iterator.global_logical_minimum;
-                desc->rx_max = iterator.global_logical_maximum;
+                conn->rx_offset = item.bit_pos;
+                conn->rx_size = item.size;
+                conn->rx_min = iterator.global_logical_minimum;
+                conn->rx_max = iterator.global_logical_maximum;
                 break;
             case 0x34: // Ry axis (right trigger)
-                desc->ry_offset = item.bit_pos;
-                desc->ry_size = item.size;
-                desc->ry_min = iterator.global_logical_minimum;
-                desc->ry_max = iterator.global_logical_maximum;
+                conn->ry_offset = item.bit_pos;
+                conn->ry_size = item.size;
+                conn->ry_min = iterator.global_logical_minimum;
+                conn->ry_max = iterator.global_logical_maximum;
                 break;
             case 0x39: // Hat switch (D-pad)
-                desc->hat_offset = item.bit_pos;
-                desc->hat_size = item.size;
-                desc->hat_min = iterator.global_logical_minimum;
-                desc->hat_max = iterator.global_logical_maximum;
+                conn->hat_offset = item.bit_pos;
+                conn->hat_size = item.size;
+                conn->hat_min = iterator.global_logical_minimum;
+                conn->hat_max = iterator.global_logical_maximum;
                 break;
             }
         }
@@ -507,16 +507,16 @@ static void pad_parse_descriptor(
             switch (item.usage)
             {
             case 0xC5: // Brake (left trigger)
-                desc->rx_offset = item.bit_pos;
-                desc->rx_size = item.size;
-                desc->rx_min = iterator.global_logical_minimum;
-                desc->rx_max = iterator.global_logical_maximum;
+                conn->rx_offset = item.bit_pos;
+                conn->rx_size = item.size;
+                conn->rx_min = iterator.global_logical_minimum;
+                conn->rx_max = iterator.global_logical_maximum;
                 break;
             case 0xC4: // Accelerator (right trigger)
-                desc->ry_offset = item.bit_pos;
-                desc->ry_size = item.size;
-                desc->ry_min = iterator.global_logical_minimum;
-                desc->ry_max = iterator.global_logical_maximum;
+                conn->ry_offset = item.bit_pos;
+                conn->ry_size = item.size;
+                conn->ry_min = iterator.global_logical_minimum;
+                conn->ry_max = iterator.global_logical_maximum;
                 break;
             }
         }
@@ -525,62 +525,62 @@ static void pad_parse_descriptor(
             get_report_id = true;
             uint8_t button_index = item.usage - 1; // Buttons 1-indexed
             if (button_index < PAD_MAX_BUTTONS)
-                desc->button_offsets[button_index] = item.bit_pos;
+                conn->button_offsets[button_index] = item.bit_pos;
         }
         // Store report ID if this is the first one we encounter
-        if (get_report_id && desc->report_id == 0 && item.report_id != 0xFFFF)
-            desc->report_id = item.report_id;
+        if (get_report_id && conn->report_id == 0 && item.report_id != 0xFFFF)
+            conn->report_id = item.report_id;
     }
 
     // If it creaks like a gamepad.
-    if (desc->x_absolute && desc->button_offsets[0] != 0xFFFF &&
-        (desc->x_size || desc->y_size || desc->z_size ||
-         desc->rz_size || desc->rx_size || desc->ry_size ||
-         desc->hat_size))
-        desc->valid = true;
+    if (conn->x_absolute && conn->button_offsets[0] != 0xFFFF &&
+        (conn->x_size || conn->y_size || conn->z_size ||
+         conn->rz_size || conn->rx_size || conn->ry_size ||
+         conn->hat_size))
+        conn->valid = true;
 }
 
 static void pad_distill_descriptor(
-    uint8_t slot, pad_descriptor_t *desc,
+    uint8_t slot, pad_connection_t *conn,
     uint8_t const *desc_data, uint16_t desc_len,
     uint16_t vendor_id, uint16_t product_id)
 {
-    desc->valid = false;
-    pad_parse_descriptor(desc, desc_data, desc_len);
+    conn->valid = false;
+    pad_parse_descriptor(conn, desc_data, desc_len);
 
     DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
-        vendor_id, product_id, desc_len, desc->valid);
+        vendor_id, product_id, desc_len, conn->valid);
 
     // Add your gamepad override here.
-    pad_remap_8bitdo_m30(desc, vendor_id, product_id);
-    pad_remap_playstation_classic(desc, vendor_id, product_id);
+    pad_remap_8bitdo_m30(conn, vendor_id, product_id);
+    pad_remap_playstation_classic(conn, vendor_id, product_id);
 
     // Non HID controllers use a pre-computed descriptor
     if (desc_len == 0)
     {
         if (xin_is_xbox_one(slot))
         {
-            *desc = pad_desc_xbox_one;
+            *conn = pad_desc_xbox_one;
             DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
         }
         if (xin_is_xbox_360(slot))
         {
-            *desc = pad_desc_xbox_360;
+            *conn = pad_desc_xbox_360;
             DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
         }
         if (pad_is_sony_ds4(vendor_id, product_id))
         {
-            *desc = pad_desc_sony_ds4;
+            *conn = pad_desc_sony_ds4;
             DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
         }
         if (pad_is_sony_ds5(vendor_id, product_id))
         {
-            *desc = pad_desc_sony_ds5;
+            *conn = pad_desc_sony_ds5;
             DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
         }
     }
 
-    if (!desc->valid)
+    if (!conn->valid)
         DBG("HID descriptor not a gamepad.\n");
 }
 
@@ -617,21 +617,13 @@ static uint8_t pad_encode_stick(int8_t x, int8_t y)
     return result;
 }
 
-static int pad_find_player_by_slot(uint8_t slot)
-{
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-        if (pad_descriptors[i].slot == slot && pad_descriptors[i].valid)
-            return i;
-    return -1;
-}
-
-static void pad_parse_report(int player, uint8_t const *data, uint16_t report_len, pad_report_t *report)
+static void pad_parse_report(int player, uint8_t const *data, uint16_t report_len, pad_xram_t *report)
 {
     // Default empty gamepad report
-    memset(report, 0, sizeof(pad_report_t));
+    memset(report, 0, sizeof(pad_xram_t));
 
     // Add feature bits to dpad
-    pad_descriptor_t *gamepad = &pad_descriptors[player];
+    pad_connection_t *gamepad = &pad_connections[player];
     if (gamepad->valid)
         report->dpad |= 0x80;
     if (gamepad->sony)
@@ -736,15 +728,15 @@ static void pad_reset_xram(int player)
 {
     if (pad_xram == 0xFFFF)
         return;
-    pad_report_t gamepad_report;
+    pad_xram_t gamepad_report;
     pad_parse_report(player, 0, 0, &gamepad_report); // get blank
-    memcpy(&xram[pad_xram + player * (sizeof(pad_report_t))],
-           &gamepad_report, sizeof(pad_report_t));
+    memcpy(&xram[pad_xram + player * (sizeof(pad_xram_t))],
+           &gamepad_report, sizeof(pad_xram_t));
 }
 
 bool pad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_report_t)) * PAD_MAX_PLAYERS)
+    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_xram_t)) * PAD_MAX_PLAYERS)
         return false;
     pad_xram = word;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
@@ -755,13 +747,13 @@ bool pad_xreg(uint16_t word)
 bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
                                        uint16_t vendor_id, uint16_t product_id)
 {
-    pad_descriptor_t *gamepad = NULL;
+    pad_connection_t *gamepad = NULL;
     int player;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
-        if (!pad_descriptors[i].valid)
+        if (!pad_connections[i].valid)
         {
-            gamepad = &pad_descriptors[i];
+            gamepad = &pad_connections[i];
             player = i;
             break;
         }
@@ -787,27 +779,27 @@ bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, u
 void pad_umount(uint8_t slot)
 {
     // Find the descriptor by dev_addr and slot
-    int player = pad_find_player_by_slot(slot);
+    int player = pad_get_player_num(slot);
     if (player < 0)
         return;
-    pad_descriptor_t *gamepad = &pad_descriptors[player];
-    gamepad->valid = false;
-    gamepad->slot = 0;
+    pad_connection_t *conn = &pad_connections[player];
+    conn->valid = false;
+    conn->slot = 0;
     pad_reset_xram(player);
 }
 
 void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)
 {
-    int player = pad_find_player_by_slot(slot);
+    int player = pad_get_player_num(slot);
     if (player < 0)
         return;
-    pad_descriptor_t *descriptor = &pad_descriptors[player];
+    pad_connection_t *conn = &pad_connections[player];
 
     const uint8_t *report_data = data;
     uint16_t report_data_len = len;
-    if (descriptor->report_id != 0)
+    if (conn->report_id != 0)
     {
-        if (len == 0 || data[0] != descriptor->report_id)
+        if (len == 0 || data[0] != conn->report_id)
             return;
         // Skip report ID byte
         report_data = &data[1];
@@ -817,34 +809,29 @@ void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)
     // Parse report and send it to xram
     if (pad_xram != 0xFFFF)
     {
-        pad_report_t gamepad_report;
+        pad_xram_t gamepad_report;
         pad_parse_report(player, report_data, report_data_len, &gamepad_report);
-        memcpy(&xram[pad_xram + player * (sizeof(pad_report_t))],
-               &gamepad_report, sizeof(pad_report_t));
+        memcpy(&xram[pad_xram + player * (sizeof(pad_xram_t))],
+               &gamepad_report, sizeof(pad_xram_t));
     }
-}
-
-bool pad_is_valid(uint8_t slot)
-{
-    return pad_find_player_by_slot(slot) >= 0;
 }
 
 // This is for XBox One/Series gamepads which send
 // the home button down a different path.
 void pad_home_button(uint8_t slot, bool pressed)
 {
-    int player = pad_find_player_by_slot(slot);
+    int player = pad_get_player_num(slot);
     if (player < 0)
         return;
-    pad_descriptor_t *gamepad = &pad_descriptors[player];
+    pad_connection_t *conn = &pad_connections[player];
 
     // Inject out of band home button into reports
-    gamepad->home_pressed = pressed;
+    conn->home_pressed = pressed;
 
     // Update the home button bit in xram
     if (pad_xram != 0xFFFF)
     {
-        uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_report_t)) + 3];
+        uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_xram_t)) + 3];
         if (pressed)
             *button1 |= (1 << (PAD_HOME_BUTTON - 8));
         else
@@ -855,5 +842,8 @@ void pad_home_button(uint8_t slot, bool pressed)
 // Useful for gamepads that indicate player number.
 int pad_get_player_num(uint8_t slot)
 {
-    return pad_find_player_by_slot(slot);
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+        if (pad_connections[i].slot == slot && pad_connections[i].valid)
+            return i;
+    return -1;
 }
