@@ -109,7 +109,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD)
     {
         valid = true;
-        hid_leds_dirty = true;
+        hid_leds_dirty = true; // TODO retest
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)
     {

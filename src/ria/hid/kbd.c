@@ -34,7 +34,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
 
-typedef struct TU_ATTR_PACKED
+typedef struct
 {
     uint8_t modifier;   /**< Keyboard modifier (KEYBOARD_MODIFIER_* masks). */
     uint8_t reserved;   /**< Reserved for OEM use, always set to 0. */
@@ -57,11 +57,9 @@ typedef enum
 
 typedef enum
 {
-    KEYBOARD_LED_NUMLOCK = TU_BIT(0),    ///< Num Lock LED
-    KEYBOARD_LED_CAPSLOCK = TU_BIT(1),   ///< Caps Lock LED
-    KEYBOARD_LED_SCROLLLOCK = TU_BIT(2), ///< Scroll Lock LED
-    KEYBOARD_LED_COMPOSE = TU_BIT(3),    ///< Composition Mode
-    KEYBOARD_LED_KANA = TU_BIT(4)        ///< Kana mode
+    KEYBOARD_LED_NUMLOCK = TU_BIT(0),   ///< Num Lock LED
+    KEYBOARD_LED_CAPSLOCK = TU_BIT(1),  ///< Caps Lock LED
+    KEYBOARD_LED_SCROLLLOCK = TU_BIT(2) ///< Scroll Lock LED
 } hid_keyboard_led_bm_t;
 
 #define HID_KEY_NONE 0x00
@@ -115,12 +113,13 @@ typedef enum
 
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_keycode;
-static hid_keyboard_report_t kbd_prev_report;
-static uint8_t kbd_prev_report_idx;
 static char kbd_key_queue[16];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
-static uint8_t kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
+static uint8_t kdb_hid_leds;
+
+static uint8_t kbd_prev_report_idx;
+static hid_keyboard_report_t kbd_prev_report;
 static uint16_t kbd_xram;
 static uint8_t kbd_xram_keys[32];
 
@@ -130,6 +129,12 @@ static uint8_t kbd_xram_keys[32];
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
+
+static void kbd_send_leds()
+{
+    hid_set_leds(kdb_hid_leds);
+    // ble_set_leds(kdb_hid_leds);
+}
 
 static void kbd_queue_str(const char *str)
 {
@@ -222,19 +227,23 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KEYBOARD_MODIFIER_LEFTGUI |
                                         KEYBOARD_MODIFIER_RIGHTGUI))))
     {
+        bool use_shift = (key_shift && !is_capslock) ||
+                         (key_shift && keycode > HID_KEY_Z) ||
+                         (!key_shift && is_capslock && keycode <= HID_KEY_Z);
         if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
         {
-            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
-            if ((key_shift && !is_capslock) ||
-                (!key_shift && is_capslock))
+            if (use_shift)
                 ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][3], cfg_get_codepage());
+            else
+                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
         }
-        else if ((key_shift && !is_capslock) ||
-                 (key_shift && keycode > HID_KEY_Z) ||
-                 (!key_shift && is_capslock && keycode <= HID_KEY_Z))
-            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
         else
-            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+        {
+            if (use_shift)
+                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
+            else
+                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+        }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
@@ -296,11 +305,15 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         case HID_KEY_NUM_LOCK:
             kdb_hid_leds ^= KEYBOARD_LED_NUMLOCK;
-            hid_set_leds(kdb_hid_leds);
+            kbd_send_leds();
             break;
         case HID_KEY_CAPS_LOCK:
             kdb_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
-            hid_set_leds(kdb_hid_leds);
+            kbd_send_leds();
+            break;
+        case HID_KEY_SCROLL_LOCK:
+            kdb_hid_leds ^= KEYBOARD_LED_SCROLLLOCK;
+            kbd_send_leds();
             break;
         }
     // Special key handler
@@ -397,21 +410,20 @@ static void kbd_prev_report_to_xram()
         }
         // modifier maps directly
         kbd_xram_keys[HID_KEY_CONTROL_LEFT >> 3] = kbd_prev_report.modifier;
+
         // No key pressed
         if (!any_key && !kbd_prev_report.modifier && !phantom)
             kbd_xram_keys[0] |= 1;
-        // NUMLOCK
-        if (kdb_hid_leds & KEYBOARD_LED_NUMLOCK)
-            kbd_xram_keys[0] |= 4;
-        // CAPSLOCK
-        if (kdb_hid_leds & KEYBOARD_LED_CAPSLOCK)
-            kbd_xram_keys[0] |= 8;
+
+        // NUMLOCK CAPSLOCK SCROLLLOCK
+        kbd_xram_keys[0] |= (kdb_hid_leds & 7) << 1;
+
         // Send it to xram
         memcpy(&xram[kbd_xram], kbd_xram_keys, sizeof(kbd_xram_keys));
     }
 }
 
-void kbd_report(uint8_t idx, void const *report_ptr, size_t size)
+void kbd_report(uint8_t slot, void const *report_ptr, size_t size)
 {
     if (size < sizeof(hid_keyboard_report_t))
         return;
@@ -419,7 +431,7 @@ void kbd_report(uint8_t idx, void const *report_ptr, size_t size)
     hid_keyboard_report_t const *report = report_ptr;
 
     // Only support key presses on one keyboard at a time.
-    if (kbd_prev_report.keycode[0] >= HID_KEY_A && kbd_prev_report_idx != idx)
+    if (kbd_prev_report.keycode[0] >= HID_KEY_A && kbd_prev_report_idx != slot)
         return;
 
     // Extract presses for queue
@@ -447,7 +459,7 @@ void kbd_report(uint8_t idx, void const *report_ptr, size_t size)
                 kbd_queue_key(modifier, keycode, true);
         }
     }
-    kbd_prev_report_idx = idx;
+    kbd_prev_report_idx = slot;
     kbd_prev_report = *report;
     kbd_prev_report.modifier = modifier;
     kbd_prev_report_to_xram();
@@ -456,6 +468,8 @@ void kbd_report(uint8_t idx, void const *report_ptr, size_t size)
 void kbd_init(void)
 {
     kbd_stop();
+    kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
+    kbd_send_leds();
 }
 
 void kbd_task(void)
