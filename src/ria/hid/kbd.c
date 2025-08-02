@@ -32,8 +32,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
 
-#define KBD_MODIFIER_BYTE (HID_KEY_CONTROL_LEFT >> 3)
-
 typedef struct
 {
     uint8_t modifier;   /**< Keyboard modifier (KEYBOARD_MODIFIER_* masks). */
@@ -112,26 +110,26 @@ typedef enum
 #define HID_KEY_GUI_RIGHT 0xE7
 
 static absolute_time_t kbd_repeat_timer;
+static uint8_t kbd_repeat_modifier;
 static uint8_t kbd_repeat_keycode;
 static char kbd_key_queue[16];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds;
 static uint16_t kbd_xram;
-static uint8_t kbd_keys[32];
+static uint32_t kbd_keys[8];
 
 typedef struct
 {
     bool valid;
     uint8_t slot; // HID slot
-    uint8_t keys[32];
+    uint32_t keys[8];
 } kbd_connection_t;
 
 #define KBD_MAX_KEYBOARDS 4
 static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
-static uint8_t kbd_prev_report_idx;
-static hid_keyboard_report_t kbd_prev_report;
+#define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
 #define KBD_KEY_QUEUE(pos) kbd_key_queue[(pos) & 0x0F]
 
@@ -140,12 +138,12 @@ static hid_keyboard_report_t kbd_prev_report;
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
 
-static int kbd_get_connection_by_slot(uint8_t slot)
+static kbd_connection_t *kbd_get_connection_by_slot(uint8_t slot)
 {
     for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
         if (kbd_connections[i].valid && kbd_connections[i].slot == slot)
-            return i;
-    return -1;
+            return &kbd_connections[i];
+    return NULL;
 }
 
 static void kbd_send_leds()
@@ -192,6 +190,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     bool is_numlock = kdb_hid_leds & KEYBOARD_LED_NUMLOCK;
     bool is_capslock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
     // Set up for repeat
+    kbd_repeat_modifier = modifier;
     kbd_repeat_keycode = keycode;
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
@@ -403,44 +402,6 @@ int kbd_stdio_in_chars(char *buf, int length)
     return i ? i : PICO_ERROR_NO_DATA;
 }
 
-static void kbd_prev_report_to_xram()
-{
-    // Update xram if configured
-    if (kbd_xram != 0xFFFF)
-    {
-        // Check for phantom state
-        bool phantom = false;
-        for (uint8_t i = 0; i < 6; i++)
-            if (kbd_prev_report.keycode[i] == 1)
-                phantom = true;
-        // Preserve previous keys in phantom state
-        if (!phantom)
-            memset(kbd_keys, 0, sizeof(kbd_keys));
-        bool any_key = false;
-        for (uint8_t i = 0; i < 6; i++)
-        {
-            uint8_t keycode = kbd_prev_report.keycode[i];
-            if (keycode >= HID_KEY_A)
-            {
-                any_key = true;
-                kbd_keys[keycode >> 3] |= 1 << (keycode & 7);
-            }
-        }
-        // modifier maps directly
-        kbd_keys[KBD_MODIFIER_BYTE] = kbd_prev_report.modifier;
-
-        // No key pressed
-        if (!any_key && !kbd_prev_report.modifier && !phantom)
-            kbd_keys[0] |= 1;
-
-        // NUMLOCK CAPSLOCK SCROLLLOCK
-        kbd_keys[0] |= (kdb_hid_leds & 7) << 1;
-
-        // Send it to xram
-        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
-    }
-}
-
 void kbd_init(void)
 {
     kbd_stop();
@@ -452,14 +413,11 @@ void kbd_task(void)
 {
     if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
     {
-        for (uint8_t i = 0; i < 6; i++)
+        if (kbd_keys[kbd_repeat_keycode >> 5] & (1 << (kbd_repeat_keycode & 31)) &&
+            KBD_MODIFIER(kbd_keys) == kbd_repeat_modifier)
         {
-            uint8_t keycode = kbd_prev_report.keycode[5 - i];
-            if (kbd_repeat_keycode == keycode)
-            {
-                kbd_queue_key(kbd_prev_report.modifier, keycode, false);
-                return;
-            }
+            kbd_queue_key(KBD_MODIFIER(kbd_keys), kbd_repeat_keycode, false);
+            return;
         }
         kbd_repeat_keycode = 0;
     }
@@ -475,7 +433,8 @@ bool kbd_xreg(uint16_t word)
     if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
         return false;
     kbd_xram = word;
-    kbd_prev_report_to_xram();
+    if (kbd_xram != 0xFFFF)
+        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
     return true;
 }
 
@@ -499,14 +458,18 @@ bool kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
 // Clean up descriptor when device is disconnected.
 void kbd_umount(uint8_t slot)
 {
-    int conn_num = kbd_get_connection_by_slot(slot);
-    if (conn_num < 0)
+    kbd_connection_t *conn = kbd_get_connection_by_slot(slot);
+    if (conn == NULL)
         return;
-    kbd_connections[conn_num].valid = false;
+    conn->valid = false;
 }
 
-void kbd_report_boot(uint8_t slot, uint8_t const *data, size_t size)
+void kbd_report(uint8_t slot, uint8_t const *data, size_t size)
 {
+    kbd_connection_t *conn = kbd_get_connection_by_slot(slot);
+    if (conn == NULL)
+        return;
+
     typedef struct
     {
         uint8_t modifier;
@@ -515,47 +478,54 @@ void kbd_report_boot(uint8_t slot, uint8_t const *data, size_t size)
     } kbd_boot_t;
     kbd_boot_t const *report = (void *)data;
 
-    // KBD_MODIFIER_BYTE
-}
-
-void kbd_report(uint8_t slot, void const *report_ptr, size_t size)
-{
-    if (size < sizeof(hid_keyboard_report_t))
+    // Do nothing in phantom condition
+    if (report->keycode[0] == 1)
         return;
 
-    hid_keyboard_report_t const *report = report_ptr;
+    // Swap in a new keys bit array
+    uint32_t old_keys[8];
+    memcpy(&old_keys, conn->keys, sizeof(conn->keys));
+    memset(conn->keys, 0, sizeof(conn->keys));
 
-    // Only support key presses on one keyboard at a time.
-    if (kbd_prev_report.keycode[0] >= HID_KEY_A && kbd_prev_report_idx != slot)
-        return;
-
-    // Extract presses for queue
-    uint8_t modifier = report->modifier;
-    for (uint8_t i = 0; i < 6; i++)
-    {
-        // fix unusual modifier reports
-        uint8_t keycode = report->keycode[i];
-        if (keycode >= HID_KEY_CONTROL_LEFT && keycode <= HID_KEY_GUI_RIGHT)
-            modifier |= 1 << (keycode & 7);
-    }
-    for (uint8_t i = 0; i < 6; i++)
+    // Set all the bits. Modifiers sometimes arrive
+    // as keycodes so make sure they merge.
+    KBD_MODIFIER(conn->keys) = report->modifier;
+    for (int i = 0; i < 6; i++)
     {
         uint8_t keycode = report->keycode[i];
-        if (keycode >= HID_KEY_A &&
-            !(keycode >= HID_KEY_CONTROL_LEFT && keycode <= HID_KEY_GUI_RIGHT))
-        {
-            bool held = false;
-            for (uint8_t j = 0; j < 6; j++)
-            {
-                if (keycode == kbd_prev_report.keycode[j])
-                    held = true;
-            }
-            if (!held)
-                kbd_queue_key(modifier, keycode, true);
-        }
+        conn->keys[keycode >> 5] |= 1 << (keycode & 31);
     }
-    kbd_prev_report_idx = slot;
-    kbd_prev_report = *report;
-    kbd_prev_report.modifier = modifier;
-    kbd_prev_report_to_xram();
+
+    // Merge all keyboards into one report so we have
+    // an updated KBD_MODIFIER(kbd_keys).
+    memset(kbd_keys, 0, sizeof(kbd_keys));
+    for (int k = 0; k < 8; k++)
+        for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
+            kbd_keys[k] |= kbd_connections[i].keys[k];
+
+    // Find new key down events after new kbd_keys is made
+    // so we have the latest modifiers.
+    for (int i = 0; i < 128; i++)
+    {
+        bool curr = conn->keys[i >> 5] & (1 << (i & 31));
+        bool prev = old_keys[i >> 5] & (1 << (i & 31));
+        if (curr && !prev)
+            kbd_queue_key(KBD_MODIFIER(kbd_keys), i, true);
+    }
+
+    // Check for no keys pressed
+    bool any_key = false;
+    kbd_keys[0] &= ~0x7;
+    for (int k = 0; k < 8; k++)
+        if (kbd_keys[k])
+            any_key = true;
+    if (!any_key)
+        kbd_keys[0] |= 1;
+
+    // NUMLOCK CAPSLOCK SCROLLLOCK
+    kbd_keys[0] |= (kdb_hid_leds & 7) << 1;
+
+    // Send it to xram
+    if (kbd_xram != 0xFFFF)
+        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
 }

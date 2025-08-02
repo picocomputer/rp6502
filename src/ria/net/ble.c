@@ -16,8 +16,6 @@ void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
 #else
 
-#define DEBUG_RIA_NET_BLE
-
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
