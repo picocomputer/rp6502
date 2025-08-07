@@ -26,7 +26,7 @@ bool pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
-void pad_umount(uint8_t slot);
+bool pad_umount(uint8_t slot);
 
 // Process HID gamepad report.
 void pad_report(uint8_t slot, uint8_t const *data, uint16_t len);

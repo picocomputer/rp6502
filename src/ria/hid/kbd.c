@@ -7,7 +7,6 @@
 #include "btstack_hid_parser.h"
 #include "main.h"
 #include "api/api.h"
-#include "sys/cfg.h"
 #include "hid/kbd.h"
 #include "hid/kbd_dan.h"
 #include "hid/kbd_deu.h"
@@ -15,13 +14,13 @@
 #include "hid/kbd_pol.h"
 #include "hid/kbd_swe.h"
 #include "hid/des.h"
+#include "net/ble.h"
+#include "sys/cfg.h"
 #include "usb/hid.h"
 #include "fatfs/ff.h"
 #include "pico/time.h"
 #include <stdio.h>
 #include <string.h>
-
-#define DEBUG_RIA_HID_KBD
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
 #include <stdio.h>
@@ -30,30 +29,8 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define KBD_REPEAT_DELAY 500000
-#define KBD_REPEAT_RATE 30000
-
-#define TU_BIT(n) (1UL << (n))
-
-typedef enum
-{
-    KEYBOARD_MODIFIER_LEFTCTRL = TU_BIT(0),   ///< Left Control
-    KEYBOARD_MODIFIER_LEFTSHIFT = TU_BIT(1),  ///< Left Shift
-    KEYBOARD_MODIFIER_LEFTALT = TU_BIT(2),    ///< Left Alt
-    KEYBOARD_MODIFIER_LEFTGUI = TU_BIT(3),    ///< Left Window
-    KEYBOARD_MODIFIER_RIGHTCTRL = TU_BIT(4),  ///< Right Control
-    KEYBOARD_MODIFIER_RIGHTSHIFT = TU_BIT(5), ///< Right Shift
-    KEYBOARD_MODIFIER_RIGHTALT = TU_BIT(6),   ///< Right Alt
-    KEYBOARD_MODIFIER_RIGHTGUI = TU_BIT(7)    ///< Right Window
-} hid_keyboard_modifier_bm_t;
-
-typedef enum
-{
-    KEYBOARD_LED_NUMLOCK = TU_BIT(0),   ///< Num Lock LED
-    KEYBOARD_LED_CAPSLOCK = TU_BIT(1),  ///< Caps Lock LED
-    KEYBOARD_LED_SCROLLLOCK = TU_BIT(2) ///< Scroll Lock LED
-} hid_keyboard_led_bm_t;
-
+// These usually come from TinyUSB's hid.h but we can't
+// include that while using btstack_hid_parser.h.
 #define HID_KEY_NONE 0x00
 #define HID_KEY_A 0x04
 #define HID_KEY_Z 0x1D
@@ -103,6 +80,22 @@ typedef enum
 #define HID_KEY_ALT_RIGHT 0xE6
 #define HID_KEY_GUI_RIGHT 0xE7
 
+#define KBD_MODIFIER_LEFTCTRL 1 << (0)   // Left Control
+#define KBD_MODIFIER_LEFTSHIFT 1 << (1)  // Left Shift
+#define KBD_MODIFIER_LEFTALT 1 << (2)    // Left Alt
+#define KBD_MODIFIER_LEFTGUI 1 << (3)    // Left Window
+#define KBD_MODIFIER_RIGHTCTRL 1 << (4)  // Right Control
+#define KBD_MODIFIER_RIGHTSHIFT 1 << (5) // Right Shift
+#define KBD_MODIFIER_RIGHTALT 1 << (6)   // Right Alt
+#define KBD_MODIFIER_RIGHTGUI 1 << (7)   // Right Window
+
+#define KBD_LED_NUMLOCK 1 << (0)    // Num Lock LED
+#define KBD_LED_CAPSLOCK 1 << (1)   // Caps Lock LED
+#define KBD_LED_SCROLLLOCK 1 << (2) // Scroll Lock LED
+
+#define KBD_REPEAT_DELAY 500000
+#define KBD_REPEAT_RATE 30000
+
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_modifier;
 static uint8_t kbd_repeat_keycode;
@@ -127,10 +120,13 @@ typedef struct
 #define KBD_MAX_KEYBOARDS 4
 static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
+// Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
+// Circular buffer
 #define KBD_KEY_QUEUE(pos) kbd_key_queue[(pos) & 0x0F]
 
+// Select locale based on RP6502_KEYBOARD set in CMakeLists.txt
 #define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
@@ -147,7 +143,7 @@ static kbd_connection_t *kbd_get_connection_by_slot(uint8_t slot)
 static void kbd_send_leds()
 {
     hid_set_leds(kdb_hid_leds);
-    // ble_set_leds(kdb_hid_leds);
+    ble_set_leds(kdb_hid_leds);
 }
 
 static void kbd_queue_str(const char *str)
@@ -181,12 +177,12 @@ static void kbd_queue_seq_vt(int num, int mod)
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
-    bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
-    bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
-    bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
-    bool key_gui = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
-    bool is_numlock = kdb_hid_leds & KEYBOARD_LED_NUMLOCK;
-    bool is_capslock = kdb_hid_leds & KEYBOARD_LED_CAPSLOCK;
+    bool key_shift = modifier & (KBD_MODIFIER_LEFTSHIFT | KBD_MODIFIER_RIGHTSHIFT);
+    bool key_alt = modifier & (KBD_MODIFIER_LEFTALT | KBD_MODIFIER_RIGHTALT);
+    bool key_ctrl = modifier & (KBD_MODIFIER_LEFTCTRL | KBD_MODIFIER_RIGHTCTRL);
+    bool key_gui = modifier & (KBD_MODIFIER_LEFTGUI | KBD_MODIFIER_RIGHTGUI);
+    bool is_numlock = kdb_hid_leds & KBD_LED_NUMLOCK;
+    bool is_capslock = kdb_hid_leds & KBD_LED_CAPSLOCK;
     // Set up for repeat
     kbd_repeat_modifier = modifier;
     kbd_repeat_keycode = keycode;
@@ -238,14 +234,14 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     // Find plain typed or AltGr character
     char ch = 0;
-    if (keycode < 128 && !((modifier & (KEYBOARD_MODIFIER_LEFTALT |
-                                        KEYBOARD_MODIFIER_LEFTGUI |
-                                        KEYBOARD_MODIFIER_RIGHTGUI))))
+    if (keycode < 128 && !((modifier & (KBD_MODIFIER_LEFTALT |
+                                        KBD_MODIFIER_LEFTGUI |
+                                        KBD_MODIFIER_RIGHTGUI))))
     {
         bool use_shift = (key_shift && !is_capslock) ||
                          (key_shift && keycode > HID_KEY_Z) ||
                          (!key_shift && is_capslock && keycode <= HID_KEY_Z);
-        if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
+        if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (use_shift)
                 ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][3], cfg_get_codepage());
@@ -308,6 +304,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     // Non-repeating special key handler
     if (initial_press)
+    {
         switch (keycode)
         {
         case HID_KEY_DELETE:
@@ -319,18 +316,19 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             }
             break;
         case HID_KEY_NUM_LOCK:
-            kdb_hid_leds ^= KEYBOARD_LED_NUMLOCK;
+            kdb_hid_leds ^= KBD_LED_NUMLOCK;
             kbd_send_leds();
             break;
         case HID_KEY_CAPS_LOCK:
-            kdb_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
+            kdb_hid_leds ^= KBD_LED_CAPSLOCK;
             kbd_send_leds();
             break;
         case HID_KEY_SCROLL_LOCK:
-            kdb_hid_leds ^= KEYBOARD_LED_SCROLLLOCK;
+            kdb_hid_leds ^= KBD_LED_SCROLLLOCK;
             kbd_send_leds();
             break;
         }
+    }
     // Special key handler
     int ansi_modifier = 1;
     if (key_shift)
@@ -403,7 +401,7 @@ int kbd_stdio_in_chars(char *buf, int length)
 void kbd_init(void)
 {
     kbd_stop();
-    kdb_hid_leds = KEYBOARD_LED_NUMLOCK;
+    kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
 }
 
@@ -492,12 +490,13 @@ bool __in_flash("kbd_mount") kbd_mount(uint8_t slot, uint8_t const *desc_data, u
 }
 
 // Clean up descriptor when device is disconnected.
-void kbd_umount(uint8_t slot)
+bool kbd_umount(uint8_t slot)
 {
     kbd_connection_t *conn = kbd_get_connection_by_slot(slot);
     if (conn == NULL)
-        return;
+        return false;
     conn->valid = false;
+    return true;
 }
 
 void kbd_report(uint8_t slot, uint8_t const *data, size_t size)

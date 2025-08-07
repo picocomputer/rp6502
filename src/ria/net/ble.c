@@ -73,6 +73,11 @@ static inline void ble_restart_scan(void)
         ble_scan_restarts_at = get_absolute_time();
 }
 
+void ble_set_leds(uint8_t leds)
+{
+    // TODO
+}
+
 static int ble_num_connected(void)
 {
     int num = 0;

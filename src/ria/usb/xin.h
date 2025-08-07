@@ -11,7 +11,7 @@
 #include <stdbool.h>
 
 void xin_task(void);
-int xin_count(void);
+int xin_pad_count(void);
 bool xin_is_xbox_one(uint8_t idx);
 bool xin_is_xbox_360(uint8_t idx);
 

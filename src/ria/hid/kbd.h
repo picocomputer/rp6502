@@ -18,7 +18,7 @@ void kbd_stop(void);
 bool kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len);
 
 // Clean up descriptor when device is disconnected.
-void kbd_umount(uint8_t slot);
+bool kbd_umount(uint8_t slot);
 
 // Process HID keyboard report.
 void kbd_report(uint8_t slot, uint8_t const *data, size_t size);

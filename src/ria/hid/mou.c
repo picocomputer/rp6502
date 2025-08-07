@@ -12,8 +12,6 @@
 #include "sys/mem.h"
 #include <string.h>
 
-#define DEBUG_RIA_HID_MOU
-
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_MOU)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -160,12 +158,13 @@ bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, u
     return conn->valid;
 }
 
-void mou_umount(uint8_t slot)
+bool mou_umount(uint8_t slot)
 {
     mou_connection_t *conn = find_connection_by_slot(slot);
     if (conn == NULL)
-        return;
+        return false;
     conn->valid = false;
+    return true;
 }
 
 void mou_report(uint8_t slot, void const *data, size_t size)

@@ -23,7 +23,7 @@ bool mou_xreg(uint16_t word);
 bool mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len);
 
 // Clean up descriptor when device is disconnected.
-void mou_umount(uint8_t slot);
+bool mou_umount(uint8_t slot);
 
 // Process HID report.
 void mou_report(uint8_t slot, void const *report, size_t size);

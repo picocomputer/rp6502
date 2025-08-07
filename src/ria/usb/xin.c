@@ -321,7 +321,7 @@ void xin_task(void)
     }
 }
 
-int xin_count(void)
+int xin_pad_count(void)
 {
     int count = 0;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)

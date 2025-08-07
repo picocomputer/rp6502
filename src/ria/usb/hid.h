@@ -22,5 +22,6 @@
 void hid_task(void);
 void hid_print_status(void);
 void hid_set_leds(uint8_t leds);
+int hid_pad_count(void);
 
 #endif /* _HID_H_ */

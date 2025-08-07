@@ -776,16 +776,16 @@ bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, u
     return false;
 }
 
-void pad_umount(uint8_t slot)
+bool pad_umount(uint8_t slot)
 {
     // Find the descriptor by dev_addr and slot
     int player = pad_get_player_num(slot);
     if (player < 0)
-        return;
+        return false;
     pad_connection_t *conn = &pad_connections[player];
     conn->valid = false;
-    conn->slot = 0;
     pad_reset_xram(player);
+    return true;
 }
 
 void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)

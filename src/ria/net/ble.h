@@ -20,6 +20,8 @@ void ble_task(void);
 
 void ble_set_config(uint8_t bt);
 
+void ble_set_leds(uint8_t leds);
+
 void ble_shutdown(void);
 
 void ble_print_status(void);

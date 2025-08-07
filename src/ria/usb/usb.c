@@ -8,6 +8,7 @@
 #include "usb/hid.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
+#include "usb/xin.h"
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
 #include <stdio.h>
@@ -29,7 +30,9 @@ void usb_task(void)
 
 void usb_print_status(void)
 {
+    int count_gamepad = hid_pad_count() + xin_pad_count();
     printf("USB : ");
     hid_print_status();
+    printf(", %d gamepad%s", count_gamepad, count_gamepad == 1 ? "" : "s");
     msc_print_status();
 }
