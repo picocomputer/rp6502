@@ -116,19 +116,12 @@ static uint32_t kbd_keys[8];
 typedef struct
 {
     bool valid;
-    uint8_t slot;     // HID slot
-    uint32_t keys[8]; // last report, bits 0-3 unused
-
-    // HID descriptor parsing fields
-    uint8_t report_id;              // If non zero, the first report byte must match and will be skipped
-    uint16_t modifier_offsets[8];   // Bit offsets for each of the 8 modifier keys (0xFFFF = not present)
-    uint16_t keycode_offset;        // Offset in bits for keycode array
-    uint8_t keycode_count;          // Number of keycodes in array
-    bool has_keycode_bitmap;        // 256-bit bitmap where each bit represents a keycode
-    uint16_t keycode_bitmap_offset; // Offset in bits for the bitmap
-    uint16_t keycode_bitmap_size;   // Size in bits for the bitmap (usually 256)
-    uint16_t keycode_offsets[32];   // Individual keycode bit positions (for sparse keyboards)
-    uint8_t keycode_bit_count;      // Number of individual keycode bits found
+    uint8_t slot;           // HID slot
+    uint32_t keys[8];       // last report, bits 0-3 unused
+    uint8_t report_id;      // If non zero, the first report byte must match and will be skipped
+    uint16_t codes_offset;  // Offset in bits for keycode array
+    uint8_t codes_count;    // Number of keycodes in array
+    uint16_t keycodes[256]; // Offsets of all bitmap keys
 } kbd_connection_t;
 
 #define KBD_MAX_KEYBOARDS 4
@@ -142,133 +135,6 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
-
-// Parse HID descriptor to extract keyboard report structure
-static void kbd_parse_descriptor(kbd_connection_t *conn, uint8_t const *desc_data, uint16_t desc_len)
-{
-    // Initialize all fields
-    memset(conn, 0, sizeof(kbd_connection_t));
-    for (int i = 0; i < 8; i++)
-        conn->modifier_offsets[i] = 0xFFFF;
-    for (int i = 0; i < 32; i++)
-        conn->keycode_offsets[i] = 0xFFFF;
-
-    if (desc_len == 0)
-        return;
-
-    // Use BTstack HID parser to parse the descriptor
-    btstack_hid_usage_iterator_t iterator;
-    btstack_hid_usage_iterator_init(&iterator, desc_data, desc_len, HID_REPORT_TYPE_INPUT);
-
-    bool found_keyboard_input = false;
-
-    while (btstack_hid_usage_iterator_has_more(&iterator))
-    {
-        btstack_hid_usage_item_t item;
-        btstack_hid_usage_iterator_get_item(&iterator, &item);
-
-        DBG("HID item: page=0x%02x, usage=0x%02x, report_id=0x%04x, size=%d, bit_pos=%d\n",
-            item.usage_page, item.usage, item.report_id, item.size, item.bit_pos);
-
-        bool get_report_id = false;
-
-        if (item.usage_page == 0x07) // Keyboard/Keypad page
-        {
-            get_report_id = true;
-            found_keyboard_input = true;
-
-            if (item.usage >= 0xE0 && item.usage <= 0xE7) // Modifier keys
-            {
-                uint8_t mod_index = item.usage - 0xE0; // Convert to 0-7 index
-                if (mod_index < 8 && conn->modifier_offsets[mod_index] == 0xFFFF)
-                {
-                    conn->modifier_offsets[mod_index] = item.bit_pos;
-                    DBG("Found modifier key 0x%02x: bit_pos=%d\n", item.usage, item.bit_pos);
-                }
-            }
-            else if (item.usage <= 0xFF)
-            {
-                if (item.size == 8 && conn->keycode_count == 0)
-                {
-                    conn->keycode_offset = item.bit_pos;
-                    conn->keycode_count = 1;
-                    DBG("Found keycode array start: offset=%d\n", conn->keycode_offset);
-                }
-                else if (item.size == 8 &&
-                         item.bit_pos == conn->keycode_offset + (conn->keycode_count * 8))
-                {
-                    // This is a continuation of the keycode array
-                    conn->keycode_count++;
-                    DBG("Extending keycode array: count=%d\n", conn->keycode_count);
-                }
-                else if (item.size == 1)
-                {
-                    // Check if this looks like the start of a contiguous bitmap
-                    // Many keyboards have bitmaps starting from usage 0x00 or near modifiers
-                    if (!conn->has_keycode_bitmap && conn->keycode_bit_count == 0)
-                    {
-                        // This could be the start of a bitmap - record it and see if more follow
-                        conn->has_keycode_bitmap = true;
-                        conn->keycode_bitmap_offset = item.bit_pos;
-                        conn->keycode_bitmap_size = 1;
-                        DBG("Found potential keycode bitmap start: offset=%d, usage=0x%02x\n", item.bit_pos, item.usage);
-                    }
-                    else if (conn->has_keycode_bitmap &&
-                             item.bit_pos == conn->keycode_bitmap_offset + conn->keycode_bitmap_size)
-                    {
-                        // This continues the bitmap - extend it
-                        conn->keycode_bitmap_size++;
-                        DBG("Extended keycode bitmap: size=%d, usage=0x%02x\n", conn->keycode_bitmap_size, item.usage);
-
-                        // If we've seen enough contiguous bits, this is likely a bitmap
-                        if (conn->keycode_bitmap_size >= 64) // Reasonable threshold for bitmap detection
-                        {
-                            DBG("Confirmed keycode bitmap with %d bits\n", conn->keycode_bitmap_size);
-                        }
-                    }
-                    else if (!conn->has_keycode_bitmap)
-                    {
-                        // Individual sparse keycode bits - fall back if bitmap detection fails
-                        if (conn->keycode_bit_count < 32)
-                        {
-                            conn->keycode_offsets[conn->keycode_bit_count] = item.bit_pos;
-                            conn->keycode_bit_count++;
-                            DBG("Found individual keycode bit: usage=0x%02x, offset=%d\n", item.usage, item.bit_pos);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Store report ID if this is the first one we encounter
-        if (get_report_id && conn->report_id == 0 && item.report_id != 0xFFFF)
-            conn->report_id = item.report_id;
-    }
-
-    // Post-process bitmap detection: if we have a very small "bitmap",
-    // it's probably just individual keys, not a true bitmap
-    if (conn->has_keycode_bitmap && conn->keycode_bitmap_size < 32)
-    {
-        DBG("Converting small bitmap (%d bits) to individual keycode bits\n", conn->keycode_bitmap_size);
-        conn->has_keycode_bitmap = false;
-        conn->keycode_bit_count = 0; // We'll need to re-parse for proper usage mapping
-        // Note: This is a simplified fallback - ideally we'd store usage info during parsing
-    }
-
-    conn->valid = found_keyboard_input && (conn->modifier_offsets[0] != 0xFFFF || conn->keycode_count ||
-                                           conn->has_keycode_bitmap || conn->keycode_bit_count > 0);
-
-    // Debug print parsed descriptor
-    DBG("kbd_parse_descriptor: report_id=%d, valid=%d\n", conn->report_id, conn->valid);
-    for (int i = 0; i < 8; i++)
-        if (conn->modifier_offsets[i] != 0xFFFF)
-            DBG("    Modifier %d: offset=%d\n", i, conn->modifier_offsets[i]);
-    DBG("  Keycode array: offset=%d, count=%d\n",
-        conn->keycode_offset, conn->keycode_count);
-    DBG("  Keycode bitmap: has=%d, offset=%d, size=%d\n",
-        conn->has_keycode_bitmap, conn->keycode_bitmap_offset, conn->keycode_bitmap_size);
-    DBG("  Individual bits: count=%d\n", conn->keycode_bit_count);
-}
 
 static kbd_connection_t *kbd_get_connection_by_slot(uint8_t slot)
 {
@@ -570,8 +436,7 @@ bool kbd_xreg(uint16_t word)
     return true;
 }
 
-// Parse HID report descriptor
-bool kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("kbd_mount") kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
 {
     int conn_num = -1;
     for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
@@ -580,16 +445,49 @@ bool kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
     if (conn_num < 0)
         return false;
 
+    // Begion processing raw HID descriptor into kbd_connection_t
     kbd_connection_t *conn = &kbd_connections[conn_num];
-
-    // Process raw HID descriptor into conn
-    kbd_parse_descriptor(conn, desc_data, desc_len);
+    memset(conn, 0, sizeof(kbd_connection_t));
+    for (int i = 0; i < 256; i++)
+        conn->keycodes[i] = 0xFFFF;
     conn->slot = slot;
 
-    DBG("kbd_mount: slot=%d, valid=%d, keycode_count=%d, has_bitmap=%d, keycode_bits=%d\n",
-        slot, conn->valid, conn->keycode_count,
-        conn->has_keycode_bitmap, conn->keycode_bit_count);
-
+    // Use BTstack HID parser to parse the descriptor
+    btstack_hid_usage_iterator_t iterator;
+    btstack_hid_usage_iterator_init(&iterator, desc_data, desc_len, HID_REPORT_TYPE_INPUT);
+    while (btstack_hid_usage_iterator_has_more(&iterator))
+    {
+        btstack_hid_usage_item_t item;
+        btstack_hid_usage_iterator_get_item(&iterator, &item);
+        if (item.usage_page == 0x07 && item.usage <= 0xFF) // Keyboards with valid keycodes
+        {
+            conn->valid = true;
+            // Store report ID if this is the first one we encounter
+            if (conn->report_id == 0 && item.report_id != 0xFFFF)
+                conn->report_id = item.report_id;
+            // 8 bits contain a keycode
+            if (item.size == 8)
+            {
+                if (conn->codes_count == 0)
+                {
+                    conn->codes_offset = item.bit_pos;
+                    conn->codes_count = 1;
+                    DBG("Found keycode array start: offset=%d\n", conn->codes_offset);
+                }
+                else if (item.bit_pos == conn->codes_offset + (conn->codes_count * 8))
+                {
+                    conn->codes_count++;
+                    DBG("Extending keycode array: count=%d\n", conn->codes_count);
+                }
+            }
+            // 1 bit represents a keycode
+            if (item.size == 1)
+            {
+                conn->keycodes[item.usage] = item.bit_pos;
+                DBG("Found individual keycode bit: usage=0x%02x, offset=%d\n", item.usage, item.bit_pos);
+            }
+        }
+    }
     return conn->valid;
 }
 
@@ -626,22 +524,10 @@ void kbd_report(uint8_t slot, uint8_t const *data, size_t size)
     memcpy(&old_keys, conn->keys, sizeof(conn->keys));
     memset(conn->keys, 0, sizeof(conn->keys));
 
-    // Extract modifier bits
-    for (int i = 0; i < 8; i++)
+    // Extract from keycode array
+    for (int i = 0; i < conn->codes_count; i++)
     {
-        if (conn->modifier_offsets[i] != 0xFFFF)
-        {
-            uint32_t bit_val = des_extract_bits(report_data, report_data_len,
-                                                conn->modifier_offsets[i], 1);
-            if (bit_val)
-                KBD_MODIFIER(conn->keys) |= (1 << i);
-        }
-    }
-
-    // Extract keycode array
-    for (int i = 0; i < conn->keycode_count; i++)
-    {
-        uint16_t bit_offset = conn->keycode_offset + (i * 8);
+        uint16_t bit_offset = conn->codes_offset + (i * 8);
         uint8_t keycode = (uint8_t)des_extract_bits(report_data, report_data_len,
                                                     bit_offset, 8);
         if (keycode == 1)
@@ -653,47 +539,13 @@ void kbd_report(uint8_t slot, uint8_t const *data, size_t size)
         conn->keys[keycode >> 5] |= 1 << (keycode & 31);
     }
 
-    // Extract keycode bitmap if present (256-bit bitmap where each bit = keycode)
-    if (conn->has_keycode_bitmap)
+    // Extract individual keycode bits
+    for (int i = 0; i <= 0xFF; i++)
     {
-        // Extract the bitmap in chunks and set corresponding key bits
-        uint16_t bitmap_bytes = (conn->keycode_bitmap_size + 7) / 8; // Round up to bytes
-        for (uint16_t byte_idx = 0; byte_idx < bitmap_bytes && byte_idx < 32; byte_idx++)
-        {
-            uint8_t bitmap_byte = (uint8_t)des_extract_bits(report_data, report_data_len,
-                                                            conn->keycode_bitmap_offset + (byte_idx * 8), 8);
-
-            // Each bit in this byte represents a keycode
-            for (int bit_idx = 0; bit_idx < 8; bit_idx++)
-            {
-                if (bitmap_byte & (1 << bit_idx))
-                {
-                    uint8_t keycode = (byte_idx * 8) + bit_idx;
-                    if (keycode < 128) // Only handle standard keycodes
-                    {
-                        conn->keys[keycode >> 5] |= 1 << (keycode & 31);
-                    }
-                }
-            }
-        }
-    }
-
-    // Extract individual keycode bits if present (sparse keyboards)
-    for (int i = 0; i < conn->keycode_bit_count; i++)
-    {
-        if (conn->keycode_offsets[i] != 0xFFFF)
-        {
-            uint32_t bit_val = des_extract_bits(report_data, report_data_len,
-                                                conn->keycode_offsets[i], 1);
-            if (bit_val)
-            {
-                // For individual bits, we need to figure out which keycode this represents
-                // This is more complex and depends on the specific descriptor layout
-                // For now, we'll store the bit position as the keycode
-                uint8_t keycode = i + 32; // Offset to avoid conflicts with array keycodes
-                conn->keys[keycode >> 5] |= 1 << (keycode & 31);
-            }
-        }
+        uint32_t bit_val = des_extract_bits(report_data, report_data_len,
+                                            conn->keycodes[i], 1);
+        if (bit_val)
+            conn->keys[i >> 5] |= 1 << (i & 31);
     }
 
     // Merge all keyboards into one report so we have

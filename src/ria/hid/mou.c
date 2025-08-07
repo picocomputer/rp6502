@@ -85,16 +85,21 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-// Parse HID descriptor to extract mouse report structure
-static void mou_parse_descriptor(mou_connection_t *conn, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
 {
-    // Initialize all fields
+    int desc_idx = -1;
+    for (int i = 0; i < MOU_MAX_MICE; ++i)
+        if (!mou_connections[i].valid)
+            desc_idx = i;
+    if (desc_idx < 0)
+        return false;
+
+    // Process raw HID descriptor into mou_connection_t
+    mou_connection_t *conn = &mou_connections[desc_idx];
     memset(conn, 0, sizeof(mou_connection_t));
     for (int i = 0; i < 8; i++)
         conn->button_offsets[i] = 0xFFFF;
-
-    if (desc_len == 0)
-        return;
+    conn->slot = slot;
 
     // Use BTstack HID parser to parse the descriptor
     btstack_hid_usage_iterator_t iterator;
@@ -148,35 +153,6 @@ static void mou_parse_descriptor(mou_connection_t *conn, uint8_t const *desc_dat
 
     // If it squeaks like a mouse.
     conn->valid = conn->x_relative && conn->x_size > 0;
-
-    // Debug print parsed descriptor
-    DBG("mou_parse_descriptor: report_id=%d, valid=%d\n", conn->report_id, conn->valid);
-    DBG("  X: offset=%d, size=%d, relative=%d\n", conn->x_offset, conn->x_size, conn->x_relative);
-    DBG("  Y: offset=%d, size=%d\n", conn->y_offset, conn->y_size);
-    DBG("  Wheel: offset=%d, size=%d\n", conn->wheel_offset, conn->wheel_size);
-    DBG("  Pan: offset=%d, size=%d\n", conn->pan_offset, conn->pan_size);
-    DBG("  Buttons: [%d,%d,%d,%d,%d,%d,%d,%d]\n",
-        conn->button_offsets[0], conn->button_offsets[1], conn->button_offsets[2], conn->button_offsets[3],
-        conn->button_offsets[4], conn->button_offsets[5], conn->button_offsets[6], conn->button_offsets[7]);
-}
-
-bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
-{
-    int desc_idx = -1;
-    for (int i = 0; i < MOU_MAX_MICE; ++i)
-        if (!mou_connections[i].valid)
-        {
-            desc_idx = i;
-            break;
-        }
-    if (desc_idx < 0)
-        return false;
-
-    mou_connection_t *conn = &mou_connections[desc_idx];
-
-    // Process raw HID descriptor into conn
-    mou_parse_descriptor(conn, desc_data, desc_len);
-    conn->slot = slot;
 
     DBG("mou_mount: slot=%d, valid=%d, x_size=%d, y_size=%d\n",
         slot, conn->valid, conn->x_size, conn->y_size);
