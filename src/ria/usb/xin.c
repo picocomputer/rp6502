@@ -172,7 +172,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     {
         DBG("XInput: Failed to open OUT endpoint during open\n");
         tuh_edpt_abort_xfer(dev_addr, ep_in);
-        tuh_edpt_close(dev_addr, ep_in);
+        // tuh_edpt_close(dev_addr, ep_in);
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
         return false;
     }
@@ -269,9 +269,9 @@ static void xin_class_driver_close(uint8_t dev_addr)
     DBG("XInput: Closing Xbox controller from index %d\n", index);
 
     tuh_edpt_abort_xfer(dev_addr, xbox_devices[index].ep_in);
-    tuh_edpt_close(dev_addr, xbox_devices[index].ep_in);
+    // tuh_edpt_close(dev_addr, xbox_devices[index].ep_in);
     tuh_edpt_abort_xfer(dev_addr, xbox_devices[index].ep_out);
-    tuh_edpt_close(dev_addr, xbox_devices[index].ep_out);
+    // tuh_edpt_close(dev_addr, xbox_devices[index].ep_out);
 
     pad_umount(xin_idx_to_hid_slot(index));
 
