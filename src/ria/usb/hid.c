@@ -52,7 +52,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
         kbd_report(idx, report, len);
         break;
     case HID_ITF_PROTOCOL_MOUSE:
-        mou_report_boot(idx, report, len);
+        mou_report(idx, report, len);
         break;
     case HID_ITF_PROTOCOL_NONE:
         pad_report(idx, report, len);
@@ -113,6 +113,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE)
     {
+        valid = mou_mount(idx, desc_report, desc_len);
         valid = true;
     }
     else if (itf_protocol == HID_ITF_PROTOCOL_NONE)

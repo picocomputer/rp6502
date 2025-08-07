@@ -12,6 +12,8 @@
 #include "sys/mem.h"
 #include <string.h>
 
+#define DEBUG_RIA_HID_MOU
+
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_MOU)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)

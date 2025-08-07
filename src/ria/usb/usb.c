@@ -19,6 +19,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 void usb_init(void)
 {
     tuh_init(TUH_OPT_RHPORT);
+    tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
 }
 
 void usb_task(void)
