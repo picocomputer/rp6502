@@ -46,6 +46,9 @@ ble_connection_t ble_connections[MAX_NR_HCI_CONNECTIONS];
 
 static bool ble_initialized;
 static bool ble_pairing;
+static uint8_t ble_count_kbd;
+static uint8_t ble_count_mou;
+static uint8_t ble_count_pad;
 
 // BTStack state - BLE Central and HIDS Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -169,19 +172,14 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             DBG("BLE: No HID descriptor available!\n");
             break;
         }
+        uint8_t slot = ble_idx_to_hid_slot(index);
+        if (kbd_mount(slot, descriptor, descriptor_len))
+            ++ble_count_kbd;
+        if (mou_mount(slot, descriptor, descriptor_len))
+            ++ble_count_mou;
+        if (pad_mount(slot, descriptor, descriptor_len, 0, 0))
+            ++ble_count_pad;
 
-        bool mounted = pad_mount(ble_idx_to_hid_slot(index), descriptor, descriptor_len, 0, 0);
-        if (mounted)
-        {
-            DBG("BLE: gamepad mounted player %d\n",
-                pad_get_player_num(ble_idx_to_hid_slot(index)));
-        }
-
-        mounted = mou_mount(ble_idx_to_hid_slot(index), descriptor, descriptor_len);
-        if (mounted)
-        {
-            DBG("BLE: mouse mounted\n");
-        }
         break;
     }
 
@@ -190,8 +188,15 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
         int index = ble_get_index_by_cid(cid);
-        if (index >= 0)
-            pad_umount(ble_idx_to_hid_slot(index));
+        if (index < 0)
+            break;
+        uint8_t slot = ble_idx_to_hid_slot(index);
+        if (kbd_umount(slot))
+            --ble_count_kbd;
+        if (mou_umount(slot))
+            --ble_count_mou;
+        if (pad_umount(slot))
+            --ble_count_pad;
         break;
     }
 
@@ -508,9 +513,17 @@ void ble_shutdown(void)
 
 void ble_print_status(void)
 {
-    printf("BLE : %s%s\n",
-           cfg_get_ble() ? "On" : "Off",
-           ble_pairing ? ", Pairing" : "");
+    if (cfg_get_ble())
+    {
+        printf("BLE : %d keyboard%s, %d %s, %d gamepad%s\n",
+               ble_count_kbd, ble_count_kbd == 1 ? "" : "s",
+               ble_count_mou, ble_count_mou == 1 ? "mouse" : "mice",
+               ble_count_pad, ble_count_pad == 1 ? "" : "s");
+    }
+    else
+    {
+        printf("BLE : Off\n");
+    }
 }
 
 #endif /* RP6502_RIA_W && ENABLE_BLE */
