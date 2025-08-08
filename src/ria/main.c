@@ -82,6 +82,7 @@ static void init(void)
 // Calling FatFs in here may cause undefined behavior.
 void main_task(void)
 {
+    led_task();
     usb_task();
     cpu_task();
     ria_task();

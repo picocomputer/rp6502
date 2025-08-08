@@ -29,6 +29,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
+#include "sys/led.h"
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
@@ -400,6 +401,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         {
             DBG("BLE: Pairing complete - disabling pairing mode\n");
             ble_pairing = false;
+            led_blink(false);
         }
         else
         {
@@ -496,11 +498,13 @@ void ble_set_config(uint8_t bt)
     {
         DBG("BLE: Enabling pairing mode - new devices can now bond\n");
         ble_pairing = true;
+        led_blink(true);
     }
     else
     {
         DBG("BLE: Disabling pairing mode - preventing new device pairing\n");
         ble_pairing = false;
+        led_blink(false);
     }
 }
 
