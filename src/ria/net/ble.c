@@ -16,6 +16,8 @@ void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
 #else
 
+#define DEBUG_RIA_NET_BLE
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -43,7 +45,7 @@ typedef struct
     uint16_t hids_cid;
 } ble_connection_t;
 
-ble_connection_t ble_connections[MAX_NR_HCI_CONNECTIONS];
+static ble_connection_t ble_connections[MAX_NR_HCI_CONNECTIONS];
 
 static bool ble_initialized;
 static bool ble_pairing;
@@ -63,9 +65,9 @@ static uint8_t hid_descriptor_storage[3 * 1024];
 // We pause scanning during the entire connect sequence
 // becase BTStack only has state to manage one at a time.
 // We peek at the newest connection to restart scan.
-#define BLE_CONNECT_TIMEOUT_MS (30 * 1000)
-absolute_time_t ble_scan_restarts_at;
-ble_connection_t *ble_newest_connection;
+#define BLE_CONNECT_TIMEOUT_MS (20 * 1000)
+static absolute_time_t ble_scan_restarts_at;
+static ble_connection_t *ble_current_connection;
 
 static inline void ble_restart_scan(void)
 {
@@ -85,13 +87,12 @@ static uint8_t ble_idx_to_hid_slot(int idx)
     return HID_BLE_START + idx;
 }
 
-static void ble_clear_index(int index)
+static void ble_clear_connection(ble_connection_t *connection)
 {
-    if (index < 0)
-        return;
-    ble_connections[index].addr_type = BD_ADDR_TYPE_UNKNOWN;
-    ble_connections[index].hci_con_handle = HCI_CON_HANDLE_INVALID;
-    ble_connections[index].hids_cid = 0; // cids start at 1
+    // DBG("BLE: Clearing connection\n");
+    connection->addr_type = BD_ADDR_TYPE_UNKNOWN;
+    connection->hci_con_handle = HCI_CON_HANDLE_INVALID;
+    connection->hids_cid = 0; // cids start at 1
 }
 
 static int ble_get_empty_index(void)
@@ -211,7 +212,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         if (btstack_event_state_get_state(packet) == HCI_STATE_WORKING)
         {
             DBG("BLE: Bluetooth LE Central ready and working!\n");
-            gap_start_scan();
+            ble_restart_scan();
         }
         break;
 
@@ -224,10 +225,16 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         uint8_t data_length = gap_event_advertising_report_get_data_length(packet);
         const uint8_t *data = gap_event_advertising_report_get_data(packet);
 
+        // Skip if we're connecting
+        if (ble_scan_restarts_at)
+            return;
+
         // Skip non-HID
         if (!ad_data_contains_uuid16(data_length, data,
                                      ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
             break;
+
+        // DBG("BLE: GAP_EVENT_ADVERTISING_REPORT %s\n", bd_addr_to_str(event_addr));
 
         // Look up device in LE device database to check if it's bonded
         bool is_bonded = false;
@@ -258,7 +265,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         int index = ble_get_empty_index();
         if (index < 0)
             break;
-        ble_newest_connection = &ble_connections[index];
+        ble_current_connection = &ble_connections[index];
 
         uint8_t connect_status = gap_connect(event_addr, addr_type);
         if (connect_status == ERROR_CODE_SUCCESS)
@@ -267,8 +274,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
             gap_stop_scan();
             ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
-            memcpy(ble_newest_connection->addr, event_addr, sizeof(bd_addr_t));
-            ble_newest_connection->addr_type = addr_type;
+            memcpy(ble_current_connection->addr, event_addr, sizeof(bd_addr_t));
+            ble_current_connection->addr_type = addr_type;
         }
         else
         {
@@ -313,9 +320,12 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     {
         hci_con_handle_t con_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", con_handle);
-        if (ble_newest_connection->hci_con_handle == con_handle)
+        // A new connection completed before the timeout
+        if (ble_current_connection->hci_con_handle == con_handle)
             ble_restart_scan();
-        ble_clear_index(ble_get_index_by_handle(con_handle));
+        int index = ble_get_index_by_handle(con_handle);
+        if (index >= 0)
+            ble_clear_connection(&ble_connections[index]);
         break;
     }
     }
@@ -401,8 +411,8 @@ static void ble_init_stack(void)
     // Globals
     ble_scan_restarts_at = 0;
     for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        ble_clear_index(i);
-    ble_newest_connection = &ble_connections[0];
+        ble_clear_connection(&ble_connections[i]);
+    ble_current_connection = &ble_connections[0];
 
     // Initialize L2CAP
     l2cap_init();
@@ -435,16 +445,22 @@ static void ble_init_stack(void)
 
 void ble_task(void)
 {
-    if (!ble_initialized && cyw_ready() && cfg_get_ble())
+    if (!ble_initialized)
     {
-        ble_init_stack();
-        ble_initialized = true;
+        if (cyw_ready() && cfg_get_ble())
+        {
+            ble_init_stack();
+            ble_initialized = true;
+            ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
+        }
+        return;
     }
 
-    if (ble_initialized && ble_scan_restarts_at &&
+    if (ble_scan_restarts_at &&
         absolute_time_diff_us(get_absolute_time(), ble_scan_restarts_at) < 0)
     {
         ble_scan_restarts_at = 0;
+        gap_connect_cancel();
         gap_start_scan();
         DBG("BLE: restarting gap_start_scan\n");
     }
