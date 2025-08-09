@@ -294,17 +294,18 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             bd_addr_t event_addr;
             hci_subevent_le_connection_complete_get_peer_address(packet, event_addr);
             uint8_t addr_type = hci_subevent_le_connection_complete_get_peer_address_type(packet);
+            int index = ble_get_index_by_addr(addr_type, event_addr);
+            if (index < 0)
+                break;
             uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
             if (status != ERROR_CODE_SUCCESS)
             {
+                ble_clear_connection(&ble_connections[index]);
                 ble_restart_scan();
                 DBG("BLE: LE Connection failed - Status: 0x%02x, Address: %s\n",
                     status, bd_addr_to_str(event_addr));
                 break;
             }
-            int index = ble_get_index_by_addr(addr_type, event_addr);
-            if (index < 0)
-                break;
             hci_con_handle_t hci_con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
             ble_connections[index].hci_con_handle = hci_con_handle;
             uint8_t hids_status = hids_client_connect(hci_con_handle, ble_hids_client_handler,
