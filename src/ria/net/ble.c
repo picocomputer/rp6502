@@ -227,11 +227,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
         // Skip if we're connecting
         if (ble_scan_restarts_at)
-            return;
-
-        // Skip non-HID
-        if (!ad_data_contains_uuid16(data_length, data,
-                                     ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
             break;
 
         // DBG("BLE: GAP_EVENT_ADVERTISING_REPORT %s\n", bd_addr_to_str(event_addr));
@@ -256,10 +251,16 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             }
         }
 
-        if (!ble_pairing && !is_bonded)
+        if (!is_bonded)
         {
-            DBG("BLE: Found HID %s but new pairing is disabled\n", bd_addr_to_str(event_addr));
-            break;
+            // Don't add new devices unless pairing is active
+            if (!ble_pairing)
+                break;
+            // Reject non-HID but accomodate devices that
+            // don't advertise services when reconnecting.
+            if (!ad_data_contains_uuid16(data_length, data,
+                                         ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
+                break;
         }
 
         int index = ble_get_empty_index();
