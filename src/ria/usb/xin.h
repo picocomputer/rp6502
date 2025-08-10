@@ -12,7 +12,7 @@
 
 void xin_task(void);
 int xin_pad_count(void);
-bool xin_is_xbox_one(uint8_t idx);
-bool xin_is_xbox_360(uint8_t idx);
+bool xin_is_xbox_one(int slot);
+bool xin_is_xbox_360(int slot);
 
 #endif /* _XIN_H_ */

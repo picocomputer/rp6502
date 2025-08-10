@@ -16,8 +16,6 @@ void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
 #else
 
-#define DEBUG_RIA_NET_BLE
-
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -99,7 +97,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             DBG("BLE: HID service connection failed - Status: 0x%02x, CID: 0x%04x\n", status, cid);
             break;
         }
-        uint8_t slot = ble_hids_cid_to_hid_slot(cid);
+        int slot = ble_hids_cid_to_hid_slot(cid);
         const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
         uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
         if (kbd_mount(slot, descriptor, descriptor_len))
@@ -115,7 +113,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
-        uint8_t slot = ble_hids_cid_to_hid_slot(cid);
+        int slot = ble_hids_cid_to_hid_slot(cid);
         if (kbd_umount(slot))
             --ble_count_kbd;
         if (mou_umount(slot))
@@ -128,7 +126,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     case GATTSERVICE_SUBEVENT_HID_REPORT:
     {
         uint16_t cid = gattservice_subevent_hid_report_get_hids_cid(packet);
-        uint8_t slot = ble_hids_cid_to_hid_slot(cid);
+        int slot = ble_hids_cid_to_hid_slot(cid);
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
         kbd_report(slot, report, report_len);

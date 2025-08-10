@@ -109,7 +109,7 @@ static uint32_t kbd_keys[8];
 typedef struct
 {
     bool valid;
-    uint8_t slot;           // HID slot
+    int slot;               // HID slot
     uint32_t keys[8];       // last report, bits 0-3 unused
     uint8_t report_id;      // If non zero, the first report byte must match and will be skipped
     uint16_t codes_offset;  // Offset in bits for keycode array
@@ -132,7 +132,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 static DWORD const __in_flash("keycode_to_unicode")
     KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
 
-static kbd_connection_t *kbd_get_connection_by_slot(uint8_t slot)
+static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
         if (kbd_connections[i].valid && kbd_connections[i].slot == slot)
@@ -434,7 +434,7 @@ bool kbd_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("kbd_mount") kbd_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
 {
     int conn_num = -1;
     for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
@@ -490,7 +490,7 @@ bool __in_flash("kbd_mount") kbd_mount(uint8_t slot, uint8_t const *desc_data, u
 }
 
 // Clean up descriptor when device is disconnected.
-bool kbd_umount(uint8_t slot)
+bool kbd_umount(int slot)
 {
     kbd_connection_t *conn = kbd_get_connection_by_slot(slot);
     if (conn == NULL)
@@ -499,7 +499,7 @@ bool kbd_umount(uint8_t slot)
     return true;
 }
 
-void kbd_report(uint8_t slot, uint8_t const *data, size_t size)
+void kbd_report(int slot, uint8_t const *data, size_t size)
 {
     kbd_connection_t *conn = kbd_get_connection_by_slot(slot);
     if (conn == NULL)

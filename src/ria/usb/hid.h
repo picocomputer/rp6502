@@ -17,7 +17,7 @@
 #define HID_XIN_START (HID_USB_START + HID_USB_SLOTS)
 #define HID_XIN_SLOTS (PAD_MAX_PLAYERS)
 #define HID_BLE_START (HID_XIN_START + HID_XIN_SLOTS)
-#define HID_BLE_SLOTS (MAX_NR_HCI_CONNECTIONS)
+#define HID_BLE_SLOTS (0xFFFF)
 
 void hid_task(void);
 void hid_print_status(void);

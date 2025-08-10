@@ -57,7 +57,7 @@ typedef struct
     bool valid;
     bool sony;           // Indicates gamepad uses sony button labels
     bool home_pressed;   // Used to inject the out of band home button on xbox one
-    uint8_t slot;        // HID protocol drivers use slots assigned in hid.h
+    int slot;            // HID protocol drivers use slots assigned in hid.h
     uint8_t report_id;   // If non zero, the first report byte must match and will be skipped
     uint16_t x_absolute; // Will be true for gamepads
     uint16_t x_offset;   // Left stick X
@@ -541,7 +541,7 @@ static void pad_parse_descriptor(
 }
 
 static void pad_distill_descriptor(
-    uint8_t slot, pad_connection_t *conn,
+    int slot, pad_connection_t *conn,
     uint8_t const *desc_data, uint16_t desc_len,
     uint16_t vendor_id, uint16_t product_id)
 {
@@ -744,7 +744,7 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len,
+bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
                                        uint16_t vendor_id, uint16_t product_id)
 {
     pad_connection_t *gamepad = NULL;
@@ -776,7 +776,7 @@ bool __in_flash("pad_mount") pad_mount(uint8_t slot, uint8_t const *desc_data, u
     return false;
 }
 
-bool pad_umount(uint8_t slot)
+bool pad_umount(int slot)
 {
     // Find the descriptor by dev_addr and slot
     int player = pad_get_player_num(slot);
@@ -788,7 +788,7 @@ bool pad_umount(uint8_t slot)
     return true;
 }
 
-void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)
+void pad_report(int slot, uint8_t const *data, uint16_t len)
 {
     int player = pad_get_player_num(slot);
     if (player < 0)
@@ -818,7 +818,7 @@ void pad_report(uint8_t slot, uint8_t const *data, uint16_t len)
 
 // This is for XBox One/Series gamepads which send
 // the home button down a different path.
-void pad_home_button(uint8_t slot, bool pressed)
+void pad_home_button(int slot, bool pressed)
 {
     int player = pad_get_player_num(slot);
     if (player < 0)
@@ -840,7 +840,7 @@ void pad_home_button(uint8_t slot, bool pressed)
 }
 
 // Useful for gamepads that indicate player number.
-int pad_get_player_num(uint8_t slot)
+int pad_get_player_num(int slot)
 {
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
         if (pad_connections[i].slot == slot && pad_connections[i].valid)

@@ -37,7 +37,7 @@ static uint16_t mou_xram = 0xFFFF;
 typedef struct
 {
     bool valid;
-    uint8_t slot;      // HID protocol drivers use slots assigned in hid.h
+    int slot;          // HID protocol drivers use slots assigned in hid.h
     uint8_t report_id; // If non zero, the first report byte must match and will be skipped
     uint16_t button_offsets[8];
     bool x_relative;   // Will be true for mice
@@ -83,7 +83,7 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
 {
     int desc_idx = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
@@ -158,7 +158,7 @@ bool __in_flash("mou_mount") mou_mount(uint8_t slot, uint8_t const *desc_data, u
     return conn->valid;
 }
 
-bool mou_umount(uint8_t slot)
+bool mou_umount(int slot)
 {
     mou_connection_t *conn = find_connection_by_slot(slot);
     if (conn == NULL)
@@ -167,7 +167,7 @@ bool mou_umount(uint8_t slot)
     return true;
 }
 
-void mou_report(uint8_t slot, void const *data, size_t size)
+void mou_report(int slot, void const *data, size_t size)
 {
     mou_connection_t *conn = find_connection_by_slot(slot);
     if (conn == NULL)
@@ -214,32 +214,6 @@ void mou_report(uint8_t slot, void const *data, size_t size)
                                             conn->pan_offset, conn->pan_size);
 
     // Update XRAM with new state
-    if (mou_xram != 0xFFFF)
-        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
-}
-
-void mou_report_boot(uint8_t slot, void const *data, size_t size)
-{
-    (void)slot;
-    typedef struct
-    {
-        uint8_t buttons;
-        int8_t x;
-        int8_t y;
-        int8_t wheel;
-        int8_t pan;
-    } mou_hid_boot_t;
-    mou_hid_boot_t *mouse = (mou_hid_boot_t *)data;
-    if (size >= 1)
-        mou_state.buttons += mouse->buttons;
-    if (size >= 2)
-        mou_state.x += mouse->x;
-    if (size >= 3)
-        mou_state.y += mouse->y;
-    if (size >= 4)
-        mou_state.wheel += mouse->wheel;
-    if (size >= 5)
-        mou_state.pan += mouse->pan;
     if (mou_xram != 0xFFFF)
         memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
 }
