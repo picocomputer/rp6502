@@ -504,6 +504,9 @@ void ble_shutdown(void)
         gap_stop_scan();
         gap_connect_cancel();
         hci_power_control(HCI_POWER_OFF);
+        hids_client_deinit();
+        sm_deinit();
+        l2cap_deinit();
     }
     ble_initialized = false;
 }
