@@ -429,6 +429,7 @@ static void ble_init_stack(void)
     gatt_client_init();
 
     // Initialize HID over GATT Client with descriptor storage
+    memset(hid_descriptor_storage, 0, sizeof(hid_descriptor_storage));
     hids_client_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
 
     // Register for HCI events
@@ -496,8 +497,14 @@ bool ble_is_pairing(void)
 
 void ble_shutdown(void)
 {
+    ble_pairing = false;
+    led_blink(false);
     if (ble_initialized)
+    {
+        gap_stop_scan();
+        gap_connect_cancel();
         hci_power_control(HCI_POWER_OFF);
+    }
     ble_initialized = false;
 }
 
