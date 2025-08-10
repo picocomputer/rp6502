@@ -36,17 +36,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <string.h>
 #include "pico/time.h"
 
-// BLE HID connection tracking
-typedef struct
-{
-    bd_addr_type_t addr_type;
-    bd_addr_t addr;
-    hci_con_handle_t hci_con_handle;
-    uint16_t hids_cid;
-} ble_connection_t;
-
-static ble_connection_t ble_connections[MAX_NR_HCI_CONNECTIONS];
-
 static bool ble_initialized;
 static bool ble_pairing;
 static uint8_t ble_count_kbd;
@@ -57,20 +46,21 @@ static uint8_t ble_count_pad;
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static btstack_packet_callback_registration_t sm_event_callback_registration;
 
-// Enough storage for MAX_NR_HCI_CONNECTIONS HID descriptors
+// Enough storage for MAX_NR_HIDS_CLIENTS HID descriptors
 // Since we only negotiate one connection at a time and only
 // need the descriptor once, this could be hacked smaller.
 static uint8_t hid_descriptor_storage[3 * 1024];
 
 // We pause scanning during the entire connect sequence
 // becase BTStack only has state to manage one at a time.
-// We peek at the newest connection to restart scan.
+// We peek at the in progress connection to monitor failure.
 #define BLE_CONNECT_TIMEOUT_MS (20 * 1000)
 static absolute_time_t ble_scan_restarts_at;
-static ble_connection_t *ble_current_connection;
+static hci_con_handle_t ble_hci_con_handle_in_progress;
 
 static inline void ble_restart_scan(void)
 {
+    ble_hci_con_handle_in_progress = HCI_CON_HANDLE_INVALID;
     // If pending, fire it off immediately.
     if (ble_scan_restarts_at)
         ble_scan_restarts_at = get_absolute_time();
@@ -82,50 +72,11 @@ void ble_set_leds(uint8_t leds)
     // TODO I don't have a keyboard to test this
 }
 
-static uint8_t ble_idx_to_hid_slot(int idx)
+static uint8_t ble_hids_cid_to_hid_slot(int hids_cid)
 {
-    return HID_BLE_START + idx;
-}
-
-static void ble_clear_connection(ble_connection_t *connection)
-{
-    // DBG("BLE: Clearing connection\n");
-    connection->addr_type = BD_ADDR_TYPE_UNKNOWN;
-    connection->hci_con_handle = HCI_CON_HANDLE_INVALID;
-    connection->hids_cid = 0; // cids start at 1
-}
-
-static int ble_get_empty_index(void)
-{
-    for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        if (ble_connections[i].addr_type == BD_ADDR_TYPE_UNKNOWN)
-            return i;
-    return -1; // Not found
-}
-
-static int ble_get_index_by_addr(bd_addr_type_t addr_type, const uint8_t *addr)
-{
-    for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        if (ble_connections[i].addr_type == addr_type &&
-            memcmp(ble_connections[i].addr, addr, 6) == 0)
-            return i;
-    return -1; // Not found
-}
-
-static int ble_get_index_by_handle(hci_con_handle_t handle)
-{
-    for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        if (ble_connections[i].hci_con_handle == handle)
-            return i;
-    return -1; // Not found
-}
-
-static int ble_get_index_by_cid(uint16_t hids_cid)
-{
-    for (uint8_t i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        if (ble_connections[i].hids_cid == hids_cid)
-            return i;
-    return -1; // Not found
+    // hids_cid is 1-indexed
+    assert(hids_cid <= MAX_NR_HIDS_CLIENTS);
+    return HID_BLE_START + hids_cid - 1;
 }
 
 static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -139,18 +90,16 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     case GATTSERVICE_SUBEVENT_HID_SERVICE_CONNECTED:
     {
         DBG("BLE: GATTSERVICE_SUBEVENT_HID_SERVICE_CONNECTED\n");
-
-        // Sometimes BTstack will send us failures as the sm layer is failing.
+        ble_restart_scan();
         uint8_t status = gattservice_subevent_hid_service_connected_get_status(packet);
-        if (status != ERROR_CODE_SUCCESS)
-            break;
-
         uint16_t cid = gattservice_subevent_hid_service_connected_get_hids_cid(packet);
-        int index = ble_get_index_by_cid(cid);
-        if (index < 0)
+        if (status != ERROR_CODE_SUCCESS)
+        {
+            // Sometimes BTstack will send us failures as the sm layer is failing.
+            DBG("BLE: HID service connection failed - Status: 0x%02x, CID: 0x%04x\n", status, cid);
             break;
-
-        uint8_t slot = ble_idx_to_hid_slot(index);
+        }
+        uint8_t slot = ble_hids_cid_to_hid_slot(cid);
         const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
         uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
         if (kbd_mount(slot, descriptor, descriptor_len))
@@ -159,8 +108,6 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
             ++ble_count_mou;
         if (pad_mount(slot, descriptor, descriptor_len, 0, 0))
             ++ble_count_pad;
-
-        ble_restart_scan();
         break;
     }
 
@@ -168,10 +115,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
-        int index = ble_get_index_by_cid(cid);
-        if (index < 0)
-            break;
-        uint8_t slot = ble_idx_to_hid_slot(index);
+        uint8_t slot = ble_hids_cid_to_hid_slot(cid);
         if (kbd_umount(slot))
             --ble_count_kbd;
         if (mou_umount(slot))
@@ -184,10 +128,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     case GATTSERVICE_SUBEVENT_HID_REPORT:
     {
         uint16_t cid = gattservice_subevent_hid_report_get_hids_cid(packet);
-        int index = ble_get_index_by_cid(cid);
-        if (index < 0)
-            break;
-        uint8_t slot = ble_idx_to_hid_slot(index);
+        uint8_t slot = ble_hids_cid_to_hid_slot(cid);
         const uint8_t *report = gattservice_subevent_hid_report_get_report(packet);
         uint16_t report_len = gattservice_subevent_hid_report_get_report_len(packet);
         kbd_report(slot, report, report_len);
@@ -238,11 +179,9 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             int db_addr_type = BD_ADDR_TYPE_UNKNOWN;
             bd_addr_t db_addr;
             le_device_db_info(i, &db_addr_type, db_addr, NULL);
-
             // Skip unused entries
             if (db_addr_type == BD_ADDR_TYPE_UNKNOWN)
                 continue;
-
             // Check if this entry matches our device
             if ((db_addr_type == addr_type) && !memcmp(db_addr, event_addr, 6))
             {
@@ -263,20 +202,16 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 break;
         }
 
-        int index = ble_get_empty_index();
-        if (index < 0)
-            break;
-        ble_current_connection = &ble_connections[index];
-
         uint8_t connect_status = gap_connect(event_addr, addr_type);
         if (connect_status == ERROR_CODE_SUCCESS)
         {
+            hci_connection_t *conn = hci_connection_for_bd_addr_and_type(event_addr, addr_type);
+            if (conn)
+                ble_hci_con_handle_in_progress = conn->con_handle;
             DBG("BLE: Found HID %s, connecting... (bonded: %s)\n",
                 bd_addr_to_str(event_addr), is_bonded ? "yes" : "no");
             gap_stop_scan();
             ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
-            memcpy(ble_current_connection->addr, event_addr, sizeof(bd_addr_t));
-            ble_current_connection->addr_type = addr_type;
         }
         else
         {
@@ -292,28 +227,23 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         switch (subevent_code)
         {
         case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
-            bd_addr_t event_addr;
-            hci_subevent_le_connection_complete_get_peer_address(packet, event_addr);
-            uint8_t addr_type = hci_subevent_le_connection_complete_get_peer_address_type(packet);
-            int index = ble_get_index_by_addr(addr_type, event_addr);
-            if (index < 0)
-                break;
             uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
             if (status != ERROR_CODE_SUCCESS)
             {
-                ble_clear_connection(&ble_connections[index]);
+                DBG("BLE: LE Connection failed - Status: 0x%02x\n", status);
+                // Restart scanning after connection failure
                 ble_restart_scan();
-                DBG("BLE: LE Connection failed - Status: 0x%02x, Address: %s\n",
-                    status, bd_addr_to_str(event_addr));
                 break;
             }
             hci_con_handle_t hci_con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
-            ble_connections[index].hci_con_handle = hci_con_handle;
             uint8_t hids_status = hids_client_connect(hci_con_handle, ble_hids_client_handler,
                                                       HID_PROTOCOL_MODE_REPORT,
-                                                      &ble_connections[index].hids_cid);
+                                                      NULL);
             if (hids_status != ERROR_CODE_SUCCESS)
+            {
                 DBG("BLE: HIDS client connection failed: 0x%02x\n", hids_status);
+                ble_restart_scan();
+            }
         }
         break;
     }
@@ -322,12 +252,9 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     {
         hci_con_handle_t con_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", con_handle);
-        // A new connection completed before the timeout
-        if (ble_current_connection->hci_con_handle == con_handle)
+        // New connection disconnected before success or timeout
+        if (ble_hci_con_handle_in_progress == con_handle)
             ble_restart_scan();
-        int index = ble_get_index_by_handle(con_handle);
-        if (index >= 0)
-            ble_clear_connection(&ble_connections[index]);
         break;
     }
     }
@@ -412,14 +339,10 @@ static void ble_init_stack(void)
 {
     // Globals
     ble_scan_restarts_at = 0;
-    for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        ble_clear_connection(&ble_connections[i]);
-    ble_current_connection = &ble_connections[0];
+    ble_hci_con_handle_in_progress = HCI_CON_HANDLE_INVALID;
     ble_count_kbd = 0;
     ble_count_mou = 0;
     ble_count_pad = 0;
-
-    // btstack_memory_init();
 
     // Initialize L2CAP
     l2cap_init();
@@ -506,35 +429,17 @@ void ble_shutdown(void)
     led_blink(false);
     if (ble_initialized)
     {
-        // // Clean up our local BLE connection tracking before disconnecting
-        // for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
-        // {
-        //     if (ble_connections[i].hci_con_handle != HCI_CON_HANDLE_INVALID)
-        //     {
-        //         uint8_t slot = ble_idx_to_hid_slot(i);
-        //         if (kbd_umount(slot))
-        //             --ble_count_kbd;
-        //         if (mou_umount(slot))
-        //             --ble_count_mou;
-        //         if (pad_umount(slot))
-        //             --ble_count_pad;
-        //         ble_clear_connection(&ble_connections[i]);
-        //     }
-        // }
-
-        // Disconnect all active connections and clear the btstack_linked_list
         hci_disconnect_all();
-        hci_remove_event_handler(&hci_event_callback_registration);
-        sm_remove_event_handler(&sm_event_callback_registration);
         gap_stop_scan();
         gap_connect_cancel();
         hci_power_control(HCI_POWER_OFF);
+        hci_remove_event_handler(&hci_event_callback_registration);
+        sm_remove_event_handler(&sm_event_callback_registration);
         hids_client_deinit();
         sm_deinit();
         l2cap_deinit();
         att_server_deinit();
         btstack_memory_deinit();
-        // btstack_crypto_deinit should be in cyw43_arch_deinit?
         btstack_crypto_deinit(); // OMG! This was so hard to find.
     }
     ble_initialized = false;
