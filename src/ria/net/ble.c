@@ -470,24 +470,28 @@ void ble_task(void)
 
 void ble_set_config(uint8_t bt)
 {
-    if (bt == 0)
+    switch (bt)
     {
+    case 0:
         ble_shutdown();
-        return;
-    }
-
-    if (bt == 2)
-    {
-        DBG("BLE: Enabling pairing mode - new devices can now bond\n");
-        ble_pairing = true;
-        led_blink(true);
-    }
-    else
-    {
-        DBG("BLE: Disabling pairing mode - preventing new device pairing\n");
+        break;
+    case 1:
         ble_pairing = false;
         led_blink(false);
+        break;
+    case 2:
+        if (cfg_get_rf())
+        {
+            ble_pairing = true;
+            led_blink(true);
+        }
+        break;
     }
+}
+
+bool ble_is_pairing(void)
+{
+    return ble_pairing;
 }
 
 void ble_shutdown(void)
@@ -501,14 +505,18 @@ void ble_print_status(void)
 {
     if (cfg_get_ble())
     {
-        printf("BLE : %d keyboard%s, %d %s, %d gamepad%s\n",
-               ble_count_kbd, ble_count_kbd == 1 ? "" : "s",
-               ble_count_mou, ble_count_mou == 1 ? "mouse" : "mice",
-               ble_count_pad, ble_count_pad == 1 ? "" : "s");
+        if (cfg_get_rf())
+            printf("BLE : %d keyboard%s, %d %s, %d gamepad%s%s\n",
+                   ble_count_kbd, ble_count_kbd == 1 ? "" : "s",
+                   ble_count_mou, ble_count_mou == 1 ? "mouse" : "mice",
+                   ble_count_pad, ble_count_pad == 1 ? "" : "s",
+                   ble_pairing ? ", pairing" : "");
+        else
+            printf("BLE : radio off\n");
     }
     else
     {
-        printf("BLE : Off\n");
+        printf("BLE : disabled\n");
     }
 }
 

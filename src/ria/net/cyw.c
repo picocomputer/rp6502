@@ -140,7 +140,7 @@ void cyw_task(void)
         cyw43_arch_poll();
     }
 
-    if (cyw_state == cyw_state_off && cfg_get_rf())
+    if (cyw_state == cyw_state_off)
     {
         // The CYW43xx driver has blocking delays during setup.
         // These have short timeouts that don't tolerate pauses.
@@ -171,12 +171,12 @@ void cyw_led(bool ison)
 
 bool cyw_initializing(void)
 {
-    return cyw_state == cyw_state_off && cfg_get_rf();
+    return cyw_state == cyw_state_off;
 }
 
 bool cyw_ready(void)
 {
-    return cyw_state == cyw_state_initialized;
+    return cfg_get_rf() && cyw_state == cyw_state_initialized;
 }
 
 void cyw_pre_reclock(void)

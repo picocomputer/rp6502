@@ -232,7 +232,10 @@ static void set_pass(const char *args, size_t len)
 
 static void set_print_ble(void)
 {
-    ble_print_status();
+    printf("BLE : %s%s%s\n",
+           cfg_get_ble() ? "Enabled" : "Disabled",
+           ble_is_pairing() ? ", pairing" : "",
+           cfg_get_rf() ? "" : " (radio off)");
 }
 
 static void set_ble(const char *args, size_t len)
