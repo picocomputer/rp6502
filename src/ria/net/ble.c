@@ -415,6 +415,11 @@ static void ble_init_stack(void)
     for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
         ble_clear_connection(&ble_connections[i]);
     ble_current_connection = &ble_connections[0];
+    ble_count_kbd = 0;
+    ble_count_mou = 0;
+    ble_count_pad = 0;
+
+    // btstack_memory_init();
 
     // Initialize L2CAP
     l2cap_init();
@@ -501,12 +506,36 @@ void ble_shutdown(void)
     led_blink(false);
     if (ble_initialized)
     {
+        // // Clean up our local BLE connection tracking before disconnecting
+        // for (int i = 0; i < MAX_NR_HCI_CONNECTIONS; i++)
+        // {
+        //     if (ble_connections[i].hci_con_handle != HCI_CON_HANDLE_INVALID)
+        //     {
+        //         uint8_t slot = ble_idx_to_hid_slot(i);
+        //         if (kbd_umount(slot))
+        //             --ble_count_kbd;
+        //         if (mou_umount(slot))
+        //             --ble_count_mou;
+        //         if (pad_umount(slot))
+        //             --ble_count_pad;
+        //         ble_clear_connection(&ble_connections[i]);
+        //     }
+        // }
+
+        // Disconnect all active connections and clear the btstack_linked_list
+        hci_disconnect_all();
+        hci_remove_event_handler(&hci_event_callback_registration);
+        sm_remove_event_handler(&sm_event_callback_registration);
         gap_stop_scan();
         gap_connect_cancel();
         hci_power_control(HCI_POWER_OFF);
         hids_client_deinit();
         sm_deinit();
         l2cap_deinit();
+        att_server_deinit();
+        btstack_memory_deinit();
+        // btstack_crypto_deinit should be in cyw43_arch_deinit?
+        btstack_crypto_deinit(); // OMG! This was so hard to find.
     }
     ble_initialized = false;
 }
