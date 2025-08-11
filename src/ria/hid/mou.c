@@ -31,7 +31,7 @@ static struct
     uint8_t pan;
 } mou_state;
 
-static uint16_t mou_xram = 0xFFFF;
+static uint16_t mou_xram;
 
 // Mouse descriptors are normalized to this structure.
 typedef struct

@@ -80,18 +80,18 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define HID_KEY_ALT_RIGHT 0xE6
 #define HID_KEY_GUI_RIGHT 0xE7
 
-#define KBD_MODIFIER_LEFTCTRL 1 << (0)   // Left Control
-#define KBD_MODIFIER_LEFTSHIFT 1 << (1)  // Left Shift
-#define KBD_MODIFIER_LEFTALT 1 << (2)    // Left Alt
-#define KBD_MODIFIER_LEFTGUI 1 << (3)    // Left Window
-#define KBD_MODIFIER_RIGHTCTRL 1 << (4)  // Right Control
-#define KBD_MODIFIER_RIGHTSHIFT 1 << (5) // Right Shift
-#define KBD_MODIFIER_RIGHTALT 1 << (6)   // Right Alt
-#define KBD_MODIFIER_RIGHTGUI 1 << (7)   // Right Window
+#define KBD_MODIFIER_LEFTCTRL 1 << 0   // Left Control
+#define KBD_MODIFIER_LEFTSHIFT 1 << 1  // Left Shift
+#define KBD_MODIFIER_LEFTALT 1 << 2    // Left Alt
+#define KBD_MODIFIER_LEFTGUI 1 << 3    // Left Window
+#define KBD_MODIFIER_RIGHTCTRL 1 << 4  // Right Control
+#define KBD_MODIFIER_RIGHTSHIFT 1 << 5 // Right Shift
+#define KBD_MODIFIER_RIGHTALT 1 << 6   // Right Alt
+#define KBD_MODIFIER_RIGHTGUI 1 << 7   // Right Window
 
-#define KBD_LED_NUMLOCK 1 << (0)    // Num Lock LED
-#define KBD_LED_CAPSLOCK 1 << (1)   // Caps Lock LED
-#define KBD_LED_SCROLLLOCK 1 << (2) // Scroll Lock LED
+#define KBD_LED_NUMLOCK 1 << 0    // Num Lock LED
+#define KBD_LED_CAPSLOCK 1 << 1   // Caps Lock LED
+#define KBD_LED_SCROLLLOCK 1 << 2 // Scroll Lock LED
 
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000

@@ -10,7 +10,7 @@
 #include "tusb_config.h"
 #include "btstack_config.h"
 
-// The various HID and HID-like systems each have their own arrays for
+// The various HID and HID-like systems each have their own numbering for
 // managing connections. We unify these indexes into assigned "slots".
 #define HID_USB_START (0)
 #define HID_USB_SLOTS (CFG_TUH_HID)

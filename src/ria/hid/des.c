@@ -7,7 +7,7 @@
 #include "pico.h"
 #include "hid/des.h"
 
-#if defined(DEBUG_HID_USB) || defined(DEBUG_RIA_HID_DES)
+#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_DES)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -35,6 +35,7 @@ static inline int32_t des_extend_signed(uint32_t raw_value, uint8_t bit_size)
         return (int32_t)(raw_value & mask);
     }
 }
+
 uint32_t des_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
 {
     if (!bit_size || bit_size > 32)
@@ -109,13 +110,9 @@ int8_t des_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
     // Sign-extend raw_value if needed
     int32_t value;
     if (min < 0 && bit_size < 32)
-    {
         value = des_extend_signed(raw_value, bit_size);
-    }
     else
-    {
         value = (int32_t)raw_value;
-    }
 
     // Clamp to logical range
     if (value < min)

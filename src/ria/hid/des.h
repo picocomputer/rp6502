@@ -8,7 +8,6 @@
 #define _DES_H_
 
 #include <stdint.h>
-#include <stdbool.h>
 
 uint32_t des_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 int32_t des_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);

@@ -70,11 +70,9 @@ void ble_set_leds(uint8_t leds)
     // TODO I don't have a keyboard to test this
 }
 
-static uint8_t ble_hids_cid_to_hid_slot(int hids_cid)
+static int ble_hids_cid_to_hid_slot(uint16_t hids_cid)
 {
-    // hids_cid is 1-indexed
-    assert(hids_cid <= MAX_NR_HIDS_CLIENTS);
-    return HID_BLE_START + hids_cid - 1;
+    return HID_BLE_START + hids_cid;
 }
 
 static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -229,7 +227,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             if (status != ERROR_CODE_SUCCESS)
             {
                 DBG("BLE: LE Connection failed - Status: 0x%02x\n", status);
-                // Restart scanning after connection failure
                 ble_restart_scan();
                 break;
             }

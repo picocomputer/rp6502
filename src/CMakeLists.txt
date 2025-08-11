@@ -4,7 +4,6 @@ add_executable(rp6502_ria)
 pico_add_extra_outputs(rp6502_ria)
 pico_set_binary_type(rp6502_ria copy_to_ram)
 
-# Check if this is a wireless board variant
 if (PICO_BOARD STREQUAL "pico2_w" OR
     PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
     set(rp6502_ria_w TRUE)

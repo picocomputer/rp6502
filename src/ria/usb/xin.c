@@ -55,7 +55,7 @@ static int xin_find_free_index(void)
 }
 
 // We can use the same indexing as hid as long as we keep clear
-static uint8_t xin_idx_to_hid_slot(int idx)
+static int xin_idx_to_hid_slot(int idx)
 {
     return HID_XIN_START + idx;
 }
