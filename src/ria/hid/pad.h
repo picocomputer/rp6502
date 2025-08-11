@@ -22,19 +22,17 @@ void pad_stop(void);
 bool pad_xreg(uint16_t word);
 
 // Parse HID report descriptor for gamepad.
-bool pad_mount(uint8_t idx, uint8_t const *desc_report, uint16_t desc_len,
+bool pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
                uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
-void pad_umount(uint8_t idx);
+bool pad_umount(int slot);
 
 // Process HID gamepad report.
-void pad_report(uint8_t idx, uint8_t const *report, uint16_t len);
+void pad_report(int slot, uint8_t const *data, uint16_t len);
 
-bool pad_is_valid(uint8_t idx);
+void pad_home_button(int slot, bool pressed);
 
-void pad_home_button(uint8_t idx, bool pressed);
-
-int pad_get_player_num(uint8_t idx);
+int pad_get_player_num(int slot);
 
 #endif /* _PAD_H_ */

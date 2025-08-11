@@ -11,7 +11,7 @@
 #include "sys/ria.h"
 #include <stdio.h>
 
-#define TIMEOUT_MS 200
+#define TIMEOUT_MS 500
 
 static enum {
     SYS_IDLE,

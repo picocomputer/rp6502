@@ -8,7 +8,6 @@
 #include "api/clk.h"
 #include "api/oem.h"
 #include "net/ble.h"
-#include "net/btc.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -46,7 +45,7 @@ static uint8_t cfg_net_rf = 1;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
-static uint8_t cfg_net_bt = 1;
+static uint8_t cfg_net_ble = 1;
 #endif /* RP6502_RIA_W */
 
 // Optional string can replace boot string
@@ -103,7 +102,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_net_rfcc,
                                cfg_net_ssid,
                                cfg_net_pass,
-                               cfg_net_bt,
+                               cfg_net_ble,
 #endif /* RP6502_RIA_W */
                                opt_str);
         if (lfsresult < 0)
@@ -169,7 +168,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
             break;
         case 'B':
-            parse_uint8(&str, &len, &cfg_net_bt);
+            parse_uint8(&str, &len, &cfg_net_ble);
             break;
 #endif /* RP6502_RIA_W */
         default:
@@ -366,25 +365,24 @@ const char *cfg_get_pass(void)
     return cfg_net_pass;
 }
 
-bool cfg_set_bt(uint8_t bt)
+bool cfg_set_ble(uint8_t ble)
 {
-    if (bt > 2)
+    if (ble > 2)
         return false;
-    ble_set_config(bt);
-    btc_set_config(bt);
-    if (bt == 2)
-        bt = 1;
-    if (cfg_net_bt != bt)
+    ble_set_config(ble);
+    if (ble == 2)
+        ble = 1;
+    if (cfg_net_ble != ble)
     {
-        cfg_net_bt = bt;
+        cfg_net_ble = ble;
         cfg_save_with_boot_opt(NULL);
     }
     return true;
 }
 
-uint8_t cfg_get_bt(void)
+uint8_t cfg_get_ble(void)
 {
-    return cfg_net_bt;
+    return cfg_net_ble;
 }
 
 #endif /* RP6502_RIA_W */

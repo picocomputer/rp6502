@@ -6,10 +6,12 @@ pico_set_binary_type(rp6502_ria copy_to_ram)
 
 if (PICO_BOARD STREQUAL "pico2_w" OR
     PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
+    set(rp6502_ria_w TRUE)
     target_compile_definitions(rp6502_ria PRIVATE RP6502_RIA_W)
     target_link_libraries(rp6502_ria PRIVATE pico_cyw43_arch_lwip_poll pico_btstack_cyw43)
     pico_set_program_name(rp6502_ria "RP6502 RIA W")
 else()
+    set(rp6502_ria_w FALSE)
     pico_set_program_name(rp6502_ria "RP6502 RIA")
 endif()
 
@@ -30,6 +32,8 @@ target_compile_definitions(rp6502_ria PRIVATE
 
 target_compile_options(rp6502_ria PRIVATE
     -Wall -Wextra
+    $<$<AND:$<CONFIG:Debug>,$<BOOL:${rp6502_ria_w}>>:-Os>
+    $<$<CONFIG:Release>:-Os>
 )
 
 target_link_libraries(rp6502_ria PRIVATE
@@ -63,6 +67,10 @@ target_sources(rp6502_ria PRIVATE
     ria/api/std.c
     ria/aud/aud.c
     ria/aud/psg.c
+    ria/hid/des.c
+    ria/hid/kbd.c
+    ria/hid/mou.c
+    ria/hid/pad.c
     ria/mon/fil.c
     ria/mon/hlp.c
     ria/mon/mon.c
@@ -71,7 +79,6 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/set.c
     ria/mon/vip.c
     ria/net/ble.c
-    ria/net/btc.c
     ria/net/cmd.c
     ria/net/cyw.c
     ria/net/mdm.c
@@ -88,12 +95,9 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/ria.c
     ria/sys/sys.c
     ria/sys/vga.c
-    ria/usb/des.c
     ria/usb/hid.c
-    ria/usb/kbd.c
-    ria/usb/mou.c
     ria/usb/msc.c
-    ria/usb/pad.c
+    ria/usb/usb.c
     ria/usb/xin.c
     fatfs/ff.c
     fatfs/ffunicode.c

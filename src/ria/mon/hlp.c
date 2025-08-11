@@ -50,7 +50,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
     "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
     "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none.\n"
-    "SET BT (0|1|2)      - Disable or enable Bluetooth. 2 starts pairing."
+    "SET BLE (0|1|2)     - Disable or enable Bluetooth LE. 2 enables pairing."
 #endif
     "";
 
@@ -229,9 +229,9 @@ static const char __in_flash("helptext") hlp_text_set_ssid[] =
 static const char __in_flash("helptext") hlp_text_set_pass[] =
     "This is the password for your WiFi network. Use \"-\" to clear password.";
 
-static const char __in_flash("helptext") hlp_text_set_bt[] =
-    "Setting 0 disables Bluetooth. Setting 1 enables. Setting 2 enters pairing\n"
-    "mode if no controller is connected and will remain active until successful.";
+static const char __in_flash("helptext") hlp_text_set_ble[] =
+    "Setting 0 disables Bluetooth LE. Setting 1 enables. Setting 2 enters pairing\n"
+    "mode which will remain active until successful.";
 
 #endif
 
@@ -291,7 +291,7 @@ static struct
     {4, "rfcc", hlp_text_set_rfcc},
     {4, "ssid", hlp_text_set_ssid},
     {4, "pass", hlp_text_set_pass},
-    {2, "bt", hlp_text_set_bt},
+    {3, "ble", hlp_text_set_ble},
 #endif
 };
 static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;

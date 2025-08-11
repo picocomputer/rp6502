@@ -8,16 +8,44 @@
 #include "net/cyw.h"
 #include "pico/stdlib.h"
 
-void led_init(void)
+#define LED_BLINK_TIME_MS 100
+
+bool led_state;
+bool led_blinking;
+absolute_time_t led_blink_timer;
+
+static void led_set(bool on)
 {
-    // Turn on the Pi Pico LED
+    led_state = on;
 #ifdef PICO_DEFAULT_LED_PIN
     gpio_init(PICO_DEFAULT_LED_PIN);
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    gpio_put(PICO_DEFAULT_LED_PIN, 1);
+    gpio_put(PICO_DEFAULT_LED_PIN, on);
 #endif
 #ifdef RP6502_RIA_W
     // LED is connected to cyw43
-    cyw_led(true);
+    cyw_led(on);
 #endif
+}
+
+void led_init(void)
+{
+    led_set(true);
+}
+
+void led_task(void)
+{
+    if (led_blinking && absolute_time_diff_us(get_absolute_time(), led_blink_timer) < 0)
+    {
+        led_state = !led_state;
+        led_set(led_state);
+        led_blink_timer = make_timeout_time_ms(LED_BLINK_TIME_MS);
+    }
+}
+
+void led_blink(bool on)
+{
+    if (!on)
+        led_set(true);
+    led_blinking = on;
 }

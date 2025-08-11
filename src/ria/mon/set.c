@@ -9,7 +9,6 @@
 #include "sys/cpu.h"
 #include "sys/lfs.h"
 #include "net/ble.h"
-#include "net/btc.h"
 
 static void set_print_phi2(void)
 {
@@ -231,13 +230,15 @@ static void set_pass(const char *args, size_t len)
     set_print_pass();
 }
 
-static void set_print_bt(void)
+static void set_print_ble(void)
 {
-    btc_print_status();
-    ble_print_status();
+    printf("BLE : %s%s%s\n",
+           cfg_get_ble() ? "Enabled" : "Disabled",
+           ble_is_pairing() ? ", pairing" : "",
+           cfg_get_rf() ? "" : " (radio off)");
 }
 
-static void set_bt(const char *args, size_t len)
+static void set_ble(const char *args, size_t len)
 {
     uint32_t val;
     if (len)
@@ -245,7 +246,7 @@ static void set_bt(const char *args, size_t len)
         if (parse_uint32(&args, &len, &val) &&
             parse_end(args, len))
         {
-            cfg_set_bt(val);
+            cfg_set_ble(val);
         }
         else
         {
@@ -253,7 +254,7 @@ static void set_bt(const char *args, size_t len)
             return;
         }
     }
-    set_print_bt();
+    set_print_ble();
 }
 
 #endif
@@ -296,7 +297,7 @@ static struct
     {4, "rfcc", set_rfcc},
     {4, "ssid", set_ssid},
     {4, "pass", set_pass},
-    {2, "bt", set_bt},
+    {3, "ble", set_ble},
 #endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
@@ -313,7 +314,7 @@ static void set_print_all(void)
     set_print_rfcc();
     set_print_ssid();
     set_print_pass();
-    set_print_bt();
+    set_print_ble();
 #endif
 }
 

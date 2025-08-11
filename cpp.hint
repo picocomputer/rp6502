@@ -1,6 +1,4 @@
-/* This allows IntelliSense to see the function names */
-#define __not_in_flash_func(func_name)=func_name
-#define __time_critical_func(func_name)=func_name
-#define __no_inline_not_in_flash_func(func_name)=func_name
-#define __in_flash_func(func_name)=func_name
-#define __no_inline_in_flash_func(func_name)=func_name
+/* This should allow IntelliSense to see the function names */
+#define __not_in_flash_func(func_name) func_name
+#define __time_critical_func(func_name) func_name
+#define __no_inline_not_in_flash_func(func_name) func_name

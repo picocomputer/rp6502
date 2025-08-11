@@ -6,14 +6,12 @@
 
 #include "main.h"
 #include "api/clk.h"
-#include "net/btc.h"
 #include "net/ble.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/hid.h"
-#include "usb/msc.h"
+#include "usb/usb.h"
 #include "pico/stdlib.h"
 #include "hardware/watchdog.h"
 #include <stdio.h>
@@ -58,10 +56,8 @@ void sys_mon_status(const char *args, size_t len)
     wfi_print_status();
     ntp_print_status();
     clk_print_status();
-    btc_print_status();
     ble_print_status();
-    hid_print_status();
-    msc_print_status();
+    usb_print_status();
 }
 
 void sys_init(void)
