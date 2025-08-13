@@ -30,6 +30,9 @@ static struct
     uint8_t wheel;
     uint8_t pan;
 } mou_state;
+// Higher resolution x and y
+uint16_t mou_x;
+uint16_t mou_y;
 
 static uint16_t mou_xram;
 
@@ -201,11 +204,13 @@ void mou_report(int slot, void const *data, size_t size)
 
     // Extract movement data
     if (conn->x_size > 0)
-        mou_state.x += des_extract_signed(report_data, report_data_len,
-                                          conn->x_offset, conn->x_size);
+        mou_x += des_extract_signed(report_data, report_data_len,
+                                    conn->x_offset, conn->x_size);
+    mou_state.x = mou_x >> 1;
     if (conn->y_size > 0)
-        mou_state.y += des_extract_signed(report_data, report_data_len,
-                                          conn->y_offset, conn->y_size);
+        mou_y += des_extract_signed(report_data, report_data_len,
+                                    conn->y_offset, conn->y_size);
+    mou_state.y = mou_y >> 1;
     if (conn->wheel_size > 0)
         mou_state.wheel += des_extract_signed(report_data, report_data_len,
                                               conn->wheel_offset, conn->wheel_size);
