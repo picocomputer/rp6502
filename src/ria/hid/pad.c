@@ -384,8 +384,8 @@ static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = 
     .button_offsets = {
         // X, Circle, Unused, Square, Triangle, Unused, L1, R1
         37, 38, 0xFFFF, 36, 39, 0xFFFF, 40, 41,
-        // L2, R2, Share, Options, L3, R3, PS, Touchpad
-        42, 43, 44, 45, 46, 47, 48, 49,
+        // L2, R2, Share, Options, PS, L3, R3, Touchpad
+        42, 43, 44, 45, 48, 46, 47, 49,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -426,8 +426,8 @@ static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = 
     .button_offsets = {
         // X, Circle, Unused, Square, Triangle, Unused, L1, R1
         61, 62, 0xFFFF, 60, 63, 0xFFFF, 64, 65,
-        // L2, R2, Create, Options, L3, R3, PS, Touchpad
-        66, 67, 68, 69, 70, 71, 72, 73,
+        // L2, R2, Create, Options, PS, L3, R3, Touchpad
+        66, 67, 68, 69, 72, 70, 71, 73,
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
@@ -555,29 +555,27 @@ static void pad_distill_descriptor(
     pad_remap_8bitdo_m30(conn, vendor_id, product_id);
     pad_remap_playstation_classic(conn, vendor_id, product_id);
 
-    // Non HID controllers use a pre-computed descriptor
-    if (desc_len == 0)
+    // Non HID controllers use a pre-computed descriptor.
+    // Some may report a descriptor, which we discard.
+    if (xin_is_xbox_one(slot))
     {
-        if (xin_is_xbox_one(slot))
-        {
-            *conn = pad_desc_xbox_one;
-            DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
-        }
-        if (xin_is_xbox_360(slot))
-        {
-            *conn = pad_desc_xbox_360;
-            DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
-        }
-        if (pad_is_sony_ds4(vendor_id, product_id))
-        {
-            *conn = pad_desc_sony_ds4;
-            DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
-        }
-        if (pad_is_sony_ds5(vendor_id, product_id))
-        {
-            *conn = pad_desc_sony_ds5;
-            DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
-        }
+        *conn = pad_desc_xbox_one;
+        DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
+    }
+    if (xin_is_xbox_360(slot))
+    {
+        *conn = pad_desc_xbox_360;
+        DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
+    }
+    if (pad_is_sony_ds4(vendor_id, product_id))
+    {
+        *conn = pad_desc_sony_ds4;
+        DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
+    }
+    if (pad_is_sony_ds5(vendor_id, product_id))
+    {
+        *conn = pad_desc_sony_ds5;
+        DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
     }
 
     if (!conn->valid)

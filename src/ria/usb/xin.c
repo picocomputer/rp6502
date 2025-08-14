@@ -63,13 +63,17 @@ static int xin_idx_to_hid_slot(int idx)
 bool xin_is_xbox_one(int slot)
 {
     slot -= HID_XIN_START;
-    return slot < PAD_MAX_PLAYERS && xbox_devices[slot].is_xbox_one;
+    return slot < PAD_MAX_PLAYERS &&
+           xbox_devices[slot].valid &&
+           xbox_devices[slot].is_xbox_one;
 }
 
 bool xin_is_xbox_360(int slot)
 {
     slot -= HID_XIN_START;
-    return slot < PAD_MAX_PLAYERS && !xbox_devices[slot].is_xbox_one;
+    return slot < PAD_MAX_PLAYERS &&
+           xbox_devices[slot].valid &&
+           !xbox_devices[slot].is_xbox_one;
 }
 
 static bool xin_class_driver_init(void)
