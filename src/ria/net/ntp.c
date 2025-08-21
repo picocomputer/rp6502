@@ -127,9 +127,6 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
 
 void ntp_task(void)
 {
-    if (ntp_state == ntp_state_internal_error)
-        return;
-
     if (!wfi_ready())
     {
         ntp_state = ntp_state_init;

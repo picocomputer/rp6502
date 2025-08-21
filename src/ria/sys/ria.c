@@ -19,6 +19,10 @@
 
 #define RIA_WATCHDOG_MS 250
 
+#define RIA_ACTION_RESULT_NONE (-1)
+#define RIA_ACTION_RESULT_FINISHED (-2)
+#define RIA_ACTION_RESULT_TIMEOUT (-3)
+
 static enum state {
     action_state_idle = 0,
     action_state_read,
@@ -26,7 +30,7 @@ static enum state {
     action_state_verify,
 } volatile action_state = action_state_idle;
 static absolute_time_t action_watchdog_timer;
-static volatile int32_t action_result = -1;
+static volatile int32_t action_result = RIA_ACTION_RESULT_NONE;
 static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int32_t rw_pos;
@@ -59,7 +63,7 @@ void ria_run(void)
     ria_set_watch_address(0xFFE2);
     if (action_state == action_state_idle)
         return;
-    action_result = -1;
+    action_result = RIA_ACTION_RESULT_NONE;
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
     action_watchdog_timer = delayed_by_us(get_absolute_time(),
@@ -124,12 +128,12 @@ bool ria_active(void)
 void ria_task(void)
 {
     // check on watchdog unless we explicitly ended or errored
-    if (ria_active() && action_result == -1)
+    if (ria_active() && action_result == RIA_ACTION_RESULT_NONE)
     {
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
         {
-            action_result = -3;
+            action_result = RIA_ACTION_RESULT_TIMEOUT;
             main_stop();
         }
     }
@@ -139,10 +143,10 @@ bool ria_print_error_message(void)
 {
     switch (action_result)
     {
-    case -1: // Ok, default at start
-    case -2: // OK, explicitly ended
+    case RIA_ACTION_RESULT_NONE:     // Ok, default at start
+    case RIA_ACTION_RESULT_FINISHED: // OK, explicitly ended
         return false;
-    case -3:
+    case RIA_ACTION_RESULT_TIMEOUT:
         printf("?watchdog timeout\n");
         break;
     default:
@@ -155,7 +159,7 @@ bool ria_print_error_message(void)
 void ria_read_buf(uint16_t addr)
 {
     assert(!cpu_active());
-    action_result = -1;
+    action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -178,7 +182,7 @@ void ria_read_buf(uint16_t addr)
 void ria_verify_buf(uint16_t addr)
 {
     assert(!cpu_active());
-    action_result = -1;
+    action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -186,7 +190,7 @@ void ria_verify_buf(uint16_t addr)
             action_result = addr + len;
     while (len && (addr + len > 0xFF00))
         --len;
-    if (!len || action_result != -1)
+    if (!len || action_result != RIA_ACTION_RESULT_NONE)
         return;
     rw_addr = addr;
     rw_end = len;
@@ -198,7 +202,7 @@ void ria_verify_buf(uint16_t addr)
 void ria_write_buf(uint16_t addr)
 {
     assert(!cpu_active());
-    action_result = -1;
+    action_result = RIA_ACTION_RESULT_NONE;
     // avoid forbidden area
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
@@ -253,7 +257,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     else
                     {
                         gpio_put(CPU_RESB_PIN, false);
-                        action_result = -2;
+                        action_result = RIA_ACTION_RESULT_FINISHED;
                         main_stop();
                     }
                     break;
@@ -265,7 +269,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                         if (++rw_pos == rw_end)
                         {
                             gpio_put(CPU_RESB_PIN, false);
-                            action_result = -2;
+                            action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
                         }
                     }
@@ -280,7 +284,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                         {
                             gpio_put(CPU_RESB_PIN, false);
                             if (action_result < 0)
-                                action_result = -2;
+                                action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
                         }
                     }

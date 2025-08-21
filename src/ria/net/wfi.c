@@ -123,15 +123,14 @@ void wfi_task(void)
         }
         break;
     case wfi_state_connect_failed:
+        if (absolute_time_diff_us(get_absolute_time(), wfi_retry_timer) < 0)
+        {
+            wfi_retry_initial_retry_count++;
+            wfi_state = wfi_state_connect;
+        }
+        break;
     case wfi_state_connected:
         break;
-    }
-
-    if (wfi_state == wfi_state_connect_failed &&
-        absolute_time_diff_us(get_absolute_time(), wfi_retry_timer) < 0)
-    {
-        wfi_retry_initial_retry_count++;
-        wfi_state = wfi_state_connect;
     }
 }
 

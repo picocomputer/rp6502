@@ -120,6 +120,9 @@ typedef struct
 #define KBD_MAX_KEYBOARDS 4
 static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
+#define KBD_KEY_BIT_SET(data, keycode) (data[keycode >> 5] |= 1 << (keycode & 31))
+#define KBD_KEY_BIT_VAL(data, keycode) (data[keycode >> 5] & (1 << (keycode & 31)))
+
 // Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
@@ -409,13 +412,15 @@ void kbd_task(void)
 {
     if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
     {
-        if (kbd_keys[kbd_repeat_keycode >> 5] & (1 << (kbd_repeat_keycode & 31)) &&
+        if (KBD_KEY_BIT_VAL(kbd_keys, kbd_repeat_keycode) &&
             KBD_MODIFIER(kbd_keys) == kbd_repeat_modifier)
         {
             kbd_queue_key(KBD_MODIFIER(kbd_keys), kbd_repeat_keycode, false);
-            return;
         }
-        kbd_repeat_keycode = 0;
+        else
+        {
+            kbd_repeat_keycode = 0;
+        }
     }
 }
 
@@ -535,7 +540,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
             memcpy(conn->keys, &old_keys, sizeof(conn->keys));
             return;
         }
-        conn->keys[keycode >> 5] |= 1 << (keycode & 31);
+        KBD_KEY_BIT_SET(conn->keys, keycode);
     }
 
     // Extract individual keycode bits
@@ -544,7 +549,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
         uint32_t bit_val = des_extract_bits(report_data, report_data_len,
                                             conn->keycodes[i], 1);
         if (bit_val)
-            conn->keys[i >> 5] |= 1 << (i & 31);
+            KBD_KEY_BIT_SET(conn->keys, i);
     }
 
     // Merge all keyboards into one report so we have
@@ -558,8 +563,8 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     // so we have the latest modifiers.
     for (int i = 0; i < 128; i++)
     {
-        bool curr = conn->keys[i >> 5] & (1 << (i & 31));
-        bool prev = old_keys[i >> 5] & (1 << (i & 31));
+        bool curr = KBD_KEY_BIT_VAL(conn->keys, i);
+        bool prev = KBD_KEY_BIT_VAL(old_keys, i);
         if (curr && !prev)
             kbd_queue_key(KBD_MODIFIER(kbd_keys), i, true);
     }

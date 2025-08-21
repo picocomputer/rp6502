@@ -128,23 +128,13 @@ void cyw_reset_radio(void)
 
 void cyw_task(void)
 {
-    if (cyw_state == cyw_state_initialized)
+    switch (cyw_state)
     {
-        if (cyw_led_requested != cyw_led_status)
-        {
-            cyw_led_status = cyw_led_requested;
-#ifdef CYW43_WL_GPIO_LED_PIN
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
-#endif
-        }
-        cyw43_arch_poll();
-    }
-
-    if (cyw_state == cyw_state_off)
-    {
-        // The CYW43xx driver has blocking delays during setup.
-        // These have short timeouts that don't tolerate pauses.
-        if (vga_active() || ria_active() || ram_active())
+    case cyw_state_off:
+        // cyw43_arch has blocking delays during setup.
+        // We only initialize at boot and during a phi2 change.
+        // Wait for VGA to connect so it doesn't timeout.
+        if (vga_active())
             return;
         com_flush(); // prevent awkward pause during boot message
         uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
@@ -158,9 +148,21 @@ void cyw_task(void)
             // cyw43_arch is full of blocking functions.
             // This seems to block only once after cyw43_arch_init.
             cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
-
             cyw_state = cyw_state_initialized;
         }
+        break;
+    case cyw_state_initialized:
+        if (cyw_led_requested != cyw_led_status)
+        {
+            cyw_led_status = cyw_led_requested;
+#ifdef CYW43_WL_GPIO_LED_PIN
+            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+#endif
+        }
+        cyw43_arch_poll();
+        break;
+    case cyw_state_init_failed:
+        break;
     }
 }
 

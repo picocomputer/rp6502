@@ -60,7 +60,7 @@ void cpu_task(void)
             gpio_put(CPU_RESB_PIN, true);
     }
 
-    // Move UART FIFO into action loop
+    // Move UART FIFO into ria action loop
     if (cpu_rx_char < 0)
         cpu_rx_char = cpu_getchar_fifo();
 }

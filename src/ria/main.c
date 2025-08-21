@@ -79,34 +79,35 @@ static void init(void)
 // much work as you can until something blocks.
 
 // These tasks run when FatFs is blocking.
-// Calling FatFs in here may cause undefined behavior.
+// Calling FatFs in here will summon a dragon.
 void main_task(void)
 {
-    led_task();
     usb_task();
-    cpu_task();
+    cpu_task(); //
     ria_task();
     aud_task();
     kbd_task();
-    vga_task();
     cyw_task();
+    vga_task(); // TODO needs cleaning
     wfi_task();
     ntp_task();
     hid_task();
     xin_task();
     ble_task();
+    led_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
+    com_task(); // TODO how does this call fatfs?
     api_task();
-    com_task();
     mon_task();
     ram_task();
     fil_task();
     rom_task();
     mdm_task();
+    com_task(); // TODO temp fix
 }
 
 // Event to start running the 6502.

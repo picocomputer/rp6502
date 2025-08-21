@@ -430,6 +430,19 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
+        if (rom_state == ROM_IDLE && lfs_file_open)
+        {
+            int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
+            lfs_file_open = false;
+            if (lfsresult < 0)
+                printf("?Unable to lfs_file_close (%d)\n", lfsresult);
+        }
+        if (rom_state == ROM_IDLE && fat_fil.obj.fs)
+        {
+            FRESULT result = f_close(&fat_fil);
+            if (result != FR_OK)
+                printf("?Unable to close file (%d)\n", result);
+        }
         break;
     case ROM_WAIT_LOAD:
         rom_wait_load();
@@ -452,21 +465,6 @@ void rom_task(void)
         if (rom_action_is_finished())
             rom_state = ROM_LOADING;
         break;
-    }
-
-    if (rom_state == ROM_IDLE && lfs_file_open)
-    {
-        int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
-        lfs_file_open = false;
-        if (lfsresult < 0)
-            printf("?Unable to lfs_file_close (%d)\n", lfsresult);
-    }
-
-    if (rom_state == ROM_IDLE && fat_fil.obj.fs)
-    {
-        FRESULT result = f_close(&fat_fil);
-        if (result != FR_OK)
-            printf("?Unable to close file (%d)\n", result);
     }
 }
 
