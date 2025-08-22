@@ -378,12 +378,27 @@ void rln_read_line(uint32_t timeout_ms, rln_read_callback_t callback, size_t siz
 
 void rln_task(void)
 {
-    if (rln_callback && rln_timeout_ms && absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
+    if (rln_callback)
     {
-        rln_read_callback_t cc = rln_callback;
-        rln_callback = NULL;
-        rln_binary_buf = NULL;
-        cc(true, NULL, 0);
+        int ch = cpu_getchar();
+        if (ch != PICO_ERROR_TIMEOUT)
+            rln_timer = make_timeout_time_ms(rln_timeout_ms);
+        while (rln_callback && ch != PICO_ERROR_TIMEOUT)
+        {
+            if (rln_binary_buf)
+                rln_binary_rx(ch);
+            else
+                rln_line_rx(ch);
+            ch = cpu_getchar();
+        }
+
+        if (rln_timeout_ms && absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
+        {
+            rln_read_callback_t cc = rln_callback;
+            rln_callback = NULL;
+            rln_binary_buf = NULL;
+            cc(true, NULL, 0);
+        }
     }
 }
 

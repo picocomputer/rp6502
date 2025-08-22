@@ -115,6 +115,7 @@ static void task(void)
 // Event to start running the 6502.
 static void run(void)
 {
+    com_run();
     vga_run();
     api_run();
     clk_run();
@@ -127,6 +128,7 @@ static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
+    com_stop();
     api_stop();
     ria_stop();
     pix_stop();

@@ -5,10 +5,13 @@
  */
 
 #include "main.h"
+#include "api/api.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include "sys/vga.h"
 #include "hid/kbd.h"
 #include "pico/stdlib.h"
@@ -25,9 +28,43 @@ volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
 #define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
+volatile int cpu_rx_char;
+static size_t cpu_rx_tail;
+static size_t cpu_rx_head;
+static uint8_t cpu_rx_buf[32];
+#define CPU_RX_BUF(pos) cpu_rx_buf[(pos) & 0x1F]
+
+static bool cpu_readline_active;
+static const char *cpu_readline_buf;
+static bool cpu_readline_needs_nl;
+static size_t cpu_readline_pos;
+static size_t cpu_readline_length;
+static size_t cpu_str_length = 254;
+static uint32_t cpu_ctrl_bits;
+
+static int cpu_getchar_fifo(void)
+{
+    if (&CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
+        return CPU_RX_BUF(++cpu_rx_tail);
+    return -1;
+}
+
+static void clear_com_rx_fifo()
+{
+    cpu_rx_char = -1;
+    cpu_rx_tail = cpu_rx_head = 0;
+}
+
+static void cpu_com_rx(uint8_t ch)
+{
+    // discarding overflow
+    if (&CPU_RX_BUF(cpu_rx_head + 1) != &CPU_RX_BUF(cpu_rx_tail))
+        CPU_RX_BUF(++cpu_rx_head) = ch;
+}
+
 static void com_tx_task(void)
 {
-    // We sacrifice the UART TX FIFO so PIX STDOUT can keep pace.
+    // We sync with the UART TX FIFO so PIX STDOUT can keep pace.
     // 115_200 baud doesn't need flow control, but PIX will send
     // 16_000_000 bps if we don't throttle it.
     if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
@@ -48,6 +85,22 @@ void com_init(void)
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&com_stdio_app, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
+}
+
+void com_run()
+{
+    clear_com_rx_fifo();
+}
+
+void com_stop()
+{
+    clear_com_rx_fifo();
+    cpu_readline_active = false;
+    cpu_readline_needs_nl = false;
+    cpu_readline_pos = 0;
+    cpu_readline_length = 0;
+    cpu_str_length = 254;
+    cpu_ctrl_bits = 0;
 }
 
 void com_flush(void)
@@ -73,7 +126,6 @@ void com_post_reclock(void)
 
 void com_task(void)
 {
-    com_tx_task();
 
     // Detect UART breaks.
     static uint32_t break_detect = 0;
@@ -86,30 +138,49 @@ void com_task(void)
 
     // Allow UART RX FIFO to fill during RIA actions.
     // At all other times the FIFO must be emptied to detect breaks.
-    if (!ria_active())
+    // if (!ria_active())
     {
-        int ch;
-        if (cpu_active() && com_callback)
-            ch = cpu_getchar();
-        else
-            ch = getchar_timeout_us(0);
+        int ch = getchar_timeout_us(0);
         while (ch != PICO_ERROR_TIMEOUT)
         {
-            if (com_callback)
-            {
-                com_timer = make_timeout_time_ms(com_timeout_ms);
-                if (com_binary_buf)
-                    com_binary_rx(ch);
-                else
-                    com_line_rx(ch);
-            }
-            else if (cpu_active())
-                cpu_com_rx(ch);
-            if (ria_active()) // why?
-                break;
+            cpu_com_rx(ch);
             ch = getchar_timeout_us(0);
         }
     }
+
+    // Move UART FIFO into ria action loop
+    if (cpu_rx_char < 0)
+        cpu_rx_char = cpu_getchar_fifo();
+
+    // Process transmit
+    com_tx_task();
+
+    // Allow UART RX FIFO to fill during RIA actions.
+    // At all other times the FIFO must be emptied to detect breaks.
+    // if (!ria_active())
+    // {
+    //     int ch;
+    //     if (cpu_active() && com_callback)
+    //         ch = cpu_getchar();
+    //     else
+    //         ch = getchar_timeout_us(0);
+    //     while (ch != PICO_ERROR_TIMEOUT)
+    //     {
+    //         if (com_callback)
+    //         {
+    //             com_timer = make_timeout_time_ms(com_timeout_ms);
+    //             if (com_binary_buf)
+    //                 com_binary_rx(ch);
+    //             else
+    //                 com_line_rx(ch);
+    //         }
+    //         else if (cpu_active())
+    //             cpu_com_rx(ch);
+    //         if (ria_active()) // why?
+    //             break;
+    //         ch = getchar_timeout_us(0);
+    //     }
+    // }
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
@@ -157,3 +228,80 @@ static stdio_driver_t com_stdio_app = {
     .in_chars = com_stdio_in_chars,
     .crlf_enabled = true,
 };
+
+int cpu_getchar(void)
+{
+    // Steal char from RIA register
+    if (REGS(0xFFE0) & 0b01000000)
+    {
+        // Mixing RIA register input with read() calls isn't perfect,
+        // should be considered underfined behavior, and is discouraged.
+        REGS(0xFFE0) &= ~0b01000000;
+        int ch = REGS(0xFFE2);
+        // Replace char with null
+        REGS(0xFFE2) = 0;
+        return ch;
+    }
+    // Steal char from ria.c action loop queue
+    if (cpu_rx_char >= 0)
+    {
+        int ch = cpu_rx_char;
+        cpu_rx_char = -1;
+        return ch;
+    }
+    // Get char from FIFO
+    int ch = cpu_getchar_fifo();
+    // Get char from UART
+    if (ch < 0)
+        ch = getchar_timeout_us(0);
+    return ch;
+}
+
+static void cpu_enter(bool timeout, const char *buf, size_t length)
+{
+    (void)timeout;
+    assert(!timeout);
+    cpu_readline_active = false;
+    cpu_readline_buf = buf;
+    cpu_readline_pos = 0;
+    cpu_readline_length = length;
+    cpu_readline_needs_nl = true;
+}
+
+void cpu_stdin_request(void)
+{
+    if (!cpu_readline_needs_nl)
+    {
+        cpu_readline_active = true;
+        rln_read_line(0, cpu_enter, cpu_str_length + 1, cpu_ctrl_bits);
+    }
+}
+
+bool cpu_stdin_ready(void)
+{
+    return !cpu_readline_active;
+}
+
+size_t cpu_stdin_read(uint8_t *buf, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count && cpu_readline_pos < cpu_readline_length; i++)
+        buf[i] = cpu_readline_buf[cpu_readline_pos++];
+    if (i < count && cpu_readline_needs_nl)
+    {
+        buf[i++] = '\n';
+        cpu_readline_needs_nl = false;
+    }
+    return i;
+}
+
+bool cpu_api_stdin_opt(void)
+{
+    uint8_t str_length = API_A;
+    uint32_t ctrl_bits;
+    if (!api_pop_uint32_end(&ctrl_bits))
+        return api_return_errno(API_EINVAL);
+    cpu_str_length = str_length;
+    cpu_ctrl_bits = ctrl_bits;
+    return api_return_ax(0);
+}
