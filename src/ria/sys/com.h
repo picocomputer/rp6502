@@ -22,21 +22,24 @@ void com_pre_reclock(void);
 void com_post_reclock(void);
 
 // Blocks until all buffers empty. Use sparingly.
-void com_flush(void);
+void com_tx_flush(void);
 
 // Get char from CPU rx buf
 int cpu_getchar(void);
 
 // Readline support for stdin
-void cpu_stdin_request(void);
-bool cpu_stdin_ready(void);
-size_t cpu_stdin_read(uint8_t *buf, size_t count);
+void com_stdin_request(void);
+bool com_stdin_ready(void);
+size_t com_stdin_read(uint8_t *buf, size_t count);
 
-// API sets STDIN options
-bool cpu_api_stdin_opt(void);
+// API sets stdin options
+bool com_api_stdin_opt(void);
+
+/* Expose the internals here because ria.c needs direct access
+ */
 
 // 1-byte message queue to the RIA action loop.
-extern volatile int cpu_rx_char;
+extern volatile int com_rx_char;
 
 extern volatile size_t com_tx_tail;
 extern volatile size_t com_tx_head;

@@ -177,7 +177,6 @@ static void rln_line_state_C0(char ch)
     if (rln_ctrl_bits & (1 << ch))
     {
         printf("\n");
-        com_flush();
         rln_buf[0] = ch;
         rln_buf[1] = 0;
         rln_buflen = 1;
@@ -188,7 +187,6 @@ static void rln_line_state_C0(char ch)
     else if (ch == '\r')
     {
         printf("\n");
-        com_flush();
         rln_buf[rln_buflen] = 0;
         rln_read_callback_t cc = rln_callback;
         rln_callback = NULL;

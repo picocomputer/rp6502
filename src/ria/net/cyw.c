@@ -136,7 +136,7 @@ void cyw_task(void)
         // Wait for VGA to connect so it doesn't timeout.
         if (vga_active())
             return;
-        com_flush(); // prevent awkward pause during boot message
+        com_tx_flush(); // prevent awkward pause during boot message
         uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
         const char *cc = cfg_get_rfcc();
         if (strlen(cc) == 2)

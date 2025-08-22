@@ -355,12 +355,12 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
-                    int ch = cpu_rx_char;
+                    int ch = com_rx_char;
                     if (ch >= 0)
                     {
                         REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        cpu_rx_char = -1;
+                        com_rx_char = -1;
                     }
                     else
                     {
@@ -379,12 +379,12 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 case CASE_READ(0xFFE0): // UART Tx/Rx flow control
                 {
-                    int ch = cpu_rx_char;
+                    int ch = com_rx_char;
                     if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
                     {
                         REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        cpu_rx_char = -1;
+                        com_rx_char = -1;
                     }
                     if (com_tx_writable())
                         REGS(0xFFE0) |= 0b10000000;

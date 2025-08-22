@@ -28,39 +28,34 @@ volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
 #define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
-volatile int cpu_rx_char;
-static size_t cpu_rx_tail;
-static size_t cpu_rx_head;
-static uint8_t cpu_rx_buf[32];
-#define CPU_RX_BUF(pos) cpu_rx_buf[(pos) & 0x1F]
+// Receive buffer of 32 isn't large enough for BLE.
+// It will occassionaly fail when uploading from PC.
+volatile int com_rx_char;
+static size_t com_rx_tail;
+static size_t com_rx_head;
+static uint8_t com_rx_buf[64];
+#define COM_RX_BUF(pos) com_rx_buf[(pos) & 0x3F]
 
-static bool cpu_readline_active;
-static const char *cpu_readline_buf;
-static bool cpu_readline_needs_nl;
-static size_t cpu_readline_pos;
-static size_t cpu_readline_length;
-static size_t cpu_str_length;
-static uint32_t cpu_ctrl_bits;
+static bool com_stdin_active;
+static const char *com_stdin_buf;
+static bool com_stdin_needs_nl;
+static size_t com_stdin_pos;
+static size_t com_stdin_length;
+static size_t com_api_str_length;
+static uint32_t com_api_ctrl_bits;
 
 static int cpu_getchar_fifo(void)
 {
-    if (&CPU_RX_BUF(cpu_rx_head) != &CPU_RX_BUF(cpu_rx_tail))
-        return CPU_RX_BUF(++cpu_rx_tail);
+    if (&COM_RX_BUF(com_rx_head) != &COM_RX_BUF(com_rx_tail))
+        return COM_RX_BUF(++com_rx_tail);
     return -1;
 }
 
 static void clear_com_rx_fifo()
 {
     REGS(0xFFE0) &= ~0b01000000;
-    cpu_rx_char = -1;
-    cpu_rx_tail = cpu_rx_head = 0;
-}
-
-static void cpu_com_rx(uint8_t ch)
-{
-    // discarding overflow
-    if (&CPU_RX_BUF(cpu_rx_head + 1) != &CPU_RX_BUF(cpu_rx_tail))
-        CPU_RX_BUF(++cpu_rx_head) = ch;
+    com_rx_char = -1;
+    com_rx_tail = com_rx_head = 0;
 }
 
 static void com_tx_task(void)
@@ -86,8 +81,8 @@ void com_init(void)
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&com_stdio_app, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
-    cpu_rx_char = -1;
-    cpu_str_length = 254;
+    clear_com_rx_fifo();
+    com_api_str_length = 254;
 }
 
 void com_run()
@@ -98,17 +93,17 @@ void com_run()
 void com_stop()
 {
     clear_com_rx_fifo();
-    cpu_readline_active = false;
-    cpu_readline_needs_nl = false;
-    cpu_readline_pos = 0;
-    cpu_readline_length = 0;
-    cpu_str_length = 254;
-    cpu_ctrl_bits = 0;
+    com_stdin_active = false;
+    com_stdin_needs_nl = false;
+    com_stdin_pos = 0;
+    com_stdin_length = 0;
+    com_api_str_length = 254;
+    com_api_ctrl_bits = 0;
 }
 
-void com_flush(void)
+void com_tx_flush(void)
 {
-    // Clear all buffers, software and hardware
+    // Clear all tx buffers, software and hardware
     while (getchar_timeout_us(0) >= 0)
         com_tx_task();
     while (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
@@ -119,7 +114,7 @@ void com_flush(void)
 
 void com_pre_reclock(void)
 {
-    com_flush();
+    com_tx_flush();
 }
 
 void com_post_reclock(void)
@@ -129,7 +124,6 @@ void com_post_reclock(void)
 
 void com_task(void)
 {
-
     // Detect UART breaks.
     static uint32_t break_detect = 0;
     uint32_t current_break = uart_get_hw(COM_UART)->rsr & UART_UARTRSR_BE_BITS;
@@ -139,21 +133,70 @@ void com_task(void)
         main_break();
     break_detect = current_break;
 
-    // Allow UART RX FIFO to fill during RIA actions.
-    // At all other times the FIFO must be emptied to detect breaks.
+    // The UART FIFO must be emptied to detect breaks.
     int ch = getchar_timeout_us(0);
     while (ch != PICO_ERROR_TIMEOUT)
     {
-        cpu_com_rx(ch);
+        if (&COM_RX_BUF(com_rx_head + 1) != &COM_RX_BUF(com_rx_tail))
+            COM_RX_BUF(++com_rx_head) = ch;
         ch = getchar_timeout_us(0);
     }
 
     // Move UART FIFO into ria action loop
-    if (cpu_rx_char < 0)
-        cpu_rx_char = cpu_getchar_fifo();
+    if (com_rx_char < 0)
+        com_rx_char = cpu_getchar_fifo();
 
     // Process transmit
     com_tx_task();
+}
+
+static void com_stdin_callback(bool timeout, const char *buf, size_t length)
+{
+    (void)timeout;
+    assert(!timeout);
+    com_stdin_active = false;
+    com_stdin_buf = buf;
+    com_stdin_pos = 0;
+    com_stdin_length = length;
+    com_stdin_needs_nl = true;
+}
+
+void com_stdin_request(void)
+{
+    if (!com_stdin_needs_nl)
+    {
+        com_stdin_active = true;
+        rln_read_line(0, com_stdin_callback, com_api_str_length + 1, com_api_ctrl_bits);
+    }
+}
+
+bool com_stdin_ready(void)
+{
+    return !com_stdin_active;
+}
+
+size_t com_stdin_read(uint8_t *buf, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count && com_stdin_pos < com_stdin_length; i++)
+        buf[i] = com_stdin_buf[com_stdin_pos++];
+    if (i < count && com_stdin_needs_nl)
+    {
+        buf[i++] = '\n';
+        com_stdin_needs_nl = false;
+    }
+    return i;
+}
+
+bool com_api_stdin_opt(void)
+{
+    uint8_t str_length = API_A;
+    uint32_t ctrl_bits;
+    if (!api_pop_uint32_end(&ctrl_bits))
+        return api_return_errno(API_EINVAL);
+    com_api_str_length = str_length;
+    com_api_ctrl_bits = ctrl_bits;
+    return api_return_ax(0);
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
@@ -198,6 +241,7 @@ static int com_stdio_in_chars(char *buf, int length)
 
 static stdio_driver_t com_stdio_app = {
     .out_chars = com_stdio_out_chars,
+    // void (*out_flush)(void); // TODO
     .in_chars = com_stdio_in_chars,
     .crlf_enabled = true,
 };
@@ -216,65 +260,16 @@ int cpu_getchar(void)
         return ch;
     }
     // Steal char from ria.c action loop queue
-    if (cpu_rx_char >= 0)
+    if (com_rx_char >= 0)
     {
-        int ch = cpu_rx_char;
-        cpu_rx_char = -1;
+        int ch = com_rx_char;
+        com_rx_char = -1;
         return ch;
     }
     // Get char from FIFO
     int ch = cpu_getchar_fifo();
     // Get char from UART
     if (ch < 0)
-        ch = getchar_timeout_us(0);
+        ch = stdio_getchar_timeout_us(0);
     return ch;
-}
-
-static void cpu_enter(bool timeout, const char *buf, size_t length)
-{
-    (void)timeout;
-    assert(!timeout);
-    cpu_readline_active = false;
-    cpu_readline_buf = buf;
-    cpu_readline_pos = 0;
-    cpu_readline_length = length;
-    cpu_readline_needs_nl = true;
-}
-
-void cpu_stdin_request(void)
-{
-    if (!cpu_readline_needs_nl)
-    {
-        cpu_readline_active = true;
-        rln_read_line(0, cpu_enter, cpu_str_length + 1, cpu_ctrl_bits);
-    }
-}
-
-bool cpu_stdin_ready(void)
-{
-    return !cpu_readline_active;
-}
-
-size_t cpu_stdin_read(uint8_t *buf, size_t count)
-{
-    size_t i;
-    for (i = 0; i < count && cpu_readline_pos < cpu_readline_length; i++)
-        buf[i] = cpu_readline_buf[cpu_readline_pos++];
-    if (i < count && cpu_readline_needs_nl)
-    {
-        buf[i++] = '\n';
-        cpu_readline_needs_nl = false;
-    }
-    return i;
-}
-
-bool cpu_api_stdin_opt(void)
-{
-    uint8_t str_length = API_A;
-    uint32_t ctrl_bits;
-    if (!api_pop_uint32_end(&ctrl_bits))
-        return api_return_errno(API_EINVAL);
-    cpu_str_length = str_length;
-    cpu_ctrl_bits = ctrl_bits;
-    return api_return_ax(0);
 }

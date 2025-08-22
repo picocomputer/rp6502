@@ -77,7 +77,7 @@ static void vga_read(bool timeout, const char *buf, size_t length)
     if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
     {
         // IO and buffers need to be in sync before switch
-        com_flush();
+        com_tx_flush();
         // Clear any local echo (UART is seen by PIO)
         while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
             pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);

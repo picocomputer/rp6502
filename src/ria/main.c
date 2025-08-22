@@ -216,7 +216,7 @@ bool main_api(uint8_t operation)
         return rng_api_lrand();
         break;
     case 0x05:
-        return cpu_api_stdin_opt();
+        return com_api_stdin_opt();
         break;
     case 0x0F:
         return clk_api_clock();

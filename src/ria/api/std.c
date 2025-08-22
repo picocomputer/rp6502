@@ -95,11 +95,11 @@ bool std_api_read_xstack(void)
     uint16_t count;
     if (std_cpu_count >= 0)
     {
-        if (!cpu_stdin_ready())
+        if (!com_stdin_ready())
             return api_working();
         count = std_cpu_count;
         buf = &xstack[XSTACK_SIZE - count];
-        std_bytes_moved = cpu_stdin_read(buf, count);
+        std_bytes_moved = com_stdin_read(buf, count);
         std_cpu_count = -1;
     }
     else if (std_mdm_count >= 0)
@@ -132,7 +132,7 @@ bool std_api_read_xstack(void)
         if (fd == STD_FIL_STDIN)
         {
             std_cpu_count = count;
-            cpu_stdin_request();
+            com_stdin_request();
             return api_working();
         }
         if (fd == STD_FIL_MODEM)
@@ -162,9 +162,9 @@ bool std_api_read_xram(void)
 {
     if (std_cpu_count >= 0)
     {
-        if (!cpu_stdin_ready())
+        if (!com_stdin_ready())
             return api_working();
-        std_xram_count = cpu_stdin_read((uint8_t *)std_buf_ptr, std_cpu_count);
+        std_xram_count = com_stdin_read((uint8_t *)std_buf_ptr, std_cpu_count);
         api_set_ax(std_xram_count);
         std_cpu_count = -1;
         return api_working();
@@ -211,7 +211,7 @@ bool std_api_read_xram(void)
     std_buf_ptr = (char *)&xram[xram_addr];
     if (fd == STD_FIL_STDIN)
     {
-        cpu_stdin_request();
+        com_stdin_request();
         std_cpu_count = count;
         return api_working();
     }
