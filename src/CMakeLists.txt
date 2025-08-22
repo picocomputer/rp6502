@@ -93,6 +93,7 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/mem.c
     ria/sys/pix.c
     ria/sys/ria.c
+    ria/sys/rln.c
     ria/sys/sys.c
     ria/sys/vga.c
     ria/usb/hid.c

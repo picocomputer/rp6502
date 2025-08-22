@@ -5,9 +5,9 @@
  */
 
 #include "str.h"
-#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include "pico/stdlib.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
@@ -170,7 +170,7 @@ static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        com_read_line(TIMEOUT_MS, fil_command_dispatch, 79, 0);
+        rln_read_line(TIMEOUT_MS, fil_command_dispatch, 79, 0);
     }
     else
         fil_state = FIL_IDLE;
@@ -206,7 +206,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_read_binary(TIMEOUT_MS, fil_com_rx_mbuf, mbuf, rx_len);
+        rln_read_binary(TIMEOUT_MS, fil_com_rx_mbuf, mbuf, rx_len);
         return;
     }
     printf("?invalid argument\n");
@@ -231,7 +231,7 @@ void fil_mon_upload(const char *args, size_t len)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    com_read_line(TIMEOUT_MS, fil_command_dispatch, 79, 0);
+    rln_read_line(TIMEOUT_MS, fil_command_dispatch, 79, 0);
 }
 
 void fil_mon_unlink(const char *args, size_t len)

@@ -13,8 +13,8 @@
 #include "mon/rom.h"
 #include "mon/set.h"
 #include "net/cyw.h"
-#include "sys/com.h"
 #include "sys/mem.h"
+#include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "pico/stdlib.h"
@@ -155,7 +155,7 @@ void mon_task(void)
         putchar(']');
         needs_prompt = false;
         needs_newline = false;
-        com_read_line(0, mon_enter, 256, 0);
+        rln_read_line(0, mon_enter, 256, 0);
     }
 }
 

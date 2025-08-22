@@ -6,9 +6,9 @@
 
 #include "str.h"
 #include "api/api.h"
-#include "sys/com.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include <stdio.h>
 
 #define TIMEOUT_MS 500
@@ -195,7 +195,7 @@ void ram_mon_binary(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_read_binary(TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
+        rln_read_binary(TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
         cmd_state = SYS_BINARY;
         return;
     }

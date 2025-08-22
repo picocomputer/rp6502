@@ -11,6 +11,7 @@
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include "sys/vga.h"
 #include "vga.pio.h"
 #include "pico/stdlib.h"
@@ -152,7 +153,7 @@ void vga_task(void)
     {
         // TODO this state locks up if a reset happens
         vga_state = VGA_TESTING;
-        com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
+        rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
         vga_pix_backchannel_request();
     }
 
@@ -177,8 +178,8 @@ void vga_task(void)
             }
             else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
             {
-                vga_version_message[vga_version_message_length++] = byte;
-                vga_version_message[vga_version_message_length] = 0;
+                vga_version_message[vga_version_message_length] = byte;
+                vga_version_message[++vga_version_message_length] = 0;
             }
         }
     }

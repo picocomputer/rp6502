@@ -31,6 +31,7 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/hid.h"
@@ -83,7 +84,7 @@ static void init(void)
 void main_task(void)
 {
     usb_task();
-    cpu_task(); //
+    cpu_task(); // TODO remove com stuff
     ria_task();
     aud_task();
     kbd_task();
@@ -100,14 +101,15 @@ void main_task(void)
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
-    com_task(); // TODO how does this call fatfs?
+    rln_task(); // TODO fix for main_task
+    com_task(); // TODO fix for main_task
+
     api_task();
     mon_task();
     ram_task();
     fil_task();
     rom_task();
     mdm_task();
-    com_task(); // TODO temp fix
 }
 
 // Event to start running the 6502.
@@ -140,12 +142,12 @@ static void stop(void)
 // Event for CTRL-ALT-DEL and UART breaks.
 static void reset(void)
 {
-    com_reset();
     fil_reset();
     mon_reset();
     ram_reset();
     rom_reset();
     vga_reset();
+    rln_reset();
 }
 
 // Triggered once after init then before every PHI2 clock change.

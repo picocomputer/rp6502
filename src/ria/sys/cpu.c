@@ -7,8 +7,8 @@
 #include "main.h"
 #include "api/api.h"
 #include "sys/cfg.h"
-#include "sys/com.h"
 #include "sys/cpu.h"
+#include "sys/rln.h"
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 
@@ -175,7 +175,6 @@ void cpu_com_rx(uint8_t ch)
 // Used by std.c to get stdin destined for the CPU.
 // Mixing RIA register input with read() calls isn't perfect,
 // should be considered underfined behavior, and is discouraged.
-// Even with a mutex, nulls may appear from RIA register.
 int cpu_getchar(void)
 {
     // Steal char from RIA register
@@ -218,7 +217,7 @@ void cpu_stdin_request(void)
     if (!cpu_readline_needs_nl)
     {
         cpu_readline_active = true;
-        com_read_line(0, cpu_enter, cpu_str_length + 1, cpu_ctrl_bits);
+        rln_read_line(0, cpu_enter, cpu_str_length + 1, cpu_ctrl_bits);
     }
 }
 
