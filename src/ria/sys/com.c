@@ -39,7 +39,7 @@ static const char *cpu_readline_buf;
 static bool cpu_readline_needs_nl;
 static size_t cpu_readline_pos;
 static size_t cpu_readline_length;
-static size_t cpu_str_length = 254;
+static size_t cpu_str_length;
 static uint32_t cpu_ctrl_bits;
 
 static int cpu_getchar_fifo(void)
@@ -51,6 +51,7 @@ static int cpu_getchar_fifo(void)
 
 static void clear_com_rx_fifo()
 {
+    REGS(0xFFE0) &= ~0b01000000;
     cpu_rx_char = -1;
     cpu_rx_tail = cpu_rx_head = 0;
 }
@@ -85,6 +86,8 @@ void com_init(void)
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&com_stdio_app, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
+    cpu_rx_char = -1;
+    cpu_str_length = 254;
 }
 
 void com_run()
@@ -138,14 +141,11 @@ void com_task(void)
 
     // Allow UART RX FIFO to fill during RIA actions.
     // At all other times the FIFO must be emptied to detect breaks.
-    // if (!ria_active())
+    int ch = getchar_timeout_us(0);
+    while (ch != PICO_ERROR_TIMEOUT)
     {
-        int ch = getchar_timeout_us(0);
-        while (ch != PICO_ERROR_TIMEOUT)
-        {
-            cpu_com_rx(ch);
-            ch = getchar_timeout_us(0);
-        }
+        cpu_com_rx(ch);
+        ch = getchar_timeout_us(0);
     }
 
     // Move UART FIFO into ria action loop
@@ -154,33 +154,6 @@ void com_task(void)
 
     // Process transmit
     com_tx_task();
-
-    // Allow UART RX FIFO to fill during RIA actions.
-    // At all other times the FIFO must be emptied to detect breaks.
-    // if (!ria_active())
-    // {
-    //     int ch;
-    //     if (cpu_active() && com_callback)
-    //         ch = cpu_getchar();
-    //     else
-    //         ch = getchar_timeout_us(0);
-    //     while (ch != PICO_ERROR_TIMEOUT)
-    //     {
-    //         if (com_callback)
-    //         {
-    //             com_timer = make_timeout_time_ms(com_timeout_ms);
-    //             if (com_binary_buf)
-    //                 com_binary_rx(ch);
-    //             else
-    //                 com_line_rx(ch);
-    //         }
-    //         else if (cpu_active())
-    //             cpu_com_rx(ch);
-    //         if (ria_active()) // why?
-    //             break;
-    //         ch = getchar_timeout_us(0);
-    //     }
-    // }
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
