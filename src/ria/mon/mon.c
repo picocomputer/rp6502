@@ -5,21 +5,27 @@
  */
 
 #include "main.h"
-#include "str.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
 #include "mon/set.h"
+#include "mon/str.h"
 #include "net/cyw.h"
-#include "sys/mem.h"
 #include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "pico/stdlib.h"
+#include <pico.h>
 #include <stdio.h>
 #include <strings.h>
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_MON)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static bool needs_newline = true;
 static bool needs_prompt = true;
@@ -54,7 +60,7 @@ static struct
 static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
 
 // Returns NULL if not found. Advances buf to start of args.
-static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
+static mon_function mon_command_lookup(const char **buf, size_t buflen)
 {
     size_t i;
     for (i = 0; i < buflen; i++)
@@ -107,7 +113,7 @@ static mon_function mon_command_lookup(const char **buf, uint8_t buflen)
     return NULL;
 }
 
-bool mon_command_exists(const char *buf, uint8_t buflen)
+bool mon_command_exists(const char *buf, size_t buflen)
 {
     return !!mon_command_lookup(&buf, buflen);
 }

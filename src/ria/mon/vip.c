@@ -5,9 +5,16 @@
  */
 
 #include "mon/vip.h"
-#include "pico/rand.h"
+#include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_VIP)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 void vip_print(void)
 {

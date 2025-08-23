@@ -7,6 +7,13 @@
 #include "mon/str.h"
 #include <string.h>
 
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_STR)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
 bool char_is_hex(char ch)
 {
     return ((ch >= '0') && (ch <= '9')) ||

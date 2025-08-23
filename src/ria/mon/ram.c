@@ -4,14 +4,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
 #include "api/api.h"
+#include "mon/ram.h"
+#include "mon/str.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/rln.h"
 #include <stdio.h>
 
-#define TIMEOUT_MS 500
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_RAM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+#define TIMEOUT_MS 200
 
 static enum {
     SYS_IDLE,

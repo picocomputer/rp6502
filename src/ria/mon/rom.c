@@ -4,18 +4,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "str.h"
 #include "api/api.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
+#include "mon/rom.h"
+#include "mon/str.h"
 #include "net/cyw.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
-#include "fatfs/ff.h"
+#include <fatfs/ff.h>
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static enum {
     ROM_IDLE,
@@ -240,7 +247,7 @@ void rom_mon_install(const char *args, size_t len)
     // Test for system conflicts
     if (!lfs_name_len ||
         mon_command_exists(lfs_name, lfs_name_len) ||
-        help_text_lookup(lfs_name, lfs_name_len))
+        hlp_topic_exists(lfs_name, lfs_name_len))
     {
         printf("?Invalid ROM name.\n");
         return;

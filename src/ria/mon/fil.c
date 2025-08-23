@@ -4,14 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
+#include "mon/fil.h"
+#include "mon/str.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
 #include "sys/rln.h"
-#include "pico/stdlib.h"
-#include "fatfs/ff.h"
+#include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define TIMEOUT_MS 200
 

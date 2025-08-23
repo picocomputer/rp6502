@@ -4,11 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
 #include "mon/hlp.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
 #include "sys/lfs.h"
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HLP)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static const char __in_flash("helptext") hlp_text_help[] =
     "Commands:\n"
@@ -389,7 +395,7 @@ static void hlp_help(const char *args, size_t len)
 }
 
 // Returns NULL if not found.
-const char *help_text_lookup(const char *args, size_t len)
+static const char *help_text_lookup(const char *args, size_t len)
 {
     size_t cmd_len;
     for (cmd_len = 0; cmd_len < len; cmd_len++)
@@ -440,4 +446,9 @@ void hlp_mon_help(const char *args, size_t len)
         if (!rom_help(args, len))
             puts("?No help found.");
     }
+}
+
+bool hlp_topic_exists(const char *buf, size_t buflen)
+{
+    return !!help_text_lookup(buf, buflen);
 }
