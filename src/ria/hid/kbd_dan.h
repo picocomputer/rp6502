@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _KBD_DAN_H_
-#define _KBD_DAN_H_
+#ifndef _RIA_HID_KBD_DAN_H_
+#define _RIA_HID_KBD_DAN_H_
 
 // Danish / Dansk
 
@@ -119,4 +119,4 @@
 		/* 0x63:    , */ {   ',',      0,      0, 0}, \
 		/* 0x64:    < */ {   '<',    '>',   '\\', 0},
 
-#endif /* _KBD_DAN_H_ */
+#endif /* _RIA_HID_KBD_DAN_H_ */

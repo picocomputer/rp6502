@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _KBD_POL_H_
-#define _KBD_POL_H_
+#ifndef _RIA_HID_KBD_POL_H_
+#define _RIA_HID_KBD_POL_H_
 
 // KEYCODE to Unicode Conversion
 // {without shift, with shift, with altGr, with shift and altGr}
@@ -27,7 +27,7 @@ exception due to second letter in polish alphabet based on "z":
 
 additional signs :
 § - 0x00a7 altGr with key "3"
-€ - 0x20ac altGr with key "4" 
+€ - 0x20ac altGr with key "4"
 */
 
 #define HID_KEYCODE_TO_UNICODE_PL         HID_KEYCODE_TO_UNICODE_POL_QWERTY
@@ -164,4 +164,4 @@ additional signs :
         /* 0x7e */ {0, 0, 0, 0},                        \
         /* 0x7f */ {0, 0, 0, 0},
 
-#endif /* _KBD_POL_H_ */
+#endif /* _RIA_HID_KBD_POL_H_ */

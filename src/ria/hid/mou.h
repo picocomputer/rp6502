@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MOU_H_
-#define _MOU_H_
+#ifndef _RIA_HID_MOU_H_
+#define _RIA_HID_MOU_H_
 
+/* HID Mouse driver
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -28,4 +32,4 @@ bool mou_umount(int slot);
 // Process HID report.
 void mou_report(int slot, void const *report, size_t size);
 
-#endif /* _MOU_H_ */
+#endif /* _RIA_HID_MOU_H_ */

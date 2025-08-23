@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _KBD_ENG_H_
-#define _KBD_ENG_H_
+#ifndef _RIA_HID_KBD_ENG_H_
+#define _RIA_HID_KBD_ENG_H_
 
 // English
 
@@ -127,4 +127,4 @@
         /* 0x66 */ {0, 0, 0, 0},            \
         /* 0x67 */ {'=', '=', 0, 0},
 
-#endif /* _KBD_ENG_H_ */
+#endif /* _RIA_HID_KBD_ENG_H_ */

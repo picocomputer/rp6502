@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "btstack_hid_parser.h"
 #include "main.h"
 #include "api/api.h"
 #include "hid/kbd.h"
@@ -17,10 +16,10 @@
 #include "net/ble.h"
 #include "sys/cfg.h"
 #include "usb/hid.h"
-#include "fatfs/ff.h"
-#include "pico/time.h"
+#include <btstack_hid_parser.h>
+#include <fatfs/ff.h>
+#include <pico/time.h>
 #include <stdio.h>
-#include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
 #include <stdio.h>
@@ -31,54 +30,54 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // These usually come from TinyUSB's hid.h but we can't
 // include that while using btstack_hid_parser.h.
-#define HID_KEY_NONE 0x00
-#define HID_KEY_A 0x04
-#define HID_KEY_Z 0x1D
-#define HID_KEY_BACKSPACE 0x2A
-#define HID_KEY_CAPS_LOCK 0x39
-#define HID_KEY_F1 0x3A
-#define HID_KEY_F2 0x3B
-#define HID_KEY_F3 0x3C
-#define HID_KEY_F4 0x3D
-#define HID_KEY_F5 0x3E
-#define HID_KEY_F6 0x3F
-#define HID_KEY_F7 0x40
-#define HID_KEY_F8 0x41
-#define HID_KEY_F9 0x42
-#define HID_KEY_F10 0x43
-#define HID_KEY_F11 0x44
-#define HID_KEY_F12 0x45
-#define HID_KEY_SCROLL_LOCK 0x47
-#define HID_KEY_INSERT 0x49
-#define HID_KEY_HOME 0x4A
-#define HID_KEY_PAGE_UP 0x4B
-#define HID_KEY_DELETE 0x4C
-#define HID_KEY_END 0x4D
-#define HID_KEY_PAGE_DOWN 0x4E
-#define HID_KEY_ARROW_RIGHT 0x4F
-#define HID_KEY_ARROW_LEFT 0x50
-#define HID_KEY_ARROW_DOWN 0x51
-#define HID_KEY_ARROW_UP 0x52
-#define HID_KEY_NUM_LOCK 0x53
-#define HID_KEY_KEYPAD_1 0x59
-#define HID_KEY_KEYPAD_2 0x5A
-#define HID_KEY_KEYPAD_3 0x5B
-#define HID_KEY_KEYPAD_4 0x5C
-#define HID_KEY_KEYPAD_5 0x5D
-#define HID_KEY_KEYPAD_6 0x5E
-#define HID_KEY_KEYPAD_7 0x5F
-#define HID_KEY_KEYPAD_8 0x60
-#define HID_KEY_KEYPAD_9 0x61
-#define HID_KEY_KEYPAD_0 0x62
-#define HID_KEY_KEYPAD_DECIMAL 0x63
-#define HID_KEY_CONTROL_LEFT 0xE0
-#define HID_KEY_SHIFT_LEFT 0xE1
-#define HID_KEY_ALT_LEFT 0xE2
-#define HID_KEY_GUI_LEFT 0xE3
-#define HID_KEY_CONTROL_RIGHT 0xE4
-#define HID_KEY_SHIFT_RIGHT 0xE5
-#define HID_KEY_ALT_RIGHT 0xE6
-#define HID_KEY_GUI_RIGHT 0xE7
+#define KBD_HID_KEY_NONE 0x00
+#define KBD_HID_KEY_A 0x04
+#define KBD_HID_KEY_Z 0x1D
+#define KBD_HID_KEY_BACKSPACE 0x2A
+#define KBD_HID_KEY_CAPS_LOCK 0x39
+#define KBD_HID_KEY_F1 0x3A
+#define KBD_HID_KEY_F2 0x3B
+#define KBD_HID_KEY_F3 0x3C
+#define KBD_HID_KEY_F4 0x3D
+#define KBD_HID_KEY_F5 0x3E
+#define KBD_HID_KEY_F6 0x3F
+#define KBD_HID_KEY_F7 0x40
+#define KBD_HID_KEY_F8 0x41
+#define KBD_HID_KEY_F9 0x42
+#define KBD_HID_KEY_F10 0x43
+#define KBD_HID_KEY_F11 0x44
+#define KBD_HID_KEY_F12 0x45
+#define KBD_HID_KEY_SCROLL_LOCK 0x47
+#define KBD_HID_KEY_INSERT 0x49
+#define KBD_HID_KEY_HOME 0x4A
+#define KBD_HID_KEY_PAGE_UP 0x4B
+#define KBD_HID_KEY_DELETE 0x4C
+#define KBD_HID_KEY_END 0x4D
+#define KBD_HID_KEY_PAGE_DOWN 0x4E
+#define KBD_HID_KEY_ARROW_RIGHT 0x4F
+#define KBD_HID_KEY_ARROW_LEFT 0x50
+#define KBD_HID_KEY_ARROW_DOWN 0x51
+#define KBD_HID_KEY_ARROW_UP 0x52
+#define KBD_HID_KEY_NUM_LOCK 0x53
+#define KBD_HID_KEY_KEYPAD_1 0x59
+#define KBD_HID_KEY_KEYPAD_2 0x5A
+#define KBD_HID_KEY_KEYPAD_3 0x5B
+#define KBD_HID_KEY_KEYPAD_4 0x5C
+#define KBD_HID_KEY_KEYPAD_5 0x5D
+#define KBD_HID_KEY_KEYPAD_6 0x5E
+#define KBD_HID_KEY_KEYPAD_7 0x5F
+#define KBD_HID_KEY_KEYPAD_8 0x60
+#define KBD_HID_KEY_KEYPAD_9 0x61
+#define KBD_HID_KEY_KEYPAD_0 0x62
+#define KBD_HID_KEY_KEYPAD_DECIMAL 0x63
+#define KBD_HID_KEY_CONTROL_LEFT 0xE0
+#define KBD_HID_KEY_SHIFT_LEFT 0xE1
+#define KBD_HID_KEY_ALT_LEFT 0xE2
+#define KBD_HID_KEY_GUI_LEFT 0xE3
+#define KBD_HID_KEY_CONTROL_RIGHT 0xE4
+#define KBD_HID_KEY_SHIFT_RIGHT 0xE5
+#define KBD_HID_KEY_ALT_RIGHT 0xE6
+#define KBD_HID_KEY_GUI_RIGHT 0xE7
 
 #define KBD_MODIFIER_LEFTCTRL 1 << 0   // Left Control
 #define KBD_MODIFIER_LEFTSHIFT 1 << 1  // Left Shift
@@ -124,7 +123,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define KBD_KEY_BIT_VAL(data, keycode) (data[keycode >> 5] & (1 << (keycode & 31)))
 
 // Direct access to modifier byte of a kbd_connection_t.keys
-#define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
+#define KBD_MODIFIER(keys) ((uint8_t *)keys)[KBD_HID_KEY_CONTROL_LEFT >> 3]
 
 // Circular buffer
 #define KBD_KEY_QUEUE(pos) kbd_key_queue[(pos) & 0x0F]
@@ -192,46 +191,46 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     kbd_repeat_timer = delayed_by_us(get_absolute_time(),
                                      initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
     // When not in numlock, and not shifted, remap num pad
-    if (keycode >= HID_KEY_KEYPAD_1 &&
-        keycode <= HID_KEY_KEYPAD_DECIMAL &&
+    if (keycode >= KBD_HID_KEY_KEYPAD_1 &&
+        keycode <= KBD_HID_KEY_KEYPAD_DECIMAL &&
         (!is_numlock || (key_shift && is_numlock)))
     {
         if (is_numlock)
             key_shift = false;
         switch (keycode)
         {
-        case HID_KEY_KEYPAD_1:
-            keycode = HID_KEY_END;
+        case KBD_HID_KEY_KEYPAD_1:
+            keycode = KBD_HID_KEY_END;
             break;
-        case HID_KEY_KEYPAD_2:
-            keycode = HID_KEY_ARROW_DOWN;
+        case KBD_HID_KEY_KEYPAD_2:
+            keycode = KBD_HID_KEY_ARROW_DOWN;
             break;
-        case HID_KEY_KEYPAD_3:
-            keycode = HID_KEY_PAGE_DOWN;
+        case KBD_HID_KEY_KEYPAD_3:
+            keycode = KBD_HID_KEY_PAGE_DOWN;
             break;
-        case HID_KEY_KEYPAD_4:
-            keycode = HID_KEY_ARROW_LEFT;
+        case KBD_HID_KEY_KEYPAD_4:
+            keycode = KBD_HID_KEY_ARROW_LEFT;
             break;
-        case HID_KEY_KEYPAD_5:
-            keycode = HID_KEY_NONE;
+        case KBD_HID_KEY_KEYPAD_5:
+            keycode = KBD_HID_KEY_NONE;
             break;
-        case HID_KEY_KEYPAD_6:
-            keycode = HID_KEY_ARROW_RIGHT;
+        case KBD_HID_KEY_KEYPAD_6:
+            keycode = KBD_HID_KEY_ARROW_RIGHT;
             break;
-        case HID_KEY_KEYPAD_7:
-            keycode = HID_KEY_HOME;
+        case KBD_HID_KEY_KEYPAD_7:
+            keycode = KBD_HID_KEY_HOME;
             break;
-        case HID_KEY_KEYPAD_8:
-            keycode = HID_KEY_ARROW_UP;
+        case KBD_HID_KEY_KEYPAD_8:
+            keycode = KBD_HID_KEY_ARROW_UP;
             break;
-        case HID_KEY_KEYPAD_9:
-            keycode = HID_KEY_PAGE_UP;
+        case KBD_HID_KEY_KEYPAD_9:
+            keycode = KBD_HID_KEY_PAGE_UP;
             break;
-        case HID_KEY_KEYPAD_0:
-            keycode = HID_KEY_INSERT;
+        case KBD_HID_KEY_KEYPAD_0:
+            keycode = KBD_HID_KEY_INSERT;
             break;
-        case HID_KEY_KEYPAD_DECIMAL:
-            keycode = HID_KEY_DELETE;
+        case KBD_HID_KEY_KEYPAD_DECIMAL:
+            keycode = KBD_HID_KEY_DELETE;
             break;
         }
     }
@@ -242,8 +241,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                         KBD_MODIFIER_RIGHTGUI))))
     {
         bool use_shift = (key_shift && !is_capslock) ||
-                         (key_shift && keycode > HID_KEY_Z) ||
-                         (!key_shift && is_capslock && keycode <= HID_KEY_Z);
+                         (key_shift && keycode > KBD_HID_KEY_Z) ||
+                         (!key_shift && is_capslock && keycode <= KBD_HID_KEY_Z);
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (use_shift)
@@ -272,7 +271,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 ch -= 96;
             else if (ch >= '@' && ch <= '_')
                 ch -= 64;
-            else if (keycode == HID_KEY_BACKSPACE)
+            else if (keycode == KBD_HID_KEY_BACKSPACE)
                 ch = '\b';
         }
         if (ch)
@@ -293,7 +292,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             ch -= 96;
         else if (ch >= '@' && ch <= '_')
             ch -= 64;
-        else if (keycode == HID_KEY_BACKSPACE)
+        else if (keycode == KBD_HID_KEY_BACKSPACE)
             ch = '\b';
         else
             ch = 0;
@@ -310,7 +309,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     {
         switch (keycode)
         {
-        case HID_KEY_DELETE:
+        case KBD_HID_KEY_DELETE:
             if (key_ctrl && key_alt)
             {
                 kbd_key_queue_tail = kbd_key_queue_head;
@@ -318,15 +317,15 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 return;
             }
             break;
-        case HID_KEY_NUM_LOCK:
+        case KBD_HID_KEY_NUM_LOCK:
             kdb_hid_leds ^= KBD_LED_NUMLOCK;
             kbd_send_leds();
             break;
-        case HID_KEY_CAPS_LOCK:
+        case KBD_HID_KEY_CAPS_LOCK:
             kdb_hid_leds ^= KBD_LED_CAPSLOCK;
             kbd_send_leds();
             break;
-        case HID_KEY_SCROLL_LOCK:
+        case KBD_HID_KEY_SCROLL_LOCK:
             kdb_hid_leds ^= KBD_LED_SCROLLLOCK;
             kbd_send_leds();
             break;
@@ -344,49 +343,49 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         ansi_modifier += 8;
     switch (keycode)
     {
-    case HID_KEY_ARROW_UP:
+    case KBD_HID_KEY_ARROW_UP:
         return kbd_queue_seq("\33[A", "\33[1;%dA", ansi_modifier);
-    case HID_KEY_ARROW_DOWN:
+    case KBD_HID_KEY_ARROW_DOWN:
         return kbd_queue_seq("\33[B", "\33[1;%dB", ansi_modifier);
-    case HID_KEY_ARROW_RIGHT:
+    case KBD_HID_KEY_ARROW_RIGHT:
         return kbd_queue_seq("\33[C", "\33[1;%dC", ansi_modifier);
-    case HID_KEY_ARROW_LEFT:
+    case KBD_HID_KEY_ARROW_LEFT:
         return kbd_queue_seq("\33[D", "\33[1;%dD", ansi_modifier);
-    case HID_KEY_F1:
+    case KBD_HID_KEY_F1:
         return kbd_queue_seq("\33OP", "\33[1;%dP", ansi_modifier);
-    case HID_KEY_F2:
+    case KBD_HID_KEY_F2:
         return kbd_queue_seq("\33OQ", "\33[1;%dQ", ansi_modifier);
-    case HID_KEY_F3:
+    case KBD_HID_KEY_F3:
         return kbd_queue_seq("\33OR", "\33[1;%dR", ansi_modifier);
-    case HID_KEY_F4:
+    case KBD_HID_KEY_F4:
         return kbd_queue_seq("\33OS", "\33[1;%dS", ansi_modifier);
-    case HID_KEY_F5:
+    case KBD_HID_KEY_F5:
         return kbd_queue_seq_vt(15, ansi_modifier);
-    case HID_KEY_F6:
+    case KBD_HID_KEY_F6:
         return kbd_queue_seq_vt(17, ansi_modifier);
-    case HID_KEY_F7:
+    case KBD_HID_KEY_F7:
         return kbd_queue_seq_vt(18, ansi_modifier);
-    case HID_KEY_F8:
+    case KBD_HID_KEY_F8:
         return kbd_queue_seq_vt(19, ansi_modifier);
-    case HID_KEY_F9:
+    case KBD_HID_KEY_F9:
         return kbd_queue_seq_vt(10, ansi_modifier);
-    case HID_KEY_F10:
+    case KBD_HID_KEY_F10:
         return kbd_queue_seq_vt(21, ansi_modifier);
-    case HID_KEY_F11:
+    case KBD_HID_KEY_F11:
         return kbd_queue_seq_vt(23, ansi_modifier);
-    case HID_KEY_F12:
+    case KBD_HID_KEY_F12:
         return kbd_queue_seq_vt(24, ansi_modifier);
-    case HID_KEY_HOME:
+    case KBD_HID_KEY_HOME:
         return kbd_queue_seq("\33[H", "\33[1;%dH", ansi_modifier);
-    case HID_KEY_INSERT:
+    case KBD_HID_KEY_INSERT:
         return kbd_queue_seq_vt(2, ansi_modifier);
-    case HID_KEY_DELETE:
+    case KBD_HID_KEY_DELETE:
         return kbd_queue_seq_vt(3, ansi_modifier);
-    case HID_KEY_END:
+    case KBD_HID_KEY_END:
         return kbd_queue_seq("\33[F", "\33[1;%dF", ansi_modifier);
-    case HID_KEY_PAGE_UP:
+    case KBD_HID_KEY_PAGE_UP:
         return kbd_queue_seq_vt(5, ansi_modifier);
-    case HID_KEY_PAGE_DOWN:
+    case KBD_HID_KEY_PAGE_DOWN:
         return kbd_queue_seq_vt(6, ansi_modifier);
     }
 }
