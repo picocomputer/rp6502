@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
+#include "mon/str.h"
 #include "api/clk.h"
 #include "api/oem.h"
 #include "net/ble.h"

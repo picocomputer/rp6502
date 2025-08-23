@@ -58,8 +58,11 @@ pico_generate_pio_header(rp6502_ria
 )
 
 target_sources(rp6502_ria PRIVATE
+    fatfs/ff.c
+    fatfs/ffunicode.c
+    littlefs/lfs.c
+    littlefs/lfs_util.c
     ria/main.c
-    ria/str.c
     ria/api/api.c
     ria/api/clk.c
     ria/api/oem.c
@@ -77,6 +80,7 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/ram.c
     ria/mon/rom.c
     ria/mon/set.c
+    ria/mon/str.c
     ria/mon/vip.c
     ria/net/ble.c
     ria/net/cmd.c
@@ -100,10 +104,6 @@ target_sources(rp6502_ria PRIVATE
     ria/usb/msc.c
     ria/usb/usb.c
     ria/usb/xin.c
-    fatfs/ff.c
-    fatfs/ffunicode.c
-    littlefs/lfs.c
-    littlefs/lfs_util.c
 )
 
 

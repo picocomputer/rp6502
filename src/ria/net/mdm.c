@@ -27,7 +27,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <stdio.h>
 #include <pico/time.h>
 #include "lwipopts.h"
-#include "str.h"
+#include "mon/str.h"
 #include "net/cmd.h"
 #include "net/mdm.h"
 #include "net/tel.h"

@@ -13,9 +13,9 @@
 #include <stdint.h>
 
 /*
- * Miscellaneous string functions. TODO: (pick one)
- * This could evolve to cleaner tokenizing and parsing.
- * Or devolve into a dumping ground for wayward functions.
+ * Miscellaneous string functions.
+ * Used by the monitor for parsing input.
+ * Also used to parse config files.
  */
 
 // Test for 0-9 a-f A-F

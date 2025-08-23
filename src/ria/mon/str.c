@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
+#include "mon/str.h"
 #include <string.h>
 
 bool char_is_hex(char ch)
