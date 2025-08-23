@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CLK_H_
-#define _CLK_H_
+#ifndef _RIA_API_CLK_H_
+#define _RIA_API_CLK_H_
 
 /* The CLK driver manages real-time counters.
  */
@@ -36,4 +36,4 @@ bool clk_api_get_time(void);
 bool clk_api_set_time(void);
 bool clk_api_get_time_zone(void);
 
-#endif /* _CLK_H_ */
+#endif /* _RIA_API_CLK_H_ */

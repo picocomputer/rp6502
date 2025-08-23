@@ -4,14 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico.h"
-#include "main.h"
 #include "aud/aud.h"
-#include "pico/stdlib.h"
-#include "hardware/pwm.h"
-#include "hardware/clocks.h"
-#include <math.h>
-#include <string.h>
+#include <pico/stdlib.h>
+#include <hardware/pwm.h>
+#include <hardware/clocks.h>
+
+#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_AUD)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static void (*aud_reclock_fn)(uint32_t sys_clk_khz);
 static void (*aud_task_fn)();
@@ -28,7 +31,7 @@ void aud_init(void)
     pwm_config config;
 
     config = pwm_get_default_config();
-    pwm_config_set_wrap(&config, AUD_PWM_WRAP);
+    pwm_config_set_wrap(&config, ((1u << AUD_PWM_BITS) - 1));
     pwm_init(AUD_L_SLICE, &config, true);
     pwm_init(AUD_R_SLICE, &config, true);
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);

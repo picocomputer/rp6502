@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _OEM_H_
-#define _OEM_H_
+#ifndef _RIA_API_OEM_H_
+#define _RIA_API_OEM_H_
 
 /* The OEM driver manages IBM/DOS style code pages.
  * The affects RP6502-VGA, FatFs, and keyboards.
@@ -29,4 +29,4 @@ uint16_t oem_set_codepage(uint16_t cp);
 // API set or query the codepage.
 bool oem_api_codepage(void);
 
-#endif /* _OEM_H_ */
+#endif /* _RIA_API_OEM_H_ */

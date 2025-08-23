@@ -4,13 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "pico/stdlib.h"
-#include "aud.h"
 #include "aud/aud.h"
 #include "aud/psg.h"
 #include "sys/mem.h"
-#include "hardware/pwm.h"
+#include <pico/stdlib.h>
+#include <hardware/pwm.h>
 #include <math.h>
+
+#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_PSG)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+static_assert(AUD_PWM_BITS == 8);
 
 #define PSG_RATE 24000
 #define PSG_CHANNELS 8

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _API_H_
-#define _API_H_
+#ifndef _RIA_API_API_H_
+#define _RIA_API_API_H_
 
 /* The API driver manages function calls from the 6502.
  * This header includes helpers for API implementations.
@@ -199,4 +199,4 @@ static inline bool api_working()
     return true;
 }
 
-#endif /* _API_H_ */
+#endif /* _RIA_API_API_H_ */

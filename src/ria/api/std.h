@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _STD_H_
-#define _STD_H_
+#ifndef _RIA_API_STD_H_
+#define _RIA_API_STD_H_
 
 /* Provides STDIO to the 6502.
  */
@@ -32,4 +32,4 @@ bool std_api_lseek(void);
 bool std_api_unlink(void);
 bool std_api_rename(void);
 
-#endif /* _STD_H_ */
+#endif /* _RIA_API_STD_H_ */
