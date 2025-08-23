@@ -18,23 +18,26 @@
 #include "pico/stdio/driver.h"
 #include <stdio.h>
 
+#define COM_UART uart1
+#define COM_UART_BAUD_RATE 115200
+#define COM_UART_TX_PIN 4
+#define COM_UART_RX_PIN 5
+
 #define COM_BUF_SIZE 256
 #define COM_CSI_PARAM_MAX_LEN 16
 
-static stdio_driver_t com_stdio_app;
+static stdio_driver_t com_stdio_driver;
 
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
 #define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
-// Receive buffer of 32 isn't large enough for BLE.
-// It will occassionaly fail when uploading from PC.
 volatile int com_rx_char;
 static size_t com_rx_tail;
 static size_t com_rx_head;
-static uint8_t com_rx_buf[64];
-#define COM_RX_BUF(pos) com_rx_buf[(pos) & 0x3F]
+static uint8_t com_rx_buf[32];
+#define COM_RX_BUF(pos) com_rx_buf[(pos) & 0x1F]
 
 static bool com_stdin_active;
 static const char *com_stdin_buf;
@@ -75,11 +78,45 @@ static void com_tx_task(void)
     }
 }
 
+static int com_rx_task(char *buf, int length)
+{
+    // To avoid crossing the streams, we wait for a 1ms
+    // pause on the UART before injecting keystrokes, then
+    // keyboard buffer is emptied before returning to UART.
+    static bool in_keyboard = false;
+    static const int COM_STDIO_UART_PAUSE_US = 1000;
+    static absolute_time_t com_stdio_uart_timer;
+
+    if (in_keyboard || absolute_time_diff_us(get_absolute_time(), com_stdio_uart_timer) < 0)
+    {
+        int i = kbd_stdio_in_chars(buf, length);
+        if (i != PICO_ERROR_NO_DATA)
+        {
+            in_keyboard = true;
+            return i;
+        }
+        in_keyboard = false;
+    }
+
+    // Get char from UART
+    int count = 0;
+    bool readable = uart_is_readable(COM_UART);
+    if (readable)
+        com_stdio_uart_timer = make_timeout_time_us(COM_STDIO_UART_PAUSE_US);
+    while (readable && count < length)
+    {
+        buf[count++] = (uint8_t)uart_get_hw(COM_UART)->dr;
+        readable = uart_is_readable(COM_UART);
+    }
+
+    return count ? count : PICO_ERROR_NO_DATA;
+}
+
 void com_init(void)
 {
     gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
-    stdio_set_driver_enabled(&com_stdio_app, true);
+    stdio_set_driver_enabled(&com_stdio_driver, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
     clear_com_rx_fifo();
     com_api_str_length = 254;
@@ -124,7 +161,27 @@ void com_post_reclock(void)
 
 void com_task(void)
 {
+    // Process transmit
+    com_tx_task();
+
+    // Move char into ria action loop
+    if (com_rx_char < 0)
+        com_rx_char = cpu_getchar_fifo();
+
+    // Process receive
+    char ch;
+    while (com_rx_task(&ch, 1) == 1)
+    {
+        if (&COM_RX_BUF(com_rx_head + 1) != &COM_RX_BUF(com_rx_tail))
+            COM_RX_BUF(++com_rx_head) = ch;
+    }
+
+    // Move char into ria action loop (again)
+    if (com_rx_char < 0)
+        com_rx_char = cpu_getchar_fifo();
+
     // Detect UART breaks.
+    // The UART FIFO must be emptied to detect breaks here.
     static uint32_t break_detect = 0;
     uint32_t current_break = uart_get_hw(COM_UART)->rsr & UART_UARTRSR_BE_BITS;
     if (current_break)
@@ -132,22 +189,6 @@ void com_task(void)
     else if (break_detect)
         main_break();
     break_detect = current_break;
-
-    // The UART FIFO must be emptied to detect breaks.
-    int ch = getchar_timeout_us(0);
-    while (ch != PICO_ERROR_TIMEOUT)
-    {
-        if (&COM_RX_BUF(com_rx_head + 1) != &COM_RX_BUF(com_rx_tail))
-            COM_RX_BUF(++com_rx_head) = ch;
-        ch = getchar_timeout_us(0);
-    }
-
-    // Move UART FIFO into ria action loop
-    if (com_rx_char < 0)
-        com_rx_char = cpu_getchar_fifo();
-
-    // Process transmit
-    com_tx_task();
 }
 
 static void com_stdin_callback(bool timeout, const char *buf, size_t length)
@@ -212,44 +253,10 @@ static void com_stdio_out_chars(const char *buf, int len)
 
 static int com_stdio_in_chars(char *buf, int length)
 {
-    // To avoid crossing the streams, we wait for a 1ms
-    // pause on the UART before injecting keystrokes, then
-    // keyboard buffer is emptied before returning to UART.
-    static const int uart_pause_us = 1000;
-    static absolute_time_t uart_timer;
-    static bool in_keyboard = false;
+    int count = 0;
 
-    absolute_time_t now = get_absolute_time();
-    if (in_keyboard || absolute_time_diff_us(now, uart_timer) < 0)
-    {
-        int i = kbd_stdio_in_chars(buf, length);
-        if (i != PICO_ERROR_NO_DATA)
-        {
-            in_keyboard = true;
-            return i;
-        }
-        in_keyboard = false;
-    }
-    if (!uart_is_readable(COM_UART))
-        return PICO_ERROR_NO_DATA;
-    uart_timer = delayed_by_us(now, uart_pause_us);
-    int i = 0;
-    while (i < length && uart_is_readable(COM_UART))
-        buf[i++] = uart_getc(COM_UART);
-    return i ? i : PICO_ERROR_NO_DATA;
-}
-
-static stdio_driver_t com_stdio_app = {
-    .out_chars = com_stdio_out_chars,
-    // void (*out_flush)(void); // TODO
-    .in_chars = com_stdio_in_chars,
-    .crlf_enabled = true,
-};
-
-int cpu_getchar(void)
-{
-    // Steal char from RIA register
-    if (REGS(0xFFE0) & 0b01000000)
+    // Take char from RIA register
+    if (count < length && REGS(0xFFE0) & 0b01000000)
     {
         // Mixing RIA register input with read() calls isn't perfect,
         // should be considered underfined behavior, and is discouraged.
@@ -257,19 +264,38 @@ int cpu_getchar(void)
         int ch = REGS(0xFFE2);
         // Replace char with null
         REGS(0xFFE2) = 0;
-        return ch;
+        buf[count++] = ch;
     }
-    // Steal char from ria.c action loop queue
-    if (com_rx_char >= 0)
+
+    // Take char from ria.c action loop queue
+    if (count < length && com_rx_char >= 0)
     {
         int ch = com_rx_char;
         com_rx_char = -1;
-        return ch;
+        buf[count++] = ch;
     }
-    // Get char from FIFO
-    int ch = cpu_getchar_fifo();
-    // Get char from UART
-    if (ch < 0)
-        ch = stdio_getchar_timeout_us(0);
-    return ch;
+
+    // Take from the circular buffer
+    while (count < length)
+    {
+        int ch = cpu_getchar_fifo();
+        if (ch >= 0)
+            buf[count++] = ch;
+        else
+            break;
+    }
+
+    // Pick up new chars from uart or keyboard
+    int x = com_rx_task(&buf[count], length - count);
+    if (x != PICO_ERROR_NO_DATA)
+        count += x;
+
+    return count ? count : PICO_ERROR_NO_DATA;
 }
+
+static stdio_driver_t com_stdio_driver = {
+    .out_chars = com_stdio_out_chars,
+    // void (*out_flush)(void); // TODO
+    .in_chars = com_stdio_in_chars,
+    .crlf_enabled = true,
+};

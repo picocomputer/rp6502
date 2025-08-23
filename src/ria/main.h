@@ -64,11 +64,6 @@ bool main_api(uint8_t operation);
 
 #define AUD_PWM_IRQ_PIN 14 /* No IO */
 
-#define COM_UART uart1
-#define COM_UART_BAUD_RATE 115200
-#define COM_UART_TX_PIN 4
-#define COM_UART_RX_PIN 5
-
 #define PIX_PIO pio1
 #define PIX_SM 1
 
@@ -81,7 +76,7 @@ bool main_api(uint8_t operation);
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
-#define VGA_BACKCHANNEL_PIN COM_UART_TX_PIN
+#define VGA_BACKCHANNEL_PIN 4 // COM_UART_TX_PIN
 #define VGA_BACKCHANNEL_BAUDRATE 115200
 #define VGA_BACKCHANNEL_PIO pio1
 #define VGA_BACKCHANNEL_SM 2

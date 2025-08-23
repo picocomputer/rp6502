@@ -96,14 +96,13 @@ void main_task(void)
     xin_task();
     ble_task();
     led_task();
+    com_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
-    rln_task(); // TODO fix for main_task
-    com_task(); // TODO fix for main_task
-
+    rln_task();
     api_task();
     mon_task();
     ram_task();

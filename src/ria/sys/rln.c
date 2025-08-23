@@ -4,16 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "sys/com.h"
-#include "sys/cpu.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
 #include "sys/rln.h"
-#include "sys/vga.h"
-#include "hid/kbd.h"
 #include "pico/stdlib.h"
-#include "pico/stdio/driver.h"
 #include <stdio.h>
 
 #define RLN_BUF_SIZE 256
@@ -378,7 +370,7 @@ void rln_task(void)
 {
     if (rln_callback)
     {
-        int ch = cpu_getchar();
+        int ch = stdio_getchar_timeout_us(0);
         if (ch != PICO_ERROR_TIMEOUT)
             rln_timer = make_timeout_time_ms(rln_timeout_ms);
         while (rln_callback && ch != PICO_ERROR_TIMEOUT)
@@ -387,9 +379,8 @@ void rln_task(void)
                 rln_binary_rx(ch);
             else
                 rln_line_rx(ch);
-            ch = cpu_getchar();
+            ch = stdio_getchar_timeout_us(0);
         }
-
         if (rln_timeout_ms && absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
         {
             rln_read_callback_t cc = rln_callback;
