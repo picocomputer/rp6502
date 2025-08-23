@@ -21,9 +21,6 @@ void com_stop(void);
 void com_pre_reclock(void);
 void com_post_reclock(void);
 
-// Blocks until all buffers empty. Use sparingly.
-void com_tx_flush(void);
-
 // Readline support for stdin
 void com_stdin_request(void);
 bool com_stdin_ready(void);

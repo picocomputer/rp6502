@@ -133,21 +133,9 @@ void com_stop()
     com_api_ctrl_bits = 0;
 }
 
-void com_tx_flush(void)
-{
-    // TODO  stdio_flush();
-    // Clear all tx buffers, software and hardware
-    // while (getchar_timeout_us(0) >= 0)
-    //     com_tx_task();
-    while (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
-        com_tx_task();
-    while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
-        tight_loop_contents();
-}
-
 void com_pre_reclock(void)
 {
-    com_tx_flush();
+    stdio_flush();
 }
 
 void com_post_reclock(void)
@@ -245,6 +233,14 @@ static void com_stdio_out_chars(const char *buf, int len)
     }
 }
 
+static void com_stdio_out_flush(void)
+{
+    while (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
+        com_tx_task();
+    while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
+        tight_loop_contents();
+}
+
 static int com_stdio_in_chars(char *buf, int length)
 {
     int count = 0;
@@ -288,7 +284,7 @@ static int com_stdio_in_chars(char *buf, int length)
 
 static stdio_driver_t com_stdio_driver = {
     .out_chars = com_stdio_out_chars,
-    // void (*out_flush)(void); // TODO
+    .out_flush = com_stdio_out_flush,
     .in_chars = com_stdio_in_chars,
     .crlf_enabled = true,
 };

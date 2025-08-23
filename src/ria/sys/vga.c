@@ -4,18 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "str.h"
 #include "sys/cfg.h"
-#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/rln.h"
 #include "sys/vga.h"
 #include "vga.pio.h"
-#include "pico/stdlib.h"
-#include "hardware/clocks.h"
+#include <pico/stdlib.h>
+#include <hardware/clocks.h>
 #include <stdio.h>
 #include <strings.h>
 
@@ -77,7 +74,7 @@ static void vga_read(bool timeout, const char *buf, size_t length)
     if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
     {
         // IO and buffers need to be in sync before switch
-        com_tx_flush();
+        stdio_flush();
         // Clear any local echo (UART is seen by PIO)
         while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
             pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);

@@ -20,17 +20,15 @@ bool cyw_initializing() { return false; }
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#include "pico.h"
-#include "mon/ram.h"
+#include <pico.h>
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
-#include "sys/com.h"
-#include "sys/ria.h"
 #include "sys/vga.h"
-#include "pico/cyw43_arch.h"
-#include "pico/cyw43_driver.h"
+#include <pico/cyw43_arch.h>
+#include <pico/cyw43_driver.h>
+#include <pico/stdio.h>
 
 // These are from cyw43_arch.h
 // Change the help if you change these
@@ -136,7 +134,7 @@ void cyw_task(void)
         // Wait for VGA to connect so it doesn't timeout.
         if (vga_active())
             return;
-        com_tx_flush(); // prevent awkward pause during boot message
+        stdio_flush(); // prevent awkward pause during boot message
         uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
         const char *cc = cfg_get_rfcc();
         if (strlen(cc) == 2)
