@@ -10,6 +10,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define CPU_RESB_PIN 26
+#define CPU_IRQB_PIN 22
+#define CPU_PHI2_PIN 21
+
 /* Kernel events
  */
 

@@ -10,6 +10,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define VGA_BACKCHANNEL_PIN 4 // COM_UART_TX_PIN
+#define VGA_BACKCHANNEL_BAUDRATE 115200
+#define VGA_BACKCHANNEL_PIO pio1
+#define VGA_BACKCHANNEL_SM 2
+
 /* Kernel events
  */
 

@@ -12,6 +12,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define PIX_PIN_BASE 0 /* PIX0-PIX3 */
+#define PIX_PIO pio1
+#define PIX_SM 1
+
 /* Kernel events
  */
 

@@ -7,6 +7,21 @@
 #ifndef _RIA_H_
 #define _RIA_H_
 
+#define RIA_PIN_BASE 6
+#define RIA_CS_PIN (RIA_PIN_BASE + 0)
+#define RIA_RWB_PIN (RIA_PIN_BASE + 1)
+#define RIA_DATA_PIN_BASE (RIA_PIN_BASE + 2)  /* D0-D7 */
+#define RIA_ADDR_PIN_BASE (RIA_PIN_BASE + 10) /* A0-A4 */
+
+#define RIA_CS_RWB_PIO pio0
+#define RIA_CS_RWB_SM 0
+#define RIA_WRITE_PIO pio0
+#define RIA_WRITE_SM 1
+#define RIA_READ_PIO pio0
+#define RIA_READ_SM 2
+#define RIA_ACT_PIO pio1
+#define RIA_ACT_SM 0
+
 /* RP6502 Interface Adapter for WDC W65C02S.
  */
 
