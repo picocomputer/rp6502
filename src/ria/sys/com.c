@@ -4,19 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
 #include "api/api.h"
+#include "hid/kbd.h"
 #include "sys/com.h"
-#include "sys/cpu.h"
-#include "sys/mem.h"
 #include "sys/pix.h"
-#include "sys/ria.h"
 #include "sys/rln.h"
 #include "sys/vga.h"
-#include "hid/kbd.h"
-#include "pico/stdlib.h"
-#include "pico/stdio/driver.h"
-#include <stdio.h>
+#include <pico/stdlib.h>
+#include <pico/stdio/driver.h>
 
 #define COM_UART uart1
 #define COM_UART_BAUD_RATE 115200
@@ -47,14 +42,14 @@ static size_t com_stdin_length;
 static size_t com_api_str_length;
 static uint32_t com_api_ctrl_bits;
 
-static int cpu_getchar_fifo(void)
+static int com_rx_buf_getchar(void)
 {
     if (&COM_RX_BUF(com_rx_head) != &COM_RX_BUF(com_rx_tail))
         return COM_RX_BUF(++com_rx_tail);
     return -1;
 }
 
-static void clear_com_rx_fifo()
+static void com_clear_all_rx()
 {
     REGS(0xFFE0) &= ~0b01000000;
     com_rx_char = -1;
@@ -118,18 +113,18 @@ void com_init(void)
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&com_stdio_driver, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
-    clear_com_rx_fifo();
+    com_clear_all_rx();
     com_api_str_length = 254;
 }
 
 void com_run()
 {
-    clear_com_rx_fifo();
+    com_clear_all_rx();
 }
 
 void com_stop()
 {
-    clear_com_rx_fifo();
+    com_clear_all_rx();
     com_stdin_active = false;
     com_stdin_needs_nl = false;
     com_stdin_pos = 0;
@@ -140,9 +135,10 @@ void com_stop()
 
 void com_tx_flush(void)
 {
+    // TODO  stdio_flush();
     // Clear all tx buffers, software and hardware
-    while (getchar_timeout_us(0) >= 0)
-        com_tx_task();
+    // while (getchar_timeout_us(0) >= 0)
+    //     com_tx_task();
     while (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
         com_tx_task();
     while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
@@ -166,19 +162,17 @@ void com_task(void)
 
     // Move char into ria action loop
     if (com_rx_char < 0)
-        com_rx_char = cpu_getchar_fifo();
+        com_rx_char = com_rx_buf_getchar();
 
     // Process receive
     char ch;
     while (com_rx_task(&ch, 1) == 1)
-    {
         if (&COM_RX_BUF(com_rx_head + 1) != &COM_RX_BUF(com_rx_tail))
             COM_RX_BUF(++com_rx_head) = ch;
-    }
 
     // Move char into ria action loop (again)
     if (com_rx_char < 0)
-        com_rx_char = cpu_getchar_fifo();
+        com_rx_char = com_rx_buf_getchar();
 
     // Detect UART breaks.
     // The UART FIFO must be emptied to detect breaks here.
@@ -278,11 +272,10 @@ static int com_stdio_in_chars(char *buf, int length)
     // Take from the circular buffer
     while (count < length)
     {
-        int ch = cpu_getchar_fifo();
-        if (ch >= 0)
-            buf[count++] = ch;
-        else
+        int ch = com_rx_buf_getchar();
+        if (ch < 0)
             break;
+        buf[count++] = ch;
     }
 
     // Pick up new chars from uart or keyboard

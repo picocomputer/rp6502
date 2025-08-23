@@ -48,12 +48,14 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // STDIO not available until after these inits.
+    // Bring up stdio first.
+    com_init();
+
+    // Configure the remaining GPIOs.
     cpu_init();
     ria_init();
     pix_init();
     vga_init();
-    com_init();
 
     // Load config before we continue.
     lfs_init();
@@ -84,12 +86,12 @@ static void init(void)
 void main_task(void)
 {
     usb_task();
-    cpu_task(); // TODO remove com stuff
+    cpu_task();
     ria_task();
     aud_task();
     kbd_task();
     cyw_task();
-    vga_task(); // TODO needs cleaning
+    vga_task();
     wfi_task();
     ntp_task();
     hid_task();
@@ -204,61 +206,42 @@ bool main_api(uint8_t operation)
     {
     case 0x01:
         return pix_api_xreg();
-        break;
     case 0x02:
         return cpu_api_phi2();
-        break;
     case 0x03:
         return oem_api_codepage();
-        break;
     case 0x04:
         return rng_api_lrand();
-        break;
     case 0x05:
         return com_api_stdin_opt();
-        break;
     case 0x0F:
         return clk_api_clock();
-        break;
     case 0x10:
         return clk_api_get_res();
-        break;
     case 0x11:
         return clk_api_get_time();
-        break;
     case 0x12:
         return clk_api_set_time();
-        break;
     case 0x13:
         return clk_api_get_time_zone();
-        break;
     case 0x14:
         return std_api_open();
-        break;
     case 0x15:
         return std_api_close();
-        break;
     case 0x16:
         return std_api_read_xstack();
-        break;
     case 0x17:
         return std_api_read_xram();
-        break;
     case 0x18:
         return std_api_write_xstack();
-        break;
     case 0x19:
         return std_api_write_xram();
-        break;
     case 0x1A:
         return std_api_lseek();
-        break;
     case 0x1B:
         return std_api_unlink();
-        break;
     case 0x1C:
         return std_api_rename();
-        break;
     }
     api_return_errno(API_ENOSYS);
     return false;
