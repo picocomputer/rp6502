@@ -7,7 +7,15 @@
 #ifndef _RNG_H_
 #define _RNG_H_
 
-// API returns a random number from a random seed.
+/* Random Number Generator. Automatically seeds with
+ * the RP2350 true random number generator (TRNG).
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// API returns a random number.
 bool rng_api_lrand(void);
 
 #endif /* _RNG_H_ */

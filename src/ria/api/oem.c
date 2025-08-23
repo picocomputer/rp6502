@@ -8,7 +8,14 @@
 #include "api/oem.h"
 #include "sys/cfg.h"
 #include "sys/pix.h"
-#include "fatfs/ff.h"
+#include <fatfs/ff.h>
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_OEM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 // Only the code page specified by RP6502_CODE_PAGE is installed to flash.
 // To include all code pages, set RP6502_CODE_PAGE to 0 (CMmakeLists.txt).

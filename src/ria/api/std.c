@@ -7,11 +7,17 @@
 #include "api/api.h"
 #include "api/std.h"
 #include "sys/com.h"
-#include "sys/cpu.h"
 #include "sys/pix.h"
 #include "net/mdm.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define STD_FIL_MAX 16
 FIL std_fil[STD_FIL_MAX];

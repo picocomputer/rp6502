@@ -10,10 +10,17 @@
 #include "api/api.h"
 #include "api/clk.h"
 #include "sys/cfg.h"
-#include "hardware/timer.h"
-#include "pico/aon_timer.h"
+#include <hardware/timer.h>
+#include <pico/aon_timer.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define CLK_ID_REALTIME 0
 

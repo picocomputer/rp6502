@@ -7,8 +7,22 @@
 #ifndef _API_H_
 #define _API_H_
 
-#include "sys/mem.h"
+/* The API driver manages function calls from the 6502.
+ * This header includes helpers for API implementations.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
+#include "sys/mem.h"
+
+/* Kernel events
+ */
+
+void api_task(void);
+void api_run(void);
+void api_stop(void);
 
 /* The 18 base errors come directly from CC65. Use them when you can.
  * FatFs has its own errors, which should be used when obtained from FatFs.
@@ -49,13 +63,6 @@
 #define API_SREG REGSW(0xFFF8)
 #define API_AX (API_A | (API_X << 8))
 #define API_AXSREG (API_AX | (API_SREG << 16))
-
-/* Kernel events
- */
-
-void api_task(void);
-void api_run(void);
-void api_stop(void);
 
 // How to build an API handler:
 // 1. The last fastcall argument is in API_A, API_AX or API_AXSREG.

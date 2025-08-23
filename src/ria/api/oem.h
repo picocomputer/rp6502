@@ -7,7 +7,13 @@
 #ifndef _OEM_H_
 #define _OEM_H_
 
+/* The OEM driver manages IBM/DOS style code pages.
+ * The affects RP6502-VGA, FatFs, and keyboards.
+ */
+
+#include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Kernel events
  */
@@ -20,7 +26,7 @@ void oem_stop(void);
 // Use default as a last resort.
 uint16_t oem_set_codepage(uint16_t cp);
 
-// API query the codepage.
+// API set or query the codepage.
 bool oem_api_codepage(void);
 
 #endif /* _OEM_H_ */

@@ -7,6 +7,11 @@
 #ifndef _STD_H_
 #define _STD_H_
 
+/* Provides STDIO to the 6502.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 /* Kernel events
