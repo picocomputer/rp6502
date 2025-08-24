@@ -11,6 +11,13 @@
 #include <ctype.h>
 #include <string.h>
 
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CMD)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
 // The design philosophy here is to use AT+XXX? and AT+XXX=YYY
 // for everything modern like WiFi and telnet configuration.
 // The traditional commands are then free to act like an actual

@@ -10,21 +10,20 @@ void ntp_task() {}
 void ntp_print_status() {}
 #else
 
+#include "net/ntp.h"
+#include "net/wfi.h"
+#include <lwip/dns.h>
+#include <lwip/udp.h>
+#include <pico/aon_timer.h>
+#include <pico/time.h>
+#include <string.h>
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NTP)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-#include "pico.h"
-#include "net/ntp.h"
-#include "net/wfi.h"
-#include "lwip/dns.h"
-#include "lwip/udp.h"
-#include "pico/aon_timer.h"
-#include "pico/time.h"
-#include <string.h>
 
 #define NTP_SERVER "pool.ntp.org"
 #define NTP_MSG_LEN 48

@@ -4,8 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _NTP_H_
-#define _NTP_H_
+#ifndef _RIA_NET_NTP_H_
+#define _RIA_NET_NTP_H_
+
+/* Network Time Protocol.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 /* Kernel events
  */
@@ -17,4 +24,4 @@ void ntp_task(void);
 
 void ntp_print_status(void);
 
-#endif /* _NTP_H_ */
+#endif /* _RIA_NET_NTP_H_ */

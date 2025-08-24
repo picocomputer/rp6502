@@ -13,14 +13,6 @@ void cyw_reset_radio() {}
 bool cyw_initializing() { return false; }
 #else
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
-#include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
-
-#include <pico.h>
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
@@ -29,6 +21,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 #include <pico/stdio.h>
+
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 // These are from cyw43_arch.h
 // Change the help if you change these

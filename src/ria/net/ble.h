@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _BLE_H_
-#define _BLE_H_
+#ifndef _RIA_NET_BLE_H_
+#define _RIA_NET_BLE_H_
 
+/* Bluetooth LE driver
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -28,4 +32,4 @@ void ble_shutdown(void);
 
 void ble_print_status(void);
 
-#endif /* _BLE_H_ */
+#endif /* _RIA_NET_BLE_H_ */

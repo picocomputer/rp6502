@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _WFI_H_
-#define _WFI_H_
+#ifndef _RIA_NET_WFI_H_
+#define _RIA_NET_WFI_H_
 
+/* Wi-Fi driver.
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -22,4 +26,4 @@ void wfi_print_status(void);
 void wfi_shutdown(void);
 bool wfi_ready(void);
 
-#endif /* _WFI_H_ */
+#endif /* _RIA_NET_WFI_H_ */

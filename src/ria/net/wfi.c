@@ -10,18 +10,17 @@ void wfi_task() {}
 void wfi_print_status() {}
 #else
 
+#include "net/cyw.h"
+#include "net/wfi.h"
+#include "sys/cfg.h"
+#include <pico/cyw43_arch.h>
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-#include "pico.h"
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "sys/cfg.h"
-#include "pico/cyw43_arch.h"
 
 typedef enum
 {
