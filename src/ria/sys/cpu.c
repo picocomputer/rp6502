@@ -8,8 +8,15 @@
 #include "api/api.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
-#include "pico/stdlib.h"
-#include "hardware/clocks.h"
+#include <pico/stdlib.h>
+#include <hardware/clocks.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CPU)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;

@@ -4,8 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _RIA_H_
-#define _RIA_H_
+#ifndef _RIA_SYS_RIA_H_
+#define _RIA_SYS_RIA_H_
+
+/* RP6502 Interface Adapter for WDC W65C02S.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 #define RIA_PIN_BASE 6
 #define RIA_CS_PIN (RIA_PIN_BASE + 0)
@@ -21,13 +28,6 @@
 #define RIA_READ_SM 2
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
-
-/* RP6502 Interface Adapter for WDC W65C02S.
- */
-
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
 
 /* Kernel events
  */
@@ -59,4 +59,4 @@ bool ria_print_error_message();
 // Compute CRC32 of mbuf to match zlib.
 uint32_t ria_buf_crc32();
 
-#endif /* _RIA_H_ */
+#endif /* _RIA_SYS_RIA_H_ */

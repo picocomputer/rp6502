@@ -4,8 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MEM_H_
-#define _MEM_H_
+#ifndef _RIA_SYS_MEM_H_
+#define _RIA_SYS_MEM_H_
+
+/* Various large chunks of memory used globally.
+ */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -49,4 +52,4 @@ asm(".equ regs, 0x20080000");
 extern uint8_t mbuf[];
 extern size_t mbuf_len;
 
-#endif /* _MEM_H_ */
+#endif /* _RIA_SYS_MEM_H_ */

@@ -5,8 +5,15 @@
  */
 
 #include "sys/rln.h"
-#include "pico/stdlib.h"
+#include <pico/stdlib.h>
 #include <stdio.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define RLN_BUF_SIZE 256
 #define RLN_CSI_PARAM_MAX_LEN 16

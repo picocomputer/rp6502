@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _PIX_H_
-#define _PIX_H_
+#ifndef _RIA_SYS_PIX_H_
+#define _RIA_SYS_PIX_H_
 
-#include "main.h"
-#include "hardware/pio.h"
+/* Pico Information eXchange bus driver.
+ */
+
+#include <hardware/pio.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -76,4 +79,4 @@ static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, ui
     pix_send(dev3, ch4, byte, word);
 }
 
-#endif /* _PIX_H_ */
+#endif /* _RIA_SYS_PIX_H_ */

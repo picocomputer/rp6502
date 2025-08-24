@@ -43,12 +43,12 @@
 /**************************************/
 
 // Many things are sensitive to order in obvious ways, like
-// starting the UART before printing. Please list subtleties.
+// starting stdio before printing. Please list subtleties.
 
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // Bring up stdio first.
+    // Bring up system stdio first.
     com_init();
 
     // Configure the remaining GPIOs.

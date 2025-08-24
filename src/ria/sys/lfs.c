@@ -5,7 +5,14 @@
  */
 
 #include "sys/lfs.h"
-#include "pico/printf.h"
+#include <pico/printf.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_LFS)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 // 1MB for ROM storage
 #define LFS_DISK_BLOCKS 256

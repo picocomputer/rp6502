@@ -16,6 +16,13 @@
 #include <stdio.h>
 #include <strings.h>
 
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 10
 // How long to wait for version string

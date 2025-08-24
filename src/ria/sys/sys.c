@@ -12,10 +12,16 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
-#include "pico/stdlib.h"
-#include "hardware/watchdog.h"
+#include <hardware/watchdog.h>
 #include <stdio.h>
 #include <string.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_SYS)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static void sys_print_status(void)
 {

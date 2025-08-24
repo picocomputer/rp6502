@@ -6,11 +6,16 @@
 
 #include "main.h"
 #include "api/api.h"
-#include "sys/cfg.h"
 #include "sys/pix.h"
 #include "sys.pio.h"
-#include "fatfs/ff.h"
-#include "pico/stdlib.h"
+#include <pico/time.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_PIX)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static uint32_t pix_send_count;
 static bool pix_wait_for_vga_ack;

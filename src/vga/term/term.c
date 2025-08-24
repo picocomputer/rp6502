@@ -932,7 +932,7 @@ static void term_out_chars(const char *buf, int length)
             term_out_char(&term_40, buf[i]);
             term_out_char(&term_80, buf[i]);
         }
-        term_40.timer = term_80.timer = make_timeout_time_us(2000);
+        term_40.timer = term_80.timer = make_timeout_time_us(2500);
     }
 }
 

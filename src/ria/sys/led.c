@@ -6,7 +6,14 @@
 
 #include "sys/led.h"
 #include "net/cyw.h"
-#include "pico/stdlib.h"
+#include <pico/stdlib.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_LED)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define LED_BLINK_TIME_MS 100
 

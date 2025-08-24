@@ -11,11 +11,17 @@
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys.pio.h"
-#include "pico/stdlib.h"
-#include "pico/multicore.h"
-#include "hardware/dma.h"
-#include "hardware/structs/bus_ctrl.h"
-#include "littlefs/lfs_util.h"
+#include <pico/stdio.h>
+#include <pico/multicore.h>
+#include <hardware/dma.h>
+#include <littlefs/lfs_util.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RIA)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define RIA_WATCHDOG_MS 250
 

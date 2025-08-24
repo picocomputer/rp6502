@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CPU_H_
-#define _CPU_H_
+#ifndef _RIA_SYS_CPU_H_
+#define _RIA_SYS_CPU_H_
 
+/* Driver for the 6502.
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -38,4 +42,4 @@ bool cpu_set_phi2_khz(uint32_t freq_khz);
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us();
 
-#endif /* _CPU_H_ */
+#endif /* _RIA_SYS_CPU_H_ */

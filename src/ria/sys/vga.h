@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _VGA_H_
-#define _VGA_H_
+#ifndef _RIA_SYS_VGA_H_
+#define _RIA_SYS_VGA_H_
 
+/* Connunications with RP6502-VGA.
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -28,10 +32,13 @@ void vga_post_reclock(uint32_t sys_clk_khz);
 // Active at startup and when reconnecting.
 bool vga_active(void);
 
+// Backchannel messages are being received.
 bool vga_backchannel(void);
+
+// For monitor status command.
 void vga_print_status(void);
 
 // Config handler.
 bool vga_set_vga(uint32_t display_type);
 
-#endif /* _VGA_H_ */
+#endif /* _RIA_SYS_VGA_H_ */

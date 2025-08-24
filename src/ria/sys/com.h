@@ -4,12 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _COM_H_
-#define _COM_H_
+#ifndef _RIA_SYS_COM_H_
+#define _RIA_SYS_COM_H_
+
+/* Communications port and stdio.
+ */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#define COM_UART uart1
+#define COM_UART_BAUD_RATE 115200
+#define COM_UART_TX_PIN 4
+#define COM_UART_RX_PIN 5
 
 /* Kernel events
  */
@@ -58,4 +66,4 @@ static inline void com_tx_write(char ch)
     com_tx_buf[++com_tx_head & 0x1F] = ch;
 }
 
-#endif /* _COM_H_ */
+#endif /* _RIA_SYS_COM_H_ */

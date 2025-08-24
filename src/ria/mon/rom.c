@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "api/api.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"

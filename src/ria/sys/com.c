@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "api/api.h"
 #include "hid/kbd.h"
 #include "sys/com.h"
@@ -13,10 +14,12 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 
-#define COM_UART uart1
-#define COM_UART_BAUD_RATE 115200
-#define COM_UART_TX_PIN 4
-#define COM_UART_RX_PIN 5
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_COM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define COM_BUF_SIZE 256
 #define COM_CSI_PARAM_MAX_LEN 16
