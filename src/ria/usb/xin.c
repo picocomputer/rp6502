@@ -4,14 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+// DISABLED because it crashes TinyUSB a lot
+#if 1
+
+#include "usb/xin.h"
+void xin_task(void) { return; }
+int xin_pad_count(void) { return 0; }
+bool xin_is_xbox_one(int) { return false; }
+bool xin_is_xbox_360(int) { return false; }
+
+#else
+
 #include "hid/pad.h"
 #include "usb/hid.h"
 #include "usb/xin.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
 #include <string.h>
-
-// This is a driver for USB XInput used by XBox gamepads.
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
 #include <stdio.h>
@@ -57,7 +66,7 @@ static int xin_find_free_index(void)
 }
 
 // We can use the same indexing as hid as long as we keep clear
-static int xin_idx_to_hid_slot(int idx)
+static inline int xin_idx_to_hid_slot(int idx)
 {
     return HID_XIN_START + idx;
 }
@@ -335,3 +344,5 @@ int xin_pad_count(void)
             ++count;
     return count;
 }
+
+#endif

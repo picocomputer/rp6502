@@ -68,7 +68,7 @@ void ble_set_leds(uint8_t leds)
     // TODO I don't have a keyboard to test this
 }
 
-static int ble_hids_cid_to_hid_slot(uint16_t hids_cid)
+static inline int ble_hids_cid_to_hid_slot(uint16_t hids_cid)
 {
     return HID_BLE_START + hids_cid;
 }

@@ -24,8 +24,10 @@ void ble_task(void);
 
 void ble_set_config(uint8_t bt);
 
+// True when new devices allowed to pair
 bool ble_is_pairing(void);
 
+// Sends LED info to keyboards
 void ble_set_leds(uint8_t leds);
 
 void ble_shutdown(void);

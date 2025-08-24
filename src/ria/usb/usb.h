@@ -4,13 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _USB_H_
-#define _USB_H_
+#ifndef _RIA_USB_USB_H_
+#define _RIA_USB_USB_H_
+
+/* TinyUSB stack driver.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Kernel events
+ */
 
 void usb_init(void);
-
 void usb_task(void);
 
+// For monitor status command.
 void usb_print_status(void);
 
-#endif /* _USB_H_ */
+#endif /* _RIA_USB_USB_H_ */

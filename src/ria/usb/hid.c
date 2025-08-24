@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "tusb.h"
+#include <tusb.h>
 #include "usb/hid.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
-#include "usb/xin.h"
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_HID)
 #include <stdio.h>
@@ -23,6 +22,11 @@ static uint8_t hid_leds;
 static uint8_t hid_count_kbd;
 static uint8_t hid_count_mou;
 static uint8_t hid_count_pad;
+
+static inline int hid_idx_to_hid_slot(int idx)
+{
+    return HID_USB_START + idx;
+}
 
 void hid_set_leds(uint8_t leds)
 {
@@ -45,9 +49,9 @@ void hid_task(void)
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    kbd_report(idx, report, len);
-    mou_report(idx, report, len);
-    pad_report(idx, report, len);
+    kbd_report(hid_idx_to_hid_slot(idx), report, len);
+    mou_report(hid_idx_to_hid_slot(idx), report, len);
+    pad_report(hid_idx_to_hid_slot(idx), report, len);
     tuh_hid_receive_report(dev_addr, idx);
 }
 
@@ -76,18 +80,18 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     DBG("HID device mounted: dev_addr=%d, idx=%d, protocol=%d, desc_len=%d\n",
         dev_addr, idx, itf_protocol, desc_len);
 
-    if (kbd_mount(idx, desc_report, desc_len))
+    if (kbd_mount(hid_idx_to_hid_slot(idx), desc_report, desc_len))
     {
         ++hid_count_kbd;
         hid_leds_dirty = true; // TODO this stopped working
         valid = true;
     }
-    if (mou_mount(idx, desc_report, desc_len))
+    if (mou_mount(hid_idx_to_hid_slot(idx), desc_report, desc_len))
     {
         ++hid_count_mou;
         valid = true;
     }
-    if (pad_mount(idx, desc_report, desc_len, vendor_id, product_id))
+    if (pad_mount(hid_idx_to_hid_slot(idx), desc_report, desc_len, vendor_id, product_id))
     {
         ++hid_count_pad;
         valid = true;
@@ -100,10 +104,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
     (void)dev_addr;
-    if (kbd_umount(idx))
+    if (kbd_umount(hid_idx_to_hid_slot(idx)))
         --hid_count_kbd;
-    if (mou_umount(idx))
+    if (mou_umount(hid_idx_to_hid_slot(idx)))
         --hid_count_mou;
-    if (pad_umount(idx))
+    if (pad_umount(hid_idx_to_hid_slot(idx)))
         --hid_count_pad;
 }

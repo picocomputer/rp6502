@@ -4,9 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MSC_H_
-#define _MSC_H_
+#ifndef _RIA_USB_MSC_H_
+#define _RIA_USB_MSC_H_
 
+/* USB Mass Storage Controller
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// For monitor status command.
 void msc_print_status(void);
 
-#endif /* _MSC_H_ */
+#endif /* _RIA_USB_MSC_H_ */
