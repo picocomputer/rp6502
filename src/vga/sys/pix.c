@@ -9,7 +9,7 @@
 #include "sys/ria.h"
 #include "sys/std.h"
 #include "sys/vga.h"
-#include "pix.pio.h"
+#include "vga.pio.h"
 #include "sys/mem.h"
 #include "term/font.h"
 #include "hardware/dma.h"
@@ -88,10 +88,10 @@ void pix_init(void)
     dma_addr = (uint32_t)xram;
 
     // Two state machines, one program
-    uint offset = pio_add_program(VGA_PIX_PIO, &vga_pix_program);
+    uint offset = pio_add_program(VGA_PIX_PIO, &pix_rx_program);
 
     // PIO to receive VGA registers
-    pio_sm_config regs_config = vga_pix_program_get_default_config(offset);
+    pio_sm_config regs_config = pix_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&regs_config, 0);
     sm_config_set_in_shift(&regs_config, false, false, 0);
     sm_config_set_out_shift(&regs_config, true, false, 4);
@@ -105,7 +105,7 @@ void pix_init(void)
     pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_REGS_SM, true);
 
     // PIO to receive XRAM
-    pio_sm_config xram_config = vga_pix_program_get_default_config(offset);
+    pio_sm_config xram_config = pix_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&xram_config, 0);
     sm_config_set_in_shift(&xram_config, false, false, 0);
     sm_config_set_out_shift(&xram_config, true, false, 4);

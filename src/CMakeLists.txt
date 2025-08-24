@@ -50,11 +50,7 @@ target_link_libraries(rp6502_ria PRIVATE
 )
 
 pico_generate_pio_header(rp6502_ria
-    ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.pio
-)
-
-pico_generate_pio_header(rp6502_ria
-    ${CMAKE_CURRENT_LIST_DIR}/ria/sys/vga.pio
+    ${CMAKE_CURRENT_LIST_DIR}/ria/ria.pio
 )
 
 target_sources(rp6502_ria PRIVATE
@@ -157,11 +153,7 @@ target_link_libraries(rp6502_vga PRIVATE
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio
-)
-
-pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/vga.pio
 )
 
 pico_generate_pio_header(rp6502_vga

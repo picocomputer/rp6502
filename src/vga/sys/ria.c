@@ -6,7 +6,7 @@
 
 #include "ria.h"
 #include "sys/std.h"
-#include "ria.pio.h"
+#include "vga.pio.h"
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include <string.h>
@@ -29,8 +29,8 @@ void ria_init(void)
     gpio_pull_up(BACKCHAN_PIN);
     pio_sm_set_pins_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
     pio_sm_set_pindirs_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
-    uint offset = pio_add_program(BACKCHAN_PIO, &uart_tx_program);
-    pio_sm_config c = uart_tx_program_get_default_config(offset);
+    uint offset = pio_add_program(BACKCHAN_PIO, &ria_backchannel_tx_program);
+    pio_sm_config c = ria_backchannel_tx_program_get_default_config(offset);
     sm_config_set_out_shift(&c, true, false, 32);
     sm_config_set_out_pins(&c, BACKCHAN_PIN, 1);
     sm_config_set_sideset_pins(&c, BACKCHAN_PIN);

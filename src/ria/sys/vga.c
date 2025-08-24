@@ -10,7 +10,7 @@
 #include "sys/ria.h"
 #include "sys/rln.h"
 #include "sys/vga.h"
-#include "vga.pio.h"
+#include "ria.pio.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <stdio.h>
@@ -128,8 +128,8 @@ void vga_init(void)
     pio_sm_set_consecutive_pindirs(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM,
                                    VGA_BACKCHANNEL_PIN, 1, false);
     gpio_pull_up(VGA_BACKCHANNEL_PIN);
-    uint offset = pio_add_program(VGA_BACKCHANNEL_PIO, &uart_rx_mini_program);
-    pio_sm_config c = uart_rx_mini_program_get_default_config(offset);
+    uint offset = pio_add_program(VGA_BACKCHANNEL_PIO, &vga_backchannel_rx_program);
+    pio_sm_config c = vga_backchannel_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&c, VGA_BACKCHANNEL_PIN); // for WAIT, IN
     sm_config_set_in_shift(&c, true, true, 8);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);

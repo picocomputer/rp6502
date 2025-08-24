@@ -10,7 +10,7 @@
 #include "sys/cpu.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys.pio.h"
+#include "ria.pio.h"
 #include <pico/stdio.h>
 #include <pico/multicore.h>
 #include <hardware/dma.h>
