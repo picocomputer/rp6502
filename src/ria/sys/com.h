@@ -29,14 +29,6 @@ void com_stop(void);
 void com_pre_reclock(void);
 void com_post_reclock(void);
 
-// Readline support for stdin
-void com_stdin_request(void);
-bool com_stdin_ready(void);
-size_t com_stdin_read(uint8_t *buf, size_t count);
-
-// API sets stdin options
-bool com_api_stdin_opt(void);
-
 /* Expose the internals here because ria.c needs direct access
  */
 

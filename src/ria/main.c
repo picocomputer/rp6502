@@ -117,6 +117,7 @@ static void task(void)
 static void run(void)
 {
     com_run();
+    std_run();
     vga_run();
     api_run();
     clk_run();

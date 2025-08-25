@@ -8,6 +8,7 @@
 #include "api/std.h"
 #include "sys/com.h"
 #include "sys/pix.h"
+#include "sys/rln.h"
 #include "net/mdm.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
@@ -33,6 +34,64 @@ static int32_t std_cpu_count = -1;
 static int32_t std_mdm_count = -1;
 static int32_t std_bytes_moved;
 static char *std_buf_ptr;
+
+// TODO simplify this once we drop const buf
+static bool std_stdin_active;
+static const char *std_stdin_buf;
+static bool std_stdin_needs_nl;
+static size_t std_stdin_pos;
+static size_t std_stdin_length;
+static size_t std_api_str_length;
+static uint32_t std_api_ctrl_bits;
+
+static void std_stdin_callback(bool timeout, const char *buf, size_t length)
+{
+    (void)timeout;
+    assert(!timeout);
+    std_stdin_active = false;
+    std_stdin_buf = buf;
+    std_stdin_pos = 0;
+    std_stdin_length = length;
+    std_stdin_needs_nl = true;
+}
+
+static void com_stdin_request(void)
+{
+    if (!std_stdin_needs_nl)
+    {
+        std_stdin_active = true;
+        rln_read_line(0, std_stdin_callback, std_api_str_length + 1, std_api_ctrl_bits);
+    }
+}
+
+static bool com_stdin_ready(void)
+{
+    return !std_stdin_active;
+}
+
+size_t com_stdin_read(uint8_t *buf, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count && std_stdin_pos < std_stdin_length; i++)
+        buf[i] = std_stdin_buf[std_stdin_pos++];
+    if (i < count && std_stdin_needs_nl)
+    {
+        buf[i++] = '\n';
+        std_stdin_needs_nl = false;
+    }
+    return i;
+}
+
+bool com_api_stdin_opt(void)
+{
+    uint8_t str_length = API_A;
+    uint32_t ctrl_bits;
+    if (!api_pop_uint32_end(&ctrl_bits))
+        return api_return_errno(API_EINVAL);
+    std_api_str_length = str_length;
+    std_api_ctrl_bits = ctrl_bits;
+    return api_return_ax(0);
+}
 
 bool std_api_open(void)
 {
@@ -404,6 +463,16 @@ bool std_api_rename(void)
     if (fresult != FR_OK)
         return api_return_errno(API_EFATFS(fresult));
     return api_return_ax(0);
+}
+
+void std_run(void)
+{
+    std_stdin_active = false;
+    std_stdin_needs_nl = false;
+    std_stdin_pos = 0;
+    std_stdin_length = 0;
+    std_api_str_length = 254;
+    std_api_ctrl_bits = 0;
 }
 
 void std_stop(void)

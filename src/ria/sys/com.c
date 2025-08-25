@@ -37,14 +37,6 @@ static size_t com_rx_head;
 static uint8_t com_rx_buf[32];
 #define COM_RX_BUF(pos) com_rx_buf[(pos) & 0x1F]
 
-static bool com_stdin_active;
-static const char *com_stdin_buf;
-static bool com_stdin_needs_nl;
-static size_t com_stdin_pos;
-static size_t com_stdin_length;
-static size_t com_api_str_length;
-static uint32_t com_api_ctrl_bits;
-
 static int com_rx_buf_getchar(void)
 {
     if (&COM_RX_BUF(com_rx_head) != &COM_RX_BUF(com_rx_tail))
@@ -117,7 +109,6 @@ void com_init(void)
     stdio_set_driver_enabled(&com_stdio_driver, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
     com_clear_all_rx();
-    com_api_str_length = 254;
 }
 
 void com_run()
@@ -128,12 +119,6 @@ void com_run()
 void com_stop()
 {
     com_clear_all_rx();
-    com_stdin_active = false;
-    com_stdin_needs_nl = false;
-    com_stdin_pos = 0;
-    com_stdin_length = 0;
-    com_api_str_length = 254;
-    com_api_ctrl_bits = 0;
 }
 
 void com_pre_reclock(void)
@@ -174,55 +159,6 @@ void com_task(void)
     else if (break_detect)
         main_break();
     break_detect = current_break;
-}
-
-static void com_stdin_callback(bool timeout, const char *buf, size_t length)
-{
-    (void)timeout;
-    assert(!timeout);
-    com_stdin_active = false;
-    com_stdin_buf = buf;
-    com_stdin_pos = 0;
-    com_stdin_length = length;
-    com_stdin_needs_nl = true;
-}
-
-void com_stdin_request(void)
-{
-    if (!com_stdin_needs_nl)
-    {
-        com_stdin_active = true;
-        rln_read_line(0, com_stdin_callback, com_api_str_length + 1, com_api_ctrl_bits);
-    }
-}
-
-bool com_stdin_ready(void)
-{
-    return !com_stdin_active;
-}
-
-size_t com_stdin_read(uint8_t *buf, size_t count)
-{
-    size_t i;
-    for (i = 0; i < count && com_stdin_pos < com_stdin_length; i++)
-        buf[i] = com_stdin_buf[com_stdin_pos++];
-    if (i < count && com_stdin_needs_nl)
-    {
-        buf[i++] = '\n';
-        com_stdin_needs_nl = false;
-    }
-    return i;
-}
-
-bool com_api_stdin_opt(void)
-{
-    uint8_t str_length = API_A;
-    uint32_t ctrl_bits;
-    if (!api_pop_uint32_end(&ctrl_bits))
-        return api_return_errno(API_EINVAL);
-    com_api_str_length = str_length;
-    com_api_ctrl_bits = ctrl_bits;
-    return api_return_ax(0);
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
