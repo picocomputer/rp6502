@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef SCANVIDEO_COMPOSABLE_SCANLINE_H_
-#define SCANVIDEO_COMPOSABLE_SCANLINE_H_
+#ifndef _VGA_SCANVIDEO_COMPOSABLE_SCANLINE_H_
+#define _VGA_SCANVIDEO_COMPOSABLE_SCANLINE_H_
 
 #include "pico/types.h"
 #include "scanvideo.pio.h"
@@ -37,4 +37,4 @@
 #define COMPOSABLE_RAW_1P_2CYCLE __DVP_JMP(raw_1p_2cycle)
 #endif
 
-#endif
+#endif /* _VGA_SCANVIDEO_COMPOSABLE_SCANLINE_H_ */

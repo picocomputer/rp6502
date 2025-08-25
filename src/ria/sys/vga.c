@@ -4,19 +4,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "str.h"
 #include "sys/cfg.h"
-#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include "sys/vga.h"
-#include "vga.pio.h"
-#include "pico/stdlib.h"
-#include "hardware/clocks.h"
+#include "ria.pio.h"
+#include <pico/stdlib.h>
+#include <hardware/clocks.h>
 #include <stdio.h>
 #include <strings.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 10
@@ -76,7 +81,7 @@ static void vga_read(bool timeout, const char *buf, size_t length)
     if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
     {
         // IO and buffers need to be in sync before switch
-        com_flush();
+        stdio_flush();
         // Clear any local echo (UART is seen by PIO)
         while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
             pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
@@ -123,8 +128,8 @@ void vga_init(void)
     pio_sm_set_consecutive_pindirs(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM,
                                    VGA_BACKCHANNEL_PIN, 1, false);
     gpio_pull_up(VGA_BACKCHANNEL_PIN);
-    uint offset = pio_add_program(VGA_BACKCHANNEL_PIO, &uart_rx_mini_program);
-    pio_sm_config c = uart_rx_mini_program_get_default_config(offset);
+    uint offset = pio_add_program(VGA_BACKCHANNEL_PIO, &vga_backchannel_rx_program);
+    pio_sm_config c = vga_backchannel_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&c, VGA_BACKCHANNEL_PIN); // for WAIT, IN
     sm_config_set_in_shift(&c, true, true, 8);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
@@ -152,7 +157,7 @@ void vga_task(void)
     {
         // TODO this state locks up if a reset happens
         vga_state = VGA_TESTING;
-        com_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
+        rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
         vga_pix_backchannel_request();
     }
 
@@ -177,8 +182,8 @@ void vga_task(void)
             }
             else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
             {
-                vga_version_message[vga_version_message_length++] = byte;
-                vga_version_message[vga_version_message_length] = 0;
+                vga_version_message[vga_version_message_length] = byte;
+                vga_version_message[++vga_version_message_length] = 0;
             }
         }
     }

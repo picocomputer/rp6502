@@ -4,11 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _RIA_USB_USB_H_
-#define _RIA_USB_USB_H_
-
-/* TinyUSB stack driver.
- */
+#ifndef _VGA_USB_USB_H_
+#define _VGA_USB_USB_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -20,7 +17,9 @@
 void usb_init(void);
 void usb_task(void);
 
-// For monitor status command.
-void usb_print_status(void);
+/* Exported serial number for USB descriptor
+ */
 
-#endif /* _RIA_USB_USB_H_ */
+extern char serno[];
+
+#endif /* _VGA_USB_USB_H_ */

@@ -4,15 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _PSG_H_
-#define _PSG_H_
+#ifndef _RIA_AUD_PSG_H_
+#define _RIA_AUD_PSG_H_
 
-#include <stdbool.h>
+/* Programmable Sound Generator
+ */
+
+#include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Kernel events
  */
 
 bool psg_xreg(uint16_t word);
 
-#endif /* _PSG_H_ */
+#endif /* _RIA_AUD_PSG_H_ */

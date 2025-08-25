@@ -12,12 +12,11 @@
 #include "modes/mode4.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
-#include "scanvideo/scanvideo.h"
-#include "hardware/interp.h"
+#include <hardware/interp.h>
 #include <stdint.h>
 
-GCC_Pragma("GCC push_options");
-GCC_Pragma("GCC optimize(\"O3\")");
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 
 typedef struct
 {
@@ -412,4 +411,4 @@ bool mode4_prog(uint16_t *xregs)
     return vga_prog_sprite(plane, scanline_begin, scanline_end, config_ptr, length, render_fn);
 }
 
-GCC_Pragma("GCC pop_options");
+#pragma GCC pop_options

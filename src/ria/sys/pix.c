@@ -6,11 +6,16 @@
 
 #include "main.h"
 #include "api/api.h"
-#include "sys/cfg.h"
 #include "sys/pix.h"
-#include "sys.pio.h"
-#include "fatfs/ff.h"
-#include "pico/stdlib.h"
+#include "ria.pio.h"
+#include <pico/time.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_PIX)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static uint32_t pix_send_count;
 static bool pix_wait_for_vga_ack;
@@ -25,8 +30,8 @@ void pix_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 
 void pix_init(void)
 {
-    uint offset = pio_add_program(PIX_PIO, &pix_send_program);
-    pio_sm_config config = pix_send_program_get_default_config(offset);
+    uint offset = pio_add_program(PIX_PIO, &pix_tx_program);
+    pio_sm_config config = pix_tx_program_get_default_config(offset);
     sm_config_set_out_pins(&config, PIX_PIN_BASE, 4);
     sm_config_set_out_shift(&config, false, false, 32);
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);

@@ -5,7 +5,7 @@
  */
 
 
-.program pix_send
+.program pix_tx
 
 pull ifempty noblock
 wait 1 gpio 21 [6]
@@ -102,3 +102,15 @@ jmp !x reading ; select==1 and rwb==1
 reading:
 mov pindirs !y
 jmp start
+
+
+; Minimum 8N1 UART receiver.
+.program vga_backchannel_rx
+
+.wrap_target
+wait 0 pin 0        ; Wait for start bit
+set x, 7 [10]       ; Delay until eye of first data bit
+bitloop:
+in pins, 1
+jmp x-- bitloop [6]
+.wrap

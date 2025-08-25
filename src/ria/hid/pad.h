@@ -4,13 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _PAD_H_
-#define _PAD_H_
+#ifndef _RIA_HID_PAD_H_
+#define _RIA_HID_PAD_H_
 
+/* HID Gamepad driver
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-#define PAD_MAX_PLAYERS 4
 
 /* Kernel events
  */
@@ -31,8 +33,10 @@ bool pad_umount(int slot);
 // Process HID gamepad report.
 void pad_report(int slot, uint8_t const *data, uint16_t len);
 
+// For xbox one, this doesn't come in reports.
 void pad_home_button(int slot, bool pressed);
 
+// Drivers may set on gamepad for display
 int pad_get_player_num(int slot);
 
-#endif /* _PAD_H_ */
+#endif /* _RIA_HID_PAD_H_ */

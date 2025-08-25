@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include <pico.h>
-#include "btstack_hid_parser.h"
-#include "tusb_config.h"
 #include "hid/des.h"
 #include "hid/mou.h"
 #include "sys/mem.h"
+#include <btstack_hid_parser.h>
+#include <pico.h>
 #include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_MOU)

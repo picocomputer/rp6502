@@ -4,14 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CPU_H_
-#define _CPU_H_
+#ifndef _RIA_SYS_CPU_H_
+#define _RIA_SYS_CPU_H_
 
+/* Driver for the 6502.
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-// 1-byte message queue to the RIA action loop.
-extern volatile int cpu_rx_char;
+#define CPU_RESB_PIN 26
+#define CPU_IRQB_PIN 22
+#define CPU_PHI2_PIN 21
 
 /* Kernel events
  */
@@ -37,18 +42,4 @@ bool cpu_set_phi2_khz(uint32_t freq_khz);
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us();
 
-// Receive UART and keyboard communications intended for the 6502.
-void cpu_com_rx(uint8_t ch);
-
-// Get char from CPU rx buf
-int cpu_getchar(void);
-
-// Readline support for stdin
-void cpu_stdin_request(void);
-bool cpu_stdin_ready(void);
-size_t cpu_stdin_read(uint8_t *buf, size_t count);
-
-// API sets STDIN options
-bool cpu_api_stdin_opt(void);
-
-#endif /* _CPU_H_ */
+#endif /* _RIA_SYS_CPU_H_ */

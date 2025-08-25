@@ -12,6 +12,13 @@
 #include "pico/aon_timer.h"
 #include <math.h>
 
+#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
 // Validate essential settings in ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
 static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);

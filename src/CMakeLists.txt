@@ -50,16 +50,15 @@ target_link_libraries(rp6502_ria PRIVATE
 )
 
 pico_generate_pio_header(rp6502_ria
-    ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.pio
-)
-
-pico_generate_pio_header(rp6502_ria
-    ${CMAKE_CURRENT_LIST_DIR}/ria/sys/vga.pio
+    ${CMAKE_CURRENT_LIST_DIR}/ria/ria.pio
 )
 
 target_sources(rp6502_ria PRIVATE
+    fatfs/ff.c
+    fatfs/ffunicode.c
+    littlefs/lfs.c
+    littlefs/lfs_util.c
     ria/main.c
-    ria/str.c
     ria/api/api.c
     ria/api/clk.c
     ria/api/oem.c
@@ -77,6 +76,7 @@ target_sources(rp6502_ria PRIVATE
     ria/mon/ram.c
     ria/mon/rom.c
     ria/mon/set.c
+    ria/mon/str.c
     ria/mon/vip.c
     ria/net/ble.c
     ria/net/cmd.c
@@ -93,16 +93,13 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/mem.c
     ria/sys/pix.c
     ria/sys/ria.c
+    ria/sys/rln.c
     ria/sys/sys.c
     ria/sys/vga.c
     ria/usb/hid.c
     ria/usb/msc.c
     ria/usb/usb.c
     ria/usb/xin.c
-    fatfs/ff.c
-    fatfs/ffunicode.c
-    littlefs/lfs.c
-    littlefs/lfs_util.c
 )
 
 
@@ -130,19 +127,19 @@ target_sources(rp6502_vga PRIVATE
     vga/modes/mode3.c
     vga/modes/mode4.c
     vga/modes/mode4.S
+    vga/scanvideo/scanvideo.c
+    vga/sys/com.c
     vga/sys/led.c
     vga/sys/mem.c
     vga/sys/pix.c
     vga/sys/ria.c
-    vga/sys/std.c
     vga/sys/vga.c
     vga/term/color.c
     vga/term/font.c
     vga/term/term.c
     vga/usb/cdc.c
     vga/usb/descriptors.c
-    vga/usb/serno.c
-    scanvideo/scanvideo.c
+    vga/usb/usb.c
 )
 
 target_link_libraries(rp6502_vga PRIVATE
@@ -156,19 +153,15 @@ target_link_libraries(rp6502_vga PRIVATE
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/vga/sys/pix.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/vga.pio
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/scanvideo/scanvideo.pio
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/scanvideo.pio
-)
-
-pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/timing.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/scanvideo/timing.pio
 )
 
 target_compile_definitions(rp6502_vga PRIVATE

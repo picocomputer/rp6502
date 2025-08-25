@@ -4,14 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MAIN_H_
-#define _MAIN_H_
+#ifndef _VGA_MAIN_H_
+#define _VGA_MAIN_H_
 
-#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 void main_flush(void);
 void main_reclock(void);
 bool main_prog(uint16_t *xregs);
 
-#endif /* _MAIN_H_ */
+#endif /* _VGA_MAIN_H_ */

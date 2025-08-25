@@ -4,8 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _KBD_H_
-#define _KBD_H_
+#ifndef _RIA_HID_KBD_H_
+#define _RIA_HID_KBD_H_
+
+/* HID Keyboard driver
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 /* Kernel events
  */
@@ -29,4 +36,4 @@ bool kbd_xreg(uint16_t word);
 // Handler for stdio_driver_t
 int kbd_stdio_in_chars(char *buf, int length);
 
-#endif /* _KBD_H_ */
+#endif /* _RIA_HID_KBD_H_ */

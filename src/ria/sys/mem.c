@@ -4,7 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mem.h"
+#include "sys/mem.h"
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #ifdef NDEBUG
 uint8_t xram[0x10000] __attribute__((aligned(32)));

@@ -9,7 +9,14 @@
 #include "sys/cpu.h"
 #include "sys/ria.h"
 
-static uint8_t api_active_op = 0;
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_API)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+static uint8_t api_active_op;
 
 void api_task(void)
 {

@@ -15,25 +15,19 @@ int mdm_rx(char *) { return -1; }
 int mdm_tx(char) { return -1; }
 #else
 
+#include "net/cmd.h"
+#include "net/mdm.h"
+#include "net/tel.h"
+#include "sys/lfs.h"
+#include "sys/mem.h"
+#include <pico/time.h>
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-#include <pico.h>
-#include <string.h>
-#include <stdio.h>
-#include <pico/time.h>
-#include "lwipopts.h"
-#include "str.h"
-#include "net/cmd.h"
-#include "net/mdm.h"
-#include "net/tel.h"
-#include "net/wfi.h"
-#include "sys/lfs.h"
-#include "sys/mem.h"
 
 // Leave a little room for escaped telnet characters.
 #if TCP_MSS == 536 // does not fragment and good enough

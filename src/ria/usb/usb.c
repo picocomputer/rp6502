@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "tusb.h"
 #include "usb/hid.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/xin.h"
+#include <tusb.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
 #include <stdio.h>

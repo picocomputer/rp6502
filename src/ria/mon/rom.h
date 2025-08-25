@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _ROM_H_
-#define _ROM_H_
+#ifndef _RIA_MON_ROM_H_
+#define _RIA_MON_ROM_H_
+
+/* Monitor commands for working with ROM (*.rp6502) files.
+ */
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 /* Kernel events
@@ -18,7 +22,7 @@ void rom_init(void);
 void rom_task(void);
 void rom_reset(void);
 
-// True when this module is busy with IO.
+// True when this module has pending IO.
 bool rom_active(void);
 
 /* Monitor commands
@@ -35,4 +39,4 @@ bool rom_load(const char *args, size_t len);
 // Display help from an installed ROM.
 bool rom_help(const char *args, size_t len);
 
-#endif /* _ROM_H_ */
+#endif /* _RIA_MON_ROM_H_ */

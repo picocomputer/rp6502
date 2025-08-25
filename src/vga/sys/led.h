@@ -4,11 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _LED_H_
-#define _LED_H_
+#ifndef _VGA_SYS_LED_H_
+#define _VGA_SYS_LED_H_
 
-#include "pico/stdlib.h"
+/* Turns on the LED
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Kernel events
+ */
 
 void led_init(void);
 
-#endif /* _LED_H_ */
+#endif /* _VGA_SYS_LED_H_ */

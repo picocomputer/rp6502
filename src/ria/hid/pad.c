@@ -4,13 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include <pico.h>
-#include "btstack_hid_parser.h"
-#include "tusb_config.h"
 #include "hid/pad.h"
 #include "hid/des.h"
 #include "sys/mem.h"
 #include "usb/xin.h"
+#include <btstack_hid_parser.h>
+#include <pico.h>
 #include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
@@ -40,6 +39,8 @@ typedef struct
     uint8_t lt;      // analog left trigger
     uint8_t rt;      // analog right trigger
 } pad_xram_t;
+
+#define PAD_MAX_PLAYERS 4
 
 // Deadzone is generous enough for moderately worn sticks.
 // This is only for the analog to digital comversions so

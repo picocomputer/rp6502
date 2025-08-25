@@ -4,10 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MEM_H_
-#define _MEM_H_
+#ifndef _VGA_SYS_MEM_H_
+#define _VGA_SYS_MEM_H_
 
+/* Storage for xram
+ */
+
+#include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 // 64KB Extended RAM
 #ifdef NDEBUG
@@ -16,4 +21,4 @@ extern volatile const uint8_t xram[0x10000];
 extern volatile uint8_t *const xram;
 #endif
 
-#endif /* _MEM_H_ */
+#endif /* _VGA_SYS_MEM_H_ */

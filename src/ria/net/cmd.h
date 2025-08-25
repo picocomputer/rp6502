@@ -4,9 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CMD_H_
-#define _CMD_H_
+#ifndef _RIA_NET_CMD_H_
+#define _RIA_NET_CMD_H_
 
+/* Parser of Hayes-like commands.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 /* Utility
@@ -14,4 +19,4 @@
 
 bool cmd_parse(const char **s);
 
-#endif /* _CMD_H_ */
+#endif /* _RIA_NET_CMD_H_ */

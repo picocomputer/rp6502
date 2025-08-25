@@ -6,19 +6,17 @@
 
 #ifdef RP6502_RIA_W
 
+#include "net/mdm.h"
+#include "net/tel.h"
+#include <lwip/tcp.h>
+#include <lwip/dns.h>
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_TEL)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-#include "pico.h"
-#include "net/mdm.h"
-#include "net/tel.h"
-#include "lwip/tcp.h"
-#include "lwip/dns.h"
-#include "lwipopts.h"
 
 typedef enum
 {

@@ -4,11 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
-#include "sys/cfg.h"
-#include "sys/cpu.h"
-#include "sys/lfs.h"
+#include "mon/set.h"
+#include "mon/str.h"
 #include "net/ble.h"
+#include "sys/cfg.h"
+#include "sys/lfs.h"
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_SET)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static void set_print_phi2(void)
 {

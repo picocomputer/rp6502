@@ -4,14 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _STD_H_
-#define _STD_H_
+#ifndef _RIA_API_STD_H_
+#define _RIA_API_STD_H_
 
+/* Provides STDIO to the 6502.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 /* Kernel events
  */
 
+void std_run(void);
 void std_stop(void);
 
 /* The API implementation for stdio support.
@@ -26,5 +32,6 @@ bool std_api_write_xram(void);
 bool std_api_lseek(void);
 bool std_api_unlink(void);
 bool std_api_rename(void);
+bool std_api_stdin_opt(void);
 
-#endif /* _STD_H_ */
+#endif /* _RIA_API_STD_H_ */

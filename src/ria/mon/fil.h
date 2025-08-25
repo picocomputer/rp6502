@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _FIL_H_
-#define _FIL_H_
+#ifndef _RIA_MON_FIL_H_
+#define _RIA_MON_FIL_H_
+
+/* Monitor commands for filesystem.
+ */
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 /* Kernel events
@@ -28,4 +32,4 @@ void fil_mon_ls(const char *args, size_t len);
 void fil_mon_upload(const char *args, size_t len);
 void fil_mon_unlink(const char *args, size_t len);
 
-#endif /* _FIL_H_ */
+#endif /* _RIA_MON_FIL_H_ */

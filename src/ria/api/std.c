@@ -7,11 +7,18 @@
 #include "api/api.h"
 #include "api/std.h"
 #include "sys/com.h"
-#include "sys/cpu.h"
 #include "sys/pix.h"
+#include "sys/rln.h"
 #include "net/mdm.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 #define STD_FIL_MAX 16
 FIL std_fil[STD_FIL_MAX];
@@ -27,6 +34,64 @@ static int32_t std_cpu_count = -1;
 static int32_t std_mdm_count = -1;
 static int32_t std_bytes_moved;
 static char *std_buf_ptr;
+
+// TODO simplify this once we drop const buf
+static bool std_stdin_active;
+static const char *std_stdin_buf;
+static bool std_stdin_needs_nl;
+static size_t std_stdin_pos;
+static size_t std_stdin_length;
+static size_t std_api_str_length;
+static uint32_t std_api_ctrl_bits;
+
+static void std_stdin_callback(bool timeout, const char *buf, size_t length)
+{
+    (void)timeout;
+    assert(!timeout);
+    std_stdin_active = false;
+    std_stdin_buf = buf;
+    std_stdin_pos = 0;
+    std_stdin_length = length;
+    std_stdin_needs_nl = true;
+}
+
+static void std_stdin_request(void)
+{
+    if (!std_stdin_needs_nl)
+    {
+        std_stdin_active = true;
+        rln_read_line(0, std_stdin_callback, std_api_str_length + 1, std_api_ctrl_bits);
+    }
+}
+
+static bool std_stdin_ready(void)
+{
+    return !std_stdin_active;
+}
+
+static size_t std_stdin_read(uint8_t *buf, size_t count)
+{
+    size_t i;
+    for (i = 0; i < count && std_stdin_pos < std_stdin_length; i++)
+        buf[i] = std_stdin_buf[std_stdin_pos++];
+    if (i < count && std_stdin_needs_nl)
+    {
+        buf[i++] = '\n';
+        std_stdin_needs_nl = false;
+    }
+    return i;
+}
+
+bool std_api_stdin_opt(void)
+{
+    uint8_t str_length = API_A;
+    uint32_t ctrl_bits;
+    if (!api_pop_uint32_end(&ctrl_bits))
+        return api_return_errno(API_EINVAL);
+    std_api_str_length = str_length;
+    std_api_ctrl_bits = ctrl_bits;
+    return api_return_ax(0);
+}
 
 bool std_api_open(void)
 {
@@ -95,11 +160,11 @@ bool std_api_read_xstack(void)
     uint16_t count;
     if (std_cpu_count >= 0)
     {
-        if (!cpu_stdin_ready())
+        if (!std_stdin_ready())
             return api_working();
         count = std_cpu_count;
         buf = &xstack[XSTACK_SIZE - count];
-        std_bytes_moved = cpu_stdin_read(buf, count);
+        std_bytes_moved = std_stdin_read(buf, count);
         std_cpu_count = -1;
     }
     else if (std_mdm_count >= 0)
@@ -132,7 +197,7 @@ bool std_api_read_xstack(void)
         if (fd == STD_FIL_STDIN)
         {
             std_cpu_count = count;
-            cpu_stdin_request();
+            std_stdin_request();
             return api_working();
         }
         if (fd == STD_FIL_MODEM)
@@ -162,9 +227,9 @@ bool std_api_read_xram(void)
 {
     if (std_cpu_count >= 0)
     {
-        if (!cpu_stdin_ready())
+        if (!std_stdin_ready())
             return api_working();
-        std_xram_count = cpu_stdin_read((uint8_t *)std_buf_ptr, std_cpu_count);
+        std_xram_count = std_stdin_read((uint8_t *)std_buf_ptr, std_cpu_count);
         api_set_ax(std_xram_count);
         std_cpu_count = -1;
         return api_working();
@@ -211,7 +276,7 @@ bool std_api_read_xram(void)
     std_buf_ptr = (char *)&xram[xram_addr];
     if (fd == STD_FIL_STDIN)
     {
-        cpu_stdin_request();
+        std_stdin_request();
         std_cpu_count = count;
         return api_working();
     }
@@ -398,6 +463,16 @@ bool std_api_rename(void)
     if (fresult != FR_OK)
         return api_return_errno(API_EFATFS(fresult));
     return api_return_ax(0);
+}
+
+void std_run(void)
+{
+    std_stdin_active = false;
+    std_stdin_needs_nl = false;
+    std_stdin_pos = 0;
+    std_stdin_length = 0;
+    std_api_str_length = 254;
+    std_api_ctrl_bits = 0;
 }
 
 void std_stop(void)

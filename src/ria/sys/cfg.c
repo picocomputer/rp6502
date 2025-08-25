@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
+#include "mon/str.h"
 #include "api/clk.h"
 #include "api/oem.h"
 #include "net/ble.h"
@@ -16,6 +16,13 @@
 #include "sys/mem.h"
 #include "sys/vga.h"
 #include <ctype.h>
+
+#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 // Configuration is a plain ASCII file on the LFS. e.g.
 // +V1         | Version - Must be first

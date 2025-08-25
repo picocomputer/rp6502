@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _PICO_UTIL_BUFFER_H
-#define _PICO_UTIL_BUFFER_H
+#ifndef _VGA_SCANVIDEO_BUFFER_H
+#define _VGA_SCANVIDEO_BUFFER_H
 
 #include "pico/types.h"
 
@@ -106,4 +106,4 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif
-#endif
+#endif /* _VGA_SCANVIDEO_BUFFER_H */

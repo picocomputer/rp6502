@@ -31,6 +31,7 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/hid.h"
@@ -42,17 +43,19 @@
 /**************************************/
 
 // Many things are sensitive to order in obvious ways, like
-// starting the UART before printing. Please list subtleties.
+// starting stdio before printing. Please list subtleties.
 
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // STDIO not available until after these inits.
+    // Bring up system stdio first.
+    com_init();
+
+    // Configure the remaining GPIOs.
     cpu_init();
     ria_init();
     pix_init();
     vga_init();
-    com_init();
 
     // Load config before we continue.
     lfs_init();
@@ -79,29 +82,30 @@ static void init(void)
 // much work as you can until something blocks.
 
 // These tasks run when FatFs is blocking.
-// Calling FatFs in here may cause undefined behavior.
+// Calling FatFs in here will summon a dragon.
 void main_task(void)
 {
-    led_task();
     usb_task();
     cpu_task();
     ria_task();
     aud_task();
     kbd_task();
-    vga_task();
     cyw_task();
+    vga_task();
     wfi_task();
     ntp_task();
     hid_task();
     xin_task();
     ble_task();
+    led_task();
+    com_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
+    rln_task();
     api_task();
-    com_task();
     mon_task();
     ram_task();
     fil_task();
@@ -112,6 +116,8 @@ static void task(void)
 // Event to start running the 6502.
 static void run(void)
 {
+    com_run();
+    std_run();
     vga_run();
     api_run();
     clk_run();
@@ -124,6 +130,7 @@ static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
+    com_stop();
     api_stop();
     ria_stop();
     pix_stop();
@@ -139,12 +146,12 @@ static void stop(void)
 // Event for CTRL-ALT-DEL and UART breaks.
 static void reset(void)
 {
-    com_reset();
     fil_reset();
     mon_reset();
     ram_reset();
     rom_reset();
     vga_reset();
+    rln_reset();
 }
 
 // Triggered once after init then before every PHI2 clock change.
@@ -200,61 +207,42 @@ bool main_api(uint8_t operation)
     {
     case 0x01:
         return pix_api_xreg();
-        break;
     case 0x02:
         return cpu_api_phi2();
-        break;
     case 0x03:
         return oem_api_codepage();
-        break;
     case 0x04:
         return rng_api_lrand();
-        break;
     case 0x05:
-        return cpu_api_stdin_opt();
-        break;
+        return std_api_stdin_opt();
     case 0x0F:
         return clk_api_clock();
-        break;
     case 0x10:
         return clk_api_get_res();
-        break;
     case 0x11:
         return clk_api_get_time();
-        break;
     case 0x12:
         return clk_api_set_time();
-        break;
     case 0x13:
         return clk_api_get_time_zone();
-        break;
     case 0x14:
         return std_api_open();
-        break;
     case 0x15:
         return std_api_close();
-        break;
     case 0x16:
         return std_api_read_xstack();
-        break;
     case 0x17:
         return std_api_read_xram();
-        break;
     case 0x18:
         return std_api_write_xstack();
-        break;
     case 0x19:
         return std_api_write_xram();
-        break;
     case 0x1A:
         return std_api_lseek();
-        break;
     case 0x1B:
         return std_api_unlink();
-        break;
     case 0x1C:
         return std_api_rename();
-        break;
     }
     api_return_errno(API_ENOSYS);
     return false;

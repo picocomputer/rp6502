@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria.h"
-#include "sys/std.h"
-#include "ria.pio.h"
-#include "pico/stdlib.h"
-#include "hardware/clocks.h"
+#include "vga.pio.h"
+#include "sys/com.h"
+#include "sys/ria.h"
+#include <pico/stdlib.h>
+#include <hardware/clocks.h>
 #include <string.h>
 
 // PIX is unidirectional and we're out of pins.
 // The RIA also sends UART data over PIX so we can
 // reconfigure that pin for a return channel.
-#define BACKCHAN_PIN STD_UART_RX
+#define BACKCHAN_PIN COM_UART_RX
 #define BACKCHAN_BAUDRATE 115200
 #define BACKCHAN_PIO pio1
 #define BACKCHAN_SM 3
@@ -29,8 +29,8 @@ void ria_init(void)
     gpio_pull_up(BACKCHAN_PIN);
     pio_sm_set_pins_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
     pio_sm_set_pindirs_with_mask(BACKCHAN_PIO, BACKCHAN_SM, 1u << BACKCHAN_PIN, 1u << BACKCHAN_PIN);
-    uint offset = pio_add_program(BACKCHAN_PIO, &uart_tx_program);
-    pio_sm_config c = uart_tx_program_get_default_config(offset);
+    uint offset = pio_add_program(BACKCHAN_PIO, &ria_backchannel_tx_program);
+    pio_sm_config c = ria_backchannel_tx_program_get_default_config(offset);
     sm_config_set_out_shift(&c, true, false, 32);
     sm_config_set_out_pins(&c, BACKCHAN_PIN, 1);
     sm_config_set_sideset_pins(&c, BACKCHAN_PIN);
@@ -88,7 +88,7 @@ void ria_backchan(uint16_t word)
             version_pos = version_dev + 1;
         break;
     case 2: // send ack
-        uart_write_blocking(STD_UART_INTERFACE, (uint8_t *)"VGA1", 4);
+        uart_write_blocking(COM_UART_INTERFACE, (uint8_t *)"VGA1", 4);
         break;
     }
 }

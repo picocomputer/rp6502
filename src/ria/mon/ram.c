@@ -4,14 +4,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "str.h"
 #include "api/api.h"
-#include "sys/com.h"
+#include "mon/ram.h"
+#include "mon/str.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/rln.h"
 #include <stdio.h>
 
-#define TIMEOUT_MS 500
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_RAM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+#define TIMEOUT_MS 200
 
 static enum {
     SYS_IDLE,
@@ -195,7 +203,7 @@ void ram_mon_binary(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        com_read_binary(TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
+        rln_read_binary(TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
         cmd_state = SYS_BINARY;
         return;
     }

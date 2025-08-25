@@ -6,7 +6,14 @@
 
 #include "api/api.h"
 #include "api/rng.h"
-#include "pico/rand.h"
+#include <pico/rand.h>
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_RNG)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 bool rng_api_lrand(void)
 {

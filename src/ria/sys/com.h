@@ -4,36 +4,36 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _COM_H_
-#define _COM_H_
+#ifndef _RIA_SYS_COM_H_
+#define _RIA_SYS_COM_H_
+
+/* Communications switchboard.
+ */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#define COM_UART uart1
+#define COM_UART_BAUD_RATE 115200
+#define COM_UART_TX_PIN 4
+#define COM_UART_RX_PIN 5
 
 /* Kernel events
  */
 
 void com_task(void);
 void com_init(void);
-void com_reset(void);
+void com_run(void);
+void com_stop(void);
 void com_pre_reclock(void);
 void com_post_reclock(void);
 
-// Blocks until all buffers empty. Use sparingly.
-void com_flush(void);
+/* Expose the internals here because ria.c needs direct access
+ */
 
-// Both types of reads guarantee this callback unless a
-// break event happens. Timeout is true when input is idle too long.
-// Requesting a timeout of 0 ms will disable the idle timer.
-typedef void (*com_read_callback_t)(bool timeout, const char *buf, size_t length);
-
-// Prepare to receive binary data of a known size.
-void com_read_binary(uint32_t timeout_ms, com_read_callback_t callback, uint8_t *buf, size_t size);
-
-// Prepare the line editor. The com module can read entire lines
-// of input with basic editing on ANSI terminals.
-void com_read_line(uint32_t timeout_ms, com_read_callback_t callback, size_t size, uint32_t ctrl_bits);
+// 1-byte message queue to the RIA action loop.
+extern volatile int com_rx_char;
 
 extern volatile size_t com_tx_tail;
 extern volatile size_t com_tx_head;
@@ -58,4 +58,4 @@ static inline void com_tx_write(char ch)
     com_tx_buf[++com_tx_head & 0x1F] = ch;
 }
 
-#endif /* _COM_H_ */
+#endif /* _RIA_SYS_COM_H_ */

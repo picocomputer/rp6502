@@ -4,14 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+// DISABLED because it crashes TinyUSB a lot
+#if 1
+
+#include "usb/xin.h"
+void xin_task(void) { return; }
+int xin_pad_count(void) { return 0; }
+bool xin_is_xbox_one(int) { return false; }
+bool xin_is_xbox_360(int) { return false; }
+
+#else
+
 #include "hid/pad.h"
 #include "usb/hid.h"
 #include "usb/xin.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
 #include <string.h>
-
-// This is a driver for USB XInput used by XBox gamepads.
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
 #include <stdio.h>
@@ -36,11 +45,13 @@ typedef struct
     absolute_time_t start_360_time;
 } xbox_device_t;
 
-static xbox_device_t xbox_devices[PAD_MAX_PLAYERS];
+#define XIN_MAX_DEVICES 4
+
+static xbox_device_t xbox_devices[XIN_MAX_DEVICES];
 
 static int xin_find_index_by_dev_addr(uint8_t dev_addr)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < XIN_MAX_DEVICES; i++)
         if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)
             return i;
     return -1;
@@ -48,14 +59,14 @@ static int xin_find_index_by_dev_addr(uint8_t dev_addr)
 
 static int xin_find_free_index(void)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < XIN_MAX_DEVICES; i++)
         if (!xbox_devices[i].valid)
             return i;
     return -1;
 }
 
 // We can use the same indexing as hid as long as we keep clear
-static int xin_idx_to_hid_slot(int idx)
+static inline int xin_idx_to_hid_slot(int idx)
 {
     return HID_XIN_START + idx;
 }
@@ -63,7 +74,7 @@ static int xin_idx_to_hid_slot(int idx)
 bool xin_is_xbox_one(int slot)
 {
     unsigned int idx = slot - HID_XIN_START;
-    return idx < PAD_MAX_PLAYERS &&
+    return idx < XIN_MAX_DEVICES &&
            xbox_devices[idx].valid &&
            xbox_devices[idx].is_xbox_one;
 }
@@ -71,7 +82,7 @@ bool xin_is_xbox_one(int slot)
 bool xin_is_xbox_360(int slot)
 {
     unsigned int idx = slot - HID_XIN_START;
-    return idx < PAD_MAX_PLAYERS &&
+    return idx < XIN_MAX_DEVICES &&
            xbox_devices[idx].valid &&
            !xbox_devices[idx].is_xbox_one;
 }
@@ -302,7 +313,7 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 void xin_task(void)
 {
     absolute_time_t now = get_absolute_time();
-    for (int idx = 0; idx < PAD_MAX_PLAYERS; ++idx)
+    for (int idx = 0; idx < XIN_MAX_DEVICES; ++idx)
     {
         xbox_device_t *device = &xbox_devices[idx];
         if (device->valid && device->start_360_pending && absolute_time_diff_us(now, device->start_360_time) <= 0)
@@ -328,8 +339,10 @@ void xin_task(void)
 int xin_pad_count(void)
 {
     int count = 0;
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < XIN_MAX_DEVICES; i++)
         if (xbox_devices[i].valid)
             ++count;
     return count;
 }
+
+#endif

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-.program vga_pix
+.program pix_rx
 
 ; Initialization will send the channel number
 ; then manually run these instructions first:
@@ -37,3 +37,14 @@ out y 1
 jmp y-- start
 ; Not a frame start, empty the osr
 out null 3
+
+
+; Minimum 8n1 UART transmit program.
+.program ria_backchannel_tx
+.side_set 1 opt
+
+    pull       side 1 [7]  ; stop bit
+    set x, 7   side 0 [7]  ; start bit for 8 clocks
+bitloop:
+    out pins, 1
+    jmp x-- bitloop   [6]

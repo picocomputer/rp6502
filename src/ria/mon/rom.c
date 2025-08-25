@@ -5,17 +5,25 @@
  */
 
 #include "main.h"
-#include "str.h"
 #include "api/api.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
+#include "mon/rom.h"
+#include "mon/str.h"
 #include "net/cyw.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
-#include "fatfs/ff.h"
+#include <fatfs/ff.h>
+
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
+#include <stdio.h>
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
 
 static enum {
     ROM_IDLE,
@@ -240,7 +248,7 @@ void rom_mon_install(const char *args, size_t len)
     // Test for system conflicts
     if (!lfs_name_len ||
         mon_command_exists(lfs_name, lfs_name_len) ||
-        help_text_lookup(lfs_name, lfs_name_len))
+        hlp_topic_exists(lfs_name, lfs_name_len))
     {
         printf("?Invalid ROM name.\n");
         return;
@@ -430,6 +438,19 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
+        if (rom_state == ROM_IDLE && lfs_file_open)
+        {
+            int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
+            lfs_file_open = false;
+            if (lfsresult < 0)
+                printf("?Unable to lfs_file_close (%d)\n", lfsresult);
+        }
+        if (rom_state == ROM_IDLE && fat_fil.obj.fs)
+        {
+            FRESULT result = f_close(&fat_fil);
+            if (result != FR_OK)
+                printf("?Unable to close file (%d)\n", result);
+        }
         break;
     case ROM_WAIT_LOAD:
         rom_wait_load();
@@ -452,21 +473,6 @@ void rom_task(void)
         if (rom_action_is_finished())
             rom_state = ROM_LOADING;
         break;
-    }
-
-    if (rom_state == ROM_IDLE && lfs_file_open)
-    {
-        int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
-        lfs_file_open = false;
-        if (lfsresult < 0)
-            printf("?Unable to lfs_file_close (%d)\n", lfsresult);
-    }
-
-    if (rom_state == ROM_IDLE && fat_fil.obj.fs)
-    {
-        FRESULT result = f_close(&fat_fil);
-        if (result != FR_OK)
-            printf("?Unable to close file (%d)\n", result);
     }
 }
 

@@ -4,9 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CYW_H_
-#define _CYW_H_
+#ifndef _RIA_NET_CYW_H_
+#define _RIA_NET_CYW_H_
 
+/* Device driver for the CYW43 radio module.
+ */
+
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -26,4 +30,4 @@ void cyw_reset_radio(void);
 bool cyw_initializing(void);
 bool cyw_ready(void);
 
-#endif /* _CYW_H_ */
+#endif /* _RIA_NET_CYW_H_ */

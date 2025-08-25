@@ -4,8 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MDM_H_
-#define _MDM_H_
+#ifndef _RIA_NET_MDM_H_
+#define _RIA_NET_MDM_H_
+
+/* Modem emulator.
+ */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -42,7 +45,7 @@ bool mdm_close(void);
 int mdm_rx(char *ch);
 int mdm_tx(char ch);
 
-/* utility
+/* Modem control interface
  */
 
 extern mdm_settings_t mdm_settings;
@@ -58,4 +61,4 @@ bool mdm_connect(void);
 bool mdm_hangup(void);
 void mdm_carrier_lost(void);
 
-#endif /* _MDM_H_ */
+#endif /* _RIA_NET_MDM_H_ */
