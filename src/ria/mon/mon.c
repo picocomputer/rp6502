@@ -118,7 +118,7 @@ bool mon_command_exists(const char *buf, size_t buflen)
     return !!mon_command_lookup(&buf, buflen);
 }
 
-static void mon_enter(bool timeout, char *buf, size_t length)
+static void mon_enter(bool timeout, const char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);

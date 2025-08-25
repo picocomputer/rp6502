@@ -153,8 +153,8 @@ static inline bool api_is_xstack_empty(void)
 // FFF7 60      RTS
 // FFF8 FF FF   .SREG $FF $FF
 
-static inline void api_return_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
-static inline void api_return_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
+static inline void api_set_regs_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
+static inline void api_set_regs_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
 
 static inline void api_set_ax(uint16_t val)
 {
@@ -173,14 +173,14 @@ static inline void api_set_axsreg(uint32_t val)
 static inline bool api_return_ax(uint16_t val)
 {
     api_set_ax(val);
-    api_return_released();
+    api_set_regs_released();
     return false;
 }
 
 static inline bool api_return_axsreg(uint32_t val)
 {
     api_set_axsreg(val);
-    api_return_released();
+    api_set_regs_released();
     return false;
 }
 
@@ -188,13 +188,18 @@ static inline bool api_return_errno(uint16_t errno)
 {
     api_zxstack();
     API_ERRNO = errno;
-    api_return_axsreg(-1);
+    return api_return_axsreg(-1);
+}
+
+static inline bool api_return(void)
+{
+    api_set_regs_released();
     return false;
 }
 
 // Helper that returns true to make code more readable.
 
-static inline bool api_working()
+static inline bool api_working(void)
 {
     return true;
 }

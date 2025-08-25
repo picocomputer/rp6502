@@ -23,7 +23,7 @@ void rln_reset(void);
 // Both types of reads guarantee this callback unless a
 // break event happens. Timeout is true when input is idle too long.
 // Requesting a timeout of 0 ms will disable the idle timer.
-typedef void (*rln_read_callback_t)(bool timeout, char *buf, size_t length);
+typedef void (*rln_read_callback_t)(bool timeout, const char *buf, size_t length);
 
 // Prepare to receive binary data of a known size.
 void rln_read_binary(uint32_t timeout_ms, rln_read_callback_t callback, uint8_t *buf, size_t size);
