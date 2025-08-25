@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MODES_H_
-#define _MODES_H_
+#ifndef _VGA_MODES_MODES_H_
+#define _VGA_MODES_MODES_H_
 
 // Common utils for all modes
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -418,4 +419,4 @@ modes_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
     }
 }
 
-#endif /* _MODES_H_ */
+#endif /* _VGA_MODES_MODES_H_ */

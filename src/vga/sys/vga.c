@@ -9,16 +9,16 @@
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/term.h"
-#include "pico/stdlib.h"
-#include "pico/multicore.h"
 #include "scanvideo/scanvideo.h"
 #include "scanvideo/composable_scanline.h"
-#include "hardware/dma.h"
-#include "hardware/clocks.h"
+#include <pico/stdlib.h>
+#include <pico/multicore.h>
+#include <hardware/dma.h>
+#include <hardware/clocks.h>
 #include <string.h>
 
-GCC_Pragma("GCC push_options");
-GCC_Pragma("GCC optimize(\"O3\")");
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 
 #define VGA_PROG_MAX 512
 typedef struct
@@ -588,4 +588,4 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
     return true;
 }
 
-GCC_Pragma("GCC pop_options");
+#pragma GCC pop_options

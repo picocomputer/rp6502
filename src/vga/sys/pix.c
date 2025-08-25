@@ -5,15 +5,14 @@
  */
 
 #include "main.h"
+#include "vga.pio.h"
+#include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/std.h"
 #include "sys/vga.h"
-#include "vga.pio.h"
-#include "sys/mem.h"
 #include "term/font.h"
-#include "hardware/dma.h"
-#include "hardware/structs/bus_ctrl.h"
+#include <hardware/dma.h>
 #include <string.h>
 
 #define VGA_PIX_PIO pio1
@@ -64,7 +63,7 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         font_set_codepage(word);
         return true;
     case 0x03: // UART_TX
-        std_out_write(word);
+        com_out_write(word);
         return false;
     case 0x04: // BACKCHAN
         ria_backchan(word);

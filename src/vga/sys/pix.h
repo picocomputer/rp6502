@@ -4,10 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _PIX_H_
-#define _PIX_H_
+#ifndef _VGA_SYS_PIX_H_
+#define _VGA_SYS_PIX_H_
+
+/* Listens on the PIX bus
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Kernel events
+ */
 
 void pix_init(void);
 void pix_task(void);
 
-#endif /* _PIX_H_ */
+#endif /* _VGA_SYS_PIX_H_ */

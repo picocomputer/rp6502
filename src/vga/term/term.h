@@ -4,14 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _TERM_H_
-#define _TERM_H_
+#ifndef _VGA_TERM_TERM_H_
+#define _VGA_TERM_TERM_H_
 
-#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
+
+/* Kernel events
+ */
 
 void term_init(void);
 void term_task(void);
+
 bool term_prog(uint16_t *xregs);
 
-#endif /* _TERM_H_ */
+#endif /* _VGA_TERM_TERM_H_ */

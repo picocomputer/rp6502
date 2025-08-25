@@ -23,18 +23,19 @@
  *
  */
 
-#include "serno.h"
-#include "pico/unique_id.h"
-#include <stdint.h>
+#include "usb/usb.h"
+#include <tusb.h>
+#include <pico/unique_id.h>
 
 /* C string for iSerialNumber in USB Device Descriptor, two chars per byte + terminating NUL */
 char serno[PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2 + 1];
 
-void serno_init(void)
+static void serno_init(void)
 {
     pico_unique_board_id_t uID;
     pico_get_unique_board_id(&uID);
 
+    // We use this Tiny
     for (int i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2; i++)
     {
         /* Byte index inside the uid array */
@@ -45,4 +46,15 @@ void serno_init(void)
         /* Binary to hex digit */
         serno[i] = nibble < 10 ? nibble + '0' : nibble + 'A' - 10;
     }
+}
+
+void usb_init(void)
+{
+    serno_init(); // before tusb
+    tusb_init();
+}
+
+void usb_task(void)
+{
+    tud_task();
 }

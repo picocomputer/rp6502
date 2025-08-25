@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef PICO_SCANVIDEO_H_
-#define PICO_SCANVIDEO_H_
+#ifndef _VGA_SCANVIDEO_SCANVIDEO_H_
+#define _VGA_SCANVIDEO_SCANVIDEO_H_
 
 // note that defining to false will force non-inclusion also
 #if !defined(PICO_SCANVIDEO_DPI)
@@ -80,4 +80,4 @@
  */
 
 #endif
-#endif
+#endif /* _VGA_SCANVIDEO_SCANVIDEO_H_ */

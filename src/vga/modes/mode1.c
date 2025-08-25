@@ -6,7 +6,6 @@
 
 #include "modes/mode1.h"
 #include "modes/modes.h"
-#include "scanvideo/scanvideo.h"
 #include "sys/vga.h"
 #include "sys/mem.h"
 #include "term/color.h"
@@ -14,8 +13,8 @@
 #include <string.h>
 
 // tree-slp-vectorize causes the example mode1.c to stutter
-GCC_Pragma("GCC push_options");
-GCC_Pragma("GCC optimize(\"O3\", \"no-tree-slp-vectorize\")");
+#pragma GCC push_options
+#pragma GCC optimize("O3", "no-tree-slp-vectorize")
 
 typedef struct
 {
@@ -660,4 +659,4 @@ bool mode1_prog(uint16_t *xregs)
     return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, render_fn);
 }
 
-GCC_Pragma("GCC pop_options");
+#pragma GCC pop_options

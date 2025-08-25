@@ -4,9 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef CDC_H
-#define CDC_H
+#ifndef _VGA_USB_CDC_H_
+#define _VGA_USB_CDC_H_
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* Kernel events
+ */
 
 void cdc_task(void);
 
-#endif
+#endif /* _VGA_USB_CDC_H_ */

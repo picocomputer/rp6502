@@ -9,26 +9,24 @@
 #include "modes/mode2.h"
 #include "modes/mode3.h"
 #include "modes/mode4.h"
+#include "sys/com.h"
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/std.h"
 #include "sys/vga.h"
 #include "term/font.h"
 #include "term/term.h"
 #include "usb/cdc.h"
-#include "usb/serno.h"
-#include "pico/stdlib.h"
-#include "tusb.h"
+#include "usb/usb.h"
+#include <pico/stdlib.h>
 
 static void init(void)
 {
-    std_init();
+    com_init();
     vga_init();
     font_init();
     term_init();
-    serno_init(); // before tusb
-    tusb_init();
+    usb_init();
     led_init();
     ria_init();
     pix_init();
@@ -36,30 +34,31 @@ static void init(void)
 
 static void task(void)
 {
-    // std_task is important
+    // com_task is important
     term_task();
-    std_task();
+    com_task();
     cdc_task();
-    std_task();
+    com_task();
     ria_task();
-    std_task();
+    com_task();
     vga_task();
-    std_task();
-    tud_task();
-    std_task();
+    com_task();
+    usb_task();
+    com_task();
     pix_task();
-    std_task();
+    com_task();
 }
 
 void main_flush(void)
 {
     ria_flush();
+    com_flush();
 }
 
 void main_reclock(void)
 {
-    std_reclock();
     ria_reclock();
+    com_reclock();
 }
 
 bool main_prog(uint16_t *xregs)

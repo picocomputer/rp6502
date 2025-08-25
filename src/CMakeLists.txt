@@ -127,19 +127,19 @@ target_sources(rp6502_vga PRIVATE
     vga/modes/mode3.c
     vga/modes/mode4.c
     vga/modes/mode4.S
+    vga/scanvideo/scanvideo.c
+    vga/sys/com.c
     vga/sys/led.c
     vga/sys/mem.c
     vga/sys/pix.c
     vga/sys/ria.c
-    vga/sys/std.c
     vga/sys/vga.c
     vga/term/color.c
     vga/term/font.c
     vga/term/term.c
     vga/usb/cdc.c
     vga/usb/descriptors.c
-    vga/usb/serno.c
-    scanvideo/scanvideo.c
+    vga/usb/usb.c
 )
 
 target_link_libraries(rp6502_vga PRIVATE
@@ -157,11 +157,11 @@ pico_generate_pio_header(rp6502_vga
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/scanvideo.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/scanvideo/scanvideo.pio
 )
 
 pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/timing.pio
+    ${CMAKE_CURRENT_LIST_DIR}/vga/scanvideo/timing.pio
 )
 
 target_compile_definitions(rp6502_vga PRIVATE

@@ -4,9 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _MAIN_H_
-#define _MAIN_H_
+#ifndef _RIA_MAIN_H_
+#define _RIA_MAIN_H_
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -41,4 +42,4 @@ void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv
 bool main_pix(uint8_t ch, uint8_t addr, uint16_t word);
 bool main_api(uint8_t operation);
 
-#endif /* _MAIN_H_ */
+#endif /* _RIA_MAIN_H_ */

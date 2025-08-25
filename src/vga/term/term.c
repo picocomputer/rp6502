@@ -8,7 +8,7 @@
 #include "term/color.h"
 #include "term/font.h"
 #include "term/term.h"
-#include "sys/std.h"
+#include "sys/com.h"
 #include "sys/vga.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -435,7 +435,7 @@ static void term_out_DSR(term_state_t *term)
             int y = term->y;
             if (x == term->width)
                 x--;
-            std_in_write_ansi_CPR(y + 1, x + 1);
+            com_in_write_ansi_CPR(y + 1, x + 1);
         }
     }
 }

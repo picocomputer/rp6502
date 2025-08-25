@@ -7,7 +7,7 @@
 #ifndef _RIA_SYS_COM_H_
 #define _RIA_SYS_COM_H_
 
-/* Communications port and stdio.
+/* Communications switchboard.
  */
 
 #include <stddef.h>
