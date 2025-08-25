@@ -214,7 +214,7 @@ bool main_api(uint8_t operation)
     case 0x04:
         return rng_api_lrand();
     case 0x05:
-        return com_api_stdin_opt();
+        return std_api_stdin_opt();
     case 0x0F:
         return clk_api_clock();
     case 0x10:

@@ -55,7 +55,7 @@ static void std_stdin_callback(bool timeout, const char *buf, size_t length)
     std_stdin_needs_nl = true;
 }
 
-static void com_stdin_request(void)
+static void std_stdin_request(void)
 {
     if (!std_stdin_needs_nl)
     {
@@ -64,12 +64,12 @@ static void com_stdin_request(void)
     }
 }
 
-static bool com_stdin_ready(void)
+static bool std_stdin_ready(void)
 {
     return !std_stdin_active;
 }
 
-size_t com_stdin_read(uint8_t *buf, size_t count)
+static size_t std_stdin_read(uint8_t *buf, size_t count)
 {
     size_t i;
     for (i = 0; i < count && std_stdin_pos < std_stdin_length; i++)
@@ -82,7 +82,7 @@ size_t com_stdin_read(uint8_t *buf, size_t count)
     return i;
 }
 
-bool com_api_stdin_opt(void)
+bool std_api_stdin_opt(void)
 {
     uint8_t str_length = API_A;
     uint32_t ctrl_bits;
@@ -160,11 +160,11 @@ bool std_api_read_xstack(void)
     uint16_t count;
     if (std_cpu_count >= 0)
     {
-        if (!com_stdin_ready())
+        if (!std_stdin_ready())
             return api_working();
         count = std_cpu_count;
         buf = &xstack[XSTACK_SIZE - count];
-        std_bytes_moved = com_stdin_read(buf, count);
+        std_bytes_moved = std_stdin_read(buf, count);
         std_cpu_count = -1;
     }
     else if (std_mdm_count >= 0)
@@ -197,7 +197,7 @@ bool std_api_read_xstack(void)
         if (fd == STD_FIL_STDIN)
         {
             std_cpu_count = count;
-            com_stdin_request();
+            std_stdin_request();
             return api_working();
         }
         if (fd == STD_FIL_MODEM)
@@ -227,9 +227,9 @@ bool std_api_read_xram(void)
 {
     if (std_cpu_count >= 0)
     {
-        if (!com_stdin_ready())
+        if (!std_stdin_ready())
             return api_working();
-        std_xram_count = com_stdin_read((uint8_t *)std_buf_ptr, std_cpu_count);
+        std_xram_count = std_stdin_read((uint8_t *)std_buf_ptr, std_cpu_count);
         api_set_ax(std_xram_count);
         std_cpu_count = -1;
         return api_working();
@@ -276,7 +276,7 @@ bool std_api_read_xram(void)
     std_buf_ptr = (char *)&xram[xram_addr];
     if (fd == STD_FIL_STDIN)
     {
-        com_stdin_request();
+        std_stdin_request();
         std_cpu_count = count;
         return api_working();
     }
