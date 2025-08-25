@@ -141,9 +141,9 @@ void fil_mon_ls(const char *args, size_t len)
     f_closedir(&dir);
 }
 
-static void fil_command_dispatch(bool timeout, const char *buf, size_t len);
+static void fil_command_dispatch(bool timeout, char *buf, size_t len);
 
-static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
+static void fil_com_rx_mbuf(bool timeout, char *buf, size_t length)
 {
     (void)buf;
     mbuf_len = length;
@@ -183,7 +183,7 @@ static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
         fil_state = FIL_IDLE;
 }
 
-static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
+static void fil_command_dispatch(bool timeout, char *buf, size_t len)
 {
     if (timeout)
     {

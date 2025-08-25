@@ -76,7 +76,7 @@ static inline void vga_pix_backchannel_request(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 2);
 }
 
-static void vga_read(bool timeout, const char *buf, size_t length)
+static void vga_read(bool timeout, char *buf, size_t length)
 {
     if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
     {

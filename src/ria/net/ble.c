@@ -12,6 +12,7 @@ void ble_task(void) {}
 void ble_shutdown(void) {}
 void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
+void ble_set_leds(uint8_t) {}
 #else
 
 #include "hid/kbd.h"

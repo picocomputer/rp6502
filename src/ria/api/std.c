@@ -44,7 +44,7 @@ static size_t std_stdin_length;
 static size_t std_api_str_length;
 static uint32_t std_api_ctrl_bits;
 
-static void std_stdin_callback(bool timeout, const char *buf, size_t length)
+static void std_stdin_callback(bool timeout, char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);
