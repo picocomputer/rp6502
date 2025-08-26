@@ -5,7 +5,7 @@
  */
 
 // DISABLED because it crashes TinyUSB a lot
-#if 0
+#if 1
 
 #include "usb/xin.h"
 void xin_task(void) { return; }
