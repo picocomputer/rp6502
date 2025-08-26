@@ -7,10 +7,11 @@
 #include "hid/pad.h"
 #include "hid/des.h"
 #include "sys/mem.h"
-#include "usb/xin.h"
 #include <btstack_hid_parser.h>
 #include <pico.h>
 #include <string.h>
+
+#define DEBUG_RIA_HID_PAD
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
 #include <stdio.h>
@@ -24,8 +25,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // This is the report we generate for XRAM.
 // Direction bits: 0-up, 1-down, 2-left, 3-right
-// Feature bit 0x80 is on when valid controller connected
-// Feature bit 0x40 is on when Sony-style controller detected
+// Feature bit 0x80 is on when valid gamepad connected
+// Feature bit 0x40 is on when Sony-style gamepad detected
 typedef struct
 {
     uint8_t dpad;    // dpad (0x0F) and feature (0xF0) bits
@@ -106,7 +107,7 @@ static inline void pad_swap_buttons(pad_connection_t *conn, int b0, int b1)
     conn->button_offsets[b1] = temp;
 }
 
-// These are USB controllers for the Classic, a remake of the PS1/PSOne.
+// These are USB gamepads for the Classic, a remake of the PS1/PSOne.
 static void pad_remap_playstation_classic(
     pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
@@ -149,8 +150,8 @@ static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
     {
         switch (product_id)
         {
-        case 0x05C4: // DualShock 4 Controller (1st gen)
-        case 0x09CC: // DualShock 4 Controller (2nd gen)
+        case 0x05C4: // DualShock 4 (1st gen)
+        case 0x09CC: // DualShock 4 (2nd gen)
         case 0x0BA0: // DualShock 4 USB receiver
         case 0x0DAE: // DualShock 4 (special edition variant)
         case 0x0DF2: // DualShock 4 (special edition variant)
@@ -166,9 +167,9 @@ static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
     {
         switch (product_id)
         {
-        case 0x1E1A: // Cirka Wired Controller
-        case 0x0E10: // Zeroplus PS4 compatible controller
-        case 0x0E20: // Zeroplus PS4 compatible controller
+        case 0x1E1A: // Cirka Wired
+        case 0x0E10: // Zeroplus PS4 compatible
+        case 0x0E20: // Zeroplus PS4 compatible
             return true;
         }
     }
@@ -176,7 +177,7 @@ static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
     {
         switch (product_id)
         {
-        case 0xA711: // PowerA PS4 Wired Controller
+        case 0xA711: // PowerA PS4 Wired
             return true;
         }
     }
@@ -184,7 +185,7 @@ static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
     {
         switch (product_id)
         {
-        case 0x5501: // PowerA PS4 Wired Controller
+        case 0x5501: // PowerA PS4 Wired
             return true;
         }
     }
@@ -212,8 +213,8 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
     {
         switch (product_id)
         {
-        case 0x0CE6: // DualSense Controller
-        case 0x0DF2: // DualSense Edge Controller
+        case 0x0CE6: // DualSense
+        case 0x0DF2: // DualSense Edge
         case 0x0E5C: // DualSense (special edition Spider-Man 2)
         case 0x0E8A: // DualSense (special edition FF16)
         case 0x0E9A: // DualSense (special edition LeBron James)
@@ -239,7 +240,7 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 }
 
 // XBox One/Series descriptor for XInput
-static const pad_connection_t __in_flash("hid_descriptors") pad_desc_xbox_one = {
+static const pad_connection_t pad_desc_xbox_one = {
     .valid = true,
     .x_absolute = true,
     .report_id = 0x20, // GIP message ID
@@ -294,7 +295,7 @@ static const pad_connection_t __in_flash("hid_descriptors") pad_desc_xbox_one = 
     }};
 
 // XBox 360 descriptor for XInput
-static const pad_connection_t __in_flash("hid_descriptors") pad_desc_xbox_360 = {
+static const pad_connection_t pad_desc_xbox_360 = {
     .valid = true,
     .x_absolute = true,
     .report_id = 0,    // Xbox 360 uses no report ID for input reports
@@ -349,7 +350,7 @@ static const pad_connection_t __in_flash("hid_descriptors") pad_desc_xbox_360 = 
     }};
 
 // Sony DualShock 4 is HID but presents no descriptor
-static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = {
+static const pad_connection_t pad_desc_sony_ds4 = {
     .valid = true,
     .x_absolute = true,
     .sony = true,
@@ -391,7 +392,7 @@ static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds4 = 
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
 // Sony DualSense 5 is HID but presents no descriptor
-static const pad_connection_t __in_flash("hid_descriptors") pad_desc_sony_ds5 = {
+static const pad_connection_t pad_desc_sony_ds5 = {
     .valid = true,
     .x_absolute = true,
     .sony = true,
@@ -438,6 +439,16 @@ static void pad_parse_descriptor(
     memset(conn, 0, sizeof(pad_connection_t));
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
         conn->button_offsets[i] = 0xFFFF;
+
+    DBG("Raw HID descriptor (%d bytes):\n", desc_len);
+    for (int i = 0; i < desc_len; i++)
+    {
+        DBG("%02X ", desc_data[i]);
+        if ((i + 1) % 26 == 0)
+            DBG("\n");
+    }
+    if (desc_len % 26 != 0)
+        DBG("\n");
 
     // Use BTstack HID parser to parse the descriptor
     btstack_hid_usage_iterator_t iterator;
@@ -539,6 +550,32 @@ static void pad_parse_descriptor(
          conn->rz_size || conn->rx_size || conn->ry_size ||
          conn->hat_size))
         conn->valid = true;
+
+    // Debug: Print parsed pad_connection_t structure
+    DBG("Parsed pad_connection_t:\n");
+    DBG("  valid=%d, sony=%d, slot=%d, report_id=0x%02X\n",
+        conn->valid, conn->sony, conn->slot, conn->report_id);
+    DBG("  x_absolute=%d, x_offset=%d, x_size=%d, x_min=%ld, x_max=%ld\n",
+        conn->x_absolute, conn->x_offset, conn->x_size, conn->x_min, conn->x_max);
+    DBG("  y_offset=%d, y_size=%d, y_min=%ld, y_max=%ld\n",
+        conn->y_offset, conn->y_size, conn->y_min, conn->y_max);
+    DBG("  z_offset=%d, z_size=%d, z_min=%ld, z_max=%ld\n",
+        conn->z_offset, conn->z_size, conn->z_min, conn->z_max);
+    DBG("  rz_offset=%d, rz_size=%d, rz_min=%ld, rz_max=%ld\n",
+        conn->rz_offset, conn->rz_size, conn->rz_min, conn->rz_max);
+    DBG("  rx_offset=%d, rx_size=%d, rx_min=%ld, rx_max=%ld\n",
+        conn->rx_offset, conn->rx_size, conn->rx_min, conn->rx_max);
+    DBG("  ry_offset=%d, ry_size=%d, ry_min=%ld, ry_max=%ld\n",
+        conn->ry_offset, conn->ry_size, conn->ry_min, conn->ry_max);
+    DBG("  hat_offset=%d, hat_size=%d, hat_min=%ld, hat_max=%ld\n",
+        conn->hat_offset, conn->hat_size, conn->hat_min, conn->hat_max);
+    DBG("  button_offsets: ");
+    for (int i = 0; i < PAD_MAX_BUTTONS; i++)
+    {
+        if (conn->button_offsets[i] != 0xFFFF)
+            DBG("[%d]=%d ", i, conn->button_offsets[i]);
+    }
+    DBG("\n");
 }
 
 static void pad_distill_descriptor(
@@ -556,27 +593,17 @@ static void pad_distill_descriptor(
     pad_remap_8bitdo_m30(conn, vendor_id, product_id);
     pad_remap_playstation_classic(conn, vendor_id, product_id);
 
-    // Non HID controllers use a pre-computed descriptor.
+    // Sony gamepads use a pre-computed descriptor.
     // Some may report a descriptor, which we discard.
-    if (xin_is_xbox_one(slot))
-    {
-        *conn = pad_desc_xbox_one;
-        DBG("Detected Xbox One controller, using pre-computed descriptor.\n");
-    }
-    if (xin_is_xbox_360(slot))
-    {
-        *conn = pad_desc_xbox_360;
-        DBG("Detected Xbox 360 controller, using pre-computed descriptor.\n");
-    }
     if (pad_is_sony_ds4(vendor_id, product_id))
     {
         *conn = pad_desc_sony_ds4;
-        DBG("Detected Sony DS4 controller, using pre-computed descriptor.\n");
+        DBG("Detected Sony DS4 gamepad, using pre-computed descriptor.\n");
     }
     if (pad_is_sony_ds5(vendor_id, product_id))
     {
         *conn = pad_desc_sony_ds5;
-        DBG("Detected Sony DS5 controller, using pre-computed descriptor.\n");
+        DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");
     }
 
     if (!conn->valid)

@@ -22,8 +22,4 @@ void xin_task(void);
 // For monitor status command.
 int xin_pad_count(void);
 
-// Until we find a way to pass this during mount.
-bool xin_is_xbox_one(int slot);
-bool xin_is_xbox_360(int slot);
-
 #endif /* _RIA_USB_XIN_H_ */
