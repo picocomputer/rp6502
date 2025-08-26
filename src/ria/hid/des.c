@@ -66,71 +66,38 @@ int32_t des_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t 
 
 uint8_t des_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
 {
-    // Handle reversed polarity
+    // Handle reversal
     bool reversed = logical_min > logical_max;
     int32_t min = reversed ? logical_max : logical_min;
     int32_t max = reversed ? logical_min : logical_max;
 
-    // Sign-extend raw_value if needed
-    int32_t value = (int32_t)raw_value;
-    if (min < 0 && bit_size < 32)
-    {
-        uint32_t sign_bit = 1UL << (bit_size - 1);
-        if (raw_value & sign_bit)
-            value |= ~((1UL << bit_size) - 1);
-    }
-
-    // Clamp to logical range
-    if (value < min)
-        value = min;
-    if (value > max)
-        value = max;
-
-    // Scale to 0-255
-    int32_t range = max - min;
-    if (range == 0)
-        return 127;
-    uint8_t result = (uint8_t)(((value - min) * 255) / range);
-
-    // Reverse if needed
-    if (reversed)
-        result = 255 - result;
-
-    return result;
-}
-
-int8_t des_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
-{
-    // Handle reversed polarity
-    bool reversed = logical_min > logical_max;
-    int32_t min = reversed ? logical_max : logical_min;
-    int32_t max = reversed ? logical_min : logical_max;
-
-    // Sign-extend raw_value if needed
+    // Extend sign as needed
     int32_t value;
     if (min < 0 && bit_size < 32)
         value = des_extend_signed(raw_value, bit_size);
     else
         value = (int32_t)raw_value;
 
-    // Clamp to logical range
+    // Handle reversal
+    if (reversed)
+        value = -value - 1;
+
+    // Clamp bad input
     if (value < min)
         value = min;
     if (value > max)
         value = max;
 
-    int32_t range = max - min;
-    if (range == 0)
+    // Compute discrete values and short circuit divide by zero
+    int32_t discrete_values = max - min + 1;
+    if (!discrete_values)
         return 0;
 
-    // Scale to -128..127, ensuring 256 values
-    // Map min to -128, max to 127
-    int32_t scaled = ((value - min) * 255 + (range / 2)) / range - 128;
-    int8_t result = (int8_t)scaled;
+    // Final math
+    return ((value + min) * 256 / discrete_values);
+}
 
-    // Reverse if needed
-    if (reversed)
-        result = -result - 1;
-
-    return result;
+int8_t des_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
+{
+    return des_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128;
 }

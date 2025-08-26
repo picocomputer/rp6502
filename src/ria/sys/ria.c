@@ -302,7 +302,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     gpio_put(CPU_IRQB_PIN, true);
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
-                    api_return_blocked();
+                    api_set_regs_blocked();
                     if (data == 0x00) // zxstack()
                     {
                         API_STACK = 0;
