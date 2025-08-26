@@ -180,77 +180,161 @@ __in_flash("xin_hid_descriptors") static const uint8_t xbox_360_fake_desc[] = {
     0x09, 0x05, // Usage (Game Pad)
     0xa1, 0x01, // Collection (Application)
 
-    // Skip to byte 2 for buttons (bits 16-31)
-    0x75, 0x10, // Report Size (16)
+    // Skip to byte 2 (16 bits total)
+    0x75, 0x10, // Report Size (16 bits)
     0x95, 0x01, // Report Count (1)
-    0x81, 0x01, // Input (Const,Array,Abs)
+    0x81, 0x01, // Input (Const,Array,Abs) - padding
 
+    // Byte 2, Bit 0: D-pad Up (maps to button[16])
     0x05, 0x09, // Usage Page (Button)
-    0x19, 0x01, // Usage Minimum (0x01)
-    0x29, 0x10, // Usage Maximum (0x10)
+    0x09, 0x11, // Usage (0x11 = button 17)
     0x15, 0x00, // Logical Minimum (0)
     0x25, 0x01, // Logical Maximum (1)
-    0x95, 0x10, // Report Count (16)
-    0x75, 0x01, // Report Size (1)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 1: D-pad Down (maps to button[17])
+    0x09, 0x12, // Usage (0x12 = button 18)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 2: D-pad Left (maps to button[18])
+    0x09, 0x13, // Usage (0x13 = button 19)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 3: D-pad Right (maps to button[19])
+    0x09, 0x14, // Usage (0x14 = button 20)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 4: Start button (maps to button[11])
+    0x09, 0x0C, // Usage (0x0C = button 12)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 5: Back button (maps to button[10])
+    0x09, 0x0B, // Usage (0x0B = button 11)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 6: Left stick button (maps to button[13])
+    0x09, 0x0E, // Usage (0x0E = button 14)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 2, Bit 7: Right stick button (maps to button[14])
+    0x09, 0x0F, // Usage (0x0F = button 15)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 0: LB (maps to button[6])
+    0x09, 0x07, // Usage (0x07 = button 7)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 1: RB (maps to button[7])
+    0x09, 0x08, // Usage (0x08 = button 8)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 2: Home button (maps to button[12])
+    0x09, 0x0D, // Usage (0x0D = button 13)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 3: Reserved
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x01, // Input (Const,Array,Abs) - padding
+
+    // Byte 3, Bit 4: A button (maps to button[0])
+    0x09, 0x01, // Usage (0x01 = button 1)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 5: B button (maps to button[1])
+    0x09, 0x02, // Usage (0x02 = button 2)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 6: X button (maps to button[3])
+    0x09, 0x04, // Usage (0x04 = button 4)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
+    0x81, 0x02, // Input (Data,Var,Abs)
+
+    // Byte 3, Bit 7: Y button (maps to button[4])
+    0x09, 0x05, // Usage (0x05 = button 5)
+    0x75, 0x01, // Report Size (1 bit)
+    0x95, 0x01, // Report Count (1)
     0x81, 0x02, // Input (Data,Var,Abs)
 
     0x05, 0x01, // Usage Page (Generic Desktop Controls)
-    0x09, 0x01, // Usage (Pointer)
-    0xa1, 0x00, // Collection (Physical)
 
-    // Left trigger at bit 32 (byte 4), size 8 bits
+    // Byte 4: Left trigger (Rx)
     0x09, 0x33, // Usage (Rx)
     0x15, 0x00, // Logical Minimum (0)
-    0x25, 0xff, // Logical Maximum (255)
-    0x75, 0x08, // Report Size (8)
+    0x26, 0xff, 0x00, // Logical Maximum (255) - using 16-bit form
+    0x75, 0x08, // Report Size (8 bits)
     0x95, 0x01, // Report Count (1)
     0x81, 0x02, // Input (Data,Var,Abs)
 
-    // Right trigger at bit 40 (byte 5), size 8 bits
+    // Byte 5: Right trigger (Ry)
     0x09, 0x34, // Usage (Ry)
     0x15, 0x00, // Logical Minimum (0)
-    0x25, 0xff, // Logical Maximum (255)
-    0x75, 0x08, // Report Size (8)
+    0x26, 0xff, 0x00, // Logical Maximum (255) - using 16-bit form
+    0x75, 0x08, // Report Size (8 bits)
     0x95, 0x01, // Report Count (1)
     0x81, 0x02, // Input (Data,Var,Abs)
 
-    // Left stick X at bit 48 (byte 6), size 16 bits
+    // Bytes 6-7: Left stick X
     0x09, 0x30,       // Usage (X)
     0x16, 0x00, 0x80, // Logical Minimum (-32768)
     0x26, 0xff, 0x7f, // Logical Maximum (32767)
-    0x75, 0x10,       // Report Size (16)
+    0x75, 0x10,       // Report Size (16 bits)
     0x95, 0x01,       // Report Count (1)
     0x81, 0x02,       // Input (Data,Var,Abs)
 
-    // Left stick Y at bit 64 (byte 8), size 16 bits
+    // Bytes 8-9: Left stick Y (REVERSED)
     0x09, 0x31,       // Usage (Y)
-    0x16, 0xff, 0x7f, // Logical Minimum (32767)
-    0x26, 0x00, 0x80, // Logical Maximum (-32768)
-    0x75, 0x10,       // Report Size (16)
+    0x16, 0xff, 0x7f, // Logical Minimum (32767) - REVERSED!
+    0x26, 0x00, 0x80, // Logical Maximum (-32768) - REVERSED!
+    0x75, 0x10,       // Report Size (16 bits)
     0x95, 0x01,       // Report Count (1)
     0x81, 0x02,       // Input (Data,Var,Abs)
 
-    // Right stick X at bit 80 (byte 10), size 16 bits
+    // Bytes 10-11: Right stick X
     0x09, 0x32,       // Usage (Z)
     0x16, 0x00, 0x80, // Logical Minimum (-32768)
     0x26, 0xff, 0x7f, // Logical Maximum (32767)
-    0x75, 0x10,       // Report Size (16)
+    0x75, 0x10,       // Report Size (16 bits)
     0x95, 0x01,       // Report Count (1)
     0x81, 0x02,       // Input (Data,Var,Abs)
 
-    // Right stick Y at bit 96 (byte 12), size 16 bits
+    // Bytes 12-13: Right stick Y (REVERSED)
     0x09, 0x35,       // Usage (Rz)
-    0x16, 0xff, 0x7f, // Logical Minimum (32767)
-    0x26, 0x00, 0x80, // Logical Maximum (-32768)
-    0x75, 0x10,       // Report Size (16)
+    0x16, 0xff, 0x7f, // Logical Minimum (32767) - REVERSED!
+    0x26, 0x00, 0x80, // Logical Maximum (-32768) - REVERSED!
+    0x75, 0x10,       // Report Size (16 bits)
     0x95, 0x01,       // Report Count (1)
     0x81, 0x02,       // Input (Data,Var,Abs)
 
     0xc0, // End Collection
-    0xc0, // End Collection
-};
-
-static int xin_find_index_by_dev_addr(uint8_t dev_addr)
+};static int xin_find_index_by_dev_addr(uint8_t dev_addr)
 {
     for (int i = 0; i < XIN_MAX_DEVICES; i++)
         if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)

@@ -11,8 +11,6 @@
 #include <pico.h>
 #include <string.h>
 
-#define DEBUG_RIA_HID_PAD
-
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -238,116 +236,6 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
     }
     return false;
 }
-
-// XBox One/Series descriptor for XInput
-static const pad_connection_t pad_desc_xbox_one = {
-    .valid = true,
-    .x_absolute = true,
-    .report_id = 0x20, // GIP message ID
-    .x_offset = 9 * 8, // left stick X
-    .x_size = 16,
-    .x_min = -32768,
-    .x_max = 32767,
-    .y_offset = 11 * 8, // left stick Y
-    .y_size = 16,
-    .y_min = 32767,
-    .y_max = -32768,
-    .z_offset = 13 * 8, // right stick X
-    .z_size = 16,
-    .z_min = -32768,
-    .z_max = 32767,
-    .rz_offset = 15 * 8, // right stick Y
-    .rz_size = 16,
-    .rz_min = 32767,
-    .rz_max = -32768,
-    .rx_offset = 5 * 8, // left trigger
-    .rx_size = 10,
-    .rx_min = 0,
-    .rx_max = 1023,
-    .ry_offset = 7 * 8, // right trigger
-    .ry_size = 10,
-    .ry_min = 0,
-    .ry_max = 1023,
-    .button_offsets = {
-        // Xbox One Gamepad Input Protocol buttons
-        3 * 8 + 4, // A button
-        3 * 8 + 5, // B button
-        0xFFFF,    // C unused
-        3 * 8 + 6, // X button
-        3 * 8 + 7, // Y button
-        0xFFFF,    // Z unused
-        4 * 8 + 4, // Left shoulder/LB
-        4 * 8 + 5, // Right shoulder/RB
-        //
-        0xFFFF,    // L2
-        0xFFFF,    // R2
-        3 * 8 + 3, // View/Select button
-        3 * 8 + 2, // Menu/Start button
-        0xFFFF,    // Home button
-        4 * 8 + 6, // Left stick click
-        4 * 8 + 7, // Right stick click
-        0xFFFF,    // unused
-        //
-        4 * 8 + 0, // D-pad Up
-        4 * 8 + 1, // D-pad Down
-        4 * 8 + 2, // D-pad Left
-        4 * 8 + 3, // D-pad Right
-    }};
-
-// XBox 360 descriptor for XInput
-static const pad_connection_t pad_desc_xbox_360 = {
-    .valid = true,
-    .x_absolute = true,
-    .report_id = 0,    // Xbox 360 uses no report ID for input reports
-    .x_offset = 6 * 8, // left stick X
-    .x_size = 16,
-    .x_min = -32768,
-    .x_max = 32767,
-    .y_offset = 8 * 8, // left stick Y
-    .y_size = 16,
-    .y_min = 32767,
-    .y_max = -32768,
-    .z_offset = 10 * 8, // right stick X
-    .z_size = 16,
-    .z_min = -32768,
-    .z_max = 32767,
-    .rz_offset = 12 * 8, // right stick Y
-    .rz_size = 16,
-    .rz_min = 32767,
-    .rz_max = -32768,
-    .rx_offset = 4 * 8, // left trigger
-    .rx_size = 8,
-    .rx_min = 0,
-    .rx_max = 255,
-    .ry_offset = 5 * 8, // right trigger
-    .ry_size = 8,
-    .ry_min = 0,
-    .ry_max = 255,
-    .button_offsets = {
-        // Xbox 360 USB report button layout
-        3 * 8 + 4, // A button
-        3 * 8 + 5, // B button
-        0xFFFF,    // C unused
-        3 * 8 + 6, // X button
-        3 * 8 + 7, // Y button
-        0xFFFF,    // Z unused
-        3 * 8 + 0, // Left shoulder/LB
-        3 * 8 + 1, // Right shoulder/RB
-        //
-        0xFFFF,    // L2
-        0xFFFF,    // R2
-        2 * 8 + 5, // Back button
-        2 * 8 + 4, // Start button
-        3 * 8 + 2, // Home button
-        2 * 8 + 6, // Left stick click
-        2 * 8 + 7, // Right stick click
-        0xFFFF,    // unused
-        //
-        2 * 8 + 0, // D-pad Up
-        2 * 8 + 1, // D-pad Down
-        2 * 8 + 2, // D-pad Left
-        2 * 8 + 3  // D-pad Right
-    }};
 
 // Sony DualShock 4 is HID but presents no descriptor
 static const pad_connection_t pad_desc_sony_ds4 = {
@@ -579,7 +467,7 @@ static void pad_parse_descriptor(
 }
 
 static void pad_distill_descriptor(
-    int slot, pad_connection_t *conn,
+    pad_connection_t *conn,
     uint8_t const *desc_data, uint16_t desc_len,
     uint16_t vendor_id, uint16_t product_id)
 {
@@ -791,8 +679,7 @@ bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint1
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    pad_distill_descriptor(slot, gamepad, desc_data, desc_len,
-                           vendor_id, product_id);
+    pad_distill_descriptor(gamepad, desc_data, desc_len, vendor_id, product_id);
     if (gamepad->valid)
     {
         gamepad->slot = slot;
