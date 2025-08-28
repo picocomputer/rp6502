@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <strings.h>
 
+#define DEBUG_RIA_SYS_VGA
+
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -26,18 +28,18 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 10
 // How long to wait for version string
-#define VGA_VERSION_WATCHDOG_MS 2
+#define VGA_VERSION_WATCHDOG_MS 50
 // Abandon backchannel after two missed vsync messages (~2/60sec)
 #define VGA_VSYNC_WATCHDOG_MS 35
 
 static enum {
-    VGA_REQUEST_TEST, // Starting state
-    VGA_TESTING,      // Looking for Pico VGA
-    VGA_VERSIONING,   // Pico VGA PIX device found
-    VGA_CONNECTED,    // Connected and version string received
-    VGA_NO_VERSION,   // Connected but no version string received
-    VGA_NOT_FOUND,    // Possibly normal, Pico VGA is optional
-    VGA_LOST_SIGNAL,  // Definitely an error condition
+    VGA_NOT_FOUND,   // Possibly normal, Pico VGA is optional
+    VGA_TESTING,     // Looking for Pico VGA
+    VGA_FOUND,       //
+    VGA_VERSIONING,  // Pico VGA PIX device found
+    VGA_CONNECTED,   // Connected and version string received
+    VGA_NO_VERSION,  // Connected but no version string received
+    VGA_LOST_SIGNAL, // Definitely an error condition
 } vga_state;
 
 uint8_t vga_read_buf[4];
@@ -80,20 +82,19 @@ static void vga_read(bool timeout, const char *buf, size_t length)
 {
     if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
     {
+        DBG("VGA state change: %d -> VGA_FOUND\n", vga_state);
         // IO and buffers need to be in sync before switch
         stdio_flush();
         // Clear any local echo (UART is seen by PIO)
         while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
             pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
-        // Change direction
-        vga_pix_backchannel_enable();
-        pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
-        // Wait for version
-        vga_state = VGA_VERSIONING;
-        vga_version_watchdog = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+        vga_state = VGA_FOUND;
     }
     else
+    {
+        DBG("VGA state change: %d -> VGA_NOT_FOUND\n", vga_state);
         vga_state = VGA_NOT_FOUND;
+    }
 }
 
 static void vga_backchannel_command(uint8_t byte)
@@ -116,6 +117,75 @@ static void vga_backchannel_command(uint8_t byte)
     case 0xA0:
         pix_nak();
         break;
+    }
+}
+
+static void vga_rx(void)
+{
+    if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+    {
+        uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
+        if (byte & 0x80)
+            vga_backchannel_command(byte);
+        else if (vga_state == VGA_VERSIONING)
+        {
+            vga_version_watchdog = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+            if (byte == '\r' || byte == '\n')
+            {
+                if (vga_version_message_length > 0 && vga_state == VGA_VERSIONING)
+                {
+                    vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
+                    DBG("VGA state change: %d -> VGA_CONNECTED len=%d\n", vga_state, vga_version_message_length);
+                    vga_state = VGA_CONNECTED;
+                    vga_version_message_length = 0;
+                    vga_print_status();
+                }
+            }
+            else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
+            {
+                vga_version_message[vga_version_message_length] = byte;
+                vga_version_message[++vga_version_message_length] = 0;
+            }
+        }
+    }
+}
+
+static void vga_connect(void)
+{
+    DBG("VGA state change: %d -> VGA_TESTING\n", vga_state);
+    stdio_flush();
+
+    // Test if VGA connected
+    vga_state = VGA_TESTING;
+    rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
+    vga_pix_backchannel_request();
+    while (vga_state == VGA_TESTING)
+        rln_task();
+    if (vga_state == VGA_NOT_FOUND)
+    {
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
+        vga_pix_backchannel_disable();
+        vga_pix_flush();
+        return;
+    }
+
+    pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
+    vga_pix_backchannel_enable();
+
+    // Wait for version
+    vga_version_message_length = 0;
+    vga_version_watchdog = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
+    vga_state = VGA_VERSIONING;
+
+    while (vga_state == VGA_VERSIONING)
+    {
+        vga_rx();
+        if (absolute_time_diff_us(get_absolute_time(), vga_version_watchdog) < 0)
+        {
+            vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
+            DBG("VGA state change: %d -> VGA_NO_VERSION len=%d\n", vga_state, vga_version_message_length);
+            vga_state = VGA_NO_VERSION;
+        }
     }
 }
 
@@ -143,6 +213,8 @@ void vga_init(void)
 
     // Reset Pico VGA
     vga_needs_reset = true;
+
+    vga_connect();
 }
 
 void vga_post_reclock(uint32_t sys_clk_khz)
@@ -153,48 +225,7 @@ void vga_post_reclock(uint32_t sys_clk_khz)
 
 void vga_task(void)
 {
-    if (vga_state == VGA_REQUEST_TEST)
-    {
-        // TODO this state locks up if a reset happens
-        vga_state = VGA_TESTING;
-        rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_read, vga_read_buf, sizeof(vga_read_buf));
-        vga_pix_backchannel_request();
-    }
-
-    if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
-    {
-        uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
-
-        if (byte & 0x80)
-            vga_backchannel_command(byte);
-        else if (vga_state == VGA_VERSIONING)
-        {
-            vga_version_watchdog = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
-            if (byte == '\r' || byte == '\n')
-            {
-                if (vga_version_message_length > 0 && vga_state == VGA_VERSIONING)
-                {
-                    vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
-                    vga_state = VGA_CONNECTED;
-                    vga_version_message_length = 0;
-                    vga_print_status();
-                }
-            }
-            else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
-            {
-                vga_version_message[vga_version_message_length] = byte;
-                vga_version_message[++vga_version_message_length] = 0;
-            }
-        }
-    }
-
-    if (vga_state == VGA_VERSIONING &&
-        absolute_time_diff_us(get_absolute_time(), vga_version_watchdog) < 0)
-    {
-        vga_vsync_watchdog = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
-        vga_state = VGA_NO_VERSION;
-        vga_print_status();
-    }
+    vga_rx();
 
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
         absolute_time_diff_us(get_absolute_time(), vga_vsync_watchdog) < 0)
@@ -202,6 +233,7 @@ void vga_task(void)
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_pix_backchannel_disable();
         vga_pix_flush();
+        DBG("VGA state change: %d -> VGA_LOST_SIGNAL\n", vga_state);
         vga_state = VGA_LOST_SIGNAL;
         // This is usually futile, but print an error message anyway
         printf("?");
@@ -220,7 +252,8 @@ void vga_run(void)
     // It's normal to lose signal during Pico VGA development.
     // Attempt to restart when a 6502 program is run.
     if (vga_state == VGA_LOST_SIGNAL && !ria_active())
-        vga_state = VGA_REQUEST_TEST;
+        vga_connect();
+    // vga_state = VGA_REQUEST_TEST;
 }
 
 void vga_stop(void)
@@ -242,13 +275,6 @@ bool vga_set_vga(uint32_t display_type)
     return true;
 }
 
-bool vga_active(void)
-{
-    return vga_state == VGA_REQUEST_TEST ||
-           vga_state == VGA_TESTING ||
-           vga_state == VGA_VERSIONING;
-}
-
 bool vga_backchannel(void)
 {
     return vga_state == VGA_VERSIONING ||
@@ -261,7 +287,7 @@ void vga_print_status(void)
     const char *msg = "VGA Searching";
     switch (vga_state)
     {
-    case VGA_REQUEST_TEST:
+    case VGA_FOUND:
     case VGA_TESTING:
     case VGA_VERSIONING:
         break;

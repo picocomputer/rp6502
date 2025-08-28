@@ -72,4 +72,6 @@ void sys_init(void)
     puts("\30\33c");
     // Hello, world.
     sys_print_status();
+    if (vga_backchannel())
+        vga_print_status();
 }

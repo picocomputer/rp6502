@@ -288,9 +288,6 @@ int main(void)
 {
     init();
 
-    // Hack to start WiFi chip before changing clock
-    cyw_task();
-
     // Trigger a reclock
     cpu_set_phi2_khz(cfg_get_phi2_khz());
 
