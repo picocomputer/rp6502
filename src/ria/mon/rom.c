@@ -419,8 +419,7 @@ void rom_init(void)
     // Try booting the set boot ROM
     char *boot = cfg_get_boot();
     size_t boot_len = strlen(boot);
-    if (rom_load((char *)boot, boot_len))
-        rom_state = ROM_LOADING;
+    rom_load((char *)boot, boot_len);
 }
 
 void rom_task(void)

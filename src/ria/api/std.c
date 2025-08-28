@@ -30,7 +30,7 @@ FIL std_fil[STD_FIL_MAX];
 static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
 
 static int32_t std_count_xram;
-static int32_t std_count_rln;
+static int32_t std_count_std;
 static int32_t std_count_mdm;
 static int32_t std_count_moved;
 static char *std_buf_ptr;
@@ -156,14 +156,14 @@ bool std_api_read_xstack(void)
 {
     uint8_t *buf;
     uint16_t count;
-    if (std_count_rln >= 0)
+    if (std_count_std >= 0)
     {
         if (!std_rln_ready())
             return api_working();
-        count = std_count_rln;
+        count = std_count_std;
         buf = &xstack[XSTACK_SIZE - count];
         std_count_moved = std_rln_read(buf, count);
-        std_count_rln = -1;
+        std_count_std = -1;
     }
     else if (std_count_mdm >= 0)
     {
@@ -194,7 +194,7 @@ bool std_api_read_xstack(void)
         buf = &xstack[XSTACK_SIZE - count];
         if (fd == STD_FIL_STDIN)
         {
-            std_count_rln = count;
+            std_count_std = count;
             return api_working();
         }
         if (fd == STD_FIL_MODEM)
@@ -222,13 +222,13 @@ bool std_api_read_xstack(void)
 
 bool std_api_read_xram(void)
 {
-    if (std_count_rln >= 0)
+    if (std_count_std >= 0)
     {
         if (!std_rln_ready())
             return api_working();
-        std_count_xram = std_rln_read((uint8_t *)std_buf_ptr, std_count_rln);
+        std_count_xram = std_rln_read((uint8_t *)std_buf_ptr, std_count_std);
         api_set_ax(std_count_xram);
-        std_count_rln = -1;
+        std_count_std = -1;
         return api_working();
     }
     if (std_count_mdm >= 0)
@@ -273,7 +273,7 @@ bool std_api_read_xram(void)
     std_buf_ptr = (char *)&xram[xram_addr];
     if (fd == STD_FIL_STDIN)
     {
-        std_count_rln = count;
+        std_count_std = count;
         return api_working();
     }
     if (fd == STD_FIL_MODEM)
@@ -302,11 +302,11 @@ bool std_api_read_xram(void)
 
 static bool std_out_write(void)
 {
-    if (std_count_moved < std_count_rln && com_tx_printable())
+    if (std_count_moved < std_count_std && com_tx_printable())
         putchar(std_buf_ptr[std_count_moved++]);
-    if (std_count_moved >= std_count_rln)
+    if (std_count_moved >= std_count_std)
     {
-        std_count_rln = -1;
+        std_count_std = -1;
         return api_return_ax(std_count_moved);
     }
     return api_working();
@@ -333,7 +333,7 @@ static bool std_mdm_write(void)
 
 bool std_api_write_xstack(void)
 {
-    if (std_count_rln >= 0)
+    if (std_count_std >= 0)
         return std_out_write();
     if (std_count_mdm >= 0)
         return std_mdm_write();
@@ -352,7 +352,7 @@ bool std_api_write_xstack(void)
     }
     if (fd < STD_FIL_OFFS) // stdout stderr
     {
-        std_count_rln = count;
+        std_count_std = count;
         return api_working();
     }
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
@@ -365,7 +365,7 @@ bool std_api_write_xstack(void)
 
 bool std_api_write_xram(void)
 {
-    if (std_count_rln >= 0)
+    if (std_count_std >= 0)
         return std_out_write();
     if (std_count_mdm >= 0)
         return std_mdm_write();
@@ -390,7 +390,7 @@ bool std_api_write_xram(void)
     }
     if (fd < STD_FIL_OFFS) // stdout stderr
     {
-        std_count_rln = count;
+        std_count_std = count;
         return api_working();
     }
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
@@ -464,7 +464,7 @@ bool std_api_rename(void)
 void std_run(void)
 {
     std_count_xram = -1;
-    std_count_rln = -1;
+    std_count_std = -1;
     std_count_mdm = -1;
     std_rln_active = false;
     std_rln_needs_nl = false;

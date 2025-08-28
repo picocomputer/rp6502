@@ -46,7 +46,6 @@ static int com_rx_buf_getchar(void)
 
 static void com_clear_all_rx()
 {
-    REGS(0xFFE0) &= ~0b01000000;
     com_rx_char = -1;
     com_rx_tail = com_rx_head = 0;
 }

@@ -15,8 +15,6 @@
 #include <hardware/clocks.h>
 #include <strings.h>
 
-#define DEBUG_RIA_SYS_VGA
-
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
@@ -89,34 +87,28 @@ static void vga_backchannel_command(uint8_t byte)
 
 static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 {
+    // VGA1 means VGA on PIX 1
     if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
-    {
         vga_state = VGA_FOUND;
-    }
     else
-    {
         vga_state = VGA_NOT_FOUND;
-    }
 }
 
 static void vga_connect(void)
 {
     // Test if VGA connected
     uint8_t vga_test_buf[4];
-    vga_state = VGA_TESTING;
+    while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
+        tight_loop_contents();
     rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, vga_test_buf, sizeof(vga_test_buf));
     vga_pix_backchannel_request();
+    vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
         rln_task();
-
     if (vga_state == VGA_NOT_FOUND)
-    {
-        vga_pix_backchannel_disable();
-        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
-        return;
-    }
+        return vga_pix_backchannel_disable();
 
-    // stdio_flush();
+    // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
     vga_pix_backchannel_enable();
 
