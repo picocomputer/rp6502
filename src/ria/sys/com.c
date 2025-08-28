@@ -62,7 +62,7 @@ static void com_tx_task(void)
         {
             char ch = COM_TX_BUF(++com_tx_tail);
             uart_putc_raw(COM_UART, ch);
-            if (vga_backchannel())
+            if (vga_connected())
                 pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x03, ch);
         }
     }

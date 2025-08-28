@@ -34,8 +34,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static enum {
     VGA_NOT_FOUND,   // Possibly normal, Pico VGA is optional
     VGA_TESTING,     // Looking for Pico VGA
-    VGA_FOUND,       //
-    VGA_VERSIONING,  // Pico VGA PIX device found
+    VGA_FOUND,       // Found
     VGA_CONNECTED,   // Connected and version string received
     VGA_NO_VERSION,  // Connected but no version string received
     VGA_LOST_SIGNAL, // Definitely an error condition
@@ -49,17 +48,6 @@ char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
 size_t vga_version_message_length;
 
 bool vga_needs_reset;
-
-static inline void vga_pix_flush()
-{
-    // // It takes four cycles of PHI2 to send a PIX message.
-    // // Begin by waiting for FIFO to clear.
-    // while (!pix_fifo_empty())
-    //     tight_loop_contents();
-    // // Then wait at least six PHI2 cycles for shift registers.
-    // uint32_t wait = 6000 / cfg_get_phi2_khz();
-    // busy_wait_us_32(wait ? wait : 1);
-}
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -123,9 +111,8 @@ static void vga_connect(void)
 
     if (vga_state == VGA_NOT_FOUND)
     {
-        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_pix_backchannel_disable();
-        vga_pix_flush();
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         return;
     }
 
@@ -136,9 +123,7 @@ static void vga_connect(void)
     // Wait for version
     vga_version_message_length = 0;
     vga_version_timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
-    vga_state = VGA_VERSIONING;
-
-    while (vga_state == VGA_VERSIONING)
+    while (true)
     {
         if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
         {
@@ -152,6 +137,7 @@ static void vga_connect(void)
                     {
                         vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
                         vga_state = VGA_CONNECTED;
+                        break;
                     }
                 }
                 else if (vga_version_message_length < VGA_VERSION_MESSAGE_SIZE - 1u)
@@ -165,6 +151,7 @@ static void vga_connect(void)
         {
             vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
             vga_state = VGA_NO_VERSION;
+            break;
         }
     }
 }
@@ -216,9 +203,8 @@ void vga_task(void)
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
         absolute_time_diff_us(get_absolute_time(), vga_vsync_timer) < 0)
     {
-        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_pix_backchannel_disable();
-        vga_pix_flush();
+        gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_LOST_SIGNAL;
         printf("?");
         vga_print_status();
@@ -237,7 +223,6 @@ void vga_run(void)
     // Attempt to restart when a 6502 program is run.
     if (vga_state == VGA_LOST_SIGNAL && !ria_active())
         vga_connect();
-    // vga_state = VGA_REQUEST_TEST;
 }
 
 void vga_stop(void)
@@ -259,7 +244,7 @@ bool vga_set_vga(uint32_t display_type)
     return true;
 }
 
-bool vga_backchannel(void)
+bool vga_connected(void)
 {
     return vga_state == VGA_CONNECTED ||
            vga_state == VGA_NO_VERSION;
@@ -272,7 +257,6 @@ void vga_print_status(void)
     {
     case VGA_FOUND:
     case VGA_TESTING:
-    case VGA_VERSIONING:
         break;
     case VGA_CONNECTED:
         msg = vga_version_message;
