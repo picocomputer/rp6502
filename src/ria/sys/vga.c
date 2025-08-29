@@ -14,6 +14,7 @@
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <strings.h>
+#include <stdio.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
 #include <stdio.h>

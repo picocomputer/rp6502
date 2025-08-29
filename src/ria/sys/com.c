@@ -29,7 +29,6 @@ static stdio_driver_t com_stdio_driver;
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
 volatile uint8_t com_tx_buf[32];
-#define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
 
 volatile int com_rx_char;
 static size_t com_rx_tail;
@@ -57,9 +56,10 @@ static void com_tx_task(void)
     // 16_000_000 bps if we don't throttle it.
     if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
     {
-        if (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
+        if (com_tx_head != com_tx_tail)
         {
-            char ch = COM_TX_BUF(++com_tx_tail);
+            com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
+            char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
             if (vga_connected())
                 pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x03, ch);
@@ -165,15 +165,16 @@ static void com_stdio_out_chars(const char *buf, int len)
     while (len--)
     {
         // Wait for room in buffer before we add next char
-        while (&COM_TX_BUF(com_tx_head + 1) == &COM_TX_BUF(com_tx_tail))
+        while ((com_tx_head + 1) % COM_TX_BUF_SIZE == com_tx_tail)
             com_tx_task();
-        COM_TX_BUF(++com_tx_head) = *buf++;
+        com_tx_head = (com_tx_head + 1) % COM_TX_BUF_SIZE;
+        com_tx_buf[com_tx_head] = *buf++;
     }
 }
 
 static void com_stdio_out_flush(void)
 {
-    while (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
+    while (com_tx_head != com_tx_tail)
         com_tx_task();
     while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
         tight_loop_contents();
