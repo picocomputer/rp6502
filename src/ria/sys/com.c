@@ -54,18 +54,24 @@ static void com_clear_all_rx()
 
 static void com_tx_task(void)
 {
-    // We sync with the UART TX FIFO so PIX STDOUT can keep pace.
-    // 115_200 baud doesn't need flow control, but PIX will send
-    // 16_000_000 bps if we don't throttle it.
-    if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
+    while (com_tx_head != com_tx_tail &&
+           uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
     {
-        if (com_tx_head != com_tx_tail)
+        if (vga_connected())
+        {
+            if (!pix_ready())
+                break;
+            com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
+            char ch = com_tx_buf[com_tx_tail];
+            pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
+            // Keep pace with UART TX
+            uart_putc_raw(COM_UART, ch);
+        }
+        else
         {
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
-            if (vga_connected())
-                pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x03, ch);
         }
     }
 }
