@@ -26,7 +26,7 @@ void vga_init(void);
 void vga_task(void);
 void vga_run(void);
 void vga_stop(void);
-void vga_reset(void);
+void vga_break(void);
 void vga_post_reclock(uint32_t sys_clk_khz);
 
 // Fully connected with backchannel.

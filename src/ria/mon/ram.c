@@ -239,7 +239,7 @@ bool ram_active(void)
     return cmd_state != SYS_IDLE;
 }
 
-void ram_reset(void)
+void ram_break(void)
 {
     cmd_state = SYS_IDLE;
 }

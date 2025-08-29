@@ -162,7 +162,7 @@ void mon_task(void)
     }
 }
 
-void mon_reset(void)
+void mon_break(void)
 {
     needs_prompt = true;
     needs_newline = true;

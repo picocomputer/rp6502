@@ -466,7 +466,7 @@ bool rom_active(void)
     return rom_state != ROM_IDLE;
 }
 
-void rom_reset(void)
+void rom_break(void)
 {
     rom_state = ROM_IDLE;
 }

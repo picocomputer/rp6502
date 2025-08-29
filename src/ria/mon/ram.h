@@ -19,7 +19,7 @@
 
 void ram_task(void);
 bool ram_active(void);
-void ram_reset(void);
+void ram_break(void);
 
 /* Monitor commands
  */

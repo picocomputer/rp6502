@@ -134,7 +134,7 @@ bool pix_api_xreg(void)
         {
             uint16_t data = 0;
             api_pop_uint16(&data);
-            if (!main_pix(pix_channel, pix_addr, data))
+            if (!main_xreg(pix_channel, pix_addr, data))
             {
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);

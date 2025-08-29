@@ -226,7 +226,7 @@ void vga_stop(void)
         vga_needs_reset = true;
 }
 
-void vga_reset(void)
+void vga_break(void)
 {
     vga_needs_reset = true;
 }

@@ -20,7 +20,7 @@
 
 void fil_task(void);
 bool fil_active(void);
-void fil_reset(void);
+void fil_break(void);
 
 /* Monitor commands
  */

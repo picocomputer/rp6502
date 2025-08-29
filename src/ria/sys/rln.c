@@ -398,7 +398,7 @@ void rln_task(void)
     }
 }
 
-void rln_reset(void)
+void rln_break(void)
 {
     rln_callback = NULL;
     rln_binary_buf = NULL;

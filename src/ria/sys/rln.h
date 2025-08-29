@@ -18,7 +18,7 @@
  */
 
 void rln_task(void);
-void rln_reset(void);
+void rln_break(void);
 
 // Both types of reads guarantee this callback unless a
 // break event happens. Timeout is true when input is idle too long.

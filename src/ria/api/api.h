@@ -191,14 +191,14 @@ static inline bool api_return_errno(uint16_t errno)
     return api_return_axsreg(-1);
 }
 
+// Sugar for when api_set_ax has already been called.
 static inline bool api_return(void)
 {
     api_set_regs_released();
     return false;
 }
 
-// Helper that returns true to make code more readable.
-
+// Sugar that returns true to make code more readable.
 static inline bool api_working(void)
 {
     return true;

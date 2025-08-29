@@ -20,7 +20,7 @@
 
 void rom_init(void);
 void rom_task(void);
-void rom_reset(void);
+void rom_break(void);
 
 // True when this module has pending IO.
 bool rom_active(void);

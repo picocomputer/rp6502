@@ -265,7 +265,7 @@ bool fil_active(void)
     return fil_state == FIL_COMMAND;
 }
 
-void fil_reset(void)
+void fil_break(void)
 {
     fil_state = FIL_IDLE;
 }

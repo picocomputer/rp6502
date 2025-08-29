@@ -66,7 +66,7 @@ static void ria_set_watch_address(uint32_t addr)
 
 void ria_run(void)
 {
-    ria_set_watch_address(0xFFE2);
+    ria_set_watch_address(0xFFE2); // UART Rx
     if (action_state == action_state_idle)
         return;
     action_result = RIA_ACTION_RESULT_NONE;
