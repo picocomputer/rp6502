@@ -15,7 +15,6 @@
 #include "net/cyw.h"
 #include "sys/rln.h"
 #include "sys/sys.h"
-#include "sys/vga.h"
 #include <pico.h>
 #include <stdio.h>
 #include <strings.h>

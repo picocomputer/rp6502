@@ -12,12 +12,10 @@ void cyw_post_reclock(uint32_t) {}
 void cyw_reset_radio() {}
 #else
 
-// #include "main.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
-#include "sys/vga.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 #include <pico/stdio.h>

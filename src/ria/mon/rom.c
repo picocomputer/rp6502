@@ -15,7 +15,6 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/vga.h"
 #include <fatfs/ff.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
