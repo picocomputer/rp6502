@@ -129,6 +129,7 @@ void cyw_pre_reclock(void)
     ble_shutdown();
     if (cyw_initialized)
         cyw43_arch_deinit();
+    cyw_initialized = false;
 }
 
 void cyw_post_reclock(uint32_t sys_clk_khz)
