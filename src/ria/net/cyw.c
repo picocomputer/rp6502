@@ -145,6 +145,9 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
 
+    // flush newline from readline before init blocks
+    stdio_flush();
+
     uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
     const char *cc = cfg_get_rfcc();
     if (strlen(cc) == 2)
