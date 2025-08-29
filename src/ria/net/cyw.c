@@ -144,7 +144,6 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
 
-    // stdio_flush(); // prevent awkward pause during boot message
     uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
     const char *cc = cfg_get_rfcc();
     if (strlen(cc) == 2)
@@ -161,12 +160,6 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
         cyw_initialized = true;
     }
-
-    // cyw_task();
-    // cyw_task();
-    // cyw_task();
-
-    // main_task();
 }
 
 #endif /* RP6502_RIA_W */
