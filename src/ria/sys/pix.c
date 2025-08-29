@@ -18,8 +18,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 static uint32_t pix_send_count;
-static bool pix_wait_for_vga_ack;
-static absolute_time_t pix_ack_timer;
+static absolute_time_t pix_api_state_timer;
+static enum state {
+    pix_api_running,
+    pix_api_waiting,
+    pix_api_ack,
+    pix_api_nak,
+} pix_api_state;
 
 #define PIX_ACK_TIMEOUT_MS 2
 
@@ -51,25 +56,20 @@ void pix_init(void)
 
 void pix_stop(void)
 {
-    pix_wait_for_vga_ack = false;
     pix_send_count = 0;
+    pix_api_state = pix_api_running;
 }
 
 void pix_ack(void)
 {
-    pix_wait_for_vga_ack = false;
-    if (pix_send_count == 0)
-    {
-        api_zxstack();
-        api_return_ax(0);
-    }
+    if (pix_api_state == pix_api_waiting)
+        pix_api_state = pix_api_ack;
 }
 
 void pix_nak(void)
 {
-    pix_wait_for_vga_ack = false;
-    pix_send_count = 0;
-    api_return_errno(API_EINVAL);
+    if (pix_api_state == pix_api_waiting)
+        pix_api_state = pix_api_nak;
 }
 
 bool pix_api_xreg(void)
@@ -78,16 +78,30 @@ bool pix_api_xreg(void)
     static uint8_t pix_channel;
     static uint8_t pix_addr;
 
-    // Check for timeout
-    if (pix_wait_for_vga_ack)
+    switch (pix_api_state)
     {
-        if (absolute_time_diff_us(get_absolute_time(), pix_ack_timer) < 0)
+    case pix_api_running:
+        break;
+    case pix_api_waiting:
+        if (absolute_time_diff_us(get_absolute_time(), pix_api_state_timer) < 0)
         {
-            pix_wait_for_vga_ack = false;
+            pix_api_state = pix_api_running;
             pix_send_count = 0;
             return api_return_errno(API_EIO);
         }
         return api_working();
+    case pix_api_ack:
+        pix_api_state = pix_api_running;
+        if (pix_send_count == 0)
+        {
+            xstack_ptr = XSTACK_SIZE;
+            return api_return_ax(0);
+        }
+        break;
+    case pix_api_nak:
+        pix_api_state = pix_api_running;
+        pix_send_count = 0;
+        return api_return_errno(API_EINVAL);
     }
 
     // In progress, send one xreg
@@ -102,12 +116,12 @@ bool pix_api_xreg(void)
             if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
                 pix_addr + pix_send_count <= 1)
             {
-                pix_wait_for_vga_ack = true;
-                pix_ack_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
+                pix_api_state = pix_api_waiting;
+                pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
             }
             else if (!pix_send_count)
             {
-                api_zxstack();
+                xstack_ptr = XSTACK_SIZE;
                 return api_return_ax(0);
             }
         }
@@ -140,7 +154,7 @@ bool pix_api_xreg(void)
                 return api_return_errno(API_EINVAL);
             }
         }
-        api_zxstack();
+        xstack_ptr = XSTACK_SIZE;
         return api_return_ax(0);
     }
 
@@ -152,8 +166,8 @@ bool pix_api_xreg(void)
         pix_send_blocking(PIX_DEVICE_VGA, 0, 0, *(uint16_t *)&xstack[XSTACK_SIZE - 5]);
         pix_addr = 1;
         pix_send_count -= 1;
-        pix_wait_for_vga_ack = true;
-        pix_ack_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
+        pix_api_state = pix_api_waiting;
+        pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
     }
     return api_working();
 }

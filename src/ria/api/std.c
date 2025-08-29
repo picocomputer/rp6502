@@ -54,7 +54,7 @@ bool std_api_open(void)
     const unsigned char EXCL = 0x80;
 
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
-    api_zxstack();
+    xstack_ptr = XSTACK_SIZE;
     if (mdm_open(path))
         return api_return_ax(STD_FIL_MODEM);
     uint8_t flags = API_A;
@@ -216,7 +216,6 @@ bool std_api_read_xstack(void)
     else // relocate short read
         for (UINT i = std_count_moved; i;)
             xstack[--xstack_ptr] = buf[--i];
-    api_sync_xstack();
     return api_return_ax(std_count_moved);
 }
 
@@ -344,7 +343,7 @@ bool std_api_write_xstack(void)
     count = XSTACK_SIZE - xstack_ptr;
     std_count_moved = 0;
     std_buf_ptr = (char *)&xstack[xstack_ptr];
-    api_zxstack();
+    xstack_ptr = XSTACK_SIZE;
     if (fd == STD_FIL_MODEM)
     {
         std_count_mdm = count;
@@ -438,7 +437,7 @@ bool std_api_lseek(void)
 bool std_api_unlink(void)
 {
     uint8_t *path = &xstack[xstack_ptr];
-    api_zxstack();
+    xstack_ptr = XSTACK_SIZE;
     FRESULT fresult = f_unlink((TCHAR *)path);
     if (fresult != FR_OK)
         return api_return_errno(API_EFATFS(fresult));
@@ -449,7 +448,7 @@ bool std_api_rename(void)
 {
     uint8_t *oldname, *newname;
     oldname = newname = &xstack[xstack_ptr];
-    api_zxstack();
+    xstack_ptr = XSTACK_SIZE;
     while (*oldname)
         oldname++;
     if (oldname == &xstack[XSTACK_SIZE])
