@@ -53,6 +53,7 @@ bool api_pop_uint8_end(uint8_t *data)
     {
     case XSTACK_SIZE - 0:
         *data = 0;
+        api_zxstack();
         return true;
     case XSTACK_SIZE - 1:
         memcpy((void *)data, &xstack[xstack_ptr], sizeof(uint8_t));
@@ -69,6 +70,7 @@ bool api_pop_uint16_end(uint16_t *data)
     {
     case XSTACK_SIZE - 0:
         *data = 0;
+        api_zxstack();
         return true;
     case XSTACK_SIZE - 1:
         memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint16_t) - 1);
@@ -91,6 +93,7 @@ bool api_pop_uint32_end(uint32_t *data)
     {
     case XSTACK_SIZE - 0:
         *data = 0;
+        api_zxstack();
         return true;
     case XSTACK_SIZE - 1:
         memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(uint32_t) - 3);
@@ -123,6 +126,7 @@ bool api_pop_int8_end(int8_t *data)
     {
     case XSTACK_SIZE - 0:
         *data = 0;
+        api_zxstack();
         return true;
     case XSTACK_SIZE - 1:
         memcpy((void *)data, &xstack[xstack_ptr], sizeof(int8_t));
@@ -139,6 +143,7 @@ bool api_pop_int16_end(int16_t *data)
     {
     case XSTACK_SIZE - 0:
         *data = 0;
+        api_zxstack();
         return true;
     case XSTACK_SIZE - 1:
         memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int16_t) - 1);
@@ -161,6 +166,7 @@ bool api_pop_int32_end(int32_t *data)
     {
     case XSTACK_SIZE - 0:
         *data = 0;
+        api_zxstack();
         return true;
     case XSTACK_SIZE - 1:
         memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(int32_t) - 3);

@@ -18,7 +18,7 @@
 #define CPU_IRQB_PIN 22
 #define CPU_PHI2_PIN 21
 
-/* Kernel events
+/* Main events
  */
 
 void cpu_init(void);

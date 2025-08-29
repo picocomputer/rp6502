@@ -15,7 +15,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void clk_init(void);

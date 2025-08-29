@@ -25,7 +25,7 @@
 // OUT Buffer matches full speed USB BULK_PACKET_SIZE
 #define COM_OUT_BUF_SIZE 64
 
-/* Kernel events
+/* Main events
  */
 
 void com_init(void);

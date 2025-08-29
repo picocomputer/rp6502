@@ -19,7 +19,7 @@
 #define COM_UART_TX_PIN 4
 #define COM_UART_RX_PIN 5
 
-/* Kernel events
+/* Main events
  */
 
 void com_task(void);

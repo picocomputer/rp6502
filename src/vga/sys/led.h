@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void led_init(void);

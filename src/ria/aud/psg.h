@@ -14,7 +14,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 bool psg_xreg(uint16_t word);

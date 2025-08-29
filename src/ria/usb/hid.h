@@ -20,7 +20,7 @@
 #define HID_XIN_START (0x10000)
 #define HID_BLE_START (0x20000)
 
-/* Kernel events
+/* Main events
  */
 
 void hid_task(void);

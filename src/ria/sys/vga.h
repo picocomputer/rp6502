@@ -19,7 +19,7 @@
 #define VGA_BACKCHANNEL_PIO pio1
 #define VGA_BACKCHANNEL_SM 2
 
-/* Kernel events
+/* Main events
  */
 
 void vga_init(void);

@@ -27,7 +27,7 @@ extern lfs_t lfs_volume;
         .buffer = _LFS_FILE_CONFIG_NAME(name),                        \
     };
 
-/* Kernel events
+/* Main events
  */
 
 void lfs_init(void);

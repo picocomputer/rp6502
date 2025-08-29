@@ -19,7 +19,7 @@
 #define AUD_R_PIN 27
 #define AUD_PWM_IRQ_PIN 14 /* No IO */
 
-/* Kernel events
+/* Main events
  */
 
 void aud_init(void);

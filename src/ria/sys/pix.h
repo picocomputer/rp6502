@@ -19,7 +19,7 @@
 #define PIX_PIO pio1
 #define PIX_SM 1
 
-/* Kernel events
+/* Main events
  */
 
 void pix_init(void);

@@ -17,7 +17,7 @@
 #include <string.h>
 #include "sys/mem.h"
 
-/* Kernel events
+/* Main events
  */
 
 void api_task(void);

@@ -29,7 +29,7 @@
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
-/* Kernel events
+/* Main events
  */
 
 void ria_init(void);
