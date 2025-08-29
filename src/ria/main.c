@@ -55,7 +55,7 @@ static void init(void)
     cpu_init();
     ria_init();
     pix_init();
-    vga_init();
+    vga_init(); // Must be after PIX
 
     // Load config before we continue.
     lfs_init();
@@ -63,7 +63,7 @@ static void init(void)
 
     // Print startup message after setting code page.
     oem_init();
-    sys_init();
+    sys_init(); // This clears screen
 
     // Misc kernel modules, add yours here.
     usb_init();
@@ -287,9 +287,6 @@ bool main_active(void)
 int main(void)
 {
     init();
-
-    // Hack to start WiFi chip before changing clock
-    cyw_task();
 
     // Trigger a reclock
     cpu_set_phi2_khz(cfg_get_phi2_khz());

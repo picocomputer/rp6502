@@ -372,7 +372,7 @@ void ble_task(void)
 {
     if (!ble_initialized)
     {
-        if (cyw_ready() && cfg_get_ble())
+        if (cfg_get_rf() && cfg_get_ble())
         {
             ble_init_stack();
             ble_initialized = true;

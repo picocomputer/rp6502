@@ -10,17 +10,16 @@ void cyw_task() {}
 void cyw_pre_reclock() {}
 void cyw_post_reclock(uint32_t) {}
 void cyw_reset_radio() {}
-bool cyw_initializing() { return false; }
 #else
 
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
-#include "sys/vga.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 #include <pico/stdio.h>
+#include <hardware/clocks.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
 #include <stdio.h>
@@ -85,16 +84,9 @@ static const char COUNTRY_CODES[] = {
     'U', 'S', // USA
 };
 
-typedef enum
-{
-    cyw_state_off,
-    cyw_state_initialized,
-    cyw_state_init_failed,
-} cyw_state_t;
-cyw_state_t cyw_state;
-
 bool cyw_led_status;
 bool cyw_led_requested;
+bool cyw_initialized;
 
 bool cyw_validate_country_code(char *cc)
 {
@@ -108,59 +100,22 @@ bool cyw_validate_country_code(char *cc)
 
 void cyw_reset_radio(void)
 {
-    wfi_shutdown();
-    ble_shutdown();
-    switch (cyw_state)
-    {
-    case cyw_state_initialized:
-        cyw43_arch_deinit();
-        __attribute__((fallthrough));
-    case cyw_state_init_failed:
-        cyw_state = cyw_state_off;
-        break;
-    case cyw_state_off:
-        break;
-    }
+    // We have to shut down to reclock so use that code
+    uint32_t sys_clk_khz = clock_get_hz(clk_sys) / 1000;
+    cyw_pre_reclock();
+    cyw_post_reclock(sys_clk_khz);
 }
 
 void cyw_task(void)
 {
-    switch (cyw_state)
+    if (cyw_led_requested != cyw_led_status)
     {
-    case cyw_state_off:
-        // cyw43_arch has blocking delays during setup.
-        // We only initialize at boot and during a phi2 change.
-        // Wait for VGA to connect so it doesn't timeout.
-        if (vga_active())
-            return;
-        stdio_flush(); // prevent awkward pause during boot message
-        uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
-        const char *cc = cfg_get_rfcc();
-        if (strlen(cc) == 2)
-            cyw_country_code = CYW43_COUNTRY(cc[0], cc[1], 0);
-        if (cyw43_arch_init_with_country(cyw_country_code))
-            cyw_state = cyw_state_init_failed;
-        else
-        {
-            // cyw43_arch is full of blocking functions.
-            // This seems to block only once after cyw43_arch_init.
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
-            cyw_state = cyw_state_initialized;
-        }
-        break;
-    case cyw_state_initialized:
-        if (cyw_led_requested != cyw_led_status)
-        {
-            cyw_led_status = cyw_led_requested;
+        cyw_led_status = cyw_led_requested;
 #ifdef CYW43_WL_GPIO_LED_PIN
-            cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
 #endif
-        }
-        cyw43_arch_poll();
-        break;
-    case cyw_state_init_failed:
-        break;
     }
+    cyw43_arch_poll();
 }
 
 void cyw_led(bool ison)
@@ -168,19 +123,13 @@ void cyw_led(bool ison)
     cyw_led_requested = ison;
 }
 
-bool cyw_initializing(void)
-{
-    return cyw_state == cyw_state_off;
-}
-
-bool cyw_ready(void)
-{
-    return cfg_get_rf() && cyw_state == cyw_state_initialized;
-}
-
 void cyw_pre_reclock(void)
 {
-    cyw_reset_radio();
+    wfi_shutdown();
+    ble_shutdown();
+    if (cyw_initialized)
+        cyw43_arch_deinit();
+    cyw_initialized = false;
 }
 
 void cyw_post_reclock(uint32_t sys_clk_khz)
@@ -195,6 +144,23 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
         cyw43_set_pio_clkdiv_int_frac8(3, 0);
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
+
+    uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
+    const char *cc = cfg_get_rfcc();
+    if (strlen(cc) == 2)
+        cyw_country_code = CYW43_COUNTRY(cc[0], cc[1], 0);
+    if (cyw43_arch_init_with_country(cyw_country_code))
+    {
+        puts("?CYW43 failed to init");
+    }
+    else
+    {
+        // cyw43_arch is full of blocking functions.
+        // This seems to block only once after cyw43_arch_init.
+        cyw_led_status = cyw_led_requested;
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
+        cyw_initialized = true;
+    }
 }
 
 #endif /* RP6502_RIA_W */

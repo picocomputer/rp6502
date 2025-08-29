@@ -29,11 +29,8 @@ void vga_stop(void);
 void vga_reset(void);
 void vga_post_reclock(uint32_t sys_clk_khz);
 
-// Active at startup and when reconnecting.
-bool vga_active(void);
-
-// Backchannel messages are being received.
-bool vga_backchannel(void);
+// Fully connected with backchannel.
+bool vga_connected(void);
 
 // For monitor status command.
 void vga_print_status(void);

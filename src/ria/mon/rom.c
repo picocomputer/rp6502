@@ -15,7 +15,6 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/vga.h"
 #include <fatfs/ff.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
@@ -27,7 +26,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static enum {
     ROM_IDLE,
-    ROM_WAIT_LOAD,
     ROM_LOADING,
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
@@ -182,15 +180,6 @@ static bool rom_next_chunk(void)
     }
     printf("?Corrupt ROM file\n");
     return false;
-}
-
-static void rom_wait_load(void)
-{
-    // VGA connection setup is unreliable at some clock speeds
-    // if we don't give it a chance to finish before loading.
-    // CYW43xx startup blocking causes watchdog timeouts.
-    if (!vga_active() && !cyw_initializing())
-        rom_state = ROM_LOADING;
 }
 
 static void rom_loading(void)
@@ -429,8 +418,7 @@ void rom_init(void)
     // Try booting the set boot ROM
     char *boot = cfg_get_boot();
     size_t boot_len = strlen(boot);
-    if (rom_load((char *)boot, boot_len))
-        rom_state = ROM_WAIT_LOAD;
+    rom_load((char *)boot, boot_len);
 }
 
 void rom_task(void)
@@ -451,9 +439,6 @@ void rom_task(void)
             if (result != FR_OK)
                 printf("?Unable to close file (%d)\n", result);
         }
-        break;
-    case ROM_WAIT_LOAD:
-        rom_wait_load();
         break;
     case ROM_LOADING:
         rom_loading();

@@ -15,7 +15,6 @@
 #include "net/cyw.h"
 #include "sys/rln.h"
 #include "sys/sys.h"
-#include "sys/vga.h"
 #include <pico.h>
 #include <stdio.h>
 #include <strings.h>
@@ -146,9 +145,7 @@ static bool mon_suspended(void)
     return main_active() ||
            ram_active() ||
            rom_active() ||
-           vga_active() ||
-           fil_active() ||
-           cyw_initializing();
+           fil_active();
 }
 
 void mon_task(void)

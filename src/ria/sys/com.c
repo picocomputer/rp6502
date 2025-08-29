@@ -28,25 +28,26 @@ static stdio_driver_t com_stdio_driver;
 
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
-volatile uint8_t com_tx_buf[32];
-#define COM_TX_BUF(pos) com_tx_buf[(pos) & 0x1F]
+volatile uint8_t com_tx_buf[COM_TX_BUF_SIZE];
 
-volatile int com_rx_char;
+#define COM_RX_BUF_SIZE 32
 static size_t com_rx_tail;
 static size_t com_rx_head;
-static uint8_t com_rx_buf[32];
-#define COM_RX_BUF(pos) com_rx_buf[(pos) & 0x1F]
+static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
+volatile int com_rx_char;
 
 static int com_rx_buf_getchar(void)
 {
-    if (&COM_RX_BUF(com_rx_head) != &COM_RX_BUF(com_rx_tail))
-        return COM_RX_BUF(++com_rx_tail);
+    if (com_rx_head != com_rx_tail)
+    {
+        com_rx_tail = (com_rx_tail + 1) % COM_RX_BUF_SIZE;
+        return com_rx_buf[com_rx_tail];
+    }
     return -1;
 }
 
 static void com_clear_all_rx()
 {
-    REGS(0xFFE0) &= ~0b01000000;
     com_rx_char = -1;
     com_rx_tail = com_rx_head = 0;
 }
@@ -58,11 +59,12 @@ static void com_tx_task(void)
     // 16_000_000 bps if we don't throttle it.
     if (uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
     {
-        if (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
+        if (com_tx_head != com_tx_tail)
         {
-            char ch = COM_TX_BUF(++com_tx_tail);
+            com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
+            char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
-            if (vga_backchannel())
+            if (vga_connected())
                 pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x03, ch);
         }
     }
@@ -143,8 +145,11 @@ void com_task(void)
     // Process receive
     char ch;
     while (com_rx_task(&ch, 1) == 1)
-        if (&COM_RX_BUF(com_rx_head + 1) != &COM_RX_BUF(com_rx_tail))
-            COM_RX_BUF(++com_rx_head) = ch;
+        if (((com_rx_head + 1) % COM_RX_BUF_SIZE) != com_rx_tail)
+        {
+            com_rx_head = (com_rx_head + 1) % COM_RX_BUF_SIZE;
+            com_rx_buf[com_rx_head] = ch;
+        }
 
     // Move char into ria action loop (again)
     if (com_rx_char < 0)
@@ -166,15 +171,16 @@ static void com_stdio_out_chars(const char *buf, int len)
     while (len--)
     {
         // Wait for room in buffer before we add next char
-        while (&COM_TX_BUF(com_tx_head + 1) == &COM_TX_BUF(com_tx_tail))
+        while ((com_tx_head + 1) % COM_TX_BUF_SIZE == com_tx_tail)
             com_tx_task();
-        COM_TX_BUF(++com_tx_head) = *buf++;
+        com_tx_head = (com_tx_head + 1) % COM_TX_BUF_SIZE;
+        com_tx_buf[com_tx_head] = *buf++;
     }
 }
 
 static void com_stdio_out_flush(void)
 {
-    while (&COM_TX_BUF(com_tx_head) != &COM_TX_BUF(com_tx_tail))
+    while (com_tx_head != com_tx_tail)
         com_tx_task();
     while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
         tight_loop_contents();
