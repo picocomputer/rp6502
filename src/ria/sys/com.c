@@ -28,18 +28,21 @@ static stdio_driver_t com_stdio_driver;
 
 volatile size_t com_tx_tail;
 volatile size_t com_tx_head;
-volatile uint8_t com_tx_buf[32];
+volatile uint8_t com_tx_buf[COM_TX_BUF_SIZE];
 
-volatile int com_rx_char;
+#define COM_RX_BUF_SIZE 32
 static size_t com_rx_tail;
 static size_t com_rx_head;
-static uint8_t com_rx_buf[32];
-#define COM_RX_BUF(pos) com_rx_buf[(pos) & 0x1F]
+static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
+volatile int com_rx_char;
 
 static int com_rx_buf_getchar(void)
 {
-    if (&COM_RX_BUF(com_rx_head) != &COM_RX_BUF(com_rx_tail))
-        return COM_RX_BUF(++com_rx_tail);
+    if (com_rx_head != com_rx_tail)
+    {
+        com_rx_tail = (com_rx_tail + 1) % COM_RX_BUF_SIZE;
+        return com_rx_buf[com_rx_tail];
+    }
     return -1;
 }
 
@@ -142,8 +145,11 @@ void com_task(void)
     // Process receive
     char ch;
     while (com_rx_task(&ch, 1) == 1)
-        if (&COM_RX_BUF(com_rx_head + 1) != &COM_RX_BUF(com_rx_tail))
-            COM_RX_BUF(++com_rx_head) = ch;
+        if (((com_rx_head + 1) % COM_RX_BUF_SIZE) != com_rx_tail)
+        {
+            com_rx_head = (com_rx_head + 1) % COM_RX_BUF_SIZE;
+            com_rx_buf[com_rx_head] = ch;
+        }
 
     // Move char into ria action loop (again)
     if (com_rx_char < 0)
