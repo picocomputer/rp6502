@@ -12,9 +12,10 @@ void ble_task(void) {}
 void ble_shutdown(void) {}
 void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
-void ble_set_leds(uint8_t) {}
+void ble_set_hid_leds(uint8_t) {}
 #else
 
+#include "hid/hid.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
@@ -22,7 +23,6 @@ void ble_set_leds(uint8_t) {}
 #include "net/cyw.h"
 #include "sys/cfg.h"
 #include "sys/led.h"
-#include "usb/hid.h"
 #include <stdio.h>
 #include <pico/time.h>
 
@@ -63,7 +63,7 @@ static inline void ble_restart_scan(void)
         ble_scan_restarts_at = get_absolute_time();
 }
 
-void ble_set_leds(uint8_t leds)
+void ble_set_hid_leds(uint8_t leds)
 {
     (void)leds;
     // TODO I don't have a keyboard to test this
@@ -391,9 +391,9 @@ void ble_task(void)
     }
 }
 
-void ble_set_config(uint8_t bt)
+void ble_set_config(uint8_t ble)
 {
-    switch (bt)
+    switch (ble)
     {
     case 0:
         ble_shutdown();

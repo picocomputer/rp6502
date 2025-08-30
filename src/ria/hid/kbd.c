@@ -12,10 +12,10 @@
 #include "hid/kbd_eng.h"
 #include "hid/kbd_pol.h"
 #include "hid/kbd_swe.h"
-#include "hid/des.h"
+#include "hid/hid.h"
 #include "net/ble.h"
 #include "sys/cfg.h"
-#include "usb/hid.h"
+#include "usb/usb.h"
 #include <btstack_hid_parser.h>
 #include <fatfs/ff.h>
 #include <pico/time.h>
@@ -144,8 +144,8 @@ static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 
 static void kbd_send_leds()
 {
-    hid_set_leds(kdb_hid_leds);
-    ble_set_leds(kdb_hid_leds);
+    usb_set_hid_leds(kdb_hid_leds);
+    ble_set_hid_leds(kdb_hid_leds);
 }
 
 static void kbd_queue_str(const char *str)
@@ -531,7 +531,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     for (int i = 0; i < conn->codes_count; i++)
     {
         uint16_t bit_offset = conn->codes_offset + (i * 8);
-        uint8_t keycode = (uint8_t)des_extract_bits(report_data, report_data_len,
+        uint8_t keycode = (uint8_t)hid_extract_bits(report_data, report_data_len,
                                                     bit_offset, 8);
         if (keycode == 1)
         {
@@ -545,7 +545,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     // Extract individual keycode bits
     for (int i = 0; i <= 0xFF; i++)
     {
-        uint32_t bit_val = des_extract_bits(report_data, report_data_len,
+        uint32_t bit_val = hid_extract_bits(report_data, report_data_len,
                                             conn->keycodes[i], 1);
         if (bit_val)
             KBD_KEY_BIT_SET(conn->keys, i);

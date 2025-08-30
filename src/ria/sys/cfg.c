@@ -48,11 +48,11 @@ static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
 
 #ifdef RP6502_RIA_W
-static uint8_t cfg_net_rf = 1;
+static uint8_t cfg_net_rf;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
-static uint8_t cfg_net_ble = 1;
+static uint8_t cfg_net_ble;
 #endif /* RP6502_RIA_W */
 
 // Optional string can replace boot string
@@ -189,6 +189,11 @@ static void cfg_load_with_boot_opt(bool boot_only)
 
 void cfg_init(void)
 {
+    // Non 0 defaults
+#ifdef RP6502_RIA_W
+    cfg_net_rf = 1;
+    cfg_net_ble = 1;
+#endif /* RP6502_RIA_W */
     cfg_load_with_boot_opt(false);
 }
 

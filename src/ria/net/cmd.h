@@ -14,9 +14,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Utility
- */
-
+// We have one job.
 bool cmd_parse(const char **s);
 
 #endif /* _RIA_NET_CMD_H_ */

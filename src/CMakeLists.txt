@@ -66,7 +66,7 @@ target_sources(rp6502_ria PRIVATE
     ria/api/std.c
     ria/aud/aud.c
     ria/aud/psg.c
-    ria/hid/des.c
+    ria/hid/hid.c
     ria/hid/kbd.c
     ria/hid/mou.c
     ria/hid/pad.c
@@ -96,7 +96,6 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/rln.c
     ria/sys/sys.c
     ria/sys/vga.c
-    ria/usb/hid.c
     ria/usb/msc.c
     ria/usb/usb.c
     ria/usb/xin.c

@@ -7,7 +7,7 @@
 #ifndef _RIA_NET_BLE_H_
 #define _RIA_NET_BLE_H_
 
-/* Bluetooth LE driver
+/* Bluetooth LE driver, main events and HID.
  */
 
 #include <stddef.h>
@@ -22,16 +22,19 @@ void ble_task(void);
 /* Utility
  */
 
-void ble_set_config(uint8_t bt);
+// 0-disabled, 1-enabled, 2-pairing
+void ble_set_config(uint8_t ble);
 
 // True when new devices allowed to pair
 bool ble_is_pairing(void);
 
 // Sends LED info to keyboards
-void ble_set_leds(uint8_t leds);
+void ble_set_hid_leds(uint8_t leds);
 
+// Turn off BLE, will restart if not disabled
 void ble_shutdown(void);
 
+// Status command printer
 void ble_print_status(void);
 
 #endif /* _RIA_NET_BLE_H_ */

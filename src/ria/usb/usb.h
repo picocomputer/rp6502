@@ -7,7 +7,7 @@
 #ifndef _RIA_USB_USB_H_
 #define _RIA_USB_USB_H_
 
-/* TinyUSB stack driver.
+/* USB stack driver, main events and HID.
  */
 
 #include <stddef.h>
@@ -22,5 +22,8 @@ void usb_task(void);
 
 // For monitor status command.
 void usb_print_status(void);
+
+// Sends LED info to keyboards
+void usb_set_hid_leds(uint8_t leds);
 
 #endif /* _RIA_USB_USB_H_ */

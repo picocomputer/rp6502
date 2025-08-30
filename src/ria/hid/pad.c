@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "hid/hid.h"
 #include "hid/pad.h"
-#include "hid/des.h"
 #include "sys/mem.h"
 #include <btstack_hid_parser.h>
 #include <pico.h>
@@ -550,41 +550,41 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     // Extract analog sticks
     if (gamepad->x_size > 0)
     {
-        uint32_t raw_x = des_extract_bits(data, report_len, gamepad->x_offset, gamepad->x_size);
-        report->lx = des_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_min, gamepad->x_max);
+        uint32_t raw_x = hid_extract_bits(data, report_len, gamepad->x_offset, gamepad->x_size);
+        report->lx = hid_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_min, gamepad->x_max);
     }
     if (gamepad->y_size > 0)
     {
-        uint32_t raw_y = des_extract_bits(data, report_len, gamepad->y_offset, gamepad->y_size);
-        report->ly = des_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_min, gamepad->y_max);
+        uint32_t raw_y = hid_extract_bits(data, report_len, gamepad->y_offset, gamepad->y_size);
+        report->ly = hid_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_min, gamepad->y_max);
     }
     if (gamepad->z_size > 0)
     {
-        uint32_t raw_z = des_extract_bits(data, report_len, gamepad->z_offset, gamepad->z_size);
-        report->rx = des_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_min, gamepad->z_max);
+        uint32_t raw_z = hid_extract_bits(data, report_len, gamepad->z_offset, gamepad->z_size);
+        report->rx = hid_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_min, gamepad->z_max);
     }
     if (gamepad->rz_size > 0)
     {
-        uint32_t raw_rz = des_extract_bits(data, report_len, gamepad->rz_offset, gamepad->rz_size);
-        report->ry = des_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_min, gamepad->rz_max);
+        uint32_t raw_rz = hid_extract_bits(data, report_len, gamepad->rz_offset, gamepad->rz_size);
+        report->ry = hid_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_min, gamepad->rz_max);
     }
 
     // Extract triggers
     if (gamepad->rx_size > 0)
     {
-        uint32_t raw_rx = des_extract_bits(data, report_len, gamepad->rx_offset, gamepad->rx_size);
-        report->lt = des_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_min, gamepad->rx_max);
+        uint32_t raw_rx = hid_extract_bits(data, report_len, gamepad->rx_offset, gamepad->rx_size);
+        report->lt = hid_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_min, gamepad->rx_max);
     }
     if (gamepad->ry_size > 0)
     {
-        uint32_t raw_ry = des_extract_bits(data, report_len, gamepad->ry_offset, gamepad->ry_size);
-        report->rt = des_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_min, gamepad->ry_max);
+        uint32_t raw_ry = hid_extract_bits(data, report_len, gamepad->ry_offset, gamepad->ry_size);
+        report->rt = hid_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_min, gamepad->ry_max);
     }
 
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-        if (des_extract_bits(data, report_len, gamepad->button_offsets[i], 1))
+        if (hid_extract_bits(data, report_len, gamepad->button_offsets[i], 1))
             buttons |= (1UL << i);
     report->button0 = buttons & 0xFF;
     report->button1 = (buttons & 0xFF00) >> 8;
@@ -594,7 +594,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     {
         // Convert HID hat format to individual direction bits
         static const uint8_t hat_to_pad[] = {1, 9, 8, 10, 2, 6, 4, 5};
-        uint32_t raw_hat = des_extract_bits(data, report_len, gamepad->hat_offset, gamepad->hat_size);
+        uint32_t raw_hat = hid_extract_bits(data, report_len, gamepad->hat_offset, gamepad->hat_size);
         unsigned index = raw_hat - gamepad->hat_min;
         if (index < 8)
             report->dpad |= hat_to_pad[index];

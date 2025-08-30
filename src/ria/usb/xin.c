@@ -10,13 +10,11 @@
 #include "usb/xin.h"
 void xin_task(void) { return; }
 int xin_pad_count(void) { return 0; }
-bool xin_is_xbox_one(int) { return false; }
-bool xin_is_xbox_360(int) { return false; }
 
 #else
 
+#include "hid/hid.h"
 #include "hid/pad.h"
-#include "usb/hid.h"
 #include "usb/xin.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
@@ -286,20 +284,20 @@ __in_flash("xin_hid_descriptors") static const uint8_t xbox_360_fake_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop Controls)
 
     // Byte 4: Left trigger (Rx)
-    0x09, 0x33, // Usage (Rx)
-    0x15, 0x00, // Logical Minimum (0)
+    0x09, 0x33,       // Usage (Rx)
+    0x15, 0x00,       // Logical Minimum (0)
     0x26, 0xff, 0x00, // Logical Maximum (255) - using 16-bit form
-    0x75, 0x08, // Report Size (8 bits)
-    0x95, 0x01, // Report Count (1)
-    0x81, 0x02, // Input (Data,Var,Abs)
+    0x75, 0x08,       // Report Size (8 bits)
+    0x95, 0x01,       // Report Count (1)
+    0x81, 0x02,       // Input (Data,Var,Abs)
 
     // Byte 5: Right trigger (Ry)
-    0x09, 0x34, // Usage (Ry)
-    0x15, 0x00, // Logical Minimum (0)
+    0x09, 0x34,       // Usage (Ry)
+    0x15, 0x00,       // Logical Minimum (0)
     0x26, 0xff, 0x00, // Logical Maximum (255) - using 16-bit form
-    0x75, 0x08, // Report Size (8 bits)
-    0x95, 0x01, // Report Count (1)
-    0x81, 0x02, // Input (Data,Var,Abs)
+    0x75, 0x08,       // Report Size (8 bits)
+    0x95, 0x01,       // Report Count (1)
+    0x81, 0x02,       // Input (Data,Var,Abs)
 
     // Bytes 6-7: Left stick X
     0x09, 0x30,       // Usage (X)
@@ -334,7 +332,9 @@ __in_flash("xin_hid_descriptors") static const uint8_t xbox_360_fake_desc[] = {
     0x81, 0x02,       // Input (Data,Var,Abs)
 
     0xc0, // End Collection
-};static int xin_find_index_by_dev_addr(uint8_t dev_addr)
+};
+
+static int xin_find_index_by_dev_addr(uint8_t dev_addr)
 {
     for (int i = 0; i < XIN_MAX_DEVICES; i++)
         if (xbox_devices[i].valid && xbox_devices[i].dev_addr == dev_addr)
