@@ -109,7 +109,6 @@ static struct
     uint8_t adsr;
     uint32_t vol;
     uint32_t phase;
-    uint32_t phase_inc;
     uint32_t noise1;
     uint32_t noise2;
 } psg_channel_state[PSG_CHANNELS];
@@ -124,13 +123,14 @@ static void
     pwm_clear_irq(AUD_IRQ_SLICE);
 
     // Check for valid xram address
-    struct psg_channel *channels = (void *)&xram[psg_xaddr];
-    if (channels == (void *)&xram[0xFFFF])
+    if (psg_xaddr == 0xFFFF)
     {
         pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
         pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
         return;
     }
+
+    struct psg_channel *channels = (void *)&xram[psg_xaddr];
 
     // Output previous sample at start to minimize jitter
     int16_t sample_l = 0;
@@ -161,7 +161,8 @@ static void
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
         // Sample the raw waveform
-        psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
+        uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * channels[i].freq / 3 / PSG_RATE;
+        psg_channel_state[i].phase += phase_inc;
         uint32_t phase = psg_channel_state[i].phase >> 24;
         uint32_t duty = channels[i].duty;
         switch (channels[i].wave_release >> 4)
@@ -272,16 +273,6 @@ static void psg_reclock(uint32_t sys_clk_khz)
 
 static void psg_task(void)
 {
-
-    struct psg_channel *channels = (void *)&xram[psg_xaddr];
-    if (channels != (void *)&xram[0xFFFF])
-    {
-        // Perform slow computations on only 1 channel per task
-        static unsigned task_chan = 0;
-        if (++task_chan >= PSG_CHANNELS)
-            task_chan = 0;
-        psg_channel_state[task_chan].phase_inc = ((double)UINT32_MAX + 1) * channels[task_chan].freq / 3 / PSG_RATE;
-    }
 }
 
 bool psg_xreg(uint16_t word)
