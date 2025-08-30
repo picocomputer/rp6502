@@ -12,11 +12,11 @@
 // KEYCODE to Unicode Conversion
 // {without shift, with shift, with altGr, with shift and altGr}
 
-#define HID_KEYCODE_TO_UNICODE_DA         HID_KEYCODE_TO_UNICODE_DA_DK_QWERTY
-#define HID_KEYCODE_TO_UNICODE_DA_QWERTY  HID_KEYCODE_TO_UNICODE_DA_DK_QWERTY
-#define HID_KEYCODE_TO_UNICODE_DA_DK      HID_KEYCODE_TO_UNICODE_DA_DK_QWERTY
+#define KBD_HID_KEY_TO_UNICODE_DA         KBD_HID_KEY_TO_UNICODE_DA_DK_QWERTY
+#define KBD_HID_KEY_TO_UNICODE_DA_QWERTY  KBD_HID_KEY_TO_UNICODE_DA_DK_QWERTY
+#define KBD_HID_KEY_TO_UNICODE_DA_DK      KBD_HID_KEY_TO_UNICODE_DA_DK_QWERTY
 
-#define HID_KEYCODE_TO_UNICODE_DA_DK_QWERTY			  \
+#define KBD_HID_KEY_TO_UNICODE_DA_DK_QWERTY			  \
 		/* 0x00:    0 */ {     0,      0,      0, 0}, \
 		/* 0x01:    0 */ {     0,      0,      0, 0}, \
 		/* 0x02:    0 */ {     0,      0,      0, 0}, \

@@ -95,10 +95,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
 
+#define KBD_KEY_QUEUE_SIZE 16
+
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_modifier;
 static uint8_t kbd_repeat_keycode;
-static char kbd_key_queue[16];
+static char kbd_key_queue[KBD_KEY_QUEUE_SIZE];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds;
@@ -125,14 +127,11 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[KBD_HID_KEY_CONTROL_LEFT >> 3]
 
-// Circular buffer
-#define KBD_KEY_QUEUE(pos) kbd_key_queue[(pos) & 0x0F]
-
 // Select locale based on RP6502_KEYBOARD set in CMakeLists.txt
-#define HID_KEYCODE_TO_UNICODE_(kb) HID_KEYCODE_TO_UNICODE_##kb
-#define HID_KEYCODE_TO_UNICODE(kb) HID_KEYCODE_TO_UNICODE_(kb)
-static DWORD const __in_flash("keycode_to_unicode")
-    KEYCODE_TO_UNICODE[128][4] = {HID_KEYCODE_TO_UNICODE(RP6502_KEYBOARD)};
+#define KBD_HID_KEY_TO_UNICODE_(kb) KBD_HID_KEY_TO_UNICODE_##kb
+#define KBD_HID_KEY_TO_UNICODE(kb) KBD_HID_KEY_TO_UNICODE_(kb)
+static DWORD const __in_flash("ria_hid_kbd")
+    kbd_hid_key_to_unicode[128][4] = {KBD_HID_KEY_TO_UNICODE(RP6502_KEYBOARD)};
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -152,10 +151,13 @@ static void kbd_queue_str(const char *str)
 {
     // All or nothing
     for (size_t len = strlen(str); len; len--)
-        if (&KBD_KEY_QUEUE(kbd_key_queue_head + len) == &KBD_KEY_QUEUE(kbd_key_queue_tail))
+        if (kbd_key_queue_head + len == kbd_key_queue_tail)
             return;
     while (*str)
-        KBD_KEY_QUEUE(++kbd_key_queue_head) = *str++;
+    {
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = *str++;
+    }
 }
 
 static void kbd_queue_seq(const char *str, const char *mod_seq, int mod)
@@ -246,25 +248,25 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (use_shift)
-                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][3], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][3], cfg_get_codepage());
             else
-                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][2], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][2], cfg_get_codepage());
         }
         else
         {
             if (use_shift)
-                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_codepage());
             else
-                ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_codepage());
         }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
         if (key_shift)
-            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][1], cfg_get_codepage());
+            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_codepage());
         else
-            ch = ff_uni2oem(KEYCODE_TO_UNICODE[keycode][0], cfg_get_codepage());
+            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_codepage());
         if (key_ctrl)
         {
             if (ch >= '`' && ch <= '~')
@@ -276,11 +278,13 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
         if (ch)
         {
-            if (&KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail) &&
-                &KBD_KEY_QUEUE(kbd_key_queue_head + 2) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
+            if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail &&
+                (kbd_key_queue_head + 2) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
             {
-                KBD_KEY_QUEUE(++kbd_key_queue_head) = '\33';
-                KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+                kbd_key_queue[kbd_key_queue_head] = '\33';
+                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+                kbd_key_queue[kbd_key_queue_head] = ch;
             }
             return;
         }
@@ -300,8 +304,11 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Queue a regularly typed key
     if (ch)
     {
-        if (&KBD_KEY_QUEUE(kbd_key_queue_head + 1) != &KBD_KEY_QUEUE(kbd_key_queue_tail))
-            KBD_KEY_QUEUE(++kbd_key_queue_head) = ch;
+        if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+        {
+            kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+            kbd_key_queue[kbd_key_queue_head] = ch;
+        }
         return;
     }
     // Non-repeating special key handler
@@ -393,9 +400,10 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 int kbd_stdio_in_chars(char *buf, int length)
 {
     int i = 0;
-    while (i < length && &KBD_KEY_QUEUE(kbd_key_queue_tail) != &KBD_KEY_QUEUE(kbd_key_queue_head))
+    while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
     {
-        buf[i++] = KBD_KEY_QUEUE(++kbd_key_queue_tail);
+        kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
+        buf[i++] = kbd_key_queue[kbd_key_queue_tail];
     }
     return i ? i : PICO_ERROR_NO_DATA;
 }
