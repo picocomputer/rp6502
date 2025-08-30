@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -61,7 +61,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "";
 
 static const char __in_flash("helptext") hlp_text_about[] =
-    "Picocomputer 6502 - Copyright (c) 2023 Rumbledethumps.\n"
+    "Picocomputer 6502 - Copyright (c) 2025 Rumbledethumps.\n"
     "     Pi Pico SDKs - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
     "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
     "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
