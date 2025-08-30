@@ -155,10 +155,10 @@ static bool rom_next_chunk(void)
         }
     uint32_t rom_crc;
     const char *args = (char *)mbuf;
-    if (parse_uint32(&args, &len, &rom_addr) &&
-        parse_uint32(&args, &len, &rom_len) &&
-        parse_uint32(&args, &len, &rom_crc) &&
-        parse_end(args, len))
+    if (str_parse_uint32(&args, &len, &rom_addr) &&
+        str_parse_uint32(&args, &len, &rom_len) &&
+        str_parse_uint32(&args, &len, &rom_crc) &&
+        str_parse_end(args, len))
     {
         if (rom_addr > 0x1FFFF)
         {
@@ -307,8 +307,8 @@ void rom_mon_install(const char *args, size_t len)
 void rom_mon_remove(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
-    if (parse_rom_name(&args, &len, lfs_name) &&
-        parse_end(args, len))
+    if (str_parse_rom_name(&args, &len, lfs_name) &&
+        str_parse_end(args, len))
     {
         const char *boot = cfg_get_boot();
         if (!strcmp(lfs_name, boot))
@@ -334,11 +334,11 @@ void rom_mon_load(const char *args, size_t len)
         rom_state = ROM_LOADING;
 }
 
-bool rom_load(const char *args, size_t len)
+bool rom_load_installed(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
-    if (parse_rom_name(&args, &len, lfs_name) &&
-        parse_end(args, len))
+    if (str_parse_rom_name(&args, &len, lfs_name) &&
+        str_parse_end(args, len))
     {
         struct lfs_info info;
         if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
@@ -370,8 +370,8 @@ void rom_mon_info(const char *args, size_t len)
 bool rom_help(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
-    if (parse_rom_name(&args, &len, lfs_name) &&
-        parse_end(args, len))
+    if (str_parse_rom_name(&args, &len, lfs_name) &&
+        str_parse_end(args, len))
     {
         struct lfs_info info;
         if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
@@ -418,7 +418,7 @@ void rom_init(void)
     // Try booting the set boot ROM
     char *boot = cfg_get_boot();
     size_t boot_len = strlen(boot);
-    rom_load((char *)boot, boot_len);
+    rom_load_installed((char *)boot, boot_len);
 }
 
 void rom_task(void)

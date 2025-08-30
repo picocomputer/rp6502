@@ -26,8 +26,8 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static bool needs_newline = true;
-static bool needs_prompt = true;
+static bool mon_needs_newline = true;
+static bool mon_needs_prompt = true;
 
 typedef void (*mon_function)(const char *, size_t);
 static struct
@@ -73,7 +73,7 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
     for (; i < buflen; i++)
     {
         uint8_t ch = (*buf)[i];
-        if (char_is_hex(ch))
+        if (str_char_is_hex(ch))
             is_maybe_addr = true;
         else if (ch == ' ')
             break;
@@ -121,12 +121,12 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
 {
     (void)timeout;
     assert(!timeout);
-    needs_prompt = true;
+    mon_needs_prompt = true;
     const char *args = buf;
     mon_function func = mon_command_lookup(&args, length);
     if (!func)
     {
-        if (!rom_load(buf, length))
+        if (!rom_load_installed(buf, length))
             for (const char *b = buf; b < args; b++)
                 if (b[0] != ' ')
                 {
@@ -143,6 +143,8 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
 static bool mon_suspended(void)
 {
     return main_active() ||
+           // These may run the 6502 many times for a single
+           // task so we can't use only main_active().
            ram_active() ||
            rom_active() ||
            fil_active();
@@ -150,20 +152,20 @@ static bool mon_suspended(void)
 
 void mon_task(void)
 {
-    if (needs_prompt && !mon_suspended())
+    if (mon_needs_prompt && !mon_suspended())
     {
         printf("\30\33[0m");
-        if (needs_newline)
+        if (mon_needs_newline)
             putchar('\n');
         putchar(']');
-        needs_prompt = false;
-        needs_newline = false;
+        mon_needs_prompt = false;
+        mon_needs_newline = false;
         rln_read_line(0, mon_enter, 256, 0);
     }
 }
 
 void mon_break(void)
 {
-    needs_prompt = true;
-    needs_newline = true;
+    mon_needs_prompt = true;
+    mon_needs_newline = true;
 }

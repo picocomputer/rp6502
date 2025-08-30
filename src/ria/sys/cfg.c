@@ -150,32 +150,32 @@ static void cfg_load_with_boot_opt(bool boot_only)
         switch (mbuf[1])
         {
         case 'P':
-            parse_uint32(&str, &len, &cfg_phi2_khz);
+            str_parse_uint32(&str, &len, &cfg_phi2_khz);
             break;
         case 'T':
-            parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
+            str_parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
             break;
         case 'S':
-            parse_uint32(&str, &len, &cfg_codepage);
+            str_parse_uint32(&str, &len, &cfg_codepage);
             break;
         case 'D':
-            parse_uint8(&str, &len, &cfg_vga_display);
+            str_parse_uint8(&str, &len, &cfg_vga_display);
             break;
 #ifdef RP6502_RIA_W
         case 'E':
-            parse_uint8(&str, &len, &cfg_net_rf);
+            str_parse_uint8(&str, &len, &cfg_net_rf);
             break;
         case 'F':
-            parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
+            str_parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
             break;
         case 'W':
-            parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
+            str_parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
             break;
         case 'K':
-            parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
+            str_parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
             break;
         case 'B':
-            parse_uint8(&str, &len, &cfg_net_ble);
+            str_parse_uint8(&str, &len, &cfg_net_ble);
             break;
 #endif /* RP6502_RIA_W */
         default:

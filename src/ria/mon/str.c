@@ -14,14 +14,14 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-bool char_is_hex(char ch)
+bool str_char_is_hex(char ch)
 {
     return ((ch >= '0') && (ch <= '9')) ||
            ((ch >= 'A') && (ch <= 'F')) ||
            ((ch >= 'a') && (ch <= 'f'));
 }
 
-int char_to_int(char ch)
+int str_char_to_int(char ch)
 {
     if ((unsigned int)ch - (unsigned int)'0' < 10u)
         return ch - '0';
@@ -32,7 +32,7 @@ int char_to_int(char ch)
     return -1;
 }
 
-bool parse_string(const char **args, size_t *len, char *dest, size_t size)
+bool str_parse_string(const char **args, size_t *len, char *dest, size_t size)
 {
     size_t cpylen = *len;
     while (cpylen && (*args)[cpylen - 1] == ' ')
@@ -48,10 +48,10 @@ bool parse_string(const char **args, size_t *len, char *dest, size_t size)
     return false;
 }
 
-bool parse_uint8(const char **args, size_t *len, uint8_t *result)
+bool str_parse_uint8(const char **args, size_t *len, uint8_t *result)
 {
     uint32_t result32;
-    if (parse_uint32(args, len, &result32) && result32 < 0x100)
+    if (str_parse_uint32(args, len, &result32) && result32 < 0x100)
     {
         *result = result32;
         return true;
@@ -59,10 +59,10 @@ bool parse_uint8(const char **args, size_t *len, uint8_t *result)
     return false;
 }
 
-bool parse_uint16(const char **args, size_t *len, uint16_t *result)
+bool str_parse_uint16(const char **args, size_t *len, uint16_t *result)
 {
     uint32_t result32;
-    if (parse_uint32(args, len, &result32) && result32 < 0x10000)
+    if (str_parse_uint32(args, len, &result32) && result32 < 0x10000)
     {
         *result = result32;
         return true;
@@ -70,7 +70,7 @@ bool parse_uint16(const char **args, size_t *len, uint16_t *result)
     return false;
 }
 
-bool parse_uint32(const char **args, size_t *len, uint32_t *result)
+bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
 {
     size_t i;
     for (i = 0; i < *len; i++)
@@ -100,9 +100,9 @@ bool parse_uint32(const char **args, size_t *len, uint32_t *result)
         char ch = (*args)[i];
         if (base == 10 && (ch < '0' || ch > '9'))
             break;
-        if (base == 16 && !char_is_hex(ch))
+        if (base == 16 && !str_char_is_hex(ch))
             break;
-        uint32_t i = char_to_int(ch);
+        uint32_t i = str_char_to_int(ch);
         if (i >= base)
             return false;
         value = value * base + i;
@@ -120,7 +120,7 @@ bool parse_uint32(const char **args, size_t *len, uint32_t *result)
     return true;
 }
 
-bool parse_rom_name(const char **args, size_t *len, char *name)
+bool str_parse_rom_name(const char **args, size_t *len, char *name)
 {
     name[0] = 0;
     size_t name_len = 0;
@@ -164,7 +164,7 @@ bool parse_rom_name(const char **args, size_t *len, char *name)
     return true;
 }
 
-bool parse_end(const char *args, size_t len)
+bool str_parse_end(const char *args, size_t len)
 {
     for (size_t i = 0; i < len; i++)
     {

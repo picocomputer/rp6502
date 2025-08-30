@@ -19,8 +19,10 @@
  */
 
 void fil_task(void);
-bool fil_active(void);
 void fil_break(void);
+
+// True when more work is pending.
+bool fil_active(void);
 
 /* Monitor commands
  */

@@ -18,8 +18,10 @@
  */
 
 void ram_task(void);
-bool ram_active(void);
 void ram_break(void);
+
+// True when more work is pending.
+bool ram_active(void);
 
 /* Monitor commands
  */

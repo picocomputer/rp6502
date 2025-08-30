@@ -19,7 +19,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define TIMEOUT_MS 200
+#define RAM_TIMEOUT_MS 200
 
 static enum {
     SYS_IDLE,
@@ -69,8 +69,8 @@ void ram_mon_address(const char *args, size_t len)
     for (; i < len; i++)
     {
         char ch = args[i];
-        if (char_is_hex(ch))
-            rw_addr = rw_addr * 16 + char_to_int(ch);
+        if (str_char_is_hex(ch))
+            rw_addr = rw_addr * 16 + str_char_to_int(ch);
         else
             break;
     }
@@ -103,8 +103,8 @@ void ram_mon_address(const char *args, size_t len)
     for (; i < len; i++)
     {
         char ch = args[i];
-        if (char_is_hex(ch))
-            data = data * 16 + char_to_int(ch);
+        if (str_char_is_hex(ch))
+            data = data * 16 + str_char_to_int(ch);
         else if (ch != ' ')
         {
             printf("?invalid data character\n");
@@ -186,10 +186,10 @@ static void cmd_xram()
 
 void ram_mon_binary(const char *args, size_t len)
 {
-    if (parse_uint32(&args, &len, &rw_addr) &&
-        parse_uint32(&args, &len, &rw_len) &&
-        parse_uint32(&args, &len, &rw_crc) &&
-        parse_end(args, len))
+    if (str_parse_uint32(&args, &len, &rw_addr) &&
+        str_parse_uint32(&args, &len, &rw_len) &&
+        str_parse_uint32(&args, &len, &rw_crc) &&
+        str_parse_end(args, len))
     {
         if (rw_addr > 0x1FFFF)
         {
@@ -203,7 +203,7 @@ void ram_mon_binary(const char *args, size_t len)
             printf("?invalid length\n");
             return;
         }
-        rln_read_binary(TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
+        rln_read_binary(RAM_TIMEOUT_MS, sys_com_rx_mbuf, mbuf, rw_len);
         cmd_state = SYS_BINARY;
         return;
     }

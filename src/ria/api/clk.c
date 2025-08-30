@@ -24,7 +24,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CLK_ID_REALTIME 0
 
-uint64_t clk_clock_start;
+static uint64_t clk_clock_start;
 
 void clk_init(void)
 {
