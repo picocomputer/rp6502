@@ -447,7 +447,7 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
     if (conn_num < 0)
         return false;
 
-    // Begion processing raw HID descriptor into kbd_connection_t
+    // Begin processing raw HID descriptor into kbd_connection_t
     kbd_connection_t *conn = &kbd_connections[conn_num];
     memset(conn, 0, sizeof(kbd_connection_t));
     for (int i = 0; i < 256; i++)
