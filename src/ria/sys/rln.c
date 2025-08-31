@@ -26,7 +26,7 @@ typedef enum
     ansi_state_SS3,
     ansi_state_CSI,
     ansi_state_CSI_private,
-} ansi_state_t;
+} rln_ansi_state_t;
 
 static char rln_buf[RLN_BUF_SIZE];
 static rln_read_callback_t rln_callback;
@@ -36,7 +36,7 @@ static uint32_t rln_timeout_ms;
 static size_t rln_bufsize;
 static size_t rln_buflen;
 static size_t rln_bufpos;
-static ansi_state_t rln_ansi_state;
+static rln_ansi_state_t rln_ansi_state;
 static uint16_t rln_csi_param[RLN_CSI_PARAM_MAX_LEN];
 static uint8_t rln_csi_param_count;
 static uint32_t rln_ctrl_bits;

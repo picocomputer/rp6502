@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
 #include "sys/pix.h"

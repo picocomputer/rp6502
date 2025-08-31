@@ -15,8 +15,8 @@
 #include <stdbool.h>
 
 // UART connected to RIA
-#define COM_UART_TX 4
-#define COM_UART_RX 5
+#define COM_UART_TX_PIN 4
+#define COM_UART_RX_PIN 5
 #define COM_UART_INTERFACE uart1
 #define COM_UART_BAUDRATE 115200
 

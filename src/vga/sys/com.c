@@ -71,8 +71,8 @@ char com_out_read(void)
 
 void com_init(void)
 {
-    gpio_set_function(COM_UART_TX, GPIO_FUNC_UART);
-    gpio_set_function(COM_UART_RX, GPIO_FUNC_UART);
+    gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     uart_init(COM_UART_INTERFACE, COM_UART_BAUDRATE);
 }
 

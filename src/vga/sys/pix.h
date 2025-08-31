@@ -14,6 +14,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define PIX_PIO pio1
+#define PIX_REGS_SM 1
+#define PIX_XRAM_SM 2
+#define PIX_PHI2_PIN 11
+
 /* Main events
  */
 

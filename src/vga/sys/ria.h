@@ -15,6 +15,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// PIX is unidirectional and we're out of pins.
+// The RIA also sends UART data over PIX so we can
+// reconfigure that pin for a return channel.
+#define RIA_BACKCHAN_PIN COM_UART_RX_PIN
+#define RIA_BACKCHAN_BAUDRATE 115200
+#define RIA_BACKCHAN_PIO pio1
+#define RIA_BACKCHAN_SM 3
+
 /* Main events
  */
 

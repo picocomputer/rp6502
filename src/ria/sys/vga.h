@@ -7,14 +7,14 @@
 #ifndef _RIA_SYS_VGA_H_
 #define _RIA_SYS_VGA_H_
 
-/* Connunications with RP6502-VGA.
+/* Communications with RP6502-VGA.
  */
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-#define VGA_BACKCHANNEL_PIN 4 // COM_UART_TX_PIN
+#define VGA_BACKCHANNEL_PIN COM_UART_TX_PIN
 #define VGA_BACKCHANNEL_BAUDRATE 115200
 #define VGA_BACKCHANNEL_PIO pio1
 #define VGA_BACKCHANNEL_SM 2

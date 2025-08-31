@@ -15,11 +15,6 @@
 #include <hardware/dma.h>
 #include <string.h>
 
-#define VGA_PIX_PIO pio1
-#define VGA_PIX_REGS_SM 1
-#define VGA_PIX_XRAM_SM 2
-#define VGA_PHI2_PIN 11
-
 #define PIX_CH0_XREGS_MAX 8
 static uint16_t xregs[PIX_CH0_XREGS_MAX];
 
@@ -78,44 +73,44 @@ void pix_init(void)
     static volatile uint32_t dma_addr;
 
     // Connect GPIO fabric
-    pio_gpio_init(VGA_PIX_PIO, VGA_PHI2_PIN);
-    pio_gpio_init(VGA_PIX_PIO, 0);
-    pio_gpio_init(VGA_PIX_PIO, 1);
-    pio_gpio_init(VGA_PIX_PIO, 2);
-    pio_gpio_init(VGA_PIX_PIO, 3);
+    pio_gpio_init(PIX_PIO, PIX_PHI2_PIN);
+    pio_gpio_init(PIX_PIO, 0);
+    pio_gpio_init(PIX_PIO, 1);
+    pio_gpio_init(PIX_PIO, 2);
+    pio_gpio_init(PIX_PIO, 3);
 
     dma_addr = (uint32_t)xram;
 
     // Two state machines, one program
-    uint offset = pio_add_program(VGA_PIX_PIO, &pix_rx_program);
+    uint offset = pio_add_program(PIX_PIO, &pix_rx_program);
 
     // PIO to receive VGA registers
     pio_sm_config regs_config = pix_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&regs_config, 0);
     sm_config_set_in_shift(&regs_config, false, false, 0);
     sm_config_set_out_shift(&regs_config, true, false, 4);
-    pio_sm_init(VGA_PIX_PIO, VGA_PIX_REGS_SM, offset, &regs_config);
-    pio_sm_put(VGA_PIX_PIO, VGA_PIX_REGS_SM, 0x1); // channel 1
-    pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_mov(pio_x, pio_osr));
-    pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_REGS_SM, pio_encode_out(pio_null, 32));
+    pio_sm_init(PIX_PIO, PIX_REGS_SM, offset, &regs_config);
+    pio_sm_put(PIX_PIO, PIX_REGS_SM, 0x1); // channel 1
+    pio_sm_exec_wait_blocking(PIX_PIO, PIX_REGS_SM, pio_encode_pull(false, true));
+    pio_sm_exec_wait_blocking(PIX_PIO, PIX_REGS_SM, pio_encode_mov(pio_x, pio_osr));
+    pio_sm_exec_wait_blocking(PIX_PIO, PIX_REGS_SM, pio_encode_out(pio_null, 32));
     sm_config_set_fifo_join(&regs_config, PIO_FIFO_JOIN_RX);
-    pio_sm_init(VGA_PIX_PIO, VGA_PIX_REGS_SM, offset, &regs_config);
-    pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_REGS_SM, true);
+    pio_sm_init(PIX_PIO, PIX_REGS_SM, offset, &regs_config);
+    pio_sm_set_enabled(PIX_PIO, PIX_REGS_SM, true);
 
     // PIO to receive XRAM
     pio_sm_config xram_config = pix_rx_program_get_default_config(offset);
     sm_config_set_in_pins(&xram_config, 0);
     sm_config_set_in_shift(&xram_config, false, false, 0);
     sm_config_set_out_shift(&xram_config, true, false, 4);
-    pio_sm_init(VGA_PIX_PIO, VGA_PIX_XRAM_SM, offset, &xram_config);
-    pio_sm_put(VGA_PIX_PIO, VGA_PIX_XRAM_SM, 0x0); // channel 0
-    pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_XRAM_SM, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_XRAM_SM, pio_encode_mov(pio_x, pio_osr));
-    pio_sm_exec_wait_blocking(VGA_PIX_PIO, VGA_PIX_XRAM_SM, pio_encode_out(pio_null, 32));
+    pio_sm_init(PIX_PIO, PIX_XRAM_SM, offset, &xram_config);
+    pio_sm_put(PIX_PIO, PIX_XRAM_SM, 0x0); // channel 0
+    pio_sm_exec_wait_blocking(PIX_PIO, PIX_XRAM_SM, pio_encode_pull(false, true));
+    pio_sm_exec_wait_blocking(PIX_PIO, PIX_XRAM_SM, pio_encode_mov(pio_x, pio_osr));
+    pio_sm_exec_wait_blocking(PIX_PIO, PIX_XRAM_SM, pio_encode_out(pio_null, 32));
     sm_config_set_fifo_join(&xram_config, PIO_FIFO_JOIN_RX);
-    pio_sm_init(VGA_PIX_PIO, VGA_PIX_XRAM_SM, offset, &regs_config);
-    pio_sm_set_enabled(VGA_PIX_PIO, VGA_PIX_XRAM_SM, true);
+    pio_sm_init(PIX_PIO, PIX_XRAM_SM, offset, &regs_config);
+    pio_sm_set_enabled(PIX_PIO, PIX_XRAM_SM, true);
 
     // Need all channels now to configure chaining
     int copy_chan = dma_claim_unused_channel(true);
@@ -167,23 +162,23 @@ void pix_init(void)
     // DMA move raw received data into RAM
     dma_channel_config fifo_dma = dma_channel_get_default_config(fifo_chan);
     channel_config_set_high_priority(&fifo_dma, true);
-    channel_config_set_dreq(&fifo_dma, pio_get_dreq(VGA_PIX_PIO, VGA_PIX_XRAM_SM, false));
+    channel_config_set_dreq(&fifo_dma, pio_get_dreq(PIX_PIO, PIX_XRAM_SM, false));
     channel_config_set_read_increment(&fifo_dma, false);
     channel_config_set_chain_to(&fifo_dma, copy_chan);
     dma_channel_configure(
         fifo_chan,
         &fifo_dma,
         &dma_fifo[0],                       // dst
-        &VGA_PIX_PIO->rxf[VGA_PIX_XRAM_SM], // src
+        &PIX_PIO->rxf[PIX_XRAM_SM], // src
         1,
         true);
 }
 
 void pix_task(void)
 {
-    while (!pio_sm_is_rx_fifo_empty(VGA_PIX_PIO, VGA_PIX_REGS_SM))
+    while (!pio_sm_is_rx_fifo_empty(PIX_PIO, PIX_REGS_SM))
     {
-        uint32_t raw = pio_sm_get(VGA_PIX_PIO, VGA_PIX_REGS_SM);
+        uint32_t raw = pio_sm_get(PIX_PIO, PIX_REGS_SM);
         uint8_t ch = (raw & 0x0F000000) >> 24;
         uint8_t addr = (raw & 0x00FF0000) >> 16;
         uint16_t word = raw & 0xFFFF;
