@@ -7,6 +7,9 @@
 #ifndef _VGA_USB_USB_H_
 #define _VGA_USB_USB_H_
 
+/* USB device driver
+ */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

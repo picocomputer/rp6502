@@ -7,7 +7,7 @@
 #ifndef _RIA_USB_USB_H_
 #define _RIA_USB_USB_H_
 
-/* USB stack driver, main events and HID.
+/* USB host driver, main events and HID.
  */
 
 #include <stddef.h>

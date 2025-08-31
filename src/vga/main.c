@@ -49,16 +49,16 @@ static void task(void)
     com_task();
 }
 
-void main_flush(void)
+void main_pre_reclock(void)
 {
-    ria_flush();
-    com_flush();
+    ria_pre_reclock();
+    com_pre_reclock();
 }
 
-void main_reclock(void)
+void main_post_reclock(void)
 {
-    ria_reclock();
-    com_reclock();
+    ria_post_reclock();
+    com_post_reclock();
 }
 
 bool main_prog(uint16_t *xregs)

@@ -20,9 +20,12 @@
 
 void ria_init(void);
 void ria_task(void);
+void ria_pre_reclock(void);
+void ria_post_reclock(void);
 
-void ria_flush(void);
-void ria_reclock(void);
+/* Utility
+ */
+
 void ria_backchan(uint16_t word);
 void ria_vsync(void);
 void ria_ack(void);

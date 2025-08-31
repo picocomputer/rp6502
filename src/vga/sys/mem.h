@@ -7,7 +7,7 @@
 #ifndef _VGA_SYS_MEM_H_
 #define _VGA_SYS_MEM_H_
 
-/* Storage for xram
+/* Storage for XRAM
  */
 
 #include <stddef.h>

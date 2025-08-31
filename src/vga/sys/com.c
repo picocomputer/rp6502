@@ -76,13 +76,13 @@ void com_init(void)
     uart_init(COM_UART_INTERFACE, COM_UART_BAUDRATE);
 }
 
-void com_flush(void)
+void com_pre_reclock(void)
 {
     while (!com_in_empty() && uart_is_writable(COM_UART_INTERFACE))
         uart_get_hw(COM_UART_INTERFACE)->dr = COM_IN_BUF(++com_in_tail);
 }
 
-void com_reclock(void)
+void com_post_reclock(void)
 {
     uart_init(COM_UART_INTERFACE, COM_UART_BAUDRATE);
 }

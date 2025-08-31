@@ -7,6 +7,9 @@
 #ifndef _VGA_SYS_VGA_H_
 #define _VGA_SYS_VGA_H_
 
+/* Video Graphics Array
+ */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

@@ -11,8 +11,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void main_flush(void);
-void main_reclock(void);
+void main_pre_reclock(void);
+void main_post_reclock(void);
 bool main_prog(uint16_t *xregs);
 
 #endif /* _VGA_MAIN_H_ */

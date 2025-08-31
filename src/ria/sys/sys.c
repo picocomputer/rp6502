@@ -23,20 +23,22 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+__in_flash("ria_sys_sys") static const char SYS_VERSION[] =
+    "RIA "
+#if RP6502_VERSION_EMPTY
+    __DATE__ " " __TIME__
+#else
+    "Version " RP6502_VERSION
+#endif
+#ifdef RP6502_RIA_W
+    " W"
+#endif
+    ;
+
 static void sys_print_status(void)
 {
     puts(RP6502_NAME);
-#ifdef RP6502_RIA_W
-    if (strlen(RP6502_VERSION))
-        puts("RIA Version " RP6502_VERSION " W");
-    else
-        puts("RIA " __DATE__ " " __TIME__ " W");
-#else
-    if (strlen(RP6502_VERSION))
-        puts("RIA Version " RP6502_VERSION);
-    else
-        puts("RIA " __DATE__ " " __TIME__);
-#endif
+    puts(SYS_VERSION);
 }
 
 void sys_mon_reboot(const char *args, size_t len)
