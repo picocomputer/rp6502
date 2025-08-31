@@ -46,7 +46,7 @@ void aud_setup(
 
 #define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_PWM_IRQ_PIN))
 
-/* Convience for pwm_set_chan_level.
+/* Convenience for pwm_set_chan_level.
  */
 
 #define AUD_L_CHAN (pwm_gpio_to_channel(AUD_L_PIN))
