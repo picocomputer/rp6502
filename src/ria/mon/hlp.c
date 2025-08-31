@@ -7,6 +7,7 @@
 #include "mon/hlp.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
+#include "sys/cpu.h"
 #include "sys/lfs.h"
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HLP)
@@ -175,8 +176,12 @@ static const char __in_flash("helptext") hlp_text_status[] =
     "including a list of USB devices and their ID. The USB ID is also the drive\n"
     "number for mass storage devices (MSC). Up to 8 devices are supported.";
 
+#define STR(x) #x
+#define XSTR(x) STR(x)
+#define FREQS XSTR(CPU_PHI2_MIN_KHZ) "-" XSTR(CPU_PHI2_MAX_KHZ)
+
 static const char __in_flash("helptext") hlp_text_set_phi2[] =
-    "PHI2 is the 6502 clock speed in kHz. The valid range is 800-8000 but not all\n"
+    "PHI2 is the 6502 clock speed in kHz. The valid range is " FREQS " but not all\n"
     "frequencies are available. In that case, the next highest frequency will\n"
     "be automatically calculated and selected. Setting is saved on the RIA flash.";
 

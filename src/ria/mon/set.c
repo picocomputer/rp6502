@@ -21,8 +21,6 @@ static void set_print_phi2(void)
 {
     uint32_t phi2_khz = cfg_get_phi2_khz();
     printf("PHI2: %ld kHz", phi2_khz);
-    if (phi2_khz < RP6502_MIN_PHI2 || phi2_khz > RP6502_MAX_PHI2)
-        printf(" (!!!)");
     printf("\n");
 }
 

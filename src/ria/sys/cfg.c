@@ -210,10 +210,11 @@ char *cfg_get_boot(void)
 
 bool cfg_set_phi2_khz(uint32_t freq_khz)
 {
-    if (freq_khz > RP6502_MAX_PHI2)
+    if (freq_khz > CPU_PHI2_MAX_KHZ)
         return false;
-    if (freq_khz && freq_khz < RP6502_MIN_PHI2)
+    if (freq_khz && freq_khz < CPU_PHI2_MIN_KHZ)
         return false;
+    // 0 allowed through to get default
     uint32_t old_val = cfg_phi2_khz;
     cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
     bool ok = true;
