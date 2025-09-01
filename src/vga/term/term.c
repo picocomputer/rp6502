@@ -921,7 +921,7 @@ static void term_out_char(term_state_t *term, char ch)
         }
 }
 
-static void term_out_chars(const char *buf, int length)
+static void com_out_chars(const char *buf, int length)
 {
     if (length)
     {
@@ -945,7 +945,7 @@ void term_init(void)
     term_state_init(&term_80, 80, term80_mem);
     // become part of stdout
     static stdio_driver_t term_stdio = {
-        .out_chars = term_out_chars,
+        .out_chars = com_out_chars,
         .crlf_enabled = true,
     };
     stdio_set_driver_enabled(&term_stdio, true);

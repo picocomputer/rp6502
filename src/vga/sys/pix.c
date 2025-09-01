@@ -6,12 +6,12 @@
 
 #include "main.h"
 #include "vga.pio.h"
-#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
 #include "term/font.h"
+#include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <string.h>
 
@@ -58,7 +58,7 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         font_set_codepage(word);
         return true;
     case 0x03: // UART_TX
-        com_out_write(word);
+        putchar_raw(word);
         return false;
     case 0x04: // BACKCHAN
         ria_backchan(word);
@@ -168,7 +168,7 @@ void pix_init(void)
     dma_channel_configure(
         fifo_chan,
         &fifo_dma,
-        &dma_fifo[0],                       // dst
+        &dma_fifo[0],               // dst
         &PIX_PIO->rxf[PIX_XRAM_SM], // src
         1,
         true);

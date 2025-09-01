@@ -45,10 +45,9 @@ void com_in_write_ansi_CPR(int row, int col);
 
 // OUT is sourced here from UART
 // OUT is sourced from PIX $F:03
-// OUT is sunk here to stdio(term)
+// OUT is sunk to term
 // OUT is sunk by USB CDC
 bool com_out_empty(void);
-void com_out_write(char ch);
 char com_out_peek(void);
 char com_out_read(void);
 
