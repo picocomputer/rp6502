@@ -30,7 +30,7 @@ typedef struct
     uint8_t s_pointer;
 } mdm_settings_t;
 
-/* Kernel events
+/* Main events
  */
 
 void mdm_task(void);

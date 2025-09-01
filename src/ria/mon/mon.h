@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,11 +14,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void mon_task(void);
-void mon_reset(void);
+void mon_break(void);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -30,11 +30,11 @@ additional signs :
 € - 0x20ac altGr with key "4"
 */
 
-#define HID_KEYCODE_TO_UNICODE_PL         HID_KEYCODE_TO_UNICODE_POL_QWERTY
-#define HID_KEYCODE_TO_UNICODE_PL_QWERTY  HID_KEYCODE_TO_UNICODE_POL_QWERTY
-#define HID_KEYCODE_TO_UNICODE_POL        HID_KEYCODE_TO_UNICODE_POL_QWERTY
+#define KBD_HID_KEY_TO_UNICODE_PL         KBD_HID_KEY_TO_UNICODE_POL_QWERTY
+#define KBD_HID_KEY_TO_UNICODE_PL_QWERTY  KBD_HID_KEY_TO_UNICODE_POL_QWERTY
+#define KBD_HID_KEY_TO_UNICODE_POL        KBD_HID_KEY_TO_UNICODE_POL_QWERTY
 
-#define HID_KEYCODE_TO_UNICODE_POL_QWERTY               \
+#define KBD_HID_KEY_TO_UNICODE_POL_QWERTY               \
         /* 0x00 */ {0, 0, 0, 0},                        \
         /* 0x01 */ {0, 0, 0, 0},                        \
         /* 0x02 */ {0, 0, 0, 0},                        \

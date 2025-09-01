@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,11 +14,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void rln_task(void);
-void rln_reset(void);
+void rln_break(void);
 
 // Both types of reads guarantee this callback unless a
 // break event happens. Timeout is true when input is idle too long.

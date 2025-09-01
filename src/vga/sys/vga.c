@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -280,9 +280,9 @@ static void vga_scanvideo_switch(void)
     assert(clk >= 120000000 && clk <= 266000000);
     if (clk != clock_get_hz(clk_sys))
     {
-        main_flush();
+        main_pre_reclock();
         set_sys_clock_khz(clk / 1000, true);
-        main_reclock();
+        main_post_reclock();
     }
 
     // These two calls are the main scanvideo startup.

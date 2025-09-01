@@ -24,7 +24,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CLK_ID_REALTIME 0
 
-uint64_t clk_clock_start;
+static uint64_t clk_clock_start;
 
 void clk_init(void)
 {
@@ -84,7 +84,6 @@ bool clk_api_get_res(void)
         if (!api_push_int32(&nsec) ||
             !api_push_uint32(&sec))
             return api_return_errno(API_EINVAL);
-        api_sync_xstack();
         return api_return_ax(0);
     }
     else
@@ -103,7 +102,6 @@ bool clk_api_get_time(void)
         if (!api_push_int32(&nsec) ||
             !api_push_uint32(&sec))
             return api_return_errno(API_EINVAL);
-        api_sync_xstack();
         return api_return_ax(0);
     }
     else
@@ -169,6 +167,5 @@ bool clk_api_get_time_zone(void)
     for (size_t i = sizeof(tz); i;)
         if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
             return api_return_errno(API_EINVAL);
-    api_sync_xstack();
     return api_return_ax(0);
 }

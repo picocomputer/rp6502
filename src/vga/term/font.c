@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "font.h"
-#include "term.h"
-#include "pico/stdlib.h"
+#include "term/font.h"
+#include "term/term.h"
+#include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 

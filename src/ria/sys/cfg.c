@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -40,7 +40,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
-static const char filename[] = "CONFIG.SYS";
+static const char cfg_filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
 static uint32_t cfg_codepage;
@@ -48,11 +48,11 @@ static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
 
 #ifdef RP6502_RIA_W
-static uint8_t cfg_net_rf = 1;
+static uint8_t cfg_net_rf;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
-static uint8_t cfg_net_ble = 1;
+static uint8_t cfg_net_ble;
 #endif /* RP6502_RIA_W */
 
 // Optional string can replace boot string
@@ -60,12 +60,12 @@ static void cfg_save_with_boot_opt(char *opt_str)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, filename,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, cfg_filename,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
     if (lfsresult < 0)
     {
-        printf("?Unable to lfs_file_opencfg %s for writing (%d)\n", filename, lfsresult);
+        printf("?Unable to lfs_file_opencfg %s for writing (%d)\n", cfg_filename, lfsresult);
         return;
     }
     if (!opt_str)
@@ -77,12 +77,12 @@ static void cfg_save_with_boot_opt(char *opt_str)
                 break;
         if (lfsresult >= 0)
             if ((lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file)) < 0)
-                printf("?Unable to lfs_file_rewind %s (%d)\n", filename, lfsresult);
+                printf("?Unable to lfs_file_rewind %s (%d)\n", cfg_filename, lfsresult);
     }
 
     if (lfsresult >= 0)
         if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            printf("?Unable to lfs_file_truncate %s (%d)\n", filename, lfsresult);
+            printf("?Unable to lfs_file_truncate %s (%d)\n", cfg_filename, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -113,26 +113,26 @@ static void cfg_save_with_boot_opt(char *opt_str)
 #endif /* RP6502_RIA_W */
                                opt_str);
         if (lfsresult < 0)
-            printf("?Unable to write %s contents (%d)\n", filename, lfsresult);
+            printf("?Unable to write %s contents (%d)\n", cfg_filename, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        printf("?Unable to lfs_file_close %s (%d)\n", filename, lfscloseresult);
+        printf("?Unable to lfs_file_close %s (%d)\n", cfg_filename, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
-        lfs_remove(&lfs_volume, filename);
+        lfs_remove(&lfs_volume, cfg_filename);
 }
 
 static void cfg_load_with_boot_opt(bool boot_only)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, filename,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, cfg_filename,
                                      LFS_O_RDONLY, &lfs_file_config);
     mbuf[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult != LFS_ERR_NOENT)
-            printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", filename, lfsresult);
+            printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", cfg_filename, lfsresult);
         return;
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
@@ -150,32 +150,32 @@ static void cfg_load_with_boot_opt(bool boot_only)
         switch (mbuf[1])
         {
         case 'P':
-            parse_uint32(&str, &len, &cfg_phi2_khz);
+            str_parse_uint32(&str, &len, &cfg_phi2_khz);
             break;
         case 'T':
-            parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
+            str_parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
             break;
         case 'S':
-            parse_uint32(&str, &len, &cfg_codepage);
+            str_parse_uint32(&str, &len, &cfg_codepage);
             break;
         case 'D':
-            parse_uint8(&str, &len, &cfg_vga_display);
+            str_parse_uint8(&str, &len, &cfg_vga_display);
             break;
 #ifdef RP6502_RIA_W
         case 'E':
-            parse_uint8(&str, &len, &cfg_net_rf);
+            str_parse_uint8(&str, &len, &cfg_net_rf);
             break;
         case 'F':
-            parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
+            str_parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
             break;
         case 'W':
-            parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
+            str_parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
             break;
         case 'K':
-            parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
+            str_parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
             break;
         case 'B':
-            parse_uint8(&str, &len, &cfg_net_ble);
+            str_parse_uint8(&str, &len, &cfg_net_ble);
             break;
 #endif /* RP6502_RIA_W */
         default:
@@ -184,11 +184,16 @@ static void cfg_load_with_boot_opt(bool boot_only)
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
-        printf("?Unable to lfs_file_close %s (%d)\n", filename, lfsresult);
+        printf("?Unable to lfs_file_close %s (%d)\n", cfg_filename, lfsresult);
 }
 
 void cfg_init(void)
 {
+    // Non 0 defaults
+#ifdef RP6502_RIA_W
+    cfg_net_rf = 1;
+    cfg_net_ble = 1;
+#endif /* RP6502_RIA_W */
     cfg_load_with_boot_opt(false);
 }
 
@@ -205,10 +210,11 @@ char *cfg_get_boot(void)
 
 bool cfg_set_phi2_khz(uint32_t freq_khz)
 {
-    if (freq_khz > RP6502_MAX_PHI2)
+    if (freq_khz > CPU_PHI2_MAX_KHZ)
         return false;
-    if (freq_khz && freq_khz < RP6502_MIN_PHI2)
+    if (freq_khz && freq_khz < CPU_PHI2_MIN_KHZ)
         return false;
+    // 0 allowed through to get default
     uint32_t old_val = cfg_phi2_khz;
     cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
     bool ok = true;

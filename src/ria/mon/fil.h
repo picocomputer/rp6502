@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -15,12 +15,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void fil_task(void);
+void fil_break(void);
+
+// True when more work is pending.
 bool fil_active(void);
-void fil_reset(void);
 
 /* Monitor commands
  */

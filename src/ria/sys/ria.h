@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -29,7 +29,7 @@
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
-/* Kernel events
+/* Main events
  */
 
 void ria_init(void);

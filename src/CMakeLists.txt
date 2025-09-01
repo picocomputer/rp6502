@@ -66,7 +66,7 @@ target_sources(rp6502_ria PRIVATE
     ria/api/std.c
     ria/aud/aud.c
     ria/aud/psg.c
-    ria/hid/des.c
+    ria/hid/hid.c
     ria/hid/kbd.c
     ria/hid/mou.c
     ria/hid/pad.c
@@ -96,7 +96,6 @@ target_sources(rp6502_ria PRIVATE
     ria/sys/rln.c
     ria/sys/sys.c
     ria/sys/vga.c
-    ria/usb/hid.c
     ria/usb/msc.c
     ria/usb/usb.c
     ria/usb/xin.c
@@ -133,6 +132,7 @@ target_sources(rp6502_vga PRIVATE
     vga/sys/mem.c
     vga/sys/pix.c
     vga/sys/ria.c
+    vga/sys/sys.c
     vga/sys/vga.c
     vga/term/color.c
     vga/term/font.c
@@ -185,16 +185,19 @@ set_property(TARGET rp6502_ria rp6502_vga
     RP6502_VERSION=""
     RP6502_CODE_PAGE=437
     RP6502_KEYBOARD=EN_US
-    RP6502_MIN_PHI2=800
-    RP6502_MAX_PHI2=8000
     RP6502_EXFAT=0
 )
 
 
-# If no version set, touch the file that provides a dev timestamp for the version.
+# If no version set, set a define for C preprocessor and touch
+# the file that provides a dev timestamp for the version.
 
 get_target_property(RP6502_RIA_COMPILE_DEFINITIONS rp6502_ria COMPILE_DEFINITIONS)
 if(RP6502_RIA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
+    set_property(TARGET rp6502_ria
+        APPEND PROPERTY COMPILE_DEFINITIONS
+        RP6502_VERSION_EMPTY=1
+    )
     add_custom_command(TARGET rp6502_ria PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.c
     )
@@ -202,7 +205,11 @@ endif()
 
 get_target_property(RP6502_VGA_COMPILE_DEFINITIONS rp6502_vga COMPILE_DEFINITIONS)
 if(RP6502_VGA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
+    set_property(TARGET rp6502_vga
+        APPEND PROPERTY COMPILE_DEFINITIONS
+        RP6502_VERSION_EMPTY=1
+    )
     add_custom_command(TARGET rp6502_vga PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/vga/sys/ria.c
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/vga/sys/sys.c
     )
 endif()

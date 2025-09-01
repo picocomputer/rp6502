@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -111,7 +111,11 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz,
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz)
 {
     if (!freq_khz)
-        freq_khz = RP6502_MAX_PHI2;
+        freq_khz = CPU_PHI2_DEFAULT;
+    if (freq_khz < CPU_PHI2_MIN_KHZ)
+        freq_khz = CPU_PHI2_MIN_KHZ;
+    if (freq_khz > CPU_PHI2_MAX_KHZ)
+        freq_khz = CPU_PHI2_MAX_KHZ;
     uint32_t sys_clk_khz;
     uint16_t clkdiv_int;
     uint8_t clkdiv_frac;

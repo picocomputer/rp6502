@@ -12,9 +12,10 @@ void ble_task(void) {}
 void ble_shutdown(void) {}
 void ble_print_status(void) {}
 void ble_set_config(uint8_t) {}
-void ble_set_leds(uint8_t) {}
+void ble_set_hid_leds(uint8_t) {}
 #else
 
+#include "hid/hid.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
@@ -22,7 +23,6 @@ void ble_set_leds(uint8_t) {}
 #include "net/cyw.h"
 #include "sys/cfg.h"
 #include "sys/led.h"
-#include "usb/hid.h"
 #include <stdio.h>
 #include <pico/time.h>
 
@@ -49,7 +49,7 @@ static btstack_packet_callback_registration_t sm_event_callback_registration;
 static uint8_t hid_descriptor_storage[3 * 1024];
 
 // We pause scanning during the entire connect sequence
-// becase BTStack only has state to manage one at a time.
+// because BTStack only has state to manage one at a time.
 // We peek at the in progress connection to monitor failure.
 #define BLE_CONNECT_TIMEOUT_MS (20 * 1000)
 static absolute_time_t ble_scan_restarts_at;
@@ -63,7 +63,7 @@ static inline void ble_restart_scan(void)
         ble_scan_restarts_at = get_absolute_time();
 }
 
-void ble_set_leds(uint8_t leds)
+void ble_set_hid_leds(uint8_t leds)
 {
     (void)leds;
     // TODO I don't have a keyboard to test this
@@ -190,8 +190,8 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             // Don't add new devices unless pairing is active
             if (!ble_pairing)
                 break;
-            // Reject non-HID but accomodate devices that
-            // don't advertise services when reconnecting.
+            // Bonded devices don't always advertise HID
+            // but it's required for pairing.
             if (!ad_data_contains_uuid16(data_length, data,
                                          ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE))
                 break;
@@ -391,9 +391,9 @@ void ble_task(void)
     }
 }
 
-void ble_set_config(uint8_t bt)
+void ble_set_config(uint8_t ble)
 {
-    switch (bt)
+    switch (ble)
     {
     case 0:
         ble_shutdown();

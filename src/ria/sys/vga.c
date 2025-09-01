@@ -1,9 +1,10 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
@@ -226,7 +227,7 @@ void vga_stop(void)
         vga_needs_reset = true;
 }
 
-void vga_reset(void)
+void vga_break(void)
 {
     vga_needs_reset = true;
 }

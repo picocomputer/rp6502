@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -17,7 +17,7 @@
 #include <string.h>
 #include "sys/mem.h"
 
-/* Kernel events
+/* Main events
  */
 
 void api_task(void);
@@ -115,7 +115,7 @@ static inline bool api_push_n(const void *data, size_t n)
     return true;
 }
 
-/* Ordinary xstack pushing.
+/* Wrappers for ordinary xstack pushing.
  */
 
 static inline bool api_push_uint8(const uint8_t *data) { return api_push_n(data, sizeof(uint8_t)); }
@@ -124,26 +124,6 @@ static inline bool api_push_uint32(const uint32_t *data) { return api_push_n(dat
 static inline bool api_push_int8(const int8_t *data) { return api_push_n(data, sizeof(int8_t)); }
 static inline bool api_push_int16(const int16_t *data) { return api_push_n(data, sizeof(int16_t)); }
 static inline bool api_push_int32(const int32_t *data) { return api_push_n(data, sizeof(int32_t)); }
-
-// Returning data on XSTACK requires the
-// read/write register to have the latest data.
-static inline void api_sync_xstack(void)
-{
-    API_STACK = xstack[xstack_ptr];
-}
-
-// Same as opcode 0 from the 6502 side.
-static inline void api_zxstack(void)
-{
-    API_STACK = 0;
-    xstack_ptr = XSTACK_SIZE;
-}
-
-// Useful for variadic functions or other stack shenanigans.
-static inline bool api_is_xstack_empty(void)
-{
-    return xstack_ptr == XSTACK_SIZE;
-}
 
 // Return works by manipulating 10 bytes of registers.
 // FFF0 EA      NOP
@@ -174,6 +154,7 @@ static inline bool api_return_ax(uint16_t val)
 {
     api_set_ax(val);
     api_set_regs_released();
+    API_STACK = xstack[xstack_ptr];
     return false;
 }
 
@@ -181,24 +162,26 @@ static inline bool api_return_axsreg(uint32_t val)
 {
     api_set_axsreg(val);
     api_set_regs_released();
+    API_STACK = xstack[xstack_ptr];
     return false;
 }
 
 static inline bool api_return_errno(uint16_t errno)
 {
-    api_zxstack();
+    xstack_ptr = XSTACK_SIZE;
     API_ERRNO = errno;
     return api_return_axsreg(-1);
 }
 
+// Sugar for when api_set_ax has already been called.
 static inline bool api_return(void)
 {
     api_set_regs_released();
+    API_STACK = xstack[xstack_ptr];
     return false;
 }
 
-// Helper that returns true to make code more readable.
-
+// Sugar that returns true to make code more readable.
 static inline bool api_working(void)
 {
     return true;

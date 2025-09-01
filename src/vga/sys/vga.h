@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,11 +7,14 @@
 #ifndef _VGA_SYS_VGA_H_
 #define _VGA_SYS_VGA_H_
 
+/* Video Graphics Array
+ */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void vga_init(void);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -21,8 +21,6 @@ static void set_print_phi2(void)
 {
     uint32_t phi2_khz = cfg_get_phi2_khz();
     printf("PHI2: %ld kHz", phi2_khz);
-    if (phi2_khz < RP6502_MIN_PHI2 || phi2_khz > RP6502_MAX_PHI2)
-        printf(" (!!!)");
     printf("\n");
 }
 
@@ -31,8 +29,8 @@ static void set_phi2(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (!parse_uint32(&args, &len, &val) ||
-            !parse_end(args, len))
+        if (!str_parse_uint32(&args, &len, &val) ||
+            !str_parse_end(args, len))
         {
             printf("?invalid argument\n");
             return;
@@ -59,12 +57,12 @@ static void set_boot(const char *args, size_t len)
     if (len)
     {
         char lfs_name[LFS_NAME_MAX + 1];
-        if (args[0] == '-' && parse_end(++args, --len))
+        if (args[0] == '-' && str_parse_end(++args, --len))
         {
             cfg_set_boot("");
         }
-        else if (parse_rom_name(&args, &len, lfs_name) &&
-                 parse_end(args, len))
+        else if (str_parse_rom_name(&args, &len, lfs_name) &&
+                 str_parse_end(args, len))
         {
             struct lfs_info info;
             if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
@@ -97,8 +95,8 @@ static void set_code_page(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (!parse_uint32(&args, &len, &val) ||
-            !parse_end(args, len) ||
+        if (!str_parse_uint32(&args, &len, &val) ||
+            !str_parse_end(args, len) ||
             !cfg_set_codepage(val))
         {
             printf("?invalid argument\n");
@@ -119,8 +117,8 @@ static void set_vga(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
+        if (str_parse_uint32(&args, &len, &val) &&
+            str_parse_end(args, len))
         {
             cfg_set_vga(val);
         }
@@ -145,8 +143,8 @@ static void set_rf(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
+        if (str_parse_uint32(&args, &len, &val) &&
+            str_parse_end(args, len))
         {
             cfg_set_rf(val);
         }
@@ -170,12 +168,12 @@ static void set_rfcc(const char *args, size_t len)
     char rfcc[3];
     if (len)
     {
-        if (args[0] == '-' && parse_end(++args, --len))
+        if (args[0] == '-' && str_parse_end(++args, --len))
         {
             cfg_set_rfcc("");
         }
-        else if (!parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
-                 !parse_end(args, len) ||
+        else if (!str_parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
+                 !str_parse_end(args, len) ||
                  !cfg_set_rfcc(rfcc))
         {
             printf("?invalid argument\n");
@@ -196,12 +194,12 @@ static void set_ssid(const char *args, size_t len)
     char ssid[33];
     if (len)
     {
-        if (args[0] == '-' && parse_end(++args, --len))
+        if (args[0] == '-' && str_parse_end(++args, --len))
         {
             cfg_set_ssid("");
         }
-        else if (!parse_string(&args, &len, ssid, sizeof(ssid)) ||
-                 !parse_end(args, len) ||
+        else if (!str_parse_string(&args, &len, ssid, sizeof(ssid)) ||
+                 !str_parse_end(args, len) ||
                  !cfg_set_ssid(ssid))
         {
             printf("?invalid argument\n");
@@ -222,12 +220,12 @@ static void set_pass(const char *args, size_t len)
     char pass[65];
     if (len)
     {
-        if (args[0] == '-' && parse_end(++args, --len))
+        if (args[0] == '-' && str_parse_end(++args, --len))
         {
             cfg_set_pass("");
         }
-        else if (!parse_string(&args, &len, pass, sizeof(pass)) ||
-                 !parse_end(args, len) ||
+        else if (!str_parse_string(&args, &len, pass, sizeof(pass)) ||
+                 !str_parse_end(args, len) ||
                  !cfg_set_pass(pass))
         {
             printf("?invalid argument\n");
@@ -250,8 +248,8 @@ static void set_ble(const char *args, size_t len)
     uint32_t val;
     if (len)
     {
-        if (parse_uint32(&args, &len, &val) &&
-            parse_end(args, len))
+        if (str_parse_uint32(&args, &len, &val) &&
+            str_parse_end(args, len))
         {
             cfg_set_ble(val);
         }
@@ -276,8 +274,8 @@ static void set_time_zone(const char *args, size_t len)
     char tz[65];
     if (len)
     {
-        if (!parse_string(&args, &len, tz, sizeof(tz)) ||
-            !parse_end(args, len) ||
+        if (!str_parse_string(&args, &len, tz, sizeof(tz)) ||
+            !str_parse_end(args, len) ||
             !cfg_set_time_zone(tz))
         {
             printf("?invalid argument\n");

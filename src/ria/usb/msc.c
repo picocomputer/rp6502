@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -49,7 +49,7 @@ static const char __in_flash("fatfs_vol") VolumeStrUSB4[] = "USB4";
 static const char __in_flash("fatfs_vol") VolumeStrUSB5[] = "USB5";
 static const char __in_flash("fatfs_vol") VolumeStrUSB6[] = "USB6";
 static const char __in_flash("fatfs_vol") VolumeStrUSB7[] = "USB7";
-__in_flash("fatfs_vols") const char *VolumeStr[FF_VOLUMES] = {
+const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrUSB0, VolumeStrUSB1, VolumeStrUSB2, VolumeStrUSB3,
     VolumeStrUSB4, VolumeStrUSB5, VolumeStrUSB6, VolumeStrUSB7};
 

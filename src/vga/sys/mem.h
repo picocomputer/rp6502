@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,7 +7,7 @@
 #ifndef _VGA_SYS_MEM_H_
 #define _VGA_SYS_MEM_H_
 
-/* Storage for xram
+/* Storage for XRAM
  */
 
 #include <stddef.h>

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -19,7 +19,7 @@
 #define AUD_R_PIN 27
 #define AUD_PWM_IRQ_PIN 14 /* No IO */
 
-/* Kernel events
+/* Main events
  */
 
 void aud_init(void);
@@ -35,7 +35,7 @@ void aud_setup(
     void (*reclock_fn)(uint32_t sys_clk_khz),
     void (*task_fn)(void));
 
-/* Audio samples are unsigned 8 bits. Rate is driver dependant.
+/* Audio samples are unsigned 8 bits.
  */
 
 #define AUD_PWM_BITS 8
@@ -46,7 +46,7 @@ void aud_setup(
 
 #define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_PWM_IRQ_PIN))
 
-/* Convienence for pwm_set_chan_level.
+/* Convenience for pwm_set_chan_level.
  */
 
 #define AUD_L_CHAN (pwm_gpio_to_channel(AUD_L_PIN))

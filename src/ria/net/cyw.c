@@ -84,9 +84,9 @@ static const char COUNTRY_CODES[] = {
     'U', 'S', // USA
 };
 
-bool cyw_led_status;
-bool cyw_led_requested;
-bool cyw_initialized;
+static bool cyw_led_status;
+static bool cyw_led_requested;
+static bool cyw_initialized;
 
 bool cyw_validate_country_code(char *cc)
 {

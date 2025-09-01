@@ -1,10 +1,10 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mem.h"
+#include "sys/mem.h"
 
 #ifdef NDEBUG
 volatile const uint8_t xram[0x10000] __attribute__((aligned(0x10000)));

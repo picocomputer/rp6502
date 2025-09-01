@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,7 +14,7 @@
 extern uint8_t font8[2048];
 extern uint8_t font16[4096];
 
-/* Kernel events
+/* Main events
  */
 
 void font_init(void);

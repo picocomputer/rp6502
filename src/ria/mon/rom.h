@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -15,14 +15,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Kernel events
+/* Main events
  */
 
 void rom_init(void);
 void rom_task(void);
-void rom_reset(void);
+void rom_break(void);
 
-// True when this module has pending IO.
+// True when more work is pending.
 bool rom_active(void);
 
 /* Monitor commands
@@ -34,7 +34,7 @@ void rom_mon_install(const char *args, size_t len);
 void rom_mon_remove(const char *args, size_t len);
 
 // Begin loading an installed rom, if exists.
-bool rom_load(const char *args, size_t len);
+bool rom_load_installed(const char *args, size_t len);
 
 // Display help from an installed ROM.
 bool rom_help(const char *args, size_t len);

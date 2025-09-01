@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,10 +10,10 @@
 #include "term/term.h"
 #include "sys/com.h"
 #include "sys/vga.h"
-#include "pico/stdlib.h"
-#include "pico/stdio/driver.h"
 #include "scanvideo/scanvideo.h"
 #include "scanvideo/composable_scanline.h"
+#include <pico/stdlib.h>
+#include <pico/stdio/driver.h>
 #include <stdio.h>
 
 // This terminal emulator supports a subset of xterm/ANSI codes.
@@ -921,7 +921,7 @@ static void term_out_char(term_state_t *term, char ch)
         }
 }
 
-static void term_out_chars(const char *buf, int length)
+static void com_out_chars(const char *buf, int length)
 {
     if (length)
     {
@@ -945,7 +945,7 @@ void term_init(void)
     term_state_init(&term_80, 80, term80_mem);
     // become part of stdout
     static stdio_driver_t term_stdio = {
-        .out_chars = term_out_chars,
+        .out_chars = com_out_chars,
         .crlf_enabled = true,
     };
     stdio_set_driver_enabled(&term_stdio, true);

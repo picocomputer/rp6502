@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -34,12 +34,11 @@
 #include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/hid.h"
 #include "usb/usb.h"
 #include "usb/xin.h"
 
 /**************************************/
-/* All kernel modules register below. */
+/* All device drivers register below. */
 /**************************************/
 
 // Many things are sensitive to order in obvious ways, like
@@ -48,10 +47,10 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // Bring up system stdio first.
+    // Bring up stdio dispatcher first.
     com_init();
 
-    // Configure the remaining GPIOs.
+    // GPIO drivers.
     cpu_init();
     ria_init();
     pix_init();
@@ -59,13 +58,13 @@ static void init(void)
 
     // Load config before we continue.
     lfs_init();
-    cfg_init();
+    cfg_init(); // Config stored on lfs
 
     // Print startup message after setting code page.
     oem_init();
     sys_init(); // This clears screen
 
-    // Misc kernel modules, add yours here.
+    // Misc device drivers, add yours here.
     usb_init();
     led_init();
     aud_init();
@@ -77,11 +76,10 @@ static void init(void)
     mdm_init();
 }
 
-// Tasks events are repeatedly called by the main kernel loop.
-// They must not block. Use a state machine to do as
-// much work as you can until something blocks.
+// Tasks events are repeatedly called by the main loop.
+// They must not block. All drivers are state machines.
 
-// These tasks run when FatFs is blocking.
+// These tasks run while FatFs is blocking.
 // Calling FatFs in here will summon a dragon.
 void main_task(void)
 {
@@ -92,25 +90,24 @@ void main_task(void)
     kbd_task();
     cyw_task();
     vga_task();
+    com_task();
     wfi_task();
     ntp_task();
-    hid_task();
     xin_task();
     ble_task();
     led_task();
-    com_task();
+    mdm_task();
+    ram_task();
+    mon_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
-    rln_task();
     api_task();
-    mon_task();
-    ram_task();
+    rln_task();
     fil_task();
     rom_task();
-    mdm_task();
 }
 
 // Event to start running the 6502.
@@ -144,17 +141,18 @@ static void stop(void)
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
-static void reset(void)
+// Stop will be executed first if 6502 is running.
+static void break_(void) // break is keyword
 {
-    fil_reset();
-    mon_reset();
-    ram_reset();
-    rom_reset();
-    vga_reset();
-    rln_reset();
+    fil_break();
+    mon_break();
+    ram_break();
+    rom_break();
+    vga_break();
+    rln_break();
 }
 
-// Triggered once after init then before every PHI2 clock change.
+// Triggered once after init then before every PHI2 change.
 // Divider is used when PHI2 less than 4 MHz to
 // maintain a minimum system clock of 128 MHz.
 // From 4 to 8 MHz increases system clock to 256 MHz.
@@ -167,7 +165,7 @@ void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_
     cyw_pre_reclock();
 }
 
-// Triggered once after init then after every PHI2 clock change.
+// Triggered once after init then after every PHI2 change.
 void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     com_post_reclock();
@@ -179,18 +177,20 @@ void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv
     cyw_post_reclock(sys_clk_khz);
 }
 
-// PIX XREG writes to the RIA device will notify here.
-bool main_pix(uint8_t ch, uint8_t addr, uint16_t word)
+// PIX XREG writes to the RIA device will dispatch here.
+bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
 {
     (void)addr;
-    switch (ch * 256 + addr)
+    switch (chan * 256 + addr)
     {
+    // Channel 0 for human interface devices.
     case 0x000:
         return kbd_xreg(word);
     case 0x001:
         return mou_xreg(word);
     case 0x002:
         return pad_xreg(word);
+    // Channel 1 for audio devices.
     case 0x100:
         return psg_xreg(word);
     default:
@@ -248,9 +248,9 @@ bool main_api(uint8_t operation)
     return false;
 }
 
-/*********************************/
-/* This is the kernel scheduler. */
-/*********************************/
+/*****************************/
+/* This is the OS scheduler. */
+/*****************************/
 
 static bool is_breaking;
 static enum state {
@@ -314,7 +314,7 @@ int main(void)
         }
         if (is_breaking)
         {
-            reset();
+            break_();
             is_breaking = false;
         }
     }

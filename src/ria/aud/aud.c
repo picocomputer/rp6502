@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -25,22 +25,19 @@ static void aud_nop()
 
 void aud_init(void)
 {
-    gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
-    gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
-
     pwm_config config;
 
     config = pwm_get_default_config();
     pwm_config_set_wrap(&config, ((1u << AUD_PWM_BITS) - 1));
     pwm_init(AUD_L_SLICE, &config, true);
     pwm_init(AUD_R_SLICE, &config, true);
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
 
     config = pwm_get_default_config();
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
     aud_stop();
+    gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
+    gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
 }
 
 void aud_stop(void)

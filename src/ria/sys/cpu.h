@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -18,7 +18,11 @@
 #define CPU_IRQB_PIN 22
 #define CPU_PHI2_PIN 21
 
-/* Kernel events
+#define CPU_PHI2_MIN_KHZ 800
+#define CPU_PHI2_MAX_KHZ 8000
+#define CPU_PHI2_DEFAULT 8000
+
+/* Main events
  */
 
 void cpu_init(void);
@@ -35,7 +39,11 @@ bool cpu_active(void);
 /* Config handlers
  */
 
+// The will return a validated freq_khz from the
+// range defined above. 0 returns the default.
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz);
+
+// This was a major engineering effort.
 bool cpu_set_phi2_khz(uint32_t freq_khz);
 
 // Return calculated reset time. May be higher than configured

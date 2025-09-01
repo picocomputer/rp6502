@@ -1,10 +1,10 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "color.h"
+#include "term/color.h"
 #include "scanvideo/scanvideo.h"
 
 // Black and white palette for 1bpp

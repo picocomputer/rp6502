@@ -42,10 +42,10 @@ err_t tel_close(void)
     tel_state = tel_state_closed;
     if (state == tel_state_connected)
     {
+        // drop the rx buffer
         char c;
         while (tel_rx(&c))
-        { // drop the rx buffer
-        }
+            tight_loop_contents();
     }
     if (state == tel_state_closed)
         return ERR_OK;

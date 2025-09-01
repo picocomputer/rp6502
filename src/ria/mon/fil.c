@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -20,16 +20,16 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define TIMEOUT_MS 200
+#define FIL_TIMEOUT_MS 200
 
 static enum {
     FIL_IDLE,
     FIL_COMMAND,
 } fil_state;
 
-static uint32_t rx_len;
-static uint32_t rx_crc;
-static FIL fil_fat;
+static uint32_t fil_rx_len;
+static uint32_t fil_rx_crc;
+static FIL fil_fatfs_fil;
 
 void fil_mon_chdir(const char *args, size_t len)
 {
@@ -82,8 +82,8 @@ void fil_mon_chdrive(const char *args, size_t len)
     DIR dir;
     char s[7]; // up to "USB99:\0"
     if (len &&
-        parse_string(&args, &len, s, sizeof(s)) &&
-        parse_end(args, len))
+        str_parse_string(&args, &len, s, sizeof(s)) &&
+        str_parse_end(args, len))
     {
         result = f_opendir(&dir, s);
     }
@@ -153,23 +153,23 @@ static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
         result = FR_INT_ERR;
         printf("?timeout\n");
     }
-    else if (ria_buf_crc32() != rx_crc)
+    else if (ria_buf_crc32() != fil_rx_crc)
     {
         result = FR_INT_ERR;
         puts("?CRC does not match");
     }
     // This will leave the file unchanged until
     // the first chunk is received successfully.
-    if (result == FR_OK && f_tell(&fil_fat) == 0)
+    if (result == FR_OK && f_tell(&fil_fatfs_fil) == 0)
     {
-        result = f_truncate(&fil_fat);
+        result = f_truncate(&fil_fatfs_fil);
         if (result != FR_OK)
             printf("?Unable to truncate file (%d)\n", result);
     }
     if (result == FR_OK)
     {
         UINT bytes_written;
-        result = f_write(&fil_fat, mbuf, mbuf_len, &bytes_written);
+        result = f_write(&fil_fatfs_fil, mbuf, mbuf_len, &bytes_written);
         if (result != FR_OK)
             printf("?Unable to write file (%d)\n", result);
     }
@@ -177,7 +177,7 @@ static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        rln_read_line(TIMEOUT_MS, fil_command_dispatch, 79, 0);
+        rln_read_line(FIL_TIMEOUT_MS, fil_command_dispatch, 79, 0);
     }
     else
         fil_state = FIL_IDLE;
@@ -197,23 +197,23 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
     if (len == 0 || (len == 3 && !strncasecmp("END", args, 3)))
     {
         fil_state = FIL_IDLE;
-        FRESULT result = f_close(&fil_fat);
+        FRESULT result = f_close(&fil_fatfs_fil);
         if (result != FR_OK)
             printf("?Unable to close file (%d)\n", result);
         return;
     }
 
-    if (parse_uint32(&args, &len, &rx_len) &&
-        parse_uint32(&args, &len, &rx_crc) &&
-        parse_end(args, len))
+    if (str_parse_uint32(&args, &len, &fil_rx_len) &&
+        str_parse_uint32(&args, &len, &fil_rx_crc) &&
+        str_parse_end(args, len))
     {
-        if (!rx_len || rx_len > MBUF_SIZE)
+        if (!fil_rx_len || fil_rx_len > MBUF_SIZE)
         {
             fil_state = FIL_IDLE;
             printf("?invalid length\n");
             return;
         }
-        rln_read_binary(TIMEOUT_MS, fil_com_rx_mbuf, mbuf, rx_len);
+        rln_read_binary(FIL_TIMEOUT_MS, fil_com_rx_mbuf, mbuf, fil_rx_len);
         return;
     }
     printf("?invalid argument\n");
@@ -228,9 +228,9 @@ void fil_mon_upload(const char *args, size_t len)
         printf("?missing filename\n");
         return;
     }
-    FRESULT result = f_open(&fil_fat, args, FA_READ | FA_WRITE);
+    FRESULT result = f_open(&fil_fatfs_fil, args, FA_READ | FA_WRITE);
     if (result == FR_NO_FILE)
-        result = f_open(&fil_fat, args, FA_CREATE_NEW | FA_WRITE);
+        result = f_open(&fil_fatfs_fil, args, FA_CREATE_NEW | FA_WRITE);
     if (result != FR_OK)
     {
         printf("?Unable to open file (%d)\n", result);
@@ -238,7 +238,7 @@ void fil_mon_upload(const char *args, size_t len)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    rln_read_line(TIMEOUT_MS, fil_command_dispatch, 79, 0);
+    rln_read_line(FIL_TIMEOUT_MS, fil_command_dispatch, 79, 0);
 }
 
 void fil_mon_unlink(const char *args, size_t len)
@@ -252,9 +252,9 @@ void fil_mon_unlink(const char *args, size_t len)
 void fil_task(void)
 {
     // Close file after reset or error condition
-    if (fil_state == FIL_IDLE && fil_fat.obj.fs)
+    if (fil_state == FIL_IDLE && fil_fatfs_fil.obj.fs)
     {
-        FRESULT result = f_close(&fil_fat);
+        FRESULT result = f_close(&fil_fatfs_fil);
         if (result != FR_OK)
             printf("?Unable to close file (%d)\n", result);
     }
@@ -265,7 +265,7 @@ bool fil_active(void)
     return fil_state == FIL_COMMAND;
 }
 
-void fil_reset(void)
+void fil_break(void)
 {
     fil_state = FIL_IDLE;
 }

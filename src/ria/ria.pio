@@ -1,10 +1,12 @@
 /*
- * Copyright (c) 2023 Rumbledethumps
+ * Copyright (c) 2025 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 
+; PIX sends 4 bits per PHI2 transition.
+; rx samples on clock transition so tx hangs back ~20%.
 .program pix_tx
 
 pull ifempty noblock
@@ -58,7 +60,7 @@ in null 18
 wait 1 gpio 21
 out pins 8
 mov isr y ; cortex base address
-wait 0 gpio 21 [5] ; early-mid in good range 3-8
+wait 0 gpio 21 [5] ; early-mid in good range 4-8
 in pins 5
 .wrap
 
