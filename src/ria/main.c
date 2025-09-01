@@ -79,7 +79,7 @@ static void init(void)
 // Tasks events are repeatedly called by the main loop.
 // They must not block. All drivers are state machines.
 
-// These tasks run when FatFs is blocking.
+// These tasks run while FatFs is blocking.
 // Calling FatFs in here will summon a dragon.
 void main_task(void)
 {
@@ -90,22 +90,22 @@ void main_task(void)
     kbd_task();
     cyw_task();
     vga_task();
+    com_task();
     wfi_task();
     ntp_task();
     xin_task();
     ble_task();
     led_task();
-    com_task();
     mdm_task();
     ram_task();
+    mon_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
-    rln_task();
     api_task();
-    mon_task();
+    rln_task();
     fil_task();
     rom_task();
 }

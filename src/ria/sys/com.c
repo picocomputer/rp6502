@@ -141,14 +141,15 @@ void com_post_reclock(void)
 
 void com_task(void)
 {
-    // Process transmit
+    // Process transmit.
     com_tx_task();
 
-    // Move char into ria action loop
+    // Move char into ria action loop.
     if (com_rx_char < 0)
         com_rx_char = com_rx_buf_getchar();
 
-    // Process receive
+    // Process receive. UART doesn't detect breaks when FIFO is full
+    // so we keep it drained and discard overruns like the UART would.
     char ch;
     while (com_rx_task(&ch, 1) == 1)
         if (((com_rx_head + 1) % COM_RX_BUF_SIZE) != com_rx_tail)
@@ -157,12 +158,7 @@ void com_task(void)
             com_rx_buf[com_rx_head] = ch;
         }
 
-    // Move char into ria action loop (again)
-    if (com_rx_char < 0)
-        com_rx_char = com_rx_buf_getchar();
-
     // Detect UART breaks.
-    // The UART FIFO must be emptied to detect breaks here.
     static uint32_t break_detect = 0;
     uint32_t current_break = uart_get_hw(COM_UART)->rsr & UART_UARTRSR_BE_BITS;
     if (current_break)
