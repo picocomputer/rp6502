@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "tusb.h"
+#include <tusb.h>
 #include "sys/com.h"
 #include "usb/cdc.h"
 

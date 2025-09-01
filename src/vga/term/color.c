@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "color.h"
+#include "term/color.h"
 #include "scanvideo/scanvideo.h"
 
 // Black and white palette for 1bpp

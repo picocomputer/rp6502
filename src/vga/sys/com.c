@@ -8,17 +8,15 @@
 #include "usb/cdc.h"
 #include <tusb.h>
 #include <pico/stdlib.h>
-#include "pico/stdio/driver.h"
+#include <pico/stdio/driver.h>
 
 size_t com_in_head;
 size_t com_in_tail;
 char com_in_buf[COM_IN_BUF_SIZE];
-#define COM_IN_BUF(pos) com_in_buf[(pos) % COM_IN_BUF_SIZE]
 
 size_t com_out_head;
 size_t com_out_tail;
 char com_out_buf[COM_OUT_BUF_SIZE];
-#define COM_OUT_BUF(pos) com_out_buf[(pos) % COM_OUT_BUF_SIZE]
 
 size_t com_in_free(void)
 {
@@ -27,7 +25,7 @@ size_t com_in_free(void)
 
 bool com_in_empty(void)
 {
-    return &COM_IN_BUF(com_in_head) == &COM_IN_BUF(com_in_tail);
+    return com_in_head == com_in_tail;
 }
 
 // Reports the cursor position
@@ -44,34 +42,37 @@ void com_in_write_ansi_CPR(int row, int col)
 
 void com_in_write(char ch)
 {
-    COM_IN_BUF(++com_in_head) = ch;
+    com_in_head = (com_in_head + 1) % COM_IN_BUF_SIZE;
+    com_in_buf[com_in_head] = ch;
 }
 
 bool com_out_empty(void)
 {
-    return &COM_OUT_BUF(com_out_head) == &COM_OUT_BUF(com_out_tail);
+    return com_out_head == com_out_tail;
 }
 
 char com_out_peek(void)
 {
-    return COM_OUT_BUF(com_out_tail + 1);
+    return com_out_buf[(com_out_tail + 1) % COM_OUT_BUF_SIZE];
 }
 
 char com_out_read(void)
 {
-    return COM_OUT_BUF(++com_out_tail);
+    com_out_tail = (com_out_tail + 1) % COM_OUT_BUF_SIZE;
+    return com_out_buf[com_out_tail];
 }
 
 static void com_out_chars(const char *buf, int length)
 {
     while (length)
     {
-        while (length && &COM_OUT_BUF(com_out_head + 1) != &COM_OUT_BUF(com_out_tail))
+        while (length && ((com_out_head + 1) % COM_OUT_BUF_SIZE) != com_out_tail)
         {
-            COM_OUT_BUF(++com_out_head) = *buf++;
+            com_out_head = (com_out_head + 1) % COM_OUT_BUF_SIZE;
+            com_out_buf[com_out_head] = *buf++;
             length--;
         }
-        while (&COM_OUT_BUF(com_out_head + 1) == &COM_OUT_BUF(com_out_tail))
+        while (((com_out_head + 1) % COM_OUT_BUF_SIZE) == com_out_tail)
         {
             cdc_task();
             tud_task();
@@ -95,7 +96,10 @@ void com_init(void)
 void com_pre_reclock(void)
 {
     while (!com_in_empty() && uart_is_writable(COM_UART_INTERFACE))
-        uart_get_hw(COM_UART_INTERFACE)->dr = COM_IN_BUF(++com_in_tail);
+    {
+        com_in_tail = (com_in_tail + 1) % COM_IN_BUF_SIZE;
+        uart_get_hw(COM_UART_INTERFACE)->dr = com_in_buf[com_in_tail];
+    }
 }
 
 void com_post_reclock(void)
@@ -112,7 +116,10 @@ void com_task(void)
 {
     // IN is sunk here to UART
     while (!com_in_empty() && uart_is_writable(COM_UART_INTERFACE))
-        uart_get_hw(COM_UART_INTERFACE)->dr = COM_IN_BUF(++com_in_tail);
+    {
+        com_in_tail = (com_in_tail + 1) % COM_IN_BUF_SIZE;
+        uart_get_hw(COM_UART_INTERFACE)->dr = com_in_buf[com_in_tail];
+    }
 
     // OUT is sourced here from STD UART
     while (uart_is_readable(COM_UART_INTERFACE))

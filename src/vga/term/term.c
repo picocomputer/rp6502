@@ -10,10 +10,10 @@
 #include "term/term.h"
 #include "sys/com.h"
 #include "sys/vga.h"
-#include "pico/stdlib.h"
-#include "pico/stdio/driver.h"
 #include "scanvideo/scanvideo.h"
 #include "scanvideo/composable_scanline.h"
+#include <pico/stdlib.h>
+#include <pico/stdio/driver.h>
 #include <stdio.h>
 
 // This terminal emulator supports a subset of xterm/ANSI codes.
