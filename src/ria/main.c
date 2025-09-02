@@ -98,12 +98,12 @@ void main_task(void)
     led_task();
     mdm_task();
     ram_task();
-    mon_task();
 }
 
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
+    mon_task();
     api_task();
     rln_task();
     fil_task();
