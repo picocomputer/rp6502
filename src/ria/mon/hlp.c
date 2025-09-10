@@ -21,11 +21,7 @@ static const char __in_flash("helptext") hlp_text_help[] =
     "Commands:\n"
     "HELP (command|rom)  - This help or expanded help for command or rom.\n"
     "HELP ABOUT|SYSTEM   - About includes credits. System for general usage.\n"
-#ifdef RP6502_RIA_W
-    "STATUS              - Show status of system, WiFi, and USB devices.\n"
-#else
-    "STATUS              - Show status of system and USB devices.\n"
-#endif
+    "STATUS              - Show status of system and connected devices.\n"
     "SET (attr) (value)  - Change or show settings.\n"
     "LS (dir|drive)      - List contents of directory.\n"
     "CD (dir)            - Change or show current directory.\n"
@@ -136,13 +132,13 @@ static const char __in_flash("helptext") hlp_text_reboot[] =
 
 static const char __in_flash("helptext") hlp_text_reset[] =
     "RESET will restart the 6502 by bringing RESB high. This is mainly used for\n"
-    "automated testing by a script on another system connected to the monitor.\n"
+    "automated testing by a script on another system connected to the console.\n"
     "For example, a build script can compile a program, upload it directly to\n"
     "6502 RAM, start it with this RESET, then optionally continue to send and\n"
     "receive data to ensure proper operation of the program.";
 
 static const char __in_flash("helptext") hlp_text_upload[] =
-    "UPLOAD is used to send a file from another system connected to the monitor.\n"
+    "UPLOAD is used to send a file from another system to the local filesystem.\n"
     "The file may be any type with any name and will overwrite an existing file\n"
     "of the same name. For example, you can send a ROM file along with other\n"
     "files containing graphics or level data for a game. Then you can LOAD the\n"
@@ -162,8 +158,7 @@ static const char __in_flash("helptext") hlp_text_upload[] =
 static const char __in_flash("helptext") hlp_text_unlink[] =
     "UNLINK removes a file. Its intended use is for scripting on another system\n"
     "connected to the monitor. For example, you might want to delete save data\n"
-    "as part of automated testing. You'll probably use this once manually after\n"
-    "attempting to use the UPLOAD command from a keyboard. ;)";
+    "as part of automated testing.";
 
 static const char __in_flash("helptext") hlp_text_binary[] =
     "BINARY is the fastest way to get code or data from your build system to the\n"
@@ -172,9 +167,7 @@ static const char __in_flash("helptext") hlp_text_binary[] =
     "You will return to a \"]\" prompt on success or \"?\" error on failure.";
 
 static const char __in_flash("helptext") hlp_text_status[] =
-    "STATUS will list all configurable settings and some system information\n"
-    "including a list of USB devices and their ID. The USB ID is also the drive\n"
-    "number for mass storage devices (MSC). Up to 8 devices are supported.";
+    "STATUS will show the status of all hardware in and connected to the RIA.";
 
 #define STR(x) #x
 #define XSTR(x) STR(x)
@@ -188,9 +181,8 @@ static const char __in_flash("helptext") hlp_text_set_phi2[] =
 static const char __in_flash("helptext") hlp_text_set_boot[] =
     "BOOT selects an installed ROM to be automatically loaded and started when the\n"
     "system is powered up or rebooted. For example, you might want the system to\n"
-    "immediately boot into BASIC or an operating system CLI. This is used to\n"
-    "provide the instant-on experience of classic 8-bit computers. Using \"-\" for\n"
-    "the argument will have the system boot into the monitor you are using now.\n"
+    "immediately boot into BASIC or an operating system CLI. Using \"-\" for the\n"
+    "argument will have the system boot into the monitor you are using now.\n"
     "Setting is saved on the RIA flash.";
 
 static const char __in_flash("helptext") hlp_text_set_tz[] =
@@ -205,9 +197,7 @@ static const char __in_flash("helptext") hlp_text_set_cp[] =
     "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
     "VGA fonts."
 #if RP6502_CODE_PAGE
-#define xstr(s) str(s)
-#define str(s) #s
-    "\nThis is a development build. Only " xstr(RP6502_CODE_PAGE) " is available.";
+    "\nThis is a development build. Only " XSTR(RP6502_CODE_PAGE) " is available.";
 #else
     "";
 #endif
