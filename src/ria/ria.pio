@@ -92,8 +92,6 @@ push noblock    side 0 [5]
 ; Handle chip select and read/write logic
 .program ria_cs_rwb
 
-; TODO why doesn't `mov x !pins` work?
-
 .wrap_target
 mov pindirs y
 start:

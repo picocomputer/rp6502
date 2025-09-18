@@ -166,6 +166,7 @@ static inline bool api_return_axsreg(uint32_t val)
     return false;
 }
 
+// Use eno.c to make errno
 static inline bool api_return_errno(uint16_t errno)
 {
     xstack_ptr = XSTACK_SIZE;
