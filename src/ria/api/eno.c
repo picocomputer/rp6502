@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api/api.h"
 #include "api/eno.h"
+#include "fatfs/ff.h"
+#include <pico.h>
 
 // These are known to both cc65 and llvm-mos
 #define ENO_CC65_ENOENT 1
@@ -53,6 +56,10 @@
 #define ENO_OPT_CC65 1
 #define ENO_OPT_LLVM 2
 
+// Logic to select the correct map
+#define ENO_MAP(errno_name)                                                         \
+    (eno_opt == 1) ? ENO_CC65_##errno_name : (eno_opt == 2) ? ENO_LLVM_##errno_name \
+                                                            : 0;
 static uint8_t eno_opt;
 
 void eno_run(void)
@@ -62,14 +69,13 @@ void eno_run(void)
 
 bool eno_api_errno_opt(void)
 {
-    return false;
+    eno_opt = API_A;
+    if (eno_opt != ENO_OPT_CC65 && eno_opt != ENO_OPT_LLVM)
+        return api_return_errno(eno_posix(ENO_EINVAL));
+    return api_return_ax(0);
 }
 
-#define ENO_MAP(errno_name)                                                         \
-    (eno_opt == 1) ? ENO_CC65_##errno_name : (eno_opt == 2) ? ENO_LLVM_##errno_name \
-                                                            : 0;
-
-uint16_t eno_posix(eno_errno num)
+uint16_t __in_flash("eno_posix") eno_posix(eno_errno num)
 {
     switch (num)
     {
@@ -107,13 +113,57 @@ uint16_t eno_posix(eno_errno num)
         return ENO_MAP(EBADF);
     case ENO_ENOEXEC:
         return ENO_MAP(ENOEXEC);
-    case ENO_EUNKNOWN:
+    // case ENO_EUNKNOWN:
     default:
         return ENO_MAP(EUNKNOWN);
     }
 }
 
-uint16_t eno_fatfs(unsigned fresult)
+uint16_t __in_flash("eno_fatfs") eno_fatfs(unsigned fresult)
 {
-    return 0;
+    switch ((FRESULT)fresult)
+    {
+    case FR_OK:
+        return ENO_MAP(EUNKNOWN);
+    case FR_DISK_ERR:
+        return ENO_MAP(EUNKNOWN);
+    case FR_INT_ERR:
+        return ENO_MAP(EUNKNOWN);
+    case FR_NOT_READY:
+        return ENO_MAP(EUNKNOWN);
+    case FR_NO_FILE:
+        return ENO_MAP(EUNKNOWN);
+    case FR_NO_PATH:
+        return ENO_MAP(EUNKNOWN);
+    case FR_INVALID_NAME:
+        return ENO_MAP(EUNKNOWN);
+    case FR_DENIED:
+        return ENO_MAP(EUNKNOWN);
+    case FR_EXIST:
+        return ENO_MAP(EUNKNOWN);
+    case FR_INVALID_OBJECT:
+        return ENO_MAP(EUNKNOWN);
+    case FR_WRITE_PROTECTED:
+        return ENO_MAP(EUNKNOWN);
+    case FR_INVALID_DRIVE:
+        return ENO_MAP(EUNKNOWN);
+    case FR_NOT_ENABLED:
+        return ENO_MAP(EUNKNOWN);
+    case FR_NO_FILESYSTEM:
+        return ENO_MAP(EUNKNOWN);
+    case FR_MKFS_ABORTED:
+        return ENO_MAP(EUNKNOWN);
+    case FR_TIMEOUT:
+        return ENO_MAP(EUNKNOWN);
+    case FR_LOCKED:
+        return ENO_MAP(EUNKNOWN);
+    case FR_NOT_ENOUGH_CORE:
+        return ENO_MAP(EUNKNOWN);
+    case FR_TOO_MANY_OPEN_FILES:
+        return ENO_MAP(EUNKNOWN);
+    case FR_INVALID_PARAMETER:
+        return ENO_MAP(EUNKNOWN);
+    default:
+        return ENO_MAP(EUNKNOWN);
+    }
 }

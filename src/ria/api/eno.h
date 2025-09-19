@@ -34,7 +34,7 @@ typedef enum
     ENO_ERANGE,  /* Range error */
     ENO_EBADF,   /* Bad file number */
     ENO_ENOEXEC, /* Exec format error */
-    ENO_EUNKNOWN /* Unknown error */
+    // ENO_EUNKNOWN /* Unknown error */
 } eno_errno;
 
 void eno_run(void);
