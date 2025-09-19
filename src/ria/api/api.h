@@ -170,7 +170,8 @@ static inline bool api_return_axsreg(uint32_t val)
 static inline bool api_return_errno(uint16_t errno)
 {
     xstack_ptr = XSTACK_SIZE;
-    API_ERRNO = errno;
+    if (errno)
+        API_ERRNO = errno;
     return api_return_axsreg(-1);
 }
 
