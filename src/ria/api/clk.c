@@ -122,7 +122,7 @@ bool clk_api_set_time(void)
         ts.tv_sec = rawtime_sec;
         ts.tv_nsec = rawtime_nsec;
         if (!aon_timer_set_time(&ts))
-            return api_return_errno(API_EUNKNOWN);
+            return api_return_errno(API_ERANGE);
         else
             return api_return_ax(0);
     }

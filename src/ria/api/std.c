@@ -82,7 +82,7 @@ bool std_api_open(void)
     FIL *fp = &std_fil[fd];
     FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     return api_return_ax(fd + STD_FIL_OFFS);
 }
 
@@ -94,14 +94,14 @@ bool std_api_close(void)
         if (mdm_close())
             return api_return_ax(0);
         else
-            return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
+            return api_return_fresult(FR_INVALID_OBJECT);
     }
     if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
         return api_return_errno(API_EINVAL);
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
     FRESULT fresult = f_close(fp);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     return api_return_ax(0);
 }
 
@@ -174,7 +174,7 @@ bool std_api_read_xstack(void)
             {
             case -1:
                 std_count_mdm = -1;
-                return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
+                return api_return_fresult(FR_INVALID_OBJECT);
             case 1:
                 std_count_moved++;
                 return api_working();
@@ -208,7 +208,7 @@ bool std_api_read_xstack(void)
         FRESULT fresult = f_read(fp, buf, count, &br);
         std_count_moved = br;
         if (fresult != FR_OK)
-            return api_return_errno(API_EFATFS(fresult));
+            return api_return_fresult(fresult);
     }
     xstack_ptr = XSTACK_SIZE;
     if (std_count_moved == count)
@@ -237,7 +237,7 @@ bool std_api_read_xram(void)
             {
             case -1:
                 std_count_mdm = -1;
-                return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
+                return api_return_fresult(FR_INVALID_OBJECT);
             case 1:
                 std_count_moved++;
                 return api_working();
@@ -319,7 +319,7 @@ static bool std_mdm_write(void)
         if (tx == -1)
         {
             std_count_mdm = -1;
-            return api_return_errno(API_EFATFS(FR_INVALID_OBJECT));
+            return api_return_fresult(FR_INVALID_OBJECT);
         }
         if (tx == 0)
             break;
@@ -358,7 +358,7 @@ bool std_api_write_xstack(void)
     UINT bw;
     FRESULT fresult = f_write(fp, std_buf_ptr, count, &bw);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     return api_return_ax(bw);
 }
 
@@ -396,7 +396,7 @@ bool std_api_write_xram(void)
     UINT bw;
     FRESULT fresult = f_write(fp, std_buf_ptr, count, &bw);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     return api_return_ax(bw);
 }
 
@@ -426,7 +426,7 @@ bool std_api_lseek(void)
     }
     FRESULT fresult = f_lseek(fp, ofs);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     FSIZE_t pos = f_tell(fp);
     // Beyond 2GB is darkness.
     if (pos > 0x7FFFFFFF)
@@ -440,7 +440,7 @@ bool std_api_unlink(void)
     xstack_ptr = XSTACK_SIZE;
     FRESULT fresult = f_unlink((TCHAR *)path);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     return api_return_ax(0);
 }
 
@@ -456,7 +456,7 @@ bool std_api_rename(void)
     oldname++;
     FRESULT fresult = f_rename((TCHAR *)oldname, (TCHAR *)newname);
     if (fresult != FR_OK)
-        return api_return_errno(API_EFATFS(fresult));
+        return api_return_fresult(fresult);
     return api_return_ax(0);
 }
 

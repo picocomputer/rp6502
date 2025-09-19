@@ -7,7 +7,6 @@
 #include "main.h"
 #include "api/api.h"
 #include "api/clk.h"
-#include "api/eno.h"
 #include "api/oem.h"
 #include "api/rng.h"
 #include "api/std.h"
@@ -114,7 +113,6 @@ static void task(void)
 // Event to start running the 6502.
 static void run(void)
 {
-    eno_run();
     com_run();
     std_run();
     vga_run();
@@ -218,7 +216,7 @@ bool main_api(uint8_t operation)
     case 0x05:
         return std_api_stdin_opt();
     case 0x06:
-        return eno_api_errno_opt();
+        return api_api_errno_opt();
     case 0x0F:
         return clk_api_clock();
     case 0x10:
