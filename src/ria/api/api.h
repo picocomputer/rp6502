@@ -142,6 +142,9 @@ static inline bool api_push_int32(const int32_t *data) { return api_push_n(data,
 static inline void api_set_regs_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
 static inline void api_set_regs_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
 
+/* Sets the return value along with the LDX and RTS.
+ */
+
 static inline void api_set_ax(uint16_t val)
 {
     *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
@@ -153,44 +156,16 @@ static inline void api_set_axsreg(uint32_t val)
     API_SREG = val >> 16;
 }
 
-// Call one of these at the very end. These signal
-// the 6502 that the operation is complete.
+/* API workers must not block and must return one of these at the very end.
+ */
 
-static inline bool api_return_ax(uint16_t val)
+// Return this if waiting on IO
+static inline bool api_working(void)
 {
-    api_set_ax(val);
-    api_set_regs_released();
-    API_STACK = xstack[xstack_ptr];
-    return false;
+    return true;
 }
 
-static inline bool api_return_axsreg(uint32_t val)
-{
-    api_set_axsreg(val);
-    api_set_regs_released();
-    API_STACK = xstack[xstack_ptr];
-    return false;
-}
-
-static inline bool api_return_errno(api_errno errno)
-{
-    xstack_ptr = XSTACK_SIZE;
-    uint16_t platform_errno = api_platform_errno(errno);
-    if (platform_errno)
-        API_ERRNO = platform_errno;
-    return api_return_axsreg(-1);
-}
-
-static inline bool api_return_fresult(unsigned fresult)
-{
-    xstack_ptr = XSTACK_SIZE;
-    uint16_t errno = api_fresult_errno(fresult);
-    if (errno)
-        API_ERRNO = errno;
-    return api_return_axsreg(-1);
-}
-
-// Sugar for when api_set_ax has already been called.
+// Success for when api_set_ax has already been called.
 static inline bool api_return(void)
 {
     api_set_regs_released();
@@ -198,10 +173,38 @@ static inline bool api_return(void)
     return false;
 }
 
-// Sugar that returns true to make code more readable.
-static inline bool api_working(void)
+// Success with a 16 bit return
+static inline bool api_return_ax(uint16_t val)
 {
-    return true;
+    api_set_ax(val);
+    return api_return();
+}
+
+// Success with a 32 bit return
+static inline bool api_return_axsreg(uint32_t val)
+{
+    api_set_axsreg(val);
+    return api_return();
+}
+
+// Failure returns -1 and sets errno
+static inline bool api_return_errno(api_errno errno)
+{
+    uint16_t platform_errno = api_platform_errno(errno);
+    if (platform_errno)
+        API_ERRNO = platform_errno;
+    xstack_ptr = XSTACK_SIZE;
+    return api_return_axsreg(-1);
+}
+
+// Failure returns -1 and sets errno from FatFS FRESULT
+static inline bool api_return_fresult(unsigned fresult)
+{
+    uint16_t platform_errno = api_fresult_errno(fresult);
+    if (platform_errno)
+        API_ERRNO = platform_errno;
+    xstack_ptr = XSTACK_SIZE;
+    return api_return_axsreg(-1);
 }
 
 #endif /* _RIA_API_API_H_ */
