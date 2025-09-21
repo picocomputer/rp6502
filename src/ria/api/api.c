@@ -56,21 +56,28 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define API_CC65_EUNKNOWN 18
 #define API_LLVM_EUNKNOWN 85
 
-// llvm-mos uniques, unused
+// llvm-mos supports these but cc65 doesn't
+#define API_CC65_EDOM API_CC65_EUNKNOWN
 #define API_LLVM_EDOM 33
+#define API_CC65_EILSEQ API_CC65_EUNKNOWN
 #define API_LLVM_EILSEQ 84
 
-// Supported runtime options
-#define API_OPT_NULL 0
-#define API_OPT_CC65 1
-#define API_OPT_LLVM 2
+// Selected runtime option
+#define API_ERRNO_OPT_NULL 0
+#define API_ERRNO_OPT_CC65 1
+#define API_ERRNO_OPT_LLVM 2
 
 // Logic to select the platform errno map.
 // Macros won't set RIA errno if 0.
-#define API_MAP(errno_name)                                                         \
-    (eno_opt == 1) ? API_CC65_##errno_name : (eno_opt == 2) ? API_LLVM_##errno_name \
-                                                            : 0;
-static uint8_t eno_opt;
+#define API_MAP(errno_name)                 \
+    (api_errno_opt == API_ERRNO_OPT_CC65)   \
+        ? API_CC65_##errno_name             \
+    : (api_errno_opt == API_ERRNO_OPT_LLVM) \
+        ? API_LLVM_##errno_name             \
+        : 0;
+
+// API state
+static uint8_t api_errno_opt;
 static uint8_t api_active_op;
 
 void api_task(void)
@@ -86,7 +93,7 @@ void api_task(void)
 
 void api_run(void)
 {
-    eno_opt = API_OPT_NULL;
+    api_errno_opt = API_ERRNO_OPT_NULL;
     // All registers reset to a known state
     for (int i = 0; i < 16; i++)
         if (i != 3) // Skip VSYNC
@@ -105,8 +112,8 @@ void api_stop(void)
 
 bool api_api_errno_opt(void)
 {
-    eno_opt = API_A;
-    if (eno_opt != API_OPT_CC65 && eno_opt != API_OPT_LLVM)
+    api_errno_opt = API_A;
+    if (api_errno_opt != API_ERRNO_OPT_CC65 && api_errno_opt != API_ERRNO_OPT_LLVM)
         return api_return_errno(API_EINVAL);
     return api_return_ax(0);
 }
@@ -149,6 +156,10 @@ uint16_t __in_flash("api_platform_errno") api_platform_errno(api_errno num)
         return API_MAP(EBADF);
     case API_ENOEXEC:
         return API_MAP(ENOEXEC);
+    case API_EDOM:
+        return API_MAP(EDOM);
+    case API_EILSEQ:
+        return API_MAP(EILSEQ);
     default:
         return API_MAP(EUNKNOWN);
     }

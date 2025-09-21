@@ -27,7 +27,7 @@ void api_stop(void);
 typedef enum
 {
     API_ENOENT,  /* No such file or directory */
-    API_ENOMEM,  /* Out of memory */
+    API_ENOMEM,  /* Not enough space */
     API_EACCES,  /* Permission denied */
     API_ENODEV,  /* No such device */
     API_EMFILE,  /* Too many open files */
@@ -35,14 +35,18 @@ typedef enum
     API_EINVAL,  /* Invalid argument */
     API_ENOSPC,  /* No space left on device */
     API_EEXIST,  /* File exists */
-    API_EAGAIN,  /* Try again */
+    API_EAGAIN,  /* Resource unavailable, try again */
     API_EIO,     /* I/O error */
     API_EINTR,   /* Interrupted system call */
-    API_ENOSYS,  /* Function not implemented */
+    API_ENOSYS,  /* Function not supported */
     API_ESPIPE,  /* Illegal seek */
-    API_ERANGE,  /* Range error */
-    API_EBADF,   /* Bad file number */
-    API_ENOEXEC, /* Exec format error */
+    API_ERANGE,  /* Result too large */
+    API_EBADF,   /* Bad file descriptor */
+    API_ENOEXEC, /* Executable file format error */
+    // The following are required for ISO C but cc65 doesn't
+    // have them and so will map to its internal EUNKNOWN.
+    API_EDOM,   /* Mathematics argument out of domain of function*/
+    API_EILSEQ, /* Invalid or incomplete multibyte or wide character */
 } api_errno;
 
 // cc65 and llvm-mos C init calls this
