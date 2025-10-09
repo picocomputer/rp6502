@@ -7,6 +7,7 @@
 #include "main.h"
 #include "api/api.h"
 #include "api/clk.h"
+#include "api/dir.h"
 #include "api/oem.h"
 #include "api/rng.h"
 #include "api/std.h"
@@ -115,6 +116,7 @@ static void run(void)
 {
     com_run();
     std_run();
+    dir_run();
     vga_run();
     api_run();
     clk_run();
@@ -133,6 +135,7 @@ static void stop(void)
     pix_stop();
     oem_stop();
     std_stop();
+    dir_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -245,6 +248,18 @@ bool main_api(uint8_t operation)
         return std_api_unlink();
     case 0x1C:
         return std_api_rename();
+    case 0x20:
+        return dir_api_opendir();
+    case 0x21:
+        return dir_api_readdir();
+    case 0x22:
+        return dir_api_closedir();
+    case 0x23:
+        return dir_api_telldir();
+    case 0x24:
+        return dir_api_seekdir();
+    case 0x25:
+        return dir_api_rewinddir();
     }
     api_return_errno(API_ENOSYS);
     return false;
