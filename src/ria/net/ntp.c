@@ -126,7 +126,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
 
 void ntp_task(void)
 {
-    if (!wfi_ready())
+    if (!wfi_ready() && ntp_state != ntp_state_success)
     {
         ntp_state = ntp_state_init;
         return;
@@ -174,9 +174,9 @@ void ntp_task(void)
             ntp_state = ntp_state_request_timeout;
         }
         break;
-    case ntp_state_success:
     case ntp_state_internal_error:
         break;
+    case ntp_state_success:
     case ntp_state_dns_fail:
     case ntp_state_request_timeout:
     case ntp_state_set_time_fail:
