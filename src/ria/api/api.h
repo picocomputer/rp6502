@@ -128,6 +128,7 @@ static inline bool api_push_n(const void *data, size_t n)
 /* Wrappers for ordinary xstack pushing.
  */
 
+static inline bool api_push_char(const char *data) { return api_push_n(data, sizeof(char)); }
 static inline bool api_push_uint8(const uint8_t *data) { return api_push_n(data, sizeof(uint8_t)); }
 static inline bool api_push_uint16(const uint16_t *data) { return api_push_n(data, sizeof(uint16_t)); }
 static inline bool api_push_uint32(const uint32_t *data) { return api_push_n(data, sizeof(uint32_t)); }
