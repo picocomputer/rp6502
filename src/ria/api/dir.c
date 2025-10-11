@@ -19,6 +19,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // Validate essential settings in ffconf.h
 static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
+static_assert(FF_USE_CHMOD == 1);
 
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
@@ -198,6 +199,21 @@ bool dir_api_rename(void)
         return api_return_errno(API_EINVAL);
     oldname++;
     FRESULT fresult = f_rename((TCHAR *)oldname, (TCHAR *)newname);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_chmod (const char *path, unsigned char attr,  unsigned char mask);
+bool dir_api_chmod(void)
+{
+    uint8_t mask = API_A;
+    uint8_t attr;
+    if (!api_pop_uint8(&attr))
+        return api_return_errno(API_EINVAL);
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_chmod(path, attr, mask);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     return api_return_ax(0);

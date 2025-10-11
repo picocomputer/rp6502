@@ -400,7 +400,8 @@ bool std_api_write_xram(void)
     return api_return_ax(bw);
 }
 
-bool std_api_lseek(void)
+// long f_lseek(long ofs, char whence, int fildes);
+static bool std_api_lseek(int set, int cur, int end)
 {
     int8_t whence;
     int32_t ofs;
@@ -411,19 +412,14 @@ bool std_api_lseek(void)
         !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
     FIL *fp = &std_fil[fd - STD_FIL_OFFS];
-    switch (whence) // CC65
-    {
-    case 0: // SEEK_CUR
+    if (whence == set)
+        ; /* noop */
+    else if (whence == cur)
         ofs += f_tell(fp);
-        break;
-    case 1: // SEEK_END
+    else if (whence == end)
         ofs += f_size(fp);
-        break;
-    case 2: // SEEK_SET
-        break;
-    default:
+    else
         return api_return_errno(API_EINVAL);
-    }
     FRESULT fresult = f_lseek(fp, ofs);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
@@ -432,6 +428,16 @@ bool std_api_lseek(void)
     if (pos > 0x7FFFFFFF)
         pos = 0x7FFFFFFF;
     return api_return_axsreg(pos);
+}
+
+bool std_api_lseek_cc65(void)
+{
+    return std_api_lseek(2, 0, 1);
+}
+
+bool std_api_lseek_llvm(void)
+{
+    return std_api_lseek(0, 1, 2);
 }
 
 void std_run(void)

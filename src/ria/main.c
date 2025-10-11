@@ -243,13 +243,17 @@ bool main_api(uint8_t operation)
     case 0x19:
         return std_api_write_xram();
     case 0x1A:
-        return std_api_lseek();
+        return std_api_lseek_cc65();
     case 0x1B:
         return dir_api_unlink();
     case 0x1C:
         return dir_api_rename();
     case 0x1D:
+        return std_api_lseek_llvm();
+    case 0x1E:
         return dir_api_stat();
+    case 0x1F:
+        return dir_api_chmod();
     case 0x20:
         return dir_api_opendir();
     case 0x21:
@@ -263,8 +267,7 @@ bool main_api(uint8_t operation)
     case 0x25:
         return dir_api_rewinddir();
     }
-    api_return_errno(API_ENOSYS);
-    return false;
+    return api_return_errno(API_ENOSYS);
 }
 
 /*****************************/

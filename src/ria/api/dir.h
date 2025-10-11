@@ -32,5 +32,6 @@ bool dir_api_rewinddir(void);
 bool dir_api_unlink(void);
 bool dir_api_rename(void);
 bool dir_api_stat(void);
+bool dir_api_chmod(void);
 
 #endif /* _RIA_API_DIR_H_ */
