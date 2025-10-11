@@ -434,32 +434,6 @@ bool std_api_lseek(void)
     return api_return_axsreg(pos);
 }
 
-bool std_api_unlink(void)
-{
-    uint8_t *path = &xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-    FRESULT fresult = f_unlink((TCHAR *)path);
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    return api_return_ax(0);
-}
-
-bool std_api_rename(void)
-{
-    uint8_t *oldname, *newname;
-    oldname = newname = &xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-    while (*oldname)
-        oldname++;
-    if (oldname == &xstack[XSTACK_SIZE])
-        return api_return_errno(API_EINVAL);
-    oldname++;
-    FRESULT fresult = f_rename((TCHAR *)oldname, (TCHAR *)newname);
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    return api_return_ax(0);
-}
-
 void std_run(void)
 {
     std_count_xram = -1;

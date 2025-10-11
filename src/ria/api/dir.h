@@ -29,5 +29,8 @@ bool dir_api_closedir(void);
 bool dir_api_telldir(void);
 bool dir_api_seekdir(void);
 bool dir_api_rewinddir(void);
+bool dir_api_unlink(void);
+bool dir_api_rename(void);
+bool dir_api_stat(void);
 
 #endif /* _RIA_API_DIR_H_ */

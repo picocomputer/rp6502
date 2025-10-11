@@ -53,7 +53,7 @@ static void dir_push_filinfo(FILINFO *fno)
     api_push_uint32(&fsize);
 }
 
-// int __fastcall__ f_opendir (const char* name);
+// int f_opendir (const char* name);
 bool dir_api_opendir(void)
 {
     DIR *dir = 0;
@@ -75,7 +75,7 @@ bool dir_api_opendir(void)
     return api_return_ax(des);
 }
 
-// int __fastcall__ f_readdir (struct dirent*, int dirdes);
+// int f_readdir (struct dirent*, int dirdes);
 bool dir_api_readdir(void)
 {
     unsigned des = API_A;
@@ -91,7 +91,7 @@ bool dir_api_readdir(void)
     return api_return_ax(0);
 }
 
-// int __fastcall__ f_closedir (int dirdes);
+// int f_closedir (int dirdes);
 bool dir_api_closedir(void)
 {
     unsigned des = API_A;
@@ -104,7 +104,7 @@ bool dir_api_closedir(void)
     return api_return_ax(0);
 }
 
-// long __fastcall__ f_telldir (int dirdes);
+// long f_telldir (int dirdes);
 bool dir_api_telldir(void)
 {
     unsigned des = API_A;
@@ -116,7 +116,7 @@ bool dir_api_telldir(void)
     return api_return_axsreg(tells[des]);
 }
 
-// int __fastcall__ f_seekdir (long offs, int dirdes);
+// int f_seekdir (long offs, int dirdes);
 bool dir_api_seekdir(void)
 {
     unsigned des = API_A;
@@ -148,7 +148,7 @@ bool dir_api_seekdir(void)
     return api_return_ax(0);
 }
 
-// int __fastcall__ f_rewinddir (int dirdes);
+// int f_rewinddir (int dirdes);
 bool dir_api_rewinddir(void)
 {
     unsigned des = API_A;
@@ -159,5 +159,46 @@ bool dir_api_rewinddir(void)
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     tells[des] = 0;
+    return api_return_ax(0);
+}
+
+// int stat (const char *path, struct *dirent);
+bool dir_api_stat(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FILINFO fno;
+    FRESULT fresult = f_stat(path, &fno);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    dir_push_filinfo(&fno);
+    return api_return_ax(0);
+}
+
+// int unlink(const char* name)
+bool dir_api_unlink(void)
+{
+    uint8_t *path = &xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_unlink((TCHAR *)path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int rename(const char* oldname, const char* newname)
+bool dir_api_rename(void)
+{
+    uint8_t *oldname, *newname;
+    oldname = newname = &xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    while (*oldname)
+        oldname++;
+    if (oldname == &xstack[XSTACK_SIZE])
+        return api_return_errno(API_EINVAL);
+    oldname++;
+    FRESULT fresult = f_rename((TCHAR *)oldname, (TCHAR *)newname);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
     return api_return_ax(0);
 }

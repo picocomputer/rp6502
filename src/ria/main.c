@@ -245,9 +245,11 @@ bool main_api(uint8_t operation)
     case 0x1A:
         return std_api_lseek();
     case 0x1B:
-        return std_api_unlink();
+        return dir_api_unlink();
     case 0x1C:
-        return std_api_rename();
+        return dir_api_rename();
+    case 0x1D:
+        return dir_api_stat();
     case 0x20:
         return dir_api_opendir();
     case 0x21:
