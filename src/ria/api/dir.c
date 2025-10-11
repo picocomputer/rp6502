@@ -47,6 +47,8 @@ static void dir_push_filinfo(FILINFO *fno)
     for (int i = FF_SFN_BUF; i >= 0; i--)
         api_push_char(&fno->altname[i]);
     api_push_uint8(&fno->fattrib);
+    api_push_uint16(&fno->crtime);
+    api_push_uint16(&fno->crdate);
     api_push_uint16(&fno->ftime);
     api_push_uint16(&fno->fdate);
     uint32_t fsize = fno->fsize;
