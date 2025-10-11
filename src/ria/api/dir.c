@@ -22,6 +22,7 @@ static_assert(FF_SFN_BUF == 12);
 
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
+static int32_t tells[DIR_MAX_OPEN];
 
 void dir_run(void)
 {
@@ -52,7 +53,7 @@ static void dir_push_filinfo(FILINFO *fno)
     api_push_uint32(&fsize);
 }
 
-// DIR* __fastcall__ opendir (const char* name);
+// int __fastcall__ f_opendir (const char* name);
 bool dir_api_opendir(void)
 {
     DIR *dir = 0;
@@ -65,6 +66,7 @@ bool dir_api_opendir(void)
         }
     if (!dir)
         return api_return_errno(API_EMFILE);
+    tells[des] = 0;
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     FRESULT fresult = f_opendir(dir, path);
@@ -73,7 +75,7 @@ bool dir_api_opendir(void)
     return api_return_ax(des);
 }
 
-// struct dirent* __fastcall__ readdir (DIR* dir);
+// int __fastcall__ f_readdir (struct dirent*, int dirdes);
 bool dir_api_readdir(void)
 {
     unsigned des = API_A;
@@ -84,11 +86,12 @@ bool dir_api_readdir(void)
     FRESULT fresult = f_readdir(dir, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
+    tells[des]++;
     dir_push_filinfo(&fno);
     return api_return_ax(0);
 }
 
-// int __fastcall__ closedir (DIR* dir);
+// int __fastcall__ f_closedir (int dirdes);
 bool dir_api_closedir(void)
 {
     unsigned des = API_A;
@@ -101,35 +104,51 @@ bool dir_api_closedir(void)
     return api_return_ax(0);
 }
 
-// long __fastcall__ telldir (DIR* dir);
+// long __fastcall__ f_telldir (int dirdes);
 bool dir_api_telldir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
         api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
-
-    if (dir->obj.fs == 0) // TODO
+    if (dir->obj.fs == 0)
         return api_return_errno(API_EBADF);
-
-    return api_return_errno(API_ENOSYS);
+    return api_return_axsreg(tells[des]);
 }
 
-// void __fastcall__ seekdir (DIR* dir, long offs);
+// int __fastcall__ f_seekdir (long offs, int dirdes);
 bool dir_api_seekdir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
         api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
-
-    if (dir->obj.fs == 0) // TODO
+    if (dir->obj.fs == 0)
         return api_return_errno(API_EBADF);
-
-    return api_return_errno(API_ENOSYS);
+    int32_t offs;
+    if (!api_pop_int32_end(&offs))
+        return api_return_errno(API_EINVAL);
+    if (tells[des] > offs)
+    {
+        FRESULT fresult = f_rewinddir(dir);
+        if (fresult != FR_OK)
+            return api_return_fresult(fresult);
+        tells[des] = 0;
+    }
+    while (tells[des] < offs)
+    {
+        FILINFO fno;
+        FRESULT fresult = f_readdir(dir, &fno);
+        if (fresult != FR_OK)
+            return api_return_fresult(fresult);
+        tells[des]++;
+        if (!fno.fname[0])
+            break;
+    }
+    return api_return_ax(0);
 }
 
-// void __fastcall__ rewinddir (DIR* dir);
+// int __fastcall__ f_rewinddir (int dirdes);
 bool dir_api_rewinddir(void)
 {
     unsigned des = API_A;
@@ -139,5 +158,6 @@ bool dir_api_rewinddir(void)
     FRESULT fresult = f_rewinddir(dir);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    return api_return_errno(API_ENOSYS);
+    tells[des] = 0;
+    return api_return_ax(0);
 }
