@@ -20,6 +20,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
 static_assert(FF_USE_CHMOD == 1);
+static_assert(FF_FS_CRTIME == 1);
 
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
