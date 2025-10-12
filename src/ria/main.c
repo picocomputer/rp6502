@@ -270,6 +270,14 @@ bool main_api(uint8_t operation)
         return dir_api_chmod();
     case 0x27:
         return dir_api_utime();
+    case 0x28:
+        return dir_api_mkdir();
+    case 0x29:
+        return dir_api_chdir();
+    case 0x2A:
+        return dir_api_chdrive();
+    case 0x2B:
+        return dir_api_setlabel();
     }
     return api_return_errno(API_ENOSYS);
 }

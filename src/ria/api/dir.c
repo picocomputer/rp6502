@@ -21,6 +21,7 @@ static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
 static_assert(FF_USE_CHMOD == 1);
 static_assert(FF_FS_CRTIME == 1);
+static_assert(FF_USE_LABEL == 1);
 
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
@@ -234,6 +235,50 @@ bool dir_api_utime(void)
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     FRESULT fresult = f_utime(path, &fno);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_mkdir(const char* name)
+bool dir_api_mkdir(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_mkdir(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int chdir(const char* name)
+bool dir_api_chdir(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_chdir(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_chdrive(const char* name)
+bool dir_api_chdrive(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_chdrive(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_setlabel(const char* name)
+bool dir_api_setlabel(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_setlabel(path);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     return api_return_ax(0);
