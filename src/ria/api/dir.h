@@ -33,8 +33,8 @@ bool dir_api_unlink(void);
 bool dir_api_rename(void);
 bool dir_api_stat(void);
 bool dir_api_chmod(void);
-
 bool dir_api_utime(void);
+
 bool dir_api_mkdir(void);
 bool dir_api_chdir(void);
 bool dir_api_chdrive(void);

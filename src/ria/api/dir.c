@@ -79,7 +79,7 @@ bool dir_api_opendir(void)
     return api_return_ax(des);
 }
 
-// int f_readdir (struct dirent*, int dirdes);
+// int f_readdir (struct f_stat dirent*, int dirdes);
 bool dir_api_readdir(void)
 {
     unsigned des = API_A;
@@ -166,7 +166,7 @@ bool dir_api_rewinddir(void)
     return api_return_ax(0);
 }
 
-// int stat (const char *path, struct *dirent);
+// int f_stat (const char *path, struct f_stat *dirent);
 bool dir_api_stat(void)
 {
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
@@ -182,9 +182,9 @@ bool dir_api_stat(void)
 // int unlink(const char* name)
 bool dir_api_unlink(void)
 {
-    uint8_t *path = &xstack[xstack_ptr];
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    FRESULT fresult = f_unlink((TCHAR *)path);
+    FRESULT fresult = f_unlink(path);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     return api_return_ax(0);
@@ -217,6 +217,23 @@ bool dir_api_chmod(void)
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     FRESULT fresult = f_chmod(path, attr, mask);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_utime (const char *path, unsigned fdate, unsigned ftime, unsigned crdate, unsigned crtime);
+bool dir_api_utime(void)
+{
+    FILINFO fno;
+    fno.crtime = API_AX;
+    if (!api_pop_uint16(&fno.crdate) ||
+        !api_pop_uint16(&fno.ftime) ||
+        !api_pop_uint16(&fno.fdate))
+        return api_return_errno(API_EINVAL);
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_utime(path, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     return api_return_ax(0);

@@ -251,7 +251,7 @@ bool main_api(uint8_t operation)
     case 0x1D:
         return std_api_lseek_llvm();
     case 0x1E:
-        return std_api_sync();
+        return std_api_syncfs();
     case 0x1F:
         return dir_api_stat();
     case 0x20:
@@ -268,6 +268,8 @@ bool main_api(uint8_t operation)
         return dir_api_rewinddir();
     case 0x26:
         return dir_api_chmod();
+    case 0x27:
+        return dir_api_utime();
     }
     return api_return_errno(API_ENOSYS);
 }

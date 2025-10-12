@@ -440,7 +440,8 @@ bool std_api_lseek_llvm(void)
     return std_api_lseek(0, 1, 2);
 }
 
-bool std_api_sync(void)
+// int syncfs (int fd);
+bool std_api_syncfs(void)
 {
     int fd = API_A;
     if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
