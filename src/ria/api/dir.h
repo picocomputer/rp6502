@@ -7,7 +7,7 @@
 #ifndef _RIA_API_DIR_H_
 #define _RIA_API_DIR_H_
 
-/* Implements dirent.h for 6502
+/* File and directory management
  */
 
 #include <stddef.h>
@@ -20,7 +20,7 @@
 void dir_run(void);
 void dir_stop(void);
 
-/* The API implementation for dirent.h
+/* The API implementations
  */
 
 bool dir_api_opendir(void);
@@ -33,5 +33,14 @@ bool dir_api_unlink(void);
 bool dir_api_rename(void);
 bool dir_api_stat(void);
 bool dir_api_chmod(void);
+
+bool dir_api_utime(void);
+bool dir_api_mkdir(void);
+bool dir_api_chdir(void);
+bool dir_api_chdrive(void);
+bool dir_api_getcwd(void);
+bool dir_api_getfree(void);
+bool dir_api_getlabel(void);
+bool dir_api_setlabel(void);
 
 #endif /* _RIA_API_DIR_H_ */

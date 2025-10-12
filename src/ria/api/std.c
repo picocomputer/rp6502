@@ -440,6 +440,18 @@ bool std_api_lseek_llvm(void)
     return std_api_lseek(0, 1, 2);
 }
 
+bool std_api_sync(void)
+{
+    int fd = API_A;
+    if (fd < STD_FIL_OFFS || fd >= STD_FIL_MAX + STD_FIL_OFFS)
+        return api_return_errno(API_EINVAL);
+    FIL *fp = &std_fil[fd - STD_FIL_OFFS];
+    FRESULT fresult = f_sync(fp);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
 void std_run(void)
 {
     std_count_xram = -1;
