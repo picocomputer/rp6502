@@ -283,3 +283,32 @@ bool dir_api_setlabel(void)
         return api_return_fresult(fresult);
     return api_return_ax(0);
 }
+
+// int f_getlabel(const char* path, char* label)
+bool dir_api_getlabel(void)
+{
+    // The FatFs docs say to use 23.
+    // This does not seem correct.
+    const int label_size = 23;
+    char label[label_size];
+    DWORD vsn;
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_getlabel(path, label, &vsn);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    size_t label_len = strlen(label);
+    while (label_len)
+        api_push_char(&label[--label_len]);
+    return api_return_ax(0);
+}
+
+// int f_setcwd(const char* name)
+// bool dir_api_setcwd(void)
+// {
+// }
+
+// int f_getfree(const char* name)
+// bool dir_api_getfree(void)
+// {
+// }
