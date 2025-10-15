@@ -277,8 +277,10 @@ bool main_api(uint8_t operation)
     case 0x2A:
         return dir_api_chdrive();
     case 0x2B:
-        return dir_api_setlabel();
+        return dir_api_getcwd();
     case 0x2C:
+        return dir_api_setlabel();
+    case 0x2D:
         return dir_api_getlabel();
     }
     return api_return_errno(API_ENOSYS);

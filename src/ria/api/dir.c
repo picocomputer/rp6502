@@ -85,13 +85,14 @@ bool dir_api_readdir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
-        api_return_errno(API_EINVAL);
+        return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
     FILINFO fno;
     FRESULT fresult = f_readdir(dir, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    tells[des]++;
+    if (fno.fname[0])
+        tells[des]++;
     dir_push_filinfo(&fno);
     return api_return_ax(0);
 }
@@ -101,7 +102,7 @@ bool dir_api_closedir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
-        api_return_errno(API_EINVAL);
+        return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
     FRESULT fresult = f_closedir(dir);
     if (fresult != FR_OK)
@@ -114,7 +115,7 @@ bool dir_api_telldir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
-        api_return_errno(API_EINVAL);
+        return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
     if (dir->obj.fs == 0)
         return api_return_errno(API_EBADF);
@@ -126,7 +127,7 @@ bool dir_api_seekdir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
-        api_return_errno(API_EINVAL);
+        return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
     if (dir->obj.fs == 0)
         return api_return_errno(API_EBADF);
@@ -158,7 +159,7 @@ bool dir_api_rewinddir(void)
 {
     unsigned des = API_A;
     if (des >= DIR_MAX_OPEN)
-        api_return_errno(API_EINVAL);
+        return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
     FRESULT fresult = f_rewinddir(dir);
     if (fresult != FR_OK)
@@ -273,6 +274,23 @@ bool dir_api_chdrive(void)
     return api_return_ax(0);
 }
 
+// int f_getcwd(const char* name, unsigned len)
+bool dir_api_getcwd(void)
+{
+    uint16_t len = API_AX;
+    if (len > XSTACK_SIZE)
+        return api_return_errno(API_ENOMEM);
+    FRESULT fresult = f_getcwd((TCHAR *)xstack, XSTACK_SIZE);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    len = strlen((char *)xstack);
+    // relocate
+    xstack_ptr = XSTACK_SIZE;
+    for (uint16_t i = len; i;)
+        xstack[--xstack_ptr] = xstack[--i];
+    return api_return_ax(len);
+}
+
 // int f_setlabel(const char* name)
 bool dir_api_setlabel(void)
 {
@@ -288,7 +306,7 @@ bool dir_api_setlabel(void)
 bool dir_api_getlabel(void)
 {
     // The FatFs docs say to use 23.
-    // This does not seem correct.
+    // TODO Figure out why it's not 11.
     const int label_size = 23;
     char label[label_size];
     DWORD vsn;
@@ -297,16 +315,12 @@ bool dir_api_getlabel(void)
     FRESULT fresult = f_getlabel(path, label, &vsn);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    size_t label_len = strlen(label);
+    size_t label_len, ret_len;
+    label_len = ret_len = strlen(label);
     while (label_len)
         api_push_char(&label[--label_len]);
-    return api_return_ax(0);
+    return api_return_ax(ret_len);
 }
-
-// int f_setcwd(const char* name)
-// bool dir_api_setcwd(void)
-// {
-// }
 
 // int f_getfree(const char* name)
 // bool dir_api_getfree(void)

@@ -37,10 +37,10 @@ bool dir_api_utime(void);
 bool dir_api_mkdir(void);
 bool dir_api_chdir(void);
 bool dir_api_chdrive(void);
+bool dir_api_getcwd(void);
 bool dir_api_setlabel(void);
 bool dir_api_getlabel(void);
 
-bool dir_api_getcwd(void);
 bool dir_api_getfree(void);
 
 #endif /* _RIA_API_DIR_H_ */
