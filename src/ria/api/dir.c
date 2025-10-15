@@ -323,6 +323,18 @@ bool dir_api_getlabel(void)
 }
 
 // int f_getfree(const char* name)
-// bool dir_api_getfree(void)
-// {
-// }
+bool dir_api_getfree(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    DWORD fre_clust, fre_sect, tot_sect;
+    FATFS *fs;
+    FRESULT fresult = f_getfree(path, &fre_clust, &fs);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    tot_sect = (fs->n_fatent - 2) * fs->csize;
+    fre_sect = fre_clust * fs->csize;
+    api_push_uint32(&tot_sect);
+    api_push_uint32(&fre_sect);
+    return api_return_ax(0);
+}

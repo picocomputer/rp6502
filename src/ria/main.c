@@ -282,6 +282,8 @@ bool main_api(uint8_t operation)
         return dir_api_setlabel();
     case 0x2D:
         return dir_api_getlabel();
+    case 0x2E:
+        return dir_api_getfree();
     }
     return api_return_errno(API_ENOSYS);
 }
