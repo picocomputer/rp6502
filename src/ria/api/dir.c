@@ -58,6 +58,19 @@ static void dir_push_filinfo(FILINFO *fno)
     api_push_uint32(&fsize);
 }
 
+// int f_stat (const char *path, struct f_stat *dirent);
+bool dir_api_stat(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FILINFO fno;
+    FRESULT fresult = f_stat(path, &fno);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    dir_push_filinfo(&fno);
+    return api_return_ax(0);
+}
+
 // int f_opendir (const char* name);
 bool dir_api_opendir(void)
 {
@@ -165,19 +178,6 @@ bool dir_api_rewinddir(void)
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     tells[des] = 0;
-    return api_return_ax(0);
-}
-
-// int f_stat (const char *path, struct f_stat *dirent);
-bool dir_api_stat(void)
-{
-    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-    FILINFO fno;
-    FRESULT fresult = f_stat(path, &fno);
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    dir_push_filinfo(&fno);
     return api_return_ax(0);
 }
 

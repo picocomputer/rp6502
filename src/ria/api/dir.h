@@ -23,6 +23,7 @@ void dir_stop(void);
 /* The API implementations
  */
 
+bool dir_api_stat(void);
 bool dir_api_opendir(void);
 bool dir_api_readdir(void);
 bool dir_api_closedir(void);
@@ -31,7 +32,6 @@ bool dir_api_seekdir(void);
 bool dir_api_rewinddir(void);
 bool dir_api_unlink(void);
 bool dir_api_rename(void);
-bool dir_api_stat(void);
 bool dir_api_chmod(void);
 bool dir_api_utime(void);
 bool dir_api_mkdir(void);
