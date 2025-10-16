@@ -274,7 +274,7 @@ bool dir_api_chdrive(void)
     return api_return_ax(0);
 }
 
-// int f_getcwd(const char* name, unsigned len)
+// int f_getcwd(char* name, unsigned len)
 bool dir_api_getcwd(void)
 {
     uint16_t len = API_AX;
@@ -283,12 +283,14 @@ bool dir_api_getcwd(void)
     FRESULT fresult = f_getcwd((TCHAR *)xstack, XSTACK_SIZE);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    len = strlen((char *)xstack);
+    uint16_t result_len = strlen((char *)xstack);
+    if (result_len + 1 > len)
+        return api_return_errno(API_ENOMEM);
     // relocate
     xstack_ptr = XSTACK_SIZE;
-    for (uint16_t i = len; i;)
+    for (uint16_t i = result_len; i;)
         xstack[--xstack_ptr] = xstack[--i];
-    return api_return_ax(len);
+    return api_return_ax(result_len + 1);
 }
 
 // int f_setlabel(const char* name)
@@ -306,7 +308,8 @@ bool dir_api_setlabel(void)
 bool dir_api_getlabel(void)
 {
     // The FatFs docs say to use 23.
-    // TODO Figure out why it's not 11.
+    // Windows and Linux have an 11 char limit.
+    // TODO Figure out why it's not 12.
     const int label_size = 23;
     char label[label_size];
     DWORD vsn;
@@ -317,12 +320,15 @@ bool dir_api_getlabel(void)
         return api_return_fresult(fresult);
     size_t label_len, ret_len;
     label_len = ret_len = strlen(label);
+    // This should never happen.
+    if (label_len > 11)
+        return api_return_errno(API_ERANGE);
     while (label_len)
         api_push_char(&label[--label_len]);
-    return api_return_ax(ret_len);
+    return api_return_ax(ret_len + 1);
 }
 
-// int f_getfree(const char* name)
+// int f_getfree(const char* name, unsigned long* free, unsigned long* total)
 bool dir_api_getfree(void)
 {
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
