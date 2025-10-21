@@ -213,7 +213,7 @@ bool main_api(uint8_t operation)
     case 0x02:
         return cpu_api_phi2();
     case 0x03:
-        return oem_api_codepage();
+        return oem_api_code_page();
     case 0x04:
         return rng_api_lrand();
     case 0x05:

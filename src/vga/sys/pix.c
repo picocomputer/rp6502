@@ -54,8 +54,8 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         vga_set_display(word);
         memset(&xregs, 0, sizeof(xregs));
         return true;
-    case 0x01: // CODEPAGE
-        font_set_codepage(word);
+    case 0x01: // CODE_PAGE
+        font_set_code_page(word);
         return true;
     case 0x03: // UART_TX
         putchar_raw(word);

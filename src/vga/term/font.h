@@ -19,6 +19,6 @@ extern uint8_t font16[4096];
 
 void font_init(void);
 
-void font_set_codepage(uint16_t cp);
+void font_set_code_page(uint16_t cp);
 
 #endif /* _VGA_TERM_FONT_H_ */

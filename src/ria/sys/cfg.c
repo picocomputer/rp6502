@@ -43,7 +43,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static const char cfg_filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
-static uint32_t cfg_codepage;
+static uint32_t cfg_code_page;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
 
@@ -102,7 +102,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                CFG_VERSION,
                                cfg_phi2_khz,
                                cfg_time_zone,
-                               cfg_codepage,
+                               cfg_code_page,
                                cfg_vga_display,
 #ifdef RP6502_RIA_W
                                cfg_net_rf,
@@ -156,7 +156,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             str_parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
             break;
         case 'S':
-            str_parse_uint32(&str, &len, &cfg_codepage);
+            str_parse_uint32(&str, &len, &cfg_code_page);
             break;
         case 'D':
             str_parse_uint8(&str, &len, &cfg_vga_display);
@@ -253,20 +253,20 @@ const char *cfg_get_time_zone(void)
     return cfg_time_zone;
 }
 
-bool cfg_set_codepage(uint32_t cp)
+bool cfg_set_code_page(uint32_t cp)
 {
     if (cp > UINT16_MAX)
         return false;
-    uint32_t old_val = cfg_codepage;
-    cfg_codepage = oem_set_codepage(cp);
-    if (old_val != cfg_codepage)
+    uint32_t old_val = cfg_code_page;
+    cfg_code_page = oem_set_code_page(cp);
+    if (old_val != cfg_code_page)
         cfg_save_with_boot_opt(NULL);
     return true;
 }
 
-uint16_t cfg_get_codepage(void)
+uint16_t cfg_get_code_page(void)
 {
-    return cfg_codepage;
+    return cfg_code_page;
 }
 
 bool cfg_set_vga(uint8_t disp)

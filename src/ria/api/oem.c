@@ -24,10 +24,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 void oem_init(void)
 {
-    cfg_set_codepage(oem_set_codepage(cfg_get_codepage()));
+    cfg_set_code_page(oem_set_code_page(cfg_get_code_page()));
 }
 
-static uint16_t oem_find_codepage(uint16_t cp)
+static uint16_t oem_find_code_page(uint16_t cp)
 {
 #if RP6502_CODE_PAGE
     (void)cp;
@@ -40,7 +40,7 @@ static uint16_t oem_find_codepage(uint16_t cp)
         if (result == FR_OK)
             return cp;
     }
-    uint16_t cfg_code_page = cfg_get_codepage();
+    uint16_t cfg_code_page = cfg_get_code_page();
     if (cfg_code_page)
     {
         result = f_setcp(cfg_code_page);
@@ -52,22 +52,22 @@ static uint16_t oem_find_codepage(uint16_t cp)
 #endif
 }
 
-uint16_t oem_set_codepage(uint16_t cp)
+uint16_t oem_set_code_page(uint16_t cp)
 {
-    cp = oem_find_codepage(cp);
+    cp = oem_find_code_page(cp);
     pix_send_blocking(PIX_DEVICE_VGA, 0xFu, 0x01u, cp);
     return cp;
 }
 
-bool oem_api_codepage(void)
+bool oem_api_code_page(void)
 {
     uint16_t cp = API_AX;
     if (!cp)
-        cp = cfg_get_codepage();
-    return api_return_ax(oem_set_codepage(cp));
+        cp = cfg_get_code_page();
+    return api_return_ax(oem_set_code_page(cp));
 }
 
 void oem_stop(void)
 {
-    oem_set_codepage(cfg_get_codepage());
+    oem_set_code_page(cfg_get_code_page());
 }
