@@ -68,13 +68,15 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define API_ERRNO_OPT_LLVM 2
 
 // Logic to select the platform errno map.
-// Macros won't set RIA errno if 0.
+// The original plan was to default to 0 (don't change) until the
+// errno option is set. Unfortunately, old cc65-compiled binaries
+// use errno to detect stdio failures so we're defaulting to -1.
 #define API_MAP(errno_name)                 \
     (api_errno_opt == API_ERRNO_OPT_CC65)   \
         ? API_CC65_##errno_name             \
     : (api_errno_opt == API_ERRNO_OPT_LLVM) \
         ? API_LLVM_##errno_name             \
-        : 0;
+        : -1;
 
 // API state
 static uint8_t api_errno_opt;
