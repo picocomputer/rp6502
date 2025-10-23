@@ -248,25 +248,25 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (use_shift)
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][3], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][3], cfg_get_code_page());
             else
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][2], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][2], cfg_get_code_page());
         }
         else
         {
             if (use_shift)
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
             else
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_codepage());
+                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
         }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
         if (key_shift)
-            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_codepage());
+            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
         else
-            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_codepage());
+            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
         if (key_ctrl)
         {
             if (ch >= '`' && ch <= '~')

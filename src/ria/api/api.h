@@ -24,32 +24,42 @@ void api_task(void);
 void api_run(void);
 void api_stop(void);
 
-/* The 18 base errors come directly from CC65. Use them when you can.
- * FatFs has its own errors, which should be used when obtained from FatFs.
- * We can have both by using API_EFATFS(fresult) to return FatFs errors.
- * See the CC65 SDK method osmaperrno for how this is made portable.
- */
+typedef enum
+{
+    API_ENOENT,  /* No such file or directory */
+    API_ENOMEM,  /* Not enough space */
+    API_EACCES,  /* Permission denied */
+    API_ENODEV,  /* No such device */
+    API_EMFILE,  /* Too many open files */
+    API_EBUSY,   /* Device or resource busy */
+    API_EINVAL,  /* Invalid argument */
+    API_ENOSPC,  /* No space left on device */
+    API_EEXIST,  /* File exists */
+    API_EAGAIN,  /* Resource unavailable, try again */
+    API_EIO,     /* I/O error */
+    API_EINTR,   /* Interrupted system call */
+    API_ENOSYS,  /* Function not supported */
+    API_ESPIPE,  /* Illegal seek */
+    API_ERANGE,  /* Result too large */
+    API_EBADF,   /* Bad file descriptor */
+    API_ENOEXEC, /* Executable file format error */
+    // The following are required for ISO C but cc65 doesn't
+    // have them and so will map to its internal EUNKNOWN.
+    API_EDOM,   /* Mathematics argument out of domain of function*/
+    API_EILSEQ, /* Invalid or incomplete multibyte or wide character */
+} api_errno;
 
-#define API_ENOENT 1        /* No such file or directory */
-#define API_ENOMEM 2        /* Out of memory */
-#define API_EACCES 3        /* Permission denied */
-#define API_ENODEV 4        /* No such device */
-#define API_EMFILE 5        /* Too many open files */
-#define API_EBUSY 6         /* Device or resource busy */
-#define API_EINVAL 7        /* Invalid argument */
-#define API_ENOSPC 8        /* No space left on device */
-#define API_EEXIST 9        /* File exists */
-#define API_EAGAIN 10       /* Try again */
-#define API_EIO 11          /* I/O error */
-#define API_EINTR 12        /* Interrupted system call */
-#define API_ENOSYS 13       /* Function not implemented */
-#define API_ESPIPE 14       /* Illegal seek */
-#define API_ERANGE 15       /* Range error */
-#define API_EBADF 16        /* Bad file number */
-#define API_ENOEXEC 17      /* Exec format error */
-#define API_EUNKNOWN 18     /* Unknown OS specific error */
-#define API_EFATFS(fresult) /* Start of FatFs errors */ \
-    (fresult + 32)
+// cc65 and llvm-mos C init calls this
+// to select its errno.h constants.
+bool api_api_errno_opt(void);
+
+// Used by macros to turn an api_errno
+// into a cc65 or llvm-mos errno.
+uint16_t api_platform_errno(api_errno num);
+
+// Used by macros to turn a FatFs FRESULT
+// into a cc65 or llvm-mos errno.
+uint16_t api_fresult_errno(unsigned fresult);
 
 /* RIA fastcall registers
  */
@@ -118,6 +128,7 @@ static inline bool api_push_n(const void *data, size_t n)
 /* Wrappers for ordinary xstack pushing.
  */
 
+static inline bool api_push_char(const char *data) { return api_push_n(data, sizeof(char)); }
 static inline bool api_push_uint8(const uint8_t *data) { return api_push_n(data, sizeof(uint8_t)); }
 static inline bool api_push_uint16(const uint16_t *data) { return api_push_n(data, sizeof(uint16_t)); }
 static inline bool api_push_uint32(const uint32_t *data) { return api_push_n(data, sizeof(uint32_t)); }
@@ -136,6 +147,9 @@ static inline bool api_push_int32(const int32_t *data) { return api_push_n(data,
 static inline void api_set_regs_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
 static inline void api_set_regs_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
 
+/* Sets the return value along with the LDX and RTS.
+ */
+
 static inline void api_set_ax(uint16_t val)
 {
     *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
@@ -147,33 +161,16 @@ static inline void api_set_axsreg(uint32_t val)
     API_SREG = val >> 16;
 }
 
-// Call one of these at the very end. These signal
-// the 6502 that the operation is complete.
+/* API workers must not block and must return one of these at the very end.
+ */
 
-static inline bool api_return_ax(uint16_t val)
+// Return this if waiting on IO
+static inline bool api_working(void)
 {
-    api_set_ax(val);
-    api_set_regs_released();
-    API_STACK = xstack[xstack_ptr];
-    return false;
+    return true;
 }
 
-static inline bool api_return_axsreg(uint32_t val)
-{
-    api_set_axsreg(val);
-    api_set_regs_released();
-    API_STACK = xstack[xstack_ptr];
-    return false;
-}
-
-static inline bool api_return_errno(uint16_t errno)
-{
-    xstack_ptr = XSTACK_SIZE;
-    API_ERRNO = errno;
-    return api_return_axsreg(-1);
-}
-
-// Sugar for when api_set_ax has already been called.
+// Success for when api_set_ax has already been called.
 static inline bool api_return(void)
 {
     api_set_regs_released();
@@ -181,10 +178,38 @@ static inline bool api_return(void)
     return false;
 }
 
-// Sugar that returns true to make code more readable.
-static inline bool api_working(void)
+// Success with a 16 bit return
+static inline bool api_return_ax(uint16_t val)
 {
-    return true;
+    api_set_ax(val);
+    return api_return();
+}
+
+// Success with a 32 bit return
+static inline bool api_return_axsreg(uint32_t val)
+{
+    api_set_axsreg(val);
+    return api_return();
+}
+
+// Failure returns -1 and sets errno
+static inline bool api_return_errno(api_errno errno)
+{
+    uint16_t platform_errno = api_platform_errno(errno);
+    if (platform_errno)
+        API_ERRNO = platform_errno;
+    xstack_ptr = XSTACK_SIZE;
+    return api_return_axsreg(-1);
+}
+
+// Failure returns -1 and sets errno from FatFS FRESULT
+static inline bool api_return_fresult(unsigned fresult)
+{
+    uint16_t platform_errno = api_fresult_errno(fresult);
+    if (platform_errno)
+        API_ERRNO = platform_errno;
+    xstack_ptr = XSTACK_SIZE;
+    return api_return_axsreg(-1);
 }
 
 #endif /* _RIA_API_API_H_ */

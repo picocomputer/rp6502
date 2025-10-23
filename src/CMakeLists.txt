@@ -61,6 +61,7 @@ target_sources(rp6502_ria PRIVATE
     ria/main.c
     ria/api/api.c
     ria/api/clk.c
+    ria/api/dir.c
     ria/api/oem.c
     ria/api/rng.c
     ria/api/std.c

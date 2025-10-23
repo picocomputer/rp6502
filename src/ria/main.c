@@ -7,6 +7,7 @@
 #include "main.h"
 #include "api/api.h"
 #include "api/clk.h"
+#include "api/dir.h"
 #include "api/oem.h"
 #include "api/rng.h"
 #include "api/std.h"
@@ -115,6 +116,7 @@ static void run(void)
 {
     com_run();
     std_run();
+    dir_run();
     vga_run();
     api_run();
     clk_run();
@@ -133,6 +135,7 @@ static void stop(void)
     pix_stop();
     oem_stop();
     std_stop();
+    dir_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -210,11 +213,13 @@ bool main_api(uint8_t operation)
     case 0x02:
         return cpu_api_phi2();
     case 0x03:
-        return oem_api_codepage();
+        return oem_api_code_page();
     case 0x04:
         return rng_api_lrand();
     case 0x05:
         return std_api_stdin_opt();
+    case 0x06:
+        return api_api_errno_opt();
     case 0x0F:
         return clk_api_clock();
     case 0x10:
@@ -238,14 +243,49 @@ bool main_api(uint8_t operation)
     case 0x19:
         return std_api_write_xram();
     case 0x1A:
-        return std_api_lseek();
+        return std_api_lseek_cc65();
     case 0x1B:
-        return std_api_unlink();
+        return dir_api_unlink();
     case 0x1C:
-        return std_api_rename();
+        return dir_api_rename();
+    case 0x1D:
+        return std_api_lseek_llvm();
+    case 0x1E:
+        return std_api_syncfs();
+    case 0x1F:
+        return dir_api_stat();
+    case 0x20:
+        return dir_api_opendir();
+    case 0x21:
+        return dir_api_readdir();
+    case 0x22:
+        return dir_api_closedir();
+    case 0x23:
+        return dir_api_telldir();
+    case 0x24:
+        return dir_api_seekdir();
+    case 0x25:
+        return dir_api_rewinddir();
+    case 0x26:
+        return dir_api_chmod();
+    case 0x27:
+        return dir_api_utime();
+    case 0x28:
+        return dir_api_mkdir();
+    case 0x29:
+        return dir_api_chdir();
+    case 0x2A:
+        return dir_api_chdrive();
+    case 0x2B:
+        return dir_api_getcwd();
+    case 0x2C:
+        return dir_api_setlabel();
+    case 0x2D:
+        return dir_api_getlabel();
+    case 0x2E:
+        return dir_api_getfree();
     }
-    api_return_errno(API_ENOSYS);
-    return false;
+    return api_return_errno(API_ENOSYS);
 }
 
 /*****************************/

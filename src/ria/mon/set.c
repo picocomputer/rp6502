@@ -86,7 +86,7 @@ static void set_print_code_page()
 #if (RP6502_CODE_PAGE)
     printf("CP  : %d (dev)\n", RP6502_CODE_PAGE);
 #else
-    printf("CP  : %d\n", cfg_get_codepage());
+    printf("CP  : %d\n", cfg_get_code_page());
 #endif
 }
 
@@ -97,7 +97,7 @@ static void set_code_page(const char *args, size_t len)
     {
         if (!str_parse_uint32(&args, &len, &val) ||
             !str_parse_end(args, len) ||
-            !cfg_set_codepage(val))
+            !cfg_set_code_page(val))
         {
             printf("?invalid argument\n");
             return;
@@ -189,49 +189,49 @@ static void set_print_ssid(void)
     printf("SSID: %s\n", strlen(cc) ? cc : "(none)");
 }
 
-static void set_ssid(const char *args, size_t len)
-{
-    char ssid[33];
-    if (len)
-    {
-        if (args[0] == '-' && str_parse_end(++args, --len))
-        {
-            cfg_set_ssid("");
-        }
-        else if (!str_parse_string(&args, &len, ssid, sizeof(ssid)) ||
-                 !str_parse_end(args, len) ||
-                 !cfg_set_ssid(ssid))
-        {
-            printf("?invalid argument\n");
-            return;
-        }
-    }
-    set_print_ssid();
-}
-
 static void set_print_pass(void)
 {
     const char *pass = cfg_get_pass();
     printf("PASS: %s\n", strlen(pass) ? "(set)" : "(none)");
 }
 
+static void set_ssid(const char *args, size_t len)
+{
+    char ssid[33];
+    if (!len)
+        return set_print_ssid();
+    if (args[0] == '-' && str_parse_end(++args, --len))
+    {
+        cfg_set_ssid("");
+    }
+    else if (!str_parse_string(&args, &len, ssid, sizeof(ssid)) ||
+             !str_parse_end(args, len) ||
+             !cfg_set_ssid(ssid))
+    {
+        printf("?invalid argument\n");
+        return;
+    }
+    set_print_ssid();
+    set_print_pass();
+}
+
 static void set_pass(const char *args, size_t len)
 {
     char pass[65];
-    if (len)
+    if (!len)
+        return set_print_pass();
+    if (args[0] == '-' && str_parse_end(++args, --len))
     {
-        if (args[0] == '-' && str_parse_end(++args, --len))
-        {
-            cfg_set_pass("");
-        }
-        else if (!str_parse_string(&args, &len, pass, sizeof(pass)) ||
-                 !str_parse_end(args, len) ||
-                 !cfg_set_pass(pass))
-        {
-            printf("?invalid argument\n");
-            return;
-        }
+        cfg_set_pass("");
     }
+    else if (!str_parse_string(&args, &len, pass, sizeof(pass)) ||
+             !str_parse_end(args, len) ||
+             !cfg_set_pass(pass))
+    {
+        printf("?invalid argument\n");
+        return;
+    }
+    set_print_ssid();
     set_print_pass();
 }
 

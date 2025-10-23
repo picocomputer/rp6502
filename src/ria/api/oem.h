@@ -24,9 +24,9 @@ void oem_stop(void);
 // Attempt to change the code page.
 // On failure, preserve current value if possible.
 // Use default as a last resort.
-uint16_t oem_set_codepage(uint16_t cp);
+uint16_t oem_set_code_page(uint16_t cp);
 
-// API set or query the codepage.
-bool oem_api_codepage(void);
+// API set or query the code page.
+bool oem_api_code_page(void);
 
 #endif /* _RIA_API_OEM_H_ */
