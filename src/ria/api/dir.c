@@ -162,7 +162,7 @@ bool dir_api_seekdir(void)
             return api_return_fresult(fresult);
         tells[des]++;
         if (!fno.fname[0])
-            break;
+            return api_return_fresult(FR_INVALID_OBJECT);
     }
     return api_return_ax(0);
 }
@@ -274,18 +274,13 @@ bool dir_api_chdrive(void)
     return api_return_ax(0);
 }
 
-// int f_getcwd(char* name, unsigned len)
+// int f_getcwd(char* name, int size)
 bool dir_api_getcwd(void)
 {
-    uint16_t len = API_AX;
-    if (len > XSTACK_SIZE)
-        return api_return_errno(API_ENOMEM);
     FRESULT fresult = f_getcwd((TCHAR *)xstack, XSTACK_SIZE);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     uint16_t result_len = strlen((char *)xstack);
-    if (result_len + 1 > len)
-        return api_return_errno(API_ENOMEM);
     // relocate
     xstack_ptr = XSTACK_SIZE;
     for (uint16_t i = result_len; i;)
