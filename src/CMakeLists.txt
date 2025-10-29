@@ -1,27 +1,40 @@
-# The Pi Pico RIA
-
-add_executable(rp6502_ria)
-pico_add_extra_outputs(rp6502_ria)
-pico_set_binary_type(rp6502_ria copy_to_ram)
+# If you have thoroughly tested a third-party RP2350 board
+# in the reference design then please submit a pull request.
 
 if (PICO_BOARD STREQUAL "pico2_w" OR
     PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
-    set(rp6502_ria_w TRUE)
-    target_compile_definitions(rp6502_ria PRIVATE RP6502_RIA_W)
-    target_link_libraries(rp6502_ria PRIVATE pico_cyw43_arch_lwip_poll pico_btstack_cyw43)
-    pico_set_program_name(rp6502_ria "RP6502 RIA W")
+    set(RP6502_RIA_W TRUE)
+    set(RIA_TARGET rp6502_ria_w)
+elseif(PICO_BOARD STREQUAL "pico2")
+    set(RP6502_RIA_W FALSE)
+    set(RIA_TARGET rp6502_ria)
 else()
-    set(rp6502_ria_w FALSE)
-    pico_set_program_name(rp6502_ria "RP6502 RIA")
+    message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
 endif()
 
-target_include_directories(rp6502_ria PRIVATE
+
+# The Pi Pico RIA
+
+add_executable(${RIA_TARGET})
+pico_add_extra_outputs(${RIA_TARGET})
+pico_set_binary_type(${RIA_TARGET} copy_to_ram)
+
+
+if (RP6502_RIA_W)
+    target_compile_definitions(${RIA_TARGET} PRIVATE RP6502_RIA_W=1)
+    target_link_libraries(${RIA_TARGET} PRIVATE pico_cyw43_arch_lwip_poll pico_btstack_cyw43)
+    pico_set_program_name(${RIA_TARGET} "RP6502-RIA-W")
+else()
+    pico_set_program_name(${RIA_TARGET} "RP6502-RIA")
+endif()
+
+target_include_directories(${RIA_TARGET} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src
     ria
 )
 
-target_compile_definitions(rp6502_ria PRIVATE
+target_compile_definitions(${RIA_TARGET} PRIVATE
     CYW43_CONFIG_FILE="${CMAKE_CURRENT_LIST_DIR}/ria/cyw43_config.h"
     pico_flash_bank_get_storage_offset_func=lfs_get_bt_storage_offset
     PICO_FLASH_ASSUME_CORE1_SAFE=1
@@ -30,13 +43,13 @@ target_compile_definitions(rp6502_ria PRIVATE
     LFS_NAME_MAX=16
 )
 
-target_compile_options(rp6502_ria PRIVATE
+target_compile_options(${RIA_TARGET} PRIVATE
     -Wall -Wextra
-    $<$<AND:$<CONFIG:Debug>,$<BOOL:${rp6502_ria_w}>>:-Os>
+    $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
     $<$<CONFIG:Release>:-Os>
 )
 
-target_link_libraries(rp6502_ria PRIVATE
+target_link_libraries(${RIA_TARGET} PRIVATE
     pico_aon_timer
     pico_stdlib
     pico_multicore
@@ -49,11 +62,11 @@ target_link_libraries(rp6502_ria PRIVATE
     pico_btstack_ble
 )
 
-pico_generate_pio_header(rp6502_ria
+pico_generate_pio_header(${RIA_TARGET}
     ${CMAKE_CURRENT_LIST_DIR}/ria/ria.pio
 )
 
-target_sources(rp6502_ria PRIVATE
+target_sources(${RIA_TARGET} PRIVATE
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c
@@ -180,7 +193,7 @@ target_compile_definitions(rp6502_vga PRIVATE
 # Please change name for hardware forks.
 # For release, set version string and set code page to 0.
 
-set_property(TARGET rp6502_ria rp6502_vga
+set_property(TARGET ${RIA_TARGET} rp6502_vga
     APPEND PROPERTY COMPILE_DEFINITIONS
     RP6502_NAME="Picocomputer 6502"
     RP6502_VERSION=""
@@ -193,13 +206,13 @@ set_property(TARGET rp6502_ria rp6502_vga
 # If no version set, set a define for C preprocessor and touch
 # the file that provides a dev timestamp for the version.
 
-get_target_property(RP6502_RIA_COMPILE_DEFINITIONS rp6502_ria COMPILE_DEFINITIONS)
+get_target_property(RP6502_RIA_COMPILE_DEFINITIONS ${RIA_TARGET} COMPILE_DEFINITIONS)
 if(RP6502_RIA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
-    set_property(TARGET rp6502_ria
+    set_property(TARGET ${RIA_TARGET}
         APPEND PROPERTY COMPILE_DEFINITIONS
         RP6502_VERSION_EMPTY=1
     )
-    add_custom_command(TARGET rp6502_ria PRE_BUILD
+    add_custom_command(TARGET ${RIA_TARGET} PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/ria/sys/sys.c
     )
 endif()
