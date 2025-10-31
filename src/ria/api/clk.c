@@ -152,13 +152,14 @@ bool clk_api_get_time_zone(void)
     ts.tv_nsec = 0;
 
     struct tm local_tm = *localtime(&ts.tv_sec);
-    struct tm gm_tm = *gmtime(&ts.tv_sec);
-    gm_tm.tm_isdst = local_tm.tm_isdst; // This can't be right
+
+    // Calculate timezone offset directly from the requested time
+    // The difference between the requested time (UTC) and mktime's interpretation
+    // of the local_tm gives us the offset including DST
     time_t local_sec = mktime(&local_tm);
-    time_t gm_sec = mktime(&gm_tm);
 
     tz.daylight = local_tm.tm_isdst;
-    tz.timezone = (int32_t)difftime(local_sec, gm_sec);
+    tz.timezone = (int32_t)difftime(requested_time, local_sec);
     strncpy(tz.tzname, tzname[0], 4);
     tz.tzname[4] = '\0';
     strncpy(tz.dstname, tzname[1], 4);
