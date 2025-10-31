@@ -10,6 +10,10 @@
 #include "hid/kbd_dan.h"
 #include "hid/kbd_deu.h"
 #include "hid/kbd_eng.h"
+// Dead-key support types and tables
+#include "hid/kbd_dead.h"
+// Optional layouts that provide dead-key tables
+#include "hid/kbd_eng_intl.h"
 #include "hid/kbd_pol.h"
 #include "hid/kbd_swe.h"
 #include "hid/hid.h"
@@ -133,6 +137,42 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 static DWORD const __in_flash("ria_hid_kbd")
     kbd_hid_key_to_unicode[128][4] = {KBD_HID_KEY_TO_UNICODE(RP6502_KEYBOARD)};
 
+// Dead-key tables are layout-specific. Default to empty, and allow a
+// selected layout header to override via KBD_DEAD_SELECT(RP6502_KEYBOARD).
+static const kbd_deadtrigger_t kbd_dead_triggers_default[] = {};
+static const kbd_deadmap_t kbd_dead_maps_default[] = {};
+static const kbd_deadtrigger_t *kbd_dead_triggers = kbd_dead_triggers_default;
+static size_t kbd_dead_triggers_count = 0;
+static const kbd_deadmap_t *kbd_dead_maps = kbd_dead_maps_default;
+static size_t kbd_dead_maps_count = 0;
+
+#define KBD_DEAD_SELECT_(kb) KBD_DEAD_SELECT_##kb
+#define KBD_DEAD_SELECT(kb) KBD_DEAD_SELECT_(kb)
+KBD_DEAD_SELECT(RP6502_KEYBOARD)
+
+// Dead-key pending state
+static uint8_t kbd_dead_pending = 0;    // accent id (KBD_ACC_*) or 0
+static uint16_t kbd_dead_printable = 0; // spacing accent to emit if needed
+
+static inline bool kbd_queue_char(char ch)
+{
+    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+    {
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch;
+        return true;
+    }
+    return false;
+}
+
+static uint16_t kbd_dead_compose(uint8_t accent, uint16_t base_uc)
+{
+    for (size_t i = 0; i < kbd_dead_maps_count; i++)
+        if (kbd_dead_maps[i].accent == accent && kbd_dead_maps[i].base == base_uc)
+            return kbd_dead_maps[i].combined;
+    return 0;
+}
+
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
@@ -238,6 +278,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     // Find plain typed or AltGr character
     char ch = 0;
+    uint16_t base_uc = 0;
     if (keycode < 128 && !((modifier & (KBD_MODIFIER_LEFTALT |
                                         KBD_MODIFIER_LEFTGUI |
                                         KBD_MODIFIER_RIGHTGUI))))
@@ -245,19 +286,92 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         bool use_shift = (key_shift && !is_capslock) ||
                          (key_shift && keycode > KBD_HID_KEY_Z) ||
                          (!key_shift && is_capslock && keycode <= KBD_HID_KEY_Z);
+        // Determine variant index for lookup/triggers: 0,1,2,3
+        uint8_t variant = (use_shift ? 1 : 0) | ((modifier & KBD_MODIFIER_RIGHTALT) ? 2 : 0);
+
+        // Dead-key trigger handling (only when not Ctrl/Alt/GUI except AltGr)
+        if (!(modifier & (KBD_MODIFIER_LEFTCTRL | KBD_MODIFIER_RIGHTCTRL |
+                          KBD_MODIFIER_LEFTALT | KBD_MODIFIER_LEFTGUI |
+                          KBD_MODIFIER_RIGHTGUI)))
+        {
+            for (size_t i = 0; i < kbd_dead_triggers_count; i++)
+            {
+                if (kbd_dead_triggers[i].keycode == keycode && kbd_dead_triggers[i].variant == variant)
+                {
+                    // If a dead accent is pending, emit its printable form first
+                    if (kbd_dead_pending && kbd_dead_printable)
+                    {
+                        char acc = ff_uni2oem(kbd_dead_printable, cfg_get_code_page());
+                        if (acc)
+                            kbd_queue_char(acc);
+                    }
+                    kbd_dead_pending = kbd_dead_triggers[i].accent;
+                    kbd_dead_printable = kbd_dead_triggers[i].printable_uc;
+                    return; // Dead-key consumes the keystroke
+                }
+            }
+        }
+
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
-            if (use_shift)
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][3], cfg_get_code_page());
-            else
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][2], cfg_get_code_page());
+            base_uc = kbd_hid_key_to_unicode[keycode][use_shift ? 3 : 2];
+            ch = ff_uni2oem(base_uc, cfg_get_code_page());
         }
         else
         {
-            if (use_shift)
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
+            base_uc = kbd_hid_key_to_unicode[keycode][use_shift ? 1 : 0];
+            ch = ff_uni2oem(base_uc, cfg_get_code_page());
+        }
+    }
+    // If a dead accent is pending, try to compose with the base character
+    if (kbd_dead_pending)
+    {
+        // Space after a dead key should emit the accent itself
+        if (base_uc == ' ')
+        {
+            char acc = ff_uni2oem(kbd_dead_printable, cfg_get_code_page());
+            if (acc)
+                kbd_queue_char(acc);
+            kbd_dead_pending = 0;
+            kbd_dead_printable = 0;
+            return;
+        }
+        if (base_uc)
+        {
+            uint16_t composed_uc = kbd_dead_compose(kbd_dead_pending, base_uc);
+            if (composed_uc)
+            {
+                char composed = ff_uni2oem(composed_uc, cfg_get_code_page());
+                if (composed)
+                {
+                    ch = composed;
+                    // consume the pending accent
+                    kbd_dead_pending = 0;
+                    kbd_dead_printable = 0;
+                }
+                else
+                {
+                    // Fallback: emit accent then pass through base
+                    char acc = ff_uni2oem(kbd_dead_printable, cfg_get_code_page());
+                    if (acc)
+                        kbd_queue_char(acc);
+                    kbd_dead_pending = 0;
+                    kbd_dead_printable = 0;
+                }
+            }
             else
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
+            {
+                // No composition mapping: emit accent then pass through base
+                char acc = ff_uni2oem(kbd_dead_printable, cfg_get_code_page());
+                if (acc)
+                    kbd_queue_char(acc);
+                kbd_dead_pending = 0;
+                kbd_dead_printable = 0;
+            }
+        }
+        else
+        {
+            // Non-printable base (e.g., function key); keep pending accent
         }
     }
     // ALT characters not found in AltGr get escaped
@@ -304,10 +418,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Queue a regularly typed key
     if (ch)
     {
-        if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+        if (kbd_queue_char(ch))
         {
-            kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-            kbd_key_queue[kbd_key_queue_head] = ch;
         }
         return;
     }
