@@ -14,6 +14,7 @@
 #include <pico/aon_timer.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
 #include <stdio.h>
@@ -152,14 +153,20 @@ bool clk_api_get_time_zone(void)
     ts.tv_nsec = 0;
 
     struct tm local_tm = *localtime(&ts.tv_sec);
+    struct tm gm_tm = *gmtime(&ts.tv_sec);
 
-    // Calculate timezone offset directly from the requested time
-    // The difference between the requested time (UTC) and mktime's interpretation
-    // of the local_tm gives us the offset including DST
+    // Compute UTC offset including DST as the difference between
+    // mktime(localtime(t)) and mktime(gmtime(t)).
+    // - local_tm: let libc figure out DST for the given timestamp
+    // - gm_tm: UTC never observes DST
+    local_tm.tm_isdst = -1;
+    gm_tm.tm_isdst = 0;
+
     time_t local_sec = mktime(&local_tm);
+    time_t gm_sec = mktime(&gm_tm);
 
-    tz.daylight = local_tm.tm_isdst;
-    tz.timezone = (int32_t)difftime(requested_time, local_sec);
+    tz.daylight = (local_tm.tm_isdst > 0);
+    tz.timezone = (int32_t)difftime(local_sec, gm_sec);
     strncpy(tz.tzname, tzname[0], 4);
     tz.tzname[4] = '\0';
     strncpy(tz.dstname, tzname[1], 4);
