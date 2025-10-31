@@ -41,6 +41,22 @@ static uint16_t rln_csi_param[RLN_CSI_PARAM_MAX_LEN];
 static uint8_t rln_csi_param_count;
 static uint32_t rln_ctrl_bits;
 
+// Full re-render to support multi-line editing without relying on terminal wrap hacks.
+// Strategy:
+// - CR to start of current visual line
+// - Clear to end of screen (removes prior wrapped content)
+// - Print prefix up to cursor, save cursor, print suffix, restore cursor
+static void rln_render(void)
+{
+    printf("\r\33[J");
+    if (rln_bufpos)
+        fwrite(rln_buf, 1, rln_bufpos, stdout);
+    printf("\33[s");
+    if (rln_buflen > rln_bufpos)
+        fwrite(&rln_buf[rln_bufpos], 1, rln_buflen - rln_bufpos, stdout);
+    printf("\33[u");
+}
+
 volatile size_t rln_tx_tail;
 volatile size_t rln_tx_head;
 volatile uint8_t rln_tx_buf[32];
@@ -49,31 +65,34 @@ volatile uint8_t rln_tx_buf[32];
 static void rln_line_home(void)
 {
     if (rln_bufpos)
-        printf("\33[%dD", rln_bufpos);
-    rln_bufpos = 0;
+    {
+        rln_bufpos = 0;
+        rln_render();
+    }
 }
 
 static void rln_line_end(void)
 {
     if (rln_bufpos != rln_buflen)
-        printf("\33[%dC", rln_buflen - rln_bufpos);
-    rln_bufpos = rln_buflen;
+    {
+        rln_bufpos = rln_buflen;
+        rln_render();
+    }
 }
 
 static void rln_line_forward_word(void)
 {
-    int count = 0;
+    size_t old_pos = rln_bufpos;
     if (rln_bufpos < rln_buflen)
         while (true)
         {
-            count++;
             if (++rln_bufpos >= rln_buflen)
                 break;
             if (rln_buf[rln_bufpos] == ' ' && rln_buf[rln_bufpos - 1] != ' ')
                 break;
         }
-    if (count)
-        printf("\33[%dC", count);
+    if (rln_bufpos != old_pos)
+        rln_render();
 }
 
 static void rln_line_forward(void)
@@ -88,7 +107,7 @@ static void rln_line_forward(void)
     if (!count)
         return;
     rln_bufpos += count;
-    printf("\33[%dC", count);
+    rln_render();
 }
 
 static void rln_line_forward_1(void)
@@ -100,18 +119,17 @@ static void rln_line_forward_1(void)
 
 static void rln_line_backward_word(void)
 {
-    int count = 0;
+    size_t old_pos = rln_bufpos;
     if (rln_bufpos)
         while (true)
         {
-            count++;
             if (!--rln_bufpos)
                 break;
             if (rln_buf[rln_bufpos] != ' ' && rln_buf[rln_bufpos - 1] == ' ')
                 break;
         }
-    if (count)
-        printf("\33[%dD", count);
+    if (rln_bufpos != old_pos)
+        rln_render();
 }
 
 static void rln_line_backward(void)
@@ -126,7 +144,7 @@ static void rln_line_backward(void)
     if (!count)
         return;
     rln_bufpos -= count;
-    printf("\33[%dD", count);
+    rln_render();
 }
 
 static void rln_line_backward_1(void)
@@ -140,20 +158,20 @@ static void rln_line_delete(void)
 {
     if (!rln_buflen || rln_bufpos == rln_buflen)
         return;
-    printf("\33[P");
     rln_buflen--;
     for (uint8_t i = rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
+    rln_render();
 }
 
 static void rln_line_backspace(void)
 {
     if (!rln_bufpos)
         return;
-    printf("\b\33[P");
     rln_buflen--;
     for (uint8_t i = --rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
+    rln_render();
 }
 
 static void rln_line_insert(char ch)
@@ -163,12 +181,8 @@ static void rln_line_insert(char ch)
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
         rln_buf[i] = rln_buf[i - 1];
     rln_buflen++;
-    rln_buf[rln_bufpos] = ch;
-    for (size_t i = rln_bufpos; i < rln_buflen; i++)
-        putchar(rln_buf[i]);
-    rln_bufpos++;
-    if (rln_buflen - rln_bufpos)
-        printf("\33[%dD", rln_buflen - rln_bufpos);
+    rln_buf[rln_bufpos++] = ch;
+    rln_render();
 }
 
 static void rln_line_state_C0(char ch)
