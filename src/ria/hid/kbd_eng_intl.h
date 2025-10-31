@@ -97,4 +97,7 @@ static const kbd_deadmap_t __in_flash("ria_hid_kbd") kbd_eng_intl_dead_maps[] = 
     static const kbd_deadmap_t *kbd_dead_maps = kbd_eng_intl_dead_maps;                                                 \
     static size_t kbd_dead_maps_count = sizeof(kbd_eng_intl_dead_maps) / sizeof(kbd_eng_intl_dead_maps[0]);
 
+// Also support short token EN_US_INTL to match naming in CMake
+#define KBD_DEAD_SELECT_EN_US_INTL KBD_DEAD_SELECT_ENG_US_INTL
+
 #endif /* _RIA_HID_KBD_ENG_INTL_H_ */
