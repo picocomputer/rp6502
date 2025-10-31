@@ -41,5 +41,7 @@ bool dir_api_getcwd(void);
 bool dir_api_setlabel(void);
 bool dir_api_getlabel(void);
 bool dir_api_getfree(void);
+bool dir_api_mkfs(void);
+bool dir_api_fdisk(void);
 
 #endif /* _RIA_API_DIR_H_ */

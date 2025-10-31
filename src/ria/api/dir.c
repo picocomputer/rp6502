@@ -22,6 +22,8 @@ static_assert(FF_SFN_BUF == 12);
 static_assert(FF_USE_CHMOD == 1);
 static_assert(FF_FS_CRTIME == 1);
 static_assert(FF_USE_LABEL == 1);
+static_assert(FF_USE_MKFS == 1);
+static_assert(FF_MULTI_PARTITION == 1);
 
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
@@ -337,5 +339,61 @@ bool dir_api_getfree(void)
     fre_sect = fre_clust * fs->csize;
     api_push_uint32(&tot_sect);
     api_push_uint32(&fre_sect);
+    return api_return_ax(0);
+}
+
+// int f_mkfs(const char* path, const MKFS_PARM* opt)
+// Simplified interface: creates FAT32 with default parameters
+bool dir_api_mkfs(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+
+    // Use default parameters for FAT32
+    MKFS_PARM opt = {
+        FM_FAT32, // Format type
+        0,        // Number of FATs (0=auto)
+        0,        // Align (0=auto)
+        0,        // n_root (FAT32 ignores this)
+        0         // au_size (0=auto cluster size)
+    };
+
+    // Work buffer for f_mkfs (needed for filesystem creation)
+    static BYTE work[FF_MAX_SS];
+
+    FRESULT fresult = f_mkfs(path, &opt, work, sizeof(work));
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_fdisk(BYTE pdrv, const LBA_t ptbl[], void* work)
+// Creates MBR partition table with up to 4 partitions
+// Stack contains: pdrv (byte), partition sizes as 32-bit LBAs (4 entries)
+bool dir_api_fdisk(void)
+{
+    if (xstack_ptr > XSTACK_SIZE - 17)
+        return api_return_errno(API_EINVAL);
+
+    BYTE pdrv;
+    LBA_t ptbl[4];
+
+    // Pop physical drive number
+    if (!api_pop_uint8(&pdrv))
+        return api_return_errno(API_EINVAL);
+
+    // Pop 4 partition sizes (in sectors)
+    for (int i = 0; i < 4; i++)
+    {
+        if (!api_pop_uint32((uint32_t *)&ptbl[i]))
+            return api_return_errno(API_EINVAL);
+    }
+
+    // Work buffer for f_fdisk
+    static BYTE work[FF_MAX_SS];
+
+    FRESULT fresult = f_fdisk(pdrv, ptbl, work);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
     return api_return_ax(0);
 }

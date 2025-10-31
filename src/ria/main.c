@@ -284,6 +284,10 @@ bool main_api(uint8_t operation)
         return dir_api_getlabel();
     case 0x2E:
         return dir_api_getfree();
+    case 0x2F:
+        return dir_api_mkfs();
+    case 0x30:
+        return dir_api_fdisk();
     }
     return api_return_errno(API_ENOSYS);
 }

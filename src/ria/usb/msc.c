@@ -31,7 +31,7 @@ static_assert(FF_LFN_UNICODE == 0);
 static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
 static_assert(FF_FS_RPATH == 2);
-static_assert(FF_MULTI_PARTITION == 0);
+static_assert(FF_MULTI_PARTITION == 1);
 static_assert(FF_FS_LOCK == 8);
 static_assert(FF_FS_NORTC == 0);
 static_assert(FF_VOLUMES == 8);
@@ -52,6 +52,11 @@ static const char __in_flash("fatfs_vol") VolumeStrUSB7[] = "USB7";
 const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrUSB0, VolumeStrUSB1, VolumeStrUSB2, VolumeStrUSB3,
     VolumeStrUSB4, VolumeStrUSB5, VolumeStrUSB6, VolumeStrUSB7};
+
+// Multi-partition table: {physical drive, partition (0=auto, 1-4=partition number)}
+// Map logical volumes 0-7 to physical drives 0-7, auto-detect first partition
+const PARTITION VolToPart[FF_VOLUMES] = {
+    {0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}, {6, 0}, {7, 0}};
 
 // Place some printables in flash
 static const char __in_flash("msc_print") MSC_PRINT_MB[] = "MB";
