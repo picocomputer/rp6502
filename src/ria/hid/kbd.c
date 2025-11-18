@@ -106,6 +106,8 @@ static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds;
 static uint16_t kbd_xram;
 static uint32_t kbd_keys[8];
+static bool kbd_alt_mode;
+static char kbd_alt_code;
 
 typedef struct
 {
@@ -236,6 +238,22 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         }
     }
+    // ALT codes
+    if (kbd_alt_mode || (keycode >= KBD_HID_KEY_KEYPAD_1 &&
+                         keycode <= KBD_HID_KEY_KEYPAD_0 &&
+                         key_alt))
+    {
+        if (!kbd_alt_mode)
+        {
+            kbd_alt_mode = true;
+            kbd_alt_code = 0;
+        }
+        else
+            kbd_alt_code *= 10;
+        if (keycode < KBD_HID_KEY_KEYPAD_0)
+            kbd_alt_code += keycode - KBD_HID_KEY_KEYPAD_1 + 1;
+        return;
+    }
     // Find plain typed or AltGr character
     char ch = 0;
     if (keycode < 128 && !((modifier & (KBD_MODIFIER_LEFTALT |
@@ -320,6 +338,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             if (key_ctrl && key_alt)
             {
                 kbd_key_queue_tail = kbd_key_queue_head;
+                kbd_alt_mode = false;
                 main_break();
                 return;
             }
@@ -576,7 +595,22 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
             kbd_queue_key(KBD_MODIFIER(kbd_keys), i, true);
     }
 
-    // Check for no keys pressed
+    // Check for releasing ALT key during ALT mode.
+    if (kbd_alt_mode)
+    {
+        bool key_alt = KBD_MODIFIER(kbd_keys) & (KBD_MODIFIER_LEFTALT | KBD_MODIFIER_RIGHTALT);
+        if (!key_alt)
+        {
+            kbd_alt_mode = false;
+            if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+            {
+                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+                kbd_key_queue[kbd_key_queue_head] = kbd_alt_code;
+            }
+        }
+    }
+
+    // Check for no keys pressed.
     bool any_key = false;
     kbd_keys[0] &= ~0xF;
     for (int k = 0; k < 8; k++)
