@@ -181,6 +181,27 @@ static void kbd_queue_seq_vt(int num, int mod)
     return kbd_queue_str(s);
 }
 
+static void kbd_queue_char(char ch)
+{
+    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+    {
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch;
+    }
+}
+
+static void kbd_queue_char_char(char ch0, char ch1)
+{
+    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail &&
+        (kbd_key_queue_head + 2) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+    {
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch0;
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch1;
+    }
+}
+
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     bool key_shift = modifier & (KBD_MODIFIER_LEFTSHIFT | KBD_MODIFIER_RIGHTSHIFT);
@@ -296,14 +317,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
         if (ch)
         {
-            if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail &&
-                (kbd_key_queue_head + 2) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
-            {
-                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-                kbd_key_queue[kbd_key_queue_head] = '\33';
-                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-                kbd_key_queue[kbd_key_queue_head] = ch;
-            }
+            kbd_queue_char_char('\33', ch);
             return;
         }
     }
@@ -322,11 +336,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Queue a regularly typed key
     if (ch)
     {
-        if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
-        {
-            kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-            kbd_key_queue[kbd_key_queue_head] = ch;
-        }
+        //TODO process dead keys here
+        kbd_queue_char(ch);
         return;
     }
     // Non-repeating special key handler
@@ -602,11 +613,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
         if (!key_alt)
         {
             kbd_alt_mode = false;
-            if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
-            {
-                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-                kbd_key_queue[kbd_key_queue_head] = kbd_alt_code;
-            }
+            kbd_queue_char(kbd_alt_code);
         }
     }
 
