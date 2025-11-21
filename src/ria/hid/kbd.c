@@ -7,11 +7,6 @@
 #include "main.h"
 #include "api/api.h"
 #include "hid/kbd.h"
-#include "hid/kbd_dan.h"
-#include "hid/kbd_deu.h"
-#include "hid/kbd_eng.h"
-#include "hid/kbd_pol.h"
-#include "hid/kbd_swe.h"
 #include "hid/hid.h"
 #include "net/ble.h"
 #include "sys/cfg.h"
@@ -129,11 +124,29 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[KBD_HID_KEY_CONTROL_LEFT >> 3]
 
-// Select locale based on RP6502_KEYBOARD set in CMakeLists.txt
-#define KBD_HID_KEY_TO_UNICODE_(kb) KBD_HID_KEY_TO_UNICODE_##kb
-#define KBD_HID_KEY_TO_UNICODE(kb) KBD_HID_KEY_TO_UNICODE_(kb)
+#define X(name, desc, hid_key_to_unicode_data) \
+    {hid_key_to_unicode_data},
 static DWORD const __in_flash("ria_hid_kbd")
-    kbd_hid_key_to_unicode[128][4] = {KBD_HID_KEY_TO_UNICODE(RP6502_KEYBOARD)};
+    kbd_locales_hid_key_to_unicode[][128][4] = {
+        KBD_LAYOUTS};
+#undef X
+
+#define X(name, desc, hid_key_to_unicode_data) \
+    name,
+static const char *__in_flash("ria_hid_kbd")
+    kbd_locales_names[] = {
+        KBD_LAYOUTS};
+#undef X
+
+#define X(name, desc, hid_key_to_unicode_data) \
+    desc,
+static const char *__in_flash("ria_hid_kbd")
+    kbd_locales_descriptions[] = {
+        KBD_LAYOUTS};
+#undef X
+
+// The currently selected keyboard defaults to US
+static DWORD const (*kbd_hid_key_to_unicode)[4] = kbd_locales_hid_key_to_unicode[0];
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -336,7 +349,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Queue a regularly typed key
     if (ch)
     {
-        //TODO process dead keys here
+        // TODO process dead keys here
         kbd_queue_char(ch);
         return;
     }

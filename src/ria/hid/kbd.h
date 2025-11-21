@@ -14,6 +14,31 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* CONTRIBUTING: Keyboard layouts are easy to make and test.
+ * There is plenty of flash memory so don't hesitate to submit
+ * fully tested layouts.
+ *
+ * Duplicate and modify whatever header file gives you the best
+ * start. Make sure you change the suffix of all the defines.
+ * Then add the include here and an entry to KBD_LAYOUTS.
+ *
+ * You do not need debug hardware. You do not need to know C.
+ * It helps to know what unicode is and that the files are utf-8,
+ * but you can also simply type the desired characters in quotes.
+ * Use F7 to build then look in the build/src folder for the .uf2
+ * file that you can load on a Pi Pico with a USB cable.
+ */
+
+#include "hid/kbd_dan.h"
+#include "hid/kbd_deu.h"
+#include "hid/kbd_us.h"
+#include "hid/kbd_pol.h"
+#include "hid/kbd_swe.h"
+
+#define KBD_LAYOUTS                                            \
+    X("US", "United States QWERTY", KBD_HID_KEY_TO_UNICODE_US) \
+    X("PL", "Polska Klawiatura Programisty", KBD_HID_KEY_TO_UNICODE_POL_QWERTY)
+
 /* Main events
  */
 
