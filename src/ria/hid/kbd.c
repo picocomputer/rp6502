@@ -440,22 +440,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
 }
 
-int kbd_stdio_in_chars(char *buf, int length)
-{
-    int i = 0;
-    while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
-    {
-        kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
-        buf[i++] = kbd_key_queue[kbd_key_queue_tail];
-    }
-    return i ? i : PICO_ERROR_NO_DATA;
-}
-
 void kbd_init(void)
 {
     kbd_stop();
     kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
+    cfg_set_kbd_layout(kbd_set_layout(cfg_get_kbd_layout()));
 }
 
 void kbd_task(void)
@@ -479,14 +469,25 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-bool kbd_xreg(uint16_t word)
+const char *kbd_set_layout(const char *kb)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
-        return false;
-    kbd_xram = word;
-    if (kbd_xram != 0xFFFF)
-        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
-    return true;
+    const char *default_layout = "US";
+    const int locales_count = sizeof(kbd_locales_names) / sizeof(kbd_locales_names)[0];
+    int default_index = -1;
+    int matched_index = -1;
+    for (int i = 0; i < locales_count; i++)
+    {
+        printf("{%d}", i);
+        if (!strcasecmp(kbd_locales_names[i], default_layout))
+            default_index = i;
+        if (!strcasecmp(kbd_locales_names[i], kb))
+            matched_index = i;
+    }
+    assert(default_index >= 0);
+    if (matched_index < 0)
+        matched_index = default_index;
+    // TODO assign globals
+    return kbd_locales_names[matched_index];
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
@@ -645,4 +646,25 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     // Send it to xram
     if (kbd_xram != 0xFFFF)
         memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+}
+
+bool kbd_xreg(uint16_t word)
+{
+    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
+        return false;
+    kbd_xram = word;
+    if (kbd_xram != 0xFFFF)
+        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+    return true;
+}
+
+int kbd_stdio_in_chars(char *buf, int length)
+{
+    int i = 0;
+    while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
+    {
+        kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
+        buf[i++] = kbd_key_queue[kbd_key_queue_tail];
+    }
+    return i ? i : PICO_ERROR_NO_DATA;
 }

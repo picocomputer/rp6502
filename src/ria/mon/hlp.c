@@ -191,6 +191,9 @@ static const char __in_flash("helptext") hlp_text_set_tz[] =
     "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
     "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
 
+static const char __in_flash("helptext") hlp_text_set_kb[] =
+    "SET KB selects a keyboard layout. The following is supported: (TODO)";
+
 static const char __in_flash("helptext") hlp_text_set_cp[] =
     "SET CP selects a code page for system text. The following is supported:\n"
     "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
@@ -285,6 +288,7 @@ static struct
     {4, "phi2", hlp_text_set_phi2},
     {4, "boot", hlp_text_set_boot},
     {2, "tz", hlp_text_set_tz},
+    {2, "kb", hlp_text_set_kb},
     {2, "cp", hlp_text_set_cp},
     {3, "vga", hlp_text_set_vga},
 #ifdef RP6502_RIA_W

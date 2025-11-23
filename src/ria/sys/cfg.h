@@ -26,6 +26,8 @@ bool cfg_set_phi2_khz(uint32_t freq_khz);
 uint32_t cfg_get_phi2_khz(void);
 void cfg_set_boot(char *rom);
 char *cfg_get_boot(void);
+bool cfg_set_kbd_layout(const char *kb);
+const char *cfg_get_kbd_layout(void);
 bool cfg_set_code_page(uint32_t cp);
 uint16_t cfg_get_code_page(void);
 bool cfg_set_vga(uint8_t disp);

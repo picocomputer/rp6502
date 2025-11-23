@@ -7,6 +7,7 @@
 #include "mon/str.h"
 #include "api/clk.h"
 #include "api/oem.h"
+#include "hid/kbd.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
@@ -31,6 +32,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +R0         | RESB (retired)
 // +TUTC0      | Time Zone
 // +S437       | Code Page
+// +LUS        | Keyboard Layout
 // +D0         | VGA display type
 // +E1         | RF Enabled
 // +FUS        | RF Country Code
@@ -43,6 +45,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static const char cfg_filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
+static char cfg_kbd_layout[16];
 static uint32_t cfg_code_page;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];
@@ -90,6 +93,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                "+P%u\n"
                                "+T%s\n"
                                "+S%u\n"
+                               "+L%s\n"
                                "+D%u\n"
 #ifdef RP6502_RIA_W
                                "+E%u\n"
@@ -103,6 +107,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cfg_phi2_khz,
                                cfg_time_zone,
                                cfg_code_page,
+                               cfg_kbd_layout,
                                cfg_vga_display,
 #ifdef RP6502_RIA_W
                                cfg_net_rf,
@@ -158,6 +163,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
         case 'S':
             str_parse_uint32(&str, &len, &cfg_code_page);
             break;
+        case 'L':
+            str_parse_string(&str, &len, cfg_kbd_layout, sizeof(cfg_kbd_layout));
+            break;
         case 'D':
             str_parse_uint8(&str, &len, &cfg_vga_display);
             break;
@@ -197,17 +205,6 @@ void cfg_init(void)
     cfg_load_with_boot_opt(false);
 }
 
-void cfg_set_boot(char *str)
-{
-    cfg_save_with_boot_opt(str);
-}
-
-char *cfg_get_boot(void)
-{
-    cfg_load_with_boot_opt(true);
-    return (char *)mbuf;
-}
-
 bool cfg_set_phi2_khz(uint32_t freq_khz)
 {
     if (freq_khz > CPU_PHI2_MAX_KHZ)
@@ -233,6 +230,17 @@ uint32_t cfg_get_phi2_khz(void)
     return cpu_validate_phi2_khz(cfg_phi2_khz);
 }
 
+void cfg_set_boot(char *str)
+{
+    cfg_save_with_boot_opt(str);
+}
+
+char *cfg_get_boot(void)
+{
+    cfg_load_with_boot_opt(true);
+    return (char *)mbuf;
+}
+
 bool cfg_set_time_zone(const char *tz)
 {
     if (strlen(tz) < sizeof(cfg_time_zone) - 1)
@@ -251,6 +259,25 @@ bool cfg_set_time_zone(const char *tz)
 const char *cfg_get_time_zone(void)
 {
     return cfg_time_zone;
+}
+
+#include <string.h>
+
+bool cfg_set_kbd_layout(const char *kb)
+{
+    const char *key_layout = kbd_set_layout(kb);
+    if (!strcmp(cfg_kbd_layout, key_layout))
+        return !strcasecmp(kb, key_layout);
+    if (strlen(key_layout) >= sizeof(cfg_kbd_layout))
+        return false;
+    strcpy(cfg_kbd_layout, key_layout);
+    cfg_save_with_boot_opt(NULL);
+    return true;
+}
+
+const char *cfg_get_kbd_layout(void)
+{
+    return cfg_kbd_layout;
 }
 
 bool cfg_set_code_page(uint32_t cp)

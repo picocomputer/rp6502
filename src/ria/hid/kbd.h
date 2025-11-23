@@ -49,6 +49,9 @@ void kbd_init(void);
 void kbd_task(void);
 void kbd_stop(void);
 
+// Setting for keyboard layout
+const char *kbd_set_layout(const char *kb);
+
 // Parse HID report descriptor
 bool kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len);
 

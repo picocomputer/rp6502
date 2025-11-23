@@ -285,6 +285,27 @@ static void set_time_zone(const char *args, size_t len)
     set_print_time_zone();
 }
 
+static void set_print_kbd_layout(void)
+{
+    printf("KB  : %s\n", cfg_get_kbd_layout());
+}
+
+static void set_kbd_layout(const char *args, size_t len)
+{
+    char kb[16];
+    if (len)
+    {
+        if (!str_parse_string(&args, &len, kb, sizeof(kb)) ||
+            !str_parse_end(args, len) ||
+            !cfg_set_kbd_layout(kb))
+        {
+            printf("?invalid argument\n");
+            return;
+        }
+    }
+    set_print_time_zone();
+}
+
 typedef void (*set_function)(const char *, size_t);
 static struct
 {
@@ -295,6 +316,7 @@ static struct
     {4, "phi2", set_phi2},
     {4, "boot", set_boot},
     {2, "tz", set_time_zone},
+    {2, "kb", set_kbd_layout},
     {2, "cp", set_code_page},
     {3, "vga", set_vga},
 #ifdef RP6502_RIA_W
@@ -312,6 +334,7 @@ static void set_print_all(void)
     set_print_phi2();
     set_print_boot();
     set_print_time_zone();
+    set_print_kbd_layout();
     set_print_code_page();
     set_print_vga();
 #ifdef RP6502_RIA_W
