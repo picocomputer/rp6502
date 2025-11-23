@@ -29,15 +29,18 @@
  * file that you can load on a Pi Pico with a USB cable.
  */
 
-#include "hid/kbd_dan.h"
-#include "hid/kbd_deu.h"
+#include "hid/kbd_de.h"
+#include "hid/kbd_dk.h"
+#include "hid/kbd_pl.h"
+#include "hid/kbd_sv.h"
 #include "hid/kbd_us.h"
-#include "hid/kbd_pol.h"
-#include "hid/kbd_swe.h"
 
-#define KBD_LAYOUTS                                            \
-    X("US", "United States QWERTY", KBD_HID_KEY_TO_UNICODE_US) \
-    X("PL", "Polska Klawiatura Programisty", KBD_HID_KEY_TO_UNICODE_POL_QWERTY)
+#define KBD_LAYOUTS                                                        \
+    X("DE", "German", KBD_HID_KEY_TO_UNICODE_DE)                    \
+    X("DK", "Danish", KBD_HID_KEY_TO_UNICODE_DK)                    \
+    X("US", "United States", KBD_HID_KEY_TO_UNICODE_US)             \
+    X("PL", "Polish (Programmers)", KBD_HID_KEY_TO_UNICODE_PL_PROG) \
+    X("SV", "Swedish", KBD_HID_KEY_TO_UNICODE_SV)
 
 /* Main events
  */

@@ -26,8 +26,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // These usually come from TinyUSB's hid.h but we can't
 // include that while using btstack_hid_parser.h.
 #define KBD_HID_KEY_NONE 0x00
-#define KBD_HID_KEY_A 0x04
-#define KBD_HID_KEY_Z 0x1D
 #define KBD_HID_KEY_BACKSPACE 0x2A
 #define KBD_HID_KEY_CAPS_LOCK 0x39
 #define KBD_HID_KEY_F1 0x3A
@@ -127,7 +125,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define X(name, desc, hid_key_to_unicode_data) \
     {hid_key_to_unicode_data},
 static DWORD const __in_flash("ria_hid_kbd")
-    kbd_locales_hid_key_to_unicode[][128][4] = {
+    kbd_locales_hid_key_to_unicode[][128][5] = {
         KBD_LAYOUTS};
 #undef X
 
@@ -146,7 +144,7 @@ static const char *__in_flash("ria_hid_kbd")
 #undef X
 
 // The currently selected keyboard defaults to US
-static DWORD const (*kbd_hid_key_to_unicode)[4] = kbd_locales_hid_key_to_unicode[0];
+static DWORD const (*kbd_hid_key_to_unicode)[5] = kbd_locales_hid_key_to_unicode[0];
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -288,25 +286,27 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             kbd_alt_code += keycode - KBD_HID_KEY_KEYPAD_1 + 1;
         return;
     }
+    // Shift and caps lock logic
+    bool use_caps_lock = kbd_hid_key_to_unicode[keycode][4];
+    bool is_shifted = (key_shift && !is_capslock) ||
+                      (key_shift && !use_caps_lock) ||
+                      (!key_shift && is_capslock && use_caps_lock);
     // Find plain typed or AltGr character
     char ch = 0;
     if (keycode < 128 && !((modifier & (KBD_MODIFIER_LEFTALT |
                                         KBD_MODIFIER_LEFTGUI |
                                         KBD_MODIFIER_RIGHTGUI))))
     {
-        bool use_shift = (key_shift && !is_capslock) ||
-                         (key_shift && keycode > KBD_HID_KEY_Z) ||
-                         (!key_shift && is_capslock && keycode <= KBD_HID_KEY_Z);
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
-            if (use_shift)
+            if (is_shifted)
                 ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][3], cfg_get_code_page());
             else
                 ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][2], cfg_get_code_page());
         }
         else
         {
-            if (use_shift)
+            if (is_shifted)
                 ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
             else
                 ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
@@ -315,7 +315,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
-        if (key_shift)
+        if (is_shifted)
             ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
         else
             ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
