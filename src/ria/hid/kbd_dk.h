@@ -112,4 +112,10 @@
     /* 0x61:    9 */ {   '9',      0,      0, 0, false}, \
     /* 0x62:    0 */ {   '0',      0,      0, 0, false}, \
     /* 0x63:    , */ {   ',',      0,      0, 0, false}, \
-    /* 0x64:    < */ {   '<',    '>',   '\\', 0, false},
+    /* 0x64:    < */ {   '<',    '>',   '\\', 0, false}, \
+
+#define KBD_LAYOUT_DEAD2_DK \
+    /* End */ {0}
+
+#define KBD_LAYOUT_DEAD3_DK \
+    /* End */ {0}

@@ -123,34 +123,53 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[KBD_HID_KEY_CONTROL_LEFT >> 3]
 
-#define X(suffix, name, desc)                              \
-    static const char __in_flash("ria_hid_layout_strings") \
-        HID_LOCALE_NAME_##suffix[] = name;                 \
-    static const char __in_flash("ria_hid_layout_strings") \
-        HID_LOCALE_DESC_##suffix[] = desc;
+#define X(suffix, name, desc)                                          \
+    static const char __in_flash("kbd_layout_strings")                 \
+        KBD_LAYOUT_NAME_##suffix[] = name;                             \
+    static const char __in_flash("kbd_layout_strings")                 \
+        KBD_LAYOUT_DESC_##suffix[] = desc;                             \
+    static const DWORD __in_flash("kbd_layout_deadkeys")               \
+        KBD_LAYOUT_DEAD2__##suffix[][3] = {KBD_LAYOUT_DEAD2_##suffix}; \
+    static const DWORD __in_flash("kbd_layout_deadkeys")               \
+        KBD_LAYOUT_DEAD3__##suffix[][4] = {KBD_LAYOUT_DEAD3_##suffix};
 KBD_LAYOUTS
 #undef X
 
 #define X(suffix, name, desc) \
-    HID_LOCALE_NAME_##suffix,
-static const char *__in_flash("ria_hid_layout_names")
+    KBD_LAYOUT_NAME_##suffix,
+static const char *__in_flash("kbd_layout_names")
     kbd_layout_names[] = {
         KBD_LAYOUTS};
 #undef X
 
 #define X(suffix, name, desc) \
-    HID_LOCALE_DESC_##suffix,
-static const char *__in_flash("ria_hid_layout_descriptions")
+    KBD_LAYOUT_DESC_##suffix,
+static const char *__in_flash("kbd_layout_descriptions")
     kbd_layout_descriptions[] = {
         KBD_LAYOUTS};
 #undef X
 
 #define X(suffix, name, desc) \
     {KBD_LAYOUT_KEYS_##suffix},
-static DWORD const __in_flash("ria_hid_layout_keymaps")
+static DWORD const __in_flash("kbd_layout_keys")
     kbd_layout_keys[][128][5] = {
         KBD_LAYOUTS};
 #undef X
+
+#define X(suffix, name, desc) \
+    KBD_LAYOUT_DEAD2__##suffix,
+static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
+    KBD_LAYOUTS};
+#undef X
+
+#define X(suffix, name, desc) \
+    KBD_LAYOUT_DEAD3__##suffix,
+static DWORD const __in_flash("kbd_layout_dead3") (*kbd_layout_dead3[])[4] = {
+    KBD_LAYOUTS};
+#undef X
+
+// #define KBD_LAYOUT_DEAD2_SV {0}
+// #define KBD_LAYOUT_DEAD3_SV {0}
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {

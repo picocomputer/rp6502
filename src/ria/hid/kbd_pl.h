@@ -11,8 +11,6 @@
 
 // PL - Polish (Programmers)
 
-// TODO: PL-214 - Polish (214)
-
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}
 #define KBD_LAYOUT_KEYS_PL_PROG \
@@ -144,3 +142,9 @@
     /* 0x7d    */ {     0,      0,      0,      0, false}, \
     /* 0x7e    */ {     0,      0,      0,      0, false}, \
     /* 0x7f    */ {     0,      0,      0,      0, false},
+
+#define KBD_LAYOUT_DEAD2_PL_PROG \
+    /* End */ {0}
+
+#define KBD_LAYOUT_DEAD3_PL_PROG \
+    /* End */ {0}

@@ -116,3 +116,9 @@
     {     0,      0,      0, 0, false}, /* 0x65 */                  \
     {     0,      0,      0, 0, false}, /* 0x66 */                  \
     {   '=',    '=',      0, 0, false}, /* 0x67 */
+
+#define KBD_LAYOUT_DEAD2_DE \
+    /* End */ {0}
+
+#define KBD_LAYOUT_DEAD3_DE \
+    /* End */ {0}

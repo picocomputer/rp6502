@@ -7,8 +7,7 @@
 
 // clang-format off
 
-// US      - United States
-// US-INTL - United States (International)
+// US - United States
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}
@@ -116,7 +115,16 @@
     /* 0x64:  \  */ {'\\',  '|',   0,   0, false}, \
     /* 0x65      */ {   0,    0,   0,   0, false}, \
     /* 0x66      */ {   0,    0,   0,   0, false}, \
-    /* 0x67   =  */ { '=',  '=',   0,   0, false},
+    /* 0x67   =  */ { '=',  '=',   0,   0, false}, \
+
+#define KBD_LAYOUT_DEAD2_US \
+    /* End */ {0}
+
+#define KBD_LAYOUT_DEAD3_US \
+    /* End */ {0}
+
+
+// US-INTL - United States (International)
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}
@@ -224,4 +232,18 @@
     /* 0x64: \    */ {   '\\',     '|',      0,      0, false}, \
     /* 0x65       */ {      0,       0,      0,      0, false}, \
     /* 0x66       */ {      0,       0,      0,      0, false}, \
-    /* 0x67  =    */ {    '=',     '=',      0,      0, false},
+    /* 0x67  =    */ {    '=',     '=',      0,      0, false}, \
+
+// Two stroke dead keys
+// {dead key, base key, result}
+#define KBD_LAYOUT_DEAD2_US_INTL \
+    /* á */ {'\'', 'a', 0x00e1}, \
+    /* Á */ {'\'', 'A', 0x00c1}, \
+    /* à */ { '`', 'a', 0x00e0}, \
+    /* À */ { '`', 'A', 0x00c0}, \
+    /* End */ {0}
+
+// Three stroke dead keys
+// {dead key, dead key, base key, result}
+#define KBD_LAYOUT_DEAD3_US_INTL \
+    /* End */ {0}
