@@ -45,7 +45,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static const char cfg_filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
-static char cfg_kbd_layout[16];
+static char cfg_kbd_layout[KBD_LAYOUT_MAX_NAME_SIZE];
 static uint32_t cfg_code_page;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[65];

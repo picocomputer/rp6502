@@ -11,7 +11,7 @@
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}
-#define KBD_HID_KEY_TO_UNICODE_SV                  \
+#define KBD_LAYOUT_KEYS_SV \
     /* 0x00 */ {     0,      0,      0, 0, false}, \
     /* 0x01 */ {     0,      0,      0, 0, false}, \
     /* 0x02 */ {     0,      0,      0, 0, false}, \

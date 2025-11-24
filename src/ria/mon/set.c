@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "hid/kbd.h"
 #include "mon/set.h"
 #include "mon/str.h"
 #include "net/ble.h"
@@ -292,7 +293,7 @@ static void set_print_kbd_layout(void)
 
 static void set_kbd_layout(const char *args, size_t len)
 {
-    char kb[16];
+    char kb[KBD_LAYOUT_MAX_NAME_SIZE];
     if (len)
     {
         if (!str_parse_string(&args, &len, kb, sizeof(kb)) ||

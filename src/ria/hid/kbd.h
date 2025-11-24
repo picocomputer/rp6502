@@ -23,8 +23,7 @@
  * Then add the include here and an entry to KBD_LAYOUTS.
  *
  * You do not need debug hardware. You do not need to know C.
- * It helps to know what unicode is and that the files are utf-8,
- * but you can also simply type the desired characters in quotes.
+ * All you need to do is fill in the tables with unicode.
  * Use F7 to build then look in the build/src folder for the .uf2
  * file that you can load on a Pi Pico with a USB cable.
  */
@@ -35,12 +34,14 @@
 #include "hid/kbd_sv.h"
 #include "hid/kbd_us.h"
 
-#define KBD_LAYOUTS                                                        \
-    X("DE", "German", KBD_HID_KEY_TO_UNICODE_DE)                    \
-    X("DK", "Danish", KBD_HID_KEY_TO_UNICODE_DK)                    \
-    X("US", "United States", KBD_HID_KEY_TO_UNICODE_US)             \
-    X("PL", "Polish (Programmers)", KBD_HID_KEY_TO_UNICODE_PL_PROG) \
-    X("SV", "Swedish", KBD_HID_KEY_TO_UNICODE_SV)
+#define KBD_LAYOUT_MAX_NAME_SIZE 16
+#define KBD_LAYOUTS                          \
+    X(DE, "DE", "German")                    \
+    X(DK, "DK", "Danish")                    \
+    X(US, "US", "United States")             \
+    X(US_INTL, "US-INTL", "United States")   \
+    X(PL_PROG, "PL", "Polish (Programmers)") \
+    X(SV, "SV", "Swedish")
 
 /* Main events
  */

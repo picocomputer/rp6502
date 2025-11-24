@@ -101,6 +101,7 @@ static uint16_t kbd_xram;
 static uint32_t kbd_keys[8];
 static bool kbd_alt_mode;
 static char kbd_alt_code;
+static DWORD const (*kbd_hid_key_to_unicode)[5];
 
 typedef struct
 {
@@ -122,34 +123,34 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[KBD_HID_KEY_CONTROL_LEFT >> 3]
 
-#define X(name, desc, hid_key_to_unicode_data) \
-    {hid_key_to_unicode_data},
-static DWORD const __in_flash("ria_hid_kbd1")
-    kbd_locales_hid_key_to_unicode[][128][5] = {
-        KBD_LAYOUTS};
-#undef X
-
-#define X(name, desc, hid_key_to_unicode_data) \
-    __in_flash("ria_hid_kbd2a") static const char hid_key_to_unicode_data##__FOO[] = name;
+#define X(suffix, name, desc)                              \
+    static const char __in_flash("ria_hid_layout_strings") \
+        HID_LOCALE_NAME_##suffix[] = name;                 \
+    static const char __in_flash("ria_hid_layout_strings") \
+        HID_LOCALE_DESC_##suffix[] = desc;
 KBD_LAYOUTS
 #undef X
 
-#define X(name, desc, hid_key_to_unicode_data) \
-    hid_key_to_unicode_data##__FOO,
-static const char *__in_flash("ria_hid_kbd2b")
-    kbd_locales_names[] = {
+#define X(suffix, name, desc) \
+    HID_LOCALE_NAME_##suffix,
+static const char *__in_flash("ria_hid_layout_names")
+    kbd_layout_names[] = {
         KBD_LAYOUTS};
 #undef X
 
-#define X(name, desc, hid_key_to_unicode_data) \
-    desc,
-static const char *__in_flash("ria_hid_kbd3")
-    kbd_locales_descriptions[] = {
+#define X(suffix, name, desc) \
+    HID_LOCALE_DESC_##suffix,
+static const char *__in_flash("ria_hid_layout_descriptions")
+    kbd_layout_descriptions[] = {
         KBD_LAYOUTS};
 #undef X
 
-// The currently selected keyboard defaults to US
-static DWORD const (*kbd_hid_key_to_unicode)[5] = kbd_locales_hid_key_to_unicode[0];
+#define X(suffix, name, desc) \
+    {KBD_LAYOUT_KEYS_##suffix},
+static DWORD const __in_flash("ria_hid_layout_keymaps")
+    kbd_layout_keys[][128][5] = {
+        KBD_LAYOUTS};
+#undef X
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -477,22 +478,22 @@ void kbd_stop(void)
 const char *kbd_set_layout(const char *kb)
 {
     const char *default_layout = "US";
-    const int locales_count = sizeof(kbd_locales_names) / sizeof(kbd_locales_names)[0];
+    const int locales_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     int default_index = -1;
     int matched_index = -1;
     for (int i = 0; i < locales_count; i++)
     {
-        printf("{%d}", i);
-        if (!strcasecmp(kbd_locales_names[i], default_layout))
+        if (!strcasecmp(kbd_layout_names[i], default_layout))
             default_index = i;
-        if (!strcasecmp(kbd_locales_names[i], kb))
+        if (!strcasecmp(kbd_layout_names[i], kb))
             matched_index = i;
     }
     assert(default_index >= 0);
     if (matched_index < 0)
         matched_index = default_index;
-    // TODO assign globals
-    return kbd_locales_names[matched_index];
+    kbd_hid_key_to_unicode = kbd_layout_keys[matched_index];
+    printf("{%d}", matched_index);
+    return kbd_layout_names[matched_index];
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)

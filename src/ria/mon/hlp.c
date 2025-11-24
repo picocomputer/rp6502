@@ -192,7 +192,7 @@ static const char __in_flash("helptext") hlp_text_set_tz[] =
     "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
 
 static const char __in_flash("helptext") hlp_text_set_kb[] =
-    "SET KB selects a keyboard layout. The following is supported: (TODO)";
+    "SET KB selects a keyboard layout. Supported: DE, DK, US, PL, SV.";
 
 static const char __in_flash("helptext") hlp_text_set_cp[] =
     "SET CP selects a code page for system text. The following is supported:\n"
