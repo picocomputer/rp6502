@@ -124,21 +124,26 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
 #define X(name, desc, hid_key_to_unicode_data) \
     {hid_key_to_unicode_data},
-static DWORD const __in_flash("ria_hid_kbd")
+static DWORD const __in_flash("ria_hid_kbd1")
     kbd_locales_hid_key_to_unicode[][128][5] = {
         KBD_LAYOUTS};
 #undef X
 
 #define X(name, desc, hid_key_to_unicode_data) \
-    name,
-static const char *__in_flash("ria_hid_kbd")
+    __in_flash("ria_hid_kbd2a") static const char hid_key_to_unicode_data##__FOO[] = name;
+KBD_LAYOUTS
+#undef X
+
+#define X(name, desc, hid_key_to_unicode_data) \
+    hid_key_to_unicode_data##__FOO,
+static const char *__in_flash("ria_hid_kbd2b")
     kbd_locales_names[] = {
         KBD_LAYOUTS};
 #undef X
 
 #define X(name, desc, hid_key_to_unicode_data) \
     desc,
-static const char *__in_flash("ria_hid_kbd")
+static const char *__in_flash("ria_hid_kbd3")
     kbd_locales_descriptions[] = {
         KBD_LAYOUTS};
 #undef X

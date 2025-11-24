@@ -303,7 +303,7 @@ static void set_kbd_layout(const char *args, size_t len)
             return;
         }
     }
-    set_print_time_zone();
+    set_print_kbd_layout();
 }
 
 typedef void (*set_function)(const char *, size_t);

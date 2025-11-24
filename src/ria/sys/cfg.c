@@ -261,17 +261,18 @@ const char *cfg_get_time_zone(void)
     return cfg_time_zone;
 }
 
-#include <string.h>
-
 bool cfg_set_kbd_layout(const char *kb)
 {
     const char *key_layout = kbd_set_layout(kb);
-    if (!strcmp(cfg_kbd_layout, key_layout))
-        return !strcasecmp(kb, key_layout);
+    if (strlen(kb) && strcasecmp(kb, key_layout))
+        return false;
     if (strlen(key_layout) >= sizeof(cfg_kbd_layout))
         return false;
-    strcpy(cfg_kbd_layout, key_layout);
-    cfg_save_with_boot_opt(NULL);
+    if (strcmp(cfg_kbd_layout, key_layout))
+    {
+        strcpy(cfg_kbd_layout, key_layout);
+        cfg_save_with_boot_opt(NULL);
+    }
     return true;
 }
 
