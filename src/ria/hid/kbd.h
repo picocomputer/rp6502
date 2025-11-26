@@ -35,7 +35,7 @@
 #include "hid/kbd_us.h"
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
-#define KBD_LAYOUT_CACHE_SIZE 1024
+#define KBD_LAYOUT_CACHE_SIZE 512
 #define KBD_LAYOUTS                                         \
     X(DE, "DE", "German")                                   \
     X(DK, "DK", "Danish")                                   \
