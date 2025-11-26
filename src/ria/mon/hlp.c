@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "hid/kbd.h"
 #include "mon/hlp.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
@@ -192,7 +193,7 @@ static const char __in_flash("helptext") hlp_text_set_tz[] =
     "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
 
 static const char __in_flash("helptext") hlp_text_set_kb[] =
-    "SET KB selects a keyboard layout. Supported: DE, DK, US, PL, SV.";
+    "SET KB selects a keyboard layout. e.g. SET KB US";
 
 static const char __in_flash("helptext") hlp_text_set_cp[] =
     "SET CP selects a code page for system text. The following is supported:\n"
@@ -439,6 +440,8 @@ void hlp_mon_help(const char *args, size_t len)
         puts(text);
         if (text == hlp_text_about)
             vip_print();
+        if (text == hlp_text_set_kb)
+            kbd_print_layouts();
     }
     else
     {

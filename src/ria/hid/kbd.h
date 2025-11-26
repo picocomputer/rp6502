@@ -36,12 +36,12 @@
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
 #define KBD_LAYOUT_CACHE_SIZE 512
-#define KBD_LAYOUTS                                         \
-    X(DE, "DE", "German")                                   \
-    X(DK, "DK", "Danish")                                   \
-    X(US, "US", "United States")                            \
-    X(US_INTL, "US-INTL", "United States - International)") \
-    X(PL_PROG, "PL-PROG", "Polish - Programmer's")          \
+#define KBD_LAYOUTS                                        \
+    X(DE, "DE", "German")                                  \
+    X(DK, "DK", "Danish")                                  \
+    X(US, "US", "United States")                           \
+    X(US_INTL, "US-INTL", "United States - International") \
+    X(PL_PROG, "PL-PROG", "Polish - Programmer's")         \
     X(SV, "SV", "Swedish")
 
 /* Main events
@@ -53,6 +53,9 @@ void kbd_stop(void);
 
 // Setting for keyboard layout
 const char *kbd_set_layout(const char *kb);
+
+// Used by help to print layouts
+void kbd_print_layouts(void);
 
 // Called when code page changes so cache can be rebuilt
 void kbd_rebuild_code_page_cache(void);
