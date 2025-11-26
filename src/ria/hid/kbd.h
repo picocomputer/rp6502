@@ -36,13 +36,13 @@
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
 #define KBD_LAYOUT_CACHE_SIZE 512
-#define KBD_LAYOUTS                                        \
-    X(DE, "DE", "German")                                  \
-    X(DK, "DK", "Danish")                                  \
-    X(US, "US", "United States")                           \
-    X(US_INTL, "US-INTL", "United States - International") \
-    X(PL_PROG, "PL-PROG", "Polish - Programmer's")         \
-    X(SV, "SV", "Swedish")
+#define KBD_LAYOUTS                                \
+    X(DE, "DE", "German")                          \
+    X(DK, "DK", "Danish")                          \
+    X(PL_PROG, "PL-PROG", "Polish - Programmer's") \
+    X(SV, "SV", "Swedish")                         \
+    X(US, "US", "United States")                   \
+    X(US_INTL, "US-INTL", "United States - International")
 
 /* Main events
  */
