@@ -378,6 +378,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Process a regularly typed key
     if (ch)
     {
+        // Check for dead key start
         if (!kbd_dead0)
         {
             for (int i = 0; kbd_selected_dead2[i][0]; i++)
@@ -388,7 +389,17 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                     return;
                 }
             }
+            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            {
+                if (ch == kbd_selected_dead3[i][0] ||
+                    ch == kbd_selected_dead3[i][1])
+                {
+                    kbd_dead0 = ch;
+                    return;
+                }
+            }
         }
+        // Handle second press in dead key sequence
         if (kbd_dead0 && !kbd_dead1)
         {
             if (ch == ' ')
@@ -408,16 +419,19 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                     ch == kbd_selected_dead2[i][1])
                 {
                     char result = kbd_selected_dead2[i][2];
-                    if (result)
-                    {
-                        kbd_queue_char(result);
-                    }
-                    else
-                    {
-                        kbd_queue_char(kbd_dead0);
-                        kbd_queue_char(ch);
-                    }
+                    if (!result)
+                        break;
+                    kbd_queue_char(result);
                     kbd_dead0 = 0;
+                    return;
+                }
+            }
+            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            {
+                if ((kbd_dead0 == kbd_selected_dead3[i][0] && ch == kbd_selected_dead3[i][1]) ||
+                    (kbd_dead0 == kbd_selected_dead3[i][1] && ch == kbd_selected_dead3[i][0]))
+                {
+                    kbd_dead1 = ch;
                     return;
                 }
             }
@@ -426,6 +440,42 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             kbd_dead0 = 0;
             return;
         }
+        // Handle third press in dead key sequence
+        if (kbd_dead0 && kbd_dead1)
+        {
+            if (ch == ' ')
+            {
+                kbd_queue_char(kbd_dead0);
+                kbd_queue_char(kbd_dead1);
+                kbd_dead0 = kbd_dead1 = 0;
+                return;
+            }
+            if (ch == 0x7F)
+            {
+                kbd_dead1 = 0;
+                return;
+            }
+            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            {
+                if (((kbd_dead0 == kbd_selected_dead3[i][0] && kbd_dead1 == kbd_selected_dead3[i][1]) ||
+                     (kbd_dead0 == kbd_selected_dead3[i][1] && kbd_dead1 == kbd_selected_dead3[i][0])) &&
+                    ch == kbd_selected_dead3[i][2])
+                {
+                    char result = kbd_selected_dead3[i][3];
+                    if (!result)
+                        break;
+                    kbd_queue_char(result);
+                    kbd_dead0 = kbd_dead1 = 0;
+                    return;
+                }
+            }
+            kbd_queue_char(kbd_dead0);
+            kbd_queue_char(kbd_dead1);
+            kbd_queue_char(ch);
+            kbd_dead0 = kbd_dead1 = 0;
+            return;
+        }
+        // Not in dead key sequence
         kbd_queue_char(ch);
         return;
     }
@@ -575,7 +625,7 @@ void kbd_rebuild_code_page_cache(void)
     size_t cache_index = 0;
     uint16_t code_page = oem_get_code_page();
 
-    // Dead keys are a linear search through oem (8-bit) chars
+    // Dead keys are a linear search with oem (8-bit) chars
     // which is slow because the unicode in flash needs every
     // character translated. We cache the translations here.
     // Key codes in kbd_layout_keys are only a single lookup
@@ -584,32 +634,41 @@ void kbd_rebuild_code_page_cache(void)
     kbd_selected_dead2 = (void *)&kbd_layout_cache[cache_index];
     for (int i = 0; kbd_layout_dead2[kbd_layout_index][i][0]; i++)
     {
-        if (cache_index >= sizeof(kbd_layout_cache))
-        {
-            puts("?Keyboard cache overflow");
-            return;
-        }
         for (int j = 0; j < 3; j++)
-            kbd_layout_cache[cache_index++] = ff_uni2oem(
+        {
+            kbd_layout_cache[cache_index] = ff_uni2oem(
                 kbd_layout_dead2[kbd_layout_index][i][j],
                 code_page);
+            if (++cache_index >= sizeof(kbd_layout_cache))
+                goto overflow_error;
+        }
     }
-    kbd_layout_cache[cache_index++] = 0;
+    kbd_layout_cache[cache_index] = 0;
 
+    if (++cache_index >= sizeof(kbd_layout_cache))
+        goto overflow_error;
     kbd_selected_dead3 = (void *)&kbd_layout_cache[cache_index];
     for (int i = 0; kbd_layout_dead3[kbd_layout_index][i][0]; i++)
     {
-        if (cache_index >= sizeof(kbd_layout_cache))
-        {
-            puts("?Keyboard cache overflow");
-            return;
-        }
         for (int j = 0; j < 4; j++)
-            kbd_layout_cache[cache_index++] = ff_uni2oem(
+        {
+            kbd_layout_cache[cache_index] = ff_uni2oem(
                 kbd_layout_dead3[kbd_layout_index][i][j],
                 code_page);
+            if (++cache_index >= sizeof(kbd_layout_cache))
+                goto overflow_error;
+        }
     }
-    kbd_layout_cache[cache_index++] = 0;
+    kbd_layout_cache[cache_index] = 0;
+
+    return;
+overflow_error:
+    // If this gets triggered, the dead key lookups
+    // could probably benefit from a tree search.
+    kbd_selected_dead2 = (void *)&kbd_layout_cache[0];
+    kbd_selected_dead3 = (void *)&kbd_layout_cache[0];
+    kbd_layout_cache[0] = 0;
+    puts("?Keyboard cache overflow");
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
