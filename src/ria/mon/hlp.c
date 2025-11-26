@@ -46,6 +46,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET TZ (tz)         - Query or set time zone.\n"
+    "SET KB (layout)     - Query or set keyboard layout.\n"
     "SET CP (cp)         - Query or set code page.\n"
     "SET VGA (0|1|2)     - Query or set display type for VGA output."
 #ifdef RP6502_RIA_W
