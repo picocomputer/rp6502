@@ -6,12 +6,8 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "api/oem.h"
 #include "hid/kbd.h"
-#include "hid/kbd_dan.h"
-#include "hid/kbd_deu.h"
-#include "hid/kbd_eng.h"
-#include "hid/kbd_pol.h"
-#include "hid/kbd_swe.h"
 #include "hid/hid.h"
 #include "net/ble.h"
 #include "sys/cfg.h"
@@ -31,8 +27,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // These usually come from TinyUSB's hid.h but we can't
 // include that while using btstack_hid_parser.h.
 #define KBD_HID_KEY_NONE 0x00
-#define KBD_HID_KEY_A 0x04
-#define KBD_HID_KEY_Z 0x1D
 #define KBD_HID_KEY_BACKSPACE 0x2A
 #define KBD_HID_KEY_CAPS_LOCK 0x39
 #define KBD_HID_KEY_F1 0x3A
@@ -106,6 +100,15 @@ static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds;
 static uint16_t kbd_xram;
 static uint32_t kbd_keys[8];
+static bool kbd_alt_mode;
+static char kbd_alt_code;
+static DWORD kbd_dead0;
+static DWORD kbd_dead1;
+static DWORD const (*kbd_selected_keys)[5];
+static char const (*kbd_selected_dead2)[3];
+static char const (*kbd_selected_dead3)[4];
+static char kbd_layout_cache[KBD_LAYOUT_CACHE_SIZE];
+static int kbd_layout_index;
 
 typedef struct
 {
@@ -127,11 +130,50 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to modifier byte of a kbd_connection_t.keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[KBD_HID_KEY_CONTROL_LEFT >> 3]
 
-// Select locale based on RP6502_KEYBOARD set in CMakeLists.txt
-#define KBD_HID_KEY_TO_UNICODE_(kb) KBD_HID_KEY_TO_UNICODE_##kb
-#define KBD_HID_KEY_TO_UNICODE(kb) KBD_HID_KEY_TO_UNICODE_(kb)
-static DWORD const __in_flash("ria_hid_kbd")
-    kbd_hid_key_to_unicode[128][4] = {KBD_HID_KEY_TO_UNICODE(RP6502_KEYBOARD)};
+#define X(suffix, name, desc)                                          \
+    static const char __in_flash("kbd_layout_strings")                 \
+        KBD_LAYOUT_NAME_##suffix[] = name;                             \
+    static const char __in_flash("kbd_layout_strings")                 \
+        KBD_LAYOUT_DESC_##suffix[] = desc;                             \
+    static const DWORD __in_flash("kbd_layout_deadkeys")               \
+        KBD_LAYOUT_DEAD2__##suffix[][3] = {KBD_LAYOUT_DEAD2_##suffix}; \
+    static const DWORD __in_flash("kbd_layout_deadkeys")               \
+        KBD_LAYOUT_DEAD3__##suffix[][4] = {KBD_LAYOUT_DEAD3_##suffix};
+KBD_LAYOUTS
+#undef X
+
+#define X(suffix, name, desc) \
+    KBD_LAYOUT_NAME_##suffix,
+static const char *__in_flash("kbd_layout_names")
+    kbd_layout_names[] = {
+        KBD_LAYOUTS};
+#undef X
+
+#define X(suffix, name, desc) \
+    KBD_LAYOUT_DESC_##suffix,
+static const char *__in_flash("kbd_layout_descriptions")
+    kbd_layout_descriptions[] = {
+        KBD_LAYOUTS};
+#undef X
+
+#define X(suffix, name, desc) \
+    {KBD_LAYOUT_KEYS_##suffix},
+static DWORD const __in_flash("kbd_layout_keys")
+    kbd_layout_keys[][128][5] = {
+        KBD_LAYOUTS};
+#undef X
+
+#define X(suffix, name, desc) \
+    KBD_LAYOUT_DEAD2__##suffix,
+static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
+    KBD_LAYOUTS};
+#undef X
+
+#define X(suffix, name, desc) \
+    KBD_LAYOUT_DEAD3__##suffix,
+static DWORD const __in_flash("kbd_layout_dead3") (*kbd_layout_dead3[])[4] = {
+    KBD_LAYOUTS};
+#undef X
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -177,6 +219,27 @@ static void kbd_queue_seq_vt(int num, int mod)
     else
         sprintf(s, "\33[%d;%d~", num, mod);
     return kbd_queue_str(s);
+}
+
+static void kbd_queue_char(char ch)
+{
+    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+    {
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch;
+    }
+}
+
+static void kbd_queue_char_char(char ch0, char ch1)
+{
+    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail &&
+        (kbd_key_queue_head + 2) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+    {
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch0;
+        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
+        kbd_key_queue[kbd_key_queue_head] = ch1;
+    }
 }
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
@@ -236,37 +299,57 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         }
     }
+    // ALT codes
+    if (kbd_alt_mode || (keycode >= KBD_HID_KEY_KEYPAD_1 &&
+                         keycode <= KBD_HID_KEY_KEYPAD_0 &&
+                         key_alt))
+    {
+        if (!kbd_alt_mode)
+        {
+            kbd_alt_mode = true;
+            kbd_alt_code = 0;
+        }
+        if (keycode >= KBD_HID_KEY_KEYPAD_1 && keycode <= KBD_HID_KEY_KEYPAD_0)
+        {
+            kbd_alt_code *= 10;
+            if (keycode < KBD_HID_KEY_KEYPAD_0)
+                kbd_alt_code += keycode - KBD_HID_KEY_KEYPAD_1 + 1;
+        }
+        return;
+    }
+    // Shift and caps lock logic
+    bool use_caps_lock = kbd_selected_keys[keycode][4];
+    bool is_shifted = (key_shift && !is_capslock) ||
+                      (key_shift && !use_caps_lock) ||
+                      (!key_shift && is_capslock && use_caps_lock);
     // Find plain typed or AltGr character
     char ch = 0;
     if (keycode < 128 && !((modifier & (KBD_MODIFIER_LEFTALT |
                                         KBD_MODIFIER_LEFTGUI |
                                         KBD_MODIFIER_RIGHTGUI))))
     {
-        bool use_shift = (key_shift && !is_capslock) ||
-                         (key_shift && keycode > KBD_HID_KEY_Z) ||
-                         (!key_shift && is_capslock && keycode <= KBD_HID_KEY_Z);
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
-            if (use_shift)
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][3], cfg_get_code_page());
+            if (is_shifted)
+                ch = ff_uni2oem(kbd_selected_keys[keycode][3], oem_get_code_page());
             else
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][2], cfg_get_code_page());
+                ch = ff_uni2oem(kbd_selected_keys[keycode][2], oem_get_code_page());
         }
         else
         {
-            if (use_shift)
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
+            if (is_shifted)
+                ch = ff_uni2oem(kbd_selected_keys[keycode][1], oem_get_code_page());
             else
-                ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
+                ch = ff_uni2oem(kbd_selected_keys[keycode][0], oem_get_code_page());
         }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
-        if (key_shift)
-            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][1], cfg_get_code_page());
+        if (is_shifted)
+            ch = ff_uni2oem(kbd_selected_keys[keycode][1], oem_get_code_page());
         else
-            ch = ff_uni2oem(kbd_hid_key_to_unicode[keycode][0], cfg_get_code_page());
+            ch = ff_uni2oem(kbd_selected_keys[keycode][0], oem_get_code_page());
         if (key_ctrl)
         {
             if (ch >= '`' && ch <= '~')
@@ -278,14 +361,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
         if (ch)
         {
-            if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail &&
-                (kbd_key_queue_head + 2) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
-            {
-                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-                kbd_key_queue[kbd_key_queue_head] = '\33';
-                kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-                kbd_key_queue[kbd_key_queue_head] = ch;
-            }
+            kbd_queue_char_char('\33', ch);
             return;
         }
     }
@@ -301,14 +377,108 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         else
             ch = 0;
     }
-    // Queue a regularly typed key
+    // Process a regularly typed key
     if (ch)
     {
-        if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
+        // Check for dead key start
+        if (!kbd_dead0)
         {
-            kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-            kbd_key_queue[kbd_key_queue_head] = ch;
+            for (int i = 0; kbd_selected_dead2[i][0]; i++)
+            {
+                if (ch == kbd_selected_dead2[i][0])
+                {
+                    kbd_dead0 = ch;
+                    return;
+                }
+            }
+            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            {
+                if (ch == kbd_selected_dead3[i][0] ||
+                    ch == kbd_selected_dead3[i][1])
+                {
+                    kbd_dead0 = ch;
+                    return;
+                }
+            }
         }
+        // Handle second press in dead key sequence
+        if (kbd_dead0 && !kbd_dead1)
+        {
+            if (ch == ' ')
+            {
+                kbd_queue_char(kbd_dead0);
+                kbd_dead0 = 0;
+                return;
+            }
+            if (ch == 0x7F)
+            {
+                kbd_dead0 = 0;
+                return;
+            }
+            for (int i = 0; kbd_selected_dead2[i][0]; i++)
+            {
+                if (kbd_dead0 == kbd_selected_dead2[i][0] &&
+                    ch == kbd_selected_dead2[i][1])
+                {
+                    char result = kbd_selected_dead2[i][2];
+                    if (!result)
+                        break;
+                    kbd_queue_char(result);
+                    kbd_dead0 = 0;
+                    return;
+                }
+            }
+            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            {
+                if ((kbd_dead0 == kbd_selected_dead3[i][0] && ch == kbd_selected_dead3[i][1]) ||
+                    (kbd_dead0 == kbd_selected_dead3[i][1] && ch == kbd_selected_dead3[i][0]))
+                {
+                    kbd_dead1 = ch;
+                    return;
+                }
+            }
+            kbd_queue_char(kbd_dead0);
+            kbd_queue_char(ch);
+            kbd_dead0 = 0;
+            return;
+        }
+        // Handle third press in dead key sequence
+        if (kbd_dead0 && kbd_dead1)
+        {
+            if (ch == ' ')
+            {
+                kbd_queue_char(kbd_dead0);
+                kbd_queue_char(kbd_dead1);
+                kbd_dead0 = kbd_dead1 = 0;
+                return;
+            }
+            if (ch == 0x7F)
+            {
+                kbd_dead1 = 0;
+                return;
+            }
+            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            {
+                if (((kbd_dead0 == kbd_selected_dead3[i][0] && kbd_dead1 == kbd_selected_dead3[i][1]) ||
+                     (kbd_dead0 == kbd_selected_dead3[i][1] && kbd_dead1 == kbd_selected_dead3[i][0])) &&
+                    ch == kbd_selected_dead3[i][2])
+                {
+                    char result = kbd_selected_dead3[i][3];
+                    if (!result)
+                        break;
+                    kbd_queue_char(result);
+                    kbd_dead0 = kbd_dead1 = 0;
+                    return;
+                }
+            }
+            kbd_queue_char(kbd_dead0);
+            kbd_queue_char(kbd_dead1);
+            kbd_queue_char(ch);
+            kbd_dead0 = kbd_dead1 = 0;
+            return;
+        }
+        // Not in dead key sequence
+        kbd_queue_char(ch);
         return;
     }
     // Non-repeating special key handler
@@ -319,7 +489,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         case KBD_HID_KEY_DELETE:
             if (key_ctrl && key_alt)
             {
+                // These reset here instead of kbd_break
+                // because we want them to reset only on
+                // ctrl-alt-del and not UART breaks.
                 kbd_key_queue_tail = kbd_key_queue_head;
+                kbd_alt_mode = false;
+                kbd_dead0 = kbd_dead1 = 0;
                 main_break();
                 return;
             }
@@ -338,7 +513,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             break;
         }
     }
-    // Special key handler
+    // Modifier key annotation
     int ansi_modifier = 1;
     if (key_shift)
         ansi_modifier += 1;
@@ -397,22 +572,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
 }
 
-int kbd_stdio_in_chars(char *buf, int length)
-{
-    int i = 0;
-    while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
-    {
-        kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
-        buf[i++] = kbd_key_queue[kbd_key_queue_tail];
-    }
-    return i ? i : PICO_ERROR_NO_DATA;
-}
-
 void kbd_init(void)
 {
     kbd_stop();
     kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
+    cfg_set_kbd_layout(kbd_set_layout(cfg_get_kbd_layout()));
 }
 
 void kbd_task(void)
@@ -436,14 +601,92 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-bool kbd_xreg(uint16_t word)
+const char *kbd_set_layout(const char *kb)
 {
-    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
-        return false;
-    kbd_xram = word;
-    if (kbd_xram != 0xFFFF)
-        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
-    return true;
+    const char *default_layout = "US";
+    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
+    int default_index = -1;
+    kbd_layout_index = -1;
+    for (int i = 0; i < layouts_count; i++)
+    {
+        if (!strcasecmp(kbd_layout_names[i], default_layout))
+            default_index = i;
+        if (!strcasecmp(kbd_layout_names[i], kb))
+            kbd_layout_index = i;
+    }
+    assert(default_index >= 0);
+    if (kbd_layout_index < 0)
+        kbd_layout_index = default_index;
+    kbd_selected_keys = kbd_layout_keys[kbd_layout_index];
+    kbd_rebuild_code_page_cache();
+    return kbd_layout_names[kbd_layout_index];
+}
+
+void kbd_print_layouts(void)
+{
+    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
+    int maxlex = 0;
+    for (int i = 0; i < layouts_count; i++)
+    {
+        int thislen = strlen(kbd_layout_names[i]);
+        if (thislen > maxlex)
+            maxlex = thislen;
+    }
+    for (int i = 0; i < layouts_count; i++)
+    {
+        printf(" %*s - %s\n", maxlex, kbd_layout_names[i], kbd_layout_descriptions[i]);
+    }
+}
+
+void kbd_rebuild_code_page_cache(void)
+{
+    size_t cache_index = 0;
+    uint16_t code_page = oem_get_code_page();
+
+    // Dead keys are a linear search with oem (8-bit) chars
+    // which is slow because the unicode in flash needs every
+    // character translated. We cache the translations here.
+    // Key codes in kbd_layout_keys are only a single lookup
+    // per key press so flash access is no problem there.
+
+    kbd_selected_dead2 = (void *)&kbd_layout_cache[cache_index];
+    for (int i = 0; kbd_layout_dead2[kbd_layout_index][i][0]; i++)
+    {
+        for (int j = 0; j < 3; j++)
+        {
+            kbd_layout_cache[cache_index] = ff_uni2oem(
+                kbd_layout_dead2[kbd_layout_index][i][j],
+                code_page);
+            if (++cache_index >= sizeof(kbd_layout_cache))
+                goto overflow_error;
+        }
+    }
+    kbd_layout_cache[cache_index] = 0;
+
+    if (++cache_index >= sizeof(kbd_layout_cache))
+        goto overflow_error;
+    kbd_selected_dead3 = (void *)&kbd_layout_cache[cache_index];
+    for (int i = 0; kbd_layout_dead3[kbd_layout_index][i][0]; i++)
+    {
+        for (int j = 0; j < 4; j++)
+        {
+            kbd_layout_cache[cache_index] = ff_uni2oem(
+                kbd_layout_dead3[kbd_layout_index][i][j],
+                code_page);
+            if (++cache_index >= sizeof(kbd_layout_cache))
+                goto overflow_error;
+        }
+    }
+    kbd_layout_cache[cache_index] = 0;
+
+    return;
+overflow_error:
+    // If this gets triggered, the dead key lookups
+    // could probably benefit from a tree search.
+    kbd_selected_dead2 = (void *)&kbd_layout_cache[0];
+    kbd_selected_dead3 = (void *)&kbd_layout_cache[0];
+    kbd_layout_cache[0] = 0;
+    puts("?Keyboard cache overflow");
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
@@ -576,7 +819,18 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
             kbd_queue_key(KBD_MODIFIER(kbd_keys), i, true);
     }
 
-    // Check for no keys pressed
+    // Check for releasing ALT key during ALT mode.
+    if (kbd_alt_mode)
+    {
+        bool key_alt = KBD_MODIFIER(kbd_keys) & (KBD_MODIFIER_LEFTALT | KBD_MODIFIER_RIGHTALT);
+        if (!key_alt)
+        {
+            kbd_alt_mode = false;
+            kbd_queue_char(kbd_alt_code);
+        }
+    }
+
+    // Check for no keys pressed.
     bool any_key = false;
     kbd_keys[0] &= ~0xF;
     for (int k = 0; k < 8; k++)
@@ -591,4 +845,25 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     // Send it to xram
     if (kbd_xram != 0xFFFF)
         memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+}
+
+bool kbd_xreg(uint16_t word)
+{
+    if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
+        return false;
+    kbd_xram = word;
+    if (kbd_xram != 0xFFFF)
+        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+    return true;
+}
+
+int kbd_stdio_in_chars(char *buf, int length)
+{
+    int i = 0;
+    while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
+    {
+        kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
+        buf[i++] = kbd_key_queue[kbd_key_queue_tail];
+    }
+    return i ? i : PICO_ERROR_NO_DATA;
 }

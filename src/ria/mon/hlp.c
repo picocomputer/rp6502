@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "hid/kbd.h"
 #include "mon/hlp.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
@@ -45,6 +46,7 @@ static const char __in_flash("helptext") hlp_text_set[] =
     "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
     "SET BOOT (rom|-)    - Select ROM to boot from cold start. \"-\" for none.\n"
     "SET TZ (tz)         - Query or set time zone.\n"
+    "SET KB (layout)     - Query or set keyboard layout.\n"
     "SET CP (cp)         - Query or set code page.\n"
     "SET VGA (0|1|2)     - Query or set display type for VGA output."
 #ifdef RP6502_RIA_W
@@ -191,6 +193,9 @@ static const char __in_flash("helptext") hlp_text_set_tz[] =
     "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
     "The easiest way to get this is to ask an AI \"posix tz for {your location}\".";
 
+static const char __in_flash("helptext") hlp_text_set_kb[] =
+    "SET KB selects a keyboard layout. e.g. SET KB US";
+
 static const char __in_flash("helptext") hlp_text_set_cp[] =
     "SET CP selects a code page for system text. The following is supported:\n"
     "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
@@ -285,6 +290,7 @@ static struct
     {4, "phi2", hlp_text_set_phi2},
     {4, "boot", hlp_text_set_boot},
     {2, "tz", hlp_text_set_tz},
+    {2, "kb", hlp_text_set_kb},
     {2, "cp", hlp_text_set_cp},
     {3, "vga", hlp_text_set_vga},
 #ifdef RP6502_RIA_W
@@ -435,6 +441,8 @@ void hlp_mon_help(const char *args, size_t len)
         puts(text);
         if (text == hlp_text_about)
             vip_print();
+        if (text == hlp_text_set_kb)
+            kbd_print_layouts();
     }
     else
     {
