@@ -309,10 +309,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             kbd_alt_mode = true;
             kbd_alt_code = 0;
         }
-        else
+        if (keycode >= KBD_HID_KEY_KEYPAD_1 && keycode <= KBD_HID_KEY_KEYPAD_0)
+        {
             kbd_alt_code *= 10;
-        if (keycode < KBD_HID_KEY_KEYPAD_0)
-            kbd_alt_code += keycode - KBD_HID_KEY_KEYPAD_1 + 1;
+            if (keycode < KBD_HID_KEY_KEYPAD_0)
+                kbd_alt_code += keycode - KBD_HID_KEY_KEYPAD_1 + 1;
+        }
         return;
     }
     // Shift and caps lock logic
