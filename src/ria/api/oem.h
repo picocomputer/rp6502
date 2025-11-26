@@ -26,6 +26,10 @@ void oem_stop(void);
 // Use default as a last resort.
 uint16_t oem_set_code_page(uint16_t cp);
 
+// Get the current code page which may be different than the
+// setting if an application requested a temporary code page.
+uint16_t oem_get_code_page(void);
+
 // API set or query the code page.
 bool oem_api_code_page(void);
 

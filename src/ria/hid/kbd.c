@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "api/oem.h"
 #include "hid/kbd.h"
 #include "hid/hid.h"
 #include "net/ble.h"
@@ -104,8 +105,10 @@ static char kbd_alt_code;
 static DWORD kbd_dead0;
 static DWORD kbd_dead1;
 static DWORD const (*kbd_selected_keys)[5];
-static DWORD const (*kbd_selected_dead2)[3];
-static DWORD const (*kbd_selected_dead3)[4];
+static char const (*kbd_selected_dead2)[3];
+static char const (*kbd_selected_dead3)[4];
+static char kbd_layout_cache[KBD_LAYOUT_CACHE_SIZE];
+static int kbd_layout_index;
 
 typedef struct
 {
@@ -326,25 +329,25 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (is_shifted)
-                ch = ff_uni2oem(kbd_selected_keys[keycode][3], cfg_get_code_page());
+                ch = ff_uni2oem(kbd_selected_keys[keycode][3], oem_get_code_page());
             else
-                ch = ff_uni2oem(kbd_selected_keys[keycode][2], cfg_get_code_page());
+                ch = ff_uni2oem(kbd_selected_keys[keycode][2], oem_get_code_page());
         }
         else
         {
             if (is_shifted)
-                ch = ff_uni2oem(kbd_selected_keys[keycode][1], cfg_get_code_page());
+                ch = ff_uni2oem(kbd_selected_keys[keycode][1], oem_get_code_page());
             else
-                ch = ff_uni2oem(kbd_selected_keys[keycode][0], cfg_get_code_page());
+                ch = ff_uni2oem(kbd_selected_keys[keycode][0], oem_get_code_page());
         }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
         if (is_shifted)
-            ch = ff_uni2oem(kbd_selected_keys[keycode][1], cfg_get_code_page());
+            ch = ff_uni2oem(kbd_selected_keys[keycode][1], oem_get_code_page());
         else
-            ch = ff_uni2oem(kbd_selected_keys[keycode][0], cfg_get_code_page());
+            ch = ff_uni2oem(kbd_selected_keys[keycode][0], oem_get_code_page());
         if (key_ctrl)
         {
             if (ch >= '`' && ch <= '~')
@@ -377,10 +380,9 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     {
         if (!kbd_dead0)
         {
-            uint16_t code_page = cfg_get_code_page();
             for (int i = 0; kbd_selected_dead2[i][0]; i++)
             {
-                if (ch == ff_uni2oem(kbd_selected_dead2[i][0], code_page))
+                if (ch == kbd_selected_dead2[i][0])
                 {
                     kbd_dead0 = ch;
                     return;
@@ -400,13 +402,12 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 kbd_dead0 = 0;
                 return;
             }
-            uint16_t code_page = cfg_get_code_page();
             for (int i = 0; kbd_selected_dead2[i][0]; i++)
             {
-                if (kbd_dead0 == ff_uni2oem(kbd_selected_dead2[i][0], code_page) &&
-                    ch == ff_uni2oem(kbd_selected_dead2[i][1], code_page))
+                if (kbd_dead0 == kbd_selected_dead2[i][0] &&
+                    ch == kbd_selected_dead2[i][1])
                 {
-                    WCHAR result = ff_uni2oem(kbd_selected_dead2[i][2], code_page);
+                    char result = kbd_selected_dead2[i][2];
                     if (result)
                     {
                         kbd_queue_char(result);
@@ -553,21 +554,62 @@ const char *kbd_set_layout(const char *kb)
     const char *default_layout = "US";
     const int locales_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     int default_index = -1;
-    int matched_index = -1;
+    kbd_layout_index = -1;
     for (int i = 0; i < locales_count; i++)
     {
         if (!strcasecmp(kbd_layout_names[i], default_layout))
             default_index = i;
         if (!strcasecmp(kbd_layout_names[i], kb))
-            matched_index = i;
+            kbd_layout_index = i;
     }
     assert(default_index >= 0);
-    if (matched_index < 0)
-        matched_index = default_index;
-    kbd_selected_keys = kbd_layout_keys[matched_index];
-    kbd_selected_dead2 = kbd_layout_dead2[matched_index];
-    kbd_selected_dead3 = kbd_layout_dead3[matched_index];
-    return kbd_layout_names[matched_index];
+    if (kbd_layout_index < 0)
+        kbd_layout_index = default_index;
+    kbd_selected_keys = kbd_layout_keys[kbd_layout_index];
+    kbd_rebuild_code_page_cache();
+    return kbd_layout_names[kbd_layout_index];
+}
+
+void kbd_rebuild_code_page_cache(void)
+{
+    size_t cache_index = 0;
+    uint16_t code_page = oem_get_code_page();
+
+    // Dead keys are a linear search through oem (8-bit) chars
+    // which is slow because the unicode in flash needs every
+    // character translated. We cache the translations here.
+    // Key codes in kbd_layout_keys are only a single lookup
+    // per key press so flash access is no problem there.
+
+    kbd_selected_dead2 = (void *)&kbd_layout_cache[cache_index];
+    for (int i = 0; kbd_layout_dead2[kbd_layout_index][i][0]; i++)
+    {
+        if (cache_index >= sizeof(kbd_layout_cache))
+        {
+            puts("?Keyboard cache overflow");
+            return;
+        }
+        for (int j = 0; j < 3; j++)
+            kbd_layout_cache[cache_index++] = ff_uni2oem(
+                kbd_layout_dead2[kbd_layout_index][i][j],
+                code_page);
+    }
+    kbd_layout_cache[cache_index++] = 0;
+
+    kbd_selected_dead3 = (void *)&kbd_layout_cache[cache_index];
+    for (int i = 0; kbd_layout_dead3[kbd_layout_index][i][0]; i++)
+    {
+        if (cache_index >= sizeof(kbd_layout_cache))
+        {
+            puts("?Keyboard cache overflow");
+            return;
+        }
+        for (int j = 0; j < 4; j++)
+            kbd_layout_cache[cache_index++] = ff_uni2oem(
+                kbd_layout_dead3[kbd_layout_index][i][j],
+                code_page);
+    }
+    kbd_layout_cache[cache_index++] = 0;
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)

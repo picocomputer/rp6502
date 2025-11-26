@@ -77,7 +77,7 @@ static void init(void)
     mdm_init();
 }
 
-// Tasks events are repeatedly called by the main loop.
+// Task events are repeatedly called by the main loop.
 // They must not block. All drivers are state machines.
 
 // These tasks run while FatFs is blocking.

@@ -124,7 +124,7 @@
     /* End */ {0}
 
 
-// US-INTL - United States (International)
+// US-INTL - United States - International
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}

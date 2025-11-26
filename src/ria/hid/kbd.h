@@ -35,12 +35,13 @@
 #include "hid/kbd_us.h"
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
-#define KBD_LAYOUTS                          \
-    X(DE, "DE", "German")                    \
-    X(DK, "DK", "Danish")                    \
-    X(US, "US", "United States")             \
-    X(US_INTL, "US-INTL", "United States")   \
-    X(PL_PROG, "PL", "Polish (Programmers)") \
+#define KBD_LAYOUT_CACHE_SIZE 1024
+#define KBD_LAYOUTS                                         \
+    X(DE, "DE", "German")                                   \
+    X(DK, "DK", "Danish")                                   \
+    X(US, "US", "United States")                            \
+    X(US_INTL, "US-INTL", "United States - International)") \
+    X(PL_PROG, "PL-PROG", "Polish - Programmer's")          \
     X(SV, "SV", "Swedish")
 
 /* Main events
@@ -52,6 +53,9 @@ void kbd_stop(void);
 
 // Setting for keyboard layout
 const char *kbd_set_layout(const char *kb);
+
+// Called when code page changes so cache can be rebuilt
+void kbd_rebuild_code_page_cache(void);
 
 // Parse HID report descriptor
 bool kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len);
