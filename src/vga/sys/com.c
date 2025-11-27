@@ -9,6 +9,7 @@
 #include <tusb.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
+#include <stdio.h>
 
 size_t com_in_head;
 size_t com_in_tail;

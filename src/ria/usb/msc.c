@@ -10,10 +10,10 @@
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
+#include <stdio.h>
 #include <math.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
-#include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
