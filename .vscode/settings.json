@@ -7,6 +7,9 @@
     },
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {
+        "launchTarget": {
+            "statusBarVisibility": "visible"
+        },
         "build": {
             "statusBarVisibility": "hidden"
         },
