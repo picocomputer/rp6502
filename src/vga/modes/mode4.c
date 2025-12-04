@@ -5,15 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-// This is the sprite code from pico-playground.
-// The affine transform code came with this comment:
-// "Stolen from RISCBoy"
+// This is compatible with the sprite system in pico-playground which
+// is based on the sprite system used for the RISCBoy games console.
 
 #include "modes/mode4.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
 #include <hardware/interp.h>
-#include <stdint.h>
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -37,21 +35,6 @@ typedef struct
     bool has_opacity_metadata;
 } mode4_asprite_t;
 
-// Note some of the sprite routines are quite large (unrolled), so trying to
-// keep everything in separate sections so the linker can garbage collect
-// unused sprite code. In particular we usually need 8bpp xor 16bpp functions!
-#define __ram_func(foo) __not_in_flash_func(foo)
-
-// ----------------------------------------------------------------------------
-// Functions from sprite.S
-
-// Constant-colour span
-void sprite_fill16(uint16_t *dst, uint16_t colour, uint len);
-
-// Block image transfers
-void sprite_blit16(uint16_t *dst, const uint16_t *src, uint len);
-void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint len);
-
 // Store unpacked affine transforms as signed 16.16 fixed point in the following order:
 // a00, a01, b0,   a10, a11, b1
 // i.e. the top two rows of the matrix
@@ -63,9 +46,8 @@ void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint len);
 typedef int32_t affine_transform_t[6];
 static const int32_t AF_ONE = 1 << 16;
 
-static inline __attribute__((always_inline)) int32_t mul_fp1616(int32_t x, int32_t y)
+static inline int32_t mul_fp1616(int32_t x, int32_t y)
 {
-    // TODO this results in an aeabi call?!
     int64_t result = (int64_t)x * y;
     return result >> 16;
 }
@@ -114,7 +96,7 @@ static inline void affine_translate(affine_transform_t current_trans, int32_t x,
 
 // Inherited comment:
 // TODO this is shit
-static const int32_t __not_in_flash("atrans") sin_lookup_fp1616[256] = {
+static const int32_t sin_lookup_fp1616[256] = {
     0x0, 0x648, 0xc8f, 0x12d5, 0x1917, 0x1f56, 0x2590, 0x2bc4, 0x31f1, 0x3817,
     0x3e33, 0x4447, 0x4a50, 0x504d, 0x563e, 0x5c22, 0x61f7, 0x67bd, 0x6d74,
     0x7319, 0x78ad, 0x7e2e, 0x839c, 0x88f5, 0x8e39, 0x9368, 0x987f, 0x9d7f,
@@ -237,7 +219,122 @@ static inline intersect_t _intersect_with_metadata(intersect_t isct, uint32_t me
     return isct;
 }
 
-static inline __attribute__((always_inline)) void __ram_func(sprite_sprite16)(
+static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, uint len)
+{
+    uint16_t *dst_start = dst;
+    uint pixels_8 = (len >> 3) << 3;
+    uint remainder = len & 7;
+    dst += pixels_8;
+    src += pixels_8;
+    switch (remainder)
+    {
+    case 7:
+        dst[6] = src[6];
+        __attribute__((fallthrough));
+    case 6:
+        dst[5] = src[5];
+        __attribute__((fallthrough));
+    case 5:
+        dst[4] = src[4];
+        __attribute__((fallthrough));
+    case 4:
+        dst[3] = src[3];
+        __attribute__((fallthrough));
+    case 3:
+        dst[2] = src[2];
+        __attribute__((fallthrough));
+    case 2:
+        dst[1] = src[1];
+        __attribute__((fallthrough));
+    case 1:
+        dst[0] = src[0];
+        __attribute__((fallthrough));
+    case 0:
+        break;
+    }
+    if (dst <= dst_start)
+        return;
+    do
+    {
+        dst -= 8;
+        src -= 8;
+        dst[0] = src[0];
+        dst[1] = src[1];
+        dst[2] = src[2];
+        dst[3] = src[3];
+        dst[4] = src[4];
+        dst[5] = src[5];
+        dst[6] = src[6];
+        dst[7] = src[7];
+    } while (dst > dst_start);
+}
+
+static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint len)
+{
+    uint16_t *dst_start = dst;
+    uint pixels_8 = (len >> 3) << 3;
+    uint remainder = len & 7;
+    dst += pixels_8;
+    src += pixels_8;
+    switch (remainder)
+    {
+    case 7:
+        if (src[6] & (1 << 5))
+            dst[6] = src[6];
+        __attribute__((fallthrough));
+    case 6:
+        if (src[5] & (1 << 5))
+            dst[5] = src[5];
+        __attribute__((fallthrough));
+    case 5:
+        if (src[4] & (1 << 5))
+            dst[4] = src[4];
+        __attribute__((fallthrough));
+    case 4:
+        if (src[3] & (1 << 5))
+            dst[3] = src[3];
+        __attribute__((fallthrough));
+    case 3:
+        if (src[2] & (1 << 5))
+            dst[2] = src[2];
+        __attribute__((fallthrough));
+    case 2:
+        if (src[1] & (1 << 5))
+            dst[1] = src[1];
+        __attribute__((fallthrough));
+    case 1:
+        if (src[0] & (1 << 5))
+            dst[0] = src[0];
+        __attribute__((fallthrough));
+    case 0:
+        break;
+    }
+    if (dst <= dst_start)
+        return;
+    do
+    {
+        dst -= 8;
+        src -= 8;
+        if (src[0] & (1 << 5))
+            dst[0] = src[0];
+        if (src[1] & (1 << 5))
+            dst[1] = src[1];
+        if (src[2] & (1 << 5))
+            dst[2] = src[2];
+        if (src[3] & (1 << 5))
+            dst[3] = src[3];
+        if (src[4] & (1 << 5))
+            dst[4] = src[4];
+        if (src[5] & (1 << 5))
+            dst[5] = src[5];
+        if (src[6] & (1 << 5))
+            dst[6] = src[6];
+        if (src[7] & (1 << 5))
+            dst[7] = src[7];
+    } while (dst > dst_start);
+}
+
+static inline void sprite_sprite16(
     uint16_t *scanbuf, const mode4_sprite_t *sp, const void *sp_img, uint raster_y, uint raster_w)
 {
     int size = 1u << sp->log_size;
@@ -270,7 +367,7 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
     const mode4_sprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
     {
-        const unsigned px_size = 2 ^ sprites[i].log_size;
+        const unsigned px_size = 1u << sprites[i].log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sprites[i].has_opacity_metadata)
             byte_size += px_size * sizeof(uint32_t);
@@ -362,8 +459,6 @@ static inline void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask)
     dst += pixels_8;
     switch (remainder)
     {
-    case 0:
-        break;
     case 7:
         sprite_ablit16_alpha_loop_body(&dst[6], mask);
         __attribute__((fallthrough));
@@ -384,6 +479,9 @@ static inline void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask)
         __attribute__((fallthrough));
     case 1:
         sprite_ablit16_alpha_loop_body(&dst[0], mask);
+        __attribute__((fallthrough));
+    case 0:
+        break;
     }
     if (dst <= dst_start)
         return;
@@ -423,7 +521,7 @@ static void mode4_render_asprite(
     mode4_asprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
     {
-        const unsigned px_size = 2 ^ sprites[i].log_size;
+        const unsigned px_size = 1u << sprites[i].log_size;
         unsigned byte_size = px_size * px_size * sizeof(uint16_t);
         if (sprites[i].has_opacity_metadata)
             byte_size += px_size * sizeof(uint32_t);
