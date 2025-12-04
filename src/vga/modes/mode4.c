@@ -52,10 +52,6 @@ void sprite_fill16(uint16_t *dst, uint16_t colour, uint len);
 void sprite_blit16(uint16_t *dst, const uint16_t *src, uint len);
 void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint len);
 
-// These are just inner loops, and require INTERP0 to be configured before calling:
-void sprite_ablit16_loop(uint16_t *dst, uint len);
-void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask);
-
 // Store unpacked affine transforms as signed 16.16 fixed point in the following order:
 // a00, a01, b0,   a10, a11, b1
 // i.e. the top two rows of the matrix
@@ -296,9 +292,9 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
 // i.e. the non-constant parts in row-major order
 
 // Set up an interpolator to follow a straight line through u,v space
-static inline __attribute__((always_inline)) void
-_setup_interp_affine(interp_hw_t *interp, intersect_t isct,
-                     const affine_transform_t atrans)
+static inline void _setup_interp_affine(
+    intersect_t isct,
+    const affine_transform_t atrans)
 {
     // Calculate the u,v coord of the first sample. Note that we are iterating
     // *backward* along the raster span because this is faster (yes)
@@ -310,17 +306,18 @@ _setup_interp_affine(interp_hw_t *interp, intersect_t isct,
         mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
         mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
         atrans[5];
-    interp->accum[0] = x0;
-    interp->accum[1] = y0;
-    interp->base[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
-    interp->base[1] = -atrans[3]; // -a10
+    interp0->accum[0] = x0;
+    interp0->accum[1] = y0;
+    interp0->base[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
+    interp0->base[1] = -atrans[3]; // -a10
 }
 
 // Set up an interpolator to generate pixel lookup addresses from fp1616
 // numbers in accum1, accum0 based on the parameters of sprite sp and the size
 // of the individual pixels
-static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
-    interp_hw_t *interp, const mode4_asprite_t *sp, const void *sp_img, uint pixel_shift)
+static inline void _setup_interp_pix_coordgen(
+    const mode4_asprite_t *sp,
+    const void *sp_img, uint pixel_shift)
 {
     // Concatenate from accum0[31:16] and accum1[31:16] as many LSBs as required
     // to index the sprite texture in both directions. Reading from POP_FULL will
@@ -333,36 +330,95 @@ static inline __attribute__((always_inline)) void _setup_interp_pix_coordgen(
     interp_config_set_add_raw(&c0, true);
     interp_config_set_shift(&c0, 16 - pixel_shift);
     interp_config_set_mask(&c0, pixel_shift, pixel_shift + sp->log_size - 1);
-    interp_set_config(interp, 0, &c0);
+    interp_set_config(interp0, 0, &c0);
 
     interp_config c1 = interp_default_config();
     interp_config_set_add_raw(&c1, true);
     interp_config_set_shift(&c1, 16 - sp->log_size - pixel_shift);
     interp_config_set_mask(&c1, pixel_shift + sp->log_size, pixel_shift + 2 * sp->log_size - 1);
-    interp_set_config(interp, 1, &c1);
+    interp_set_config(interp0, 1, &c1);
 
-    interp_set_base(interp, 2, (uint32_t)sp_img);
+    interp_set_base(interp0, 2, (uint32_t)sp_img);
 }
 
-// Note we do NOT save/restore the interpolator!
-// optimize-sibling-calls breaks sprite_ablit16_alpha_loop
-__attribute__((optimize("no-optimize-sibling-calls"))) void __ram_func(sprite_asprite16)(
+static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, uint mask)
+{
+    uint32_t accum0_masked = interp0->accum[0] & mask;
+    uint32_t accum1_masked = interp0->accum[1] & mask;
+    uint32_t overflow = accum0_masked | accum1_masked;
+    uint16_t *src_addr = (uint16_t *)interp0->pop[2];
+    if (overflow)
+        return;
+    uint16_t pixel = *src_addr;
+    if (pixel & (1 << 5)) // alpha
+        *dst = pixel;
+}
+
+static inline void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask)
+{
+    uint16_t *dst_start = dst;
+    uint pixels_8 = (len >> 3) << 3;
+    uint remainder = len & 7;
+    dst += pixels_8;
+    switch (remainder)
+    {
+    case 0:
+        break;
+    case 7:
+        sprite_ablit16_alpha_loop_body(&dst[6], mask);
+        __attribute__((fallthrough));
+    case 6:
+        sprite_ablit16_alpha_loop_body(&dst[5], mask);
+        __attribute__((fallthrough));
+    case 5:
+        sprite_ablit16_alpha_loop_body(&dst[4], mask);
+        __attribute__((fallthrough));
+    case 4:
+        sprite_ablit16_alpha_loop_body(&dst[3], mask);
+        __attribute__((fallthrough));
+    case 3:
+        sprite_ablit16_alpha_loop_body(&dst[2], mask);
+        __attribute__((fallthrough));
+    case 2:
+        sprite_ablit16_alpha_loop_body(&dst[1], mask);
+        __attribute__((fallthrough));
+    case 1:
+        sprite_ablit16_alpha_loop_body(&dst[0], mask);
+    }
+    if (dst <= dst_start)
+        return;
+    do
+    {
+        dst -= 8;
+        sprite_ablit16_alpha_loop_body(&dst[7], mask);
+        sprite_ablit16_alpha_loop_body(&dst[6], mask);
+        sprite_ablit16_alpha_loop_body(&dst[5], mask);
+        sprite_ablit16_alpha_loop_body(&dst[4], mask);
+        sprite_ablit16_alpha_loop_body(&dst[3], mask);
+        sprite_ablit16_alpha_loop_body(&dst[2], mask);
+        sprite_ablit16_alpha_loop_body(&dst[1], mask);
+        sprite_ablit16_alpha_loop_body(&dst[0], mask);
+    } while (dst > dst_start);
+}
+
+static inline void sprite_asprite16(
     uint16_t *scanbuf, const mode4_asprite_t *sp, const void *sp_img,
     uint raster_y, uint raster_w)
 {
     intersect_t isct = _get_asprite_intersect(sp, raster_y, raster_w);
     if (isct.size_x <= 0)
         return;
-    interp_hw_t *interp = interp0;
     affine_transform_t atrans;
     for (uint16_t j = 0; j < 6; j++)
         atrans[j] = (int32_t)sp->transform[j] << 8;
-    _setup_interp_affine(interp, isct, atrans);
-    _setup_interp_pix_coordgen(interp, sp, sp_img, 1);
+    _setup_interp_affine(isct, atrans);
+    _setup_interp_pix_coordgen(sp, sp_img, 1);
     sprite_ablit16_alpha_loop(scanbuf + MAX(0, sp->x_pos_px), isct.size_x, 0xFFFF0000 << sp->log_size);
 }
 
-static void mode4_render_asprite(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+static void mode4_render_asprite(
+    int16_t scanline, int16_t width, uint16_t *rgb,
+    uint16_t config_ptr, uint16_t length)
 {
     mode4_asprite_t *sprites = (void *)&xram[config_ptr];
     for (uint16_t i = 0; i < length; i++)
