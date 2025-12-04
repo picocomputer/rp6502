@@ -154,7 +154,7 @@ void mon_task(void)
 {
     if (mon_needs_prompt && !mon_suspended())
     {
-        printf("\30\33[0m");
+        printf("\30\33[0m\33[?25h");
         if (mon_needs_newline)
             putchar('\n');
         putchar(']');

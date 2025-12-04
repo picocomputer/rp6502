@@ -73,6 +73,8 @@ typedef struct term_state
     uint8_t y_offset;
     bool bold;
     bool blink;
+    bool cursor_enabled;
+    bool cursor_is_inv;
     uint16_t fg_color;
     uint16_t bg_color;
     uint8_t fg_color_index;
@@ -80,7 +82,6 @@ typedef struct term_state
     term_data_t *mem;
     term_data_t *ptr;
     absolute_time_t timer;
-    int32_t blink_state;
     ansi_state_t ansi_state;
     uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
     char csi_separator[TERM_CSI_PARAM_MAX_LEN];
@@ -186,6 +187,7 @@ static void term_out_RIS(term_state_t *term)
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->bold = false;
     term->blink = false;
+    term->cursor_enabled = true;
     term->save_x = 0;
     term->save_y = 0;
     term->x = 0;
@@ -198,7 +200,7 @@ static void term_state_init(term_state_t *term, uint8_t width, term_data_t *mem)
     term->height = TERM_STD_HEIGHT;
     term->line_wrap = true;
     term->mem = mem;
-    term->blink_state = 0;
+    term->cursor_is_inv = false;
     term_out_RIS(term);
 }
 
@@ -250,7 +252,9 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
 
 static void term_cursor_set_inv(term_state_t *term, bool inv)
 {
-    if (term->blink_state == -1 || inv == term->blink_state)
+    if (!term->cursor_enabled && inv)
+        return;
+    if (inv == term->cursor_is_inv)
         return;
     term_data_t *term_ptr = term->ptr;
     if (term->x == term->width)
@@ -258,7 +262,7 @@ static void term_cursor_set_inv(term_state_t *term, bool inv)
     uint16_t swap = term_ptr->fg_color;
     term_ptr->fg_color = term_ptr->bg_color;
     term_ptr->bg_color = swap;
-    term->blink_state = inv;
+    term->cursor_is_inv = inv;
 }
 
 static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
@@ -836,6 +840,29 @@ static void term_out_CSI(term_state_t *term, char ch)
     }
 }
 
+static void term_out_CSI_question(term_state_t *term, char ch)
+{
+    switch (ch)
+    {
+    case 'h': // DECSET
+        switch (term->csi_param[0])
+        {
+        case 25: // DECTCEM
+            term->cursor_enabled = true;
+            break;
+        }
+        break;
+    case 'l': // DECRST
+        switch (term->csi_param[0])
+        {
+        case 25: // DECTCEM
+            term->cursor_enabled = false;
+            break;
+        }
+        break;
+    }
+}
+
 static void term_out_state_CSI(term_state_t *term, char ch)
 {
     // Silently discard overflow parameters but still count to + 1.
@@ -885,7 +912,10 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     case ansi_state_CSI_less:
     case ansi_state_CSI_equal:
     case ansi_state_CSI_greater:
+        break;
     case ansi_state_CSI_question:
+        term_out_CSI_question(term, ch);
+        break;
     default:
         break;
     }
@@ -956,7 +986,7 @@ static void term_blink_cursor(term_state_t *term)
     absolute_time_t now = get_absolute_time();
     if (absolute_time_diff_us(now, term->timer) < 0)
     {
-        term_cursor_set_inv(term, !term->blink_state);
+        term_cursor_set_inv(term, !term->cursor_is_inv);
         // 0.3ms drift to avoid blinking cursor tearing
         if (term->x == term->width)
             // fast blink when off right side
