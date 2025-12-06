@@ -470,6 +470,10 @@ bool vga_xreg_canvas(uint16_t *xregs)
     switch (canvas)
     {
     case vga_console:
+        // prevent flicker when reset not needed
+        if (vga_canvas_selected == vga_console)
+            return true;
+        __attribute__((fallthrough));
     case vga_320_240:
     case vga_320_180:
     case vga_640_480:
@@ -517,6 +521,16 @@ void vga_task(void)
     vga_render_scanline();
 }
 
+static bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t scanline_end)
+{
+    const int16_t scanline_count = scanline_end - scanline_begin;
+    if (plane < 0 || plane >= PICO_SCANVIDEO_PLANE_COUNT ||
+        scanline_begin < 0 || scanline_end > vga_canvas_height() ||
+        scanline_count < 1)
+        return false;
+    return true;
+}
+
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
                    bool (*fill_fn)(int16_t scanline,
@@ -524,18 +538,12 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                                    uint16_t *rgb,
                                    uint16_t config_ptr))
 {
+    if (vga_canvas_selected == vga_console)
+        return false;
     if (!scanline_end)
         scanline_end = vga_canvas_height();
-    const int16_t scanline_count = scanline_end - scanline_begin;
-    if (!fill_fn ||
-        plane < 0 || plane >= PICO_SCANVIDEO_PLANE_COUNT ||
-        scanline_begin < 0 || scanline_end > vga_canvas_height() ||
-        scanline_count < 1)
+    if (!vga_prog_valid(plane, scanline_begin, scanline_end))
         return false;
-    // Note there is no synchronization. Render functions
-    // must validate everything from the config_ptr.
-    // Render functions return false when they can't or don't need to render.
-    // A single scanline of junk is acceptable during reprogramming.
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
         vga_prog[i].fill_config[plane] = config_ptr;
@@ -551,16 +559,21 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
                                         uint16_t *rgb,
                                         uint16_t config_ptr))
 {
-    // Test if valid
-    if (!vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, fill_fn))
+    if (!scanline_end)
+        scanline_end = vga_canvas_height();
+    if (!vga_prog_valid(plane, scanline_begin, scanline_end))
         return false;
     // Remove all previous programming
     for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
         for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
             if (vga_prog[i].fill_fn[j] == fill_fn)
                 vga_prog[i].fill_fn[j] = NULL;
-    // All good so do it for real
-    return vga_prog_fill(plane, scanline_begin, scanline_end, config_ptr, fill_fn);
+    for (int16_t i = scanline_begin; i < scanline_end; i++)
+    {
+        vga_prog[i].fill_config[plane] = config_ptr;
+        vga_prog[i].fill_fn[plane] = fill_fn;
+    }
+    return true;
 }
 
 bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
@@ -571,13 +584,11 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
                                        uint16_t config_ptr,
                                        uint16_t length))
 {
+    if (vga_canvas_selected == vga_console)
+        return false;
     if (!scanline_end)
         scanline_end = vga_canvas_height();
-    const int16_t scanline_count = scanline_end - scanline_begin;
-    if (!sprite_fn ||
-        plane < 0 || plane >= PICO_SCANVIDEO_PLANE_COUNT ||
-        scanline_begin < 0 || scanline_end > vga_canvas_height() ||
-        scanline_count < 1)
+    if (!vga_prog_valid(plane, scanline_begin, scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
