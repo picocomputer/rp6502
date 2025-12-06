@@ -71,22 +71,22 @@ bool clk_api_tzset(void)
 {
     struct __attribute__((packed))
     {
-        int8_t daylight;  /* True if daylight savings time locale */
-        int32_t timezone; /* Number of seconds behind UTC in standard time */
-        char tzname[6];   /* Name of timezone, e.g. CET */
-        char dstname[6];  /* Name when daylight true, e.g. CEST */
+        int8_t daylight;
+        int32_t timezone;
+        char tzname[5];
+        char dstname[5];
     } tz;
     tz.daylight = _daylight;
     tz.timezone = _timezone;
-    strncpy(tz.tzname, tzname[0], 5);
+    strncpy(tz.tzname, tzname[0], 4);
     tz.tzname[4] = '\0';
-    strncpy(tz.dstname, tzname[1], 5);
+    strncpy(tz.dstname, tzname[1], 4);
     tz.dstname[4] = '\0';
     for (size_t i = sizeof(tz); i;)
         if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
             return api_return_errno(API_EINVAL);
     return api_return_ax(0);
-    static_assert(17 == sizeof(tz));
+    static_assert(15 == sizeof(tz));
 }
 
 bool clk_api_tzquery(void)
