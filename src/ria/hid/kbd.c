@@ -207,7 +207,7 @@ static void kbd_queue_seq(const char *str, const char *mod_seq, int mod)
     char s[16];
     if (mod == 1)
         return kbd_queue_str(str);
-    sprintf(s, mod_seq, mod);
+    snprintf(s, 16, mod_seq, mod);
     return kbd_queue_str(s);
 }
 
@@ -215,9 +215,9 @@ static void kbd_queue_seq_vt(int num, int mod)
 {
     char s[16];
     if (mod == 1)
-        sprintf(s, "\33[%d~", num);
+        snprintf(s, 16, "\33[%d~", num);
     else
-        sprintf(s, "\33[%d;%d~", num, mod);
+        snprintf(s, 16, "\33[%d;%d~", num, mod);
     return kbd_queue_str(s);
 }
 

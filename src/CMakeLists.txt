@@ -13,12 +13,26 @@ else()
 endif()
 
 
-# The Pi Pico RIA
+# Force wrappers defined by pico_printf and pico_stdlib to be
+# preserved during link-time interprocedural optimizations.
+
+set(IPO_PRINTF_LINK_OPTIONS
+    -Wl,-u,__wrap_printf
+    -Wl,-u,__wrap_vprintf
+    -Wl,-u,__wrap_puts
+    -Wl,-u,__wrap_putchar
+    -Wl,-u,__wrap_getchar
+    -Wl,-u,__wrap_sprintf
+    -Wl,-u,__wrap_snprintf
+    -Wl,-u,__wrap_vsnprintf
+)
+
+
+# The RP6502-RIA (and W)
 
 add_executable(${RIA_TARGET})
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} copy_to_ram)
-
 
 if (RP6502_RIA_W)
     target_compile_definitions(${RIA_TARGET} PRIVATE RP6502_RIA_W=1)
@@ -27,6 +41,18 @@ if (RP6502_RIA_W)
 else()
     pico_set_program_name(${RIA_TARGET} "RP6502-RIA")
 endif()
+
+set_target_properties(${RIA_TARGET} PROPERTIES 
+    INTERPROCEDURAL_OPTIMIZATION TRUE
+)
+
+target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
+
+target_compile_options(${RIA_TARGET} PRIVATE
+    -Wall -Wextra
+    $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
+    $<$<CONFIG:Release>:-Os>
+)
 
 target_include_directories(${RIA_TARGET} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -41,12 +67,6 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
-)
-
-target_compile_options(${RIA_TARGET} PRIVATE
-    -Wall -Wextra
-    $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
-    $<$<CONFIG:Release>:-Os>
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE
@@ -116,12 +136,18 @@ target_sources(${RIA_TARGET} PRIVATE
 )
 
 
-# The Pi Pico VGA
+# The RP6502-VGA
 
 add_executable(rp6502_vga)
 pico_add_extra_outputs(rp6502_vga)
 pico_set_program_name(rp6502_vga "RP6502 VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
+
+set_target_properties(rp6502_vga PROPERTIES 
+    INTERPROCEDURAL_OPTIMIZATION TRUE
+)
+
+target_link_options(rp6502_vga PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
 
 target_compile_options(rp6502_vga PRIVATE
     -Wall -Wextra
