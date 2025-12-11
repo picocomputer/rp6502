@@ -48,9 +48,6 @@ static size_t mdm_tx_buf_len;
 static char mdm_cmd_buf[MDM_AT_COMMAND_LEN + 1];
 static size_t mdm_cmd_buf_len;
 
-// Must fit 80 columns plus a couple CRLFs
-#define MDM_RESPONSE_BUF_SIZE (128)
-static char mdm_response_buf[MDM_RESPONSE_BUF_SIZE];
 static size_t mdm_response_buf_head;
 static size_t mdm_response_buf_tail;
 static int (*mdm_response_fn)(char *, size_t, int);
@@ -150,7 +147,7 @@ static inline bool mdm_response_buf_empty(void)
 
 static inline bool mdm_response_buf_full(void)
 {
-    return ((mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
+    return ((mdm_response_buf_head + 1) % RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
 }
 
 static inline size_t mdm_response_buf_count(void)
@@ -158,7 +155,7 @@ static inline size_t mdm_response_buf_count(void)
     if (mdm_response_buf_head >= mdm_response_buf_tail)
         return mdm_response_buf_head - mdm_response_buf_tail;
     else
-        return MDM_RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
+        return RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
 }
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
@@ -184,8 +181,8 @@ static void mdm_response_append(char ch)
 {
     if (!mdm_response_buf_full())
     {
-        mdm_response_buf[mdm_response_buf_head] = ch;
-        mdm_response_buf_head = (mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE;
+        response_buf[mdm_response_buf_head] = ch;
+        mdm_response_buf_head = (mdm_response_buf_head + 1) % RESPONSE_BUF_SIZE;
     }
 }
 
@@ -204,21 +201,21 @@ int mdm_rx(char *ch)
     // Get next line, if needed and in progress
     if (mdm_response_buf_empty() && mdm_response_state >= 0)
     {
-        mdm_response_state = mdm_response_fn(mdm_response_buf, MDM_RESPONSE_BUF_SIZE, mdm_response_state);
-        mdm_response_buf_head = strlen(mdm_response_buf);
+        mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
+        mdm_response_buf_head = strlen(response_buf);
         mdm_response_buf_tail = 0;
         // Translate CR and LF chars to settings
         for (size_t i = 0; i < mdm_response_buf_head; i++)
         {
             uint8_t swap_ch = 0;
-            if (mdm_response_buf[i] == '\r')
-                swap_ch = mdm_response_buf[i] = mdm_settings.cr_char;
-            if (mdm_response_buf[i] == '\n')
-                swap_ch = mdm_response_buf[i] = mdm_settings.lf_char;
+            if (response_buf[i] == '\r')
+                swap_ch = response_buf[i] = mdm_settings.cr_char;
+            if (response_buf[i] == '\n')
+                swap_ch = response_buf[i] = mdm_settings.lf_char;
             if (swap_ch & 0x80)
             {
                 for (size_t j = i; j < mdm_response_buf_head; j++)
-                    mdm_response_buf[j] = mdm_response_buf[j + 1];
+                    response_buf[j] = response_buf[j + 1];
                 mdm_response_buf_head--;
             }
         }
@@ -226,8 +223,8 @@ int mdm_rx(char *ch)
     // Get from line buffer, if available
     if (!mdm_response_buf_empty())
     {
-        *ch = mdm_response_buf[mdm_response_buf_tail];
-        mdm_response_buf_tail = (mdm_response_buf_tail + 1) % MDM_RESPONSE_BUF_SIZE;
+        *ch = response_buf[mdm_response_buf_tail];
+        mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
         return 1;
     }
     // Get from telephone emulator

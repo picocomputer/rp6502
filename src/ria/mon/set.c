@@ -5,6 +5,7 @@
  */
 
 #include "hid/kbd.h"
+#include "mon/mon.h"
 #include "mon/set.h"
 #include "mon/str.h"
 #include "net/ble.h"
@@ -18,11 +19,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static void set_print_phi2(void)
+static int set_phi2_response(char *buf, size_t buf_size, int state)
 {
     uint32_t phi2_khz = cfg_get_phi2_khz();
-    printf("PHI2: %ld kHz", phi2_khz);
-    printf("\n");
+    snprintf(buf, buf_size, "PHI2: %ld kHz\n", phi2_khz);
+    return -1;
 }
 
 static void set_phi2(const char *args, size_t len)
@@ -42,7 +43,7 @@ static void set_phi2(const char *args, size_t len)
             return;
         }
     }
-    set_print_phi2();
+    mon_set_response_fn(set_phi2_response);
 }
 
 static void set_print_boot(void)
@@ -332,7 +333,7 @@ static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
 static void set_print_all(void)
 {
-    set_print_phi2();
+    // set_print_phi2();
     set_print_boot();
     set_print_time_zone();
     set_print_kbd_layout();
@@ -347,10 +348,26 @@ static void set_print_all(void)
 #endif
 }
 
+static int set_print_all_response(char *buf, size_t buf_size, int state)
+{
+    switch (state)
+    {
+    case 0:
+        set_phi2_response(buf, buf_size, 0);
+        break;
+    default:
+        return -1;
+    }
+    return ++state;
+}
+
 void set_mon_set(const char *args, size_t len)
 {
     if (!len)
-        return set_print_all();
+        return mon_set_response_fn(set_print_all_response);
+
+    // if (!len)
+    //     return set_print_all();
 
     size_t i = 0;
     for (; i < len; i++)

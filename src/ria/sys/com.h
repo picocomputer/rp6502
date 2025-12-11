@@ -40,8 +40,8 @@ extern volatile uint8_t com_tx_buf[COM_TX_BUF_SIZE];
 extern volatile size_t com_tx_tail;
 extern volatile size_t com_tx_head;
 
-// Ensure space for newline expansion
-static inline bool com_tx_printable(void)
+// Ensure putchar will not block even with a newline expansion
+static inline bool com_putchar_ready(void)
 {
     return (
         (((com_tx_head + 1) % COM_TX_BUF_SIZE) != com_tx_tail) &&

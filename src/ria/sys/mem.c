@@ -45,8 +45,10 @@ uint8_t *const xram __attribute__((aligned(4))) =
 uint8_t xstack[XSTACK_SIZE + 1];
 size_t volatile xstack_ptr;
 
+volatile uint8_t __uninitialized_ram(regs)[0x20]
+    __attribute__((aligned(0x20)));
+
 uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
 size_t mbuf_len;
 
-volatile uint8_t __uninitialized_ram(regs)[0x20]
-    __attribute__((aligned(0x20)));
+char response_buf[RESPONSE_BUF_SIZE];

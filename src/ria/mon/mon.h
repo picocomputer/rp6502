@@ -20,6 +20,9 @@
 void mon_task(void);
 void mon_break(void);
 
+// This handles pagination without blocking.
+void mon_set_response_fn(int (*fn)(char *, size_t, int));
+
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf, size_t buflen);

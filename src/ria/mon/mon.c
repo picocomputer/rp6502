@@ -13,6 +13,8 @@
 #include "mon/set.h"
 #include "mon/str.h"
 #include "net/cyw.h"
+#include "sys/com.h"
+#include "sys/mem.h"
 #include "sys/rln.h"
 #include "sys/sys.h"
 #include <pico.h>
@@ -26,6 +28,9 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+static int (*mon_response_fn)(char *, size_t, int);
+static int mon_response_state = -1;
+static int mon_response_pos = -1;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 
@@ -139,12 +144,19 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     func(args, args_len);
 }
 
+void mon_set_response_fn(int (*fn)(char *, size_t, int))
+{
+    assert(mon_response_state < 0 && mon_response_pos < 0);
+    mon_response_fn = fn;
+    mon_response_state = 0;
+}
+
 // Anything that suspends the monitor.
 static bool mon_suspended(void)
 {
     return main_active() ||
            // These may run the 6502 many times for a single
-           // task so we can't use only main_active().
+           // task so we can't depend on only main_active().
            ram_active() ||
            rom_active() ||
            fil_active();
@@ -152,7 +164,21 @@ static bool mon_suspended(void)
 
 void mon_task(void)
 {
-    if (mon_needs_prompt && !mon_suspended())
+    if (mon_response_state >= 0 || mon_response_pos >= 0)
+    {
+        while (response_buf[mon_response_pos] && com_putchar_ready())
+            putchar(response_buf[mon_response_pos++]);
+        if (!response_buf[mon_response_pos])
+            mon_response_pos = -1;
+        if (mon_response_pos == -1 && mon_response_state >= 0)
+        {
+            mon_response_pos = 0;
+            response_buf[0] = 0;
+            mon_response_state = mon_response_fn(
+                response_buf, RESPONSE_BUF_SIZE, mon_response_state);
+        }
+    }
+    else if (mon_needs_prompt && !mon_suspended())
     {
         printf("\30\33[0m\33[?25h");
         if (mon_needs_newline)
