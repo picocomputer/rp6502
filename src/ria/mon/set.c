@@ -21,6 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static int set_phi2_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     uint32_t phi2_khz = cfg_get_phi2_khz();
     snprintf(buf, buf_size, "PHI2: %ld kHz\n", phi2_khz);
     return -1;
@@ -46,12 +47,14 @@ static void set_phi2(const char *args, size_t len)
     mon_set_response_fn(set_phi2_response);
 }
 
-static void set_print_boot(void)
+static int set_boot_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     const char *rom = cfg_get_boot();
     if (!rom[0])
         rom = "(none)";
-    printf("BOOT: %s\n", rom);
+    snprintf(buf, buf_size, "BOOT: %s\n", rom);
+    return -1;
 }
 
 static void set_boot(const char *args, size_t len)
@@ -80,16 +83,18 @@ static void set_boot(const char *args, size_t len)
             return;
         }
     }
-    set_print_boot();
+    mon_set_response_fn(set_boot_response);
 }
 
-static void set_print_code_page()
+static int set_code_page_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
 #if (RP6502_CODE_PAGE)
-    printf("CP  : %d (dev)\n", RP6502_CODE_PAGE);
+    snprintf(buf, buf_size, "CP  : %d (dev)\n", RP6502_CODE_PAGE);
 #else
-    printf("CP  : %d\n", cfg_get_code_page());
+    snprintf(buf, buf_size, "CP  : %d\n", cfg_get_code_page());
 #endif
+    return -1;
 }
 
 static void set_code_page(const char *args, size_t len)
@@ -105,13 +110,15 @@ static void set_code_page(const char *args, size_t len)
             return;
         }
     }
-    set_print_code_page();
+    mon_set_response_fn(set_code_page_response);
 }
 
-static void set_print_vga(void)
+static int set_vga_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     const char *const vga_labels[] = {"640x480", "640x480 and 1280x720", "1280x1024"};
-    printf("VGA : %s\n", vga_labels[cfg_get_vga()]);
+    snprintf(buf, buf_size, "VGA : %s\n", vga_labels[cfg_get_vga()]);
+    return -1;
 }
 
 static void set_vga(const char *args, size_t len)
@@ -130,14 +137,16 @@ static void set_vga(const char *args, size_t len)
             return;
         }
     }
-    set_print_vga();
+    mon_set_response_fn(set_vga_response);
 }
 
 #ifdef RP6502_RIA_W
 
-static void set_print_rf(void)
+static int set_rf_response(char *buf, size_t buf_size, int state)
 {
-    printf("RF  : %s\n", cfg_get_rf() ? "On" : "Off");
+    (void)state;
+    snprintf(buf, buf_size, "RF  : %s\n", cfg_get_rf() ? "On" : "Off");
+    return -1;
 }
 
 static void set_rf(const char *args, size_t len)
@@ -156,13 +165,15 @@ static void set_rf(const char *args, size_t len)
             return;
         }
     }
-    set_print_rf();
+    mon_set_response_fn(set_rf_response);
 }
 
-static void set_print_rfcc(void)
+static int set_rfcc_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     const char *cc = cfg_get_rfcc();
-    printf("RFCC: %s\n", strlen(cc) ? cc : "Worldwide");
+    snprintf(buf, buf_size, "RFCC: %s\n", strlen(cc) ? cc : "Worldwide");
+    return -1;
 }
 
 static void set_rfcc(const char *args, size_t len)
@@ -182,26 +193,41 @@ static void set_rfcc(const char *args, size_t len)
             return;
         }
     }
-    set_print_rfcc();
+    mon_set_response_fn(set_rfcc_response);
 }
 
-static void set_print_ssid(void)
+static int set_ssid_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     const char *cc = cfg_get_ssid();
-    printf("SSID: %s\n", strlen(cc) ? cc : "(none)");
+    snprintf(buf, buf_size, "SSID: %s\n", strlen(cc) ? cc : "(none)");
+    return -1;
 }
 
-static void set_print_pass(void)
+static int set_pass_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     const char *pass = cfg_get_pass();
-    printf("PASS: %s\n", strlen(pass) ? "(set)" : "(none)");
+    snprintf(buf, buf_size, "PASS: %s\n", strlen(pass) ? "(set)" : "(none)");
+    return -1;
+}
+
+static int set_ssid_pass_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    const char *cc = cfg_get_ssid();
+    const char *pass = cfg_get_pass();
+    snprintf(buf, buf_size, "SSID: %s\nPASS: %s\n",
+             strlen(cc) ? cc : "(none)",
+             strlen(pass) ? "(set)" : "(none)");
+    return -1;
 }
 
 static void set_ssid(const char *args, size_t len)
 {
     char ssid[33];
     if (!len)
-        return set_print_ssid();
+        return mon_set_response_fn(set_ssid_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
     {
         cfg_set_ssid("");
@@ -213,15 +239,14 @@ static void set_ssid(const char *args, size_t len)
         printf("?invalid argument\n");
         return;
     }
-    set_print_ssid();
-    set_print_pass();
+    mon_set_response_fn(set_ssid_pass_response);
 }
 
 static void set_pass(const char *args, size_t len)
 {
     char pass[65];
     if (!len)
-        return set_print_pass();
+        return mon_set_response_fn(set_pass_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
     {
         cfg_set_pass("");
@@ -233,16 +258,17 @@ static void set_pass(const char *args, size_t len)
         printf("?invalid argument\n");
         return;
     }
-    set_print_ssid();
-    set_print_pass();
+    mon_set_response_fn(set_ssid_pass_response);
 }
 
-static void set_print_ble(void)
+static int set_ble_response(char *buf, size_t buf_size, int state)
 {
-    printf("BLE : %s%s%s\n",
-           cfg_get_ble() ? "Enabled" : "Disabled",
-           ble_is_pairing() ? ", pairing" : "",
-           cfg_get_rf() ? "" : " (radio off)");
+    (void)state;
+    snprintf(buf, buf_size, "BLE : %s%s%s\n",
+             cfg_get_ble() ? "Enabled" : "Disabled",
+             ble_is_pairing() ? ", pairing" : "",
+             cfg_get_rf() ? "" : " (radio off)");
+    return -1;
 }
 
 static void set_ble(const char *args, size_t len)
@@ -261,14 +287,16 @@ static void set_ble(const char *args, size_t len)
             return;
         }
     }
-    set_print_ble();
+    mon_set_response_fn(set_ble_response);
 }
 
 #endif
 
-static void set_print_time_zone(void)
+static int set_time_zone_response(char *buf, size_t buf_size, int state)
 {
-    printf("TZ  : %s\n", cfg_get_time_zone());
+    (void)state;
+    snprintf(buf, buf_size, "TZ  : %s\n", cfg_get_time_zone());
+    return -1;
 }
 
 static void set_time_zone(const char *args, size_t len)
@@ -284,12 +312,14 @@ static void set_time_zone(const char *args, size_t len)
             return;
         }
     }
-    set_print_time_zone();
+    mon_set_response_fn(set_time_zone_response);
 }
 
-static void set_print_kbd_layout(void)
+static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
 {
-    printf("KB  : %s\n", cfg_get_kbd_layout());
+    (void)state;
+    snprintf(buf, buf_size, "KB  : %s\n", cfg_get_kbd_layout());
+    return -1;
 }
 
 static void set_kbd_layout(const char *args, size_t len)
@@ -305,7 +335,7 @@ static void set_kbd_layout(const char *args, size_t len)
             return;
         }
     }
-    set_print_kbd_layout();
+    mon_set_response_fn(set_kbd_layout_response);
 }
 
 typedef void (*set_function)(const char *, size_t);
@@ -331,23 +361,6 @@ static struct
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
 
-static void set_print_all(void)
-{
-    // set_print_phi2();
-    set_print_boot();
-    set_print_time_zone();
-    set_print_kbd_layout();
-    set_print_code_page();
-    set_print_vga();
-#ifdef RP6502_RIA_W
-    set_print_rf();
-    set_print_rfcc();
-    set_print_ssid();
-    set_print_pass();
-    set_print_ble();
-#endif
-}
-
 static int set_print_all_response(char *buf, size_t buf_size, int state)
 {
     switch (state)
@@ -355,6 +368,38 @@ static int set_print_all_response(char *buf, size_t buf_size, int state)
     case 0:
         set_phi2_response(buf, buf_size, 0);
         break;
+    case 1:
+        set_boot_response(buf, buf_size, 0);
+        break;
+    case 2:
+        set_time_zone_response(buf, buf_size, 0);
+        break;
+    case 3:
+        set_kbd_layout_response(buf, buf_size, 0);
+        break;
+    case 4:
+        set_code_page_response(buf, buf_size, 0);
+        break;
+    case 5:
+        set_vga_response(buf, buf_size, 0);
+        break;
+#ifdef RP6502_RIA_W
+    case 6:
+        set_rf_response(buf, buf_size, 0);
+        break;
+    case 7:
+        set_rfcc_response(buf, buf_size, 0);
+        break;
+    case 8:
+        set_ssid_response(buf, buf_size, 0);
+        break;
+    case 9:
+        set_pass_response(buf, buf_size, 0);
+        break;
+    case 10:
+        set_ble_response(buf, buf_size, 0);
+        break;
+#endif
     default:
         return -1;
     }
@@ -365,9 +410,6 @@ void set_mon_set(const char *args, size_t len)
 {
     if (!len)
         return mon_set_response_fn(set_print_all_response);
-
-    // if (!len)
-    //     return set_print_all();
 
     size_t i = 0;
     for (; i < len; i++)
