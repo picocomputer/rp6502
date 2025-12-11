@@ -7,6 +7,7 @@
 #include "sys/rln.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
 #include <stdio.h>
@@ -255,7 +256,7 @@ static void rln_line_state_SS3(char ch)
 static void rln_line_state_CSI(char ch)
 {
     // Silently discard overflow parameters but still count to + 1.
-    if (ch >= '0' && ch <= '9')
+    if (isdigit(ch))
     {
         if (rln_csi_param_count < RLN_CSI_PARAM_MAX_LEN)
         {

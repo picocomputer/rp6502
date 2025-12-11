@@ -20,6 +20,7 @@
 #include <pico.h>
 #include <stdio.h>
 #include <strings.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_MON)
 #include <stdio.h>
@@ -78,7 +79,7 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
     for (; i < buflen; i++)
     {
         uint8_t ch = (*buf)[i];
-        if (str_char_is_hex(ch))
+        if (isxdigit(ch))
             is_maybe_addr = true;
         else if (ch == ' ')
             break;

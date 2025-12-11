@@ -10,6 +10,7 @@
 #include "mon/vip.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HLP)
 #include <stdio.h>
@@ -333,7 +334,7 @@ static uint32_t hlp_roms_list(uint32_t width)
         for (size_t i = 0; i < len; i++)
         {
             char ch = lfs_info.name[i];
-            if (!(i && ch >= '0' && ch <= '9') && (ch < 'A' || ch > 'Z'))
+            if (!(i && isdigit(ch)) && !isupper(ch))
                 is_ok = false;
         }
         if (is_ok && width)

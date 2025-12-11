@@ -11,6 +11,7 @@
 #include "sys/ria.h"
 #include "sys/rln.h"
 #include <stdio.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_RAM)
 #include <stdio.h>
@@ -69,8 +70,8 @@ void ram_mon_address(const char *args, size_t len)
     for (; i < len; i++)
     {
         char ch = args[i];
-        if (str_char_is_hex(ch))
-            rw_addr = rw_addr * 16 + str_char_to_int(ch);
+        if (isxdigit(ch))
+            rw_addr = rw_addr * 16 + str_xdigit_to_int(ch);
         else
             break;
     }
@@ -103,8 +104,8 @@ void ram_mon_address(const char *args, size_t len)
     for (; i < len; i++)
     {
         char ch = args[i];
-        if (str_char_is_hex(ch))
-            data = data * 16 + str_char_to_int(ch);
+        if (isxdigit(ch))
+            data = data * 16 + str_xdigit_to_int(ch);
         else if (ch != ' ')
         {
             printf("?invalid data character\n");
