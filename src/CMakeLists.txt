@@ -104,6 +104,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/hid/kbd.c
     ria/hid/mou.c
     ria/hid/pad.c
+    ria/loc/loc.c
     ria/mon/fil.c
     ria/mon/hlp.c
     ria/mon/mon.c
@@ -223,6 +224,7 @@ set_property(TARGET ${RIA_TARGET} rp6502_vga
     RP6502_NAME="Picocomputer 6502"
     RP6502_VERSION=""
     RP6502_CODE_PAGE=437
+    RP6502_LOCALE=EN
     RP6502_EXFAT=0
 )
 
