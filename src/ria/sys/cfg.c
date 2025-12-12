@@ -283,8 +283,6 @@ const char *cfg_get_kbd_layout(void)
 
 bool cfg_set_code_page(uint32_t cp)
 {
-    if (cp > UINT16_MAX)
-        return false;
     uint32_t old_val = cfg_code_page;
     cfg_code_page = oem_set_code_page(cp);
     if (old_val != cfg_code_page)
@@ -299,15 +297,14 @@ uint16_t cfg_get_code_page(void)
 
 bool cfg_set_vga(uint8_t disp)
 {
-    bool ok = true;
-    if (disp <= 2 && cfg_vga_display != disp)
+    if (!vga_set_vga(disp))
+        return false;
+    if (cfg_vga_display != disp)
     {
         cfg_vga_display = disp;
-        ok = vga_set_vga(cfg_vga_display);
-        if (ok)
-            cfg_save_with_boot_opt(NULL);
+        cfg_save_with_boot_opt(NULL);
     }
-    return ok;
+    return true;
 }
 
 uint8_t cfg_get_vga(void)
@@ -372,7 +369,7 @@ bool cfg_set_ssid(const char *ssid)
         if (strcmp(cfg_net_ssid, ssid))
         {
             cfg_net_pass[0] = 0;
-            strcpy(cfg_net_ssid, ssid);
+            strncpy(cfg_net_ssid, ssid, sizeof(cfg_net_ssid));
             wfi_shutdown();
             cfg_save_with_boot_opt(NULL);
         }

@@ -234,6 +234,8 @@ void vga_break(void)
 
 bool vga_set_vga(uint32_t display_type)
 {
+    if (display_type > 2)
+        return false;
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display_type);
     return true;
 }
