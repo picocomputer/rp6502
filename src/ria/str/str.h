@@ -48,7 +48,7 @@ bool str_parse_rom_name(const char **args, size_t *len, char *name);
 // Ensure there are no more arguments.
 bool str_parse_end(const char *args, size_t len);
 
-// This processes .inc files into flash
+// Part 1 of putting string literals into flash.
 #define _STR_STRINGIFY(x) #x
 #define _STR_CONCAT_(a, b) a##b
 #define _STR_CONCAT(a, b) _STR_CONCAT_(a, b)

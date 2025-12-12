@@ -43,7 +43,7 @@ static struct
     size_t cmd_len;
     const char *const cmd;
     mon_function func;
-} const COMMANDS[] = {
+} const __in_flash("mon_commands") COMMANDS[] = {
     {4, "help", hlp_mon_help},
     {1, "h", hlp_mon_help},
     {1, "?", hlp_mon_help},
