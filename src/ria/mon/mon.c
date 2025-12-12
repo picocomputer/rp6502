@@ -132,19 +132,16 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     mon_needs_prompt = true;
     const char *args = buf;
     mon_function func = mon_command_lookup(&args, length);
-    if (!func)
-    {
-        if (!rom_load_installed(buf, length))
-            for (const char *b = buf; b < args; b++)
-                if (b[0] != ' ')
-                {
-                    printf("?unknown command\n");
-                    break;
-                }
+    if (func)
+        return func(args, length - (args - buf));
+    if (rom_load_installed(buf, length))
         return;
-    }
-    size_t args_len = length - (args - buf);
-    func(args, args_len);
+    for (const char *b = buf; b < args; b++)
+        if (b[0] != ' ')
+        {
+            printf("?unknown command\n");
+            break;
+        }
 }
 
 static int mon_str_response(char *buf, size_t buf_size, int state)

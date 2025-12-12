@@ -6,7 +6,7 @@
 
 /* English */
 
-#if !defined(X) && defined(__INTELLISENSE__)
+#if !defined(X)
 #define X(name, value)
 #endif
 
@@ -20,3 +20,5 @@ X(STR_DISABLED, "Disabled")
 X(STR_WORLDWIDE, "Worldwide")
 X(STR_PARENS_NONE, "(none)")
 X(STR_PARENS_SET, "(set)")
+X(STR_BLE_PAIRING, ", pairing")
+X(STR_BLE_NO_RF, ", no RF")

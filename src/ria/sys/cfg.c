@@ -7,6 +7,7 @@
 #include "api/clk.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
+#include "mon/rom.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
@@ -230,9 +231,12 @@ uint32_t cfg_get_phi2_khz(void)
     return cpu_validate_phi2_khz(cfg_phi2_khz);
 }
 
-void cfg_set_boot(char *str)
+bool cfg_set_boot(char *str)
 {
+    if (str[0] && !rom_is_installed(str))
+        return false;
     cfg_save_with_boot_opt(str);
+    return true;
 }
 
 char *cfg_get_boot(void)
@@ -285,6 +289,8 @@ bool cfg_set_code_page(uint32_t cp)
 {
     uint32_t old_val = cfg_code_page;
     cfg_code_page = oem_set_code_page(cp);
+    if (cfg_code_page != cp)
+        return false;
     if (old_val != cfg_code_page)
         cfg_save_with_boot_opt(NULL);
     return true;
@@ -318,7 +324,7 @@ bool cfg_set_rf(uint8_t rf)
 {
     if (rf > 1)
         return false;
-    if (rf <= 1 && cfg_net_rf != rf)
+    if (cfg_net_rf != rf)
     {
         cfg_net_rf = rf;
         cyw_reset_radio();

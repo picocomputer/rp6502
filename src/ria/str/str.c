@@ -19,8 +19,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // Part 2 of putting string literals into flash.
 #define X(name, value) \
     const char __in_flash("str_strings") name[] = value;
-#include STR_LOCALE_FILE
 #include "str.inc"
+#include STR_LOCALE_FILE
 #undef X
 
 int str_xdigit_to_int(char ch)

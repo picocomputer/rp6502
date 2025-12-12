@@ -24,7 +24,7 @@ void cfg_init(void);
 
 bool cfg_set_phi2_khz(uint32_t freq_khz);
 uint32_t cfg_get_phi2_khz(void);
-void cfg_set_boot(char *rom);
+bool cfg_set_boot(char *rom);
 char *cfg_get_boot(void);
 bool cfg_set_kbd_layout(const char *kb);
 const char *cfg_get_kbd_layout(void);

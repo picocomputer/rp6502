@@ -33,6 +33,9 @@ void rom_mon_info(const char *args, size_t len);
 void rom_mon_install(const char *args, size_t len);
 void rom_mon_remove(const char *args, size_t len);
 
+// Verify a ROM is installed.
+bool rom_is_installed(const char *name);
+
 // Begin loading an installed rom, if exists.
 bool rom_load_installed(const char *args, size_t len);
 

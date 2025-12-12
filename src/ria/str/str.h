@@ -56,8 +56,8 @@ bool str_parse_end(const char *args, size_t len);
 #define STR_LOCALE_FILE _STR_MAKE_FILENAME(_STR_CONCAT(str_, RP6502_LOCALE))
 #define X(name, value) \
     extern const char name[];
-#include STR_LOCALE_FILE
 #include "str.inc"
+#include STR_LOCALE_FILE
 #undef X
 
 #endif /* _RIA_STR_STR_H_ */

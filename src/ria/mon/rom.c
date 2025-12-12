@@ -313,7 +313,7 @@ void rom_mon_remove(const char *args, size_t len)
         const char *boot = cfg_get_boot();
         if (!strcmp(lfs_name, boot))
         {
-            printf("?Unable to remove boot ROM\n");
+            printf("?Boot ROM not removed\n");
             return;
         }
         int lfsresult = lfs_remove(&lfs_volume, lfs_name);
@@ -334,20 +334,22 @@ void rom_mon_load(const char *args, size_t len)
         rom_state = ROM_LOADING;
 }
 
+bool rom_is_installed(const char *name)
+{
+    struct lfs_info info;
+    return lfs_stat(&lfs_volume, name, &info) >= 0;
+}
+
 bool rom_load_installed(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
-    if (str_parse_rom_name(&args, &len, lfs_name) &&
-        str_parse_end(args, len))
-    {
-        struct lfs_info info;
-        if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
-            return false;
-        if (rom_open(lfs_name, false))
-            rom_state = ROM_LOADING;
-        return true;
-    }
-    return false;
+    if (!str_parse_rom_name(&args, &len, lfs_name) ||
+        !str_parse_end(args, len) ||
+        !rom_is_installed(lfs_name) ||
+        !rom_open(lfs_name, false))
+        return false;
+    rom_state = ROM_LOADING;
+    return true;
 }
 
 void rom_mon_info(const char *args, size_t len)
