@@ -34,17 +34,9 @@ static void set_phi2(const char *args, size_t len)
     if (len)
     {
         if (!str_parse_uint32(&args, &len, &val) ||
-            !str_parse_end(args, len))
-        {
-            puts(LOC_ERR_INVALID_ARGUMENT);
-            // puts("?invalid argument");
-            return;
-        }
-        if (!cfg_set_phi2_khz(val))
-        {
-            printf("?invalid speed\n");
-            return;
-        }
+            !str_parse_end(args, len) ||
+            !cfg_set_phi2_khz(val))
+            return mon_set_response_str(LOC_ERR_INVALID_ARGUMENT);
     }
     mon_set_response_fn(set_phi2_response);
 }
@@ -108,7 +100,7 @@ static void set_code_page(const char *args, size_t len)
             !str_parse_end(args, len) ||
             !cfg_set_code_page(val))
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -135,7 +127,7 @@ static void set_vga(const char *args, size_t len)
         }
         else
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -163,7 +155,7 @@ static void set_rf(const char *args, size_t len)
         }
         else
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -191,7 +183,7 @@ static void set_rfcc(const char *args, size_t len)
                  !str_parse_end(args, len) ||
                  !cfg_set_rfcc(rfcc))
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -238,7 +230,7 @@ static void set_ssid(const char *args, size_t len)
              !str_parse_end(args, len) ||
              !cfg_set_ssid(ssid))
     {
-        printf("?invalid argument\n");
+        puts(LOC_ERR_INVALID_ARGUMENT);
         return;
     }
     mon_set_response_fn(set_ssid_pass_response);
@@ -257,7 +249,7 @@ static void set_pass(const char *args, size_t len)
              !str_parse_end(args, len) ||
              !cfg_set_pass(pass))
     {
-        printf("?invalid argument\n");
+        puts(LOC_ERR_INVALID_ARGUMENT);
         return;
     }
     mon_set_response_fn(set_ssid_pass_response);
@@ -285,7 +277,7 @@ static void set_ble(const char *args, size_t len)
         }
         else
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -310,7 +302,7 @@ static void set_time_zone(const char *args, size_t len)
             !str_parse_end(args, len) ||
             !cfg_set_time_zone(tz))
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -333,7 +325,7 @@ static void set_kbd_layout(const char *args, size_t len)
             !str_parse_end(args, len) ||
             !cfg_set_kbd_layout(kb))
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
             return;
         }
     }

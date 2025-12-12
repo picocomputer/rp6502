@@ -19,6 +19,7 @@
 #include "sys/sys.h"
 #include <pico.h>
 #include <stdio.h>
+#include <string.h>
 #include <strings.h>
 #include <ctype.h>
 
@@ -32,6 +33,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static int (*mon_response_fn)(char *, size_t, int);
 static int mon_response_state = -1;
 static int mon_response_pos = -1;
+static const char *mon_response_str;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 
@@ -145,11 +147,41 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     func(args, args_len);
 }
 
+static int mon_str_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, mon_response_str, state);
+    size_t buf_len = strlen(buf);
+    if (buf_len + 1 < buf_size)
+    {
+        buf[buf_len] = '\n';
+        buf[buf_len + 1] = 0;
+    }
+    return -1;
+}
+
 void mon_set_response_fn(int (*fn)(char *, size_t, int))
 {
     assert(mon_response_state < 0 && mon_response_pos < 0);
     mon_response_fn = fn;
     mon_response_state = 0;
+}
+
+void mon_set_response_str(const char *str)
+{
+    assert(mon_response_state < 0 && mon_response_pos < 0);
+    mon_response_fn = mon_str_response;
+    mon_response_state = 0;
+    mon_response_str = str;
+}
+
+void mon_set_response_str_int(const char *str, int i)
+{
+    assert(mon_response_state < 0 && mon_response_pos < 0);
+    assert(i >= 0);
+    mon_response_fn = mon_str_response;
+    mon_response_state = i;
+    mon_response_str = str;
 }
 
 // Anything that suspends the monitor.

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "loc/loc.h"
 #include "mon/fil.h"
 #include "mon/str.h"
 #include "sys/mem.h"
@@ -216,7 +217,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
         rln_read_binary(FIL_TIMEOUT_MS, fil_com_rx_mbuf, mbuf, fil_rx_len);
         return;
     }
-    printf("?invalid argument\n");
+    puts(LOC_ERR_INVALID_ARGUMENT);
     fil_state = FIL_IDLE;
     return;
 }

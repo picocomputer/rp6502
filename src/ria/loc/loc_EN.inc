@@ -6,7 +6,7 @@
 
 /* English */
 
-LOC(ERR_INVALID_ARGUMENT, "?invalid argument")
+LOC(ERR_INVALID_ARGUMENT, "?Invalid argument")
 LOC(ERR_MULTI_TEST,
     "?Syntax error"
     "Line 2")
