@@ -7,6 +7,7 @@
 #include "loc/loc.h"
 #include <string.h>
 #include <ctype.h>
+#include <pico.h>
 
 #if defined(DEBUG_RIA_LOC) || defined(DEBUG_RIA_LOC_LOC)
 #include <stdio.h>
@@ -15,6 +16,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Use the RP6502_LOCALE defined in CMakeLists.txt
-#define LOC_LOCALE_(a, b) a##b
-#define LOC_LOCALE LOC_LOCALE_(LOC_, RP6502_LOCALE)
+#define LOC(suffix, name) \
+    const char __in_flash("loc_strings") LOC_##suffix[] = name;
+#include LOC_LOCALE_FILE
+#undef LOC

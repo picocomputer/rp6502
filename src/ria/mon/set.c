@@ -5,6 +5,7 @@
  */
 
 #include "hid/kbd.h"
+#include "loc/loc.h"
 #include "mon/mon.h"
 #include "mon/set.h"
 #include "mon/str.h"
@@ -35,7 +36,8 @@ static void set_phi2(const char *args, size_t len)
         if (!str_parse_uint32(&args, &len, &val) ||
             !str_parse_end(args, len))
         {
-            printf("?invalid argument\n");
+            puts(LOC_ERR_INVALID_ARGUMENT);
+            // puts("?invalid argument");
             return;
         }
         if (!cfg_set_phi2_khz(val))
