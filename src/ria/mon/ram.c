@@ -5,9 +5,8 @@
  */
 
 #include "api/api.h"
-#include "loc/loc.h"
 #include "mon/ram.h"
-#include "mon/str.h"
+#include "str/str.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/rln.h"
@@ -209,7 +208,7 @@ void ram_mon_binary(const char *args, size_t len)
         cmd_state = SYS_BINARY;
         return;
     }
-    puts(LOC_ERR_INVALID_ARGUMENT);
+    puts(STR_ERR_INVALID_ARGUMENT);
 }
 
 void ram_task(void)

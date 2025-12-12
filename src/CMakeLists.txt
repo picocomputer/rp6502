@@ -104,14 +104,12 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/hid/kbd.c
     ria/hid/mou.c
     ria/hid/pad.c
-    ria/loc/loc.c
     ria/mon/fil.c
     ria/mon/hlp.c
     ria/mon/mon.c
     ria/mon/ram.c
     ria/mon/rom.c
     ria/mon/set.c
-    ria/mon/str.c
     ria/mon/vip.c
     ria/net/ble.c
     ria/net/cmd.c
@@ -120,6 +118,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/net/ntp.c
     ria/net/tel.c
     ria/net/wfi.c
+    ria/str/str.c
     ria/sys/cfg.c
     ria/sys/com.c
     ria/sys/cpu.c

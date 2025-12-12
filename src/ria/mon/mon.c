@@ -11,8 +11,8 @@
 #include "mon/ram.h"
 #include "mon/rom.h"
 #include "mon/set.h"
-#include "mon/str.h"
 #include "net/cyw.h"
+#include "str/str.h"
 #include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/rln.h"
@@ -151,12 +151,6 @@ static int mon_str_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     snprintf(buf, buf_size, mon_response_str, state);
-    size_t buf_len = strlen(buf);
-    if (buf_len + 1 < buf_size)
-    {
-        buf[buf_len] = '\n';
-        buf[buf_len + 1] = 0;
-    }
     return -1;
 }
 

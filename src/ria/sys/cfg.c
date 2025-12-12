@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/str.h"
 #include "api/clk.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"

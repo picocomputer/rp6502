@@ -4,16 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/str.h"
+#include "str/str.h"
 #include <string.h>
 #include <ctype.h>
+#include <pico.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_STR)
+#if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+#define X(name, value) \
+    const char __in_flash("STR_strings") name[] = value;
+#include STR_LOCALE_FILE
+#include "str.inc"
+#undef X
 
 int str_xdigit_to_int(char ch)
 {
