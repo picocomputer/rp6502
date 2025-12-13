@@ -270,7 +270,7 @@ static struct
 {
     const char *const attr;
     set_function func;
-} const SETTERS[] = {
+} const SET_ATTRIBUTES[] = {
     {STR_PHI2, set_phi2},
     {STR_BOOT, set_boot},
     {STR_TZ, set_time_zone},
@@ -285,7 +285,7 @@ static struct
     {STR_BLE, set_ble},
 #endif
 };
-static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
+static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
 
 static int set_print_all_response(char *buf, size_t buf_size, int state)
 {
@@ -345,12 +345,12 @@ void set_mon_set(const char *args, size_t len)
         if (args[i] != ' ')
             break;
     size_t args_start = i;
-    for (i = 0; i < SETTERS_COUNT; i++)
+    for (i = 0; i < SET_ATTRIBUTES_COUNT; i++)
     {
-        if (attr_len == strlen(SETTERS[i].attr) &&
-            !strncasecmp(args, SETTERS[i].attr, attr_len))
+        if (attr_len == strlen(SET_ATTRIBUTES[i].attr) &&
+            !strncasecmp(args, SET_ATTRIBUTES[i].attr, attr_len))
         {
-            SETTERS[i].func(&args[args_start], len - args_start);
+            SET_ATTRIBUTES[i].func(&args[args_start], len - args_start);
             return;
         }
     }

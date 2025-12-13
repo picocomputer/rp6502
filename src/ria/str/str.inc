@@ -6,12 +6,34 @@
 
 /* These do not get localized because they are */
 /* part of the API guarantee for the monitor.  */
-/* Very short strings are often left in RAM.   */
 
 #if !defined(X)
 #define X(name, value)
 #endif
 
+// Monitor prompts
+X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
+X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
+// Monitor commands
+X(STR_HELP, "help")
+X(STR_H, "h")
+X(STR_QUESTION_MARK, "?")
+X(STR_STATUS, "status")
+X(STR_SET, "set")
+X(STR_LS, "ls")
+X(STR_DIR, "dir")
+X(STR_CD, "cd")
+X(STR_CHDIR, "chdir")
+X(STR_MKDIR, "mkdir")
+X(STR_LOAD, "load")
+X(STR_INFO, "info")
+X(STR_INSTALL, "install")
+X(STR_REMOVE, "remove")
+X(STR_REBOOT, "reboot")
+X(STR_RESET, "reset")
+X(STR_UPLOAD, "upload")
+X(STR_UNLINK, "unlink")
+X(STR_BINARY, "binary")
 // Settings keys
 X(STR_PHI2, "PHI2")
 X(STR_BOOT, "BOOT")

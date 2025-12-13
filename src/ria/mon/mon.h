@@ -23,7 +23,6 @@ void mon_break(void);
 // This handles pagination without blocking.
 void mon_set_response_fn(int (*fn)(char *, size_t, int));
 void mon_set_response_str(const char *str);
-void mon_set_response_str_int(const char *str, int i);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.

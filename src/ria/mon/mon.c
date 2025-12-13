@@ -20,7 +20,6 @@
 #include <pico.h>
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_MON)
@@ -36,35 +35,35 @@ static int mon_response_pos = -1;
 static const char *mon_response_str;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
+static bool mon_needs_read_line = false;
 
 typedef void (*mon_function)(const char *, size_t);
 __in_flash("mon_commands") static struct
 {
-    size_t cmd_len;
     const char *const cmd;
     mon_function func;
-} const COMMANDS[] = {
-    {4, "help", hlp_mon_help},
-    {1, "h", hlp_mon_help},
-    {1, "?", hlp_mon_help},
-    {6, "status", sys_mon_status},
-    {3, "set", set_mon_set},
-    {2, "ls", fil_mon_ls},
-    {3, "dir", fil_mon_ls},
-    {2, "cd", fil_mon_chdir},
-    {5, "chdir", fil_mon_chdir},
-    {5, "mkdir", fil_mon_mkdir},
-    {4, "load", rom_mon_load},
-    {4, "info", rom_mon_info},
-    {7, "install", rom_mon_install},
-    {6, "remove", rom_mon_remove},
-    {6, "reboot", sys_mon_reboot},
-    {5, "reset", sys_mon_reset},
-    {6, "upload", fil_mon_upload},
-    {6, "unlink", fil_mon_unlink},
-    {6, "binary", ram_mon_binary},
+} const MON_COMMANDS[] = {
+    {STR_HELP, hlp_mon_help},
+    {STR_H, hlp_mon_help},
+    {STR_QUESTION_MARK, hlp_mon_help},
+    {STR_STATUS, sys_mon_status},
+    {STR_SET, set_mon_set},
+    {STR_LS, fil_mon_ls},
+    {STR_DIR, fil_mon_ls},
+    {STR_CD, fil_mon_chdir},
+    {STR_CHDIR, fil_mon_chdir},
+    {STR_MKDIR, fil_mon_mkdir},
+    {STR_LOAD, rom_mon_load},
+    {STR_INFO, rom_mon_info},
+    {STR_INSTALL, rom_mon_install},
+    {STR_REMOVE, rom_mon_remove},
+    {STR_REBOOT, sys_mon_reboot},
+    {STR_RESET, sys_mon_reset},
+    {STR_UPLOAD, fil_mon_upload},
+    {STR_UNLINK, fil_mon_unlink},
+    {STR_BINARY, ram_mon_binary},
 };
-static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
 // Returns NULL if not found. Advances buf to start of args.
 static mon_function mon_command_lookup(const char **buf, size_t buflen)
@@ -111,11 +110,11 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
         return fil_mon_chdrive;
     }
     *buf += i;
-    for (i = 0; i < COMMANDS_COUNT; i++)
+    for (i = 0; i < MON_COMMANDS_COUNT; i++)
     {
-        if (cmd_len == COMMANDS[i].cmd_len)
-            if (!strncasecmp(cmd, COMMANDS[i].cmd, cmd_len))
-                return COMMANDS[i].func;
+        if (cmd_len == strlen(MON_COMMANDS[i].cmd))
+            if (!strncasecmp(cmd, MON_COMMANDS[i].cmd, cmd_len))
+                return MON_COMMANDS[i].func;
     }
     return NULL;
 }
@@ -136,7 +135,7 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
         return func(args, length - (args - buf));
     if (rom_load_installed(buf, length))
         return;
-    // Supress error on blank lines
+    // Supress error for empty lines
     for (const char *b = buf; b < args; b++)
         if (b[0] != ' ')
             return mon_set_response_str(STR_ERR_UNKNOWN_COMMAND);
@@ -164,16 +163,6 @@ void mon_set_response_str(const char *str)
     mon_response_str = str;
 }
 
-void mon_set_response_str_int(const char *str, int i)
-{
-    assert(mon_response_state < 0 && mon_response_pos < 0);
-    assert(i >= 0);
-    mon_response_fn = mon_str_response;
-    mon_response_state = i;
-    mon_response_str = str;
-}
-
-// Anything that suspends the monitor.
 static bool mon_suspended(void)
 {
     return main_active() ||
@@ -202,12 +191,17 @@ void mon_task(void)
     }
     else if (mon_needs_prompt && !mon_suspended())
     {
-        printf("\30\33[0m\33[?25h");
         if (mon_needs_newline)
-            putchar('\n');
-        putchar(']');
+            mon_set_response_str(STR_MON_PROMPT_NEWLINE);
+        else
+            mon_set_response_str(STR_MON_PROMPT);
         mon_needs_prompt = false;
         mon_needs_newline = false;
+        mon_needs_read_line = true;
+    }
+    else if (mon_needs_read_line)
+    {
+        mon_needs_read_line = false;
         rln_read_line(0, mon_enter, 256, 0);
     }
 }
