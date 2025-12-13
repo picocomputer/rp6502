@@ -20,7 +20,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define X(name, value) \
     const char __in_flash("str_strings") name[] = value;
 #include "str.inc"
-#include STR_LOCALE_FILE
+#include RP6502_LOCALE
 #undef X
 
 int str_xdigit_to_int(char ch)

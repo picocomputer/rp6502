@@ -265,8 +265,7 @@ static void set_kbd_layout(const char *args, size_t len)
 }
 
 typedef void (*set_function)(const char *, size_t);
-__in_flash("set_setters")
-static struct
+__in_flash("set_attributes") static struct
 {
     const char *const attr;
     set_function func;

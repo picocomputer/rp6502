@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Change chars 0-9 a-f A-F to a binary int, no error checking
+// Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
 
 // Parse everything else as a string, truncating trailing spaces.
@@ -48,16 +48,15 @@ bool str_parse_rom_name(const char **args, size_t *len, char *name);
 // Ensure there are no more arguments.
 bool str_parse_end(const char *args, size_t len);
 
-// Part 1 of putting string literals into flash.
+//TODO
 #define _STR_STRINGIFY(x) #x
-#define _STR_CONCAT_(a, b) a##b
-#define _STR_CONCAT(a, b) _STR_CONCAT_(a, b)
-#define _STR_MAKE_FILENAME(base) _STR_STRINGIFY(base.inc)
-#define STR_LOCALE_FILE _STR_MAKE_FILENAME(_STR_CONCAT(str_, RP6502_LOCALE))
+#define STR_STRINGIFY(x) _STR_STRINGIFY(x)
+
+// Part 1 of putting string literals into flash.
 #define X(name, value) \
     extern const char name[];
 #include "str.inc"
-#include STR_LOCALE_FILE
+#include RP6502_LOCALE
 #undef X
 
 #endif /* _RIA_STR_STR_H_ */
