@@ -10,8 +10,8 @@
 #define X(name, value)
 #endif
 
-X(STR_ERR_INVALID_ARGUMENT, "?Invalid argument\n")
-X(STR_ERR_ROM_NOT_INSTALLED, "?ROM not installed\n")
+X(STR_ERR_INVALID_ARGUMENT, "?invalid argument\n")
+X(STR_ERR_UNKNOWN_COMMAND, "?unknown command\n")
 
 X(STR_ON, "On")
 X(STR_OFF, "Off")

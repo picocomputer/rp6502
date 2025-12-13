@@ -38,12 +38,12 @@ static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 
 typedef void (*mon_function)(const char *, size_t);
-static struct
+__in_flash("mon_commands") static struct
 {
     size_t cmd_len;
     const char *const cmd;
     mon_function func;
-} const __in_flash("mon_commands") COMMANDS[] = {
+} const COMMANDS[] = {
     {4, "help", hlp_mon_help},
     {1, "h", hlp_mon_help},
     {1, "?", hlp_mon_help},
@@ -136,12 +136,10 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
         return func(args, length - (args - buf));
     if (rom_load_installed(buf, length))
         return;
+    // Supress error on blank lines
     for (const char *b = buf; b < args; b++)
         if (b[0] != ' ')
-        {
-            printf("?unknown command\n");
-            break;
-        }
+            return mon_set_response_str(STR_ERR_UNKNOWN_COMMAND);
 }
 
 static int mon_str_response(char *buf, size_t buf_size, int state)

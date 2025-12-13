@@ -265,24 +265,24 @@ static void set_kbd_layout(const char *args, size_t len)
 }
 
 typedef void (*set_function)(const char *, size_t);
+__in_flash("set_setters")
 static struct
 {
-    size_t attr_len;
     const char *const attr;
     set_function func;
 } const SETTERS[] = {
-    {4, "phi2", set_phi2},
-    {4, "boot", set_boot},
-    {2, "tz", set_time_zone},
-    {2, "kb", set_kbd_layout},
-    {2, "cp", set_code_page},
-    {3, "vga", set_vga},
+    {STR_PHI2, set_phi2},
+    {STR_BOOT, set_boot},
+    {STR_TZ, set_time_zone},
+    {STR_KB, set_kbd_layout},
+    {STR_CP, set_code_page},
+    {STR_VGA, set_vga},
 #ifdef RP6502_RIA_W
-    {2, "rf", set_rf},
-    {4, "rfcc", set_rfcc},
-    {4, "ssid", set_ssid},
-    {4, "pass", set_pass},
-    {3, "ble", set_ble},
+    {STR_RF, set_rf},
+    {STR_RFCC, set_rfcc},
+    {STR_SSID, set_ssid},
+    {STR_PASS, set_pass},
+    {STR_BLE, set_ble},
 #endif
 };
 static const size_t SETTERS_COUNT = sizeof SETTERS / sizeof *SETTERS;
@@ -347,7 +347,7 @@ void set_mon_set(const char *args, size_t len)
     size_t args_start = i;
     for (i = 0; i < SETTERS_COUNT; i++)
     {
-        if (attr_len == SETTERS[i].attr_len &&
+        if (attr_len == strlen(SETTERS[i].attr) &&
             !strncasecmp(args, SETTERS[i].attr, attr_len))
         {
             SETTERS[i].func(&args[args_start], len - args_start);

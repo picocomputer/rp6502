@@ -12,6 +12,19 @@
 #define X(name, value)
 #endif
 
+// Settings keys
+X(STR_PHI2, "PHI2")
+X(STR_BOOT, "BOOT")
+X(STR_TZ, "TZ")
+X(STR_KB, "KB")
+X(STR_CP, "CP")
+X(STR_VGA, "VGA")
+X(STR_RF, "RF")
+X(STR_RFCC, "RFCC")
+X(STR_SSID, "SSID")
+X(STR_PASS, "PASS")
+X(STR_BLE, "BLE")
+// Settings interface
 X(STR_SET_PHI2_RESPONSE, "PHI2: %ld kHz\n")
 X(STR_SET_BOOT_RESPONSE, "BOOT: %s\n")
 X(STR_SET_CODE_PAGE_DEV_RESPONSE, "CP  : %d (dev)\n")
