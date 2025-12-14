@@ -42,4 +42,6 @@ bool rom_load_installed(const char *args, size_t len);
 // Display help from an installed ROM.
 void rom_mon_help(const char *args, size_t len);
 
+int rom_installed_response(char *buf, size_t buf_size, int state);
+
 #endif /* _RIA_MON_ROM_H_ */

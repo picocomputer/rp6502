@@ -16,6 +16,7 @@
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include <fatfs/ff.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
 #include <stdio.h>
@@ -470,4 +471,97 @@ bool rom_active(void)
 void rom_break(void)
 {
     rom_state = ROM_IDLE;
+}
+
+// Use width=0 to supress printing. Returns count.
+// Anything with only uppercase letters is counted.
+static uint32_t rom_installed_list(uint32_t width)
+{
+    uint32_t count = 0;
+    uint32_t col = 0;
+    lfs_dir_t lfs_dir;
+    struct lfs_info lfs_info;
+    int result = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
+    if (result < 0)
+    {
+        printf("?Unable to open ROMs directory (%d)\n", result);
+        return 0;
+    }
+    while (true)
+    {
+        result = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
+        if (!result)
+            break;
+        if (result < 0)
+        {
+            printf("?Error reading ROMs directory (%d)\n", result);
+            count = 0;
+            break;
+        }
+        bool is_ok = true;
+        size_t len = strlen(lfs_info.name);
+        for (size_t i = 0; i < len; i++)
+        {
+            char ch = lfs_info.name[i];
+            if (!(i && isdigit(ch)) && !isupper(ch))
+                is_ok = false;
+        }
+        if (is_ok && width)
+        {
+            if (count)
+            {
+                putchar(',');
+                col += 1;
+            }
+            if (col + len > width - 2)
+            {
+                printf("\n%s", lfs_info.name);
+                col = len;
+            }
+            else
+            {
+                if (col)
+                {
+                    putchar(' ');
+                    col += 1;
+                }
+                printf("%s", lfs_info.name);
+                col += len;
+            }
+        }
+        if (is_ok)
+            count++;
+    }
+    if (width)
+    {
+        if (count)
+        {
+            putchar('.');
+            col++;
+        }
+        putchar('\n');
+    }
+    result = lfs_dir_close(&lfs_volume, &lfs_dir);
+    if (result < 0)
+    {
+        printf("?Error closing ROMs directory (%d)\n", result);
+        count = 0;
+    }
+    return count;
+}
+
+int rom_installed_response(char *buf, size_t buf_size, int state)
+{
+    (void)(buf);
+    (void)(buf_size);
+    (void)(state);
+    uint32_t rom_count = rom_installed_list(0);
+    if (rom_count)
+    {
+        printf("%ld installed ROM%s:\n", rom_count, rom_count == 1 ? "" : "s");
+        rom_installed_list(79);
+    }
+    else
+        printf("No installed ROMs.\n");
+    return -1;
 }

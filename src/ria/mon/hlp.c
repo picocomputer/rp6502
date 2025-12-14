@@ -86,98 +86,6 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-// Use width=0 to supress printing. Returns count.
-// Anything with only uppercase letters is counted.
-static uint32_t hlp_roms_list(uint32_t width)
-{
-    uint32_t count = 0;
-    uint32_t col = 0;
-    lfs_dir_t lfs_dir;
-    struct lfs_info lfs_info;
-    int result = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
-    if (result < 0)
-    {
-        printf("?Unable to open ROMs directory (%d)\n", result);
-        return 0;
-    }
-    while (true)
-    {
-        result = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
-        if (!result)
-            break;
-        if (result < 0)
-        {
-            printf("?Error reading ROMs directory (%d)\n", result);
-            count = 0;
-            break;
-        }
-        bool is_ok = true;
-        size_t len = strlen(lfs_info.name);
-        for (size_t i = 0; i < len; i++)
-        {
-            char ch = lfs_info.name[i];
-            if (!(i && isdigit(ch)) && !isupper(ch))
-                is_ok = false;
-        }
-        if (is_ok && width)
-        {
-            if (count)
-            {
-                putchar(',');
-                col += 1;
-            }
-            if (col + len > width - 2)
-            {
-                printf("\n%s", lfs_info.name);
-                col = len;
-            }
-            else
-            {
-                if (col)
-                {
-                    putchar(' ');
-                    col += 1;
-                }
-                printf("%s", lfs_info.name);
-                col += len;
-            }
-        }
-        if (is_ok)
-            count++;
-    }
-    if (width)
-    {
-        if (count)
-        {
-            putchar('.');
-            col++;
-        }
-        putchar('\n');
-    }
-    result = lfs_dir_close(&lfs_volume, &lfs_dir);
-    if (result < 0)
-    {
-        printf("?Error closing ROMs directory (%d)\n", result);
-        count = 0;
-    }
-    return count;
-}
-
-static void hlp_help(const char *args, size_t len)
-{
-    (void)(args);
-    (void)(len);
-    printf(STR_HELP_HELP);
-    uint32_t rom_count = hlp_roms_list(0);
-    if (rom_count)
-    {
-        printf("%ld installed ROM%s:\n", rom_count, rom_count == 1 ? "" : "s");
-        hlp_roms_list(79);
-    }
-    else
-        printf("No installed ROMs.\n");
-}
-
 static void help_response_lookup(const char *args, size_t len)
 {
     hlp_response_ptr = NULL;
@@ -255,10 +163,17 @@ static int hlp_response(char *buf, size_t buf_size, int state)
 void hlp_mon_help(const char *args, size_t len)
 {
     if (!len)
-        return hlp_help(args, len);
-    while (len && args[len - 1] == ' ')
-        len--;
-    help_response_lookup(args, len);
+    {
+        hlp_response_ptr = STR_HELP_HELP;
+        hlp_response_next_fn = rom_installed_response;
+        mon_set_response_fn(hlp_response);
+    }
+    else
+    {
+        while (len && args[len - 1] == ' ')
+            len--;
+        help_response_lookup(args, len);
+    }
     if (hlp_response_ptr)
         mon_set_response_fn(hlp_response);
     else
