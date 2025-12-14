@@ -6,6 +6,7 @@
 
 #include "hid/kbd.h"
 #include "mon/hlp.h"
+#include "mon/mon.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
 #include "str/str.h"
@@ -206,26 +207,32 @@ static const char *help_text_lookup(const char *args, size_t len)
     return NULL;
 }
 
+static const char *hlp_response_ptr;
+
+static int hlp_response(char *buf, size_t buf_size, int state)
+{
+    (void)buf;
+    (void)buf_size;
+    (void)state;
+    puts(hlp_response_ptr);
+    if (hlp_response_ptr == STR_HELP_ABOUT)
+        vip_print();
+    if (hlp_response_ptr == STR_HELP_SET_KB)
+        kbd_print_layouts();
+    return -1;
+}
+
 void hlp_mon_help(const char *args, size_t len)
 {
     if (!len)
         return hlp_help(args, len);
     while (len && args[len - 1] == ' ')
         len--;
-    const char *text = help_text_lookup(args, len);
-    if (text)
-    {
-        puts(text);
-        if (text == STR_HELP_ABOUT)
-            vip_print();
-        if (text == STR_HELP_SET_KB)
-            kbd_print_layouts();
-    }
+    hlp_response_ptr = help_text_lookup(args, len);
+    if (hlp_response_ptr)
+        mon_set_response_fn(hlp_response);
     else
-    {
-        if (!rom_help(args, len))
-            puts("?No help found.");
-    }
+        rom_mon_help(args, len);
 }
 
 bool hlp_topic_exists(const char *buf, size_t buflen)

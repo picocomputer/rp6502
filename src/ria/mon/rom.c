@@ -369,15 +369,14 @@ void rom_mon_info(const char *args, size_t len)
 
 // Returns false and prints nothing if ROM not found.
 // Something will always print before returning true.
-bool rom_help(const char *args, size_t len)
+void rom_mon_help(const char *args, size_t len)
 {
+    struct lfs_info info;
     char lfs_name[LFS_NAME_MAX + 1];
     if (str_parse_rom_name(&args, &len, lfs_name) &&
-        str_parse_end(args, len))
+        str_parse_end(args, len) &&
+        lfs_stat(&lfs_volume, lfs_name, &info) >= 0)
     {
-        struct lfs_info info;
-        if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
-            return false;
         bool found = false;
         if (rom_open(lfs_name, false))
             while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
@@ -387,9 +386,9 @@ bool rom_help(const char *args, size_t len)
             }
         if (!found)
             puts("?No help found in ROM.");
-        return true; // even when !found
+        return;
     }
-    return false;
+    mon_set_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
 static bool rom_action_is_finished(void)
