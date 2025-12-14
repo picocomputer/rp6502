@@ -14,7 +14,8 @@
 // Monitor prompts
 X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
 X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
-// Monitor commands
+
+// Monitor keywords
 X(STR_HELP, "HELP")
 X(STR_H, "H")
 X(STR_QUESTION_MARK, "?")
@@ -34,7 +35,6 @@ X(STR_RESET, "RESET")
 X(STR_UPLOAD, "UPLOAD")
 X(STR_UNLINK, "UNLINK")
 X(STR_BINARY, "BINARY")
-// Settings keys
 X(STR_PHI2, "PHI2")
 X(STR_BOOT, "BOOT")
 X(STR_TZ, "TZ")
@@ -46,6 +46,22 @@ X(STR_RFCC, "RFCC")
 X(STR_SSID, "SSID")
 X(STR_PASS, "PASS")
 X(STR_BLE, "BLE")
+X(STR_ABOUT, "ABOUT")
+X(STR_CREDITS, "CREDITS")
+X(STR_SYSTEM, "SYSTEM")
+X(STR_0, "0")
+X(STR_0000, "0000")
+X(STR_0_COLON, "0:")
+X(STR_1_COLON, "1:")
+X(STR_2_COLON, "2:")
+X(STR_3_COLON, "3:")
+X(STR_4_COLON, "4:")
+X(STR_5_COLON, "5:")
+X(STR_6_COLON, "6:")
+X(STR_7_COLON, "7:")
+X(STR_8_COLON, "8:")
+X(STR_9_COLON, "9:")
+
 // Settings interface
 X(STR_SET_PHI2_RESPONSE, "PHI2: %ld kHz\n")
 X(STR_SET_BOOT_RESPONSE, "BOOT: %s\n")

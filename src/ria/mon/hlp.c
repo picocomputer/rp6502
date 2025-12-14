@@ -20,67 +20,65 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static struct
+__in_flash("hlp_commands") static struct
 {
-    size_t cmd_len;
     const char *const cmd;
     const char *const text;
-} const COMMANDS[] = {
-    {3, "set", hlp_text_set}, // must be first
-    {6, "status", hlp_text_status},
-    {5, "about", hlp_text_about},
-    {7, "credits", hlp_text_about},
-    {6, "system", hlp_text_system},
-    {1, "0", hlp_text_system},
-    {4, "0000", hlp_text_system},
-    {2, "ls", hlp_text_dir},
-    {3, "dir", hlp_text_dir},
-    {2, "cd", hlp_text_dir},
-    {5, "chdir", hlp_text_dir},
-    {5, "mkdir", hlp_text_mkdir},
-    {2, "0:", hlp_text_dir},
-    {2, "1:", hlp_text_dir},
-    {2, "2:", hlp_text_dir},
-    {2, "3:", hlp_text_dir},
-    {2, "4:", hlp_text_dir},
-    {2, "5:", hlp_text_dir},
-    {2, "6:", hlp_text_dir},
-    {2, "7:", hlp_text_dir},
-    {2, "8:", hlp_text_dir},
-    {2, "9:", hlp_text_dir},
-    {4, "load", hlp_text_load},
-    {4, "info", hlp_text_load},
-    {7, "install", hlp_text_install},
-    {6, "remove", hlp_text_install},
-    {6, "reboot", hlp_text_reboot},
-    {5, "reset", hlp_text_reset},
-    {6, "upload", hlp_text_upload},
-    {6, "unlink", hlp_text_unlink},
-    {6, "binary", hlp_text_binary},
+} const HLP_COMMANDS[] = {
+    {STR_SET, STR_HELP_SET},
+    {STR_STATUS, STR_HELP_STATUS},
+    {STR_ABOUT, STR_HELP_ABOUT},
+    {STR_CREDITS, STR_HELP_ABOUT},
+    {STR_SYSTEM, STR_HELP_SYSTEM},
+    {STR_0, STR_HELP_SYSTEM},
+    {STR_0000, STR_HELP_SYSTEM},
+    {STR_LS, STR_HELP_DIR},
+    {STR_DIR, STR_HELP_DIR},
+    {STR_CD, STR_HELP_DIR},
+    {STR_CHDIR, STR_HELP_DIR},
+    {STR_MKDIR, STR_HELP_MKDIR},
+    {STR_0_COLON, STR_HELP_DIR},
+    {STR_1_COLON, STR_HELP_DIR},
+    {STR_2_COLON, STR_HELP_DIR},
+    {STR_3_COLON, STR_HELP_DIR},
+    {STR_4_COLON, STR_HELP_DIR},
+    {STR_5_COLON, STR_HELP_DIR},
+    {STR_6_COLON, STR_HELP_DIR},
+    {STR_7_COLON, STR_HELP_DIR},
+    {STR_8_COLON, STR_HELP_DIR},
+    {STR_9_COLON, STR_HELP_DIR},
+    {STR_LOAD, STR_HELP_LOAD},
+    {STR_INFO, STR_HELP_LOAD},
+    {STR_INSTALL, STR_HELP_INSTALL},
+    {STR_REMOVE, STR_HELP_INSTALL},
+    {STR_REBOOT, STR_HELP_REBOOT},
+    {STR_RESET, STR_HELP_RESET},
+    {STR_UPLOAD, STR_HELP_UPLOAD},
+    {STR_UNLINK, STR_HELP_UNLINK},
+    {STR_BINARY, STR_HELP_BINARY},
 };
-static const size_t COMMANDS_COUNT = sizeof COMMANDS / sizeof *COMMANDS;
+static const size_t COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
 
-static struct
+__in_flash("hlp_settings") static struct
 {
-    size_t set_len;
     const char *const cmd;
     const char *const text;
-} const SETTINGS[] = {
-    {4, "phi2", hlp_text_set_phi2},
-    {4, "boot", hlp_text_set_boot},
-    {2, "tz", hlp_text_set_tz},
-    {2, "kb", hlp_text_set_kb},
-    {2, "cp", hlp_text_set_cp},
-    {3, "vga", hlp_text_set_vga},
+} const HLP_SETTINGS[] = {
+    {STR_PHI2, STR_HELP_SET_PHI2},
+    {STR_BOOT, STR_HELP_SET_BOOT},
+    {STR_TZ, STR_HELP_SET_TZ},
+    {STR_KB, STR_HELP_SET_KB},
+    {STR_CP, STR_HELP_SET_CP},
+    {STR_VGA, STR_HELP_SET_VGA},
 #ifdef RP6502_RIA_W
-    {2, "rf", hlp_text_set_rf},
-    {4, "rfcc", hlp_text_set_rfcc},
-    {4, "ssid", hlp_text_set_ssid},
-    {4, "pass", hlp_text_set_pass},
-    {3, "ble", hlp_text_set_ble},
+    {STR_RF, STR_HELP_SET_RF},
+    {STR_RFCC, STR_HELP_SET_RFCC},
+    {STR_SSID, STR_HELP_SET_SSID},
+    {STR_PASS, STR_HELP_SET_PASS},
+    {STR_BLE, STR_HELP_SET_BLE},
 #endif
 };
-static const size_t SETTINGS_COUNT = sizeof SETTINGS / sizeof *SETTINGS;
+static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
 // Use width=0 to supress printing. Returns count.
 // Anything with only uppercase letters is counted.
@@ -163,7 +161,7 @@ static void hlp_help(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
-    puts(STR_HLP_HELP);
+    puts(STR_HELP_HELP);
     uint32_t rom_count = hlp_roms_list(0);
     if (rom_count)
     {
@@ -182,7 +180,7 @@ static const char *help_text_lookup(const char *args, size_t len)
         if (args[cmd_len] == ' ')
             break;
     // SET command has another level of help
-    if (cmd_len == COMMANDS[0].cmd_len && !strncasecmp(args, COMMANDS[0].cmd, cmd_len))
+    if (cmd_len == strlen(STR_SET) && !strncasecmp(args, STR_SET, cmd_len))
     {
         args += cmd_len;
         len -= cmd_len;
@@ -193,18 +191,18 @@ static const char *help_text_lookup(const char *args, size_t len)
             if (args[set_len] == ' ')
                 break;
         if (!set_len)
-            return COMMANDS[0].text;
+            return STR_HELP_SET;
         for (size_t i = 0; i < SETTINGS_COUNT; i++)
-            if (set_len == SETTINGS[i].set_len)
-                if (!strncasecmp(args, SETTINGS[i].cmd, set_len))
-                    return SETTINGS[i].text;
+            if (set_len == strlen(HLP_SETTINGS[i].cmd))
+                if (!strncasecmp(args, HLP_SETTINGS[i].cmd, set_len))
+                    return HLP_SETTINGS[i].text;
         return NULL;
     }
     // Help for commands and a couple special words.
     for (size_t i = 1; i < COMMANDS_COUNT; i++)
-        if (cmd_len == COMMANDS[i].cmd_len)
-            if (!strncasecmp(args, COMMANDS[i].cmd, cmd_len))
-                return COMMANDS[i].text;
+        if (cmd_len == strlen(HLP_COMMANDS[i].cmd))
+            if (!strncasecmp(args, HLP_COMMANDS[i].cmd, cmd_len))
+                return HLP_COMMANDS[i].text;
     return NULL;
 }
 
@@ -218,9 +216,9 @@ void hlp_mon_help(const char *args, size_t len)
     if (text)
     {
         puts(text);
-        if (text == hlp_text_about)
+        if (text == STR_HELP_ABOUT)
             vip_print();
-        if (text == hlp_text_set_kb)
+        if (text == STR_HELP_SET_KB)
             kbd_print_layouts();
     }
     else

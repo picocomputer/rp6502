@@ -5,6 +5,7 @@
  */
 
 #include "str/str.h"
+#include "sys/cpu.h"
 #include <string.h>
 #include <ctype.h>
 #include <pico.h>
@@ -20,6 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // This scope hides it from accidental use as a RAM literal.
 #define _STRINGIFY(x) #x
 #define STRINGIFY(x) _STRINGIFY(x)
+static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX STRINGIFY(CPU_PHI2_MIN_KHZ) "-" STRINGIFY(CPU_PHI2_MAX_KHZ)
 #define STR_RP6502_CODE_PAGE STRINGIFY(RP6502_CODE_PAGE)
 

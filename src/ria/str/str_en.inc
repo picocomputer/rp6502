@@ -23,7 +23,7 @@ X(STR_PARENS_SET, "(set)")
 X(STR_BLE_PAIRING, ", pairing")
 X(STR_BLE_NO_RF, ", no RF")
 
-X(STR_HLP_HELP,
+X(STR_HELP_HELP,
   "Commands:\n"
   "HELP (command|rom)  - This help or expanded help for command or rom.\n"
   "HELP ABOUT|SYSTEM   - About includes credits. System for general usage.\n"
@@ -45,7 +45,7 @@ X(STR_HLP_HELP,
   "BINARY addr len crc - Write memory. Binary data follows.\n"
   "0000 (00 00 ...)    - Read or write memory.")
 
-X(hlp_text_set,
+X(STR_HELP_SET,
   "Settings:\n"
   "HELP SET attr       - Show information about a setting.\n"
   "SET PHI2 (kHz)      - Query or set PHI2 speed. This is the 6502 clock.\n"
@@ -64,7 +64,7 @@ X(hlp_text_set,
 #endif
   "")
 
-X(hlp_text_about,
+X(STR_HELP_ABOUT,
   "Picocomputer 6502 - Copyright (c) 2025 Rumbledethumps.\n"
   "     Pi Pico SDKs - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
   "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
@@ -82,7 +82,7 @@ X(hlp_text_about,
 #endif
   "")
 
-X(hlp_text_system,
+X(STR_HELP_SYSTEM,
   "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
   "similar. Instead, this monitor is used to prepare the 6502 RAM with software\n"
   "that would normally be on a ROM chip. The 6502 is currently in-reset right\n"
@@ -100,15 +100,15 @@ X(hlp_text_system,
   "This is useful for some light debugging, but the real power is from the other\n"
   "commands you can explore with this help system. Have fun!")
 
-X(hlp_text_dir,
+X(STR_HELP_DIR,
   "LS (also aliased as DIR) and CD are used to navigate USB mass storage\n"
   "devices. You can change to a different USB device with 0: to 7:. Use the\n"
   "STATUS command to get a list of mounted drives.")
 
-X(hlp_text_mkdir,
+X(STR_HELP_MKDIR,
   "MKDIR is used to create new directories. Use UNLINK to remove empty directories.")
 
-X(hlp_text_load,
+X(STR_HELP_LOAD,
   "LOAD and INFO read ROM files from a USB drive. A ROM file contains both\n"
   "ASCII information for the user and binary information for the system.\n"
   "Lines may end with either LF or CRLF. The first line must be:\n"
@@ -123,7 +123,7 @@ X(hlp_text_load,
   "If the ROM file contains data for the reset vector $FFFC-$FFFD then the\n"
   "6502 will be reset (started) immediately after loading.")
 
-X(hlp_text_install,
+X(STR_HELP_INSTALL,
   "INSTALL and REMOVE manage the ROMs installed in the RP6502 RIA flash memory.\n"
   "ROM files must contain a reset vector to be installed. A list of installed\n"
   "ROMs is shown on the base HELP screen. Once installed, these ROMs become an\n"
@@ -133,15 +133,15 @@ X(hlp_text_install,
   "letters and numbers. If the file contains an extension, it must be \".rp6502\",\n"
   "which will be stripped upon install.")
 
-X(hlp_text_reboot,
+X(STR_HELP_REBOOT,
   "REBOOT will restart the RP6502-RIA. It does the same thing as pressing a\n"
   "reboot button attached to the RIA RUN pin or interrupting the power supply.")
 
-X(hlp_text_reset,
+X(STR_HELP_RESET,
   "RESET will start the 6502 by bringing RESB high. This monitor will be\n"
   "suspended until the 6502 stops with a UART break, CTRL-ALT-DEL, or exit().\n")
 
-X(hlp_text_upload,
+X(STR_HELP_UPLOAD,
   "UPLOAD is used to send a file from another system to the local filesystem.\n"
   "The file may be any type with any name and will overwrite an existing file\n"
   "of the same name. For example, you can send a ROM file along with other\n"
@@ -159,42 +159,42 @@ X(hlp_text_upload,
   "}END\n"
   "You will return to a \"]\" prompt on success or \"?\" error on failure.")
 
-X(hlp_text_unlink,
+X(STR_HELP_UNLINK,
   "UNLINK removes a file. Its intended use is for scripting on another system\n"
   "connected to the monitor. For example, you might want to delete save data\n"
   "as part of automated testing.")
 
-X(hlp_text_binary,
+X(STR_HELP_BINARY,
   "BINARY is the fastest way to get code or data from your build system to the\n"
   "6502 RAM. Use the command \"BINARY addr len crc\" with a maximum length of 1024\n"
   "bytes and the CRC-32 calculated with a zip library. Then send the binary.\n"
   "You will return to a \"]\" prompt on success or \"?\" error on failure.")
 
-X(hlp_text_status,
+X(STR_HELP_STATUS,
   "STATUS will show the status of all hardware in and connected to the RIA.")
 
-X(hlp_text_set_phi2,
+X(STR_HELP_SET_PHI2,
   "PHI2 is the 6502 clock speed in kHz. The valid range is " STR_PHI2_MIN_MAX " but not all\n"
   "frequencies are available. In that case, the next highest frequency will\n"
   "be automatically calculated and selected. Setting is saved on the RIA flash.")
 
-X(hlp_text_set_boot,
+X(STR_HELP_SET_BOOT,
   "BOOT selects an installed ROM to be automatically loaded and started when the\n"
   "system is powered up or rebooted. For example, you might want the system to\n"
   "immediately boot into BASIC or an operating system CLI. Using \"-\" for the\n"
   "argument will have the system boot into the monitor you are using now.\n"
   "Setting is saved on the RIA flash.")
 
-X(hlp_text_set_tz,
+X(STR_HELP_SET_TZ,
   "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
   "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
   "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
   "The easiest way to get this is to ask an AI \"posix tz for {your location}\".")
 
-X(hlp_text_set_kb,
+X(STR_HELP_SET_KB,
   "SET KB selects a keyboard layout. e.g. SET KB US")
 
-X(hlp_text_set_cp,
+X(STR_HELP_SET_CP,
   "SET CP selects a code page for system text. The following is supported:\n"
   "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
   "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
@@ -204,7 +204,7 @@ X(hlp_text_set_cp,
 #endif
   "")
 
-X(hlp_text_set_vga,
+X(STR_HELP_SET_VGA,
   "SET VGA selects the display type for VGA output. All canvas resolutions are\n"
   "supported by all display types. Display type is used to maintain square\n"
   "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
@@ -213,23 +213,23 @@ X(hlp_text_set_vga,
   "  1 - 640x480 and 1280x720, for 16:9 displays\n"
   "  2 - 1280x1024, for 5:4 SXGA displays")
 
-X(hlp_text_set_rf,
+X(STR_HELP_SET_RF,
   "SET RF (0|1) turns all radios off or on.")
 
-X(hlp_text_set_rfcc,
+X(STR_HELP_SET_RFCC,
   "Set this so the CYW43 can use the best radio frequencies for your country.\n"
   "Using \"-\" will clear the country code and default to a worldwide setting.\n"
   "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
   "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
   "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.")
 
-X(hlp_text_set_ssid,
+X(STR_HELP_SET_SSID,
   "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"
   "disable WiFi.")
 
-X(hlp_text_set_pass,
+X(STR_HELP_SET_PASS,
   "This is the password for your WiFi network. Use \"-\" to clear password.")
 
-X(hlp_text_set_ble,
+X(STR_HELP_SET_BLE,
   "Setting 0 disables Bluetooth LE. Setting 1 enables. Setting 2 enters pairing\n"
   "mode which will remain active until successful.")
