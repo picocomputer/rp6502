@@ -55,7 +55,7 @@ void kbd_stop(void);
 const char *kbd_set_layout(const char *kb);
 
 // Used by help to print layouts
-void kbd_print_layouts(void);
+int kbd_layouts_response(char *buf, size_t buf_size, int state);
 
 // Called when code page changes so cache can be rebuilt
 void kbd_rebuild_code_page_cache(void);

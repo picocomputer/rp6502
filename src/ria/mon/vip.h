@@ -12,6 +12,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void vip_print(void);
+int vip_response(char *buf, size_t buf_size, int state);
 
 #endif /* _RIA_MON_VIP_H_ */

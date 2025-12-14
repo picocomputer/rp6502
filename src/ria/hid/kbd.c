@@ -622,8 +622,11 @@ const char *kbd_set_layout(const char *kb)
     return kbd_layout_names[kbd_layout_index];
 }
 
-void kbd_print_layouts(void)
+int kbd_layouts_response(char *buf, size_t buf_size, int state)
 {
+    (void)buf;
+    (void)buf_size;
+    (void)state;
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     int maxlex = 0;
     for (int i = 0; i < layouts_count; i++)
@@ -636,6 +639,7 @@ void kbd_print_layouts(void)
     {
         printf(" %*s - %s\n", maxlex, kbd_layout_names[i], kbd_layout_descriptions[i]);
     }
+    return -1;
 }
 
 void kbd_rebuild_code_page_cache(void)

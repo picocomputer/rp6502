@@ -16,8 +16,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-void vip_print(void)
+int vip_response(char *buf, size_t buf_size, int state)
 {
+    (void)buf;
+    (void)buf_size;
+    (void)state;
     char *vips[] = {
         // Patreon
         "Shawn Hyam",
@@ -93,4 +96,5 @@ void vip_print(void)
         printf("%s", vips[i]);
     }
     puts(".");
+    return -1;
 }
