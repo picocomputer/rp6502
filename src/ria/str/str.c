@@ -16,6 +16,13 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+// Stringify various defines for inclusion in string literals.
+// This scope hides it from accidental use as a RAM literal.
+#define _STRINGIFY(x) #x
+#define STRINGIFY(x) _STRINGIFY(x)
+#define STR_PHI2_MIN_MAX STRINGIFY(CPU_PHI2_MIN_KHZ) "-" STRINGIFY(CPU_PHI2_MAX_KHZ)
+#define STR_RP6502_CODE_PAGE STRINGIFY(RP6502_CODE_PAGE)
+
 // Part 2 of putting string literals into flash.
 #define X(name, value) \
     const char __in_flash("str_strings") name[] = value;

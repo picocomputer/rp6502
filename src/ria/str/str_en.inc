@@ -134,15 +134,12 @@ X(hlp_text_install,
   "which will be stripped upon install.")
 
 X(hlp_text_reboot,
-  "REBOOT will restart the RP6502 RIA. It does the same thing as pressing a\n"
-  "reset button attached to the Pi Pico or interrupting the power supply.")
+  "REBOOT will restart the RP6502-RIA. It does the same thing as pressing a\n"
+  "reboot button attached to the RIA RUN pin or interrupting the power supply.")
 
 X(hlp_text_reset,
-  "RESET will restart the 6502 by bringing RESB high. This is mainly used for\n"
-  "automated testing by a script on another system connected to the console.\n"
-  "For example, a build script can compile a program, upload it directly to\n"
-  "6502 RAM, start it with this RESET, then optionally continue to send and\n"
-  "receive data to ensure proper operation of the program.")
+  "RESET will start the 6502 by bringing RESB high. This monitor will be\n"
+  "suspended until the 6502 stops with a UART break, CTRL-ALT-DEL, or exit().\n")
 
 X(hlp_text_upload,
   "UPLOAD is used to send a file from another system to the local filesystem.\n"
@@ -175,3 +172,64 @@ X(hlp_text_binary,
 
 X(hlp_text_status,
   "STATUS will show the status of all hardware in and connected to the RIA.")
+
+X(hlp_text_set_phi2,
+  "PHI2 is the 6502 clock speed in kHz. The valid range is " STR_PHI2_MIN_MAX " but not all\n"
+  "frequencies are available. In that case, the next highest frequency will\n"
+  "be automatically calculated and selected. Setting is saved on the RIA flash.")
+
+X(hlp_text_set_boot,
+  "BOOT selects an installed ROM to be automatically loaded and started when the\n"
+  "system is powered up or rebooted. For example, you might want the system to\n"
+  "immediately boot into BASIC or an operating system CLI. Using \"-\" for the\n"
+  "argument will have the system boot into the monitor you are using now.\n"
+  "Setting is saved on the RIA flash.")
+
+X(hlp_text_set_tz,
+  "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
+  "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
+  "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
+  "The easiest way to get this is to ask an AI \"posix tz for {your location}\".")
+
+X(hlp_text_set_kb,
+  "SET KB selects a keyboard layout. e.g. SET KB US")
+
+X(hlp_text_set_cp,
+  "SET CP selects a code page for system text. The following is supported:\n"
+  "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
+  "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
+  "VGA fonts."
+#if RP6502_CODE_PAGE
+  "\nThis is a development build. Only " STR_RP6502_CODE_PAGE " is available."
+#endif
+  "")
+
+X(hlp_text_set_vga,
+  "SET VGA selects the display type for VGA output. All canvas resolutions are\n"
+  "supported by all display types. Display type is used to maintain square\n"
+  "pixels and minimize letterboxing. Note that 1280x1024 is 5:4 so 4:3 graphics\n"
+  "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
+  "  0 - 640x480, for 4:3 displays\n"
+  "  1 - 640x480 and 1280x720, for 16:9 displays\n"
+  "  2 - 1280x1024, for 5:4 SXGA displays")
+
+X(hlp_text_set_rf,
+  "SET RF (0|1) turns all radios off or on.")
+
+X(hlp_text_set_rfcc,
+  "Set this so the CYW43 can use the best radio frequencies for your country.\n"
+  "Using \"-\" will clear the country code and default to a worldwide setting.\n"
+  "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
+  "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
+  "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.")
+
+X(hlp_text_set_ssid,
+  "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"
+  "disable WiFi.")
+
+X(hlp_text_set_pass,
+  "This is the password for your WiFi network. Use \"-\" to clear password.")
+
+X(hlp_text_set_ble,
+  "Setting 0 disables Bluetooth LE. Setting 1 enables. Setting 2 enters pairing\n"
+  "mode which will remain active until successful.")

@@ -48,10 +48,6 @@ bool str_parse_rom_name(const char **args, size_t *len, char *name);
 // Ensure there are no more arguments.
 bool str_parse_end(const char *args, size_t len);
 
-//TODO
-#define _STR_STRINGIFY(x) #x
-#define STR_STRINGIFY(x) _STR_STRINGIFY(x)
-
 // Part 1 of putting string literals into flash.
 #define X(name, value) \
     extern const char name[];
