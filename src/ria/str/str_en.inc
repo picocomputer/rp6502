@@ -44,7 +44,7 @@ X(STR_HELP_HELP,
   "UNLINK file|dir     - Delete a file or empty directory.\n"
   "UPLOAD file         - Write file. Binary chunks follow.\n"
   "BINARY addr len crc - Write memory. Binary data follows.\n"
-  "0000 (00 00 ...)    - Read or write memory.")
+  "0000 (00 00 ...)    - Read or write memory.\n")
 
 X(STR_HELP_SET,
   "Settings:\n"
@@ -61,7 +61,7 @@ X(STR_HELP_SET,
   "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
   "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
   "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none.\n"
-  "SET BLE (0|1|2)     - Disable or enable Bluetooth LE. 2 enables pairing."
+  "SET BLE (0|1|2)     - Disable or enable Bluetooth LE. 2 enables pairing.\n"
 #endif
   "")
 
@@ -73,13 +73,13 @@ X(STR_HELP_ABOUT,
   "          BTstack - Copyright (c) 2009 BlueKitchen GmbH\n"
   "            FatFs - Copyright (c) 20xx ChaN.\n"
   "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
-  "                    Copyright (c) 2017 Arm Limited."
+  "                    Copyright (c) 2017 Arm Limited.\n"
 // Note that BTstack HID descriptor parsing is used for non-W builds
 #ifdef RP6502_RIA_W
   "\n"
   "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
   "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
-  "                                            Computer Science."
+  "                                            Computer Science.\n"
 #endif
   "")
 
@@ -99,15 +99,15 @@ X(STR_HELP_SYSTEM,
   "You can also set memory. For example, to set the reset vector:\n"
   "]FFFC 00 02\n"
   "This is useful for some light debugging, but the real power is from the other\n"
-  "commands you can explore with this help system. Have fun!")
+  "commands you can explore with this help system. Have fun!\n")
 
 X(STR_HELP_DIR,
   "LS (also aliased as DIR) and CD are used to navigate USB mass storage\n"
   "devices. You can change to a different USB device with 0: to 7:. Use the\n"
-  "STATUS command to get a list of mounted drives.")
+  "STATUS command to get a list of mounted drives.\n")
 
 X(STR_HELP_MKDIR,
-  "MKDIR is used to create new directories. Use UNLINK to remove empty directories.")
+  "MKDIR is used to create new directories. Use UNLINK to remove empty directories.\n")
 
 X(STR_HELP_LOAD,
   "LOAD and INFO read ROM files from a USB drive. A ROM file contains both\n"
@@ -122,7 +122,7 @@ X(STR_HELP_LOAD,
   "This is followed by the binary data. The maximum length is 1024 bytes, so\n"
   "repeat as necessary. The CRC-32 is calculated using the same method as zip.\n"
   "If the ROM file contains data for the reset vector $FFFC-$FFFD then the\n"
-  "6502 will be reset (started) immediately after loading.")
+  "6502 will be reset (started) immediately after loading.\n")
 
 X(STR_HELP_INSTALL,
   "INSTALL and REMOVE manage the ROMs installed in the RP6502 RIA flash memory.\n"
@@ -132,11 +132,11 @@ X(STR_HELP_INSTALL,
   "name like any other command. The ROM name must not conflict with any other\n"
   "system command, must start with a letter, and may only contain up to 16 ASCII\n"
   "letters and numbers. If the file contains an extension, it must be \".rp6502\",\n"
-  "which will be stripped upon install.")
+  "which will be stripped upon install.\n")
 
 X(STR_HELP_REBOOT,
   "REBOOT will restart the RP6502-RIA. It does the same thing as pressing a\n"
-  "reboot button attached to the RIA RUN pin or interrupting the power supply.")
+  "reboot button attached to the RIA RUN pin or interrupting the power supply.\n")
 
 X(STR_HELP_RESET,
   "RESET will start the 6502 by bringing RESB high. This monitor will be\n"
@@ -158,7 +158,7 @@ X(STR_HELP_UPLOAD,
   "Send the binary data and you will get another \"}\" prompt or \"?\" error.\n"
   "The transfer is completed with the END command or a blank line. Your choice.\n"
   "}END\n"
-  "You will return to a \"]\" prompt on success or \"?\" error on failure.")
+  "You will return to a \"]\" prompt on success or \"?\" error on failure.\n")
 
 X(STR_HELP_UNLINK,
   "UNLINK removes a file. Its intended use is for scripting on another system\n"
@@ -169,39 +169,39 @@ X(STR_HELP_BINARY,
   "BINARY is the fastest way to get code or data from your build system to the\n"
   "6502 RAM. Use the command \"BINARY addr len crc\" with a maximum length of 1024\n"
   "bytes and the CRC-32 calculated with a zip library. Then send the binary.\n"
-  "You will return to a \"]\" prompt on success or \"?\" error on failure.")
+  "You will return to a \"]\" prompt on success or \"?\" error on failure.\n")
 
 X(STR_HELP_STATUS,
-  "STATUS will show the status of all hardware in and connected to the RIA.")
+  "STATUS will show the status of all hardware in and connected to the RIA.\n")
 
 X(STR_HELP_SET_PHI2,
   "PHI2 is the 6502 clock speed in kHz. The valid range is " STR_PHI2_MIN_MAX " but not all\n"
   "frequencies are available. In that case, the next highest frequency will\n"
-  "be automatically calculated and selected. Setting is saved on the RIA flash.")
+  "be automatically calculated and selected. Setting is saved on the RIA flash.\n")
 
 X(STR_HELP_SET_BOOT,
   "BOOT selects an installed ROM to be automatically loaded and started when the\n"
   "system is powered up or rebooted. For example, you might want the system to\n"
   "immediately boot into BASIC or an operating system CLI. Using \"-\" for the\n"
   "argument will have the system boot into the monitor you are using now.\n"
-  "Setting is saved on the RIA flash.")
+  "Setting is saved on the RIA flash.\n")
 
 X(STR_HELP_SET_TZ,
   "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
   "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
   "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
-  "The easiest way to get this is to ask an AI \"posix tz for {your location}\".")
+  "The easiest way to get this is to ask an AI \"posix tz for {your location}\".\n")
 
 X(STR_HELP_SET_KB,
-  "SET KB selects a keyboard layout. e.g. SET KB US")
+  "SET KB selects a keyboard layout. e.g. SET KB US\n")
 
 X(STR_HELP_SET_CP,
   "SET CP selects a code page for system text. The following is supported:\n"
   "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
   "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
-  "VGA fonts."
+  "VGA fonts.\n"
 #if RP6502_CODE_PAGE
-  "\nThis is a development build. Only " STR_RP6502_CODE_PAGE " is available."
+  "This is a development build. Only " STR_RP6502_CODE_PAGE " is available.\n"
 #endif
   "")
 
@@ -212,7 +212,7 @@ X(STR_HELP_SET_VGA,
   "will be letterboxed slightly but you'll get 2 extra rows on the terminal.\n"
   "  0 - 640x480, for 4:3 displays\n"
   "  1 - 640x480 and 1280x720, for 16:9 displays\n"
-  "  2 - 1280x1024, for 5:4 SXGA displays")
+  "  2 - 1280x1024, for 5:4 SXGA displays\n")
 
 X(STR_HELP_SET_RF,
   "SET RF (0|1) turns all radios off or on.")
@@ -222,15 +222,15 @@ X(STR_HELP_SET_RFCC,
   "Using \"-\" will clear the country code and default to a worldwide setting.\n"
   "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
   "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
-  "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.")
+  "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.\n")
 
 X(STR_HELP_SET_SSID,
   "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"
-  "disable WiFi.")
+  "disable WiFi.\n")
 
 X(STR_HELP_SET_PASS,
-  "This is the password for your WiFi network. Use \"-\" to clear password.")
+  "This is the password for your WiFi network. Use \"-\" to clear password.\n")
 
 X(STR_HELP_SET_BLE,
   "Setting 0 disables Bluetooth LE. Setting 1 enables. Setting 2 enters pairing\n"
-  "mode which will remain active until successful.")
+  "mode which will remain active until successful.\n")

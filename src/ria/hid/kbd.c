@@ -628,18 +628,20 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state)
     (void)buf_size;
     (void)state;
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
-    int maxlex = 0;
+    if (state >= layouts_count)
+        return -1;
+    int maxlen = 0;
     for (int i = 0; i < layouts_count; i++)
     {
         int thislen = strlen(kbd_layout_names[i]);
-        if (thislen > maxlex)
-            maxlex = thislen;
+        if (thislen > maxlen)
+            maxlen = thislen;
     }
-    for (int i = 0; i < layouts_count; i++)
-    {
-        printf(" %*s - %s\n", maxlex, kbd_layout_names[i], kbd_layout_descriptions[i]);
-    }
-    return -1;
+    snprintf(buf, buf_size,
+             " %*s - %s\n",
+             maxlen, kbd_layout_names[state],
+             kbd_layout_descriptions[state]);
+    return state + 1;
 }
 
 void kbd_rebuild_code_page_cache(void)

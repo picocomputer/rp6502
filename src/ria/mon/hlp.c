@@ -167,7 +167,7 @@ static void hlp_help(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
-    puts(STR_HELP_HELP);
+    printf(STR_HELP_HELP);
     uint32_t rom_count = hlp_roms_list(0);
     if (rom_count)
     {
@@ -178,8 +178,7 @@ static void hlp_help(const char *args, size_t len)
         printf("No installed ROMs.\n");
 }
 
-// Returns NULL if not found.
-static void help_text_lookup(const char *args, size_t len)
+static void help_response_lookup(const char *args, size_t len)
 {
     hlp_response_ptr = NULL;
     hlp_response_next_fn = NULL;
@@ -227,16 +226,30 @@ static void help_text_lookup(const char *args, size_t len)
 
 static int hlp_response(char *buf, size_t buf_size, int state)
 {
-    (void)buf;
-    (void)buf_size;
     (void)state;
-    puts(hlp_response_ptr);
-    if (hlp_response_next_fn)
+    size_t i;
+    for (i = 0; i < buf_size - 1; i++)
     {
-        mon_set_response_fn(hlp_response_next_fn);
-        return 0;
+        char c = hlp_response_ptr[i];
+        buf[i] = c;
+        if (!c)
+        {
+            if (hlp_response_next_fn)
+            {
+                mon_set_response_fn(hlp_response_next_fn);
+                return 0;
+            }
+            return -1;
+        }
+        if (c == '\n')
+        {
+            i++;
+            break;
+        }
     }
-    return -1;
+    buf[i] = 0;
+    hlp_response_ptr += i;
+    return 0;
 }
 
 void hlp_mon_help(const char *args, size_t len)
@@ -245,7 +258,7 @@ void hlp_mon_help(const char *args, size_t len)
         return hlp_help(args, len);
     while (len && args[len - 1] == ' ')
         len--;
-    help_text_lookup(args, len);
+    help_response_lookup(args, len);
     if (hlp_response_ptr)
         mon_set_response_fn(hlp_response);
     else
@@ -254,6 +267,6 @@ void hlp_mon_help(const char *args, size_t len)
 
 bool hlp_topic_exists(const char *buf, size_t buflen)
 {
-    help_text_lookup(buf, buflen);
+    help_response_lookup(buf, buflen);
     return hlp_response_ptr != NULL;
 }
