@@ -43,7 +43,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1
-static const char cfg_filename[] = "CONFIG.SYS";
 
 static uint32_t cfg_phi2_khz;
 static char cfg_kbd_layout[KBD_LAYOUT_MAX_NAME_SIZE];
@@ -59,17 +58,38 @@ static char cfg_net_pass[65];
 static uint8_t cfg_net_ble;
 #endif /* RP6502_RIA_W */
 
+static void cfg_load_with_boot_opt(bool boot_only);
+
+// Many drivers initialize with: cfg_set_foo(cfg_get_foo());
+// The setters notify the driver of the requested change which
+// returns a valid, possibly altered, config value.
+// Setting defaults prevents a new device from writing an
+// updated config file for each driver that does this.
+void cfg_init(void)
+{
+    // Non 0 defaults
+    cfg_phi2_khz = CPU_PHI2_DEFAULT;
+    strcpy(cfg_kbd_layout, STR_KBD_DEFAULT_LAYOUT);
+    cfg_code_page = OEM_DEFAULT_CODE_PAGE;
+    strcpy(cfg_time_zone, STR_CLK_DEFAULT_TZ);
+#ifdef RP6502_RIA_W
+    cfg_net_rf = 1;
+    cfg_net_ble = 1;
+#endif /* RP6502_RIA_W */
+    cfg_load_with_boot_opt(false);
+}
+
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(char *opt_str)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, cfg_filename,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_CFG_FILENAME,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
     if (lfsresult < 0)
     {
-        printf("?Unable to lfs_file_opencfg %s for writing (%d)\n", cfg_filename, lfsresult);
+        printf("?Unable to lfs_file_opencfg %s for writing (%d)\n", STR_CFG_FILENAME, lfsresult);
         return;
     }
     if (!opt_str)
@@ -81,12 +101,12 @@ static void cfg_save_with_boot_opt(char *opt_str)
                 break;
         if (lfsresult >= 0)
             if ((lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file)) < 0)
-                printf("?Unable to lfs_file_rewind %s (%d)\n", cfg_filename, lfsresult);
+                printf("?Unable to lfs_file_rewind %s (%d)\n", STR_CFG_FILENAME, lfsresult);
     }
 
     if (lfsresult >= 0)
         if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            printf("?Unable to lfs_file_truncate %s (%d)\n", cfg_filename, lfsresult);
+            printf("?Unable to lfs_file_truncate %s (%d)\n", STR_CFG_FILENAME, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -119,26 +139,26 @@ static void cfg_save_with_boot_opt(char *opt_str)
 #endif /* RP6502_RIA_W */
                                opt_str);
         if (lfsresult < 0)
-            printf("?Unable to write %s contents (%d)\n", cfg_filename, lfsresult);
+            printf("?Unable to write %s contents (%d)\n", STR_CFG_FILENAME, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        printf("?Unable to lfs_file_close %s (%d)\n", cfg_filename, lfscloseresult);
+        printf("?Unable to lfs_file_close %s (%d)\n", STR_CFG_FILENAME, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
-        lfs_remove(&lfs_volume, cfg_filename);
+        lfs_remove(&lfs_volume, STR_CFG_FILENAME);
 }
 
 static void cfg_load_with_boot_opt(bool boot_only)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, cfg_filename,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_CFG_FILENAME,
                                      LFS_O_RDONLY, &lfs_file_config);
     mbuf[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult != LFS_ERR_NOENT)
-            printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", cfg_filename, lfsresult);
+            printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", STR_CFG_FILENAME, lfsresult);
         return;
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
@@ -193,17 +213,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
-        printf("?Unable to lfs_file_close %s (%d)\n", cfg_filename, lfsresult);
-}
-
-void cfg_init(void)
-{
-    // Non 0 defaults
-#ifdef RP6502_RIA_W
-    cfg_net_rf = 1;
-    cfg_net_ble = 1;
-#endif /* RP6502_RIA_W */
-    cfg_load_with_boot_opt(false);
+        printf("?Unable to lfs_file_close %s (%d)\n", STR_CFG_FILENAME, lfsresult);
 }
 
 bool cfg_set_phi2_khz(uint32_t freq_khz)

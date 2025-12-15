@@ -579,7 +579,7 @@ void kbd_init(void)
     kbd_stop();
     kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
-    cfg_set_kbd_layout(kbd_set_layout(cfg_get_kbd_layout()));
+    cfg_set_kbd_layout(cfg_get_kbd_layout());
 }
 
 void kbd_task(void)
@@ -605,13 +605,12 @@ void kbd_stop(void)
 
 const char *kbd_set_layout(const char *kb)
 {
-    const char *default_layout = "US";
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     int default_index = -1;
     kbd_layout_index = -1;
     for (int i = 0; i < layouts_count; i++)
     {
-        if (!strcasecmp(kbd_layout_names[i], default_layout))
+        if (!strcasecmp(kbd_layout_names[i], STR_KBD_DEFAULT_LAYOUT))
             default_index = i;
         if (!strcasecmp(kbd_layout_names[i], kb))
             kbd_layout_index = i;

@@ -166,17 +166,6 @@ static int set_pass_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static int set_ssid_pass_response(char *buf, size_t buf_size, int state)
-{
-    (void)state;
-    const char *cc = cfg_get_ssid();
-    const char *pass = cfg_get_pass();
-    snprintf(buf, buf_size, STR_SET_SSID_PASS_RESPONSE,
-             strlen(cc) ? cc : STR_PARENS_NONE,
-             strlen(pass) ? STR_PARENS_SET : STR_PARENS_NONE);
-    return -1;
-}
-
 static void set_ssid(const char *args, size_t len)
 {
     char ssid[33];
@@ -188,7 +177,8 @@ static void set_ssid(const char *args, size_t len)
              !str_parse_end(args, len) ||
              !cfg_set_ssid(ssid))
         return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
-    mon_add_response_fn(set_ssid_pass_response);
+    mon_add_response_fn(set_ssid_response);
+    mon_add_response_fn(set_pass_response);
 }
 
 static void set_pass(const char *args, size_t len)
@@ -202,7 +192,8 @@ static void set_pass(const char *args, size_t len)
              !str_parse_end(args, len) ||
              !cfg_set_pass(pass))
         return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
-    mon_add_response_fn(set_ssid_pass_response);
+    mon_add_response_fn(set_ssid_response);
+    mon_add_response_fn(set_pass_response);
 }
 
 static int set_ble_response(char *buf, size_t buf_size, int state)

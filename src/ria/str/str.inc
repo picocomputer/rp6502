@@ -11,6 +11,13 @@
 #define X(name, value)
 #endif
 
+// Configuration files on littlefs
+X(STR_CFG_FILENAME, "CONFIG.SYS")
+
+// Configuration string defaults
+X(STR_KBD_DEFAULT_LAYOUT, "US")
+X(STR_CLK_DEFAULT_TZ, "UTC0")
+
 // Monitor prompts
 X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
 X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
@@ -75,6 +82,5 @@ X(STR_SET_RF_RESPONSE, "RF  : %s\n")
 X(STR_SET_RFCC_RESPONSE, "RFCC: %s\n")
 X(STR_SET_SSID_RESPONSE, "SSID: %s\n")
 X(STR_SET_PASS_RESPONSE, "PASS: %s\n")
-X(STR_SET_SSID_PASS_RESPONSE, "SSID: %s\nPASS: %s\n")
 X(STR_SET_BLE_RESPONSE, "BLE : %s%s%s\n")
 X(STR_SET_KB_RESPONSE, "KB  : %s\n")

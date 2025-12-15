@@ -9,6 +9,7 @@
 
 #include "api/api.h"
 #include "api/clk.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include <hardware/timer.h>
 #include <pico/aon_timer.h>
@@ -31,7 +32,7 @@ void clk_init(void)
     // starting at noon avoids time zone wraparound
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    cfg_set_time_zone(clk_set_time_zone(cfg_get_time_zone()));
+    cfg_set_time_zone(cfg_get_time_zone());
 }
 
 void clk_run(void)
@@ -52,17 +53,17 @@ void clk_print_status(void)
         char buf[100];
         struct tm tminfo;
         localtime_r(&ts.tv_sec, &tminfo);
-        strftime(buf, sizeof(buf), "%c %z %Z", &tminfo);
+        strftime(buf, sizeof(buf), STR_STRFTIME, &tminfo);
         printf("%s\n", buf);
     }
 }
 
 const char *clk_set_time_zone(const char *tz)
 {
-    const char *time_zone = "UTC0";
+    const char *time_zone = STR_CLK_DEFAULT_TZ;
     if (strlen(tz))
         time_zone = tz;
-    setenv("TZ", time_zone, 1);
+    setenv(STR_TZ, time_zone, 1);
     tzset();
     return time_zone;
 }

@@ -110,8 +110,6 @@ static void cpu_compute_phi2_clocks(uint32_t freq_khz,
 
 uint32_t cpu_validate_phi2_khz(uint32_t freq_khz)
 {
-    if (!freq_khz)
-        freq_khz = CPU_PHI2_DEFAULT;
     if (freq_khz < CPU_PHI2_MIN_KHZ)
         freq_khz = CPU_PHI2_MIN_KHZ;
     if (freq_khz > CPU_PHI2_MAX_KHZ)
