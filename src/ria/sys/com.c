@@ -199,7 +199,7 @@ static int com_stdio_in_chars(char *buf, int length)
         // should be considered underfined behavior, and is discouraged.
         REGS(0xFFE0) &= ~0b01000000;
         int ch = REGS(0xFFE2);
-        // Replace char with null
+        // Replace char with ASCII NUL
         REGS(0xFFE2) = 0;
         buf[count++] = ch;
     }

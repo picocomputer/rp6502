@@ -220,6 +220,10 @@ bool main_api(uint8_t operation)
         return std_api_stdin_opt();
     case 0x06:
         return api_api_errno_opt();
+    case 0x0D:
+        return clk_api_tzset();
+    case 0x0E:
+        return clk_api_tzquery();
     case 0x0F:
         return clk_api_clock();
     case 0x10:
@@ -228,8 +232,8 @@ bool main_api(uint8_t operation)
         return clk_api_get_time();
     case 0x12:
         return clk_api_set_time();
-    case 0x13:
-        return clk_api_get_time_zone();
+    case 0x13: // ok to reuse
+        break; // retired clk_api_get_time_zone
     case 0x14:
         return std_api_open();
     case 0x15:
