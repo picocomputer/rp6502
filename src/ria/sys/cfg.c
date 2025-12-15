@@ -45,7 +45,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
-static uint32_t cfg_code_page;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[CLK_TZ_MAX_SIZE];
 
@@ -61,10 +60,6 @@ static void cfg_load_with_boot_opt(bool boot_only);
 
 void cfg_init(void)
 {
-    // Non 0 defaults
-    // cfg_phi2_khz = CPU_PHI2_DEFAULT;
-    // strcpy(cfg_kbd_layout, STR_KBD_DEFAULT_LAYOUT);
-    cfg_code_page = OEM_DEFAULT_CODE_PAGE;
     strcpy(cfg_time_zone, STR_CLK_DEFAULT_TZ);
 #ifdef RP6502_RIA_W
     cfg_net_rf = 1;
@@ -121,7 +116,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                CFG_VERSION,
                                cpu_get_phi2_khz(),
                                cfg_time_zone,
-                               cfg_code_page,
+                               oem_get_code_page(),
                                kbd_get_layout(),
                                cfg_vga_display,
 #ifdef RP6502_RIA_W
@@ -176,7 +171,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             str_parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
             break;
         case 'S':
-            str_parse_uint32(&str, &len, &cfg_code_page);
+            oem_load_code_page(str, len);
             break;
         case 'L':
             kbd_load_layout(str, len);
@@ -244,22 +239,6 @@ bool cfg_set_time_zone(const char *tz)
 const char *cfg_get_time_zone(void)
 {
     return cfg_time_zone;
-}
-
-bool cfg_set_code_page(uint32_t cp)
-{
-    uint32_t old_val = cfg_code_page;
-    cfg_code_page = oem_set_code_page(cp);
-    if (cfg_code_page != cp)
-        return false;
-    if (old_val != cfg_code_page)
-        cfg_save_with_boot_opt(NULL);
-    return true;
-}
-
-uint16_t cfg_get_code_page(void)
-{
-    return cfg_code_page;
 }
 
 bool cfg_set_vga(uint8_t disp)

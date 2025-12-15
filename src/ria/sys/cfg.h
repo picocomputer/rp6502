@@ -25,8 +25,6 @@ void cfg_save(void);
 void cfg_save_boot(const char *str);
 const char *cfg_load_boot(void);
 
-bool cfg_set_code_page(uint32_t cp);
-uint16_t cfg_get_code_page(void);
 bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga(void);
 bool cfg_set_rf(uint8_t rf);

@@ -80,14 +80,21 @@ static bool cpu_reclock(void)
     return false;
 }
 
+void cpu_init_resb(void)
+{
+    // The very first things main() does.
+    gpio_init(CPU_RESB_PIN);
+    gpio_put(CPU_RESB_PIN, false);
+    gpio_set_dir(CPU_RESB_PIN, true);
+}
+
 void cpu_init(void)
 {
     // Setting default
     if (!cpu_phi2_khz)
-        cpu_phi2_khz = CPU_PHI2_DEFAULT;
+        cpu_phi2_khz = cpu_sanitize_phi2_khz(CPU_PHI2_DEFAULT);
     // Announce the first clock speed
     cpu_reclock();
-    // Note that RESB pin is initialized ASAP by main()
 }
 
 void cpu_task(void)

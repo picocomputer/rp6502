@@ -328,10 +328,7 @@ bool main_active(void)
 
 int main(void)
 {
-    // ASAP drive reset pin
-    gpio_init(CPU_RESB_PIN);
-    gpio_put(CPU_RESB_PIN, false);
-    gpio_set_dir(CPU_RESB_PIN, true);
+    cpu_init_resb();
     init();
     while (true)
     {

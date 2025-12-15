@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api/oem.h"
 #include "hid/kbd.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
@@ -70,7 +71,7 @@ static int set_code_page_response(char *buf, size_t buf_size, int state)
 #if (RP6502_CODE_PAGE)
     snprintf(buf, buf_size, STR_SET_CODE_PAGE_DEV_RESPONSE, RP6502_CODE_PAGE);
 #else
-    snprintf(buf, buf_size, STR_SET_CODE_PAGE_RESPONSE, cfg_get_code_page());
+    snprintf(buf, buf_size, STR_SET_CODE_PAGE_RESPONSE, oem_get_code_page());
 #endif
     return -1;
 }
@@ -80,7 +81,7 @@ static void set_code_page(const char *args, size_t len)
     uint32_t val;
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
-                !cfg_set_code_page(val)))
+                !oem_set_code_page(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_code_page_response);

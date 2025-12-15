@@ -25,6 +25,7 @@
 /* Main events
  */
 
+void cpu_init_resb(void);
 void cpu_init(void);
 void cpu_task(void);
 void cpu_run(void);
