@@ -142,20 +142,21 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
             return mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
 }
 
-static int mon_next_response(void)
+static int mon_str_response(char *buf, size_t buf_size, int state)
 {
-    int i = 0;
-    for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
+    size_t i = 0;
+    const char *str = mon_response_str_list[0];
+    for (; i + 1 < buf_size; i++)
     {
-        mon_response_fn_list[i] = mon_response_fn_list[i + 1];
-        mon_response_str_list[i] = mon_response_str_list[i + 1];
+        char c = str[state];
+        buf[i] = c;
+        if (!c)
+            return -1;
+        state++;
+        buf_size--;
     }
-    mon_response_fn_list[i] = 0;
-    mon_response_str_list[i] = 0;
-    if (mon_response_fn_list[0] != NULL)
-        return 0;
-    else
-        return -1;
+    buf[i] = 0;
+    return state;
 }
 
 static void mon_append_response(mon_response_fn fn, const char *str)
@@ -172,23 +173,28 @@ static void mon_append_response(mon_response_fn fn, const char *str)
             return;
         }
     }
+    if (i == MON_RESPONSE_FN_COUNT)
+    {
+        i--;
+        mon_response_fn_list[i] = mon_str_response;
+        mon_response_str_list[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
+    }
 }
 
-static int mon_str_response(char *buf, size_t buf_size, int state)
+static int mon_next_response(void)
 {
-    size_t i = 0;
-    const char *str = mon_response_str_list[0];
-    for (; i + 1 < buf_size; i++)
+    int i = 0;
+    for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
     {
-        char c = str[state];
-        buf[i] = c;
-        if (!c)
-            return -1;
-        state++;
-        buf_size--;
+        mon_response_fn_list[i] = mon_response_fn_list[i + 1];
+        mon_response_str_list[i] = mon_response_str_list[i + 1];
     }
-    buf[i] = 0;
-    return state;
+    mon_response_fn_list[i] = 0;
+    mon_response_str_list[i] = 0;
+    if (mon_response_fn_list[0] != NULL)
+        return 0;
+    else
+        return -1;
 }
 
 void mon_add_response_fn(mon_response_fn fn)

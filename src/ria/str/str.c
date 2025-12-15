@@ -27,7 +27,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 
 // Part 2 of putting string literals into flash.
 #define X(name, value) \
-    const char __in_flash("str_strings") name[] = value;
+    const char __in_flash(STRINGIFY(name)) name[] = value;
 #include "str.inc"
 #include RP6502_LOCALE
 #undef X

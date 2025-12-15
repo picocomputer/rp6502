@@ -48,7 +48,7 @@ static void cpu_compute_phi2_clocks(uint16_t freq_khz,
     }
 }
 
-static uint16_t cpu_quantize_phi2_khz(uint16_t freq_khz)
+static uint16_t cpu_sanitize_phi2_khz(uint16_t freq_khz)
 {
     if (freq_khz < CPU_PHI2_MIN_KHZ)
         freq_khz = CPU_PHI2_MIN_KHZ;
@@ -147,7 +147,7 @@ uint32_t cpu_get_reset_us(void)
 void cpu_load_phi2_khz(const char *str, size_t len)
 {
     str_parse_uint16(&str, &len, &cpu_phi2_khz);
-    cpu_phi2_khz = cpu_quantize_phi2_khz(cpu_phi2_khz);
+    cpu_phi2_khz = cpu_sanitize_phi2_khz(cpu_phi2_khz);
 }
 
 bool cpu_set_phi2_khz(uint16_t phi2_khz)
@@ -155,7 +155,7 @@ bool cpu_set_phi2_khz(uint16_t phi2_khz)
     if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
         return false;
     uint16_t old_phi2_khz = cpu_phi2_khz;
-    cpu_phi2_khz = cpu_quantize_phi2_khz(phi2_khz);
+    cpu_phi2_khz = cpu_sanitize_phi2_khz(phi2_khz);
     if (old_phi2_khz != cpu_phi2_khz)
     {
         if (!cpu_reclock())

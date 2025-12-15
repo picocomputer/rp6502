@@ -93,6 +93,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define KBD_KEY_QUEUE_SIZE 16
 
+static bool kbd_layout_loaded;
+static int kbd_layout_index;
+static uint16_t kbd_xram;
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_modifier;
 static uint8_t kbd_repeat_keycode;
@@ -100,17 +103,19 @@ static char kbd_key_queue[KBD_KEY_QUEUE_SIZE];
 static uint8_t kbd_key_queue_head;
 static uint8_t kbd_key_queue_tail;
 static uint8_t kdb_hid_leds;
-static uint16_t kbd_xram;
 static uint32_t kbd_keys[8];
 static bool kbd_alt_mode;
 static char kbd_alt_code;
-static DWORD kbd_dead0;
-static DWORD kbd_dead1;
-static DWORD const (*kbd_selected_keys)[5];
-static char const (*kbd_selected_dead2)[3];
-static char const (*kbd_selected_dead3)[4];
-static char kbd_layout_cache[KBD_LAYOUT_CACHE_SIZE];
-static int kbd_layout_index;
+static DWORD kbd_dead_key0;
+static DWORD kbd_dead_key1;
+
+// Dead keys checks need a linear search with oem (8-bit) chars.
+// This can require hundreds of unicode lookups from flash.
+// To make this faster, we cache the oem chars in RAM.
+#define KBD_DEADKEY_CACHE_SIZE 512
+static char kbd_deadkey_cache[KBD_DEADKEY_CACHE_SIZE];
+static char const (*kbd_cached_dead2)[3];
+static char const (*kbd_cached_dead3)[4];
 
 typedef struct
 {
@@ -320,7 +325,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         return;
     }
     // Shift and caps lock logic
-    bool use_caps_lock = kbd_selected_keys[keycode][4];
+    DWORD const(*keys)[5] = kbd_layout_keys[kbd_layout_index];
+    bool use_caps_lock = keys[keycode][4];
     bool is_shifted = (key_shift && !is_capslock) ||
                       (key_shift && !use_caps_lock) ||
                       (!key_shift && is_capslock && use_caps_lock);
@@ -333,25 +339,25 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (is_shifted)
-                ch = ff_uni2oem(kbd_selected_keys[keycode][3], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][3], oem_get_code_page());
             else
-                ch = ff_uni2oem(kbd_selected_keys[keycode][2], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][2], oem_get_code_page());
         }
         else
         {
             if (is_shifted)
-                ch = ff_uni2oem(kbd_selected_keys[keycode][1], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][1], oem_get_code_page());
             else
-                ch = ff_uni2oem(kbd_selected_keys[keycode][0], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][0], oem_get_code_page());
         }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
         if (is_shifted)
-            ch = ff_uni2oem(kbd_selected_keys[keycode][1], oem_get_code_page());
+            ch = ff_uni2oem(keys[keycode][1], oem_get_code_page());
         else
-            ch = ff_uni2oem(kbd_selected_keys[keycode][0], oem_get_code_page());
+            ch = ff_uni2oem(keys[keycode][0], oem_get_code_page());
         if (key_ctrl)
         {
             if (ch >= '`' && ch <= '~')
@@ -383,100 +389,100 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     if (ch)
     {
         // Check for dead key start
-        if (!kbd_dead0)
+        if (!kbd_dead_key0)
         {
-            for (int i = 0; kbd_selected_dead2[i][0]; i++)
+            for (int i = 0; kbd_cached_dead2[i][0]; i++)
             {
-                if (ch == kbd_selected_dead2[i][0])
+                if (ch == kbd_cached_dead2[i][0])
                 {
-                    kbd_dead0 = ch;
+                    kbd_dead_key0 = ch;
                     return;
                 }
             }
-            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            for (int i = 0; kbd_cached_dead3[i][0]; i++)
             {
-                if (ch == kbd_selected_dead3[i][0] ||
-                    ch == kbd_selected_dead3[i][1])
+                if (ch == kbd_cached_dead3[i][0] ||
+                    ch == kbd_cached_dead3[i][1])
                 {
-                    kbd_dead0 = ch;
+                    kbd_dead_key0 = ch;
                     return;
                 }
             }
         }
         // Handle second press in dead key sequence
-        if (kbd_dead0 && !kbd_dead1)
+        if (kbd_dead_key0 && !kbd_dead_key1)
         {
             if (ch == ' ')
             {
-                kbd_queue_char(kbd_dead0);
-                kbd_dead0 = 0;
+                kbd_queue_char(kbd_dead_key0);
+                kbd_dead_key0 = 0;
                 return;
             }
             if (ch == 0x7F)
             {
-                kbd_dead0 = 0;
+                kbd_dead_key0 = 0;
                 return;
             }
-            for (int i = 0; kbd_selected_dead2[i][0]; i++)
+            for (int i = 0; kbd_cached_dead2[i][0]; i++)
             {
-                if (kbd_dead0 == kbd_selected_dead2[i][0] &&
-                    ch == kbd_selected_dead2[i][1])
+                if (kbd_dead_key0 == kbd_cached_dead2[i][0] &&
+                    ch == kbd_cached_dead2[i][1])
                 {
-                    char result = kbd_selected_dead2[i][2];
+                    char result = kbd_cached_dead2[i][2];
                     if (!result)
                         break;
                     kbd_queue_char(result);
-                    kbd_dead0 = 0;
+                    kbd_dead_key0 = 0;
                     return;
                 }
             }
-            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            for (int i = 0; kbd_cached_dead3[i][0]; i++)
             {
-                if ((kbd_dead0 == kbd_selected_dead3[i][0] && ch == kbd_selected_dead3[i][1]) ||
-                    (kbd_dead0 == kbd_selected_dead3[i][1] && ch == kbd_selected_dead3[i][0]))
+                if ((kbd_dead_key0 == kbd_cached_dead3[i][0] && ch == kbd_cached_dead3[i][1]) ||
+                    (kbd_dead_key0 == kbd_cached_dead3[i][1] && ch == kbd_cached_dead3[i][0]))
                 {
-                    kbd_dead1 = ch;
+                    kbd_dead_key1 = ch;
                     return;
                 }
             }
-            kbd_queue_char(kbd_dead0);
+            kbd_queue_char(kbd_dead_key0);
             kbd_queue_char(ch);
-            kbd_dead0 = 0;
+            kbd_dead_key0 = 0;
             return;
         }
         // Handle third press in dead key sequence
-        if (kbd_dead0 && kbd_dead1)
+        if (kbd_dead_key0 && kbd_dead_key1)
         {
             if (ch == ' ')
             {
-                kbd_queue_char(kbd_dead0);
-                kbd_queue_char(kbd_dead1);
-                kbd_dead0 = kbd_dead1 = 0;
+                kbd_queue_char(kbd_dead_key0);
+                kbd_queue_char(kbd_dead_key1);
+                kbd_dead_key0 = kbd_dead_key1 = 0;
                 return;
             }
             if (ch == 0x7F)
             {
-                kbd_dead1 = 0;
+                kbd_dead_key1 = 0;
                 return;
             }
-            for (int i = 0; kbd_selected_dead3[i][0]; i++)
+            for (int i = 0; kbd_cached_dead3[i][0]; i++)
             {
-                if (((kbd_dead0 == kbd_selected_dead3[i][0] && kbd_dead1 == kbd_selected_dead3[i][1]) ||
-                     (kbd_dead0 == kbd_selected_dead3[i][1] && kbd_dead1 == kbd_selected_dead3[i][0])) &&
-                    ch == kbd_selected_dead3[i][2])
+                if (((kbd_dead_key0 == kbd_cached_dead3[i][0] && kbd_dead_key1 == kbd_cached_dead3[i][1]) ||
+                     (kbd_dead_key0 == kbd_cached_dead3[i][1] && kbd_dead_key1 == kbd_cached_dead3[i][0])) &&
+                    ch == kbd_cached_dead3[i][2])
                 {
-                    char result = kbd_selected_dead3[i][3];
+                    char result = kbd_cached_dead3[i][3];
                     if (!result)
                         break;
                     kbd_queue_char(result);
-                    kbd_dead0 = kbd_dead1 = 0;
+                    kbd_dead_key0 = kbd_dead_key1 = 0;
                     return;
                 }
             }
-            kbd_queue_char(kbd_dead0);
-            kbd_queue_char(kbd_dead1);
+            kbd_queue_char(kbd_dead_key0);
+            kbd_queue_char(kbd_dead_key1);
             kbd_queue_char(ch);
-            kbd_dead0 = kbd_dead1 = 0;
+            kbd_dead_key0 = kbd_dead_key1 = 0;
             return;
         }
         // Not in dead key sequence
@@ -496,7 +502,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 // ctrl-alt-del and not UART breaks.
                 kbd_key_queue_tail = kbd_key_queue_head;
                 kbd_alt_mode = false;
-                kbd_dead0 = kbd_dead1 = 0;
+                kbd_dead_key0 = kbd_dead_key1 = 0;
                 main_break();
                 return;
             }
@@ -579,7 +585,8 @@ void kbd_init(void)
     kbd_stop();
     kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
-    cfg_set_kbd_layout(cfg_get_kbd_layout());
+    if (!kbd_layout_loaded)
+        kbd_set_layout(STR_KBD_DEFAULT_LAYOUT);
 }
 
 void kbd_task(void)
@@ -601,25 +608,6 @@ void kbd_task(void)
 void kbd_stop(void)
 {
     kbd_xram = 0xFFFF;
-}
-
-const char *kbd_set_layout(const char *kb)
-{
-    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
-    int default_index = 0;
-    kbd_layout_index = -1;
-    for (int i = 0; i < layouts_count; i++)
-    {
-        if (!strcasecmp(kbd_layout_names[i], STR_KBD_DEFAULT_LAYOUT))
-            default_index = i;
-        if (!strcasecmp(kbd_layout_names[i], kb))
-            kbd_layout_index = i;
-    }
-    if (kbd_layout_index < 0)
-        kbd_layout_index = default_index;
-    kbd_selected_keys = kbd_layout_keys[kbd_layout_index];
-    kbd_rebuild_code_page_cache();
-    return kbd_layout_names[kbd_layout_index];
 }
 
 int kbd_layouts_response(char *buf, size_t buf_size, int state)
@@ -648,50 +636,41 @@ void kbd_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
     uint16_t code_page = oem_get_code_page();
-
-    // Dead keys are a linear search with oem (8-bit) chars
-    // which is slow because the unicode in flash needs every
-    // character translated. We cache the translations here.
-    // Key codes in kbd_layout_keys are only a single lookup
-    // per key press so flash access is no problem there.
-
-    kbd_selected_dead2 = (void *)&kbd_layout_cache[cache_index];
+    kbd_cached_dead2 = (void *)&kbd_deadkey_cache[cache_index];
     for (int i = 0; kbd_layout_dead2[kbd_layout_index][i][0]; i++)
     {
         for (int j = 0; j < 3; j++)
         {
-            kbd_layout_cache[cache_index] = ff_uni2oem(
+            kbd_deadkey_cache[cache_index] = ff_uni2oem(
                 kbd_layout_dead2[kbd_layout_index][i][j],
                 code_page);
-            if (++cache_index >= sizeof(kbd_layout_cache))
+            if (++cache_index >= sizeof(kbd_deadkey_cache))
                 goto overflow_error;
         }
     }
-    kbd_layout_cache[cache_index] = 0;
-
-    if (++cache_index >= sizeof(kbd_layout_cache))
+    kbd_deadkey_cache[cache_index] = 0;
+    if (++cache_index >= sizeof(kbd_deadkey_cache))
         goto overflow_error;
-    kbd_selected_dead3 = (void *)&kbd_layout_cache[cache_index];
+    kbd_cached_dead3 = (void *)&kbd_deadkey_cache[cache_index];
     for (int i = 0; kbd_layout_dead3[kbd_layout_index][i][0]; i++)
     {
         for (int j = 0; j < 4; j++)
         {
-            kbd_layout_cache[cache_index] = ff_uni2oem(
+            kbd_deadkey_cache[cache_index] = ff_uni2oem(
                 kbd_layout_dead3[kbd_layout_index][i][j],
                 code_page);
-            if (++cache_index >= sizeof(kbd_layout_cache))
+            if (++cache_index >= sizeof(kbd_deadkey_cache))
                 goto overflow_error;
         }
     }
-    kbd_layout_cache[cache_index] = 0;
-
+    kbd_deadkey_cache[cache_index] = 0;
     return;
 overflow_error:
     // Fail safe when the cache size is too small.
-    kbd_selected_dead2 = (void *)&kbd_layout_cache[0];
-    kbd_selected_dead3 = (void *)&kbd_layout_cache[0];
-    kbd_layout_cache[0] = 0;
-    mon_add_response_str(STR_ERR_INTERNAL_ERROR);
+    kbd_cached_dead2 = (void *)&kbd_deadkey_cache[0];
+    kbd_cached_dead3 = (void *)&kbd_deadkey_cache[0];
+    kbd_deadkey_cache[0] = 0;
+    mon_add_response_str(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
@@ -871,4 +850,50 @@ int kbd_stdio_in_chars(char *buf, int length)
         buf[i++] = kbd_key_queue[kbd_key_queue_tail];
     }
     return i ? i : PICO_ERROR_NO_DATA;
+}
+
+static int kbd_sanitize_layout(const char *kb)
+{
+    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
+    int default_index = 0;
+    int found_index = 0;
+    for (int i = 0; i < layouts_count; i++)
+    {
+        if (!strcasecmp(kbd_layout_names[i], STR_KBD_DEFAULT_LAYOUT))
+            default_index = i;
+        if (!strcasecmp(kbd_layout_names[i], kb))
+            found_index = i;
+    }
+    if (found_index < 0)
+        return default_index;
+    else
+        return found_index;
+}
+
+void kbd_load_layout(const char *str, size_t len)
+{
+    char kb[KBD_LAYOUT_MAX_NAME_SIZE];
+    str_parse_string(&str, &len, kb, sizeof(kb));
+    kbd_layout_index = kbd_sanitize_layout(kb);
+    kbd_layout_loaded = true;
+    kbd_rebuild_code_page_cache();
+}
+
+bool kbd_set_layout(const char *kb)
+{
+    int new_kbd_layout_index = kbd_sanitize_layout(kb);
+    if (strcasecmp(kb, kbd_layout_names[new_kbd_layout_index]))
+        return false;
+    if (kbd_layout_index != new_kbd_layout_index)
+    {
+        kbd_layout_index = new_kbd_layout_index;
+        kbd_rebuild_code_page_cache();
+        cfg_save();
+    }
+    return true;
+}
+
+const char *kbd_get_layout(void)
+{
+    return kbd_layout_names[kbd_layout_index];
 }

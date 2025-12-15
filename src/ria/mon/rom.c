@@ -311,7 +311,7 @@ void rom_mon_remove(const char *args, size_t len)
     if (str_parse_rom_name(&args, &len, lfs_name) &&
         str_parse_end(args, len))
     {
-        const char *boot = cfg_get_boot();
+        const char *boot = rom_get_boot();
         if (!strcmp(lfs_name, boot))
         {
             printf("?Boot ROM not removed\n");
@@ -335,7 +335,7 @@ void rom_mon_load(const char *args, size_t len)
         rom_state = ROM_LOADING;
 }
 
-bool rom_is_installed(const char *name)
+static bool rom_is_installed(const char *name)
 {
     struct lfs_info info;
     return lfs_stat(&lfs_volume, name, &info) >= 0;
@@ -418,9 +418,8 @@ static bool rom_xram_writing(void)
 void rom_init(void)
 {
     // Try booting the set boot ROM
-    char *boot = cfg_get_boot();
-    size_t boot_len = strlen(boot);
-    rom_load_installed((char *)boot, boot_len);
+    const char *boot = rom_get_boot();
+    rom_load_installed(boot, strlen(boot));
 }
 
 void rom_task(void)
@@ -564,4 +563,17 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
     else
         printf("No installed ROMs.\n");
     return -1;
+}
+
+bool rom_set_boot(char *str)
+{
+    if (str[0] && !rom_is_installed(str))
+        return false;
+    cfg_save_boot(str);
+    return true;
+}
+
+const char *rom_get_boot(void)
+{
+    return cfg_load_boot();
 }

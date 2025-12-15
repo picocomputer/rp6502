@@ -45,7 +45,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
-static char cfg_kbd_layout[KBD_LAYOUT_MAX_NAME_SIZE];
 static uint32_t cfg_code_page;
 static uint8_t cfg_vga_display;
 static char cfg_time_zone[CLK_TZ_MAX_SIZE];
@@ -60,16 +59,11 @@ static uint8_t cfg_net_ble;
 
 static void cfg_load_with_boot_opt(bool boot_only);
 
-// Many drivers initialize with: cfg_set_foo(cfg_get_foo());
-// The setters notify the driver of the requested change which
-// returns a valid, possibly altered, config value.
-// Setting defaults prevents a new device from writing an
-// updated config file for each driver that does this.
 void cfg_init(void)
 {
     // Non 0 defaults
     // cfg_phi2_khz = CPU_PHI2_DEFAULT;
-    strcpy(cfg_kbd_layout, STR_KBD_DEFAULT_LAYOUT);
+    // strcpy(cfg_kbd_layout, STR_KBD_DEFAULT_LAYOUT);
     cfg_code_page = OEM_DEFAULT_CODE_PAGE;
     strcpy(cfg_time_zone, STR_CLK_DEFAULT_TZ);
 #ifdef RP6502_RIA_W
@@ -80,7 +74,7 @@ void cfg_init(void)
 }
 
 // Optional string can replace boot string
-static void cfg_save_with_boot_opt(char *opt_str)
+static void cfg_save_with_boot_opt(const char *opt_str)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
@@ -128,7 +122,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
                                cpu_get_phi2_khz(),
                                cfg_time_zone,
                                cfg_code_page,
-                               cfg_kbd_layout,
+                               kbd_get_layout(),
                                cfg_vga_display,
 #ifdef RP6502_RIA_W
                                cfg_net_rf,
@@ -185,7 +179,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             str_parse_uint32(&str, &len, &cfg_code_page);
             break;
         case 'L':
-            str_parse_string(&str, &len, cfg_kbd_layout, sizeof(cfg_kbd_layout));
+            kbd_load_layout(str, len);
             break;
         case 'D':
             str_parse_uint8(&str, &len, &cfg_vga_display);
@@ -221,40 +215,12 @@ void cfg_save(void)
     cfg_save_with_boot_opt(NULL);
 }
 
-// bool cfg_set_phi2_khz(uint32_t freq_khz)
-// {
-//     if (freq_khz < CPU_PHI2_MIN_KHZ || freq_khz > CPU_PHI2_MAX_KHZ)
-//     {
-//         cfg_phi2_khz = cpu_set_phi2_khz(cfg_phi2_khz);
-//         return false;
-//     }
-//     uint32_t old_val = cfg_phi2_khz;
-//     cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
-//     bool ok = true;
-//     if (old_val != cfg_phi2_khz)
-//     {
-//         ok = cpu_set_phi2_khz(cfg_phi2_khz);
-//         if (ok)
-//             cfg_save_with_boot_opt(NULL);
-//     }
-//     return ok;
-// }
-
-// // Returns actual 6502 frequency adjusted for quantization.
-// uint32_t cfg_get_phi2_khz(void)
-// {
-//     return cpu_validate_phi2_khz(cfg_phi2_khz);
-// }
-
-bool cfg_set_boot(char *str)
+void cfg_save_boot(const char *str)
 {
-    if (str[0] && !rom_is_installed(str))
-        return false;
     cfg_save_with_boot_opt(str);
-    return true;
 }
 
-char *cfg_get_boot(void)
+const char *cfg_load_boot(void)
 {
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;
@@ -278,24 +244,6 @@ bool cfg_set_time_zone(const char *tz)
 const char *cfg_get_time_zone(void)
 {
     return cfg_time_zone;
-}
-
-bool cfg_set_kbd_layout(const char *kb)
-{
-    const char *key_layout = kbd_set_layout(kb);
-    if (strcasecmp(kb, key_layout))
-        return false;
-    if (strcmp(cfg_kbd_layout, key_layout))
-    {
-        strcpy(cfg_kbd_layout, key_layout);
-        cfg_save_with_boot_opt(NULL);
-    }
-    return true;
-}
-
-const char *cfg_get_kbd_layout(void)
-{
-    return cfg_kbd_layout;
 }
 
 bool cfg_set_code_page(uint32_t cp)

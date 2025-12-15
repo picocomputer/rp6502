@@ -35,7 +35,6 @@
 #include "hid/kbd_us.h"
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
-#define KBD_LAYOUT_CACHE_SIZE 512
 #define KBD_LAYOUTS                                \
     X(DE, "DE", "German")                          \
     X(DK, "DK", "Danish")                          \
@@ -51,13 +50,10 @@ void kbd_init(void);
 void kbd_task(void);
 void kbd_stop(void);
 
-// Setting for keyboard layout
-const char *kbd_set_layout(const char *kb);
-
-// Used by help to print layouts
+// Responder prints all keyboard layout options.
 int kbd_layouts_response(char *buf, size_t buf_size, int state);
 
-// Called when code page changes so cache can be rebuilt
+// Called when code page changes so cache can be rebuilt.
 void kbd_rebuild_code_page_cache(void);
 
 // Parse HID report descriptor
@@ -74,5 +70,10 @@ bool kbd_xreg(uint16_t word);
 
 // Handler for stdio_driver_t
 int kbd_stdio_in_chars(char *buf, int length);
+
+// Configuration setting KB
+void kbd_load_layout(const char *str, size_t len);
+bool kbd_set_layout(const char *kb);
+const char *kbd_get_layout(void);
 
 #endif /* _RIA_HID_KBD_H_ */

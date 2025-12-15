@@ -6,6 +6,7 @@
 
 #include "hid/kbd.h"
 #include "mon/mon.h"
+#include "mon/rom.h"
 #include "mon/set.h"
 #include "net/ble.h"
 #include "str/str.h"
@@ -41,7 +42,7 @@ static void set_phi2(const char *args, size_t len)
 static int set_boot_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *rom = cfg_get_boot();
+    const char *rom = rom_get_boot();
     if (!rom[0])
         rom = STR_PARENS_NONE;
     snprintf(buf, buf_size, STR_SET_BOOT_RESPONSE, rom);
@@ -54,10 +55,10 @@ static void set_boot(const char *args, size_t len)
     if (len)
     {
         if (args[0] == '-' && str_parse_end(++args, --len))
-            cfg_set_boot("");
+            rom_set_boot("");
         else if (!str_parse_rom_name(&args, &len, lfs_name) ||
                  !str_parse_end(args, len) ||
-                 !cfg_set_boot(lfs_name))
+                 !rom_set_boot(lfs_name))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_boot_response);
@@ -241,7 +242,7 @@ static void set_time_zone(const char *args, size_t len)
 static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, STR_SET_KB_RESPONSE, cfg_get_kbd_layout());
+    snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbd_get_layout());
     return -1;
 }
 
@@ -250,7 +251,7 @@ static void set_kbd_layout(const char *args, size_t len)
     char kb[KBD_LAYOUT_MAX_NAME_SIZE];
     if (len && (!str_parse_string(&args, &len, kb, sizeof(kb)) ||
                 !str_parse_end(args, len) ||
-                !cfg_set_kbd_layout(kb)))
+                !kbd_set_layout(kb)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_kbd_layout_response);
