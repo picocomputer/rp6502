@@ -46,27 +46,14 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define CFG_VERSION 1
 
 static uint8_t cfg_vga_display;
-static char cfg_time_zone[CLK_TZ_MAX_SIZE];
 
 #ifdef RP6502_RIA_W
-static uint8_t cfg_net_rf;
+static uint8_t cfg_net_rf = 1;
 static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
-static uint8_t cfg_net_ble;
+static uint8_t cfg_net_ble = 1;
 #endif /* RP6502_RIA_W */
-
-static void cfg_load_with_boot_opt(bool boot_only);
-
-void cfg_init(void)
-{
-    strcpy(cfg_time_zone, STR_CLK_DEFAULT_TZ);
-#ifdef RP6502_RIA_W
-    cfg_net_rf = 1;
-    cfg_net_ble = 1;
-#endif /* RP6502_RIA_W */
-    cfg_load_with_boot_opt(false);
-}
 
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(const char *opt_str)
@@ -115,7 +102,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "%s",
                                CFG_VERSION,
                                cpu_get_phi2_khz(),
-                               cfg_time_zone,
+                               clk_get_time_zone(),
                                oem_get_code_page(),
                                kbd_get_layout(),
                                cfg_vga_display,
@@ -168,7 +155,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             cpu_load_phi2_khz(str, len);
             break;
         case 'T':
-            str_parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
+            clk_load_time_zone(str, len);
             break;
         case 'S':
             oem_load_code_page(str, len);
@@ -205,6 +192,11 @@ static void cfg_load_with_boot_opt(bool boot_only)
         printf("?Unable to lfs_file_close %s (%d)\n", STR_CFG_FILENAME, lfsresult);
 }
 
+void cfg_init(void)
+{
+    cfg_load_with_boot_opt(false);
+}
+
 void cfg_save(void)
 {
     cfg_save_with_boot_opt(NULL);
@@ -219,26 +211,6 @@ const char *cfg_load_boot(void)
 {
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;
-}
-
-bool cfg_set_time_zone(const char *tz)
-{
-    if (strlen(tz) < sizeof(cfg_time_zone) - 1)
-    {
-        const char *time_zone = clk_set_time_zone(tz);
-        if (strcmp(cfg_time_zone, time_zone))
-        {
-            strcpy(cfg_time_zone, time_zone);
-            cfg_save_with_boot_opt(NULL);
-        }
-        return true;
-    }
-    return false;
-}
-
-const char *cfg_get_time_zone(void)
-{
-    return cfg_time_zone;
 }
 
 bool cfg_set_vga(uint8_t disp)

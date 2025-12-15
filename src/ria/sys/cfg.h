@@ -19,12 +19,14 @@
 
 void cfg_init(void);
 
+// Unconditionally save the config
 void cfg_save(void);
 
 // The boot string isn't stored in RAM.
 void cfg_save_boot(const char *str);
 const char *cfg_load_boot(void);
 
+// retiring...
 bool cfg_set_vga(uint8_t disp);
 uint8_t cfg_get_vga(void);
 bool cfg_set_rf(uint8_t rf);
@@ -35,8 +37,6 @@ bool cfg_set_ssid(const char *ssid);
 const char *cfg_get_ssid(void);
 bool cfg_set_pass(const char *pass);
 const char *cfg_get_pass(void);
-bool cfg_set_time_zone(const char *pass);
-const char *cfg_get_time_zone(void);
 bool cfg_set_ble(uint8_t bt);
 uint8_t cfg_get_ble(void);
 

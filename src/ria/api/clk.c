@@ -32,7 +32,12 @@ void clk_init(void)
     // starting at noon avoids time zone wraparound
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    cfg_set_time_zone(cfg_get_time_zone());
+    // Default time zone
+    if (!getenv(STR_TZ))
+    {
+        setenv(STR_TZ, STR_CLK_DEFAULT_TZ, 1);
+        tzset();
+    }
 }
 
 void clk_run(void)
@@ -58,14 +63,30 @@ void clk_print_status(void)
     }
 }
 
-const char *clk_set_time_zone(const char *tz)
+void clk_load_time_zone(const char *str, size_t len)
 {
-    const char *time_zone = STR_CLK_DEFAULT_TZ;
-    if (strlen(tz))
-        time_zone = tz;
-    setenv(STR_TZ, time_zone, 1);
+    char tz[CLK_TZ_MAX_SIZE];
+    str_parse_string(&str, &len, tz, sizeof(tz));
+    setenv(STR_TZ, tz, 1);
     tzset();
-    return time_zone;
+}
+
+bool clk_set_time_zone(const char *tz)
+{
+    if (strlen(tz) >= CLK_TZ_MAX_SIZE)
+        return false;
+    if (strcmp(getenv(STR_TZ), tz))
+    {
+        setenv(STR_TZ, tz, 1);
+        tzset();
+        cfg_save();
+    }
+    return true;
+}
+
+const char *clk_get_time_zone(void)
+{
+    return getenv(STR_TZ);
 }
 
 bool clk_api_tzset(void)

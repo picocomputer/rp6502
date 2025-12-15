@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api/clk.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
 #include "mon/mon.h"
@@ -225,16 +226,16 @@ static void set_ble(const char *args, size_t len)
 static int set_time_zone_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, "TZ  : %s\n", cfg_get_time_zone());
+    snprintf(buf, buf_size, "TZ  : %s\n", clk_get_time_zone());
     return -1;
 }
 
 static void set_time_zone(const char *args, size_t len)
 {
-    char tz[65];
+    char tz[CLK_TZ_MAX_SIZE];
     if (len && (!str_parse_string(&args, &len, tz, sizeof(tz)) ||
                 !str_parse_end(args, len) ||
-                !cfg_set_time_zone(tz)))
+                !clk_set_time_zone(tz)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_time_zone_response);
