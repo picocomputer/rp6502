@@ -7,6 +7,8 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
+#include "mon/mon.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/pix.h"
 #include <fatfs/ff.h>
@@ -25,34 +27,27 @@ void oem_init(void)
     cfg_set_code_page(cfg_get_code_page());
 }
 
-static uint16_t oem_find_code_page(uint16_t cp)
+uint16_t oem_set_code_page(uint16_t cp)
 {
 #if RP6502_CODE_PAGE
     (void)cp;
-    return RP6502_CODE_PAGE;
+    oem_code_page = RP6502_CODE_PAGE;
 #else
-    FRESULT result;
-    if (cp)
+    if (f_setcp(cp) == FR_OK)
+        oem_code_page = cp;
+    else
     {
-        result = f_setcp(cp);
-        if (result == FR_OK)
-            return cp;
+        uint16_t cfg_code_page = cfg_get_code_page();
+        if (f_setcp(cfg_code_page) == FR_OK)
+            oem_code_page = cfg_code_page;
+        else
+        {
+            oem_code_page = OEM_DEFAULT_CODE_PAGE;
+            if (f_setcp(OEM_DEFAULT_CODE_PAGE) != FR_OK)
+                mon_add_response_str(STR_ERR_INTERNAL_ERROR);
+        }
     }
-    uint16_t cfg_code_page = cfg_get_code_page();
-    if (cfg_code_page)
-    {
-        result = f_setcp(cfg_code_page);
-        if (result == FR_OK)
-            return cfg_code_page;
-    }
-    f_setcp(OEM_DEFAULT_CODE_PAGE);
-    return OEM_DEFAULT_CODE_PAGE;
 #endif
-}
-
-uint16_t oem_set_code_page(uint16_t cp)
-{
-    oem_code_page = oem_find_code_page(cp);
     pix_send_blocking(PIX_DEVICE_VGA, 0xFu, 0x01u, oem_code_page);
     kbd_rebuild_code_page_cache();
     return oem_code_page;

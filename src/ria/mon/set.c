@@ -10,6 +10,7 @@
 #include "net/ble.h"
 #include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/cpu.h"
 #include "sys/lfs.h"
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_SET)
@@ -22,7 +23,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static int set_phi2_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, STR_SET_PHI2_RESPONSE, cfg_get_phi2_khz());
+    snprintf(buf, buf_size, STR_SET_PHI2_RESPONSE, cpu_get_phi2_khz());
     return -1;
 }
 
@@ -31,7 +32,7 @@ static void set_phi2(const char *args, size_t len)
     uint32_t val;
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
-                !cfg_set_phi2_khz(val)))
+                !cpu_set_phi2_khz(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_phi2_response);

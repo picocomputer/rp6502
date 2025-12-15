@@ -606,7 +606,7 @@ void kbd_stop(void)
 const char *kbd_set_layout(const char *kb)
 {
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
-    int default_index = -1;
+    int default_index = 0;
     kbd_layout_index = -1;
     for (int i = 0; i < layouts_count; i++)
     {
@@ -615,7 +615,6 @@ const char *kbd_set_layout(const char *kb)
         if (!strcasecmp(kbd_layout_names[i], kb))
             kbd_layout_index = i;
     }
-    assert(default_index >= 0);
     if (kbd_layout_index < 0)
         kbd_layout_index = default_index;
     kbd_selected_keys = kbd_layout_keys[kbd_layout_index];

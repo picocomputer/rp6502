@@ -35,4 +35,6 @@ bool clk_api_get_time(void);
 bool clk_api_set_time(void);
 bool clk_api_get_time_zone(void);
 
+#define CLK_TZ_MAX_SIZE 65
+
 #endif /* _RIA_API_CLK_H_ */

@@ -29,7 +29,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define MON_RESPONSE_FN_COUNT 4
+#define MON_RESPONSE_FN_COUNT 8
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str_list[MON_RESPONSE_FN_COUNT];
 static int mon_response_state = -1;

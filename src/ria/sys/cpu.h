@@ -36,18 +36,13 @@ bool cpu_api_phi2(void);
 // we're waiting for the RESB timer.
 bool cpu_active(void);
 
-/* Config handlers
- */
-
-// The will return a validated freq_khz from the
-// range defined above. 0 returns the default.
-uint32_t cpu_validate_phi2_khz(uint32_t freq_khz);
-
-// This was a major engineering effort.
-bool cpu_set_phi2_khz(uint32_t freq_khz);
-
 // Return calculated reset time. May be higher than configured
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us();
+
+// This setting was a major engineering effort.
+void cpu_load_phi2_khz(const char *str, size_t len);
+bool cpu_set_phi2_khz(uint16_t phi2_khz);
+uint16_t cpu_get_phi2_khz(void);
 
 #endif /* _RIA_SYS_CPU_H_ */

@@ -48,11 +48,10 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // Bring up stdio dispatcher first.
+    // Bring up stdio dispatcher first for DBG().
     com_init();
 
     // GPIO drivers.
-    cpu_init();
     ria_init();
     pix_init();
     vga_init(); // Must be after PIX
@@ -75,6 +74,9 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
+
+    // Must be last. Triggers a reclock.
+    cpu_init();
 }
 
 // Task events are repeatedly called by the main loop.
@@ -326,11 +328,11 @@ bool main_active(void)
 
 int main(void)
 {
+    // ASAP drive reset pin
+    gpio_init(CPU_RESB_PIN);
+    gpio_put(CPU_RESB_PIN, false);
+    gpio_set_dir(CPU_RESB_PIN, true);
     init();
-
-    // Trigger a reclock
-    cpu_set_phi2_khz(cfg_get_phi2_khz());
-
     while (true)
     {
         main_task();

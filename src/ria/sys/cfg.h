@@ -19,11 +19,13 @@
 
 void cfg_init(void);
 
+void cfg_save(void);
+
 // These setters will auto save on change and
 // reconfigure the system as necessary.
 
-bool cfg_set_phi2_khz(uint32_t freq_khz);
-uint32_t cfg_get_phi2_khz(void);
+// bool cfg_set_phi2_khz(uint32_t freq_khz);
+// uint32_t cfg_get_phi2_khz(void);
 bool cfg_set_boot(char *rom);
 char *cfg_get_boot(void);
 bool cfg_set_kbd_layout(const char *kb);

@@ -7,6 +7,7 @@
 #include "api/clk.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
+#include "mon/mon.h"
 #include "mon/rom.h"
 #include "net/ble.h"
 #include "net/cyw.h"
@@ -44,11 +45,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
-static uint32_t cfg_phi2_khz;
 static char cfg_kbd_layout[KBD_LAYOUT_MAX_NAME_SIZE];
 static uint32_t cfg_code_page;
 static uint8_t cfg_vga_display;
-static char cfg_time_zone[65];
+static char cfg_time_zone[CLK_TZ_MAX_SIZE];
 
 #ifdef RP6502_RIA_W
 static uint8_t cfg_net_rf;
@@ -68,7 +68,7 @@ static void cfg_load_with_boot_opt(bool boot_only);
 void cfg_init(void)
 {
     // Non 0 defaults
-    cfg_phi2_khz = CPU_PHI2_DEFAULT;
+    // cfg_phi2_khz = CPU_PHI2_DEFAULT;
     strcpy(cfg_kbd_layout, STR_KBD_DEFAULT_LAYOUT);
     cfg_code_page = OEM_DEFAULT_CODE_PAGE;
     strcpy(cfg_time_zone, STR_CLK_DEFAULT_TZ);
@@ -125,7 +125,7 @@ static void cfg_save_with_boot_opt(char *opt_str)
 #endif /* RP6502_RIA_W */
                                "%s",
                                CFG_VERSION,
-                               cfg_phi2_khz,
+                               cpu_get_phi2_khz(),
                                cfg_time_zone,
                                cfg_code_page,
                                cfg_kbd_layout,
@@ -176,7 +176,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         switch (mbuf[1])
         {
         case 'P':
-            str_parse_uint32(&str, &len, &cfg_phi2_khz);
+            cpu_load_phi2_khz(str, len);
             break;
         case 'T':
             str_parse_string(&str, &len, cfg_time_zone, sizeof(cfg_time_zone));
@@ -216,30 +216,35 @@ static void cfg_load_with_boot_opt(bool boot_only)
         printf("?Unable to lfs_file_close %s (%d)\n", STR_CFG_FILENAME, lfsresult);
 }
 
-bool cfg_set_phi2_khz(uint32_t freq_khz)
+void cfg_save(void)
 {
-    if (freq_khz > CPU_PHI2_MAX_KHZ)
-        return false;
-    if (freq_khz && freq_khz < CPU_PHI2_MIN_KHZ)
-        return false;
-    // 0 allowed through to get default
-    uint32_t old_val = cfg_phi2_khz;
-    cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
-    bool ok = true;
-    if (old_val != cfg_phi2_khz)
-    {
-        ok = cpu_set_phi2_khz(cfg_phi2_khz);
-        if (ok)
-            cfg_save_with_boot_opt(NULL);
-    }
-    return ok;
+    cfg_save_with_boot_opt(NULL);
 }
 
-// Returns actual 6502 frequency adjusted for quantization.
-uint32_t cfg_get_phi2_khz(void)
-{
-    return cpu_validate_phi2_khz(cfg_phi2_khz);
-}
+// bool cfg_set_phi2_khz(uint32_t freq_khz)
+// {
+//     if (freq_khz < CPU_PHI2_MIN_KHZ || freq_khz > CPU_PHI2_MAX_KHZ)
+//     {
+//         cfg_phi2_khz = cpu_set_phi2_khz(cfg_phi2_khz);
+//         return false;
+//     }
+//     uint32_t old_val = cfg_phi2_khz;
+//     cfg_phi2_khz = cpu_validate_phi2_khz(freq_khz);
+//     bool ok = true;
+//     if (old_val != cfg_phi2_khz)
+//     {
+//         ok = cpu_set_phi2_khz(cfg_phi2_khz);
+//         if (ok)
+//             cfg_save_with_boot_opt(NULL);
+//     }
+//     return ok;
+// }
+
+// // Returns actual 6502 frequency adjusted for quantization.
+// uint32_t cfg_get_phi2_khz(void)
+// {
+//     return cpu_validate_phi2_khz(cfg_phi2_khz);
+// }
 
 bool cfg_set_boot(char *str)
 {
@@ -278,9 +283,7 @@ const char *cfg_get_time_zone(void)
 bool cfg_set_kbd_layout(const char *kb)
 {
     const char *key_layout = kbd_set_layout(kb);
-    if (strlen(kb) && strcasecmp(kb, key_layout))
-        return false;
-    if (strlen(key_layout) >= sizeof(cfg_kbd_layout))
+    if (strcasecmp(kb, key_layout))
         return false;
     if (strcmp(cfg_kbd_layout, key_layout))
     {
