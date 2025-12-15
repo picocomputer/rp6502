@@ -21,14 +21,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static const char *hlp_response_ptr;
-static int (*hlp_response_next_fn)(char *, size_t, int);
-
 __in_flash("hlp_commands") static struct
 {
     const char *const cmd;
     const char *const text;
-    int (*extra_fn)(char *, size_t, int);
+    mon_response_fn extra_fn;
 } const HLP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
@@ -68,7 +65,7 @@ __in_flash("hlp_settings") static struct
 {
     const char *const cmd;
     const char *const text;
-    int (*extra_fn)(char *, size_t, int);
+    mon_response_fn extra_fn;
 } const HLP_SETTINGS[] = {
     {STR_PHI2, STR_HELP_SET_PHI2, NULL},
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
@@ -86,10 +83,10 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-static void help_response_lookup(const char *args, size_t len)
+static void help_response_lookup(const char *args, size_t len, const char **cp, mon_response_fn *fnp)
 {
-    hlp_response_ptr = NULL;
-    hlp_response_next_fn = NULL;
+    *cp = NULL;
+    *fnp = NULL;
     size_t cmd_len;
     for (cmd_len = 0; cmd_len < len; cmd_len++)
         if (args[cmd_len] == ' ')
@@ -107,15 +104,15 @@ static void help_response_lookup(const char *args, size_t len)
                 break;
         if (!set_len)
         {
-            hlp_response_ptr = STR_HELP_SET;
+            *cp = STR_HELP_SET;
             return;
         }
         for (size_t i = 0; i < SETTINGS_COUNT; i++)
             if (set_len == strlen(HLP_SETTINGS[i].cmd))
                 if (!strncasecmp(args, HLP_SETTINGS[i].cmd, set_len))
                 {
-                    hlp_response_ptr = HLP_SETTINGS[i].text;
-                    hlp_response_next_fn = HLP_SETTINGS[i].extra_fn;
+                    *cp = HLP_SETTINGS[i].text;
+                    *fnp = HLP_SETTINGS[i].extra_fn;
                     return;
                 }
         return;
@@ -125,63 +122,38 @@ static void help_response_lookup(const char *args, size_t len)
         if (cmd_len == strlen(HLP_COMMANDS[i].cmd))
             if (!strncasecmp(args, HLP_COMMANDS[i].cmd, cmd_len))
             {
-                hlp_response_ptr = HLP_COMMANDS[i].text;
-                hlp_response_next_fn = HLP_COMMANDS[i].extra_fn;
+                *cp = HLP_COMMANDS[i].text;
+                *fnp = HLP_COMMANDS[i].extra_fn;
                 return;
             }
     return;
-}
-
-static int hlp_response(char *buf, size_t buf_size, int state)
-{
-    (void)state;
-    size_t i;
-    for (i = 0; i < buf_size - 1; i++)
-    {
-        char c = hlp_response_ptr[i];
-        buf[i] = c;
-        if (!c)
-        {
-            if (hlp_response_next_fn)
-            {
-                mon_set_response_fn(hlp_response_next_fn);
-                return 0;
-            }
-            return -1;
-        }
-        if (c == '\n')
-        {
-            i++;
-            break;
-        }
-    }
-    buf[i] = 0;
-    hlp_response_ptr += i;
-    return 0;
 }
 
 void hlp_mon_help(const char *args, size_t len)
 {
     if (!len)
     {
-        hlp_response_ptr = STR_HELP_HELP;
-        hlp_response_next_fn = rom_installed_response;
-        mon_set_response_fn(hlp_response);
+        mon_add_response_str(STR_HELP_HELP);
+        mon_add_response_fn(rom_installed_response);
+        return;
     }
-    else
-    {
-        while (len && args[len - 1] == ' ')
-            len--;
-        help_response_lookup(args, len);
-    }
-    if (hlp_response_ptr)
-        mon_set_response_fn(hlp_response);
-    else
+    while (len && args[len - 1] == ' ')
+        len--;
+    const char *c;
+    mon_response_fn fn;
+    help_response_lookup(args, len, &c, &fn);
+    if (c != NULL)
+        mon_add_response_str(c);
+    if (fn != NULL)
+        mon_add_response_fn(fn);
+    if (c == NULL && fn == NULL)
         rom_mon_help(args, len);
 }
 
 bool hlp_topic_exists(const char *buf, size_t buflen)
 {
-    help_response_lookup(buf, buflen);
-    return hlp_response_ptr != NULL;
+    const char *c;
+    mon_response_fn fn;
+    help_response_lookup(buf, buflen, &c, &fn);
+    return c != NULL || fn != NULL;
 }

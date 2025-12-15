@@ -21,8 +21,9 @@ void mon_task(void);
 void mon_break(void);
 
 // This handles pagination without blocking.
-void mon_set_response_fn(int (*fn)(char *, size_t, int));
-void mon_set_response_str(const char *str);
+typedef int (*mon_response_fn)(char *, size_t, int);
+void mon_add_response_fn(int (*fn)(char *, size_t, int));
+void mon_add_response_str(const char *str);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.

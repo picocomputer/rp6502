@@ -29,10 +29,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static int (*mon_response_fn)(char *, size_t, int);
+#define MON_RESPONSE_FN_COUNT 4
+static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
+static const char *mon_response_str_list[MON_RESPONSE_FN_COUNT];
 static int mon_response_state = -1;
 static int mon_response_pos = -1;
-static const char *mon_response_str;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = false;
@@ -138,29 +139,68 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     // Supress error for empty lines
     for (const char *b = buf; b < args; b++)
         if (b[0] != ' ')
-            return mon_set_response_str(STR_ERR_UNKNOWN_COMMAND);
+            return mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
+}
+
+static int mon_next_response(void)
+{
+    int i = 0;
+    for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
+    {
+        mon_response_fn_list[i] = mon_response_fn_list[i + 1];
+        mon_response_str_list[i] = mon_response_str_list[i + 1];
+    }
+    mon_response_fn_list[i] = 0;
+    mon_response_str_list[i] = 0;
+    if (mon_response_fn_list[0] != NULL)
+        return 0;
+    else
+        return -1;
+}
+
+static void mon_append_response(mon_response_fn fn, const char *str)
+{
+    int i = 0;
+    for (; i < MON_RESPONSE_FN_COUNT; i++)
+    {
+        if (!mon_response_fn_list[i])
+        {
+            mon_response_fn_list[i] = fn;
+            mon_response_str_list[i] = str;
+            if (i == 0)
+                mon_response_state = 0;
+            return;
+        }
+    }
 }
 
 static int mon_str_response(char *buf, size_t buf_size, int state)
 {
-    (void)state;
-    snprintf(buf, buf_size, mon_response_str, state);
-    return -1;
+    size_t i = 0;
+    const char *str = mon_response_str_list[0];
+    for (; i + 1 < buf_size; i++)
+    {
+        char c = str[state];
+        buf[i] = c;
+        if (!c)
+            return -1;
+        state++;
+        buf_size--;
+    }
+    buf[i] = 0;
+    return state;
 }
 
-void mon_set_response_fn(int (*fn)(char *, size_t, int))
+void mon_add_response_fn(mon_response_fn fn)
 {
     assert(mon_response_state < 0 && mon_response_pos < 0);
-    mon_response_fn = fn;
-    mon_response_state = 0;
+    mon_append_response(fn, NULL);
 }
 
-void mon_set_response_str(const char *str)
+void mon_add_response_str(const char *str)
 {
     assert(mon_response_state < 0 && mon_response_pos < 0);
-    mon_response_fn = mon_str_response;
-    mon_response_state = 0;
-    mon_response_str = str;
+    mon_append_response(mon_str_response, str);
 }
 
 static bool mon_suspended(void)
@@ -175,6 +215,8 @@ static bool mon_suspended(void)
 
 void mon_task(void)
 {
+    if (mon_suspended())
+        return;
     if (mon_response_state >= 0 || mon_response_pos >= 0)
     {
         while (response_buf[mon_response_pos] && com_putchar_ready())
@@ -185,16 +227,18 @@ void mon_task(void)
         {
             mon_response_pos = 0;
             response_buf[0] = 0;
-            mon_response_state = mon_response_fn(
+            mon_response_state = (mon_response_fn_list[0])(
                 response_buf, RESPONSE_BUF_SIZE, mon_response_state);
+            if (mon_response_state < 0)
+                mon_response_state = mon_next_response();
         }
     }
-    else if (mon_needs_prompt && !mon_suspended())
+    else if (mon_needs_prompt)
     {
         if (mon_needs_newline)
-            mon_set_response_str(STR_MON_PROMPT_NEWLINE);
+            mon_add_response_str(STR_MON_PROMPT_NEWLINE);
         else
-            mon_set_response_str(STR_MON_PROMPT);
+            mon_add_response_str(STR_MON_PROMPT);
         mon_needs_prompt = false;
         mon_needs_newline = false;
         mon_needs_read_line = true;

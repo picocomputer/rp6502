@@ -32,9 +32,9 @@ static void set_phi2(const char *args, size_t len)
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
                 !cfg_set_phi2_khz(val)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        mon_set_response_fn(set_phi2_response);
+        mon_add_response_fn(set_phi2_response);
 }
 
 static int set_boot_response(char *buf, size_t buf_size, int state)
@@ -57,9 +57,9 @@ static void set_boot(const char *args, size_t len)
         else if (!str_parse_rom_name(&args, &len, lfs_name) ||
                  !str_parse_end(args, len) ||
                  !cfg_set_boot(lfs_name))
-            return mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
-    mon_set_response_fn(set_boot_response);
+    mon_add_response_fn(set_boot_response);
 }
 
 static int set_code_page_response(char *buf, size_t buf_size, int state)
@@ -79,9 +79,9 @@ static void set_code_page(const char *args, size_t len)
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
                 !cfg_set_code_page(val)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        mon_set_response_fn(set_code_page_response);
+        mon_add_response_fn(set_code_page_response);
 }
 
 static int set_vga_response(char *buf, size_t buf_size, int state)
@@ -97,10 +97,10 @@ static void set_vga(const char *args, size_t len)
     uint32_t val;
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         cfg_set_vga(val);
-    mon_set_response_fn(set_vga_response);
+    mon_add_response_fn(set_vga_response);
 }
 
 #ifdef RP6502_RIA_W
@@ -119,9 +119,9 @@ static void set_rf(const char *args, size_t len)
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
                 !cfg_set_rf(val)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        mon_set_response_fn(set_rf_response);
+        mon_add_response_fn(set_rf_response);
 }
 
 static int set_rfcc_response(char *buf, size_t buf_size, int state)
@@ -143,9 +143,9 @@ static void set_rfcc(const char *args, size_t len)
         else if (!str_parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
                  !str_parse_end(args, len) ||
                  !cfg_set_rfcc(rfcc))
-            return mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
-    mon_set_response_fn(set_rfcc_response);
+    mon_add_response_fn(set_rfcc_response);
 }
 
 static int set_ssid_response(char *buf, size_t buf_size, int state)
@@ -181,28 +181,28 @@ static void set_ssid(const char *args, size_t len)
 {
     char ssid[33];
     if (!len)
-        return mon_set_response_fn(set_ssid_response);
+        return mon_add_response_fn(set_ssid_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
         cfg_set_ssid("");
     else if (!str_parse_string(&args, &len, ssid, sizeof(ssid)) ||
              !str_parse_end(args, len) ||
              !cfg_set_ssid(ssid))
-        return mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
-    mon_set_response_fn(set_ssid_pass_response);
+        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_fn(set_ssid_pass_response);
 }
 
 static void set_pass(const char *args, size_t len)
 {
     char pass[65];
     if (!len)
-        return mon_set_response_fn(set_pass_response);
+        return mon_add_response_fn(set_pass_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
         cfg_set_pass("");
     else if (!str_parse_string(&args, &len, pass, sizeof(pass)) ||
              !str_parse_end(args, len) ||
              !cfg_set_pass(pass))
-        return mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
-    mon_set_response_fn(set_ssid_pass_response);
+        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_fn(set_ssid_pass_response);
 }
 
 static int set_ble_response(char *buf, size_t buf_size, int state)
@@ -221,9 +221,9 @@ static void set_ble(const char *args, size_t len)
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
                 !cfg_set_ble(val)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        mon_set_response_fn(set_ble_response);
+        mon_add_response_fn(set_ble_response);
 }
 
 #endif
@@ -241,9 +241,9 @@ static void set_time_zone(const char *args, size_t len)
     if (len && (!str_parse_string(&args, &len, tz, sizeof(tz)) ||
                 !str_parse_end(args, len) ||
                 !cfg_set_time_zone(tz)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        mon_set_response_fn(set_time_zone_response);
+        mon_add_response_fn(set_time_zone_response);
 }
 
 static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
@@ -259,9 +259,9 @@ static void set_kbd_layout(const char *args, size_t len)
     if (len && (!str_parse_string(&args, &len, kb, sizeof(kb)) ||
                 !str_parse_end(args, len) ||
                 !cfg_set_kbd_layout(kb)))
-        mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        mon_set_response_fn(set_kbd_layout_response);
+        mon_add_response_fn(set_kbd_layout_response);
 }
 
 typedef void (*set_function)(const char *, size_t);
@@ -334,7 +334,7 @@ static int set_print_all_response(char *buf, size_t buf_size, int state)
 void set_mon_set(const char *args, size_t len)
 {
     if (!len)
-        return mon_set_response_fn(set_print_all_response);
+        return mon_add_response_fn(set_print_all_response);
     size_t i = 0;
     for (; i < len; i++)
         if (args[i] == ' ')
@@ -353,5 +353,5 @@ void set_mon_set(const char *args, size_t len)
             return;
         }
     }
-    mon_set_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
 }

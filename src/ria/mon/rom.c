@@ -389,7 +389,7 @@ void rom_mon_help(const char *args, size_t len)
             puts("?No help found in ROM.");
         return;
     }
-    mon_set_response_str(STR_ERR_NO_HELP_FOUND);
+    mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
 static bool rom_action_is_finished(void)

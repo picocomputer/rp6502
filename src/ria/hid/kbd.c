@@ -9,7 +9,9 @@
 #include "api/oem.h"
 #include "hid/kbd.h"
 #include "hid/hid.h"
+#include "mon/mon.h"
 #include "net/ble.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "usb/usb.h"
 #include <btstack_hid_parser.h>
@@ -687,12 +689,11 @@ void kbd_rebuild_code_page_cache(void)
 
     return;
 overflow_error:
-    // If this gets triggered, the dead key lookups
-    // could probably benefit from a tree search.
+    // Fail safe when the cache size is too small.
     kbd_selected_dead2 = (void *)&kbd_layout_cache[0];
     kbd_selected_dead3 = (void *)&kbd_layout_cache[0];
     kbd_layout_cache[0] = 0;
-    puts("?Keyboard cache overflow");
+    mon_add_response_str(STR_ERR_INTERNAL_ERROR);
 }
 
 bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
