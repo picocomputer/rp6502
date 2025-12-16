@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "str/str.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
@@ -40,14 +41,15 @@ static enum {
     VGA_LOST_SIGNAL, // Definitely an error condition
 } vga_state;
 
+bool vga_needs_reset = true;
+static uint8_t vga_display_type;
 static absolute_time_t vga_vsync_timer;
 static absolute_time_t vga_version_timer;
 
-#define VGA_VERSION_MESSAGE_SIZE 80
+#define VGA_VERSION_MESSAGE_SIZE 64
 char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
 size_t vga_version_message_length;
-
-bool vga_needs_reset;
+static uint8_t vga_test_buf[4];
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -99,7 +101,6 @@ static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 static void vga_connect(void)
 {
     // Test if VGA connected
-    uint8_t vga_test_buf[4];
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
     rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, vga_test_buf, sizeof(vga_test_buf));
@@ -172,9 +173,6 @@ void vga_init(void)
     // Disable backchannel again, for safety.
     vga_pix_backchannel_disable();
 
-    // Reset Pico VGA
-    vga_needs_reset = true;
-
     // Connect and establish backchannel
     vga_connect();
 }
@@ -207,7 +205,7 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, cfg_get_vga());
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_display_type);
     }
 }
 
@@ -230,14 +228,6 @@ void vga_stop(void)
 void vga_break(void)
 {
     vga_needs_reset = true;
-}
-
-bool vga_set_vga(uint32_t display_type)
-{
-    if (display_type > 2)
-        return false;
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display_type);
-    return true;
 }
 
 bool vga_connected(void)
@@ -268,4 +258,29 @@ void vga_print_status(void)
         break;
     }
     puts(msg);
+}
+
+void vga_load_display_type(const char *str, size_t len)
+{
+    str_parse_uint8(&str, &len, &vga_display_type);
+    if (vga_display_type > 2)
+        vga_display_type = 0;
+}
+
+bool vga_set_display_type(uint8_t display_type)
+{
+    if (display_type > 2)
+        return false;
+    if (vga_display_type != display_type)
+    {
+        vga_display_type = display_type;
+        vga_needs_reset = true;
+        cfg_save();
+    }
+    return true;
+}
+
+uint8_t vga_get_display_type(void)
+{
+    return vga_display_type;
 }

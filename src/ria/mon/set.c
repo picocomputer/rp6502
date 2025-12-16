@@ -15,6 +15,7 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
+#include "sys/vga.h"
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_SET)
 #include <stdio.h>
@@ -92,7 +93,7 @@ static int set_vga_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *const vga_labels[] = {STR_SET_VGA_0_LABEL, STR_SET_VGA_1_LABEL, STR_SET_VGA_2_LABEL};
-    snprintf(buf, buf_size, STR_SET_VGA_RESPONSE, vga_labels[cfg_get_vga()]);
+    snprintf(buf, buf_size, STR_SET_VGA_RESPONSE, vga_labels[vga_get_display_type()]);
     return -1;
 }
 
@@ -103,7 +104,7 @@ static void set_vga(const char *args, size_t len)
                 !str_parse_end(args, len)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        cfg_set_vga(val);
+        vga_set_display_type(val);
     mon_add_response_fn(set_vga_response);
 }
 

@@ -27,8 +27,6 @@ void cfg_save_boot(const char *str);
 const char *cfg_load_boot(void);
 
 // retiring...
-bool cfg_set_vga(uint8_t disp);
-uint8_t cfg_get_vga(void);
 bool cfg_set_rf(uint8_t rf);
 uint8_t cfg_get_rf(void);
 bool cfg_set_rfcc(const char *rfcc);

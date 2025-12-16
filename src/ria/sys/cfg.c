@@ -45,8 +45,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
-static uint8_t cfg_vga_display;
-
 #ifdef RP6502_RIA_W
 static uint8_t cfg_net_rf = 1;
 static char cfg_net_rfcc[3];
@@ -105,7 +103,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                clk_get_time_zone(),
                                oem_get_code_page(),
                                kbd_get_layout(),
-                               cfg_vga_display,
+                               vga_get_display_type(),
 #ifdef RP6502_RIA_W
                                cfg_net_rf,
                                cfg_net_rfcc,
@@ -164,7 +162,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             kbd_load_layout(str, len);
             break;
         case 'D':
-            str_parse_uint8(&str, &len, &cfg_vga_display);
+            vga_load_display_type(str, len);
             break;
 #ifdef RP6502_RIA_W
         case 'E':
@@ -211,23 +209,6 @@ const char *cfg_load_boot(void)
 {
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;
-}
-
-bool cfg_set_vga(uint8_t disp)
-{
-    if (!vga_set_vga(disp))
-        return false;
-    if (cfg_vga_display != disp)
-    {
-        cfg_vga_display = disp;
-        cfg_save_with_boot_opt(NULL);
-    }
-    return true;
-}
-
-uint8_t cfg_get_vga(void)
-{
-    return cfg_vga_display;
 }
 
 #ifdef RP6502_RIA_W

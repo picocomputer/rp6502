@@ -7,7 +7,7 @@
 #ifndef _RIA_API_CLK_H_
 #define _RIA_API_CLK_H_
 
-#define CLK_TZ_MAX_SIZE 65
+#define CLK_TZ_MAX_SIZE 64
 
 /* The CLK driver manages real-time counters.
  */
