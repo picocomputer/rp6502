@@ -29,7 +29,8 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define MON_RESPONSE_FN_COUNT 8
+// Response limit must accomodate SET and STATUS commands
+#define MON_RESPONSE_FN_COUNT 16
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str_list[MON_RESPONSE_FN_COUNT];
 static int mon_response_state = -1;
@@ -199,29 +200,23 @@ static int mon_next_response(void)
 
 void mon_add_response_fn(mon_response_fn fn)
 {
-    assert(mon_response_state < 0 && mon_response_pos < 0);
     mon_append_response(fn, NULL);
 }
 
 void mon_add_response_str(const char *str)
 {
-    assert(mon_response_state < 0 && mon_response_pos < 0);
     mon_append_response(mon_str_response, str);
-}
-
-static bool mon_suspended(void)
-{
-    return main_active() ||
-           // These may run the 6502 many times for a single
-           // task so we can't depend on only main_active().
-           ram_active() ||
-           rom_active() ||
-           fil_active();
 }
 
 void mon_task(void)
 {
-    if (mon_suspended())
+    // The monitor must never print while 6502 is running.
+    if (main_active() ||
+        // These may run the 6502 many times for a single
+        // task so we can't depend on only main_active().
+        ram_active() ||
+        rom_active() ||
+        fil_active())
         return;
     if (mon_response_state >= 0 || mon_response_pos >= 0)
     {

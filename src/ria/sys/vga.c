@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "mon/mon.h"
 #include "str/str.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
@@ -33,12 +34,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define VGA_VSYNC_WATCHDOG_MS 35
 
 static enum {
-    VGA_NOT_FOUND,   // Possibly normal, Pico VGA is optional
-    VGA_TESTING,     // Looking for Pico VGA
-    VGA_FOUND,       // Found
-    VGA_CONNECTED,   // Connected and version string received
-    VGA_NO_VERSION,  // Connected but no version string received
-    VGA_LOST_SIGNAL, // Definitely an error condition
+    VGA_NOT_FOUND,       // Possibly normal, RP6502-VGA is optional
+    VGA_TESTING,         // Looking for RP6502-VGA
+    VGA_FOUND,           // Found
+    VGA_CONNECTED,       // Connected and version string received
+    VGA_NO_VERSION,      // Connected but no version string received
+    VGA_CONNECTION_LOST, // Definitely an error condition
 } vga_state;
 
 bool vga_needs_reset = true;
@@ -197,9 +198,8 @@ void vga_task(void)
     {
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
-        vga_state = VGA_LOST_SIGNAL;
-        printf("?");
-        vga_print_status();
+        vga_state = VGA_CONNECTION_LOST;
+        mon_add_response_str(STR_ERR_VGA_CONNECTION_LOST);
     }
 
     if (vga_needs_reset)
@@ -213,7 +213,7 @@ void vga_run(void)
 {
     // It's normal to lose signal during Pico VGA development.
     // Attempt to restart when a 6502 program is run.
-    if (vga_state == VGA_LOST_SIGNAL && !ria_active())
+    if (vga_state == VGA_CONNECTION_LOST && !ria_active())
         vga_connect();
 }
 
@@ -236,8 +236,17 @@ bool vga_connected(void)
            vga_state == VGA_NO_VERSION;
 }
 
-void vga_print_status(void)
+int vga_boot_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
+    if (!vga_connected())
+        return -1;
+    return vga_status_response(buf, buf_size, state);
+}
+
+int vga_status_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
     const char *msg = STR_VGA_SEARCHING;
     switch (vga_state)
     {
@@ -253,11 +262,12 @@ void vga_print_status(void)
     case VGA_NOT_FOUND:
         msg = STR_VGA_NOT_FOUND;
         break;
-    case VGA_LOST_SIGNAL:
-        msg = STR_VGA_SIGNAL_LOST;
+    case VGA_CONNECTION_LOST:
+        msg = STR_VGA_CONNECTION_LOST;
         break;
     }
-    puts(msg);
+    snprintf(buf, buf_size, "%s\n", msg);
+    return -1;
 }
 
 void vga_load_display_type(const char *str, size_t len)

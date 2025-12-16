@@ -284,72 +284,43 @@ __in_flash("set_attributes") static struct
 };
 static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
 
-static int set_print_all_response(char *buf, size_t buf_size, int state)
-{
-    switch (state)
-    {
-    case 0:
-        set_phi2_response(buf, buf_size, state);
-        break;
-    case 1:
-        set_boot_response(buf, buf_size, state);
-        break;
-    case 2:
-        set_time_zone_response(buf, buf_size, state);
-        break;
-    case 3:
-        set_kbd_layout_response(buf, buf_size, state);
-        break;
-    case 4:
-        set_code_page_response(buf, buf_size, state);
-        break;
-    case 5:
-        set_vga_response(buf, buf_size, state);
-        break;
-#ifdef RP6502_RIA_W
-    case 6:
-        set_rf_response(buf, buf_size, state);
-        break;
-    case 7:
-        set_rfcc_response(buf, buf_size, state);
-        break;
-    case 8:
-        set_ssid_response(buf, buf_size, state);
-        break;
-    case 9:
-        set_pass_response(buf, buf_size, state);
-        break;
-    case 10:
-        set_ble_response(buf, buf_size, state);
-        break;
-#endif
-    default:
-        return -1;
-    }
-    return ++state;
-}
-
 void set_mon_set(const char *args, size_t len)
 {
-    if (!len)
-        return mon_add_response_fn(set_print_all_response);
-    size_t i = 0;
-    for (; i < len; i++)
-        if (args[i] == ' ')
-            break;
-    size_t attr_len = i;
-    for (; i < len; i++)
-        if (args[i] != ' ')
-            break;
-    size_t args_start = i;
-    for (i = 0; i < SET_ATTRIBUTES_COUNT; i++)
+    if (len)
     {
-        if (attr_len == strlen(SET_ATTRIBUTES[i].attr) &&
-            !strncasecmp(args, SET_ATTRIBUTES[i].attr, attr_len))
+        size_t i = 0;
+        for (; i < len; i++)
+            if (args[i] == ' ')
+                break;
+        size_t attr_len = i;
+        for (; i < len; i++)
+            if (args[i] != ' ')
+                break;
+        size_t args_start = i;
+        for (i = 0; i < SET_ATTRIBUTES_COUNT; i++)
         {
-            SET_ATTRIBUTES[i].func(&args[args_start], len - args_start);
-            return;
+            if (attr_len == strlen(SET_ATTRIBUTES[i].attr) &&
+                !strncasecmp(args, SET_ATTRIBUTES[i].attr, attr_len))
+            {
+                SET_ATTRIBUTES[i].func(&args[args_start], len - args_start);
+                return;
+            }
         }
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
     }
-    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    // No args, show everything
+    mon_add_response_fn(set_phi2_response);
+    mon_add_response_fn(set_boot_response);
+    mon_add_response_fn(set_time_zone_response);
+    mon_add_response_fn(set_kbd_layout_response);
+    mon_add_response_fn(set_code_page_response);
+    mon_add_response_fn(set_vga_response);
+#ifdef RP6502_RIA_W
+    mon_add_response_fn(set_rf_response);
+    mon_add_response_fn(set_rfcc_response);
+    mon_add_response_fn(set_ssid_response);
+    mon_add_response_fn(set_pass_response);
+    mon_add_response_fn(set_ble_response);
+#endif
 }

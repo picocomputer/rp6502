@@ -23,7 +23,11 @@ X(STR_VGA1, "VGA1")
 X(STR_VGA_SEARCHING, "VGA Searching")
 X(STR_VGA_VERSION_UNKNOWN, "VGA Version Unknown")
 X(STR_VGA_NOT_FOUND, "VGA Not Found")
-X(STR_VGA_SIGNAL_LOST, "VGA Signal Lost")
+X(STR_VGA_CONNECTION_LOST, "VGA Connection Lost")
+
+// ANSI to reset the terminal at boot
+X(STR_SYS_FULL_TERM_RESET, "\30\33c\n");
+X(STR_SYS_DEBUG_TERM_RESET, "\30\33[0m\33[?25h\n\n");
 
 // Monitor prompts
 X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")

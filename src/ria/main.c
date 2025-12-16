@@ -51,6 +51,9 @@ static void init(void)
     // Bring up stdio dispatcher first for DBG().
     com_init();
 
+    // Queue startup message.
+    sys_init();
+
     // GPIO drivers.
     ria_init();
     pix_init();
@@ -60,11 +63,8 @@ static void init(void)
     lfs_init();
     cfg_init(); // Config stored on lfs
 
-    // Print startup message after setting code page.
-    oem_init();
-    sys_init(); // This clears screen
-
     // Misc device drivers, add yours here.
+    oem_init();
     usb_init();
     led_init();
     aud_init();
@@ -75,7 +75,7 @@ static void init(void)
     clk_init();
     mdm_init();
 
-    // Must be last. Triggers a reclock.
+    // CPU must be last. Triggers a reclock.
     cpu_init();
 }
 
