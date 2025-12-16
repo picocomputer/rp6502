@@ -209,22 +209,24 @@ static void kbd_queue_str(const char *str)
     }
 }
 
-static void kbd_queue_seq(const char *str, const char *mod_seq, int mod)
+static void kbd_queue_vt100(char c0, char c1, int ansi_mod)
 {
+
     char s[16];
-    if (mod == 1)
-        return kbd_queue_str(str);
-    snprintf(s, 16, mod_seq, mod);
+    if (ansi_mod == 1)
+        snprintf(s, 16, "\33%c%c", c0, c1);
+    else
+        snprintf(s, 16, "\33[1;%d%c", ansi_mod, c1);
     return kbd_queue_str(s);
 }
 
-static void kbd_queue_seq_vt(int num, int mod)
+static void kbd_queue_vt220(int num, int ansi_mod)
 {
     char s[16];
-    if (mod == 1)
+    if (ansi_mod == 1)
         snprintf(s, 16, "\33[%d~", num);
     else
-        snprintf(s, 16, "\33[%d;%d~", num, mod);
+        snprintf(s, 16, "\33[%d;%d~", num, ansi_mod);
     return kbd_queue_str(s);
 }
 
@@ -534,49 +536,49 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     switch (keycode)
     {
     case KBD_HID_KEY_ARROW_UP:
-        return kbd_queue_seq("\33[A", "\33[1;%dA", ansi_modifier);
+        return kbd_queue_vt100('[', 'A', ansi_modifier);
     case KBD_HID_KEY_ARROW_DOWN:
-        return kbd_queue_seq("\33[B", "\33[1;%dB", ansi_modifier);
+        return kbd_queue_vt100('[', 'B', ansi_modifier);
     case KBD_HID_KEY_ARROW_RIGHT:
-        return kbd_queue_seq("\33[C", "\33[1;%dC", ansi_modifier);
+        return kbd_queue_vt100('[', 'C', ansi_modifier);
     case KBD_HID_KEY_ARROW_LEFT:
-        return kbd_queue_seq("\33[D", "\33[1;%dD", ansi_modifier);
+        return kbd_queue_vt100('[', 'D', ansi_modifier);
     case KBD_HID_KEY_F1:
-        return kbd_queue_seq("\33OP", "\33[1;%dP", ansi_modifier);
+        return kbd_queue_vt100('O', 'P', ansi_modifier);
     case KBD_HID_KEY_F2:
-        return kbd_queue_seq("\33OQ", "\33[1;%dQ", ansi_modifier);
+        return kbd_queue_vt100('O', 'Q', ansi_modifier);
     case KBD_HID_KEY_F3:
-        return kbd_queue_seq("\33OR", "\33[1;%dR", ansi_modifier);
+        return kbd_queue_vt100('O', 'R', ansi_modifier);
     case KBD_HID_KEY_F4:
-        return kbd_queue_seq("\33OS", "\33[1;%dS", ansi_modifier);
+        return kbd_queue_vt100('O', 'S', ansi_modifier);
     case KBD_HID_KEY_F5:
-        return kbd_queue_seq_vt(15, ansi_modifier);
+        return kbd_queue_vt220(15, ansi_modifier);
     case KBD_HID_KEY_F6:
-        return kbd_queue_seq_vt(17, ansi_modifier);
+        return kbd_queue_vt220(17, ansi_modifier);
     case KBD_HID_KEY_F7:
-        return kbd_queue_seq_vt(18, ansi_modifier);
+        return kbd_queue_vt220(18, ansi_modifier);
     case KBD_HID_KEY_F8:
-        return kbd_queue_seq_vt(19, ansi_modifier);
+        return kbd_queue_vt220(19, ansi_modifier);
     case KBD_HID_KEY_F9:
-        return kbd_queue_seq_vt(10, ansi_modifier);
+        return kbd_queue_vt220(10, ansi_modifier);
     case KBD_HID_KEY_F10:
-        return kbd_queue_seq_vt(21, ansi_modifier);
+        return kbd_queue_vt220(21, ansi_modifier);
     case KBD_HID_KEY_F11:
-        return kbd_queue_seq_vt(23, ansi_modifier);
+        return kbd_queue_vt220(23, ansi_modifier);
     case KBD_HID_KEY_F12:
-        return kbd_queue_seq_vt(24, ansi_modifier);
+        return kbd_queue_vt220(24, ansi_modifier);
     case KBD_HID_KEY_HOME:
-        return kbd_queue_seq("\33[H", "\33[1;%dH", ansi_modifier);
+        return kbd_queue_vt100('[', 'H', ansi_modifier);
     case KBD_HID_KEY_INSERT:
-        return kbd_queue_seq_vt(2, ansi_modifier);
+        return kbd_queue_vt220(2, ansi_modifier);
     case KBD_HID_KEY_DELETE:
-        return kbd_queue_seq_vt(3, ansi_modifier);
+        return kbd_queue_vt220(3, ansi_modifier);
     case KBD_HID_KEY_END:
-        return kbd_queue_seq("\33[F", "\33[1;%dF", ansi_modifier);
+        return kbd_queue_vt100('[', 'F', ansi_modifier);
     case KBD_HID_KEY_PAGE_UP:
-        return kbd_queue_seq_vt(5, ansi_modifier);
+        return kbd_queue_vt220(5, ansi_modifier);
     case KBD_HID_KEY_PAGE_DOWN:
-        return kbd_queue_seq_vt(6, ansi_modifier);
+        return kbd_queue_vt220(6, ansi_modifier);
     }
 }
 
@@ -709,20 +711,15 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
                 {
                     conn->codes_offset = item.bit_pos;
                     conn->codes_count = 1;
-                    DBG("Found keycode array start: offset=%d\n", conn->codes_offset);
                 }
                 else if (item.bit_pos == conn->codes_offset + (conn->codes_count * 8))
                 {
                     conn->codes_count++;
-                    DBG("Extending keycode array: count=%d\n", conn->codes_count);
                 }
             }
             // 1 bit represents a keycode
             if (item.size == 1)
-            {
                 conn->keycodes[item.usage] = item.bit_pos;
-                DBG("Found individual keycode bit: usage=0x%02x, offset=%d\n", item.usage, item.bit_pos);
-            }
         }
     }
     return conn->valid;

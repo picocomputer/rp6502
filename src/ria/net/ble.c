@@ -6,12 +6,11 @@
 
 #include <btstack.h>
 
-#if !defined(RP6502_RIA_W) || !defined(ENABLE_BLE)
+#if !defined(RP6502_RIA_W)
 #include "net/ble.h"
 void ble_task(void) {}
 void ble_shutdown(void) {}
 void ble_print_status(void) {}
-void ble_set_config(uint8_t) {}
 void ble_set_hid_leds(uint8_t) {}
 #else
 
@@ -393,7 +392,7 @@ void ble_task(void)
     }
 }
 
-void ble_set_config(uint8_t ble)
+static void ble_set_config(uint8_t ble)
 {
     switch (ble)
     {
@@ -465,6 +464,7 @@ void ble_load_enabled(const char *str, size_t len)
     str_parse_uint8(&str, &len, &ble_enabled);
     if (ble_enabled > 1)
         ble_enabled = 0;
+    ble_set_config(ble_enabled);
 }
 
 bool ble_set_enabled(uint8_t ble)
@@ -487,4 +487,4 @@ uint8_t ble_get_enabled(void)
     return ble_enabled;
 }
 
-#endif /* RP6502_RIA_W && ENABLE_BLE */
+#endif /* RP6502_RIA_W */

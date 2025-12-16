@@ -22,9 +22,6 @@ void ble_task(void);
 /* Utility
  */
 
-// 0-disabled, 1-enabled, 2-pairing
-void ble_set_config(uint8_t ble);
-
 // True when new devices allowed to pair
 bool ble_is_pairing(void);
 
