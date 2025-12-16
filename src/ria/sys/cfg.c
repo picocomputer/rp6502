@@ -45,10 +45,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
-#ifdef RP6502_RIA_W
-static uint8_t cfg_net_ble = 1;
-#endif /* RP6502_RIA_W */
-
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(const char *opt_str)
 {
@@ -105,7 +101,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                cyw_get_rf_country_code(),
                                wfi_get_ssid(),
                                wfi_get_pass(),
-                               cfg_net_ble,
+                               ble_get_enabled(),
 #endif /* RP6502_RIA_W */
                                opt_str);
         if (lfsresult < 0)
@@ -174,7 +170,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             wfi_load_pass(str, len);
             break;
         case 'B':
-            str_parse_uint8(&str, &len, &cfg_net_ble);
+            ble_load_enabled(str, len);
             break;
 #endif /* RP6502_RIA_W */
         default:
@@ -206,28 +202,3 @@ const char *cfg_load_boot(void)
     cfg_load_with_boot_opt(true);
     return (char *)mbuf;
 }
-
-#ifdef RP6502_RIA_W
-
-
-bool cfg_set_ble(uint8_t ble)
-{
-    if (ble > 2)
-        return false;
-    ble_set_config(ble);
-    if (ble == 2)
-        ble = 1;
-    if (cfg_net_ble != ble)
-    {
-        cfg_net_ble = ble;
-        cfg_save_with_boot_opt(NULL);
-    }
-    return true;
-}
-
-uint8_t cfg_get_ble(void)
-{
-    return cfg_net_ble;
-}
-
-#endif /* RP6502_RIA_W */

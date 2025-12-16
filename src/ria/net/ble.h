@@ -37,4 +37,9 @@ void ble_shutdown(void);
 // Status command printer
 void ble_print_status(void);
 
+// Configuration setting BLE
+void ble_load_enabled(const char *str, size_t len);
+bool ble_set_enabled(uint8_t bt);
+uint8_t ble_get_enabled(void);
+
 #endif /* _RIA_NET_BLE_H_ */

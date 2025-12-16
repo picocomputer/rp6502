@@ -21,6 +21,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "hid/pad.h"
 #include "net/ble.h"
 #include "net/cyw.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/led.h"
 #include <stdio.h>
@@ -33,6 +34,7 @@ void ble_set_hid_leds(uint8_t) {}
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+static uint8_t ble_enabled = 1;
 static bool ble_initialized;
 static bool ble_pairing;
 static uint8_t ble_count_kbd;
@@ -372,7 +374,7 @@ void ble_task(void)
 {
     if (!ble_initialized)
     {
-        if (cyw_get_rf_enable() && cfg_get_ble())
+        if (cyw_get_rf_enable() && ble_enabled)
         {
             ble_init_stack();
             ble_initialized = true;
@@ -441,7 +443,7 @@ void ble_shutdown(void)
 
 void ble_print_status(void)
 {
-    if (cfg_get_ble())
+    if (ble_enabled)
     {
         if (cyw_get_rf_enable())
             printf("BLE : %d keyboard%s, %d %s, %d gamepad%s%s\n",
@@ -456,6 +458,33 @@ void ble_print_status(void)
     {
         printf("BLE : Disabled\n");
     }
+}
+
+void ble_load_enabled(const char *str, size_t len)
+{
+    str_parse_uint8(&str, &len, &ble_enabled);
+    if (ble_enabled > 1)
+        ble_enabled = 0;
+}
+
+bool ble_set_enabled(uint8_t ble)
+{
+    if (ble > 2)
+        return false;
+    ble_set_config(ble);
+    if (ble == 2)
+        ble = 1;
+    if (ble_enabled != ble)
+    {
+        ble_enabled = ble;
+        cfg_save();
+    }
+    return true;
+}
+
+uint8_t ble_get_enabled(void)
+{
+    return ble_enabled;
 }
 
 #endif /* RP6502_RIA_W && ENABLE_BLE */

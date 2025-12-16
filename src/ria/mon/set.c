@@ -207,7 +207,7 @@ static int set_ble_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     snprintf(buf, buf_size, STR_SET_BLE_RESPONSE,
-             cfg_get_ble() ? STR_ENABLED : STR_DISABLED,
+             ble_get_enabled() ? STR_ENABLED : STR_DISABLED,
              ble_is_pairing() ? STR_BLE_PAIRING : "",
              cyw_get_rf_enable() ? "" : STR_BLE_NO_RF);
     return -1;
@@ -218,7 +218,7 @@ static void set_ble(const char *args, size_t len)
     uint32_t val;
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
-                !cfg_set_ble(val)))
+                !ble_set_enabled(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_ble_response);
