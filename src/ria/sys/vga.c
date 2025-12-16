@@ -92,7 +92,7 @@ static void vga_backchannel_command(uint8_t byte)
 static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 {
     // VGA1 means VGA on PIX 1
-    if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
+    if (!timeout && length == 4 && !strncasecmp(STR_VGA1, buf, 4))
         vga_state = VGA_FOUND;
     else
         vga_state = VGA_NOT_FOUND;
@@ -238,7 +238,7 @@ bool vga_connected(void)
 
 void vga_print_status(void)
 {
-    const char *msg = "VGA Searching";
+    const char *msg = STR_VGA_SEARCHING;
     switch (vga_state)
     {
     case VGA_FOUND:
@@ -248,13 +248,13 @@ void vga_print_status(void)
         msg = vga_version_message;
         break;
     case VGA_NO_VERSION:
-        msg = "VGA Version Unknown";
+        msg = STR_VGA_VERSION_UNKNOWN;
         break;
     case VGA_NOT_FOUND:
-        msg = "VGA Not Found";
+        msg = STR_VGA_NOT_FOUND;
         break;
     case VGA_LOST_SIGNAL:
-        msg = "VGA Signal Lost";
+        msg = STR_VGA_SIGNAL_LOST;
         break;
     }
     puts(msg);
