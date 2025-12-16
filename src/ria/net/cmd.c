@@ -5,6 +5,7 @@
  */
 
 #include "net/cmd.h"
+#include "net/cyw.h"
 #include "net/mdm.h"
 #include "sys/cfg.h"
 #include <stdio.h>
@@ -401,7 +402,7 @@ static bool cmd_parse_amp(const char **s)
 static int cmd_plus_rf_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, "%u\r\n", cfg_get_rf());
+    snprintf(buf, buf_size, "%u\r\n", cyw_get_rf_enable());
     return -1;
 }
 
@@ -413,7 +414,7 @@ static bool cmd_plus_rf(const char **s)
     switch (toupper(ch))
     {
     case '=':
-        return cfg_set_rf(cmd_parse_num(s));
+        return cyw_set_rf_enable(cmd_parse_num(s));
     case '?':
         mdm_set_response_fn(cmd_plus_rf_response, 0);
         return true;
@@ -426,7 +427,7 @@ static bool cmd_plus_rf(const char **s)
 static int cmd_plus_rfcc_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *cc = cfg_get_rfcc();
+    const char *cc = cyw_get_rf_country_code();
     snprintf(buf, buf_size, "%s\r\n", strlen(cc) ? cc : "Worldwide");
     return -1;
 }
@@ -439,7 +440,7 @@ static bool cmd_plus_rfcc(const char **s)
     switch (toupper(ch))
     {
     case '=':
-        bool result = cfg_set_rfcc(*s);
+        bool result = cyw_set_rf_country_code(*s);
         *s += strlen(*s);
         return result;
     case '?':

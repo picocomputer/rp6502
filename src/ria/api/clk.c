@@ -66,9 +66,11 @@ void clk_print_status(void)
 void clk_load_time_zone(const char *str, size_t len)
 {
     char tz[CLK_TZ_MAX_SIZE];
-    str_parse_string(&str, &len, tz, sizeof(tz));
-    setenv(STR_TZ, tz, 1);
-    tzset();
+    if (str_parse_string(&str, &len, tz, sizeof(tz)))
+    {
+        setenv(STR_TZ, tz, 1);
+        tzset();
+    }
 }
 
 bool clk_set_time_zone(const char *tz)

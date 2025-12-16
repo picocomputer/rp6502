@@ -46,8 +46,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define CFG_VERSION 1
 
 #ifdef RP6502_RIA_W
-static uint8_t cfg_net_rf = 1;
-static char cfg_net_rfcc[3];
 static char cfg_net_ssid[33];
 static char cfg_net_pass[65];
 static uint8_t cfg_net_ble = 1;
@@ -105,8 +103,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                kbd_get_layout(),
                                vga_get_display_type(),
 #ifdef RP6502_RIA_W
-                               cfg_net_rf,
-                               cfg_net_rfcc,
+                               cyw_get_rf_enable(),
+                               cyw_get_rf_country_code(),
                                cfg_net_ssid,
                                cfg_net_pass,
                                cfg_net_ble,
@@ -166,10 +164,10 @@ static void cfg_load_with_boot_opt(bool boot_only)
             break;
 #ifdef RP6502_RIA_W
         case 'E':
-            str_parse_uint8(&str, &len, &cfg_net_rf);
+            cyw_load_rf_enable(str, len);
             break;
         case 'F':
-            str_parse_string(&str, &len, cfg_net_rfcc, sizeof(cfg_net_rfcc));
+            cyw_load_rf_country_code(str, len);
             break;
         case 'W':
             str_parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
@@ -212,53 +210,6 @@ const char *cfg_load_boot(void)
 }
 
 #ifdef RP6502_RIA_W
-
-bool cfg_set_rf(uint8_t rf)
-{
-    if (rf > 1)
-        return false;
-    if (cfg_net_rf != rf)
-    {
-        cfg_net_rf = rf;
-        cyw_reset_radio();
-        cfg_save_with_boot_opt(NULL);
-    }
-    return true;
-}
-
-uint8_t cfg_get_rf(void)
-{
-    return cfg_net_rf;
-}
-
-bool cfg_set_rfcc(const char *rfcc)
-{
-    char cc[3] = {0, 0, 0};
-    size_t len = strlen(rfcc);
-    if (len == 2)
-    {
-        cc[0] = toupper(rfcc[0]);
-        cc[1] = toupper(rfcc[1]);
-        if (!cyw_validate_country_code(cc))
-            return false;
-    }
-    if (len == 0 || len == 2)
-    {
-        if (strcmp(cfg_net_rfcc, cc))
-        {
-            strcpy(cfg_net_rfcc, cc);
-            cyw_reset_radio();
-            cfg_save_with_boot_opt(NULL);
-        }
-        return true;
-    }
-    return false;
-}
-
-const char *cfg_get_rfcc(void)
-{
-    return cfg_net_rfcc;
-}
 
 bool cfg_set_ssid(const char *ssid)
 {

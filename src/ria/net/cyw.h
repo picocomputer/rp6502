@@ -24,8 +24,17 @@ void cyw_post_reclock(uint32_t sys_clk_khz);
 /* Utility
  */
 
-void cyw_led(bool ison);
-bool cyw_validate_country_code(char *cc);
-void cyw_reset_radio(void);
+// Pico W has LED on a CYW gpio
+void cyw_led_set(bool on);
+
+// Configuration setting RF
+void cyw_load_rf_enable(const char *str, size_t len);
+bool cyw_set_rf_enable(uint8_t rf);
+uint8_t cyw_get_rf_enable(void);
+
+// Configuration setting RFCC
+void cyw_load_rf_country_code(const char *str, size_t len);
+bool cyw_set_rf_country_code(const char *rfcc);
+const char *cyw_get_rf_country_code(void);
 
 #endif /* _RIA_NET_CYW_H_ */

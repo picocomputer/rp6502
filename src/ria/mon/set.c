@@ -11,6 +11,7 @@
 #include "mon/rom.h"
 #include "mon/set.h"
 #include "net/ble.h"
+#include "net/cyw.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -101,11 +102,11 @@ static void set_vga(const char *args, size_t len)
 {
     uint32_t val;
     if (len && (!str_parse_uint32(&args, &len, &val) ||
-                !str_parse_end(args, len)))
+                !str_parse_end(args, len) ||
+                !vga_set_display_type(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
-        vga_set_display_type(val);
-    mon_add_response_fn(set_vga_response);
+        mon_add_response_fn(set_vga_response);
 }
 
 #ifdef RP6502_RIA_W
@@ -114,7 +115,7 @@ static int set_rf_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     snprintf(buf, buf_size, STR_SET_RF_RESPONSE,
-             cfg_get_rf() ? STR_ON : STR_OFF);
+             cyw_get_rf_enable() ? STR_ON : STR_OFF);
     return -1;
 }
 
@@ -123,7 +124,7 @@ static void set_rf(const char *args, size_t len)
     uint32_t val;
     if (len && (!str_parse_uint32(&args, &len, &val) ||
                 !str_parse_end(args, len) ||
-                !cfg_set_rf(val)))
+                !cyw_set_rf_enable(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_rf_response);
@@ -132,7 +133,7 @@ static void set_rf(const char *args, size_t len)
 static int set_rfcc_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *cc = cfg_get_rfcc();
+    const char *cc = cyw_get_rf_country_code();
     snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
              strlen(cc) ? cc : STR_WORLDWIDE);
     return -1;
@@ -144,10 +145,10 @@ static void set_rfcc(const char *args, size_t len)
     if (len)
     {
         if (args[0] == '-' && str_parse_end(++args, --len))
-            cfg_set_rfcc("");
+            cyw_set_rf_country_code("");
         else if (!str_parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
                  !str_parse_end(args, len) ||
-                 !cfg_set_rfcc(rfcc))
+                 !cyw_set_rf_country_code(rfcc))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_rfcc_response);
@@ -207,7 +208,7 @@ static int set_ble_response(char *buf, size_t buf_size, int state)
     snprintf(buf, buf_size, STR_SET_BLE_RESPONSE,
              cfg_get_ble() ? STR_ENABLED : STR_DISABLED,
              ble_is_pairing() ? STR_BLE_PAIRING : "",
-             cfg_get_rf() ? "" : STR_BLE_NO_RF);
+             cyw_get_rf_enable() ? "" : STR_BLE_NO_RF);
     return -1;
 }
 
@@ -227,7 +228,7 @@ static void set_ble(const char *args, size_t len)
 static int set_time_zone_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, "TZ  : %s\n", clk_get_time_zone());
+    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, clk_get_time_zone());
     return -1;
 }
 

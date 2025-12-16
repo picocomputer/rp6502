@@ -873,10 +873,12 @@ static int kbd_sanitize_layout(const char *kb)
 void kbd_load_layout(const char *str, size_t len)
 {
     char kb[KBD_LAYOUT_MAX_NAME_SIZE];
-    str_parse_string(&str, &len, kb, sizeof(kb));
-    kbd_layout_index = kbd_sanitize_layout(kb);
-    kbd_layout_loaded = true;
-    kbd_rebuild_code_page_cache();
+    if (str_parse_string(&str, &len, kb, sizeof(kb)))
+    {
+        kbd_layout_index = kbd_sanitize_layout(kb);
+        kbd_layout_loaded = true;
+        kbd_rebuild_code_page_cache();
+    }
 }
 
 bool kbd_set_layout(const char *kb)

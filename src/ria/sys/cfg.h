@@ -27,10 +27,6 @@ void cfg_save_boot(const char *str);
 const char *cfg_load_boot(void);
 
 // retiring...
-bool cfg_set_rf(uint8_t rf);
-uint8_t cfg_get_rf(void);
-bool cfg_set_rfcc(const char *rfcc);
-const char *cfg_get_rfcc(void);
 bool cfg_set_ssid(const char *ssid);
 const char *cfg_get_ssid(void);
 bool cfg_set_pass(const char *pass);

@@ -372,7 +372,7 @@ void ble_task(void)
 {
     if (!ble_initialized)
     {
-        if (cfg_get_rf() && cfg_get_ble())
+        if (cyw_get_rf_enable() && cfg_get_ble())
         {
             ble_init_stack();
             ble_initialized = true;
@@ -403,7 +403,7 @@ void ble_set_config(uint8_t ble)
         led_blink(false);
         break;
     case 2:
-        if (cfg_get_rf())
+        if (cyw_get_rf_enable())
         {
             ble_pairing = true;
             led_blink(true);
@@ -443,18 +443,18 @@ void ble_print_status(void)
 {
     if (cfg_get_ble())
     {
-        if (cfg_get_rf())
+        if (cyw_get_rf_enable())
             printf("BLE : %d keyboard%s, %d %s, %d gamepad%s%s\n",
                    ble_count_kbd, ble_count_kbd == 1 ? "" : "s",
                    ble_count_mou, ble_count_mou == 1 ? "mouse" : "mice",
                    ble_count_pad, ble_count_pad == 1 ? "" : "s",
                    ble_pairing ? ", pairing" : "");
         else
-            printf("BLE : radio off\n");
+            printf("BLE : RF Off\n");
     }
     else
     {
-        printf("BLE : disabled\n");
+        printf("BLE : Disabled\n");
     }
 }
 
