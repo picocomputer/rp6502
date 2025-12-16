@@ -46,8 +46,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define CFG_VERSION 1
 
 #ifdef RP6502_RIA_W
-static char cfg_net_ssid[33];
-static char cfg_net_pass[65];
 static uint8_t cfg_net_ble = 1;
 #endif /* RP6502_RIA_W */
 
@@ -105,8 +103,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
 #ifdef RP6502_RIA_W
                                cyw_get_rf_enable(),
                                cyw_get_rf_country_code(),
-                               cfg_net_ssid,
-                               cfg_net_pass,
+                               wfi_get_ssid(),
+                               wfi_get_pass(),
                                cfg_net_ble,
 #endif /* RP6502_RIA_W */
                                opt_str);
@@ -170,10 +168,10 @@ static void cfg_load_with_boot_opt(bool boot_only)
             cyw_load_rf_country_code(str, len);
             break;
         case 'W':
-            str_parse_string(&str, &len, cfg_net_ssid, sizeof(cfg_net_ssid));
+            wfi_load_ssid(str, len);
             break;
         case 'K':
-            str_parse_string(&str, &len, cfg_net_pass, sizeof(cfg_net_pass));
+            wfi_load_pass(str, len);
             break;
         case 'B':
             str_parse_uint8(&str, &len, &cfg_net_ble);
@@ -211,47 +209,6 @@ const char *cfg_load_boot(void)
 
 #ifdef RP6502_RIA_W
 
-bool cfg_set_ssid(const char *ssid)
-{
-    size_t len = strlen(ssid);
-    if (len < sizeof(cfg_net_ssid) - 1)
-    {
-        if (strcmp(cfg_net_ssid, ssid))
-        {
-            cfg_net_pass[0] = 0;
-            strncpy(cfg_net_ssid, ssid, sizeof(cfg_net_ssid));
-            wfi_shutdown();
-            cfg_save_with_boot_opt(NULL);
-        }
-        return true;
-    }
-    return false;
-}
-
-const char *cfg_get_ssid(void)
-{
-    return cfg_net_ssid;
-}
-
-bool cfg_set_pass(const char *pass)
-{
-    if (strlen(cfg_net_ssid) && strlen(pass) < sizeof(cfg_net_pass) - 1)
-    {
-        if (strcmp(cfg_net_pass, pass))
-        {
-            strcpy(cfg_net_pass, pass);
-            wfi_shutdown();
-            cfg_save_with_boot_opt(NULL);
-        }
-        return true;
-    }
-    return false;
-}
-
-const char *cfg_get_pass(void)
-{
-    return cfg_net_pass;
-}
 
 bool cfg_set_ble(uint8_t ble)
 {

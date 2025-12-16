@@ -12,6 +12,7 @@
 #include "mon/set.h"
 #include "net/ble.h"
 #include "net/cyw.h"
+#include "net/wfi.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -157,7 +158,7 @@ static void set_rfcc(const char *args, size_t len)
 static int set_ssid_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *cc = cfg_get_ssid();
+    const char *cc = wfi_get_ssid();
     snprintf(buf, buf_size, STR_SET_SSID_RESPONSE,
              strlen(cc) ? cc : STR_PARENS_NONE);
     return -1;
@@ -166,7 +167,7 @@ static int set_ssid_response(char *buf, size_t buf_size, int state)
 static int set_pass_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *pass = cfg_get_pass();
+    const char *pass = wfi_get_pass();
     snprintf(buf, buf_size, STR_SET_PASS_RESPONSE,
              strlen(pass) ? STR_PARENS_SET : STR_PARENS_NONE);
     return -1;
@@ -174,14 +175,14 @@ static int set_pass_response(char *buf, size_t buf_size, int state)
 
 static void set_ssid(const char *args, size_t len)
 {
-    char ssid[33];
+    char ssid[WFI_SSID_SIZE];
     if (!len)
         return mon_add_response_fn(set_ssid_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
-        cfg_set_ssid("");
+        wfi_set_ssid("");
     else if (!str_parse_string(&args, &len, ssid, sizeof(ssid)) ||
              !str_parse_end(args, len) ||
-             !cfg_set_ssid(ssid))
+             !wfi_set_ssid(ssid))
         return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
@@ -189,14 +190,14 @@ static void set_ssid(const char *args, size_t len)
 
 static void set_pass(const char *args, size_t len)
 {
-    char pass[65];
+    char pass[WFI_PASS_SIZE];
     if (!len)
         return mon_add_response_fn(set_pass_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
-        cfg_set_pass("");
+        wfi_set_pass("");
     else if (!str_parse_string(&args, &len, pass, sizeof(pass)) ||
              !str_parse_end(args, len) ||
-             !cfg_set_pass(pass))
+             !wfi_set_pass(pass))
         return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);

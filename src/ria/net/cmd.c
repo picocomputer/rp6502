@@ -7,6 +7,7 @@
 #include "net/cmd.h"
 #include "net/cyw.h"
 #include "net/mdm.h"
+#include "net/wfi.h"
 #include "sys/cfg.h"
 #include <stdio.h>
 #include <ctype.h>
@@ -455,7 +456,7 @@ static bool cmd_plus_rfcc(const char **s)
 static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, "%s\r\n", cfg_get_ssid());
+    snprintf(buf, buf_size, "%s\r\n", wfi_get_ssid());
     return -1;
 }
 
@@ -467,7 +468,7 @@ static bool cmd_plus_ssid(const char **s)
     switch (toupper(ch))
     {
     case '=':
-        bool result = cfg_set_ssid(*s);
+        bool result = wfi_set_ssid(*s);
         *s += strlen(*s);
         return result;
     case '?':
@@ -482,7 +483,7 @@ static bool cmd_plus_ssid(const char **s)
 static int cmd_plus_pass_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, "%s\r\n", strlen(cfg_get_pass()) ? "(set)" : "(none)");
+    snprintf(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? "(set)" : "(none)");
     return -1;
 }
 
@@ -494,7 +495,7 @@ static bool cmd_plus_pass(const char **s)
     switch (toupper(ch))
     {
     case '=':
-        bool result = cfg_set_pass(*s);
+        bool result = wfi_set_pass(*s);
         *s += strlen(*s);
         return result;
     case '?':

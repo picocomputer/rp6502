@@ -7,6 +7,9 @@
 #ifndef _RIA_NET_WFI_H_
 #define _RIA_NET_WFI_H_
 
+#define WFI_SSID_SIZE 33
+#define WFI_PASS_SIZE 65
+
 /* Wi-Fi driver.
  */
 
@@ -25,5 +28,15 @@ void wfi_task(void);
 void wfi_print_status(void);
 void wfi_shutdown(void);
 bool wfi_ready(void);
+
+// Configuration setting SSID
+void wfi_load_ssid(const char *str, size_t len);
+bool wfi_set_ssid(const char *ssid);
+const char *wfi_get_ssid(void);
+
+// Configuration setting PASS
+void wfi_load_pass(const char *str, size_t len);
+bool wfi_set_pass(const char *pass);
+const char *wfi_get_pass(void);
 
 #endif /* _RIA_NET_WFI_H_ */

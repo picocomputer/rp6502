@@ -56,6 +56,7 @@ bool str_parse_string(const char **args, size_t *len, char *dest, size_t size)
         *args += cpylen;
         return true;
     }
+    dest[0] = 0;
     return false;
 }
 

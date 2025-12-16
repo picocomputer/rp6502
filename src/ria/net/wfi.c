@@ -12,6 +12,7 @@ void wfi_print_status() {}
 
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include <pico/cyw43_arch.h>
 
@@ -34,6 +35,8 @@ static wfi_state_t wfi_state;
 
 static int wfi_retry_initial_retry_count;
 static absolute_time_t wfi_retry_timer;
+static char wfi_ssid[WFI_SSID_SIZE];
+static char wfi_pass[WFI_PASS_SIZE];
 
 // Be aggressive 5 times then back off
 #define WFI_RETRY_INITIAL_RETRIES 5
@@ -75,7 +78,7 @@ void wfi_task(void)
     switch (wfi_state)
     {
     case wfi_state_off:
-        if (!cyw_get_rf_enable() || !cfg_get_ssid()[0])
+        if (!cyw_get_rf_enable() || !wfi_ssid[0])
             break;
         cyw43_arch_enable_sta_mode(); // cyw43_wifi_set_up
         wfi_state = wfi_state_connect;
@@ -90,8 +93,8 @@ void wfi_task(void)
             DBG("NET WFI cyw43_wifi_pm failed, retry %ds\n", secs);
         }
         else if (cyw43_arch_wifi_connect_async(
-                     cfg_get_ssid(), cfg_get_pass(),
-                     strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
+                     wfi_ssid, wfi_get_pass(),
+                     strlen(wfi_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
         {
             int secs = wfi_retry_connect();
             (void)secs;
@@ -142,7 +145,7 @@ void wfi_print_status(void)
     case wfi_state_off:
         if (!cyw_get_rf_enable())
             puts("radio off");
-        else if (!cfg_get_ssid()[0])
+        else if (!wfi_ssid[0])
             puts("not configured");
         else
             puts("waiting");
@@ -220,6 +223,58 @@ void wfi_print_status(void)
 bool wfi_ready(void)
 {
     return wfi_state == wfi_state_connected;
+}
+
+void wfi_load_ssid(const char *str, size_t len)
+{
+    str_parse_string(&str, &len, wfi_ssid, sizeof(wfi_ssid));
+}
+
+bool wfi_set_ssid(const char *ssid)
+{
+    size_t len = strlen(ssid);
+    if (len < sizeof(wfi_ssid) - 1)
+    {
+        if (strcmp(wfi_ssid, ssid))
+        {
+            wfi_pass[0] = 0;
+            strncpy(wfi_ssid, ssid, sizeof(wfi_ssid));
+            wfi_shutdown();
+            cfg_save();
+        }
+        return true;
+    }
+    return false;
+}
+
+const char *wfi_get_ssid(void)
+{
+    return wfi_ssid;
+}
+
+void wfi_load_pass(const char *str, size_t len)
+{
+    str_parse_string(&str, &len, wfi_pass, sizeof(wfi_pass));
+}
+
+bool wfi_set_pass(const char *pass)
+{
+    if (strlen(wfi_ssid) && strlen(pass) < sizeof(wfi_pass) - 1)
+    {
+        if (strcmp(wfi_pass, pass))
+        {
+            strcpy(wfi_pass, pass);
+            wfi_shutdown();
+            cfg_save();
+        }
+        return true;
+    }
+    return false;
+}
+
+const char *wfi_get_pass(void)
+{
+    return wfi_pass;
 }
 
 #endif /* RP6502_RIA_W */
