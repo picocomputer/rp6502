@@ -112,24 +112,6 @@ X(STR_HELP_SET,
 #endif
   "")
 
-X(STR_HELP_ABOUT,
-  "Picocomputer 6502 - Copyright (c) 2025 Rumbledethumps.\n"
-  "     Pi Pico SDKs - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
-  "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
-  "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
-  "          BTstack - Copyright (c) 2009 BlueKitchen GmbH\n"
-  "            FatFs - Copyright (c) 20xx ChaN.\n"
-  "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
-  "                    Copyright (c) 2017 Arm Limited.\n"
-// Note that BTstack HID descriptor parsing is used for non-W builds
-#ifdef RP6502_RIA_W
-  "\n"
-  "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
-  "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
-  "                                            Computer Science.\n"
-#endif
-  "")
-
 X(STR_HELP_SYSTEM,
   "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
   "similar. Instead, this monitor is used to prepare the 6502 RAM with software\n"
