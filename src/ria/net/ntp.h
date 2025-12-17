@@ -22,6 +22,6 @@ void ntp_task(void);
 /* Utility
  */
 
-void ntp_print_status(void);
+int ntp_status_response(char *buf, size_t buf_size, int state);
 
 #endif /* _RIA_NET_NTP_H_ */

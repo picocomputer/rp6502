@@ -182,14 +182,14 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
     {
     case 0:
     {
-        snprintf(buf, buf_size, STR_WFI_STATUS, wifi_status_message());
+        snprintf(buf, buf_size, STR_STATUS_WIFI, wifi_status_message());
     }
     break;
     case 1:
     {
         uint8_t mac[6];
         cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
-        snprintf(buf, buf_size, STR_WFI_STATUS_MAC,
+        snprintf(buf, buf_size, STR_STATUS_MAC,
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }
     break;
@@ -200,7 +200,7 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
             struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
             const ip4_addr_t *ip4 = netif_ip4_addr(netif);
             if (!ip4_addr_isany_val(*ip4))
-                snprintf(buf, buf_size, STR_WFI_STATUS_IPV4, ip4addr_ntoa(ip4));
+                snprintf(buf, buf_size, STR_STATUS_IPV4, ip4addr_ntoa(ip4));
         }
     }
     break;

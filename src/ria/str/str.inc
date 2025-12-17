@@ -14,6 +14,9 @@
 // Configuration files on littlefs
 X(STR_CFG_FILENAME, "CONFIG.SYS")
 
+// https://www.ntppool.org/
+X(STR_NTP_SERVER, "pool.ntp.org")
+
 // Configuration string defaults
 X(STR_KBD_DEFAULT_LAYOUT, "US")
 X(STR_CLK_DEFAULT_TZ, "UTC0")
@@ -25,10 +28,11 @@ X(STR_VGA_VERSION_UNKNOWN, "VGA Version Unknown")
 X(STR_VGA_NOT_FOUND, "VGA Not Found")
 X(STR_VGA_CONNECTION_LOST, "VGA Connection Lost")
 
-// WFI driver
-X(STR_WFI_STATUS, "WiFi: %s\n")
-X(STR_WFI_STATUS_MAC, "MAC : %02X:%02X:%02X:%02X:%02X:%02X\n")
-X(STR_WFI_STATUS_IPV4, "IPv4: %s\n")
+// Status
+X(STR_STATUS_WIFI, "WiFi: %s\n")
+X(STR_STATUS_MAC, "MAC : %02X:%02X:%02X:%02X:%02X:%02X\n")
+X(STR_STATUS_IPV4, "IPv4: %s\n")
+X(STR_STATUS_NTP, "NTP : %s\n")
 
 // ANSI to reset the terminal at boot
 X(STR_SYS_FULL_TERM_RESET, "\30\33c\n");
