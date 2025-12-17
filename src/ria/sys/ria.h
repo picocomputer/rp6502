@@ -54,7 +54,7 @@ void ria_verify_buf(uint16_t addr);
 bool ria_active();
 
 // Prints a "?" error and returns true if last mbuf action failed.
-bool ria_print_error_message();
+bool ria_handle_error();
 
 // Compute CRC32 of mbuf to match zlib.
 uint32_t ria_buf_crc32();

@@ -33,7 +33,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MON_RESPONSE_FN_COUNT 16
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str_list[MON_RESPONSE_FN_COUNT];
-static int mon_response_state = -1;
+static int mon_response_state[MON_RESPONSE_FN_COUNT] = {-1};
 static int mon_response_pos = -1;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
@@ -160,7 +160,7 @@ static int mon_str_response(char *buf, size_t buf_size, int state)
     return state;
 }
 
-static void mon_append_response(mon_response_fn fn, const char *str)
+static void mon_append_response(mon_response_fn fn, const char *str, int state)
 {
     int i = 0;
     for (; i < MON_RESPONSE_FN_COUNT; i++)
@@ -169,8 +169,7 @@ static void mon_append_response(mon_response_fn fn, const char *str)
         {
             mon_response_fn_list[i] = fn;
             mon_response_str_list[i] = str;
-            if (i == 0)
-                mon_response_state = 0;
+            mon_response_state[i] = state;
             return;
         }
     }
@@ -200,12 +199,17 @@ static int mon_next_response(void)
 
 void mon_add_response_fn(mon_response_fn fn)
 {
-    mon_append_response(fn, NULL);
+    mon_append_response(fn, NULL, 0);
+}
+
+void mon_add_response_fn_state(mon_response_fn fn, int state)
+{
+    mon_append_response(fn, NULL, state);
 }
 
 void mon_add_response_str(const char *str)
 {
-    mon_append_response(mon_str_response, str);
+    mon_append_response(mon_str_response, str, 0);
 }
 
 void mon_task(void)
@@ -218,20 +222,20 @@ void mon_task(void)
         rom_active() ||
         fil_active())
         return;
-    if (mon_response_state >= 0 || mon_response_pos >= 0)
+    if (mon_response_state[0] >= 0 || mon_response_pos >= 0)
     {
         while (response_buf[mon_response_pos] && com_putchar_ready())
             putchar(response_buf[mon_response_pos++]);
         if (!response_buf[mon_response_pos])
             mon_response_pos = -1;
-        if (mon_response_pos == -1 && mon_response_state >= 0)
+        if (mon_response_pos == -1 && mon_response_state[0] >= 0)
         {
             mon_response_pos = 0;
             response_buf[0] = 0;
-            mon_response_state = (mon_response_fn_list[0])(
-                response_buf, RESPONSE_BUF_SIZE, mon_response_state);
-            if (mon_response_state < 0)
-                mon_response_state = mon_next_response();
+            mon_response_state[0] = (mon_response_fn_list[0])(
+                response_buf, RESPONSE_BUF_SIZE, mon_response_state[0]);
+            if (mon_response_state[0] < 0)
+                mon_response_state[0] = mon_next_response();
         }
     }
     else if (mon_needs_prompt)

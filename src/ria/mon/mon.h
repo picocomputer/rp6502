@@ -23,6 +23,7 @@ void mon_break(void);
 // This handles pagination without blocking.
 typedef int (*mon_response_fn)(char *, size_t, int);
 void mon_add_response_fn(int (*fn)(char *, size_t, int));
+void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_str(const char *str);
 
 // Test if commands exists. Used to determine

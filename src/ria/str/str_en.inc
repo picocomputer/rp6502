@@ -25,6 +25,8 @@ X(STR_ERR_INVALID_ARGUMENT, "?Invalid argument\n")
 X(STR_ERR_NO_HELP_FOUND, "?No help found\n")
 X(STR_ERR_CYW_FAILED_TO_INIT, "?CYW43 failed to init\n")
 X(STR_ERR_VGA_CONNECTION_LOST, "?VGA connection lost\n")
+X(STR_ERR_RIA_VERIFY, "?RIA verify failed at $%04X\n")
+X(STR_ERR_RIA_TIMEOUT, "?RIA timeout\n")
 
 // WiFi status
 X(STR_WFI_NOT_CONFIGURED, "not configured")

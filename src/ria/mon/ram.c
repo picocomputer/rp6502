@@ -38,7 +38,7 @@ static uint32_t rw_crc;
 static void cmd_ria_read(void)
 {
     cmd_state = SYS_IDLE;
-    if (ria_print_error_message())
+    if (ria_handle_error())
         return;
     printf("%04lX", rw_addr);
     for (size_t i = 0; i < mbuf_len; i++)
@@ -49,7 +49,7 @@ static void cmd_ria_read(void)
 static void cmd_ria_write(void)
 {
     cmd_state = SYS_IDLE;
-    if (ria_print_error_message())
+    if (ria_handle_error())
         return;
     cmd_state = SYS_VERIFY;
     ria_verify_buf(rw_addr);
@@ -58,7 +58,7 @@ static void cmd_ria_write(void)
 static void cmd_ria_verify(void)
 {
     cmd_state = SYS_IDLE;
-    ria_print_error_message();
+    ria_handle_error();
 }
 
 // Commands that start with a hex address. Read or write memory.

@@ -396,7 +396,7 @@ static bool rom_action_is_finished(void)
 {
     if (ria_active())
         return false;
-    if (ria_print_error_message())
+    if (ria_handle_error())
     {
         rom_state = ROM_IDLE;
         return false;
