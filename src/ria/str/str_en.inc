@@ -10,7 +10,14 @@
 #define X(name, value)
 #endif
 
+// Time format
+X(STR_STRFTIME, "%c %z %Z")
+
+// Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
+X(STR_INTERNAL_ERROR, "internal error")
+
+// Monitor errors
 X(STR_ERR_MONITOR_RESPONSE_OVERFLOW, "?Monitor response overflow\n")
 X(STR_ERR_DEAD_KEY_CACHE_OVERFLOW, "?Dead key cache overflow\n")
 X(STR_ERR_UNKNOWN_COMMAND, "?Unknown command\n")
@@ -19,11 +26,7 @@ X(STR_ERR_NO_HELP_FOUND, "?No help found\n")
 X(STR_ERR_CYW_FAILED_TO_INIT, "?CYW43 failed to init\n")
 X(STR_ERR_VGA_CONNECTION_LOST, "?VGA connection lost\n")
 
-X(STR_STRFTIME, "%c %z %Z")
-
-X(STR_INTERNAL_ERROR, "internal error")
-
-X(STR_WFI_RF_OFF, "RF off")
+// WiFi status
 X(STR_WFI_NOT_CONFIGURED, "not configured")
 X(STR_WFI_WAITING, "waiting")
 X(STR_WFI_JOINING, "joining")
@@ -35,6 +38,7 @@ X(STR_WFI_SSID_NOT_FOUND, "ssid not found")
 X(STR_WFI_AUTH_FAILED, "auth failed")
 X(STR_WFI_CONNECT_FAILED, "connect failed")
 
+// Network Time Protocol status
 X(STR_NTP_NO_NETWORK, "no network")
 X(STR_NTP_DNS_LOOKUP, "DNS lookup")
 X(STR_NTP_DNS_FAIL, "DNS fail")
@@ -43,8 +47,10 @@ X(STR_NTP_REQUEST_TIMEOUT, "request timeout")
 X(STR_NTP_SET_TIME_FAILURE, "set time failure")
 X(STR_NTP_SUCCESS, "success")
 
+// Status fragments
 X(STR_ON, "On")
 X(STR_OFF, "Off")
+X(STR_RF_OFF, "RF off")
 X(STR_ENABLED, "Enabled")
 X(STR_DISABLED, "Disabled")
 X(STR_WORLDWIDE, "Worldwide")
@@ -52,6 +58,14 @@ X(STR_PARENS_NONE, "(none)")
 X(STR_PARENS_SET, "(set)")
 X(STR_BLE_PAIRING, ", pairing")
 X(STR_BLE_NO_RF, ", no RF")
+
+// Human Interface Device names
+X(STR_KEYBOARD_SINGULAR, "keyboard")
+X(STR_KEYBOARD_PLURAL, "keyboards")
+X(STR_MOUSE_SINGULAR, "mouse")
+X(STR_MOUSE_PLURAL, "mice")
+X(STR_GAMEPAD_SINGULAR, "gamepad")
+X(STR_GAMEPAD_PLURAL, "gamepads")
 
 X(STR_HELP_HELP,
   "Commands:\n"
@@ -116,7 +130,7 @@ X(STR_HELP_SYSTEM,
   "The Picocomputer does not use a traditional parallel ROM like a 27C64 or\n"
   "similar. Instead, this monitor is used to prepare the 6502 RAM with software\n"
   "that would normally be on a ROM chip. The 6502 is currently in-reset right\n"
-  "now; the RESB line is low. What you are seeing is coming from the RP6502 RIA.\n"
+  "now; the RESB line is low. What you are seeing is coming from the RP6502-RIA.\n"
   "You can return to this monitor at any time by pressing CTRL-ALT-DEL or sending\n"
   "a break to the serial port. Since these signals are handled by the RP6502 RIA,\n"
   "they will always stop even a crashed 6502. This monitor can do scripted things\n"

@@ -32,7 +32,7 @@ void ble_set_hid_leds(uint8_t leds);
 void ble_shutdown(void);
 
 // Status command printer
-void ble_print_status(void);
+int ble_status_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting BLE
 void ble_load_enabled(const char *str, size_t len);

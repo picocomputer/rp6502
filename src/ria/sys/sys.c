@@ -76,6 +76,6 @@ void sys_mon_status(const char *args, size_t len)
     mon_add_response_fn(wfi_status_response);
     mon_add_response_fn(ntp_status_response);
     mon_add_response_fn(clk_status_response);
-    ble_print_status();
+    mon_add_response_fn(ble_status_response);
     usb_print_status();
 }

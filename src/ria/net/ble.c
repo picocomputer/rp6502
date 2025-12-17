@@ -440,23 +440,25 @@ void ble_shutdown(void)
     ble_initialized = false;
 }
 
-void ble_print_status(void)
+int ble_status_response(char *buf, size_t buf_size, int state)
 {
+    (void)state;
     if (ble_enabled)
     {
         if (cyw_get_rf_enable())
-            printf("BLE : %d keyboard%s, %d %s, %d gamepad%s%s\n",
-                   ble_count_kbd, ble_count_kbd == 1 ? "" : "s",
-                   ble_count_mou, ble_count_mou == 1 ? "mouse" : "mice",
-                   ble_count_pad, ble_count_pad == 1 ? "" : "s",
-                   ble_pairing ? ", pairing" : "");
+            snprintf(buf, buf_size, STR_STATUS_BLE_FULL,
+                     ble_count_kbd, ble_count_kbd == 1 ? STR_KEYBOARD_SINGULAR : STR_KEYBOARD_PLURAL,
+                     ble_count_mou, ble_count_mou == 1 ? STR_MOUSE_SINGULAR : STR_MOUSE_PLURAL,
+                     ble_count_pad, ble_count_pad == 1 ? STR_GAMEPAD_SINGULAR : STR_GAMEPAD_PLURAL,
+                     ble_pairing ? STR_BLE_PAIRING : "");
         else
-            printf("BLE : RF Off\n");
+            snprintf(buf, buf_size, STR_STATUS_BLE_SIMPLE, STR_RF_OFF);
     }
     else
     {
-        printf("BLE : Disabled\n");
+        snprintf(buf, buf_size, STR_STATUS_BLE_SIMPLE, STR_DISABLED);
     }
+    return -1;
 }
 
 void ble_load_enabled(const char *str, size_t len)

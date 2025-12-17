@@ -142,7 +142,7 @@ static const char *wifi_status_message(void)
     {
     case wfi_state_off:
         if (!cyw_get_rf_enable())
-            return STR_WFI_RF_OFF;
+            return STR_RF_OFF;
         else if (!wfi_ssid[0])
             return STR_WFI_NOT_CONFIGURED;
         else
