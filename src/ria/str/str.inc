@@ -25,6 +25,11 @@ X(STR_VGA_VERSION_UNKNOWN, "VGA Version Unknown")
 X(STR_VGA_NOT_FOUND, "VGA Not Found")
 X(STR_VGA_CONNECTION_LOST, "VGA Connection Lost")
 
+// WFI driver
+X(STR_WFI_STATUS, "WiFi: %s\n")
+X(STR_WFI_STATUS_MAC, "MAC : %02X:%02X:%02X:%02X:%02X:%02X\n")
+X(STR_WFI_STATUS_IPV4, "IPv4: %s\n")
+
 // ANSI to reset the terminal at boot
 X(STR_SYS_FULL_TERM_RESET, "\30\33c\n");
 X(STR_SYS_DEBUG_TERM_RESET, "\30\33[0m\33[?25h\n\n");

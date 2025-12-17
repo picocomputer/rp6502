@@ -50,7 +50,6 @@ static absolute_time_t vga_version_timer;
 #define VGA_VERSION_MESSAGE_SIZE 64
 char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
 size_t vga_version_message_length;
-static uint8_t vga_test_buf[4];
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -102,9 +101,10 @@ static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 static void vga_connect(void)
 {
     // Test if VGA connected
+    uint8_t test_buf[4];
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
-    rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, vga_test_buf, sizeof(vga_test_buf));
+    rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, test_buf, sizeof(test_buf));
     vga_pix_backchannel_request();
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)

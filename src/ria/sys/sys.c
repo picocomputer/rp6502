@@ -73,7 +73,7 @@ void sys_mon_status(const char *args, size_t len)
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
     mon_add_response_fn(vga_status_response);
-    wfi_print_status();
+    mon_add_response_fn(wfi_status_response);
     ntp_print_status();
     clk_print_status();
     ble_print_status();

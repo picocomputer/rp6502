@@ -136,88 +136,78 @@ void wfi_task(void)
     }
 }
 
-void wfi_print_status(void)
+static const char *wifi_status_message(void)
 {
-    // print state
-    printf("WiFi: ");
     switch (wfi_state)
     {
     case wfi_state_off:
         if (!cyw_get_rf_enable())
-            puts("radio off");
+            return STR_WFI_RF_OFF;
         else if (!wfi_ssid[0])
-            puts("not configured");
+            return STR_WFI_NOT_CONFIGURED;
         else
-            puts("waiting");
-        break;
+            return STR_WFI_WAITING;
     case wfi_state_connect:
     case wfi_state_connecting:
-        printf("connecting");
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_JOIN:
-            puts(", joining");
-            break;
+            return STR_WFI_JOINING;
         case CYW43_LINK_NOIP:
-            puts(", getting IP");
-            break;
-        case CYW43_LINK_DOWN:
+            return STR_WFI_GETTING_IP;
         default:
-            puts("");
-            break;
+            return STR_WFI_CONNECTING;
         }
-        break;
     case wfi_state_connected:
-        puts("connected");
-        break;
+        return STR_WFI_CONNECTED;
     case wfi_state_connect_failed:
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_NOIP:
-            puts("no IP address");
-            break;
+            return STR_WFI_NO_IP_ADDRESS;
         case CYW43_LINK_NONET:
-            puts("ssid not found");
-            break;
+            return STR_WFI_SSID_NOT_FOUND;
         case CYW43_LINK_BADAUTH:
-            puts("auth failed");
-            break;
+            return STR_WFI_AUTH_FAILED;
         default:
-            puts("connect failed");
-            break;
+            return STR_WFI_CONNECT_FAILED;
         }
-        break;
-    default:
-        puts("internal error");
-        break;
     }
+    return STR_WFI_INTERNAL_ERROR;
+}
 
-    // print MAC address
-    uint8_t mac[6];
-    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
-    printf("MAC : %02X:%02X:%02X:%02X:%02X:%02X\n",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    // print IP addresses
-    if (wfi_state == wfi_state_connected)
+int wfi_status_response(char *buf, size_t buf_size, int state)
+{
+    switch (state)
     {
-        struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
-        if (!ip4_addr_isany_val(*netif_ip4_addr(netif)))
-        {
-            const ip4_addr_t *ip4 = netif_ip4_addr(netif);
-            printf("IPv4: %s\n", ip4addr_ntoa(ip4));
-        }
-#if LWIP_IPV6
-        for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++)
-        {
-            if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)))
-            {
-                const ip6_addr_t *ip6 = netif_ip6_addr(netif, i);
-                printf("IPv6: %s\n", ip6addr_ntoa(ip6));
-            }
-        }
-#endif
+    case 0:
+    {
+        snprintf(buf, buf_size, STR_WFI_STATUS, wifi_status_message());
     }
+    break;
+    case 1:
+    {
+        uint8_t mac[6];
+        cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
+        snprintf(buf, buf_size, STR_WFI_STATUS_MAC,
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+    break;
+    case 2:
+    {
+        if (wfi_state == wfi_state_connected)
+        {
+            struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
+            const ip4_addr_t *ip4 = netif_ip4_addr(netif);
+            if (!ip4_addr_isany_val(*ip4))
+                snprintf(buf, buf_size, STR_WFI_STATUS_IPV4, ip4addr_ntoa(ip4));
+        }
+    }
+    break;
+    default:
+        return -1;
+    }
+    return state + 1;
 }
 
 bool wfi_ready(void)
