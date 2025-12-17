@@ -18,6 +18,7 @@
 #include "sys/rln.h"
 #include "sys/sys.h"
 #include <fatfs/ff.h>
+#include <littlefs/lfs.h>
 #include <pico.h>
 #include <stdio.h>
 #include <string.h>
@@ -33,7 +34,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // Response limit must accomodate SET and STATUS commands
 #define MON_RESPONSE_FN_COUNT 16
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
-static const char *mon_response_str_list[MON_RESPONSE_FN_COUNT];
+static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
 static int mon_response_pos = -1;
@@ -148,7 +149,7 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
 static int mon_str_response(char *buf, size_t buf_size, int state)
 {
     size_t i = 0;
-    const char *str = mon_response_str_list[0];
+    const char *str = mon_response_str[0];
     for (; i + 1 < buf_size; i++)
     {
         char c = str[state];
@@ -166,6 +167,34 @@ static const char *mon_lfs_lookup(int result)
 {
     switch (result)
     {
+    case LFS_ERR_IO: // -5
+        return STR_ERR_LFS_IO;
+    case LFS_ERR_CORRUPT: // -84
+        return STR_ERR_LFS_CORRUPT;
+    case LFS_ERR_NOENT: // -2
+        return STR_ERR_LFS_NOENT;
+    case LFS_ERR_EXIST: // -17
+        return STR_ERR_LFS_EXIST;
+    case LFS_ERR_NOTDIR: // -20
+        return STR_ERR_LFS_NOTDIR;
+    case LFS_ERR_ISDIR: // -21
+        return STR_ERR_LFS_ISDIR;
+    case LFS_ERR_NOTEMPTY: // -39
+        return STR_ERR_LFS_NOTEMPTY;
+    case LFS_ERR_BADF: // -9
+        return STR_ERR_LFS_BADF;
+    case LFS_ERR_FBIG: // -27
+        return STR_ERR_LFS_FBIG;
+    case LFS_ERR_INVAL: // -22
+        return STR_ERR_LFS_INVAL;
+    case LFS_ERR_NOSPC: // -28
+        return STR_ERR_LFS_NOSPC;
+    case LFS_ERR_NOMEM: // -12
+        return STR_ERR_LFS_NOMEM;
+    case LFS_ERR_NOATTR: // -61
+        return STR_ERR_LFS_NOATTR;
+    case LFS_ERR_NAMETOOLONG: // -36
+        return STR_ERR_LFS_NAMETOOLONG;
     default:
         return NULL;
     }
@@ -185,43 +214,43 @@ static const char *mon_fatfs_lookup(int fresult)
 {
     switch (fresult)
     {
-    case FR_DISK_ERR: /* (1) */
+    case FR_DISK_ERR: // 1
         return STR_ERR_FATFS_DISK_ERR;
-    case FR_INT_ERR: /* (2) */
+    case FR_INT_ERR: // 2
         return STR_ERR_FATFS_INT_ERR;
-    case FR_NOT_READY: /* (3) */
+    case FR_NOT_READY: // 3
         return STR_ERR_FATFS_NOT_READY;
-    case FR_NO_FILE: /* (4) */
+    case FR_NO_FILE: // 4
         return STR_ERR_FATFS_NO_FILE;
-    case FR_NO_PATH: /* (5) */
+    case FR_NO_PATH: // 5
         return STR_ERR_FATFS_NO_PATH;
-    case FR_INVALID_NAME: /* (6) */
+    case FR_INVALID_NAME: // 6
         return STR_ERR_FATFS_INVALID_NAME;
-    case FR_DENIED: /* (7) */
+    case FR_DENIED: // 7
         return STR_ERR_FATFS_DENIED;
-    case FR_EXIST: /* (8) */
+    case FR_EXIST: // 8
         return STR_ERR_FATFS_EXIST;
-    case FR_INVALID_OBJECT: /* (9) */
+    case FR_INVALID_OBJECT: // 9
         return STR_ERR_FATFS_INVALID_OBJECT;
-    case FR_WRITE_PROTECTED: /* (10) */
+    case FR_WRITE_PROTECTED: // 10
         return STR_ERR_FATFS_WRITE_PROTECTED;
-    case FR_INVALID_DRIVE: /* (11) */
+    case FR_INVALID_DRIVE: // 11
         return STR_ERR_FATFS_INVALID_DRIVE;
-    case FR_NOT_ENABLED: /* (12) */
+    case FR_NOT_ENABLED: // 12
         return STR_ERR_FATFS_NOT_ENABLED;
-    case FR_NO_FILESYSTEM: /* (13) */
+    case FR_NO_FILESYSTEM: // 13
         return STR_ERR_FATFS_NO_FILESYSTEM;
-    case FR_MKFS_ABORTED: /* (14) */
+    case FR_MKFS_ABORTED: // 14
         return STR_ERR_FATFS_MKFS_ABORTED;
-    case FR_TIMEOUT: /* (15) */
+    case FR_TIMEOUT: // 15
         return STR_ERR_FATFS_TIMEOUT;
-    case FR_LOCKED: /* (16) */
+    case FR_LOCKED: // 16
         return STR_ERR_FATFS_LOCKED;
-    case FR_NOT_ENOUGH_CORE: /* (17) */
+    case FR_NOT_ENOUGH_CORE: // 17
         return STR_ERR_FATFS_NOT_ENOUGH_CORE;
-    case FR_TOO_MANY_OPEN_FILES: /* (18) */
+    case FR_TOO_MANY_OPEN_FILES: // 18
         return STR_ERR_FATFS_TOO_MANY_OPEN_FILES;
-    case FR_INVALID_PARAMETER: /* (19) */
+    case FR_INVALID_PARAMETER: // 19
         return STR_ERR_FATFS_INVALID_PARAMETER;
     default:
         return NULL;
@@ -246,7 +275,7 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
         if (!mon_response_fn_list[i])
         {
             mon_response_fn_list[i] = fn;
-            mon_response_str_list[i] = str;
+            mon_response_str[i] = str;
             mon_response_state[i] = state;
             return;
         }
@@ -255,7 +284,7 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     {
         i--;
         mon_response_fn_list[i] = mon_str_response;
-        mon_response_str_list[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
+        mon_response_str[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
         mon_response_state[i] = 0;
     }
 }
@@ -266,11 +295,11 @@ static void mon_next_response(void)
     for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
     {
         mon_response_fn_list[i] = mon_response_fn_list[i + 1];
-        mon_response_str_list[i] = mon_response_str_list[i + 1];
+        mon_response_str[i] = mon_response_str[i + 1];
         mon_response_state[i] = mon_response_state[i + 1];
     }
     mon_response_fn_list[i] = NULL;
-    mon_response_str_list[i] = NULL;
+    mon_response_str[i] = NULL;
     mon_response_state[i] = -1;
 }
 

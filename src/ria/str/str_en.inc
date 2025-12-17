@@ -29,7 +29,23 @@ X(STR_ERR_RIA_VERIFY, "?Verify failed at $%04X\n")
 X(STR_ERR_RIA_TIMEOUT, "?6502 timeout\n")
 X(STR_ERR_UNKNOWN_NUMBER, "?Unknown error %d\n")
 
-// FatFs
+// Littlefs errors
+X(STR_ERR_LFS_IO, "?IO error\n")                      // -5
+X(STR_ERR_LFS_CORRUPT, "?Corrupted\n")                // -84
+X(STR_ERR_LFS_NOENT, "?No directory entry\n")         // -2
+X(STR_ERR_LFS_EXIST, "?Entry already exists\n")       // -17
+X(STR_ERR_LFS_NOTDIR, "?Entry is not a directrory\n") // -20
+X(STR_ERR_LFS_ISDIR, "?Entry is a directrory\n")      // -21
+X(STR_ERR_LFS_NOTEMPTY, "?Directory is not empty\n")  // -39
+X(STR_ERR_LFS_BADF, "?Bad file number\n")             // -9
+X(STR_ERR_LFS_FBIG, "?File too large\n")              // -27
+X(STR_ERR_LFS_INVAL, "?Invalid parameter\n")          // -22
+X(STR_ERR_LFS_NOSPC, "?No space left on device\n")    // -28
+X(STR_ERR_LFS_NOMEM, "?No more memory available\n")   // -12
+X(STR_ERR_LFS_NOATTR, "?No data/attr available\n")    // -61
+X(STR_ERR_LFS_NAMETOOLONG, "?File name too long\n")   // -36
+
+// FatFs errors
 X(STR_ERR_FATFS_DISK_ERR, "?Disk error\n")                     // 1
 X(STR_ERR_FATFS_INT_ERR, "?Internal error\n")                  // 2
 X(STR_ERR_FATFS_NOT_READY, "?Not ready\n")                     // 3
