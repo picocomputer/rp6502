@@ -21,6 +21,11 @@ X(STR_NTP_SERVER, "pool.ntp.org")
 X(STR_KBD_DEFAULT_LAYOUT, "US")
 X(STR_CLK_DEFAULT_TZ, "UTC0")
 
+// Universal
+X(STR_MB, "MB")
+X(STR_GB, "GB")
+X(STR_TB, "TB")
+
 // VGA driver
 X(STR_VGA1, "VGA1")
 X(STR_VGA_SEARCHING, "VGA Searching")
@@ -37,6 +42,10 @@ X(STR_STATUS_TIME, "Time: %s\n")
 X(STR_STATUS_BLE_FULL, "BLE : %d %s, %d %s, %d %s%s\n")
 X(STR_STATUS_BLE_SIMPLE, "BLE : %s\n")
 X(STR_STATUS_USB, "USB : %d %s, %d %s, %d %s, %d %s\n")
+X(STR_STATUS_MSC_INQUIRING, "%s: inquiring\n")
+X(STR_STATUS_MSC_MOUNTED, "%s: %.1f %s %.8s %.16s rev %.4s\n")
+X(STR_STATUS_MSC_INQUIRY_FAILED, "%s: inquiry failed\n")
+X(STR_STATUS_MSC_MOUNT_FAILED, "%s: mount failed (%d)\n")
 
 // ANSI to reset the terminal at boot
 X(STR_SYS_FULL_TERM_RESET, "\30\33c\n");
