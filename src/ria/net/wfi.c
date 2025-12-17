@@ -173,7 +173,7 @@ static const char *wifi_status_message(void)
             return STR_WFI_CONNECT_FAILED;
         }
     }
-    return STR_WFI_INTERNAL_ERROR;
+    return STR_INTERNAL_ERROR;
 }
 
 int wfi_status_response(char *buf, size_t buf_size, int state)

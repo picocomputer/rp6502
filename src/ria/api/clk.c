@@ -45,22 +45,23 @@ void clk_run(void)
     clk_clock_start = time_us_64();
 }
 
-void clk_print_status(void)
+int clk_status_response(char *buf, size_t buf_size, int state)
 {
-    printf("Time: ");
+    (void)state;
     struct timespec ts;
     if (!aon_timer_get_time(&ts))
     {
-        puts("get time failure");
+        snprintf(buf, buf_size, STR_STATUS_TIME, STR_INTERNAL_ERROR);
     }
     else
     {
-        char buf[100];
+        char tbuf[80];
         struct tm tminfo;
         localtime_r(&ts.tv_sec, &tminfo);
-        strftime(buf, sizeof(buf), STR_STRFTIME, &tminfo);
-        printf("%s\n", buf);
+        strftime(tbuf, sizeof(tbuf), STR_STRFTIME, &tminfo);
+        snprintf(buf, buf_size, STR_STATUS_TIME, tbuf);
     }
+    return -1;
 }
 
 void clk_load_time_zone(const char *str, size_t len)

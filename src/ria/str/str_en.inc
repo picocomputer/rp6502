@@ -10,7 +10,7 @@
 #define X(name, value)
 #endif
 
-X(STR_ERR_INTERNAL_ERROR, "?Internal Error\n")
+X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
 X(STR_ERR_MONITOR_RESPONSE_OVERFLOW, "?Monitor response overflow\n")
 X(STR_ERR_DEAD_KEY_CACHE_OVERFLOW, "?Dead key cache overflow\n")
 X(STR_ERR_UNKNOWN_COMMAND, "?Unknown command\n")
@@ -20,6 +20,8 @@ X(STR_ERR_CYW_FAILED_TO_INIT, "?CYW43 failed to init\n")
 X(STR_ERR_VGA_CONNECTION_LOST, "?VGA connection lost\n")
 
 X(STR_STRFTIME, "%c %z %Z")
+
+X(STR_INTERNAL_ERROR, "internal error")
 
 X(STR_WFI_RF_OFF, "RF off")
 X(STR_WFI_NOT_CONFIGURED, "not configured")
@@ -32,7 +34,6 @@ X(STR_WFI_NO_IP_ADDRESS, "no IP address")
 X(STR_WFI_SSID_NOT_FOUND, "ssid not found")
 X(STR_WFI_AUTH_FAILED, "auth failed")
 X(STR_WFI_CONNECT_FAILED, "connect failed")
-X(STR_WFI_INTERNAL_ERROR, "internal error")
 
 X(STR_NTP_NO_NETWORK, "no network")
 X(STR_NTP_DNS_LOOKUP, "DNS lookup")
@@ -41,7 +42,6 @@ X(STR_NTP_REQUESTED, "requested")
 X(STR_NTP_REQUEST_TIMEOUT, "request timeout")
 X(STR_NTP_SET_TIME_FAILURE, "set time failure")
 X(STR_NTP_SUCCESS, "success")
-X(STR_NTP_INTERNAL_ERROR, "internal error")
 
 X(STR_ON, "On")
 X(STR_OFF, "Off")

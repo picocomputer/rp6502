@@ -210,7 +210,7 @@ static const char *ntp_status_str(void)
         return STR_NTP_SUCCESS;
     case ntp_state_internal_error:
     default:
-        return STR_NTP_INTERNAL_ERROR;
+        return STR_INTERNAL_ERROR;
     }
 }
 
