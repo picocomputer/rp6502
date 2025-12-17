@@ -33,7 +33,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MON_RESPONSE_FN_COUNT 16
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str_list[MON_RESPONSE_FN_COUNT];
-static int mon_response_state[MON_RESPONSE_FN_COUNT] = {-1};
+static int mon_response_state[MON_RESPONSE_FN_COUNT] =
+    {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
 static int mon_response_pos = -1;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
@@ -178,23 +179,22 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
         i--;
         mon_response_fn_list[i] = mon_str_response;
         mon_response_str_list[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
+        mon_response_state[i] = 0;
     }
 }
 
-static int mon_next_response(void)
+static void mon_next_response(void)
 {
     int i = 0;
     for (; i < MON_RESPONSE_FN_COUNT - 1; i++)
     {
         mon_response_fn_list[i] = mon_response_fn_list[i + 1];
         mon_response_str_list[i] = mon_response_str_list[i + 1];
+        mon_response_state[i] = mon_response_state[i + 1];
     }
-    mon_response_fn_list[i] = 0;
-    mon_response_str_list[i] = 0;
-    if (mon_response_fn_list[0] != NULL)
-        return 0;
-    else
-        return -1;
+    mon_response_fn_list[i] = NULL;
+    mon_response_str_list[i] = NULL;
+    mon_response_state[i] = -1;
 }
 
 void mon_add_response_fn(mon_response_fn fn)
@@ -235,7 +235,7 @@ void mon_task(void)
             mon_response_state[0] = (mon_response_fn_list[0])(
                 response_buf, RESPONSE_BUF_SIZE, mon_response_state[0]);
             if (mon_response_state[0] < 0)
-                mon_response_state[0] = mon_next_response();
+                mon_next_response();
         }
     }
     else if (mon_needs_prompt)
