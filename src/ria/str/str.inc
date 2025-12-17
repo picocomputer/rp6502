@@ -36,6 +36,7 @@ X(STR_STATUS_NTP, "NTP : %s\n")
 X(STR_STATUS_TIME, "Time: %s\n")
 X(STR_STATUS_BLE_FULL, "BLE : %d %s, %d %s, %d %s%s\n")
 X(STR_STATUS_BLE_SIMPLE, "BLE : %s\n")
+X(STR_STATUS_USB, "USB : %d %s, %d %s, %d %s, %d %s\n")
 
 // ANSI to reset the terminal at boot
 X(STR_SYS_FULL_TERM_RESET, "\30\33c\n");

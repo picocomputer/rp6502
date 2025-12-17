@@ -57,8 +57,7 @@ const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
 static const char __in_flash("msc_print") MSC_PRINT_MB[] = "MB";
 static const char __in_flash("msc_print") MSC_PRINT_GB[] = "GB";
 static const char __in_flash("msc_print") MSC_PRINT_TB[] = "TB";
-static const char __in_flash("msc_print") MSC_PRINT_COUNT[] =
-    ", %d storage\n";
+
 static const char __in_flash("msc_print") MSC_PRINT_INQUIRING[] =
     "%s: inquiring\n";
 static const char __in_flash("msc_print") MSC_PRINT_MOUNTED[] =
@@ -99,13 +98,17 @@ static void rtrims(uint8_t *s, size_t l)
     }
 }
 
-void msc_print_status(void)
+int msc_count(void)
 {
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
         if (msc_volume_status[vol] != msc_volume_free)
             count++;
-    printf(MSC_PRINT_COUNT, count);
+    return count;
+}
+
+void msc_print_status(void)
+{
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         switch (msc_volume_status[vol])

@@ -14,6 +14,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/msc.h"
 #include <hardware/watchdog.h>
 #include <stdio.h>
 #include <string.h>
@@ -77,5 +78,6 @@ void sys_mon_status(const char *args, size_t len)
     mon_add_response_fn(ntp_status_response);
     mon_add_response_fn(clk_status_response);
     mon_add_response_fn(ble_status_response);
-    usb_print_status();
+    mon_add_response_fn(usb_status_response);
+    msc_print_status();
 }

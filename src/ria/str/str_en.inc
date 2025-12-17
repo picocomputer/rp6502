@@ -59,13 +59,15 @@ X(STR_PARENS_SET, "(set)")
 X(STR_BLE_PAIRING, ", pairing")
 X(STR_BLE_NO_RF, ", no RF")
 
-// Human Interface Device names
+// Device names
 X(STR_KEYBOARD_SINGULAR, "keyboard")
 X(STR_KEYBOARD_PLURAL, "keyboards")
 X(STR_MOUSE_SINGULAR, "mouse")
 X(STR_MOUSE_PLURAL, "mice")
 X(STR_GAMEPAD_SINGULAR, "gamepad")
 X(STR_GAMEPAD_PLURAL, "gamepads")
+X(STR_STORAGE_SINGULAR, "storage")
+X(STR_STORAGE_PLURAL, "storage")
 
 X(STR_HELP_HELP,
   "Commands:\n"

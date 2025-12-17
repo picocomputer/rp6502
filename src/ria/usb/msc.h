@@ -15,6 +15,7 @@
 #include <stdbool.h>
 
 // For monitor status command.
+int msc_count(void);
 void msc_print_status(void);
 
 #endif /* _RIA_USB_MSC_H_ */

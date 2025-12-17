@@ -56,12 +56,6 @@ static inline bool pix_ready(void)
     return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
 }
 
-// Test for empty transmit FIFO.
-static inline bool pix_fifo_empty(void)
-{
-    return pio_sm_is_tx_fifo_empty(PIX_PIO, PIX_SM);
-}
-
 // Unconditionally attempt to send a PIX message.
 // Meant for use with pix_ready() to fill the FIFO in a task handler.
 static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
