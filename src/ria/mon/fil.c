@@ -32,17 +32,25 @@ static uint32_t fil_rx_len;
 static uint32_t fil_rx_crc;
 static FIL fil_fatfs_fil;
 
+static int fil_chdir_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    char s[buf_size - 1];
+    FRESULT result;
+    result = f_getcwd(s, sizeof(s));
+    mon_add_response_fatfs(result);
+    if (result == FR_OK)
+        snprintf(buf, buf_size, "%s\n", s);
+    return -1;
+}
+
 void fil_mon_chdir(const char *args, size_t len)
 {
     FRESULT result;
     DIR dir;
     if (!len)
     {
-        char s[256];
-        result = f_getcwd(s, 256);
-        mon_add_response_fatfs(result);
-        if (result == FR_OK)
-            printf("%s\n", s);
+        mon_add_response_fn(fil_chdir_response);
         return;
     }
     result = f_opendir(&dir, args);
@@ -64,12 +72,11 @@ void fil_mon_mkdir(const char *args, size_t len)
     FRESULT result;
     if (!len)
     {
-        printf("?Directory name missing\n");
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     result = f_mkdir(args);
-    if (result != FR_OK)
-        printf("?Unable to make directory (%d)\n", result);
+    mon_add_response_fatfs(result);
 }
 
 void fil_mon_chdrive(const char *args, size_t len)
@@ -84,19 +91,16 @@ void fil_mon_chdrive(const char *args, size_t len)
     {
         result = f_opendir(&dir, s);
     }
-    if (result != FR_OK)
-        printf("?Drive not found (%d)\n", result);
+    mon_add_response_fatfs(result);
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
-        if (result != FR_OK)
-            printf("?Unable to close directory (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
     {
         result = f_chdrive(s);
-        if (result != FR_OK)
-            printf("?Unable to change drive (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
 }
 
@@ -106,11 +110,10 @@ void fil_mon_ls(const char *args, size_t len)
     if (len)
         dpath = args;
     DIR dir;
-    if (FR_OK != f_opendir(&dir, dpath))
-    {
-        printf("?cannot access '%s': No such directory.\n", dpath);
+    FRESULT result = f_opendir(&dir, dpath);
+    mon_add_response_fatfs(result);
+    if (FR_OK != result)
         return;
-    }
     FILINFO fno;
     while ((f_readdir(&dir, &fno) == FR_OK) && (fno.fname[0] != 0))
     {
@@ -148,27 +151,25 @@ static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
     if (timeout)
     {
         result = FR_INT_ERR;
-        printf("?timeout\n");
+        mon_add_response_str(STR_ERR_RX_TIMEOUT);
     }
     else if (ria_buf_crc32() != fil_rx_crc)
     {
         result = FR_INT_ERR;
-        puts("?CRC does not match");
+        mon_add_response_str(STR_ERR_CRC);
     }
     // This will leave the file unchanged until
     // the first chunk is received successfully.
     if (result == FR_OK && f_tell(&fil_fatfs_fil) == 0)
     {
         result = f_truncate(&fil_fatfs_fil);
-        if (result != FR_OK)
-            printf("?Unable to truncate file (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
     {
         UINT bytes_written;
         result = f_write(&fil_fatfs_fil, mbuf, mbuf_len, &bytes_written);
-        if (result != FR_OK)
-            printf("?Unable to write file (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
     {
@@ -184,8 +185,8 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
 {
     if (timeout)
     {
-        puts("");
-        printf("?timeout\n");
+        mon_add_response_str("\n");
+        mon_add_response_str(STR_ERR_RX_TIMEOUT);
         fil_state = FIL_IDLE;
         return;
     }
@@ -195,8 +196,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fatfs_fil);
-        if (result != FR_OK)
-            printf("?Unable to close file (%d)\n", result);
+        mon_add_response_fatfs(result);
         return;
     }
 
@@ -207,13 +207,13 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
         if (!fil_rx_len || fil_rx_len > MBUF_SIZE)
         {
             fil_state = FIL_IDLE;
-            printf("?invalid length\n");
+            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         rln_read_binary(FIL_TIMEOUT_MS, fil_com_rx_mbuf, mbuf, fil_rx_len);
         return;
     }
-    puts(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     fil_state = FIL_IDLE;
     return;
 }
@@ -222,7 +222,7 @@ void fil_mon_upload(const char *args, size_t len)
 {
     if (!len)
     {
-        printf("?missing filename\n");
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT result = f_open(&fil_fatfs_fil, args, FA_READ | FA_WRITE);
@@ -230,7 +230,7 @@ void fil_mon_upload(const char *args, size_t len)
         result = f_open(&fil_fatfs_fil, args, FA_CREATE_NEW | FA_WRITE);
     if (result != FR_OK)
     {
-        printf("?Unable to open file (%d)\n", result);
+        mon_add_response_fatfs(result);
         return;
     }
     fil_state = FIL_COMMAND;
@@ -242,8 +242,7 @@ void fil_mon_unlink(const char *args, size_t len)
 {
     (void)(len);
     FRESULT result = f_unlink(args);
-    if (result != FR_OK)
-        printf("?Failed to unlink file (%d)\n", result);
+    mon_add_response_fatfs(result);
 }
 
 void fil_task(void)
@@ -252,8 +251,7 @@ void fil_task(void)
     if (fil_state == FIL_IDLE && fil_fatfs_fil.obj.fs)
     {
         FRESULT result = f_close(&fil_fatfs_fil);
-        if (result != FR_OK)
-            printf("?Unable to close file (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
 }
 

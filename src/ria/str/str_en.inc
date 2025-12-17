@@ -27,6 +27,8 @@ X(STR_ERR_CYW_FAILED_TO_INIT, "?CYW43 failed to init\n")
 X(STR_ERR_VGA_CONNECTION_LOST, "?VGA connection lost\n")
 X(STR_ERR_RIA_VERIFY, "?Verify failed at $%04X\n")
 X(STR_ERR_RIA_TIMEOUT, "?6502 timeout\n")
+X(STR_ERR_RX_TIMEOUT, "?RX timeout\n")
+X(STR_ERR_CRC, "?CRC error\n")
 X(STR_ERR_UNKNOWN_NUMBER, "?Unknown error %d\n")
 
 // Littlefs errors

@@ -46,7 +46,7 @@ extern size_t mbuf_len;
 
 // This is used by the monitor when in reset,
 // and by modem emulation when 6502 is running.
-#define RESPONSE_BUF_SIZE 128
+#define RESPONSE_BUF_SIZE 256
 extern char response_buf[RESPONSE_BUF_SIZE];
 
 #endif /* _RIA_SYS_MEM_H_ */
