@@ -5,6 +5,7 @@
  */
 
 #include "mon/fil.h"
+#include "mon/mon.h"
 #include "str/str.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
@@ -39,26 +40,22 @@ void fil_mon_chdir(const char *args, size_t len)
     {
         char s[256];
         result = f_getcwd(s, 256);
-        if (result != FR_OK)
-            printf("?Current working directory unknown (%d)\n", result);
-        else
+        mon_add_response_fatfs(result);
+        if (result == FR_OK)
             printf("%s\n", s);
         return;
     }
     result = f_opendir(&dir, args);
-    if (result != FR_OK)
-        printf("?Directory not found (%d)\n", result);
+    mon_add_response_fatfs(result);
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
-        if (result != FR_OK)
-            printf("?Unable to close directory (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
     {
         result = f_chdir(args);
-        if (result != FR_OK)
-            printf("?Unable to change directory (%d)\n", result);
+        mon_add_response_fatfs(result);
     }
 }
 

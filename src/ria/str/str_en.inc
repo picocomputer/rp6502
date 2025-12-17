@@ -25,8 +25,30 @@ X(STR_ERR_INVALID_ARGUMENT, "?Invalid argument\n")
 X(STR_ERR_NO_HELP_FOUND, "?No help found\n")
 X(STR_ERR_CYW_FAILED_TO_INIT, "?CYW43 failed to init\n")
 X(STR_ERR_VGA_CONNECTION_LOST, "?VGA connection lost\n")
-X(STR_ERR_RIA_VERIFY, "?RIA verify failed at $%04X\n")
-X(STR_ERR_RIA_TIMEOUT, "?RIA timeout\n")
+X(STR_ERR_RIA_VERIFY, "?Verify failed at $%04X\n")
+X(STR_ERR_RIA_TIMEOUT, "?6502 timeout\n")
+X(STR_ERR_UNKNOWN_NUMBER, "?Unknown error %d\n")
+
+// FatFs
+X(STR_ERR_FATFS_DISK_ERR, "?Disk error\n")                     // 1
+X(STR_ERR_FATFS_INT_ERR, "?Internal error\n")                  // 2
+X(STR_ERR_FATFS_NOT_READY, "?Not ready\n")                     // 3
+X(STR_ERR_FATFS_NO_FILE, "?No file\n")                         // 4
+X(STR_ERR_FATFS_NO_PATH, "?No path\n")                         // 5
+X(STR_ERR_FATFS_INVALID_NAME, "?Invalid name\n")               // 6
+X(STR_ERR_FATFS_DENIED, "?Denied\n")                           // 7
+X(STR_ERR_FATFS_EXIST, "?Exists\n")                            // 8
+X(STR_ERR_FATFS_INVALID_OBJECT, "?Invalid object\n")           // 9
+X(STR_ERR_FATFS_WRITE_PROTECTED, "?Write protected\n")         // 10
+X(STR_ERR_FATFS_INVALID_DRIVE, "?Invalid drive\n")             // 11
+X(STR_ERR_FATFS_NOT_ENABLED, "?Not enabled\n")                 // 12
+X(STR_ERR_FATFS_NO_FILESYSTEM, "?No filesystem\n")             // 13
+X(STR_ERR_FATFS_MKFS_ABORTED, "?Aborted\n")                    // 14
+X(STR_ERR_FATFS_TIMEOUT, "?Timeout\n")                         // 15
+X(STR_ERR_FATFS_LOCKED, "?Locked\n")                           // 16
+X(STR_ERR_FATFS_NOT_ENOUGH_CORE, "?Not enough core\n")         // 17
+X(STR_ERR_FATFS_TOO_MANY_OPEN_FILES, "?Too many open files\n") // 18
+X(STR_ERR_FATFS_INVALID_PARAMETER, "?Invalid parameter\n")     // 19
 
 // WiFi status
 X(STR_WFI_NOT_CONFIGURED, "not configured")

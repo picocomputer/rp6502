@@ -25,6 +25,8 @@ typedef int (*mon_response_fn)(char *, size_t, int);
 void mon_add_response_fn(int (*fn)(char *, size_t, int));
 void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_str(const char *str);
+void mon_add_response_lfs(int result);
+void mon_add_response_fatfs(int fresult);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.

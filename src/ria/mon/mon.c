@@ -17,6 +17,7 @@
 #include "sys/mem.h"
 #include "sys/rln.h"
 #include "sys/sys.h"
+#include <fatfs/ff.h>
 #include <pico.h>
 #include <stdio.h>
 #include <string.h>
@@ -161,6 +162,82 @@ static int mon_str_response(char *buf, size_t buf_size, int state)
     return state;
 }
 
+static const char *mon_lfs_lookup(int result)
+{
+    switch (result)
+    {
+    default:
+        return NULL;
+    }
+}
+
+static int mon_lfs_response(char *buf, size_t buf_size, int state)
+{
+    const char *err_str = mon_lfs_lookup(state);
+    if (err_str != NULL)
+        snprintf(buf, buf_size, err_str);
+    else
+        snprintf(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
+    return -1;
+}
+
+static const char *mon_fatfs_lookup(int fresult)
+{
+    switch (fresult)
+    {
+    case FR_DISK_ERR: /* (1) */
+        return STR_ERR_FATFS_DISK_ERR;
+    case FR_INT_ERR: /* (2) */
+        return STR_ERR_FATFS_INT_ERR;
+    case FR_NOT_READY: /* (3) */
+        return STR_ERR_FATFS_NOT_READY;
+    case FR_NO_FILE: /* (4) */
+        return STR_ERR_FATFS_NO_FILE;
+    case FR_NO_PATH: /* (5) */
+        return STR_ERR_FATFS_NO_PATH;
+    case FR_INVALID_NAME: /* (6) */
+        return STR_ERR_FATFS_INVALID_NAME;
+    case FR_DENIED: /* (7) */
+        return STR_ERR_FATFS_DENIED;
+    case FR_EXIST: /* (8) */
+        return STR_ERR_FATFS_EXIST;
+    case FR_INVALID_OBJECT: /* (9) */
+        return STR_ERR_FATFS_INVALID_OBJECT;
+    case FR_WRITE_PROTECTED: /* (10) */
+        return STR_ERR_FATFS_WRITE_PROTECTED;
+    case FR_INVALID_DRIVE: /* (11) */
+        return STR_ERR_FATFS_INVALID_DRIVE;
+    case FR_NOT_ENABLED: /* (12) */
+        return STR_ERR_FATFS_NOT_ENABLED;
+    case FR_NO_FILESYSTEM: /* (13) */
+        return STR_ERR_FATFS_NO_FILESYSTEM;
+    case FR_MKFS_ABORTED: /* (14) */
+        return STR_ERR_FATFS_MKFS_ABORTED;
+    case FR_TIMEOUT: /* (15) */
+        return STR_ERR_FATFS_TIMEOUT;
+    case FR_LOCKED: /* (16) */
+        return STR_ERR_FATFS_LOCKED;
+    case FR_NOT_ENOUGH_CORE: /* (17) */
+        return STR_ERR_FATFS_NOT_ENOUGH_CORE;
+    case FR_TOO_MANY_OPEN_FILES: /* (18) */
+        return STR_ERR_FATFS_TOO_MANY_OPEN_FILES;
+    case FR_INVALID_PARAMETER: /* (19) */
+        return STR_ERR_FATFS_INVALID_PARAMETER;
+    default:
+        return NULL;
+    }
+}
+
+static int mon_fatfs_response(char *buf, size_t buf_size, int state)
+{
+    const char *err_str = mon_fatfs_lookup(state);
+    if (err_str != NULL)
+        snprintf(buf, buf_size, err_str);
+    else
+        snprintf(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
+    return -1;
+}
+
 static void mon_append_response(mon_response_fn fn, const char *str, int state)
 {
     int i = 0;
@@ -210,6 +287,18 @@ void mon_add_response_fn_state(mon_response_fn fn, int state)
 void mon_add_response_str(const char *str)
 {
     mon_append_response(mon_str_response, str, 0);
+}
+
+void mon_add_response_lfs(int result)
+{
+    if (result)
+        mon_append_response(mon_lfs_response, NULL, result);
+}
+
+void mon_add_response_fatfs(int fresult)
+{
+    if (fresult)
+        mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
 void mon_task(void)
