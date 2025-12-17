@@ -1054,6 +1054,12 @@ term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_p
         return term_render_640(scanline_id, rgb);
 }
 
+void term_RIS()
+{
+    term_out_RIS(&term_40);
+    term_out_RIS(&term_80);
+}
+
 bool term_prog(uint16_t *xregs)
 {
     int16_t plane = xregs[2];
