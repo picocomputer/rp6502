@@ -39,15 +39,38 @@ static uint32_t rw_crc;
 
 static int ram_print_response(char *buf, size_t buf_size, int state)
 {
-    printf("%04lX ", rw_addr);
+    (void)buf_size;
+    (void)state;
+    assert(mbuf_len <= 16);
+    sprintf(buf, "%04lX ", rw_addr);
+    buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
     {
-        if (rw_addr < 0x10000)
-            printf(" %02X", mbuf[i]);
-        else
-            printf(" %02X", xram[rw_addr + i - 0x10000]);
+        if (i == 8)
+            *buf++ = ' ';
+        uint8_t c = rw_addr < 0x10000 ? mbuf[i] : xram[rw_addr + i - 0x10000];
+        sprintf(buf, " %02X", c);
+        buf += 3;
     }
-    printf("\n");
+    size_t spaces = (16 - mbuf_len) * 3;
+    if (mbuf_len <= 8)
+        ++spaces;
+    for (size_t s = 0; s < spaces; s++)
+        *buf++ = ' ';
+
+    *buf++ = ' ';
+    *buf++ = ' ';
+    *buf++ = '|';
+    for (size_t i = 0; i < mbuf_len; i++)
+    {
+        uint8_t c = rw_addr < 0x10000 ? mbuf[i] : xram[rw_addr + i - 0x10000];
+        if (c < 32 || c >= 127)
+            c = '.';
+        *buf++ = c;
+    }
+    *buf++ = '|';
+    *buf++ = '\n';
+    *buf = '\0';
     return -1;
 }
 
