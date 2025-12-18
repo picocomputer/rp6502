@@ -69,22 +69,18 @@ static bool rom_open(const char *name, bool is_fat)
     is_reading_fat = is_fat;
     if (is_fat)
     {
-        FRESULT result = f_open(&fat_fil, name, FA_READ);
-        if (result != FR_OK)
-        {
-            printf("?Unable to open file (%d)\n", result);
+        FRESULT fresult = f_open(&fat_fil, name, FA_READ);
+        mon_add_response_fatfs(fresult);
+        if (fresult != FR_OK)
             return false;
-        }
     }
     else
     {
         int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, name,
                                          LFS_O_RDONLY, &lfs_file_config);
+        mon_add_response_lfs(lfsresult);
         if (lfsresult < 0)
-        {
-            printf("?Unable to lfs_file_opencfg (%d)\n", lfsresult);
             return false;
-        }
         lfs_file_open = true;
     }
     if (rom_gets() != 8 || strncasecmp("#!RP6502", (char *)mbuf, 8))
@@ -110,21 +106,17 @@ static bool rom_read(uint32_t len, uint32_t crc)
 {
     if (is_reading_fat)
     {
-        FRESULT result = f_read(&fat_fil, mbuf, len, &mbuf_len);
-        if (result != FR_OK)
-        {
-            printf("?Unable to read file (%d)\n", result);
+        FRESULT fresult = f_read(&fat_fil, mbuf, len, &mbuf_len);
+        mon_add_response_fatfs(fresult);
+        if (fresult != FR_OK)
             return false;
-        }
     }
     else
     {
         lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, mbuf, len);
+        mon_add_response_lfs(lfsresult);
         if (lfsresult < 0)
-        {
-            printf("?Unable to lfs_file_read (%ld)\n", lfsresult);
             return false;
-        }
         mbuf_len = lfsresult;
     }
     if (len != mbuf_len)
@@ -134,7 +126,7 @@ static bool rom_read(uint32_t len, uint32_t crc)
     }
     if (ria_buf_crc32() != crc)
     {
-        printf("?CRC failed\n");
+        mon_add_response_str(STR_ERR_CRC);
         return false;
     }
     return true;
@@ -256,11 +248,9 @@ void rom_mon_install(const char *args, size_t len)
         return;
     }
     FRESULT fresult = f_rewind(&fat_fil);
+    mon_add_response_fatfs(fresult);
     if (fresult != FR_OK)
-    {
-        printf("?Unable to rewind file (%d)\n", fresult);
         return;
-    }
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, lfs_name,
                                      LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
                                      &lfs_file_config);
@@ -318,11 +308,7 @@ void rom_mon_remove(const char *args, size_t len)
             return;
         }
         int lfsresult = lfs_remove(&lfs_volume, lfs_name);
-        if (lfsresult < 0)
-
-            printf("?Unable to lfs_remove (%d)\n", lfsresult);
-        else
-            printf("Removed %s.\n", lfs_name);
+        mon_add_response_lfs(lfsresult);
         return;
     }
     printf("?Invalid ROM name\n");
@@ -365,7 +351,7 @@ void rom_mon_info(const char *args, size_t len)
         found = true;
     }
     if (!found)
-        puts("?No help found in file.");
+        mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
 // Returns false and prints nothing if ROM not found.
@@ -385,9 +371,8 @@ void rom_mon_help(const char *args, size_t len)
                 puts((char *)mbuf + 2);
                 found = true;
             }
-        if (!found)
-            puts("?No help found in ROM.");
-        return;
+        if (found)
+            return;
     }
     mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
@@ -427,18 +412,16 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
-        if (rom_state == ROM_IDLE && lfs_file_open)
+        if (lfs_file_open)
         {
             int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
+            mon_add_response_lfs(lfsresult);
             lfs_file_open = false;
-            if (lfsresult < 0)
-                printf("?Unable to lfs_file_close (%d)\n", lfsresult);
         }
-        if (rom_state == ROM_IDLE && fat_fil.obj.fs)
+        if (fat_fil.obj.fs)
         {
-            FRESULT result = f_close(&fat_fil);
-            if (result != FR_OK)
-                printf("?Unable to close file (%d)\n", result);
+            FRESULT fresult = f_close(&fat_fil);
+            mon_add_response_fatfs(fresult);
         }
         break;
     case ROM_LOADING:
@@ -480,20 +463,20 @@ static uint32_t rom_installed_list(uint32_t width)
     uint32_t col = 0;
     lfs_dir_t lfs_dir;
     struct lfs_info lfs_info;
-    int result = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
-    if (result < 0)
+    int lfsresult = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
+    if (lfsresult < 0)
     {
-        printf("?Unable to open ROMs directory (%d)\n", result);
+        printf("?Unable to open ROMs directory (%d)\n", lfsresult);
         return 0;
     }
     while (true)
     {
-        result = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
-        if (!result)
+        lfsresult = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
+        if (!lfsresult)
             break;
-        if (result < 0)
+        if (lfsresult < 0)
         {
-            printf("?Error reading ROMs directory (%d)\n", result);
+            printf("?Error reading ROMs directory (%d)\n", lfsresult);
             count = 0;
             break;
         }
@@ -540,10 +523,10 @@ static uint32_t rom_installed_list(uint32_t width)
         }
         putchar('\n');
     }
-    result = lfs_dir_close(&lfs_volume, &lfs_dir);
-    if (result < 0)
+    lfsresult = lfs_dir_close(&lfs_volume, &lfs_dir);
+    if (lfsresult < 0)
     {
-        printf("?Error closing ROMs directory (%d)\n", result);
+        printf("?Error closing ROMs directory (%d)\n", lfsresult);
         count = 0;
     }
     return count;
@@ -557,7 +540,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
     uint32_t rom_count = rom_installed_list(0);
     if (rom_count)
     {
-        printf("%ld installed ROM%s:\n", rom_count, rom_count == 1 ? "" : "s");
+        printf("%ld %s:\n", rom_count, rom_count == 1 ? "installed ROM" : "installed ROMs");
         rom_installed_list(79);
     }
     else

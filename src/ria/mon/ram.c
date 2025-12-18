@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "api/api.h"
 #include "mon/ram.h"
 #include "str/str.h"
@@ -213,7 +214,7 @@ void ram_mon_binary(const char *args, size_t len)
 
 void ram_task(void)
 {
-    if (ria_active())
+    if (main_active())
         return;
     switch (cmd_state)
     {

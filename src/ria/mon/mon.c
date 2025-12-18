@@ -165,7 +165,7 @@ static int mon_str_response(char *buf, size_t buf_size, int state)
 
 static const char *mon_lfs_lookup(int result)
 {
-    switch (result)
+    switch (-result)
     {
     case LFS_ERR_IO: // -5
         return STR_ERR_LFS_IO;
@@ -269,6 +269,7 @@ static int mon_fatfs_response(char *buf, size_t buf_size, int state)
 
 static void mon_append_response(mon_response_fn fn, const char *str, int state)
 {
+    assert(state >= 0);
     int i = 0;
     for (; i < MON_RESPONSE_FN_COUNT; i++)
     {
@@ -320,13 +321,13 @@ void mon_add_response_str(const char *str)
 
 void mon_add_response_lfs(int result)
 {
-    if (result)
-        mon_append_response(mon_lfs_response, NULL, result);
+    if (result < 0)
+        mon_append_response(mon_lfs_response, NULL, -result);
 }
 
 void mon_add_response_fatfs(int fresult)
 {
-    if (fresult)
+    if (fresult > 0)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
