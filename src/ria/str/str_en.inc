@@ -17,7 +17,7 @@ X(STR_STRFTIME, "%c %z %Z")
 X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
 X(STR_INTERNAL_ERROR, "internal error")
 
-// Monitor errors
+// System errors
 X(STR_ERR_MONITOR_RESPONSE_OVERFLOW, "?Monitor response overflow\n")
 X(STR_ERR_DEAD_KEY_CACHE_OVERFLOW, "?Dead key cache overflow\n")
 X(STR_ERR_UNKNOWN_COMMAND, "?Unknown command\n")
@@ -30,6 +30,8 @@ X(STR_ERR_RIA_TIMEOUT, "?6502 timeout\n")
 X(STR_ERR_RX_TIMEOUT, "?RX timeout\n")
 X(STR_ERR_CRC, "?CRC error\n")
 X(STR_ERR_UNKNOWN_NUMBER, "?Unknown error %d\n")
+X(STR_ERR_ROM_NAME_INVALID, "?ROM name invalid\n")
+X(STR_ERR_ROM_DATA_INVALID, "?ROM data invalid\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?IO error\n")                      // -5
