@@ -328,21 +328,6 @@ bool rom_load_installed(const char *args, size_t len)
     return true;
 }
 
-void rom_mon_info(const char *args, size_t len)
-{
-    (void)(len);
-    if (!rom_open(args, true))
-        return;
-    bool found = false;
-    while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
-    {
-        puts((char *)mbuf + 2);
-        found = true;
-    }
-    if (!found)
-        mon_add_response_str(STR_ERR_NO_HELP_FOUND);
-}
-
 static int rom_help_response(char *buf, size_t buf_size, int state)
 {
     if (state == -1)
@@ -363,6 +348,16 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
         return -1;
     }
     return state;
+}
+
+void rom_mon_info(const char *args, size_t len)
+{
+    (void)(len);
+    if (rom_open(args, true))
+    {
+        rom_state = ROM_HELPING;
+        mon_add_response_fn(rom_help_response);
+    }
 }
 
 void rom_mon_help(const char *args, size_t len)
