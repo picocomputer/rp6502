@@ -27,6 +27,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static enum {
     ROM_IDLE,
+    ROM_HELPING,
     ROM_LOADING,
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
@@ -342,25 +343,42 @@ void rom_mon_info(const char *args, size_t len)
         mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
+static int rom_help_response(char *buf, size_t buf_size, int state)
+{
+    if (state == -1)
+    {
+        rom_state = ROM_IDLE;
+        return state;
+    }
+    if (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+    {
+        snprintf(buf, buf_size, "%s\n", (char *)mbuf + 2);
+        state = 1;
+    }
+    else
+    {
+        if (!state)
+            mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+        rom_state = ROM_IDLE;
+        return -1;
+    }
+    return state;
+}
+
 void rom_mon_help(const char *args, size_t len)
 {
     struct lfs_info info;
     char lfs_name[LFS_NAME_MAX + 1];
     if (str_parse_rom_name(&args, &len, lfs_name) &&
         str_parse_end(args, len) &&
-        lfs_stat(&lfs_volume, lfs_name, &info) >= 0)
+        lfs_stat(&lfs_volume, lfs_name, &info) >= 0 &&
+        rom_open(lfs_name, false))
     {
-        bool found = false;
-        if (rom_open(lfs_name, false))
-            while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
-            {
-                puts((char *)mbuf + 2);
-                found = true;
-            }
-        if (found)
-            return;
+        rom_state = ROM_HELPING;
+        mon_add_response_fn(rom_help_response);
     }
-    mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+    else
+        mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
 static bool rom_action_is_finished(void)
@@ -410,6 +428,8 @@ void rom_task(void)
             mon_add_response_fatfs(fresult);
         }
         break;
+    case ROM_HELPING:
+        break; // NOP
     case ROM_LOADING:
         rom_loading();
         break;

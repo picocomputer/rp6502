@@ -99,7 +99,7 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
             break;
     }
     // cd for chdir, 00cd for r/w address
-    if (!strcasecmp(cmd, STR_CD))
+    if (cmd_len == 2 && !strncasecmp(cmd, STR_CD, cmd_len))
         is_not_addr = true;
     // address command
     if (is_maybe_addr && !is_not_addr)
@@ -334,30 +334,31 @@ void mon_add_response_fatfs(int fresult)
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
-    if (main_active() ||
-        // These may run the 6502 many times for a single
-        // task so we can't depend on only main_active().
-        ram_active() ||
-        rom_active() ||
-        fil_active())
+    if (main_active())
         return;
-    if (mon_response_state[0] >= 0 || mon_response_pos >= 0)
+    if (mon_response_pos >= 0)
     {
         while (response_buf[mon_response_pos] && com_putchar_ready())
             putchar(response_buf[mon_response_pos++]);
         if (!response_buf[mon_response_pos])
             mon_response_pos = -1;
-        if (mon_response_pos == -1 && mon_response_state[0] >= 0)
-        {
-            mon_response_pos = 0;
-            response_buf[0] = 0;
-            mon_response_state[0] = (mon_response_fn_list[0])(
-                response_buf, RESPONSE_BUF_SIZE, mon_response_state[0]);
-            if (mon_response_state[0] < 0)
-                mon_next_response();
-        }
+        return;
     }
-    else if (mon_needs_prompt)
+    if (mon_response_pos == -1 && mon_response_state[0] >= 0)
+    {
+        mon_response_pos = 0;
+        response_buf[0] = 0;
+        mon_response_state[0] = (mon_response_fn_list[0])(
+            response_buf, RESPONSE_BUF_SIZE, mon_response_state[0]);
+        if (mon_response_state[0] < 0)
+            mon_next_response();
+        return;
+    }
+    if (ram_active() ||
+        rom_active() ||
+        fil_active())
+        return;
+    if (mon_needs_prompt)
     {
         if (mon_needs_newline)
             mon_add_response_str(STR_MON_PROMPT_NEWLINE);
@@ -366,11 +367,13 @@ void mon_task(void)
         mon_needs_prompt = false;
         mon_needs_newline = false;
         mon_needs_read_line = true;
+        return;
     }
-    else if (mon_needs_read_line)
+    if (mon_needs_read_line)
     {
         mon_needs_read_line = false;
         rln_read_line(0, mon_enter, 256, 0);
+        return;
     }
 }
 

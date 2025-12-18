@@ -108,11 +108,19 @@ void fil_mon_chdrive(const char *args, size_t len)
 static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
+    if (state < 0)
+    {
+        f_closedir(&fil_fatfs_dir);
+        return state;
+    }
     FILINFO fno;
     FRESULT fresult = f_readdir(&fil_fatfs_dir, &fno);
     mon_add_response_fatfs(fresult);
     if (fresult != FR_OK || fno.fname[0] == 0)
+    {
+        f_closedir(&fil_fatfs_dir);
         return -1;
+    }
     if (fno.fattrib & (AM_HID | AM_SYS))
         /* nop */;
     else if (fno.fattrib & AM_DIR)
@@ -200,7 +208,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
         return;
     }
     const char *args = buf;
-    if (len == 0 || !strcasecmp(STR_END, args))
+    if (len == 0 || (len == 3 && !strncasecmp(STR_END, args, 3)))
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fatfs_fil);
