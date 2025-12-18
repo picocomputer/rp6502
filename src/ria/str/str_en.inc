@@ -113,6 +113,10 @@ X(STR_GAMEPAD_PLURAL, "gamepads")
 X(STR_STORAGE_SINGULAR, "storage")
 X(STR_STORAGE_PLURAL, "storage")
 
+X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
+X(STR_ROM_INSTALLED_SINGULAR, "%d installed ROM:\n")
+X(STR_ROM_INSTALLED_PLURAL, "%d installed ROMs:\n")
+
 X(STR_HELP_HELP,
   "Commands:\n"
   "HELP (command|rom)  - This help or expanded help for command or rom.\n"

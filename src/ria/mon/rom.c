@@ -456,28 +456,27 @@ void rom_break(void)
     rom_state = ROM_IDLE;
 }
 
-// Use width=0 to supress printing. Returns count.
-// Anything with only uppercase letters is counted.
-static uint32_t rom_installed_list(uint32_t width)
+int rom_installed_response(char *buf, size_t buf_size, int state)
 {
+    assert(buf_size >= 80);
+    const uint32_t WIDTH = 79; // some terms wrap at 80
     uint32_t count = 0;
+    int line = 1;
     uint32_t col = 0;
     lfs_dir_t lfs_dir;
     struct lfs_info lfs_info;
     int lfsresult = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
+    mon_add_response_lfs(lfsresult);
     if (lfsresult < 0)
-    {
-        printf("?Unable to open ROMs directory (%d)\n", lfsresult);
-        return 0;
-    }
+        return -1;
     while (true)
     {
         lfsresult = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
+        mon_add_response_lfs(lfsresult);
         if (!lfsresult)
             break;
         if (lfsresult < 0)
         {
-            printf("?Error reading ROMs directory (%d)\n", lfsresult);
             count = 0;
             break;
         }
@@ -489,64 +488,70 @@ static uint32_t rom_installed_list(uint32_t width)
             if (!(i && isdigit(ch)) && !isupper(ch))
                 is_ok = false;
         }
-        if (is_ok && width)
+        if (is_ok && state)
         {
             if (count)
             {
-                putchar(',');
+                if (state == line)
+                    buf[col] = ',';
                 col += 1;
             }
-            if (col + len > width - 2)
+            if (col + len > WIDTH - 2)
             {
-                printf("\n%s", lfs_info.name);
+                if (state == line)
+                {
+                    buf[col] = '\n';
+                    buf[++col] = 0;
+                }
+                line += 1;
+                if (state == line)
+                    sprintf(buf, "%s", lfs_info.name);
                 col = len;
             }
             else
             {
                 if (col)
                 {
-                    putchar(' ');
+                    if (state == line)
+                        buf[col] = ' ';
                     col += 1;
                 }
-                printf("%s", lfs_info.name);
+                if (state == line)
+                    sprintf(buf + col, "%s", lfs_info.name);
                 col += len;
             }
         }
         if (is_ok)
             count++;
     }
-    if (width)
+    if (state == line)
+    {
+        if (count)
+            buf[col++] = '.';
+        buf[col] = '\n';
+        buf[++col] = 0;
+        state = -2;
+    }
+    lfsresult = lfs_dir_close(&lfs_volume, &lfs_dir);
+    mon_add_response_lfs(lfsresult);
+    if (lfsresult < 0)
+        count = 0;
+    if (!state)
     {
         if (count)
         {
-            putchar('.');
-            col++;
+            snprintf(buf, buf_size,
+                     count == 1 ? STR_ROM_INSTALLED_SINGULAR
+                                : STR_ROM_INSTALLED_PLURAL,
+                     count);
         }
-        putchar('\n');
+        else
+        {
+            snprintf(buf, buf_size, STR_ROM_INSTALLED_NONE);
+            state = -2;
+        }
     }
-    lfsresult = lfs_dir_close(&lfs_volume, &lfs_dir);
-    if (lfsresult < 0)
-    {
-        printf("?Error closing ROMs directory (%d)\n", lfsresult);
-        count = 0;
-    }
-    return count;
-}
-
-int rom_installed_response(char *buf, size_t buf_size, int state)
-{
-    (void)(buf);
-    (void)(buf_size);
-    (void)(state);
-    uint32_t rom_count = rom_installed_list(0);
-    if (rom_count)
-    {
-        printf("%ld %s:\n", rom_count, rom_count == 1 ? "installed ROM" : "installed ROMs");
-        rom_installed_list(79);
-    }
-    else
-        printf("No installed ROMs.\n");
-    return -1;
+    return state + 1;
 }
 
 bool rom_set_boot(char *str)
