@@ -99,7 +99,7 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
             break;
     }
     // cd for chdir, 00cd for r/w address
-    if (cmd_len == 2 && !strncasecmp(cmd, "cd", cmd_len))
+    if (!strcasecmp(cmd, STR_CD))
         is_not_addr = true;
     // address command
     if (is_maybe_addr && !is_not_addr)

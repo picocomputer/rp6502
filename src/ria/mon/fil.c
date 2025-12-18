@@ -30,6 +30,7 @@ static enum {
 
 static uint32_t fil_rx_len;
 static uint32_t fil_rx_crc;
+static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
 
 static int fil_chdir_response(char *buf, size_t buf_size, int state)
@@ -104,41 +105,49 @@ void fil_mon_chdrive(const char *args, size_t len)
     }
 }
 
+static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    FILINFO fno;
+    FRESULT fresult = f_readdir(&fil_fatfs_dir, &fno);
+    mon_add_response_fatfs(fresult);
+    if (fresult != FR_OK || fno.fname[0] == 0)
+        return -1;
+    if (fno.fattrib & (AM_HID | AM_SYS))
+        /* nop */;
+    else if (fno.fattrib & AM_DIR)
+        snprintf(buf, buf_size, " <DIR> %s\n", fno.fname);
+    else
+    {
+        double size = fno.fsize;
+        if (size <= 999999)
+            snprintf(buf, buf_size, "%6.0f %s\n", size, fno.fname);
+        else
+        {
+            size /= 1024;
+            char c = 'K';
+            if (size >= 1000)
+                size /= 1024, c = 'M';
+            if (size >= 1000)
+                size /= 1024, c = 'G';
+            if (size >= 1000)
+                size /= 1024, c = 'T';
+            snprintf(buf, buf_size, "%5.1f%c %s\n", size, c, fno.fname);
+        }
+    }
+    return 0;
+}
+
 void fil_mon_ls(const char *args, size_t len)
 {
     const char *dpath = ".";
     if (len)
         dpath = args;
-    DIR dir;
-    FRESULT result = f_opendir(&dir, dpath);
-    mon_add_response_fatfs(result);
-    if (FR_OK != result)
+    FRESULT fresult = f_opendir(&fil_fatfs_dir, dpath);
+    mon_add_response_fatfs(fresult);
+    if (FR_OK != fresult)
         return;
-    FILINFO fno;
-    while ((f_readdir(&dir, &fno) == FR_OK) && (fno.fname[0] != 0))
-    {
-        if (fno.fattrib & AM_DIR)
-            printf(" <DIR> %s\n", fno.fname);
-        else
-        {
-            double size = fno.fsize;
-            if (size <= 999999)
-                printf("%6.0f %s\n", size, fno.fname);
-            else
-            {
-                size /= 1024;
-                char *s = "K";
-                if (size >= 1000)
-                    size /= 1024, s = "M";
-                if (size >= 1000)
-                    size /= 1024, s = "G";
-                if (size >= 1000)
-                    size /= 1024, s = "T";
-                printf("%5.1f%s %s\n", size, s, fno.fname);
-            }
-        }
-    }
-    f_closedir(&dir);
+    mon_add_response_fn(fil_dir_entry_response);
 }
 
 static void fil_command_dispatch(bool timeout, const char *buf, size_t len);
@@ -185,21 +194,19 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
 {
     if (timeout)
     {
-        mon_add_response_str("\n");
+        puts("");
         mon_add_response_str(STR_ERR_RX_TIMEOUT);
         fil_state = FIL_IDLE;
         return;
     }
     const char *args = buf;
-
-    if (len == 0 || (len == 3 && !strncasecmp("END", args, 3)))
+    if (len == 0 || !strcasecmp(STR_END, args))
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fatfs_fil);
         mon_add_response_fatfs(result);
         return;
     }
-
     if (str_parse_uint32(&args, &len, &fil_rx_len) &&
         str_parse_uint32(&args, &len, &fil_rx_crc) &&
         str_parse_end(args, len))

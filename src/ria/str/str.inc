@@ -56,6 +56,7 @@ X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
 X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
 
 // Monitor keywords
+X(STR_END, "END")
 X(STR_HELP, "HELP")
 X(STR_H, "H")
 X(STR_QUESTION_MARK, "?")
