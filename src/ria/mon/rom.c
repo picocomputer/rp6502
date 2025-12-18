@@ -458,7 +458,6 @@ void rom_break(void)
 
 int rom_installed_response(char *buf, size_t buf_size, int state)
 {
-    assert(buf_size >= 80);
     const uint32_t WIDTH = 79; // some terms wrap at 80
     uint32_t count = 0;
     int line = 1;
