@@ -53,11 +53,9 @@ static void cfg_save_with_boot_opt(const char *opt_str)
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_CFG_FILENAME,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
+    mon_add_response_lfs(lfsresult);
     if (lfsresult < 0)
-    {
-        printf("?Unable to lfs_file_opencfg %s for writing (%d)\n", STR_CFG_FILENAME, lfsresult);
         return;
-    }
     if (!opt_str)
     {
         opt_str = (char *)mbuf;
@@ -65,14 +63,11 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
             if (mbuf[0] != '+')
                 break;
-        if (lfsresult >= 0)
-            if ((lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file)) < 0)
-                printf("?Unable to lfs_file_rewind %s (%d)\n", STR_CFG_FILENAME, lfsresult);
+        lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
+        mon_add_response_lfs(lfsresult);
     }
-
     if (lfsresult >= 0)
-        if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            printf("?Unable to lfs_file_truncate %s (%d)\n", STR_CFG_FILENAME, lfsresult);
+        lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -104,12 +99,10 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                ble_get_enabled(),
 #endif /* RP6502_RIA_W */
                                opt_str);
-        if (lfsresult < 0)
-            printf("?Unable to write %s contents (%d)\n", STR_CFG_FILENAME, lfsresult);
     }
+    mon_add_response_lfs(lfsresult);
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
-    if (lfscloseresult < 0)
-        printf("?Unable to lfs_file_close %s (%d)\n", STR_CFG_FILENAME, lfscloseresult);
+    mon_add_response_lfs(lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
         lfs_remove(&lfs_volume, STR_CFG_FILENAME);
 }
@@ -124,7 +117,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
     if (lfsresult < 0)
     {
         if (lfsresult != LFS_ERR_NOENT)
-            printf("?Unable to lfs_file_opencfg %s for reading (%d)\n", STR_CFG_FILENAME, lfsresult);
+            mon_add_response_lfs(lfsresult);
         return;
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
@@ -178,8 +171,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         }
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
-    if (lfsresult < 0)
-        printf("?Unable to lfs_file_close %s (%d)\n", STR_CFG_FILENAME, lfsresult);
+    mon_add_response_lfs(lfsresult);
 }
 
 void cfg_init(void)
