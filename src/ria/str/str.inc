@@ -138,3 +138,5 @@ X(STR_HELP_ABOUT,
   "                                            Computer Science.\n"
 #endif
   "")
+X(STR_HELP_ABOUT_VIP,
+  "             VIPs - ")

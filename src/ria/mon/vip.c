@@ -5,6 +5,7 @@
  */
 
 #include "mon/vip.h"
+#include "str/str.h"
 #include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>
@@ -79,9 +80,7 @@ static uint32_t vip_rand_seed = 0;
 
 int vip_response(char *buf, size_t buf_size, int state)
 {
-    (void)buf;
     (void)buf_size;
-    (void)state;
 #define X(suffix, name) \
     VIP_NAME_##suffix,
     const char *vips[] = {VIP_LIST};
@@ -100,19 +99,57 @@ int vip_response(char *buf, size_t buf_size, int state)
         vips[i] = vips[swap];
         vips[swap] = tmp;
     }
-    printf("             VIPs - %s", vips[0]);
-    unsigned col = 20 + strlen(vips[0]) + 2;
-    for (unsigned i = 1; i < VIP_COUNT - 1; i++)
+    int row_prefix_len = strlen(STR_HELP_ABOUT_VIP);
+    int row = 0;
+    if (state == row)
     {
-        printf(", ");
-        col += strlen(vips[i]) + 2;
-        if (col > 78)
-        {
-            col = 20 + strlen(vips[i]) + 2;
-            printf("\n%20s", "");
-        }
-        printf("%s", vips[i]);
+        sprintf(buf, STR_HELP_ABOUT_VIP);
     }
-    puts(".");
-    return -1;
+    int col = row_prefix_len;
+    for (unsigned i = 0; i < VIP_COUNT - 1; i++)
+    {
+        if (i)
+        {
+            if (state == row)
+                buf[col] = ',';
+            col += 1;
+        }
+        size_t len = strlen(vips[i]);
+        if (col + len > 79 - 2)
+        {
+            if (state == row)
+            {
+                buf[col] = '\n';
+                buf[++col] = 0;
+            }
+            row += 1;
+            if (state == row)
+            {
+                for (int sp = 0; sp < row_prefix_len; sp++)
+                    buf[sp] = ' ';
+                sprintf(buf + row_prefix_len, "%s", vips[i]);
+            }
+            col = row_prefix_len + len;
+        }
+        else
+        {
+            if (col > row_prefix_len)
+            {
+                if (state == row)
+                    buf[col] = ' ';
+                col += 1;
+            }
+            if (state == row)
+                sprintf(buf + col, "%s", vips[i]);
+            col += len;
+        }
+    }
+    if (state == row)
+    {
+        buf[col++] = '.';
+        buf[col] = '\n';
+        buf[++col] = 0;
+        return -1;
+    }
+    return state + 1;
 }
