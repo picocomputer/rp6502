@@ -19,7 +19,7 @@
 #include "sys/sys.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
-#include <pico.h>
+#include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -331,16 +331,86 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
+static int mon_response_line;
+
+enum
+{
+    OFF,
+    END,
+    START,
+    NORM,
+    ESC,
+    CSI,
+    SS3
+};
+static int mon_more_state = OFF;
+
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
     if (main_active())
         return;
+    switch (mon_more_state)
+    {
+    case OFF:
+        break;
+    case END:
+        printf("----\n");
+        mon_response_line = 0;
+        mon_more_state = OFF;
+        break;
+    case START:
+        printf("more");
+        mon_more_state = NORM;
+        __attribute__((fallthrough));
+    default:
+        int ch = stdio_getchar_timeout_us(0);
+        if (ch == '\30')
+            mon_more_state = NORM;
+        if (ch != PICO_ERROR_TIMEOUT)
+            switch (mon_more_state)
+            {
+            default: // NORM
+                if (ch == 0x1B)
+                    mon_more_state = ESC;
+                else
+                    mon_more_state = END;
+                break;
+            case ESC:
+                if (ch == '[')
+                    mon_more_state = CSI;
+                if (ch == 'O')
+                    mon_more_state = SS3;
+                mon_more_state = END;
+                break;
+            case CSI:
+                if ((ch >= 'A' && ch <= 'Z') || ch == '~')
+                    mon_more_state = END;
+                if (ch < 32)
+                    mon_more_state = NORM;
+                break;
+            case SS3:
+                mon_more_state = NORM;
+                break;
+            }
+        return;
+    }
     if (mon_response_pos >= 0)
     {
-        while (response_buf[mon_response_pos] && com_putchar_ready())
-            putchar(response_buf[mon_response_pos++]);
-        if (!response_buf[mon_response_pos])
+        char c;
+        while ((c = response_buf[mon_response_pos]) && com_putchar_ready())
+        {
+            if (mon_response_line > 10)
+            {
+                mon_more_state = START;
+                break;
+            }
+            putchar(c);
+            mon_response_pos++;
+            if (c == '\n')
+                mon_response_line++;
+        }
+        if (!c)
             mon_response_pos = -1;
         return;
     }
@@ -367,11 +437,13 @@ void mon_task(void)
         mon_needs_prompt = false;
         mon_needs_newline = false;
         mon_needs_read_line = true;
+        mon_response_line = 0;
         return;
     }
     if (mon_needs_read_line)
     {
         mon_needs_read_line = false;
+        mon_response_line = 0;
         rln_read_line(0, mon_enter, 256, 0);
         return;
     }
