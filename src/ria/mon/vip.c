@@ -75,6 +75,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 VIP_LIST
 #undef X
 
+static uint32_t vip_rand_seed = 0;
+
 int vip_response(char *buf, size_t buf_size, int state)
 {
     (void)buf;
@@ -82,12 +84,18 @@ int vip_response(char *buf, size_t buf_size, int state)
     (void)state;
 #define X(suffix, name) \
     VIP_NAME_##suffix,
-    static const char *vips[] = {VIP_LIST};
+    const char *vips[] = {VIP_LIST};
 #undef X
     const unsigned VIP_COUNT = sizeof(vips) / sizeof(char *);
+    while (!vip_rand_seed)
+        vip_rand_seed = get_rand_32();
+    uint32_t rng_state = vip_rand_seed;
     for (unsigned i = 0; i < VIP_COUNT; i++)
     {
-        unsigned swap = (VIP_COUNT * (get_rand_32() & 0xFFFF)) >> 16;
+        rng_state ^= rng_state << 13;
+        rng_state ^= rng_state >> 17;
+        rng_state ^= rng_state << 5;
+        unsigned swap = (VIP_COUNT * (rng_state & 0xFFFF)) >> 16;
         const char *tmp = vips[i];
         vips[i] = vips[swap];
         vips[swap] = tmp;
