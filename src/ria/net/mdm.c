@@ -114,7 +114,8 @@ bool mdm_open(const char *filename)
     {
         mdm_is_parsing = true;
         mdm_parse_result = true;
-        mdm_parse_str = filename;
+        strncpy(mdm_cmd_buf, filename, sizeof(mdm_cmd_buf));
+        mdm_parse_str = mdm_cmd_buf;
     }
     return true;
 }
