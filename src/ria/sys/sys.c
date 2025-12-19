@@ -16,6 +16,7 @@
 #include "usb/usb.h"
 #include "usb/msc.h"
 #include <hardware/watchdog.h>
+#include <pico/stdio.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -57,6 +58,7 @@ void sys_mon_reboot(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
+    stdio_flush();
     watchdog_reboot(0, 0, 0);
 }
 
