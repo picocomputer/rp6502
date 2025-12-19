@@ -131,45 +131,6 @@ bool clk_api_tzquery(void)
     return api_return_axsreg(seconds);
 }
 
-bool clk_api_tzset(void)
-{
-    struct __attribute__((packed))
-    {
-        int8_t daylight;
-        int32_t timezone;
-        char tzname[5];
-        char dstname[5];
-    } tz;
-    tz.daylight = _daylight;
-    tz.timezone = _timezone;
-    strncpy(tz.tzname, tzname[0], 4);
-    tz.tzname[4] = '\0';
-    strncpy(tz.dstname, tzname[1], 4);
-    tz.dstname[4] = '\0';
-    for (size_t i = sizeof(tz); i;)
-        if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
-            return api_return_errno(API_EINVAL);
-    return api_return_ax(0);
-    static_assert(15 == sizeof(tz));
-}
-
-bool clk_api_tzquery(void)
-{
-    uint32_t requested_time = API_AXSREG;
-    struct timespec ts;
-    ts.tv_sec = requested_time;
-    ts.tv_nsec = 0;
-    struct tm local_tm = *localtime(&ts.tv_sec);
-    struct tm gm_tm = *gmtime(&ts.tv_sec);
-    gm_tm.tm_isdst = local_tm.tm_isdst;
-    time_t local_sec = mktime(&local_tm);
-    time_t gm_sec = mktime(&gm_tm);
-    uint8_t isdst = local_tm.tm_isdst;
-    api_push_uint8(&isdst);
-    int32_t seconds = difftime(local_sec, gm_sec);
-    return api_return_axsreg(seconds);
-}
-
 bool clk_api_clock(void)
 {
     return api_return_axsreg((time_us_64() - clk_clock_start) / 10000);

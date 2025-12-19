@@ -13,6 +13,9 @@
 
 // Configuration files on littlefs
 X(STR_CFG_FILENAME, "CONFIG.SYS")
+X(STR_MDM_PHONEBOOK, "PHONE0.SYS")
+X(STR_MDM_PHONE_TMP, "PHONE0.TMP")
+X(STR_MDM_SETTINGS, "MODEM0.SYS")
 
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")
@@ -20,11 +23,6 @@ X(STR_NTP_SERVER, "pool.ntp.org")
 // Configuration string defaults
 X(STR_KBD_DEFAULT_LAYOUT, "US")
 X(STR_CLK_DEFAULT_TZ, "UTC0")
-
-// Universal
-X(STR_MB, "MB")
-X(STR_GB, "GB")
-X(STR_TB, "TB")
 
 // VGA driver
 X(STR_VGA1, "VGA1")
@@ -119,6 +117,17 @@ X(STR_SET_RFCC_RESPONSE, "RFCC: %s\n")
 X(STR_SET_SSID_RESPONSE, "SSID: %s\n")
 X(STR_SET_PASS_RESPONSE, "PASS: %s\n")
 X(STR_SET_BLE_RESPONSE, "BLE : %s%s%s\n")
+
+// Virtual modem
+X(STR_MDM_RESPONSE_0, "OK")
+X(STR_MDM_RESPONSE_1, "CONNECT")
+X(STR_MDM_RESPONSE_2, "RING")
+X(STR_MDM_RESPONSE_3, "NO CARRIER")
+X(STR_MDM_RESPONSE_4, "ERROR")
+X(STR_MDM_RESPONSE_5, "CONNECT 1200")
+X(STR_MDM_RESPONSE_6, "NO DIALTONE")
+X(STR_MDM_RESPONSE_7, "BUSY")
+X(STR_MDM_RESPONSE_8, "NO ANSWER")
 
 // The only bit of help we don't localize.
 // Note that BTstack HID descriptor parsing is used for non-W builds.

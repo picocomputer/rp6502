@@ -105,16 +105,16 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                  VolumeStr[state]);
         break;
     case msc_volume_mounted:
-        const char *xb = STR_MB;
+        const char *xb = "MB";
         double size = msc_volume_size[state] / (1024 * 1024);
         if (size >= 1000)
         {
-            xb = STR_GB;
+            xb = "GB";
             size /= 1024;
         }
         if (size >= 1000)
         {
-            xb = STR_TB;
+            xb = "TB";
             size /= 1024;
         }
         size = ceil(size * 10) / 10;

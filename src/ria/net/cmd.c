@@ -8,6 +8,7 @@
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include <stdio.h>
 #include <ctype.h>
@@ -429,7 +430,7 @@ static int cmd_plus_rfcc_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *cc = cyw_get_rf_country_code();
-    snprintf(buf, buf_size, "%s\r\n", strlen(cc) ? cc : "Worldwide");
+    snprintf(buf, buf_size, "%s\r\n", strlen(cc) ? cc : STR_WORLDWIDE);
     return -1;
 }
 
@@ -483,7 +484,7 @@ static bool cmd_plus_ssid(const char **s)
 static int cmd_plus_pass_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? "(set)" : "(none)");
+    snprintf(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? STR_PARENS_SET : STR_PARENS_NONE);
     return -1;
 }
 
@@ -509,22 +510,22 @@ static bool cmd_plus_pass(const char **s)
 // +
 static bool cmd_parse_modern(const char **s)
 {
-    if (!strncasecmp(*s, "RFCC", 4))
+    if (!strncasecmp(*s, STR_RFCC, 4))
     {
         (*s) += 4;
         return cmd_plus_rfcc(s);
     }
-    if (!strncasecmp(*s, "RF", 2))
+    if (!strncasecmp(*s, STR_RF, 2))
     {
         (*s) += 2;
         return cmd_plus_rf(s);
     }
-    if (!strncasecmp(*s, "SSID", 4))
+    if (!strncasecmp(*s, STR_SSID, 4))
     {
         (*s) += 4;
         return cmd_plus_ssid(s);
     }
-    if (!strncasecmp(*s, "PASS", 4))
+    if (!strncasecmp(*s, STR_PASS, 4))
     {
         (*s) += 4;
         return cmd_plus_pass(s);
