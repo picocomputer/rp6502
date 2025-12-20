@@ -17,6 +17,7 @@
 #include "sys/mem.h"
 #include "sys/rln.h"
 #include "sys/sys.h"
+#include "sys/vga.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
 #include <pico/stdlib.h>
@@ -388,6 +389,19 @@ static void mon_more(void)
     }
 }
 
+static int mon_guess_console_rows(void)
+{
+    int rows = 24; // VT100 safe
+    if (vga_connected())
+    {
+        if (vga_get_display_type() == 2)
+            rows = 32;
+        else
+            rows = 30;
+    }
+    return rows;
+}
+
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
@@ -398,10 +412,11 @@ void mon_task(void)
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
+        int rows_max = mon_guess_console_rows() - 1;
         char c;
         while ((c = response_buf[mon_response_pos]) && com_putchar_ready())
         {
-            if (mon_response_line > 10)
+            if (mon_response_line >= rows_max)
             {
                 mon_more_state = MON_MORE_START;
                 break;
