@@ -13,6 +13,10 @@
 // Time format
 X(STR_STRFTIME, "%c %z %Z")
 
+// More
+X(STR_MON_MORE_SHOW, "--More--")
+X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b        \b\b\b\b\b\b\b\b")
+
 // Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
 X(STR_INTERNAL_ERROR, "internal error")

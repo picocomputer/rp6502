@@ -43,6 +43,7 @@ static int mon_response_pos = -1;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = false;
+static bool mon_needs_break = false;
 static enum {
     MON_MORE_OFF,
     MON_MORE_END,
@@ -315,6 +316,22 @@ static void mon_next_response(void)
     mon_response_state[i] = -1;
 }
 
+static void mon_break_response(void)
+{
+    mon_needs_break = false;
+    mon_response_pos = -1;
+    for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
+    {
+        if (mon_response_state[i] >= 0)
+        {
+            mon_response_fn_list[i](response_buf, RESPONSE_BUF_SIZE, -1);
+            mon_response_fn_list[i] = NULL;
+            mon_response_str[i] = NULL;
+            mon_response_state[i] = -1;
+        }
+    }
+}
+
 void mon_add_response_fn(mon_response_fn fn)
 {
     mon_append_response(fn, NULL, 0);
@@ -344,10 +361,15 @@ void mon_add_response_fatfs(int fresult)
 
 static void mon_more(void)
 {
+    if (mon_needs_break)
+    {
+        mon_needs_newline = false;
+        if (mon_more_state == MON_MORE_START)
+            return;
+        mon_more_state = MON_MORE_END;
+    }
     switch (mon_more_state)
     {
-    case MON_MORE_OFF:
-        break;
     case MON_MORE_END:
         printf(STR_MON_MORE_ERASE);
         mon_response_line = 0;
@@ -361,7 +383,7 @@ static void mon_more(void)
         int ch = stdio_getchar_timeout_us(0);
         if (ch == '\30')
             mon_more_state = MON_MORE_NORM;
-        if (ch != PICO_ERROR_TIMEOUT)
+        else if (ch != PICO_ERROR_TIMEOUT)
             switch (mon_more_state)
             {
             default: // MON_MORE_NORM
@@ -369,6 +391,8 @@ static void mon_more(void)
                     mon_more_state = MON_MORE_ESC;
                 else
                     mon_more_state = MON_MORE_END;
+                if (ch == 3)
+                    mon_needs_break = true;
                 break;
             case MON_MORE_ESC:
                 if (ch == '[')
@@ -409,6 +433,8 @@ void mon_task(void)
         return;
     if (mon_more_state)
         return mon_more();
+    if (mon_needs_break)
+        return mon_break_response();
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
@@ -472,4 +498,5 @@ void mon_break(void)
 {
     mon_needs_prompt = true;
     mon_needs_newline = true;
+    mon_needs_break = true;
 }
