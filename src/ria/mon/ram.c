@@ -57,7 +57,6 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
         ++spaces;
     for (size_t s = 0; s < spaces; s++)
         *buf++ = ' ';
-
     *buf++ = ' ';
     *buf++ = ' ';
     *buf++ = '|';
