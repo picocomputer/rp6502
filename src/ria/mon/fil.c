@@ -13,6 +13,7 @@
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
 #include <stdio.h>
@@ -32,6 +33,24 @@ static uint32_t fil_rx_len;
 static uint32_t fil_rx_crc;
 static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
+
+bool fil_drive_exists(const char *args, size_t len)
+{
+    // 0:-7:
+    if (len == 2 &&
+        args[0] >= '0' && args[0] <= '7' &&
+        args[1] == ':')
+        return true;
+    // USB0:-USB7:
+    if (len == 5 &&
+        toupper(args[0]) == 'U' &&
+        toupper(args[1]) == 'S' &&
+        toupper(args[2]) == 'B' &&
+        args[3] >= '0' && args[3] <= '7' &&
+        args[4] == ':')
+        return true;
+    return false;
+}
 
 static int fil_chdir_response(char *buf, size_t buf_size, int state)
 {

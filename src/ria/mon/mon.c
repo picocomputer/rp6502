@@ -101,6 +101,11 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
             is_maybe_addr = true;
         else if (ch == ' ')
             break;
+        else if (ch == ':')
+        {
+            i++;
+            break;
+        }
         else
             is_not_addr = true;
     }
@@ -113,18 +118,17 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
     // cd for chdir, 00cd for r/w address
     if (cmd_len == 2 && !strncasecmp(cmd, STR_CD, cmd_len))
         is_not_addr = true;
+    // 0:-7: and USB0:-USB7:
+    if (fil_drive_exists(cmd, cmd_len))
+    {
+        *buf = cmd;
+        return fil_mon_chdrive;
+    }
     // address command
     if (is_maybe_addr && !is_not_addr)
     {
         *buf = cmd;
         return ram_mon_address;
-    }
-    // *0:-*9: is chdrive
-    if (cmd_len >= 2 && cmd[cmd_len - 1] == ':' &&
-        cmd[cmd_len - 2] >= '0' && cmd[cmd_len - 2] <= '9')
-    {
-        *buf = cmd;
-        return fil_mon_chdrive;
     }
     *buf += i;
     for (i = 0; i < MON_COMMANDS_COUNT; i++)

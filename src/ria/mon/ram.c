@@ -42,6 +42,9 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     (void)buf_size;
     (void)state;
     assert(mbuf_len <= 16);
+    if (state < 0)
+        return state;
+    // cmd_state = SYS_READ;
     sprintf(buf, "%04lX ", rw_addr);
     buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
@@ -99,7 +102,6 @@ static void cmd_ria_verify(void)
 // Commands that start with a hex address. Read or write memory.
 void ram_mon_address(const char *args, size_t len)
 {
-    // addr syntax is already validated by dispatch
     rw_addr = 0;
     size_t i = 0;
     for (; i < len; i++)
@@ -110,6 +112,8 @@ void ram_mon_address(const char *args, size_t len)
         else
             break;
     }
+    if (args[i] == ':')
+        i++;
     for (; i < len; i++)
         if (args[i] != ' ')
             break;
