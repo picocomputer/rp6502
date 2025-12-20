@@ -34,6 +34,7 @@ static enum {
 } cmd_state;
 
 static uint32_t rw_addr;
+static uint32_t rw_end;
 static uint32_t rw_len;
 static uint32_t rw_crc;
 
@@ -44,7 +45,6 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     assert(mbuf_len <= 16);
     if (state < 0)
         return state;
-    // cmd_state = SYS_READ;
     sprintf(buf, "%04lX ", rw_addr);
     buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
@@ -73,6 +73,20 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     *buf++ = '|';
     *buf++ = '\n';
     *buf = '\0';
+    rw_addr += mbuf_len;
+    if (rw_addr <= rw_end)
+    {
+        mbuf_len = rw_end - rw_addr + 1;
+        if (mbuf_len > 16)
+            mbuf_len = 16;
+        if (rw_addr < 0x10000)
+        {
+            ria_read_buf(rw_addr);
+            cmd_state = SYS_READ;
+        }
+        else
+            mon_add_response_fn(ram_print_response);
+    }
     return -1;
 }
 
@@ -103,35 +117,69 @@ static void cmd_ria_verify(void)
 void ram_mon_address(const char *args, size_t len)
 {
     rw_addr = 0;
+    rw_end = 0;
+    bool second_found = false;
+    bool second_selected = false;
     size_t i = 0;
     for (; i < len; i++)
     {
         char ch = args[i];
         if (isxdigit(ch))
-            rw_addr = rw_addr * 16 + str_xdigit_to_int(ch);
+        {
+            if (!second_selected)
+                rw_addr = rw_addr * 16 + str_xdigit_to_int(ch);
+            else
+            {
+                second_found = true;
+                rw_end = rw_end * 16 + str_xdigit_to_int(ch);
+            }
+        }
+        else if (ch == '-' && second_selected == true)
+            break;
+        else if (ch == '-')
+            second_selected = true;
         else
             break;
+    }
+    if (!second_selected)
+    {
+        rw_end = rw_addr + 15;
+        if (rw_addr < 0x10000 && rw_end >= 0x10000)
+            rw_end = 0xFFFF;
+        if (rw_end >= 0x20000)
+            rw_end = 0x1FFFF;
+    }
+    if (second_selected && !second_found)
+    {
+        if (rw_addr < 0x10000)
+            rw_end = 0xFFFF;
+        else
+            rw_end = 0x1FFFF;
     }
     if (args[i] == ':')
         i++;
     for (; i < len; i++)
         if (args[i] != ' ')
             break;
-    if (rw_addr > 0x1FFFF)
+    if (args[i] == ':')
+        i++;
+    if (rw_addr > 0x1FFFF || rw_end > 0x1FFFF || rw_addr > rw_end)
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     if (i == len)
     {
-        mbuf_len = (rw_addr | 0xF) - rw_addr + 1;
-        if (rw_addr > 0xFFFF)
+        mbuf_len = rw_end - rw_addr + 1;
+        if (mbuf_len > 16)
+            mbuf_len = 16;
+        if (rw_addr < 0x10000)
         {
-            mon_add_response_fn(ram_print_response);
-            return;
+            ria_read_buf(rw_addr);
+            cmd_state = SYS_READ;
         }
-        ria_read_buf(rw_addr);
-        cmd_state = SYS_READ;
+        else
+            mon_add_response_fn(ram_print_response);
         return;
     }
     uint32_t data = 0x80000000;
@@ -139,7 +187,9 @@ void ram_mon_address(const char *args, size_t len)
     for (; i < len; i++)
     {
         char ch = args[i];
-        if (isxdigit(ch))
+        if (ch == '|')
+            break;
+        else if (isxdigit(ch))
             data = data * 16 + str_xdigit_to_int(ch);
         else if (ch != ' ')
         {

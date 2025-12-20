@@ -97,7 +97,7 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
     for (; i < buflen; i++)
     {
         uint8_t ch = (*buf)[i];
-        if (isxdigit(ch))
+        if (isxdigit(ch) || ch == '-')
             is_maybe_addr = true;
         else if (ch == ' ')
             break;
