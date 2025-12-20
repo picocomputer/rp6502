@@ -52,6 +52,8 @@ X(STR_SYS_DEBUG_TERM_RESET, "\30\33[0m\33[?25h\n\n");
 // Monitor prompts
 X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
 X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
+X(STR_MON_MORE_SHOW, "more")
+X(STR_MON_MORE_ERASE, "\b\b\b\b----\b\b\b\b")
 
 // Monitor keywords
 X(STR_END, "END")

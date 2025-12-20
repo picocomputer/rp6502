@@ -37,10 +37,20 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
+static int mon_response_line;
 static int mon_response_pos = -1;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = false;
+static enum {
+    MON_MORE_OFF,
+    MON_MORE_END,
+    MON_MORE_START,
+    MON_MORE_NORM,
+    MON_MORE_ESC,
+    MON_MORE_CSI,
+    MON_MORE_SS3,
+} mon_more_state;
 
 typedef void (*mon_function)(const char *, size_t);
 __in_flash("mon_commands") static struct
@@ -331,70 +341,61 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
-static int mon_response_line;
-
-enum
+static void mon_more(void)
 {
-    OFF,
-    END,
-    START,
-    NORM,
-    ESC,
-    CSI,
-    SS3
-};
-static int mon_more_state = OFF;
+    switch (mon_more_state)
+    {
+    case MON_MORE_OFF:
+        break;
+    case MON_MORE_END:
+        printf(STR_MON_MORE_ERASE);
+        mon_response_line = 0;
+        mon_more_state = MON_MORE_OFF;
+        break;
+    case MON_MORE_START:
+        printf(STR_MON_MORE_SHOW);
+        mon_more_state = MON_MORE_NORM;
+        __attribute__((fallthrough));
+    default:
+        int ch = stdio_getchar_timeout_us(0);
+        if (ch == '\30')
+            mon_more_state = MON_MORE_NORM;
+        if (ch != PICO_ERROR_TIMEOUT)
+            switch (mon_more_state)
+            {
+            default: // MON_MORE_NORM
+                if (ch == '\33')
+                    mon_more_state = MON_MORE_ESC;
+                else
+                    mon_more_state = MON_MORE_END;
+                break;
+            case MON_MORE_ESC:
+                if (ch == '[')
+                    mon_more_state = MON_MORE_CSI;
+                else if (ch == 'O')
+                    mon_more_state = MON_MORE_SS3;
+                else
+                    mon_more_state = MON_MORE_END;
+                break;
+            case MON_MORE_CSI:
+                if (ch < 0x20 || ch > 0x3F)
+                    mon_more_state = MON_MORE_END;
+                break;
+            case MON_MORE_SS3:
+                mon_more_state = MON_MORE_END;
+                break;
+            }
+    }
+}
 
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
     if (main_active())
         return;
-    switch (mon_more_state)
-    {
-    case OFF:
-        break;
-    case END:
-        printf("----\n");
-        mon_response_line = 0;
-        mon_more_state = OFF;
-        break;
-    case START:
-        printf("more");
-        mon_more_state = NORM;
-        __attribute__((fallthrough));
-    default:
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == '\30')
-            mon_more_state = NORM;
-        if (ch != PICO_ERROR_TIMEOUT)
-            switch (mon_more_state)
-            {
-            default: // NORM
-                if (ch == 0x1B)
-                    mon_more_state = ESC;
-                else
-                    mon_more_state = END;
-                break;
-            case ESC:
-                if (ch == '[')
-                    mon_more_state = CSI;
-                if (ch == 'O')
-                    mon_more_state = SS3;
-                mon_more_state = END;
-                break;
-            case CSI:
-                if ((ch >= 'A' && ch <= 'Z') || ch == '~')
-                    mon_more_state = END;
-                if (ch < 32)
-                    mon_more_state = NORM;
-                break;
-            case SS3:
-                mon_more_state = NORM;
-                break;
-            }
-        return;
-    }
+    if (mon_more_state)
+        return mon_more();
+    // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
         char c;
@@ -402,7 +403,7 @@ void mon_task(void)
         {
             if (mon_response_line > 10)
             {
-                mon_more_state = START;
+                mon_more_state = MON_MORE_START;
                 break;
             }
             putchar(c);
@@ -414,6 +415,7 @@ void mon_task(void)
             mon_response_pos = -1;
         return;
     }
+    // Request the next response buffer
     if (mon_response_pos == -1 && mon_response_state[0] >= 0)
     {
         mon_response_pos = 0;
@@ -424,10 +426,12 @@ void mon_task(void)
             mon_next_response();
         return;
     }
+    // These can run the 6502 multiple times
     if (ram_active() ||
         rom_active() ||
         fil_active())
         return;
+    // The monitor has control
     if (mon_needs_prompt)
     {
         if (mon_needs_newline)
