@@ -32,10 +32,13 @@ void vga_post_reclock(uint32_t sys_clk_khz);
 // Fully connected with backchannel.
 bool vga_connected(void);
 
-// For monitor status command.
-void vga_print_status(void);
+// Responders for status.
+int vga_boot_response(char *buf, size_t buf_size, int state);
+int vga_status_response(char *buf, size_t buf_size, int state);
 
-// Config handler.
-bool vga_set_vga(uint32_t display_type);
+// Configuration setting VGA
+void vga_load_display_type(const char *str, size_t len);
+bool vga_set_display_type(uint8_t display_type);
+uint8_t vga_get_display_type(void);
 
 #endif /* _RIA_SYS_VGA_H_ */

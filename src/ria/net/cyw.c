@@ -9,12 +9,13 @@
 void cyw_task() {}
 void cyw_pre_reclock() {}
 void cyw_post_reclock(uint32_t) {}
-void cyw_reset_radio() {}
 #else
 
+#include "mon/mon.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
@@ -30,7 +31,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // These are from cyw43_arch.h
 // Change the help if you change these
-static const char COUNTRY_CODES[] = {
+// clang-format off
+__in_flash("CYW_COUNTRY_CODES")
+static const char CYW_COUNTRY_CODES[] = {
     'A', 'U', // AUSTRALIA
     'A', 'T', // AUSTRIA
     'B', 'E', // BELGIUM
@@ -83,22 +86,25 @@ static const char COUNTRY_CODES[] = {
     'G', 'B', // UK
     'U', 'S', // USA
 };
+// clang-format on
 
+static uint8_t cyw_rf_enable = 1;
+static char cyw_rf_country_code[3];
 static bool cyw_led_status;
 static bool cyw_led_requested;
 static bool cyw_initialized;
 
-bool cyw_validate_country_code(char *cc)
+static bool cyw_validate_country_code(char *cc)
 {
     if (!cc[0] || !cc[1] || cc[2] != 0)
         return false;
-    for (size_t i = 0; i < sizeof(COUNTRY_CODES); i += 2)
-        if (cc[0] == COUNTRY_CODES[i] && cc[1] == COUNTRY_CODES[i + 1])
+    for (size_t i = 0; i < sizeof(CYW_COUNTRY_CODES); i += 2)
+        if (cc[0] == CYW_COUNTRY_CODES[i] && cc[1] == CYW_COUNTRY_CODES[i + 1])
             return true;
     return false;
 }
 
-void cyw_reset_radio(void)
+static void cyw_reset_radio(void)
 {
     // We have to shut down to reclock so use that code
     uint32_t sys_clk_khz = clock_get_hz(clk_sys) / 1000;
@@ -111,16 +117,14 @@ void cyw_task(void)
     if (cyw_led_requested != cyw_led_status)
     {
         cyw_led_status = cyw_led_requested;
-#ifdef CYW43_WL_GPIO_LED_PIN
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
-#endif
     }
     cyw43_arch_poll();
 }
 
-void cyw_led(bool ison)
+void cyw_led_set(bool on)
 {
-    cyw_led_requested = ison;
+    cyw_led_requested = on;
 }
 
 void cyw_pre_reclock(void)
@@ -148,14 +152,11 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
     // flush newline from readline before init blocks
     stdio_flush();
 
-    uint32_t cyw_country_code = CYW43_COUNTRY_WORLDWIDE;
-    const char *cc = cfg_get_rfcc();
-    if (strlen(cc) == 2)
-        cyw_country_code = CYW43_COUNTRY(cc[0], cc[1], 0);
-    if (cyw43_arch_init_with_country(cyw_country_code))
-    {
-        puts("?CYW43 failed to init");
-    }
+    uint32_t country = CYW43_COUNTRY_WORLDWIDE;
+    if (strlen(cyw_rf_country_code) == 2)
+        country = CYW43_COUNTRY(cyw_rf_country_code[0], cyw_rf_country_code[1], 0);
+    if (cyw43_arch_init_with_country(country))
+        mon_add_response_str(STR_ERR_CYW_FAILED_TO_INIT);
     else
     {
         // cyw43_arch is full of blocking functions.
@@ -164,6 +165,65 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
         cyw_initialized = true;
     }
+}
+
+void cyw_load_rf_enable(const char *str, size_t len)
+{
+    str_parse_uint8(&str, &len, &cyw_rf_enable);
+    if (cyw_rf_enable > 1)
+        cyw_rf_enable = 0;
+}
+
+bool cyw_set_rf_enable(uint8_t rf)
+{
+    if (rf > 1)
+        return false;
+    if (cyw_rf_enable != rf)
+    {
+        cyw_rf_enable = rf;
+        cyw_reset_radio();
+        cfg_save();
+    }
+    return true;
+}
+
+uint8_t cyw_get_rf_enable(void)
+{
+    return cyw_rf_enable;
+}
+
+void cyw_load_rf_country_code(const char *str, size_t len)
+{
+    if (str_parse_string(&str, &len, cyw_rf_country_code, sizeof(cyw_rf_country_code)) &&
+        !cyw_validate_country_code(cyw_rf_country_code))
+        cyw_rf_country_code[0] = 0;
+}
+
+bool cyw_set_rf_country_code(const char *rfcc)
+{
+    char cc[3] = {0, 0, 0};
+    size_t len = strlen(rfcc);
+    if (len != 0 && len != 2)
+        return false;
+    if (len == 2)
+    {
+        cc[0] = toupper(rfcc[0]);
+        cc[1] = toupper(rfcc[1]);
+        if (!cyw_validate_country_code(cc))
+            return false;
+    }
+    if (strcmp(cyw_rf_country_code, cc))
+    {
+        strcpy(cyw_rf_country_code, cc);
+        cyw_reset_radio();
+        cfg_save();
+    }
+    return true;
+}
+
+const char *cyw_get_rf_country_code(void)
+{
+    return cyw_rf_country_code;
 }
 
 #endif /* RP6502_RIA_W */

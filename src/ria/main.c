@@ -48,11 +48,13 @@
 // Initialization event for power up, reboot command, or reboot button.
 static void init(void)
 {
-    // Bring up stdio dispatcher first.
+    // Bring up stdio dispatcher first for DBG().
     com_init();
 
+    // Queue startup message.
+    sys_init();
+
     // GPIO drivers.
-    cpu_init();
     ria_init();
     pix_init();
     vga_init(); // Must be after PIX
@@ -61,11 +63,8 @@ static void init(void)
     lfs_init();
     cfg_init(); // Config stored on lfs
 
-    // Print startup message after setting code page.
-    oem_init();
-    sys_init(); // This clears screen
-
     // Misc device drivers, add yours here.
+    oem_init();
     usb_init();
     led_init();
     aud_init();
@@ -75,6 +74,9 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
+
+    // CPU must be last. Triggers a reclock.
+    cpu_init();
 }
 
 // Task events are repeatedly called by the main loop.
@@ -330,11 +332,8 @@ bool main_active(void)
 
 int main(void)
 {
+    cpu_init_resb();
     init();
-
-    // Trigger a reclock
-    cpu_set_phi2_khz(cfg_get_phi2_khz());
-
     while (true)
     {
         main_task();

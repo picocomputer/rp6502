@@ -9,13 +9,14 @@
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
-#include "mon/str.h"
 #include "net/cyw.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include <fatfs/ff.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
 #include <stdio.h>
@@ -26,6 +27,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static enum {
     ROM_IDLE,
+    ROM_HELPING,
     ROM_LOADING,
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
@@ -68,27 +70,23 @@ static bool rom_open(const char *name, bool is_fat)
     is_reading_fat = is_fat;
     if (is_fat)
     {
-        FRESULT result = f_open(&fat_fil, name, FA_READ);
-        if (result != FR_OK)
-        {
-            printf("?Unable to open file (%d)\n", result);
+        FRESULT fresult = f_open(&fat_fil, name, FA_READ);
+        mon_add_response_fatfs(fresult);
+        if (fresult != FR_OK)
             return false;
-        }
     }
     else
     {
         int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, name,
                                          LFS_O_RDONLY, &lfs_file_config);
+        mon_add_response_lfs(lfsresult);
         if (lfsresult < 0)
-        {
-            printf("?Unable to lfs_file_opencfg (%d)\n", lfsresult);
             return false;
-        }
         lfs_file_open = true;
     }
     if (rom_gets() != 8 || strncasecmp("#!RP6502", (char *)mbuf, 8))
     {
-        printf("?Missing RP6502 ROM header\n");
+        mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
         rom_state = ROM_IDLE;
         return false;
     }
@@ -109,31 +107,27 @@ static bool rom_read(uint32_t len, uint32_t crc)
 {
     if (is_reading_fat)
     {
-        FRESULT result = f_read(&fat_fil, mbuf, len, &mbuf_len);
-        if (result != FR_OK)
-        {
-            printf("?Unable to read file (%d)\n", result);
+        FRESULT fresult = f_read(&fat_fil, mbuf, len, &mbuf_len);
+        mon_add_response_fatfs(fresult);
+        if (fresult != FR_OK)
             return false;
-        }
     }
     else
     {
         lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, mbuf, len);
+        mon_add_response_lfs(lfsresult);
         if (lfsresult < 0)
-        {
-            printf("?Unable to lfs_file_read (%ld)\n", lfsresult);
             return false;
-        }
         mbuf_len = lfsresult;
     }
     if (len != mbuf_len)
     {
-        printf("?Unable to read binary data\n");
+        mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
         return false;
     }
     if (ria_buf_crc32() != crc)
     {
-        printf("?CRC failed\n");
+        mon_add_response_str(STR_ERR_CRC);
         return false;
     }
     return true;
@@ -162,14 +156,14 @@ static bool rom_next_chunk(void)
     {
         if (rom_addr > 0x1FFFF)
         {
-            printf("?invalid address\n");
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
             return false;
         }
         if (!rom_len || rom_len > MBUF_SIZE ||
             (rom_addr < 0x10000 && rom_addr + rom_len > 0x10000) ||
             (rom_addr + rom_len > 0x20000))
         {
-            printf("?invalid length\n");
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
             return false;
         }
         if (rom_addr <= 0xFFFC && rom_addr + rom_len > 0xFFFC)
@@ -178,7 +172,7 @@ static bool rom_next_chunk(void)
             rom_FFFD = true;
         return rom_read(rom_len, rom_crc);
     }
-    printf("?Corrupt ROM file\n");
+    mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
     return false;
 }
 
@@ -190,7 +184,7 @@ static void rom_loading(void)
         if (rom_FFFC && rom_FFFD)
             main_run();
         else
-            printf("Loaded.\n");
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
         return;
     }
     if (!rom_next_chunk())
@@ -217,6 +211,11 @@ void rom_mon_install(const char *args, size_t len)
     size_t lfs_name_len = len;
     while (lfs_name_len && args[lfs_name_len - 1] == ' ')
         lfs_name_len--;
+    if (!lfs_name_len)
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
     if (lfs_name_len > 7)
         if (!strncasecmp(".RP6502", args + lfs_name_len - 7, 7))
             lfs_name_len -= 7;
@@ -239,10 +238,9 @@ void rom_mon_install(const char *args, size_t len)
         mon_command_exists(lfs_name, lfs_name_len) ||
         hlp_topic_exists(lfs_name, lfs_name_len))
     {
-        printf("?Invalid ROM name.\n");
+        mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
         return;
     }
-
     // Test contents of file
     if (!rom_open(args, true))
         return;
@@ -251,56 +249,41 @@ void rom_mon_install(const char *args, size_t len)
             return;
     if (!rom_FFFC || !rom_FFFD)
     {
-        printf("?No reset vector.\n");
+        mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
         return;
     }
     FRESULT fresult = f_rewind(&fat_fil);
+    mon_add_response_fatfs(fresult);
     if (fresult != FR_OK)
-    {
-        printf("?Unable to rewind file (%d)\n", fresult);
         return;
-    }
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, lfs_name,
                                      LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
                                      &lfs_file_config);
+    mon_add_response_lfs(lfsresult);
     if (lfsresult < 0)
-    {
-        if (lfsresult == LFS_ERR_EXIST)
-            printf("?ROM already exists.\n");
-        else
-            printf("?Unable to lfs_file_opencfg (%d)\n", lfsresult);
         return;
-    }
     lfs_file_open = true;
     while (true)
     {
         fresult = f_read(&fat_fil, mbuf, MBUF_SIZE, &mbuf_len);
+        mon_add_response_fatfs(fresult);
         if (fresult != FR_OK)
-        {
-            printf("?Unable to read file (%d)\n", fresult);
             break;
-        }
         lfsresult = lfs_file_write(&lfs_volume, &lfs_file, mbuf, mbuf_len);
+        mon_add_response_lfs(lfsresult);
         if (lfsresult < 0)
-        {
-            printf("?Unable to lfs_file_write (%d)\n", lfsresult);
             break;
-        }
         if (mbuf_len < MBUF_SIZE)
             break;
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
+    mon_add_response_lfs(lfscloseresult);
     lfs_file_open = false;
-    if (lfscloseresult < 0)
-        printf("?Unable to lfs_file_close (%d)\n", lfscloseresult);
     if (lfsresult >= 0)
         lfsresult = lfscloseresult;
     fresult = f_close(&fat_fil);
-    if (fresult != FR_OK)
-        printf("?Unable to f_close file (%d)\n", fresult);
-    if (fresult == FR_OK && lfsresult >= 0)
-        printf("Installed %s.\n", lfs_name);
-    else
+    mon_add_response_fatfs(fresult);
+    if (fresult != FR_OK || lfsresult < 0)
         lfs_remove(&lfs_volume, lfs_name);
 }
 
@@ -310,21 +293,14 @@ void rom_mon_remove(const char *args, size_t len)
     if (str_parse_rom_name(&args, &len, lfs_name) &&
         str_parse_end(args, len))
     {
-        const char *boot = cfg_get_boot();
+        const char *boot = rom_get_boot();
         if (!strcmp(lfs_name, boot))
-        {
-            printf("?Unable to remove boot ROM\n");
-            return;
-        }
+            rom_set_boot("");
         int lfsresult = lfs_remove(&lfs_volume, lfs_name);
-        if (lfsresult < 0)
-
-            printf("?Unable to lfs_remove (%d)\n", lfsresult);
-        else
-            printf("Removed %s.\n", lfs_name);
+        mon_add_response_lfs(lfsresult);
         return;
     }
-    printf("?Invalid ROM name\n");
+    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
 }
 
 void rom_mon_load(const char *args, size_t len)
@@ -334,67 +310,77 @@ void rom_mon_load(const char *args, size_t len)
         rom_state = ROM_LOADING;
 }
 
+static bool rom_is_installed(const char *name)
+{
+    struct lfs_info info;
+    return lfs_stat(&lfs_volume, name, &info) >= 0;
+}
+
 bool rom_load_installed(const char *args, size_t len)
 {
     char lfs_name[LFS_NAME_MAX + 1];
-    if (str_parse_rom_name(&args, &len, lfs_name) &&
-        str_parse_end(args, len))
+    if (!str_parse_rom_name(&args, &len, lfs_name) ||
+        !str_parse_end(args, len) ||
+        !rom_is_installed(lfs_name) ||
+        !rom_open(lfs_name, false))
+        return false;
+    rom_state = ROM_LOADING;
+    return true;
+}
+
+static int rom_help_response(char *buf, size_t buf_size, int state)
+{
+    if (state == -1)
     {
-        struct lfs_info info;
-        if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
-            return false;
-        if (rom_open(lfs_name, false))
-            rom_state = ROM_LOADING;
-        return true;
+        rom_state = ROM_IDLE;
+        return state;
     }
-    return false;
+    if (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+    {
+        snprintf(buf, buf_size, "%s\n", (char *)mbuf + 2);
+        state = 1;
+    }
+    else
+    {
+        if (!state)
+            mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+        rom_state = ROM_IDLE;
+        return -1;
+    }
+    return state;
 }
 
 void rom_mon_info(const char *args, size_t len)
 {
     (void)(len);
-    if (!rom_open(args, true))
-        return;
-    bool found = false;
-    while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
+    if (rom_open(args, true))
     {
-        puts((char *)mbuf + 2);
-        found = true;
+        rom_state = ROM_HELPING;
+        mon_add_response_fn(rom_help_response);
     }
-    if (!found)
-        puts("?No help found in file.");
 }
 
-// Returns false and prints nothing if ROM not found.
-// Something will always print before returning true.
-bool rom_help(const char *args, size_t len)
+void rom_mon_help(const char *args, size_t len)
 {
+    struct lfs_info info;
     char lfs_name[LFS_NAME_MAX + 1];
     if (str_parse_rom_name(&args, &len, lfs_name) &&
-        str_parse_end(args, len))
+        str_parse_end(args, len) &&
+        lfs_stat(&lfs_volume, lfs_name, &info) >= 0 &&
+        rom_open(lfs_name, false))
     {
-        struct lfs_info info;
-        if (lfs_stat(&lfs_volume, lfs_name, &info) < 0)
-            return false;
-        bool found = false;
-        if (rom_open(lfs_name, false))
-            while (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
-            {
-                puts((char *)mbuf + 2);
-                found = true;
-            }
-        if (!found)
-            puts("?No help found in ROM.");
-        return true; // even when !found
+        rom_state = ROM_HELPING;
+        mon_add_response_fn(rom_help_response);
     }
-    return false;
+    else
+        mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
 static bool rom_action_is_finished(void)
 {
     if (ria_active())
         return false;
-    if (ria_print_error_message())
+    if (ria_handle_error())
     {
         rom_state = ROM_IDLE;
         return false;
@@ -416,9 +402,8 @@ static bool rom_xram_writing(void)
 void rom_init(void)
 {
     // Try booting the set boot ROM
-    char *boot = cfg_get_boot();
-    size_t boot_len = strlen(boot);
-    rom_load_installed((char *)boot, boot_len);
+    const char *boot = rom_get_boot();
+    rom_load_installed(boot, strlen(boot));
 }
 
 void rom_task(void)
@@ -426,20 +411,20 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
-        if (rom_state == ROM_IDLE && lfs_file_open)
+        if (lfs_file_open)
         {
             int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
+            mon_add_response_lfs(lfsresult);
             lfs_file_open = false;
-            if (lfsresult < 0)
-                printf("?Unable to lfs_file_close (%d)\n", lfsresult);
         }
-        if (rom_state == ROM_IDLE && fat_fil.obj.fs)
+        if (fat_fil.obj.fs)
         {
-            FRESULT result = f_close(&fat_fil);
-            if (result != FR_OK)
-                printf("?Unable to close file (%d)\n", result);
+            FRESULT fresult = f_close(&fat_fil);
+            mon_add_response_fatfs(fresult);
         }
         break;
+    case ROM_HELPING:
+        break; // NOP
     case ROM_LOADING:
         rom_loading();
         break;
@@ -469,4 +454,114 @@ bool rom_active(void)
 void rom_break(void)
 {
     rom_state = ROM_IDLE;
+}
+
+int rom_installed_response(char *buf, size_t buf_size, int state)
+{
+    const uint32_t WIDTH = 79; // some terms wrap at 80
+    uint32_t count = 0;
+    int line = 1;
+    uint32_t col = 0;
+    lfs_dir_t lfs_dir;
+    struct lfs_info lfs_info;
+    int lfsresult = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
+    mon_add_response_lfs(lfsresult);
+    if (lfsresult < 0)
+        return -1;
+    while (true)
+    {
+        lfsresult = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
+        mon_add_response_lfs(lfsresult);
+        if (!lfsresult)
+            break;
+        if (lfsresult < 0)
+        {
+            count = 0;
+            break;
+        }
+        bool is_ok = true;
+        size_t len = strlen(lfs_info.name);
+        for (size_t i = 0; i < len; i++)
+        {
+            char ch = lfs_info.name[i];
+            if (!(i && isdigit(ch)) && !isupper(ch))
+                is_ok = false;
+        }
+        if (is_ok && state)
+        {
+            if (count)
+            {
+                if (state == line)
+                    buf[col] = ',';
+                col += 1;
+            }
+            if (col + len > WIDTH - 2)
+            {
+                if (state == line)
+                {
+                    buf[col] = '\n';
+                    buf[++col] = 0;
+                }
+                line += 1;
+                if (state == line)
+                    sprintf(buf, "%s", lfs_info.name);
+                col = len;
+            }
+            else
+            {
+                if (col)
+                {
+                    if (state == line)
+                        buf[col] = ' ';
+                    col += 1;
+                }
+                if (state == line)
+                    sprintf(buf + col, "%s", lfs_info.name);
+                col += len;
+            }
+        }
+        if (is_ok)
+            count++;
+    }
+    if (state == line)
+    {
+        if (count)
+            buf[col++] = '.';
+        buf[col] = '\n';
+        buf[++col] = 0;
+        state = -2;
+    }
+    lfsresult = lfs_dir_close(&lfs_volume, &lfs_dir);
+    mon_add_response_lfs(lfsresult);
+    if (lfsresult < 0)
+        count = 0;
+    if (!state)
+    {
+        if (count)
+        {
+            snprintf(buf, buf_size,
+                     count == 1 ? STR_ROM_INSTALLED_SINGULAR
+                                : STR_ROM_INSTALLED_PLURAL,
+                     count);
+        }
+        else
+        {
+            snprintf(buf, buf_size, STR_ROM_INSTALLED_NONE);
+            state = -2;
+        }
+    }
+    return state + 1;
+}
+
+bool rom_set_boot(char *str)
+{
+    if (str[0] && !rom_is_installed(str))
+        return false;
+    cfg_save_boot(str);
+    return true;
+}
+
+const char *rom_get_boot(void)
+{
+    return cfg_load_boot();
 }

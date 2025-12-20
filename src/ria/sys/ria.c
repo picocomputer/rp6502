@@ -6,6 +6,8 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "mon/mon.h"
+#include "str/str.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
 #include "sys/pix.h"
@@ -145,7 +147,13 @@ void ria_task(void)
     }
 }
 
-bool ria_print_error_message(void)
+static int ria_verify_error_response(char *buf, size_t buf_size, int state)
+{
+    snprintf(buf, buf_size, STR_ERR_RIA_VERIFY, state);
+    return -1;
+}
+
+bool ria_handle_error(void)
 {
     switch (action_result)
     {
@@ -153,10 +161,10 @@ bool ria_print_error_message(void)
     case RIA_ACTION_RESULT_FINISHED: // OK, explicitly ended
         return false;
     case RIA_ACTION_RESULT_TIMEOUT:
-        printf("?watchdog timeout\n");
+        mon_add_response_str(STR_ERR_RIA_TIMEOUT);
         break;
     default:
-        printf("?verify failed at $%04lX\n", action_result);
+        mon_add_response_fn_state(ria_verify_error_response, action_result);
         break;
     }
     return true;

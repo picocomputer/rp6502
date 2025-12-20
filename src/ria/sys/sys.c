@@ -6,13 +6,17 @@
 
 #include "main.h"
 #include "api/clk.h"
+#include "mon/mon.h"
 #include "net/ble.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/msc.h"
 #include <hardware/watchdog.h>
+#include <pico/stdio.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -23,7 +27,10 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-__in_flash("ria_sys_sys") static const char SYS_VERSION[] =
+__in_flash("SYS_NAME") static const char SYS_NAME[] =
+    RP6502_NAME "\n";
+
+__in_flash("SYS_VERSION") static const char SYS_VERSION[] =
     "RIA "
 #if RP6502_VERSION_EMPTY
     __DATE__ " " __TIME__
@@ -33,18 +40,25 @@ __in_flash("ria_sys_sys") static const char SYS_VERSION[] =
 #ifdef RP6502_RIA_W
     " W"
 #endif
-    ;
+    "\n";
 
-static void sys_print_status(void)
+void sys_init(void)
 {
-    puts(RP6502_NAME);
-    puts(SYS_VERSION);
+#ifdef NDEBUG
+    mon_add_response_str(STR_SYS_FULL_TERM_RESET);
+#else
+    mon_add_response_str(STR_SYS_DEBUG_TERM_RESET);
+#endif
+    mon_add_response_str(SYS_NAME);
+    mon_add_response_str(SYS_VERSION);
+    mon_add_response_fn(vga_boot_response);
 }
 
 void sys_mon_reboot(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
+    stdio_flush();
     watchdog_reboot(0, 0, 0);
 }
 
@@ -59,21 +73,13 @@ void sys_mon_status(const char *args, size_t len)
 {
     (void)(args);
     (void)(len);
-    sys_print_status();
-    vga_print_status();
-    wfi_print_status();
-    ntp_print_status();
-    clk_print_status();
-    ble_print_status();
-    usb_print_status();
-}
-
-void sys_init(void)
-{
-    // Reset terminal.
-    puts("\30\33c");
-    // Hello, world.
-    sys_print_status();
-    if (vga_connected())
-        vga_print_status();
+    mon_add_response_str(SYS_NAME);
+    mon_add_response_str(SYS_VERSION);
+    mon_add_response_fn(vga_status_response);
+    mon_add_response_fn(wfi_status_response);
+    mon_add_response_fn(ntp_status_response);
+    mon_add_response_fn(clk_status_response);
+    mon_add_response_fn(ble_status_response);
+    mon_add_response_fn(usb_status_response);
+    mon_add_response_fn(msc_status_response);
 }

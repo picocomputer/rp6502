@@ -32,11 +32,17 @@ void rom_mon_load(const char *args, size_t len);
 void rom_mon_info(const char *args, size_t len);
 void rom_mon_install(const char *args, size_t len);
 void rom_mon_remove(const char *args, size_t len);
+void rom_mon_help(const char *args, size_t len);
 
 // Begin loading an installed rom, if exists.
 bool rom_load_installed(const char *args, size_t len);
 
-// Display help from an installed ROM.
-bool rom_help(const char *args, size_t len);
+// Responder prints all installed ROMs.
+int rom_installed_response(char *buf, size_t buf_size, int state);
+
+// Configuration setting BOOT
+// No loader because this isn't stored in RAM
+bool rom_set_boot(char *str);
+const char *rom_get_boot(void); // uses mbuf
 
 #endif /* _RIA_MON_ROM_H_ */

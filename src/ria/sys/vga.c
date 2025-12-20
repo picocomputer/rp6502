@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "mon/mon.h"
+#include "str/str.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
@@ -32,22 +34,22 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define VGA_VSYNC_WATCHDOG_MS 35
 
 static enum {
-    VGA_NOT_FOUND,   // Possibly normal, Pico VGA is optional
-    VGA_TESTING,     // Looking for Pico VGA
-    VGA_FOUND,       // Found
-    VGA_CONNECTED,   // Connected and version string received
-    VGA_NO_VERSION,  // Connected but no version string received
-    VGA_LOST_SIGNAL, // Definitely an error condition
+    VGA_NOT_FOUND,       // Possibly normal, RP6502-VGA is optional
+    VGA_TESTING,         // Looking for RP6502-VGA
+    VGA_FOUND,           // Found
+    VGA_CONNECTED,       // Connected and version string received
+    VGA_NO_VERSION,      // Connected but no version string received
+    VGA_CONNECTION_LOST, // Definitely an error condition
 } vga_state;
 
+bool vga_needs_reset = true;
+static uint8_t vga_display_type;
 static absolute_time_t vga_vsync_timer;
 static absolute_time_t vga_version_timer;
 
-#define VGA_VERSION_MESSAGE_SIZE 80
+#define VGA_VERSION_MESSAGE_SIZE 64
 char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
 size_t vga_version_message_length;
-
-bool vga_needs_reset;
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -90,7 +92,7 @@ static void vga_backchannel_command(uint8_t byte)
 static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 {
     // VGA1 means VGA on PIX 1
-    if (!timeout && length == 4 && !strncasecmp("VGA1", buf, 4))
+    if (!timeout && length == 4 && !strncasecmp(STR_VGA1, buf, 4))
         vga_state = VGA_FOUND;
     else
         vga_state = VGA_NOT_FOUND;
@@ -99,10 +101,10 @@ static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 static void vga_connect(void)
 {
     // Test if VGA connected
-    uint8_t vga_test_buf[4];
+    uint8_t test_buf[4];
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
-    rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, vga_test_buf, sizeof(vga_test_buf));
+    rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, test_buf, sizeof(test_buf));
     vga_pix_backchannel_request();
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
@@ -172,9 +174,6 @@ void vga_init(void)
     // Disable backchannel again, for safety.
     vga_pix_backchannel_disable();
 
-    // Reset Pico VGA
-    vga_needs_reset = true;
-
     // Connect and establish backchannel
     vga_connect();
 }
@@ -199,15 +198,14 @@ void vga_task(void)
     {
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
-        vga_state = VGA_LOST_SIGNAL;
-        printf("?");
-        vga_print_status();
+        vga_state = VGA_CONNECTION_LOST;
+        mon_add_response_str(STR_ERR_VGA_CONNECTION_LOST);
     }
 
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, cfg_get_vga());
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_display_type);
     }
 }
 
@@ -215,7 +213,7 @@ void vga_run(void)
 {
     // It's normal to lose signal during Pico VGA development.
     // Attempt to restart when a 6502 program is run.
-    if (vga_state == VGA_LOST_SIGNAL && !ria_active())
+    if (vga_state == VGA_CONNECTION_LOST && !ria_active())
         vga_connect();
 }
 
@@ -232,21 +230,24 @@ void vga_break(void)
     vga_needs_reset = true;
 }
 
-bool vga_set_vga(uint32_t display_type)
-{
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, display_type);
-    return true;
-}
-
 bool vga_connected(void)
 {
     return vga_state == VGA_CONNECTED ||
            vga_state == VGA_NO_VERSION;
 }
 
-void vga_print_status(void)
+int vga_boot_response(char *buf, size_t buf_size, int state)
 {
-    const char *msg = "VGA Searching";
+    (void)state;
+    if (!vga_connected())
+        return -1;
+    return vga_status_response(buf, buf_size, state);
+}
+
+int vga_status_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    const char *msg = STR_VGA_SEARCHING;
     switch (vga_state)
     {
     case VGA_FOUND:
@@ -256,14 +257,40 @@ void vga_print_status(void)
         msg = vga_version_message;
         break;
     case VGA_NO_VERSION:
-        msg = "VGA Version Unknown";
+        msg = STR_VGA_VERSION_UNKNOWN;
         break;
     case VGA_NOT_FOUND:
-        msg = "VGA Not Found";
+        msg = STR_VGA_NOT_FOUND;
         break;
-    case VGA_LOST_SIGNAL:
-        msg = "VGA Signal Lost";
+    case VGA_CONNECTION_LOST:
+        msg = STR_VGA_CONNECTION_LOST;
         break;
     }
-    puts(msg);
+    snprintf(buf, buf_size, "%s\n", msg);
+    return -1;
+}
+
+void vga_load_display_type(const char *str, size_t len)
+{
+    str_parse_uint8(&str, &len, &vga_display_type);
+    if (vga_display_type > 2)
+        vga_display_type = 0;
+}
+
+bool vga_set_display_type(uint8_t display_type)
+{
+    if (display_type > 2)
+        return false;
+    if (vga_display_type != display_type)
+    {
+        vga_display_type = display_type;
+        vga_needs_reset = true;
+        cfg_save();
+    }
+    return true;
+}
+
+uint8_t vga_get_display_type(void)
+{
+    return vga_display_type;
 }

@@ -5,11 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _RIA_MON_STR_H_
-#define _RIA_MON_STR_H_
+#ifndef _RIA_STR_STR_H_
+#define _RIA_STR_STR_H_
+
+// CONTRIBUTE: Duplicate one of the existing locale files then select your
+// new RP6502_LOCALE in CMakeLists.txt. Localization may not be practical
+// because only 7-bit ASCII is allowed. Or undecorated characters might
+// feel more authentic. I don't know but it was easy to add as part of
+// consolidating strings in flash.
 
 /*
- * Miscellaneous string functions.
+ * String constants in flash and
+ * miscellaneous string functions.
  * Used by the monitor for parsing input.
  * Also used to parse config files.
  */
@@ -18,11 +25,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Test for 0-9 a-f A-F
-bool str_char_is_hex(char ch);
-
-// Change chars 0-9 a-f A-F to a binary int, -1 on fail
-int str_char_to_int(char ch);
+// Change chars 0-9 a-f A-F to a binary int, no error checking.
+int str_xdigit_to_int(char ch);
 
 // Parse everything else as a string, truncating trailing spaces.
 bool str_parse_string(const char **args, size_t *len, char *dest, size_t size);
@@ -44,4 +48,13 @@ bool str_parse_rom_name(const char **args, size_t *len, char *name);
 // Ensure there are no more arguments.
 bool str_parse_end(const char *args, size_t len);
 
-#endif /* _RIA_MON_STR_H_ */
+/* Part 1 of putting string literals into flash.
+ */
+
+#define X(name, value) \
+    extern const char name[];
+#include "str.inc"
+#include RP6502_LOCALE
+#undef X
+
+#endif /* _RIA_STR_STR_H_ */

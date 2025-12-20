@@ -17,6 +17,7 @@
 void term_init(void);
 void term_task(void);
 
+void term_RIS();
 bool term_prog(uint16_t *xregs);
 
 #endif /* _VGA_TERM_TERM_H_ */

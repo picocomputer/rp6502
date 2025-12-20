@@ -4,32 +4,43 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/str.h"
+#include "str/str.h"
+#include "sys/cpu.h"
 #include <string.h>
+#include <ctype.h>
+#include <pico.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_STR)
+#if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
 #include <stdio.h>
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-bool str_char_is_hex(char ch)
-{
-    return ((ch >= '0') && (ch <= '9')) ||
-           ((ch >= 'A') && (ch <= 'F')) ||
-           ((ch >= 'a') && (ch <= 'f'));
-}
+// Stringify various defines for inclusion in string literals.
+// This scope hides it from accidental use as a RAM literal.
+#define _STRINGIFY(x) #x
+#define STRINGIFY(x) _STRINGIFY(x)
+static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
+#define STR_PHI2_MIN_MAX STRINGIFY(CPU_PHI2_MIN_KHZ) "-" STRINGIFY(CPU_PHI2_MAX_KHZ)
+#define STR_RP6502_CODE_PAGE STRINGIFY(RP6502_CODE_PAGE)
 
-int str_char_to_int(char ch)
+// Part 2 of putting string literals into flash.
+#define X(name, value) \
+    const char __in_flash(STRINGIFY(name)) name[] = value;
+#include "str.inc"
+#include RP6502_LOCALE
+#undef X
+
+int str_xdigit_to_int(char ch)
 {
-    if ((unsigned int)ch - (unsigned int)'0' < 10u)
-        return ch - '0';
-    if ((unsigned int)ch - (unsigned int)'A' < 6u)
-        return ch - 'A' + 10;
-    if ((unsigned int)ch - (unsigned int)'a' < 6u)
-        return ch - 'a' + 10;
-    return -1;
+    if (ch >= '0' && ch <= '9')
+        ch -= '0';
+    else if (ch >= 'A' && ch <= 'F')
+        ch -= 'A' - 10;
+    else if (ch >= 'a' && ch <= 'f')
+        ch -= 'a' - 10;
+    return ch;
 }
 
 bool str_parse_string(const char **args, size_t *len, char *dest, size_t size)
@@ -45,6 +56,7 @@ bool str_parse_string(const char **args, size_t *len, char *dest, size_t size)
         *args += cpylen;
         return true;
     }
+    dest[0] = 0;
     return false;
 }
 
@@ -98,14 +110,14 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
     for (; i < *len; i++)
     {
         char ch = (*args)[i];
-        if (base == 10 && (ch < '0' || ch > '9'))
+        if (base == 10 && !isdigit(ch))
             break;
-        if (base == 16 && !str_char_is_hex(ch))
+        if (base == 16 && !isxdigit(ch))
             break;
-        uint32_t i = str_char_to_int(ch);
-        if (i >= base)
+        uint32_t digit = str_xdigit_to_int(ch);
+        if (digit >= base)
             return false;
-        value = value * base + i;
+        value = value * base + digit;
     }
     if (i == prefix)
         return false;
@@ -123,7 +135,6 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
 bool str_parse_rom_name(const char **args, size_t *len, char *name)
 {
     name[0] = 0;
-    size_t name_len = 0;
     size_t i;
     for (i = 0; i < *len; i++)
     {
@@ -132,15 +143,13 @@ bool str_parse_rom_name(const char **args, size_t *len, char *name)
     }
     if (i == *len)
         return false;
-    for (; i < *len && name_len < LFS_NAME_MAX; i++)
+    size_t name_len;
+    for (name_len = 0; i < *len && name_len < LFS_NAME_MAX; i++)
     {
-        char ch = (*args)[i];
+        char ch = toupper((*args)[i]);
         if (ch == ' ')
             break;
-        if (ch >= 'a' && ch <= 'z')
-            ch -= 32;
-        if ((ch >= 'A' && ch <= 'Z') ||
-            (name_len && ch >= '0' && ch <= '9'))
+        if (isupper(ch) || (name_len && isdigit(ch)))
         {
             name[name_len++] = ch;
             continue;

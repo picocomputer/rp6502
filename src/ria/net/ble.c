@@ -6,12 +6,11 @@
 
 #include <btstack.h>
 
-#if !defined(RP6502_RIA_W) || !defined(ENABLE_BLE)
+#if !defined(RP6502_RIA_W)
 #include "net/ble.h"
 void ble_task(void) {}
 void ble_shutdown(void) {}
 void ble_print_status(void) {}
-void ble_set_config(uint8_t) {}
 void ble_set_hid_leds(uint8_t) {}
 #else
 
@@ -21,6 +20,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "hid/pad.h"
 #include "net/ble.h"
 #include "net/cyw.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/led.h"
 #include <stdio.h>
@@ -33,6 +33,7 @@ void ble_set_hid_leds(uint8_t) {}
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+static uint8_t ble_enabled = 1;
 static bool ble_initialized;
 static bool ble_pairing;
 static uint8_t ble_count_kbd;
@@ -372,7 +373,7 @@ void ble_task(void)
 {
     if (!ble_initialized)
     {
-        if (cfg_get_rf() && cfg_get_ble())
+        if (cyw_get_rf_enable() && ble_enabled)
         {
             ble_init_stack();
             ble_initialized = true;
@@ -391,7 +392,7 @@ void ble_task(void)
     }
 }
 
-void ble_set_config(uint8_t ble)
+static void ble_set_config(uint8_t ble)
 {
     switch (ble)
     {
@@ -403,7 +404,7 @@ void ble_set_config(uint8_t ble)
         led_blink(false);
         break;
     case 2:
-        if (cfg_get_rf())
+        if (cyw_get_rf_enable())
         {
             ble_pairing = true;
             led_blink(true);
@@ -439,23 +440,53 @@ void ble_shutdown(void)
     ble_initialized = false;
 }
 
-void ble_print_status(void)
+int ble_status_response(char *buf, size_t buf_size, int state)
 {
-    if (cfg_get_ble())
+    (void)state;
+    if (ble_enabled)
     {
-        if (cfg_get_rf())
-            printf("BLE : %d keyboard%s, %d %s, %d gamepad%s%s\n",
-                   ble_count_kbd, ble_count_kbd == 1 ? "" : "s",
-                   ble_count_mou, ble_count_mou == 1 ? "mouse" : "mice",
-                   ble_count_pad, ble_count_pad == 1 ? "" : "s",
-                   ble_pairing ? ", pairing" : "");
+        if (cyw_get_rf_enable())
+            snprintf(buf, buf_size, STR_STATUS_BLE_FULL,
+                     ble_count_kbd, ble_count_kbd == 1 ? STR_KEYBOARD_SINGULAR : STR_KEYBOARD_PLURAL,
+                     ble_count_mou, ble_count_mou == 1 ? STR_MOUSE_SINGULAR : STR_MOUSE_PLURAL,
+                     ble_count_pad, ble_count_pad == 1 ? STR_GAMEPAD_SINGULAR : STR_GAMEPAD_PLURAL,
+                     ble_pairing ? STR_BLE_PAIRING : "");
         else
-            printf("BLE : radio off\n");
+            snprintf(buf, buf_size, STR_STATUS_BLE_SIMPLE, STR_RF_OFF);
     }
     else
     {
-        printf("BLE : disabled\n");
+        snprintf(buf, buf_size, STR_STATUS_BLE_SIMPLE, STR_DISABLED);
     }
+    return -1;
 }
 
-#endif /* RP6502_RIA_W && ENABLE_BLE */
+void ble_load_enabled(const char *str, size_t len)
+{
+    str_parse_uint8(&str, &len, &ble_enabled);
+    if (ble_enabled > 1)
+        ble_enabled = 0;
+    ble_set_config(ble_enabled);
+}
+
+bool ble_set_enabled(uint8_t ble)
+{
+    if (ble > 2)
+        return false;
+    ble_set_config(ble);
+    if (ble == 2)
+        ble = 1;
+    if (ble_enabled != ble)
+    {
+        ble_enabled = ble;
+        cfg_save();
+    }
+    return true;
+}
+
+uint8_t ble_get_enabled(void)
+{
+    return ble_enabled;
+}
+
+#endif /* RP6502_RIA_W */

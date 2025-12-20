@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "mon/mon.h"
 #include "sys/lfs.h"
 #include <pico/printf.h>
 
@@ -117,11 +118,10 @@ void lfs_init(void)
     if (err)
     {
         // Maybe first boot. Attempt format.
-        // lfs_format returns -84 here, but still succeeds
-        lfs_format(&lfs_volume, &cfg);
+        err = lfs_format(&lfs_volume, &cfg);
+        mon_add_response_lfs(err);
         err = lfs_mount(&lfs_volume, &cfg);
-        if (err)
-            printf("?Unable to format lfs (%d)", err);
+        mon_add_response_lfs(err);
     }
 }
 

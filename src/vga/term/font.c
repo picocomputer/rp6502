@@ -3512,7 +3512,7 @@ void font_set_code_page(uint16_t cp)
     if (current_cp == cp)
         return;
     current_cp = cp;
-    printf("\30\33c");
+    term_RIS();
 
     if (!cp)
         for (int row = 0; row < 16; row++)

@@ -9,6 +9,7 @@
 
 #include "api/api.h"
 #include "api/clk.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include <hardware/timer.h>
 #include <pico/aon_timer.h>
@@ -31,7 +32,12 @@ void clk_init(void)
     // starting at noon avoids time zone wraparound
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    cfg_set_time_zone(clk_set_time_zone(cfg_get_time_zone()));
+    // Default time zone
+    if (!getenv(STR_TZ))
+    {
+        setenv(STR_TZ, STR_CLK_DEFAULT_TZ, 1);
+        tzset();
+    }
 }
 
 void clk_run(void)
@@ -39,32 +45,90 @@ void clk_run(void)
     clk_clock_start = time_us_64();
 }
 
-void clk_print_status(void)
+int clk_status_response(char *buf, size_t buf_size, int state)
 {
-    printf("Time: ");
+    (void)state;
     struct timespec ts;
     if (!aon_timer_get_time(&ts))
     {
-        puts("get time failure");
+        snprintf(buf, buf_size, STR_STATUS_TIME, STR_INTERNAL_ERROR);
     }
     else
     {
-        char buf[100];
+        char tbuf[80];
         struct tm tminfo;
         localtime_r(&ts.tv_sec, &tminfo);
-        strftime(buf, sizeof(buf), "%c %z %Z", &tminfo);
-        printf("%s\n", buf);
+        strftime(tbuf, sizeof(tbuf), STR_STRFTIME, &tminfo);
+        snprintf(buf, buf_size, STR_STATUS_TIME, tbuf);
+    }
+    return -1;
+}
+
+void clk_load_time_zone(const char *str, size_t len)
+{
+    char tz[CLK_TZ_MAX_SIZE];
+    if (str_parse_string(&str, &len, tz, sizeof(tz)))
+    {
+        setenv(STR_TZ, tz, 1);
+        tzset();
     }
 }
 
-const char *clk_set_time_zone(const char *tz)
+bool clk_set_time_zone(const char *tz)
 {
-    const char *time_zone = "UTC0";
-    if (strlen(tz))
-        time_zone = tz;
-    setenv("TZ", time_zone, 1);
-    tzset();
-    return time_zone;
+    if (strlen(tz) >= CLK_TZ_MAX_SIZE)
+        return false;
+    if (strcmp(getenv(STR_TZ), tz))
+    {
+        setenv(STR_TZ, tz, 1);
+        tzset();
+        cfg_save();
+    }
+    return true;
+}
+
+const char *clk_get_time_zone(void)
+{
+    return getenv(STR_TZ);
+}
+
+bool clk_api_tzset(void)
+{
+    struct __attribute__((packed))
+    {
+        int8_t daylight;
+        int32_t timezone;
+        char tzname[5];
+        char dstname[5];
+    } tz;
+    tz.daylight = _daylight;
+    tz.timezone = _timezone;
+    strncpy(tz.tzname, tzname[0], 4);
+    tz.tzname[4] = '\0';
+    strncpy(tz.dstname, tzname[1], 4);
+    tz.dstname[4] = '\0';
+    for (size_t i = sizeof(tz); i;)
+        if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
+            return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
+    static_assert(15 == sizeof(tz));
+}
+
+bool clk_api_tzquery(void)
+{
+    uint32_t requested_time = API_AXSREG;
+    struct timespec ts;
+    ts.tv_sec = requested_time;
+    ts.tv_nsec = 0;
+    struct tm local_tm = *localtime(&ts.tv_sec);
+    struct tm gm_tm = *gmtime(&ts.tv_sec);
+    gm_tm.tm_isdst = local_tm.tm_isdst;
+    time_t local_sec = mktime(&local_tm);
+    time_t gm_sec = mktime(&gm_tm);
+    uint8_t isdst = local_tm.tm_isdst;
+    api_push_uint8(&isdst);
+    int32_t seconds = difftime(local_sec, gm_sec);
+    return api_return_axsreg(seconds);
 }
 
 bool clk_api_tzset(void)

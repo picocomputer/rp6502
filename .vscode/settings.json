@@ -5,6 +5,9 @@
         "src/pico-extras": true,
         "src/tinyusb": true,
     },
+    "files.associations": {
+        "*.inc": "c"
+    },
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {
         "launchTarget": {

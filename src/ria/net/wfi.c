@@ -12,6 +12,7 @@ void wfi_print_status() {}
 
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include <pico/cyw43_arch.h>
 
@@ -34,6 +35,8 @@ static wfi_state_t wfi_state;
 
 static int wfi_retry_initial_retry_count;
 static absolute_time_t wfi_retry_timer;
+static char wfi_ssid[WFI_SSID_SIZE];
+static char wfi_pass[WFI_PASS_SIZE];
 
 // Be aggressive 5 times then back off
 #define WFI_RETRY_INITIAL_RETRIES 5
@@ -75,7 +78,7 @@ void wfi_task(void)
     switch (wfi_state)
     {
     case wfi_state_off:
-        if (!cfg_get_rf() || !cfg_get_ssid()[0])
+        if (!cyw_get_rf_enable() || !wfi_ssid[0])
             break;
         cyw43_arch_enable_sta_mode(); // cyw43_wifi_set_up
         wfi_state = wfi_state_connect;
@@ -90,8 +93,8 @@ void wfi_task(void)
             DBG("NET WFI cyw43_wifi_pm failed, retry %ds\n", secs);
         }
         else if (cyw43_arch_wifi_connect_async(
-                     cfg_get_ssid(), cfg_get_pass(),
-                     strlen(cfg_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
+                     wfi_ssid, wfi_get_pass(),
+                     strlen(wfi_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
         {
             int secs = wfi_retry_connect();
             (void)secs;
@@ -133,93 +136,135 @@ void wfi_task(void)
     }
 }
 
-void wfi_print_status(void)
+static const char *wifi_status_message(void)
 {
-    // print state
-    printf("WiFi: ");
     switch (wfi_state)
     {
     case wfi_state_off:
-        if (!cfg_get_rf())
-            puts("radio off");
-        else if (!cfg_get_ssid()[0])
-            puts("not configured");
+        if (!cyw_get_rf_enable())
+            return STR_RF_OFF;
+        else if (!wfi_ssid[0])
+            return STR_WFI_NOT_CONFIGURED;
         else
-            puts("waiting");
-        break;
+            return STR_WFI_WAITING;
     case wfi_state_connect:
     case wfi_state_connecting:
-        printf("connecting");
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_JOIN:
-            puts(", joining");
-            break;
+            return STR_WFI_JOINING;
         case CYW43_LINK_NOIP:
-            puts(", getting IP");
-            break;
-        case CYW43_LINK_DOWN:
+            return STR_WFI_GETTING_IP;
         default:
-            puts("");
-            break;
+            return STR_WFI_CONNECTING;
         }
-        break;
     case wfi_state_connected:
-        puts("connected");
-        break;
+        return STR_WFI_CONNECTED;
     case wfi_state_connect_failed:
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_NOIP:
-            puts("no IP address");
-            break;
+            return STR_WFI_NO_IP_ADDRESS;
         case CYW43_LINK_NONET:
-            puts("ssid not found");
-            break;
+            return STR_WFI_SSID_NOT_FOUND;
         case CYW43_LINK_BADAUTH:
-            puts("auth failed");
-            break;
+            return STR_WFI_AUTH_FAILED;
         default:
-            puts("connect failed");
-            break;
+            return STR_WFI_CONNECT_FAILED;
         }
-        break;
-    default:
-        puts("internal error");
-        break;
     }
+    return STR_INTERNAL_ERROR;
+}
 
-    // print MAC address
-    uint8_t mac[6];
-    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
-    printf("MAC : %02X:%02X:%02X:%02X:%02X:%02X\n",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    // print IP addresses
-    if (wfi_state == wfi_state_connected)
+int wfi_status_response(char *buf, size_t buf_size, int state)
+{
+    switch (state)
     {
-        struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
-        if (!ip4_addr_isany_val(*netif_ip4_addr(netif)))
-        {
-            const ip4_addr_t *ip4 = netif_ip4_addr(netif);
-            printf("IPv4: %s\n", ip4addr_ntoa(ip4));
-        }
-#if LWIP_IPV6
-        for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++)
-        {
-            if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)))
-            {
-                const ip6_addr_t *ip6 = netif_ip6_addr(netif, i);
-                printf("IPv6: %s\n", ip6addr_ntoa(ip6));
-            }
-        }
-#endif
+    case 0:
+    {
+        snprintf(buf, buf_size, STR_STATUS_WIFI, wifi_status_message());
     }
+    break;
+    case 1:
+    {
+        uint8_t mac[6];
+        cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
+        snprintf(buf, buf_size, STR_STATUS_MAC,
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+    break;
+    case 2:
+    {
+        if (wfi_state == wfi_state_connected)
+        {
+            struct netif *netif = &cyw43_state.netif[CYW43_ITF_STA];
+            const ip4_addr_t *ip4 = netif_ip4_addr(netif);
+            if (!ip4_addr_isany_val(*ip4))
+                snprintf(buf, buf_size, STR_STATUS_IPV4, ip4addr_ntoa(ip4));
+        }
+    }
+    break;
+    default:
+        return -1;
+    }
+    return state + 1;
 }
 
 bool wfi_ready(void)
 {
     return wfi_state == wfi_state_connected;
+}
+
+void wfi_load_ssid(const char *str, size_t len)
+{
+    str_parse_string(&str, &len, wfi_ssid, sizeof(wfi_ssid));
+}
+
+bool wfi_set_ssid(const char *ssid)
+{
+    size_t len = strlen(ssid);
+    if (len < sizeof(wfi_ssid) - 1)
+    {
+        if (strcmp(wfi_ssid, ssid))
+        {
+            wfi_pass[0] = 0;
+            strncpy(wfi_ssid, ssid, sizeof(wfi_ssid));
+            wfi_shutdown();
+            cfg_save();
+        }
+        return true;
+    }
+    return false;
+}
+
+const char *wfi_get_ssid(void)
+{
+    return wfi_ssid;
+}
+
+void wfi_load_pass(const char *str, size_t len)
+{
+    str_parse_string(&str, &len, wfi_pass, sizeof(wfi_pass));
+}
+
+bool wfi_set_pass(const char *pass)
+{
+    if (strlen(wfi_ssid) && strlen(pass) < sizeof(wfi_pass) - 1)
+    {
+        if (strcmp(wfi_pass, pass))
+        {
+            strcpy(wfi_pass, pass);
+            wfi_shutdown();
+            cfg_save();
+        }
+        return true;
+    }
+    return false;
+}
+
+const char *wfi_get_pass(void)
+{
+    return wfi_pass;
 }
 
 #endif /* RP6502_RIA_W */

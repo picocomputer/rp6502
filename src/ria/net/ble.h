@@ -22,9 +22,6 @@ void ble_task(void);
 /* Utility
  */
 
-// 0-disabled, 1-enabled, 2-pairing
-void ble_set_config(uint8_t ble);
-
 // True when new devices allowed to pair
 bool ble_is_pairing(void);
 
@@ -35,6 +32,11 @@ void ble_set_hid_leds(uint8_t leds);
 void ble_shutdown(void);
 
 // Status command printer
-void ble_print_status(void);
+int ble_status_response(char *buf, size_t buf_size, int state);
+
+// Configuration setting BLE
+void ble_load_enabled(const char *str, size_t len);
+bool ble_set_enabled(uint8_t bt);
+uint8_t ble_get_enabled(void);
 
 #endif /* _RIA_NET_BLE_H_ */

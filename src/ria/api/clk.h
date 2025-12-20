@@ -7,6 +7,8 @@
 #ifndef _RIA_API_CLK_H_
 #define _RIA_API_CLK_H_
 
+#define CLK_TZ_MAX_SIZE 64
+
 /* The CLK driver manages real-time counters.
  */
 
@@ -21,10 +23,13 @@ void clk_init(void);
 void clk_run(void);
 
 // Print for status command.
-void clk_print_status(void);
+int clk_status_response(char *buf, size_t buf_size, int state);
 
+// Configuration setting TZ
 // Use POSIX TZ format. e.g. PST8PDT,M3.2.0/2,M11.1.0/2
-const char *clk_set_time_zone(const char *tz);
+void clk_load_time_zone(const char *str, size_t len);
+bool clk_set_time_zone(const char *tz);
+const char *clk_get_time_zone(void);
 
 /* The API implementation for time support
  */

@@ -18,6 +18,7 @@ int mdm_tx(char) { return -1; }
 #include "net/cmd.h"
 #include "net/mdm.h"
 #include "net/tel.h"
+#include "str/str.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
 #include <pico/time.h>
@@ -48,9 +49,6 @@ static size_t mdm_tx_buf_len;
 static char mdm_cmd_buf[MDM_AT_COMMAND_LEN + 1];
 static size_t mdm_cmd_buf_len;
 
-// Must fit 80 columns plus a couple CRLFs
-#define MDM_RESPONSE_BUF_SIZE (128)
-static char mdm_response_buf[MDM_RESPONSE_BUF_SIZE];
 static size_t mdm_response_buf_head;
 static size_t mdm_response_buf_tail;
 static int (*mdm_response_fn)(char *, size_t, int);
@@ -74,22 +72,10 @@ static absolute_time_t mdm_escape_guard;
 
 mdm_settings_t mdm_settings;
 
-static const char __in_flash("net_mdm") str0[] = "OK";
-static const char __in_flash("net_mdm") str1[] = "CONNECT";
-static const char __in_flash("net_mdm") str2[] = "RING";
-static const char __in_flash("net_mdm") str3[] = "NO CARRIER";
-static const char __in_flash("net_mdm") str4[] = "ERROR";
-static const char __in_flash("net_mdm") str5[] = "CONNECT 1200";
-static const char __in_flash("net_mdm") str6[] = "NO DIALTONE";
-static const char __in_flash("net_mdm") str7[] = "BUSY";
-static const char __in_flash("net_mdm") str8[] = "NO ANSWER";
-static const char *const __in_flash("net_mdm") mdm_response_strings[] = {str0, str1, str2, str3, str4, str5, str6, str7, str8};
-
-static const char __in_flash("net_mdm") phone0_sys[] = "PHONE0.SYS";
-static const char __in_flash("net_mdm") phone0_tmp[] = "PHONE0.TMP";
-static const char __in_flash("net_mdm") modem0_sys[] = "MODEM0.SYS";
-static const char __in_flash("net_mdm") devicename[] = "AT:";
-static const char __in_flash("net_mdm") devicename0[] = "AT0:";
+static const char *const __in_flash("MDM_RESPONSES") MDM_RESPONSES[] = {
+    STR_MDM_RESPONSE_0, STR_MDM_RESPONSE_1, STR_MDM_RESPONSE_2,
+    STR_MDM_RESPONSE_3, STR_MDM_RESPONSE_4, STR_MDM_RESPONSE_5,
+    STR_MDM_RESPONSE_6, STR_MDM_RESPONSE_7, STR_MDM_RESPONSE_8};
 
 void mdm_stop(void)
 {
@@ -116,10 +102,8 @@ bool mdm_open(const char *filename)
 {
     if (mdm_is_open)
         return false;
-    if (!strncasecmp(filename, devicename, 3))
-        filename += strlen(devicename0);
-    else if (!strncasecmp(filename, devicename0, 4))
-        filename += strlen(devicename0);
+    if (!strncasecmp(filename, "AT:", 3))
+        filename += 3;
     else
         return false;
     mdm_read_settings(&mdm_settings);
@@ -130,7 +114,8 @@ bool mdm_open(const char *filename)
     {
         mdm_is_parsing = true;
         mdm_parse_result = true;
-        mdm_parse_str = filename;
+        strncpy(mdm_cmd_buf, filename, sizeof(mdm_cmd_buf));
+        mdm_parse_str = mdm_cmd_buf;
     }
     return true;
 }
@@ -150,7 +135,7 @@ static inline bool mdm_response_buf_empty(void)
 
 static inline bool mdm_response_buf_full(void)
 {
-    return ((mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
+    return ((mdm_response_buf_head + 1) % RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
 }
 
 static inline size_t mdm_response_buf_count(void)
@@ -158,7 +143,7 @@ static inline size_t mdm_response_buf_count(void)
     if (mdm_response_buf_head >= mdm_response_buf_tail)
         return mdm_response_buf_head - mdm_response_buf_tail;
     else
-        return MDM_RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
+        return RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
 }
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
@@ -184,8 +169,8 @@ static void mdm_response_append(char ch)
 {
     if (!mdm_response_buf_full())
     {
-        mdm_response_buf[mdm_response_buf_head] = ch;
-        mdm_response_buf_head = (mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE;
+        response_buf[mdm_response_buf_head] = ch;
+        mdm_response_buf_head = (mdm_response_buf_head + 1) % RESPONSE_BUF_SIZE;
     }
 }
 
@@ -204,21 +189,21 @@ int mdm_rx(char *ch)
     // Get next line, if needed and in progress
     if (mdm_response_buf_empty() && mdm_response_state >= 0)
     {
-        mdm_response_state = mdm_response_fn(mdm_response_buf, MDM_RESPONSE_BUF_SIZE, mdm_response_state);
-        mdm_response_buf_head = strlen(mdm_response_buf);
+        mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
+        mdm_response_buf_head = strlen(response_buf);
         mdm_response_buf_tail = 0;
         // Translate CR and LF chars to settings
         for (size_t i = 0; i < mdm_response_buf_head; i++)
         {
             uint8_t swap_ch = 0;
-            if (mdm_response_buf[i] == '\r')
-                swap_ch = mdm_response_buf[i] = mdm_settings.cr_char;
-            if (mdm_response_buf[i] == '\n')
-                swap_ch = mdm_response_buf[i] = mdm_settings.lf_char;
+            if (response_buf[i] == '\r')
+                swap_ch = response_buf[i] = mdm_settings.cr_char;
+            if (response_buf[i] == '\n')
+                swap_ch = response_buf[i] = mdm_settings.lf_char;
             if (swap_ch & 0x80)
             {
                 for (size_t j = i; j < mdm_response_buf_head; j++)
-                    mdm_response_buf[j] = mdm_response_buf[j + 1];
+                    response_buf[j] = response_buf[j + 1];
                 mdm_response_buf_head--;
             }
         }
@@ -226,8 +211,8 @@ int mdm_rx(char *ch)
     // Get from line buffer, if available
     if (!mdm_response_buf_empty())
     {
-        *ch = mdm_response_buf[mdm_response_buf_tail];
-        mdm_response_buf_tail = (mdm_response_buf_tail + 1) % MDM_RESPONSE_BUF_SIZE;
+        *ch = response_buf[mdm_response_buf_tail];
+        mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
         return 1;
     }
     // Get from telephone emulator
@@ -341,12 +326,12 @@ int mdm_tx(char ch)
 
 int mdm_response_code(char *buf, size_t buf_size, int state)
 {
-    assert(state >= 0 && (unsigned)state < sizeof(mdm_response_strings) / sizeof(char *));
+    assert(state >= 0 && (unsigned)state < sizeof(MDM_RESPONSES) / sizeof(char *));
     if (mdm_settings.quiet == 2 ||
         (mdm_settings.quiet == 1 && state != 1 && state != 2 && state != 3))
         buf[0] = 0;
     else if (mdm_settings.verbose)
-        snprintf(buf, buf_size, "%s\r\n", mdm_response_strings[state]);
+        snprintf(buf, buf_size, "%s\r\n", MDM_RESPONSES[state]);
     else
         snprintf(buf, buf_size, "%d\r", state);
     return -1;
@@ -370,7 +355,7 @@ const char *mdm_read_phonebook_entry(unsigned index)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, phone0_sys,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_PHONEBOOK,
                                      LFS_O_RDONLY, &lfs_file_config);
     mbuf[0] = 0;
     if (lfsresult < 0)
@@ -386,7 +371,7 @@ const char *mdm_read_phonebook_entry(unsigned index)
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", phone0_sys, lfsresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_PHONEBOOK, lfsresult);
     if (index)
         mbuf[0] = 0;
     return (char *)mbuf;
@@ -396,12 +381,12 @@ bool mdm_write_phonebook_entry(const char *entry, unsigned index)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, phone0_tmp,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_PHONE_TMP,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", phone0_tmp, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", STR_MDM_PHONE_TMP, lfsresult);
         return false;
     }
     for (unsigned i = 0; i < MDM_PHONEBOOK_ENTRIES; i++)
@@ -411,23 +396,23 @@ bool mdm_write_phonebook_entry(const char *entry, unsigned index)
         else
             lfsresult = lfs_printf(&lfs_volume, &lfs_file, "%s\n", mdm_read_phonebook_entry(i));
         if (lfsresult < 0)
-            DBG("?Unable to write %s contents (%d)\n", phone0_tmp, lfsresult);
+            DBG("?Unable to write %s contents (%d)\n", STR_MDM_PHONE_TMP, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", phone0_tmp, lfscloseresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_PHONE_TMP, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
     {
-        lfs_remove(&lfs_volume, phone0_tmp);
+        lfs_remove(&lfs_volume, STR_MDM_PHONE_TMP);
         return false;
     }
-    lfsresult = lfs_remove(&lfs_volume, phone0_sys);
+    lfsresult = lfs_remove(&lfs_volume, STR_MDM_PHONEBOOK);
     if (lfsresult < 0 && lfsresult != LFS_ERR_NOENT)
     {
-        DBG("?Unable to lfs_remove %s (%d)\n", phone0_sys, lfsresult);
+        DBG("?Unable to lfs_remove %s (%d)\n", STR_MDM_PHONEBOOK, lfsresult);
         return false;
     }
-    lfsresult = lfs_rename(&lfs_volume, phone0_tmp, phone0_sys);
+    lfsresult = lfs_rename(&lfs_volume, STR_MDM_PHONE_TMP, STR_MDM_PHONEBOOK);
     if (lfsresult < 0)
     {
         DBG("?Unable to lfs_rename (%d)\n", lfsresult);
@@ -440,14 +425,14 @@ bool mdm_write_settings(const mdm_settings_t *settings)
 {
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, modem0_sys,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_SETTINGS,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
     if (lfsresult < 0)
-        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", modem0_sys, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", STR_MDM_SETTINGS, lfsresult);
     if (lfsresult >= 0)
         if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            DBG("?Unable to lfs_file_truncate %s (%d)\n", modem0_sys, lfsresult);
+            DBG("?Unable to lfs_file_truncate %s (%d)\n", STR_MDM_SETTINGS, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -471,14 +456,14 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                settings->lf_char,
                                settings->bs_char);
         if (lfsresult < 0)
-            DBG("?Unable to write %s contents (%d)\n", modem0_sys, lfsresult);
+            DBG("?Unable to write %s contents (%d)\n", STR_MDM_SETTINGS, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", modem0_sys, lfscloseresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_SETTINGS, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
     {
-        lfs_remove(&lfs_volume, modem0_sys);
+        lfs_remove(&lfs_volume, STR_MDM_SETTINGS);
         return false;
     }
     return true;
@@ -489,14 +474,14 @@ bool mdm_read_settings(mdm_settings_t *settings)
     mdm_factory_settings(settings);
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, modem0_sys,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_SETTINGS,
                                      LFS_O_RDONLY, &lfs_file_config);
     mbuf[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult == LFS_ERR_NOENT)
             return true;
-        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", modem0_sys, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", STR_MDM_SETTINGS, lfsresult);
         return false;
     }
     while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
@@ -555,7 +540,7 @@ bool mdm_read_settings(mdm_settings_t *settings)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_file_close %s (%d)\n", modem0_sys, lfsresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_SETTINGS, lfsresult);
         return false;
     }
     return true;
