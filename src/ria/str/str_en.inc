@@ -299,10 +299,7 @@ X(STR_HELP_SET_RF,
 
 X(STR_HELP_SET_RFCC,
   "Set this so the CYW43 can use the best radio frequencies for your country.\n"
-  "Using \"-\" will clear the country code and default to a worldwide setting.\n"
-  "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
-  "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
-  "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.\n")
+  "Using \"-\" will clear the country code and default to a worldwide setting.\n")
 
 X(STR_HELP_SET_SSID,
   "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"

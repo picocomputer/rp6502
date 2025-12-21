@@ -37,4 +37,7 @@ void cyw_load_rf_country_code(const char *str, size_t len);
 bool cyw_set_rf_country_code(const char *rfcc);
 const char *cyw_get_rf_country_code(void);
 
+// List known country codes for help
+int cyw_country_code_response(char *buf, size_t buf_size, int state);
+
 #endif /* _RIA_NET_CYW_H_ */

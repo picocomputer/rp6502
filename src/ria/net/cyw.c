@@ -30,6 +30,82 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // These are from cyw43_arch.h
+#define CYW_CC_X                  \
+    X(AU, "AU", "Australia")      \
+    X(AT, "AT", "Austria")        \
+    X(BE, "BE", "Belgium")        \
+    X(BR, "BR", "Brazil")         \
+    X(CA, "CA", "Canada")         \
+    X(CL, "CL", "Chile")          \
+    X(CN, "CN", "China")          \
+    X(CO, "CO", "Colombia")       \
+    X(CZ, "CZ", "Czech Republic") \
+    X(DK, "DK", "Denmark")        \
+    X(EE, "EE", "Estonia")        \
+    X(FI, "FI", "Finland")        \
+    X(FR, "FR", "France")         \
+    X(DE, "DE", "Germany")        \
+    X(GR, "GR", "Greece")         \
+    X(HK, "HK", "Hong Kong")      \
+    X(HU, "HU", "Hungary")        \
+    X(IS, "IS", "Iceland")        \
+    X(IN, "IN", "India")          \
+    X(IL, "IL", "Israel")         \
+    X(IT, "IT", "Italy")          \
+    X(JP, "JP", "Japan")          \
+    X(KE, "KE", "Kenya")          \
+    X(LV, "LV", "Latvia")         \
+    X(LI, "LI", "Liechtenstein")  \
+    X(LT, "LT", "Lithuania")      \
+    X(LU, "LU", "Luxembourg")     \
+    X(MY, "MY", "Malaysia")       \
+    X(MT, "MT", "Malta")          \
+    X(MX, "MX", "Mexico")         \
+    X(NL, "NL", "Netherlands")    \
+    X(NZ, "NZ", "New Zealand")    \
+    X(NG, "NG", "Nigeria")        \
+    X(NO, "NO", "Norway")         \
+    X(PE, "PE", "Peru")           \
+    X(PH, "PH", "Philippines")    \
+    X(PL, "PL", "Poland")         \
+    X(PT, "PT", "Portugal")       \
+    X(SG, "SG", "Singapore")      \
+    X(SK, "SK", "Slovakia")       \
+    X(SI, "SI", "Slovenia")       \
+    X(ZA, "ZA", "South Africa")   \
+    X(KR, "KR", "South Korea")    \
+    X(ES, "ES", "Spain")          \
+    X(SE, "SE", "Sweden")         \
+    X(CH, "CH", "Switzerland")    \
+    X(TW, "TW", "Taiwan")         \
+    X(TH, "TH", "Thailand")       \
+    X(TR, "TR", "Turkey")         \
+    X(GB, "GB", "UK")             \
+    X(US, "US", "USA")
+
+#define X(suffix, abbr, name)                         \
+    static const char __in_flash("cyw_country_codes") \
+        CYW_COUNTRY_ABBR_##suffix[] = abbr;           \
+    static const char __in_flash("cyw_country_codes") \
+        CYW_COUNTRY_NAME_##suffix[] = name;
+CYW_CC_X
+#undef X
+
+#define X(suffix, abbr, name) \
+    CYW_COUNTRY_ABBR_##suffix,
+static const char *__in_flash("cyw_country_codes")
+    cyw_country_abbr[] = {CYW_CC_X};
+#undef X
+
+#define X(suffix, abbr, name) \
+    CYW_COUNTRY_NAME_##suffix,
+static const char *__in_flash("cyw_country_codes")
+    cyw_country_name[] = {CYW_CC_X};
+#undef X
+
+#define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
+
+// These are from cyw43_arch.h
 // Change the help if you change these
 // clang-format off
 __in_flash("CYW_COUNTRY_CODES")
@@ -224,6 +300,17 @@ bool cyw_set_rf_country_code(const char *rfcc)
 const char *cyw_get_rf_country_code(void)
 {
     return cyw_rf_country_code;
+}
+
+int cyw_country_code_response(char *buf, size_t buf_size, int state)
+{
+    if (state > 2)
+        return -1;
+    const char *err_str[] = {"Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n",
+                             "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n",
+                             "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.\n"};
+    snprintf(buf, buf_size, err_str[state]);
+    return state + 1;
 }
 
 #endif /* RP6502_RIA_W */
