@@ -20,10 +20,12 @@
 #define COM_UART_INTERFACE uart1
 #define COM_UART_BAUDRATE 115200
 
-// IN Buffering is also 32 byte UART FIFO
+// IN Buffering is also 32 byte UART FIFO.
+// This doesn't need to be large.
 #define COM_IN_BUF_SIZE 16
-// OUT Buffer matches full speed USB BULK_PACKET_SIZE
-#define COM_OUT_BUF_SIZE 64
+// OUT Buffer is a multiple of USB BULK_PACKET_SIZE.
+// 1x will cause data loss on forwarded usb ports.
+#define COM_OUT_BUF_SIZE (2*64)
 
 /* Main events
  */
