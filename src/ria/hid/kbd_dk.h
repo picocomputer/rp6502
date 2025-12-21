@@ -7,7 +7,7 @@
 
 // clang-format off
 
-// DK - Danish
+// DK - Denmark
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}

@@ -276,10 +276,9 @@ X(STR_HELP_SET_KB,
   "SET KB selects a keyboard layout. e.g. SET KB US\n")
 
 X(STR_HELP_SET_CP,
-  "SET CP selects a code page for system text. The following is supported:\n"
-  "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
-  "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
-  "VGA fonts.\n"
+  "SET CP selects a code page for system text. The following is supported: 437\n"
+  "737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
+  "Code pages 720, 932, 936, 949, 950 are available but do not have VGA fonts.\n"
 #if RP6502_CODE_PAGE
   "This is a development build. Only " STR_RP6502_CODE_PAGE " is available.\n"
 #endif

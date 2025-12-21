@@ -135,8 +135,12 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *cc = cyw_get_rf_country_code();
-    snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
-             strlen(cc) ? cc : STR_WORLDWIDE);
+    if (strlen(cc))
+        snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
+                 cc, " - ", cyw_get_rf_country_code_verbose());
+    else
+        snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
+                 STR_WORLDWIDE, "", "");
     return -1;
 }
 
@@ -247,7 +251,7 @@ static void set_time_zone(const char *args, size_t len)
 static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbd_get_layout());
+    snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbd_get_layout(), kbd_get_layout_verbose());
     return -1;
 }
 

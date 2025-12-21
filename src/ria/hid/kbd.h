@@ -31,15 +31,15 @@
 #include "hid/kbd_de.h"
 #include "hid/kbd_dk.h"
 #include "hid/kbd_pl.h"
-#include "hid/kbd_sv.h"
+#include "hid/kbd_se.h"
 #include "hid/kbd_us.h"
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
 #define KBD_LAYOUTS                                \
-    X(DE, "DE", "German")                          \
-    X(DK, "DK", "Danish")                          \
-    X(PL_PROG, "PL-PROG", "Polish - Programmer's") \
-    X(SV, "SV", "Swedish")                         \
+    X(DE, "DE", "Germany")                         \
+    X(DK, "DK", "Denmark")                         \
+    X(PL_PROG, "PL-PROG", "Poland - Programmer's") \
+    X(SE, "SE", "Sweden")                          \
     X(US, "US", "United States")                   \
     X(US_INTL, "US-INTL", "United States - International")
 
@@ -75,5 +75,6 @@ int kbd_stdio_in_chars(char *buf, int length);
 void kbd_load_layout(const char *str, size_t len);
 bool kbd_set_layout(const char *kb);
 const char *kbd_get_layout(void);
+const char *kbd_get_layout_verbose(void);
 
 #endif /* _RIA_HID_KBD_H_ */

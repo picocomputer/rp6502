@@ -80,8 +80,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
     X(TW, "TW", "Taiwan")         \
     X(TH, "TH", "Thailand")       \
     X(TR, "TR", "Turkey")         \
-    X(GB, "GB", "UK")             \
-    X(US, "US", "USA")
+    X(GB, "GB", "United Kingdom") \
+    X(US, "US", "United States")
 
 #define X(suffix, abbr, name)                         \
     static const char __in_flash("cyw_country_codes") \
@@ -238,6 +238,14 @@ const char *cyw_get_rf_country_code(void)
         return "";
     else
         return cyw_country_abbr[cyw_country];
+}
+
+const char *cyw_get_rf_country_code_verbose(void)
+{
+    if (cyw_country < 0)
+        return "";
+    else
+        return cyw_country_name[cyw_country];
 }
 
 int cyw_country_code_response(char *buf, size_t buf_size, int state)

@@ -7,11 +7,11 @@
 
 // clang-format off
 
-// SV - Swedish
+// SE - Sweden
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}
-#define KBD_LAYOUT_KEYS_SV \
+#define KBD_LAYOUT_KEYS_SE \
     /* 0x00 */ {     0,      0,      0, 0, false}, \
     /* 0x01 */ {     0,      0,      0, 0, false}, \
     /* 0x02 */ {     0,      0,      0, 0, false}, \
@@ -117,8 +117,8 @@
     /* 0x66 */ {     0,      0,      0, 0, false}, \
     /* 0x67 */ {   '=',    '=',      0, 0, false},
 
-#define KBD_LAYOUT_DEAD2_SV \
+#define KBD_LAYOUT_DEAD2_SE \
     /* End */ {0}
 
-#define KBD_LAYOUT_DEAD3_SV \
+#define KBD_LAYOUT_DEAD3_SE \
     /* End */ {0}
