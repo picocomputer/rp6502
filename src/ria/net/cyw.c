@@ -242,12 +242,25 @@ const char *cyw_get_rf_country_code(void)
 
 int cyw_country_code_response(char *buf, size_t buf_size, int state)
 {
-    if (state > 2)
-        return -1;
-    const char *err_str[] = {"Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n",
-                             "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n",
-                             "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.\n"};
-    snprintf(buf, buf_size, err_str[state]);
+    const char *fmt = "  %2s - %-19s";
+    unsigned rows = (CYW_COUNTRY_COUNT + 2) / 3;
+    unsigned el = state;
+    for (int i = 0; i < 3; i++)
+    {
+        snprintf(buf, buf_size, fmt, cyw_country_abbr[el], cyw_country_name[el]);
+        buf += strlen(buf);
+        if (i < 2)
+            el += rows;
+        else
+            el += 1;
+        if (el >= CYW_COUNTRY_COUNT)
+        {
+            state = -2;
+            break;
+        }
+    }
+    *buf++ = '\n';
+    *buf = 0;
     return state + 1;
 }
 
