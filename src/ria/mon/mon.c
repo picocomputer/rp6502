@@ -104,6 +104,7 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
             break;
         else if (ch == ':')
         {
+            is_maybe_addr = true;
             i++;
             break;
         }
