@@ -94,8 +94,8 @@ static void set_code_page(const char *args, size_t len)
 static int set_vga_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *const vga_labels[] = {STR_SET_VGA_0_LABEL, STR_SET_VGA_1_LABEL, STR_SET_VGA_2_LABEL};
-    snprintf(buf, buf_size, STR_SET_VGA_RESPONSE, vga_labels[vga_get_display_type()]);
+    snprintf(buf, buf_size, STR_SET_VGA_RESPONSE,
+             vga_get_display_type(), vga_get_display_type_verbose());
     return -1;
 }
 
@@ -115,8 +115,9 @@ static void set_vga(const char *args, size_t len)
 static int set_rf_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
+    uint8_t en = cyw_get_rf_enable();
     snprintf(buf, buf_size, STR_SET_RF_RESPONSE,
-             cyw_get_rf_enable() ? STR_ON : STR_OFF);
+             en, en ? STR_ON : STR_OFF);
     return -1;
 }
 
@@ -137,10 +138,10 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state)
     const char *cc = cyw_get_rf_country_code();
     if (strlen(cc))
         snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                 cc, " - ", cyw_get_rf_country_code_verbose());
+                 cc, " ", cyw_get_rf_country_code_verbose());
     else
         snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                 STR_WORLDWIDE, "", "");
+                 "", "", STR_WORLDWIDE);
     return -1;
 }
 
@@ -210,8 +211,9 @@ static void set_pass(const char *args, size_t len)
 static int set_ble_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
+    uint8_t en = ble_get_enabled();
     snprintf(buf, buf_size, STR_SET_BLE_RESPONSE,
-             ble_get_enabled() ? STR_ENABLED : STR_DISABLED,
+             en, en ? STR_ENABLED : STR_DISABLED,
              ble_is_pairing() ? STR_BLE_PAIRING : "",
              cyw_get_rf_enable() ? "" : STR_BLE_NO_RF);
     return -1;

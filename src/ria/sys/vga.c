@@ -294,3 +294,11 @@ uint8_t vga_get_display_type(void)
 {
     return vga_display_type;
 }
+
+const char *vga_get_display_type_verbose(void)
+{
+    const char *const labels[] = {STR_VGA_DISPLAY_TYPE_0,
+                                  STR_VGA_DISPLAY_TYPE_1,
+                                  STR_VGA_DISPLAY_TYPE_2};
+    return labels[vga_display_type];
+}
