@@ -36,8 +36,8 @@
 
 #define KBD_LAYOUT_MAX_NAME_SIZE 16
 #define KBD_LAYOUTS                                \
-    X(DE, "DE", "Germany")                         \
     X(DK, "DK", "Denmark")                         \
+    X(DE, "DE", "Germany")                         \
     X(PL_PROG, "PL-PROG", "Poland - Programmer's") \
     X(SE, "SE", "Sweden")                          \
     X(US, "US", "United States")                   \

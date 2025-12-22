@@ -152,9 +152,8 @@ X(STR_HELP_SET,
   "SET TZ (tz)         - Query or set time zone.\n"
   "SET KB (layout)     - Query or set keyboard layout.\n"
   "SET CP (cp)         - Query or set code page.\n"
-  "SET VGA (0|1|2)     - Query or set display type for VGA output."
+  "SET VGA (0|1|2)     - Query or set display type for VGA output.\n"
 #ifdef RP6502_RIA_W
-  "\n"
   "SET RF (0|1)        - Disable or enable radio.\n"
   "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
   "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
@@ -243,7 +242,7 @@ X(STR_HELP_UPLOAD,
 X(STR_HELP_UNLINK,
   "UNLINK removes a file. Its intended use is for scripting on another system\n"
   "connected to the monitor. For example, you might want to delete save data\n"
-  "as part of automated testing.")
+  "as part of automated testing.\n")
 
 X(STR_HELP_BINARY,
   "BINARY is the fastest way to get code or data from your build system to the\n"
@@ -294,7 +293,7 @@ X(STR_HELP_SET_VGA,
   "  2 - 1280x1024, for 5:4 SXGA displays\n")
 
 X(STR_HELP_SET_RF,
-  "SET RF (0|1) turns all radios off or on.")
+  "SET RF (0|1) turns all radios off or on.\n")
 
 X(STR_HELP_SET_RFCC,
   "Set this so the CYW43 can use the best radio frequencies for your country.\n"
