@@ -24,7 +24,7 @@ void fil_break(void);
 // True when more work is pending.
 bool fil_active(void);
 
-// Predicts is a chdrive will succeed
+// Predicts if a chdrive will succeed
 bool fil_drive_exists(const char *args, size_t len);
 
 /* Monitor commands
