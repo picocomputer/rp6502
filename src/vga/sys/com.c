@@ -73,7 +73,7 @@ static void com_out_chars(const char *buf, int length)
             com_out_buf[com_out_head] = *buf++;
             length--;
         }
-        while (((com_out_head + 1) % COM_OUT_BUF_SIZE) == com_out_tail)
+        if (((com_out_head + 1) % COM_OUT_BUF_SIZE) == com_out_tail)
         {
             cdc_task();
             tud_task();

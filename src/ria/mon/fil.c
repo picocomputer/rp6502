@@ -13,6 +13,7 @@
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
 #include <stdio.h>
@@ -33,16 +34,46 @@ static uint32_t fil_rx_crc;
 static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
 
+bool fil_drive_exists(const char *args, size_t len)
+{
+    // 0:-7:
+    if (len == 2 &&
+        args[0] >= '0' && args[0] <= '7' &&
+        args[1] == ':')
+        return true;
+    // USB0:-USB7:
+    if (len == 5 &&
+        toupper(args[0]) == 'U' &&
+        toupper(args[1]) == 'S' &&
+        toupper(args[2]) == 'B' &&
+        args[3] >= '0' && args[3] <= '7' &&
+        args[4] == ':')
+        return true;
+    return false;
+}
+
 static int fil_chdir_response(char *buf, size_t buf_size, int state)
 {
-    (void)state;
-    char s[buf_size - 1];
+    (void)buf_size;
     FRESULT result;
-    result = f_getcwd(s, sizeof(s));
+    char *cwd = (char *)mbuf;
+    result = f_getcwd(cwd, MBUF_SIZE);
     mon_add_response_fatfs(result);
-    if (result == FR_OK)
-        snprintf(buf, buf_size, "%s\n", s);
-    return -1;
+    if (result != FR_OK)
+        return -1;
+    const int width = 79;
+    int len = strlen(cwd);
+    if (len < state * width)
+        return -1;
+    cwd += state * width;
+    snprintf(buf, width + 1, cwd);
+    buf += (len = strlen(buf));
+    if (len)
+    {
+        *buf++ = '\n';
+        *buf = 0;
+    }
+    return state + 1;
 }
 
 void fil_mon_chdir(const char *args, size_t len)
@@ -107,7 +138,6 @@ void fil_mon_chdrive(const char *args, size_t len)
 
 static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
 {
-    (void)state;
     if (state < 0)
     {
         f_closedir(&fil_fatfs_dir);
@@ -122,14 +152,14 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
         return -1;
     }
     if (fno.fattrib & (AM_HID | AM_SYS))
-        /* nop */;
-    else if (fno.fattrib & AM_DIR)
-        snprintf(buf, buf_size, " <DIR> %s\n", fno.fname);
+        return 0;
+    if (fno.fattrib & AM_DIR)
+        snprintf(buf, buf_size, " <DIR> %.72s\n", fno.fname);
     else
     {
         double size = fno.fsize;
         if (size <= 999999)
-            snprintf(buf, buf_size, "%6.0f %s\n", size, fno.fname);
+            snprintf(buf, buf_size, "%6.0f %.72s\n", size, fno.fname);
         else
         {
             size /= 1024;
@@ -140,8 +170,14 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
                 size /= 1024, c = 'G';
             if (size >= 1000)
                 size /= 1024, c = 'T';
-            snprintf(buf, buf_size, "%5.1f%c %s\n", size, c, fno.fname);
+            snprintf(buf, buf_size, "%5.1f%c %.72s\n", size, c, fno.fname);
         }
+    }
+    if (strlen(fno.fname) > 72)
+    {
+        buf[76] = '.';
+        buf[77] = '.';
+        buf[78] = '.';
     }
     return 0;
 }

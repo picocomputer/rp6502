@@ -9,6 +9,7 @@
 #include "mon/mon.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
+#include "net/cyw.h"
 #include "str/str.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
@@ -75,7 +76,7 @@ __in_flash("hlp_settings") static struct
     {STR_VGA, STR_HELP_SET_VGA, NULL},
 #ifdef RP6502_RIA_W
     {STR_RF, STR_HELP_SET_RF, NULL},
-    {STR_RFCC, STR_HELP_SET_RFCC, NULL},
+    {STR_RFCC, STR_HELP_SET_RFCC, cyw_country_code_response},
     {STR_SSID, STR_HELP_SET_SSID, NULL},
     {STR_PASS, STR_HELP_SET_PASS, NULL},
     {STR_BLE, STR_HELP_SET_BLE, NULL},

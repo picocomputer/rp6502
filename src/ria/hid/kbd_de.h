@@ -7,7 +7,7 @@
 
 // clang-format off
 
-// DE - German
+// DE - Germany
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}

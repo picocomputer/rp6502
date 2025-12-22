@@ -152,9 +152,8 @@ X(STR_HELP_SET,
   "SET TZ (tz)         - Query or set time zone.\n"
   "SET KB (layout)     - Query or set keyboard layout.\n"
   "SET CP (cp)         - Query or set code page.\n"
-  "SET VGA (0|1|2)     - Query or set display type for VGA output."
+  "SET VGA (0|1|2)     - Query or set display type for VGA output.\n"
 #ifdef RP6502_RIA_W
-  "\n"
   "SET RF (0|1)        - Disable or enable radio.\n"
   "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
   "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
@@ -169,17 +168,22 @@ X(STR_HELP_SYSTEM,
   "that would normally be on a ROM chip. The 6502 is currently in-reset right\n"
   "now; the RESB line is low. What you are seeing is coming from the RP6502-RIA.\n"
   "You can return to this monitor at any time by pressing CTRL-ALT-DEL or sending\n"
-  "a break to the serial port. Since these signals are handled by the RP6502 RIA,\n"
-  "they will always stop even a crashed 6502. This monitor can do scripted things\n"
-  "that are useful for developing software. It also provides interactive commands\n"
-  "like typing a hex address to see the corresponding RAM value:\n"
+  "a break to the serial port. Since these signals are handled by the RP6502-RIA,\n"
+  "they will always stop the 6502, even when crashed. This monitor can do scripted\n"
+  "things that are useful for developing software. It also provides interactive\n"
+  "commands like typing a hex address to see the corresponding RAM value:\n"
   "]0200\n"
-  "0200 DA DA DA DA DA DA DA DA DA DA DA DA DA DA DA DA\n"
+  "0200  DA DA DA DA DA DA DA DA  DA DA DA DA DA DA DA DA  |................|\n"
   "The 64KB of extended memory (XRAM) is mapped from $10000 to $1FFFF.\n"
+  "Request a range of memory with the \"-\" character:\n"
+  "]10000-100FF\n"
   "You can also set memory. For example, to set the reset vector:\n"
   "]FFFC 00 02\n"
-  "This is useful for some light debugging, but the real power is from the other\n"
-  "commands you can explore with this help system. Have fun!\n")
+  "Intel HEX format is allowed:\n"
+  "]:02FFFC00000201\n"
+  "Manually manipulating memory is useful for some light debugging, but the real\n"
+  "power is from the other commands you can explore with this help system.\n"
+  "Have fun!\n")
 
 X(STR_HELP_DIR,
   "LS (also aliased as DIR) and CD are used to navigate USB mass storage\n"
@@ -243,7 +247,7 @@ X(STR_HELP_UPLOAD,
 X(STR_HELP_UNLINK,
   "UNLINK removes a file. Its intended use is for scripting on another system\n"
   "connected to the monitor. For example, you might want to delete save data\n"
-  "as part of automated testing.")
+  "as part of automated testing.\n")
 
 X(STR_HELP_BINARY,
   "BINARY is the fastest way to get code or data from your build system to the\n"
@@ -276,10 +280,9 @@ X(STR_HELP_SET_KB,
   "SET KB selects a keyboard layout. e.g. SET KB US\n")
 
 X(STR_HELP_SET_CP,
-  "SET CP selects a code page for system text. The following is supported:\n"
-  "437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865,\n"
-  "866, 869, 932, 936, 949, 950.  Code pages 720, 932, 936, 949, 950 do not have\n"
-  "VGA fonts.\n"
+  "SET CP selects a code page for system text. The following is supported: 437\n"
+  "737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
+  "Code pages 720, 932, 936, 949, 950 are available but do not have VGA fonts.\n"
 #if RP6502_CODE_PAGE
   "This is a development build. Only " STR_RP6502_CODE_PAGE " is available.\n"
 #endif
@@ -295,14 +298,11 @@ X(STR_HELP_SET_VGA,
   "  2 - 1280x1024, for 5:4 SXGA displays\n")
 
 X(STR_HELP_SET_RF,
-  "SET RF (0|1) turns all radios off or on.")
+  "SET RF (0|1) turns all radios off or on.\n")
 
 X(STR_HELP_SET_RFCC,
   "Set this so the CYW43 can use the best radio frequencies for your country.\n"
-  "Using \"-\" will clear the country code and default to a worldwide setting.\n"
-  "Valid country codes: AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EE, FI, FR, DE,\n"
-  "GR, HK, HU, IS, IN, IL, IT, JP, KE, LV, LI, LT, LU, MY, MT, MX, NL, NZ, NG,\n"
-  "NO, PE, PH, PL, PT, SG, SK, SI, ZA, KR, ES, SE, CH, TW, TH, TR, GB, US.\n")
+  "Using \"-\" will clear the country code and default to a worldwide setting.\n")
 
 X(STR_HELP_SET_SSID,
   "This is the Service Set Identifier for your WiFi network. Setting \"-\" will\n"

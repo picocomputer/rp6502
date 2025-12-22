@@ -628,7 +628,7 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state)
             maxlen = thislen;
     }
     snprintf(buf, buf_size,
-             " %*s - %s\n",
+             "  %*s - %s\n",
              maxlen, kbd_layout_names[state],
              kbd_layout_descriptions[state]);
     return state + 1;
@@ -895,4 +895,9 @@ bool kbd_set_layout(const char *kb)
 const char *kbd_get_layout(void)
 {
     return kbd_layout_names[kbd_layout_index];
+}
+
+const char *kbd_get_layout_verbose(void)
+{
+    return kbd_layout_descriptions[kbd_layout_index];
 }

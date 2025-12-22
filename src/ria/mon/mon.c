@@ -46,9 +46,10 @@ static bool mon_needs_read_line = false;
 static bool mon_needs_break = false;
 static enum {
     MON_MORE_OFF,
-    MON_MORE_END,
     MON_MORE_START,
-    MON_MORE_NORM,
+    MON_MORE_FLUSH,
+    MON_MORE_END,
+    MON_MORE_C0,
     MON_MORE_ESC,
     MON_MORE_CSI,
     MON_MORE_SS3,
@@ -97,10 +98,16 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
     for (; i < buflen; i++)
     {
         uint8_t ch = (*buf)[i];
-        if (isxdigit(ch))
+        if (isxdigit(ch) || ch == '-')
             is_maybe_addr = true;
         else if (ch == ' ')
             break;
+        else if (ch == ':')
+        {
+            is_maybe_addr = true;
+            i++;
+            break;
+        }
         else
             is_not_addr = true;
     }
@@ -113,18 +120,17 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
     // cd for chdir, 00cd for r/w address
     if (cmd_len == 2 && !strncasecmp(cmd, STR_CD, cmd_len))
         is_not_addr = true;
+    // 0:-7: and USB0:-USB7:
+    if (fil_drive_exists(cmd, cmd_len))
+    {
+        *buf = cmd;
+        return fil_mon_chdrive;
+    }
     // address command
     if (is_maybe_addr && !is_not_addr)
     {
         *buf = cmd;
         return ram_mon_address;
-    }
-    // *0:-*9: is chdrive
-    if (cmd_len >= 2 && cmd[cmd_len - 1] == ':' &&
-        cmd[cmd_len - 2] >= '0' && cmd[cmd_len - 2] <= '9')
-    {
-        *buf = cmd;
-        return fil_mon_chdrive;
     }
     *buf += i;
     for (i = 0; i < MON_COMMANDS_COUNT; i++)
@@ -370,23 +376,27 @@ static void mon_more(void)
     }
     switch (mon_more_state)
     {
+    case MON_MORE_START:
+        printf(STR_MON_MORE_SHOW);
+        mon_more_state = MON_MORE_FLUSH;
+        break;
+    case MON_MORE_FLUSH:
+        if (PICO_ERROR_TIMEOUT == stdio_getchar_timeout_us(0))
+            mon_more_state = MON_MORE_C0;
+        break;
     case MON_MORE_END:
         printf(STR_MON_MORE_ERASE);
         mon_response_line = 0;
         mon_more_state = MON_MORE_OFF;
         break;
-    case MON_MORE_START:
-        printf(STR_MON_MORE_SHOW);
-        mon_more_state = MON_MORE_NORM;
-        __attribute__((fallthrough));
     default:
         int ch = stdio_getchar_timeout_us(0);
         if (ch == '\30')
-            mon_more_state = MON_MORE_NORM;
+            mon_more_state = MON_MORE_C0;
         else if (ch != PICO_ERROR_TIMEOUT)
             switch (mon_more_state)
             {
-            default: // MON_MORE_NORM
+            default: // MON_MORE_C0
                 if (ch == '\33')
                     mon_more_state = MON_MORE_ESC;
                 else

@@ -89,7 +89,7 @@ int msc_count(void)
 {
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-        if (msc_volume_status[vol] != msc_volume_free)
+        if (msc_volume_status[vol] == msc_volume_mounted)
             count++;
     return count;
 }
@@ -98,13 +98,8 @@ int msc_status_response(char *buf, size_t buf_size, int state)
 {
     if (state >= FF_VOLUMES)
         return -1;
-    switch (msc_volume_status[state])
+    if (msc_volume_status[state] == msc_volume_mounted)
     {
-    case msc_volume_inquiring:
-        snprintf(buf, buf_size, STR_STATUS_MSC_INQUIRING,
-                 VolumeStr[state]);
-        break;
-    case msc_volume_mounted:
         const char *xb = "MB";
         double size = msc_volume_size[state] / (1024 * 1024);
         if (size >= 1000)
@@ -121,23 +116,12 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         rtrims(msc_inquiry_resp[state].vendor_id, 8);
         rtrims(msc_inquiry_resp[state].product_id, 16);
         rtrims(msc_inquiry_resp[state].product_rev, 4);
-        snprintf(buf, buf_size, STR_STATUS_MSC_MOUNTED,
+        snprintf(buf, buf_size, STR_STATUS_MSC,
                  VolumeStr[state],
                  size, xb,
                  msc_inquiry_resp[state].vendor_id,
                  msc_inquiry_resp[state].product_id,
                  msc_inquiry_resp[state].product_rev);
-        break;
-    case msc_volume_inquiry_failed:
-        snprintf(buf, buf_size, STR_STATUS_MSC_INQUIRY_FAILED,
-                 VolumeStr[state]);
-        break;
-    case msc_volume_mount_failed:
-        snprintf(buf, buf_size, STR_STATUS_MSC_MOUNT_FAILED,
-                 VolumeStr[state], msc_mount_result[state]);
-        break;
-    default:
-        break;
     }
     return state + 1;
 }

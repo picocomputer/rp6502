@@ -9,7 +9,7 @@
 
 // Contributors: WojciechGw
 
-// PL-PROG - Polish - Programmer's
+// PL-PROG - Poland - Programmer's
 
 // HID KEY to Unicode
 // {unmodified, shift, altGr, shift + altGr, use caps lock}

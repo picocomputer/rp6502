@@ -30,78 +30,96 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // These are from cyw43_arch.h
-// Change the help if you change these
-// clang-format off
-__in_flash("CYW_COUNTRY_CODES")
-static const char CYW_COUNTRY_CODES[] = {
-    'A', 'U', // AUSTRALIA
-    'A', 'T', // AUSTRIA
-    'B', 'E', // BELGIUM
-    'B', 'R', // BRAZIL
-    'C', 'A', // CANADA
-    'C', 'L', // CHILE
-    'C', 'N', // CHINA
-    'C', 'O', // COLOMBIA
-    'C', 'Z', // CZECH_REPUBLIC
-    'D', 'K', // DENMARK
-    'E', 'E', // ESTONIA
-    'F', 'I', // FINLAND
-    'F', 'R', // FRANCE
-    'D', 'E', // GERMANY
-    'G', 'R', // GREECE
-    'H', 'K', // HONG_KONG
-    'H', 'U', // HUNGARY
-    'I', 'S', // ICELAND
-    'I', 'N', // INDIA
-    'I', 'L', // ISRAEL
-    'I', 'T', // ITALY
-    'J', 'P', // JAPAN
-    'K', 'E', // KENYA
-    'L', 'V', // LATVIA
-    'L', 'I', // LIECHTENSTEIN
-    'L', 'T', // LITHUANIA
-    'L', 'U', // LUXEMBOURG
-    'M', 'Y', // MALAYSIA
-    'M', 'T', // MALTA
-    'M', 'X', // MEXICO
-    'N', 'L', // NETHERLANDS
-    'N', 'Z', // NEW_ZEALAND
-    'N', 'G', // NIGERIA
-    'N', 'O', // NORWAY
-    'P', 'E', // PERU
-    'P', 'H', // PHILIPPINES
-    'P', 'L', // POLAND
-    'P', 'T', // PORTUGAL
-    'S', 'G', // SINGAPORE
-    'S', 'K', // SLOVAKIA
-    'S', 'I', // SLOVENIA
-    'Z', 'A', // SOUTH_AFRICA
-    'K', 'R', // SOUTH_KOREA
-    'E', 'S', // SPAIN
-    'S', 'E', // SWEDEN
-    'C', 'H', // SWITZERLAND
-    'T', 'W', // TAIWAN
-    'T', 'H', // THAILAND
-    'T', 'R', // TURKEY
-    'G', 'B', // UK
-    'U', 'S', // USA
-};
-// clang-format on
+#define CYW_CC_X                  \
+    X(AU, "AU", "Australia")      \
+    X(AT, "AT", "Austria")        \
+    X(BE, "BE", "Belgium")        \
+    X(BR, "BR", "Brazil")         \
+    X(CA, "CA", "Canada")         \
+    X(CL, "CL", "Chile")          \
+    X(CN, "CN", "China")          \
+    X(CO, "CO", "Colombia")       \
+    X(CZ, "CZ", "Czech Republic") \
+    X(DK, "DK", "Denmark")        \
+    X(EE, "EE", "Estonia")        \
+    X(FI, "FI", "Finland")        \
+    X(FR, "FR", "France")         \
+    X(DE, "DE", "Germany")        \
+    X(GR, "GR", "Greece")         \
+    X(HK, "HK", "Hong Kong")      \
+    X(HU, "HU", "Hungary")        \
+    X(IS, "IS", "Iceland")        \
+    X(IN, "IN", "India")          \
+    X(IL, "IL", "Israel")         \
+    X(IT, "IT", "Italy")          \
+    X(JP, "JP", "Japan")          \
+    X(KE, "KE", "Kenya")          \
+    X(LV, "LV", "Latvia")         \
+    X(LI, "LI", "Liechtenstein")  \
+    X(LT, "LT", "Lithuania")      \
+    X(LU, "LU", "Luxembourg")     \
+    X(MY, "MY", "Malaysia")       \
+    X(MT, "MT", "Malta")          \
+    X(MX, "MX", "Mexico")         \
+    X(NL, "NL", "Netherlands")    \
+    X(NZ, "NZ", "New Zealand")    \
+    X(NG, "NG", "Nigeria")        \
+    X(NO, "NO", "Norway")         \
+    X(PE, "PE", "Peru")           \
+    X(PH, "PH", "Philippines")    \
+    X(PL, "PL", "Poland")         \
+    X(PT, "PT", "Portugal")       \
+    X(SG, "SG", "Singapore")      \
+    X(SK, "SK", "Slovakia")       \
+    X(SI, "SI", "Slovenia")       \
+    X(ZA, "ZA", "South Africa")   \
+    X(KR, "KR", "South Korea")    \
+    X(ES, "ES", "Spain")          \
+    X(SE, "SE", "Sweden")         \
+    X(CH, "CH", "Switzerland")    \
+    X(TW, "TW", "Taiwan")         \
+    X(TH, "TH", "Thailand")       \
+    X(TR, "TR", "Turkey")         \
+    X(GB, "GB", "United Kingdom") \
+    X(US, "US", "United States")
+
+#define X(suffix, abbr, name)                         \
+    static const char __in_flash("cyw_country_codes") \
+        CYW_COUNTRY_ABBR_##suffix[] = abbr;           \
+    static const char __in_flash("cyw_country_codes") \
+        CYW_COUNTRY_NAME_##suffix[] = name;
+CYW_CC_X
+#undef X
+
+#define X(suffix, abbr, name) \
+    CYW_COUNTRY_ABBR_##suffix,
+static const char *__in_flash("cyw_country_abbr")
+    cyw_country_abbr[] = {CYW_CC_X};
+#undef X
+
+#define X(suffix, abbr, name) \
+    CYW_COUNTRY_NAME_##suffix,
+static const char *__in_flash("cyw_country_name")
+    cyw_country_name[] = {CYW_CC_X};
+#undef X
+
+#define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
 
 static uint8_t cyw_rf_enable = 1;
-static char cyw_rf_country_code[3];
+// static char cyw_rf_country_code[3];
+static int cyw_country = -1;
 static bool cyw_led_status;
 static bool cyw_led_requested;
 static bool cyw_initialized;
 
-static bool cyw_validate_country_code(char *cc)
+static int cyw_lookup_country(const char *cc)
 {
-    if (!cc[0] || !cc[1] || cc[2] != 0)
-        return false;
-    for (size_t i = 0; i < sizeof(CYW_COUNTRY_CODES); i += 2)
-        if (cc[0] == CYW_COUNTRY_CODES[i] && cc[1] == CYW_COUNTRY_CODES[i + 1])
-            return true;
-    return false;
+    for (size_t i = 0; i < CYW_COUNTRY_COUNT; i++)
+    {
+        if (!strcasecmp(cc, cyw_country_abbr[i]))
+            return i;
+    }
+    return -1;
 }
 
 static void cyw_reset_radio(void)
@@ -151,10 +169,12 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
 
     // flush newline from readline before init blocks
     stdio_flush();
-
     uint32_t country = CYW43_COUNTRY_WORLDWIDE;
-    if (strlen(cyw_rf_country_code) == 2)
-        country = CYW43_COUNTRY(cyw_rf_country_code[0], cyw_rf_country_code[1], 0);
+    if (cyw_country >= 0)
+        country = CYW43_COUNTRY(
+            cyw_country_abbr[cyw_country][0],
+            cyw_country_abbr[cyw_country][1],
+            0);
     if (cyw43_arch_init_with_country(country))
         mon_add_response_str(STR_ERR_CYW_FAILED_TO_INIT);
     else
@@ -194,27 +214,18 @@ uint8_t cyw_get_rf_enable(void)
 
 void cyw_load_rf_country_code(const char *str, size_t len)
 {
-    if (str_parse_string(&str, &len, cyw_rf_country_code, sizeof(cyw_rf_country_code)) &&
-        !cyw_validate_country_code(cyw_rf_country_code))
-        cyw_rf_country_code[0] = 0;
+    (void)len;
+    cyw_country = cyw_lookup_country(str);
 }
 
 bool cyw_set_rf_country_code(const char *rfcc)
 {
-    char cc[3] = {0, 0, 0};
-    size_t len = strlen(rfcc);
-    if (len != 0 && len != 2)
+    int country = cyw_lookup_country(rfcc);
+    if (*rfcc && country < 0)
         return false;
-    if (len == 2)
+    if (cyw_country != country)
     {
-        cc[0] = toupper(rfcc[0]);
-        cc[1] = toupper(rfcc[1]);
-        if (!cyw_validate_country_code(cc))
-            return false;
-    }
-    if (strcmp(cyw_rf_country_code, cc))
-    {
-        strcpy(cyw_rf_country_code, cc);
+        cyw_country = country;
         cyw_reset_radio();
         cfg_save();
     }
@@ -223,7 +234,42 @@ bool cyw_set_rf_country_code(const char *rfcc)
 
 const char *cyw_get_rf_country_code(void)
 {
-    return cyw_rf_country_code;
+    if (cyw_country < 0)
+        return "";
+    else
+        return cyw_country_abbr[cyw_country];
+}
+
+const char *cyw_get_rf_country_code_verbose(void)
+{
+    if (cyw_country < 0)
+        return "";
+    else
+        return cyw_country_name[cyw_country];
+}
+
+int cyw_country_code_response(char *buf, size_t buf_size, int state)
+{
+    const char *fmt = "  %2s - %-19s";
+    unsigned rows = (CYW_COUNTRY_COUNT + 2) / 3;
+    unsigned el = state;
+    for (int i = 0; i < 3; i++)
+    {
+        snprintf(buf, buf_size, fmt, cyw_country_abbr[el], cyw_country_name[el]);
+        buf += strlen(buf);
+        if (i < 2)
+            el += rows;
+        else
+            el += 1;
+        if (el >= CYW_COUNTRY_COUNT)
+        {
+            state = -2;
+            break;
+        }
+    }
+    *buf++ = '\n';
+    *buf = 0;
+    return state + 1;
 }
 
 #endif /* RP6502_RIA_W */
