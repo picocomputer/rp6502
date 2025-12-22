@@ -279,6 +279,11 @@ void ram_mon_address(const char *args, size_t len)
             mon_add_response_fn(ram_print_response);
         return;
     }
+    if (second_selected)
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
     uint32_t data = 0x80000000;
     mbuf_len = 0;
     for (; i < len; i++)
