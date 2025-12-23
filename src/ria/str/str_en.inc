@@ -271,10 +271,11 @@ X(STR_HELP_SET_BOOT,
   "Setting is saved on the RIA flash.\n")
 
 X(STR_HELP_SET_TZ,
-  "TZ sets the time zone using the same format as POSIX. The default is \"UTC0\".\n"
-  "Some examples are \"PST8PDT,M3.2.0/2,M11.1.0/2\" for USA Pacific time and \n"
-  "\"CET-1CEST,M3.5.0/2,M10.5.0/3\" for Central European time.\n"
-  "The easiest way to get this is to ask an AI \"posix tz for {your location}\".\n")
+  "You can set your time zone from the table below with just the city like\n"
+  "\"SET TZ LOS_ANGELES\" or the full name \"SET TZ AMERICA/LOS_ANGELES\".\n"
+  "Locations not in the table below can SET TZ to a POSIX TZ string with, for\n"
+  "example, \"SET TZ PST8PDT,M3.2.0/2,M11.1.0/2\". The easiest way to get a\n"
+  "POSIX TZ string is to ask an AI \"posix tz for {your location}\".\n")
 
 X(STR_HELP_SET_KB,
   "SET KB selects a keyboard layout. e.g. SET KB US\n")
