@@ -15,6 +15,7 @@
 #include <pico/aon_timer.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
 #include <stdio.h>
@@ -104,8 +105,7 @@ CLK_TZINFO
 #define X(suffix, name, tz) \
     CLK_TZINFO_NAME_##suffix,
 static const char *__in_flash("clk_tzinfo_name")
-    clk_tzinfo_name[] = {
-        CLK_TZINFO};
+    clk_tzinfo_name[] = {CLK_TZINFO};
 #undef X
 
 #define X(suffix, name, tz) \
@@ -121,12 +121,12 @@ static int clk_tzinfo_index;
 
 int clk_tzdata_response(char *buf, size_t buf_size, int state)
 {
-    const char fmt[] = "  %2d) %-20s";
+    const char fmt[] = "   %-22s";
     unsigned rows = (CLK_TZINFO_COUNT + 2) / 3;
     unsigned el = state;
     for (int i = 0; i < 3; i++)
     {
-        snprintf(buf, buf_size, fmt, el, clk_tzinfo_name[el]);
+        snprintf(buf, buf_size, fmt, clk_tzinfo_name[el]);
         buf += strlen(buf);
         if (i < 2)
             el += rows;
@@ -148,10 +148,10 @@ void clk_init(void)
     // starting at noon avoids time zone wraparound
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    // Default time zone
-    if (!getenv(STR_TZ))
+    // Default or finish loading
+    if (clk_tzinfo_index >= 0)
     {
-        setenv(STR_TZ, STR_CLK_DEFAULT_TZ, 1);
+        setenv(STR_TZ, clk_tzinfo_tz[clk_tzinfo_index], 1);
         tzset();
     }
 }
@@ -183,20 +183,50 @@ int clk_status_response(char *buf, size_t buf_size, int state)
 void clk_load_time_zone(const char *str, size_t len)
 {
     char tz[CLK_TZ_MAX_SIZE];
-    if (str_parse_string(&str, &len, tz, sizeof(tz)))
+    if (!str_parse_string(&str, &len, tz, sizeof(tz)))
+        return;
+    for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
-        setenv(STR_TZ, tz, 1);
-        tzset();
+        if (!strcasecmp(tz, clk_tzinfo_name[i]))
+        {
+            clk_tzinfo_index = i;
+            return;
+        }
     }
+    clk_tzinfo_index = -1;
+    setenv(STR_TZ, tz, 1);
+    tzset();
 }
 
 bool clk_set_time_zone(const char *tz)
 {
     if (strlen(tz) >= CLK_TZ_MAX_SIZE)
         return false;
-    if (strcmp(getenv(STR_TZ), tz))
+    int found_index = -1;
+    for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
-        setenv(STR_TZ, tz, 1);
+        const char *tzname = clk_tzinfo_name[i];
+        if (!strcasecmp(tz, tzname))
+        {
+            found_index = i;
+            break;
+        }
+        const char *slash = strchr(tzname, '/');
+        if (slash && !strcasecmp(tz, slash + 1))
+        {
+            found_index = i;
+            break;
+        }
+    }
+    if (found_index != clk_tzinfo_index ||
+        (found_index < 0 && clk_tzinfo_index < 0 &&
+         strcmp(getenv(STR_TZ), tz)))
+    {
+        clk_tzinfo_index = found_index;
+        if (clk_tzinfo_index < 0)
+            setenv(STR_TZ, tz, 1);
+        else
+            setenv(STR_TZ, clk_tzinfo_tz[clk_tzinfo_index], 1);
         tzset();
         cfg_save();
     }
@@ -205,7 +235,10 @@ bool clk_set_time_zone(const char *tz)
 
 const char *clk_get_time_zone(void)
 {
-    return getenv(STR_TZ);
+    if (clk_tzinfo_index < 0)
+        return getenv(STR_TZ);
+    else
+        return clk_tzinfo_name[clk_tzinfo_index];
 }
 
 bool clk_api_tzset(void)

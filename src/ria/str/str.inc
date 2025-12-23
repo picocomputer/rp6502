@@ -20,10 +20,6 @@ X(STR_MDM_SETTINGS, "MODEM0.SYS")
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")
 
-// Configuration string defaults
-X(STR_KBD_DEFAULT_LAYOUT, "US")
-X(STR_CLK_DEFAULT_TZ, "UTC0")
-
 // VGA driver
 X(STR_VGA_DISPLAY_TYPE_0, "640x480")
 X(STR_VGA_DISPLAY_TYPE_1, "640x480 | 1280x720")
@@ -54,6 +50,7 @@ X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
 X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
 
 // Monitor keywords
+X(STR_POSIX, "POSIX")
 X(STR_END, "END")
 X(STR_HELP, "HELP")
 X(STR_H, "H")
