@@ -25,7 +25,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CLK_ID_REALTIME 0
 
-#define CLK_TZINFO /* X(suffix, name, tz) */                               \
+#define CLK_TZINFO                                                         \
     X(UTC, "Etc/UTC", "UTC0")                                              \
     X(GMT0GH, "Africa/Accra", "GMT0")                                      \
     X(CETn1DZ, "Africa/Algiers", "CET-1")                                  \
@@ -111,13 +111,37 @@ static const char *__in_flash("clk_tzinfo_name")
 #define X(suffix, name, tz) \
     CLK_TZINFO_TZ_##suffix,
 static const char *__in_flash("clk_tzinfo_tz")
-    clk_tzinfo_tz[] = {
-        CLK_TZINFO};
+    clk_tzinfo_tz[] = {CLK_TZINFO};
 #undef X
 
 #define CLK_TZINFO_COUNT (sizeof(clk_tzinfo_name) / sizeof(*clk_tzinfo_name))
 
 static uint64_t clk_clock_start;
+static int clk_tzinfo_index;
+
+int clk_tzdata_response(char *buf, size_t buf_size, int state)
+{
+    const char fmt[] = "  %2d) %-20s";
+    unsigned rows = (CLK_TZINFO_COUNT + 2) / 3;
+    unsigned el = state;
+    for (int i = 0; i < 3; i++)
+    {
+        snprintf(buf, buf_size, fmt, el, clk_tzinfo_name[el]);
+        buf += strlen(buf);
+        if (i < 2)
+            el += rows;
+        else
+            el += 1;
+        if (el >= CLK_TZINFO_COUNT)
+        {
+            state = -2;
+            break;
+        }
+    }
+    *buf++ = '\n';
+    *buf = 0;
+    return state + 1;
+}
 
 void clk_init(void)
 {

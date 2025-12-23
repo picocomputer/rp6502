@@ -5,6 +5,7 @@
  */
 
 #include "hid/kbd.h"
+#include "api/clk.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
@@ -70,7 +71,7 @@ __in_flash("hlp_settings") static struct
 } const HLP_SETTINGS[] = {
     {STR_PHI2, STR_HELP_SET_PHI2, NULL},
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
-    {STR_TZ, STR_HELP_SET_TZ, NULL},
+    {STR_TZ, STR_HELP_SET_TZ, clk_tzdata_response},
     {STR_KB, STR_HELP_SET_KB, kbd_layouts_response},
     {STR_CP, STR_HELP_SET_CP, NULL},
     {STR_VGA, STR_HELP_SET_VGA, NULL},

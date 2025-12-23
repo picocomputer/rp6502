@@ -22,8 +22,11 @@
 void clk_init(void);
 void clk_run(void);
 
-// Print for status command.
+// Print for status command
 int clk_status_response(char *buf, size_t buf_size, int state);
+
+// Show tz database
+int clk_tzdata_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting TZ
 // Use POSIX TZ format. e.g. PST8PDT,M3.2.0/2,M11.1.0/2
