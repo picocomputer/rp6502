@@ -25,9 +25,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CLK_ID_REALTIME 0
 
-static uint64_t clk_clock_start;
-
-#define CLK_ZONES /* X(suffix, name, tz) */                                \
+#define CLK_TZINFO /* X(suffix, name, tz) */                               \
     X(UTC, "Etc/UTC", "UTC0")                                              \
     X(GMT0GH, "Africa/Accra", "GMT0")                                      \
     X(CETn1DZ, "Africa/Algiers", "CET-1")                                  \
@@ -94,6 +92,32 @@ static uint64_t clk_clock_start;
     X(LINTn14, "Pacific/Kiritimati", "LINT-14")                            \
     X(NCTn11, "Pacific/Noumea", "NCT-11")                                  \
     X(SST11, "Pacific/Pago_Pago", "SST11")
+
+#define X(suffix, name, tz)                            \
+    static const char __in_flash("clk_tzinfo_strings") \
+        CLK_TZINFO_NAME_##suffix[] = name;             \
+    static const char __in_flash("clk_tzinfo_strings") \
+        CLK_TZINFO_TZ_##suffix[] = tz;
+CLK_TZINFO
+#undef X
+
+#define X(suffix, name, tz) \
+    CLK_TZINFO_NAME_##suffix,
+static const char *__in_flash("clk_tzinfo_name")
+    clk_tzinfo_name[] = {
+        CLK_TZINFO};
+#undef X
+
+#define X(suffix, name, tz) \
+    CLK_TZINFO_TZ_##suffix,
+static const char *__in_flash("clk_tzinfo_tz")
+    clk_tzinfo_tz[] = {
+        CLK_TZINFO};
+#undef X
+
+#define CLK_TZINFO_COUNT (sizeof(clk_tzinfo_name) / sizeof(*clk_tzinfo_name))
+
+static uint64_t clk_clock_start;
 
 void clk_init(void)
 {
