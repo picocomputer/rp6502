@@ -582,13 +582,31 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
 }
 
+static int kbd_sanitize_layout(const char *kb)
+{
+    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
+    int default_index = 0;
+    int found_index = 0;
+    for (int i = 0; i < layouts_count; i++)
+    {
+        if (!strcasecmp(kbd_layout_names[i], "US"))
+            default_index = i;
+        if (!strcasecmp(kbd_layout_names[i], kb))
+            found_index = i;
+    }
+    if (found_index < 0)
+        return default_index;
+    else
+        return found_index;
+}
+
 void kbd_init(void)
 {
     kbd_stop();
     kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
     if (!kbd_layout_loaded)
-        kbd_set_layout(STR_KBD_DEFAULT_LAYOUT);
+        kbd_set_layout(kbd_layout_names[kbd_sanitize_layout("")]);
 }
 
 void kbd_task(void)
@@ -847,24 +865,6 @@ int kbd_stdio_in_chars(char *buf, int length)
         buf[i++] = kbd_key_queue[kbd_key_queue_tail];
     }
     return i ? i : PICO_ERROR_NO_DATA;
-}
-
-static int kbd_sanitize_layout(const char *kb)
-{
-    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
-    int default_index = 0;
-    int found_index = 0;
-    for (int i = 0; i < layouts_count; i++)
-    {
-        if (!strcasecmp(kbd_layout_names[i], STR_KBD_DEFAULT_LAYOUT))
-            default_index = i;
-        if (!strcasecmp(kbd_layout_names[i], kb))
-            found_index = i;
-    }
-    if (found_index < 0)
-        return default_index;
-    else
-        return found_index;
 }
 
 void kbd_load_layout(const char *str, size_t len)

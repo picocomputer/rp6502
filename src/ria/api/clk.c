@@ -15,6 +15,7 @@
 #include <pico/aon_timer.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
 #include <stdio.h>
@@ -25,17 +26,132 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CLK_ID_REALTIME 0
 
+#define CLK_TZINFO                                                         \
+    X(UTC, "Etc/UTC", "UTC0")                                              \
+    X(GMT0GH, "Africa/Accra", "GMT0")                                      \
+    X(CETn1DZ, "Africa/Algiers", "CET-1")                                  \
+    X(EETn2EG, "Africa/Cairo", "EET-2")                                    \
+    X(WETn1MA, "Africa/Casablanca", "WET-1")                               \
+    X(SASTn2ZA, "Africa/Johannesburg", "SAST-2")                           \
+    X(WATn1NG, "Africa/Lagos", "WAT-1")                                    \
+    X(EATn3KE, "Africa/Nairobi", "EAT-3")                                  \
+    X(AKST9, "America/Anchorage", "AKST9AKDT,M3.2.0/2,M11.1.0/2")          \
+    X(COT5CO, "America/Bogota", "COT5")                                    \
+    X(ART3AR, "America/Buenos_Aires", "ART3")                              \
+    X(VET4VE, "America/Caracas", "VET4")                                   \
+    X(CST6, "America/Chicago", "CST6CDT,M3.2.0/2,M11.1.0/2")               \
+    X(MST7, "America/Denver", "MST7MDT,M3.2.0/2,M11.1.0/2")                \
+    X(MST7CA, "America/Edmonton", "MST7MDT,M3.2.0/2,M11.1.0/2")            \
+    X(AST4CA, "America/Halifax", "AST4ADT,M3.2.0/2,M11.1.0/2")             \
+    X(PET5PE, "America/Lima", "PET5")                                      \
+    X(PST8, "America/Los_Angeles", "PST8PDT,M3.2.0/2,M11.1.0/2")           \
+    X(CST6MX, "America/Mexico_City", "CST6")                               \
+    X(UYT3UY, "America/Montevideo", "UYT3")                                \
+    X(FNT2BR, "America/Noronha", "FNT2")                                   \
+    X(EST5, "America/New_York", "EST5EDT,M3.2.0/2,M11.1.0/2")              \
+    X(EST5PA, "America/Panama", "EST5")                                    \
+    X(MST7AZ, "America/Phoenix", "MST7")                                   \
+    X(BRT3BR, "America/Sao_Paulo", "BRT3")                                 \
+    X(NST3CA, "America/St_Johns", "NST3:30NDT,M3.2.0/2,M11.1.0/2")         \
+    X(EST5CA, "America/Toronto", "EST5EDT,M3.2.0/2,M11.1.0/2")             \
+    X(PST8CA, "America/Vancouver", "PST8PDT,M3.2.0/2,M11.1.0/2")           \
+    X(CST6CA, "America/Winnipeg", "CST6CDT,M3.2.0/2,M11.1.0/2")            \
+    X(ICTn7, "Asia/Bangkok", "ICT-7")                                      \
+    X(BDTn6, "Asia/Dhaka", "BDT-6")                                        \
+    X(GSTn4, "Asia/Dubai", "GST-4")                                        \
+    X(HKTn8, "Asia/Hong_Kong", "HKT-8")                                    \
+    X(WIBn7ID, "Asia/Jakarta", "WIB-7")                                    \
+    X(ISTn2IL, "Asia/Jerusalem", "IST-2IDT,M3.5.0/2,M10.5.0/2")            \
+    X(AFTn4, "Asia/Kabul", "AFT-4:30")                                     \
+    X(PKTn5, "Asia/Karachi", "PKT-5")                                      \
+    X(NPTn5, "Asia/Kathmandu", "NPT-5:45")                                 \
+    X(ISTn5, "Asia/Kolkata", "IST-5:30")                                   \
+    X(PHTn8PH, "Asia/Manila", "PHT-8")                                     \
+    X(ASTn3SA, "Asia/Riyadh", "AST-3")                                     \
+    X(CSTn8, "Asia/Shanghai", "CST-8")                                     \
+    X(KSTn9, "Asia/Seoul", "KST-9")                                        \
+    X(SGTn8, "Asia/Singapore", "SGT-8")                                    \
+    X(IRSTn3, "Asia/Tehran", "IRST-3:30")                                  \
+    X(JSTn9, "Asia/Tokyo", "JST-9")                                        \
+    X(MMTn6, "Asia/Yangon", "MMT-6:30")                                    \
+    X(ACSTn9dst, "Australia/Adelaide", "ACST-9:30ACDT,M10.1.0/2,M4.1.0/3") \
+    X(AESTn10, "Australia/Brisbane", "AEST-10")                            \
+    X(ACSTn9, "Australia/Darwin", "ACST-9:30")                             \
+    X(AWSTn8, "Australia/Perth", "AWST-8")                                 \
+    X(AESTn10dst, "Australia/Sydney", "AEST-10AEDT,M10.1.0/2,M4.1.0/3")    \
+    X(CETn1, "Europe/Berlin", "CET-1CEST,M3.5.0/2,M10.5.0/3")              \
+    X(EETn2, "Europe/Helsinki", "EET-2EEST,M3.5.0/3,M10.5.0/4")            \
+    X(TRTn3, "Europe/Istanbul", "TRT-3")                                   \
+    X(WET0, "Europe/Lisbon", "WET0WEST,M3.5.0/1,M10.5.0/2")                \
+    X(GMT0, "Europe/London", "GMT0BST,M3.5.0/1,M10.5.0/2")                 \
+    X(MSKn3, "Europe/Moscow", "MSK-3")                                     \
+    X(CETn1FR, "Europe/Paris", "CET-1CEST,M3.5.0/2,M10.5.0/3")             \
+    X(NZSTn12, "Pacific/Auckland", "NZST-12NZDT,M9.5.0/2,M4.1.0/3")        \
+    X(WSTn13, "Pacific/Apia", "WST-13")                                    \
+    X(ChSTn10, "Pacific/Guam", "ChST-10")                                  \
+    X(HST10, "Pacific/Honolulu", "HST10")                                  \
+    X(LINTn14, "Pacific/Kiritimati", "LINT-14")                            \
+    X(NCTn11, "Pacific/Noumea", "NCT-11")                                  \
+    X(SST11, "Pacific/Pago_Pago", "SST11")
+
+#define X(suffix, name, tz)                            \
+    static const char __in_flash("clk_tzinfo_strings") \
+        CLK_TZINFO_NAME_##suffix[] = name;             \
+    static const char __in_flash("clk_tzinfo_strings") \
+        CLK_TZINFO_TZ_##suffix[] = tz;
+CLK_TZINFO
+#undef X
+
+#define X(suffix, name, tz) \
+    CLK_TZINFO_NAME_##suffix,
+static const char *__in_flash("clk_tzinfo_name")
+    clk_tzinfo_name[] = {CLK_TZINFO};
+#undef X
+
+#define X(suffix, name, tz) \
+    CLK_TZINFO_TZ_##suffix,
+static const char *__in_flash("clk_tzinfo_tz")
+    clk_tzinfo_tz[] = {CLK_TZINFO};
+#undef X
+
+#define CLK_TZINFO_COUNT (sizeof(clk_tzinfo_name) / sizeof(*clk_tzinfo_name))
+
 static uint64_t clk_clock_start;
+static int clk_tzinfo_index;
+
+int clk_tzdata_response(char *buf, size_t buf_size, int state)
+{
+    const char fmt[] = "   %-22s";
+    unsigned rows = (CLK_TZINFO_COUNT + 2) / 3;
+    unsigned el = state;
+    for (int i = 0; i < 3; i++)
+    {
+        snprintf(buf, buf_size, fmt, clk_tzinfo_name[el]);
+        buf += strlen(buf);
+        if (i < 2)
+            el += rows;
+        else
+            el += 1;
+        if (el >= CLK_TZINFO_COUNT)
+        {
+            state = -2;
+            break;
+        }
+    }
+    *buf++ = '\n';
+    *buf = 0;
+    return state + 1;
+}
 
 void clk_init(void)
 {
     // starting at noon avoids time zone wraparound
     const struct timespec ts = {43200, 0};
     aon_timer_start(&ts);
-    // Default time zone
-    if (!getenv(STR_TZ))
+    // Default or finish loading
+    if (clk_tzinfo_index >= 0)
     {
-        setenv(STR_TZ, STR_CLK_DEFAULT_TZ, 1);
+        setenv(STR_TZ, clk_tzinfo_tz[clk_tzinfo_index], 1);
         tzset();
     }
 }
@@ -67,20 +183,50 @@ int clk_status_response(char *buf, size_t buf_size, int state)
 void clk_load_time_zone(const char *str, size_t len)
 {
     char tz[CLK_TZ_MAX_SIZE];
-    if (str_parse_string(&str, &len, tz, sizeof(tz)))
+    if (!str_parse_string(&str, &len, tz, sizeof(tz)))
+        return;
+    for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
-        setenv(STR_TZ, tz, 1);
-        tzset();
+        if (!strcasecmp(tz, clk_tzinfo_name[i]))
+        {
+            clk_tzinfo_index = i;
+            return;
+        }
     }
+    clk_tzinfo_index = -1;
+    setenv(STR_TZ, tz, 1);
+    tzset();
 }
 
 bool clk_set_time_zone(const char *tz)
 {
     if (strlen(tz) >= CLK_TZ_MAX_SIZE)
         return false;
-    if (strcmp(getenv(STR_TZ), tz))
+    int found_index = -1;
+    for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
-        setenv(STR_TZ, tz, 1);
+        const char *tzname = clk_tzinfo_name[i];
+        if (!strcasecmp(tz, tzname))
+        {
+            found_index = i;
+            break;
+        }
+        const char *slash = strchr(tzname, '/');
+        if (slash && !strcasecmp(tz, slash + 1))
+        {
+            found_index = i;
+            break;
+        }
+    }
+    if (found_index != clk_tzinfo_index ||
+        (found_index < 0 && clk_tzinfo_index < 0 &&
+         strcmp(getenv(STR_TZ), tz)))
+    {
+        clk_tzinfo_index = found_index;
+        if (clk_tzinfo_index < 0)
+            setenv(STR_TZ, tz, 1);
+        else
+            setenv(STR_TZ, clk_tzinfo_tz[clk_tzinfo_index], 1);
         tzset();
         cfg_save();
     }
@@ -89,7 +235,10 @@ bool clk_set_time_zone(const char *tz)
 
 const char *clk_get_time_zone(void)
 {
-    return getenv(STR_TZ);
+    if (clk_tzinfo_index < 0)
+        return getenv(STR_TZ);
+    else
+        return clk_tzinfo_name[clk_tzinfo_index];
 }
 
 bool clk_api_tzset(void)

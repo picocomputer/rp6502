@@ -20,11 +20,10 @@ X(STR_MDM_SETTINGS, "MODEM0.SYS")
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")
 
-// Configuration string defaults
-X(STR_KBD_DEFAULT_LAYOUT, "US")
-X(STR_CLK_DEFAULT_TZ, "UTC0")
-
 // VGA driver
+X(STR_VGA_DISPLAY_TYPE_0, "640x480")
+X(STR_VGA_DISPLAY_TYPE_1, "640x480 | 1280x720")
+X(STR_VGA_DISPLAY_TYPE_2, "1280x1024")
 X(STR_VGA1, "VGA1")
 X(STR_VGA_SEARCHING, "VGA Searching")
 X(STR_VGA_VERSION_UNKNOWN, "VGA Version Unknown")
@@ -51,6 +50,7 @@ X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
 X(STR_MON_PROMPT, "\30\33[0m\33[?25h]")
 
 // Monitor keywords
+X(STR_POSIX, "POSIX")
 X(STR_END, "END")
 X(STR_HELP, "HELP")
 X(STR_H, "H")
@@ -99,21 +99,18 @@ X(STR_8_COLON, "8:")
 X(STR_9_COLON, "9:")
 
 // Settings interface
-X(STR_SET_PHI2_RESPONSE, "PHI2: %ld kHz\n")
+X(STR_SET_PHI2_RESPONSE, "PHI2: %ld (kHz)\n")
 X(STR_SET_BOOT_RESPONSE, "BOOT: %s\n")
 X(STR_SET_TZ_RESPONSE, "TZ  : %s\n")
-X(STR_SET_KB_RESPONSE, "KB  : %s - %s\n")
+X(STR_SET_KB_RESPONSE, "KB  : %s (%s)\n")
 X(STR_SET_CODE_PAGE_DEV_RESPONSE, "CP  : %d (dev)\n")
 X(STR_SET_CODE_PAGE_RESPONSE, "CP  : %d\n")
-X(STR_SET_VGA_0_LABEL, "640x480")
-X(STR_SET_VGA_1_LABEL, "640x480 | 1280x720")
-X(STR_SET_VGA_2_LABEL, "1280x1024")
-X(STR_SET_VGA_RESPONSE, "VGA : %s\n")
-X(STR_SET_RF_RESPONSE, "RF  : %s\n")
-X(STR_SET_RFCC_RESPONSE, "RFCC: %s%s%s\n")
+X(STR_SET_VGA_RESPONSE, "VGA : %d (%s)\n")
+X(STR_SET_RF_RESPONSE, "RF  : %d (%s)\n")
+X(STR_SET_RFCC_RESPONSE, "RFCC: %s%s(%s)\n")
 X(STR_SET_SSID_RESPONSE, "SSID: %s\n")
 X(STR_SET_PASS_RESPONSE, "PASS: %s\n")
-X(STR_SET_BLE_RESPONSE, "BLE : %s%s%s\n")
+X(STR_SET_BLE_RESPONSE, "BLE : %d (%s%s%s)\n")
 
 // Virtual modem
 X(STR_MDM_RESPONSE_0, "OK")

@@ -250,7 +250,7 @@ const char *cyw_get_rf_country_code_verbose(void)
 
 int cyw_country_code_response(char *buf, size_t buf_size, int state)
 {
-    const char *fmt = "  %2s - %-19s";
+    const char fmt[] = "  %2s - %-19s";
     unsigned rows = (CYW_COUNTRY_COUNT + 2) / 3;
     unsigned el = state;
     for (int i = 0; i < 3; i++)
