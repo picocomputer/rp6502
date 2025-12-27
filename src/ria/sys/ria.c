@@ -44,6 +44,8 @@ static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
 static volatile bool irq_enabled;
+static uint8_t dirty_page = 0xC0;
+static uint32_t dirty_bits[8];
 
 void ria_trigger_irq(void)
 {
@@ -241,14 +243,12 @@ void ria_write_buf(uint16_t addr)
 #define RIA_RW1 REGS(0xFFE8)
 #define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define RIA_ADDR1 REGSW(0xFFEA)
-// This becomes unstable every time I tried to get to O3 by trurning off
-// specific optimizations. The annoying bit is that different hardware doesn't
-// behave the same. I'm giving up and leaving this at O1, which is plenty fast.
-__attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_loop)(void)
+__attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_loop)(void)
 {
-    // In here we bypass the usual SDK calls as needed for performance.
     while (true)
     {
+        RIA_RW0 = xram[RIA_ADDR0];
+        RIA_RW1 = xram[RIA_ADDR1];
         if (!(RIA_ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACT_SM))))
         {
             uint32_t rw_addr_data = RIA_ACT_PIO->rxf[RIA_ACT_SM];
@@ -334,38 +334,42 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     API_STACK = xstack[xstack_ptr];
                     break;
                 case CASE_WRITE(0xFFEB): // Set XRAM >ADDR1
-                    REGS(0xFFEB) = data;
-                    RIA_RW1 = xram[RIA_ADDR1];
+                    // REGS(0xFFEB) = data;
+                    // RIA_RW1 = xram[RIA_ADDR1];
                     break;
                 case CASE_WRITE(0xFFEA): // Set XRAM <ADDR1
-                    REGS(0xFFEA) = data;
-                    RIA_RW1 = xram[RIA_ADDR1];
+                    // REGS(0xFFEA) = data;
+                    // RIA_RW1 = xram[RIA_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[RIA_ADDR1] = data;
                     PIX_SEND_XRAM(RIA_ADDR1, data);
-                    RIA_RW0 = xram[RIA_ADDR0];
+                    // RIA_RW0 = xram[RIA_ADDR0];
+                    if (dirty_page == REGS(0xFFEB))
+                        dirty_bits[REGS(0xFFEA) >> 5] |= 1 << (REGS(0xFFEA) & 0x1F);
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
                     RIA_ADDR1 += RIA_STEP1;
-                    RIA_RW1 = xram[RIA_ADDR1];
+                    // RIA_RW1 = xram[RIA_ADDR1];
                     break;
                 case CASE_WRITE(0xFFE7): // Set XRAM >ADDR0
-                    REGS(0xFFE7) = data;
-                    RIA_RW0 = xram[RIA_ADDR0];
+                    // REGS(0xFFE7) = data;
+                    // RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE6): // Set XRAM <ADDR0
-                    REGS(0xFFE6) = data;
-                    RIA_RW0 = xram[RIA_ADDR0];
+                    // REGS(0xFFE6) = data;
+                    // RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[RIA_ADDR0] = data;
                     PIX_SEND_XRAM(RIA_ADDR0, data);
-                    RIA_RW1 = xram[RIA_ADDR1];
+                    // RIA_RW1 = xram[RIA_ADDR1];
+                    if (dirty_page == REGS(0xFFE7))
+                        dirty_bits[REGS(0xFFE6) >> 5] |= 1 << (REGS(0xFFE6) & 0x1F);
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
                     RIA_ADDR0 += RIA_STEP0;
-                    RIA_RW0 = xram[RIA_ADDR0];
+                    // RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {

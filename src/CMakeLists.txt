@@ -42,7 +42,7 @@ else()
     pico_set_program_name(${RIA_TARGET} "RP6502-RIA")
 endif()
 
-set_target_properties(${RIA_TARGET} PROPERTIES 
+set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
@@ -80,6 +80,7 @@ target_link_libraries(${RIA_TARGET} PRIVATE
     hardware_flash
     tinyusb_host
     pico_btstack_ble
+    cmsis_core
 )
 
 pico_generate_pio_header(${RIA_TARGET}
@@ -143,7 +144,7 @@ pico_add_extra_outputs(rp6502_vga)
 pico_set_program_name(rp6502_vga "RP6502 VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
 
-set_target_properties(rp6502_vga PROPERTIES 
+set_target_properties(rp6502_vga PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
