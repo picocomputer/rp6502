@@ -52,7 +52,7 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     {
         if (i == 8)
             *buf++ = ' ';
-        uint8_t c = ram_rw_addr < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
+        uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
         sprintf(buf, " %02X", c);
         buf += 3;
     }
@@ -66,7 +66,7 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     *buf++ = '|';
     for (size_t i = 0; i < mbuf_len; i++)
     {
-        uint8_t c = ram_rw_addr < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
+        uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
         if (c < 32 || c >= 127)
             c = '.';
         *buf++ = c;
@@ -241,17 +241,12 @@ void ram_mon_address(const char *args, size_t len)
     if (!second_selected)
     {
         ram_rw_end = ram_rw_addr + 15;
-        if (ram_rw_addr < 0x10000 && ram_rw_end >= 0x10000)
-            ram_rw_end = 0xFFFF;
         if (ram_rw_end >= 0x20000)
             ram_rw_end = 0x1FFFF;
     }
-    if (second_selected && !second_found)
+    else if (!second_found)
     {
-        if (ram_rw_addr < 0x10000)
-            ram_rw_end = 0xFFFF;
-        else
-            ram_rw_end = 0x1FFFF;
+        ram_rw_end = 0x1FFFF;
     }
     if (args[i] == ':')
         i++;
