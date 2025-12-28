@@ -68,16 +68,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
-    EMU8950_NO_RATECONV=1
     USE_EMU8950_OPL=1
-    USE_EMU8950_OPL=1
-    EMU8950_ASM=1
-    EMU8950_NO_TLL=1 # don't use lookup table for total level
-    EMU8950_NO_FLOAT=1 # double check there is no float
-    EMU8950_NO_TIMER=1 # disable timer which isn't used
-    EMU8950_NO_TEST_FLAG=1 # disable test flags (which aren't used)
-    EMU8950_SIMPLER_NOISE=1 # only generate noise bit when needed
-    EMU8950_SHORT_NOISE_UPDATE_CHECK=1 # only update short noise if it is used
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE
@@ -112,9 +103,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/api/rng.c
     ria/api/std.c
     ria/aud/aud.c
-    ria/aud/psg.c
     ria/aud/emu8950.c
-    ria/aud/opl_pico.c
+    ria/aud/psg.c
     ria/hid/hid.c
     ria/hid/kbd.c
     ria/hid/mou.c

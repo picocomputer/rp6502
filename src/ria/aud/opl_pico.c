@@ -17,7 +17,7 @@
 //
 
 // todo replace opl_queue with pheap
-//#define PICO_SOUND_SAMPLE_FREQ 44100
+// #define PICO_SOUND_SAMPLE_FREQ 44100
 #define PICO_SOUND_SAMPLE_FREQ 49716
 
 #include <stdio.h>
@@ -32,25 +32,41 @@
 
 #include "emu8950.h"
 
-#include "opl.h"
+// #include "opl.h"
 /* #include "opl_internal.h" */
-
 /* #include "opl_queue.h" */
+
+typedef enum
+{
+    OPL_REGISTER_PORT = 0,
+    OPL_DATA_PORT = 1,
+    OPL_REGISTER_PORT_OPL3 = 2
+} opl_port_t;
+
+#define OPL_REG_TIMER1 0x02
+#define OPL_REG_TIMER2 0x03
+#define OPL_REG_TIMER_CTRL 0x04
+
+// Times
+
+#define OPL_SECOND ((uint64_t)1000 * 1000)
+
 typedef struct
 {
-    unsigned int rate;        // Number of times the timer is advanced per sec.
-    unsigned int enabled;     // Non-zero if timer is enabled.
-    unsigned int value;       // Last value that was set.
-    uint64_t expire_time;     // Calculated time that timer will expire.
+    unsigned int rate;    // Number of times the timer is advanced per sec.
+    unsigned int enabled; // Non-zero if timer is enabled.
+    unsigned int value;   // Last value that was set.
+    uint64_t expire_time; // Calculated time that timer will expire.
 } opl_timer_t;
 
 #define opl_op3mode 0
 static OPL *emu8950_opl;
 
-static opl_timer_t timer1 = { 12500, 0, 0, 0 };
-static opl_timer_t timer2 = { 3125, 0, 0, 0 };
+static opl_timer_t timer1 = {12500, 0, 0, 0};
+static opl_timer_t timer2 = {3125, 0, 0, 0};
 
-void OPL_Pico_simple(int16_t *buffer, uint32_t nsamples) {
+void OPL_Pico_simple(int16_t *buffer, uint32_t nsamples)
+{
     OPL_calc_buffer(emu8950_opl, buffer, nsamples);
 }
 
@@ -70,22 +86,22 @@ unsigned int OPL_Pico_PortRead(opl_port_t port)
         return 0xff;
     }
 
-/* #if !EMU8950_NO_TIMER */
+#if !EMU8950_NO_TIMER
     __dsb();
     // Use time_us_64 as current_time gets updated coarsely as the mix callback is called
     uint64_t pico_time = time_us_64();
     if (timer1.enabled && pico_time > timer1.expire_time)
     {
-        result |= 0x80;   // Either have expired
-        result |= 0x40;   // Timer 1 has expired
+        result |= 0x80; // Either have expired
+        result |= 0x40; // Timer 1 has expired
     }
 
     if (timer2.enabled && pico_time > timer2.expire_time)
     {
-        result |= 0x80;   // Either have expired
-        result |= 0x20;   // Timer 2 has expired
+        result |= 0x80; // Either have expired
+        result |= 0x20; // Timer 2 has expired
     }
-/* #endif */
+#endif
 
     return result;
 }
@@ -101,8 +117,7 @@ static void OPLTimer_CalculateEndTime(opl_timer_t *timer)
     {
         tics = 0x100 - timer->value;
 
-        timer->expire_time = time_us_64()
-                           + ((uint64_t) tics * OPL_SECOND) / timer->rate;
+        timer->expire_time = time_us_64() + ((uint64_t)tics * OPL_SECOND) / timer->rate;
     }
 }
 
@@ -110,41 +125,41 @@ void OPL_Pico_WriteRegister(unsigned int reg_num, unsigned int value)
 {
     switch (reg_num)
     {
-        case OPL_REG_TIMER1:
-            timer1.value = value;
-            OPLTimer_CalculateEndTime(&timer1);
-            //printf("timer1 set");
-            break;
+    case OPL_REG_TIMER1:
+        timer1.value = value;
+        OPLTimer_CalculateEndTime(&timer1);
+        // printf("timer1 set");
+        break;
 
-        case OPL_REG_TIMER2:
-            timer2.value = value;
-            OPLTimer_CalculateEndTime(&timer2);
-            break;
+    case OPL_REG_TIMER2:
+        timer2.value = value;
+        OPLTimer_CalculateEndTime(&timer2);
+        break;
 
-        case OPL_REG_TIMER_CTRL:
-            if (value & 0x80)
+    case OPL_REG_TIMER_CTRL:
+        if (value & 0x80)
+        {
+            timer1.enabled = 0;
+            timer2.enabled = 0;
+        }
+        else
+        {
+            if ((value & 0x40) == 0)
             {
-                timer1.enabled = 0;
-                timer2.enabled = 0;
-            }
-            else
-            {
-                if ((value & 0x40) == 0)
-                {
-                    timer1.enabled = (value & 0x01) != 0;
-                    OPLTimer_CalculateEndTime(&timer1);
-                }
-
-                if ((value & 0x20) == 0)
-                {
-                    timer1.enabled = (value & 0x02) != 0;
-                    OPLTimer_CalculateEndTime(&timer2);
-                }
+                timer1.enabled = (value & 0x01) != 0;
+                OPLTimer_CalculateEndTime(&timer1);
             }
 
-            break;
-        default:
-            OPL_writeReg(emu8950_opl, reg_num, value);
-            break;
+            if ((value & 0x20) == 0)
+            {
+                timer1.enabled = (value & 0x02) != 0;
+                OPLTimer_CalculateEndTime(&timer2);
+            }
+        }
+
+        break;
+    default:
+        OPL_writeReg(emu8950_opl, reg_num, value);
+        break;
     }
 }

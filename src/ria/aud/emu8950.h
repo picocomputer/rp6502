@@ -2,13 +2,51 @@
 #define _EMU8950_H_
 
 #include <stdint.h>
-#include "slot_render.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+// This is a bespoke header file for RP6502 to be able to use the
+// PicoGUS's emu8950.c. We use the same settings except timers are
+// enabled to avoid a printf when someones tries to use one.
+#define EMU8950_NO_TIMER 0
+#define EMU8950_NO_RATECONV 1
+#define EMU8950_NO_TLL 1                   // don't use lookup table for total level
+#define EMU8950_NO_FLOAT 1                 // double check there is no float
+#define EMU8950_NO_TEST_FLAG 1             // disable test flags (which aren't used)
+#define EMU8950_SIMPLER_NOISE 1            // only generate noise bit when needed
+#define EMU8950_SHORT_NOISE_UPDATE_CHECK 1 // only update short noise if it is used
 
 #define OPL_DEBUG 0
+
+/* voice data */
+typedef struct __OPL_PATCH
+{
+#if !EMU8950_NO_TLL
+    /* 0 */ uint8_t TL;
+    /* 1 */ uint8_t KL;
+#else
+    /* 0 */ uint8_t TL4;
+    /* 1 */ uint8_t KL_SHIFT;
+#endif
+    /* 2 */ uint8_t FB;
+    /* 3 */ uint8_t EG;
+    /* 4 */ uint8_t ML;
+    /* 5 */ uint8_t AR;
+    /* 6 */ uint8_t DR;
+    /* 7 */ uint8_t SL;
+    /* 8 */ uint8_t RR;
+    /* 9 */ uint8_t KR;
+    /* a */ uint8_t AM;
+    /* b */ uint8_t PM;
+    uint8_t WS;
+} OPL_PATCH;
+
+enum __OPL_EG_STATE
+{
+    ATTACK,
+    DECAY,
+    SUSTAIN,
+    RELEASE,
+    UNKNOWN
+};
 
 /* mask */
 #define OPL_MASK_CH(x) (1 << (x))
@@ -22,12 +60,13 @@ extern "C" {
 
 #if !EMU8950_NO_RATECONV
 /* rate conveter */
-typedef struct __OPL_RateConv {
-  int ch;
-  double timer;
-  double f_ratio;
-  int16_t *sinc_table;
-  int16_t **buf;
+typedef struct __OPL_RateConv
+{
+    int ch;
+    double timer;
+    double f_ratio;
+    int16_t *sinc_table;
+    int16_t **buf;
 } OPL_RateConv;
 
 OPL_RateConv *OPL_RateConv_new(double f_inp, double f_out, int ch);
@@ -36,114 +75,136 @@ void OPL_RateConv_putData(OPL_RateConv *conv, int ch, int16_t data);
 int16_t OPL_RateConv_getData(OPL_RateConv *conv, int ch);
 void OPL_RateConv_delete(OPL_RateConv *conv);
 #endif
+
 /* slot */
-typedef struct __OPL_SLOT {
-  struct SLOT_RENDER;
-  uint8_t number;
+typedef struct __OPL_SLOT
+{
+    // struct SLOT_RENDER;
+    uint8_t number;
 
 #if !EMU8950_NO_PERCUSSION_MODE // only use was to set based on percussion mode
-  /* type flags:
-   * 000000SM
-   *       |+-- M: 0:modulator 1:carrier
-   *       +--- S: 0:normal 1:single slot mode (sd, tom, hh or cym)
-   */
-  uint8_t type;
+    /* type flags:
+     * 000000SM
+     *       |+-- M: 0:modulator 1:carrier
+     *       +--- S: 0:normal 1:single slot mode (sd, tom, hh or cym)
+     */
+    uint8_t type;
 #endif
 
-  OPL_PATCH __patch;
+    OPL_PATCH __patch;
+    OPL_PATCH *patch;
 
-  /* phase generator (pg) */
-  uint32_t pg_out;      /* pg output, as index of wave table */
+    /* slot output */
+    int32_t output[2]; /* output value, latest and previous. */
+
+    /* phase generator (pg) */
+#if !EMU8950_NO_WAVE_TABLE_MAP
+    uint16_t *wave_table; /* wave table */
+#endif
+    uint32_t pg_phase; /* pg phase */ // note this moves twice as fast in slot_render version
+    uint32_t pg_out;                  /* pg output, as index of wave table */
 #if !EMU8950_NO_PERCUSSION_MODE
-  uint8_t pg_keep;      /* if 1, pg_phase is preserved when key-on */
+    uint8_t pg_keep; /* if 1, pg_phase is preserved when key-on */
 #endif
-  uint16_t blk_fnum;    /* (block << 9) | f-number */
+    uint16_t blk_fnum; /* (block << 9) | f-number */
+    uint16_t fnum;     /* f-number (9 bits) */
+    uint8_t blk;       /* block (3 bits) */
 
-  uint32_t update_requests; /* flags to debounce update */
+    /* envelope generator (eg) */
+    uint8_t eg_state;  /* current state */
+    uint16_t tll;      /* total level + key scale level*/
+    uint8_t rks;       /* key scale offset (rks) for eg speed */
+    uint8_t eg_rate_h; /* eg speed rate high 4bits */
+    uint8_t eg_rate_l; /* eg speed rate low 2bits */
+    uint32_t eg_shift; /* shift for eg global counter, controls envelope speed */
+    int16_t eg_out;    /* eg output */
+
+    uint32_t update_requests; /* flags to debounce update */
 
 #if OPL_DEBUG
-  uint8_t last_eg_state;
+    uint8_t last_eg_state;
 #endif
 } OPL_SLOT;
 
-typedef struct __OPL {
-  uint32_t clk;
-  uint32_t rate;
+typedef struct __OPL
+{
+    uint32_t clk;
+    uint32_t rate;
 
 #if !EMU8950_NO_TIMER
-  uint8_t csm_mode;
-  uint8_t csm_key_count;
+    uint8_t csm_mode;
+    uint8_t csm_key_count;
 #endif
-  uint8_t notesel;
+    uint8_t notesel;
 
-  uint32_t inp_step;
-  uint32_t out_step;
-  uint32_t out_time;
+    uint32_t inp_step;
+    uint32_t out_step;
+    uint32_t out_time;
 
 #if EMU8950_LINEAR
 #if EMU8950_SLOT_RENDER
     uint8_t *lfo_am_buffer_lsl3;
 #else
-  uint8_t *lfo_am_buffer;
+    uint8_t *lfo_am_buffer;
 #endif
     int16_t *mod_buffer;
     int32_t *buffer;
 #endif
 #if !EMU8950_NO_TEST_FLAG
-  uint8_t test_flag;
+    uint8_t test_flag;
 #endif
-  uint32_t slot_key_status;
+    uint32_t slot_key_status;
 #if !EMU8950_NO_PERCUSSION_MODE
-  uint8_t perc_mode;
+    uint8_t perc_mode;
 #endif
 
-  uint32_t eg_counter;
+    uint32_t eg_counter;
 
-  uint32_t pm_phase;
-  uint32_t pm_dphase;
+    uint32_t pm_phase;
+    uint32_t pm_dphase;
 
 #if !EMU8950_NO_TEST_FLAG
-  int32_t am_phase;
+    int32_t am_phase;
 #else
-  uint8_t am_phase_index;
+    uint8_t am_phase_index;
 #endif
-  uint8_t lfo_am;
+    uint8_t lfo_am;
 
 #if !EMU8950_NO_PERCUSSION_MODE
-  uint32_t noise;
-  uint8_t short_noise;
+    uint32_t noise;
+    uint8_t short_noise;
 #endif
 
-  uint8_t reg[0x100];
-  uint8_t ch_alg[9]; // alg for each channels
+    uint8_t reg[0x100];
+    uint8_t ch_alg[9]; // alg for each channels
 
-  uint8_t pan[16];
+    uint8_t pan[16];
 
-  uint32_t mask;
-  uint8_t am_mode;
-  uint8_t pm_mode;
+    uint32_t mask;
+    uint8_t am_mode;
+    uint8_t pm_mode;
 
-  /* channel output */
-  /* 0..8:tone 9:bd 10:hh 11:sd 12:tom 13:cym 14:adpcm */
-  int16_t ch_out[15];
+    /* channel output */
+    /* 0..8:tone 9:bd 10:hh 11:sd 12:tom 13:cym 14:adpcm */
+    int16_t ch_out[15];
 
-  int16_t mix_out[2];
+    int16_t mix_out[2];
 
-  OPL_SLOT slot[18];
+    OPL_SLOT slot[18];
 
 #if !EMU8950_NO_RATECONV
-  OPL_RateConv *conv;
+    OPL_RateConv *conv;
 #endif
 
 #if !EMU8950_NO_TIMER
-  uint32_t timer1_counter; //  80us counter
-  uint32_t timer2_counter; // 320us counter
-  void *timer1_user_data;
-  void *timer2_user_data;
-  void (*timer1_func)(void *user);
-  void (*timer2_func)(void *user);
+    uint32_t timer1_counter; //  80us counter
+    uint32_t timer2_counter; // 320us counter
+    void *timer1_user_data;
+    void *timer2_user_data;
+    void (*timer1_func)(void *user);
+    void (*timer2_func)(void *user);
 #endif
-  uint8_t status;
+    uint8_t status;
 
 } OPL;
 
@@ -222,8 +283,31 @@ uint8_t OPL_status(OPL *opl);
 #define OPL_set_pan OPL_setPan
 #define OPL_set_pan_fine OPL_setPanFine
 
-#ifdef __cplusplus
-}
+/* envelope generator attenuation */
+#define EG_BITS 9
+#define EG_MUTE ((1 << EG_BITS) - 1)
+#define EG_MAX (0x1f0) // 93dB
+
+/* sine table */
+#define PG_BITS 10 /* 2^10 = 1024 length sine table */
+#define PG_WIDTH (1 << PG_BITS)
+
+/* phase increment counter */
+#define DP_BITS 20
+#define DP_WIDTH (1 << DP_BITS)
+#define DP_BASE_BITS (DP_BITS - PG_BITS)
+
+/* pitch modulator */
+#define PM_PG_BITS 3
+#define PM_PG_WIDTH (1 << PM_PG_BITS)
+
+// no benefit that I can see to this being 22 - it just makes PM_DPHASE unruly at 512
+#if 0
+#define PM_DP_BITS 22
+#else
+#define PM_DP_BITS 13
 #endif
+#define PM_DP_WIDTH (1 << PM_DP_BITS)
+#define PM_DPHASE (PM_DP_WIDTH / (1024 * 8))
 
 #endif
