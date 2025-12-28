@@ -104,6 +104,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/api/std.c
     ria/aud/aud.c
     ria/aud/emu8950.c
+    ria/aud/opl.c
     ria/aud/psg.c
     ria/hid/hid.c
     ria/hid/kbd.c

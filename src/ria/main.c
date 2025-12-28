@@ -12,6 +12,7 @@
 #include "api/rng.h"
 #include "api/std.h"
 #include "aud/aud.h"
+#include "aud/opl.h"
 #include "aud/psg.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
@@ -198,6 +199,8 @@ bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
     // Channel 1 for audio devices.
     case 0x100:
         return psg_xreg(word);
+    case 0x101:
+        return opl_xreg(word);
     default:
         return false;
     }
