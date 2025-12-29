@@ -25,16 +25,22 @@ static uint16_t cpu_phi2_khz_active;
 static bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
 
+// We run the RP2350 at 256MHz.
+// One user tested up to 280 MHz on the default 1.10V.
+// https://forums.raspberrypi.com/viewtopic.php?t=375975
+
+#define CPU_RP2350_MHZ 256
+
 static void cpu_compute_phi2_clocks(uint16_t freq_khz,
                                     uint32_t *sys_clk_khz,
                                     uint16_t *clkdiv_int,
                                     uint8_t *clkdiv_frac)
 {
-    *sys_clk_khz = freq_khz * 32;
-    if (*sys_clk_khz < 128 * 1000)
+    *sys_clk_khz = freq_khz * 32; // 1:32 ratio 6502:RP2350
+    if (*sys_clk_khz < CPU_RP2350_MHZ * 1000)
     {
-        *sys_clk_khz = 128 * 1000;
-        float clkdiv = 128000.f / 32.f / freq_khz;
+        *sys_clk_khz = CPU_RP2350_MHZ * 1000;
+        float clkdiv = CPU_RP2350_MHZ * 1000.f / 32.f / freq_khz;
         *clkdiv_int = clkdiv;
         *clkdiv_frac = (clkdiv - *clkdiv_int) * (1u << 8u);
     }
