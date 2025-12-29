@@ -14,9 +14,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#ifdef NDEBUG
-uint8_t __uninitialized_ram(xram)[0x10000] __attribute__((aligned(4)));
-#else
 // this struct of 4KB segments is because
 // a single 64KB array crashes my debugger
 static struct
@@ -40,7 +37,9 @@ static struct
 } xram_blocks;
 uint8_t *const __uninitialized_ram(xram) __attribute__((aligned(4))) =
     (uint8_t *)&xram_blocks;
-#endif
+
+uint8_t xram_dirty_page;
+uint32_t xram_dirty_bits[8];
 
 uint8_t xstack[XSTACK_SIZE + 1];
 size_t volatile xstack_ptr;

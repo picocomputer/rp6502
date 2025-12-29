@@ -11,6 +11,7 @@
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 #include <math.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_OPL)
 #include <stdio.h>
@@ -46,20 +47,29 @@ static void
     static int8_t sample;
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample + AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample + AUD_PWM_CENTER);
-
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
     sample = next >> 8;
+
+    // Update opl regs from xram_dirty_bits[8]
+    static uint8_t page;
+    if (++page >= 8)
+        page = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        // TODO
+    }
 }
 
-static void psg_start(void)
+static void opl_start(void)
 {
-    if (!opl_emu8950)
-        opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);
     OPL_reset(opl_emu8950);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP_0, opl_irq_handler);
+}
 
-    // Set the IRQ handler
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, opl_irq_handler);
+static void opl_stop(void)
+{
+    irq_remove_handler(PWM_IRQ_WRAP_0, opl_irq_handler);
 }
 
 static void psg_reclock(uint32_t sys_clk_khz)
@@ -67,14 +77,19 @@ static void psg_reclock(uint32_t sys_clk_khz)
     pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (OPL_SAMPLE_RATE / 1000.f));
 }
 
-static void psg_task(void)
+static void opl_task(void)
 {
     OPL_writeReg(opl_emu8950, opl_xaddr, opl_xaddr);
 }
 
 bool opl_xreg(uint16_t word)
 {
-    if (0 /* TODO */)
+    // Would be nice to not malloc but initializeTables is static
+    if (!opl_emu8950)
+        opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);
+    if (!opl_emu8950)
+        return false;
+    if (word & 0x00FF)
     {
         opl_xaddr = 0xFFFF;
         if (word != 0xFFFF)
@@ -83,7 +98,11 @@ bool opl_xreg(uint16_t word)
     else
     {
         opl_xaddr = word;
-        aud_setup(psg_start, psg_reclock, psg_task);
+        xram_dirty_page = word >> 8;
+        for (int i = 0; i < 0x100; i++)
+            xram[word + i] = 0;
+        memset(xram_dirty_bits, 0, 32);
+        aud_setup(opl_start, opl_stop, psg_reclock, opl_task);
     }
     return true;
 }

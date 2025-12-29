@@ -248,22 +248,14 @@ static void
     }
 }
 
-static void psg_start(void)
+static void opl_start(void)
 {
-    // Set up linear-feedback shift register for noise. Starting constants from here:
-    // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
-    {
-        psg_channel_state[i].noise1 = 0x67452301;
-        psg_channel_state[i].noise2 = 0xEFCDAB89;
-    }
+    irq_set_exclusive_handler(PWM_IRQ_WRAP_0, psg_irq_handler);
+}
 
-    // Set up sine table
-    for (unsigned i = 0; i < 256; i++)
-        psg_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
-
-    // Set the IRQ handler
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, psg_irq_handler);
+static void opl_stop(void)
+{
+    irq_remove_handler(PWM_IRQ_WRAP_0, psg_irq_handler);
 }
 
 static void psg_reclock(uint32_t sys_clk_khz)
@@ -271,12 +263,27 @@ static void psg_reclock(uint32_t sys_clk_khz)
     pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (PSG_RATE / 1000.f));
 }
 
-static void psg_task(void)
+static void opl_task(void)
 {
 }
 
 bool psg_xreg(uint16_t word)
 {
+
+    if (!*psg_sine_table)
+    {
+        // Set up sine table
+        for (unsigned i = 0; i < 256; i++)
+            psg_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
+
+        // Set up linear-feedback shift register for noise. Starting constants from here:
+        // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+        for (unsigned i = 0; i < PSG_CHANNELS; i++)
+        {
+            psg_channel_state[i].noise1 = 0x67452301;
+            psg_channel_state[i].noise2 = 0xEFCDAB89;
+        }
+    }
     if (word & 0x0001 ||
         word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
     {
@@ -287,7 +294,7 @@ bool psg_xreg(uint16_t word)
     else
     {
         psg_xaddr = word;
-        aud_setup(psg_start, psg_reclock, psg_task);
+        aud_setup(opl_start, opl_stop, psg_reclock, opl_task);
     }
     return true;
 }

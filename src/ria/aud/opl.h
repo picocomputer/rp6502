@@ -7,7 +7,7 @@
 #ifndef _RIA_AUD_OPL_H_
 #define _RIA_AUD_OPL_H_
 
-/* Yamaha OPL sound generator
+/* OPL2 sound generator
  */
 
 #include <stddef.h>

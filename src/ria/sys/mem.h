@@ -15,11 +15,10 @@
 #include <stdbool.h>
 
 // 64KB Extended RAM
-#ifdef NDEBUG
-extern uint8_t xram[];
-#else
+// One page is tracked for audio
 extern uint8_t *const xram;
-#endif
+extern uint8_t xram_dirty_page;
+extern uint32_t xram_dirty_bits[8];
 
 // The xstack is:
 // 512 bytes, enough to hold a CC65 stack frame, two strings for a
