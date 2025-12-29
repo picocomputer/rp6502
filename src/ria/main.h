@@ -39,8 +39,7 @@ void main_break(void);
  */
 
 void main_task(void);
-void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);
-void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac);
+void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word);
 bool main_api(uint8_t operation);
 

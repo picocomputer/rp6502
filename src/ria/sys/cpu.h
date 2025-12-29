@@ -14,6 +14,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// We run the RP2350 at 256MHz with 0.05V boost.
+// One user tested up to 280 MHz on the default 1.10V.
+// https://forums.raspberrypi.com/viewtopic.php?t=375975
+#define CPU_RP2350_KHZ 256000
+#define CPU_RP2350_VREG VREG_VOLTAGE_1_15
+
 #define CPU_RESB_PIN 26
 #define CPU_IRQB_PIN 22
 #define CPU_PHI2_PIN 21
@@ -25,12 +31,12 @@
 /* Main events
  */
 
-void cpu_init_resb(void);
+void cpu_main(void);
 void cpu_init(void);
 void cpu_task(void);
 void cpu_run(void);
 void cpu_stop(void);
-void cpu_post_reclock(void);
+void cpu_reclock(void);
 bool cpu_api_phi2(void);
 
 // The CPU is active when RESB is high or when

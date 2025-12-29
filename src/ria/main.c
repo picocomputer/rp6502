@@ -65,6 +65,7 @@ static void init(void)
     cfg_init(); // Config stored on lfs
 
     // Misc device drivers, add yours here.
+    cyw_init();
     oem_init();
     usb_init();
     led_init();
@@ -158,29 +159,12 @@ static void break_(void) // break is keyword
     rln_break();
 }
 
-// Triggered once after init then before every PHI2 change.
-// Divider is used when PHI2 less than 4 MHz to
-// maintain a minimum system clock of 128 MHz.
-// From 4 to 8 MHz increases system clock to 256 MHz.
-void main_pre_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
-{
-    (void)sys_clk_khz;
-    (void)clkdiv_int;
-    (void)clkdiv_frac;
-    com_pre_reclock();
-    cyw_pre_reclock();
-}
-
 // Triggered once after init then after every PHI2 change.
-void main_post_reclock(uint32_t sys_clk_khz, uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
-    com_post_reclock();
-    cpu_post_reclock();
-    vga_post_reclock(sys_clk_khz);
-    ria_post_reclock(clkdiv_int, clkdiv_frac);
-    pix_post_reclock(clkdiv_int, clkdiv_frac);
-    aud_post_reclock(sys_clk_khz);
-    cyw_post_reclock(sys_clk_khz);
+    cpu_reclock();
+    ria_reclock(clkdiv_int, clkdiv_frac);
+    pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
 // PIX XREG writes to the RIA device will dispatch here.
@@ -335,7 +319,7 @@ bool main_active(void)
 
 int main(void)
 {
-    cpu_init_resb();
+    cpu_main();
     init();
     while (true)
     {

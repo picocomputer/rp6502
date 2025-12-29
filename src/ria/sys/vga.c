@@ -178,12 +178,6 @@ void vga_init(void)
     vga_connect();
 }
 
-void vga_post_reclock(uint32_t sys_clk_khz)
-{
-    float div = (float)sys_clk_khz * 1000 / (8 * VGA_BACKCHANNEL_BAUDRATE);
-    pio_sm_set_clkdiv(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, div);
-}
-
 void vga_task(void)
 {
     if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))

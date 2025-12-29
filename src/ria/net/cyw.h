@@ -17,9 +17,8 @@
 /* Main events
  */
 
+void cyw_init(void);
 void cyw_task(void);
-void cyw_pre_reclock(void);
-void cyw_post_reclock(uint32_t sys_clk_khz);
 
 /* Utility
  */

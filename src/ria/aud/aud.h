@@ -25,7 +25,6 @@
 void aud_init(void);
 void aud_task(void);
 void aud_stop(void);
-void aud_post_reclock(uint32_t sys_clk_khz);
 
 /* Setup an audio system, tears down any previous setup.
  */

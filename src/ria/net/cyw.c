@@ -7,8 +7,6 @@
 #ifndef RP6502_RIA_W
 #include "net/cyw.h"
 void cyw_task() {}
-void cyw_pre_reclock() {}
-void cyw_post_reclock(uint32_t) {}
 #else
 
 #include "mon/mon.h"
@@ -17,10 +15,9 @@ void cyw_post_reclock(uint32_t) {}
 #include "net/wfi.h"
 #include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/cpu.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
-#include <pico/stdio.h>
-#include <hardware/clocks.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
 #include <stdio.h>
@@ -106,11 +103,9 @@ static const char *__in_flash("cyw_country_name")
 #define CYW_COUNTRY_COUNT (sizeof(cyw_country_abbr) / sizeof(cyw_country_abbr)[0])
 
 static uint8_t cyw_rf_enable = 1;
-// static char cyw_rf_country_code[3];
 static int cyw_country = -1;
 static bool cyw_led_status;
 static bool cyw_led_requested;
-static bool cyw_initialized;
 
 static int cyw_lookup_country(const char *cc)
 {
@@ -124,10 +119,10 @@ static int cyw_lookup_country(const char *cc)
 
 static void cyw_reset_radio(void)
 {
-    // We have to shut down to reclock so use that code
-    uint32_t sys_clk_khz = clock_get_hz(clk_sys) / 1000;
-    cyw_pre_reclock();
-    cyw_post_reclock(sys_clk_khz);
+    wfi_shutdown();
+    ble_shutdown();
+    cyw43_arch_deinit();
+    cyw_init();
 }
 
 void cyw_task(void)
@@ -145,30 +140,19 @@ void cyw_led_set(bool on)
     cyw_led_requested = on;
 }
 
-void cyw_pre_reclock(void)
-{
-    wfi_shutdown();
-    ble_shutdown();
-    if (cyw_initialized)
-        cyw43_arch_deinit();
-    cyw_initialized = false;
-}
-
-void cyw_post_reclock(uint32_t sys_clk_khz)
+void cyw_init(void)
 {
     // CYW43439 datasheet says 50MHz for SPI.
     // The Raspberry Pi SDK only provides for a 2,0 divider,
     // which is 75MHz for a non-overclocked 150MHz system clock.
     // It easily runs 85MHz+ so we push it to 66MHz.
-    if (sys_clk_khz > 198000)
+    if (CPU_RP2350_KHZ > 198000)
         cyw43_set_pio_clkdiv_int_frac8(4, 0);
-    else if (sys_clk_khz > 132000)
+    else if (CPU_RP2350_KHZ > 132000)
         cyw43_set_pio_clkdiv_int_frac8(3, 0);
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);
 
-    // flush newline from readline before init blocks
-    stdio_flush();
     uint32_t country = CYW43_COUNTRY_WORLDWIDE;
     if (cyw_country >= 0)
         country = CYW43_COUNTRY(
@@ -179,11 +163,8 @@ void cyw_post_reclock(uint32_t sys_clk_khz)
         mon_add_response_str(STR_ERR_CYW_FAILED_TO_INIT);
     else
     {
-        // cyw43_arch is full of blocking functions.
-        // This seems to block only once after cyw43_arch_init.
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
-        cyw_initialized = true;
     }
 }
 

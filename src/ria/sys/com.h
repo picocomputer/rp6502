@@ -26,8 +26,6 @@ void com_task(void);
 void com_init(void);
 void com_run(void);
 void com_stop(void);
-void com_pre_reclock(void);
-void com_post_reclock(void);
 
 /* Expose the internals here because ria.c needs direct access
  */

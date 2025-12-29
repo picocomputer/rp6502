@@ -17,7 +17,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 static void (*aud_stop_fn)(void);
-static void (*aud_reclock_fn)(uint32_t sys_clk_khz);
 static void (*aud_task_fn)(void);
 
 static void aud_nop()
@@ -48,15 +47,9 @@ void aud_stop(void)
     irq_set_enabled(PWM_IRQ_WRAP, false);
     aud_stop_fn();
     aud_stop_fn = aud_nop;
-    aud_reclock_fn = aud_nop;
     aud_task_fn = aud_nop;
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
-}
-
-void aud_post_reclock(uint32_t sys_clk_khz)
-{
-    aud_reclock_fn(sys_clk_khz);
 }
 
 void aud_task(void)
@@ -70,14 +63,13 @@ void aud_setup(
     void (*reclock_fn)(uint32_t sys_clk_khz),
     void (*task_fn)(void))
 {
-    if (reclock_fn != aud_reclock_fn)
+    if (aud_task_fn != task_fn)
     {
         aud_stop();
         start_fn();
         reclock_fn(clock_get_hz(clk_sys) / 1000);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
         irq_set_enabled(PWM_IRQ_WRAP, true);
-        aud_reclock_fn = reclock_fn;
         aud_task_fn = task_fn;
         aud_stop_fn = stop_fn;
     }
