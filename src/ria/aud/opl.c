@@ -12,6 +12,7 @@
 #include <hardware/pwm.h>
 #include <math.h>
 #include <string.h>
+#include <cmsis_compiler.h>
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_OPL)
 #include <stdio.h>
@@ -55,10 +56,14 @@ static void
     static uint8_t page;
     if (++page >= 8)
         page = 0;
-    for (int i = 0; i < 8; i++)
-    {
-        // TODO
-    }
+    uint32_t dirty_bits = __LDREXW(&xram_dirty_bits[page]);
+    uint32_t status = __STREXW(0, &xram_dirty_bits[page]);
+    if (status)
+        return;
+    int base = page * 32;
+    for (int i = 0; i < 32; i++)
+        if (dirty_bits & (1 << i))
+            OPL_writeReg(opl_emu8950, base + i, xram[opl_xaddr + base + i]);
 }
 
 static void opl_start(void)
@@ -79,7 +84,6 @@ static void psg_reclock(uint32_t sys_clk_khz)
 
 static void opl_task(void)
 {
-    OPL_writeReg(opl_emu8950, opl_xaddr, opl_xaddr);
 }
 
 bool opl_xreg(uint16_t word)
