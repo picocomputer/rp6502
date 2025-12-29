@@ -1,18 +1,18 @@
 #ifndef _EMU8950_H_
 #define _EMU8950_H_
 
+// This is a bespoke header file for RP6502 to be able to use emu8950.c
+// by Mitsutaka Okazaki with Pi Pico optimizations by Graham Sanderson.
+
 #include <stdint.h>
 
-// This is a bespoke header file for RP6502 to be able to use the
-// PicoGUS's emu8950.c. We use the same settings except timers are
-// enabled to avoid a printf when someones tries to use one.
-#define EMU8950_NO_TIMER 0
-#define EMU8950_NO_RATECONV 1
-#define EMU8950_NO_TLL 1                   // don't use lookup table for total level
-#define EMU8950_NO_FLOAT 1                 // double check there is no float
-#define EMU8950_NO_TEST_FLAG 1             // disable test flags (which aren't used)
-#define EMU8950_SIMPLER_NOISE 1            // only generate noise bit when needed
-#define EMU8950_SHORT_NOISE_UPDATE_CHECK 1 // only update short noise if it is used
+#define EMU8950_NO_TIMER 0                 // Avoids a printf
+#define EMU8950_NO_RATECONV 1              // All the samples
+#define EMU8950_NO_FLOAT 1                 // Avoid irq pushing floats
+#define EMU8950_NO_TLL 1                   // Avoid a very large table
+#define EMU8950_NO_TEST_FLAG 1             // Not in test
+#define EMU8950_SIMPLER_NOISE 1            // Performance
+#define EMU8950_SHORT_NOISE_UPDATE_CHECK 1 // Performance
 
 #define OPL_DEBUG 0
 
