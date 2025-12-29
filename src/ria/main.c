@@ -91,7 +91,6 @@ void main_task(void)
     usb_task();
     cpu_task();
     ria_task();
-    aud_task();
     kbd_task();
     cyw_task();
     vga_task();

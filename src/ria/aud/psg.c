@@ -118,7 +118,7 @@ static int8_t psg_sine_table[256];
 static void
     __attribute__((optimize("O3")))
     __isr
-    __time_critical_func(psg_irq_handler)()
+    __time_critical_func(psg_irq_handler)(void)
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
 
@@ -248,28 +248,14 @@ static void
     }
 }
 
-static void opl_start(void)
-{
-    irq_set_exclusive_handler(PWM_IRQ_WRAP_0, psg_irq_handler);
-}
-
-static void opl_stop(void)
-{
-    irq_remove_handler(PWM_IRQ_WRAP_0, psg_irq_handler);
-}
-
-static void psg_reclock(uint32_t sys_clk_khz)
-{
-    pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (PSG_RATE / 1000.f));
-}
-
-static void opl_task(void)
-{
-}
-
 bool psg_xreg(uint16_t word)
 {
-
+    if (word & 0x0001 ||
+        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
+    {
+        psg_xaddr = 0xFFFF;
+        return word == 0xFFFF;
+    }
     if (!*psg_sine_table)
     {
         // Set up sine table
@@ -284,17 +270,7 @@ bool psg_xreg(uint16_t word)
             psg_channel_state[i].noise2 = 0xEFCDAB89;
         }
     }
-    if (word & 0x0001 ||
-        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
-    {
-        psg_xaddr = 0xFFFF;
-        if (word != 0xFFFF)
-            return false;
-    }
-    else
-    {
-        psg_xaddr = word;
-        aud_setup(opl_start, opl_stop, psg_reclock, opl_task);
-    }
+    psg_xaddr = word;
+    aud_setup(psg_irq_handler, PSG_RATE);
     return true;
 }

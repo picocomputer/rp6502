@@ -5,6 +5,7 @@
  */
 
 #include "aud/aud.h"
+#include "sys/cpu.h"
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 #include <hardware/clocks.h>
@@ -16,12 +17,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static void (*aud_stop_fn)(void);
-static void (*aud_task_fn)(void);
-
-static void aud_nop()
-{
-}
+static irq_handler_t aud_irq_fn;
 
 void aud_init(void)
 {
@@ -35,7 +31,6 @@ void aud_init(void)
     config = pwm_get_default_config();
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
-    aud_stop_fn = aud_nop;
     aud_stop();
     gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
     gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
@@ -45,32 +40,24 @@ void aud_stop(void)
 {
     pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
     irq_set_enabled(PWM_IRQ_WRAP, false);
-    aud_stop_fn();
-    aud_stop_fn = aud_nop;
-    aud_task_fn = aud_nop;
+    if (aud_irq_fn != NULL)
+    {
+        irq_remove_handler(PWM_IRQ_WRAP_0, aud_irq_fn);
+        aud_irq_fn = NULL;
+    }
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
 }
 
-void aud_task(void)
+void aud_setup(void (*irq_fn)(void), uint32_t rate)
 {
-    aud_task_fn();
-}
-
-void aud_setup(
-    void (*start_fn)(void),
-    void (*stop_fn)(void),
-    void (*reclock_fn)(uint32_t sys_clk_khz),
-    void (*task_fn)(void))
-{
-    if (aud_task_fn != task_fn)
+    if (aud_irq_fn != irq_fn)
     {
         aud_stop();
-        start_fn();
-        reclock_fn(clock_get_hz(clk_sys) / 1000);
+        aud_irq_fn = irq_fn;
+        irq_set_exclusive_handler(PWM_IRQ_WRAP_0, irq_fn);
+        pwm_set_wrap(AUD_IRQ_SLICE, CPU_RP2350_KHZ / (rate / 1000.f));
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
         irq_set_enabled(PWM_IRQ_WRAP, true);
-        aud_task_fn = task_fn;
-        aud_stop_fn = stop_fn;
     }
 }
