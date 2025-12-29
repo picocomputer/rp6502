@@ -7,7 +7,7 @@
 #ifndef RP6502_RIA_W
 #include "net/wfi.h"
 void wfi_task() {}
-void wfi_print_status() {}
+int wfi_status_response(char *, size_t, int) { return -1; }
 #else
 
 #include "net/cyw.h"
