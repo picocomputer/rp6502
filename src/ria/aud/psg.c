@@ -122,14 +122,6 @@ static void
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
 
-    // Check for valid xram address
-    if (psg_xaddr == 0xFFFF)
-    {
-        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
-        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
-        return;
-    }
-
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
 
     // Output previous sample at start to minimize jitter
