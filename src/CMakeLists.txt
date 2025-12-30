@@ -50,7 +50,6 @@ target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
 
 target_compile_options(${RIA_TARGET} PRIVATE
     -Wall -Wextra
-    -fms-extensions # want OPL_SLOT_RENDER to be unnamed within OPL_SLOT
     $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
     $<$<CONFIG:Release>:-Os>
 )
