@@ -23,17 +23,12 @@
  */
 
 void aud_init(void);
-void aud_task(void);
 void aud_stop(void);
-void aud_post_reclock(uint32_t sys_clk_khz);
 
 /* Setup an audio system, tears down any previous setup.
  */
 
-void aud_setup(
-    void (*start_fn)(void),
-    void (*reclock_fn)(uint32_t sys_clk_khz),
-    void (*task_fn)(void));
+void aud_setup(void (*irq_fn)(void), uint32_t rate);
 
 /* Audio samples are unsigned 8 bits.
  */

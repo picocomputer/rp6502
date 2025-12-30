@@ -4,13 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include <btstack.h>
-
 #if !defined(RP6502_RIA_W)
 #include "net/ble.h"
 void ble_task(void) {}
-void ble_shutdown(void) {}
-void ble_print_status(void) {}
+int ble_status_response(char *, size_t, int) { return -1; }
 void ble_set_hid_leds(uint8_t) {}
 #else
 
@@ -25,6 +22,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "sys/led.h"
 #include <stdio.h>
 #include <pico/time.h>
+#include <btstack.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
 #include <stdio.h>

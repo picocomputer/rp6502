@@ -153,6 +153,7 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     assert(!timeout);
     mon_needs_prompt = true;
     const char *args = buf;
+    stdio_flush();
     mon_function func = mon_command_lookup(&args, length);
     if (func)
         return func(args, length - (args - buf));
@@ -401,7 +402,7 @@ static void mon_more(void)
                     mon_more_state = MON_MORE_ESC;
                 else
                     mon_more_state = MON_MORE_END;
-                if (ch == 3)
+                if (ch == 3 || ch == 'q' || ch == 'Q')
                     mon_needs_break = true;
                 break;
             case MON_MORE_ESC:

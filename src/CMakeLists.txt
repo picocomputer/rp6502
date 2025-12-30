@@ -42,7 +42,7 @@ else()
     pico_set_program_name(${RIA_TARGET} "RP6502-RIA")
 endif()
 
-set_target_properties(${RIA_TARGET} PROPERTIES 
+set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
@@ -67,6 +67,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
     LFS_NAME_MAX=16
+    USE_EMU8950_OPL=1
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE
@@ -80,6 +81,7 @@ target_link_libraries(${RIA_TARGET} PRIVATE
     hardware_flash
     tinyusb_host
     pico_btstack_ble
+    cmsis_core
 )
 
 pico_generate_pio_header(${RIA_TARGET}
@@ -87,6 +89,7 @@ pico_generate_pio_header(${RIA_TARGET}
 )
 
 target_sources(${RIA_TARGET} PRIVATE
+    emu8950/emu8950.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c
@@ -99,6 +102,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/api/rng.c
     ria/api/std.c
     ria/aud/aud.c
+    ria/aud/opl.c
     ria/aud/psg.c
     ria/hid/hid.c
     ria/hid/kbd.c
@@ -143,7 +147,7 @@ pico_add_extra_outputs(rp6502_vga)
 pico_set_program_name(rp6502_vga "RP6502 VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
 
-set_target_properties(rp6502_vga PROPERTIES 
+set_target_properties(rp6502_vga PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 

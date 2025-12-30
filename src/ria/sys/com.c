@@ -129,16 +129,6 @@ void com_stop()
     com_clear_all_rx();
 }
 
-void com_pre_reclock(void)
-{
-    stdio_flush();
-}
-
-void com_post_reclock(void)
-{
-    uart_init(COM_UART, COM_UART_BAUD_RATE);
-}
-
 void com_task(void)
 {
     // Process transmit.

@@ -24,7 +24,7 @@
 
 void pix_init(void);
 void pix_stop(void);
-void pix_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
+void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 /* API to set XREGs
  */

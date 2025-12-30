@@ -12,6 +12,7 @@
 #include "sys/cpu.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
+#include <hardware/vreg.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CPU)
 #include <stdio.h>
@@ -25,76 +26,40 @@ static uint16_t cpu_phi2_khz_active;
 static bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
 
-static void cpu_compute_phi2_clocks(uint16_t freq_khz,
-                                    uint32_t *sys_clk_khz,
-                                    uint16_t *clkdiv_int,
-                                    uint8_t *clkdiv_frac)
-{
-    *sys_clk_khz = freq_khz * 32;
-    if (*sys_clk_khz < 128 * 1000)
-    {
-        *sys_clk_khz = 128 * 1000;
-        float clkdiv = 128000.f / 32.f / freq_khz;
-        *clkdiv_int = clkdiv;
-        *clkdiv_frac = (clkdiv - *clkdiv_int) * (1u << 8u);
-    }
-    else
-    {
-        *clkdiv_int = 1;
-        *clkdiv_frac = 0;
-        uint vco, postdiv1, postdiv2;
-        while (!check_sys_clock_khz(*sys_clk_khz, &vco, &postdiv1, &postdiv2))
-            *sys_clk_khz += 1;
-    }
-}
+// 6502 to RP2350 clock ratio is 1:32
+static_assert(CPU_PHI2_MAX_KHZ <= CPU_RP2350_KHZ / 32);
 
-static uint16_t cpu_sanitize_phi2_khz(uint16_t freq_khz)
+static void cpu_change_phi2_khz(uint16_t freq_khz)
 {
     if (freq_khz < CPU_PHI2_MIN_KHZ)
         freq_khz = CPU_PHI2_MIN_KHZ;
     if (freq_khz > CPU_PHI2_MAX_KHZ)
         freq_khz = CPU_PHI2_MAX_KHZ;
-    uint32_t sys_clk_khz;
-    uint16_t clkdiv_int;
-    uint8_t clkdiv_frac;
-    cpu_compute_phi2_clocks(freq_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    return sys_clk_khz / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
-}
-
-static bool cpu_reclock(void)
-{
+    float clkdiv = CPU_RP2350_KHZ / 32.f / freq_khz;
+    uint16_t clkdiv_int = clkdiv;
+    uint8_t clkdiv_frac = (clkdiv - clkdiv_int) * (1u << 8u);
+    cpu_phi2_khz = CPU_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
     if (cpu_phi2_khz_active == cpu_phi2_khz)
-        return true;
+        return;
     cpu_phi2_khz_active = cpu_phi2_khz;
-    uint32_t sys_clk_khz;
-    uint16_t clkdiv_int;
-    uint8_t clkdiv_frac;
-    cpu_compute_phi2_clocks(cpu_phi2_khz, &sys_clk_khz, &clkdiv_int, &clkdiv_frac);
-    main_pre_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
-    if (set_sys_clock_khz(sys_clk_khz, false))
-    {
-        main_post_reclock(sys_clk_khz, clkdiv_int, clkdiv_frac);
-        return true;
-    }
-    mon_add_response_str(STR_ERR_INTERNAL_ERROR);
-    return false;
+    main_reclock(clkdiv_int, clkdiv_frac);
 }
 
-void cpu_init_resb(void)
+void cpu_main(void)
 {
     // The very first things main() does.
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);
     gpio_set_dir(CPU_RESB_PIN, true);
+    vreg_set_voltage(CPU_RP2350_VREG);
+    set_sys_clock_khz(CPU_RP2350_KHZ, true);
 }
 
 void cpu_init(void)
 {
     // Setting default
     if (!cpu_phi2_khz)
-        cpu_phi2_khz = cpu_sanitize_phi2_khz(CPU_PHI2_DEFAULT);
-    // Announce the first clock speed
-    cpu_reclock();
+        cpu_change_phi2_khz(CPU_PHI2_DEFAULT);
 }
 
 void cpu_task(void)
@@ -120,7 +85,7 @@ void cpu_stop(void)
     cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
 
-void cpu_post_reclock(void)
+void cpu_reclock(void)
 {
     cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
@@ -154,7 +119,7 @@ uint32_t cpu_get_reset_us(void)
 void cpu_load_phi2_khz(const char *str, size_t len)
 {
     str_parse_uint16(&str, &len, &cpu_phi2_khz);
-    cpu_phi2_khz = cpu_sanitize_phi2_khz(cpu_phi2_khz);
+    cpu_change_phi2_khz(cpu_phi2_khz);
 }
 
 bool cpu_set_phi2_khz(uint16_t phi2_khz)
@@ -162,13 +127,9 @@ bool cpu_set_phi2_khz(uint16_t phi2_khz)
     if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
         return false;
     uint16_t old_phi2_khz = cpu_phi2_khz;
-    cpu_phi2_khz = cpu_sanitize_phi2_khz(phi2_khz);
+    cpu_change_phi2_khz(phi2_khz);
     if (old_phi2_khz != cpu_phi2_khz)
-    {
-        if (!cpu_reclock())
-            return false;
         cfg_save();
-    }
     return true;
 }
 

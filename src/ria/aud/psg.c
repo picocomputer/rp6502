@@ -118,17 +118,9 @@ static int8_t psg_sine_table[256];
 static void
     __attribute__((optimize("O3")))
     __isr
-    __time_critical_func(psg_irq_handler)()
+    __time_critical_func(psg_irq_handler)(void)
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
-
-    // Check for valid xram address
-    if (psg_xaddr == 0xFFFF)
-    {
-        pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
-        pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
-        return;
-    }
 
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
 
@@ -248,46 +240,29 @@ static void
     }
 }
 
-static void psg_start(void)
-{
-    // Set up linear-feedback shift register for noise. Starting constants from here:
-    // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
-    {
-        psg_channel_state[i].noise1 = 0x67452301;
-        psg_channel_state[i].noise2 = 0xEFCDAB89;
-    }
-
-    // Set up sine table
-    for (unsigned i = 0; i < 256; i++)
-        psg_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
-
-    // Set the IRQ handler
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, psg_irq_handler);
-}
-
-static void psg_reclock(uint32_t sys_clk_khz)
-{
-    pwm_set_wrap(AUD_IRQ_SLICE, sys_clk_khz / (PSG_RATE / 1000.f));
-}
-
-static void psg_task(void)
-{
-}
-
 bool psg_xreg(uint16_t word)
 {
     if (word & 0x0001 ||
         word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
     {
         psg_xaddr = 0xFFFF;
-        if (word != 0xFFFF)
-            return false;
+        return word == 0xFFFF;
     }
-    else
+    if (!*psg_sine_table)
     {
-        psg_xaddr = word;
-        aud_setup(psg_start, psg_reclock, psg_task);
+        // Set up sine table
+        for (unsigned i = 0; i < 256; i++)
+            psg_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
+
+        // Set up linear-feedback shift register for noise. Starting constants from here:
+        // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+        for (unsigned i = 0; i < PSG_CHANNELS; i++)
+        {
+            psg_channel_state[i].noise1 = 0x67452301;
+            psg_channel_state[i].noise2 = 0xEFCDAB89;
+        }
     }
+    psg_xaddr = word;
+    aud_setup(psg_irq_handler, PSG_RATE);
     return true;
 }

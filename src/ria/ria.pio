@@ -26,7 +26,10 @@ start:
 wait 0 gpio 21
 pull noblock
 mov x osr
-wait 1 gpio 21 [11] ; mid-late in good range 4-15
+; The good range for this doesn't change much
+; with PHI2 increases. We just need to wait long
+; enough for the address to arrive on fast speeds.
+wait 1 gpio 21 [11] ; good range 4-15
 mov osr pins
 out y 1
 jmp !y start
@@ -57,10 +60,17 @@ in null 18
 .program ria_read
 
 .wrap_target
-wait 1 gpio 21
 out pins 8
+wait 1 gpio 21
 mov isr y ; cortex base address
-wait 0 gpio 21 [5] ; early-mid in good range 4-8
+; The good range for this timing narrows as
+; PHI2 increases. We need to wait long enough
+; for the address to arrive but not so long
+; the DMA doesn't finish in time. Pushing the
+; number down is against the electrical limits,
+; up is against the RP2350 limits. So find the
+; biggest safe number.
+wait 0 gpio 21 [7] ; good range 4-8
 in pins 5
 .wrap
 

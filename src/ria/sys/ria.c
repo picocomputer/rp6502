@@ -85,7 +85,7 @@ void ria_run(void)
         // FFF2  8D 00 00  STA $0000
         // FFF5  80 F9     BRA $FFF0
         // FFF7  80 FE     BRA $FFF7
-        ria_set_watch_address(0xFFF6);
+        ria_set_watch_address(0xFFF5);
         REGS(0xFFF0) = 0xA9;
         REGS(0xFFF1) = mbuf[0];
         REGS(0xFFF2) = 0x8D;
@@ -241,14 +241,12 @@ void ria_write_buf(uint16_t addr)
 #define RIA_RW1 REGS(0xFFE8)
 #define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define RIA_ADDR1 REGSW(0xFFEA)
-// This becomes unstable every time I tried to get to O3 by trurning off
-// specific optimizations. The annoying bit is that different hardware doesn't
-// behave the same. I'm giving up and leaving this at O1, which is plenty fast.
-__attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_loop)(void)
+__attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_loop)(void)
 {
-    // In here we bypass the usual SDK calls as needed for performance.
     while (true)
     {
+        RIA_RW0 = xram[RIA_ADDR0];
+        RIA_RW1 = xram[RIA_ADDR1];
         if (!(RIA_ACT_PIO->fstat & (1u << (PIO_FSTAT_RXEMPTY_LSB + RIA_ACT_SM))))
         {
             uint32_t rw_addr_data = RIA_ACT_PIO->rxf[RIA_ACT_SM];
@@ -257,26 +255,22 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                 uint32_t data = rw_addr_data & 0xFF;
                 switch (rw_addr_data >> 8)
                 {
-                case CASE_READ(0xFFF6): // action write
-                    if (rw_pos < rw_end)
+                case CASE_READ(0xFFF5): // action write
+                    if (action_state == action_state_write)
                     {
-                        if (rw_pos > 0)
+                        if (rw_pos == rw_end)
                         {
-                            REGS(0xFFF1) = mbuf[rw_pos];
-                            REGSW(0xFFF3) += 1;
-                        }
-                        if (++rw_pos == rw_end)
                             REGS(0xFFF6) = 0x00;
-                    }
-                    else
-                    {
-                        gpio_put(CPU_RESB_PIN, false);
-                        action_result = RIA_ACTION_RESULT_FINISHED;
-                        main_stop();
+                            gpio_put(CPU_RESB_PIN, false);
+                            action_result = RIA_ACTION_RESULT_FINISHED;
+                            main_stop();
+                        }
+                        REGS(0xFFF1) = mbuf[++rw_pos];
+                        REGSW(0xFFF3) += 1;
                     }
                     break;
                 case CASE_WRITE(0xFFFD): // action read
-                    if (rw_pos < rw_end)
+                    if (action_state == action_state_read)
                     {
                         REGSW(0xFFF1) += 1;
                         mbuf[rw_pos] = data;
@@ -289,7 +283,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     }
                     break;
                 case CASE_WRITE(0xFFFC): // action verify
-                    if (rw_pos < rw_end)
+                    if (action_state == action_state_verify)
                     {
                         REGSW(0xFFF1) += 1;
                         if (mbuf[rw_pos] != data && action_result < 0)
@@ -333,39 +327,23 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                         ++xstack_ptr;
                     API_STACK = xstack[xstack_ptr];
                     break;
-                case CASE_WRITE(0xFFEB): // Set XRAM >ADDR1
-                    REGS(0xFFEB) = data;
-                    RIA_RW1 = xram[RIA_ADDR1];
-                    break;
-                case CASE_WRITE(0xFFEA): // Set XRAM <ADDR1
-                    REGS(0xFFEA) = data;
-                    RIA_RW1 = xram[RIA_ADDR1];
-                    break;
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[RIA_ADDR1] = data;
                     PIX_SEND_XRAM(RIA_ADDR1, data);
-                    RIA_RW0 = xram[RIA_ADDR0];
+                    if (xram_dirty_page == REGS(0xFFEB))
+                        xram_dirty_bits[REGS(0xFFEA) >> 5] |= 1 << (REGS(0xFFEA) & 0x1F);
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
                     RIA_ADDR1 += RIA_STEP1;
-                    RIA_RW1 = xram[RIA_ADDR1];
-                    break;
-                case CASE_WRITE(0xFFE7): // Set XRAM >ADDR0
-                    REGS(0xFFE7) = data;
-                    RIA_RW0 = xram[RIA_ADDR0];
-                    break;
-                case CASE_WRITE(0xFFE6): // Set XRAM <ADDR0
-                    REGS(0xFFE6) = data;
-                    RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[RIA_ADDR0] = data;
                     PIX_SEND_XRAM(RIA_ADDR0, data);
-                    RIA_RW1 = xram[RIA_ADDR1];
+                    if (xram_dirty_page == REGS(0xFFE7))
+                        xram_dirty_bits[REGS(0xFFE6) >> 5] |= 1 << (REGS(0xFFE6) & 0x1F);
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
                     RIA_ADDR0 += RIA_STEP0;
-                    RIA_RW0 = xram[RIA_ADDR0];
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
@@ -569,7 +547,7 @@ void ria_init(void)
     ria_act_pio_init();
 }
 
-void ria_post_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
+void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {
     // chip_select doesn't reclock
     pio_sm_set_clkdiv_int_frac(RIA_WRITE_PIO, RIA_WRITE_SM, clkdiv_int, clkdiv_frac);
