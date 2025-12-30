@@ -330,8 +330,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[RIA_ADDR1] = data;
                     PIX_SEND_XRAM(RIA_ADDR1, data);
-                    if (xram_dirty_page == REGS(0xFFEB))
-                        xram_dirty_bits[REGS(0xFFEA) >> 5] |= 1 << (REGS(0xFFEA) & 0x1F);
+                    if (xram_queue_page == REGS(0xFFEB) &&
+                        xram_queue_head + 1 != xram_queue_tail)
+                    {
+                        ++xram_queue_head;
+                        xram_queue[xram_queue_head][0] = REGS(0xFFEA);
+                        xram_queue[xram_queue_head][1] = data;
+                    }
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
                     RIA_ADDR1 += RIA_STEP1;
@@ -339,8 +344,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[RIA_ADDR0] = data;
                     PIX_SEND_XRAM(RIA_ADDR0, data);
-                    if (xram_dirty_page == REGS(0xFFE7))
-                        xram_dirty_bits[REGS(0xFFE6) >> 5] |= 1 << (REGS(0xFFE6) & 0x1F);
+                    if (xram_queue_page == REGS(0xFFE7) &&
+                        xram_queue_head + 1 != xram_queue_tail)
+                    {
+                        ++xram_queue_head;
+                        xram_queue[xram_queue_head][0] = REGS(0xFFE6);
+                        xram_queue[xram_queue_head][1] = data;
+                    }
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
                     RIA_ADDR0 += RIA_STEP0;

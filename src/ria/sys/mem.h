@@ -17,8 +17,10 @@
 // 64KB Extended RAM
 // One page is tracked for audio
 extern uint8_t *const xram;
-extern uint8_t xram_dirty_page;
-extern uint32_t xram_dirty_bits[8];
+extern uint8_t xram_queue_page;
+extern uint8_t xram_queue_head;
+extern uint8_t xram_queue_tail;
+extern uint8_t xram_queue[256][2];
 
 // The xstack is:
 // 512 bytes, enough to hold a CC65 stack frame, two strings for a

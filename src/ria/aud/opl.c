@@ -31,7 +31,6 @@ static_assert(AUD_PWM_BITS == 8);
 static OPL *opl_emu8950;
 static volatile uint16_t opl_xaddr;
 static int8_t opl_sample;
-static uint8_t opl_reg_page;
 
 static void
     __attribute__((optimize("O3")))
@@ -47,17 +46,15 @@ static void
     OPL_calc_buffer(opl_emu8950, &next, 1);
     opl_sample = next >> 8;
 
-    // Update opl regs from xram_dirty_bits[8]
-    uint32_t dirty_bits = __LDREXW(&xram_dirty_bits[opl_reg_page]);
-    uint32_t status = __STREXW(0, &xram_dirty_bits[opl_reg_page]);
-    if (status)
-        return;
-    int base = opl_reg_page * 32;
-    for (int i = 0; i < 32; i++)
-        if (dirty_bits & (1 << i))
-            OPL_writeReg(opl_emu8950, base + i, xram[opl_xaddr + base + i]);
-    if (++opl_reg_page >= 8)
-        opl_reg_page = 0;
+    // Update opl regs from xram
+    uint8_t max_work = 8;
+    while (max_work-- && xram_queue_tail != xram_queue_head)
+    {
+        ++xram_queue_tail;
+        OPL_writeReg(opl_emu8950,
+                     xram_queue[xram_queue_tail][0],
+                     xram_queue[xram_queue_tail][1]);
+    }
 }
 
 bool opl_xreg(uint16_t word)
@@ -77,9 +74,9 @@ bool opl_xreg(uint16_t word)
     }
     OPL_reset(opl_emu8950);
     opl_xaddr = word;
-    xram_dirty_page = word >> 8;
+    xram_queue_page = word >> 8;
     memset(&xram[word], 0, 256);
-    memset(xram_dirty_bits, 0, 32);
+    xram_queue_tail = xram_queue_head;
     aud_setup(opl_irq_handler, OPL_SAMPLE_RATE);
     return true;
 }

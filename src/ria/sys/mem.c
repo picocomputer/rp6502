@@ -38,8 +38,10 @@ static struct
 uint8_t *const __uninitialized_ram(xram) __attribute__((aligned(4))) =
     (uint8_t *)&xram_blocks;
 
-uint8_t xram_dirty_page;
-uint32_t xram_dirty_bits[8];
+uint8_t xram_queue_page;
+uint8_t xram_queue_head;
+uint8_t xram_queue_tail;
+uint8_t xram_queue[256][2];
 
 uint8_t xstack[XSTACK_SIZE + 1];
 size_t volatile xstack_ptr;
