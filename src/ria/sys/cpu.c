@@ -29,13 +29,12 @@ static absolute_time_t cpu_resb_timer;
 // 6502 to RP2350 clock ratio is 1:32
 static_assert(CPU_PHI2_MAX_KHZ <= CPU_RP2350_KHZ / 32);
 
-static void cpu_sanitize_phi2_khz(uint16_t freq_khz)
+static void cpu_change_phi2_khz(uint16_t freq_khz)
 {
     if (freq_khz < CPU_PHI2_MIN_KHZ)
         freq_khz = CPU_PHI2_MIN_KHZ;
     if (freq_khz > CPU_PHI2_MAX_KHZ)
         freq_khz = CPU_PHI2_MAX_KHZ;
-
     float clkdiv = CPU_RP2350_KHZ / 32.f / freq_khz;
     uint16_t clkdiv_int = clkdiv;
     uint8_t clkdiv_frac = (clkdiv - clkdiv_int) * (1u << 8u);
@@ -60,7 +59,7 @@ void cpu_init(void)
 {
     // Setting default
     if (!cpu_phi2_khz)
-        cpu_sanitize_phi2_khz(CPU_PHI2_DEFAULT);
+        cpu_change_phi2_khz(CPU_PHI2_DEFAULT);
 }
 
 void cpu_task(void)
@@ -120,7 +119,7 @@ uint32_t cpu_get_reset_us(void)
 void cpu_load_phi2_khz(const char *str, size_t len)
 {
     str_parse_uint16(&str, &len, &cpu_phi2_khz);
-    cpu_sanitize_phi2_khz(cpu_phi2_khz);
+    cpu_change_phi2_khz(cpu_phi2_khz);
 }
 
 bool cpu_set_phi2_khz(uint16_t phi2_khz)
@@ -128,7 +127,7 @@ bool cpu_set_phi2_khz(uint16_t phi2_khz)
     if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
         return false;
     uint16_t old_phi2_khz = cpu_phi2_khz;
-    cpu_sanitize_phi2_khz(phi2_khz);
+    cpu_change_phi2_khz(phi2_khz);
     if (old_phi2_khz != cpu_phi2_khz)
         cfg_save();
     return true;

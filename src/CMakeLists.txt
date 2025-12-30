@@ -79,7 +79,6 @@ target_link_libraries(${RIA_TARGET} PRIVATE
     hardware_dma
     hardware_pwm
     hardware_flash
-    hardware_interp
     tinyusb_host
     pico_btstack_ble
     cmsis_core

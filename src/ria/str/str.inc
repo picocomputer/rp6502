@@ -137,7 +137,6 @@ X(STR_HELP_ABOUT,
   "          emu8950 - Copyright (c) 2001-2020 Mitsutaka Okazaki\n"
   "                    Copyright (c) 2021-2022 Graham Sanderson\n"
 #ifdef RP6502_RIA_W
-  "\n"
   "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
   "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
   "                                            Computer Science.\n"
