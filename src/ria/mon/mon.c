@@ -401,7 +401,7 @@ static void mon_more(void)
                     mon_more_state = MON_MORE_ESC;
                 else
                     mon_more_state = MON_MORE_END;
-                if (ch == 3)
+                if (ch == 3 || ch == 'q' || ch == 'Q')
                     mon_needs_break = true;
                 break;
             case MON_MORE_ESC:
