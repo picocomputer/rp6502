@@ -91,6 +91,7 @@ pico_generate_pio_header(${RIA_TARGET}
 )
 
 target_sources(${RIA_TARGET} PRIVATE
+    emu8950/emu8950.c
     fatfs/ff.c
     fatfs/ffunicode.c
     littlefs/lfs.c
@@ -103,7 +104,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/api/rng.c
     ria/api/std.c
     ria/aud/aud.c
-    ria/aud/emu8950.c
     ria/aud/opl.c
     ria/aud/psg.c
     ria/hid/hid.c

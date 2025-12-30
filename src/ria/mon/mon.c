@@ -153,6 +153,7 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
     assert(!timeout);
     mon_needs_prompt = true;
     const char *args = buf;
+    stdio_flush();
     mon_function func = mon_command_lookup(&args, length);
     if (func)
         return func(args, length - (args - buf));

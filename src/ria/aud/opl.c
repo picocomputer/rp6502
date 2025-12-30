@@ -5,7 +5,6 @@
  */
 
 #include "aud/aud.h"
-#include "aud/emu8950.h"
 #include "aud/opl.h"
 #include "mon/mon.h"
 #include "str/str.h"
@@ -14,6 +13,7 @@
 #include <hardware/pwm.h>
 #include <math.h>
 #include <string.h>
+#include <emu8950/emu8950.h>
 #include <cmsis_compiler.h>
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_OPL)
