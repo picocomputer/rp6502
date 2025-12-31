@@ -606,7 +606,10 @@ void kbd_init(void)
     kdb_hid_leds = KBD_LED_NUMLOCK;
     kbd_send_leds();
     if (!kbd_layout_loaded)
-        kbd_set_layout(kbd_layout_names[kbd_sanitize_layout("")]);
+    {
+        kbd_layout_index = kbd_sanitize_layout("");
+        kbd_rebuild_code_page_cache();
+    }
 }
 
 void kbd_task(void)
