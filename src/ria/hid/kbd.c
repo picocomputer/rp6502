@@ -586,7 +586,7 @@ static int kbd_sanitize_layout(const char *kb)
 {
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     int default_index = 0;
-    int found_index = 0;
+    int found_index = -1;
     for (int i = 0; i < layouts_count; i++)
     {
         if (!strcasecmp(kbd_layout_names[i], "US"))
