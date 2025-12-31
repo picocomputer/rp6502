@@ -118,8 +118,8 @@ uint32_t cpu_get_reset_us(void)
 
 void cpu_load_phi2_khz(const char *str, size_t len)
 {
-    str_parse_uint16(&str, &len, &cpu_phi2_khz);
-    cpu_change_phi2_khz(cpu_phi2_khz);
+    if (str_parse_uint16(&str, &len, &cpu_phi2_khz) && cpu_phi2_khz)
+        cpu_change_phi2_khz(cpu_phi2_khz);
 }
 
 bool cpu_set_phi2_khz(uint16_t phi2_khz)
