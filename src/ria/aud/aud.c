@@ -32,6 +32,13 @@ void aud_init(void)
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
     aud_stop();
+
+    gpio_set_drive_strength(AUD_L_PIN, GPIO_DRIVE_STRENGTH_2MA);
+    gpio_set_drive_strength(AUD_R_PIN, GPIO_DRIVE_STRENGTH_2MA);
+    gpio_set_slew_rate(AUD_L_PIN, GPIO_SLEW_RATE_SLOW);
+    gpio_set_slew_rate(AUD_R_PIN, GPIO_SLEW_RATE_SLOW);
+    gpio_disable_pulls(AUD_L_PIN);
+    gpio_disable_pulls(AUD_R_PIN);
     gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
     gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
 }
