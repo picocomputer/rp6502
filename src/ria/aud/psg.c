@@ -10,6 +10,8 @@
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 #include <math.h>
+#include <stddef.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_PSG)
 #include <stdio.h>
@@ -203,10 +205,6 @@ static void
         }
 
         // Compute the ADSR envelope volume
-        if (!(channels[i].pan_gate & 0x01) && psg_channel_state[i].adsr != release)
-            psg_channel_state[i].adsr = release;
-        if ((channels[i].pan_gate & 0x01) && psg_channel_state[i].adsr == release)
-            psg_channel_state[i].adsr = attack;
         switch (psg_channel_state[i].adsr)
         {
         case attack:
@@ -238,12 +236,35 @@ static void
             break;
         }
     }
+
+    // Detect gate changes using xram_queue
+    uint8_t max_work = 32;
+    while (max_work-- && xram_queue_tail != xram_queue_head)
+    {
+        ++xram_queue_tail;
+        uint8_t loc = xram_queue[xram_queue_tail][0];
+        uint8_t val = xram_queue[xram_queue_tail][1];
+        uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
+        uint16_t offset = xaddr - psg_xaddr;
+        if ((offset % sizeof(struct psg_channel)) == offsetof(struct psg_channel, pan_gate))
+        {
+            unsigned i = offset / sizeof(struct psg_channel);
+            if (i < PSG_CHANNELS)
+            {
+                if (!(val & 0x01) && psg_channel_state[i].adsr != release)
+                    psg_channel_state[i].adsr = release;
+                if ((val & 0x01) && psg_channel_state[i].adsr == release)
+                    psg_channel_state[i].adsr = attack;
+            }
+        }
+    }
 }
 
 bool psg_xreg(uint16_t word)
 {
     if (word & 0x0001 ||
-        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel))
+        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
+        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
     {
         psg_xaddr = 0xFFFF;
         return word == 0xFFFF;
@@ -253,7 +274,6 @@ bool psg_xreg(uint16_t word)
         // Set up sine table
         for (unsigned i = 0; i < 256; i++)
             psg_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
-
         // Set up linear-feedback shift register for noise. Starting constants from here:
         // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
         for (unsigned i = 0; i < PSG_CHANNELS; i++)
@@ -262,7 +282,14 @@ bool psg_xreg(uint16_t word)
             psg_channel_state[i].noise2 = 0xEFCDAB89;
         }
     }
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        psg_channel_state[i].vol = 0;
+        psg_channel_state[i].adsr = release;
+    }
     psg_xaddr = word;
+    xram_queue_page = word >> 8;
+    xram_queue_tail = xram_queue_head;
     aud_setup(psg_irq_handler, PSG_RATE);
     return true;
 }
