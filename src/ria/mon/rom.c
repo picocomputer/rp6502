@@ -330,7 +330,7 @@ bool rom_load_installed(const char *args, size_t len)
 
 static int rom_help_response(char *buf, size_t buf_size, int state)
 {
-    if (state == -1)
+    if (state < 0)
     {
         rom_state = ROM_IDLE;
         return state;
@@ -458,6 +458,8 @@ void rom_break(void)
 
 int rom_installed_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     const uint32_t WIDTH = 79; // some terms wrap at 80
     uint32_t count = 0;
     int line = 1;

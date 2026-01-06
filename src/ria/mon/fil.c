@@ -54,6 +54,8 @@ bool fil_drive_exists(const char *args, size_t len)
 
 static int fil_chdir_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     (void)buf_size;
     FRESULT result;
     char *cwd = (char *)mbuf;

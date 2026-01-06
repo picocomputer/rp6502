@@ -80,6 +80,8 @@ static uint32_t vip_rand_seed = 0;
 
 int vip_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     (void)buf_size;
 #define X(suffix, name) \
     VIP_NAME_##suffix,

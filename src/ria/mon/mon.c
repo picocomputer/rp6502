@@ -167,6 +167,8 @@ static void mon_enter(bool timeout, const char *buf, size_t length)
 
 static int mon_str_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     size_t i = 0;
     const char *str = mon_response_str[0];
     for (; i + 1 < buf_size; i++)
@@ -221,6 +223,8 @@ static const char *mon_lfs_lookup(int result)
 
 static int mon_lfs_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     const char *err_str = mon_lfs_lookup(state);
     if (err_str != NULL)
         snprintf(buf, buf_size, err_str);
@@ -278,6 +282,8 @@ static const char *mon_fatfs_lookup(int fresult)
 
 static int mon_fatfs_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     const char *err_str = mon_fatfs_lookup(state);
     if (err_str != NULL)
         snprintf(buf, buf_size, err_str);

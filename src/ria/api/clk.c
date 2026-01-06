@@ -121,6 +121,8 @@ static int clk_tzinfo_index;
 
 int clk_tzdata_response(char *buf, size_t buf_size, int state)
 {
+    if (state < 0)
+        return state;
     const char fmt[] = "   %-22s";
     unsigned rows = (CLK_TZINFO_COUNT + 2) / 3;
     unsigned el = state;

@@ -96,7 +96,7 @@ int msc_count(void)
 
 int msc_status_response(char *buf, size_t buf_size, int state)
 {
-    if (state >= FF_VOLUMES)
+    if (state < 0 || state >= FF_VOLUMES)
         return -1;
     if (msc_volume_status[state] == msc_volume_mounted)
     {

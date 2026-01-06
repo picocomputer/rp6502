@@ -28,7 +28,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // How long to wait for ACK to backchannel enable request
 #define VGA_BACKCHANNEL_ACK_MS 2
-// How long to wait for version string
+// How long to wait before aborting version string
 #define VGA_VERSION_WATCHDOG_MS 2
 // Abandon backchannel after two missed vsync messages (~2/60sec)
 #define VGA_VSYNC_WATCHDOG_MS 35
@@ -102,8 +102,6 @@ static void vga_connect(void)
 {
     // Test if VGA connected
     uint8_t test_buf[4];
-    while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
-        tight_loop_contents();
     rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, test_buf, sizeof(test_buf));
     vga_pix_backchannel_request();
     vga_state = VGA_TESTING;

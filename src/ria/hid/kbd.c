@@ -639,7 +639,7 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state)
     (void)buf_size;
     (void)state;
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
-    if (state >= layouts_count)
+    if (state < 0 || state >= layouts_count)
         return -1;
     int maxlen = 0;
     for (int i = 0; i < layouts_count; i++)
