@@ -70,7 +70,7 @@ mov isr y ; cortex base address
 ; number down is against the electrical limits,
 ; up is against the RP2350 limits. So find the
 ; biggest safe number.
-wait 0 gpio 21 [7] ; good range 4-8
+wait 0 gpio 21 [6] ; good range 4-8
 in pins 5
 .wrap
 
