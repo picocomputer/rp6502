@@ -20,8 +20,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static_assert(AUD_PWM_BITS == 8);
-
 #define PSG_RATE 24000
 #define PSG_CHANNELS 8
 
@@ -141,14 +139,18 @@ static void
             sample_r += ((int32_t)sample * (63 + pan)) >> 7;
         }
     }
-    if (sample_l < -128)
-        sample_l = -128;
-    if (sample_l > 127)
-        sample_l = 127;
-    if (sample_r < -128)
-        sample_r = -128;
-    if (sample_r > 127)
-        sample_r = 127;
+    int16_t max_val = (1 << (AUD_PWM_BITS - 1)) - 1;
+    int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
+    sample_l <<= (AUD_PWM_BITS - 8);
+    sample_r <<= (AUD_PWM_BITS - 8);
+    if (sample_l < min_val)
+        sample_l = min_val;
+    if (sample_l > max_val)
+        sample_l = max_val;
+    if (sample_r < min_val)
+        sample_r = min_val;
+    if (sample_r > max_val)
+        sample_r = max_val;
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample_l + AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample_r + AUD_PWM_CENTER);
 

@@ -33,7 +33,7 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate);
 /* Audio samples are unsigned 8 bits.
  */
 
-#define AUD_PWM_BITS 8
+#define AUD_PWM_BITS 10
 #define AUD_PWM_CENTER (1u << (AUD_PWM_BITS - 1))
 
 /* Audio drivers manage their own irq and sample rate.

@@ -23,8 +23,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static_assert(AUD_PWM_BITS == 8);
-
 #define OPL_CLOCK_RATE 3579552
 #define OPL_SAMPLE_RATE 49716
 
@@ -44,7 +42,7 @@ static void
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, opl_sample + AUD_PWM_CENTER);
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
-    opl_sample = next >> 8;
+    opl_sample = next >> (16 - AUD_PWM_BITS);
 
     // Update opl regs from xram
     uint8_t max_work = 8;
