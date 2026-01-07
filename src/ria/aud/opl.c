@@ -28,7 +28,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static OPL *opl_emu8950;
 static volatile uint16_t opl_xaddr;
-static int8_t opl_sample;
+static int16_t opl_sample;
 
 static void
     __attribute__((optimize("O3")))
@@ -42,7 +42,14 @@ static void
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, opl_sample + AUD_PWM_CENTER);
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
-    opl_sample = next >> (16 - AUD_PWM_BITS);
+    const int boost_bits = 2;
+    opl_sample = next >> (16 - AUD_PWM_BITS - boost_bits);
+    int16_t max_val = (1 << (AUD_PWM_BITS - 1)) - 1;
+    int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
+    if (opl_sample < min_val)
+        opl_sample = min_val;
+    if (opl_sample > max_val)
+        opl_sample = max_val;
 
     // Update opl regs from xram
     uint8_t max_work = 8;
