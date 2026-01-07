@@ -25,6 +25,7 @@ set(IPO_PRINTF_LINK_OPTIONS
     -Wl,-u,__wrap_sprintf
     -Wl,-u,__wrap_snprintf
     -Wl,-u,__wrap_vsnprintf
+    -Wl,-u,__wrap_ceil
     -Wl,-u,_fstat
     -Wl,-u,_isatty
     -Wl,-u,__assert_func
