@@ -241,7 +241,8 @@ void ria_write_buf(uint16_t addr)
 #define RIA_RW1 REGS(0xFFE8)
 #define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define RIA_ADDR1 REGSW(0xFFEA)
-__attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_loop)(void)
+// O3 works now but didn't in the past. I still don't trust it.
+__attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_loop)(void)
 {
     while (true)
     {
