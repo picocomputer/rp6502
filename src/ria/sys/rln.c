@@ -7,6 +7,7 @@
 #include "sys/rln.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
@@ -17,6 +18,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #define RLN_BUF_SIZE 256
+#define RLN_HISTORY_SIZE 3
 #define RLN_CSI_PARAM_MAX_LEN 16
 
 typedef enum
@@ -30,6 +32,11 @@ typedef enum
 } rln_ansi_state_t;
 
 static char rln_buf[RLN_BUF_SIZE];
+static char rln_history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+static uint8_t rln_history_head;
+static uint8_t rln_history_count;
+static int8_t rln_history_pos; // -1 = editing current line, 0..count-1 = viewing history
+static char rln_saved_buf[RLN_BUF_SIZE];
 static rln_read_callback_t rln_callback;
 static uint8_t *rln_binary_buf;
 static absolute_time_t rln_timer;
@@ -46,6 +53,84 @@ volatile size_t rln_tx_tail;
 volatile size_t rln_tx_head;
 volatile uint8_t rln_tx_buf[32];
 #define RLN_TX_BUF(pos) rln_tx_buf[(pos) & 0x1F]
+
+static void rln_line_redraw(const char *buf)
+{
+    // Clear line from start and redraw
+    if (rln_bufpos)
+        printf("\33[%dD", rln_bufpos);
+    if (rln_buflen)
+        printf("\33[%dP", rln_buflen);
+    size_t len = strlen(buf);
+    for (size_t i = 0; i < len; i++)
+        putchar(buf[i]);
+    rln_bufpos = len;
+    rln_buflen = len;
+    for (size_t i = 0; i < len; i++)
+        rln_buf[i] = buf[i];
+}
+
+static void rln_line_up(void)
+{
+    if (rln_history_count == 0)
+        return;
+    if (rln_history_pos < 0)
+    {
+        // Save current line before navigating history
+        for (size_t i = 0; i < rln_buflen; i++)
+            rln_saved_buf[i] = rln_buf[i];
+        rln_saved_buf[rln_buflen] = 0;
+        rln_history_pos = 0;
+    }
+    else if (rln_history_pos < rln_history_count - 1)
+    {
+        rln_history_pos++;
+    }
+    else
+    {
+        return; // Already at oldest
+    }
+    uint8_t idx = (rln_history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+    rln_line_redraw(rln_history[idx]);
+}
+
+static void rln_line_down(void)
+{
+    if (rln_history_pos < 0)
+        return;
+    if (rln_history_pos > 0)
+    {
+        rln_history_pos--;
+        uint8_t idx = (rln_history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+        rln_line_redraw(rln_history[idx]);
+    }
+    else
+    {
+        // Return to saved current line
+        rln_history_pos = -1;
+        rln_line_redraw(rln_saved_buf);
+    }
+}
+
+static void rln_history_add(void)
+{
+    if (rln_buflen == 0)
+        return;
+    // Don't add duplicates of the most recent entry
+    if (rln_history_count > 0)
+    {
+        uint8_t last = (rln_history_head - 1 + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+        if (strlen(rln_history[last]) == rln_buflen &&
+            memcmp(rln_history[last], rln_buf, rln_buflen) == 0)
+            return;
+    }
+    for (size_t i = 0; i < rln_buflen; i++)
+        rln_history[rln_history_head][i] = rln_buf[i];
+    rln_history[rln_history_head][rln_buflen] = 0;
+    rln_history_head = (rln_history_head + 1) % RLN_HISTORY_SIZE;
+    if (rln_history_count < RLN_HISTORY_SIZE)
+        rln_history_count++;
+}
 
 static void rln_line_home(void)
 {
@@ -187,6 +272,7 @@ static void rln_line_state_C0(char ch)
     else if (ch == '\r')
     {
         printf("\n");
+        rln_history_add();
         rln_buf[rln_buflen] = 0;
         rln_read_callback_t cc = rln_callback;
         rln_callback = NULL;
@@ -286,7 +372,11 @@ static void rln_line_state_CSI(char ch)
     rln_ansi_state = ansi_state_C0;
     if (++rln_csi_param_count > RLN_CSI_PARAM_MAX_LEN)
         rln_csi_param_count = RLN_CSI_PARAM_MAX_LEN;
-    if (ch == 'C')
+    if (ch == 'A')
+        rln_line_up();
+    else if (ch == 'B')
+        rln_line_down();
+    else if (ch == 'C')
         rln_line_forward();
     else if (ch == 'D')
         rln_line_backward();
@@ -372,6 +462,7 @@ void rln_read_line(uint32_t timeout_ms, rln_read_callback_t callback, size_t siz
     rln_timer = make_timeout_time_ms(rln_timeout_ms);
     rln_callback = callback;
     rln_ctrl_bits = ctrl_bits;
+    rln_history_pos = -1;
 }
 
 void rln_task(void)
