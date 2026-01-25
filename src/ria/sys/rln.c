@@ -32,17 +32,15 @@ typedef enum
     ansi_state_CSI_private,
 } rln_ansi_state_t;
 
-static char rln_buf[RLN_BUF_SIZE];
-// Separate histories for main active and inactive
-static char rln_history_run[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-static uint8_t rln_history_head_run;
-static uint8_t rln_history_count_run;
+static char rln_current_buf[RLN_BUF_SIZE];
+static char rln_saved_buf[RLN_BUF_SIZE];
+static int8_t rln_history_pos; // -1 = editing current line, 0..count-1 = viewing history
 static char rln_history_mon[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
 static uint8_t rln_history_head_mon;
 static uint8_t rln_history_count_mon;
-static int8_t rln_history_pos; // -1 = editing current line, 0..count-1 = viewing history
-static char rln_saved_buf[RLN_BUF_SIZE];
-// Macros to access the correct history based on main_active()
+static char rln_history_run[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+static uint8_t rln_history_head_run;
+static uint8_t rln_history_count_run;
 #define RLN_HISTORY (main_active() ? rln_history_run : rln_history_mon)
 #define RLN_HISTORY_HEAD (main_active() ? rln_history_head_run : rln_history_head_mon)
 #define RLN_HISTORY_HEAD_REF (main_active() ? &rln_history_head_run : &rln_history_head_mon)
@@ -78,7 +76,7 @@ static void rln_line_redraw(const char *buf)
     rln_bufpos = len;
     rln_buflen = len;
     for (size_t i = 0; i < len; i++)
-        rln_buf[i] = buf[i];
+        rln_current_buf[i] = buf[i];
 }
 
 static void rln_line_up(void)
@@ -88,20 +86,15 @@ static void rln_line_up(void)
         return;
     if (rln_history_pos < 0)
     {
-        // Save current line before navigating history
         for (size_t i = 0; i < rln_buflen; i++)
-            rln_saved_buf[i] = rln_buf[i];
+            rln_saved_buf[i] = rln_current_buf[i];
         rln_saved_buf[rln_buflen] = 0;
         rln_history_pos = 0;
     }
     else if (rln_history_pos < history_count - 1)
-    {
         rln_history_pos++;
-    }
-    else
-    {
-        return; // Already at oldest
-    }
+    else // Already at oldest
+        return;
     uint8_t history_head = RLN_HISTORY_HEAD;
     uint8_t idx = (history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
     rln_line_redraw(RLN_HISTORY[idx]);
@@ -120,7 +113,6 @@ static void rln_line_down(void)
     }
     else
     {
-        // Return to saved current line
         rln_history_pos = -1;
         rln_line_redraw(rln_saved_buf);
     }
@@ -136,12 +128,11 @@ static void rln_history_add(void)
     if (*history_count_ptr > 0)
     {
         uint8_t last = (*history_head_ptr - 1 + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
-        if (strlen(RLN_HISTORY[last]) == rln_buflen &&
-            memcmp(RLN_HISTORY[last], rln_buf, rln_buflen) == 0)
+        if (strcmp(RLN_HISTORY[last], rln_current_buf) == 0)
             return;
     }
     for (size_t i = 0; i < rln_buflen; i++)
-        RLN_HISTORY[*history_head_ptr][i] = rln_buf[i];
+        RLN_HISTORY[*history_head_ptr][i] = rln_current_buf[i];
     RLN_HISTORY[*history_head_ptr][rln_buflen] = 0;
     *history_head_ptr = (*history_head_ptr + 1) % RLN_HISTORY_SIZE;
     if (*history_count_ptr < RLN_HISTORY_SIZE)
@@ -162,6 +153,11 @@ static void rln_line_end(void)
     rln_bufpos = rln_buflen;
 }
 
+static bool rln_is_word_delimiter(char ch)
+{
+    return ch == ' ' || ch == '/' || ch == '\\' || ch == '.' || ch == ':' || ch == '=';
+}
+
 static void rln_line_forward_word(void)
 {
     int count = 0;
@@ -171,7 +167,8 @@ static void rln_line_forward_word(void)
             count++;
             if (++rln_bufpos >= rln_buflen)
                 break;
-            if (rln_buf[rln_bufpos] == ' ' && rln_buf[rln_bufpos - 1] != ' ')
+            if (rln_is_word_delimiter(rln_current_buf[rln_bufpos]) &&
+                !rln_is_word_delimiter(rln_current_buf[rln_bufpos - 1]))
                 break;
         }
     if (count)
@@ -209,7 +206,8 @@ static void rln_line_backward_word(void)
             count++;
             if (!--rln_bufpos)
                 break;
-            if (rln_buf[rln_bufpos] != ' ' && rln_buf[rln_bufpos - 1] == ' ')
+            if (!rln_is_word_delimiter(rln_current_buf[rln_bufpos]) &&
+                rln_is_word_delimiter(rln_current_buf[rln_bufpos - 1]))
                 break;
         }
     if (count)
@@ -244,8 +242,8 @@ static void rln_line_delete(void)
         return;
     printf("\33[P");
     rln_buflen--;
-    for (uint8_t i = rln_bufpos; i < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + 1];
+    for (size_t i = rln_bufpos; i < rln_buflen; i++)
+        rln_current_buf[i] = rln_current_buf[i + 1];
 }
 
 static void rln_line_backspace(void)
@@ -254,8 +252,8 @@ static void rln_line_backspace(void)
         return;
     printf("\b\33[P");
     rln_buflen--;
-    for (uint8_t i = --rln_bufpos; i < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + 1];
+    for (size_t i = --rln_bufpos; i < rln_buflen; i++)
+        rln_current_buf[i] = rln_current_buf[i + 1];
 }
 
 static void rln_line_insert(char ch)
@@ -263,11 +261,11 @@ static void rln_line_insert(char ch)
     if (ch < 32 || rln_buflen >= rln_bufsize - 1)
         return;
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
-        rln_buf[i] = rln_buf[i - 1];
+        rln_current_buf[i] = rln_current_buf[i - 1];
     rln_buflen++;
-    rln_buf[rln_bufpos] = ch;
+    rln_current_buf[rln_bufpos] = ch;
     for (size_t i = rln_bufpos; i < rln_buflen; i++)
-        putchar(rln_buf[i]);
+        putchar(rln_current_buf[i]);
     rln_bufpos++;
     if (rln_buflen - rln_bufpos)
         printf("\33[%dD", rln_buflen - rln_bufpos);
@@ -278,21 +276,21 @@ static void rln_line_state_C0(char ch)
     if (rln_ctrl_bits & (1 << ch))
     {
         printf("\n");
-        rln_buf[0] = ch;
-        rln_buf[1] = 0;
+        rln_current_buf[0] = ch;
+        rln_current_buf[1] = 0;
         rln_buflen = 1;
         rln_read_callback_t cc = rln_callback;
         rln_callback = NULL;
-        cc(false, rln_buf, rln_buflen);
+        cc(false, rln_current_buf, rln_buflen);
     }
     else if (ch == '\r')
     {
         printf("\n");
+        rln_current_buf[rln_buflen] = 0;
         rln_history_add();
-        rln_buf[rln_buflen] = 0;
         rln_read_callback_t cc = rln_callback;
         rln_callback = NULL;
-        cc(false, rln_buf, rln_buflen);
+        cc(false, rln_current_buf, rln_buflen);
     }
     else if (ch == '\33')
         rln_ansi_state = ansi_state_Fe;
