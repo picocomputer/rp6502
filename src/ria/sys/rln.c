@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "sys/rln.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
@@ -32,11 +33,21 @@ typedef enum
 } rln_ansi_state_t;
 
 static char rln_buf[RLN_BUF_SIZE];
-static char rln_history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-static uint8_t rln_history_head;
-static uint8_t rln_history_count;
+// Separate histories for main active and inactive
+static char rln_history_run[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+static uint8_t rln_history_head_run;
+static uint8_t rln_history_count_run;
+static char rln_history_mon[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+static uint8_t rln_history_head_mon;
+static uint8_t rln_history_count_mon;
 static int8_t rln_history_pos; // -1 = editing current line, 0..count-1 = viewing history
 static char rln_saved_buf[RLN_BUF_SIZE];
+// Macros to access the correct history based on main_active()
+#define RLN_HISTORY (main_active() ? rln_history_run : rln_history_mon)
+#define RLN_HISTORY_HEAD (main_active() ? rln_history_head_run : rln_history_head_mon)
+#define RLN_HISTORY_HEAD_REF (main_active() ? &rln_history_head_run : &rln_history_head_mon)
+#define RLN_HISTORY_COUNT (main_active() ? rln_history_count_run : rln_history_count_mon)
+#define RLN_HISTORY_COUNT_REF (main_active() ? &rln_history_count_run : &rln_history_count_mon)
 static rln_read_callback_t rln_callback;
 static uint8_t *rln_binary_buf;
 static absolute_time_t rln_timer;
@@ -72,7 +83,8 @@ static void rln_line_redraw(const char *buf)
 
 static void rln_line_up(void)
 {
-    if (rln_history_count == 0)
+    uint8_t history_count = RLN_HISTORY_COUNT;
+    if (history_count == 0)
         return;
     if (rln_history_pos < 0)
     {
@@ -82,7 +94,7 @@ static void rln_line_up(void)
         rln_saved_buf[rln_buflen] = 0;
         rln_history_pos = 0;
     }
-    else if (rln_history_pos < rln_history_count - 1)
+    else if (rln_history_pos < history_count - 1)
     {
         rln_history_pos++;
     }
@@ -90,8 +102,9 @@ static void rln_line_up(void)
     {
         return; // Already at oldest
     }
-    uint8_t idx = (rln_history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
-    rln_line_redraw(rln_history[idx]);
+    uint8_t history_head = RLN_HISTORY_HEAD;
+    uint8_t idx = (history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+    rln_line_redraw(RLN_HISTORY[idx]);
 }
 
 static void rln_line_down(void)
@@ -101,8 +114,9 @@ static void rln_line_down(void)
     if (rln_history_pos > 0)
     {
         rln_history_pos--;
-        uint8_t idx = (rln_history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
-        rln_line_redraw(rln_history[idx]);
+        uint8_t history_head = RLN_HISTORY_HEAD;
+        uint8_t idx = (history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+        rln_line_redraw(RLN_HISTORY[idx]);
     }
     else
     {
@@ -116,20 +130,22 @@ static void rln_history_add(void)
 {
     if (rln_buflen == 0)
         return;
+    uint8_t *history_count_ptr = RLN_HISTORY_COUNT_REF;
+    uint8_t *history_head_ptr = RLN_HISTORY_HEAD_REF;
     // Don't add duplicates of the most recent entry
-    if (rln_history_count > 0)
+    if (*history_count_ptr > 0)
     {
-        uint8_t last = (rln_history_head - 1 + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
-        if (strlen(rln_history[last]) == rln_buflen &&
-            memcmp(rln_history[last], rln_buf, rln_buflen) == 0)
+        uint8_t last = (*history_head_ptr - 1 + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+        if (strlen(RLN_HISTORY[last]) == rln_buflen &&
+            memcmp(RLN_HISTORY[last], rln_buf, rln_buflen) == 0)
             return;
     }
     for (size_t i = 0; i < rln_buflen; i++)
-        rln_history[rln_history_head][i] = rln_buf[i];
-    rln_history[rln_history_head][rln_buflen] = 0;
-    rln_history_head = (rln_history_head + 1) % RLN_HISTORY_SIZE;
-    if (rln_history_count < RLN_HISTORY_SIZE)
-        rln_history_count++;
+        RLN_HISTORY[*history_head_ptr][i] = rln_buf[i];
+    RLN_HISTORY[*history_head_ptr][rln_buflen] = 0;
+    *history_head_ptr = (*history_head_ptr + 1) % RLN_HISTORY_SIZE;
+    if (*history_count_ptr < RLN_HISTORY_SIZE)
+        (*history_count_ptr)++;
 }
 
 static void rln_line_home(void)
@@ -488,6 +504,13 @@ void rln_task(void)
             cc(true, NULL, 0);
         }
     }
+}
+
+void rln_run(void)
+{
+    memset(rln_history_run, 0, sizeof(rln_history_run));
+    rln_history_head_run = 0;
+    rln_history_count_run = 0;
 }
 
 void rln_break(void)

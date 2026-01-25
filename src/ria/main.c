@@ -119,6 +119,7 @@ static void run(void)
 {
     com_run();
     std_run();
+    rln_run();
     dir_run();
     vga_run();
     api_run();
