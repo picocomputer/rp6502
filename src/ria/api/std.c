@@ -141,6 +141,7 @@ static size_t std_rln_read(uint8_t *buf, size_t count)
     return i;
 }
 
+// int stdin_opt(unsigned long ctrl_bits, unsigned char str_length)
 bool std_api_stdin_opt(void)
 {
     uint8_t str_length = API_A;
