@@ -54,9 +54,9 @@ void cdc_task(void)
         com_set_uart_break(false);
     }
 
-    if (!tud_cdc_connected())
+    if (!tud_cdc_connected() || !tud_cdc_write_available())
     {
-        // flush stdout to null
+        // flush to null
         while (!com_out_empty())
             com_out_read();
     }
