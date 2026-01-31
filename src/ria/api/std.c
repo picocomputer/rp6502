@@ -20,14 +20,46 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define STD_FIL_MAX 16
+#define STD_FIL_MAX 8
 FIL std_fil[STD_FIL_MAX];
+
+#define STD_FD_MAX 16
+static struct
+{
+    bool is_open;
+    bool (*close)(void);
+    bool (*read)(void);
+    bool (*write)(void);
+    FIL *fatfs;
+} what_do_i_call_this[STD_FD_MAX];
+
 #define STD_FIL_STDIN 0
 #define STD_FIL_STDOUT 1
 #define STD_FIL_STDERR 2
 #define STD_FIL_MODEM 3
 #define STD_FIL_OFFS 4
 static_assert(STD_FIL_MAX + STD_FIL_OFFS < 128);
+
+/*
+
+We currently have too much logic in the open/close/read/write funcs.
+Let's instead use what_do_i_call_this (to be renamed) which can be
+init with stdin/out/err already loaded with new read and write funcs.
+std_api_open will instead find a free slot and determine which close/read/write func ptrs
+to put there by first checking for special filenames using funcs like mdm_open
+then falling back to fatfs for everything else.
+writing to stdin should return an error, read stdout. etc.
+
+the goal is to simplify madness like:
+            (fd && fd < STD_FIL_MODEM) ||
+            fd >= STD_FIL_MAX + STD_FIL_OFFS ||
+            count > XSTACK_SIZE)
+
+And also allow for adding new special filenames with the mdm_open pattern.
+And split funcs into smaller bits for readability.
+
+*/
+
 
 static int32_t std_count_xram;
 static int32_t std_count_std;
