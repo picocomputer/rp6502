@@ -24,6 +24,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+#ifdef __INTELLISENSE__
+#undef __in_flash
+#define __in_flash(x)
+#endif
+
 #define CLK_ID_REALTIME 0
 
 #define CLK_TZINFO                                                         \
