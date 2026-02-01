@@ -32,6 +32,8 @@ typedef struct
     bool (*read_xram)(void);
     bool (*write_xstack)(void);
     bool (*write_xram)(void);
+    bool (*lseek)(void);
+    bool (*sync)(void);
     FIL *fatfs;
 } std_fd_t;
 static std_fd_t std_fd[STD_FD_MAX];
@@ -162,14 +164,11 @@ static bool std_stdin_read_xstack(void)
 
 static bool std_stdin_read_xram(void)
 {
-    // Continue PIX transfer
     if (std_pix >= 0)
         return std_xram_finish();
-    // Read data
     if (!std_rln_ready())
         return api_working();
     std_pos = std_rln_read((uint8_t *)std_buf, std_len);
-    // Start PIX transfer
     api_set_ax(std_pos);
     std_pix = std_pos;
     return api_working();
@@ -284,18 +283,16 @@ static bool std_mdm_write_xram(void)
     return api_return_ax(std_pos);
 }
 
-static bool std_mdm_open(const TCHAR *path, int fd)
+static void std_mdm_open(const TCHAR *path, int fd)
 {
     if (!mdm_open(path))
-        return false;
+        return;
     std_fd[fd].is_open = true;
     std_fd[fd].close = std_mdm_close;
     std_fd[fd].read_xstack = std_mdm_read_xstack;
     std_fd[fd].read_xram = std_mdm_read_xram;
     std_fd[fd].write_xstack = std_mdm_write_xstack;
     std_fd[fd].write_xram = std_mdm_write_xram;
-    std_fd[fd].fatfs = NULL;
-    return true;
 }
 
 static bool std_fatfs_close(void)
@@ -364,7 +361,51 @@ static bool std_fatfs_write_xram(void)
     return api_return_ax(bw);
 }
 
-static bool std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
+static bool std_fatfs_lseek(void)
+{
+    int8_t whence;
+    int32_t ofs;
+    if (!api_pop_int8(&whence) || !api_pop_int32_end(&ofs))
+    {
+        std_op = NULL;
+        return api_return_errno(API_EINVAL);
+    }
+    FIL *fp = std_op->fatfs;
+    if (whence == SEEK_SET)
+        ;
+    else if (whence == SEEK_CUR)
+        ofs += f_tell(fp);
+    else if (whence == SEEK_END)
+        ofs += f_size(fp);
+    else
+    {
+        std_op = NULL;
+        return api_return_errno(API_EINVAL);
+    }
+    FRESULT fresult = f_lseek(fp, ofs);
+    if (fresult != FR_OK)
+    {
+        std_op = NULL;
+        return api_return_fresult(fresult);
+    }
+    FSIZE_t pos = f_tell(fp);
+    if (pos > 0x7FFFFFFF)
+        pos = 0x7FFFFFFF;
+    std_op = NULL;
+    return api_return_axsreg(pos);
+}
+
+static bool std_fatfs_sync(void)
+{
+    FIL *fp = std_op->fatfs;
+    FRESULT fresult = f_sync(fp);
+    std_op = NULL;
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+static void std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
 {
     const unsigned char RDWR = 0x03;
     const unsigned char CREAT = 0x10;
@@ -387,11 +428,11 @@ static bool std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
 
     FIL *fp = std_find_free_fil();
     if (!fp)
-        return false;
+        return;
 
     FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
-        return false;
+        return;
 
     std_fd[fd].is_open = true;
     std_fd[fd].close = std_fatfs_close;
@@ -399,8 +440,9 @@ static bool std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
     std_fd[fd].read_xram = std_fatfs_read_xram;
     std_fd[fd].write_xstack = std_fatfs_write_xstack;
     std_fd[fd].write_xram = std_fatfs_write_xram;
+    std_fd[fd].lseek = std_fatfs_lseek;
+    std_fd[fd].sync = std_fatfs_sync;
     std_fd[fd].fatfs = fp;
-    return true;
 }
 
 bool std_api_open(void)
@@ -412,13 +454,24 @@ bool std_api_open(void)
     if (fd < 0)
         return api_return_errno(API_EMFILE);
 
+    std_fd[fd].close = std_invalid_operation;
+    std_fd[fd].read_xstack = std_invalid_operation;
+    std_fd[fd].read_xram = std_invalid_operation;
+    std_fd[fd].write_xstack = std_invalid_operation;
+    std_fd[fd].write_xram = std_invalid_operation;
+    std_fd[fd].lseek = std_invalid_operation;
+    std_fd[fd].sync = std_invalid_operation;
+    std_fd[fd].fatfs = NULL;
+
     // Check special devices first
-    if (std_mdm_open(path, fd))
+    std_mdm_open(path, fd);
+    if (std_fd[fd].is_open)
         return api_return_ax(fd);
 
     // Everything else might be a file
     uint8_t flags = API_A;
-    if (std_fatfs_open(path, flags, fd))
+    std_fatfs_open(path, flags, fd);
+    if (std_fd[fd].is_open)
         return api_return_ax(fd);
 
     return api_return_errno(API_ENOENT);
@@ -457,7 +510,6 @@ bool std_api_read_xstack(void)
     std_op = std_validate_fd(fd);
     if (!std_op)
         return api_return_errno(API_EINVAL);
-
     std_buf = (char *)&xstack[XSTACK_SIZE - count];
     std_len = count;
     std_pos = 0;
@@ -506,10 +558,10 @@ bool std_api_write_xram(void)
         return std_op->write_xram();
     uint16_t xram_addr, count;
     int fd = API_A;
-    if (!api_pop_uint16(&count) || !api_pop_uint16_end(&xram_addr))
-        return api_return_errno(API_EINVAL);
     std_op = std_validate_fd(fd);
     if (!std_op)
+        return api_return_errno(API_EINVAL);
+    if (!api_pop_uint16(&count) || !api_pop_uint16_end(&xram_addr))
         return api_return_errno(API_EINVAL);
     if (count > 0x7FFF)
         count = 0x7FFF;
@@ -521,56 +573,49 @@ bool std_api_write_xram(void)
     return std_op->write_xram();
 }
 
-static bool std_api_lseek(int set, int cur, int end)
-{
-    int8_t whence;
-    int32_t ofs;
-    int fd = API_A;
-    if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX ||
-        !std_fd[fd].is_open || !std_fd[fd].fatfs ||
-        !api_pop_int8(&whence) || !api_pop_int32_end(&ofs))
-        return api_return_errno(API_EINVAL);
-    FIL *fp = std_fd[fd].fatfs;
-    if (whence == set)
-        ;
-    else if (whence == cur)
-        ofs += f_tell(fp);
-    else if (whence == end)
-        ofs += f_size(fp);
-    else
-        return api_return_errno(API_EINVAL);
-    FRESULT fresult = f_lseek(fp, ofs);
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    FSIZE_t pos = f_tell(fp);
-    if (pos > 0x7FFFFFFF)
-        pos = 0x7FFFFFFF;
-    return api_return_axsreg(pos);
-}
-
-// TODO should be in std_fd_t
 bool std_api_lseek_cc65(void)
 {
-    return std_api_lseek(2, 0, 1);
+    int8_t whence_cc65;
+    int32_t ofs;
+    int fd = API_A;
+    std_op = std_validate_fd(fd);
+    if (!std_op)
+        return api_return_errno(API_EINVAL);
+    // Translate cc65 whence (2=SET, 0=CUR, 1=END)
+    // to standard (0=SET, 1=CUR, 2=END)
+    if (!api_pop_int8(&whence_cc65) || !api_pop_int32_end(&ofs))
+        return api_return_errno(API_EINVAL);
+    int8_t whence_std;
+    if (whence_cc65 == 2)
+        whence_std = SEEK_SET;
+    else if (whence_cc65 == 0)
+        whence_std = SEEK_CUR;
+    else if (whence_cc65 == 1)
+        whence_std = SEEK_END;
+    else
+        return api_return_errno(API_EINVAL);
+    // Push back in standard format for the fd operation
+    if (!api_push_int32(&ofs) || !api_push_int8(&whence_std))
+        return api_return_errno(API_EINVAL);
+    return std_op->lseek();
 }
 
-// TODO should be in std_fd_t
 bool std_api_lseek_llvm(void)
 {
-    return std_api_lseek(0, 1, 2);
+    int fd = API_A;
+    std_op = std_validate_fd(fd);
+    if (!std_op)
+        return api_return_errno(API_EINVAL);
+    return std_op->lseek();
 }
 
-// TODO should be in std_fd_t
 bool std_api_syncfs(void)
 {
     int fd = API_A;
-    if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX ||
-        !std_fd[fd].is_open || !std_fd[fd].fatfs)
+    std_op = std_validate_fd(fd);
+    if (!std_op)
         return api_return_errno(API_EINVAL);
-    FRESULT fresult = f_sync(std_fd[fd].fatfs);
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    return api_return_ax(0);
+    return std_op->sync();
 }
 
 void std_run(void)
@@ -592,6 +637,8 @@ void std_run(void)
         std_fd[i].read_xram = std_invalid_operation;
         std_fd[i].write_xstack = std_invalid_operation;
         std_fd[i].write_xram = std_invalid_operation;
+        std_fd[i].lseek = std_invalid_operation;
+        std_fd[i].sync = std_invalid_operation;
         std_fd[i].fatfs = NULL;
     }
 
@@ -610,8 +657,11 @@ void std_run(void)
 
 void std_stop(void)
 {
-    // TODO use .is_open and call .close, ignore errors
-    for (int i = 0; i < STD_FIL_MAX; i++)
-        if (std_fil[i].obj.fs)
-            f_close(&std_fil[i]);
+    for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
+    {
+        if (!std_fd[i].is_open)
+            continue;
+        std_op = &std_fd[i];
+        std_fd[i].close();
+    }
 }
