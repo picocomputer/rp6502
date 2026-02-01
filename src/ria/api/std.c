@@ -23,7 +23,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define STD_FIL_MAX 8
 static FIL std_fil[STD_FIL_MAX];
 
-// File descriptor table with function pointers for polymorphic I/O
 #define STD_FD_MAX 16
 typedef struct
 {
@@ -42,16 +41,13 @@ static std_fd_t std_fd[STD_FD_MAX];
 #define STD_FD_STDOUT 1
 #define STD_FD_STDERR 2
 #define STD_FD_FIRST_FREE 3
-static_assert(STD_FD_MAX < 128);
 
-// Active operation state - set before calling handlers
+// Active operation state
 static std_fd_t *std_op;
 static char *std_buf;
 static uint16_t std_len;
 static uint16_t std_pos;
-
-// PIX transfer state for xram operations
-static int32_t std_xram_pix_remaining = -1;
+static int32_t std_pix;
 
 // Readline state for stdin
 static bool std_rln_active;
@@ -62,9 +58,28 @@ static size_t std_rln_len;
 static size_t std_rln_max_len;
 static uint32_t std_rln_ctrl_bits;
 
-// ============================================================================
-// Readline helpers for stdin
-// ============================================================================
+static int std_find_free_fd(void)
+{
+    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
+        if (!std_fd[fd].is_open)
+            return fd;
+    return -1;
+}
+
+static std_fd_t *std_validate_fd(int fd)
+{
+    if (fd < 0 || fd >= STD_FD_MAX || !std_fd[fd].is_open)
+        return NULL;
+    return &std_fd[fd];
+}
+
+static FIL *std_find_free_fil(void)
+{
+    for (int i = 0; i < STD_FIL_MAX; i++)
+        if (!std_fil[i].obj.fs)
+            return &std_fil[i];
+    return NULL;
+}
 
 static void std_rln_callback(bool timeout, const char *buf, size_t length)
 {
@@ -102,10 +117,7 @@ static size_t std_rln_read(uint8_t *buf, size_t count)
     return i;
 }
 
-// ============================================================================
-// xstack finish helper - relocates buffer in xstack
-// ============================================================================
-
+// relocates buffer in xstack
 static bool std_xstack_finish(void)
 {
     uint8_t *buf = (uint8_t *)std_buf;
@@ -120,29 +132,22 @@ static bool std_xstack_finish(void)
     return api_return_ax(std_pos);
 }
 
-// ============================================================================
-// xram PIX transfer helper
-// ============================================================================
-
-static bool std_xram_pix_send(void)
+// send xram result to pix devices
+static bool std_xram_finish(void)
 {
     uint16_t xram_addr = std_buf - (char *)xram;
-    for (; std_xram_pix_remaining > 0 && pix_ready(); --std_xram_pix_remaining, ++xram_addr, ++std_buf)
+    for (; std_pix > 0 && pix_ready(); --std_pix, ++xram_addr, ++std_buf)
         pix_send(PIX_DEVICE_XRAM, 0, xram[xram_addr], xram_addr);
-    if (std_xram_pix_remaining <= 0)
+    if (std_pix <= 0)
     {
-        std_xram_pix_remaining = -1;
+        std_pix = -1;
         std_op = NULL;
         return api_return();
     }
     return api_working();
 }
 
-// ============================================================================
-// stdin handlers
-// ============================================================================
-
-static bool std_stdin_close(void)
+static bool std_invalid_operation(void)
 {
     return api_return_errno(API_EINVAL);
 }
@@ -158,45 +163,16 @@ static bool std_stdin_read_xstack(void)
 static bool std_stdin_read_xram(void)
 {
     // Continue PIX transfer
-    if (std_xram_pix_remaining >= 0)
-        return std_xram_pix_send();
+    if (std_pix >= 0)
+        return std_xram_finish();
     // Read data
     if (!std_rln_ready())
         return api_working();
     std_pos = std_rln_read((uint8_t *)std_buf, std_len);
     // Start PIX transfer
     api_set_ax(std_pos);
-    std_xram_pix_remaining = std_pos;
+    std_pix = std_pos;
     return api_working();
-}
-
-static bool std_stdin_write_xstack(void)
-{
-    return api_return_errno(API_EINVAL);
-}
-
-static bool std_stdin_write_xram(void)
-{
-    return api_return_errno(API_EINVAL);
-}
-
-// ============================================================================
-// stdout/stderr handlers
-// ============================================================================
-
-static bool std_stdout_close(void)
-{
-    return api_return_errno(API_EINVAL);
-}
-
-static bool std_stdout_read_xstack(void)
-{
-    return api_return_errno(API_EINVAL);
-}
-
-static bool std_stdout_read_xram(void)
-{
-    return api_return_errno(API_EINVAL);
 }
 
 static bool std_stdout_write_xstack(void)
@@ -225,10 +201,6 @@ static bool std_stdout_write_xram(void)
     return api_working();
 }
 
-// ============================================================================
-// modem handlers
-// ============================================================================
-
 static bool std_mdm_close(void)
 {
     std_op->is_open = false;
@@ -242,46 +214,37 @@ static bool std_mdm_read_xstack(void)
 {
     while (std_pos < std_len)
     {
-        switch (mdm_rx(&std_buf[std_pos]))
+        int r = mdm_rx(&std_buf[std_pos]);
+        if (r == 0)
+            break;
+        if (r == -1)
         {
-        case -1:
             std_op = NULL;
             return api_return_fresult(FR_INVALID_OBJECT);
-        case 1:
-            std_pos++;
-            return api_working();
-        case 0:
-            goto done;
         }
+        std_pos++;
     }
-done:
     return std_xstack_finish();
 }
 
 static bool std_mdm_read_xram(void)
 {
-    // Continue PIX transfer
-    if (std_xram_pix_remaining >= 0)
-        return std_xram_pix_send();
-    // Read data
+    if (std_pix >= 0)
+        return std_xram_finish();
     while (std_pos < std_len)
     {
-        switch (mdm_rx(&std_buf[std_pos]))
+        int r = mdm_rx(&std_buf[std_pos]);
+        if (r == 0)
+            break;
+        if (r == -1)
         {
-        case -1:
             std_op = NULL;
             return api_return_fresult(FR_INVALID_OBJECT);
-        case 1:
-            std_pos++;
-            return api_working();
-        case 0:
-            goto done;
         }
+        std_pos++;
     }
-done:
-    // Start PIX transfer
     api_set_ax(std_pos);
-    std_xram_pix_remaining = std_pos;
+    std_pix = std_pos;
     return api_working();
 }
 
@@ -298,11 +261,9 @@ static bool std_mdm_write_xstack(void)
         if (tx == 0)
             break;
         std_pos++;
-        return api_working();
     }
-    uint16_t result = std_pos;
     std_op = NULL;
-    return api_return_ax(result);
+    return api_return_ax(std_pos);
 }
 
 static bool std_mdm_write_xram(void)
@@ -318,16 +279,24 @@ static bool std_mdm_write_xram(void)
         if (tx == 0)
             break;
         std_pos++;
-        return api_working();
     }
-    uint16_t result = std_pos;
     std_op = NULL;
-    return api_return_ax(result);
+    return api_return_ax(std_pos);
 }
 
-// ============================================================================
-// fatfs handlers
-// ============================================================================
+static bool std_mdm_open(const TCHAR *path, int fd)
+{
+    if (!mdm_open(path))
+        return false;
+    std_fd[fd].is_open = true;
+    std_fd[fd].close = std_mdm_close;
+    std_fd[fd].read_xstack = std_mdm_read_xstack;
+    std_fd[fd].read_xram = std_mdm_read_xram;
+    std_fd[fd].write_xstack = std_mdm_write_xstack;
+    std_fd[fd].write_xram = std_mdm_write_xram;
+    std_fd[fd].fatfs = NULL;
+    return true;
+}
 
 static bool std_fatfs_close(void)
 {
@@ -357,10 +326,8 @@ static bool std_fatfs_read_xstack(void)
 
 static bool std_fatfs_read_xram(void)
 {
-    // Continue PIX transfer
-    if (std_xram_pix_remaining >= 0)
-        return std_xram_pix_send();
-    // Read data
+    if (std_pix >= 0)
+        return std_xram_finish();
     FIL *fp = std_op->fatfs;
     UINT br;
     FRESULT fresult = f_read(fp, std_buf, std_len, &br);
@@ -370,9 +337,8 @@ static bool std_fatfs_read_xram(void)
         return api_return_fresult(fresult);
     }
     std_pos = br;
-    // Start PIX transfer
     api_set_ax(std_pos);
-    std_xram_pix_remaining = std_pos;
+    std_pix = std_pos;
     return api_working();
 }
 
@@ -398,38 +364,7 @@ static bool std_fatfs_write_xram(void)
     return api_return_ax(bw);
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
-static int std_find_free_fd(void)
-{
-    for (int fd = STD_FD_FIRST_FREE; fd < STD_FD_MAX; fd++)
-        if (!std_fd[fd].is_open)
-            return fd;
-    return -1;
-}
-
-static FIL *std_find_free_fil(void)
-{
-    for (int i = 0; i < STD_FIL_MAX; i++)
-        if (!std_fil[i].obj.fs)
-            return &std_fil[i];
-    return NULL;
-}
-
-static std_fd_t *std_validate_fd(int fd)
-{
-    if (fd < 0 || fd >= STD_FD_MAX || !std_fd[fd].is_open)
-        return NULL;
-    return &std_fd[fd];
-}
-
-// ============================================================================
-// open/close API
-// ============================================================================
-
-bool std_api_open(void)
+static bool std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
 {
     const unsigned char RDWR = 0x03;
     const unsigned char CREAT = 0x10;
@@ -437,28 +372,6 @@ bool std_api_open(void)
     const unsigned char APPEND = 0x40;
     const unsigned char EXCL = 0x80;
 
-    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-
-    int fd = std_find_free_fd();
-    if (fd < 0)
-        return api_return_errno(API_EMFILE);
-
-    // Check for special device: modem
-    if (mdm_open(path))
-    {
-        std_fd[fd].is_open = true;
-        std_fd[fd].close = std_mdm_close;
-        std_fd[fd].read_xstack = std_mdm_read_xstack;
-        std_fd[fd].read_xram = std_mdm_read_xram;
-        std_fd[fd].write_xstack = std_mdm_write_xstack;
-        std_fd[fd].write_xram = std_mdm_write_xram;
-        std_fd[fd].fatfs = NULL;
-        return api_return_ax(fd);
-    }
-
-    // FatFs file
-    uint8_t flags = API_A;
     uint8_t mode = flags & RDWR;
     if (flags & CREAT)
     {
@@ -474,11 +387,11 @@ bool std_api_open(void)
 
     FIL *fp = std_find_free_fil();
     if (!fp)
-        return api_return_errno(API_EMFILE);
+        return false;
 
     FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
-        return api_return_fresult(fresult);
+        return false;
 
     std_fd[fd].is_open = true;
     std_fd[fd].close = std_fatfs_close;
@@ -487,7 +400,28 @@ bool std_api_open(void)
     std_fd[fd].write_xstack = std_fatfs_write_xstack;
     std_fd[fd].write_xram = std_fatfs_write_xram;
     std_fd[fd].fatfs = fp;
-    return api_return_ax(fd);
+    return true;
+}
+
+bool std_api_open(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+
+    int fd = std_find_free_fd();
+    if (fd < 0)
+        return api_return_errno(API_EMFILE);
+
+    // Check special devices first
+    if (std_mdm_open(path, fd))
+        return api_return_ax(fd);
+
+    // Everything else might be a file
+    uint8_t flags = API_A;
+    if (std_fatfs_open(path, flags, fd))
+        return api_return_ax(fd);
+
+    return api_return_errno(API_ENOENT);
 }
 
 bool std_api_close(void)
@@ -499,6 +433,7 @@ bool std_api_close(void)
     return std_op->close();
 }
 
+// TODO deprecated
 // int stdin_opt(unsigned long ctrl_bits, unsigned char str_length)
 bool std_api_stdin_opt(void)
 {
@@ -511,15 +446,10 @@ bool std_api_stdin_opt(void)
     return api_return_ax(0);
 }
 
-// ============================================================================
-// read/write API - pure dispatch
-// ============================================================================
-
 bool std_api_read_xstack(void)
 {
     if (std_op)
         return std_op->read_xstack();
-
     uint16_t count;
     int fd = API_A;
     if (!api_pop_uint16_end(&count) || count > XSTACK_SIZE)
@@ -538,7 +468,6 @@ bool std_api_read_xram(void)
 {
     if (std_op)
         return std_op->read_xram();
-
     uint16_t count, xram_addr;
     int fd = API_A;
     if (!api_pop_uint16(&count) || !api_pop_uint16_end(&xram_addr))
@@ -551,7 +480,6 @@ bool std_api_read_xram(void)
     std_buf = (char *)&xram[xram_addr];
     if (std_buf + count > (char *)xram + 0x10000)
         return api_return_errno(API_EINVAL);
-
     std_len = count;
     std_pos = 0;
     return std_op->read_xram();
@@ -561,12 +489,10 @@ bool std_api_write_xstack(void)
 {
     if (std_op)
         return std_op->write_xstack();
-
     int fd = API_A;
     std_op = std_validate_fd(fd);
     if (!std_op)
         return api_return_errno(API_EINVAL);
-
     std_len = XSTACK_SIZE - xstack_ptr;
     std_buf = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
@@ -578,7 +504,6 @@ bool std_api_write_xram(void)
 {
     if (std_op)
         return std_op->write_xram();
-
     uint16_t xram_addr, count;
     int fd = API_A;
     if (!api_pop_uint16(&count) || !api_pop_uint16_end(&xram_addr))
@@ -591,15 +516,10 @@ bool std_api_write_xram(void)
     std_buf = (char *)&xram[xram_addr];
     if (std_buf + count > (char *)xram + 0x10000)
         return api_return_errno(API_EINVAL);
-
     std_len = count;
     std_pos = 0;
     return std_op->write_xram();
 }
-
-// ============================================================================
-// lseek and syncfs - FatFs only
-// ============================================================================
 
 static bool std_api_lseek(int set, int cur, int end)
 {
@@ -628,16 +548,19 @@ static bool std_api_lseek(int set, int cur, int end)
     return api_return_axsreg(pos);
 }
 
+// TODO should be in std_fd_t
 bool std_api_lseek_cc65(void)
 {
     return std_api_lseek(2, 0, 1);
 }
 
+// TODO should be in std_fd_t
 bool std_api_lseek_llvm(void)
 {
     return std_api_lseek(0, 1, 2);
 }
 
+// TODO should be in std_fd_t
 bool std_api_syncfs(void)
 {
     int fd = API_A;
@@ -650,14 +573,10 @@ bool std_api_syncfs(void)
     return api_return_ax(0);
 }
 
-// ============================================================================
-// Initialization and cleanup
-// ============================================================================
-
 void std_run(void)
 {
     std_op = NULL;
-    std_xram_pix_remaining = -1;
+    std_pix = -1;
     std_rln_active = false;
     std_rln_needs_nl = false;
     std_rln_pos = 0;
@@ -668,38 +587,30 @@ void std_run(void)
     for (int i = 0; i < STD_FD_MAX; i++)
     {
         std_fd[i].is_open = false;
-        std_fd[i].close = NULL;
-        std_fd[i].read_xstack = NULL;
-        std_fd[i].read_xram = NULL;
-        std_fd[i].write_xstack = NULL;
-        std_fd[i].write_xram = NULL;
+        std_fd[i].close = std_invalid_operation;
+        std_fd[i].read_xstack = std_invalid_operation;
+        std_fd[i].read_xram = std_invalid_operation;
+        std_fd[i].write_xstack = std_invalid_operation;
+        std_fd[i].write_xram = std_invalid_operation;
         std_fd[i].fatfs = NULL;
     }
 
     std_fd[STD_FD_STDIN].is_open = true;
-    std_fd[STD_FD_STDIN].close = std_stdin_close;
     std_fd[STD_FD_STDIN].read_xstack = std_stdin_read_xstack;
     std_fd[STD_FD_STDIN].read_xram = std_stdin_read_xram;
-    std_fd[STD_FD_STDIN].write_xstack = std_stdin_write_xstack;
-    std_fd[STD_FD_STDIN].write_xram = std_stdin_write_xram;
 
     std_fd[STD_FD_STDOUT].is_open = true;
-    std_fd[STD_FD_STDOUT].close = std_stdout_close;
-    std_fd[STD_FD_STDOUT].read_xstack = std_stdout_read_xstack;
-    std_fd[STD_FD_STDOUT].read_xram = std_stdout_read_xram;
     std_fd[STD_FD_STDOUT].write_xstack = std_stdout_write_xstack;
     std_fd[STD_FD_STDOUT].write_xram = std_stdout_write_xram;
 
     std_fd[STD_FD_STDERR].is_open = true;
-    std_fd[STD_FD_STDERR].close = std_stdout_close;
-    std_fd[STD_FD_STDERR].read_xstack = std_stdout_read_xstack;
-    std_fd[STD_FD_STDERR].read_xram = std_stdout_read_xram;
     std_fd[STD_FD_STDERR].write_xstack = std_stdout_write_xstack;
     std_fd[STD_FD_STDERR].write_xram = std_stdout_write_xram;
 }
 
 void std_stop(void)
 {
+    // TODO use .is_open and call .close, ignore errors
     for (int i = 0; i < STD_FIL_MAX; i++)
         if (std_fil[i].obj.fs)
             f_close(&std_fil[i]);
