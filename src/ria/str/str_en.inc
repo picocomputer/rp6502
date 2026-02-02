@@ -7,7 +7,7 @@
 /* English */
 
 #if !defined(X)
-#define X(name, value)
+#define X(name, value) extern const char name[];
 #endif
 
 // Time format

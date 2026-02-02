@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "api/atr.h"
 #include "api/clk.h"
 #include "api/dir.h"
 #include "api/oem.h"
@@ -119,6 +120,7 @@ static void run(void)
 {
     com_run();
     std_run();
+    rln_run();
     dir_run();
     vga_run();
     api_run();
@@ -208,6 +210,10 @@ bool main_api(uint8_t operation)
         return std_api_stdin_opt();
     case 0x06:
         return api_api_errno_opt();
+    case 0x0A:
+        return atr_api_get();
+    case 0x0B:
+        return atr_api_set();
     case 0x0D:
         return clk_api_tzset();
     case 0x0E:

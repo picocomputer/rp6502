@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "sys/rln.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
@@ -17,6 +19,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #define RLN_BUF_SIZE 256
+#define RLN_HISTORY_SIZE 3
 #define RLN_CSI_PARAM_MAX_LEN 16
 
 typedef enum
@@ -29,7 +32,18 @@ typedef enum
     ansi_state_CSI_private,
 } rln_ansi_state_t;
 
-static char rln_buf[RLN_BUF_SIZE];
+static char *rln_buf;
+static int8_t rln_history_pos; // -1 = newest buf, 0..count-1 = history
+static char rln_newest_buf[RLN_BUF_SIZE];
+static char rln_history_mon[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+static uint8_t rln_history_head_mon;
+static uint8_t rln_history_count_mon;
+static char rln_history_run[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
+static uint8_t rln_history_head_run;
+static uint8_t rln_history_count_run;
+#define RLN_HISTORY (main_active() ? rln_history_run : rln_history_mon)
+#define RLN_HISTORY_HEAD *(main_active() ? &rln_history_head_run : &rln_history_head_mon)
+#define RLN_HISTORY_COUNT *(main_active() ? &rln_history_count_run : &rln_history_count_mon)
 static rln_read_callback_t rln_callback;
 static uint8_t *rln_binary_buf;
 static absolute_time_t rln_timer;
@@ -47,6 +61,79 @@ volatile size_t rln_tx_head;
 volatile uint8_t rln_tx_buf[32];
 #define RLN_TX_BUF(pos) rln_tx_buf[(pos) & 0x1F]
 
+static void rln_set_buf(void)
+{
+    if (rln_history_pos < 0)
+        rln_buf = rln_newest_buf;
+    else
+    {
+        uint8_t idx = (RLN_HISTORY_HEAD - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+        rln_buf = RLN_HISTORY[idx];
+    }
+}
+
+static void rln_line_redraw(void)
+{
+    if (rln_bufpos)
+        printf("\33[%dD", rln_bufpos);
+    if (rln_buflen)
+        printf("\33[%dP", rln_buflen);
+    size_t len = strlen(rln_buf);
+    for (size_t i = 0; i < len; i++)
+        putchar(rln_buf[i]);
+    rln_bufpos = len;
+    rln_buflen = len;
+}
+
+static void rln_line_up(void)
+{
+    if (RLN_HISTORY_COUNT == 0)
+        return;
+    if (rln_history_pos < 0)
+    {
+        rln_buf[rln_buflen] = 0;
+        rln_history_pos = 0;
+    }
+    else if (rln_history_pos < RLN_HISTORY_COUNT - 1)
+    {
+        rln_buf[rln_buflen] = 0;
+        rln_history_pos++;
+    }
+    else // at oldest
+        return;
+    rln_set_buf();
+    rln_line_redraw();
+}
+
+static void rln_line_down(void)
+{
+    if (rln_history_pos < 0)
+        return;
+    rln_buf[rln_buflen] = 0;
+    rln_history_pos--;
+    rln_set_buf();
+    rln_line_redraw();
+}
+
+static void rln_history_add(void)
+{
+    if (rln_buflen == 0)
+        return;
+    if (RLN_HISTORY_COUNT > 0)
+    {
+        uint8_t last = (RLN_HISTORY_HEAD - 1 + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
+        // Skip dupe of most recent
+        if (strcmp(RLN_HISTORY[last], rln_buf) == 0)
+            return;
+    }
+    for (size_t i = 0; i < rln_buflen; i++)
+        RLN_HISTORY[RLN_HISTORY_HEAD][i] = rln_buf[i];
+    RLN_HISTORY[RLN_HISTORY_HEAD][rln_buflen] = 0;
+    RLN_HISTORY_HEAD = (RLN_HISTORY_HEAD + 1) % RLN_HISTORY_SIZE;
+    if (RLN_HISTORY_COUNT < RLN_HISTORY_SIZE)
+        RLN_HISTORY_COUNT = RLN_HISTORY_COUNT + 1;
+}
+
 static void rln_line_home(void)
 {
     if (rln_bufpos)
@@ -61,6 +148,11 @@ static void rln_line_end(void)
     rln_bufpos = rln_buflen;
 }
 
+static bool rln_is_word_delimiter(char ch)
+{
+    return ch == ' ' || ch == '/' || ch == '\\' || ch == '.' || ch == ':' || ch == '=';
+}
+
 static void rln_line_forward_word(void)
 {
     int count = 0;
@@ -70,7 +162,8 @@ static void rln_line_forward_word(void)
             count++;
             if (++rln_bufpos >= rln_buflen)
                 break;
-            if (rln_buf[rln_bufpos] == ' ' && rln_buf[rln_bufpos - 1] != ' ')
+            if (rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
+                !rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
                 break;
         }
     if (count)
@@ -108,7 +201,8 @@ static void rln_line_backward_word(void)
             count++;
             if (!--rln_bufpos)
                 break;
-            if (rln_buf[rln_bufpos] != ' ' && rln_buf[rln_bufpos - 1] == ' ')
+            if (!rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
+                rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
                 break;
         }
     if (count)
@@ -143,7 +237,7 @@ static void rln_line_delete(void)
         return;
     printf("\33[P");
     rln_buflen--;
-    for (uint8_t i = rln_bufpos; i < rln_buflen; i++)
+    for (size_t i = rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
 }
 
@@ -153,7 +247,7 @@ static void rln_line_backspace(void)
         return;
     printf("\b\33[P");
     rln_buflen--;
-    for (uint8_t i = --rln_bufpos; i < rln_buflen; i++)
+    for (size_t i = --rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
 }
 
@@ -188,6 +282,7 @@ static void rln_line_state_C0(char ch)
     {
         printf("\n");
         rln_buf[rln_buflen] = 0;
+        rln_history_add();
         rln_read_callback_t cc = rln_callback;
         rln_callback = NULL;
         cc(false, rln_buf, rln_buflen);
@@ -286,7 +381,11 @@ static void rln_line_state_CSI(char ch)
     rln_ansi_state = ansi_state_C0;
     if (++rln_csi_param_count > RLN_CSI_PARAM_MAX_LEN)
         rln_csi_param_count = RLN_CSI_PARAM_MAX_LEN;
-    if (ch == 'C')
+    if (ch == 'A')
+        rln_line_up();
+    else if (ch == 'B')
+        rln_line_down();
+    else if (ch == 'C')
         rln_line_forward();
     else if (ch == 'D')
         rln_line_backward();
@@ -372,6 +471,8 @@ void rln_read_line(uint32_t timeout_ms, rln_read_callback_t callback, size_t siz
     rln_timer = make_timeout_time_ms(rln_timeout_ms);
     rln_callback = callback;
     rln_ctrl_bits = ctrl_bits;
+    rln_history_pos = -1;
+    rln_buf = rln_newest_buf;
 }
 
 void rln_task(void)
@@ -397,6 +498,13 @@ void rln_task(void)
             cc(true, NULL, 0);
         }
     }
+}
+
+void rln_run(void)
+{
+    memset(rln_history_run, 0, sizeof(rln_history_run));
+    rln_history_head_run = 0;
+    rln_history_count_run = 0;
 }
 
 void rln_break(void)

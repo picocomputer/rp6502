@@ -18,6 +18,7 @@
  */
 
 void rln_task(void);
+void rln_run(void);
 void rln_break(void);
 
 // Both types of reads guarantee this callback unless a

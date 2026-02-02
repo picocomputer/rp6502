@@ -100,6 +100,7 @@ target_sources(${RIA_TARGET} PRIVATE
     littlefs/lfs_util.c
     ria/main.c
     ria/api/api.c
+    ria/api/atr.c
     ria/api/clk.c
     ria/api/dir.c
     ria/api/oem.c

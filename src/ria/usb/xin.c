@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-// DISABLED because it crashes TinyUSB a lot
+// DISABLED because it used to crash TinyUSB a lot
 #if 1
 
 #include "usb/xin.h"
@@ -362,13 +362,13 @@ static bool xin_class_driver_init(void)
     return true;
 }
 
-static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
     // Must be vendor specific to proceed
     if (desc_itf->bInterfaceClass != 0xFF)
-        return false;
+        return 0;
 
     bool is_x360 = false;
     bool is_xbox_one = false;
@@ -385,7 +385,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     }
 
     if (!is_xbox_one && !is_x360)
-        return false;
+        return 0;
 
     // All Xinput controllers have in and out endpoints
     uint8_t const *p_desc = (uint8_t const *)desc_itf;
@@ -400,26 +400,43 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
             tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
             if (desc_ep->bmAttributes.xfer == TUSB_XFER_INTERRUPT)
             {
+                uint16_t packet_size = tu_edpt_packet_size(desc_ep);
                 if (tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_IN)
                 {
-                    ep_in = desc_ep->bEndpointAddress;
-                    ep_in_desc = *desc_ep;
+                    DBG("XInput: Found IN endpoint 0x%02X, maxPacket=%d, interval=%d\n",
+                        desc_ep->bEndpointAddress, packet_size, desc_ep->bInterval);
+                    // Use the FIRST suitable IN endpoint (interface 0 is input, interface 1+ is audio)
+                    if (ep_in == 0 && packet_size >= 20)
+                    {
+                        ep_in = desc_ep->bEndpointAddress;
+                        ep_in_desc = *desc_ep;
+                        // max_packet_in = packet_size;
+                        DBG("XInput: Selected as data IN endpoint\n");
+                    }
                 }
                 else if (tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_OUT)
                 {
-                    ep_out = desc_ep->bEndpointAddress;
-                    ep_out_desc = *desc_ep;
+                    DBG("XInput: Found OUT endpoint 0x%02X, maxPacket=%d, interval=%d\n",
+                        desc_ep->bEndpointAddress, packet_size, desc_ep->bInterval);
+                    // Use the FIRST suitable OUT endpoint
+                    if (ep_out == 0 && packet_size >= 3)
+                    {
+                        ep_out = desc_ep->bEndpointAddress;
+                        ep_out_desc = *desc_ep;
+                        // max_packet_out = packet_size;
+                        DBG("XInput: Selected as data OUT endpoint\n");
+                    }
                 }
             }
         }
         p_desc = tu_desc_next(p_desc);
     }
     if (ep_in == 0 || ep_out == 0)
-        return false;
+        return 0;
 
     int idx = xin_find_free_index();
     if (idx < 0)
-        return false;
+        return 0;
 
     xbox_devices[idx].dev_addr = dev_addr;
     xbox_devices[idx].valid = true;
@@ -450,13 +467,13 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         {
             DBG("XInput: Failed to mount in pad system\n");
             memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-            return false;
+            return 0;
         }
     }
     else
     {
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-        return false;
+        return 0;
     }
 
     // Open the endpoints immediately (like HID does)
@@ -464,7 +481,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
     {
         DBG("XInput: Failed to open IN endpoint during open\n");
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-        return false;
+        return 0;
     }
     if (!tuh_edpt_open(dev_addr, &ep_out_desc))
     {
@@ -472,11 +489,11 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         tuh_edpt_abort_xfer(dev_addr, ep_in);
         // tuh_edpt_close(dev_addr, ep_in);
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-        return false;
+        return 0;
     }
 
     DBG("XInput: Successfully opened Xbox controller in index %d\n", idx);
-    return true;
+    return max_len;
 }
 
 static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)

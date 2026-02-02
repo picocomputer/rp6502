@@ -8,7 +8,7 @@
 /* part of the API guarantee for the monitor.  */
 
 #if !defined(X)
-#define X(name, value)
+#define X(name, value) extern const char name[];
 #endif
 
 // Configuration files on littlefs
