@@ -214,8 +214,6 @@ bool main_api(uint8_t operation)
         return atr_api_get();
     case 0x0B:
         return atr_api_set();
-    // case 0x0C:
-    //     return rln_api_set();
     case 0x0D:
         return clk_api_tzset();
     case 0x0E:
