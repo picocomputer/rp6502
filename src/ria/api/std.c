@@ -20,20 +20,15 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define STD_FIL_MAX 8
-static FIL std_fil[STD_FIL_MAX];
-
 #define STD_FD_MAX 16
 typedef struct
 {
     bool is_open;
     bool (*close)(void);
-    bool (*read_xstack)(void);
-    bool (*read_xram)(void);
-    bool (*write_xstack)(void);
-    bool (*write_xram)(void);
     bool (*lseek)(void);
     bool (*sync)(void);
+    int (*read)(void);
+    int (*write)(void);
     FIL *fatfs;
 } std_fd_t;
 static std_fd_t std_fd[STD_FD_MAX];
@@ -43,6 +38,10 @@ static std_fd_t std_fd[STD_FD_MAX];
 #define STD_FD_STDOUT 1
 #define STD_FD_STDERR 2
 #define STD_FD_FIRST_FREE 3
+
+// FatFs files
+#define STD_FIL_MAX 8
+static FIL std_fil[STD_FIL_MAX];
 
 // Active operation state
 static std_fd_t *std_op;
@@ -83,42 +82,6 @@ static FIL *std_find_free_fil(void)
     return NULL;
 }
 
-static void std_rln_callback(bool timeout, const char *buf, size_t length)
-{
-    (void)timeout;
-    assert(!timeout);
-    std_rln_active = false;
-    std_rln_buf = buf;
-    std_rln_pos = 0;
-    std_rln_len = length;
-    std_rln_needs_nl = true;
-}
-
-static bool std_rln_ready(void)
-{
-    if (std_rln_needs_nl || std_rln_pos < std_rln_len)
-        return true;
-    if (!std_rln_active)
-    {
-        std_rln_active = true;
-        rln_read_line(0, std_rln_callback, std_rln_max_len + 1, std_rln_ctrl_bits);
-    }
-    return false;
-}
-
-static size_t std_rln_read(uint8_t *buf, size_t count)
-{
-    size_t i;
-    for (i = 0; i < count && std_rln_pos < std_rln_len; i++)
-        buf[i] = std_rln_buf[std_rln_pos++];
-    if (i < count && std_rln_needs_nl)
-    {
-        buf[i++] = '\n';
-        std_rln_needs_nl = false;
-    }
-    return i;
-}
-
 // relocates buffer in xstack
 static bool std_xstack_finish(void)
 {
@@ -154,50 +117,46 @@ static bool std_invalid_operation(void)
     return api_return_errno(API_EINVAL);
 }
 
-static bool std_stdin_read_xstack(void)
+static void std_rln_callback(bool timeout, const char *buf, size_t length)
 {
-    if (!std_rln_ready())
-        return api_working();
-    std_pos = std_rln_read((uint8_t *)std_buf, std_len);
-    return std_xstack_finish();
+    (void)timeout;
+    assert(!timeout);
+    std_rln_active = false;
+    std_rln_buf = buf;
+    std_rln_pos = 0;
+    std_rln_len = length;
+    std_rln_needs_nl = true;
 }
 
-static bool std_stdin_read_xram(void)
+static int std_stdin_read(void)
 {
-    if (std_pix >= 0)
-        return std_xram_finish();
-    if (!std_rln_ready())
-        return api_working();
-    std_pos = std_rln_read((uint8_t *)std_buf, std_len);
-    api_set_ax(std_pos);
-    std_pix = std_pos;
-    return api_working();
+    if (!(std_rln_needs_nl || std_rln_pos < std_rln_len))
+    {
+        if (!std_rln_active)
+        {
+            std_rln_active = true;
+            rln_read_line(0, std_rln_callback, std_rln_max_len + 1, std_rln_ctrl_bits);
+        }
+        return 0;
+    }
+    size_t i;
+    for (i = 0; i < std_len && std_rln_pos < std_rln_len; i++)
+        std_buf[i] = std_rln_buf[std_rln_pos++];
+    if (i < std_len && std_rln_needs_nl)
+    {
+        std_buf[i++] = '\n';
+        std_rln_needs_nl = false;
+    }
+    std_pos = i;
+    return std_pos;
 }
 
-static bool std_stdout_write_xstack(void)
+static int std_stdout_write(void)
 {
+    uint16_t start_pos = std_pos;
     while (std_pos < std_len && com_putchar_ready())
         putchar(std_buf[std_pos++]);
-    if (std_pos >= std_len)
-    {
-        uint16_t result = std_pos;
-        std_op = NULL;
-        return api_return_ax(result);
-    }
-    return api_working();
-}
-
-static bool std_stdout_write_xram(void)
-{
-    while (std_pos < std_len && com_putchar_ready())
-        putchar(std_buf[std_pos++]);
-    if (std_pos >= std_len)
-    {
-        uint16_t result = std_pos;
-        std_op = NULL;
-        return api_return_ax(result);
-    }
-    return api_working();
+    return std_pos - start_pos;
 }
 
 static bool std_mdm_close(void)
@@ -206,11 +165,12 @@ static bool std_mdm_close(void)
     std_op = NULL;
     if (mdm_close())
         return api_return_ax(0);
-    return api_return_fresult(FR_INVALID_OBJECT);
+    return api_return_errno(API_EIO);
 }
 
-static bool std_mdm_read_xstack(void)
+static int std_mdm_read(void)
 {
+    uint16_t start_pos = std_pos;
     while (std_pos < std_len)
     {
         int r = mdm_rx(&std_buf[std_pos]);
@@ -218,69 +178,30 @@ static bool std_mdm_read_xstack(void)
             break;
         if (r == -1)
         {
-            std_op = NULL;
-            return api_return_fresult(FR_INVALID_OBJECT);
+            api_return_errno(API_EIO);
+            return -1;
         }
         std_pos++;
     }
-    return std_xstack_finish();
+    return std_pos - start_pos;
 }
 
-static bool std_mdm_read_xram(void)
+static int std_mdm_write(void)
 {
-    if (std_pix >= 0)
-        return std_xram_finish();
-    while (std_pos < std_len)
-    {
-        int r = mdm_rx(&std_buf[std_pos]);
-        if (r == 0)
-            break;
-        if (r == -1)
-        {
-            std_op = NULL;
-            return api_return_fresult(FR_INVALID_OBJECT);
-        }
-        std_pos++;
-    }
-    api_set_ax(std_pos);
-    std_pix = std_pos;
-    return api_working();
-}
-
-static bool std_mdm_write_xstack(void)
-{
+    uint16_t start_pos = std_pos;
     while (std_pos < std_len)
     {
         int tx = mdm_tx(std_buf[std_pos]);
         if (tx == -1)
         {
-            std_op = NULL;
-            return api_return_fresult(FR_INVALID_OBJECT);
+            api_return_errno(API_EIO);
+            return -1;
         }
         if (tx == 0)
             break;
         std_pos++;
     }
-    std_op = NULL;
-    return api_return_ax(std_pos);
-}
-
-static bool std_mdm_write_xram(void)
-{
-    while (std_pos < std_len)
-    {
-        int tx = mdm_tx(std_buf[std_pos]);
-        if (tx == -1)
-        {
-            std_op = NULL;
-            return api_return_fresult(FR_INVALID_OBJECT);
-        }
-        if (tx == 0)
-            break;
-        std_pos++;
-    }
-    std_op = NULL;
-    return api_return_ax(std_pos);
+    return std_pos - start_pos;
 }
 
 static void std_mdm_open(const TCHAR *path, int fd)
@@ -289,10 +210,8 @@ static void std_mdm_open(const TCHAR *path, int fd)
         return;
     std_fd[fd].is_open = true;
     std_fd[fd].close = std_mdm_close;
-    std_fd[fd].read_xstack = std_mdm_read_xstack;
-    std_fd[fd].read_xram = std_mdm_read_xram;
-    std_fd[fd].write_xstack = std_mdm_write_xstack;
-    std_fd[fd].write_xram = std_mdm_write_xram;
+    std_fd[fd].read = std_mdm_read;
+    std_fd[fd].write = std_mdm_write;
 }
 
 static bool std_fatfs_close(void)
@@ -307,58 +226,32 @@ static bool std_fatfs_close(void)
     return api_return_ax(0);
 }
 
-static bool std_fatfs_read_xstack(void)
+static int std_fatfs_read(void)
 {
     FIL *fp = std_op->fatfs;
     UINT br;
     FRESULT fresult = f_read(fp, std_buf, std_len, &br);
     if (fresult != FR_OK)
     {
-        std_op = NULL;
-        return api_return_fresult(fresult);
+        api_return_fresult(fresult);
+        return -1;
     }
     std_pos = br;
-    return std_xstack_finish();
+    return br;
 }
 
-static bool std_fatfs_read_xram(void)
+static int std_fatfs_write(void)
 {
-    if (std_pix >= 0)
-        return std_xram_finish();
     FIL *fp = std_op->fatfs;
-    UINT br;
-    FRESULT fresult = f_read(fp, std_buf, std_len, &br);
+    UINT bw;
+    FRESULT fresult = f_write(fp, std_buf, std_len, &bw);
     if (fresult != FR_OK)
     {
-        std_op = NULL;
-        return api_return_fresult(fresult);
+        api_return_fresult(fresult);
+        return -1;
     }
-    std_pos = br;
-    api_set_ax(std_pos);
-    std_pix = std_pos;
-    return api_working();
-}
-
-static bool std_fatfs_write_xstack(void)
-{
-    FIL *fp = std_op->fatfs;
-    UINT bw;
-    FRESULT fresult = f_write(fp, std_buf, std_len, &bw);
-    std_op = NULL;
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    return api_return_ax(bw);
-}
-
-static bool std_fatfs_write_xram(void)
-{
-    FIL *fp = std_op->fatfs;
-    UINT bw;
-    FRESULT fresult = f_write(fp, std_buf, std_len, &bw);
-    std_op = NULL;
-    if (fresult != FR_OK)
-        return api_return_fresult(fresult);
-    return api_return_ax(bw);
+    std_pos = bw;
+    return bw;
 }
 
 static bool std_fatfs_lseek(void)
@@ -436,10 +329,8 @@ static void std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
 
     std_fd[fd].is_open = true;
     std_fd[fd].close = std_fatfs_close;
-    std_fd[fd].read_xstack = std_fatfs_read_xstack;
-    std_fd[fd].read_xram = std_fatfs_read_xram;
-    std_fd[fd].write_xstack = std_fatfs_write_xstack;
-    std_fd[fd].write_xram = std_fatfs_write_xram;
+    std_fd[fd].read = std_fatfs_read;
+    std_fd[fd].write = std_fatfs_write;
     std_fd[fd].lseek = std_fatfs_lseek;
     std_fd[fd].sync = std_fatfs_sync;
     std_fd[fd].fatfs = fp;
@@ -455,10 +346,8 @@ bool std_api_open(void)
         return api_return_errno(API_EMFILE);
 
     std_fd[fd].close = std_invalid_operation;
-    std_fd[fd].read_xstack = std_invalid_operation;
-    std_fd[fd].read_xram = std_invalid_operation;
-    std_fd[fd].write_xstack = std_invalid_operation;
-    std_fd[fd].write_xram = std_invalid_operation;
+    std_fd[fd].read = NULL;
+    std_fd[fd].write = NULL;
     std_fd[fd].lseek = std_invalid_operation;
     std_fd[fd].sync = std_invalid_operation;
     std_fd[fd].fatfs = NULL;
@@ -481,7 +370,7 @@ bool std_api_close(void)
 {
     int fd = API_A;
     if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX || !std_fd[fd].is_open)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
     std_op = &std_fd[fd];
     return std_op->close();
 }
@@ -502,31 +391,59 @@ bool std_api_stdin_opt(void)
 bool std_api_read_xstack(void)
 {
     if (std_op)
-        return std_op->read_xstack();
+    {
+        int result = std_op->read();
+        if (result < 0)
+        {
+            std_op = NULL;
+            return false;
+        }
+        if (result == 0)
+            return api_working();
+        return std_xstack_finish();
+    }
     uint16_t count;
     int fd = API_A;
     if (!api_pop_uint16_end(&count) || count > XSTACK_SIZE)
         return api_return_errno(API_EINVAL);
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
+    if (!std_op->read)
+        return api_return_errno(API_ENOSYS);
     std_buf = (char *)&xstack[XSTACK_SIZE - count];
     std_len = count;
     std_pos = 0;
-    return std_op->read_xstack();
+    return api_working();
 }
 
 bool std_api_read_xram(void)
 {
     if (std_op)
-        return std_op->read_xram();
+    {
+        if (std_pix >= 0)
+            return std_xram_finish();
+        int result = std_op->read();
+        if (result < 0)
+        {
+            std_op = NULL;
+            return false;
+        }
+        if (result == 0)
+            return api_working();
+        api_set_ax(std_pos);
+        std_pix = std_pos;
+        return api_working();
+    }
     uint16_t count, xram_addr;
     int fd = API_A;
     if (!api_pop_uint16(&count) || !api_pop_uint16_end(&xram_addr))
         return api_return_errno(API_EINVAL);
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
+    if (!std_op->read)
+        return api_return_errno(API_ENOSYS);
     if (count > 0x7FFF)
         count = 0x7FFF;
     std_buf = (char *)&xram[xram_addr];
@@ -534,33 +451,63 @@ bool std_api_read_xram(void)
         return api_return_errno(API_EINVAL);
     std_len = count;
     std_pos = 0;
-    return std_op->read_xram();
+    return api_working();
 }
 
 bool std_api_write_xstack(void)
 {
     if (std_op)
-        return std_op->write_xstack();
+    {
+        int result = std_op->write();
+        if (result < 0)
+        {
+            std_op = NULL;
+            return false;
+        }
+        if (std_pos >= std_len)
+        {
+            std_op = NULL;
+            return api_return_ax(std_pos);
+        }
+        return api_working();
+    }
     int fd = API_A;
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
+    if (!std_op->write)
+        return api_return_errno(API_ENOSYS);
     std_len = XSTACK_SIZE - xstack_ptr;
     std_buf = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     std_pos = 0;
-    return std_op->write_xstack();
+    return api_working();
 }
 
 bool std_api_write_xram(void)
 {
     if (std_op)
-        return std_op->write_xram();
+    {
+        int result = std_op->write();
+        if (result < 0)
+        {
+            std_op = NULL;
+            return false;
+        }
+        if (std_pos >= std_len)
+        {
+            std_op = NULL;
+            return api_return_ax(std_pos);
+        }
+        return api_working();
+    }
     uint16_t xram_addr, count;
     int fd = API_A;
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
+    if (!std_op->write)
+        return api_return_errno(API_ENOSYS);
     if (!api_pop_uint16(&count) || !api_pop_uint16_end(&xram_addr))
         return api_return_errno(API_EINVAL);
     if (count > 0x7FFF)
@@ -570,7 +517,7 @@ bool std_api_write_xram(void)
         return api_return_errno(API_EINVAL);
     std_len = count;
     std_pos = 0;
-    return std_op->write_xram();
+    return api_working();
 }
 
 bool std_api_lseek_cc65(void)
@@ -580,7 +527,7 @@ bool std_api_lseek_cc65(void)
     int fd = API_A;
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
     // Translate cc65 whence (2=SET, 0=CUR, 1=END)
     // to standard (0=SET, 1=CUR, 2=END)
     if (!api_pop_int8(&whence_cc65) || !api_pop_int32_end(&ofs))
@@ -605,7 +552,7 @@ bool std_api_lseek_llvm(void)
     int fd = API_A;
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
     return std_op->lseek();
 }
 
@@ -614,7 +561,7 @@ bool std_api_syncfs(void)
     int fd = API_A;
     std_op = std_validate_fd(fd);
     if (!std_op)
-        return api_return_errno(API_EINVAL);
+        return api_return_errno(API_EBADF);
     return std_op->sync();
 }
 
@@ -633,26 +580,21 @@ void std_run(void)
     {
         std_fd[i].is_open = false;
         std_fd[i].close = std_invalid_operation;
-        std_fd[i].read_xstack = std_invalid_operation;
-        std_fd[i].read_xram = std_invalid_operation;
-        std_fd[i].write_xstack = std_invalid_operation;
-        std_fd[i].write_xram = std_invalid_operation;
         std_fd[i].lseek = std_invalid_operation;
         std_fd[i].sync = std_invalid_operation;
+        std_fd[i].read = NULL;
+        std_fd[i].write = NULL;
         std_fd[i].fatfs = NULL;
     }
 
     std_fd[STD_FD_STDIN].is_open = true;
-    std_fd[STD_FD_STDIN].read_xstack = std_stdin_read_xstack;
-    std_fd[STD_FD_STDIN].read_xram = std_stdin_read_xram;
+    std_fd[STD_FD_STDIN].read = std_stdin_read;
 
     std_fd[STD_FD_STDOUT].is_open = true;
-    std_fd[STD_FD_STDOUT].write_xstack = std_stdout_write_xstack;
-    std_fd[STD_FD_STDOUT].write_xram = std_stdout_write_xram;
+    std_fd[STD_FD_STDOUT].write = std_stdout_write;
 
     std_fd[STD_FD_STDERR].is_open = true;
-    std_fd[STD_FD_STDERR].write_xstack = std_stdout_write_xstack;
-    std_fd[STD_FD_STDERR].write_xram = std_stdout_write_xram;
+    std_fd[STD_FD_STDERR].write = std_stdout_write;
 }
 
 void std_stop(void)
