@@ -17,12 +17,13 @@
 /* Main events
  */
 
-void atr_init(void);
+void atr_run(void);
 
 /* The API implementation
  */
 
 bool atr_api_get(void);
 bool atr_api_set(void);
+bool atr_api_set_readline(void);
 
 #endif /* _RIA_API_ATR_H_ */
