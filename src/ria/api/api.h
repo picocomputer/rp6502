@@ -49,9 +49,9 @@ typedef enum
     API_EILSEQ, /* Invalid or incomplete multibyte or wide character */
 } api_errno;
 
-// cc65 and llvm-mos C init calls this
-// to select its errno.h constants.
-bool api_api_errno_opt(void);
+// Get/set errno option setting
+uint8_t api_get_errno_opt(void);
+bool api_set_errno_opt(uint8_t opt);
 
 // Used by macros to turn an api_errno
 // into a cc65 or llvm-mos errno.

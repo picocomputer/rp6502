@@ -37,7 +37,6 @@ void cpu_task(void);
 void cpu_run(void);
 void cpu_stop(void);
 void cpu_reclock(void);
-bool cpu_api_phi2(void);
 
 // The CPU is active when RESB is high or when
 // we're waiting for the RESB timer.

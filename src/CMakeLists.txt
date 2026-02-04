@@ -104,7 +104,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/api/clk.c
     ria/api/dir.c
     ria/api/oem.c
-    ria/api/rng.c
     ria/api/std.c
     ria/aud/aud.c
     ria/aud/opl.c

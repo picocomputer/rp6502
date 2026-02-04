@@ -10,7 +10,6 @@
 #include "api/clk.h"
 #include "api/dir.h"
 #include "api/oem.h"
-#include "api/rng.h"
 #include "api/std.h"
 #include "aud/aud.h"
 #include "aud/opl.h"
@@ -202,15 +201,15 @@ bool main_api(uint8_t operation)
     case 0x01:
         return pix_api_xreg();
     case 0x02:
-        return cpu_api_phi2();
+        return atr_api_phi2();
     case 0x03:
-        return oem_api_code_page();
+        return atr_api_code_page();
     case 0x04:
-        return rng_api_lrand();
+        return atr_api_lrand();
     case 0x05:
-        return std_api_stdin_opt();
+        return atr_api_stdin_opt();
     case 0x06:
-        return api_api_errno_opt();
+        return atr_api_errno_opt();
     case 0x0A:
         return atr_api_get();
     case 0x0B:

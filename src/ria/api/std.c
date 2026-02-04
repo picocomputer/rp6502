@@ -65,8 +65,18 @@ static const char *std_rln_buf;
 static bool std_rln_needs_nl;
 static size_t std_rln_pos;
 static size_t std_rln_len;
-static size_t std_rln_max_len;
-static uint32_t std_rln_ctrl_bits;
+
+// Readline configuration
+static bool std_disable_nl_expansion;
+static bool std_suppress_end_move;
+static bool std_suppress_newline;
+static bool std_enable_history;
+static uint8_t std_max_length = 254;
+static uint8_t std_timeout;
+static uint32_t std_ctrl_bits;
+static uint8_t std_end_char = '\r';
+static bool std_timed_out;
+static uint8_t std_cursor_pos = 0xFF;
 
 static int std_find_free_fd(void)
 {
@@ -98,13 +108,28 @@ static void std_not_implemented(void)
 
 static void std_rln_callback(bool timeout, const char *buf, size_t length)
 {
-    (void)timeout;
-    assert(!timeout);
+    std_timed_out = timeout;
     std_rln_active = false;
-    std_rln_buf = buf;
-    std_rln_pos = 0;
-    std_rln_len = length;
-    std_rln_needs_nl = true;
+    if (timeout)
+    {
+        std_rln_buf = NULL;
+        std_rln_pos = 0;
+        std_rln_len = 0;
+        std_rln_needs_nl = false;
+        std_end_char = 0;
+    }
+    else
+    {
+        std_rln_buf = buf;
+        std_rln_pos = 0;
+        std_rln_len = length;
+        std_rln_needs_nl = !std_suppress_newline;
+        // If ctrl_bits ended it, first char is the ctrl char; otherwise '\r'
+        if (length == 1 && buf[0] < 32 && (std_ctrl_bits & (1 << buf[0])))
+            std_end_char = buf[0];
+        else
+            std_end_char = '\r';
+    }
 }
 
 static std_io_result_t std_stdin_read(void)
@@ -114,7 +139,11 @@ static std_io_result_t std_stdin_read(void)
         if (!std_rln_active)
         {
             std_rln_active = true;
-            rln_read_line(0, std_rln_callback, std_rln_max_len + 1, std_rln_ctrl_bits);
+            // Timeout is in 6.2 format (high 6 bits = seconds, low 2 bits = quarter seconds)
+            uint32_t timeout_ms = 0;
+            if (std_timeout)
+                timeout_ms = ((std_timeout >> 2) * 1000) + ((std_timeout & 0x03) * 250);
+            rln_read_line(timeout_ms, std_rln_callback, std_max_length + 1, std_ctrl_bits);
         }
         return STD_IO_PENDING;
     }
@@ -132,8 +161,18 @@ static std_io_result_t std_stdin_read(void)
 
 static std_io_result_t std_stdout_write(void)
 {
-    while (std_pos < std_len && com_putchar_ready())
-        putchar(std_buf[std_pos++]);
+    if (std_disable_nl_expansion)
+    {
+        // Bypass newline expansion using com_tx_write
+        while (std_pos < std_len && com_tx_writable())
+            com_tx_write(std_buf[std_pos++]);
+    }
+    else
+    {
+        // Normal path with newline expansion via putchar
+        while (std_pos < std_len && com_putchar_ready())
+            putchar(std_buf[std_pos++]);
+    }
     return (std_pos >= std_len) ? STD_IO_COMPLETE : STD_IO_PENDING;
 }
 
@@ -344,18 +383,6 @@ bool std_api_close(void)
     std_fd->is_open = false;
     std_fd = NULL;
     return false;
-}
-
-// int stdin_opt(unsigned long ctrl_bits, unsigned char str_length)
-bool std_api_stdin_opt(void)
-{
-    uint8_t str_length = API_A;
-    uint32_t ctrl_bits;
-    if (!api_pop_uint32_end(&ctrl_bits))
-        return api_return_errno(API_EINVAL);
-    std_rln_max_len = str_length;
-    std_rln_ctrl_bits = ctrl_bits;
-    return api_return_ax(0);
 }
 
 bool std_api_read_xstack(void)
@@ -570,8 +597,18 @@ void std_run(void)
     std_rln_needs_nl = false;
     std_rln_pos = 0;
     std_rln_len = 0;
-    std_rln_max_len = 254;
-    std_rln_ctrl_bits = 0;
+
+    // Reset readline configuration to defaults
+    std_disable_nl_expansion = false;
+    std_suppress_end_move = false;
+    std_suppress_newline = false;
+    std_enable_history = false;
+    std_max_length = 254;
+    std_timeout = 0;
+    std_ctrl_bits = 0;
+    std_end_char = '\r';
+    std_timed_out = false;
+    std_cursor_pos = 0xFF;
 
     for (int i = 0; i < STD_FD_MAX; i++)
     {
@@ -604,3 +641,33 @@ void std_stop(void)
         std_fd_pool[i].close();
     }
 }
+
+/* Readline configuration getters/setters for atr.c */
+
+bool std_get_disable_nl_expansion(void) { return std_disable_nl_expansion; }
+void std_set_disable_nl_expansion(bool v) { std_disable_nl_expansion = v; }
+
+bool std_get_suppress_end_move(void) { return std_suppress_end_move; }
+void std_set_suppress_end_move(bool v) { std_suppress_end_move = v; }
+
+bool std_get_suppress_newline(void) { return std_suppress_newline; }
+void std_set_suppress_newline(bool v) { std_suppress_newline = v; }
+
+bool std_get_enable_history(void) { return std_enable_history; }
+void std_set_enable_history(bool v) { std_enable_history = v; }
+
+uint8_t std_get_max_length(void) { return std_max_length; }
+void std_set_max_length(uint8_t v) { std_max_length = v; }
+
+uint8_t std_get_timeout(void) { return std_timeout; }
+void std_set_timeout(uint8_t v) { std_timeout = v; }
+
+uint32_t std_get_ctrl_bits(void) { return std_ctrl_bits; }
+void std_set_ctrl_bits(uint32_t v) { std_ctrl_bits = v; }
+
+uint8_t std_get_end_char(void) { return std_end_char; }
+
+bool std_get_timed_out(void) { return std_timed_out; }
+
+uint8_t std_get_cursor_pos(void) { return std_cursor_pos; }
+void std_set_cursor_pos(uint8_t v) { std_cursor_pos = v; }
