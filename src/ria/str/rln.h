@@ -19,6 +19,7 @@
 
 void rln_task(void);
 void rln_run(void);
+void rln_stop(void);
 void rln_break(void);
 
 // Timeout is true when input is idle too long.
