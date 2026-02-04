@@ -77,6 +77,7 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
+    rln_init();
 
     // CPU must be last. Triggers a reclock.
     cpu_init();

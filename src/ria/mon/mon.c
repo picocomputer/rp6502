@@ -506,7 +506,7 @@ void mon_task(void)
     {
         mon_needs_read_line = false;
         mon_response_line = 0;
-        rln_read_line(0, mon_enter, 255, 0);
+        rln_read_line(mon_enter);
         return;
     }
 }

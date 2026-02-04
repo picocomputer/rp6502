@@ -8,6 +8,7 @@
 #include "api/atr.h"
 #include "api/oem.h"
 #include "api/std.h"
+#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
 #include <pico/rand.h>
@@ -23,13 +24,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 /*
  * Attribute System - dispatches get/set to actual data sources
  * -------------------------------------------------------------
- * Readline attributes (0x00-0x0F) - state lives in std.c:
- *   0x00 ATR_DISABLE_NL_EXPANSION - Disable stdout newline expansion (bool, default 0)
+ * Readline attributes (0x00-0x0F) - state lives in rln.c:
  *   0x01 ATR_SUPPRESS_END_MOVE    - Suppress cursor move to end after input (bool, default 0)
  *   0x02 ATR_SUPPRESS_NEWLINE     - Suppress newline after input (bool, default 0)
  *   0x03 ATR_ENABLE_HISTORY       - Enable input history (bool, default 0)
  *   0x04 ATR_MAX_LENGTH           - Readline length limit 0-255 (uint8, default 254)
- *   0x05 ATR_TIMEOUT              - Timeout in 6.2 format (uint8, 0 = disabled)
+ *   0x05 ATR_TIMEOUT              - Timeout in milliseconds (uint32, 0 = disabled)
  *   0x06 ATR_CTRL_BITS            - End readline on ctrl chars (uint32)
  *   0x07 ATR_END_CHAR             - Char that ended readline (uint8, read-only)
  *   0x08 ATR_TIMED_OUT            - True if readline timed out (bool, read-only)
@@ -43,22 +43,21 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
  */
 
 // Attribute IDs - readline (0x00-0x0F)
-#define ATR_DISABLE_NL_EXPANSION 0x00
-#define ATR_SUPPRESS_END_MOVE    0x01
-#define ATR_SUPPRESS_NEWLINE     0x02
-#define ATR_ENABLE_HISTORY       0x03
-#define ATR_MAX_LENGTH           0x04
-#define ATR_TIMEOUT              0x05
-#define ATR_CTRL_BITS            0x06
-#define ATR_END_CHAR             0x07
-#define ATR_TIMED_OUT            0x08
-#define ATR_CURSOR_POS           0x09
+#define ATR_SUPPRESS_END_MOVE 0x01
+#define ATR_SUPPRESS_NEWLINE 0x02
+#define ATR_ENABLE_HISTORY 0x03
+#define ATR_MAX_LENGTH 0x04
+#define ATR_TIMEOUT 0x05
+#define ATR_CTRL_BITS 0x06
+#define ATR_END_CHAR 0x07
+#define ATR_TIMED_OUT 0x08
+#define ATR_CURSOR_POS 0x09
 
 // Attribute IDs - system (0x80-0x8F) - mirrors deprecated APIs
-#define ATR_PHI2_KHZ             0x80
-#define ATR_CODE_PAGE            0x81
-#define ATR_LRAND                0x82
-#define ATR_ERRNO_OPT            0x83
+#define ATR_PHI2_KHZ 0x80
+#define ATR_CODE_PAGE 0x81
+#define ATR_LRAND 0x82
+#define ATR_ERRNO_OPT 0x83
 
 void atr_run(void)
 {
@@ -73,36 +72,33 @@ bool atr_api_get(void)
 
     switch (attr_id)
     {
-    // Readline attributes - dispatch to std.c
-    case ATR_DISABLE_NL_EXPANSION:
-        value = std_get_disable_nl_expansion() ? 1 : 0;
-        break;
+    // Readline attributes - dispatch to rln.c
     case ATR_SUPPRESS_END_MOVE:
-        value = std_get_suppress_end_move() ? 1 : 0;
+        value = rln_get_suppress_end_move() ? 1 : 0;
         break;
     case ATR_SUPPRESS_NEWLINE:
-        value = std_get_suppress_newline() ? 1 : 0;
+        value = rln_get_suppress_newline() ? 1 : 0;
         break;
     case ATR_ENABLE_HISTORY:
-        value = std_get_enable_history() ? 1 : 0;
+        value = rln_get_enable_history() ? 1 : 0;
         break;
     case ATR_MAX_LENGTH:
-        value = std_get_max_length();
+        value = rln_get_max_length();
         break;
     case ATR_TIMEOUT:
-        value = std_get_timeout();
+        value = rln_get_timeout();
         break;
     case ATR_CTRL_BITS:
-        value = std_get_ctrl_bits();
+        value = rln_get_ctrl_bits();
         break;
     case ATR_END_CHAR:
-        value = std_get_end_char();
+        value = rln_get_end_char();
         break;
     case ATR_TIMED_OUT:
-        value = std_get_timed_out() ? 1 : 0;
+        value = rln_get_timed_out() ? 1 : 0;
         break;
     case ATR_CURSOR_POS:
-        value = std_get_cursor_pos();
+        value = rln_get_cursor_pos();
         break;
 
     // System attributes - dispatch to respective modules
@@ -139,27 +135,24 @@ bool atr_api_set(void)
 
     switch (attr_id)
     {
-    // Readline attributes - dispatch to std.c
-    case ATR_DISABLE_NL_EXPANSION:
-        std_set_disable_nl_expansion(value != 0);
-        break;
+    // Readline attributes - dispatch to rln.c
     case ATR_SUPPRESS_END_MOVE:
-        std_set_suppress_end_move(value != 0);
+        rln_set_suppress_end_move(value != 0);
         break;
     case ATR_SUPPRESS_NEWLINE:
-        std_set_suppress_newline(value != 0);
+        rln_set_suppress_newline(value != 0);
         break;
     case ATR_ENABLE_HISTORY:
-        std_set_enable_history(value != 0);
+        rln_set_enable_history(value != 0);
         break;
     case ATR_MAX_LENGTH:
-        std_set_max_length((uint8_t)value);
+        rln_set_max_length((uint8_t)value);
         break;
     case ATR_TIMEOUT:
-        std_set_timeout((uint8_t)value);
+        rln_set_timeout((uint8_t)value);
         break;
     case ATR_CTRL_BITS:
-        std_set_ctrl_bits(value);
+        rln_set_ctrl_bits(value);
         break;
     case ATR_END_CHAR:
         // Read-only, ignore silently
@@ -168,7 +161,7 @@ bool atr_api_set(void)
         // Read-only, ignore silently
         break;
     case ATR_CURSOR_POS:
-        std_set_cursor_pos((uint8_t)value);
+        rln_set_cursor_pos((uint8_t)value);
         break;
 
     // System attributes
@@ -201,33 +194,24 @@ bool atr_api_set_readline(void)
     size_t len = strlen(buf);
 
     // Clamp length to max_length
-    uint8_t max_len = std_get_max_length();
+    uint8_t max_len = rln_get_max_length();
     if (len > max_len)
         len = max_len;
 
     // Validate cursor position (0xFF means end of line)
-    uint8_t cursor_pos = std_get_cursor_pos();
+    uint8_t cursor_pos = rln_get_cursor_pos();
     if (cursor_pos > len)
         cursor_pos = len;
-    std_set_cursor_pos(cursor_pos);
+    rln_set_cursor_pos(cursor_pos);
 
     // Output the buffer contents (with potential newline expansion based on setting)
     for (size_t i = 0; i < len; i++)
     {
-        if (std_get_disable_nl_expansion())
-        {
-            while (!com_tx_writable())
-                ;
-            com_tx_write(buf[i]);
-        }
-        else
-        {
-            putchar(buf[i]);
-        }
+        putchar(buf[i]);
     }
 
     // Move cursor back if not at end and not suppressing end move
-    if (!std_get_suppress_end_move() && cursor_pos < len)
+    if (!rln_get_suppress_end_move() && cursor_pos < len)
     {
         printf("\33[%dD", (int)(len - cursor_pos));
     }
@@ -272,8 +256,8 @@ bool atr_api_stdin_opt(void)
     uint32_t ctrl_bits;
     if (!api_pop_uint32_end(&ctrl_bits))
         return api_return_errno(API_EINVAL);
-    std_set_max_length(str_length);
-    std_set_ctrl_bits(ctrl_bits);
+    rln_set_max_length(str_length);
+    rln_set_ctrl_bits(ctrl_bits);
     return api_return_ax(0);
 }
 
@@ -286,7 +270,7 @@ bool atr_api_errno_opt(void)
     return api_return_ax(0);
 }
 
-// TODO stdin_opt is garbage. it's time to make better controls
+// stdin_opt is garbage. it's time to make better controls
 // for the custom OS readline-like system on stdin/stdout.
 // It should not be tcgetattr/tcsetattr. Do something best for this.
 // Do not delete these requirements, convert into terse comment documentation that will be expanded later.
