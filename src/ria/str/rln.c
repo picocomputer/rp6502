@@ -5,11 +5,12 @@
  */
 
 #include "main.h"
-#include "sys/rln.h"
+#include "str/rln.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
 #include <stdio.h>
@@ -17,10 +18,6 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-#define RLN_BUF_SIZE 256
-#define RLN_HISTORY_SIZE 3
-#define RLN_CSI_PARAM_MAX_LEN 16
 
 typedef enum
 {
@@ -32,8 +29,10 @@ typedef enum
     ansi_state_CSI_private,
 } rln_ansi_state_t;
 
-static char *rln_buf;
-static int8_t rln_history_pos; // -1 = newest buf, 0..count-1 = history
+#define RLN_BUF_SIZE 256
+#define RLN_HISTORY_SIZE 3
+#define RLN_CSI_PARAM_MAX_LEN 16
+
 static char rln_newest_buf[RLN_BUF_SIZE];
 static char rln_history_mon[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
 static uint8_t rln_history_head_mon;
@@ -44,13 +43,15 @@ static uint8_t rln_history_count_run;
 #define RLN_HISTORY (main_active() ? rln_history_run : rln_history_mon)
 #define RLN_HISTORY_HEAD *(main_active() ? &rln_history_head_run : &rln_history_head_mon)
 #define RLN_HISTORY_COUNT *(main_active() ? &rln_history_count_run : &rln_history_count_mon)
+
+static char *rln_buf;
+static int8_t rln_history_pos; // -1 = newest buf, 0..count-1 = history
 static rln_read_callback_t rln_callback;
-static uint8_t *rln_binary_buf;
 static absolute_time_t rln_timer;
 static uint32_t rln_timeout_ms;
-static size_t rln_bufsize;
-static size_t rln_buflen;
-static size_t rln_bufpos;
+static uint8_t rln_bufmax;
+static uint8_t rln_buflen;
+static uint8_t rln_bufpos;
 static rln_ansi_state_t rln_ansi_state;
 static uint16_t rln_csi_param[RLN_CSI_PARAM_MAX_LEN];
 static uint8_t rln_csi_param_count;
@@ -253,7 +254,7 @@ static void rln_line_backspace(void)
 
 static void rln_line_insert(char ch)
 {
-    if (ch < 32 || rln_buflen >= rln_bufsize - 1)
+    if (ch < 32 || rln_buflen + 1 >= rln_bufmax)
         return;
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
         rln_buf[i] = rln_buf[i - 1];
@@ -437,33 +438,10 @@ static void rln_line_rx(uint8_t ch)
         }
 }
 
-static void rln_binary_rx(uint8_t ch)
+void rln_read_line(uint32_t timeout_ms, rln_read_callback_t callback, uint8_t maxlen, uint32_t ctrl_bits)
 {
-    rln_binary_buf[rln_buflen] = ch;
-    if (++rln_buflen == rln_bufsize)
-    {
-        rln_read_callback_t cc = rln_callback;
-        rln_callback = NULL;
-        cc(false, (char *)rln_binary_buf, rln_buflen);
-        rln_binary_buf = NULL;
-    }
-}
-
-void rln_read_binary(uint32_t timeout_ms, rln_read_callback_t callback, uint8_t *buf, size_t size)
-{
-    rln_binary_buf = buf;
-    rln_bufsize = size;
-    rln_buflen = 0;
-    rln_timeout_ms = timeout_ms;
-    rln_timer = make_timeout_time_ms(rln_timeout_ms);
-    rln_callback = callback;
-}
-
-void rln_read_line(uint32_t timeout_ms, rln_read_callback_t callback, size_t size, uint32_t ctrl_bits)
-{
-    rln_bufsize = size;
-    if (rln_bufsize > RLN_BUF_SIZE)
-        rln_bufsize = RLN_BUF_SIZE;
+    assert(maxlen <= RLN_BUF_SIZE);
+    rln_bufmax = maxlen;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_ansi_state = ansi_state_C0;
@@ -477,26 +455,22 @@ void rln_read_line(uint32_t timeout_ms, rln_read_callback_t callback, size_t siz
 
 void rln_task(void)
 {
-    if (rln_callback)
+    if (!rln_callback)
+        return;
+    while (rln_callback)
     {
         int ch = stdio_getchar_timeout_us(0);
-        if (ch != PICO_ERROR_TIMEOUT)
-            rln_timer = make_timeout_time_ms(rln_timeout_ms);
-        while (rln_callback && ch != PICO_ERROR_TIMEOUT)
-        {
-            if (rln_binary_buf)
-                rln_binary_rx(ch);
-            else
-                rln_line_rx(ch);
-            ch = stdio_getchar_timeout_us(0);
-        }
-        if (rln_timeout_ms && absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
-        {
-            rln_read_callback_t cc = rln_callback;
-            rln_callback = NULL;
-            rln_binary_buf = NULL;
-            cc(true, NULL, 0);
-        }
+        if (ch == PICO_ERROR_TIMEOUT)
+            break;
+        rln_timer = make_timeout_time_ms(rln_timeout_ms);
+        rln_line_rx(ch);
+    }
+    if (rln_callback && rln_timeout_ms &&
+        absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
+    {
+        rln_read_callback_t cc = rln_callback;
+        rln_callback = NULL;
+        cc(true, NULL, 0);
     }
 }
 
@@ -510,5 +484,4 @@ void rln_run(void)
 void rln_break(void)
 {
     rln_callback = NULL;
-    rln_binary_buf = NULL;
 }

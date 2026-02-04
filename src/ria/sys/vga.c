@@ -5,13 +5,13 @@
  */
 
 #include "mon/mon.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/rln.h"
 #include "sys/vga.h"
 #include "ria.pio.h"
 #include <pico/stdlib.h>
@@ -89,10 +89,10 @@ static void vga_backchannel_command(uint8_t byte)
     }
 }
 
-static void vga_rln_callback(bool timeout, const char *buf, size_t length)
+static void vga_rln_callback(bool timeout)
 {
     // VGA1 means VGA on PIX 1
-    if (!timeout && length == 4 && !strncasecmp(STR_VGA1, buf, 4))
+    if (!timeout && mbuf_len == 4 && !strncasecmp(STR_VGA1, (char *)mbuf, 4))
         vga_state = VGA_FOUND;
     else
         vga_state = VGA_NOT_FOUND;
@@ -101,12 +101,11 @@ static void vga_rln_callback(bool timeout, const char *buf, size_t length)
 static void vga_connect(void)
 {
     // Test if VGA connected
-    uint8_t test_buf[4];
-    rln_read_binary(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, test_buf, sizeof(test_buf));
+    mem_read_mbuf(VGA_BACKCHANNEL_ACK_MS, vga_rln_callback, 4);
     vga_pix_backchannel_request();
     vga_state = VGA_TESTING;
     while (vga_state == VGA_TESTING)
-        rln_task();
+        mem_task();
     if (vga_state == VGA_NOT_FOUND)
         return vga_pix_backchannel_disable();
 

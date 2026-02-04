@@ -6,10 +6,10 @@
 
 #include "mon/fil.h"
 #include "mon/mon.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
-#include "sys/rln.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,7 +29,7 @@ static enum {
     FIL_COMMAND,
 } fil_state;
 
-static uint32_t fil_rx_len;
+static uint32_t fil_rx_size;
 static uint32_t fil_rx_crc;
 static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
@@ -198,10 +198,8 @@ void fil_mon_ls(const char *args, size_t len)
 
 static void fil_command_dispatch(bool timeout, const char *buf, size_t len);
 
-static void fil_com_rx_mbuf(bool timeout, const char *buf, size_t length)
+static void fil_com_rx_mbuf(bool timeout)
 {
-    (void)buf;
-    mbuf_len = length;
     FRESULT result = FR_OK;
     if (timeout)
     {
@@ -253,17 +251,17 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
         mon_add_response_fatfs(result);
         return;
     }
-    if (str_parse_uint32(&args, &len, &fil_rx_len) &&
+    if (str_parse_uint32(&args, &len, &fil_rx_size) &&
         str_parse_uint32(&args, &len, &fil_rx_crc) &&
         str_parse_end(args, len))
     {
-        if (!fil_rx_len || fil_rx_len > MBUF_SIZE)
+        if (!fil_rx_size || fil_rx_size > MBUF_SIZE)
         {
             fil_state = FIL_IDLE;
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
-        rln_read_binary(FIL_TIMEOUT_MS, fil_com_rx_mbuf, mbuf, fil_rx_len);
+        mem_read_mbuf(FIL_TIMEOUT_MS, fil_com_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_str(STR_ERR_INVALID_ARGUMENT);

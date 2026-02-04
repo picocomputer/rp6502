@@ -12,10 +12,10 @@
 #include "mon/rom.h"
 #include "mon/set.h"
 #include "net/cyw.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/com.h"
 #include "sys/mem.h"
-#include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include <fatfs/ff.h>
@@ -506,7 +506,7 @@ void mon_task(void)
     {
         mon_needs_read_line = false;
         mon_response_line = 0;
-        rln_read_line(0, mon_enter, 256, 0);
+        rln_read_line(0, mon_enter, 255, 0);
         return;
     }
 }

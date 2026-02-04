@@ -6,9 +6,9 @@
 
 #include "api/api.h"
 #include "api/std.h"
+#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/pix.h"
-#include "sys/rln.h"
 #include "net/mdm.h"
 #include "fatfs/ff.h"
 #include <stdio.h>

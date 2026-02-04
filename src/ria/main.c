@@ -26,14 +26,15 @@
 #include "net/mdm.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
+#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/led.h"
 #include "sys/lfs.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
@@ -109,6 +110,7 @@ static void task(void)
 {
     mon_task();
     api_task();
+    mem_task();
     rln_task();
     fil_task();
     rom_task();
@@ -157,6 +159,7 @@ static void break_(void) // break is keyword
     ram_break();
     rom_break();
     vga_break();
+    mem_break();
     rln_break();
 }
 

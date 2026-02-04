@@ -126,6 +126,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/net/ntp.c
     ria/net/tel.c
     ria/net/wfi.c
+    ria/str/rln.c
     ria/str/str.c
     ria/sys/cfg.c
     ria/sys/com.c
@@ -135,7 +136,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/sys/mem.c
     ria/sys/pix.c
     ria/sys/ria.c
-    ria/sys/rln.c
     ria/sys/sys.c
     ria/sys/vga.c
     ria/usb/msc.c
