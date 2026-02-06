@@ -6,9 +6,9 @@
 
 #include "api/api.h"
 #include "api/std.h"
+#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/pix.h"
-#include "sys/rln.h"
 #include "net/mdm.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
@@ -65,8 +65,6 @@ static const char *std_rln_buf;
 static bool std_rln_needs_nl;
 static size_t std_rln_pos;
 static size_t std_rln_len;
-static size_t std_rln_max_len;
-static uint32_t std_rln_ctrl_bits;
 
 static int std_find_free_fd(void)
 {
@@ -98,13 +96,14 @@ static void std_not_implemented(void)
 
 static void std_rln_callback(bool timeout, const char *buf, size_t length)
 {
-    (void)timeout;
-    assert(!timeout);
     std_rln_active = false;
-    std_rln_buf = buf;
-    std_rln_pos = 0;
-    std_rln_len = length;
-    std_rln_needs_nl = true;
+    if (!timeout)
+    {
+        std_rln_buf = buf;
+        std_rln_pos = 0;
+        std_rln_len = length;
+        std_rln_needs_nl = true;
+    }
 }
 
 static std_io_result_t std_stdin_read(void)
@@ -114,7 +113,7 @@ static std_io_result_t std_stdin_read(void)
         if (!std_rln_active)
         {
             std_rln_active = true;
-            rln_read_line(0, std_rln_callback, std_rln_max_len + 1, std_rln_ctrl_bits);
+            rln_read_line(std_rln_callback);
         }
         return STD_IO_PENDING;
     }
@@ -346,18 +345,6 @@ bool std_api_close(void)
     return false;
 }
 
-// int stdin_opt(unsigned long ctrl_bits, unsigned char str_length)
-bool std_api_stdin_opt(void)
-{
-    uint8_t str_length = API_A;
-    uint32_t ctrl_bits;
-    if (!api_pop_uint32_end(&ctrl_bits))
-        return api_return_errno(API_EINVAL);
-    std_rln_max_len = str_length;
-    std_rln_ctrl_bits = ctrl_bits;
-    return api_return_ax(0);
-}
-
 bool std_api_read_xstack(void)
 {
     if (std_fd)
@@ -570,8 +557,6 @@ void std_run(void)
     std_rln_needs_nl = false;
     std_rln_pos = 0;
     std_rln_len = 0;
-    std_rln_max_len = 254;
-    std_rln_ctrl_bits = 0;
 
     for (int i = 0; i < STD_FD_MAX; i++)
     {

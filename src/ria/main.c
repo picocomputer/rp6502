@@ -10,7 +10,6 @@
 #include "api/clk.h"
 #include "api/dir.h"
 #include "api/oem.h"
-#include "api/rng.h"
 #include "api/std.h"
 #include "aud/aud.h"
 #include "aud/opl.h"
@@ -27,14 +26,15 @@
 #include "net/mdm.h"
 #include "net/ntp.h"
 #include "net/wfi.h"
+#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/led.h"
 #include "sys/lfs.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/rln.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
@@ -77,6 +77,7 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
+    rln_init();
 
     // CPU must be last. Triggers a reclock.
     cpu_init();
@@ -110,6 +111,7 @@ static void task(void)
 {
     mon_task();
     api_task();
+    mem_task();
     rln_task();
     fil_task();
     rom_task();
@@ -135,6 +137,7 @@ static void stop(void)
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
     com_stop();
+    rln_stop();
     api_stop();
     ria_stop();
     pix_stop();
@@ -157,6 +160,7 @@ static void break_(void) // break is keyword
     ram_break();
     rom_break();
     vga_break();
+    mem_break();
     rln_break();
 }
 
@@ -201,15 +205,15 @@ bool main_api(uint8_t operation)
     case 0x01:
         return pix_api_xreg();
     case 0x02:
-        return cpu_api_phi2();
+        return atr_api_phi2();
     case 0x03:
-        return oem_api_code_page();
+        return atr_api_code_page();
     case 0x04:
-        return rng_api_lrand();
+        return atr_api_lrand();
     case 0x05:
-        return std_api_stdin_opt();
+        return atr_api_stdin_opt();
     case 0x06:
-        return api_api_errno_opt();
+        return atr_api_errno_opt();
     case 0x0A:
         return atr_api_get();
     case 0x0B:

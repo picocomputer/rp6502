@@ -90,11 +90,6 @@ void cpu_reclock(void)
     cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
 
-bool cpu_api_phi2(void)
-{
-    return api_return_ax(cpu_phi2_khz);
-}
-
 bool cpu_active(void)
 {
     return cpu_run_requested;

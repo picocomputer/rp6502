@@ -8,10 +8,11 @@
 #include "api/api.h"
 #include "mon/mon.h"
 #include "mon/ram.h"
+#include "str/rln.h"
 #include "str/str.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
-#include "sys/rln.h"
 #include <stdio.h>
 #include <ctype.h>
 
@@ -35,7 +36,7 @@ static enum {
 
 static uint32_t ram_rw_addr;
 static uint32_t ram_rw_end;
-static uint32_t ram_rw_len;
+static uint32_t ram_rw_size;
 static uint32_t ram_rw_crc;
 static uint32_t ram_intel_hex_base;
 
@@ -313,10 +314,8 @@ void ram_mon_address(const char *args, size_t len)
     ram_begin_write();
 }
 
-static void sys_com_rx_mbuf(bool timeout, const char *buf, size_t length)
+static void sys_com_rx_mbuf(bool timeout)
 {
-    (void)buf;
-    mbuf_len = length;
     cmd_state = SYS_IDLE;
     if (timeout)
     {
@@ -331,8 +330,8 @@ static void sys_com_rx_mbuf(bool timeout, const char *buf, size_t length)
     if (ram_rw_addr >= 0x10000)
     {
         cmd_state = SYS_XRAM;
-        for (size_t i = 0; i < ram_rw_len; i++)
-            xram[ram_rw_addr + i - 0x10000] = buf[i];
+        for (size_t i = 0; i < ram_rw_size; i++)
+            xram[ram_rw_addr + i - 0x10000] = mbuf[i];
     }
     else
     {
@@ -343,11 +342,11 @@ static void sys_com_rx_mbuf(bool timeout, const char *buf, size_t length)
 
 static void cmd_xram()
 {
-    while (ram_rw_len)
+    while (ram_rw_size)
     {
         if (!pix_ready())
             return;
-        uint32_t addr = ram_rw_addr + --ram_rw_len - 0x10000;
+        uint32_t addr = ram_rw_addr + --ram_rw_size - 0x10000;
         PIX_SEND_XRAM(addr, xram[addr]);
     }
     cmd_state = SYS_IDLE;
@@ -356,7 +355,7 @@ static void cmd_xram()
 void ram_mon_binary(const char *args, size_t len)
 {
     if (str_parse_uint32(&args, &len, &ram_rw_addr) &&
-        str_parse_uint32(&args, &len, &ram_rw_len) &&
+        str_parse_uint32(&args, &len, &ram_rw_size) &&
         str_parse_uint32(&args, &len, &ram_rw_crc) &&
         str_parse_end(args, len))
     {
@@ -365,14 +364,14 @@ void ram_mon_binary(const char *args, size_t len)
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
-        if (!ram_rw_len || ram_rw_len > MBUF_SIZE ||
-            (ram_rw_addr < 0x10000 && ram_rw_addr + ram_rw_len > 0x10000) ||
-            ram_rw_addr + ram_rw_len > 0x20000)
+        if (!ram_rw_size || ram_rw_size > MBUF_SIZE ||
+            (ram_rw_addr < 0x10000 && ram_rw_addr + ram_rw_size > 0x10000) ||
+            ram_rw_addr + ram_rw_size > 0x20000)
         {
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
-        rln_read_binary(RAM_TIMEOUT_MS, sys_com_rx_mbuf, mbuf, ram_rw_len);
+        mem_read_mbuf(RAM_TIMEOUT_MS, sys_com_rx_mbuf, ram_rw_size);
         cmd_state = SYS_BINARY;
         return;
     }

@@ -32,6 +32,5 @@ bool std_api_write_xram(void);
 bool std_api_lseek_cc65(void);
 bool std_api_lseek_llvm(void);
 bool std_api_syncfs(void);
-bool std_api_stdin_opt(void);
 
 #endif /* _RIA_API_STD_H_ */

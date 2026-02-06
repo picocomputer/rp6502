@@ -112,12 +112,17 @@ void api_stop(void)
     api_active_op = 0;
 }
 
-bool api_api_errno_opt(void)
+uint8_t api_get_errno_opt(void)
 {
-    api_errno_opt = API_A;
-    if (api_errno_opt != API_ERRNO_OPT_CC65 && api_errno_opt != API_ERRNO_OPT_LLVM)
-        return api_return_errno(API_EINVAL);
-    return api_return_ax(0);
+    return api_errno_opt;
+}
+
+bool api_set_errno_opt(uint8_t opt)
+{
+    if (opt != API_ERRNO_OPT_CC65 && opt != API_ERRNO_OPT_LLVM)
+        return false;
+    api_errno_opt = opt;
+    return true;
 }
 
 uint16_t __in_flash("api_platform_errno") api_platform_errno(api_errno num)

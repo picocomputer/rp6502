@@ -6,6 +6,9 @@
 
 #include "sys/mem.h"
 #include <pico.h>
+#include <pico/time.h>
+#include <pico/stdio.h>
+#include <assert.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
 #include <stdio.h>
@@ -53,3 +56,50 @@ uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
 size_t mbuf_len;
 
 char response_buf[RESPONSE_BUF_SIZE];
+
+static mem_read_callback_t mem_callback;
+static absolute_time_t mem_timer;
+static uint32_t mem_timeout_ms;
+static size_t mem_size;
+
+void mem_task(void)
+{
+    if (!mem_callback)
+        return;
+    while (mem_callback)
+    {
+        int ch = stdio_getchar_timeout_us(0);
+        if (ch == PICO_ERROR_TIMEOUT)
+            break;
+        mem_timer = make_timeout_time_ms(mem_timeout_ms);
+        mbuf[mbuf_len] = ch;
+        if (++mbuf_len == mem_size)
+        {
+            mem_read_callback_t cc = mem_callback;
+            mem_callback = NULL;
+            cc(false);
+        }
+    }
+    if (mem_callback && mem_timeout_ms &&
+        absolute_time_diff_us(get_absolute_time(), mem_timer) < 0)
+    {
+        mem_read_callback_t cc = mem_callback;
+        mem_callback = NULL;
+        cc(true);
+    }
+}
+
+void mem_break(void)
+{
+    mem_callback = NULL;
+}
+
+void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size)
+{
+    assert(size <= MBUF_SIZE);
+    mem_size = size;
+    mbuf_len = 0;
+    mem_timeout_ms = timeout_ms;
+    mem_timer = make_timeout_time_ms(mem_timeout_ms);
+    mem_callback = callback;
+}

@@ -21,8 +21,8 @@
 void oem_init(void);
 void oem_stop(void);
 
-// API set or query the code page.
-bool oem_api_code_page(void);
+// Set code page without saving to config
+void oem_set_code_page_ephemeral(uint16_t cp);
 
 // Configuration setting KB
 void oem_load_code_page(const char *str, size_t len);

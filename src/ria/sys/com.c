@@ -7,9 +7,9 @@
 #include "main.h"
 #include "api/api.h"
 #include "hid/kbd.h"
+#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/pix.h"
-#include "sys/rln.h"
 #include "sys/vga.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>

@@ -29,7 +29,7 @@
 int str_xdigit_to_int(char ch);
 
 // Parse everything else as a string, truncating trailing spaces.
-bool str_parse_string(const char **args, size_t *len, char *dest, size_t size);
+bool str_parse_string(const char **args, size_t *len, char *dest, size_t maxlen);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint8(const char **args, size_t *len, uint8_t *result);

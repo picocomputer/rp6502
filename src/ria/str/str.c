@@ -43,12 +43,12 @@ int str_xdigit_to_int(char ch)
     return ch;
 }
 
-bool str_parse_string(const char **args, size_t *len, char *dest, size_t size)
+bool str_parse_string(const char **args, size_t *len, char *dest, size_t maxlen)
 {
     size_t cpylen = *len;
     while (cpylen && (*args)[cpylen - 1] == ' ')
         cpylen--;
-    if (cpylen < size)
+    if (cpylen < maxlen)
     {
         memcpy(dest, *args, cpylen);
         dest[cpylen] = 0;
