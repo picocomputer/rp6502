@@ -166,10 +166,11 @@ bool atr_api_set(void)
 
     // System attributes
     case ATR_PHI2_KHZ:
+        // TODO ephemeral
         cpu_set_phi2_khz((uint16_t)value);
         break;
     case ATR_CODE_PAGE:
-        oem_api_set_code_page((uint16_t)value);
+        oem_set_code_page_ephemeral((uint16_t)value);
         break;
     case ATR_LRAND:
         // Read-only, ignore silently
@@ -239,7 +240,7 @@ bool atr_api_code_page(void)
 {
     uint16_t cp = API_AX;
     if (cp)
-        oem_api_set_code_page(cp);
+        oem_set_code_page_ephemeral(cp);
     return api_return_ax(oem_get_code_page());
 }
 
