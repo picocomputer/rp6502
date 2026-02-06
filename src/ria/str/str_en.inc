@@ -116,6 +116,8 @@ X(STR_GAMEPAD_SINGULAR, "gamepad")
 X(STR_GAMEPAD_PLURAL, "gamepads")
 X(STR_STORAGE_SINGULAR, "storage")
 X(STR_STORAGE_PLURAL, "storage")
+X(STR_SERIAL_SINGULAR, "serial")
+X(STR_SERIAL_PLURAL, "serial")
 
 // Installed ROM list
 X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
