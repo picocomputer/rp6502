@@ -122,7 +122,6 @@ static void run(void)
 {
     com_run();
     std_run();
-    atr_run();
     rln_run();
     dir_run();
     vga_run();

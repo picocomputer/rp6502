@@ -16,9 +16,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Main events
- */
-
 void atr_run(void);
 
 /* The API implementation

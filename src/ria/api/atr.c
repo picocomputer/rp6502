@@ -64,11 +64,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define ATR_LRAND 0x82
 #define ATR_ERRNO_OPT 0x83
 
-void atr_run(void)
-{
-    // State is managed by std.c, nothing to do here
-}
-
 // int ria_get_attr(uint32_t *attr, uint8_t attr_id);
 bool atr_api_get(void)
 {
