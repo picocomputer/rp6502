@@ -138,6 +138,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/sys/ria.c
     ria/sys/sys.c
     ria/sys/vga.c
+    ria/usb/cdc.c
     ria/usb/msc.c
     ria/usb/usb.c
     ria/usb/xin.c
