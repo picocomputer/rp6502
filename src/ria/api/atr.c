@@ -22,6 +22,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 /*
+    THIS IS A WORK IN PROGRESS
+    IT IS INCOMPLETE
+*/
+
+/*
  * Attribute System - dispatches get/set to actual data sources
  * -------------------------------------------------------------
  * Readline attributes (0x00-0x0F) - state lives in rln.c:
