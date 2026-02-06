@@ -10,6 +10,7 @@
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "net/mdm.h"
+#include "usb/cdc.h"
 #include "fatfs/ff.h"
 #include <stdio.h>
 
@@ -134,6 +135,54 @@ static std_io_result_t std_stdout_write(void)
     while (std_pos < std_len && com_putchar_ready())
         putchar(std_buf[std_pos++]);
     return (std_pos >= std_len) ? STD_IO_COMPLETE : STD_IO_PENDING;
+}
+
+// CDC (USB serial) handlers
+
+static int std_cdc_desc_idx;
+
+static void std_cdc_close(void)
+{
+    if (cdc_close(std_cdc_desc_idx))
+        api_return_ax(0);
+    else
+        api_return_errno(API_EIO);
+}
+
+static std_io_result_t std_cdc_read(void)
+{
+    int r = cdc_rx(std_cdc_desc_idx, &std_buf[std_pos], std_len - std_pos);
+    if (r < 0)
+    {
+        api_return_errno(API_EIO);
+        return STD_IO_ERROR;
+    }
+    std_pos += r;
+    return STD_IO_COMPLETE;
+}
+
+static std_io_result_t std_cdc_write(void)
+{
+    int w = cdc_tx(std_cdc_desc_idx, &std_buf[std_pos], std_len - std_pos);
+    if (w < 0)
+    {
+        api_return_errno(API_EIO);
+        return STD_IO_ERROR;
+    }
+    std_pos += w;
+    return (std_pos >= std_len) ? STD_IO_COMPLETE : STD_IO_PENDING;
+}
+
+static void std_cdc_open(const TCHAR *path, int fd)
+{
+    int desc_idx = cdc_open(path);
+    if (desc_idx < 0)
+        return;
+    std_cdc_desc_idx = desc_idx;
+    std_fd_pool[fd].is_open = true;
+    std_fd_pool[fd].close = std_cdc_close;
+    std_fd_pool[fd].read = std_cdc_read;
+    std_fd_pool[fd].write = std_cdc_write;
 }
 
 static void std_mdm_close(void)
@@ -321,6 +370,10 @@ bool std_api_open(void)
 
     // Check special devices first
     std_mdm_open(path, fd);
+    if (std_fd_pool[fd].is_open)
+        return api_return_ax(fd);
+
+    std_cdc_open(path, fd);
     if (std_fd_pool[fd].is_open)
         return api_return_ax(fd);
 

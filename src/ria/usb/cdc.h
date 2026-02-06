@@ -8,6 +8,7 @@
 #define _RIA_USB_CDC_H_
 
 /* USB CDC ACM (Communications Device Class - Abstract Control Model)
+ * Host-mode driver for USB serial adapters.
  */
 
 #include <stddef.h>
@@ -17,12 +18,26 @@
 /* Main events
  */
 
+void cdc_init(void);
 void cdc_task(void);
 
+// Number of currently mounted CDC devices.
+int cdc_count(void);
 
-int cdc_open(const char* name);
+// Open a CDC device by name (e.g. "COM0:").
+// Returns descriptor index on success, -1 on failure.
+int cdc_open(const char *name);
+
+// Close a previously opened descriptor.
+// Returns false if not open.
 bool cdc_close(int desc_idx);
-int cdc_rx(char *buf, int buf_size);
-int cdc_tx(const char *buf, int buf_size);
+
+// Read from an open CDC descriptor.
+// Returns number of bytes read, or -1 on error.
+int cdc_rx(int desc_idx, char *buf, int buf_size);
+
+// Write to an open CDC descriptor.
+// Returns number of bytes written, or -1 on error.
+int cdc_tx(int desc_idx, const char *buf, int buf_size);
 
 #endif /* _RIA_USB_CDC_H_ */
