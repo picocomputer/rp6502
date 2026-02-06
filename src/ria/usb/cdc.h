@@ -20,8 +20,8 @@
 void cdc_task(void);
 
 
-int cdc_open(const char* name); // start at COM0: etc. 
-bool cdc_close(int desc_idx); // start at COM0: etc.
+int cdc_open(const char* name);
+bool cdc_close(int desc_idx);
 int cdc_rx(char *buf, int buf_size);
 int cdc_tx(const char *buf, int buf_size);
 

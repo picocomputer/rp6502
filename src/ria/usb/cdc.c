@@ -31,6 +31,7 @@ void cdc_task(void)
 // return desc idx
 int cdc_open(const char *name)
 {
+     // name start at COM0:, index of desc
 }
 
 // return false if not open
