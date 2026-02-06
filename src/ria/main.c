@@ -70,7 +70,6 @@ static void init(void)
     cyw_init();
     oem_init();
     usb_init();
-    cdc_init();
     led_init();
     aud_init();
     kbd_init();

@@ -37,6 +37,7 @@ typedef struct
     std_io_result_t (*read)(void);
     std_io_result_t (*write)(void);
     FIL *fatfs;
+    int cdc_idx;
 } std_fd_t;
 
 // File descriptors
@@ -139,11 +140,9 @@ static std_io_result_t std_stdout_write(void)
 
 // CDC (USB serial) handlers
 
-static int std_cdc_desc_idx;
-
 static void std_cdc_close(void)
 {
-    if (cdc_close(std_cdc_desc_idx))
+    if (cdc_close(std_fd->cdc_idx))
         api_return_ax(0);
     else
         api_return_errno(API_EIO);
@@ -151,7 +150,7 @@ static void std_cdc_close(void)
 
 static std_io_result_t std_cdc_read(void)
 {
-    int r = cdc_rx(std_cdc_desc_idx, &std_buf[std_pos], std_len - std_pos);
+    int r = cdc_rx(std_fd->cdc_idx, &std_buf[std_pos], std_len - std_pos);
     if (r < 0)
     {
         api_return_errno(API_EIO);
@@ -163,7 +162,7 @@ static std_io_result_t std_cdc_read(void)
 
 static std_io_result_t std_cdc_write(void)
 {
-    int w = cdc_tx(std_cdc_desc_idx, &std_buf[std_pos], std_len - std_pos);
+    int w = cdc_tx(std_fd->cdc_idx, &std_buf[std_pos], std_len - std_pos);
     if (w < 0)
     {
         api_return_errno(API_EIO);
@@ -178,11 +177,11 @@ static void std_cdc_open(const TCHAR *path, int fd)
     int desc_idx = cdc_open(path);
     if (desc_idx < 0)
         return;
-    std_cdc_desc_idx = desc_idx;
     std_fd_pool[fd].is_open = true;
     std_fd_pool[fd].close = std_cdc_close;
     std_fd_pool[fd].read = std_cdc_read;
     std_fd_pool[fd].write = std_cdc_write;
+    std_fd_pool[fd].cdc_idx = desc_idx;
 }
 
 static void std_mdm_close(void)
@@ -367,6 +366,7 @@ bool std_api_open(void)
     std_fd_pool[fd].lseek = std_not_implemented;
     std_fd_pool[fd].sync = std_not_implemented;
     std_fd_pool[fd].fatfs = NULL;
+    std_fd_pool[fd].cdc_idx = -1;
 
     // Check special devices first
     std_mdm_open(path, fd);
@@ -619,7 +619,6 @@ void std_run(void)
         std_fd_pool[i].sync = std_not_implemented;
         std_fd_pool[i].read = NULL;
         std_fd_pool[i].write = NULL;
-        std_fd_pool[i].fatfs = NULL;
     }
 
     std_fd_pool[STD_FD_STDIN].is_open = true;

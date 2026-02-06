@@ -31,13 +31,7 @@ typedef struct
     uint16_t vendor[CDC_UTF16_LEN];
     uint16_t product[CDC_UTF16_LEN];
 } cdc_t;
-
 static cdc_t cdc[CFG_TUH_CDC];
-
-void cdc_init(void)
-{
-    memset(cdc, 0, sizeof(cdc));
-}
 
 void cdc_task(void)
 {
@@ -45,6 +39,194 @@ void cdc_task(void)
     {
         if (cdc[idx].mounted)
             tuh_cdc_write_flush(idx);
+    }
+}
+
+int cdc_open(const char *name)
+{
+    if (strncasecmp(name, "COM", 3) != 0)
+        return -1;
+    if (!isdigit((unsigned char)name[3]))
+        return -1;
+    uint8_t idx = name[3] - '0';
+    if (name[4] != ':')
+        return -1;
+    if (idx >= CFG_TUH_CDC)
+        return -1;
+    if (!cdc[idx].mounted || cdc[idx].opened)
+        return -1;
+
+    uint32_t baudrate = 115200; // default
+    uint8_t data_bits = 8;      // default
+    uint8_t parity = 0;         // default: none
+    uint8_t stop_bits = 0;      // default: 1 stop bit
+
+    if (name[5] != '\0')
+    {
+        const char *params = &name[5];
+
+        // Parse baud rate (required if anything follows the colon)
+        if (!isdigit((unsigned char)*params))
+            return -1;
+        baudrate = 0;
+        while (isdigit((unsigned char)*params))
+        {
+            baudrate = baudrate * 10 + (*params - '0');
+            params++;
+        }
+
+        // Parse optional format (8N1, 7E2, etc.)
+        if (*params == ',')
+        {
+            params++;
+
+            // Data bits (required if comma present)
+            if (!isdigit((unsigned char)*params))
+                return -1;
+            data_bits = *params - '0';
+            params++;
+
+            // Parity (required if comma present)
+            char p = toupper((unsigned char)*params);
+            switch (p)
+            {
+            case 'N':
+                parity = 0;
+                break; // none
+            case 'O':
+                parity = 1;
+                break; // odd
+            case 'E':
+                parity = 2;
+                break; // even
+            case 'M':
+                parity = 3;
+                break; // mark
+            case 'S':
+                parity = 4;
+                break; // space
+            default:
+                return -1;
+            }
+            params++;
+
+            if (*params == '1')
+                stop_bits = 0; // 1 stop bit
+            else if (*params == '2')
+                stop_bits = 2; // 2 stop bits
+            else
+                return -1;
+            params++;
+        }
+
+        // Must be end of string
+        if (*params != '\0')
+            return -1;
+    }
+
+    // Configure baud rate and line format before connecting
+    if (!tuh_cdc_set_baudrate(idx, baudrate, NULL, 0))
+        return -1;
+    if (!tuh_cdc_set_data_format(idx, stop_bits, parity, data_bits, NULL, 0))
+        return -1;
+
+    // Connect establishes DTR and RTS for hardware flow control
+    if (!tuh_cdc_connect(idx, NULL, 0))
+        return -1;
+    cdc[idx].opened = true;
+
+    DBG("CDC open COM%d %lu,%d%c%d\n", idx, (unsigned long)baudrate, data_bits,
+        "NOEMS"[parity], stop_bits == 0 ? 1 : stop_bits);
+    return idx;
+}
+
+bool cdc_close(int idx)
+{
+    if (idx < 0 || idx >= CFG_TUH_CDC)
+        return false;
+    if (!cdc[idx].opened)
+        return false;
+    DBG("CDC close COM%d\n", idx);
+    tuh_cdc_disconnect(idx, NULL, 0);
+    cdc[idx].opened = false;
+    return true;
+}
+
+int cdc_rx(int idx, char *buf, int buf_size)
+{
+    if (idx < 0 || idx >= CFG_TUH_CDC)
+        return -1;
+    if (!cdc[idx].mounted || !cdc[idx].opened)
+        return -1;
+    return (int)tuh_cdc_read(idx, buf, (uint32_t)buf_size);
+}
+
+int cdc_tx(int idx, const char *buf, int buf_size)
+{
+    if (idx < 0 || idx >= CFG_TUH_CDC)
+        return -1;
+    if (!cdc[idx].mounted || !cdc[idx].opened)
+        return -1;
+    uint32_t count = tuh_cdc_write(idx, buf, (uint32_t)buf_size);
+    tuh_cdc_write_flush(idx);
+    return (int)count;
+}
+
+static void cdc_vendor_string_cb(tuh_xfer_t *xfer)
+{
+    uint8_t idx = (uint8_t)(uintptr_t)xfer->user_data;
+    if (idx < CFG_TUH_CDC && cdc[idx].mounted &&
+        xfer->result == XFER_RESULT_SUCCESS)
+    {
+        DBG("CDC COM%d vendor ok\n", idx);
+    }
+}
+
+static void cdc_product_string_cb(tuh_xfer_t *xfer)
+{
+    uint8_t idx = (uint8_t)(uintptr_t)xfer->user_data;
+    if (idx < CFG_TUH_CDC && cdc[idx].mounted &&
+        xfer->result == XFER_RESULT_SUCCESS)
+    {
+        DBG("CDC COM%d product ok\n", idx);
+    }
+    // fetch vendor string next
+    if (idx < CFG_TUH_CDC && cdc[idx].mounted)
+    {
+        tuh_descriptor_get_manufacturer_string(cdc[idx].daddr, 0x0409,
+                                               cdc[idx].vendor, sizeof(cdc[idx].vendor),
+                                               cdc_vendor_string_cb, (uintptr_t)idx);
+    }
+}
+
+void tuh_cdc_mount_cb(uint8_t idx)
+{
+    if (idx >= CFG_TUH_CDC)
+        return;
+    tuh_itf_info_t itf_info;
+    tuh_cdc_itf_get_info(idx, &itf_info);
+    uint8_t daddr = itf_info.daddr;
+    cdc_t *dev = &cdc[idx];
+    memset(dev, 0, sizeof(*dev));
+    uint16_t vid, pid;
+    tuh_vid_pid_get(daddr, &vid, &pid);
+    dev->daddr = daddr;
+    dev->mounted = true;
+
+    DBG("CDC mounted: COM%d %04X:%04X dev_addr=%d\n", idx, vid, pid, daddr);
+
+    tuh_descriptor_get_product_string(daddr, 0x0409,
+                                      dev->product, sizeof(dev->product),
+                                      cdc_product_string_cb, (uintptr_t)idx);
+}
+
+void tuh_cdc_umount_cb(uint8_t idx)
+{
+    DBG("CDC unmounted: COM%d\n", idx);
+    if (idx < CFG_TUH_CDC)
+    {
+        cdc[idx].mounted = false;
+        cdc[idx].opened = false;
     }
 }
 
@@ -117,162 +299,4 @@ int cdc_status_response(char *buf, size_t buf_size, int state)
                  comname, vendor[0] ? vendor : driver, product);
     }
     return state + 1;
-}
-
-int cdc_open(const char *name)
-{
-    if (strncasecmp(name, "COM", 3) != 0)
-        return -1;
-    if (!isdigit((unsigned char)name[3]))
-        return -1;
-    uint8_t idx = name[3] - '0';
-    if (name[4] != ':' && name[4] != '\0')
-        return -1;
-    if (idx >= CFG_TUH_CDC)
-        return -1;
-    if (!cdc[idx].mounted || cdc[idx].opened)
-        return -1;
-    // Connect establishes DTR and RTS for hardware flow control
-    if (!tuh_cdc_connect(idx, NULL, 0))
-        return -1;
-    cdc[idx].opened = true;
-    DBG("CDC open COM%d\n", idx);
-    return idx;
-}
-
-bool cdc_close(int idx)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return false;
-    if (!cdc[idx].opened)
-        return false;
-    DBG("CDC close COM%d\n", idx);
-    // Disconnect clears DTR and RTS
-    tuh_cdc_disconnect(idx, NULL, 0);
-    cdc[idx].opened = false;
-    return true;
-}
-
-int cdc_rx(int idx, char *buf, int buf_size)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return -1;
-    if (!cdc[idx].mounted || !cdc[idx].opened)
-        return -1;
-    return (int)tuh_cdc_read(idx, buf, (uint32_t)buf_size);
-}
-
-int cdc_tx(int idx, const char *buf, int buf_size)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return -1;
-    if (!cdc[idx].mounted || !cdc[idx].opened)
-        return -1;
-    uint32_t count = tuh_cdc_write(idx, buf, (uint32_t)buf_size);
-    tuh_cdc_write_flush(idx);
-    return (int)count;
-}
-
-// Line coding and modem control
-
-bool cdc_set_baudrate(int idx, uint32_t baudrate)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return false;
-    if (!cdc[idx].mounted || !cdc[idx].opened)
-        return false;
-    DBG("CDC set baud=%lu COM%d\n", (unsigned long)baudrate, idx);
-    return tuh_cdc_set_baudrate(idx, baudrate, NULL, 0);
-}
-
-bool cdc_set_data_format(int idx, uint8_t stop_bits, uint8_t parity, uint8_t data_bits)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return false;
-    if (!cdc[idx].mounted || !cdc[idx].opened)
-        return false;
-    DBG("CDC set format stop=%d par=%d data=%d COM%d\n", stop_bits, parity, data_bits, idx);
-    return tuh_cdc_set_data_format(idx, stop_bits, parity, data_bits, NULL, 0);
-}
-
-bool cdc_set_dtr(int idx, bool state)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return false;
-    if (!cdc[idx].mounted || !cdc[idx].opened)
-        return false;
-    DBG("CDC set DTR=%d COM%d\n", state, idx);
-    return tuh_cdc_set_dtr(idx, state, NULL, 0);
-}
-
-bool cdc_set_rts(int idx, bool state)
-{
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return false;
-    if (!cdc[idx].mounted || !cdc[idx].opened)
-        return false;
-    DBG("CDC set RTS=%d COM%d\n", state, idx);
-    return tuh_cdc_set_rts(idx, state, NULL, 0);
-}
-
-static void cdc_vendor_string_cb(tuh_xfer_t *xfer)
-{
-    uint8_t idx = (uint8_t)(uintptr_t)xfer->user_data;
-    if (idx < CFG_TUH_CDC && cdc[idx].mounted &&
-        xfer->result == XFER_RESULT_SUCCESS)
-    {
-        DBG("CDC COM%d vendor ok\n", idx);
-    }
-}
-
-static void cdc_product_string_cb(tuh_xfer_t *xfer)
-{
-    uint8_t idx = (uint8_t)(uintptr_t)xfer->user_data;
-    if (idx < CFG_TUH_CDC && cdc[idx].mounted &&
-        xfer->result == XFER_RESULT_SUCCESS)
-    {
-        DBG("CDC COM%d product ok\n", idx);
-    }
-    // Chain: fetch vendor string next, writing directly into vendor[]
-    if (idx < CFG_TUH_CDC && cdc[idx].mounted)
-    {
-        tuh_descriptor_get_manufacturer_string(cdc[idx].daddr, 0x0409,
-                                               cdc[idx].vendor, sizeof(cdc[idx].vendor),
-                                               cdc_vendor_string_cb, (uintptr_t)idx);
-    }
-}
-
-void tuh_cdc_mount_cb(uint8_t idx)
-{
-    if (idx >= CFG_TUH_CDC)
-        return;
-
-    tuh_itf_info_t itf_info;
-    tuh_cdc_itf_get_info(idx, &itf_info);
-    uint8_t daddr = itf_info.daddr;
-
-    cdc_t *dev = &cdc[idx];
-    memset(dev, 0, sizeof(*dev));
-    uint16_t vid, pid;
-    tuh_vid_pid_get(daddr, &vid, &pid);
-    dev->daddr = daddr;
-    dev->mounted = true;
-
-    DBG("CDC mounted: COM%d %s %04X:%04X dev_addr=%d\n",
-        idx, cdc_alt_vendor_name(vid, pid), vid, pid, daddr);
-
-    // Start async product string fetch (chains to vendor)
-    tuh_descriptor_get_product_string(daddr, 0x0409,
-                                      dev->product, sizeof(dev->product),
-                                      cdc_product_string_cb, (uintptr_t)idx);
-}
-
-void tuh_cdc_umount_cb(uint8_t idx)
-{
-    DBG("CDC unmounted: COM%d\n", idx);
-    if (idx < CFG_TUH_CDC)
-    {
-        cdc[idx].mounted = false;
-        cdc[idx].opened = false;
-    }
 }
