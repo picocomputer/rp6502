@@ -6,6 +6,7 @@
 
 #ifndef RP6502_RIA_W
 #include "net/cyw.h"
+void cyw_init(void) {}
 void cyw_task() {}
 #else
 

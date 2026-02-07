@@ -400,11 +400,6 @@ void std_run(void)
     std_rln_pos = 0;
     std_rln_len = 0;
 
-    // for (int i = 0; i < STD_FD_MAX; i++)
-    // {
-    //     std_fd_pool[i] = (std_fd_t){0};
-    // }
-
     std_fd_pool[STD_FD_STDIN].is_open = true;
     std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
 

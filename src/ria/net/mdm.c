@@ -9,11 +9,36 @@
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void mdm_init(void) {}
-bool mdm_std_handles(const char *filename) { (void)filename; return false; }
-int mdm_std_open(const char *path, uint8_t flags) { (void)path; (void)flags; return -1; }
-bool mdm_std_close(int idx) { (void)idx; return false; }
-int mdm_std_read(int idx, char *buf, int count) { (void)idx; (void)buf; (void)count; return -1; }
-int mdm_std_write(int idx, const char *buf, int count) { (void)idx; (void)buf; (void)count; return -1; }
+bool mdm_std_handles(const char *filename)
+{
+    (void)filename;
+    return false;
+}
+int mdm_std_open(const char *path, uint8_t flags)
+{
+    (void)path;
+    (void)flags;
+    return -1;
+}
+bool mdm_std_close(int idx)
+{
+    (void)idx;
+    return false;
+}
+int mdm_std_read(int idx, char *buf, int count)
+{
+    (void)idx;
+    (void)buf;
+    (void)count;
+    return -1;
+}
+int mdm_std_write(int idx, const char *buf, int count)
+{
+    (void)idx;
+    (void)buf;
+    (void)count;
+    return -1;
+}
 #else
 
 #include "net/cmd.h"
@@ -99,41 +124,6 @@ void mdm_init(void)
     mdm_stop();
 }
 
-bool mdm_std_handles(const char *filename)
-{
-    return !strncasecmp(filename, "AT:", 3);
-}
-
-static bool mdm_open(const char *filename)
-{
-    if (mdm_is_open)
-        return false;
-    if (!strncasecmp(filename, "AT:", 3))
-        filename += 3;
-    else
-        return false;
-    mdm_read_settings(&mdm_settings);
-    mdm_is_open = true;
-    // Optionally process filename as AT command
-    // after NVRAM read. e.g. AT:&F
-    if (filename[0])
-    {
-        mdm_is_parsing = true;
-        mdm_parse_result = true;
-        strncpy(mdm_cmd_buf, filename, sizeof(mdm_cmd_buf));
-        mdm_parse_str = mdm_cmd_buf;
-    }
-    return true;
-}
-
-static bool mdm_close(void)
-{
-    if (!mdm_is_open)
-        return false;
-    mdm_stop();
-    return true;
-}
-
 static inline bool mdm_response_buf_empty(void)
 {
     return mdm_response_buf_head == mdm_response_buf_tail;
@@ -186,45 +176,6 @@ static void mdm_response_append_cr_lf(void)
         mdm_response_append(mdm_settings.cr_char);
     if (!(mdm_settings.lf_char & 0x80))
         mdm_response_append(mdm_settings.lf_char);
-}
-
-static int mdm_rx(char *ch)
-{
-    if (!mdm_is_open)
-        return -1;
-    // Get next line, if needed and in progress
-    if (mdm_response_buf_empty() && mdm_response_state >= 0)
-    {
-        mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
-        mdm_response_buf_head = strlen(response_buf);
-        mdm_response_buf_tail = 0;
-        // Translate CR and LF chars to settings
-        for (size_t i = 0; i < mdm_response_buf_head; i++)
-        {
-            uint8_t swap_ch = 0;
-            if (response_buf[i] == '\r')
-                swap_ch = response_buf[i] = mdm_settings.cr_char;
-            if (response_buf[i] == '\n')
-                swap_ch = response_buf[i] = mdm_settings.lf_char;
-            if (swap_ch & 0x80)
-            {
-                for (size_t j = i; j < mdm_response_buf_head; j++)
-                    response_buf[j] = response_buf[j + 1];
-                mdm_response_buf_head--;
-            }
-        }
-    }
-    // Get from line buffer, if available
-    if (!mdm_response_buf_empty())
-    {
-        *ch = response_buf[mdm_response_buf_tail];
-        mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
-        return 1;
-    }
-    // Get from telephone emulator
-    if (!mdm_in_command_mode)
-        return tel_rx(ch);
-    return 0;
 }
 
 static bool mdm_cmd_buf_is_at_command(void)
@@ -311,23 +262,6 @@ static void mdm_tx_escape_observer(char ch)
             mdm_escape_guard = make_timeout_time_us(MDM_ESCAPE_GUARD_TIME_US);
     }
     mdm_escape_last_char = get_absolute_time();
-}
-
-static int mdm_tx(char ch)
-{
-    if (!mdm_is_open)
-        return -1;
-    mdm_tx_escape_observer(ch);
-    if (mdm_in_command_mode)
-    {
-        if (!mdm_is_parsing)
-            return mdm_tx_command_mode(ch);
-    }
-    else if (mdm_state == mdm_state_connected)
-        return mdm_tx_connected(ch);
-    else if (mdm_state == mdm_state_dialing)
-        return 1;
-    return 0;
 }
 
 int mdm_response_code(char *buf, size_t buf_size, int state)
@@ -653,16 +587,42 @@ void mdm_carrier_lost(void)
         mdm_hangup();
 }
 
+bool mdm_std_handles(const char *filename)
+{
+    return !strncasecmp(filename, "AT:", 3);
+}
+
 int mdm_std_open(const char *path, uint8_t flags)
 {
     (void)flags;
-    return mdm_open(path) ? 0 : -1;
+    if (mdm_is_open)
+        return -1;
+    const char *filename = path;
+    if (!strncasecmp(filename, "AT:", 3))
+        filename += 3;
+    else
+        return -1;
+    mdm_read_settings(&mdm_settings);
+    mdm_is_open = true;
+    // Optionally process filename as AT command
+    // after NVRAM read. e.g. AT:&F
+    if (filename[0])
+    {
+        mdm_is_parsing = true;
+        mdm_parse_result = true;
+        strncpy(mdm_cmd_buf, filename, sizeof(mdm_cmd_buf));
+        mdm_parse_str = mdm_cmd_buf;
+    }
+    return 0;
 }
 
 bool mdm_std_close(int idx)
 {
     (void)idx;
-    return mdm_close();
+    if (!mdm_is_open)
+        return false;
+    mdm_stop();
+    return true;
 }
 
 int mdm_std_read(int idx, char *buf, int count)
@@ -671,7 +631,47 @@ int mdm_std_read(int idx, char *buf, int count)
     int pos = 0;
     while (pos < count)
     {
-        int r = mdm_rx(&buf[pos]);
+        int r;
+        char *ch = &buf[pos];
+        if (!mdm_is_open)
+            r = -1;
+        else
+        {
+            // Get next line, if needed and in progress
+            if (mdm_response_buf_empty() && mdm_response_state >= 0)
+            {
+                mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
+                mdm_response_buf_head = strlen(response_buf);
+                mdm_response_buf_tail = 0;
+                // Translate CR and LF chars to settings
+                for (size_t i = 0; i < mdm_response_buf_head; i++)
+                {
+                    uint8_t swap_ch = 0;
+                    if (response_buf[i] == '\r')
+                        swap_ch = response_buf[i] = mdm_settings.cr_char;
+                    if (response_buf[i] == '\n')
+                        swap_ch = response_buf[i] = mdm_settings.lf_char;
+                    if (swap_ch & 0x80)
+                    {
+                        for (size_t j = i; j < mdm_response_buf_head; j++)
+                            response_buf[j] = response_buf[j + 1];
+                        mdm_response_buf_head--;
+                    }
+                }
+            }
+            // Get from line buffer, if available
+            if (!mdm_response_buf_empty())
+            {
+                *ch = response_buf[mdm_response_buf_tail];
+                mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
+                r = 1;
+            }
+            // Get from telephone emulator
+            else if (!mdm_in_command_mode)
+                r = tel_rx(ch);
+            else
+                r = 0;
+        }
         if (r == 0)
             break;
         if (r == -1)
@@ -687,7 +687,27 @@ int mdm_std_write(int idx, const char *buf, int count)
     int pos = 0;
     while (pos < count)
     {
-        int tx = mdm_tx(buf[pos]);
+        int tx;
+        char ch = buf[pos];
+        if (!mdm_is_open)
+            tx = -1;
+        else
+        {
+            mdm_tx_escape_observer(ch);
+            if (mdm_in_command_mode)
+            {
+                if (!mdm_is_parsing)
+                    tx = mdm_tx_command_mode(ch);
+                else
+                    tx = 0;
+            }
+            else if (mdm_state == mdm_state_connected)
+                tx = mdm_tx_connected(ch);
+            else if (mdm_state == mdm_state_dialing)
+                tx = 1;
+            else
+                tx = 0;
+        }
         if (tx == -1)
             return -1;
         if (tx == 0)

@@ -66,7 +66,6 @@ void oem_stop(void)
         oem_request_code_page(oem_code_page_setting);
 }
 
-// Used by atr_api_code_page - sets code page without saving to config
 void oem_set_code_page_ephemeral(uint16_t cp)
 {
     oem_request_code_page(cp);
