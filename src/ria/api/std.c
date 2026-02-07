@@ -11,7 +11,7 @@
 #include "sys/pix.h"
 #include "net/mdm.h"
 #include "usb/cdc.h"
-#include "fatfs/ff.h"
+#include "usb/msc.h"
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
@@ -21,27 +21,36 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-typedef enum
-{
-    STD_IO_ERROR,
-    STD_IO_PENDING,
-    STD_IO_COMPLETE,
-} std_io_result_t;
-
+// Driver table, msc must be last
 typedef struct
 {
-    bool is_open;
-    void (*close)(void);
-    void (*lseek)(void);
-    void (*sync)(void);
-    std_io_result_t (*read)(void);
-    std_io_result_t (*write)(void);
-    FIL *fatfs;
-    int cdc_idx;
-} std_fd_t;
+    bool (*handles)(const char *);
+    int (*open)(const char *, uint8_t);
+    bool (*close)(int);
+    int (*read)(int, char *, int);
+    int (*write)(int, const char *, int);
+    int32_t (*lseek)(int, int8_t, int32_t);
+    bool (*sync)(int);
+} std_driver_t;
+static const std_driver_t drivers[] = {
+    {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
+    {cdc_std_handles, cdc_std_open, cdc_std_close, cdc_std_read, cdc_std_write, NULL, NULL},
+    {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_lseek, msc_std_sync},
+};
+#define STD_DRIVER_COUNT (sizeof(drivers) / sizeof(drivers[0]))
 
 // File descriptors
 #define STD_FD_MAX 16
+typedef struct
+{
+    bool is_open;
+    bool (*close)(int);
+    int (*read)(int, char *, int);
+    int (*write)(int, const char *, int);
+    int32_t (*lseek)(int, int8_t, int32_t);
+    bool (*sync)(int);
+    int idx;
+} std_fd_t;
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
 // Reserved file descriptors
@@ -49,10 +58,6 @@ static std_fd_t std_fd_pool[STD_FD_MAX];
 #define STD_FD_STDOUT 1
 #define STD_FD_STDERR 2
 #define STD_FD_FIRST_FREE 3
-
-// FatFs files
-#define STD_FIL_MAX 8
-static FIL std_fil_pool[STD_FIL_MAX];
 
 // Active operation state
 static std_fd_t *std_fd;
@@ -83,19 +88,6 @@ static std_fd_t *std_validate_fd(int fd)
     return &std_fd_pool[fd];
 }
 
-static FIL *std_find_free_fil(void)
-{
-    for (int i = 0; i < STD_FIL_MAX; i++)
-        if (!std_fil_pool[i].obj.fs)
-            return &std_fil_pool[i];
-    return NULL;
-}
-
-static void std_not_implemented(void)
-{
-    api_return_errno(API_ENOSYS);
-}
-
 static void std_rln_callback(bool timeout, const char *buf, size_t length)
 {
     std_rln_active = false;
@@ -108,8 +100,9 @@ static void std_rln_callback(bool timeout, const char *buf, size_t length)
     }
 }
 
-static std_io_result_t std_stdin_read(void)
+static int std_stdin_read(int idx, char *buf, int count)
 {
+    (void)idx;
     if (!(std_rln_needs_nl || std_rln_pos < std_rln_len))
     {
         if (!std_rln_active)
@@ -117,272 +110,59 @@ static std_io_result_t std_stdin_read(void)
             std_rln_active = true;
             rln_read_line(std_rln_callback);
         }
-        return STD_IO_PENDING;
+        return -2; // pending
     }
-    size_t i;
-    for (i = 0; i < std_len && std_rln_pos < std_rln_len; i++)
-        std_buf[i] = std_rln_buf[std_rln_pos++];
-    if (i < std_len && std_rln_needs_nl)
+    int i;
+    for (i = 0; i < count && std_rln_pos < std_rln_len; i++)
+        buf[i] = std_rln_buf[std_rln_pos++];
+    if (i < count && std_rln_needs_nl)
     {
-        std_buf[i++] = '\n';
+        buf[i++] = '\n';
         std_rln_needs_nl = false;
     }
-    std_pos = i;
-    return STD_IO_COMPLETE;
+    return i;
 }
 
-static std_io_result_t std_stdout_write(void)
+static int std_stdout_write(int idx, const char *buf, int count)
 {
-    while (std_pos < std_len && com_putchar_ready())
-        putchar(std_buf[std_pos++]);
-    return (std_pos >= std_len) ? STD_IO_COMPLETE : STD_IO_PENDING;
-}
-
-// CDC (USB serial) handlers
-
-static void std_cdc_close(void)
-{
-    if (cdc_close(std_fd->cdc_idx))
-        api_return_ax(0);
-    else
-        api_return_errno(API_EIO);
-}
-
-static std_io_result_t std_cdc_read(void)
-{
-    int r = cdc_rx(std_fd->cdc_idx, &std_buf[std_pos], std_len - std_pos);
-    if (r < 0)
-    {
-        api_return_errno(API_EIO);
-        return STD_IO_ERROR;
-    }
-    std_pos += r;
-    return STD_IO_COMPLETE;
-}
-
-static std_io_result_t std_cdc_write(void)
-{
-    int w = cdc_tx(std_fd->cdc_idx, &std_buf[std_pos], std_len - std_pos);
-    if (w < 0)
-    {
-        api_return_errno(API_EIO);
-        return STD_IO_ERROR;
-    }
-    std_pos += w;
-    return (std_pos >= std_len) ? STD_IO_COMPLETE : STD_IO_PENDING;
-}
-
-static void std_cdc_open(const TCHAR *path, int fd)
-{
-    int desc_idx = cdc_open(path);
-    if (desc_idx < 0)
-        return;
-    std_fd_pool[fd].is_open = true;
-    std_fd_pool[fd].close = std_cdc_close;
-    std_fd_pool[fd].read = std_cdc_read;
-    std_fd_pool[fd].write = std_cdc_write;
-    std_fd_pool[fd].cdc_idx = desc_idx;
-}
-
-static void std_mdm_close(void)
-{
-    if (mdm_close())
-        api_return_ax(0);
-    else
-        api_return_errno(API_EIO);
-}
-
-static std_io_result_t std_mdm_read(void)
-{
-    while (std_pos < std_len)
-    {
-        int r = mdm_rx(&std_buf[std_pos]);
-        if (r == 0)
-            break;
-        if (r == -1)
-        {
-            api_return_errno(API_EIO);
-            return STD_IO_ERROR;
-        }
-        std_pos++;
-    }
-    return STD_IO_COMPLETE;
-}
-
-static std_io_result_t std_mdm_write(void)
-{
-    while (std_pos < std_len)
-    {
-        int tx = mdm_tx(std_buf[std_pos]);
-        if (tx == -1)
-        {
-            api_return_errno(API_EIO);
-            return STD_IO_ERROR;
-        }
-        if (tx == 0)
-            break;
-        std_pos++;
-    }
-    return (std_pos >= std_len) ? STD_IO_COMPLETE : STD_IO_PENDING;
-}
-
-static void std_mdm_open(const TCHAR *path, int fd)
-{
-    if (!mdm_open(path))
-        return;
-    std_fd_pool[fd].is_open = true;
-    std_fd_pool[fd].close = std_mdm_close;
-    std_fd_pool[fd].read = std_mdm_read;
-    std_fd_pool[fd].write = std_mdm_write;
-}
-
-static void std_fatfs_close(void)
-{
-    FIL *fp = std_fd->fatfs;
-    std_fd->fatfs = NULL;
-    FRESULT fresult = f_close(fp);
-    if (fresult != FR_OK)
-        api_return_fresult(fresult);
-    else
-        api_return_ax(0);
-}
-
-static std_io_result_t std_fatfs_read(void)
-{
-    FIL *fp = std_fd->fatfs;
-    UINT br;
-    FRESULT fresult = f_read(fp, std_buf, std_len, &br);
-    if (fresult != FR_OK)
-    {
-        api_return_fresult(fresult);
-        return STD_IO_ERROR;
-    }
-    std_pos = br;
-    return STD_IO_COMPLETE;
-}
-
-static std_io_result_t std_fatfs_write(void)
-{
-    FIL *fp = std_fd->fatfs;
-    UINT bw;
-    FRESULT fresult = f_write(fp, std_buf, std_len, &bw);
-    if (fresult != FR_OK)
-    {
-        api_return_fresult(fresult);
-        return STD_IO_ERROR;
-    }
-    std_pos = bw;
-    return STD_IO_COMPLETE;
-}
-
-static void std_fatfs_lseek(void)
-{
-    int8_t whence;
-    int32_t ofs;
-    if (!api_pop_int8(&whence) || !api_pop_int32_end(&ofs))
-    {
-        api_return_errno(API_EINVAL);
-        return;
-    }
-    FIL *fp = std_fd->fatfs;
-    if (whence == SEEK_SET)
-        ;
-    else if (whence == SEEK_CUR)
-        ofs += f_tell(fp);
-    else if (whence == SEEK_END)
-        ofs += f_size(fp);
-    else
-    {
-        api_return_errno(API_EINVAL);
-        return;
-    }
-    FRESULT fresult = f_lseek(fp, ofs);
-    if (fresult != FR_OK)
-    {
-        api_return_fresult(fresult);
-        return;
-    }
-    FSIZE_t pos = f_tell(fp);
-    if (pos > 0x7FFFFFFF)
-        pos = 0x7FFFFFFF;
-    api_return_axsreg(pos);
-}
-
-static void std_fatfs_sync(void)
-{
-    FIL *fp = std_fd->fatfs;
-    FRESULT fresult = f_sync(fp);
-    if (fresult != FR_OK)
-        api_return_fresult(fresult);
-    else
-        api_return_ax(0);
-}
-
-static void std_fatfs_open(const TCHAR *path, uint8_t flags, int fd)
-{
-    const unsigned char RDWR = 0x03;
-    const unsigned char CREAT = 0x10;
-    const unsigned char TRUNC = 0x20;
-    const unsigned char APPEND = 0x40;
-    const unsigned char EXCL = 0x80;
-    uint8_t mode = flags & RDWR;
-    if (flags & CREAT)
-    {
-        if (flags & EXCL)
-            mode |= FA_CREATE_NEW;
-        else if (flags & TRUNC)
-            mode |= FA_CREATE_ALWAYS;
-        else if (flags & APPEND)
-            mode |= FA_OPEN_APPEND;
-        else
-            mode |= FA_OPEN_ALWAYS;
-    }
-    FIL *fp = std_find_free_fil();
-    if (!fp)
-        return;
-    FRESULT fresult = f_open(fp, path, mode);
-    if (fresult != FR_OK)
-        return;
-    std_fd_pool[fd].is_open = true;
-    std_fd_pool[fd].close = std_fatfs_close;
-    std_fd_pool[fd].read = std_fatfs_read;
-    std_fd_pool[fd].write = std_fatfs_write;
-    std_fd_pool[fd].lseek = std_fatfs_lseek;
-    std_fd_pool[fd].sync = std_fatfs_sync;
-    std_fd_pool[fd].fatfs = fp;
+    (void)idx;
+    int i;
+    for (i = 0; i < count && com_putchar_ready(); i++)
+        putchar(buf[i]);
+    return i;
 }
 
 bool std_api_open(void)
 {
-    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    char *path = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
     int fd = std_find_free_fd();
     if (fd < 0)
         return api_return_errno(API_EMFILE);
 
-    std_fd_pool[fd].close = std_not_implemented;
-    std_fd_pool[fd].read = NULL;
-    std_fd_pool[fd].write = NULL;
-    std_fd_pool[fd].lseek = std_not_implemented;
-    std_fd_pool[fd].sync = std_not_implemented;
-    std_fd_pool[fd].fatfs = NULL;
-    std_fd_pool[fd].cdc_idx = -1;
+    std_fd_pool[fd].idx = -1;
 
-    // Check special devices first
-    std_mdm_open(path, fd);
-    if (std_fd_pool[fd].is_open)
-        return api_return_ax(fd);
-
-    std_cdc_open(path, fd);
-    if (std_fd_pool[fd].is_open)
-        return api_return_ax(fd);
-
-    // Everything else might be a file
     uint8_t flags = API_A;
-    std_fatfs_open(path, flags, fd);
-    if (std_fd_pool[fd].is_open)
-        return api_return_ax(fd);
-
+    for (size_t i = 0; i < STD_DRIVER_COUNT; i++)
+    {
+        if (drivers[i].handles(path))
+        {
+            int idx = drivers[i].open(path, flags);
+            if (idx >= 0)
+            {
+                std_fd_pool[fd].is_open = true;
+                std_fd_pool[fd].close = drivers[i].close;
+                std_fd_pool[fd].read = drivers[i].read;
+                std_fd_pool[fd].write = drivers[i].write;
+                std_fd_pool[fd].lseek = drivers[i].lseek;
+                std_fd_pool[fd].sync = drivers[i].sync;
+                std_fd_pool[fd].idx = idx;
+                return api_return_ax(fd);
+            }
+            else
+                return api_return_errno(API_EIO);
+        }
+    }
     return api_return_errno(API_ENOENT);
 }
 
@@ -391,37 +171,37 @@ bool std_api_close(void)
     int fd = API_A;
     if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
         return api_return_errno(API_EBADF);
-    std_fd = &std_fd_pool[fd];
-    std_fd->close();
-    std_fd->is_open = false;
-    std_fd = NULL;
-    return false;
+    std_fd_t *f = &std_fd_pool[fd];
+    f->is_open = false;
+    if (f->close && !f->close(f->idx))
+        return api_return_errno(API_EIO);
+    return api_return_ax(0);
 }
 
 bool std_api_read_xstack(void)
 {
     if (std_fd)
     {
-        switch (std_fd->read())
-        {
-        case STD_IO_ERROR:
-            std_fd = NULL;
-            return false;
-        case STD_IO_PENDING:
+        int r = std_fd->read(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
+        if (r < -1)
             return api_working();
-        case STD_IO_COMPLETE:
-            // relocate buffer in xstack
-            uint8_t *buf = (uint8_t *)std_buf;
-            uint16_t count = std_len;
-            xstack_ptr = XSTACK_SIZE;
-            if (std_pos == count)
-                xstack_ptr -= count;
-            else
-                for (uint16_t i = std_pos; i;)
-                    xstack[--xstack_ptr] = buf[--i];
+        if (r < 0)
+        {
             std_fd = NULL;
-            return api_return_ax(std_pos);
+            return api_return_errno(API_EIO);
         }
+        std_pos += r;
+        // relocate buffer in xstack
+        uint8_t *buf = (uint8_t *)std_buf;
+        uint16_t count = std_len;
+        xstack_ptr = XSTACK_SIZE;
+        if (std_pos == count)
+            xstack_ptr -= count;
+        else
+            for (uint16_t i = std_pos; i;)
+                xstack[--xstack_ptr] = buf[--i];
+        std_fd = NULL;
+        return api_return_ax(std_pos);
     }
     uint16_t count;
     int fd = API_A;
@@ -456,17 +236,17 @@ bool std_api_read_xram(void)
             }
             return api_working();
         }
-        switch (std_fd->read())
+        int r = std_fd->read(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
+        if (r < -1)
+            return api_working();
+        if (r < 0)
         {
-        case STD_IO_ERROR:
             std_fd = NULL;
-            return false;
-        case STD_IO_PENDING:
-            return api_working();
-        case STD_IO_COMPLETE:
-            std_pix = std_pos;
-            return api_working();
+            return api_return_errno(API_EIO);
         }
+        std_pos += r;
+        std_pix = std_pos;
+        return api_working();
     }
     uint16_t count, xram_addr;
     int fd = API_A;
@@ -491,17 +271,17 @@ bool std_api_write_xstack(void)
 {
     if (std_fd)
     {
-        switch (std_fd->write())
+        int w = std_fd->write(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
+        if (w < 0)
         {
-        case STD_IO_ERROR:
             std_fd = NULL;
-            return false;
-        case STD_IO_PENDING:
-            return api_working();
-        case STD_IO_COMPLETE:
-            std_fd = NULL;
-            return api_return_ax(std_pos);
+            return api_return_errno(API_EIO);
         }
+        std_pos += w;
+        if (std_pos < std_len)
+            return api_working();
+        std_fd = NULL;
+        return api_return_ax(std_pos);
     }
     int fd = API_A;
     std_fd = std_validate_fd(fd);
@@ -520,17 +300,17 @@ bool std_api_write_xram(void)
 {
     if (std_fd)
     {
-        switch (std_fd->write())
+        int w = std_fd->write(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
+        if (w < 0)
         {
-        case STD_IO_ERROR:
             std_fd = NULL;
-            return false;
-        case STD_IO_PENDING:
-            return api_working();
-        case STD_IO_COMPLETE:
-            std_fd = NULL;
-            return api_return_ax(std_pos);
+            return api_return_errno(API_EIO);
         }
+        std_pos += w;
+        if (std_pos < std_len)
+            return api_working();
+        std_fd = NULL;
+        return api_return_ax(std_pos);
     }
     uint16_t xram_addr, count;
     int fd = API_A;
@@ -556,50 +336,59 @@ bool std_api_lseek_cc65(void)
     int8_t whence_cc65;
     int32_t ofs;
     int fd = API_A;
-    std_fd = std_validate_fd(fd);
-    if (!std_fd)
+    std_fd_t *f = std_validate_fd(fd);
+    if (!f)
         return api_return_errno(API_EBADF);
     if (!api_pop_int8(&whence_cc65) || !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
+    if (!f->lseek)
+        return api_return_errno(API_ENOSYS);
     // Translate cc65 whence (2=SET, 0=CUR, 1=END)
     // to standard (0=SET, 1=CUR, 2=END)
-    int8_t whence_std;
+    int8_t whence;
     if (whence_cc65 == 2)
-        whence_std = SEEK_SET;
+        whence = SEEK_SET;
     else if (whence_cc65 == 0)
-        whence_std = SEEK_CUR;
+        whence = SEEK_CUR;
     else if (whence_cc65 == 1)
-        whence_std = SEEK_END;
+        whence = SEEK_END;
     else
         return api_return_errno(API_EINVAL);
-    // Push back in standard format for the fd operation
-    if (!api_push_int32(&ofs) || !api_push_int8(&whence_std))
-        return api_return_errno(API_EINVAL);
-    std_fd->lseek();
-    std_fd = NULL;
-    return false;
+    int32_t pos = f->lseek(f->idx, whence, ofs);
+    if (pos < 0)
+        return api_return_errno(API_EIO);
+    return api_return_axsreg(pos);
 }
 
 bool std_api_lseek_llvm(void)
 {
+    int8_t whence;
+    int32_t ofs;
     int fd = API_A;
-    std_fd = std_validate_fd(fd);
-    if (!std_fd)
+    std_fd_t *f = std_validate_fd(fd);
+    if (!f)
         return api_return_errno(API_EBADF);
-    std_fd->lseek();
-    std_fd = NULL;
-    return false;
+    if (!api_pop_int8(&whence) || !api_pop_int32_end(&ofs))
+        return api_return_errno(API_EINVAL);
+    if (!f->lseek)
+        return api_return_errno(API_ENOSYS);
+    int32_t pos = f->lseek(f->idx, whence, ofs);
+    if (pos < 0)
+        return api_return_errno(API_EIO);
+    return api_return_axsreg(pos);
 }
 
 bool std_api_syncfs(void)
 {
     int fd = API_A;
-    std_fd = std_validate_fd(fd);
-    if (!std_fd)
+    std_fd_t *f = std_validate_fd(fd);
+    if (!f)
         return api_return_errno(API_EBADF);
-    std_fd->sync();
-    std_fd = NULL;
-    return false;
+    if (!f->sync)
+        return api_return_errno(API_ENOSYS);
+    if (!f->sync(f->idx))
+        return api_return_errno(API_EIO);
+    return api_return_ax(0);
 }
 
 void std_run(void)
@@ -611,15 +400,10 @@ void std_run(void)
     std_rln_pos = 0;
     std_rln_len = 0;
 
-    for (int i = 0; i < STD_FD_MAX; i++)
-    {
-        std_fd_pool[i].is_open = false;
-        std_fd_pool[i].close = std_not_implemented;
-        std_fd_pool[i].lseek = std_not_implemented;
-        std_fd_pool[i].sync = std_not_implemented;
-        std_fd_pool[i].read = NULL;
-        std_fd_pool[i].write = NULL;
-    }
+    // for (int i = 0; i < STD_FD_MAX; i++)
+    // {
+    //     std_fd_pool[i] = (std_fd_t){0};
+    // }
 
     std_fd_pool[STD_FD_STDIN].is_open = true;
     std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
@@ -637,7 +421,7 @@ void std_stop(void)
     {
         if (!std_fd_pool[i].is_open)
             continue;
-        std_fd = &std_fd_pool[i];
-        std_fd_pool[i].close();
+        std_fd_pool[i].close(std_fd_pool[i].idx);
+        std_fd_pool[i].is_open = false;
     }
 }

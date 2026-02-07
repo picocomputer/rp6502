@@ -40,10 +40,11 @@ void mdm_init(void);
 /* STDIO
  */
 
-bool mdm_open(const char *);
-bool mdm_close(void);
-int mdm_rx(char *ch);
-int mdm_tx(char ch);
+bool mdm_std_handles(const char *filename);
+int mdm_std_open(const char *path, uint8_t flags);
+bool mdm_std_close(int idx);
+int mdm_std_read(int idx, char *buf, int count);
+int mdm_std_write(int idx, const char *buf, int count);
 
 /* Modem control interface
  */

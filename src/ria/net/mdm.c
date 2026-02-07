@@ -9,10 +9,11 @@
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void mdm_init(void) {}
-bool mdm_open(const char *) { return false; }
-bool mdm_close(void) { return false; }
-int mdm_rx(char *) { return -1; }
-int mdm_tx(char) { return -1; }
+bool mdm_std_handles(const char *filename) { (void)filename; return false; }
+int mdm_std_open(const char *path, uint8_t flags) { (void)path; (void)flags; return -1; }
+bool mdm_std_close(int idx) { (void)idx; return false; }
+int mdm_std_read(int idx, char *buf, int count) { (void)idx; (void)buf; (void)count; return -1; }
+int mdm_std_write(int idx, const char *buf, int count) { (void)idx; (void)buf; (void)count; return -1; }
 #else
 
 #include "net/cmd.h"
@@ -98,7 +99,12 @@ void mdm_init(void)
     mdm_stop();
 }
 
-bool mdm_open(const char *filename)
+bool mdm_std_handles(const char *filename)
+{
+    return !strncasecmp(filename, "AT:", 3);
+}
+
+static bool mdm_open(const char *filename)
 {
     if (mdm_is_open)
         return false;
@@ -120,7 +126,7 @@ bool mdm_open(const char *filename)
     return true;
 }
 
-bool mdm_close(void)
+static bool mdm_close(void)
 {
     if (!mdm_is_open)
         return false;
@@ -182,7 +188,7 @@ static void mdm_response_append_cr_lf(void)
         mdm_response_append(mdm_settings.lf_char);
 }
 
-int mdm_rx(char *ch)
+static int mdm_rx(char *ch)
 {
     if (!mdm_is_open)
         return -1;
@@ -307,7 +313,7 @@ static void mdm_tx_escape_observer(char ch)
     mdm_escape_last_char = get_absolute_time();
 }
 
-int mdm_tx(char ch)
+static int mdm_tx(char ch)
 {
     if (!mdm_is_open)
         return -1;
@@ -645,6 +651,50 @@ void mdm_carrier_lost(void)
     // we are escaped into command mode, hang up.
     if (mdm_in_command_mode)
         mdm_hangup();
+}
+
+int mdm_std_open(const char *path, uint8_t flags)
+{
+    (void)flags;
+    return mdm_open(path) ? 0 : -1;
+}
+
+bool mdm_std_close(int idx)
+{
+    (void)idx;
+    return mdm_close();
+}
+
+int mdm_std_read(int idx, char *buf, int count)
+{
+    (void)idx;
+    int pos = 0;
+    while (pos < count)
+    {
+        int r = mdm_rx(&buf[pos]);
+        if (r == 0)
+            break;
+        if (r == -1)
+            return -1;
+        pos++;
+    }
+    return pos;
+}
+
+int mdm_std_write(int idx, const char *buf, int count)
+{
+    (void)idx;
+    int pos = 0;
+    while (pos < count)
+    {
+        int tx = mdm_tx(buf[pos]);
+        if (tx == -1)
+            return -1;
+        if (tx == 0)
+            break;
+        pos++;
+    }
+    return pos;
 }
 
 #endif /* RP6502_RIA_W */

@@ -8,6 +8,7 @@
 #include "tusb.h"
 #include "str/str.h"
 #include "usb/msc.h"
+#include "api/api.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
@@ -19,6 +20,10 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+// File descriptor pool for open files
+#define MSC_STD_FIL_MAX 8
+static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
 // Validate essential settings in ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
@@ -72,7 +77,24 @@ static FRESULT msc_mount_result[FF_VOLUMES];
 
 static bool msc_tuh_dev_busy[CFG_TUH_DEVICE_MAX];
 
-// Some USB vendors pad their strings with spaces, others with zeros.
+static FIL *msc_find_free_fil(void)
+{
+    for (int i = 0; i < MSC_STD_FIL_MAX; i++)
+        if (!msc_std_fil_pool[i].obj.fs)
+            return &msc_std_fil_pool[i];
+    return NULL;
+}
+
+static FIL *msc_validate_fil(int desc_idx)
+{
+    if (desc_idx < 0 || desc_idx >= MSC_STD_FIL_MAX)
+        return NULL;
+    if (!msc_std_fil_pool[desc_idx].obj.fs)
+        return NULL;
+    return &msc_std_fil_pool[desc_idx];
+}
+
+// Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
 static void rtrims(uint8_t *s, size_t l)
 {
@@ -85,7 +107,7 @@ static void rtrims(uint8_t *s, size_t l)
     }
 }
 
-int msc_count(void)
+int msc_status_count(void)
 {
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
@@ -281,4 +303,117 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     default:
         return RES_PARERR;
     }
+}
+
+bool msc_std_handles(const char *path)
+{
+    (void)path;
+    // MSC/FatFS is the catch-all handler
+    return true;
+}
+
+int msc_std_open(const char *path, uint8_t flags)
+{
+    const unsigned char RDWR = 0x03;
+    const unsigned char CREAT = 0x10;
+    const unsigned char TRUNC = 0x20;
+    const unsigned char APPEND = 0x40;
+    const unsigned char EXCL = 0x80;
+
+    uint8_t mode = flags & RDWR;
+    if (flags & CREAT)
+    {
+        if (flags & EXCL)
+            mode |= FA_CREATE_NEW;
+        else if (flags & TRUNC)
+            mode |= FA_CREATE_ALWAYS;
+        else if (flags & APPEND)
+            mode |= FA_OPEN_APPEND;
+        else
+            mode |= FA_OPEN_ALWAYS;
+    }
+
+    FIL *fp = msc_find_free_fil();
+    if (!fp)
+        return -2; // No free file descriptors
+
+    FRESULT fresult = f_open(fp, path, mode);
+    if (fresult != FR_OK)
+        return -1; // File not found or other error
+
+    // Return the index of the FIL in the pool
+    return (int)(fp - msc_std_fil_pool);
+}
+
+bool msc_std_close(int desc_idx)
+{
+    FIL *fp = msc_validate_fil(desc_idx);
+    if (!fp)
+        return false;
+
+    FRESULT fresult = f_close(fp);
+    return (fresult == FR_OK);
+}
+
+int msc_std_read(int desc_idx, char *buf, int count)
+{
+    FIL *fp = msc_validate_fil(desc_idx);
+    if (!fp)
+        return -1;
+
+    UINT br;
+    FRESULT fresult = f_read(fp, buf, count, &br);
+    if (fresult != FR_OK)
+        return -1;
+
+    return (int)br;
+}
+
+int msc_std_write(int desc_idx, const char *buf, int count)
+{
+    FIL *fp = msc_validate_fil(desc_idx);
+    if (!fp)
+        return -1;
+
+    UINT bw;
+    FRESULT fresult = f_write(fp, buf, count, &bw);
+    if (fresult != FR_OK)
+        return -1;
+
+    return (int)bw;
+}
+
+int32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset)
+{
+    FIL *fp = msc_validate_fil(desc_idx);
+    if (!fp)
+        return -1;
+
+    if (whence == SEEK_SET)
+        ;
+    else if (whence == SEEK_CUR)
+        offset += f_tell(fp);
+    else if (whence == SEEK_END)
+        offset += f_size(fp);
+    else
+        return -1;
+
+    FRESULT fresult = f_lseek(fp, offset);
+    if (fresult != FR_OK)
+        return -1;
+
+    FSIZE_t pos = f_tell(fp);
+    if (pos > 0x7FFFFFFF)
+        pos = 0x7FFFFFFF;
+
+    return (int32_t)pos;
+}
+
+bool msc_std_sync(int desc_idx)
+{
+    FIL *fp = msc_validate_fil(desc_idx);
+    if (!fp)
+        return false;
+    FRESULT fresult = f_sync(fp);
+    return (fresult == FR_OK);
 }

@@ -35,22 +35,36 @@ static cdc_t cdc[CFG_TUH_CDC];
 
 void cdc_task(void)
 {
-    for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
-    {
-        if (cdc[idx].mounted)
-            tuh_cdc_write_flush(idx);
-    }
+    // TODO test ok to remove
+    // for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
+    // {
+    //     if (cdc[idx].mounted)
+    //         tuh_cdc_write_flush(idx);
+    // }
 }
 
-int cdc_open(const char *name)
+bool cdc_std_handles(const char *name)
 {
+    if (strncasecmp(name, "COM", 3) != 0)
+        return false;
+    if (!isdigit((unsigned char)name[3]))
+        return false;
+    if (name[4] != ':')
+        return false;
+    return true;
+}
+
+int cdc_std_open(const char *name, uint8_t flags)
+{
+    (void)flags;
     if (strncasecmp(name, "COM", 3) != 0)
         return -1;
     if (!isdigit((unsigned char)name[3]))
         return -1;
-    uint8_t idx = name[3] - '0';
     if (name[4] != ':')
         return -1;
+    // TODO above logic is in cdc_std_handles
+    uint8_t idx = name[3] - '0';
     if (idx >= CFG_TUH_CDC)
         return -1;
     if (!cdc[idx].mounted || cdc[idx].opened)
@@ -140,10 +154,8 @@ int cdc_open(const char *name)
     return idx;
 }
 
-bool cdc_close(int idx)
+bool cdc_std_close(int idx)
 {
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return false;
     if (!cdc[idx].opened)
         return false;
     DBG("CDC close COM%d\n", idx);
@@ -152,19 +164,15 @@ bool cdc_close(int idx)
     return true;
 }
 
-int cdc_rx(int idx, char *buf, int buf_size)
+int cdc_std_read(int idx, char *buf, int buf_size)
 {
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return -1;
     if (!cdc[idx].mounted || !cdc[idx].opened)
         return -1;
     return (int)tuh_cdc_read(idx, buf, (uint32_t)buf_size);
 }
 
-int cdc_tx(int idx, const char *buf, int buf_size)
+int cdc_std_write(int idx, const char *buf, int buf_size)
 {
-    if (idx < 0 || idx >= CFG_TUH_CDC)
-        return -1;
     if (!cdc[idx].mounted || !cdc[idx].opened)
         return -1;
     uint32_t count = tuh_cdc_write(idx, buf, (uint32_t)buf_size);
@@ -230,7 +238,7 @@ void tuh_cdc_umount_cb(uint8_t idx)
     }
 }
 
-int cdc_count(void)
+int cdc_status_count(void)
 {
     int count = 0;
     for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
