@@ -29,6 +29,7 @@ set(IPO_PRINTF_LINK_OPTIONS
     -Wl,-u,_fstat
     -Wl,-u,_isatty
     -Wl,-u,__assert_func
+    -Wl,--wrap=iswspace
 )
 
 
