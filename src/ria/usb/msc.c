@@ -355,7 +355,7 @@ bool msc_std_close(int desc_idx)
     return (fresult == FR_OK);
 }
 
-int msc_std_read(int desc_idx, char *buf, int count)
+int msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
@@ -366,10 +366,11 @@ int msc_std_read(int desc_idx, char *buf, int count)
     if (fresult != FR_OK)
         return -1;
 
-    return (int)br;
+    *bytes_read = br;
+    return 0;
 }
 
-int msc_std_write(int desc_idx, const char *buf, int count)
+int msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
@@ -380,10 +381,11 @@ int msc_std_write(int desc_idx, const char *buf, int count)
     if (fresult != FR_OK)
         return -1;
 
-    return (int)bw;
+    *bytes_written = bw;
+    return 0;
 }
 
-int32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset)
+uint32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
@@ -406,7 +408,7 @@ int32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset)
     if (pos > 0x7FFFFFFF)
         pos = 0x7FFFFFFF;
 
-    return (int32_t)pos;
+    return pos;
 }
 
 bool msc_std_sync(int desc_idx)

@@ -25,18 +25,20 @@ bool mdm_std_close(int idx)
     (void)idx;
     return false;
 }
-int mdm_std_read(int idx, char *buf, int count)
+int mdm_std_read(int idx, char *buf, int count, int *bytes_read)
 {
     (void)idx;
     (void)buf;
     (void)count;
+    (void)bytes_read;
     return -1;
 }
-int mdm_std_write(int idx, const char *buf, int count)
+int mdm_std_write(int idx, const char *buf, int count, int *bytes_written)
 {
     (void)idx;
     (void)buf;
     (void)count;
+    (void)bytes_written;
     return -1;
 }
 #else
@@ -625,10 +627,10 @@ bool mdm_std_close(int idx)
     return true;
 }
 
-int mdm_std_read(int idx, char *buf, int count)
+int mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read)
 {
     (void)idx;
-    int pos = 0;
+    uint32_t pos = 0;
     while (pos < count)
     {
         int r;
@@ -678,13 +680,14 @@ int mdm_std_read(int idx, char *buf, int count)
             return -1;
         pos++;
     }
-    return pos;
+    *bytes_read = pos;
+    return 0;
 }
 
-int mdm_std_write(int idx, const char *buf, int count)
+int mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written)
 {
     (void)idx;
-    int pos = 0;
+    uint32_t pos = 0;
     while (pos < count)
     {
         int tx;
@@ -714,7 +717,8 @@ int mdm_std_write(int idx, const char *buf, int count)
             break;
         pos++;
     }
-    return pos;
+    *bytes_written = pos;
+    return 0;
 }
 
 #endif /* RP6502_RIA_W */

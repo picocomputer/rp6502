@@ -26,9 +26,9 @@ int msc_status_response(char *buf, size_t buf_size, int state);
 bool msc_std_handles(const char *path);
 int msc_std_open(const char *path, uint8_t flags);
 bool msc_std_close(int desc_idx);
-int msc_std_read(int desc_idx, char *buf, int count);
-int msc_std_write(int desc_idx, const char *buf, int count);
-int32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset);
+int msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read);
+int msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written);
+uint32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset);
 bool msc_std_sync(int desc_idx);
 
 #endif /* _RIA_USB_MSC_H_ */

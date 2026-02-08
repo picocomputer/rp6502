@@ -21,39 +21,46 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Driver table, msc must be last
+// Driver table, msc is catch-all and must be last.
 typedef struct
 {
+    // Returns true if the driver handles the path.
     bool (*handles)(const char *);
+    // Returns driver descriptor on success, -1 on error.
     int (*open)(const char *, uint8_t);
+    // Returns true on success.
     bool (*close)(int);
-    int (*read)(int, char *, int);
-    int (*write)(int, const char *, int);
-    int32_t (*lseek)(int, int8_t, int32_t);
-    bool (*sync)(int);
+    // Returns 0 on success, -1 on error, -2 if incomplete.
+    int (*read)(int desc, char *, uint32_t, uint32_t *);
+    // Returns 0 on success, -1 on error, -2 if incomplete.
+    int (*write)(int desc, const char *, uint32_t, uint32_t *);
+    // Returns offset from start of file, -1 on error.
+    uint32_t (*lseek)(int desc, int8_t, int32_t);
+    // Returns true on success.
+    bool (*sync)(int desc);
 } std_driver_t;
-static const std_driver_t drivers[] = {
+__in_flash("std_drivers") static const std_driver_t std_drivers[] = {
     {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
     {cdc_std_handles, cdc_std_open, cdc_std_close, cdc_std_read, cdc_std_write, NULL, NULL},
     {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_lseek, msc_std_sync},
 };
-#define STD_DRIVER_COUNT (sizeof(drivers) / sizeof(drivers[0]))
+#define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
 
-// File descriptors
+// The stdio file descriptor pool.
 #define STD_FD_MAX 16
 typedef struct
 {
     bool is_open;
     bool (*close)(int);
-    int (*read)(int, char *, int);
-    int (*write)(int, const char *, int);
-    int32_t (*lseek)(int, int8_t, int32_t);
+    int (*read)(int, char *, uint32_t, uint32_t *);
+    int (*write)(int, const char *, uint32_t, uint32_t *);
+    uint32_t (*lseek)(int, int8_t, int32_t);
     bool (*sync)(int);
-    int idx;
+    int desc;
 } std_fd_t;
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
-// Reserved file descriptors
+// Reserved file descriptors.
 #define STD_FD_STDIN 0
 #define STD_FD_STDOUT 1
 #define STD_FD_STDERR 2
@@ -100,7 +107,7 @@ static void std_rln_callback(bool timeout, const char *buf, size_t length)
     }
 }
 
-static int std_stdin_read(int idx, char *buf, int count)
+static int std_stdin_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read)
 {
     (void)idx;
     if (!(std_rln_needs_nl || std_rln_pos < std_rln_len))
@@ -110,9 +117,10 @@ static int std_stdin_read(int idx, char *buf, int count)
             std_rln_active = true;
             rln_read_line(std_rln_callback);
         }
-        return -2; // pending
+        *bytes_read = 0;
+        return -2;
     }
-    int i;
+    uint32_t i;
     for (i = 0; i < count && std_rln_pos < std_rln_len; i++)
         buf[i] = std_rln_buf[std_rln_pos++];
     if (i < count && std_rln_needs_nl)
@@ -120,16 +128,18 @@ static int std_stdin_read(int idx, char *buf, int count)
         buf[i++] = '\n';
         std_rln_needs_nl = false;
     }
-    return i;
+    *bytes_read = i;
+    return 0;
 }
 
-static int std_stdout_write(int idx, const char *buf, int count)
+static int std_stdout_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written)
 {
     (void)idx;
-    int i;
+    uint32_t i;
     for (i = 0; i < count && com_putchar_ready(); i++)
         putchar(buf[i]);
-    return i;
+    *bytes_written = i;
+    return (i < count) ? -2 : 0;
 }
 
 bool std_api_open(void)
@@ -139,24 +149,21 @@ bool std_api_open(void)
     int fd = std_find_free_fd();
     if (fd < 0)
         return api_return_errno(API_EMFILE);
-
-    std_fd_pool[fd].idx = -1;
-
     uint8_t flags = API_A;
     for (size_t i = 0; i < STD_DRIVER_COUNT; i++)
     {
-        if (drivers[i].handles(path))
+        if (std_drivers[i].handles(path))
         {
-            int idx = drivers[i].open(path, flags);
+            int idx = std_drivers[i].open(path, flags);
             if (idx >= 0)
             {
                 std_fd_pool[fd].is_open = true;
-                std_fd_pool[fd].close = drivers[i].close;
-                std_fd_pool[fd].read = drivers[i].read;
-                std_fd_pool[fd].write = drivers[i].write;
-                std_fd_pool[fd].lseek = drivers[i].lseek;
-                std_fd_pool[fd].sync = drivers[i].sync;
-                std_fd_pool[fd].idx = idx;
+                std_fd_pool[fd].close = std_drivers[i].close;
+                std_fd_pool[fd].read = std_drivers[i].read;
+                std_fd_pool[fd].write = std_drivers[i].write;
+                std_fd_pool[fd].lseek = std_drivers[i].lseek;
+                std_fd_pool[fd].sync = std_drivers[i].sync;
+                std_fd_pool[fd].desc = idx;
                 return api_return_ax(fd);
             }
             else
@@ -173,7 +180,7 @@ bool std_api_close(void)
         return api_return_errno(API_EBADF);
     std_fd_t *f = &std_fd_pool[fd];
     f->is_open = false;
-    if (f->close && !f->close(f->idx))
+    if (f->close && !f->close(f->desc))
         return api_return_errno(API_EIO);
     return api_return_ax(0);
 }
@@ -182,24 +189,24 @@ bool std_api_read_xstack(void)
 {
     if (std_fd)
     {
-        int r = std_fd->read(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
-        if (r < -1)
+        uint32_t n;
+        int r = std_fd->read(std_fd->desc, &std_buf[std_pos], std_len - std_pos, &n);
+        if (r == -2)
             return api_working();
         if (r < 0)
         {
             std_fd = NULL;
             return api_return_errno(API_EIO);
         }
-        std_pos += r;
-        // relocate buffer in xstack
-        uint8_t *buf = (uint8_t *)std_buf;
+        std_pos += n;
+        // relocate buffer to top of xstack
         uint16_t count = std_len;
         xstack_ptr = XSTACK_SIZE;
         if (std_pos == count)
             xstack_ptr -= count;
         else
             for (uint16_t i = std_pos; i;)
-                xstack[--xstack_ptr] = buf[--i];
+                xstack[--xstack_ptr] = (uint8_t)std_buf[--i];
         std_fd = NULL;
         return api_return_ax(std_pos);
     }
@@ -236,15 +243,16 @@ bool std_api_read_xram(void)
             }
             return api_working();
         }
-        int r = std_fd->read(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
-        if (r < -1)
+        uint32_t n;
+        int r = std_fd->read(std_fd->desc, &std_buf[std_pos], std_len - std_pos, &n);
+        if (r == -2)
             return api_working();
         if (r < 0)
         {
             std_fd = NULL;
             return api_return_errno(API_EIO);
         }
-        std_pos += r;
+        std_pos += n;
         std_pix = std_pos;
         return api_working();
     }
@@ -271,15 +279,19 @@ bool std_api_write_xstack(void)
 {
     if (std_fd)
     {
-        int w = std_fd->write(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
-        if (w < 0)
+        uint32_t n;
+        int r = std_fd->write(std_fd->desc, &std_buf[std_pos], std_len - std_pos, &n);
+        if (r == -2)
+        {
+            std_pos += n;
+            return api_working();
+        }
+        if (r < 0)
         {
             std_fd = NULL;
             return api_return_errno(API_EIO);
         }
-        std_pos += w;
-        if (std_pos < std_len)
-            return api_working();
+        std_pos += n;
         std_fd = NULL;
         return api_return_ax(std_pos);
     }
@@ -300,15 +312,19 @@ bool std_api_write_xram(void)
 {
     if (std_fd)
     {
-        int w = std_fd->write(std_fd->idx, &std_buf[std_pos], std_len - std_pos);
-        if (w < 0)
+        uint32_t n;
+        int r = std_fd->write(std_fd->desc, &std_buf[std_pos], std_len - std_pos, &n);
+        if (r == -2)
+        {
+            std_pos += n;
+            return api_working();
+        }
+        if (r < 0)
         {
             std_fd = NULL;
             return api_return_errno(API_EIO);
         }
-        std_pos += w;
-        if (std_pos < std_len)
-            return api_working();
+        std_pos += n;
         std_fd = NULL;
         return api_return_ax(std_pos);
     }
@@ -335,13 +351,12 @@ bool std_api_lseek_cc65(void)
 {
     int8_t whence_cc65;
     int32_t ofs;
-    int fd = API_A;
-    std_fd_t *f = std_validate_fd(fd);
-    if (!f)
+    std_fd_t *fd = std_validate_fd(API_A);
+    if (!fd)
         return api_return_errno(API_EBADF);
     if (!api_pop_int8(&whence_cc65) || !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
-    if (!f->lseek)
+    if (!fd->lseek)
         return api_return_errno(API_ENOSYS);
     // Translate cc65 whence (2=SET, 0=CUR, 1=END)
     // to standard (0=SET, 1=CUR, 2=END)
@@ -354,7 +369,7 @@ bool std_api_lseek_cc65(void)
         whence = SEEK_END;
     else
         return api_return_errno(API_EINVAL);
-    int32_t pos = f->lseek(f->idx, whence, ofs);
+    int32_t pos = fd->lseek(fd->desc, whence, ofs);
     if (pos < 0)
         return api_return_errno(API_EIO);
     return api_return_axsreg(pos);
@@ -364,15 +379,14 @@ bool std_api_lseek_llvm(void)
 {
     int8_t whence;
     int32_t ofs;
-    int fd = API_A;
-    std_fd_t *f = std_validate_fd(fd);
-    if (!f)
+    std_fd_t *fd = std_validate_fd(API_A);
+    if (!fd)
         return api_return_errno(API_EBADF);
     if (!api_pop_int8(&whence) || !api_pop_int32_end(&ofs))
         return api_return_errno(API_EINVAL);
-    if (!f->lseek)
+    if (!fd->lseek)
         return api_return_errno(API_ENOSYS);
-    int32_t pos = f->lseek(f->idx, whence, ofs);
+    int32_t pos = fd->lseek(fd->desc, whence, ofs);
     if (pos < 0)
         return api_return_errno(API_EIO);
     return api_return_axsreg(pos);
@@ -380,13 +394,12 @@ bool std_api_lseek_llvm(void)
 
 bool std_api_syncfs(void)
 {
-    int fd = API_A;
-    std_fd_t *f = std_validate_fd(fd);
-    if (!f)
+    std_fd_t *fd = std_validate_fd(API_A);
+    if (!fd)
         return api_return_errno(API_EBADF);
-    if (!f->sync)
+    if (!fd->sync)
         return api_return_errno(API_ENOSYS);
-    if (!f->sync(f->idx))
+    if (!fd->sync(fd->desc))
         return api_return_errno(API_EIO);
     return api_return_ax(0);
 }
@@ -399,13 +412,10 @@ void std_run(void)
     std_rln_needs_nl = false;
     std_rln_pos = 0;
     std_rln_len = 0;
-
     std_fd_pool[STD_FD_STDIN].is_open = true;
     std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
-
     std_fd_pool[STD_FD_STDOUT].is_open = true;
     std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
-
     std_fd_pool[STD_FD_STDERR].is_open = true;
     std_fd_pool[STD_FD_STDERR].write = std_stdout_write;
 }
@@ -416,7 +426,7 @@ void std_stop(void)
     {
         if (!std_fd_pool[i].is_open)
             continue;
-        std_fd_pool[i].close(std_fd_pool[i].idx);
+        std_fd_pool[i].close(std_fd_pool[i].desc);
         std_fd_pool[i].is_open = false;
     }
 }

@@ -32,7 +32,7 @@ int cdc_status_response(char *buf, size_t buf_size, int state);
 bool cdc_std_handles(const char *name);
 int cdc_std_open(const char *name, uint8_t flags);
 bool cdc_std_close(int desc_idx);
-int cdc_std_read(int desc_idx, char *buf, int buf_size);
-int cdc_std_write(int desc_idx, const char *buf, int buf_size);
+int cdc_std_read(int desc_idx, char *buf, uint32_t buf_size, uint32_t *bytes_read);
+int cdc_std_write(int desc_idx, const char *buf, uint32_t buf_size, uint32_t *bytes_written);
 
 #endif /* _RIA_USB_CDC_H_ */

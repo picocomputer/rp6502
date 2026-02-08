@@ -164,20 +164,23 @@ bool cdc_std_close(int idx)
     return true;
 }
 
-int cdc_std_read(int idx, char *buf, int buf_size)
+int cdc_std_read(int idx, char *buf, uint32_t buf_size, uint32_t *bytes_read)
 {
     if (!cdc[idx].mounted || !cdc[idx].opened)
         return -1;
-    return (int)tuh_cdc_read(idx, buf, (uint32_t)buf_size);
+    *bytes_read = tuh_cdc_read(idx, buf, buf_size);
+    return 0;
 }
 
-int cdc_std_write(int idx, const char *buf, int buf_size)
+int cdc_std_write(int idx, const char *buf, uint32_t buf_size, uint32_t *bytes_written)
 {
     if (!cdc[idx].mounted || !cdc[idx].opened)
         return -1;
-    uint32_t count = tuh_cdc_write(idx, buf, (uint32_t)buf_size);
-    tuh_cdc_write_flush(idx);
-    return (int)count;
+    uint32_t count = tuh_cdc_write(idx, buf, buf_size);
+    if (count > 0)
+        tuh_cdc_write_flush(idx);
+    *bytes_written = count;
+    return 0;
 }
 
 static void cdc_vendor_string_cb(tuh_xfer_t *xfer)
