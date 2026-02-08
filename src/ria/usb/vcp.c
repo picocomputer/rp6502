@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/cdc.h"
+#include "usb/vcp.h"
 #include "api/oem.h"
 #include "fatfs/ff.h"
 #include "str/str.h"
@@ -13,40 +13,33 @@
 #include <string.h>
 #include <ctype.h>
 
-#define DEBUG_RIA_USB_CDC
-//TODO consider Virtual COM Port (VCP) instead of COM.
+// TinyUSB wraps all serial devices as CDC, which is
+// technically incorrect for FTDI, CP210X, CH34X, and PL2303.
+// VCP (Virtual COM Port) is a better umbrella.
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_CDC)
+#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define CDC_UTF16_LEN 32
+__in_flash("vcp_string") const char vcp_string[] = "VCP";
+static_assert(sizeof(vcp_string) == 3 + 1);
 
+#define VCP_UTF16_LEN 32
 typedef struct
 {
     bool mounted;
     bool opened;
     uint8_t daddr;
-    uint16_t vendor[CDC_UTF16_LEN];
-    uint16_t product[CDC_UTF16_LEN];
-} cdc_t;
-static cdc_t cdc[CFG_TUH_CDC];
+    uint16_t vendor[VCP_UTF16_LEN];
+    uint16_t product[VCP_UTF16_LEN];
+} vcp_t;
+static vcp_t vcp[CFG_TUH_CDC];
 
-void cdc_task(void)
+bool vcp_std_handles(const char *name)
 {
-    // TODO test ok to remove
-    // for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
-    // {
-    //     if (cdc[idx].mounted)
-    //         tuh_cdc_write_flush(idx);
-    // }
-}
-
-bool cdc_std_handles(const char *name)
-{
-    if (strncasecmp(name, "COM", 3) != 0)
+    if (strncasecmp(name, vcp_string, 3) != 0)
         return false;
     if (!isdigit((unsigned char)name[3]))
         return false;
@@ -55,20 +48,20 @@ bool cdc_std_handles(const char *name)
     return true;
 }
 
-int cdc_std_open(const char *name, uint8_t flags)
+int vcp_std_open(const char *name, uint8_t flags)
 {
     (void)flags;
-    if (strncasecmp(name, "COM", 3) != 0)
+    if (strncasecmp(name, vcp_string, 3) != 0)
         return -1;
     if (!isdigit((unsigned char)name[3]))
         return -1;
     if (name[4] != ':')
         return -1;
-    // TODO above logic is in cdc_std_handles
+    // TODO above logic is in vcp_std_handles
     uint8_t idx = name[3] - '0';
     if (idx >= CFG_TUH_CDC)
         return -1;
-    if (!cdc[idx].mounted || cdc[idx].opened)
+    if (!vcp[idx].mounted || vcp[idx].opened)
         return -1;
 
     uint32_t baudrate = 115200; // default
@@ -148,34 +141,34 @@ int cdc_std_open(const char *name, uint8_t flags)
     // Connect establishes DTR and RTS for hardware flow control
     if (!tuh_cdc_connect(idx, NULL, 0))
         return -1;
-    cdc[idx].opened = true;
+    vcp[idx].opened = true;
 
-    DBG("CDC open COM%d %lu,%d%c%d\n", idx, (unsigned long)baudrate, data_bits,
+    DBG("VCP open VCP%d %lu,%d%c%d\n", idx, (unsigned long)baudrate, data_bits,
         "NOEMS"[parity], stop_bits == 0 ? 1 : stop_bits);
     return idx;
 }
 
-bool cdc_std_close(int idx)
+bool vcp_std_close(int idx)
 {
-    if (!cdc[idx].opened)
+    if (!vcp[idx].opened)
         return false;
-    DBG("CDC close COM%d\n", idx);
+    DBG("VCP close VCP%d\n", idx);
     tuh_cdc_disconnect(idx, NULL, 0);
-    cdc[idx].opened = false;
+    vcp[idx].opened = false;
     return true;
 }
 
-int cdc_std_read(int idx, char *buf, uint32_t buf_size, uint32_t *bytes_read)
+int vcp_std_read(int idx, char *buf, uint32_t buf_size, uint32_t *bytes_read)
 {
-    if (!cdc[idx].mounted || !cdc[idx].opened)
+    if (!vcp[idx].mounted || !vcp[idx].opened)
         return -1;
     *bytes_read = tuh_cdc_read(idx, buf, buf_size);
     return 0;
 }
 
-int cdc_std_write(int idx, const char *buf, uint32_t buf_size, uint32_t *bytes_written)
+int vcp_std_write(int idx, const char *buf, uint32_t buf_size, uint32_t *bytes_written)
 {
-    if (!cdc[idx].mounted || !cdc[idx].opened)
+    if (!vcp[idx].mounted || !vcp[idx].opened)
         return -1;
     uint32_t count = tuh_cdc_write(idx, buf, buf_size);
     if (count > 0)
@@ -184,31 +177,17 @@ int cdc_std_write(int idx, const char *buf, uint32_t buf_size, uint32_t *bytes_w
     return 0;
 }
 
-static void cdc_vendor_string_cb(tuh_xfer_t *xfer)
+static void vcp_vendor_string_cb(tuh_xfer_t *xfer)
 {
-    uint8_t idx = (uint8_t)(uintptr_t)xfer->user_data;
-    if (idx < CFG_TUH_CDC && cdc[idx].mounted &&
-        xfer->result == XFER_RESULT_SUCCESS)
-    {
-        DBG("CDC COM%d vendor ok\n", idx);
-    }
+    (void)xfer;
 }
 
-static void cdc_product_string_cb(tuh_xfer_t *xfer)
+static void vcp_product_string_cb(tuh_xfer_t *xfer)
 {
-    uint8_t idx = (uint8_t)(uintptr_t)xfer->user_data;
-    if (idx < CFG_TUH_CDC && cdc[idx].mounted &&
-        xfer->result == XFER_RESULT_SUCCESS)
-    {
-        DBG("CDC COM%d product ok\n", idx);
-    }
-    // fetch vendor string next
-    if (idx < CFG_TUH_CDC && cdc[idx].mounted)
-    {
-        tuh_descriptor_get_manufacturer_string(cdc[idx].daddr, 0x0409,
-                                               cdc[idx].vendor, sizeof(cdc[idx].vendor),
-                                               cdc_vendor_string_cb, (uintptr_t)idx);
-    }
+    uint8_t idx = (uint8_t)xfer->user_data;
+    tuh_descriptor_get_manufacturer_string(vcp[idx].daddr, 0x0409,
+                                           vcp[idx].vendor, sizeof(vcp[idx].vendor),
+                                           vcp_vendor_string_cb, xfer->user_data);
 }
 
 void tuh_cdc_mount_cb(uint8_t idx)
@@ -218,42 +197,43 @@ void tuh_cdc_mount_cb(uint8_t idx)
     tuh_itf_info_t itf_info;
     tuh_cdc_itf_get_info(idx, &itf_info);
     uint8_t daddr = itf_info.daddr;
-    cdc_t *dev = &cdc[idx];
+    vcp_t *dev = &vcp[idx];
     memset(dev, 0, sizeof(*dev));
     uint16_t vid, pid;
     tuh_vid_pid_get(daddr, &vid, &pid);
     dev->daddr = daddr;
     dev->mounted = true;
 
-    DBG("CDC mounted: COM%d %04X:%04X dev_addr=%d\n", idx, vid, pid, daddr);
+    DBG("VCP mounted: VCP%d %04X:%04X dev_addr=%d\n", idx, vid, pid, daddr);
 
     tuh_descriptor_get_product_string(daddr, 0x0409,
                                       dev->product, sizeof(dev->product),
-                                      cdc_product_string_cb, (uintptr_t)idx);
+                                      vcp_product_string_cb, (uintptr_t)idx);
 }
 
 void tuh_cdc_umount_cb(uint8_t idx)
 {
-    DBG("CDC unmounted: COM%d\n", idx);
+    DBG("VCP unmounted: VCP%d\n", idx);
     if (idx < CFG_TUH_CDC)
     {
-        cdc[idx].mounted = false;
-        cdc[idx].opened = false;
+        vcp[idx].mounted = false;
+        vcp[idx].opened = false;
     }
 }
 
-int cdc_status_count(void)
+int vcp_status_count(void)
 {
     int count = 0;
     for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
-        if (cdc[idx].mounted)
+        if (vcp[idx].mounted)
             count++;
     return count;
 }
 
 // Determine driver type using the same VID/PID lists as TinyUSB.
-static const char *cdc_alt_vendor_name(uint16_t vid, uint16_t pid)
+static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
 {
+    // TODO move everything here to __in_flash()
     static const uint16_t ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
     for (size_t i = 0; i < TU_ARRAY_SIZE(ftdi_list); i++)
         if (ftdi_list[i][0] == vid && ftdi_list[i][1] == pid)
@@ -270,16 +250,16 @@ static const char *cdc_alt_vendor_name(uint16_t vid, uint16_t pid)
     for (size_t i = 0; i < TU_ARRAY_SIZE(pl2303_list); i++)
         if (pl2303_list[i][0] == vid && pl2303_list[i][1] == pid)
             return "PL2303";
-    return "ACM";
+    return "CDC ACM";
 }
 
 // Convert raw USB string descriptor (with header) to OEM for display.
-static void cdc_utf16_to_oem(const uint16_t *raw, char *dest, size_t dest_size)
+static void vcp_utf16_to_oem(const uint16_t *raw, char *dest, size_t dest_size)
 {
     const tusb_desc_string_t *desc = (const tusb_desc_string_t *)raw;
     uint16_t ulen = (desc->bLength >= 2) ? (desc->bLength - 2) / 2 : 0;
-    if (ulen > CDC_UTF16_LEN - 1)
-        ulen = CDC_UTF16_LEN - 1;
+    if (ulen > VCP_UTF16_LEN - 1)
+        ulen = VCP_UTF16_LEN - 1;
     uint16_t cp = oem_get_code_page();
     size_t pos = 0;
     for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
@@ -291,22 +271,22 @@ static void cdc_utf16_to_oem(const uint16_t *raw, char *dest, size_t dest_size)
     dest[pos] = '\0';
 }
 
-int cdc_status_response(char *buf, size_t buf_size, int state)
+int vcp_status_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0 || state >= CFG_TUH_CDC)
         return -1;
-    cdc_t *dev = &cdc[state];
+    vcp_t *dev = &vcp[state];
     if (dev->mounted)
     {
         uint16_t vid, pid;
         tuh_vid_pid_get(dev->daddr, &vid, &pid);
-        const char *driver = cdc_alt_vendor_name(vid, pid);
-        char vendor[CDC_UTF16_LEN + 1];
-        char product[CDC_UTF16_LEN + 1];
+        const char *driver = vcp_alt_vendor_name(vid, pid);
+        char vendor[VCP_UTF16_LEN + 1];
+        char product[VCP_UTF16_LEN + 1];
         char comname[8];
-        cdc_utf16_to_oem(dev->vendor, vendor, sizeof(vendor));
-        cdc_utf16_to_oem(dev->product, product, sizeof(product));
-        snprintf(comname, sizeof(comname), "COM%d", state);
+        vcp_utf16_to_oem(dev->vendor, vendor, sizeof(vendor));
+        vcp_utf16_to_oem(dev->product, product, sizeof(product));
+        snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
         snprintf(buf, buf_size, STR_STATUS_CDC,
                  comname, vendor[0] ? vendor : driver, product);
     }

@@ -47,17 +47,20 @@ static_assert(FF_STR_VOLUME_ID == 1);
 #endif
 
 // Place volume strings in flash
-static const char __in_flash("fatfs_vol") VolumeStrUSB0[] = "USB0";
-static const char __in_flash("fatfs_vol") VolumeStrUSB1[] = "USB1";
-static const char __in_flash("fatfs_vol") VolumeStrUSB2[] = "USB2";
-static const char __in_flash("fatfs_vol") VolumeStrUSB3[] = "USB3";
-static const char __in_flash("fatfs_vol") VolumeStrUSB4[] = "USB4";
-static const char __in_flash("fatfs_vol") VolumeStrUSB5[] = "USB5";
-static const char __in_flash("fatfs_vol") VolumeStrUSB6[] = "USB6";
-static const char __in_flash("fatfs_vol") VolumeStrUSB7[] = "USB7";
+static const char __in_flash("fatfs_vol") VolumeStrMSC0[] = "MSC0";
+static const char __in_flash("fatfs_vol") VolumeStrMSC1[] = "MSC1";
+static const char __in_flash("fatfs_vol") VolumeStrMSC2[] = "MSC2";
+static const char __in_flash("fatfs_vol") VolumeStrMSC3[] = "MSC3";
+static const char __in_flash("fatfs_vol") VolumeStrMSC4[] = "MSC4";
+static const char __in_flash("fatfs_vol") VolumeStrMSC5[] = "MSC5";
+static const char __in_flash("fatfs_vol") VolumeStrMSC6[] = "MSC6";
+static const char __in_flash("fatfs_vol") VolumeStrMSC7[] = "MSC7";
 const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
-    VolumeStrUSB0, VolumeStrUSB1, VolumeStrUSB2, VolumeStrUSB3,
-    VolumeStrUSB4, VolumeStrUSB5, VolumeStrUSB6, VolumeStrUSB7};
+    VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
+    VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7};
+
+// String initializer
+#define MSC_VOL0 "MSC0:"
 
 typedef enum
 {
@@ -167,7 +170,7 @@ static bool inquiry_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const 
     const uint32_t block_size = tuh_msc_get_block_size(dev_addr, cb_data->cbw->lun);
     msc_volume_size[vol] = (uint64_t)block_count * (uint64_t)block_size;
 
-    TCHAR volstr[6] = "USB0:";
+    TCHAR volstr[6] = MSC_VOL0;
     volstr[3] += vol;
     msc_mount_result[vol] = f_mount(&msc_fatfs_volumes[vol], volstr, 1);
     if (msc_mount_result[vol] == FR_OK)
@@ -212,7 +215,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_volume_dev_addr[vol] == dev_addr)
         {
             msc_volume_status[vol] = msc_volume_free;
-            TCHAR volstr[6] = "USB0:";
+            TCHAR volstr[6] = MSC_VOL0;
             volstr[3] += vol;
             f_unmount(volstr);
         }

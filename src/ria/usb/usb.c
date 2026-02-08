@@ -9,7 +9,7 @@
 #include "hid/mou.h"
 #include "hid/pad.h"
 #include "str/str.h"
-#include "usb/cdc.h"
+#include "usb/vcp.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/xin.h"
@@ -53,7 +53,7 @@ int usb_status_response(char *buf, size_t buf_size, int state)
     (void)state;
     int count_gamepad = usb_count_hid_pad + xin_pad_count();
     int count_storage = msc_status_count();
-    int count_serial = cdc_status_count();
+    int count_serial = vcp_status_count();
     snprintf(buf, buf_size, STR_STATUS_USB,
              usb_count_hid_kbd, usb_count_hid_kbd == 1 ? STR_KEYBOARD_SINGULAR : STR_KEYBOARD_PLURAL,
              usb_count_hid_mou, usb_count_hid_mou == 1 ? STR_MOUSE_SINGULAR : STR_MOUSE_PLURAL,

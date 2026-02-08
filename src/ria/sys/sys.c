@@ -15,7 +15,7 @@
 #include "sys/vga.h"
 #include "usb/usb.h"
 #include "usb/msc.h"
-#include "usb/cdc.h"
+#include "usb/vcp.h"
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
 #include <stdio.h>
@@ -83,5 +83,5 @@ void sys_mon_status(const char *args, size_t len)
     mon_add_response_fn(ble_status_response);
     mon_add_response_fn(usb_status_response);
     mon_add_response_fn(msc_status_response);
-    mon_add_response_fn(cdc_status_response);
+    mon_add_response_fn(vcp_status_response);
 }

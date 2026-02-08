@@ -132,7 +132,7 @@ X(STR_HELP_HELP,
   "SET (attr) (value)  - Change or show settings.\n"
   "LS (dir|drive)      - List contents of directory.\n"
   "CD (dir)            - Change or show current directory.\n"
-  "(USB)0:             - USB0:-USB7: Change current USB drive.\n"
+  "(MSC)0:             - MSC0:-MSC7: Change current storage device.\n"
   "LOAD file           - Load ROM file. Start if contains reset vector.\n"
   "INFO file           - Show help text, if any, contained in ROM file.\n"
   "INSTALL file        - Install ROM file on RIA.\n"

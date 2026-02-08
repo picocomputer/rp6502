@@ -37,8 +37,8 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/cdc.h"
 #include "usb/usb.h"
+#include "usb/vcp.h"
 #include "usb/xin.h"
 
 /**************************************/
@@ -101,7 +101,6 @@ void main_task(void)
     wfi_task();
     ntp_task();
     xin_task();
-    cdc_task();
     ble_task();
     led_task();
     mdm_task();
