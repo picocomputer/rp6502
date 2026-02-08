@@ -14,6 +14,7 @@
 #include <ctype.h>
 
 #define DEBUG_RIA_USB_CDC
+//TODO consider Virtual COM Port (VCP) instead of COM.
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_CDC)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
