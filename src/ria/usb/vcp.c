@@ -76,21 +76,36 @@ bool vcp_std_handles(const char *name)
     return true;
 }
 
-int vcp_std_open(const char *name, uint8_t flags)
+int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
 {
     (void)flags;
     if (strncasecmp(name, vcp_string, 3) != 0)
+    {
+        *err = API_ENOENT;
         return -1;
+    }
     if (!isdigit((unsigned char)name[3]))
+    {
+        *err = API_ENOENT;
         return -1;
+    }
     if (name[4] != ':')
+    {
+        *err = API_ENOENT;
         return -1;
+    }
     // TODO above logic is in vcp_std_handles
     uint8_t idx = name[3] - '0';
     if (idx >= CFG_TUH_CDC)
+    {
+        *err = API_ENODEV;
         return -1;
+    }
     if (!vcp[idx].mounted || vcp[idx].opened)
+    {
+        *err = vcp[idx].opened ? API_EBUSY : API_ENODEV;
         return -1;
+    }
 
     uint32_t baudrate = 115200; // default
     uint8_t data_bits = 8;      // default
@@ -103,7 +118,10 @@ int vcp_std_open(const char *name, uint8_t flags)
 
         // Parse baud rate (required if anything follows the colon)
         if (!isdigit((unsigned char)*params))
+        {
+            *err = API_EINVAL;
             return -1;
+        }
         baudrate = 0;
         while (isdigit((unsigned char)*params))
         {
@@ -118,7 +136,10 @@ int vcp_std_open(const char *name, uint8_t flags)
 
             // Data bits (required if comma present)
             if (!isdigit((unsigned char)*params))
+            {
+                *err = API_EINVAL;
                 return -1;
+            }
             data_bits = *params - '0';
             params++;
 
@@ -142,6 +163,7 @@ int vcp_std_open(const char *name, uint8_t flags)
                 parity = 4;
                 break; // space
             default:
+                *err = API_EINVAL;
                 return -1;
             }
             params++;
@@ -151,24 +173,39 @@ int vcp_std_open(const char *name, uint8_t flags)
             else if (*params == '2')
                 stop_bits = 2; // 2 stop bits
             else
+            {
+                *err = API_EINVAL;
                 return -1;
+            }
             params++;
         }
 
         // Must be end of string
         if (*params != '\0')
+        {
+            *err = API_EINVAL;
             return -1;
+        }
     }
 
     // Configure baud rate and line format before connecting
     if (!tuh_cdc_set_baudrate(idx, baudrate, NULL, 0))
+    {
+        *err = API_EIO;
         return -1;
+    }
     if (!tuh_cdc_set_data_format(idx, stop_bits, parity, data_bits, NULL, 0))
+    {
+        *err = API_EIO;
         return -1;
+    }
 
     // Connect establishes DTR and RTS for hardware flow control
     if (!tuh_cdc_connect(idx, NULL, 0))
+    {
+        *err = API_EIO;
         return -1;
+    }
     vcp[idx].opened = true;
 
     DBG("VCP open VCP%d %lu,%d%c%d\n", idx, (unsigned long)baudrate, data_bits,
@@ -176,33 +213,42 @@ int vcp_std_open(const char *name, uint8_t flags)
     return idx;
 }
 
-bool vcp_std_close(int idx)
+int vcp_std_close(int idx, api_errno *err)
 {
     if (!vcp[idx].opened)
-        return false;
+    {
+        *err = API_EBADF;
+        return -1;
+    }
     DBG("VCP close VCP%d\n", idx);
     tuh_cdc_disconnect(idx, NULL, 0);
     vcp[idx].opened = false;
-    return true;
-}
-
-int vcp_std_read(int idx, char *buf, uint32_t buf_size, uint32_t *bytes_read)
-{
-    if (!vcp[idx].mounted || !vcp[idx].opened)
-        return -1;
-    *bytes_read = tuh_cdc_read(idx, buf, buf_size);
     return 0;
 }
 
-int vcp_std_write(int idx, const char *buf, uint32_t buf_size, uint32_t *bytes_written)
+std_rw_result vcp_std_read(int idx, char *buf, uint32_t buf_size, uint32_t *bytes_read, api_errno *err)
 {
     if (!vcp[idx].mounted || !vcp[idx].opened)
-        return -1;
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    *bytes_read = tuh_cdc_read(idx, buf, buf_size);
+    return STD_OK;
+}
+
+std_rw_result vcp_std_write(int idx, const char *buf, uint32_t buf_size, uint32_t *bytes_written, api_errno *err)
+{
+    if (!vcp[idx].mounted || !vcp[idx].opened)
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
     uint32_t count = tuh_cdc_write(idx, buf, buf_size);
     if (count > 0)
         tuh_cdc_write_flush(idx);
     *bytes_written = count;
-    return 0;
+    return STD_OK;
 }
 
 static void vcp_vendor_string_cb(tuh_xfer_t *xfer)

@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "api/api.h"
+#include "api/std.h"
 
 /* Status
  */
@@ -24,11 +26,11 @@ int msc_status_response(char *buf, size_t buf_size, int state);
  */
 
 bool msc_std_handles(const char *path);
-int msc_std_open(const char *path, uint8_t flags);
-bool msc_std_close(int desc_idx);
-int msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read);
-int msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written);
-uint32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset);
-bool msc_std_sync(int desc_idx);
+int msc_std_open(const char *path, uint8_t flags, api_errno *err);
+int msc_std_close(int desc_idx, api_errno *err);
+std_rw_result msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
+std_rw_result msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
+int msc_std_lseek(int desc_idx, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
+int msc_std_sync(int desc_idx, api_errno *err);
 
 #endif /* _RIA_USB_MSC_H_ */

@@ -315,7 +315,7 @@ bool msc_std_handles(const char *path)
     return true;
 }
 
-int msc_std_open(const char *path, uint8_t flags)
+int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     const unsigned char RDWR = 0x03;
     const unsigned char CREAT = 0x10;
@@ -338,61 +338,90 @@ int msc_std_open(const char *path, uint8_t flags)
 
     FIL *fp = msc_find_free_fil();
     if (!fp)
-        return -2; // No free file descriptors
+    {
+        *err = API_EMFILE;
+        return -1;
+    }
 
     FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
-        return -1; // File not found or other error
+    {
+        *err = api_errno_from_fresult(fresult);
+        return -1;
+    }
 
     // Return the index of the FIL in the pool
     return (int)(fp - msc_std_fil_pool);
 }
 
-bool msc_std_close(int desc_idx)
+int msc_std_close(int desc_idx, api_errno *err)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
-        return false;
+    {
+        *err = API_EBADF;
+        return -1;
+    }
 
     FRESULT fresult = f_close(fp);
-    return (fresult == FR_OK);
+    if (fresult != FR_OK)
+    {
+        *err = api_errno_from_fresult(fresult);
+        return -1;
+    }
+    return 0;
 }
 
-int msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read)
+std_rw_result msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
-        return -1;
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
 
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
     if (fresult != FR_OK)
-        return -1;
+    {
+        *err = api_errno_from_fresult(fresult);
+        return STD_ERROR;
+    }
 
     *bytes_read = br;
-    return 0;
+    return STD_OK;
 }
 
-int msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written)
+std_rw_result msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
-        return -1;
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
 
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
     if (fresult != FR_OK)
-        return -1;
+    {
+        *err = api_errno_from_fresult(fresult);
+        return STD_ERROR;
+    }
 
     *bytes_written = bw;
-    return 0;
+    return STD_OK;
 }
 
-uint32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset)
+int msc_std_lseek(int desc_idx, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
+    {
+        *err = API_EBADF;
         return -1;
+    }
 
     if (whence == SEEK_SET)
         ;
@@ -401,24 +430,39 @@ uint32_t msc_std_lseek(int desc_idx, int8_t whence, int32_t offset)
     else if (whence == SEEK_END)
         offset += f_size(fp);
     else
+    {
+        *err = API_EINVAL;
         return -1;
+    }
 
     FRESULT fresult = f_lseek(fp, offset);
     if (fresult != FR_OK)
+    {
+        *err = api_errno_from_fresult(fresult);
         return -1;
+    }
 
-    FSIZE_t pos = f_tell(fp);
-    if (pos > 0x7FFFFFFF)
-        pos = 0x7FFFFFFF;
+    FSIZE_t fpos = f_tell(fp);
+    if (fpos > 0x7FFFFFFF)
+        fpos = 0x7FFFFFFF;
 
-    return pos;
+    *pos = fpos;
+    return 0;
 }
 
-bool msc_std_sync(int desc_idx)
+int msc_std_sync(int desc_idx, api_errno *err)
 {
     FIL *fp = msc_validate_fil(desc_idx);
     if (!fp)
-        return false;
+    {
+        *err = API_EBADF;
+        return -1;
+    }
     FRESULT fresult = f_sync(fp);
-    return (fresult == FR_OK);
+    if (fresult != FR_OK)
+    {
+        *err = api_errno_from_fresult(fresult);
+        return -1;
+    }
+    return 0;
 }

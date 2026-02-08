@@ -61,6 +61,9 @@ uint16_t api_platform_errno(api_errno num);
 // into a cc65 or llvm-mos errno.
 uint16_t api_fresult_errno(unsigned fresult);
 
+// Convert a FatFs FRESULT to an api_errno.
+api_errno api_errno_from_fresult(unsigned fresult);
+
 /* RIA fastcall registers
  */
 

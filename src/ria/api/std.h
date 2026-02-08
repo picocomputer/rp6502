@@ -14,6 +14,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Driver I/O result codes for read/write operations
+ */
+
+typedef enum
+{
+    STD_OK,         /* completed, success */
+    STD_ERROR,      /* failed, check errno */
+    STD_INCOMPLETE, /* incomplete, would block */
+} std_rw_result;
+
 /* Main events
  */
 

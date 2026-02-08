@@ -14,31 +14,35 @@ bool mdm_std_handles(const char *filename)
     (void)filename;
     return false;
 }
-int mdm_std_open(const char *path, uint8_t flags)
+int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     (void)path;
     (void)flags;
+    *err = API_ENODEV;
     return -1;
 }
-bool mdm_std_close(int idx)
+int mdm_std_close(int idx, api_errno *err)
 {
     (void)idx;
-    return false;
+    *err = API_EIO;
+    return -1;
 }
-int mdm_std_read(int idx, char *buf, int count, int *bytes_read)
+int mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
     (void)idx;
     (void)buf;
     (void)count;
     (void)bytes_read;
+    *err = API_EIO;
     return -1;
 }
-int mdm_std_write(int idx, const char *buf, int count, int *bytes_written)
+int mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
     (void)idx;
     (void)buf;
     (void)count;
     (void)bytes_written;
+    *err = API_EIO;
     return -1;
 }
 #else
@@ -594,16 +598,22 @@ bool mdm_std_handles(const char *filename)
     return !strncasecmp(filename, "AT:", 3);
 }
 
-int mdm_std_open(const char *path, uint8_t flags)
+int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     (void)flags;
     if (mdm_is_open)
+    {
+        *err = API_EBUSY;
         return -1;
+    }
     const char *filename = path;
     if (!strncasecmp(filename, "AT:", 3))
         filename += 3;
     else
+    {
+        *err = API_ENOENT;
         return -1;
+    }
     mdm_read_settings(&mdm_settings);
     mdm_is_open = true;
     // Optionally process filename as AT command
@@ -618,16 +628,19 @@ int mdm_std_open(const char *path, uint8_t flags)
     return 0;
 }
 
-bool mdm_std_close(int idx)
+int mdm_std_close(int idx, api_errno *err)
 {
     (void)idx;
     if (!mdm_is_open)
-        return false;
+    {
+        *err = API_EBADF;
+        return -1;
+    }
     mdm_stop();
-    return true;
+    return 0;
 }
 
-int mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read)
+std_rw_result mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
     (void)idx;
     uint32_t pos = 0;
@@ -677,14 +690,17 @@ int mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read)
         if (r == 0)
             break;
         if (r == -1)
-            return -1;
+        {
+            *err = API_EIO;
+            return STD_ERROR;
+        }
         pos++;
     }
     *bytes_read = pos;
-    return 0;
+    return STD_OK;
 }
 
-int mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written)
+std_rw_result mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
     (void)idx;
     uint32_t pos = 0;
@@ -712,13 +728,16 @@ int mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_writ
                 tx = 0;
         }
         if (tx == -1)
-            return -1;
+        {
+            *err = API_EIO;
+            return STD_ERROR;
+        }
         if (tx == 0)
             break;
         pos++;
     }
     *bytes_written = pos;
-    return 0;
+    return STD_OK;
 }
 
 #endif /* RP6502_RIA_W */

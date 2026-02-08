@@ -174,51 +174,48 @@ uint16_t __in_flash("api_platform_errno") api_platform_errno(api_errno num)
 
 uint16_t __in_flash("api_fresult_errno") api_fresult_errno(unsigned fresult)
 {
+    return api_platform_errno(api_errno_from_fresult(fresult));
+}
+
+api_errno __in_flash("api_errno_from_fresult") api_errno_from_fresult(unsigned fresult)
+{
     switch ((FRESULT)fresult)
     {
     case FR_DISK_ERR:
-        return API_MAP(EIO);
     case FR_INT_ERR:
-        return API_MAP(EIO);
-    case FR_NOT_READY:
-        return API_MAP(ENODEV);
-    case FR_NO_FILE:
-        return API_MAP(ENOENT);
-    case FR_NO_PATH:
-        return API_MAP(ENOENT);
-    case FR_INVALID_NAME:
-        return API_MAP(EINVAL);
-    case FR_DENIED:
-        return API_MAP(EACCES);
-    case FR_EXIST:
-        return API_MAP(EEXIST);
-    case FR_INVALID_OBJECT:
-        return API_MAP(EBADF);
-    case FR_WRITE_PROTECTED:
-        return API_MAP(EACCES);
-    case FR_INVALID_DRIVE:
-        return API_MAP(ENODEV);
-    case FR_NOT_ENABLED:
-        return API_MAP(ENODEV);
-    case FR_NO_FILESYSTEM:
-        return API_MAP(ENODEV);
     case FR_MKFS_ABORTED:
-        return API_MAP(EIO);
-    case FR_TIMEOUT:
-        return API_MAP(EAGAIN);
-    case FR_LOCKED:
-        return API_MAP(EBUSY);
-    case FR_NOT_ENOUGH_CORE:
-        return API_MAP(ENOMEM);
-    case FR_TOO_MANY_OPEN_FILES:
-        return API_MAP(EMFILE);
+        return API_EIO;
+    case FR_NOT_READY:
+    case FR_INVALID_DRIVE:
+    case FR_NOT_ENABLED:
+    case FR_NO_FILESYSTEM:
+        return API_ENODEV;
+    case FR_NO_FILE:
+    case FR_NO_PATH:
+        return API_ENOENT;
+    case FR_INVALID_NAME:
     case FR_INVALID_PARAMETER:
-        return API_MAP(EINVAL);
+        return API_EINVAL;
+    case FR_DENIED:
+    case FR_WRITE_PROTECTED:
+        return API_EACCES;
+    case FR_EXIST:
+        return API_EEXIST;
+    case FR_INVALID_OBJECT:
+        return API_EBADF;
+    case FR_TIMEOUT:
+        return API_EAGAIN;
+    case FR_LOCKED:
+        return API_EBUSY;
+    case FR_NOT_ENOUGH_CORE:
+        return API_ENOMEM;
+    case FR_TOO_MANY_OPEN_FILES:
+        return API_EMFILE;
     case FR_OK:
         assert(false); // internal error
         __attribute__((fallthrough));
     default:
-        return API_MAP(EUNKNOWN);
+        return API_EIO;
     }
 }
 

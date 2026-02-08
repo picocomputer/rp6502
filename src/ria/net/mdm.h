@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "api/api.h"
+#include "api/std.h"
 
 #define MDM_PHONEBOOK_ENTRIES 4
 
@@ -41,10 +43,10 @@ void mdm_init(void);
  */
 
 bool mdm_std_handles(const char *filename);
-int mdm_std_open(const char *path, uint8_t flags);
-bool mdm_std_close(int idx);
-int mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read);
-int mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written);
+int mdm_std_open(const char *path, uint8_t flags, api_errno *err);
+int mdm_std_close(int idx, api_errno *err);
+std_rw_result mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
+std_rw_result mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
 /* Modem control interface
  */
