@@ -13,15 +13,15 @@
 #include <string.h>
 #include <ctype.h>
 
-// TinyUSB wraps all serial devices as CDC, which is
-// technically incorrect for FTDI, CP210X, CH34X, and PL2303.
-// VCP (Virtual COM Port) is a better umbrella.
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+// TinyUSB wraps all serial devices as CDC, which is
+// technically incorrect for FTDI, CP210X, CH34X, and PL2303.
+// VCP (Virtual COM Port) is a better umbrella.
 
 __in_flash("vcp_string") const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
@@ -36,6 +36,34 @@ typedef struct
     uint16_t product[VCP_UTF16_LEN];
 } vcp_t;
 static vcp_t vcp[CFG_TUH_CDC];
+
+__in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
+__in_flash("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
+__in_flash("vcp_ch34x_list") static const uint16_t vcp_ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
+__in_flash("vcp_pl2303_list") static const uint16_t vcp_pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
+__in_flash("vcp_ftdi_name") static const char vcp_ftdi_name[] = "FTDI";
+__in_flash("vcp_cp210x_name") static const char vcp_cp210x_name[] = "CP210X";
+__in_flash("vcp_ch34x_name") static const char vcp_ch34x_name[] = "CH34X";
+__in_flash("vcp_pl2303_name") static const char vcp_pl2303_name[] = "PL2303";
+__in_flash("vcp_cdc_acm_name") static const char vcp_cdc_acm_name[] = "CDC ACM";
+
+// Determine fallback vendor name using the same VID/PID lists as TinyUSB.
+static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
+{
+    for (size_t i = 0; i < TU_ARRAY_SIZE(vcp_ftdi_list); i++)
+        if (vcp_ftdi_list[i][0] == vid && vcp_ftdi_list[i][1] == pid)
+            return vcp_ftdi_name;
+    for (size_t i = 0; i < TU_ARRAY_SIZE(vcp_cp210x_list); i++)
+        if (vcp_cp210x_list[i][0] == vid && vcp_cp210x_list[i][1] == pid)
+            return vcp_cp210x_name;
+    for (size_t i = 0; i < TU_ARRAY_SIZE(vcp_ch34x_list); i++)
+        if (vcp_ch34x_list[i][0] == vid && vcp_ch34x_list[i][1] == pid)
+            return vcp_ch34x_name;
+    for (size_t i = 0; i < TU_ARRAY_SIZE(vcp_pl2303_list); i++)
+        if (vcp_pl2303_list[i][0] == vid && vcp_pl2303_list[i][1] == pid)
+            return vcp_pl2303_name;
+    return vcp_cdc_acm_name;
+}
 
 bool vcp_std_handles(const char *name)
 {
@@ -228,29 +256,6 @@ int vcp_status_count(void)
         if (vcp[idx].mounted)
             count++;
     return count;
-}
-
-// Determine driver type using the same VID/PID lists as TinyUSB.
-static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
-{
-    // TODO move everything here to __in_flash()
-    static const uint16_t ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
-    for (size_t i = 0; i < TU_ARRAY_SIZE(ftdi_list); i++)
-        if (ftdi_list[i][0] == vid && ftdi_list[i][1] == pid)
-            return "FTDI";
-    static const uint16_t cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
-    for (size_t i = 0; i < TU_ARRAY_SIZE(cp210x_list); i++)
-        if (cp210x_list[i][0] == vid && cp210x_list[i][1] == pid)
-            return "CP210X";
-    static const uint16_t ch34x_list[][2] = {CFG_TUH_CDC_CH34X_VID_PID_LIST};
-    for (size_t i = 0; i < TU_ARRAY_SIZE(ch34x_list); i++)
-        if (ch34x_list[i][0] == vid && ch34x_list[i][1] == pid)
-            return "CH34X";
-    static const uint16_t pl2303_list[][2] = {CFG_TUH_CDC_PL2303_VID_PID_LIST};
-    for (size_t i = 0; i < TU_ARRAY_SIZE(pl2303_list); i++)
-        if (pl2303_list[i][0] == vid && pl2303_list[i][1] == pid)
-            return "PL2303";
-    return "CDC ACM";
 }
 
 // Convert raw USB string descriptor (with header) to OEM for display.
