@@ -8,7 +8,6 @@
 #include "tusb.h"
 #include "str/str.h"
 #include "usb/msc.h"
-#include "api/api.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"

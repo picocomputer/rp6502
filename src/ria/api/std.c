@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/api.h"
-#include "api/std.h"
 #include "str/rln.h"
 #include "sys/com.h"
 #include "sys/pix.h"

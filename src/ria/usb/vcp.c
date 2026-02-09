@@ -10,7 +10,6 @@
 #include "str/str.h"
 #include <tusb.h>
 #include <stdio.h>
-#include <string.h>
 #include <ctype.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
