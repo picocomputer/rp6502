@@ -57,9 +57,8 @@ bool api_set_errno_opt(uint8_t opt);
 // into a cc65 or llvm-mos errno.
 uint16_t api_platform_errno(api_errno num);
 
-// Used by macros to turn a FatFs FRESULT
-// into a cc65 or llvm-mos errno.
-uint16_t api_fresult_errno(unsigned fresult);
+// Convert a FatFs FRESULT to an api_errno.
+api_errno api_errno_from_fresult(unsigned fresult);
 
 /* RIA fastcall registers
  */
@@ -205,7 +204,7 @@ static inline bool api_return_errno(api_errno errno)
 // Failure returns -1 and sets errno from FatFS FRESULT
 static inline bool api_return_fresult(unsigned fresult)
 {
-    uint16_t platform_errno = api_fresult_errno(fresult);
+    uint16_t platform_errno = api_platform_errno(api_errno_from_fresult(fresult));
     if (platform_errno)
         API_ERRNO = platform_errno;
     xstack_ptr = XSTACK_SIZE;

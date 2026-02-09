@@ -6,6 +6,7 @@
 
 #ifndef RP6502_RIA_W
 #include "net/cyw.h"
+void cyw_init(void) {}
 void cyw_task() {}
 #else
 
@@ -21,7 +22,7 @@ void cyw_task() {}
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif

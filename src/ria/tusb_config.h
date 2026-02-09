@@ -34,12 +34,18 @@
 // 8 for four keyboards and mice reporting as both
 // 4 for gamepads, and 4 for weird device extras
 #define CFG_TUH_HID (16)
-// Enabled, usb/msc driver defines quantity of 8
+// Enabled, usb/msc driver defines quantity
 #define CFG_TUH_MSC (1)
+// CDC host (serial adapters)
+#define CFG_TUH_CDC (8)
+#define CFG_TUH_CDC_FTDI (1)
+#define CFG_TUH_CDC_CP210X (1)
+#define CFG_TUH_CDC_CH34X (1)
+#define CFG_TUH_CDC_PL2303 (1)
 // No vendor driver
 #define CFG_TUH_VENDOR (0)
 
-// 8 drives and 8 input devices
-#define CFG_TUH_DEVICE_MAX (16)
+// 8 drives, 8 input devices, and 8 CDC
+#define CFG_TUH_DEVICE_MAX (24)
 
 #endif

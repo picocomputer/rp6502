@@ -15,7 +15,7 @@
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_OEM)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
@@ -66,7 +66,6 @@ void oem_stop(void)
         oem_request_code_page(oem_code_page_setting);
 }
 
-// Used by atr_api_code_page - sets code page without saving to config
 void oem_set_code_page_ephemeral(uint16_t cp)
 {
     oem_request_code_page(cp);

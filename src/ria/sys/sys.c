@@ -15,6 +15,7 @@
 #include "sys/vga.h"
 #include "usb/usb.h"
 #include "usb/msc.h"
+#include "usb/vcp.h"
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
 #include <stdio.h>
@@ -22,7 +23,7 @@
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_SYS)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
@@ -82,4 +83,5 @@ void sys_mon_status(const char *args, size_t len)
     mon_add_response_fn(ble_status_response);
     mon_add_response_fn(usb_status_response);
     mon_add_response_fn(msc_status_response);
+    mon_add_response_fn(vcp_status_response);
 }

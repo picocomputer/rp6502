@@ -19,7 +19,7 @@
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
@@ -123,6 +123,13 @@ static const char *__in_flash("clk_tzinfo_tz")
 
 static uint64_t clk_clock_start;
 static int clk_tzinfo_index;
+
+// Eliminates 26KB of Unicode/JIS tables brought in by tzset().
+// Enabled with -Wl,--wrap=iswspace.
+int __wrap_iswspace(wint_t c)
+{
+    return c == ' ' || (c >= '\t' && c <= '\r');
+}
 
 int clk_tzdata_response(char *buf, size_t buf_size, int state)
 {

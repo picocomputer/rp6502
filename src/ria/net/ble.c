@@ -26,7 +26,7 @@ void ble_set_hid_leds(uint8_t) {}
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
