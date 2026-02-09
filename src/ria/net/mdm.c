@@ -9,41 +9,25 @@
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void mdm_init(void) {}
-bool mdm_std_handles(const char *filename)
+bool mdm_std_handles(const char *)
 {
-    (void)filename;
     return false;
 }
-int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
+int mdm_std_open(const char *, uint8_t, api_errno *)
 {
-    (void)path;
-    (void)flags;
-    *err = API_ENODEV;
     return -1;
 }
-int mdm_std_close(int idx, api_errno *err)
+int mdm_std_close(int, api_errno *)
 {
-    (void)idx;
-    *err = API_EIO;
     return -1;
 }
-int mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+std_rw_result mdm_std_read(int, char *, uint32_t, uint32_t *, api_errno *)
 {
-    (void)idx;
-    (void)buf;
-    (void)count;
-    (void)bytes_read;
-    *err = API_EIO;
-    return -1;
+    return STD_ERROR;
 }
-int mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *)
 {
-    (void)idx;
-    (void)buf;
-    (void)count;
-    (void)bytes_written;
-    *err = API_EIO;
-    return -1;
+    return STD_ERROR;
 }
 #else
 
@@ -108,27 +92,6 @@ static const char *const __in_flash("MDM_RESPONSES") MDM_RESPONSES[] = {
     STR_MDM_RESPONSE_0, STR_MDM_RESPONSE_1, STR_MDM_RESPONSE_2,
     STR_MDM_RESPONSE_3, STR_MDM_RESPONSE_4, STR_MDM_RESPONSE_5,
     STR_MDM_RESPONSE_6, STR_MDM_RESPONSE_7, STR_MDM_RESPONSE_8};
-
-void mdm_stop(void)
-{
-    tel_close();
-    mdm_is_open = false;
-    mdm_cmd_buf_len = 0;
-    mdm_tx_buf_len = 0;
-    mdm_response_buf_head = 0;
-    mdm_response_buf_tail = 0;
-    mdm_response_state = -1;
-    mdm_parse_result = true;
-    mdm_state = mdm_state_on_hook;
-    mdm_in_command_mode = true;
-    mdm_is_parsing = false;
-    mdm_escape_count = 0;
-}
-
-void mdm_init(void)
-{
-    mdm_stop();
-}
 
 static inline bool mdm_response_buf_empty(void)
 {
@@ -492,43 +455,6 @@ bool mdm_read_settings(mdm_settings_t *settings)
     return true;
 }
 
-void mdm_task()
-{
-    if (!mdm_in_command_mode && mdm_tx_buf_len)
-    {
-        if (tel_tx(mdm_tx_buf, mdm_tx_buf_len))
-            mdm_tx_buf_len = 0;
-    }
-    if (mdm_is_parsing)
-    {
-        if (mdm_response_state >= 0)
-            return;
-        if (!mdm_parse_result)
-        {
-            mdm_is_parsing = false;
-            mdm_set_response_fn(mdm_response_code, 4); // ERROR
-        }
-        else if (*mdm_parse_str == 0)
-        {
-            mdm_is_parsing = false;
-            if (mdm_in_command_mode)
-                mdm_set_response_fn(mdm_response_code, 0); // OK
-        }
-        else
-        {
-            mdm_parse_result = cmd_parse(&mdm_parse_str);
-        }
-    }
-    if (mdm_escape_count == MDM_ESCAPE_COUNT &&
-        absolute_time_diff_us(get_absolute_time(), mdm_escape_guard) < 0)
-    {
-        mdm_in_command_mode = true;
-        mdm_cmd_buf_len = 0;
-        mdm_escape_count = 0;
-        mdm_set_response_fn(mdm_response_code, 0); // OK
-    }
-}
-
 bool mdm_dial(const char *s)
 {
     if (mdm_state != mdm_state_on_hook)
@@ -593,6 +519,64 @@ void mdm_carrier_lost(void)
         mdm_hangup();
 }
 
+void mdm_init(void)
+{
+    mdm_stop();
+}
+
+void mdm_task()
+{
+    if (!mdm_in_command_mode && mdm_tx_buf_len)
+    {
+        if (tel_tx(mdm_tx_buf, mdm_tx_buf_len))
+            mdm_tx_buf_len = 0;
+    }
+    if (mdm_is_parsing)
+    {
+        if (mdm_response_state >= 0)
+            return;
+        if (!mdm_parse_result)
+        {
+            mdm_is_parsing = false;
+            mdm_set_response_fn(mdm_response_code, 4); // ERROR
+        }
+        else if (*mdm_parse_str == 0)
+        {
+            mdm_is_parsing = false;
+            if (mdm_in_command_mode)
+                mdm_set_response_fn(mdm_response_code, 0); // OK
+        }
+        else
+        {
+            mdm_parse_result = cmd_parse(&mdm_parse_str);
+        }
+    }
+    if (mdm_escape_count == MDM_ESCAPE_COUNT &&
+        absolute_time_diff_us(get_absolute_time(), mdm_escape_guard) < 0)
+    {
+        mdm_in_command_mode = true;
+        mdm_cmd_buf_len = 0;
+        mdm_escape_count = 0;
+        mdm_set_response_fn(mdm_response_code, 0); // OK
+    }
+}
+
+void mdm_stop(void)
+{
+    tel_close();
+    mdm_is_open = false;
+    mdm_cmd_buf_len = 0;
+    mdm_tx_buf_len = 0;
+    mdm_response_buf_head = 0;
+    mdm_response_buf_tail = 0;
+    mdm_response_state = -1;
+    mdm_parse_result = true;
+    mdm_state = mdm_state_on_hook;
+    mdm_in_command_mode = true;
+    mdm_is_parsing = false;
+    mdm_escape_count = 0;
+}
+
 bool mdm_std_handles(const char *filename)
 {
     return !strncasecmp(filename, "AT:", 3);
@@ -622,15 +606,15 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
     {
         mdm_is_parsing = true;
         mdm_parse_result = true;
-        strncpy(mdm_cmd_buf, filename, sizeof(mdm_cmd_buf));
+        snprintf(mdm_cmd_buf, sizeof(mdm_cmd_buf), "%s", filename);
         mdm_parse_str = mdm_cmd_buf;
     }
     return 0;
 }
 
-int mdm_std_close(int idx, api_errno *err)
+int mdm_std_close(int desc, api_errno *err)
 {
-    (void)idx;
+    (void)desc;
     if (!mdm_is_open)
     {
         *err = API_EBADF;
@@ -640,99 +624,96 @@ int mdm_std_close(int idx, api_errno *err)
     return 0;
 }
 
-std_rw_result mdm_std_read(int idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    (void)idx;
+    (void)desc;
+    if (!mdm_is_open)
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
     uint32_t pos = 0;
     while (pos < count)
     {
-        int r;
-        char *ch = &buf[pos];
-        if (!mdm_is_open)
-            r = -1;
-        else
+        // Get next line, if needed and in progress
+        if (mdm_response_buf_empty() && mdm_response_state >= 0)
         {
-            // Get next line, if needed and in progress
-            if (mdm_response_buf_empty() && mdm_response_state >= 0)
+            mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
+            mdm_response_buf_head = strlen(response_buf);
+            mdm_response_buf_tail = 0;
+            // Translate CR and LF chars to settings
+            for (size_t i = 0; i < mdm_response_buf_head; i++)
             {
-                mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
-                mdm_response_buf_head = strlen(response_buf);
-                mdm_response_buf_tail = 0;
-                // Translate CR and LF chars to settings
-                for (size_t i = 0; i < mdm_response_buf_head; i++)
+                uint8_t swap_ch = 0;
+                if (response_buf[i] == '\r')
+                    swap_ch = response_buf[i] = mdm_settings.cr_char;
+                if (response_buf[i] == '\n')
+                    swap_ch = response_buf[i] = mdm_settings.lf_char;
+                if (swap_ch & 0x80)
                 {
-                    uint8_t swap_ch = 0;
-                    if (response_buf[i] == '\r')
-                        swap_ch = response_buf[i] = mdm_settings.cr_char;
-                    if (response_buf[i] == '\n')
-                        swap_ch = response_buf[i] = mdm_settings.lf_char;
-                    if (swap_ch & 0x80)
-                    {
-                        for (size_t j = i; j < mdm_response_buf_head; j++)
-                            response_buf[j] = response_buf[j + 1];
-                        mdm_response_buf_head--;
-                    }
+                    for (size_t j = i; j < mdm_response_buf_head; j++)
+                        response_buf[j] = response_buf[j + 1];
+                    mdm_response_buf_head--;
                 }
             }
-            // Get from line buffer, if available
-            if (!mdm_response_buf_empty())
-            {
-                *ch = response_buf[mdm_response_buf_tail];
-                mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
-                r = 1;
-            }
-            // Get from telephone emulator
-            else if (!mdm_in_command_mode)
-                r = tel_rx(ch);
-            else
-                r = 0;
         }
-        if (r == 0)
-            break;
-        if (r == -1)
+        char *ch = &buf[pos];
+        // Get from line buffer, if available
+        if (!mdm_response_buf_empty())
         {
-            *err = API_EIO;
-            return STD_ERROR;
+            *ch = response_buf[mdm_response_buf_tail];
+            mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
+            pos++;
         }
-        pos++;
+        // Get from telephone emulator
+        else if (!mdm_in_command_mode)
+        {
+            int result = tel_rx(ch);
+            if (result == -1)
+            {
+                *err = API_EIO;
+                return STD_ERROR;
+            }
+            if (result == 0)
+                break;
+            pos++;
+        }
+        else
+            break;
     }
     *bytes_read = pos;
     return STD_OK;
 }
 
-std_rw_result mdm_std_write(int idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
-    (void)idx;
+    (void)desc;
+    if (!mdm_is_open)
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
     uint32_t pos = 0;
     while (pos < count)
     {
-        int tx;
         char ch = buf[pos];
-        if (!mdm_is_open)
-            tx = -1;
-        else
+        mdm_tx_escape_observer(ch);
+        if (mdm_in_command_mode)
         {
-            mdm_tx_escape_observer(ch);
-            if (mdm_in_command_mode)
+            if (!mdm_is_parsing)
             {
-                if (!mdm_is_parsing)
-                    tx = mdm_tx_command_mode(ch);
-                else
-                    tx = 0;
+                if (!mdm_tx_command_mode(ch))
+                    break;
             }
-            else if (mdm_state == mdm_state_connected)
-                tx = mdm_tx_connected(ch);
-            else if (mdm_state == mdm_state_dialing)
-                tx = 1;
             else
-                tx = 0;
+                break;
         }
-        if (tx == -1)
+        else if (mdm_state == mdm_state_connected)
         {
-            *err = API_EIO;
-            return STD_ERROR;
+            if (!mdm_tx_connected(ch))
+                break;
         }
-        if (tx == 0)
+        else if (mdm_state != mdm_state_dialing)
             break;
         pos++;
     }

@@ -14,16 +14,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Driver I/O result codes for read/write operations
- */
-
-typedef enum
-{
-    STD_OK,         /* completed, success */
-    STD_ERROR,      /* failed, check errno */
-    STD_INCOMPLETE, /* incomplete, would block */
-} std_rw_result;
-
 /* Main events
  */
 
@@ -39,8 +29,18 @@ bool std_api_read_xstack(void);
 bool std_api_read_xram(void);
 bool std_api_write_xstack(void);
 bool std_api_write_xram(void);
+bool std_api_syncfs(void);
 bool std_api_lseek_cc65(void);
 bool std_api_lseek_llvm(void);
-bool std_api_syncfs(void);
+
+/* Driver I/O result codes for read/write operations
+ */
+
+typedef enum
+{
+    STD_OK,      /* completed, success */
+    STD_ERROR,   /* failed, check errno */
+    STD_PENDING, /* incomplete, would block */
+} std_rw_result;
 
 #endif /* _RIA_API_STD_H_ */
