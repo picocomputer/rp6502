@@ -34,7 +34,7 @@
 // 8 for four keyboards and mice reporting as both
 // 4 for gamepads, and 4 for weird device extras
 #define CFG_TUH_HID (16)
-// Enabled, usb/msc driver defines quantity of 8
+// Enabled, usb/msc driver defines quantity
 #define CFG_TUH_MSC (1)
 // CDC host (serial adapters)
 #define CFG_TUH_CDC (8)
@@ -42,8 +42,6 @@
 #define CFG_TUH_CDC_CP210X (1)
 #define CFG_TUH_CDC_CH34X (1)
 #define CFG_TUH_CDC_PL2303 (1)
-#define CFG_TUH_CDC_LINE_CODING_ON_ENUM { 115200, CDC_LINE_CODING_STOP_BITS_1, CDC_LINE_CODING_PARITY_NONE, 8 }
-#define CFG_TUH_CDC_LINE_CONTROL_ON_ENUM (CDC_CONTROL_LINE_STATE_DTR | CDC_CONTROL_LINE_STATE_RTS)
 // No vendor driver
 #define CFG_TUH_VENDOR (0)
 
