@@ -172,11 +172,6 @@ uint16_t __in_flash("api_platform_errno") api_platform_errno(api_errno num)
     }
 }
 
-uint16_t __in_flash("api_fresult_errno") api_fresult_errno(unsigned fresult)
-{
-    return api_platform_errno(api_errno_from_fresult(fresult));
-}
-
 api_errno __in_flash("api_errno_from_fresult") api_errno_from_fresult(unsigned fresult)
 {
     switch ((FRESULT)fresult)
@@ -211,10 +206,8 @@ api_errno __in_flash("api_errno_from_fresult") api_errno_from_fresult(unsigned f
         return API_ENOMEM;
     case FR_TOO_MANY_OPEN_FILES:
         return API_EMFILE;
-    case FR_OK:
-        assert(false); // internal error
-        __attribute__((fallthrough));
     default:
+        assert(false); // internal error
         return API_EIO;
     }
 }
