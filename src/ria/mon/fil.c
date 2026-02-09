@@ -248,6 +248,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fatfs_fil);
+        fil_fatfs_fil.obj.fs = NULL;
         mon_add_response_fatfs(result);
         return;
     }
@@ -302,6 +303,7 @@ void fil_task(void)
     if (fil_state == FIL_IDLE && fil_fatfs_fil.obj.fs)
     {
         FRESULT result = f_close(&fil_fatfs_fil);
+        fil_fatfs_fil.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
 }

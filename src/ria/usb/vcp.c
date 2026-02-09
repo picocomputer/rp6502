@@ -38,7 +38,7 @@ typedef struct
     uint8_t product_desc_string[VCP_DESC_STRING_BUF_SIZE];
 } vcp_t;
 static vcp_t vcp_mounts[CFG_TUH_CDC];
-static_assert(CFG_TUH_CDC < 11); // one char 0-9 in "VCP0:"
+static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
 __in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
 __in_flash("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};

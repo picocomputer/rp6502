@@ -300,19 +300,20 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     {
         if (!mon_response_fn_list[i])
         {
+            if (i > 0 && fn == mon_response_fn_list[i - 1] && str == mon_response_str[i - 1])
+                return;
             mon_response_fn_list[i] = fn;
             mon_response_str[i] = str;
             mon_response_state[i] = state;
             return;
         }
     }
-    if (i == MON_RESPONSE_FN_COUNT)
-    {
-        i--;
-        mon_response_fn_list[i] = mon_str_response;
-        mon_response_str[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
-        mon_response_state[i] = 0;
-    }
+    i--;
+    if (mon_response_str[i] == STR_ERR_MONITOR_RESPONSE_OVERFLOW)
+        return;
+    mon_response_fn_list[i] = mon_str_response;
+    mon_response_str[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
+    mon_response_state[i] = 0;
 }
 
 static void mon_next_response(void)

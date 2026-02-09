@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <math.h>
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -25,7 +27,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MSC_STD_FIL_MAX 8
 static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
-// Validate essential settings in ffconf.h
+// Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
 static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
 static_assert(FF_FS_EXFAT == RP6502_EXFAT);
@@ -61,6 +63,7 @@ const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
 
 // String initializer
 #define MSC_VOL0 "MSC0:"
+static_assert(FF_VOLUMES <= 10); // one char 0-9 in "MSC0:"
 
 typedef enum
 {
@@ -79,22 +82,15 @@ static uint64_t msc_volume_size[FF_VOLUMES];
 static FRESULT msc_mount_result[FF_VOLUMES];
 
 static bool msc_tuh_dev_busy[CFG_TUH_DEVICE_MAX];
+static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
 
-static FIL *msc_find_free_fil(void)
+static FIL *msc_validate_fil(int desc)
 {
-    for (int i = 0; i < MSC_STD_FIL_MAX; i++)
-        if (!msc_std_fil_pool[i].obj.fs)
-            return &msc_std_fil_pool[i];
-    return NULL;
-}
-
-static FIL *msc_validate_fil(int desc_idx)
-{
-    if (desc_idx < 0 || desc_idx >= MSC_STD_FIL_MAX)
+    if (desc < 0 || desc >= MSC_STD_FIL_MAX)
         return NULL;
-    if (!msc_std_fil_pool[desc_idx].obj.fs)
+    if (!msc_std_fil_pool[desc].obj.fs)
         return NULL;
-    return &msc_std_fil_pool[desc_idx];
+    return &msc_std_fil_pool[desc];
 }
 
 // Some vendors pad their strings with spaces, others with zeros.
@@ -201,7 +197,11 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
         {
             msc_volume_status[vol] = msc_volume_inquiring;
             msc_volume_dev_addr[vol] = dev_addr;
-            tuh_msc_inquiry(dev_addr, lun, &msc_inquiry_resp[vol], inquiry_complete_cb, 0);
+            if (!tuh_msc_inquiry(dev_addr, lun, &msc_inquiry_resp[vol], inquiry_complete_cb, 0))
+            {
+                DBG("MSC inquiry failed for dev_addr %d\n", dev_addr);
+                msc_volume_status[vol] = msc_volume_inquiry_failed;
+            }
             break;
         }
     }
@@ -209,15 +209,25 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
 
 void tuh_msc_umount_cb(uint8_t dev_addr)
 {
+    // Unblock any pending wait_for_disk_io. TinyUSB's msch_close()
+    // never fires the user complete_cb on disconnect, so this is
+    // the only chance to clear the busy flag.
+    msc_tuh_dev_busy[dev_addr - 1] = false;
+
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_status[vol] == msc_volume_mounted &&
-            msc_volume_dev_addr[vol] == dev_addr)
+        if (msc_volume_dev_addr[vol] == dev_addr &&
+            msc_volume_status[vol] != msc_volume_free)
         {
+            if (msc_volume_status[vol] == msc_volume_mounted)
+            {
+                TCHAR volstr[6] = MSC_VOL0;
+                volstr[3] += vol;
+                f_unmount(volstr);
+            }
             msc_volume_status[vol] = msc_volume_free;
-            TCHAR volstr[6] = MSC_VOL0;
-            volstr[3] += vol;
-            f_unmount(volstr);
+            msc_volume_dev_addr[vol] = 0;
+            DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
 }
@@ -230,7 +240,7 @@ static void wait_for_disk_io(uint8_t dev_addr)
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
-    (void)cb_data;
+    msc_tuh_dev_csw_status[dev_addr - 1] = cb_data->csw->status;
     msc_tuh_dev_busy[dev_addr - 1] = false;
     return true;
 }
@@ -256,7 +266,7 @@ DWORD get_fattime(void)
 
 DSTATUS disk_status(BYTE pdrv)
 {
-    uint8_t dev_addr = pdrv;
+    uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     return tuh_msc_mounted(dev_addr) ? 0 : STA_NODISK;
 }
 
@@ -270,20 +280,30 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     uint8_t const lun = 0;
+    msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
     msc_tuh_dev_busy[dev_addr - 1] = true;
-    tuh_msc_read10(dev_addr, lun, buff, sector, (uint16_t)count, disk_io_complete, 0);
+    if (!tuh_msc_read10(dev_addr, lun, buff, sector, (uint16_t)count, disk_io_complete, 0))
+    {
+        msc_tuh_dev_busy[dev_addr - 1] = false;
+        return RES_ERROR;
+    }
     wait_for_disk_io(dev_addr);
-    return RES_OK;
+    return (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED) ? RES_OK : RES_ERROR;
 }
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     uint8_t const lun = 0;
+    msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
     msc_tuh_dev_busy[dev_addr - 1] = true;
-    tuh_msc_write10(dev_addr, lun, buff, sector, (uint16_t)count, disk_io_complete, 0);
+    if (!tuh_msc_write10(dev_addr, lun, buff, sector, (uint16_t)count, disk_io_complete, 0))
+    {
+        msc_tuh_dev_busy[dev_addr - 1] = false;
+        return RES_ERROR;
+    }
     wait_for_disk_io(dev_addr);
-    return RES_OK;
+    return (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED) ? RES_OK : RES_ERROR;
 }
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
@@ -295,7 +315,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     case CTRL_SYNC:
         return RES_OK;
     case GET_SECTOR_COUNT:
-        *((DWORD *)buff) = (WORD)tuh_msc_get_block_count(dev_addr, lun);
+        *((DWORD *)buff) = tuh_msc_get_block_count(dev_addr, lun);
         return RES_OK;
     case GET_SECTOR_SIZE:
         *((WORD *)buff) = (WORD)tuh_msc_get_block_size(dev_addr, lun);
@@ -336,7 +356,15 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
             mode |= FA_OPEN_ALWAYS;
     }
 
-    FIL *fp = msc_find_free_fil();
+    FIL *fp = NULL;
+    for (int i = 0; i < MSC_STD_FIL_MAX; i++)
+    {
+        if (!msc_std_fil_pool[i].obj.fs)
+        {
+            fp = &msc_std_fil_pool[i];
+            break;
+        }
+    }
     if (!fp)
     {
         *err = API_EMFILE;
@@ -354,16 +382,16 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return (int)(fp - msc_std_fil_pool);
 }
 
-int msc_std_close(int desc_idx, api_errno *err)
+int msc_std_close(int desc, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc_idx);
+    FIL *fp = msc_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
         return -1;
     }
-
     FRESULT fresult = f_close(fp);
+    fp->obj.fs = NULL;
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fresult(fresult);
@@ -372,87 +400,103 @@ int msc_std_close(int desc_idx, api_errno *err)
     return 0;
 }
 
-std_rw_result msc_std_read(int desc_idx, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc_idx);
+    FIL *fp = msc_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-
     UINT br;
     FRESULT fresult = f_read(fp, buf, count, &br);
+    *bytes_read = br;
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fresult(fresult);
         return STD_ERROR;
     }
-
-    *bytes_read = br;
     return STD_OK;
 }
 
-std_rw_result msc_std_write(int desc_idx, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc_idx);
+    FIL *fp = msc_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-
     UINT bw;
     FRESULT fresult = f_write(fp, buf, count, &bw);
+    *bytes_written = bw;
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fresult(fresult);
         return STD_ERROR;
     }
-
-    *bytes_written = bw;
     return STD_OK;
 }
 
-int msc_std_lseek(int desc_idx, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
+int msc_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc_idx);
+    FIL *fp = msc_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
         return -1;
     }
-
+    FSIZE_t absolute_offset;
     if (whence == SEEK_SET)
-        ;
+    {
+        if (offset < 0)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        absolute_offset = offset;
+    }
     else if (whence == SEEK_CUR)
-        offset += f_tell(fp);
+    {
+        FSIZE_t current_pos = f_tell(fp);
+        if (offset < 0 && (FSIZE_t)(-offset) > current_pos)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        absolute_offset = current_pos + offset;
+    }
     else if (whence == SEEK_END)
-        offset += f_size(fp);
+    {
+        FSIZE_t file_size = f_size(fp);
+        if (offset < 0 && (FSIZE_t)(-offset) > file_size)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        absolute_offset = file_size + offset;
+    }
     else
     {
         *err = API_EINVAL;
         return -1;
     }
-
-    FRESULT fresult = f_lseek(fp, offset);
+    FRESULT fresult = f_lseek(fp, absolute_offset);
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fresult(fresult);
         return -1;
     }
-
     FSIZE_t fpos = f_tell(fp);
     if (fpos > 0x7FFFFFFF)
         fpos = 0x7FFFFFFF;
-
     *pos = fpos;
     return 0;
 }
 
-int msc_std_sync(int desc_idx, api_errno *err)
+int msc_std_sync(int desc, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc_idx);
+    FIL *fp = msc_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
