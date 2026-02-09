@@ -38,7 +38,6 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
-#include "usb/vcp.h"
 #include "usb/xin.h"
 
 /**************************************/
