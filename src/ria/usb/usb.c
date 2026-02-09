@@ -17,7 +17,7 @@
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif

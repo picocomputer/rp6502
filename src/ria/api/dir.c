@@ -11,7 +11,7 @@
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_DIR)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif

@@ -41,7 +41,7 @@ std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
 #include <stdio.h>
-#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
