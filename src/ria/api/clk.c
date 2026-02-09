@@ -124,7 +124,8 @@ static const char *__in_flash("clk_tzinfo_tz")
 static uint64_t clk_clock_start;
 static int clk_tzinfo_index;
 
-// Used with -Wl,--wrap=iswspace. Eliminates 26KB of Unicode/JIS tables.
+// Eliminates 26KB of Unicode/JIS tables brought in by tzset().
+// Enabled with -Wl,--wrap=iswspace.
 int __wrap_iswspace(wint_t c)
 {
     return c == ' ' || (c >= '\t' && c <= '\r');
