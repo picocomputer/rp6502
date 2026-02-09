@@ -25,11 +25,6 @@ set(IPO_PRINTF_LINK_OPTIONS
     -Wl,-u,__wrap_sprintf
     -Wl,-u,__wrap_snprintf
     -Wl,-u,__wrap_vsnprintf
-    -Wl,-u,__wrap_ceil
-    -Wl,-u,_fstat
-    -Wl,-u,_isatty
-    -Wl,-u,__assert_func
-    -Wl,--wrap=iswspace
 )
 
 
@@ -51,7 +46,10 @@ set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
-target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
+target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
+    -Wl,--wrap=iswspace # Avoid 26KB of unicode and jis we don't need
+    -Wl,--wrap=f_close # Wrapper forces obj.fs clearing even on error
+)
 
 target_compile_options(${RIA_TARGET} PRIVATE
     -Wall -Wextra
