@@ -47,12 +47,13 @@ static btstack_packet_callback_registration_t sm_event_callback_registration;
 // need the descriptor once, this could be hacked smaller.
 static uint8_t hid_descriptor_storage[3 * 1024];
 
-// We pause scanning during the entire connect sequence
-// because BTStack only has state to manage one at a time.
-// We peek at the in progress connection to monitor failure.
+// Only one connection sequence at a time. ble_connecting_handle tracks
+// the LE handle from connection complete through HIDS service setup.
+// ble_scan_restarts_at schedules the next scan/whitelist attempt and
+// doubles as a timeout for the in-progress connection.
 #define BLE_CONNECT_TIMEOUT_MS (20 * 1000)
 static absolute_time_t ble_scan_restarts_at;
-static hci_con_handle_t ble_hci_con_handle_in_progress;
+static hci_con_handle_t ble_connecting_handle;
 
 static void ble_connect_with_whitelist(void)
 {
@@ -79,9 +80,24 @@ static void ble_connect_with_whitelist(void)
 
 static inline void ble_restart_reconnection(void)
 {
-    ble_hci_con_handle_in_progress = HCI_CON_HANDLE_INVALID;
-    // Always restart connection attempts for bonded devices
+    ble_connecting_handle = HCI_CON_HANDLE_INVALID;
     ble_scan_restarts_at = get_absolute_time();
+}
+
+static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
+
+// Start HIDS GATT discovery after encryption is established.
+// On failure, abandon this connection and try the next device.
+static void ble_start_hids_client(hci_con_handle_t con_handle)
+{
+    uint8_t status = hids_client_connect(con_handle, ble_hids_client_handler,
+                                         HID_PROTOCOL_MODE_REPORT, NULL);
+    if (status != ERROR_CODE_SUCCESS)
+    {
+        DBG("BLE: HIDS connect failed: 0x%02x\n", status);
+        gap_disconnect(con_handle);
+        ble_restart_reconnection();
+    }
 }
 
 void ble_set_hid_leds(uint8_t leds)
@@ -195,9 +211,6 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         uint8_t connect_status = gap_connect(event_addr, addr_type);
         if (connect_status == ERROR_CODE_SUCCESS)
         {
-            hci_connection_t *conn = hci_connection_for_bd_addr_and_type(event_addr, addr_type);
-            if (conn)
-                ble_hci_con_handle_in_progress = conn->con_handle;
             DBG("BLE: Found HID %s, connecting...\n", bd_addr_to_str(event_addr));
             gap_stop_scan();
             ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
@@ -216,6 +229,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         switch (subevent_code)
         {
         case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
+        {
             uint8_t status = hci_subevent_le_connection_complete_get_status(packet);
             if (status != ERROR_CODE_SUCCESS)
             {
@@ -223,15 +237,16 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
                 ble_restart_reconnection();
                 break;
             }
-            hci_con_handle_t hci_con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
-            uint8_t hids_status = hids_client_connect(hci_con_handle, ble_hids_client_handler,
-                                                      HID_PROTOCOL_MODE_REPORT,
-                                                      NULL);
-            if (hids_status != ERROR_CODE_SUCCESS)
-            {
-                DBG("BLE: HIDS client connection failed: 0x%02x\n", hids_status);
-                ble_restart_reconnection();
-            }
+            // Defer HIDS GATT discovery until after encryption.
+            // sm_request_pairing triggers pairing for new devices
+            // or re-encryption for bonded devices (proactive auth).
+            hci_con_handle_t con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+            ble_connecting_handle = con_handle;
+            ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
+            sm_request_pairing(con_handle);
+            DBG("BLE: LE Connected 0x%04x, requesting encryption\n", con_handle);
+            break;
+        }
         }
         break;
     }
@@ -240,8 +255,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     {
         hci_con_handle_t con_handle = hci_event_disconnection_complete_get_connection_handle(packet);
         DBG("BLE: Disconnection Complete - Handle: 0x%04x\n", con_handle);
-        // New connection disconnected before success or timeout
-        if (ble_hci_con_handle_in_progress == con_handle)
+        if (ble_connecting_handle == con_handle)
             ble_restart_reconnection();
         break;
     }
@@ -288,36 +302,50 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         break;
 
     case SM_EVENT_PAIRING_COMPLETE:
+    {
+        hci_con_handle_t handle = sm_event_pairing_complete_get_handle(packet);
         if (sm_event_pairing_complete_get_status(packet) == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Pairing complete - switching to whitelist connection\n");
+            DBG("BLE: Pairing complete\n");
             ble_pairing = false;
             led_blink(false);
-            // Restart connection process to include newly bonded device
-            ble_scan_restarts_at = get_absolute_time();
+            if (handle == ble_connecting_handle)
+                ble_start_hids_client(handle);
         }
         else
         {
-            DBG("BLE: Pairing failed - reason: 0x%02x\n",
+            DBG("BLE: Pairing failed: 0x%02x\n",
                 sm_event_pairing_complete_get_reason(packet));
+            if (handle == ble_connecting_handle)
+                ble_restart_reconnection();
+            gap_disconnect(handle);
         }
         break;
+    }
 
     case SM_EVENT_REENCRYPTION_COMPLETE:
     {
         hci_con_handle_t handle = sm_event_reencryption_complete_get_handle(packet);
         uint8_t status = sm_event_reencryption_complete_get_status(packet);
-        if (status != ERROR_CODE_SUCCESS)
+        if (status == ERROR_CODE_SUCCESS)
         {
-            DBG("BLE: Re-encryption failed with status 0x%02x\n", status);
+            DBG("BLE: Re-encryption complete\n");
+            if (handle == ble_connecting_handle)
+                ble_start_hids_client(handle);
+        }
+        else
+        {
+            DBG("BLE: Re-encryption failed: 0x%02x\n", status);
             if (status == ERROR_CODE_PIN_OR_KEY_MISSING)
             {
-                DBG("BLE: 0x06 PIN_OR_KEY_MISSING - deleting bond\n");
+                DBG("BLE: Deleting bond\n");
                 bd_addr_t addr;
                 uint8_t addr_type = sm_event_reencryption_complete_get_addr_type(packet);
                 sm_event_reencryption_complete_get_address(packet, addr);
                 gap_delete_bonding(addr_type, addr);
             }
+            if (handle == ble_connecting_handle)
+                ble_restart_reconnection();
             gap_disconnect(handle);
         }
         break;
@@ -329,7 +357,7 @@ static void ble_init_stack(void)
 {
     // Globals
     ble_scan_restarts_at = 0;
-    ble_hci_con_handle_in_progress = HCI_CON_HANDLE_INVALID;
+    ble_connecting_handle = HCI_CON_HANDLE_INVALID;
     ble_count_kbd = 0;
     ble_count_mou = 0;
     ble_count_pad = 0;
@@ -382,8 +410,17 @@ void ble_task(void)
         absolute_time_diff_us(get_absolute_time(), ble_scan_restarts_at) < 0)
     {
         ble_scan_restarts_at = 0;
+
+        // Timed-out connection that established LE but stalled
+        // during encryption or HIDS discovery
+        if (ble_connecting_handle != HCI_CON_HANDLE_INVALID)
+        {
+            gap_disconnect(ble_connecting_handle);
+            ble_connecting_handle = HCI_CON_HANDLE_INVALID;
+        }
+
         gap_connect_cancel();
-        
+
         if (ble_pairing)
         {
             // In pairing mode, use active scanning for new devices
@@ -434,6 +471,8 @@ void ble_shutdown(void)
 {
     ble_pairing = false;
     led_blink(false);
+    ble_connecting_handle = HCI_CON_HANDLE_INVALID;
+    ble_scan_restarts_at = 0;
     if (ble_initialized)
     {
         hci_disconnect_all();
