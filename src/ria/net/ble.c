@@ -38,6 +38,13 @@ static uint8_t ble_count_kbd;
 static uint8_t ble_count_mou;
 static uint8_t ble_count_pad;
 
+// LED output report state for BLE keyboards
+static bool ble_hid_leds_dirty;
+static uint8_t ble_hid_leds;
+#define BLE_MAX_KBD 8
+static uint16_t ble_kbd_cids[BLE_MAX_KBD];
+static uint8_t ble_kbd_cid_count;
+
 // BTStack state - BLE Central and HIDS Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static btstack_packet_callback_registration_t sm_event_callback_registration;
@@ -102,8 +109,8 @@ static void ble_start_hids_client(hci_con_handle_t con_handle)
 
 void ble_set_hid_leds(uint8_t leds)
 {
-    (void)leds;
-    // TODO I don't have a keyboard to test this
+    ble_hid_leds = leds;
+    ble_hid_leds_dirty = true;
 }
 
 static inline int ble_hids_cid_to_hid_slot(uint16_t hids_cid)
@@ -135,7 +142,12 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
         uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
         if (kbd_mount(slot, descriptor, descriptor_len))
+        {
             ++ble_count_kbd;
+            if (ble_kbd_cid_count < BLE_MAX_KBD)
+                ble_kbd_cids[ble_kbd_cid_count++] = cid;
+            ble_hid_leds_dirty = true;
+        }
         if (mou_mount(slot, descriptor, descriptor_len))
             ++ble_count_mou;
         if (pad_mount(slot, descriptor, descriptor_len, 0, 0))
@@ -149,7 +161,17 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
         int slot = ble_hids_cid_to_hid_slot(cid);
         if (kbd_umount(slot))
+        {
             --ble_count_kbd;
+            for (uint8_t i = 0; i < ble_kbd_cid_count; i++)
+            {
+                if (ble_kbd_cids[i] == cid)
+                {
+                    ble_kbd_cids[i] = ble_kbd_cids[--ble_kbd_cid_count];
+                    break;
+                }
+            }
+        }
         if (mou_umount(slot))
             --ble_count_mou;
         if (pad_umount(slot))
@@ -361,6 +383,8 @@ static void ble_init_stack(void)
     ble_count_kbd = 0;
     ble_count_mou = 0;
     ble_count_pad = 0;
+    ble_kbd_cid_count = 0;
+    ble_hid_leds_dirty = false;
 
     // Initialize L2CAP
     l2cap_init();
@@ -404,6 +428,16 @@ void ble_task(void)
             ble_scan_restarts_at = make_timeout_time_ms(100);
         }
         return;
+    }
+
+    if (ble_hid_leds_dirty)
+    {
+        ble_hid_leds_dirty = false;
+        for (uint8_t i = 0; i < ble_kbd_cid_count; i++)
+            if (hids_client_send_write_report(ble_kbd_cids[i], 0,
+                    HID_REPORT_TYPE_OUTPUT, &ble_hid_leds, sizeof(ble_hid_leds))
+                == ERROR_CODE_COMMAND_DISALLOWED)
+                ble_hid_leds_dirty = true; // Retry when previous write still in-flight
     }
 
     if (ble_scan_restarts_at &&
@@ -473,6 +507,8 @@ void ble_shutdown(void)
     led_blink(false);
     ble_connecting_handle = HCI_CON_HANDLE_INVALID;
     ble_scan_restarts_at = 0;
+    ble_kbd_cid_count = 0;
+    ble_hid_leds_dirty = false;
     if (ble_initialized)
     {
         hci_disconnect_all();
