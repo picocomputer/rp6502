@@ -43,8 +43,9 @@ void usb_task(void)
         for (uint8_t dev_addr = 1; dev_addr <= CFG_TUH_DEVICE_MAX; dev_addr++)
             for (uint8_t idx = 0; idx < CFG_TUH_HID; idx++)
                 if (tuh_hid_interface_protocol(dev_addr, idx) == HID_ITF_PROTOCOL_KEYBOARD)
-                    tuh_hid_set_report(dev_addr, idx, 0, HID_REPORT_TYPE_OUTPUT,
-                                       &usb_hid_leds, sizeof(usb_hid_leds));
+                    if (!tuh_hid_set_report(dev_addr, idx, 0, HID_REPORT_TYPE_OUTPUT,
+                                            &usb_hid_leds, sizeof(usb_hid_leds)))
+                        usb_hid_leds_dirty = true; // Retry if control endpoint busy
     }
 }
 
@@ -98,7 +99,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     if (kbd_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len))
     {
         ++usb_count_hid_kbd;
-        usb_hid_leds_dirty = true; // TODO this stopped working
+        usb_hid_leds_dirty = true;
         valid = true;
     }
     if (mou_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len))
