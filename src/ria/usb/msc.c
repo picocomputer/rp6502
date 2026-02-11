@@ -94,6 +94,20 @@ static absolute_time_t msc_poll_timer;
 static scsi_read_capacity10_resp_t msc_capacity_resp;
 static scsi_sense_fixed_resp_t msc_sense_resp;
 
+typedef enum
+{
+    msc_poll_idle = 0,
+    msc_poll_tur_sent,         // TUR in flight (mounted vol)
+    msc_poll_sense_sent,       // Request Sense in flight (ejected vol)
+    msc_poll_tur_insert_sent,  // TUR in flight after sense (ejected vol)
+    msc_poll_readcap_sent,     // Read Capacity in flight
+    msc_poll_sense_retry_sent, // Request Sense after failed readcap
+} msc_poll_state_t;
+
+static msc_poll_state_t msc_poll_state[FF_VOLUMES];
+static bool msc_poll_complete[FF_VOLUMES];
+static uint8_t msc_poll_csw_status[FF_VOLUMES];
+
 // f_close doesn't clear obj.fs on error, which leaves FatFS FIL
 // still open. --wrap=f_close intercepts every call at link time.
 FRESULT __real_f_close(FIL *fp);
@@ -280,6 +294,10 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
         if (msc_volume_dev_addr[vol] == dev_addr &&
             msc_volume_status[vol] != msc_volume_free)
         {
+            // Cancel any in-flight poll
+            msc_poll_state[vol] = msc_poll_idle;
+            msc_poll_complete[vol] = false;
+
             if (msc_volume_status[vol] == msc_volume_mounted)
             {
                 TCHAR volstr[6] = MSC_VOL0;
@@ -299,6 +317,14 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 static void wait_for_disk_io(uint8_t dev_addr)
 {
     while (msc_tuh_dev_busy[dev_addr - 1])
+        main_task();
+}
+
+// Wait for any in-flight async poll command to finish on this device.
+// The poll completes via the USB stack running in main_task().
+static void wait_for_ready(uint8_t dev_addr)
+{
+    while (!tuh_msc_ready(dev_addr))
         main_task();
 }
 
@@ -347,6 +373,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     uint8_t const lun = 0;
     uint32_t const block_size = msc_volume_block_size[pdrv];
+    DBG("MSC R> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0)
         return RES_ERROR;
 
@@ -366,6 +393,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 
     msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
     msc_tuh_dev_busy[dev_addr - 1] = true;
+    wait_for_ready(dev_addr);
     if (!tuh_msc_scsi_command(dev_addr, &cbw, buff, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
@@ -399,6 +427,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
     msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
     msc_tuh_dev_busy[dev_addr - 1] = true;
+    wait_for_ready(dev_addr);
     if (!tuh_msc_scsi_command(dev_addr, &cbw, (void *)(uintptr_t)buff, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
@@ -610,58 +639,33 @@ int msc_std_sync(int desc, api_errno *err)
     return 0;
 }
 
-// Synchronous TEST UNIT READY for removable media polling
-static bool msc_test_unit_ready_sync(uint8_t dev_addr, uint8_t lun)
+// Async completion callback for removable media polling commands
+static bool poll_complete_cb(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
-    msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
-    msc_tuh_dev_busy[dev_addr - 1] = true;
-    if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
+    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        msc_tuh_dev_busy[dev_addr - 1] = false;
-        return false;
+        if (msc_volume_dev_addr[vol] == dev_addr &&
+            msc_poll_state[vol] != msc_poll_idle)
+        {
+            msc_poll_csw_status[vol] = cb_data->csw->status;
+            msc_poll_complete[vol] = true;
+            DBG("MSC poll cb vol %d state %d status %d\n",
+                vol, msc_poll_state[vol], cb_data->csw->status);
+            return true;
+        }
     }
-    wait_for_disk_io(dev_addr);
-    return msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED;
-}
-
-// Synchronous READ CAPACITY for removable media after insertion
-static bool msc_read_capacity_sync(uint8_t dev_addr, uint8_t lun, uint8_t vol)
-{
-    msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
-    msc_tuh_dev_busy[dev_addr - 1] = true;
-    if (!tuh_msc_read_capacity(dev_addr, lun, &msc_capacity_resp, disk_io_complete, 0))
-    {
-        msc_tuh_dev_busy[dev_addr - 1] = false;
-        return false;
-    }
-    wait_for_disk_io(dev_addr);
-    if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
-        return false;
-
-    msc_volume_block_count[vol] = tu_ntohl(msc_capacity_resp.last_lba) + 1;
-    msc_volume_block_size[vol] = tu_ntohl(msc_capacity_resp.block_size);
-    msc_volume_size[vol] = (uint64_t)msc_volume_block_count[vol] *
-                           (uint64_t)msc_volume_block_size[vol];
+    DBG("MSC poll cb: no matching vol for dev %d\n", dev_addr);
     return true;
-}
-
-// Synchronous REQUEST SENSE to clear Unit Attention after media change
-static void msc_request_sense_sync(uint8_t dev_addr, uint8_t lun)
-{
-    msc_tuh_dev_busy[dev_addr - 1] = true;
-    if (!tuh_msc_request_sense(dev_addr, lun, &msc_sense_resp, disk_io_complete, 0))
-    {
-        msc_tuh_dev_busy[dev_addr - 1] = false;
-        return;
-    }
-    wait_for_disk_io(dev_addr);
 }
 
 void msc_task(void)
 {
-    if (!time_reached(msc_poll_timer))
-        return;
-    msc_poll_timer = make_timeout_time_ms(MSC_POLL_INTERVAL_MS);
+    bool timer_fired = false;
+    if (time_reached(msc_poll_timer))
+    {
+        timer_fired = true;
+        msc_poll_timer = make_timeout_time_ms(MSC_POLL_INTERVAL_MS);
+    }
 
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
@@ -671,78 +675,157 @@ void msc_task(void)
         uint8_t dev_addr = msc_volume_dev_addr[vol];
         uint8_t const lun = 0;
 
-        if (!tuh_msc_mounted(dev_addr) || !tuh_msc_ready(dev_addr))
+        if (!tuh_msc_mounted(dev_addr))
             continue;
+
+        // Process completed async poll commands
+        if (msc_poll_complete[vol])
+        {
+            msc_poll_complete[vol] = false;
+            bool passed = (msc_poll_csw_status[vol] == MSC_CSW_STATUS_PASSED);
+
+            switch (msc_poll_state[vol])
+            {
+            case msc_poll_tur_sent:
+                // TUR result for mounted volume
+                msc_poll_state[vol] = msc_poll_idle;
+                if (!passed)
+                {
+                    // Device may have disconnected during TUR
+                    if (msc_volume_status[vol] != msc_volume_mounted)
+                        break;
+
+                    // Media removed or changed - invalidate open files
+                    for (int i = 0; i < MSC_STD_FIL_MAX; i++)
+                    {
+                        if (msc_std_fil_pool[i].obj.fs == &msc_fatfs_volumes[vol])
+                            msc_std_fil_pool[i].obj.fs = NULL;
+                    }
+
+                    TCHAR volstr[6] = MSC_VOL0;
+                    volstr[3] += vol;
+                    f_unmount(volstr);
+                    msc_volume_status[vol] = msc_volume_ejected;
+                    DBG("MSC vol %d: media removed\n", vol);
+                }
+                break;
+
+            case msc_poll_sense_sent:
+                // Request Sense done, now send TUR to check for media
+                if (!tuh_msc_mounted(dev_addr) || !tuh_msc_ready(dev_addr))
+                {
+                    msc_poll_state[vol] = msc_poll_idle;
+                    break;
+                }
+                if (tuh_msc_test_unit_ready(dev_addr, lun, poll_complete_cb, 0))
+                    msc_poll_state[vol] = msc_poll_tur_insert_sent;
+                else
+                    msc_poll_state[vol] = msc_poll_idle;
+                break;
+
+            case msc_poll_tur_insert_sent:
+                // TUR result for ejected volume
+                msc_poll_state[vol] = msc_poll_idle;
+                if (passed)
+                {
+                    // Device may have disconnected during TUR
+                    if (msc_volume_status[vol] != msc_volume_ejected)
+                        break;
+
+                    // Media inserted - read capacity
+                    if (tuh_msc_ready(dev_addr) &&
+                        tuh_msc_read_capacity(dev_addr, lun, &msc_capacity_resp,
+                                              poll_complete_cb, 0))
+                        msc_poll_state[vol] = msc_poll_readcap_sent;
+                }
+                break;
+
+            case msc_poll_readcap_sent:
+                msc_poll_state[vol] = msc_poll_idle;
+                if (!passed)
+                {
+                    // Read capacity failed - send Request Sense then retry next poll
+                    if (tuh_msc_ready(dev_addr) &&
+                        tuh_msc_request_sense(dev_addr, lun, &msc_sense_resp,
+                                              poll_complete_cb, 0))
+                        msc_poll_state[vol] = msc_poll_sense_retry_sent;
+                    break;
+                }
+
+                msc_volume_block_count[vol] = tu_ntohl(msc_capacity_resp.last_lba) + 1;
+                msc_volume_block_size[vol] = tu_ntohl(msc_capacity_resp.block_size);
+                msc_volume_size[vol] = (uint64_t)msc_volume_block_count[vol] *
+                                       (uint64_t)msc_volume_block_size[vol];
+
+                {
+                    TCHAR volstr[6] = MSC_VOL0;
+                    volstr[3] += vol;
+                    msc_mount_result[vol] = f_mount(&msc_fatfs_volumes[vol], volstr, 1);
+                    if (msc_mount_result[vol] == FR_OK)
+                    {
+                        msc_volume_status[vol] = msc_volume_mounted;
+                        DBG("MSC vol %d: media inserted\n", vol);
+
+                        char s[2];
+                        if (FR_OK != f_getcwd(s, 2))
+                        {
+                            f_chdrive(volstr);
+                            f_chdir("/");
+                        }
+                    }
+                    else
+                    {
+                        DBG("MSC vol %d: mount failed (%d)\n", vol, msc_mount_result[vol]);
+                    }
+                }
+                break;
+
+            case msc_poll_sense_retry_sent:
+                msc_poll_state[vol] = msc_poll_idle;
+                break;
+
+            default:
+                msc_poll_state[vol] = msc_poll_idle;
+                break;
+            }
+            continue;
+        }
+
+        // Don't start new poll if one is in flight or timer hasn't fired
+        if (msc_poll_state[vol] != msc_poll_idle)
+            continue;
+
+        if (!timer_fired)
+            continue;
+
+        if (!tuh_msc_ready(dev_addr))
+        {
+            DBG("MSC poll vol %d: not ready\n", vol);
+            continue;
+        }
 
         if (msc_volume_status[vol] == msc_volume_mounted)
         {
-            // Poll mounted removable media for ejection or swap
-            if (!msc_test_unit_ready_sync(dev_addr, lun))
+            // Start async TUR for mounted volume
+            if (tuh_msc_test_unit_ready(dev_addr, lun, poll_complete_cb, 0))
             {
-                // Device may have disconnected during TUR
-                if (msc_volume_status[vol] != msc_volume_mounted)
-                    continue;
-
-                // Media removed or changed - invalidate open files
-                for (int i = 0; i < MSC_STD_FIL_MAX; i++)
-                {
-                    if (msc_std_fil_pool[i].obj.fs == &msc_fatfs_volumes[vol])
-                        msc_std_fil_pool[i].obj.fs = NULL;
-                }
-
-                TCHAR volstr[6] = MSC_VOL0;
-                volstr[3] += vol;
-                f_unmount(volstr);
-                msc_volume_status[vol] = msc_volume_ejected;
-                DBG("MSC vol %d: media removed\n", vol);
+                msc_poll_state[vol] = msc_poll_tur_sent;
+                DBG("MSC poll vol %d: TUR sent\n", vol);
             }
+            else
+                DBG("MSC poll vol %d: TUR send failed\n", vol);
         }
         else if (msc_volume_status[vol] == msc_volume_ejected)
         {
-            // Poll for media insertion.
-            // Do a Request Sense first to clear any pending Unit Attention
-            // (raised when media is inserted into removable drives).
-            // Without this, TUR fails on the first poll after insertion.
-            msc_request_sense_sync(dev_addr, lun);
-            if (!tuh_msc_mounted(dev_addr) || !tuh_msc_ready(dev_addr))
-                continue;
-
-            if (msc_test_unit_ready_sync(dev_addr, lun))
+            // Start with Request Sense to clear Unit Attention
+            if (tuh_msc_request_sense(dev_addr, lun, &msc_sense_resp,
+                                      poll_complete_cb, 0))
             {
-                // Device may have disconnected during TUR
-                if (msc_volume_status[vol] != msc_volume_ejected)
-                    continue;
-
-                // Media inserted - read capacity and mount
-                if (!msc_read_capacity_sync(dev_addr, lun, vol))
-                {
-                    // Read capacity failed - try a Request Sense to clear
-                    // any unit attention, then retry next poll
-                    msc_request_sense_sync(dev_addr, lun);
-                    continue;
-                }
-
-                TCHAR volstr[6] = MSC_VOL0;
-                volstr[3] += vol;
-                msc_mount_result[vol] = f_mount(&msc_fatfs_volumes[vol], volstr, 1);
-                if (msc_mount_result[vol] == FR_OK)
-                {
-                    msc_volume_status[vol] = msc_volume_mounted;
-                    DBG("MSC vol %d: media inserted\n", vol);
-
-                    // If current directory invalid, change to root of this drive
-                    char s[2];
-                    if (FR_OK != f_getcwd(s, 2))
-                    {
-                        f_chdrive(volstr);
-                        f_chdir("/");
-                    }
-                }
-                else
-                {
-                    DBG("MSC vol %d: mount failed (%d)\n", vol, msc_mount_result[vol]);
-                }
+                msc_poll_state[vol] = msc_poll_sense_sent;
+                DBG("MSC poll vol %d: sense sent\n", vol);
             }
+            else
+                DBG("MSC poll vol %d: sense send failed\n", vol);
         }
     }
 }
