@@ -19,6 +19,7 @@
 /* Status
  */
 
+void msc_task(void);
 int msc_status_count(void);
 int msc_status_response(char *buf, size_t buf_size, int state);
 

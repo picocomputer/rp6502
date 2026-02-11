@@ -1,0 +1,729 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Ha Thach (tinyusb.org)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ *
+ * This file is part of the TinyUSB stack.
+ */
+
+/*
+
+this file is not included in the RP6502 project.
+it is reference material.
+these CBI changes worked in release 0.20.0
+
+*/
+
+
+#include "tusb_option.h"
+
+#if CFG_TUH_ENABLED && CFG_TUH_MSC
+
+#include "host/usbh.h"
+#include "host/usbh_pvt.h"
+
+#include "msc_host.h"
+
+// Level where CFG_TUSB_DEBUG must be at least for this driver is logged
+#ifndef CFG_TUH_MSC_LOG_LEVEL
+  #define CFG_TUH_MSC_LOG_LEVEL   CFG_TUH_LOG_LEVEL
+#endif
+
+#define TU_LOG_DRV(...)   TU_LOG(CFG_TUH_MSC_LOG_LEVEL, __VA_ARGS__)
+
+//--------------------------------------------------------------------+
+// MACRO CONSTANT TYPEDEF
+//--------------------------------------------------------------------+
+enum {
+  MSC_STAGE_IDLE = 0,
+  MSC_STAGE_CMD,
+  MSC_STAGE_DATA,
+  MSC_STAGE_STATUS,
+};
+
+typedef struct {
+  uint8_t itf_num;
+  uint8_t ep_in;
+  uint8_t ep_out;
+  uint8_t ep_intr;   // CBI interrupt endpoint (0 if BOT)
+  uint8_t max_lun;
+  uint8_t protocol;  // MSC_PROTOCOL_BOT or MSC_PROTOCOL_CBI*
+  uint8_t tur_retries; // Test Unit Ready retry counter for enumeration
+
+  volatile bool configured; // Receive SET_CONFIGURE
+  volatile bool mounted;    // Enumeration is complete
+
+  // SCSI command data
+  uint8_t stage;
+  void* buffer;
+  tuh_msc_complete_cb_t complete_cb;
+  uintptr_t complete_arg;
+
+  struct {
+    uint32_t block_size;
+    uint32_t block_count;
+  } capacity[CFG_TUH_MSC_MAXLUN];
+} msch_interface_t;
+
+typedef struct {
+  TUH_EPBUF_TYPE_DEF(msc_cbw_t, cbw);
+  TUH_EPBUF_TYPE_DEF(msc_csw_t, csw);
+  TUH_EPBUF_DEF(cbi_cmd, 12);    // CBI ADSC command buffer (UFI = 12 bytes)
+  TUH_EPBUF_DEF(cbi_status, 2);  // CBI interrupt status (2 bytes)
+} msch_epbuf_t;
+
+static msch_interface_t _msch_itf[CFG_TUH_DEVICE_MAX];
+CFG_TUH_MEM_SECTION static msch_epbuf_t _msch_epbuf[CFG_TUH_DEVICE_MAX];
+
+TU_ATTR_ALWAYS_INLINE static inline msch_interface_t* get_itf(uint8_t daddr) {
+  return &_msch_itf[daddr - 1];
+}
+
+TU_ATTR_ALWAYS_INLINE static inline msch_epbuf_t* get_epbuf(uint8_t daddr) {
+  return &_msch_epbuf[daddr - 1];
+}
+
+//--------------------------------------------------------------------+
+// Weak stubs: invoked if no strong implementation is available
+//--------------------------------------------------------------------+
+TU_ATTR_WEAK void tuh_msc_mount_cb(uint8_t dev_addr) {
+  (void) dev_addr;
+}
+
+TU_ATTR_WEAK void tuh_msc_umount_cb(uint8_t dev_addr) {
+  (void) dev_addr;
+}
+
+//--------------------------------------------------------------------+
+// PUBLIC API
+//--------------------------------------------------------------------+
+uint8_t tuh_msc_get_maxlun(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  return p_msc->max_lun;
+}
+
+uint32_t tuh_msc_get_block_count(uint8_t dev_addr, uint8_t lun) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  return p_msc->capacity[lun].block_count;
+}
+
+uint32_t tuh_msc_get_block_size(uint8_t dev_addr, uint8_t lun) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  return p_msc->capacity[lun].block_size;
+}
+
+bool tuh_msc_mounted(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  return p_msc->mounted;
+}
+
+bool tuh_msc_ready(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->mounted);
+  const bool epin_busy = usbh_edpt_busy(dev_addr, p_msc->ep_in);
+  const bool epout_busy = usbh_edpt_busy(dev_addr, p_msc->ep_out);
+  return !epin_busy && !epout_busy;
+}
+
+//--------------------------------------------------------------------+
+// CBI (Control/Bulk/Interrupt) Transport
+//--------------------------------------------------------------------+
+static void cbi_adsc_complete(tuh_xfer_t* xfer);
+
+static bool cbi_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
+                             tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(daddr);
+  TU_VERIFY(p_msc->configured);
+  msch_epbuf_t* epbuf = get_epbuf(daddr);
+
+  // Save the CBW so callbacks can access lun, dir, total_bytes
+  epbuf->cbw = *cbw;
+  p_msc->buffer = data;
+  p_msc->complete_cb = complete_cb;
+  p_msc->complete_arg = arg;
+  p_msc->stage = MSC_STAGE_CMD;
+
+  // Copy command bytes to CBI command buffer (12 bytes for UFI)
+  tu_memclr(epbuf->cbi_cmd, 12);
+  uint8_t cmd_len = cbw->cmd_len;
+  if (cmd_len > 12) cmd_len = 12;
+  memcpy(epbuf->cbi_cmd, cbw->command, cmd_len);
+
+  // Send ADSC (Accept Device-Specific Command) via control transfer
+  tusb_control_request_t const request = {
+      .bmRequestType_bit = {
+          .recipient = TUSB_REQ_RCPT_INTERFACE,
+          .type      = TUSB_REQ_TYPE_CLASS,
+          .direction = TUSB_DIR_OUT
+      },
+      .bRequest = 0, // ADSC
+      .wValue   = 0,
+      .wIndex   = p_msc->itf_num,
+      .wLength  = 12
+  };
+
+  tuh_xfer_t xfer = {
+      .daddr       = daddr,
+      .ep_addr     = 0,
+      .setup       = &request,
+      .buffer      = epbuf->cbi_cmd,
+      .complete_cb = cbi_adsc_complete,
+      .user_data   = arg
+  };
+
+  return tuh_control_xfer(&xfer);
+}
+
+static void cbi_adsc_complete(tuh_xfer_t* xfer) {
+  uint8_t const daddr = xfer->daddr;
+  msch_interface_t* p_msc = get_itf(daddr);
+  msch_epbuf_t* epbuf = get_epbuf(daddr);
+
+  if (XFER_RESULT_SUCCESS != xfer->result) {
+    // ADSC failed - report as failed command
+    p_msc->stage = MSC_STAGE_IDLE;
+    if (p_msc->complete_cb) {
+      epbuf->csw.signature = MSC_CSW_SIGNATURE;
+      epbuf->csw.tag = epbuf->cbw.tag;
+      epbuf->csw.data_residue = epbuf->cbw.total_bytes;
+      epbuf->csw.status = MSC_CSW_STATUS_FAILED;
+      tuh_msc_complete_data_t const cb_data = {
+          .cbw = &epbuf->cbw,
+          .csw = &epbuf->csw,
+          .scsi_data = p_msc->buffer,
+          .user_arg = p_msc->complete_arg
+      };
+      p_msc->complete_cb(daddr, &cb_data);
+    }
+    return;
+  }
+
+  // ADSC succeeded - start data phase if needed
+  msc_cbw_t const* cbw = &epbuf->cbw;
+  if (cbw->total_bytes && p_msc->buffer) {
+    p_msc->stage = MSC_STAGE_DATA;
+    uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
+    TU_ASSERT(usbh_edpt_xfer(daddr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes), );
+  } else if (p_msc->ep_intr) {
+    // No data, go straight to interrupt status
+    p_msc->stage = MSC_STAGE_STATUS;
+    TU_ASSERT(usbh_edpt_xfer(daddr, p_msc->ep_intr, epbuf->cbi_status, 2), );
+  } else {
+    // No data, no interrupt - assume success
+    p_msc->stage = MSC_STAGE_IDLE;
+    if (p_msc->complete_cb) {
+      epbuf->csw.signature = MSC_CSW_SIGNATURE;
+      epbuf->csw.tag = epbuf->cbw.tag;
+      epbuf->csw.data_residue = 0;
+      epbuf->csw.status = MSC_CSW_STATUS_PASSED;
+      tuh_msc_complete_data_t const cb_data = {
+          .cbw = &epbuf->cbw,
+          .csw = &epbuf->csw,
+          .scsi_data = p_msc->buffer,
+          .user_arg = p_msc->complete_arg
+      };
+      p_msc->complete_cb(daddr, &cb_data);
+    }
+  }
+}
+
+//--------------------------------------------------------------------+
+// PUBLIC API: SCSI COMMAND
+//--------------------------------------------------------------------+
+static inline void cbw_init(msc_cbw_t* cbw, uint8_t lun) {
+  tu_memclr(cbw, sizeof(msc_cbw_t));
+  cbw->signature = MSC_CBW_SIGNATURE;
+  cbw->tag       = 0x54555342; // TUSB
+  cbw->lun       = lun;
+}
+
+bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
+                          tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(daddr);
+  TU_VERIFY(p_msc->configured);
+
+  // Use CBI transport for CBI protocol devices
+  if (p_msc->protocol == MSC_PROTOCOL_CBI || p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT) {
+    return cbi_scsi_command(daddr, cbw, data, complete_cb, arg);
+  }
+
+  // BOT transport
+  // claim endpoint
+  TU_VERIFY(usbh_edpt_claim(daddr, p_msc->ep_out));
+  msch_epbuf_t* epbuf = get_epbuf(daddr);
+
+  epbuf->cbw = *cbw;
+  p_msc->buffer = data;
+  p_msc->complete_cb = complete_cb;
+  p_msc->complete_arg = arg;
+  p_msc->stage = MSC_STAGE_CMD;
+
+  if (!usbh_edpt_xfer(daddr, p_msc->ep_out, (uint8_t*) &epbuf->cbw, sizeof(msc_cbw_t))) {
+    (void) usbh_edpt_release(daddr, p_msc->ep_out);
+    return false;
+  }
+
+  return true;
+}
+
+bool tuh_msc_read_capacity(uint8_t dev_addr, uint8_t lun, scsi_read_capacity10_resp_t* response,
+                           tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = sizeof(scsi_read_capacity10_resp_t);
+  cbw.dir        = TUSB_DIR_IN_MASK;
+  cbw.cmd_len    = sizeof(scsi_read_capacity10_t);
+  cbw.command[0] = SCSI_CMD_READ_CAPACITY_10;
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
+}
+
+bool tuh_msc_inquiry(uint8_t dev_addr, uint8_t lun, scsi_inquiry_resp_t* response,
+                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->mounted);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = sizeof(scsi_inquiry_resp_t);
+  cbw.dir         = TUSB_DIR_IN_MASK;
+  cbw.cmd_len     = sizeof(scsi_inquiry_t);
+
+  scsi_inquiry_t const cmd_inquiry = {
+      .cmd_code     = SCSI_CMD_INQUIRY,
+      .alloc_length = sizeof(scsi_inquiry_resp_t)
+  };
+  memcpy(cbw.command, &cmd_inquiry, cbw.cmd_len); //-V1086
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
+}
+
+bool tuh_msc_test_unit_ready(uint8_t dev_addr, uint8_t lun, tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = 0;
+  cbw.dir        = TUSB_DIR_OUT;
+  cbw.cmd_len    = sizeof(scsi_test_unit_ready_t);
+  cbw.command[0] = SCSI_CMD_TEST_UNIT_READY;
+  cbw.command[1] = lun; // according to wiki TODO need verification
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, NULL, complete_cb, arg);
+}
+
+bool tuh_msc_request_sense(uint8_t dev_addr, uint8_t lun, void* response,
+                           tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = 18; // TODO sense response
+  cbw.dir         = TUSB_DIR_IN_MASK;
+  cbw.cmd_len     = sizeof(scsi_request_sense_t);
+
+  scsi_request_sense_t const cmd_request_sense = {
+      .cmd_code     = SCSI_CMD_REQUEST_SENSE,
+      .alloc_length = 18
+  };
+  memcpy(cbw.command, &cmd_request_sense, cbw.cmd_len); //-V1086
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
+}
+
+bool tuh_msc_read10(uint8_t dev_addr, uint8_t lun, void* buffer, uint32_t lba, uint16_t block_count,
+                    tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->mounted);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = block_count * p_msc->capacity[lun].block_size;
+  cbw.dir = TUSB_DIR_IN_MASK;
+  cbw.cmd_len = sizeof(scsi_read10_t);
+
+  scsi_read10_t const cmd_read10 = {
+      .cmd_code    = SCSI_CMD_READ_10,
+      .lba         = tu_htonl(lba),
+      .block_count = tu_htons(block_count)
+  };
+  memcpy(cbw.command, &cmd_read10, cbw.cmd_len); //-V1086
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, buffer, complete_cb, arg);
+}
+
+bool tuh_msc_write10(uint8_t dev_addr, uint8_t lun, void const* buffer, uint32_t lba, uint16_t block_count,
+                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->mounted);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = block_count * p_msc->capacity[lun].block_size;
+  cbw.dir         = TUSB_DIR_OUT;
+  cbw.cmd_len     = sizeof(scsi_write10_t);
+
+  scsi_write10_t const cmd_write10 = {
+      .cmd_code    = SCSI_CMD_WRITE_10,
+      .lba         = tu_htonl(lba),
+      .block_count = tu_htons(block_count)
+  };
+  memcpy(cbw.command, &cmd_write10, cbw.cmd_len); //-V1086
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, (void*) (uintptr_t) buffer, complete_cb, arg);
+}
+
+#if 0
+// MSC interface Reset (not used now)
+bool tuh_msc_reset(uint8_t dev_addr) {
+  tusb_control_request_t const new_request = {
+    .bmRequestType_bit = {
+      .recipient = TUSB_REQ_RCPT_INTERFACE,
+      .type      = TUSB_REQ_TYPE_CLASS,
+      .direction = TUSB_DIR_OUT
+    },
+    .bRequest = MSC_REQ_RESET,
+    .wValue   = 0,
+    .wIndex   = p_msc->itf_num,
+    .wLength  = 0
+  };
+  TU_ASSERT( usbh_control_xfer( dev_addr, &new_request, NULL ) );
+}
+#endif
+
+//--------------------------------------------------------------------+
+// CLASS-USBH API
+//--------------------------------------------------------------------+
+bool msch_init(void) {
+  TU_LOG_DRV("sizeof(msch_interface_t) = %u\r\n", sizeof(msch_interface_t));
+  TU_LOG_DRV("sizeof(msch_epbuf_t) = %u\r\n", sizeof(msch_epbuf_t));
+  tu_memclr(_msch_itf, sizeof(_msch_itf));
+  return true;
+}
+
+bool msch_deinit(void) {
+  return true;
+}
+
+void msch_close(uint8_t dev_addr) {
+  TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX,);
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured,);
+
+  TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
+
+  // invoke Application Callback
+  if (p_msc->mounted) {
+    tuh_msc_umount_cb(dev_addr);
+  }
+
+  tu_memclr(p_msc, sizeof(msch_interface_t));
+}
+
+bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  msch_epbuf_t* epbuf = get_epbuf(dev_addr);
+  msc_cbw_t const * cbw = &epbuf->cbw;
+  msc_csw_t       * csw = &epbuf->csw;
+
+  // CBI transport
+  if (p_msc->protocol == MSC_PROTOCOL_CBI || p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT) {
+    switch (p_msc->stage) {
+      case MSC_STAGE_DATA:
+        // Data complete - get status via interrupt or finish
+        if (p_msc->ep_intr) {
+          p_msc->stage = MSC_STAGE_STATUS;
+          TU_ASSERT(usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2));
+        } else {
+          // No interrupt endpoint - synthesize status from transfer result
+          p_msc->stage = MSC_STAGE_IDLE;
+          if (p_msc->complete_cb) {
+            csw->signature = MSC_CSW_SIGNATURE;
+            csw->tag = cbw->tag;
+            csw->data_residue = cbw->total_bytes - xferred_bytes;
+            csw->status = (event == XFER_RESULT_SUCCESS) ? MSC_CSW_STATUS_PASSED : MSC_CSW_STATUS_FAILED;
+            tuh_msc_complete_data_t const cb_data = {
+                .cbw = cbw, .csw = csw,
+                .scsi_data = p_msc->buffer, .user_arg = p_msc->complete_arg
+            };
+            (void) p_msc->complete_cb(dev_addr, &cb_data);
+          }
+        }
+        break;
+
+      case MSC_STAGE_STATUS: {
+        // CBI interrupt status received (2 bytes: ASC, ASCQ)
+        // ASC == 0x00 means command passed, non-zero means error
+        p_msc->stage = MSC_STAGE_IDLE;
+        if (p_msc->complete_cb) {
+          uint8_t asc = (xferred_bytes >= 1) ? epbuf->cbi_status[0] : 0;
+          csw->signature = MSC_CSW_SIGNATURE;
+          csw->tag = cbw->tag;
+          csw->data_residue = 0;
+          csw->status = (asc == 0 && event == XFER_RESULT_SUCCESS) ?
+                        MSC_CSW_STATUS_PASSED : MSC_CSW_STATUS_FAILED;
+          tuh_msc_complete_data_t const cb_data = {
+              .cbw = cbw, .csw = csw,
+              .scsi_data = p_msc->buffer, .user_arg = p_msc->complete_arg
+          };
+          (void) p_msc->complete_cb(dev_addr, &cb_data);
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+    return true;
+  }
+
+  // BOT transport
+  switch (p_msc->stage) {
+    case MSC_STAGE_CMD:
+      // Must be Command Block
+      TU_ASSERT(ep_addr == p_msc->ep_out && event == XFER_RESULT_SUCCESS && xferred_bytes == sizeof(msc_cbw_t));
+      if (cbw->total_bytes && p_msc->buffer) {
+        // Data stage if any
+        p_msc->stage = MSC_STAGE_DATA;
+        uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
+        TU_ASSERT(usbh_edpt_xfer(dev_addr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes));
+        break;
+      }
+      TU_ATTR_FALLTHROUGH; // fallthrough to data stage
+
+    case MSC_STAGE_DATA:
+      // Status stage
+      p_msc->stage = MSC_STAGE_STATUS;
+      TU_ASSERT(usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t*) csw, (uint16_t) sizeof(msc_csw_t)));
+      break;
+
+    case MSC_STAGE_STATUS:
+      // SCSI op is complete
+      p_msc->stage = MSC_STAGE_IDLE;
+      if (p_msc->complete_cb != NULL) {
+        tuh_msc_complete_data_t const cb_data = {
+            .cbw = cbw,
+            .csw = csw,
+            .scsi_data = p_msc->buffer,
+            .user_arg = p_msc->complete_arg
+        };
+        (void) p_msc->complete_cb(dev_addr, &cb_data);
+      }
+      break;
+
+    default:
+      // unknown state
+      break;
+  }
+
+  return true;
+}
+
+//--------------------------------------------------------------------+
+// MSC Enumeration
+//--------------------------------------------------------------------+
+static void config_get_maxlun_complete(tuh_xfer_t* xfer);
+static bool config_test_unit_ready_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data);
+static bool config_request_sense_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data);
+static bool config_read_capacity_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data);
+
+bool msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const* desc_itf, uint16_t max_len) {
+  (void) rhport;
+  // Accept BOT and CBI protocols
+  TU_VERIFY (MSC_PROTOCOL_BOT              == desc_itf->bInterfaceProtocol ||
+             MSC_PROTOCOL_CBI              == desc_itf->bInterfaceProtocol ||
+             MSC_PROTOCOL_CBI_NO_INTERRUPT == desc_itf->bInterfaceProtocol);
+  // Accept SCSI transparent, UFI (floppy), and SFF-8070i subclasses
+  TU_VERIFY (MSC_SUBCLASS_SCSI == desc_itf->bInterfaceSubClass ||
+             MSC_SUBCLASS_UFI  == desc_itf->bInterfaceSubClass ||
+             MSC_SUBCLASS_SFF  == desc_itf->bInterfaceSubClass);
+
+  // msc driver length is fixed
+  uint16_t const drv_len = (uint16_t) (sizeof(tusb_desc_interface_t) +
+                                       desc_itf->bNumEndpoints * sizeof(tusb_desc_endpoint_t));
+  TU_ASSERT(drv_len <= max_len);
+
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  p_msc->protocol = desc_itf->bInterfaceProtocol;
+  p_msc->ep_intr = 0;
+
+  tusb_desc_endpoint_t const* ep_desc = (tusb_desc_endpoint_t const*) tu_desc_next(desc_itf);
+
+  for (uint32_t i = 0; i < desc_itf->bNumEndpoints; i++) {
+    TU_ASSERT(TUSB_DESC_ENDPOINT == ep_desc->bDescriptorType);
+    TU_ASSERT(tuh_edpt_open(dev_addr, ep_desc));
+
+    if (TUSB_XFER_BULK == ep_desc->bmAttributes.xfer) {
+      if (TUSB_DIR_IN == tu_edpt_dir(ep_desc->bEndpointAddress)) {
+        p_msc->ep_in = ep_desc->bEndpointAddress;
+      } else {
+        p_msc->ep_out = ep_desc->bEndpointAddress;
+      }
+    } else if (TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer) {
+      // CBI interrupt endpoint (always IN)
+      p_msc->ep_intr = ep_desc->bEndpointAddress;
+    }
+
+    ep_desc = (tusb_desc_endpoint_t const*) tu_desc_next(ep_desc);
+  }
+
+  // Must have bulk IN and OUT at minimum
+  TU_ASSERT(p_msc->ep_in && p_msc->ep_out);
+
+  p_msc->itf_num = desc_itf->bInterfaceNumber;
+
+  return true;
+}
+
+bool msch_set_config(uint8_t daddr, uint8_t itf_num) {
+  msch_interface_t* p_msc = get_itf(daddr);
+  TU_ASSERT(p_msc->itf_num == itf_num);
+  p_msc->configured = true;
+
+  //------------- Get Max Lun -------------//
+  TU_LOG_DRV("MSC Get Max Lun\r\n");
+  tusb_control_request_t const request = {
+      .bmRequestType_bit = {
+          .recipient = TUSB_REQ_RCPT_INTERFACE,
+          .type      = TUSB_REQ_TYPE_CLASS,
+          .direction = TUSB_DIR_IN
+      },
+      .bRequest = MSC_REQ_GET_MAX_LUN,
+      .wValue   = 0,
+      .wIndex   = itf_num,
+      .wLength  = 1
+  };
+
+  uint8_t* enum_buf = usbh_get_enum_buf();
+  tuh_xfer_t xfer = {
+      .daddr       = daddr,
+      .ep_addr     = 0,
+      .setup       = &request,
+      .buffer      = enum_buf,
+      .complete_cb = config_get_maxlun_complete,
+      .user_data    = 0
+  };
+  TU_ASSERT(tuh_control_xfer(&xfer));
+
+  return true;
+}
+
+static void config_get_maxlun_complete(tuh_xfer_t* xfer) {
+  uint8_t const daddr = xfer->daddr;
+  msch_interface_t* p_msc = get_itf(daddr);
+
+  // MAXLUN's response is minus 1 by specs, STALL means 1
+  if (XFER_RESULT_SUCCESS == xfer->result) {
+    uint8_t* enum_buf = usbh_get_enum_buf();
+    p_msc->max_lun = enum_buf[0] + 1;
+  } else {
+    p_msc->max_lun = 1;
+  }
+
+  TU_LOG_DRV("  Max LUN = %u\r\n", p_msc->max_lun);
+
+  // TODO multiple LUN support
+  TU_LOG_DRV("SCSI Test Unit Ready\r\n");
+  p_msc->tur_retries = 0;
+  uint8_t const lun = 0;
+  tuh_msc_test_unit_ready(daddr, lun, config_test_unit_ready_complete, 0);
+}
+
+static bool config_test_unit_ready_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data) {
+  msc_cbw_t const* cbw = cb_data->cbw;
+  msc_csw_t const* csw = cb_data->csw;
+  uint8_t* enum_buf = usbh_get_enum_buf();
+
+  if (csw->status == 0) {
+    // Unit is ready, read its capacity
+    TU_LOG_DRV("SCSI Read Capacity\r\n");
+    tuh_msc_read_capacity(dev_addr, cbw->lun, (scsi_read_capacity10_resp_t*) (uintptr_t) enum_buf,
+                          config_read_capacity_complete, 0);
+  } else {
+    // Note: During enumeration, some devices fail Test Unit Ready and require a few retries
+    // with Request Sense to start working. Removable media devices with no media
+    // will never become ready, so limit retries and complete with zero capacity.
+    msch_interface_t* p_msc = get_itf(dev_addr);
+    p_msc->tur_retries++;
+    if (p_msc->tur_retries > 3) {
+      // Exhausted retries - complete enumeration with zero capacity
+      // (handled as ejected/no-media by upper layer)
+      TU_LOG_DRV("SCSI Test Unit Ready retries exhausted, completing with zero capacity\r\n");
+      p_msc->capacity[cbw->lun].block_count = 0;
+      p_msc->capacity[cbw->lun].block_size  = 0;
+      p_msc->mounted = true;
+      tuh_msc_mount_cb(dev_addr);
+      usbh_driver_set_config_complete(dev_addr, p_msc->itf_num);
+    } else {
+      TU_LOG_DRV("SCSI Request Sense (retry %u)\r\n", p_msc->tur_retries);
+      TU_ASSERT(tuh_msc_request_sense(dev_addr, cbw->lun, enum_buf, config_request_sense_complete, 0));
+    }
+  }
+
+  return true;
+}
+
+static bool config_request_sense_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data) {
+  msc_cbw_t const* cbw = cb_data->cbw;
+  // Don't assert on csw->status - for CBI transport, the interrupt status may
+  // report failure even though the sense data was transferred successfully.
+  // The sense data itself describes the error condition.
+  TU_ASSERT(tuh_msc_test_unit_ready(dev_addr, cbw->lun, config_test_unit_ready_complete, 0));
+  return true;
+}
+
+static bool config_read_capacity_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data) {
+  msc_cbw_t const* cbw = cb_data->cbw;
+  msc_csw_t const* csw = cb_data->csw;
+  msch_interface_t* p_msc = get_itf(dev_addr);
+
+  if (csw->status != 0) {
+    // Read Capacity failed - complete with zero capacity (no media)
+    TU_LOG_DRV("SCSI Read Capacity failed, completing with zero capacity\r\n");
+    p_msc->capacity[cbw->lun].block_count = 0;
+    p_msc->capacity[cbw->lun].block_size  = 0;
+  } else {
+    uint8_t* enum_buf = usbh_get_enum_buf();
+    // Capacity response field: Block size and Last LBA are both Big-Endian
+    scsi_read_capacity10_resp_t* resp = (scsi_read_capacity10_resp_t*) (uintptr_t) enum_buf;
+    p_msc->capacity[cbw->lun].block_count = (uint32_t) (tu_ntohl(resp->last_lba) + 1u);
+    p_msc->capacity[cbw->lun].block_size  = tu_ntohl(resp->block_size);
+  }
+
+  // Mark enumeration is complete
+  p_msc->mounted = true;
+  tuh_msc_mount_cb(dev_addr);
+
+  // notify usbh that driver enumeration is complete
+  usbh_driver_set_config_complete(dev_addr, p_msc->itf_num);
+
+  return true;
+}
+
+#endif

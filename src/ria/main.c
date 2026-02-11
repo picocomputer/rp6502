@@ -38,6 +38,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/msc.h"
 #include "usb/xin.h"
 
 /**************************************/
@@ -115,6 +116,7 @@ static void task(void)
     rln_task();
     fil_task();
     rom_task();
+    msc_task();
 }
 
 // Event to start running the 6502.
