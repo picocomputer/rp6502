@@ -3,4 +3,4 @@
 	url = https://github.com/littlefs-project/littlefs.git
 [submodule "src/tinyusb"]
 	path = src/tinyusb
-	url = https://github.com/hathach/tinyusb.git
+	url = https://github.com/picocomputer/tinyusb.git
