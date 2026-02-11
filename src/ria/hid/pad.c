@@ -110,7 +110,7 @@ static void pad_remap_playstation_classic(
     pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     (void)product_id;
-    if (vendor_id != 0x054C) // Sony Interactive Entertainment
+    if (vendor_id != 0x054C || product_id != 0x05C2)
         return;
     DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
     conn->sony = true;
@@ -152,12 +152,9 @@ static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
         case 0x09CC: // DualShock 4 (2nd gen)
         case 0x0BA0: // DualShock 4 USB receiver
         case 0x0DAE: // DualShock 4 (special edition variant)
-        case 0x0DF2: // DualShock 4 (special edition variant)
         case 0x0CDA: // DualShock 4 (Asia region, special edition)
         case 0x0D9A: // DualShock 4 (Japan region, special edition)
         case 0x0E04: // DualShock 4 (rare, but reported)
-        case 0x0E6F: // DualShock 4 (special edition, sometimes used for DS4)
-        case 0x0EBA: // DualShock 4 (special edition, sometimes used for DS4)
             return true;
         }
     }
@@ -488,7 +485,7 @@ static void pad_distill_descriptor(
         *conn = pad_desc_sony_ds4;
         DBG("Detected Sony DS4 gamepad, using pre-computed descriptor.\n");
     }
-    if (pad_is_sony_ds5(vendor_id, product_id))
+    else if (pad_is_sony_ds5(vendor_id, product_id))
     {
         *conn = pad_desc_sony_ds5;
         DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");

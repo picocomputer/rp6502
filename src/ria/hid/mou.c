@@ -51,6 +51,7 @@ typedef struct
     uint8_t wheel_size;
     uint16_t pan_offset; // Horizontal pan/tilt
     uint8_t pan_size;
+    uint8_t buttons; // Last reported button state
 } mou_connection_t;
 
 static mou_connection_t mou_connections[MOU_MAX_MICE];
@@ -90,7 +91,10 @@ bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint1
     int desc_idx = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
         if (!mou_connections[i].valid)
+        {
             desc_idx = i;
+            break;
+        }
     if (desc_idx < 0)
         return false;
 
@@ -199,7 +203,12 @@ void mou_report(int slot, void const *data, size_t size)
                 buttons |= (1 << i);
         }
     }
-    mou_state.buttons = buttons;
+    conn->buttons = buttons; // store per-connection
+    uint8_t merged = 0;
+    for (int i = 0; i < MOU_MAX_MICE; ++i)
+        if (mou_connections[i].valid)
+            merged |= mou_connections[i].buttons;
+    mou_state.buttons = merged;
 
     // Extract movement data
     if (conn->x_size > 0)
