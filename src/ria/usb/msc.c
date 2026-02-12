@@ -68,10 +68,10 @@ static_assert(FF_VOLUMES <= 10); // one char 0-9 in "MSC0:"
 typedef enum
 {
     msc_volume_free = 0,
-    msc_volume_registered, // USB device attached, no SCSI done yet
+    msc_volume_registered,
     msc_volume_mounted,
-    msc_volume_mount_failed,
-    msc_volume_ejected, // USB device present, no media
+    msc_volume_ejected,
+    msc_volume_failed,
 } msc_volume_status_t;
 
 static msc_volume_status_t msc_volume_status[FF_VOLUMES];
@@ -253,7 +253,7 @@ static bool msc_init_volume(uint8_t vol)
             msc_inquiry_resp[vol].vendor_id[0] == 0)
         {
             DBG("MSC vol %d: inquiry failed\n", vol);
-            msc_volume_status[vol] = msc_volume_mount_failed;
+            msc_volume_status[vol] = msc_volume_failed;
             return false;
         }
         DBG("MSC vol %d: inquiry status non-zero but data valid\n", vol);
@@ -273,13 +273,13 @@ static bool msc_init_volume(uint8_t vol)
     if (!tuh_msc_read_capacity(dev_addr, lun, &cap_resp, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
-        msc_volume_status[vol] = msc_volume_mount_failed;
+        msc_volume_status[vol] = msc_volume_failed;
         return false;
     }
     wait_for_disk_io(dev_addr);
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
-        msc_volume_status[vol] = msc_volume_mount_failed;
+        msc_volume_status[vol] = msc_volume_failed;
         return false;
     }
 
