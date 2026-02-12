@@ -28,6 +28,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MSC_STD_FIL_MAX 8
 static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
+// Deadline for SCSI command completion and device ready polling
+#define MSC_IO_TIMEOUT_MS 3000
+
 // Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
 static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
@@ -62,17 +65,16 @@ const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
     VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7};
 
-// String initializer
 #define MSC_VOL0 "MSC0:"
 static_assert(FF_VOLUMES <= 10); // one char 0-9 in "MSC0:"
 
 typedef enum
 {
     msc_volume_free = 0,
-    msc_volume_registered,     // USB device attached, no SCSI done yet
+    msc_volume_registered, // USB device attached, no SCSI done yet
     msc_volume_mounted,
     msc_volume_mount_failed,
-    msc_volume_ejected,        // USB device present, no media
+    msc_volume_ejected, // USB device present, no media
 } msc_volume_status_t;
 
 static msc_volume_status_t msc_volume_status[FF_VOLUMES];
@@ -80,8 +82,8 @@ static uint8_t msc_volume_dev_addr[FF_VOLUMES];
 static FATFS msc_fatfs_volumes[FF_VOLUMES];
 static scsi_inquiry_resp_t msc_inquiry_resp[FF_VOLUMES];
 static uint64_t msc_volume_size[FF_VOLUMES];
-static FRESULT msc_mount_result[FF_VOLUMES];
 static bool msc_volume_is_removable[FF_VOLUMES];
+static bool msc_volume_tur_ok[FF_VOLUMES];
 static uint32_t msc_volume_block_count[FF_VOLUMES];
 static uint32_t msc_volume_block_size[FF_VOLUMES];
 
@@ -91,6 +93,9 @@ static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
 static bool msc_probe_media(uint8_t vol);
 static bool msc_init_volume(uint8_t vol);
 static void msc_handle_io_error(uint8_t vol);
+
+// Abort pending MSC endpoint transfers (defined in msc_host.c)
+void tuh_msc_abort(uint8_t dev_addr);
 
 // f_close doesn't clear obj.fs on error, which leaves FatFS FIL
 // still open. --wrap=f_close intercepts every call at link time.
@@ -216,14 +221,9 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
         if (msc_volume_dev_addr[vol] == dev_addr &&
             msc_volume_status[vol] != msc_volume_free)
         {
-            if (msc_volume_status[vol] == msc_volume_mounted ||
-                msc_volume_status[vol] == msc_volume_ejected ||
-                msc_volume_status[vol] == msc_volume_registered)
-            {
-                TCHAR volstr[6] = MSC_VOL0;
-                volstr[3] += vol;
-                f_unmount(volstr);
-            }
+            TCHAR volstr[6] = MSC_VOL0;
+            volstr[3] += vol;
+            f_unmount(volstr);
             msc_volume_status[vol] = msc_volume_free;
             msc_volume_dev_addr[vol] = 0;
             msc_volume_is_removable[vol] = false;
@@ -234,8 +234,6 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
     }
 }
 
-#define MSC_IO_TIMEOUT_MS 3000
-
 static void wait_for_disk_io(uint8_t dev_addr)
 {
     absolute_time_t deadline = make_timeout_time_ms(MSC_IO_TIMEOUT_MS);
@@ -244,6 +242,7 @@ static void wait_for_disk_io(uint8_t dev_addr)
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
             DBG("MSC dev %d: I/O timeout\n", dev_addr);
+            tuh_msc_abort(dev_addr);
             msc_tuh_dev_busy[dev_addr - 1] = false;
             msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
             return;
@@ -298,7 +297,31 @@ DSTATUS disk_status(BYTE pdrv)
         msc_volume_status[pdrv] == msc_volume_registered)
         return STA_NOINIT;
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
-    return tuh_msc_mounted(dev_addr) ? 0 : STA_NOINIT;
+    if (!tuh_msc_mounted(dev_addr))
+        return STA_NOINIT;
+
+    // TUR on removable volumes so FatFS detects media removal
+    if (msc_volume_is_removable[pdrv] && !msc_volume_tur_ok[pdrv])
+    {
+        uint8_t const lun = 0;
+        wait_for_ready(dev_addr);
+        msc_tuh_dev_busy[dev_addr - 1] = true;
+        if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
+        {
+            msc_tuh_dev_busy[dev_addr - 1] = false;
+            msc_handle_io_error(pdrv);
+            return STA_NOINIT;
+        }
+        wait_for_disk_io(dev_addr);
+        if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
+        {
+            msc_handle_io_error(pdrv);
+            return STA_NOINIT;
+        }
+        msc_volume_tur_ok[pdrv] = true;
+    }
+
+    return 0;
 }
 
 DSTATUS disk_initialize(BYTE pdrv)
@@ -311,9 +334,8 @@ DSTATUS disk_initialize(BYTE pdrv)
         if (!msc_init_volume(pdrv))
             return STA_NOINIT;
     }
-    // On-demand media detection for ejected removable volumes.
-    if (msc_volume_status[pdrv] == msc_volume_ejected &&
-        msc_volume_is_removable[pdrv])
+    // On-demand media detection for ejected volumes.
+    if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         if (!msc_probe_media(pdrv))
             return STA_NOINIT;
@@ -329,25 +351,6 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     DBG("MSC R> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0)
         return RES_ERROR;
-
-    // TUR before I/O on removable volumes to detect media removal
-    if (msc_volume_is_removable[pdrv])
-    {
-        wait_for_ready(dev_addr);
-        msc_tuh_dev_busy[dev_addr - 1] = true;
-        if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
-        {
-            msc_tuh_dev_busy[dev_addr - 1] = false;
-            msc_handle_io_error(pdrv);
-            return RES_ERROR;
-        }
-        wait_for_disk_io(dev_addr);
-        if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
-        {
-            msc_handle_io_error(pdrv);
-            return RES_ERROR;
-        }
-    }
 
     msc_cbw_t cbw;
     memset(&cbw, 0, sizeof(cbw));
@@ -369,11 +372,15 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     if (!tuh_msc_scsi_command(dev_addr, &cbw, buff, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
+        msc_volume_tur_ok[pdrv] = false;
+        if (msc_volume_is_removable[pdrv])
+            msc_handle_io_error(pdrv);
         return RES_ERROR;
     }
     wait_for_disk_io(dev_addr);
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
+        msc_volume_tur_ok[pdrv] = false;
         if (msc_volume_is_removable[pdrv])
             msc_handle_io_error(pdrv);
         return RES_ERROR;
@@ -388,25 +395,6 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     uint32_t const block_size = msc_volume_block_size[pdrv];
     if (block_size == 0)
         return RES_ERROR;
-
-    // TUR before I/O on removable volumes to detect media removal
-    if (msc_volume_is_removable[pdrv])
-    {
-        wait_for_ready(dev_addr);
-        msc_tuh_dev_busy[dev_addr - 1] = true;
-        if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
-        {
-            msc_tuh_dev_busy[dev_addr - 1] = false;
-            msc_handle_io_error(pdrv);
-            return RES_ERROR;
-        }
-        wait_for_disk_io(dev_addr);
-        if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
-        {
-            msc_handle_io_error(pdrv);
-            return RES_ERROR;
-        }
-    }
 
     msc_cbw_t cbw;
     memset(&cbw, 0, sizeof(cbw));
@@ -428,11 +416,15 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     if (!tuh_msc_scsi_command(dev_addr, &cbw, (void *)(uintptr_t)buff, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
+        msc_volume_tur_ok[pdrv] = false;
+        if (msc_volume_is_removable[pdrv])
+            msc_handle_io_error(pdrv);
         return RES_ERROR;
     }
     wait_for_disk_io(dev_addr);
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
+        msc_volume_tur_ok[pdrv] = false;
         if (msc_volume_is_removable[pdrv])
             msc_handle_io_error(pdrv);
         return RES_ERROR;
@@ -510,7 +502,6 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    // Return the index of the FIL in the pool
     return (int)(fp - msc_std_fil_pool);
 }
 
@@ -701,6 +692,7 @@ static bool msc_probe_media(uint8_t vol)
     msc_volume_size[vol] = (uint64_t)msc_volume_block_count[vol] *
                            (uint64_t)msc_volume_block_size[vol];
     msc_volume_status[vol] = msc_volume_mounted;
+    msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: media detected\n", vol);
     return true;
 }
@@ -719,13 +711,10 @@ static void msc_handle_io_error(uint8_t vol)
     volstr[3] += vol;
     f_mount(&msc_fatfs_volumes[vol], volstr, 0);
     msc_volume_status[vol] = msc_volume_ejected;
+    msc_volume_tur_ok[vol] = false;
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
     DBG("MSC vol %d: media removed (I/O error)\n", vol);
-}
-
-void msc_task(void)
-{
 }
 
 // Initialize a newly registered volume: inquiry + read capacity.

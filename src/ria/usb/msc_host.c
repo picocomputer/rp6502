@@ -139,6 +139,14 @@ bool tuh_msc_ready(uint8_t dev_addr) {
   return true;
 }
 
+void tuh_msc_abort(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  if (!p_msc->configured) return;
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+  p_msc->stage = MSC_STAGE_IDLE;
+}
+
 //--------------------------------------------------------------------+
 // CBI (Control/Bulk/Interrupt) Transport
 //--------------------------------------------------------------------+
