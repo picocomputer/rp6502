@@ -28,6 +28,26 @@
 This file overrides the TinyUSB file:
 src/tinyusb/src/class/msc/msc_host.c
 See cmake configuration for override.
+
+Changes from upstream TinyUSB msc_host.c:
+
+- Add CBI (Control/Bulk/Interrupt) transport support: new ep_intr and protocol
+  fields in msch_interface_t, cbi_cmd/cbi_status buffers in msch_epbuf_t,
+  cbi_scsi_command() and cbi_adsc_complete() functions, and CBI branch in
+  msch_xfer_cb() handling data-complete and interrupt-status stages.
+- tuh_msc_scsi_command() routes to CBI or BOT transport based on protocol.
+- tuh_msc_ready() explicitly checks stage==IDLE in addition to endpoint busy.
+- msch_open() accepts CBI/CBI_NO_INTERRUPT protocols and UFI/SFF subclasses;
+  iterates bNumEndpoints (not fixed 2) to handle bulk + interrupt endpoints.
+- msch_set_config() skips GET_MAX_LUN and all SCSI enumeration (TUR, Read
+  Capacity). msc.c handles everything in disk_initialize/msc_init_volume
+  where the control pipe is guaranteed free. GET_MAX_LUN is also skipped to
+  avoid RP2040 EPX data toggle corruption on STALL.
+- max_lun, capacity[], tuh_msc_get_maxlun(), tuh_msc_get_block_count(),
+  tuh_msc_get_block_size(), tuh_msc_read10(), tuh_msc_write10() all removed:
+  msc.c owns LUN enumeration and block size/count tracking. Add multi-LUN
+  support there, not here.
+
 */
 
 #include "tusb_option.h"
@@ -61,24 +81,16 @@ typedef struct {
   uint8_t ep_in;
   uint8_t ep_out;
   uint8_t ep_intr;   // CBI interrupt endpoint (0 if BOT)
-  uint8_t max_lun;
   uint8_t protocol;  // MSC_PROTOCOL_BOT or MSC_PROTOCOL_CBI*
 
   volatile bool configured; // Receive SET_CONFIGURE
   volatile bool mounted;    // Enumeration is complete
-
-  uint8_t tur_retries; // Test Unit Ready retry counter for enumeration
 
   // SCSI command data
   uint8_t stage;
   void* buffer;
   tuh_msc_complete_cb_t complete_cb;
   uintptr_t complete_arg;
-
-  struct {
-    uint32_t block_size;
-    uint32_t block_count;
-  } capacity[CFG_TUH_MSC_MAXLUN];
 } msch_interface_t;
 
 typedef struct {
@@ -113,21 +125,6 @@ TU_ATTR_WEAK void tuh_msc_umount_cb(uint8_t dev_addr) {
 //--------------------------------------------------------------------+
 // PUBLIC API
 //--------------------------------------------------------------------+
-uint8_t tuh_msc_get_maxlun(uint8_t dev_addr) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  return p_msc->max_lun;
-}
-
-uint32_t tuh_msc_get_block_count(uint8_t dev_addr, uint8_t lun) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  return p_msc->capacity[lun].block_count;
-}
-
-uint32_t tuh_msc_get_block_size(uint8_t dev_addr, uint8_t lun) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  return p_msc->capacity[lun].block_size;
-}
-
 bool tuh_msc_mounted(uint8_t dev_addr) {
   msch_interface_t* p_msc = get_itf(dev_addr);
   return p_msc->mounted;
@@ -389,68 +386,6 @@ bool tuh_msc_request_sense(uint8_t dev_addr, uint8_t lun, void* response,
   return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
 }
 
-bool tuh_msc_read10(uint8_t dev_addr, uint8_t lun, void* buffer, uint32_t lba, uint16_t block_count,
-                    tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->mounted);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = block_count * p_msc->capacity[lun].block_size;
-  cbw.dir = TUSB_DIR_IN_MASK;
-  cbw.cmd_len = sizeof(scsi_read10_t);
-
-  scsi_read10_t const cmd_read10 = {
-      .cmd_code    = SCSI_CMD_READ_10,
-      .lba         = tu_htonl(lba),
-      .block_count = tu_htons(block_count)
-  };
-  memcpy(cbw.command, &cmd_read10, cbw.cmd_len); //-V1086
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, buffer, complete_cb, arg);
-}
-
-bool tuh_msc_write10(uint8_t dev_addr, uint8_t lun, void const* buffer, uint32_t lba, uint16_t block_count,
-                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->mounted);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = block_count * p_msc->capacity[lun].block_size;
-  cbw.dir         = TUSB_DIR_OUT;
-  cbw.cmd_len     = sizeof(scsi_write10_t);
-
-  scsi_write10_t const cmd_write10 = {
-      .cmd_code    = SCSI_CMD_WRITE_10,
-      .lba         = tu_htonl(lba),
-      .block_count = tu_htons(block_count)
-  };
-  memcpy(cbw.command, &cmd_write10, cbw.cmd_len); //-V1086
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, (void*) (uintptr_t) buffer, complete_cb, arg);
-}
-
-#if 0
-// MSC interface Reset (not used now)
-bool tuh_msc_reset(uint8_t dev_addr) {
-  tusb_control_request_t const new_request = {
-    .bmRequestType_bit = {
-      .recipient = TUSB_REQ_RCPT_INTERFACE,
-      .type      = TUSB_REQ_TYPE_CLASS,
-      .direction = TUSB_DIR_OUT
-    },
-    .bRequest = MSC_REQ_RESET,
-    .wValue   = 0,
-    .wIndex   = p_msc->itf_num,
-    .wLength  = 0
-  };
-  TU_ASSERT( usbh_control_xfer( dev_addr, &new_request, NULL ) );
-}
-#endif
-
 //--------------------------------------------------------------------+
 // CLASS-USBH API
 //--------------------------------------------------------------------+
@@ -642,101 +577,13 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
   return drv_len;
 }
 
-static bool config_test_unit_ready_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data);
-static bool config_request_sense_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data);
-static bool config_read_capacity_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data);
-
 bool msch_set_config(uint8_t daddr, uint8_t itf_num) {
   msch_interface_t* p_msc = get_itf(daddr);
   TU_ASSERT(p_msc->itf_num == itf_num);
   p_msc->configured = true;
-
-  // Skip GET_MAX_LUN for ALL protocols. It's a control transfer on
-  // the shared EPX pipe — if the device STALLs it (valid per spec),
-  // the RP2040 EPX data toggle is corrupted and subsequent control
-  // transfers (hub/HID enumeration) hit a Data Seq Error panic.
-  // Assume max_lun=1 (STALL response means 1 anyway).
-  p_msc->max_lun = 1;
-
-  if (p_msc->protocol != MSC_PROTOCOL_BOT) {
-    // CBI: ALL SCSI commands use ADSC control transfers on EPX,
-    // so defer everything to disk_initialize where EPX is idle.
-    p_msc->mounted = true;
-    tuh_msc_mount_cb(daddr);
-    usbh_driver_set_config_complete(daddr, p_msc->itf_num);
-    return true;
-  }
-
-  // BOT: TUR and Read Capacity go through bulk CBW/CSW, not EPX.
-  // Run them now to cache capacity before completing enumeration.
-  TU_LOG_DRV("SCSI Test Unit Ready\r\n");
-  p_msc->tur_retries = 0;
-  uint8_t const lun = 0;
-  tuh_msc_test_unit_ready(daddr, lun, config_test_unit_ready_complete, 0);
-
-  return true;
-}
-
-static bool config_test_unit_ready_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data) {
-  msc_cbw_t const* cbw = cb_data->cbw;
-  msc_csw_t const* csw = cb_data->csw;
-  uint8_t* enum_buf = usbh_get_enum_buf();
-
-  if (csw->status == 0) {
-    // Unit is ready, read its capacity
-    TU_LOG_DRV("SCSI Read Capacity\r\n");
-    tuh_msc_read_capacity(dev_addr, cbw->lun, (scsi_read_capacity10_resp_t*) (uintptr_t) enum_buf,
-                          config_read_capacity_complete, 0);
-  } else {
-    msch_interface_t* p_msc = get_itf(dev_addr);
-    p_msc->tur_retries++;
-    if (p_msc->tur_retries > 3) {
-      // Exhausted retries - complete with zero capacity (no media)
-      TU_LOG_DRV("SCSI Test Unit Ready retries exhausted, completing with zero capacity\r\n");
-      p_msc->capacity[cbw->lun].block_count = 0;
-      p_msc->capacity[cbw->lun].block_size  = 0;
-      p_msc->mounted = true;
-      tuh_msc_mount_cb(dev_addr);
-      usbh_driver_set_config_complete(dev_addr, p_msc->itf_num);
-    } else {
-      TU_LOG_DRV("SCSI Request Sense (retry %u)\r\n", p_msc->tur_retries);
-      TU_ASSERT(tuh_msc_request_sense(dev_addr, cbw->lun, enum_buf, config_request_sense_complete, 0), false);
-    }
-  }
-
-  return true;
-}
-
-static bool config_request_sense_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data) {
-  msc_cbw_t const* cbw = cb_data->cbw;
-  TU_ASSERT(tuh_msc_test_unit_ready(dev_addr, cbw->lun, config_test_unit_ready_complete, 0), false);
-  return true;
-}
-
-static bool config_read_capacity_complete(uint8_t dev_addr, tuh_msc_complete_data_t const* cb_data) {
-  msc_cbw_t const* cbw = cb_data->cbw;
-  msc_csw_t const* csw = cb_data->csw;
-  msch_interface_t* p_msc = get_itf(dev_addr);
-
-  if (csw->status != 0) {
-    // Read Capacity failed - complete with zero capacity (no media)
-    TU_LOG_DRV("SCSI Read Capacity failed, completing with zero capacity\r\n");
-    p_msc->capacity[cbw->lun].block_count = 0;
-    p_msc->capacity[cbw->lun].block_size  = 0;
-  } else {
-    uint8_t* enum_buf = usbh_get_enum_buf();
-    scsi_read_capacity10_resp_t* resp = (scsi_read_capacity10_resp_t*) (uintptr_t) enum_buf;
-    p_msc->capacity[cbw->lun].block_count = (uint32_t) (tu_ntohl(resp->last_lba) + 1u);
-    p_msc->capacity[cbw->lun].block_size  = tu_ntohl(resp->block_size);
-  }
-
-  // Mark enumeration is complete
   p_msc->mounted = true;
-  tuh_msc_mount_cb(dev_addr);
-
-  // notify usbh that driver enumeration is complete
-  usbh_driver_set_config_complete(dev_addr, p_msc->itf_num);
-
+  tuh_msc_mount_cb(daddr);
+  usbh_driver_set_config_complete(daddr, p_msc->itf_num);
   return true;
 }
 
