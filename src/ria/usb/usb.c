@@ -22,29 +22,36 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static bool usb_hid_leds_dirty;
 static uint8_t usb_hid_leds;
+static uint8_t usb_hid_leds_dev;
+static uint8_t usb_hid_leds_idx;
 static uint8_t usb_count_hid_kbd;
 static uint8_t usb_count_hid_mou;
 static uint8_t usb_count_hid_pad;
 
 void usb_init(void)
 {
-    tuh_init(TUH_OPT_RHPORT);
+    tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
+    tusb_init(TUH_OPT_RHPORT, &rh_init);
     tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
 }
 
 void usb_task(void)
 {
     tuh_task();
-    if (usb_hid_leds_dirty)
+    while (usb_hid_leds_dev)
     {
-        usb_hid_leds_dirty = false;
-        for (uint8_t dev_addr = 1; dev_addr <= CFG_TUH_DEVICE_MAX; dev_addr++)
-            for (uint8_t idx = 0; idx < CFG_TUH_HID; idx++)
-                if (tuh_hid_interface_protocol(dev_addr, idx) == HID_ITF_PROTOCOL_KEYBOARD)
-                    tuh_hid_set_report(dev_addr, idx, 0, HID_REPORT_TYPE_OUTPUT,
-                                       &usb_hid_leds, sizeof(usb_hid_leds));
+        while (usb_hid_leds_idx < CFG_TUH_HID)
+        {
+            if (tuh_hid_interface_protocol(usb_hid_leds_dev, usb_hid_leds_idx) == HID_ITF_PROTOCOL_KEYBOARD)
+                if (!tuh_hid_set_report(usb_hid_leds_dev, usb_hid_leds_idx, 0, HID_REPORT_TYPE_OUTPUT,
+                                        &usb_hid_leds, sizeof(usb_hid_leds)))
+                    return; // Control endpoint busy, resume next task
+            usb_hid_leds_idx++;
+        }
+        usb_hid_leds_idx = 0;
+        if (++usb_hid_leds_dev > CFG_TUH_DEVICE_MAX)
+            usb_hid_leds_dev = 0;
     }
 }
 
@@ -63,10 +70,16 @@ int usb_status_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
+static void usb_hid_leds_restart(void)
+{
+    usb_hid_leds_dev = 1;
+    usb_hid_leds_idx = 0;
+}
+
 void usb_set_hid_leds(uint8_t leds)
 {
     usb_hid_leds = leds;
-    usb_hid_leds_dirty = true;
+    usb_hid_leds_restart();
 }
 
 static inline int usb_idx_to_hid_slot(int idx)
@@ -98,7 +111,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     if (kbd_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len))
     {
         ++usb_count_hid_kbd;
-        usb_hid_leds_dirty = true; // TODO this stopped working
+        usb_hid_leds_restart();
         valid = true;
     }
     if (mou_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len))

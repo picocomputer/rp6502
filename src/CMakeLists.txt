@@ -143,6 +143,18 @@ target_sources(${RIA_TARGET} PRIVATE
     ria/usb/xin.c
 )
 
+# Override TinyUSB's msc_host.c with our custom version.
+# The magic is that header-only files don't get compiled.
+set_source_files_properties(
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/class/msc/msc_host.c
+    PROPERTIES HEADER_FILE_ONLY TRUE
+)
+target_sources(${RIA_TARGET} PRIVATE
+    ria/usb/hcd_rp2040.c
+    ria/usb/msc_host.c
+)
+
 
 # The RP6502-VGA
 
