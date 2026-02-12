@@ -13,7 +13,6 @@
 #include "pico/aon_timer.h"
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 #include "pico/time.h"
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
@@ -136,6 +135,12 @@ int msc_status_count(void)
             msc_init_volume(vol);
         else if (msc_volume_status[vol] == msc_volume_ejected)
             msc_probe_media(vol);
+        else if (msc_volume_status[vol] == msc_volume_mounted &&
+                 msc_volume_is_removable[vol])
+        {
+            msc_volume_tur_ok[vol] = false;
+            disk_status(vol);
+        }
         if (msc_volume_status[vol] == msc_volume_mounted ||
             msc_volume_status[vol] == msc_volume_ejected)
             count++;
@@ -147,38 +152,65 @@ int msc_status_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0 || state >= FF_VOLUMES)
         return -1;
-    if (msc_volume_status[state] == msc_volume_mounted)
+    if (msc_volume_status[state] == msc_volume_mounted ||
+        msc_volume_status[state] == msc_volume_ejected)
     {
-        const char *xb = "MB";
-        double size = msc_volume_size[state] / (1024 * 1024);
-        if (size >= 1000)
+        char sizebuf[24];
+        if (msc_volume_status[state] == msc_volume_ejected)
         {
-            xb = "GB";
-            size /= 1024;
+            snprintf(sizebuf, sizeof(sizebuf), "%s", STR_PARENS_NO_MEDIA);
         }
-        if (size >= 1000)
+        else
         {
-            xb = "TB";
-            size /= 1024;
+            // Floppy-era media (under 5 MB): raw/1024/1000
+            //   (matches "1.44 MB" convention: 1474560/1024=1440 KB/1000=1.44)
+            // Everything else: pure decimal raw/1000/1000
+            //   (matches Zip, SuperDisk, SD, USB, HDD advertised sizes)
+            const char *xb;
+            double size;
+            uint64_t raw = msc_volume_size[state];
+            if (raw < 5000000ULL)
+            {
+                xb = "KB";
+                size = raw / 1024.0;
+                if (size >= 1000)
+                {
+                    xb = "MB";
+                    size /= 1000;
+                }
+                // Format with 3 decimals, strip trailing zeros
+                char num[16];
+                snprintf(num, sizeof(num), "%.3f", size);
+                char *p = num + strlen(num) - 1;
+                while (*p == '0')
+                    *p-- = '\0';
+                if (*p == '.')
+                    *p = '\0';
+                snprintf(sizebuf, sizeof(sizebuf), "%s %s", num, xb);
+            }
+            else
+            {
+                xb = "MB";
+                size = raw / 1e6;
+                if (size >= 1000)
+                {
+                    xb = "GB";
+                    size /= 1000;
+                }
+                if (size >= 1000)
+                {
+                    xb = "TB";
+                    size /= 1000;
+                }
+                snprintf(sizebuf, sizeof(sizebuf), "%.1f %s", size, xb);
+            }
         }
-        size = ceil(size * 10) / 10;
         rtrims(msc_inquiry_resp[state].vendor_id, 8);
         rtrims(msc_inquiry_resp[state].product_id, 16);
         rtrims(msc_inquiry_resp[state].product_rev, 4);
         snprintf(buf, buf_size, STR_STATUS_MSC,
                  VolumeStr[state],
-                 size, xb,
-                 msc_inquiry_resp[state].vendor_id,
-                 msc_inquiry_resp[state].product_id,
-                 msc_inquiry_resp[state].product_rev);
-    }
-    else if (msc_volume_status[state] == msc_volume_ejected)
-    {
-        rtrims(msc_inquiry_resp[state].vendor_id, 8);
-        rtrims(msc_inquiry_resp[state].product_id, 16);
-        rtrims(msc_inquiry_resp[state].product_rev, 4);
-        snprintf(buf, buf_size, STR_STATUS_MSC_EJECTED,
-                 VolumeStr[state],
+                 sizebuf,
                  msc_inquiry_resp[state].vendor_id,
                  msc_inquiry_resp[state].product_id,
                  msc_inquiry_resp[state].product_rev);
