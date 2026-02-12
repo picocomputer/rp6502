@@ -40,7 +40,7 @@ X(STR_STATUS_BLE_FULL, "BLE : %d %s, %d %s, %d %s%s\n")
 X(STR_STATUS_BLE_SIMPLE, "BLE : %s\n")
 X(STR_STATUS_USB, "USB : %d %s, %d %s, %d %s, %d %s, %d %s\n")
 X(STR_STATUS_MSC, "%s: %.1f %s %.8s %.16s rev %.4s\n")
-X(STR_STATUS_MSC_EJECTED, "%s: no media %.8s %.16s rev %.4s\n")
+X(STR_STATUS_MSC_EJECTED, "%s: %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: %s %s\n")
 
 // ANSI to reset the terminal at boot

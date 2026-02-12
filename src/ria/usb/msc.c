@@ -131,10 +131,15 @@ int msc_status_count(void)
 {
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+    {
+        if (msc_volume_status[vol] == msc_volume_registered)
+            msc_init_volume(vol);
+        else if (msc_volume_status[vol] == msc_volume_ejected)
+            msc_probe_media(vol);
         if (msc_volume_status[vol] == msc_volume_mounted ||
-            msc_volume_status[vol] == msc_volume_ejected ||
-            msc_volume_status[vol] == msc_volume_registered)
+            msc_volume_status[vol] == msc_volume_ejected)
             count++;
+    }
     return count;
 }
 
@@ -177,11 +182,6 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                  msc_inquiry_resp[state].vendor_id,
                  msc_inquiry_resp[state].product_id,
                  msc_inquiry_resp[state].product_rev);
-    }
-    else if (msc_volume_status[state] == msc_volume_registered)
-    {
-        snprintf(buf, buf_size, "  %s: (initializing)\r\n",
-                 VolumeStr[state]);
     }
     return state + 1;
 }
