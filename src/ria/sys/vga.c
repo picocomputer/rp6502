@@ -20,7 +20,6 @@
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -42,14 +41,15 @@ static enum {
     VGA_CONNECTION_LOST, // Definitely an error condition
 } vga_state;
 
-bool vga_needs_reset = true;
+static bool vga_needs_reset = true;
 static uint8_t vga_display_type;
 static absolute_time_t vga_vsync_timer;
 static absolute_time_t vga_version_timer;
+static uint8_t vga_vsync_frame;
 
 #define VGA_VERSION_MESSAGE_SIZE 64
-char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
-size_t vga_version_message_length;
+static char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
+static size_t vga_version_message_length;
 
 static inline void vga_pix_backchannel_disable(void)
 {
@@ -73,11 +73,10 @@ static void vga_backchannel_command(uint8_t byte)
     {
     case 0x80:
         vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
-        static uint8_t vframe;
-        if (scalar < (vframe & 0xF))
-            vframe = (vframe & 0xF0) + 0x10;
-        vframe = (vframe & 0xF0) | scalar;
-        REGS(0xFFE3) = vframe;
+        if (scalar < (vga_vsync_frame & 0xF))
+            vga_vsync_frame = (vga_vsync_frame & 0xF0) + 0x10;
+        vga_vsync_frame = (vga_vsync_frame & 0xF0) | scalar;
+        REGS(0xFFE3) = vga_vsync_frame;
         ria_trigger_irq();
         break;
     case 0x90:
@@ -121,7 +120,11 @@ static void vga_connect(void)
         if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
         {
             uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
-            if (!(byte & 0x80))
+            if (byte & 0x80)
+            {
+                vga_backchannel_command(byte);
+            }
+            else
             {
                 vga_version_timer = make_timeout_time_ms(VGA_VERSION_WATCHDOG_MS);
                 if (byte == '\r' || byte == '\n')
@@ -177,7 +180,7 @@ void vga_init(void)
 
 void vga_task(void)
 {
-    if (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+    while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
     {
         uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
         if (byte & 0x80)
@@ -229,7 +232,6 @@ bool vga_connected(void)
 
 int vga_boot_response(char *buf, size_t buf_size, int state)
 {
-    (void)state;
     if (!vga_connected())
         return -1;
     return vga_status_response(buf, buf_size, state);
