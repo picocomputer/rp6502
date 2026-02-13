@@ -55,7 +55,7 @@ static int lfs_read(const struct lfs_config *c, lfs_block_t block,
 {
     (void)(c);
     memcpy(buffer,
-           (void *)XIP_NOCACHE_NOALLOC_BASE +
+           (const uint8_t *)XIP_NOCACHE_NOALLOC_BASE +
                (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
                (block * FLASH_SECTOR_SIZE) +
                off,
@@ -102,14 +102,21 @@ void lfs_init(void)
         // Maybe first boot. Attempt format.
         err = lfs_format(&lfs_volume, &cfg);
         mon_add_response_lfs(err);
-        err = lfs_mount(&lfs_volume, &cfg);
-        mon_add_response_lfs(err);
+        if (!err)
+        {
+            err = lfs_mount(&lfs_volume, &cfg);
+            mon_add_response_lfs(err);
+        }
     }
 }
 
-int lfs_eof(lfs_file_t *file)
+int lfs_eof(lfs_t *lfs, lfs_file_t *file)
 {
-    return file->pos >= file->ctz.size;
+    lfs_soff_t pos = lfs_file_tell(lfs, file);
+    lfs_soff_t size = lfs_file_size(lfs, file);
+    if (pos < 0 || size < 0)
+        return -1;
+    return pos >= size;
 }
 
 struct lfs_printf_ctx
@@ -143,9 +150,9 @@ int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...)
     return result;
 }
 
-char *lfs_gets(char *str, int n, lfs_t *lfs, lfs_file_t *file)
+char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file)
 {
-    int len = 0;
+    size_t len = 0;
     for (len = 0; len < n - 1; len++)
     {
         lfs_ssize_t result = lfs_file_read(lfs, file, &str[len], 1);
@@ -161,7 +168,7 @@ char *lfs_gets(char *str, int n, lfs_t *lfs, lfs_file_t *file)
         }
     }
     str[len] = 0;
-    if (!len && lfs_eof(file))
+    if (!len && lfs_eof(lfs, file))
         return NULL;
     return str;
 }

@@ -98,9 +98,9 @@ static bool rom_open(const char *name, bool is_fat)
 static bool rom_eof(void)
 {
     if (is_reading_fat)
-        return !!f_eof(&fat_fil);
+        return f_eof(&fat_fil);
     else
-        return !!lfs_eof(&lfs_file);
+        return lfs_eof(&lfs_volume, &lfs_file);
 }
 
 static bool rom_read(uint32_t len, uint32_t crc)
