@@ -50,7 +50,7 @@ static bool cmd_dial(const char **s)
         int num = cmd_parse_num(s);
         if (num < 0)
             num = 0;
-        if (num > MDM_PHONEBOOK_ENTRIES || (*s)[0])
+        if (num >= MDM_PHONEBOOK_ENTRIES || (*s)[0])
             return false;
         address = mdm_read_phonebook_entry(num);
     }
@@ -237,7 +237,7 @@ static bool cmd_verbose(const char **s)
 static bool cmd_progress(const char **s)
 {
     int value = cmd_parse_num(s);
-    if (value >= 0 && value <= 1)
+    if (value >= 0 && value <= 4)
     {
         mdm_settings.progress = value;
         return true;
@@ -263,6 +263,7 @@ static bool cmd_load_factory(const char **s)
     switch (cmd_parse_num(s))
     {
     case -1:
+    case 0:
         mdm_factory_settings(&mdm_settings);
         return true;
     }

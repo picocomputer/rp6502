@@ -9,26 +9,11 @@
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void mdm_init(void) {}
-bool mdm_std_handles(const char *)
-{
-    return false;
-}
-int mdm_std_open(const char *, uint8_t, api_errno *)
-{
-    return -1;
-}
-int mdm_std_close(int, api_errno *)
-{
-    return -1;
-}
-std_rw_result mdm_std_read(int, char *, uint32_t, uint32_t *, api_errno *)
-{
-    return STD_ERROR;
-}
-std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *)
-{
-    return STD_ERROR;
-}
+bool mdm_std_handles(const char *) { return false; }
+int mdm_std_open(const char *, uint8_t, api_errno *) { return -1; }
+int mdm_std_close(int, api_errno *) { return -1; }
+std_rw_result mdm_std_read(int, char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
+std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
 #else
 
 #include "net/cmd.h"
@@ -165,8 +150,6 @@ static int mdm_tx_command_mode(char ch)
         mdm_cmd_buf_len = 0;
         if (mdm_cmd_buf_is_at_command())
         {
-            if (!mdm_settings.echo && !mdm_settings.quiet && mdm_settings.verbose)
-                mdm_response_append_cr_lf();
             mdm_is_parsing = true;
             mdm_parse_result = true;
             mdm_parse_str = &mdm_cmd_buf[2];
@@ -236,11 +219,31 @@ static void mdm_tx_escape_observer(char ch)
 int mdm_response_code(char *buf, size_t buf_size, int state)
 {
     assert(state >= 0 && (unsigned)state < sizeof(MDM_RESPONSES) / sizeof(char *));
-    if (mdm_settings.quiet == 2 ||
-        (mdm_settings.quiet == 1 && state != 1 && state != 2 && state != 3))
+    // X register result code availability bitmasks.
+    // X0: 0-4, X1: 0-5, X2: 0-6, X3: 0-5 & 7, X4: 0-7.
+    // Code 8 (NO ANSWER) is always available (@ dial modifier).
+    static const uint16_t x_mask[] = {
+        0x011F, // X0
+        0x013F, // X1
+        0x017F, // X2
+        0x01BF, // X3
+        0x01FF, // X4
+    };
+    unsigned x = mdm_settings.progress;
+    if (x > 4)
+        x = 4;
+    bool suppress = false;
+    if (mdm_settings.quiet == 1)
+        suppress = true;
+    // TODO quiet == 2 is different when answering
+    else if (mdm_settings.quiet == 2 && state == 2)
+        suppress = true;
+    else if (!(x_mask[x] & (1u << state)))
+        suppress = true;
+    if (suppress)
         buf[0] = 0;
     else if (mdm_settings.verbose)
-        snprintf(buf, buf_size, "%s\r\n", MDM_RESPONSES[state]);
+        snprintf(buf, buf_size, "\r\n%s\r\n", MDM_RESPONSES[state]);
     else
         snprintf(buf, buf_size, "%d\r", state);
     return -1;
@@ -291,7 +294,7 @@ bool mdm_write_phonebook_entry(const char *entry, unsigned index)
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_PHONE_TMP,
-                                     LFS_O_RDWR | LFS_O_CREAT,
+                                     LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC,
                                      &lfs_file_config);
     if (lfsresult < 0)
     {
@@ -417,6 +420,8 @@ bool mdm_read_settings(mdm_settings_t *settings)
             break;
         case 'S':
             uint8_t s_register = atoi(str);
+            while (*str >= '0' && *str <= '9')
+                str++;
             if (str[0] != '=')
                 break;
             ++str;
@@ -502,7 +507,6 @@ bool mdm_hangup(void)
 {
     if (mdm_state != mdm_state_on_hook)
     {
-        mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
         mdm_state = mdm_state_on_hook;
         mdm_in_command_mode = true;
         tel_close();
@@ -513,10 +517,11 @@ bool mdm_hangup(void)
 
 void mdm_carrier_lost(void)
 {
-    // If the telephone connection is lost while
-    // we are escaped into command mode, hang up.
-    if (mdm_in_command_mode)
+    if (mdm_state != mdm_state_on_hook)
+    {
         mdm_hangup();
+        mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+    }
 }
 
 void mdm_init(void)
@@ -647,13 +652,14 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
                 uint8_t swap_ch = 0;
                 if (response_buf[i] == '\r')
                     swap_ch = response_buf[i] = mdm_settings.cr_char;
-                if (response_buf[i] == '\n')
+                else if (response_buf[i] == '\n')
                     swap_ch = response_buf[i] = mdm_settings.lf_char;
                 if (swap_ch & 0x80)
                 {
                     for (size_t j = i; j < mdm_response_buf_head; j++)
                         response_buf[j] = response_buf[j + 1];
                     mdm_response_buf_head--;
+                    i--;
                 }
             }
         }
@@ -697,7 +703,8 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
     while (pos < count)
     {
         char ch = buf[pos];
-        mdm_tx_escape_observer(ch);
+        if (!mdm_in_command_mode)
+            mdm_tx_escape_observer(ch);
         if (mdm_in_command_mode)
         {
             if (!mdm_is_parsing)
