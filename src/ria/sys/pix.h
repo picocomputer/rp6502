@@ -16,6 +16,7 @@
 #include <stdbool.h>
 
 #define PIX_PIN_BASE 0 /* PIX0-PIX3 */
+#define PIX_PIN_COUNT 4
 #define PIX_PIO pio1
 #define PIX_SM 1
 
@@ -60,6 +61,7 @@ static inline bool pix_ready(void)
 // Meant for use with pix_ready() to fill the FIFO in a task handler.
 static inline void pix_send(uint8_t dev3, uint8_t ch4, uint8_t byte, uint16_t word)
 {
+    assert(dev3 < 8);
     assert(ch4 < 16);
     pio_sm_put(PIX_PIO, PIX_SM, PIX_MESSAGE(dev3, ch4, byte, word));
 }
