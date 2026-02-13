@@ -51,9 +51,4 @@ void mem_task(void);
 void mem_break(void);
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size);
 
-// This is used by the monitor when in reset,
-// and by modem emulation when 6502 is running.
-#define RESPONSE_BUF_SIZE 128
-extern char response_buf[RESPONSE_BUF_SIZE];
-
 #endif /* _RIA_SYS_MEM_H_ */

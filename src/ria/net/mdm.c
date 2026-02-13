@@ -40,6 +40,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static char mdm_cmd_buf[MDM_AT_COMMAND_LEN + 1];
 static size_t mdm_cmd_buf_len;
 
+#define MDM_RESPONSE_BUF_SIZE 128
+static char mdm_response_buf[MDM_RESPONSE_BUF_SIZE];
 static size_t mdm_response_buf_head;
 static size_t mdm_response_buf_tail;
 static int (*mdm_response_fn)(char *, size_t, int);
@@ -75,7 +77,7 @@ static inline bool mdm_response_buf_empty(void)
 
 static inline bool mdm_response_buf_full(void)
 {
-    return ((mdm_response_buf_head + 1) % RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
+    return ((mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE) == mdm_response_buf_tail;
 }
 
 static inline size_t mdm_response_buf_count(void)
@@ -83,7 +85,7 @@ static inline size_t mdm_response_buf_count(void)
     if (mdm_response_buf_head >= mdm_response_buf_tail)
         return mdm_response_buf_head - mdm_response_buf_tail;
     else
-        return RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
+        return MDM_RESPONSE_BUF_SIZE - mdm_response_buf_tail + mdm_response_buf_head;
 }
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
@@ -109,8 +111,8 @@ static void mdm_response_append(char ch)
 {
     if (!mdm_response_buf_full())
     {
-        response_buf[mdm_response_buf_head] = ch;
-        mdm_response_buf_head = (mdm_response_buf_head + 1) % RESPONSE_BUF_SIZE;
+        mdm_response_buf[mdm_response_buf_head] = ch;
+        mdm_response_buf_head = (mdm_response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE;
     }
 }
 
@@ -563,7 +565,7 @@ static void mdm_translate_newlines(void)
     size_t out = 0;
     for (size_t i = 0; i < mdm_response_buf_head; i++)
     {
-        uint8_t ch = response_buf[i];
+        uint8_t ch = mdm_response_buf[i];
         bool translated = false;
         if (ch == '\r')
         {
@@ -576,7 +578,7 @@ static void mdm_translate_newlines(void)
             translated = true;
         }
         if (!translated || !(ch & 0x80))
-            response_buf[out++] = ch;
+            mdm_response_buf[out++] = ch;
     }
     mdm_response_buf_head = out;
 }
@@ -642,16 +644,16 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
         // Refill response buffer from generator if needed
         if (mdm_response_buf_empty() && mdm_response_state >= 0)
         {
-            mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
-            mdm_response_buf_head = strlen(response_buf);
+            mdm_response_state = mdm_response_fn(mdm_response_buf, MDM_RESPONSE_BUF_SIZE, mdm_response_state);
+            mdm_response_buf_head = strlen(mdm_response_buf);
             mdm_response_buf_tail = 0;
             mdm_translate_newlines();
         }
         if (!mdm_response_buf_empty())
         {
             // Drain response buffer
-            buf[pos++] = response_buf[mdm_response_buf_tail];
-            mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
+            buf[pos++] = mdm_response_buf[mdm_response_buf_tail];
+            mdm_response_buf_tail = (mdm_response_buf_tail + 1) % MDM_RESPONSE_BUF_SIZE;
         }
         else if (!mdm_in_command_mode)
         {

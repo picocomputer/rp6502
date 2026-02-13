@@ -34,6 +34,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // Response limit must accomodate SET and STATUS commands
 #define MON_RESPONSE_FN_COUNT 16
+#define MON_RESPONSE_BUF_SIZE 128
+static char mon_response_buf[MON_RESPONSE_BUF_SIZE];
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
@@ -338,7 +340,7 @@ static void mon_break_response(void)
     {
         if (mon_response_state[i] >= 0)
         {
-            mon_response_fn_list[i](response_buf, RESPONSE_BUF_SIZE, -1);
+            mon_response_fn_list[i](mon_response_buf, MON_RESPONSE_BUF_SIZE, -1);
             mon_response_fn_list[i] = NULL;
             mon_response_str[i] = NULL;
             mon_response_state[i] = -1;
@@ -458,7 +460,7 @@ void mon_task(void)
     {
         int rows_max = mon_guess_console_rows() - 1;
         char c;
-        while ((c = response_buf[mon_response_pos]) && com_putchar_ready())
+        while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
         {
             if (mon_response_line >= rows_max)
             {
@@ -478,9 +480,9 @@ void mon_task(void)
     if (mon_response_pos == -1 && mon_response_state[0] >= 0)
     {
         mon_response_pos = 0;
-        response_buf[0] = 0;
+        mon_response_buf[0] = 0;
         mon_response_state[0] = (mon_response_fn_list[0])(
-            response_buf, RESPONSE_BUF_SIZE, mon_response_state[0]);
+            mon_response_buf, MON_RESPONSE_BUF_SIZE, mon_response_state[0]);
         if (mon_response_state[0] < 0)
             mon_next_response();
         return;
