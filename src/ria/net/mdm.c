@@ -23,6 +23,7 @@ std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *
 #include "sys/lfs.h"
 #include "sys/mem.h"
 #include <pico/time.h>
+#include <stdlib.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MDM)
 #include <stdio.h>
@@ -30,17 +31,6 @@ std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-// Leave a little room for escaped telnet characters.
-#if TCP_MSS == 536 // does not fragment and good enough
-#define MDM_TX_BUF_SIZE (512)
-#elif TCP_MSS == 1460 // in case someone wants to try
-#define MDM_TX_BUF_SIZE (1024)
-#else
-#error unexpected TCP_MSS
-#endif
-static char mdm_tx_buf[MDM_TX_BUF_SIZE];
-static size_t mdm_tx_buf_len;
 
 #define MDM_ESCAPE_GUARD_TIME_US 1000000
 #define MDM_ESCAPE_COUNT 3
@@ -189,14 +179,6 @@ static int mdm_tx_command_mode(char ch)
         if (mdm_cmd_buf_len < MDM_AT_COMMAND_LEN)
             mdm_cmd_buf[mdm_cmd_buf_len++] = ch;
     }
-    return 1;
-}
-
-static int mdm_tx_connected(char ch)
-{
-    if (mdm_tx_buf_len >= MDM_TX_BUF_SIZE)
-        return 0;
-    mdm_tx_buf[mdm_tx_buf_len++] = ch;
     return 1;
 }
 
@@ -469,7 +451,7 @@ bool mdm_dial(const char *s)
         return false;
     char *buf = (char *)mbuf;
     strcpy(buf, s);
-    u16_t port;
+    uint16_t port;
     char *port_str = strrchr(buf, ':');
     if (!port_str)
         port = 23;
@@ -531,11 +513,6 @@ void mdm_init(void)
 
 void mdm_task()
 {
-    if (!mdm_in_command_mode && mdm_tx_buf_len)
-    {
-        if (tel_tx(mdm_tx_buf, mdm_tx_buf_len))
-            mdm_tx_buf_len = 0;
-    }
     if (mdm_is_parsing)
     {
         if (mdm_response_state >= 0)
@@ -571,7 +548,6 @@ void mdm_stop(void)
     tel_close();
     mdm_is_open = false;
     mdm_cmd_buf_len = 0;
-    mdm_tx_buf_len = 0;
     mdm_response_buf_head = 0;
     mdm_response_buf_tail = 0;
     mdm_response_state = -1;
@@ -580,6 +556,29 @@ void mdm_stop(void)
     mdm_in_command_mode = true;
     mdm_is_parsing = false;
     mdm_escape_count = 0;
+}
+
+static void mdm_translate_newlines(void)
+{
+    size_t out = 0;
+    for (size_t i = 0; i < mdm_response_buf_head; i++)
+    {
+        uint8_t ch = response_buf[i];
+        bool translated = false;
+        if (ch == '\r')
+        {
+            ch = mdm_settings.cr_char;
+            translated = true;
+        }
+        else if (ch == '\n')
+        {
+            ch = mdm_settings.lf_char;
+            translated = true;
+        }
+        if (!translated || !(ch & 0x80))
+            response_buf[out++] = ch;
+    }
+    mdm_response_buf_head = out;
 }
 
 bool mdm_std_handles(const char *filename)
@@ -640,49 +639,25 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
     uint32_t pos = 0;
     while (pos < count)
     {
-        // Get next line, if needed and in progress
+        // Refill response buffer from generator if needed
         if (mdm_response_buf_empty() && mdm_response_state >= 0)
         {
             mdm_response_state = mdm_response_fn(response_buf, RESPONSE_BUF_SIZE, mdm_response_state);
             mdm_response_buf_head = strlen(response_buf);
             mdm_response_buf_tail = 0;
-            // Translate CR and LF chars to settings
-            for (size_t i = 0; i < mdm_response_buf_head; i++)
-            {
-                uint8_t swap_ch = 0;
-                if (response_buf[i] == '\r')
-                    swap_ch = response_buf[i] = mdm_settings.cr_char;
-                else if (response_buf[i] == '\n')
-                    swap_ch = response_buf[i] = mdm_settings.lf_char;
-                if (swap_ch & 0x80)
-                {
-                    for (size_t j = i; j < mdm_response_buf_head; j++)
-                        response_buf[j] = response_buf[j + 1];
-                    mdm_response_buf_head--;
-                    i--;
-                }
-            }
+            mdm_translate_newlines();
         }
-        char *ch = &buf[pos];
-        // Get from line buffer, if available
         if (!mdm_response_buf_empty())
         {
-            *ch = response_buf[mdm_response_buf_tail];
+            // Drain response buffer
+            buf[pos++] = response_buf[mdm_response_buf_tail];
             mdm_response_buf_tail = (mdm_response_buf_tail + 1) % RESPONSE_BUF_SIZE;
-            pos++;
         }
-        // Get from telephone emulator
         else if (!mdm_in_command_mode)
         {
-            int result = tel_rx(ch);
-            if (result == -1)
-            {
-                *err = API_EIO;
-                return STD_ERROR;
-            }
-            if (result == 0)
-                break;
-            pos++;
+            // Read from telephone connection in data mode
+            pos += tel_rx(&buf[pos], (uint16_t)(count - pos));
+            break;
         }
         else
             break;
@@ -699,32 +674,29 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         *err = API_EIO;
         return STD_ERROR;
     }
-    uint32_t pos = 0;
-    while (pos < count)
+    if (mdm_is_parsing)
     {
-        char ch = buf[pos];
-        if (!mdm_in_command_mode)
-            mdm_tx_escape_observer(ch);
-        if (mdm_in_command_mode)
-        {
-            if (!mdm_is_parsing)
-            {
-                if (!mdm_tx_command_mode(ch))
-                    break;
-            }
-            else
-                break;
-        }
-        else if (mdm_state == mdm_state_connected)
-        {
-            if (!mdm_tx_connected(ch))
-                break;
-        }
-        else if (mdm_state != mdm_state_dialing)
-            break;
-        pos++;
+        *bytes_written = 0;
+        return STD_OK;
     }
-    *bytes_written = pos;
+    if (mdm_in_command_mode)
+    {
+        uint32_t pos = 0;
+        while (pos < count)
+        {
+            if (!mdm_tx_command_mode(buf[pos]))
+                break;
+            pos++;
+        }
+        *bytes_written = pos;
+        return STD_OK;
+    }
+    uint16_t bw = count;
+    if (mdm_state == mdm_state_connected)
+        bw = tel_tx(buf, bw);
+    for (uint16_t i = 0; i < bw; i++)
+        mdm_tx_escape_observer(buf[i]);
+    *bytes_written = bw;
     return STD_OK;
 }
 
