@@ -15,12 +15,12 @@ void ble_set_hid_leds(uint8_t) {}
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
-#include "main.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/led.h"
+#include "main.h"
 #include <stdio.h>
 #include <pico/time.h>
 #include <btstack.h>
