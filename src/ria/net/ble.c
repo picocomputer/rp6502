@@ -41,9 +41,8 @@ static uint8_t ble_count_pad;
 // LED output report state for BLE keyboards
 static bool ble_hid_leds_dirty;
 static uint8_t ble_hid_leds;
-#define BLE_MAX_KBD 8
-static uint16_t ble_kbd_cids[BLE_MAX_KBD];
 static uint8_t ble_kbd_cid_count;
+static uint16_t ble_kbd_cids[MAX_NR_HIDS_CLIENTS];
 
 // BTStack state - BLE Central and HIDS Client
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -144,7 +143,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         if (kbd_mount(slot, descriptor, descriptor_len))
         {
             ++ble_count_kbd;
-            if (ble_kbd_cid_count < BLE_MAX_KBD)
+            if (ble_kbd_cid_count < MAX_NR_HIDS_CLIENTS)
                 ble_kbd_cids[ble_kbd_cid_count++] = cid;
             ble_hid_leds_dirty = true;
         }
@@ -435,8 +434,7 @@ void ble_task(void)
         ble_hid_leds_dirty = false;
         for (uint8_t i = 0; i < ble_kbd_cid_count; i++)
             if (hids_client_send_write_report(ble_kbd_cids[i], 0,
-                    HID_REPORT_TYPE_OUTPUT, &ble_hid_leds, sizeof(ble_hid_leds))
-                == ERROR_CODE_COMMAND_DISALLOWED)
+                                              HID_REPORT_TYPE_OUTPUT, &ble_hid_leds, sizeof(ble_hid_leds)) == ERROR_CODE_COMMAND_DISALLOWED)
                 ble_hid_leds_dirty = true; // Retry when previous write still in-flight
     }
 
@@ -482,6 +480,18 @@ static void ble_set_config(uint8_t ble)
         // Restart connection attempts for bonded devices
         if (ble_initialized)
             ble_scan_restarts_at = get_absolute_time();
+        break;
+    case 86:
+        // Clear all bonds and disconnect everything
+        ble_shutdown();
+        for (int i = le_device_db_max_count() - 1; i >= 0; i--)
+        {
+            int db_addr_type = BD_ADDR_TYPE_UNKNOWN;
+            bd_addr_t db_addr;
+            le_device_db_info(i, &db_addr_type, db_addr, NULL);
+            if (db_addr_type != BD_ADDR_TYPE_UNKNOWN)
+                gap_delete_bonding(db_addr_type, db_addr);
+        }
         break;
     case 2:
         if (cyw_get_rf_enable())
@@ -559,10 +569,10 @@ void ble_load_enabled(const char *str, size_t len)
 
 bool ble_set_enabled(uint8_t ble)
 {
-    if (ble > 2)
+    if (ble > 2 && ble != 86)
         return false;
     ble_set_config(ble);
-    if (ble == 2)
+    if (ble > 1)
         ble = 1;
     if (ble_enabled != ble)
     {

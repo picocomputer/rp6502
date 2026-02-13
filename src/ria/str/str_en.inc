@@ -317,4 +317,5 @@ X(STR_HELP_SET_PASS,
 
 X(STR_HELP_SET_BLE,
   "Setting 0 disables Bluetooth LE. Setting 1 enables. Setting 2 enters pairing\n"
-  "mode which will remain active until successful.\n")
+  "mode which will remain active until successful. Setting 86 clears all bonds\n"
+  "and disconnects all devices.\n")

@@ -50,24 +50,6 @@ static const struct lfs_config cfg = {
     .lookahead_buffer = lfs_lookahead_buffer,
 };
 
-// This will relocate the two flash blocks used for bluetooth.
-// btstack_flash_bank is a bit of a dumspter file right now.
-// Ideally, we'd like a file in lfs instead.
-// btstack_flash_bank.h isn't in the path.
-// CMake won't allow math in defines.
-// When forking the SDK seems like the best option,
-// stepping back for a while is probably better.
-uint32_t lfs_get_bt_storage_offset(void)
-{
-#ifdef RP6502_RIA_W
-    // WARNING: Verify PICO_FLASH_BANK_TOTAL_SIZE matches btstack_flash_bank.h
-    const uint32_t PICO_FLASH_BANK_TOTAL_SIZE = (FLASH_SECTOR_SIZE * 2u);
-#else
-    const uint32_t PICO_FLASH_BANK_TOTAL_SIZE = 0;
-#endif
-    return PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE - PICO_FLASH_BANK_TOTAL_SIZE;
-}
-
 static int lfs_read(const struct lfs_config *c, lfs_block_t block,
                     lfs_off_t off, void *buffer, lfs_size_t size)
 {
@@ -109,10 +91,10 @@ static int lfs_sync(const struct lfs_config *c)
 
 void lfs_init(void)
 {
-    // Check we're not overlapping the binary in flash
+    // Check we're not overlapping the LFS region in flash
     extern char __flash_binary_end;
     (void)__flash_binary_end;
-    assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= lfs_get_bt_storage_offset()));
+    assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE));
     // mount the filesystem
     int err = lfs_mount(&lfs_volume, &cfg);
     if (err)
