@@ -47,11 +47,11 @@ void wfi_shutdown(void)
 {
     switch (wfi_state)
     {
-    case wfi_state_connect:
     case wfi_state_connected:
     case wfi_state_connecting:
         cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
         __attribute__((fallthrough));
+    case wfi_state_connect:
     case wfi_state_connect_failed:
         cyw43_arch_disable_sta_mode();
         wfi_state = wfi_state_off;
@@ -113,6 +113,7 @@ void wfi_task(void)
             break;
         case CYW43_LINK_UP:
             DBG("NET WFI connected\n");
+            wfi_retry_initial_retry_count = 0;
             wfi_state = wfi_state_connected;
             break;
         case CYW43_LINK_FAIL:
@@ -132,6 +133,12 @@ void wfi_task(void)
         }
         break;
     case wfi_state_connected:
+        if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP)
+        {
+            int secs = wfi_retry_connect();
+            (void)secs;
+            DBG("NET WFI connection lost, retry %ds\n", secs);
+        }
         break;
     }
 }
@@ -223,7 +230,7 @@ void wfi_load_ssid(const char *str, size_t len)
 bool wfi_set_ssid(const char *ssid)
 {
     size_t len = strlen(ssid);
-    if (len < sizeof(wfi_ssid) - 1)
+    if (len < sizeof(wfi_ssid))
     {
         if (strcmp(wfi_ssid, ssid))
         {
@@ -249,11 +256,11 @@ void wfi_load_pass(const char *str, size_t len)
 
 bool wfi_set_pass(const char *pass)
 {
-    if (strlen(wfi_ssid) && strlen(pass) < sizeof(wfi_pass) - 1)
+    if (strlen(wfi_ssid) && strlen(pass) < sizeof(wfi_pass))
     {
         if (strcmp(wfi_pass, pass))
         {
-            strcpy(wfi_pass, pass);
+            strncpy(wfi_pass, pass, sizeof(wfi_pass));
             wfi_shutdown();
             cfg_save();
         }
