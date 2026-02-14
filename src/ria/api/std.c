@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api/api.h"
 #include "str/rln.h"
 #include "sys/com.h"
 #include "sys/pix.h"
@@ -13,7 +14,6 @@
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -165,10 +165,13 @@ bool std_api_close(void)
     if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
         return api_return_errno(API_EBADF);
     std_fd_t *f = &std_fd_pool[fd];
-    f->is_open = false;
     api_errno err = API_EIO;
     if (f->close(f->desc, &err) < 0)
+    {
+        f->is_open = false;
         return api_return_errno(err);
+    }
+    f->is_open = false;
     return api_return_ax(0);
 }
 
@@ -237,6 +240,7 @@ bool std_api_read_xram(void)
             return api_working();
         if (result == STD_ERROR)
         {
+            std_pix = -1;
             std_fd = NULL;
             return api_return_errno(err);
         }
@@ -307,13 +311,13 @@ bool std_api_write_xram(void)
         return api_return_ax(std_pos);
     }
     uint16_t xram_addr;
+    if (!api_pop_uint16(&std_size) || !api_pop_uint16_end(&xram_addr))
+        return api_return_errno(API_EINVAL);
     std_fd_t *fd = std_validate_fd(API_A);
     if (!fd)
         return api_return_errno(API_EBADF);
     if (!fd->write)
         return api_return_errno(API_ENOSYS);
-    if (!api_pop_uint16(&std_size) || !api_pop_uint16_end(&xram_addr))
-        return api_return_errno(API_EINVAL);
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
     std_buf = (char *)&xram[xram_addr];
@@ -379,6 +383,8 @@ bool std_api_lseek_llvm(void)
         return api_return_errno(API_EINVAL);
     if (!fd->lseek)
         return api_return_errno(API_ENOSYS);
+    if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
+        return api_return_errno(API_EINVAL);
     int32_t pos;
     api_errno err = API_EIO;
     if (fd->lseek(fd->desc, whence, ofs, &pos, &err) < 0)
