@@ -52,6 +52,7 @@ void aud_stop(void)
         irq_remove_handler(PWM_IRQ_WRAP_0, aud_irq_fn);
         aud_irq_fn = NULL;
     }
+    pwm_clear_irq(AUD_IRQ_SLICE);
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, AUD_PWM_CENTER);
 }
@@ -63,7 +64,7 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
         aud_stop();
         aud_irq_fn = irq_fn;
         irq_set_exclusive_handler(PWM_IRQ_WRAP_0, irq_fn);
-        pwm_set_wrap(AUD_IRQ_SLICE, CPU_RP2350_KHZ / (rate / 1000.f));
+        pwm_set_wrap(AUD_IRQ_SLICE, CPU_RP2350_KHZ / (rate / 1000.f) - 1);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
         irq_set_enabled(PWM_IRQ_WRAP, true);
     }

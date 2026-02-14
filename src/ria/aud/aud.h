@@ -30,7 +30,7 @@ void aud_stop(void);
 
 void aud_setup(void (*irq_fn)(void), uint32_t rate);
 
-/* Audio samples are unsigned 8 bits.
+/* Audio sample depth and center
  */
 
 #define AUD_PWM_BITS 10

@@ -261,11 +261,9 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     {
                         if (rw_pos == rw_end)
                         {
-                            REGS(0xFFF6) = 0x00;
                             gpio_put(CPU_RESB_PIN, false);
                             action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
-                            break;
                         }
                         REGS(0xFFF1) = mbuf[++rw_pos];
                         REGSW(0xFFF3) += 1;
@@ -332,12 +330,15 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[RIA_ADDR1] = data;
                     PIX_SEND_XRAM(RIA_ADDR1, data);
-                    if (xram_queue_page == REGS(0xFFEB) &&
-                        (uint8_t)(xram_queue_head + 1) != xram_queue_tail)
+                    if (xram_queue_page == REGS(0xFFEB))
                     {
-                        ++xram_queue_head;
-                        xram_queue[xram_queue_head][0] = REGS(0xFFEA);
-                        xram_queue[xram_queue_head][1] = data;
+                        uint8_t next = xram_queue_head + 1;
+                        if (next != xram_queue_tail)
+                        {
+                            xram_queue[next][0] = REGS(0xFFEA);
+                            xram_queue[next][1] = data;
+                            xram_queue_head = next;
+                        }
                     }
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
@@ -346,12 +347,15 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[RIA_ADDR0] = data;
                     PIX_SEND_XRAM(RIA_ADDR0, data);
-                    if (xram_queue_page == REGS(0xFFE7) &&
-                        (uint8_t)(xram_queue_head + 1) != xram_queue_tail)
+                    if (xram_queue_page == REGS(0xFFE7))
                     {
-                        ++xram_queue_head;
-                        xram_queue[xram_queue_head][0] = REGS(0xFFE6);
-                        xram_queue[xram_queue_head][1] = data;
+                        uint8_t next = xram_queue_head + 1;
+                        if (next != xram_queue_tail)
+                        {
+                            xram_queue[next][0] = REGS(0xFFE6);
+                            xram_queue[next][1] = data;
+                            xram_queue_head = next;
+                        }
                     }
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0

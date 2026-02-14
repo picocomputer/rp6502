@@ -14,7 +14,6 @@
 #include <math.h>
 #include <string.h>
 #include <emu8950/emu8950.h>
-#include <cmsis_compiler.h>
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_OPL)
 #include <stdio.h>
@@ -27,7 +26,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define OPL_SAMPLE_RATE 49716
 
 static OPL *opl_emu8950;
-static volatile uint16_t opl_xaddr;
+static uint16_t opl_xaddr;
 static int16_t opl_sample;
 
 static void

@@ -17,9 +17,9 @@
 // 64KB Extended RAM
 // One page is tracked for audio
 extern uint8_t *const xram;
-extern uint8_t xram_queue_page;
-extern uint8_t xram_queue_head;
-extern uint8_t xram_queue_tail;
+extern volatile uint8_t xram_queue_page;
+extern volatile uint8_t xram_queue_head;
+extern volatile uint8_t xram_queue_tail;
 extern uint8_t xram_queue[256][2];
 
 // The xstack is:
