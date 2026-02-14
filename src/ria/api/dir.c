@@ -39,23 +39,25 @@ void dir_stop(void)
         f_closedir(&dirs[i]);
 }
 
-static void dir_push_filinfo(FILINFO *fno)
+static bool dir_push_filinfo(FILINFO *fno)
 {
     // Ensure 6502 struct never changes and
     // always looks like FSIZE_t = 32-bits.
+    bool ok = true;
     for (int i = FF_LFN_BUF; i >= 0; i--)
-        api_push_char(&fno->fname[i]);
+        ok &= api_push_char(&fno->fname[i]);
     for (int i = FF_SFN_BUF; i >= 0; i--)
-        api_push_char(&fno->altname[i]);
-    api_push_uint8(&fno->fattrib);
-    api_push_uint16(&fno->crtime);
-    api_push_uint16(&fno->crdate);
-    api_push_uint16(&fno->ftime);
-    api_push_uint16(&fno->fdate);
+        ok &= api_push_char(&fno->altname[i]);
+    ok &= api_push_uint8(&fno->fattrib);
+    ok &= api_push_uint16(&fno->crtime);
+    ok &= api_push_uint16(&fno->crdate);
+    ok &= api_push_uint16(&fno->ftime);
+    ok &= api_push_uint16(&fno->fdate);
     uint32_t fsize = fno->fsize;
     if (fno->fsize > 0xFFFFFFFF)
         fsize = 0xFFFFFFFF;
-    api_push_uint32(&fsize);
+    ok &= api_push_uint32(&fsize);
+    return ok;
 }
 
 // int f_stat (const char *path, struct f_stat *dirent);
@@ -67,7 +69,8 @@ bool dir_api_stat(void)
     FRESULT fresult = f_stat(path, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    dir_push_filinfo(&fno);
+    if (!dir_push_filinfo(&fno))
+        return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
 
@@ -100,13 +103,16 @@ bool dir_api_readdir(void)
     if (des >= DIR_MAX_OPEN)
         return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
     FILINFO fno;
     FRESULT fresult = f_readdir(dir, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     if (fno.fname[0])
         tells[des]++;
-    dir_push_filinfo(&fno);
+    if (!dir_push_filinfo(&fno))
+        return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
 
@@ -117,6 +123,8 @@ bool dir_api_closedir(void)
     if (des >= DIR_MAX_OPEN)
         return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
     FRESULT fresult = f_closedir(dir);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
@@ -146,6 +154,8 @@ bool dir_api_seekdir(void)
         return api_return_errno(API_EBADF);
     int32_t offs;
     if (!api_pop_int32_end(&offs))
+        return api_return_errno(API_EINVAL);
+    if (offs < 0)
         return api_return_errno(API_EINVAL);
     if (tells[des] > offs)
     {
@@ -319,7 +329,8 @@ bool dir_api_getlabel(void)
     if (label_len > 11)
         return api_return_errno(API_ERANGE);
     while (label_len)
-        api_push_char(&label[--label_len]);
+        if (!api_push_char(&label[--label_len]))
+            return api_return_errno(API_ENOMEM);
     return api_return_ax(ret_len + 1);
 }
 
@@ -328,13 +339,15 @@ bool dir_api_getfree(void)
 {
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    DWORD fre_clust, fre_sect, tot_sect;
+    DWORD fre_clust;
     FATFS *fs;
     FRESULT fresult = f_getfree(path, &fre_clust, &fs);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    tot_sect = (fs->n_fatent - 2) * fs->csize;
-    fre_sect = fre_clust * fs->csize;
+    uint64_t tot = (uint64_t)(fs->n_fatent - 2) * fs->csize;
+    uint64_t fre = (uint64_t)fre_clust * fs->csize;
+    uint32_t tot_sect = tot > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot;
+    uint32_t fre_sect = fre > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fre;
     api_push_uint32(&tot_sect);
     api_push_uint32(&fre_sect);
     return api_return_ax(0);
