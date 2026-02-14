@@ -16,9 +16,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -140,8 +140,12 @@ int clk_tzdata_response(char *buf, size_t buf_size, int state)
     unsigned el = state;
     for (int i = 0; i < 3; i++)
     {
-        snprintf(buf, buf_size, fmt, clk_tzinfo_name[el]);
-        buf += strlen(buf);
+        int n = snprintf(buf, buf_size, fmt, clk_tzinfo_name[el]);
+        if (n > 0 && (size_t)n < buf_size)
+        {
+            buf += n;
+            buf_size -= n;
+        }
         if (i < 2)
             el += rows;
         else
@@ -232,9 +236,10 @@ bool clk_set_time_zone(const char *tz)
             break;
         }
     }
+    const char *current_tz = getenv(STR_TZ);
     if (found_index != clk_tzinfo_index ||
         (found_index < 0 && clk_tzinfo_index < 0 &&
-         strcmp(getenv(STR_TZ), tz)))
+         (!current_tz || strcmp(current_tz, tz))))
     {
         clk_tzinfo_index = found_index;
         if (clk_tzinfo_index < 0)
@@ -323,7 +328,8 @@ bool clk_api_get_time(void)
     if (clock_id == CLK_ID_REALTIME)
     {
         struct timespec ts;
-        aon_timer_get_time(&ts);
+        if (!aon_timer_get_time(&ts))
+            return api_return_errno(API_EIO);
         int32_t nsec = ts.tv_nsec;
         uint32_t sec = ts.tv_sec;
         if (!api_push_int32(&nsec) ||
@@ -344,6 +350,8 @@ bool clk_api_set_time(void)
         int32_t rawtime_nsec;
         if (!api_pop_uint32(&rawtime_sec) ||
             !api_pop_int32_end(&rawtime_nsec))
+            return api_return_errno(API_EINVAL);
+        if (rawtime_nsec < 0 || rawtime_nsec > 999999999)
             return api_return_errno(API_EINVAL);
         struct timespec ts;
         ts.tv_sec = rawtime_sec;
