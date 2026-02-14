@@ -90,6 +90,7 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
         if ((*args)[i] != ' ')
             break;
     }
+    size_t start = i;
     uint32_t base = 10;
     uint32_t value = 0;
     uint32_t prefix = 0;
@@ -104,7 +105,7 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
         base = 16;
         prefix = 2;
     }
-    i = prefix;
+    i = start + prefix;
     if (i == *len)
         return false;
     for (; i < *len; i++)
@@ -117,9 +118,11 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
         uint32_t digit = str_xdigit_to_int(ch);
         if (digit >= base)
             return false;
+        if (value > (UINT32_MAX - digit) / base)
+            return false;
         value = value * base + digit;
     }
-    if (i == prefix)
+    if (i == start + prefix)
         return false;
     if (i < *len && (*args)[i] != ' ')
         return false;

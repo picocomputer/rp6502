@@ -42,8 +42,8 @@ X(STR_ERR_LFS_IO, "?IO error\n")                      // -5
 X(STR_ERR_LFS_CORRUPT, "?Corrupted\n")                // -84
 X(STR_ERR_LFS_NOENT, "?No directory entry\n")         // -2
 X(STR_ERR_LFS_EXIST, "?Entry already exists\n")       // -17
-X(STR_ERR_LFS_NOTDIR, "?Entry is not a directrory\n") // -20
-X(STR_ERR_LFS_ISDIR, "?Entry is a directrory\n")      // -21
+X(STR_ERR_LFS_NOTDIR, "?Entry is not a directory\n")  // -20
+X(STR_ERR_LFS_ISDIR, "?Entry is a directory\n")       // -21
 X(STR_ERR_LFS_NOTEMPTY, "?Directory is not empty\n")  // -39
 X(STR_ERR_LFS_BADF, "?Bad file number\n")             // -9
 X(STR_ERR_LFS_FBIG, "?File too large\n")              // -27
