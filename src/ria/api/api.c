@@ -71,12 +71,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // The original plan was to default to 0 (don't change) until the
 // errno option is set. Unfortunately, old cc65-compiled binaries
 // use errno to detect stdio failures so we're defaulting to -1.
-#define API_MAP(errno_name)                 \
-    (api_errno_opt == API_ERRNO_OPT_CC65)   \
-        ? API_CC65_##errno_name             \
-    : (api_errno_opt == API_ERRNO_OPT_LLVM) \
-        ? API_LLVM_##errno_name             \
-        : -1;
+#define API_MAP(errno_name)                  \
+    ((api_errno_opt == API_ERRNO_OPT_CC65)   \
+         ? API_CC65_##errno_name             \
+     : (api_errno_opt == API_ERRNO_OPT_LLVM) \
+         ? API_LLVM_##errno_name             \
+         : -1)
 
 // API state
 static uint8_t api_errno_opt;
@@ -86,9 +86,12 @@ void api_task(void)
 {
     // Latch called op in case 6502 app misbehaves
     if (cpu_active() && !ria_active() &&
-        !api_active_op && API_BUSY &&
-        API_OP != 0x00 && API_OP != 0xFF)
-        api_active_op = API_OP;
+        !api_active_op && API_BUSY)
+    {
+        uint8_t op = API_OP;
+        if (op != 0x00 && op != 0xFF)
+            api_active_op = op;
+    }
     if (api_active_op && !main_api(api_active_op))
         api_active_op = 0;
 }
@@ -236,13 +239,12 @@ bool api_pop_uint16_end(uint16_t *data)
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint16_t) - 1);
-        *data >>= 8 * 1;
+        *data = 0;
+        memcpy(data, &xstack[xstack_ptr], 1);
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
-        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(uint16_t) - 0);
-        *data >>= 8 * 0;
+        memcpy(data, &xstack[xstack_ptr], 2);
         xstack_ptr = XSTACK_SIZE;
         return true;
     default:
@@ -258,23 +260,22 @@ bool api_pop_uint32_end(uint32_t *data)
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(uint32_t) - 3);
-        *data >>= 8 * 3;
+        *data = 0;
+        memcpy(data, &xstack[xstack_ptr], 1);
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
-        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(uint32_t) - 2);
-        *data >>= 8 * 2;
+        *data = 0;
+        memcpy(data, &xstack[xstack_ptr], 2);
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 3:
-        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(uint32_t) - 1);
-        *data >>= 8 * 1;
+        *data = 0;
+        memcpy(data, &xstack[xstack_ptr], 3);
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 4:
-        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(uint32_t) - 0);
-        *data >>= 8 * 0;
+        memcpy(data, &xstack[xstack_ptr], 4);
         xstack_ptr = XSTACK_SIZE;
         return true;
     default:
@@ -306,13 +307,11 @@ bool api_pop_int16_end(int16_t *data)
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int16_t) - 1);
-        *data >>= 8 * 1;
+        *data = (int16_t)(int8_t)xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
-        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int16_t) - 0);
-        *data >>= 8 * 0;
+        memcpy(data, &xstack[xstack_ptr], 2);
         xstack_ptr = XSTACK_SIZE;
         return true;
     default:
@@ -328,23 +327,25 @@ bool api_pop_int32_end(int32_t *data)
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data + 3, &xstack[xstack_ptr], sizeof(int32_t) - 3);
-        *data >>= 8 * 3;
+        *data = (int32_t)(int8_t)xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
-        memcpy((void *)data + 2, &xstack[xstack_ptr], sizeof(int32_t) - 2);
-        *data >>= 8 * 2;
+    {
+        int16_t tmp;
+        memcpy(&tmp, &xstack[xstack_ptr], 2);
+        *data = (int32_t)tmp;
         xstack_ptr = XSTACK_SIZE;
         return true;
+    }
     case XSTACK_SIZE - 3:
-        memcpy((void *)data + 1, &xstack[xstack_ptr], sizeof(int32_t) - 1);
-        *data >>= 8 * 1;
+        *data = 0;
+        memcpy(data, &xstack[xstack_ptr], 3);
+        *data = (*data ^ 0x00800000) - 0x00800000;
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 4:
-        memcpy((void *)data + 0, &xstack[xstack_ptr], sizeof(int32_t) - 0);
-        *data >>= 8 * 0;
+        memcpy(data, &xstack[xstack_ptr], 4);
         xstack_ptr = XSTACK_SIZE;
         return true;
     default:

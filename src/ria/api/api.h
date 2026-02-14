@@ -192,9 +192,9 @@ static inline bool api_return_axsreg(uint32_t val)
 }
 
 // Failure returns -1 and sets errno
-static inline bool api_return_errno(api_errno errno)
+static inline bool api_return_errno(api_errno errnum)
 {
-    uint16_t platform_errno = api_platform_errno(errno);
+    uint16_t platform_errno = api_platform_errno(errnum);
     if (platform_errno)
         API_ERRNO = platform_errno;
     xstack_ptr = XSTACK_SIZE;
