@@ -15,7 +15,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static inline int32_t hid_extend_signed(uint32_t raw_value, uint8_t bit_size)
 {
-    if (bit_size == 0 || bit_size > 32)
+    if (bit_size == 0 || bit_size >= 32)
         return (int32_t)raw_value;
 
     // Check if the sign bit is set (MSB of the bit_size range)
@@ -47,16 +47,17 @@ uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t b
     if (end_byte >= report_len)
         return 0;
 
-    // Extract up to 4 bytes into a 32-bit value
-    uint32_t value = 0;
-    for (uint8_t i = 0; i < 4 && (start_byte + i) < report_len; ++i)
-        value |= ((uint32_t)report[start_byte + i]) << (8 * i);
+    // Extract up to 5 bytes into a 64-bit value (a 32-bit field
+    // not aligned to a byte boundary can span 5 bytes)
+    uint64_t value = 0;
+    for (uint8_t i = 0; i < 5 && (start_byte + i) < report_len; ++i)
+        value |= ((uint64_t)report[start_byte + i]) << (8 * i);
 
     value >>= start_bit;
     if (bit_size < 32)
         value &= (1UL << bit_size) - 1;
 
-    return value;
+    return (uint32_t)value;
 }
 
 int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size)
@@ -94,7 +95,7 @@ uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_m
         return 0;
 
     // Final math
-    return ((value + min) * 256 / discrete_values);
+    return ((value - min) * 256 / discrete_values);
 }
 
 int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max)
