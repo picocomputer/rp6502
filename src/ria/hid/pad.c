@@ -42,7 +42,7 @@ typedef struct
 #define PAD_MAX_PLAYERS 4
 
 // Deadzone is generous enough for moderately worn sticks.
-// This is only for the analog to digital comversions so
+// This is only for the analog to digital conversions so
 // it doesn't need to be first-person shooter tight.
 #define PAD_DEADZONE 32
 
@@ -59,7 +59,7 @@ typedef struct
     bool home_pressed;   // Used to inject the out of band home button on xbox one
     int slot;            // HID protocol drivers use slots assigned in hid.h
     uint8_t report_id;   // If non zero, the first report byte must match and will be skipped
-    uint16_t x_absolute; // Will be true for gamepads
+    bool x_absolute;     // Will be true for gamepads
     uint16_t x_offset;   // Left stick X
     uint8_t x_size;
     int32_t x_min;
@@ -109,7 +109,6 @@ static inline void pad_swap_buttons(pad_connection_t *conn, int b0, int b1)
 static void pad_remap_playstation_classic(
     pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
-    (void)product_id;
     if (vendor_id != 0x054C || product_id != 0x05C2)
         return;
     DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
@@ -132,7 +131,7 @@ static void pad_remap_8bitdo_m30(
 {
     if (vendor_id != 0x2DC8 || product_id != 0x5006)
         return;
-    DBG("DES: 8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
+    DBG("8BitDo M30 remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
     // Our analog trigger emulation conflicts
     // with the M30's reversed analog triggers.
     conn->rx_size = 0;
@@ -469,14 +468,6 @@ static void pad_distill_descriptor(
     uint16_t vendor_id, uint16_t product_id)
 {
     conn->valid = false;
-    pad_parse_descriptor(conn, desc_data, desc_len);
-
-    DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
-        vendor_id, product_id, desc_len, conn->valid);
-
-    // Add your gamepad override here.
-    pad_remap_8bitdo_m30(conn, vendor_id, product_id);
-    pad_remap_playstation_classic(conn, vendor_id, product_id);
 
     // Sony gamepads use a pre-computed descriptor.
     // Some may report a descriptor, which we discard.
@@ -489,6 +480,17 @@ static void pad_distill_descriptor(
     {
         *conn = pad_desc_sony_ds5;
         DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");
+    }
+    else
+    {
+        pad_parse_descriptor(conn, desc_data, desc_len);
+
+        DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
+            vendor_id, product_id, desc_len, conn->valid);
+
+        // Add your gamepad override here.
+        pad_remap_8bitdo_m30(conn, vendor_id, product_id);
+        pad_remap_playstation_classic(conn, vendor_id, product_id);
     }
 
     if (!conn->valid)
@@ -581,8 +583,12 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
+    {
+        if (gamepad->button_offsets[i] == 0xFFFF)
+            continue;
         if (hid_extract_bits(data, report_len, gamepad->button_offsets[i], 1))
             buttons |= (1UL << i);
+    }
     report->button0 = buttons & 0xFF;
     report->button1 = (buttons & 0xFF00) >> 8;
 
