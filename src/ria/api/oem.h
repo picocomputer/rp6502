@@ -8,7 +8,7 @@
 #define _RIA_API_OEM_H_
 
 /* The OEM driver manages IBM/DOS style code pages.
- * The affects RP6502-VGA, FatFs, and keyboards.
+ * This affects RP6502-VGA, FatFs, and keyboards.
  */
 
 #include <stddef.h>

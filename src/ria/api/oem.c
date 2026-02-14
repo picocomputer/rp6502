@@ -21,12 +21,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // Only the code page specified by RP6502_CODE_PAGE is installed to flash.
-// To include all code pages, set RP6502_CODE_PAGE to 0 (CMmakeLists.txt).
+// To include all code pages, set RP6502_CODE_PAGE to 0 (CMakeLists.txt).
 // This is the default for when RP6502_CODE_PAGE == 0.
 #define OEM_DEFAULT_CODE_PAGE 437
 
-uint16_t oem_code_page_setting;
-uint16_t oem_code_page;
+static uint16_t oem_code_page_setting;
+static uint16_t oem_code_page;
 
 static void oem_request_code_page(uint16_t cp)
 {
@@ -73,6 +73,8 @@ void oem_set_code_page_ephemeral(uint16_t cp)
 
 bool oem_set_code_page(uint32_t cp)
 {
+    if (cp > UINT16_MAX)
+        return false;
     oem_request_code_page(cp);
     if (cp != oem_code_page)
         return false;
@@ -92,7 +94,8 @@ uint16_t oem_get_code_page(void)
 void oem_load_code_page(const char *str, size_t len)
 {
     uint16_t cp;
-    str_parse_uint16(&str, &len, &cp);
+    if (!str_parse_uint16(&str, &len, &cp))
+        return;
     oem_request_code_page(cp);
     oem_code_page_setting = oem_code_page;
 }
