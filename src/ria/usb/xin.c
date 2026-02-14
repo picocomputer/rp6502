@@ -5,7 +5,7 @@
  */
 
 // DISABLED because it used to crash TinyUSB a lot
-#if 0
+#if 1
 
 #include "usb/xin.h"
 void xin_task(void) { return; }
@@ -39,7 +39,7 @@ typedef struct
     uint8_t ep_in;
     uint8_t ep_out;
     uint8_t report_buffer[64]; // XInput max 64 bytes
-    uint8_t led_cmd[3];        // Xbox 360 LED command buffer (persists for async xfer)
+    uint8_t out_cmd[5];        // OUT command buffer (persists for async DMA xfer)
 } xbox_device_t;
 
 #define XIN_MAX_DEVICES 4
@@ -369,58 +369,46 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
 {
     (void)rhport;
 
-    DBG("XInput: xin_class_driver_open\n");
-
     DBG("XInput: class=0x%02X sub=0x%02X proto=0x%02X itf=%d\n",
         desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass,
         desc_itf->bInterfaceProtocol, desc_itf->bInterfaceNumber);
 
-    // If we already claimed this device, consume extra interfaces
-    // (e.g. Xbox 360 headset HID, Xbox One audio/accessory) so the
-    // HID driver doesn't claim them and open unwanted endpoints.
-    if (xin_find_index_by_dev_addr(dev_addr) >= 0)
-    {
-        uint8_t const *p = (uint8_t const *)desc_itf;
-        uint8_t const *end = p + max_len;
-        p = tu_desc_next(p); // skip interface descriptor
-        while (p < end && tu_desc_type(p) != TUSB_DESC_INTERFACE)
-            p = tu_desc_next(p);
-        uint16_t len = (uint16_t)(p - (uint8_t const *)desc_itf);
-        DBG("XInput: Consuming extra interface for dev_addr %d (%d bytes)\n", dev_addr, len);
-        return len;
-    }
-
-    // Must be vendor specific to proceed
+    // Only handle vendor-specific interfaces
     if (desc_itf->bInterfaceClass != 0xFF)
         return 0;
 
-    bool is_x360 = false;
-    bool is_xbox_one = false;
-    if (desc_itf->bInterfaceSubClass == 0x47 && desc_itf->bInterfaceProtocol == 0xD0)
+    // Already claimed this device — consume extra vendor interfaces
+    if (xin_find_index_by_dev_addr(dev_addr) >= 0)
     {
-        is_xbox_one = true;
-        DBG("XInput: Detected Xbox One/Series controller interface\n");
-    }
-    else if (desc_itf->bInterfaceSubClass == 0x5D &&
-             desc_itf->bInterfaceProtocol == 0x01)
-    {
-        is_x360 = true;
-        DBG("XInput: Detected Xbox 360 controller interface\n");
+        DBG("XInput: Consuming extra interface for dev_addr %d\n", dev_addr);
+        // Walk past this interface's descriptors to return correct consumed length
+        uint8_t const *p = tu_desc_next(desc_itf);
+        uint8_t const *end = (uint8_t const *)desc_itf + max_len;
+        while (p < end && tu_desc_type(p) != TUSB_DESC_INTERFACE)
+            p = tu_desc_next(p);
+        return (uint16_t)(p - (uint8_t const *)desc_itf);
     }
 
+    // Identify controller type
+    bool is_xbox_one = (desc_itf->bInterfaceSubClass == 0x47 &&
+                        desc_itf->bInterfaceProtocol == 0xD0);
+    bool is_x360 = (desc_itf->bInterfaceSubClass == 0x5D &&
+                    desc_itf->bInterfaceProtocol == 0x01);
+
+    // Don't consume — could be a non-Xbox vendor device
     if (!is_xbox_one && !is_x360)
         return 0;
 
+    DBG("XInput: Detected %s controller interface\n",
+        is_xbox_one ? "Xbox One/Series" : "Xbox 360");
+
     // Find interrupt IN and OUT endpoints
-    uint8_t const *p_desc = (uint8_t const *)desc_itf;
-    uint8_t const *desc_end = p_desc + max_len;
+    uint8_t const *p_desc = tu_desc_next(desc_itf);
+    uint8_t const *desc_end = (uint8_t const *)desc_itf + max_len;
     tusb_desc_endpoint_t const *ep_in_desc = NULL;
     tusb_desc_endpoint_t const *ep_out_desc = NULL;
-    p_desc = tu_desc_next(p_desc); // Skip interface descriptor
-    while (p_desc < desc_end)
+    while (p_desc < desc_end && tu_desc_type(p_desc) != TUSB_DESC_INTERFACE)
     {
-        if (tu_desc_type(p_desc) == TUSB_DESC_INTERFACE)
-            break;
         if (tu_desc_type(p_desc) == TUSB_DESC_ENDPOINT)
         {
             tusb_desc_endpoint_t const *desc_ep = (tusb_desc_endpoint_t const *)p_desc;
@@ -441,16 +429,20 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
         }
         p_desc = tu_desc_next(p_desc);
     }
-    uint16_t consumed_len = (uint16_t)(p_desc - (uint8_t const *)desc_itf);
 
     if (!ep_in_desc || !ep_out_desc)
+    {
+        DBG("XInput: Missing endpoints (in=%p out=%p)\n", ep_in_desc, ep_out_desc);
         return 0;
+    }
 
     int idx = xin_find_free_index();
     if (idx < 0)
+    {
+        DBG("XInput: No free device slots\n");
         return 0;
+    }
 
-    // Open endpoints — TinyUSB calls open() after SET_CONFIGURATION
     if (!tuh_edpt_open(dev_addr, ep_in_desc) || !tuh_edpt_open(dev_addr, ep_out_desc))
     {
         DBG("XInput: Failed to open endpoints\n");
@@ -464,40 +456,20 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
     xbox_devices[idx].ep_in = ep_in_desc->bEndpointAddress;
     xbox_devices[idx].ep_out = ep_out_desc->bEndpointAddress;
 
-    // Select correct fake HID descriptor
-    uint8_t const *desc_data;
-    uint16_t desc_len;
-    if (is_xbox_one)
-    {
-        desc_data = xbox_one_fake_desc;
-        desc_len = sizeof(xbox_one_fake_desc);
-    }
-    else
-    {
-        desc_data = xbox_360_fake_desc;
-        desc_len = sizeof(xbox_360_fake_desc);
-    }
-
-    // Mount in pad system
+    // Mount in pad system with synthetic HID descriptor
+    uint8_t const *desc_data = is_xbox_one ? xbox_one_fake_desc : xbox_360_fake_desc;
+    uint16_t desc_len = is_xbox_one ? sizeof(xbox_one_fake_desc) : sizeof(xbox_360_fake_desc);
     uint16_t vendor_id, product_id;
-    if (tuh_vid_pid_get(dev_addr, &vendor_id, &product_id))
+    if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
+        !pad_mount(xin_idx_to_hid_slot(idx), desc_data, desc_len, vendor_id, product_id))
     {
-        int slot = xin_idx_to_hid_slot(idx);
-        if (!pad_mount(slot, desc_data, desc_len, vendor_id, product_id))
-        {
-            DBG("XInput: Failed to mount in pad system\n");
-            memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-            return 0;
-        }
-    }
-    else
-    {
+        DBG("XInput: Failed to mount in pad system\n");
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
         return 0;
     }
 
     DBG("XInput: Claimed Xbox controller in index %d\n", idx);
-    return consumed_len;
+    return max_len;
 }
 
 static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
@@ -525,14 +497,19 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
         DBG("XInput: Failed to start input for index %d\n", idx);
 
     // Send init/LED command on the interrupt OUT endpoint
+    // Buffer is in device struct so it persists for async DMA transfer
     if (device->is_xbox_one)
     {
-        static const uint8_t xbox_one_init[] = {0x05, 0x20, 0x00, 0x01, 0x00};
+        device->out_cmd[0] = 0x05;
+        device->out_cmd[1] = 0x20;
+        device->out_cmd[2] = 0x00;
+        device->out_cmd[3] = 0x01;
+        device->out_cmd[4] = 0x00;
         tuh_xfer_t xfer = {
             .daddr = dev_addr,
             .ep_addr = device->ep_out,
-            .buflen = sizeof(xbox_one_init),
-            .buffer = (void *)xbox_one_init,
+            .buflen = 5,
+            .buffer = device->out_cmd,
             .complete_cb = NULL,
             .user_data = (uintptr_t)idx};
         if (!tuh_edpt_xfer(&xfer))
@@ -541,14 +518,14 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     else
     {
         int pnum = pad_get_player_num(xin_idx_to_hid_slot(idx));
-        device->led_cmd[0] = 0x01;
-        device->led_cmd[1] = 0x03;
-        device->led_cmd[2] = (uint8_t)(0x08 + (pnum & 0x03));
+        device->out_cmd[0] = 0x01;
+        device->out_cmd[1] = 0x03;
+        device->out_cmd[2] = (uint8_t)(0x08 + (pnum & 0x03));
         tuh_xfer_t xfer = {
             .daddr = dev_addr,
             .ep_addr = device->ep_out,
-            .buflen = sizeof(device->led_cmd),
-            .buffer = device->led_cmd,
+            .buflen = 3,
+            .buffer = device->out_cmd,
             .complete_cb = NULL,
             .user_data = (uintptr_t)idx};
         if (!tuh_edpt_xfer(&xfer))
@@ -578,16 +555,26 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
     }
 
     uint8_t *report = device->report_buffer;
-    // For Xbox One/Series, check for GIP_CMD_VIRTUAL_KEY 0x07
-    if (device->is_xbox_one && xferred_bytes > 4 && report[0] == 0x07)
+    if (device->is_xbox_one)
     {
-        uint8_t home = report[4] & 0x01;
-        DBG("XInput: home button state: %d\n", home);
-        pad_home_button(xin_idx_to_hid_slot(idx), home);
+        // Xbox One GIP protocol: first byte is command type
+        if (xferred_bytes > 4 && report[0] == 0x07)
+        {
+            // GIP_CMD_VIRTUAL_KEY — home button
+            uint8_t home = report[4] & 0x01;
+            DBG("XInput: home button state: %d\n", home);
+            pad_home_button(xin_idx_to_hid_slot(idx), home);
+        }
+        else if (report[0] == 0x20)
+        {
+            // GIP_CMD_INPUT — standard input report
+            pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+        }
+        // else: ignore non-input GIP packets (ACK, announce, status, etc.)
     }
     else
     {
-        // Handle just like an HID gamepad report
+        // Xbox 360: forward raw report to pad system
         pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
     }
     // Restart the transfer to continue receiving reports
@@ -612,13 +599,14 @@ static void xin_class_driver_close(uint8_t dev_addr)
 
     DBG("XInput: Closing Xbox controller from index %d\n", index);
 
-    tuh_edpt_abort_xfer(dev_addr, xbox_devices[index].ep_in);
-    // tuh_edpt_close(dev_addr, xbox_devices[index].ep_in);
-    tuh_edpt_abort_xfer(dev_addr, xbox_devices[index].ep_out);
-    // tuh_edpt_close(dev_addr, xbox_devices[index].ep_out);
-
     pad_umount(xin_idx_to_hid_slot(index));
 
+    // Mark inactive first — xfer_cb checks active via find_index_by_dev_addr
+    // so any in-flight transfer completion after this will be safely ignored.
+    // The report_buffer and out_cmd live in the struct and remain valid memory
+    // until memset, which is safe since TinyUSB cancels endpoint transfers
+    // before calling close.
+    xbox_devices[index].active = false;
     memset(&xbox_devices[index], 0, sizeof(xbox_device_t));
 }
 
