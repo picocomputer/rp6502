@@ -578,10 +578,9 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   assert(!ep->active);
 
   // EP0 out — use the saved MPS for this device, not the (possibly stale) EPX value
-  // uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
-  // if (mps == 0) mps = 8; // default for addr0 / unknown
-  // hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
-  hw_endpoint_init(ep, dev_addr, 0x00, ep->wMaxPacketSize, 0, 0);
+  uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
+  if (mps == 0) mps = 8; // default for addr0 / unknown
+  hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
   
   assert(ep->configured);
 
