@@ -92,6 +92,7 @@ void fil_mon_chdir(const char *args, size_t len)
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
+        dir.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
@@ -129,6 +130,7 @@ void fil_mon_chdrive(const char *args, size_t len)
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
+        dir.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
@@ -143,6 +145,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
     if (state < 0)
     {
         f_closedir(&fil_fatfs_dir);
+        fil_fatfs_dir.obj.fs = NULL;
         return state;
     }
     FILINFO fno;
@@ -151,6 +154,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
     if (fresult != FR_OK || fno.fname[0] == 0)
     {
         f_closedir(&fil_fatfs_dir);
+        fil_fatfs_dir.obj.fs = NULL;
         return -1;
     }
     if (fno.fattrib & (AM_HID | AM_SYS))
@@ -248,6 +252,7 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fatfs_fil);
+        fil_fatfs_fil.obj.fs = NULL;
         mon_add_response_fatfs(result);
         return;
     }
@@ -302,6 +307,7 @@ void fil_task(void)
     if (fil_state == FIL_IDLE && fil_fatfs_fil.obj.fs)
     {
         FRESULT result = f_close(&fil_fatfs_fil);
+        fil_fatfs_fil.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
 }

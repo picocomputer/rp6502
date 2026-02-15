@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -89,16 +91,6 @@ static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
 // It will not work with: src/tinyusb/src/class/msc/msc_host.c
 // There's one additional interface we added.
 void tuh_msc_abort(uint8_t dev_addr);
-
-// f_close doesn't clear obj.fs on error, which leaves FatFS FIL
-// still open. --wrap=f_close intercepts every call at link time.
-FRESULT __real_f_close(FIL *fp);
-FRESULT __wrap_f_close(FIL *fp)
-{
-    FRESULT r = __real_f_close(fp);
-    fp->obj.fs = NULL;
-    return r;
-}
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
@@ -671,6 +663,7 @@ int msc_std_close(int desc, api_errno *err)
         return -1;
     }
     FRESULT fresult = f_close(fp);
+    fp->obj.fs = NULL;
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fresult(fresult);

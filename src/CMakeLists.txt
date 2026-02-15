@@ -48,7 +48,7 @@ set_target_properties(${RIA_TARGET} PROPERTIES
 
 target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
     -Wl,--wrap=iswspace # Avoid 26KB of unicode and jis we don't need
-    -Wl,--wrap=f_close # Wrapper forces obj.fs clearing even on error
+    -Wl,-u,__wrap_iswspace
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE

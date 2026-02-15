@@ -355,8 +355,11 @@ TU_ATTR_ALWAYS_INLINE static inline bool usbh_setup_send(uint8_t daddr, const ui
       ep0_mps = dev->bMaxPacketSize0;
     }
   }
-  usbh_edpt_control_open(daddr, ep0_mps);
-
+  // usbh_edpt_control_open(daddr, ep0_mps);
+  if (!usbh_edpt_control_open(daddr, ep0_mps)) {
+    _control_set_xfer_stage(CONTROL_STAGE_IDLE);
+    return false;
+  }
   const bool ret = hcd_setup_send(rhport, daddr, setup_packet);
   if (!ret) {
     _control_set_xfer_stage(CONTROL_STAGE_IDLE);

@@ -282,6 +282,7 @@ void rom_mon_install(const char *args, size_t len)
     if (lfsresult >= 0)
         lfsresult = lfscloseresult;
     fresult = f_close(&fat_fil);
+    fat_fil.obj.fs = NULL;
     mon_add_response_fatfs(fresult);
     if (fresult != FR_OK || lfsresult < 0)
         lfs_remove(&lfs_volume, lfs_name);
@@ -420,6 +421,7 @@ void rom_task(void)
         if (fat_fil.obj.fs)
         {
             FRESULT fresult = f_close(&fat_fil);
+            fat_fil.obj.fs = NULL;
             mon_add_response_fatfs(fresult);
         }
         break;
@@ -454,6 +456,9 @@ bool rom_active(void)
 void rom_break(void)
 {
     rom_state = ROM_IDLE;
+    // if (fp->obj.fs != NULL)
+    //     f_close(&fat_fil);
+    fat_fil.obj.fs = NULL;
 }
 
 int rom_installed_response(char *buf, size_t buf_size, int state)

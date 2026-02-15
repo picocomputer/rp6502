@@ -36,7 +36,10 @@ void dir_run(void)
 void dir_stop(void)
 {
     for (int i = 0; i < DIR_MAX_OPEN; i++)
+    {
         f_closedir(&dirs[i]);
+        dirs[i].obj.fs = 0;
+    }
 }
 
 static bool dir_push_filinfo(FILINFO *fno)
@@ -126,6 +129,7 @@ bool dir_api_closedir(void)
     if (dir->obj.fs == 0)
         return api_return_errno(API_EBADF);
     FRESULT fresult = f_closedir(dir);
+    dir->obj.fs = 0;
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     return api_return_ax(0);
