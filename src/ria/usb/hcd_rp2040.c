@@ -533,7 +533,6 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   return true;
 }
 
-// TODO send this upstream
 bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);

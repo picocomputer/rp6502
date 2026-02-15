@@ -238,6 +238,7 @@ static bool msc_init_volume(uint8_t vol)
     // SCSI Inquiry
     if (!wait_for_ready(dev_addr))
         return false;
+    memset(&msc_inquiry_resp[vol], 0, sizeof(msc_inquiry_resp[vol]));
     msc_tuh_dev_busy[dev_addr - 1] = true;
     if (!tuh_msc_inquiry(dev_addr, lun, &msc_inquiry_resp[vol], disk_io_complete, 0))
     {
@@ -245,18 +246,12 @@ static bool msc_init_volume(uint8_t vol)
         return false;
     }
     wait_for_disk_io(dev_addr);
-    // CBI interrupt status may report failure even though data arrived.
-    // Check if we got valid inquiry data regardless of CSW status.
+
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
-        if (msc_inquiry_resp[vol].peripheral_device_type != 0 ||
-            msc_inquiry_resp[vol].vendor_id[0] == 0)
-        {
-            DBG("MSC vol %d: inquiry failed\n", vol);
-            msc_volume_status[vol] = msc_volume_failed;
-            return false;
-        }
-        DBG("MSC vol %d: inquiry status non-zero but data valid\n", vol);
+        DBG("MSC vol %d: inquiry failed\n", vol);
+        msc_volume_status[vol] = msc_volume_failed;
+        return false;
     }
 
     if (msc_inquiry_resp[vol].is_removable)
