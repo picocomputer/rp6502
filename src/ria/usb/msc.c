@@ -241,9 +241,23 @@ static bool msc_init_volume(uint8_t vol)
 
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
-        DBG("MSC vol %d: inquiry failed\n", vol);
-        msc_volume_status[vol] = msc_volume_failed;
-        return false;
+        // CBI/UFI floppy drives report pending sense (e.g. "Medium Not
+        // Present") in the interrupt status even for INQUIRY, which does
+        // not require media.  The bulk data phase already delivered the
+        // 36-byte response.  Validate the response before continuing:
+        // peripheral_qualifier 3 = LUN not supported, response_data_format
+        // must be 1 (CCS) or 2 (SPC), additional_length >= 31 means the
+        // full 36-byte standard response was returned.
+        scsi_inquiry_resp_t const *inq = &msc_inquiry_resp[vol];
+        if (inq->peripheral_qualifier == 3 ||
+            (inq->response_data_format != 1 && inq->response_data_format != 2) ||
+            inq->additional_length < 31)
+        {
+            DBG("MSC vol %d: inquiry failed (invalid response)\n", vol);
+            msc_volume_status[vol] = msc_volume_failed;
+            return false;
+        }
+        DBG("MSC vol %d: inquiry CSW not passed (response valid, continuing)\n", vol);
     }
 
     if (msc_inquiry_resp[vol].is_removable)

@@ -539,7 +539,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (!ep || !ep->active) return true;
   *hwbuf_ctrl_reg_host(ep) = 0;
   hw_endpoint_reset_transfer(ep);
-  ep->next_pid = 0;
+  // ep->next_pid = 0;
   return true;
 }
 
