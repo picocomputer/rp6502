@@ -84,6 +84,10 @@ static scsi_inquiry_resp_t msc_inquiry_resp[FF_VOLUMES];
 static bool msc_volume_tur_ok[FF_VOLUMES];
 static uint32_t msc_volume_block_count[FF_VOLUMES];
 static uint32_t msc_volume_block_size[FF_VOLUMES];
+static uint8_t msc_volume_sense_key[FF_VOLUMES];
+static uint8_t msc_volume_sense_asc[FF_VOLUMES];
+static uint8_t msc_volume_sense_ascq[FF_VOLUMES];
+static bool msc_volume_write_protected[FF_VOLUMES];
 
 static bool msc_tuh_dev_busy[CFG_TUH_DEVICE_MAX];
 static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
@@ -141,7 +145,7 @@ static void wait_for_disk_io(uint8_t dev_addr)
         }
         if (absolute_time_diff_us(get_absolute_time(), next_dump) <= 0)
         {
-            DBG("MSC dev %d: waiting... sie_status=0x%08lx buf_status=0x%08lx ints=0x%08lx\n",
+            DBG("MSC dev %d: waiting... sie_status=0x%08lx sie_ctrl=0x%08lx ints=0x%08lx\n",
                 dev_addr,
                 (unsigned long)usb_hw->sie_status,
                 (unsigned long)usb_hw->sie_ctrl,
@@ -167,55 +171,140 @@ static bool wait_for_ready(uint8_t dev_addr)
     return true;
 }
 
-// Drain stacked Unit Attention conditions via Request Sense, then
-// issue Test Unit Ready. Returns true if TUR succeeds (media present).
-static bool msc_tur_with_retry(uint8_t vol)
+// Issue REQUEST SENSE and store result in per-volume sense arrays.
+// Returns true if the transport succeeded (sense data is valid).
+static bool msc_do_request_sense(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     uint8_t const lun = 0;
     scsi_sense_fixed_resp_t sense_resp;
-    uint8_t prev_sense_key = 0xFF;
 
-    // Drain queued sense data so TUR gets a clean state.
-    for (int i = 0; i < 8; i++)
-    {
-        if (!wait_for_ready(dev_addr))
-            return false;
-        memset(&sense_resp, 0, sizeof(sense_resp));
-        msc_tuh_dev_busy[dev_addr - 1] = true;
-        if (!tuh_msc_request_sense(dev_addr, lun, &sense_resp, disk_io_complete, 0))
-        {
-            msc_tuh_dev_busy[dev_addr - 1] = false;
-            return false;
-        }
-        wait_for_disk_io(dev_addr);
-
-        uint8_t sense_key = sense_resp.response_code ? sense_resp.sense_key : 0;
-        DBG("MSC vol %d: sense %d/%02Xh/%02Xh\n",
-            vol, sense_key, sense_resp.add_sense_code, sense_resp.add_sense_qualifier);
-        if (sense_key == SCSI_SENSE_NONE)
-            break;
-        if (sense_key != SCSI_SENSE_UNIT_ATTENTION &&
-            sense_key == prev_sense_key)
-            break; // persistent state, stop draining
-        prev_sense_key = sense_key;
-    }
-
-    // Test Unit Ready
     if (!wait_for_ready(dev_addr))
         return false;
+    memset(&sense_resp, 0, sizeof(sense_resp));
     msc_tuh_dev_busy[dev_addr - 1] = true;
-    if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
+    if (!tuh_msc_request_sense(dev_addr, lun, &sense_resp, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
         return false;
     }
     wait_for_disk_io(dev_addr);
-    if (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED)
-        return true;
 
-    DBG("MSC vol %d: TUR failed (csw=%d)\n",
-        vol, msc_tuh_dev_csw_status[dev_addr - 1]);
+    if (sense_resp.response_code)
+    {
+        msc_volume_sense_key[vol] = sense_resp.sense_key;
+        msc_volume_sense_asc[vol] = sense_resp.add_sense_code;
+        msc_volume_sense_ascq[vol] = sense_resp.add_sense_qualifier;
+    }
+    else
+    {
+        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+        msc_volume_sense_asc[vol] = 0;
+        msc_volume_sense_ascq[vol] = 0;
+    }
+    DBG("MSC vol %d: sense %d/%02Xh/%02Xh\n",
+        vol, msc_volume_sense_key[vol],
+        msc_volume_sense_asc[vol], msc_volume_sense_ascq[vol]);
+    return true;
+}
+
+// Check write protection via MODE SENSE(6).
+// The WP bit is in the device-specific parameter byte of the mode
+// parameter header. Returns true if media is write-protected.
+// On transport error or unsupported command, returns false (assume
+// not protected).
+static bool msc_check_write_protect(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    scsi_mode_sense6_resp_t ms_resp;
+
+    if (!wait_for_ready(dev_addr))
+        return false;
+    memset(&ms_resp, 0, sizeof(ms_resp));
+    msc_cbw_t cbw;
+    memset(&cbw, 0, sizeof(cbw));
+    cbw.signature = MSC_CBW_SIGNATURE;
+    cbw.tag = 0x54555342;
+    cbw.lun = 0;
+    cbw.total_bytes = sizeof(ms_resp);
+    cbw.dir = TUSB_DIR_IN_MASK;
+    cbw.cmd_len = sizeof(scsi_mode_sense6_t);
+    scsi_mode_sense6_t cmd = {
+        .cmd_code = SCSI_CMD_MODE_SENSE_6,
+        .disable_block_descriptor = 1,
+        .page_code = 0x3F,
+        .alloc_length = sizeof(ms_resp),
+    };
+    memcpy(cbw.command, &cmd, sizeof(cmd));
+
+    msc_tuh_dev_busy[dev_addr - 1] = true;
+    if (!tuh_msc_scsi_command(dev_addr, &cbw, &ms_resp, disk_io_complete, 0))
+    {
+        msc_tuh_dev_busy[dev_addr - 1] = false;
+        return false;
+    }
+    wait_for_disk_io(dev_addr);
+    if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
+    {
+        DBG("MSC vol %d: MODE SENSE(6) not supported\n", vol);
+        return false;
+    }
+
+    DBG("MSC vol %d: MODE SENSE WP=%d medium_type=0x%02X\n",
+        vol, ms_resp.write_protected, ms_resp.medium_type);
+    return ms_resp.write_protected;
+}
+
+// Check media readiness using TUR, then Request Sense to interpret
+// failures. Retries transient NOT_READY conditions with delays.
+// Returns true if TUR succeeds (media present and ready).
+static bool msc_test_unit_ready(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint8_t const lun = 0;
+
+    for (int attempt = 0; attempt < 5; attempt++)
+    {
+        // Test Unit Ready — the primary readiness check
+        if (!wait_for_ready(dev_addr))
+            return false;
+        msc_tuh_dev_busy[dev_addr - 1] = true;
+        if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
+        {
+            msc_tuh_dev_busy[dev_addr - 1] = false;
+            return false;
+        }
+        wait_for_disk_io(dev_addr);
+        if (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED)
+        {
+            msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+            msc_volume_sense_asc[vol] = 0;
+            msc_volume_sense_ascq[vol] = 0;
+            return true;
+        }
+
+        // TUR failed — Request Sense to find out why
+        if (!msc_do_request_sense(vol))
+            return false;
+
+        uint8_t sk = msc_volume_sense_key[vol];
+        uint8_t asc = msc_volume_sense_asc[vol];
+        if (sk == SCSI_SENSE_UNIT_ATTENTION)
+            continue;
+        if (sk == SCSI_SENSE_NOT_READY)
+        {
+            DBG("MSC vol %d: not ready (%02Xh/%02Xh), retrying...\n",
+                vol, asc, msc_volume_sense_ascq[vol]);
+            continue;
+        }
+
+        // Other sense keys (medium error, etc.) — don't retry
+        DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh — not retrying\n",
+            vol, sk, asc, msc_volume_sense_ascq[vol]);
+        return false;
+    }
+
+    DBG("MSC vol %d: TUR retries exhausted\n", vol);
     return false;
 }
 
@@ -315,10 +404,21 @@ static bool msc_probe_media(uint8_t vol)
 
     if (!tuh_msc_mounted(dev_addr))
         return false;
-    if (!msc_tur_with_retry(vol))
+    if (!msc_test_unit_ready(vol))
         return false;
     if (!msc_read_capacity(vol))
         return false;
+
+    // Check write protection via MODE SENSE(6).
+    // Skip for CBI/UFI floppy drives: they never support MODE SENSE(6),
+    // the 3-second I/O timeout triggers a reset recovery that corrupts
+    // the CBI transport state, and subsequent reads fail permanently.
+    if (!tuh_msc_is_cbi(dev_addr))
+    {
+        msc_volume_write_protected[vol] = msc_check_write_protect(vol);
+        if (msc_volume_write_protected[vol])
+            DBG("MSC vol %d: write-protected\n", vol);
+    }
 
     msc_volume_status[vol] = msc_volume_mounted;
     msc_volume_tur_ok[vol] = true;
@@ -346,6 +446,7 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_tur_ok[vol] = false;
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
+    msc_volume_write_protected[vol] = false;
 
     DBG("MSC vol %d: I/O error — marked ejected\n", vol);
 }
@@ -403,7 +504,7 @@ static void msc_init_volume(uint8_t vol)
     // For removable media, check if media is present via TUR.
     if (msc_inquiry_resp[vol].is_removable)
     {
-        if (!msc_tur_with_retry(vol))
+        if (!msc_test_unit_ready(vol))
         {
             msc_volume_status[vol] = msc_volume_ejected;
             DBG("MSC vol %d: removable, no media\n", vol);
@@ -418,6 +519,17 @@ static void msc_init_volume(uint8_t vol)
                                      ? msc_volume_ejected
                                      : msc_volume_failed;
         return;
+    }
+
+    // Check write protection via MODE SENSE(6).
+    // Skip for CBI/UFI floppy drives: they never support MODE SENSE(6),
+    // the 3-second I/O timeout triggers a reset recovery that corrupts
+    // the CBI transport state, and subsequent reads fail permanently.
+    if (!tuh_msc_is_cbi(dev_addr))
+    {
+        msc_volume_write_protected[vol] = msc_check_write_protect(vol);
+        if (msc_volume_write_protected[vol])
+            DBG("MSC vol %d: write-protected\n", vol);
     }
 
     msc_volume_status[vol] = msc_volume_mounted;
@@ -575,6 +687,10 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_volume_dev_addr[vol] = 0;
             msc_volume_block_count[vol] = 0;
             msc_volume_block_size[vol] = 0;
+            msc_volume_sense_key[vol] = 0;
+            msc_volume_sense_asc[vol] = 0;
+            msc_volume_sense_ascq[vol] = 0;
+            msc_volume_write_protected[vol] = false;
             DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
@@ -626,13 +742,15 @@ DWORD get_fattime(void)
 
 DSTATUS disk_status(BYTE pdrv)
 {
-    // TODO STA_NODISK and STA_PROTECT support
-    if (msc_volume_status[pdrv] == msc_volume_ejected ||
-        msc_volume_status[pdrv] == msc_volume_registered)
+    if (msc_volume_status[pdrv] == msc_volume_ejected)
+        return STA_NOINIT | STA_NODISK;
+    if (msc_volume_status[pdrv] == msc_volume_registered)
         return STA_NOINIT;
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     if (!tuh_msc_mounted(dev_addr))
         return STA_NOINIT;
+
+    DSTATUS res = 0;
 
     // TUR on removable volumes so FatFS detects media removal
     if (msc_inquiry_resp[pdrv].is_removable && !msc_volume_tur_ok[pdrv])
@@ -653,13 +771,21 @@ DSTATUS disk_status(BYTE pdrv)
         }
         if (!ok)
         {
+            // Request Sense to find out why TUR failed
+            msc_do_request_sense(pdrv);
             msc_handle_io_error(pdrv);
+            if (msc_volume_sense_key[pdrv] == SCSI_SENSE_NOT_READY &&
+                msc_volume_sense_asc[pdrv] == 0x3A)
+                return STA_NOINIT | STA_NODISK;
             return STA_NOINIT;
         }
         msc_volume_tur_ok[pdrv] = true;
     }
 
-    return 0;
+    if (msc_volume_write_protected[pdrv])
+        res |= STA_PROTECT;
+
+    return res;
 }
 
 DSTATUS disk_initialize(BYTE pdrv)
@@ -667,9 +793,17 @@ DSTATUS disk_initialize(BYTE pdrv)
     if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         if (!msc_probe_media(pdrv))
+        {
+            if (msc_volume_sense_key[pdrv] == SCSI_SENSE_NOT_READY &&
+                msc_volume_sense_asc[pdrv] == 0x3A)
+                return STA_NOINIT | STA_NODISK;
             return STA_NOINIT;
+        }
     }
-    return 0;
+    DSTATUS res = 0;
+    if (msc_volume_write_protected[pdrv])
+        res |= STA_PROTECT;
+    return res;
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
