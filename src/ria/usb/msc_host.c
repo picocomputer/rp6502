@@ -237,7 +237,47 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
     hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
     hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
   } else {
-    // BOT transport: Clear halt on both bulk endpoints.
+    // BOT transport: full Bulk-Only Mass Storage Reset sequence
+    // per USB BOT spec section 5.3.4.  The class-specific reset
+    // (bRequest=0xFF) tells the device to abandon any in-progress
+    // BOT transaction and return to the command-transport-ready
+    // state, ready to accept a new CBW.  Without this, the device
+    // stays stuck mid-transaction after an I/O timeout and
+    // misinterprets the next CBW as data.
+    {
+      tusb_control_request_t const request = {
+          .bmRequestType_bit = {
+              .recipient = TUSB_REQ_RCPT_INTERFACE,
+              .type      = TUSB_REQ_TYPE_CLASS,
+              .direction = TUSB_DIR_OUT
+          },
+          .bRequest = 0xFF, // Bulk-Only Mass Storage Reset
+          .wValue   = 0,
+          .wIndex   = p_msc->itf_num,
+          .wLength  = 0
+      };
+      _clear_halt_done = false;
+      tuh_xfer_t xfer = {
+          .daddr       = dev_addr,
+          .ep_addr     = 0,
+          .setup       = &request,
+          .buffer      = NULL,
+          .complete_cb = _clear_halt_cb,
+          .user_data   = 0
+      };
+      if (tuh_control_xfer(&xfer)) {
+        absolute_time_t deadline = make_timeout_time_ms(CLEAR_HALT_TIMEOUT_MS);
+        while (!_clear_halt_done) {
+          if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
+            tuh_edpt_abort_xfer(dev_addr, 0);
+            break;
+          }
+          if (tuh_task_event_ready()) tuh_task();
+        }
+      }
+    }
+
+    // Clear halt on both bulk endpoints.
     // Resets device-side data toggle, then host-side.
     clear_ep_halt(dev_addr, p_msc->ep_in);
     hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);

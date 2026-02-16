@@ -256,7 +256,7 @@ static bool msc_check_write_protect(uint8_t vol)
 }
 
 // Check media readiness using TUR, then Request Sense to interpret
-// failures. Retries transient NOT_READY conditions with delays.
+// failures. Retries transient NOT_READY conditions.
 // Returns true if TUR succeeds (media present and ready).
 static bool msc_test_unit_ready(uint8_t vol)
 {
