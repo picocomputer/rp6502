@@ -47,6 +47,10 @@ Changes from upstream TinyUSB msc_host.c:
   tuh_msc_get_block_size(), tuh_msc_read10(), tuh_msc_write10() all removed:
   msc.c owns LUN enumeration and block size/count tracking. Add multi-LUN
   support there, not here.
+- tuh_msc_reset_recovery() aborts any in-flight bulk transfers, sends
+  CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints to reset device-side
+  data toggles, and resets host-side data toggles via hcd_edpt_clear_stall().
+  Called on I/O timeout to recover from data toggle desynchronization.
 
 */
 
@@ -56,6 +60,7 @@ Changes from upstream TinyUSB msc_host.c:
 
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
+#include "host/hcd.h"
 
 #include "class/msc/msc_host.h"
 
@@ -139,12 +144,60 @@ bool tuh_msc_ready(uint8_t dev_addr) {
   return true;
 }
 
-void tuh_msc_abort(uint8_t dev_addr) {
+bool tuh_msc_is_cbi(uint8_t dev_addr) {
   msch_interface_t* p_msc = get_itf(dev_addr);
-  if (!p_msc->configured) return;
+  return p_msc->protocol == MSC_PROTOCOL_CBI || p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT;
+}
+
+// Send CLEAR_FEATURE(ENDPOINT_HALT) to a single endpoint.
+// Returns true on success.
+static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
+  tusb_control_request_t const request = {
+      .bmRequestType_bit = {
+          .recipient = TUSB_REQ_RCPT_ENDPOINT,
+          .type      = TUSB_REQ_TYPE_STANDARD,
+          .direction = TUSB_DIR_OUT
+      },
+      .bRequest = TUSB_REQ_CLEAR_FEATURE,
+      .wValue   = TUSB_REQ_FEATURE_EDPT_HALT,
+      .wIndex   = ep_addr,
+      .wLength  = 0
+  };
+
+  xfer_result_t result = XFER_RESULT_INVALID;
+  tuh_xfer_t xfer = {
+      .daddr       = daddr,
+      .ep_addr     = 0,
+      .setup       = &request,
+      .buffer      = NULL,
+      .complete_cb = NULL,       // blocking
+      .user_data   = (uintptr_t) &result
+  };
+
+  if (!tuh_control_xfer(&xfer)) return false;
+  return (result == XFER_RESULT_SUCCESS);
+}
+
+bool tuh_msc_reset_recovery(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  if (!p_msc->configured) return false;
+
+  // Abort any in-flight bulk transfers and reset MSC stage
   tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
   tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
   p_msc->stage = MSC_STAGE_IDLE;
+
+  uint8_t const rhport = usbh_get_rhport(dev_addr);
+
+  // Clear halt on bulk IN: resets device-side data toggle, then host-side
+  clear_ep_halt(dev_addr, p_msc->ep_in);
+  hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
+
+  // Clear halt on bulk OUT: resets device-side data toggle, then host-side
+  clear_ep_halt(dev_addr, p_msc->ep_out);
+  hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+
+  return true;
 }
 
 //--------------------------------------------------------------------+
@@ -390,6 +443,22 @@ bool tuh_msc_request_sense(uint8_t dev_addr, uint8_t lun, void* response,
       .alloc_length = 18
   };
   memcpy(cbw.command, &cmd_request_sense, cbw.cmd_len); //-V1086
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
+}
+
+bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void* response,
+                                    uint8_t alloc_length,
+                                    tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = alloc_length;
+  cbw.dir         = TUSB_DIR_IN_MASK;
+  cbw.cmd_len     = 12; // UFI command block is 12 bytes
+  cbw.command[0]  = 0x23; // READ FORMAT CAPACITIES
+  cbw.command[7]  = (alloc_length >> 8) & 0xFF;
+  cbw.command[8]  = alloc_length & 0xFF;
 
   return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
 }

@@ -557,7 +557,6 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (!ep || !ep->active) return true;
   *hwbuf_ctrl_reg_host(ep) = 0;
   hw_endpoint_reset_transfer(ep);
-  ep->next_pid = 0;
   return true;
 }
 
@@ -606,11 +605,11 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
 
 bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
-  (void) dev_addr;
-  (void) ep_addr;
-
-  panic("hcd_clear_stall");
-  // return true;
+  struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
+  if (ep) {
+    ep->next_pid = 0; // Reset data toggle to DATA0
+  }
+  return true;
 }
 
 #endif

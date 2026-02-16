@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -88,7 +90,25 @@ static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with: src/tinyusb/src/class/msc/msc_host.c
 // There's one additional interface we added.
-void tuh_msc_abort(uint8_t dev_addr);
+bool tuh_msc_is_cbi(uint8_t dev_addr);
+bool tuh_msc_reset_recovery(uint8_t dev_addr);
+bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *response,
+                                    uint8_t alloc_length,
+                                    tuh_msc_complete_cb_t complete_cb, uintptr_t arg);
+
+// UFI READ FORMAT CAPACITIES response (first 12 bytes: header + 1 descriptor)
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t reserved[3];
+    uint8_t capacity_list_length; // in bytes (8 per descriptor)
+    uint32_t num_blocks;          // big-endian
+    uint8_t descriptor_type;      // 1=unformatted, 2=formatted, 3=no media
+    uint8_t block_size_hi;        // big-endian block size (3 bytes)
+    uint8_t block_size_mid;
+    uint8_t block_size_lo;
+} ufi_format_capacity_resp_t;
+
+static_assert(sizeof(ufi_format_capacity_resp_t) == 12, "size is not correct");
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
@@ -105,7 +125,7 @@ static void wait_for_disk_io(uint8_t dev_addr)
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
             DBG("MSC dev %d: I/O timeout\n", dev_addr);
-            tuh_msc_abort(dev_addr);
+            tuh_msc_reset_recovery(dev_addr);
             msc_tuh_dev_busy[dev_addr - 1] = false;
             msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
             return;
@@ -171,7 +191,56 @@ static bool msc_probe_media(uint8_t vol)
             return false; // still not ready after retries
     }
 
-    // Read Capacity to get geometry
+    // Read Capacity to get geometry.
+    // CBI/UFI devices use READ FORMAT CAPACITIES (0x23) which provides
+    // a descriptor type field indicating whether format detection is
+    // complete (type 2 = formatted). This avoids a race where the
+    // floppy drive reports TUR=ready before it has sensed the media
+    // format, causing READ CAPACITY to return DD (720KB) geometry
+    // instead of HD (1.44MB).
+    if (tuh_msc_is_cbi(dev_addr))
+    {
+        ufi_format_capacity_resp_t fmt_resp;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            if (!wait_for_ready(dev_addr))
+                return false;
+            memset(&fmt_resp, 0, sizeof(fmt_resp));
+            msc_tuh_dev_busy[dev_addr - 1] = true;
+            if (!tuh_msc_read_format_capacities(dev_addr, lun, &fmt_resp,
+                                                sizeof(fmt_resp), disk_io_complete, 0))
+            {
+                msc_tuh_dev_busy[dev_addr - 1] = false;
+                return false;
+            }
+            wait_for_disk_io(dev_addr);
+            if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
+                return false;
+
+            uint8_t desc_type = fmt_resp.descriptor_type & 0x03;
+            if (desc_type == 2) // formatted media, geometry is valid
+            {
+                msc_volume_block_count[vol] = tu_ntohl(fmt_resp.num_blocks);
+                msc_volume_block_size[vol] = ((uint32_t)fmt_resp.block_size_hi << 16) |
+                                             ((uint32_t)fmt_resp.block_size_mid << 8) |
+                                             (uint32_t)fmt_resp.block_size_lo;
+                msc_volume_status[vol] = msc_volume_mounted;
+                msc_volume_tur_ok[vol] = true;
+                DBG("MSC vol %d: media detected (fmt cap)\n", vol);
+                return true;
+            }
+            if (desc_type == 3) // no media present
+                return false;
+
+            // desc_type 1 (unformatted) or 0: drive is still sensing, retry
+            DBG("MSC vol %d: format not ready (type %d), retrying\n", vol, desc_type);
+            sleep_ms(200);
+        }
+        DBG("MSC vol %d: format detection timed out\n", vol);
+        return false;
+    }
+
+    // BOT / non-UFI: use standard Read Capacity
     scsi_read_capacity10_resp_t cap_resp;
     if (!wait_for_ready(dev_addr))
         return false;
@@ -264,7 +333,7 @@ static bool msc_init_volume(uint8_t vol)
         return msc_probe_media(vol);
     }
 
-    // Non-removable: Read Capacity directly
+    // Non-removable: use Read Capacity (CBI/UFI non-removable is rare but handle it)
     scsi_read_capacity10_resp_t cap_resp;
     if (!wait_for_ready(dev_addr))
         return false;

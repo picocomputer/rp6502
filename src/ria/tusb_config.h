@@ -7,8 +7,8 @@
 #ifndef _TUSB_CONFIG_H
 #define _TUSB_CONFIG_H
 
-// #undef CFG_TUSB_DEBUG
-// #define CFG_TUSB_DEBUG 2
+#undef CFG_TUSB_DEBUG
+#define CFG_TUSB_DEBUG 2
 
 #define CFG_TUSB_RHPORT0_MODE OPT_MODE_HOST
 
