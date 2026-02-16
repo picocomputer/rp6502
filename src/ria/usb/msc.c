@@ -174,8 +174,9 @@ static bool msc_tur_with_retry(uint8_t vol)
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     uint8_t const lun = 0;
     scsi_sense_fixed_resp_t sense_resp;
+    uint8_t prev_sense_key = 0xFF;
 
-    // Drain pending sense conditions until clear (SCSI_SENSE_NONE).
+    // Drain queued sense data so TUR gets a clean state.
     for (int i = 0; i < 8; i++)
     {
         if (!wait_for_ready(dev_addr))
@@ -192,8 +193,12 @@ static bool msc_tur_with_retry(uint8_t vol)
         uint8_t sense_key = sense_resp.response_code ? sense_resp.sense_key : 0;
         DBG("MSC vol %d: sense %d/%02Xh/%02Xh\n",
             vol, sense_key, sense_resp.add_sense_code, sense_resp.add_sense_qualifier);
-        if (sense_key != SCSI_SENSE_UNIT_ATTENTION) // TODO
+        if (sense_key == SCSI_SENSE_NONE)
             break;
+        if (sense_key != SCSI_SENSE_UNIT_ATTENTION &&
+            sense_key == prev_sense_key)
+            break; // persistent state, stop draining
+        prev_sense_key = sense_key;
     }
 
     // Test Unit Ready
@@ -329,13 +334,10 @@ static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
         return;
-
-    for (int i = 0; i < MSC_STD_FIL_MAX; i++)
-    {
-        if (msc_std_fil_pool[i].obj.fs == &msc_fatfs_volumes[vol])
-            msc_std_fil_pool[i].obj.fs = NULL;
-    }
-
+    // If tuh_msc_umount_cb already freed this volume, don't resurrect it
+    // as ejected — that would prevent the slot from being reused on re-plug.
+    if (msc_volume_status[vol] == msc_volume_free)
+        return;
     // Re-register deferred mount so FatFS probes again on next access
     TCHAR volstr[6] = MSC_VOL0;
     volstr[3] += vol;
