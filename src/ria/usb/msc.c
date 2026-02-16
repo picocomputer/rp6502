@@ -124,8 +124,10 @@ static void wait_for_disk_io(uint8_t dev_addr)
                 (unsigned long)usb_hw->inte);
             DBG("  int_ep_ctrl=0x%08lx\n",
                 (unsigned long)usb_hw->int_ep_ctrl);
-            for (int i = 0; i < 15; i++) {
-                if (usb_hw->int_ep_ctrl & (1u << (i + 1))) {
+            for (int i = 0; i < 15; i++)
+            {
+                if (usb_hw->int_ep_ctrl & (1u << (i + 1)))
+                {
                     DBG("  int_ep[%d]: addr_ctrl=0x%08lx buf_ctrl=0x%08lx\n",
                         i,
                         (unsigned long)usb_hw->int_ep_addr_ctrl[i],
@@ -165,20 +167,20 @@ static bool wait_for_ready(uint8_t dev_addr)
     return true;
 }
 
-// Issue Request Sense + Test Unit Ready in a retry loop to clear
-// stacked Unit Attention conditions (e.g. media change, power-on
-// reset). Returns true if TUR succeeds (media is present).
+// Drain stacked Unit Attention conditions via Request Sense, then
+// issue Test Unit Ready. Returns true if TUR succeeds (media present).
 static bool msc_tur_with_retry(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     uint8_t const lun = 0;
     scsi_sense_fixed_resp_t sense_resp;
 
-    for (int attempt = 0; attempt < 3; attempt++)
+    // Drain pending sense conditions until clear (SCSI_SENSE_NONE).
+    for (int i = 0; i < 8; i++)
     {
-        // Request Sense to clear one pending Unit Attention
         if (!wait_for_ready(dev_addr))
             return false;
+        memset(&sense_resp, 0, sizeof(sense_resp));
         msc_tuh_dev_busy[dev_addr - 1] = true;
         if (!tuh_msc_request_sense(dev_addr, lun, &sense_resp, disk_io_complete, 0))
         {
@@ -187,22 +189,28 @@ static bool msc_tur_with_retry(uint8_t vol)
         }
         wait_for_disk_io(dev_addr);
 
-        // Test Unit Ready
-        if (!wait_for_ready(dev_addr))
-            return false;
-        msc_tuh_dev_busy[dev_addr - 1] = true;
-        if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
-        {
-            msc_tuh_dev_busy[dev_addr - 1] = false;
-            return false;
-        }
-        wait_for_disk_io(dev_addr);
-        if (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED)
-            return true;
-
-        DBG("MSC vol %d: TUR attempt %d failed (csw=%d)\n",
-            vol, attempt, msc_tuh_dev_csw_status[dev_addr - 1]);
+        uint8_t sense_key = sense_resp.response_code ? sense_resp.sense_key : 0;
+        DBG("MSC vol %d: sense %d/%02Xh/%02Xh\n",
+            vol, sense_key, sense_resp.add_sense_code, sense_resp.add_sense_qualifier);
+        if (sense_key != SCSI_SENSE_UNIT_ATTENTION) // TODO
+            break;
     }
+
+    // Test Unit Ready
+    if (!wait_for_ready(dev_addr))
+        return false;
+    msc_tuh_dev_busy[dev_addr - 1] = true;
+    if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
+    {
+        msc_tuh_dev_busy[dev_addr - 1] = false;
+        return false;
+    }
+    wait_for_disk_io(dev_addr);
+    if (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED)
+        return true;
+
+    DBG("MSC vol %d: TUR failed (csw=%d)\n",
+        vol, msc_tuh_dev_csw_status[dev_addr - 1]);
     return false;
 }
 
@@ -322,7 +330,6 @@ static void msc_handle_io_error(uint8_t vol)
     if (!msc_inquiry_resp[vol].is_removable)
         return;
     uint8_t dev_addr = msc_volume_dev_addr[vol];
-    bool is_cbi = tuh_msc_is_cbi(dev_addr);
 
     for (int i = 0; i < MSC_STD_FIL_MAX; i++)
     {
@@ -339,25 +346,10 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
 
-    // TODO remove this junk. perhaps do a TUR to recover removable media?
-    // if (is_cbi)
-    // {
-    //     // CBI/floppy: power-cycle the hub port. The drive firmware may
-    //     // be stuck (e.g. wrong data rate) and only a full power cycle
-    //     // fixes it. This causes a disconnect + re-enumerate cycle;
-    //     // tuh_msc_umount_cb() will free this volume slot, and
-    //     // tuh_msc_mount_cb() will create a fresh one after re-enum.
-    //     DBG("MSC vol %d: I/O error — power cycling hub port\n", vol);
-    //     tuh_msc_reset_recovery(dev_addr);
-    //     // tuh_msc_hub_port_power_cycle(dev_addr);
-    // }
-    // else
-    // {
-    //     // BOT: reset endpoints and data toggles to recover from
-    //     // data toggle desynchronization after media removal.
-    //     DBG("MSC vol %d: I/O error — reset recovery\n", vol);
-    //     tuh_msc_reset_recovery(dev_addr);
-    // }
+    DBG("MSC vol %d: I/O error — reset recovery\n", vol);
+    tuh_msc_reset_recovery(dev_addr);
+
+    // msc_tur_with_retry(vol); // might need to do early?
 }
 
 // Initialize a newly mounted volume: inquiry, media check, capacity.
@@ -709,7 +701,8 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         DBG("MSC vol %d: sector 0 dump:", pdrv);
         for (int i = 0; i < 64; i++)
         {
-            if (i % 16 == 0) DBG("\n  %04X: ", i);
+            if (i % 16 == 0)
+                DBG("\n  %04X: ", i);
             DBG(" %02X", buff[i]);
         }
         DBG("\n  ...\n  01F0: ");
