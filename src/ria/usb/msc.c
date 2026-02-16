@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
+#include "hardware/structs/usb.h"
 
 #define DEBUG_RIA_USB_MSC
 
@@ -92,23 +93,10 @@ static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
 // There's one additional interface we added.
 bool tuh_msc_is_cbi(uint8_t dev_addr);
 bool tuh_msc_reset_recovery(uint8_t dev_addr);
+bool tuh_msc_hub_port_power_cycle(uint8_t dev_addr);
 bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *response,
                                     uint8_t alloc_length,
                                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg);
-
-// UFI READ FORMAT CAPACITIES response (first 12 bytes: header + 1 descriptor)
-typedef struct TU_ATTR_PACKED
-{
-    uint8_t reserved[3];
-    uint8_t capacity_list_length; // in bytes (8 per descriptor)
-    uint32_t num_blocks;          // big-endian
-    uint8_t descriptor_type;      // 1=unformatted, 2=formatted, 3=no media
-    uint8_t block_size_hi;        // big-endian block size (3 bytes)
-    uint8_t block_size_mid;
-    uint8_t block_size_lo;
-} ufi_format_capacity_resp_t;
-
-static_assert(sizeof(ufi_format_capacity_resp_t) == 12, "size is not correct");
 
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
@@ -120,15 +108,43 @@ static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb
 static void wait_for_disk_io(uint8_t dev_addr)
 {
     absolute_time_t deadline = make_timeout_time_ms(MSC_IO_TIMEOUT_MS);
+    absolute_time_t next_dump = make_timeout_time_ms(500);
     while (msc_tuh_dev_busy[dev_addr - 1])
     {
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
             DBG("MSC dev %d: I/O timeout\n", dev_addr);
+            // Dump SIE state on timeout
+            DBG("  sie_status=0x%08lx sie_ctrl=0x%08lx\n",
+                (unsigned long)usb_hw->sie_status,
+                (unsigned long)usb_hw->sie_ctrl);
+            DBG("  buf_status=0x%08lx ints=0x%08lx inte=0x%08lx\n",
+                (unsigned long)usb_hw->buf_status,
+                (unsigned long)usb_hw->ints,
+                (unsigned long)usb_hw->inte);
+            DBG("  int_ep_ctrl=0x%08lx\n",
+                (unsigned long)usb_hw->int_ep_ctrl);
+            for (int i = 0; i < 15; i++) {
+                if (usb_hw->int_ep_ctrl & (1u << (i + 1))) {
+                    DBG("  int_ep[%d]: addr_ctrl=0x%08lx buf_ctrl=0x%08lx\n",
+                        i,
+                        (unsigned long)usb_hw->int_ep_addr_ctrl[i],
+                        (unsigned long)usbh_dpram->int_ep_buffer_ctrl[i].ctrl);
+                }
+            }
             tuh_msc_reset_recovery(dev_addr);
             msc_tuh_dev_busy[dev_addr - 1] = false;
             msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
             return;
+        }
+        if (absolute_time_diff_us(get_absolute_time(), next_dump) <= 0)
+        {
+            DBG("MSC dev %d: waiting... sie_status=0x%08lx buf_status=0x%08lx ints=0x%08lx\n",
+                dev_addr,
+                (unsigned long)usb_hw->sie_status,
+                (unsigned long)usb_hw->sie_ctrl,
+                (unsigned long)usb_hw->ints);
+            next_dump = make_timeout_time_ms(500);
         }
         main_task();
     }
@@ -149,18 +165,15 @@ static bool wait_for_ready(uint8_t dev_addr)
     return true;
 }
 
-// Probe an ejected removable volume for media via SCSI commands.
-static bool msc_probe_media(uint8_t vol)
+// Issue Request Sense + Test Unit Ready in a retry loop to clear
+// stacked Unit Attention conditions (e.g. media change, power-on
+// reset). Returns true if TUR succeeds (media is present).
+static bool msc_tur_with_retry(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     uint8_t const lun = 0;
-
-    if (!tuh_msc_mounted(dev_addr))
-        return false;
-
-    // Request Sense + Test Unit Ready, retrying to clear stacked
-    // Unit Attention conditions (e.g. media change, power-on reset).
     scsi_sense_fixed_resp_t sense_resp;
+
     for (int attempt = 0; attempt < 3; attempt++)
     {
         // Request Sense to clear one pending Unit Attention
@@ -185,59 +198,80 @@ static bool msc_probe_media(uint8_t vol)
         }
         wait_for_disk_io(dev_addr);
         if (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED)
-            break;
+            return true;
 
-        if (attempt == 2)
-            return false; // still not ready after retries
+        DBG("MSC vol %d: TUR attempt %d failed (csw=%d)\n",
+            vol, attempt, msc_tuh_dev_csw_status[dev_addr - 1]);
     }
+    return false;
+}
 
-    // Read Capacity to get geometry.
-    // CBI/UFI devices use READ FORMAT CAPACITIES (0x23) which provides
-    // a descriptor type field indicating whether format detection is
-    // complete (type 2 = formatted). This avoids a race where the
-    // floppy drive reports TUR=ready before it has sensed the media
-    // format, causing READ CAPACITY to return DD (720KB) geometry
-    // instead of HD (1.44MB).
+// Read the capacity of a volume. Uses Read Format Capacities for
+// CBI/UFI devices and Read Capacity(10) for BOT devices.
+// On success, sets block_count and block_size and returns true.
+static bool msc_read_capacity(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint8_t const lun = 0;
+
     if (tuh_msc_is_cbi(dev_addr))
     {
-        ufi_format_capacity_resp_t fmt_resp;
-        for (int attempt = 0; attempt < 5; attempt++)
+        // CBI/UFI floppy: use READ FORMAT CAPACITIES to get current
+        // capacity. FatFS trusts the BPB on sector 0 for geometry.
+        // 4-byte header + 1 descriptor (8 bytes) = 12 bytes
+        uint8_t rfc_buf[12];
+        memset(rfc_buf, 0, sizeof(rfc_buf));
+        if (!wait_for_ready(dev_addr))
+            return false;
+        msc_tuh_dev_busy[dev_addr - 1] = true;
+        if (!tuh_msc_read_format_capacities(dev_addr, lun, rfc_buf,
+                                            sizeof(rfc_buf), disk_io_complete, 0))
         {
-            if (!wait_for_ready(dev_addr))
-                return false;
-            memset(&fmt_resp, 0, sizeof(fmt_resp));
-            msc_tuh_dev_busy[dev_addr - 1] = true;
-            if (!tuh_msc_read_format_capacities(dev_addr, lun, &fmt_resp,
-                                                sizeof(fmt_resp), disk_io_complete, 0))
-            {
-                msc_tuh_dev_busy[dev_addr - 1] = false;
-                return false;
-            }
-            wait_for_disk_io(dev_addr);
-            if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
-                return false;
-
-            uint8_t desc_type = fmt_resp.descriptor_type & 0x03;
-            if (desc_type == 2) // formatted media, geometry is valid
-            {
-                msc_volume_block_count[vol] = tu_ntohl(fmt_resp.num_blocks);
-                msc_volume_block_size[vol] = ((uint32_t)fmt_resp.block_size_hi << 16) |
-                                             ((uint32_t)fmt_resp.block_size_mid << 8) |
-                                             (uint32_t)fmt_resp.block_size_lo;
-                msc_volume_status[vol] = msc_volume_mounted;
-                msc_volume_tur_ok[vol] = true;
-                DBG("MSC vol %d: media detected (fmt cap)\n", vol);
-                return true;
-            }
-            if (desc_type == 3) // no media present
-                return false;
-
-            // desc_type 1 (unformatted) or 0: drive is still sensing, retry
-            DBG("MSC vol %d: format not ready (type %d), retrying\n", vol, desc_type);
-            sleep_ms(200);
+            msc_tuh_dev_busy[dev_addr - 1] = false;
+            return false;
         }
-        DBG("MSC vol %d: format detection timed out\n", vol);
-        return false;
+        wait_for_disk_io(dev_addr);
+        if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
+        {
+            DBG("MSC vol %d: RFC CSW not passed (%d)\n",
+                vol, msc_tuh_dev_csw_status[dev_addr - 1]);
+            // CBI/UFI floppies may report non-zero ASC in interrupt
+            // status (e.g. "Medium Not Present") even though the bulk
+            // data phase delivered a valid response.  Continue and let
+            // the descriptor parsing decide.
+        }
+
+        uint8_t list_len = rfc_buf[3]; // capacity list length in bytes
+        if (list_len < 8)
+        {
+            DBG("MSC vol %d: RFC list_len=%d (too short)\n", vol, list_len);
+            return false;
+        }
+
+        // First descriptor (current/maximum) — check desc_type
+        uint8_t desc_type = rfc_buf[4 + 4] & 0x03;
+        if (desc_type == 3) // no media present
+        {
+            DBG("MSC vol %d: RFC desc_type=3 (no media)\n", vol);
+            return false;
+        }
+
+        // Per SFF-8070i, descriptor 0 is the current/maximum capacity.
+        uint8_t *desc0 = &rfc_buf[4];
+        uint32_t blocks = tu_ntohl(*(uint32_t *)&desc0[0]);
+        uint32_t bsize = ((uint32_t)desc0[5] << 16) |
+                         ((uint32_t)desc0[6] << 8) |
+                         (uint32_t)desc0[7];
+
+        DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
+            vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
+
+        if (blocks == 0 || bsize != 512)
+            return false;
+
+        msc_volume_block_count[vol] = blocks;
+        msc_volume_block_size[vol] = bsize;
+        return true;
     }
 
     // BOT / non-UFI: use standard Read Capacity
@@ -256,6 +290,23 @@ static bool msc_probe_media(uint8_t vol)
 
     msc_volume_block_count[vol] = tu_ntohl(cap_resp.last_lba) + 1;
     msc_volume_block_size[vol] = tu_ntohl(cap_resp.block_size);
+    return true;
+}
+
+// Probe an ejected removable volume for media via SCSI commands.
+// Called from msc_status_count (periodic poll) and disk_initialize
+// (FatFS access). Does TUR to check media, then capacity reads.
+static bool msc_probe_media(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+
+    if (!tuh_msc_mounted(dev_addr))
+        return false;
+    if (!msc_tur_with_retry(vol))
+        return false;
+    if (!msc_read_capacity(vol))
+        return false;
+
     msc_volume_status[vol] = msc_volume_mounted;
     msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: media detected\n", vol);
@@ -263,10 +314,16 @@ static bool msc_probe_media(uint8_t vol)
 }
 
 // Handle I/O error on a removable volume: unmount and mark ejected.
+// For CBI/floppy devices, power-cycle the hub port to force the drive
+// firmware to re-initialize (fixes stuck data-rate detection).
+// For BOT devices, reset endpoint state and data toggles.
 static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
         return;
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    bool is_cbi = tuh_msc_is_cbi(dev_addr);
+
     for (int i = 0; i < MSC_STD_FIL_MAX; i++)
     {
         if (msc_std_fil_pool[i].obj.fs == &msc_fatfs_volumes[vol])
@@ -281,28 +338,54 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_tur_ok[vol] = false;
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
-    DBG("MSC vol %d: media removed (I/O error)\n", vol);
+
+    // TODO remove this junk. perhaps do a TUR to recover removable media?
+    // if (is_cbi)
+    // {
+    //     // CBI/floppy: power-cycle the hub port. The drive firmware may
+    //     // be stuck (e.g. wrong data rate) and only a full power cycle
+    //     // fixes it. This causes a disconnect + re-enumerate cycle;
+    //     // tuh_msc_umount_cb() will free this volume slot, and
+    //     // tuh_msc_mount_cb() will create a fresh one after re-enum.
+    //     DBG("MSC vol %d: I/O error — power cycling hub port\n", vol);
+    //     tuh_msc_reset_recovery(dev_addr);
+    //     // tuh_msc_hub_port_power_cycle(dev_addr);
+    // }
+    // else
+    // {
+    //     // BOT: reset endpoints and data toggles to recover from
+    //     // data toggle desynchronization after media removal.
+    //     DBG("MSC vol %d: I/O error — reset recovery\n", vol);
+    //     tuh_msc_reset_recovery(dev_addr);
+    // }
 }
 
-// Initialize a newly registered volume: inquiry + read capacity.
-// Runs from main loop context where the control pipe is free.
-static bool msc_init_volume(uint8_t vol)
+// Initialize a newly mounted volume: inquiry, media check, capacity.
+// Called from tuh_msc_mount_cb.
+static void msc_init_volume(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     uint8_t const lun = 0;
 
     if (!tuh_msc_mounted(dev_addr))
-        return false;
+    {
+        msc_volume_status[vol] = msc_volume_failed;
+        return;
+    }
 
     // SCSI Inquiry
     if (!wait_for_ready(dev_addr))
-        return false;
+    {
+        msc_volume_status[vol] = msc_volume_failed;
+        return;
+    }
     memset(&msc_inquiry_resp[vol], 0, sizeof(msc_inquiry_resp[vol]));
     msc_tuh_dev_busy[dev_addr - 1] = true;
     if (!tuh_msc_inquiry(dev_addr, lun, &msc_inquiry_resp[vol], disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
-        return false;
+        msc_volume_status[vol] = msc_volume_failed;
+        return;
     }
     wait_for_disk_io(dev_addr);
 
@@ -322,41 +405,35 @@ static bool msc_init_volume(uint8_t vol)
         {
             DBG("MSC vol %d: inquiry failed (invalid response)\n", vol);
             msc_volume_status[vol] = msc_volume_failed;
-            return false;
+            return;
         }
         DBG("MSC vol %d: inquiry CSW not passed (response valid, continuing)\n", vol);
     }
 
+    // For removable media, check if media is present via TUR.
     if (msc_inquiry_resp[vol].is_removable)
     {
-        msc_volume_status[vol] = msc_volume_ejected;
-        return msc_probe_media(vol);
+        if (!msc_tur_with_retry(vol))
+        {
+            msc_volume_status[vol] = msc_volume_ejected;
+            DBG("MSC vol %d: removable, no media\n", vol);
+            return;
+        }
     }
 
-    // Non-removable: use Read Capacity (CBI/UFI non-removable is rare but handle it)
-    scsi_read_capacity10_resp_t cap_resp;
-    if (!wait_for_ready(dev_addr))
-        return false;
-    msc_tuh_dev_busy[dev_addr - 1] = true;
-    if (!tuh_msc_read_capacity(dev_addr, lun, &cap_resp, disk_io_complete, 0))
+    // Read capacity — use RFC for CBI/UFI, Read Capacity for BOT.
+    if (!msc_read_capacity(vol))
     {
-        msc_tuh_dev_busy[dev_addr - 1] = false;
-        msc_volume_status[vol] = msc_volume_failed;
-        return false;
-    }
-    wait_for_disk_io(dev_addr);
-    if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
-    {
-        msc_volume_status[vol] = msc_volume_failed;
-        return false;
+        msc_volume_status[vol] = msc_inquiry_resp[vol].is_removable
+                                     ? msc_volume_ejected
+                                     : msc_volume_failed;
+        return;
     }
 
-    msc_volume_block_count[vol] = tu_ntohl(cap_resp.last_lba) + 1;
-    msc_volume_block_size[vol] = tu_ntohl(cap_resp.block_size);
     msc_volume_status[vol] = msc_volume_mounted;
+    msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: initialized %lu blocks\n", vol,
         (unsigned long)msc_volume_block_count[vol]);
-    return true;
 }
 
 static FIL *msc_validate_fil(int desc)
@@ -386,10 +463,8 @@ int msc_status_count(void)
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_status[vol] == msc_volume_registered)
-            msc_init_volume(vol);
-        else if (msc_volume_status[vol] == msc_volume_ejected)
-            msc_probe_media(vol);
+        if (msc_volume_status[vol] == msc_volume_ejected)
+            msc_probe_media(vol); // TODO do always?
         else if (msc_volume_status[vol] == msc_volume_mounted &&
                  msc_inquiry_resp[vol].is_removable)
         {
@@ -474,10 +549,6 @@ int msc_status_response(char *buf, size_t buf_size, int state)
 
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
-    // TinyUSB callback when a USB mass storage device is attached.
-    // Register a deferred FatFS mount; SCSI commands (inquiry,
-    // read capacity) run later from disk_initialize on the main
-    // loop where the control pipe is guaranteed free.
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         if (msc_volume_status[vol] == msc_volume_free)
@@ -488,6 +559,7 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
             volstr[3] += vol;
             f_mount(&msc_fatfs_volumes[vol], volstr, 0);
             DBG("MSC mount dev_addr %d -> vol %d\n", dev_addr, vol);
+            msc_init_volume(vol);
             break;
         }
     }
@@ -564,6 +636,7 @@ DWORD get_fattime(void)
 
 DSTATUS disk_status(BYTE pdrv)
 {
+    // TODO STA_NODISK and STA_PROTECT support
     if (msc_volume_status[pdrv] == msc_volume_ejected ||
         msc_volume_status[pdrv] == msc_volume_registered)
         return STA_NOINIT;
@@ -601,11 +674,6 @@ DSTATUS disk_status(BYTE pdrv)
 
 DSTATUS disk_initialize(BYTE pdrv)
 {
-    if (msc_volume_status[pdrv] == msc_volume_registered)
-    {
-        if (!msc_init_volume(pdrv))
-            return STA_NOINIT;
-    }
     if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         if (!msc_probe_media(pdrv))
@@ -635,7 +703,21 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         .block_count = tu_htons((uint16_t)count)};
     memcpy(cbw.command, &cmd, sizeof(cmd));
 
-    return msc_scsi_xfer(pdrv, &cbw, buff);
+    DRESULT res = msc_scsi_xfer(pdrv, &cbw, buff);
+    if (sector == 0 && res == RES_OK)
+    {
+        DBG("MSC vol %d: sector 0 dump:", pdrv);
+        for (int i = 0; i < 64; i++)
+        {
+            if (i % 16 == 0) DBG("\n  %04X: ", i);
+            DBG(" %02X", buff[i]);
+        }
+        DBG("\n  ...\n  01F0: ");
+        for (int i = 0x1F0; i < 0x200; i++)
+            DBG(" %02X", buff[i]);
+        DBG("\n");
+    }
+    return res;
 }
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)

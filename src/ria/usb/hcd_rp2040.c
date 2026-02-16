@@ -517,12 +517,18 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   // EP should be inactive
   assert(!ep->active);
 
-  // Control endpoint can change direction 0x00 <-> 0x80
-  if (ep_addr != ep->ep_addr) {
-    assert(ep_num == 0);
+  // For EP0 (shared EPX): re-init whenever dev_addr, direction, or MPS changed.
+  // Another device's control transfer may have reconfigured EPX in between phases.
+  if (ep_num == 0) {
+    uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
+    if (mps == 0) mps = 8;
 
-    // Direction has flipped on endpoint control so re init it but with same properties
-    hw_endpoint_init(ep, dev_addr, ep_addr, ep->wMaxPacketSize, TUSB_XFER_CONTROL, 0);
+    if (ep_addr != ep->ep_addr || dev_addr != ep->dev_addr || mps != ep->wMaxPacketSize) {
+      hw_endpoint_init(ep, dev_addr, ep_addr, mps, TUSB_XFER_CONTROL, 0);
+    }
+  } else if (ep_addr != ep->ep_addr) {
+    // Non-zero endpoint direction flip (shouldn't happen for non-control)
+    hw_endpoint_init(ep, dev_addr, ep_addr, ep->wMaxPacketSize, ep->configured ? TUSB_XFER_CONTROL : 0, 0);
   }
 
   // If a normal transfer (non-interrupt) then initiate using
