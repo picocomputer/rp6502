@@ -329,7 +329,6 @@ static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
         return;
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
 
     for (int i = 0; i < MSC_STD_FIL_MAX; i++)
     {
@@ -346,10 +345,7 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
 
-    DBG("MSC vol %d: I/O error — reset recovery\n", vol);
-    tuh_msc_reset_recovery(dev_addr);
-
-    // msc_tur_with_retry(vol); // might need to do early?
+    DBG("MSC vol %d: I/O error — marked ejected\n", vol);
 }
 
 // Initialize a newly mounted volume: inquiry, media check, capacity.

@@ -563,6 +563,16 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (!ep || !ep->active) return true;
   *hwbuf_ctrl_reg_host(ep) = 0;
   hw_endpoint_reset_transfer(ep);
+
+  // For EPX (control/bulk shared endpoint): if the SIE was mid-transaction
+  // (SETUP sent, waiting for device response), the hardware state machine
+  // is stuck.  Reset sie_ctrl to base state to stop the in-progress
+  // transaction so subsequent hcd_setup_send / hcd_edpt_xfer can start
+  // fresh.  Only needed for EPX — interrupt endpoints are handled by the
+  // int_ep hardware, not the SIE state machine.
+  if (ep == &epx) {
+    usb_hw->sie_ctrl = SIE_CTRL_BASE;
+  }
   return true;
 }
 

@@ -63,6 +63,7 @@ Changes from upstream TinyUSB msc_host.c:
 #include "host/hcd.h"
 
 #include "class/msc/msc_host.h"
+#include "pico/time.h"
 
 // Level where CFG_TUSB_DEBUG must be at least for this driver is logged
 #ifndef CFG_TUH_MSC_LOG_LEVEL
@@ -150,7 +151,18 @@ bool tuh_msc_is_cbi(uint8_t dev_addr) {
 }
 
 // Send CLEAR_FEATURE(ENDPOINT_HALT) to a single endpoint.
-// Returns true on success.
+// Returns true on success. Uses async transfer with timeout to avoid
+// deadlock when the device is unresponsive (blocking tuh_control_xfer
+// has no timeout and will spin forever).
+#define CLEAR_HALT_TIMEOUT_MS 2000
+
+static volatile bool _clear_halt_done;
+
+static void _clear_halt_cb(tuh_xfer_t* xfer) {
+  (void) xfer;
+  _clear_halt_done = true;
+}
+
 static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
   tusb_control_request_t const request = {
       .bmRequestType_bit = {
@@ -164,23 +176,50 @@ static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
       .wLength  = 0
   };
 
-  xfer_result_t result = XFER_RESULT_INVALID;
+  _clear_halt_done = false;
+
   tuh_xfer_t xfer = {
       .daddr       = daddr,
       .ep_addr     = 0,
       .setup       = &request,
       .buffer      = NULL,
-      .complete_cb = NULL,       // blocking
-      .user_data   = (uintptr_t) &result
+      .complete_cb = _clear_halt_cb,
+      .user_data   = 0
   };
 
   if (!tuh_control_xfer(&xfer)) return false;
-  return (result == XFER_RESULT_SUCCESS);
+
+  // Wait for completion with timeout — prevents deadlock when the
+  // device is unresponsive (the TinyUSB blocking mode has no timeout).
+  absolute_time_t deadline = make_timeout_time_ms(CLEAR_HALT_TIMEOUT_MS);
+  while (!_clear_halt_done) {
+    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
+      // Device not responding — abort the pending control transfer
+      // to free the control pipe for future use.
+      tuh_edpt_abort_xfer(daddr, 0);
+      return false;
+    }
+    if (tuh_task_event_ready()) {
+      tuh_task();
+    }
+  }
+
+  return true;
 }
 
 bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   msch_interface_t* p_msc = get_itf(dev_addr);
   if (!p_msc->configured) return false;
+
+  bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
+                       p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
+
+  // For CBI: if the ADSC control transfer is in-flight (stage == CMD),
+  // abort the control pipe.  Otherwise the shared EP0 stays stuck and
+  // ALL subsequent USB control transfers (to any device) hang.
+  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
+    tuh_edpt_abort_xfer(dev_addr, 0);
+  }
 
   // Abort any in-flight bulk transfers and reset MSC stage
   tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
@@ -189,13 +228,23 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
 
   uint8_t const rhport = usbh_get_rhport(dev_addr);
 
-  // Clear halt on bulk IN: resets device-side data toggle, then host-side
-  clear_ep_halt(dev_addr, p_msc->ep_in);
-  hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
+  if (is_cbi) {
+    // CBI transport: do NOT send CLEAR_FEATURE(ENDPOINT_HALT) to the
+    // device.  CBI uses the shared control pipe for ADSC commands —
+    // sending control transfers to an unresponsive device will block
+    // the control pipe and corrupt the SIE state, preventing ALL
+    // subsequent USB communication.  Just reset data toggles locally.
+    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
+    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+  } else {
+    // BOT transport: Clear halt on both bulk endpoints.
+    // Resets device-side data toggle, then host-side.
+    clear_ep_halt(dev_addr, p_msc->ep_in);
+    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
 
-  // Clear halt on bulk OUT: resets device-side data toggle, then host-side
-  clear_ep_halt(dev_addr, p_msc->ep_out);
-  hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+    clear_ep_halt(dev_addr, p_msc->ep_out);
+    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+  }
 
   return true;
 }
