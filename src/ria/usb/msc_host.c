@@ -224,18 +224,32 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   // Abort any in-flight bulk transfers and reset MSC stage
   tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
   tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+  if (is_cbi && p_msc->ep_intr) {
+    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
+  }
   p_msc->stage = MSC_STAGE_IDLE;
 
   uint8_t const rhport = usbh_get_rhport(dev_addr);
 
   if (is_cbi) {
-    // CBI transport: do NOT send CLEAR_FEATURE(ENDPOINT_HALT) to the
-    // device.  CBI uses the shared control pipe for ADSC commands —
-    // sending control transfers to an unresponsive device will block
-    // the control pipe and corrupt the SIE state, preventing ALL
-    // subsequent USB communication.  Just reset data toggles locally.
-    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
-    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+    // CBI transport: do NOT send CLEAR_FEATURE(ENDPOINT_HALT) or
+    // reset host-side data toggles.  Two reasons:
+    //
+    // 1. CLEAR_FEATURE: CBI/UFI floppy drives often fail to complete
+    //    the STATUS phase, leaving EP 0 stuck.  Aborting EP 0 to
+    //    recover then corrupts the SIE state, preventing ALL future
+    //    control transfers (including ADSC commands).
+    //
+    // 2. Data toggles: hcd_edpt_abort_xfer() preserves next_pid,
+    //    which naturally stays in sync with the device's toggle
+    //    (both advanced together during successful packets before
+    //    the timeout).  Calling hcd_edpt_clear_stall() would force
+    //    next_pid to DATA0, desynchronizing from the device's
+    //    actual toggle and causing the RP2350 to silently drop
+    //    every subsequent packet.
+    //
+    // The abort + IDLE above is sufficient.  Toggles stay matched,
+    // EP 0 stays functional, and the next SCSI command works.
   } else {
     // BOT transport: full Bulk-Only Mass Storage Reset sequence
     // per USB BOT spec section 5.3.4.  The class-specific reset

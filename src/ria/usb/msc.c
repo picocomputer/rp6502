@@ -91,6 +91,7 @@ static bool msc_volume_write_protected[FF_VOLUMES];
 
 static bool msc_tuh_dev_busy[CFG_TUH_DEVICE_MAX];
 static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
+static bool msc_tuh_dev_timed_out[CFG_TUH_DEVICE_MAX];
 
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with: src/tinyusb/src/class/msc/msc_host.c
@@ -104,6 +105,7 @@ bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *respons
 static bool disk_io_complete(uint8_t dev_addr, tuh_msc_complete_data_t const *cb_data)
 {
     msc_tuh_dev_csw_status[dev_addr - 1] = cb_data->csw->status;
+    msc_tuh_dev_timed_out[dev_addr - 1] = false;
     msc_tuh_dev_busy[dev_addr - 1] = false;
     return true;
 }
@@ -138,6 +140,7 @@ static void wait_for_disk_io(uint8_t dev_addr)
                 }
             }
             tuh_msc_reset_recovery(dev_addr);
+            msc_tuh_dev_timed_out[dev_addr - 1] = true;
             msc_tuh_dev_busy[dev_addr - 1] = false;
             msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
             return;
@@ -478,12 +481,8 @@ static bool msc_probe_media(uint8_t vol)
 }
 
 // Handle I/O error on a removable volume: unmount and mark ejected.
-// After marking ejected, do a full device-level cleanup so the next
-// probe finds the device in a known-good SCSI state:
-//   BOT reset  — clears the USB transport (data toggles, stalls)
-//   TUR+sense  — clears any pending SCSI check conditions
-// Without this, some devices (SD card readers) stay confused and
-// return garbage data on subsequent probes.
+// The caller (msc_scsi_xfer, disk_status) is responsible for any
+// device-level recovery (reset, TUR, sense) before calling this.
 static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
@@ -502,22 +501,7 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_block_size[vol] = 0;
     msc_volume_write_protected[vol] = false;
 
-    // Scrub the device so it's clean for the next probe.
-    // wait_for_disk_io already did one reset to abort the stuck
-    // transfer.  Do another reset + TUR + sense to fully clear
-    // residual SCSI state (stale check conditions, dirty buffers).
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    if (tuh_msc_mounted(dev_addr))
-    {
-        tuh_msc_reset_recovery(dev_addr);
-        msc_send_tur(vol);
-        msc_do_request_sense(vol);
-        DBG("MSC vol %d: I/O error — scrubbed and marked ejected\n", vol);
-    }
-    else
-    {
-        DBG("MSC vol %d: I/O error — marked ejected\n", vol);
-    }
+    DBG("MSC vol %d: I/O error — marked ejected\n", vol);
 }
 
 // Initialize a newly mounted volume: inquiry, media check, capacity.
@@ -780,6 +764,16 @@ static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
     wait_for_disk_io(dev_addr);
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
+        // Scrub the device so the next probe finds it in a known-good
+        // SCSI state.  Skip when the failure was a timeout — the device
+        // is unresponsive and every command would hang for the full I/O
+        // timeout.  msc_probe_media will do TUR + SENSE when it comes back.
+        if (!msc_tuh_dev_timed_out[dev_addr - 1])
+        {
+            tuh_msc_reset_recovery(dev_addr);
+            msc_send_tur(pdrv);
+            msc_do_request_sense(pdrv);
+        }
         msc_handle_io_error(pdrv);
         return RES_ERROR;
     }
