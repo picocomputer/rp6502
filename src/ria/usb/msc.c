@@ -97,7 +97,6 @@ static uint8_t msc_tuh_dev_csw_status[CFG_TUH_DEVICE_MAX];
 // There's one additional interface we added.
 bool tuh_msc_is_cbi(uint8_t dev_addr);
 bool tuh_msc_reset_recovery(uint8_t dev_addr);
-bool tuh_msc_hub_port_power_cycle(uint8_t dev_addr);
 bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *response,
                                     uint8_t alloc_length,
                                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg);
@@ -209,10 +208,6 @@ static bool msc_do_request_sense(uint8_t vol)
 }
 
 // Check write protection via MODE SENSE(6).
-// The WP bit is in the device-specific parameter byte of the mode
-// parameter header. Returns true if media is write-protected.
-// On transport error or unsupported command, returns false (assume
-// not protected).
 static bool msc_check_write_protect(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
@@ -252,59 +247,119 @@ static bool msc_check_write_protect(uint8_t vol)
 
     DBG("MSC vol %d: MODE SENSE WP=%d medium_type=0x%02X\n",
         vol, ms_resp.write_protected, ms_resp.medium_type);
-    return ms_resp.write_protected;
+
+    msc_volume_write_protected[vol] = ms_resp.write_protected;
+    return true;
 }
 
-// Check media readiness using TUR, then Request Sense to interpret
-// failures. Retries transient NOT_READY conditions.
-// Returns true if TUR succeeds (media present and ready).
-static bool msc_test_unit_ready(uint8_t vol)
+// Send a single TUR command and return whether it passed.
+static bool msc_send_tur(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     uint8_t const lun = 0;
 
-    for (int attempt = 0; attempt < 5; attempt++)
+    if (!wait_for_ready(dev_addr))
+        return false;
+    msc_tuh_dev_busy[dev_addr - 1] = true;
+    if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
     {
-        // Test Unit Ready — the primary readiness check
-        if (!wait_for_ready(dev_addr))
-            return false;
-        msc_tuh_dev_busy[dev_addr - 1] = true;
-        if (!tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0))
-        {
-            msc_tuh_dev_busy[dev_addr - 1] = false;
-            return false;
-        }
+        msc_tuh_dev_busy[dev_addr - 1] = false;
+        return false;
+    }
+    wait_for_disk_io(dev_addr);
+    return msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED;
+}
+
+// Send START STOP UNIT (start=1) to spin up the device or
+// prompt media detection. Fire-and-forget; caller returns false
+// so the periodic poll re-checks later.
+static void msc_send_start_unit(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint8_t const lun = 0;
+
+    if (!wait_for_ready(dev_addr))
+        return;
+    msc_cbw_t ssu_cbw;
+    memset(&ssu_cbw, 0, sizeof(ssu_cbw));
+    ssu_cbw.signature = MSC_CBW_SIGNATURE;
+    ssu_cbw.tag = 0x54555342;
+    ssu_cbw.lun = lun;
+    ssu_cbw.total_bytes = 0;
+    ssu_cbw.dir = TUSB_DIR_OUT;
+    ssu_cbw.cmd_len = 6;
+    ssu_cbw.command[0] = 0x1B; // START STOP UNIT
+    ssu_cbw.command[4] = 0x01; // start=1
+    msc_tuh_dev_busy[dev_addr - 1] = true;
+    if (tuh_msc_scsi_command(dev_addr, &ssu_cbw, NULL,
+                             disk_io_complete, 0))
+    {
         wait_for_disk_io(dev_addr);
-        if (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED)
+    }
+    else
+    {
+        msc_tuh_dev_busy[dev_addr - 1] = false;
+    }
+}
+
+// Check media readiness with a single TUR, then interpret the
+// sense data. Modelled on Linux sd_spinup_disk():
+//   Any check condition — sense read clears it, retry TUR once
+//   NOT_READY           — send START UNIT, retry TUR once
+// No loops: at most 3 TURs (initial, post-sense, post-START).
+// Returns true if media is present and ready.
+static bool msc_test_unit_ready(uint8_t vol)
+{
+    // First TUR
+    if (msc_send_tur(vol))
+    {
+        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+        msc_volume_sense_asc[vol] = 0;
+        msc_volume_sense_ascq[vol] = 0;
+        return true;
+    }
+
+    // Sense read clears pending check conditions (unit attention,
+    // stale medium errors after reset recovery, etc.).
+    if (!msc_do_request_sense(vol))
+        return false;
+
+    // Retry TUR — cleared condition often lets this succeed.
+    if (msc_send_tur(vol))
+    {
+        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+        msc_volume_sense_asc[vol] = 0;
+        msc_volume_sense_ascq[vol] = 0;
+        return true;
+    }
+
+    // Second TUR failed — get fresh sense to decide next step.
+    if (!msc_do_request_sense(vol))
+        return false;
+
+    uint8_t sk = msc_volume_sense_key[vol];
+    uint8_t asc = msc_volume_sense_asc[vol];
+
+    // NOT_READY: send START UNIT (spin up / detect media).
+    if (sk == SCSI_SENSE_NOT_READY)
+    {
+        DBG("MSC vol %d: not ready (%02Xh/%02Xh), sending START UNIT\n",
+            vol, asc, msc_volume_sense_ascq[vol]);
+        msc_send_start_unit(vol);
+        if (msc_send_tur(vol))
         {
             msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
             msc_volume_sense_asc[vol] = 0;
             msc_volume_sense_ascq[vol] = 0;
             return true;
         }
-
-        // TUR failed — Request Sense to find out why
-        if (!msc_do_request_sense(vol))
-            return false;
-
-        uint8_t sk = msc_volume_sense_key[vol];
-        uint8_t asc = msc_volume_sense_asc[vol];
-        if (sk == SCSI_SENSE_UNIT_ATTENTION)
-            continue;
-        if (sk == SCSI_SENSE_NOT_READY)
-        {
-            DBG("MSC vol %d: not ready (%02Xh/%02Xh), retrying...\n",
-                vol, asc, msc_volume_sense_ascq[vol]);
-            continue;
-        }
-
-        // Other sense keys (medium error, etc.) — don't retry
-        DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh — not retrying\n",
-            vol, sk, asc, msc_volume_sense_ascq[vol]);
+        msc_do_request_sense(vol);
+        DBG("MSC vol %d: still not ready after START UNIT\n", vol);
         return false;
     }
 
-    DBG("MSC vol %d: TUR retries exhausted\n", vol);
+    DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh\n",
+        vol, sk, asc, msc_volume_sense_ascq[vol]);
     return false;
 }
 
@@ -397,7 +452,7 @@ static bool msc_read_capacity(uint8_t vol)
 
 // Probe an ejected removable volume for media via SCSI commands.
 // Called from msc_status_count (periodic poll) and disk_initialize
-// (FatFS access). Does TUR to check media, then capacity reads.
+// (FatFS access). Does TUR, capacity read, and MODE SENSE validation.
 static bool msc_probe_media(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
@@ -414,11 +469,7 @@ static bool msc_probe_media(uint8_t vol)
     // the 3-second I/O timeout triggers a reset recovery that corrupts
     // the CBI transport state, and subsequent reads fail permanently.
     if (!tuh_msc_is_cbi(dev_addr))
-    {
-        msc_volume_write_protected[vol] = msc_check_write_protect(vol);
-        if (msc_volume_write_protected[vol])
-            DBG("MSC vol %d: write-protected\n", vol);
-    }
+        msc_check_write_protect(vol);
 
     msc_volume_status[vol] = msc_volume_mounted;
     msc_volume_tur_ok[vol] = true;
@@ -427,9 +478,12 @@ static bool msc_probe_media(uint8_t vol)
 }
 
 // Handle I/O error on a removable volume: unmount and mark ejected.
-// For CBI/floppy devices, power-cycle the hub port to force the drive
-// firmware to re-initialize (fixes stuck data-rate detection).
-// For BOT devices, reset endpoint state and data toggles.
+// After marking ejected, do a full device-level cleanup so the next
+// probe finds the device in a known-good SCSI state:
+//   BOT reset  — clears the USB transport (data toggles, stalls)
+//   TUR+sense  — clears any pending SCSI check conditions
+// Without this, some devices (SD card readers) stay confused and
+// return garbage data on subsequent probes.
 static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
@@ -448,7 +502,22 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_block_size[vol] = 0;
     msc_volume_write_protected[vol] = false;
 
-    DBG("MSC vol %d: I/O error — marked ejected\n", vol);
+    // Scrub the device so it's clean for the next probe.
+    // wait_for_disk_io already did one reset to abort the stuck
+    // transfer.  Do another reset + TUR + sense to fully clear
+    // residual SCSI state (stale check conditions, dirty buffers).
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (tuh_msc_mounted(dev_addr))
+    {
+        tuh_msc_reset_recovery(dev_addr);
+        msc_send_tur(vol);
+        msc_do_request_sense(vol);
+        DBG("MSC vol %d: I/O error — scrubbed and marked ejected\n", vol);
+    }
+    else
+    {
+        DBG("MSC vol %d: I/O error — marked ejected\n", vol);
+    }
 }
 
 // Initialize a newly mounted volume: inquiry, media check, capacity.
@@ -526,11 +595,7 @@ static void msc_init_volume(uint8_t vol)
     // the 3-second I/O timeout triggers a reset recovery that corrupts
     // the CBI transport state, and subsequent reads fail permanently.
     if (!tuh_msc_is_cbi(dev_addr))
-    {
-        msc_volume_write_protected[vol] = msc_check_write_protect(vol);
-        if (msc_volume_write_protected[vol])
-            DBG("MSC vol %d: write-protected\n", vol);
-    }
+        msc_check_write_protect(vol);
 
     msc_volume_status[vol] = msc_volume_mounted;
     msc_volume_tur_ok[vol] = true;
