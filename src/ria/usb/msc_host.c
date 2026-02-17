@@ -742,10 +742,33 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
   p_msc->protocol = desc_itf->bInterfaceProtocol;
   p_msc->ep_intr = 0;
 
+  // Linux unusual_devs.h quirk. Force CBI_NO_INTERRUPT.
+  //   0x0644:0x0000  TEAC Floppy Drive
+  //   0x04e6:0x0001  Matshita LS-120
+  //   0x04e6:0x0007  Sony Hifd
+  bool force_no_intr = false;
+  if (p_msc->protocol == MSC_PROTOCOL_CBI) {
+    uint16_t vid, pid;
+    tuh_vid_pid_get(dev_addr, &vid, &pid);
+    if ((vid == 0x0644 && pid == 0x0000) ||
+        (vid == 0x04e6 && pid == 0x0001) ||
+        (vid == 0x04e6 && pid == 0x0007)) {
+      p_msc->protocol = MSC_PROTOCOL_CBI_NO_INTERRUPT;
+      force_no_intr = true;
+    }
+  }
+
   const tusb_desc_endpoint_t *ep_desc = (const tusb_desc_endpoint_t *)tu_desc_next(desc_itf);
 
   for (uint32_t i = 0; i < desc_itf->bNumEndpoints; i++) {
     TU_ASSERT(TUSB_DESC_ENDPOINT == ep_desc->bDescriptorType, 0);
+
+    if (force_no_intr && TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer) {
+      // Skip opening the interrupt endpoint
+      ep_desc = (tusb_desc_endpoint_t const*) tu_desc_next(ep_desc);
+      continue;
+    }
+
     TU_ASSERT(tuh_edpt_open(dev_addr, ep_desc), 0);
 
     if (TUSB_XFER_BULK == ep_desc->bmAttributes.xfer) {
