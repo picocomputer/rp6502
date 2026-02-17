@@ -803,20 +803,11 @@ static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
     wait_for_disk_io(dev_addr);
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
-        // Scrub the device so the next probe finds it in a known-good
-        // SCSI state.  For CBI, skip scrub on timeout — the device may
-        // be truly unresponsive and each SCSI command uses the shared
-        // control pipe, causing cascading 3-second hangs.  For BOT,
-        // always scrub: the BOT reset recovery (Mass Storage Reset +
-        // CLEAR_FEATURE) restores USB transport, the device is responsive,
-        // but residual SCSI state (stale check conditions, buffered
-        // errors) must be cleared or the next probe gets corrupt data.
-        if (!msc_tuh_dev_timed_out[dev_addr - 1] || !tuh_msc_is_cbi(dev_addr))
-        {
-            tuh_msc_reset_recovery(dev_addr);
-            msc_send_tur(pdrv);
-            msc_do_request_sense(pdrv);
-        }
+        // Scrub the device now so the next probe finds it in a
+        // known-good SCSI state and recovers without delay.
+        tuh_msc_reset_recovery(dev_addr);
+        msc_send_tur(pdrv);
+        msc_do_request_sense(pdrv);
         msc_handle_io_error(pdrv);
         return RES_ERROR;
     }

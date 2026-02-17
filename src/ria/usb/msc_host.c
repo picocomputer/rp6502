@@ -231,26 +231,7 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
 
   uint8_t const rhport = usbh_get_rhport(dev_addr);
 
-  if (is_cbi) {
-    // CBI transport: do NOT send CLEAR_FEATURE(ENDPOINT_HALT) or
-    // reset host-side data toggles.  Two reasons:
-    //
-    // 1. CLEAR_FEATURE: CBI/UFI floppy drives often fail to complete
-    //    the STATUS phase, leaving EP 0 stuck.  Aborting EP 0 to
-    //    recover then corrupts the SIE state, preventing ALL future
-    //    control transfers (including ADSC commands).
-    //
-    // 2. Data toggles: hcd_edpt_abort_xfer() preserves next_pid,
-    //    which naturally stays in sync with the device's toggle
-    //    (both advanced together during successful packets before
-    //    the timeout).  Calling hcd_edpt_clear_stall() would force
-    //    next_pid to DATA0, desynchronizing from the device's
-    //    actual toggle and causing the RP2350 to silently drop
-    //    every subsequent packet.
-    //
-    // The abort + IDLE above is sufficient.  Toggles stay matched,
-    // EP 0 stays functional, and the next SCSI command works.
-  } else {
+  if (!is_cbi) {
     // BOT transport: full Bulk-Only Mass Storage Reset sequence
     // per USB BOT spec section 5.3.4.  The class-specific reset
     // (bRequest=0xFF) tells the device to abandon any in-progress
@@ -295,7 +276,6 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
     // Resets device-side data toggle, then host-side.
     clear_ep_halt(dev_addr, p_msc->ep_in);
     hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
-
     clear_ep_halt(dev_addr, p_msc->ep_out);
     hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
   }
@@ -395,7 +375,6 @@ static void cbi_adsc_complete(tuh_xfer_t* xfer) {
   // ADSC succeeded - start data phase if needed
   msc_cbw_t const* cbw = &epbuf->cbw;
   if (cbw->total_bytes && p_msc->buffer) {
-    TU_ASSERT(cbw->total_bytes <= UINT16_MAX, /*complete as failed*/);
     p_msc->stage = MSC_STAGE_DATA;
     uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
     if (!usbh_edpt_xfer(daddr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes)) {
@@ -684,7 +663,6 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
         // Data stage if any
         p_msc->stage = MSC_STAGE_DATA;
         uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
-        TU_ASSERT(cbw->total_bytes <= UINT16_MAX);
         TU_ASSERT(usbh_edpt_xfer(dev_addr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes));
         break;
       }
