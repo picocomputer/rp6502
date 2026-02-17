@@ -143,7 +143,7 @@ static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   }
 
   if (buf_status) {
-    panic("Unhandled buffer %d\n", buf_status);
+    panic("Unhandled buffer %u\n", (uint) buf_status);
   }
 }
 
@@ -153,7 +153,7 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   {
     pico_trace("Sent setup packet\n");
     struct hw_endpoint *ep = &epx;
-    assert(ep->active);
+    if (!ep->active) return; // aborted, ignore stale interrupt
     // Set transferred length to 8 for a setup packet
     ep->xferred_len = 8;
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
@@ -223,7 +223,8 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
   {
     usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
-    TU_LOG(3, "  Seq Error: [0] = 0x%04u  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
+    handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
+    TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
            tu_u32_high16(*hwbuf_ctrl_reg_host(&epx)));
     panic("Data Seq Error \n");
   }
@@ -242,10 +243,9 @@ void __tusb_irq_path_func(hcd_int_handler)(uint8_t rhport, bool in_isr) {
 
 static struct hw_endpoint *_next_free_interrupt_ep(void)
 {
-  struct hw_endpoint * ep = NULL;
   for ( uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++ )
   {
-    ep = &ep_pool[i];
+    struct hw_endpoint *ep = &ep_pool[i];
     if ( !ep->configured )
     {
       // Will be configured by hw_endpoint_init / hw_endpoint_allocate
@@ -253,7 +253,7 @@ static struct hw_endpoint *_next_free_interrupt_ep(void)
       return ep;
     }
   }
-  return ep;
+  return NULL;
 }
 
 static hw_endpoint_t *hw_endpoint_allocate(uint8_t transfer_type) {
@@ -497,8 +497,24 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
 }
 
 bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
-  (void) rhport; (void) daddr; (void) ep_addr;
-  return false; // TODO not implemented yet
+  (void) rhport;
+
+  struct hw_endpoint *ep = get_dev_ep(daddr, ep_addr);
+  if (!ep || !ep->configured || ep == &epx) {
+    return false; // EP0 (epx) is shared and cannot be individually closed
+  }
+
+  // Disable the interrupt endpoint in hardware
+  usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
+  usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
+
+  // Unconfigure and reset
+  ep->configured = false;
+  *hwep_ctrl_reg_host(ep)  = 0;
+  *hwbuf_ctrl_reg_host(ep) = 0;
+  hw_endpoint_reset_transfer(ep);
+
+  return true;
 }
 
 bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen) {
@@ -526,9 +542,6 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     if (ep_addr != ep->ep_addr || dev_addr != ep->dev_addr || mps != ep->wMaxPacketSize) {
       hw_endpoint_init(ep, dev_addr, ep_addr, mps, TUSB_XFER_CONTROL, 0);
     }
-  } else if (ep_addr != ep->ep_addr) {
-    // Non-zero endpoint direction flip (shouldn't happen for non-control)
-    hw_endpoint_init(ep, dev_addr, ep_addr, ep->wMaxPacketSize, ep->configured ? TUSB_XFER_CONTROL : 0, 0);
   }
 
   // If a normal transfer (non-interrupt) then initiate using
