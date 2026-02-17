@@ -309,7 +309,8 @@ static void msc_send_start_unit(uint8_t vol)
 // sense data. Modelled on Linux sd_spinup_disk():
 //   Any check condition — sense read clears it, retry TUR once
 //   NOT_READY           — send START UNIT, retry TUR once
-// No loops: at most 3 TURs (initial, post-sense, post-START).
+//   UNIT_ATTENTION      — one-shot, sense clears it, retry TUR
+// No loops: at most 4 TURs (initial, post-sense, post-START, post-UA).
 // Returns true if media is present and ready.
 static bool msc_test_unit_ready(uint8_t vol)
 {
@@ -357,12 +358,30 @@ static bool msc_test_unit_ready(uint8_t vol)
             return true;
         }
         msc_do_request_sense(vol);
-        DBG("MSC vol %d: still not ready after START UNIT\n", vol);
-        return false;
+        // Fall through — UNIT_ATTENTION check below handles
+        // the common case where START UNIT triggered a media
+        // transition (sense 6/28h "Not Ready to Ready Change").
+    }
+
+    // UNIT_ATTENTION is a one-shot condition — the sense read above
+    // already cleared it.  One more TUR should pass.  This handles
+    // both the post-START-UNIT case (6/28h) and any other transient
+    // unit attention (e.g. after reset recovery).
+    if (msc_volume_sense_key[vol] == SCSI_SENSE_UNIT_ATTENTION)
+    {
+        if (msc_send_tur(vol))
+        {
+            msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+            msc_volume_sense_asc[vol] = 0;
+            msc_volume_sense_ascq[vol] = 0;
+            return true;
+        }
+        msc_do_request_sense(vol);
     }
 
     DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh\n",
-        vol, sk, asc, msc_volume_sense_ascq[vol]);
+        vol, msc_volume_sense_key[vol],
+        msc_volume_sense_asc[vol], msc_volume_sense_ascq[vol]);
     return false;
 }
 
@@ -765,10 +784,14 @@ static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
         // Scrub the device so the next probe finds it in a known-good
-        // SCSI state.  Skip when the failure was a timeout — the device
-        // is unresponsive and every command would hang for the full I/O
-        // timeout.  msc_probe_media will do TUR + SENSE when it comes back.
-        if (!msc_tuh_dev_timed_out[dev_addr - 1])
+        // SCSI state.  For CBI, skip scrub on timeout — the device may
+        // be truly unresponsive and each SCSI command uses the shared
+        // control pipe, causing cascading 3-second hangs.  For BOT,
+        // always scrub: the BOT reset recovery (Mass Storage Reset +
+        // CLEAR_FEATURE) restores USB transport, the device is responsive,
+        // but residual SCSI state (stale check conditions, buffered
+        // errors) must be cleared or the next probe gets corrupt data.
+        if (!msc_tuh_dev_timed_out[dev_addr - 1] || !tuh_msc_is_cbi(dev_addr))
         {
             tuh_msc_reset_recovery(dev_addr);
             msc_send_tur(pdrv);
