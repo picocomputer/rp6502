@@ -395,6 +395,7 @@ static void cbi_adsc_complete(tuh_xfer_t* xfer) {
   // ADSC succeeded - start data phase if needed
   msc_cbw_t const* cbw = &epbuf->cbw;
   if (cbw->total_bytes && p_msc->buffer) {
+    TU_ASSERT(cbw->total_bytes <= UINT16_MAX, /*complete as failed*/);
     p_msc->stage = MSC_STAGE_DATA;
     uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
     if (!usbh_edpt_xfer(daddr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes)) {
@@ -536,7 +537,6 @@ bool tuh_msc_test_unit_ready(uint8_t dev_addr, uint8_t lun, tuh_msc_complete_cb_
   cbw.dir        = TUSB_DIR_OUT;
   cbw.cmd_len    = sizeof(scsi_test_unit_ready_t);
   cbw.command[0] = SCSI_CMD_TEST_UNIT_READY;
-  cbw.command[1] = lun; // according to wiki TODO need verification
 
   return tuh_msc_scsi_command(dev_addr, &cbw, NULL, complete_cb, arg);
 }
@@ -684,6 +684,7 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
         // Data stage if any
         p_msc->stage = MSC_STAGE_DATA;
         uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
+        TU_ASSERT(cbw->total_bytes <= UINT16_MAX);
         TU_ASSERT(usbh_edpt_xfer(dev_addr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes));
         break;
       }

@@ -196,6 +196,16 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     pico_trace("Stall REC\n");
     handled |= USB_INTS_STALL_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
+
+    // Clean up EPX hardware state so the next driver gets a fresh
+    // endpoint.  Without this, stale AVAIL/PID bits in the buffer
+    // control register and residual RECEIVE/SEND_DATA flags in
+    // SIE_CTRL persist across the shared EPX, corrupting the next
+    // device's control transfer (same cleanup hcd_edpt_abort_xfer
+    // performs).
+    *hwbuf_ctrl_reg_host(&epx) = 0;
+    usb_hw->sie_ctrl = SIE_CTRL_BASE;
+
     hw_xfer_complete(&epx, XFER_RESULT_STALLED);
   }
 

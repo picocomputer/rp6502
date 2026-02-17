@@ -31,6 +31,15 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // Deadline for SCSI command completion and device ready polling
 #define MSC_IO_TIMEOUT_MS 3000
 
+// Initialize a CBW with standard boilerplate fields.
+static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
+{
+    memset(cbw, 0, sizeof(msc_cbw_t));
+    cbw->signature = MSC_CBW_SIGNATURE;
+    cbw->tag = 0x54555342; // "TUSB"
+    cbw->lun = lun;
+}
+
 // Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
 static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
@@ -178,6 +187,8 @@ static bool wait_for_ready(uint8_t dev_addr)
 static bool msc_do_request_sense(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+        return false; // device disconnected
     uint8_t const lun = 0;
     scsi_sense_fixed_resp_t sense_resp;
 
@@ -214,16 +225,15 @@ static bool msc_do_request_sense(uint8_t vol)
 static bool msc_check_write_protect(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+        return false; // device disconnected
     scsi_mode_sense6_resp_t ms_resp;
 
     if (!wait_for_ready(dev_addr))
         return false;
     memset(&ms_resp, 0, sizeof(ms_resp));
     msc_cbw_t cbw;
-    memset(&cbw, 0, sizeof(cbw));
-    cbw.signature = MSC_CBW_SIGNATURE;
-    cbw.tag = 0x54555342;
-    cbw.lun = 0;
+    msc_cbw_init(&cbw, 0);
     cbw.total_bytes = sizeof(ms_resp);
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = sizeof(scsi_mode_sense6_t);
@@ -259,6 +269,8 @@ static bool msc_check_write_protect(uint8_t vol)
 static bool msc_send_tur(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+        return false; // device disconnected
     uint8_t const lun = 0;
 
     if (!wait_for_ready(dev_addr))
@@ -279,16 +291,14 @@ static bool msc_send_tur(uint8_t vol)
 static void msc_send_start_unit(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+        return; // device disconnected
     uint8_t const lun = 0;
 
     if (!wait_for_ready(dev_addr))
         return;
     msc_cbw_t ssu_cbw;
-    memset(&ssu_cbw, 0, sizeof(ssu_cbw));
-    ssu_cbw.signature = MSC_CBW_SIGNATURE;
-    ssu_cbw.tag = 0x54555342;
-    ssu_cbw.lun = lun;
-    ssu_cbw.total_bytes = 0;
+    msc_cbw_init(&ssu_cbw, lun);
     ssu_cbw.dir = TUSB_DIR_OUT;
     ssu_cbw.cmd_len = 6;
     ssu_cbw.command[0] = 0x1B; // START STOP UNIT
@@ -391,6 +401,8 @@ static bool msc_test_unit_ready(uint8_t vol)
 static bool msc_read_capacity(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+        return false; // device disconnected
     uint8_t const lun = 0;
 
     if (tuh_msc_is_cbi(dev_addr))
@@ -478,6 +490,8 @@ static bool msc_read_capacity(uint8_t vol)
 static bool msc_probe_media(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+        return false; // device disconnected
 
     if (!tuh_msc_mounted(dev_addr))
         return false;
@@ -523,11 +537,29 @@ static void msc_handle_io_error(uint8_t vol)
     DBG("MSC vol %d: I/O error — marked ejected\n", vol);
 }
 
+// Some vendors pad their strings with spaces, others with zeros.
+// This will ensure zeros, which prints better.
+static void msc_inquiry_rtrims(uint8_t *s, size_t l)
+{
+    while (l--)
+    {
+        if (s[l] == ' ')
+            s[l] = '\0';
+        else
+            break;
+    }
+}
+
 // Initialize a newly mounted volume: inquiry, media check, capacity.
 // Called from tuh_msc_mount_cb.
 static void msc_init_volume(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
+    if (dev_addr == 0)
+    {
+        msc_volume_status[vol] = msc_volume_failed;
+        return;
+    }
     uint8_t const lun = 0;
 
     if (!tuh_msc_mounted(dev_addr))
@@ -600,6 +632,11 @@ static void msc_init_volume(uint8_t vol)
     if (!tuh_msc_is_cbi(dev_addr))
         msc_check_write_protect(vol);
 
+    // Trim inquiry strings once at init so status display is clean
+    msc_inquiry_rtrims(msc_inquiry_resp[vol].vendor_id, 8);
+    msc_inquiry_rtrims(msc_inquiry_resp[vol].product_id, 16);
+    msc_inquiry_rtrims(msc_inquiry_resp[vol].product_rev, 4);
+
     msc_volume_status[vol] = msc_volume_mounted;
     msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: initialized %lu blocks\n", vol,
@@ -613,19 +650,6 @@ static FIL *msc_validate_fil(int desc)
     if (!msc_std_fil_pool[desc].obj.fs)
         return NULL;
     return &msc_std_fil_pool[desc];
-}
-
-// Some vendors pad their strings with spaces, others with zeros.
-// This will ensure zeros, which prints better.
-static void msc_inquiry_rtrims(uint8_t *s, size_t l)
-{
-    while (l--)
-    {
-        if (s[l] == ' ')
-            s[l] = '\0';
-        else
-            break;
-    }
 }
 
 int msc_status_count(void)
@@ -704,9 +728,6 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                 snprintf(sizebuf, sizeof(sizebuf), "%.1f %s", size, xb);
             }
         }
-        msc_inquiry_rtrims(msc_inquiry_resp[state].vendor_id, 8);
-        msc_inquiry_rtrims(msc_inquiry_resp[state].product_id, 16);
-        msc_inquiry_rtrims(msc_inquiry_resp[state].product_rev, 4);
         snprintf(buf, buf_size, STR_STATUS_MSC,
                  VolumeStr[state],
                  sizebuf,
@@ -767,13 +788,12 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
 {
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
+    if (dev_addr == 0)
+        return RES_ERROR; // device disconnected
+    if (!wait_for_ready(dev_addr))
+        return RES_ERROR;
     msc_tuh_dev_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
     msc_tuh_dev_busy[dev_addr - 1] = true;
-    if (!wait_for_ready(dev_addr))
-    {
-        msc_tuh_dev_busy[dev_addr - 1] = false;
-        return RES_ERROR;
-    }
     if (!tuh_msc_scsi_command(dev_addr, cbw, buff, disk_io_complete, 0))
     {
         msc_tuh_dev_busy[dev_addr - 1] = false;
@@ -824,12 +844,14 @@ DWORD get_fattime(void)
 
 DSTATUS disk_status(BYTE pdrv)
 {
+    if (pdrv >= FF_VOLUMES)
+        return STA_NOINIT;
     if (msc_volume_status[pdrv] == msc_volume_ejected)
         return STA_NOINIT | STA_NODISK;
     if (msc_volume_status[pdrv] == msc_volume_registered)
         return STA_NOINIT;
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
-    if (!tuh_msc_mounted(dev_addr))
+    if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
         return STA_NOINIT;
 
     DSTATUS res = 0;
@@ -872,6 +894,8 @@ DSTATUS disk_status(BYTE pdrv)
 
 DSTATUS disk_initialize(BYTE pdrv)
 {
+    if (pdrv >= FF_VOLUMES)
+        return STA_NOINIT;
     if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         if (!msc_probe_media(pdrv))
@@ -890,16 +914,15 @@ DSTATUS disk_initialize(BYTE pdrv)
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
+    if (pdrv >= FF_VOLUMES)
+        return RES_PARERR;
     uint32_t const block_size = msc_volume_block_size[pdrv];
     DBG("MSC R> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0)
         return RES_ERROR;
 
     msc_cbw_t cbw;
-    memset(&cbw, 0, sizeof(cbw));
-    cbw.signature = MSC_CBW_SIGNATURE;
-    cbw.tag = 0x54555342;
-    cbw.lun = 0;
+    msc_cbw_init(&cbw, 0);
     cbw.total_bytes = count * block_size;
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = sizeof(scsi_read10_t);
@@ -929,16 +952,15 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
+    if (pdrv >= FF_VOLUMES)
+        return RES_PARERR;
     uint32_t const block_size = msc_volume_block_size[pdrv];
     DBG("MSC W> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0)
         return RES_ERROR;
 
     msc_cbw_t cbw;
-    memset(&cbw, 0, sizeof(cbw));
-    cbw.signature = MSC_CBW_SIGNATURE;
-    cbw.tag = 0x54555342;
-    cbw.lun = 0;
+    msc_cbw_init(&cbw, 0);
     cbw.total_bytes = count * block_size;
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = sizeof(scsi_write10_t);
@@ -953,6 +975,8 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
+    if (pdrv >= FF_VOLUMES)
+        return RES_PARERR;
     switch (cmd)
     {
     case CTRL_SYNC:
