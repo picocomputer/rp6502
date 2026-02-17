@@ -200,7 +200,7 @@ static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
       return false;
     }
     if (tuh_task_event_ready()) {
-      tuh_task();
+      tuh_task();  // TODO main_task
     }
   }
 
@@ -350,11 +350,20 @@ static bool cbi_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
       .user_data   = arg
   };
 
-  if (!tuh_control_xfer(&xfer)) {
-    // Shared control pipe busy (e.g. hub enumerating another device).
-    // Reset stage so the device isn't permanently stuck.
-    p_msc->stage = MSC_STAGE_IDLE;
-    return false;
+  // The shared control pipe may be temporarily busy (e.g. hub port
+  // status query, device enumeration).  Retry with a timeout so that
+  // transient contention doesn't abort the entire SCSI retry chain.
+  // This follows the same pattern as clear_ep_halt().
+  #define CBI_CONTROL_RETRY_MS 3000
+  absolute_time_t deadline = make_timeout_time_ms(CBI_CONTROL_RETRY_MS);
+  while (!tuh_control_xfer(&xfer)) {
+    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
+      p_msc->stage = MSC_STAGE_IDLE;
+      return false;
+    }
+    if (tuh_task_event_ready()) {
+      tuh_task(); // TODO main_task
+    }
   }
   return true;
 }
