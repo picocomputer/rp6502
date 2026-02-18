@@ -41,16 +41,15 @@ Changes from upstream TinyUSB msc_host.c:
   iterates bNumEndpoints (not fixed 2) to handle bulk + interrupt endpoints.
 - msch_set_config() skips GET_MAX_LUN and all SCSI enumeration (TUR, Read
   Capacity). msc.c handles everything in disk_initialize/msc_init_volume
-  where the control pipe is guaranteed free. GET_MAX_LUN is also skipped to
-  avoid RP2040 EPX data toggle corruption on STALL.
+  where the control pipe is guaranteed free.
 - max_lun, capacity[], tuh_msc_get_maxlun(), tuh_msc_get_block_count(),
   tuh_msc_get_block_size(), tuh_msc_read10(), tuh_msc_write10() all removed:
   msc.c owns LUN enumeration and block size/count tracking. Add multi-LUN
   support there, not here.
-- tuh_msc_reset_recovery() aborts any in-flight bulk transfers, sends
-  CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints to reset device-side
-  data toggles, and resets host-side data toggles via hcd_edpt_clear_stall().
-  Called on I/O timeout to recover from data toggle desynchronization.
+- tuh_msc_reset_recovery() aborts any in-flight transfers and resets the
+  MSC stage to idle.  For BOT devices it also performs a Bulk-Only Mass
+  Storage Reset, sends CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints,
+  and resets host-side data toggles via hcd_edpt_clear_stall().
 
 */
 
@@ -156,11 +155,12 @@ bool tuh_msc_is_cbi(uint8_t dev_addr) {
 // has no timeout and will spin forever).
 #define CLEAR_HALT_TIMEOUT_MS 2000
 
-static volatile bool _clear_halt_done;
+// Per-device flag to avoid global state aliasing across concurrent
+// recovery or control transfers for different devices.
+static volatile bool _clear_halt_done[CFG_TUH_DEVICE_MAX];
 
 static void _clear_halt_cb(tuh_xfer_t* xfer) {
-  (void) xfer;
-  _clear_halt_done = true;
+  _clear_halt_done[xfer->daddr - 1] = true;
 }
 
 static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
@@ -176,7 +176,7 @@ static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
       .wLength  = 0
   };
 
-  _clear_halt_done = false;
+  _clear_halt_done[daddr - 1] = false;
 
   tuh_xfer_t xfer = {
       .daddr       = daddr,
@@ -192,7 +192,7 @@ static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
   // Wait for completion with timeout — prevents deadlock when the
   // device is unresponsive (the TinyUSB blocking mode has no timeout).
   absolute_time_t deadline = make_timeout_time_ms(CLEAR_HALT_TIMEOUT_MS);
-  while (!_clear_halt_done) {
+  while (!_clear_halt_done[daddr - 1]) {
     if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
       // Device not responding — abort the pending control transfer
       // to free the control pipe for future use.
@@ -251,7 +251,7 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
           .wIndex   = p_msc->itf_num,
           .wLength  = 0
       };
-      _clear_halt_done = false;
+      _clear_halt_done[dev_addr - 1] = false;
       tuh_xfer_t xfer = {
           .daddr       = dev_addr,
           .ep_addr     = 0,
@@ -262,7 +262,7 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
       };
       if (tuh_control_xfer(&xfer)) {
         absolute_time_t deadline = make_timeout_time_ms(CLEAR_HALT_TIMEOUT_MS);
-        while (!_clear_halt_done) {
+        while (!_clear_halt_done[dev_addr - 1]) {
           if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
             tuh_edpt_abort_xfer(dev_addr, 0);
             break;
@@ -377,7 +377,8 @@ static void cbi_adsc_complete(tuh_xfer_t* xfer) {
   if (cbw->total_bytes && p_msc->buffer) {
     p_msc->stage = MSC_STAGE_DATA;
     uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
-    if (!usbh_edpt_xfer(daddr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes)) {
+    uint16_t xfer_len = (cbw->total_bytes > UINT16_MAX) ? UINT16_MAX : (uint16_t) cbw->total_bytes;
+    if (!usbh_edpt_xfer(daddr, ep_data, p_msc->buffer, xfer_len)) {
       p_msc->stage = MSC_STAGE_IDLE;
       if (p_msc->complete_cb) {
         epbuf->csw.signature = MSC_CSW_SIGNATURE;
@@ -450,6 +451,7 @@ bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
   }
 
   // BOT transport
+  TU_VERIFY(p_msc->stage == MSC_STAGE_IDLE);
   // claim endpoint
   TU_VERIFY(usbh_edpt_claim(daddr, p_msc->ep_out));
   msch_epbuf_t* epbuf = get_epbuf(daddr);
@@ -461,6 +463,7 @@ bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
   p_msc->stage = MSC_STAGE_CMD;
 
   if (!usbh_edpt_xfer(daddr, p_msc->ep_out, (uint8_t*) &epbuf->cbw, sizeof(msc_cbw_t))) {
+    p_msc->stage = MSC_STAGE_IDLE;
     (void) usbh_edpt_release(daddr, p_msc->ep_out);
     return false;
   }
@@ -487,7 +490,7 @@ bool tuh_msc_read_capacity(uint8_t dev_addr, uint8_t lun, scsi_read_capacity10_r
 bool tuh_msc_inquiry(uint8_t dev_addr, uint8_t lun, scsi_inquiry_resp_t* response,
                      tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
   msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->mounted);
+  TU_VERIFY(p_msc->configured);
 
   msc_cbw_t cbw;
   cbw_init(&cbw, lun);
@@ -522,16 +525,19 @@ bool tuh_msc_test_unit_ready(uint8_t dev_addr, uint8_t lun, tuh_msc_complete_cb_
 
 bool tuh_msc_request_sense(uint8_t dev_addr, uint8_t lun, void* response,
                            tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured);
+
   msc_cbw_t cbw;
   cbw_init(&cbw, lun);
 
-  cbw.total_bytes = 18; // TODO sense response
+  cbw.total_bytes = sizeof(scsi_sense_fixed_resp_t);
   cbw.dir         = TUSB_DIR_IN_MASK;
   cbw.cmd_len     = sizeof(scsi_request_sense_t);
 
   scsi_request_sense_t const cmd_request_sense = {
       .cmd_code     = SCSI_CMD_REQUEST_SENSE,
-      .alloc_length = 18
+      .alloc_length = sizeof(scsi_sense_fixed_resp_t)
   };
   memcpy(cbw.command, &cmd_request_sense, cbw.cmd_len); //-V1086
 
@@ -541,6 +547,9 @@ bool tuh_msc_request_sense(uint8_t dev_addr, uint8_t lun, void* response,
 bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void* response,
                                     uint8_t alloc_length,
                                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured);
+
   msc_cbw_t cbw;
   cbw_init(&cbw, lun);
 
@@ -574,6 +583,21 @@ void msch_close(uint8_t dev_addr) {
   TU_VERIFY(p_msc->configured,);
 
   TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
+
+  // Abort any in-flight transfers before notifying the application.
+  // Without this, the transfer-complete callback fires on zeroed state.
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+  if (p_msc->ep_intr) {
+    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
+  }
+  // If a CBI ADSC control transfer is in-flight, abort EP0 too.
+  bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
+                       p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
+  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
+    tuh_edpt_abort_xfer(dev_addr, 0);
+  }
+  p_msc->stage = MSC_STAGE_IDLE;
 
   // invoke Application Callback
   if (p_msc->mounted) {
@@ -657,13 +681,42 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
   // BOT transport
   switch (p_msc->stage) {
     case MSC_STAGE_CMD:
-      // Must be Command Block
-      TU_ASSERT(ep_addr == p_msc->ep_out && event == XFER_RESULT_SUCCESS && xferred_bytes == sizeof(msc_cbw_t));
+      // CBW send failed — report error to caller
+      if (ep_addr != p_msc->ep_out || event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t)) {
+        p_msc->stage = MSC_STAGE_IDLE;
+        if (p_msc->complete_cb) {
+          csw->signature = MSC_CSW_SIGNATURE;
+          csw->tag = cbw->tag;
+          csw->data_residue = cbw->total_bytes;
+          csw->status = MSC_CSW_STATUS_FAILED;
+          tuh_msc_complete_data_t const cb_data = {
+              .cbw = cbw, .csw = csw,
+              .scsi_data = p_msc->buffer, .user_arg = p_msc->complete_arg
+          };
+          (void) p_msc->complete_cb(dev_addr, &cb_data);
+        }
+        break;
+      }
       if (cbw->total_bytes && p_msc->buffer) {
         // Data stage if any
         p_msc->stage = MSC_STAGE_DATA;
         uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
-        TU_ASSERT(usbh_edpt_xfer(dev_addr, ep_data, p_msc->buffer, (uint16_t) cbw->total_bytes));
+        uint16_t data_len = (cbw->total_bytes > UINT16_MAX) ? UINT16_MAX : (uint16_t) cbw->total_bytes;
+        if (!usbh_edpt_xfer(dev_addr, ep_data, p_msc->buffer, data_len)) {
+          p_msc->stage = MSC_STAGE_IDLE;
+          if (p_msc->complete_cb) {
+            csw->signature = MSC_CSW_SIGNATURE;
+            csw->tag = cbw->tag;
+            csw->data_residue = cbw->total_bytes;
+            csw->status = MSC_CSW_STATUS_FAILED;
+            tuh_msc_complete_data_t const cb_data = {
+                .cbw = cbw, .csw = csw,
+                .scsi_data = p_msc->buffer, .user_arg = p_msc->complete_arg
+            };
+            (void) p_msc->complete_cb(dev_addr, &cb_data);
+          }
+          break;
+        }
         break;
       }
       TU_ATTR_FALLTHROUGH; // fallthrough to data stage
@@ -671,12 +724,35 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
     case MSC_STAGE_DATA:
       // Status stage
       p_msc->stage = MSC_STAGE_STATUS;
-      TU_ASSERT(usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t*) csw, (uint16_t) sizeof(msc_csw_t)));
+      if (!usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t*) csw, (uint16_t) sizeof(msc_csw_t))) {
+        p_msc->stage = MSC_STAGE_IDLE;
+        if (p_msc->complete_cb) {
+          csw->signature = MSC_CSW_SIGNATURE;
+          csw->tag = cbw->tag;
+          csw->data_residue = cbw->total_bytes;
+          csw->status = MSC_CSW_STATUS_FAILED;
+          tuh_msc_complete_data_t const cb_data = {
+              .cbw = cbw, .csw = csw,
+              .scsi_data = p_msc->buffer, .user_arg = p_msc->complete_arg
+          };
+          (void) p_msc->complete_cb(dev_addr, &cb_data);
+        }
+      }
       break;
 
-    case MSC_STAGE_STATUS:
-      // SCSI op is complete
+    case MSC_STAGE_STATUS: {
+      // Validate CSW per BOT spec §6.3:
+      // - dCSWSignature must be 53425355h
+      // - dCSWTag must match the CBW tag
+      // If either fails, treat as protocol error.
       p_msc->stage = MSC_STAGE_IDLE;
+      bool csw_valid = (event == XFER_RESULT_SUCCESS &&
+                        xferred_bytes == sizeof(msc_csw_t) &&
+                        csw->signature == MSC_CSW_SIGNATURE &&
+                        csw->tag == cbw->tag);
+      if (!csw_valid) {
+        csw->status = MSC_CSW_STATUS_FAILED;
+      }
       if (p_msc->complete_cb != NULL) {
         tuh_msc_complete_data_t const cb_data = {
             .cbw = cbw,
@@ -687,6 +763,7 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
         (void) p_msc->complete_cb(dev_addr, &cb_data);
       }
       break;
+    }
 
     default:
       // unknown state
@@ -736,14 +813,22 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     }
   }
 
-  const tusb_desc_endpoint_t *ep_desc = (const tusb_desc_endpoint_t *)tu_desc_next(desc_itf);
+  uint8_t const *p_desc = tu_desc_next(desc_itf);
+  uint8_t const *desc_end = ((uint8_t const*)desc_itf) + drv_len;
+  uint8_t ep_count = 0;
 
-  for (uint32_t i = 0; i < desc_itf->bNumEndpoints; i++) {
-    TU_ASSERT(TUSB_DESC_ENDPOINT == ep_desc->bDescriptorType, 0);
+  while (ep_count < desc_itf->bNumEndpoints && p_desc < desc_end) {
+    // Skip non-endpoint descriptors (e.g. class-specific)
+    if (tu_desc_type(p_desc) != TUSB_DESC_ENDPOINT) {
+      p_desc = tu_desc_next(p_desc);
+      continue;
+    }
+    ep_count++;
+    tusb_desc_endpoint_t const *ep_desc = (tusb_desc_endpoint_t const *)p_desc;
 
     if (force_no_intr && TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer) {
       // Skip opening the interrupt endpoint
-      ep_desc = (tusb_desc_endpoint_t const*) tu_desc_next(ep_desc);
+      p_desc = tu_desc_next(p_desc);
       continue;
     }
 
@@ -760,7 +845,7 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
       p_msc->ep_intr = ep_desc->bEndpointAddress;
     }
 
-    ep_desc = (tusb_desc_endpoint_t const*) tu_desc_next(ep_desc);
+    p_desc = tu_desc_next(p_desc);
   }
 
   p_msc->itf_num = desc_itf->bInterfaceNumber;

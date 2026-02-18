@@ -16,6 +16,8 @@
 #include "pico/time.h"
 #include "hardware/structs/usb.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -102,7 +104,7 @@ static bool msc_tuh_dev_timed_out[CFG_TUH_DEVICE_MAX];
 
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with: src/tinyusb/src/class/msc/msc_host.c
-// There's one additional interface we added.
+// These additional interfaces are not in upstream TinyUSB.
 bool tuh_msc_is_cbi(uint8_t dev_addr);
 bool tuh_msc_reset_recovery(uint8_t dev_addr);
 bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *response,
@@ -284,8 +286,7 @@ static bool msc_send_tur(uint8_t vol)
 }
 
 // Send START STOP UNIT (start=1) to spin up the device or
-// prompt media detection. Fire-and-forget; caller returns false
-// so the periodic poll re-checks later.
+// prompt media detection.
 static void msc_send_start_unit(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
@@ -505,10 +506,8 @@ static bool msc_probe_media(uint8_t vol)
     if (!msc_read_capacity(vol))
         return false;
 
-    // Check write protection via MODE SENSE(6).
-    // Skip for CBI/UFI floppy drives: they never support MODE SENSE(6),
-    // the 3-second I/O timeout triggers a reset recovery that corrupts
-    // the CBI transport state, and subsequent reads fail permanently.
+    // Skip MODE SENSE(6) for CBI/UFI floppy drives: they typically
+    // don't support it, and the 3-second I/O timeout wastes time.
     if (!tuh_msc_is_cbi(dev_addr))
         msc_check_write_protect(vol);
 
@@ -519,8 +518,6 @@ static bool msc_probe_media(uint8_t vol)
 }
 
 // Handle I/O error on a removable volume: unmount and mark ejected.
-// The caller (msc_scsi_xfer, disk_status) is responsible for any
-// device-level recovery (reset, TUR, sense) before calling this.
 static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
@@ -633,10 +630,8 @@ static void msc_init_volume(uint8_t vol)
         return;
     }
 
-    // Check write protection via MODE SENSE(6).
-    // Skip for CBI/UFI floppy drives: they never support MODE SENSE(6),
-    // the 3-second I/O timeout triggers a reset recovery that corrupts
-    // the CBI transport state, and subsequent reads fail permanently.
+    // Skip MODE SENSE(6) for CBI/UFI floppy drives: they typically
+    // don't support it, and the 3-second I/O timeout wastes time.
     if (!tuh_msc_is_cbi(dev_addr))
         msc_check_write_protect(vol);
 
@@ -853,23 +848,8 @@ DSTATUS disk_status(BYTE pdrv)
     // TUR on removable volumes so FatFS detects media removal
     if (msc_inquiry_resp[pdrv].is_removable && !msc_volume_tur_ok[pdrv])
     {
-        uint8_t const lun = 0;
-        if (!wait_for_ready(dev_addr))
-            return STA_NOINIT;
-        msc_tuh_dev_busy[dev_addr - 1] = true;
-        bool ok = tuh_msc_test_unit_ready(dev_addr, lun, disk_io_complete, 0);
-        if (ok)
+        if (!msc_send_tur(pdrv))
         {
-            wait_for_disk_io(dev_addr);
-            ok = (msc_tuh_dev_csw_status[dev_addr - 1] == MSC_CSW_STATUS_PASSED);
-        }
-        else
-        {
-            msc_tuh_dev_busy[dev_addr - 1] = false;
-        }
-        if (!ok)
-        {
-            // Request Sense to find out why TUR failed
             msc_do_request_sense(pdrv);
             msc_handle_io_error(pdrv);
             if (msc_volume_sense_key[pdrv] == SCSI_SENSE_NOT_READY &&
