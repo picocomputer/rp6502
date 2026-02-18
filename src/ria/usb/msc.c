@@ -355,6 +355,13 @@ static bool msc_test_unit_ready(uint8_t vol)
     // NOT_READY: send START UNIT (spin up / detect media).
     if (sk == SCSI_SENSE_NOT_READY)
     {
+        // ASC 0x3A = Medium Not Present — no START UNIT will fix that;
+        // skip it to avoid corrupting the CBI transport on floppy drives.
+        if (asc == 0x3A)
+        {
+            DBG("MSC vol %d: medium not present, skipping START UNIT\n", vol);
+            return false;
+        }
         DBG("MSC vol %d: not ready (%02Xh/%02Xh), sending START UNIT\n",
             vol, asc, msc_volume_sense_ascq[vol]);
         msc_send_start_unit(vol);
@@ -581,6 +588,9 @@ static void msc_init_volume(uint8_t vol)
         return;
     }
     wait_for_disk_io(dev_addr);
+    msc_inquiry_rtrims(msc_inquiry_resp[vol].vendor_id, 8);
+    msc_inquiry_rtrims(msc_inquiry_resp[vol].product_id, 16);
+    msc_inquiry_rtrims(msc_inquiry_resp[vol].product_rev, 4);
 
     if (msc_tuh_dev_csw_status[dev_addr - 1] != MSC_CSW_STATUS_PASSED)
     {
@@ -629,11 +639,6 @@ static void msc_init_volume(uint8_t vol)
     // the CBI transport state, and subsequent reads fail permanently.
     if (!tuh_msc_is_cbi(dev_addr))
         msc_check_write_protect(vol);
-
-    // Trim inquiry strings once at init so status display is clean
-    msc_inquiry_rtrims(msc_inquiry_resp[vol].vendor_id, 8);
-    msc_inquiry_rtrims(msc_inquiry_resp[vol].product_id, 16);
-    msc_inquiry_rtrims(msc_inquiry_resp[vol].product_rev, 4);
 
     msc_volume_status[vol] = msc_volume_mounted;
     msc_volume_tur_ok[vol] = true;
