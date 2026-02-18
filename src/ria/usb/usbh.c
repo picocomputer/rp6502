@@ -575,6 +575,108 @@ bool tuh_task_event_ready(void) {
   return !osal_queue_empty(_usbh_q);
 }
 
+/* Dispatch a single XFER_COMPLETE event.
+ * Factored out of tuh_task_ext() so tuh_task_device_only() can reuse it.
+ */
+static void _dispatch_xfer_complete(hcd_event_t const* event) {
+  uint8_t const ep_addr = event->xfer_complete.ep_addr;
+  uint8_t const epnum   = tu_edpt_number(ep_addr);
+  uint8_t const ep_dir  = (uint8_t) tu_edpt_dir(ep_addr);
+
+  TU_LOG_USBH("[:%u] on EP %02X with %u bytes: %s\r\n",
+              event->dev_addr, ep_addr,
+              (unsigned int) event->xfer_complete.len,
+              tu_str_xfer_result[event->xfer_complete.result]);
+
+  if (event->dev_addr == 0) {
+    TU_ASSERT(epnum == 0,);
+    usbh_control_xfer_cb(event->dev_addr, ep_addr,
+                          (xfer_result_t) event->xfer_complete.result,
+                          event->xfer_complete.len);
+  } else {
+    usbh_device_t* dev = get_device(event->dev_addr);
+    TU_VERIFY(dev && dev->connected,);
+
+    dev->ep_status[epnum][ep_dir].busy = 0;
+    dev->ep_status[epnum][ep_dir].claimed = 0;
+
+    if (0 == epnum) {
+      usbh_control_xfer_cb(event->dev_addr, ep_addr,
+                            (xfer_result_t) event->xfer_complete.result,
+                            event->xfer_complete.len);
+    } else {
+      #if CFG_TUH_API_EDPT_XFER
+      tuh_xfer_cb_t const complete_cb =
+          dev->ep_callback[epnum][ep_dir].complete_cb;
+      if (complete_cb != NULL) {
+        tuh_xfer_t xfer = {
+            .daddr       = event->dev_addr,
+            .ep_addr     = ep_addr,
+            .result      = (xfer_result_t) event->xfer_complete.result,
+            .actual_len  = event->xfer_complete.len,
+            .buflen      = 0,
+            .buffer      = NULL,
+            .complete_cb = complete_cb,
+            .user_data   = dev->ep_callback[epnum][ep_dir].user_data
+        };
+        complete_cb(&xfer);
+      } else
+      #endif
+      {
+        uint8_t drv_id = dev->ep2drv[epnum][ep_dir];
+        usbh_class_driver_t const* driver = get_driver(drv_id);
+        if (driver != NULL) {
+          TU_LOG_USBH("  %s xfer callback\r\n", driver->name);
+          driver->xfer_cb(event->dev_addr, ep_addr,
+                          (xfer_result_t) event->xfer_complete.result,
+                          event->xfer_complete.len);
+        } else {
+          TU_ASSERT(false,);
+        }
+      }
+    }
+  }
+}
+
+/* Process only XFER_COMPLETE events for a specific device address.
+ * All other events are re-queued for the normal tuh_task() to handle.
+ *
+ * This is used by the MSC disk I/O spin-waits (which are driven by
+ * FatFS and therefore must block) to advance multi-stage BOT/CBI
+ * transfers without re-entering the full event dispatcher.  Hub
+ * events, device attach/detach, and function-call events are deferred
+ * to the main loop's tuh_task(), preventing shared-EPX and control-
+ * pipe conflicts.
+ */
+void tuh_task_device_only(uint8_t dev_addr) {
+  if (!tuh_inited()) return;
+
+  hcd_event_t deferred[CFG_TUH_TASK_QUEUE_SZ];
+  unsigned n_deferred = 0;
+  hcd_event_t event;
+
+  while (osal_queue_receive(_usbh_q, &event, 0)) {
+    if (event.event_id == HCD_EVENT_XFER_COMPLETE &&
+        event.dev_addr == dev_addr) {
+      _dispatch_xfer_complete(&event);
+    } else {
+      if (n_deferred < TU_ARRAY_SIZE(deferred)) {
+        deferred[n_deferred++] = event;
+      }
+      // If deferred buffer is full, stop draining — remaining events
+      // stay in the queue and will be processed next time.
+      else {
+        break;
+      }
+    }
+  }
+
+  // Re-queue deferred events for the main loop's tuh_task().
+  for (unsigned i = 0; i < n_deferred; i++) {
+    osal_queue_send(_usbh_q, &deferred[i], false);
+  }
+}
+
 /* USB Host Driver task
  * This top level thread manages all host controller event and delegates events to class-specific drivers.
  * This should be called periodically within the mainloop or rtos thread.
@@ -640,63 +742,9 @@ void tuh_task_ext(uint32_t timeout_ms, bool in_isr) {
         process_remove_event(&event);
         break;
 
-      case HCD_EVENT_XFER_COMPLETE: {
-        uint8_t const ep_addr = event.xfer_complete.ep_addr;
-        uint8_t const epnum = tu_edpt_number(ep_addr);
-        uint8_t const ep_dir = (uint8_t) tu_edpt_dir(ep_addr);
-
-        TU_LOG_USBH("[:%u] on EP %02X with %u bytes: %s\r\n",
-                    event.dev_addr, ep_addr, (unsigned int) event.xfer_complete.len, tu_str_xfer_result[event.xfer_complete.result]);
-
-        if (event.dev_addr == 0) {
-          // device 0 only has control endpoint
-          TU_ASSERT(epnum == 0,);
-          usbh_control_xfer_cb(event.dev_addr, ep_addr, (xfer_result_t) event.xfer_complete.result, event.xfer_complete.len);
-        } else {
-          usbh_device_t* dev = get_device(event.dev_addr);
-          TU_VERIFY(dev && dev->connected,);
-
-          dev->ep_status[epnum][ep_dir].busy = 0;
-          dev->ep_status[epnum][ep_dir].claimed = 0;
-
-          if (0 == epnum) {
-            usbh_control_xfer_cb(event.dev_addr, ep_addr, (xfer_result_t) event.xfer_complete.result, event.xfer_complete.len);
-          } else {
-            // Prefer application callback over built-in one if available. This occurs when tuh_edpt_xfer() is used
-            // with enabled driver e.g HID endpoint
-            #if CFG_TUH_API_EDPT_XFER
-            tuh_xfer_cb_t const complete_cb = dev->ep_callback[epnum][ep_dir].complete_cb;
-            if (complete_cb != NULL) {
-              // re-construct xfer info
-              tuh_xfer_t xfer = {
-                  .daddr       = event.dev_addr,
-                  .ep_addr     = ep_addr,
-                  .result      = (xfer_result_t)event.xfer_complete.result,
-                  .actual_len  = event.xfer_complete.len,
-                  .buflen      = 0,    // not available
-                  .buffer      = NULL, // not available
-                  .complete_cb = complete_cb,
-                  .user_data   = dev->ep_callback[epnum][ep_dir].user_data
-              };
-              complete_cb(&xfer);
-            }else
-            #endif
-            {
-              uint8_t drv_id = dev->ep2drv[epnum][ep_dir];
-              usbh_class_driver_t const* driver = get_driver(drv_id);
-              if (driver != NULL) {
-                TU_LOG_USBH("  %s xfer callback\r\n", driver->name);
-                driver->xfer_cb(event.dev_addr, ep_addr, (xfer_result_t) event.xfer_complete.result,
-                                event.xfer_complete.len);
-              } else {
-                // no driver/callback responsible for this transfer
-                TU_ASSERT(false,);
-              }
-            }
-          }
-        }
+      case HCD_EVENT_XFER_COMPLETE:
+        _dispatch_xfer_complete(&event);
         break;
-      }
 
       case USBH_EVENT_FUNC_CALL:
         if (event.func_call.func != NULL) {

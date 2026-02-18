@@ -47,9 +47,10 @@ Changes from upstream TinyUSB msc_host.c:
   msc.c owns LUN enumeration and block size/count tracking. Add multi-LUN
   support there, not here.
 - tuh_msc_reset_recovery() aborts any in-flight transfers and resets the
-  MSC stage to idle.  For BOT devices it also performs a Bulk-Only Mass
-  Storage Reset, sends CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints,
-  and resets host-side data toggles via hcd_edpt_clear_stall().
+  MSC stage to idle.  For BOT devices it starts an async recovery state
+  machine (BOT Mass Storage Reset -> CLEAR_FEATURE on ep_in -> CLEAR_FEATURE
+  on ep_out) driven entirely by callbacks — no spin-wait, no nested
+  tuh_task().  Use tuh_msc_recovery_in_progress() to poll completion.
 
 */
 
@@ -62,6 +63,7 @@ Changes from upstream TinyUSB msc_host.c:
 #include "host/hcd.h"
 
 #include "class/msc/msc_host.h"
+
 #include "pico/time.h"
 
 // Level where CFG_TUSB_DEBUG must be at least for this driver is logged
@@ -81,6 +83,15 @@ enum {
   MSC_STAGE_STATUS,
 };
 
+// Recovery states for tuh_msc_reset_recovery() state machine.
+// BOT recovery chains: RESET -> CLEAR_IN -> CLEAR_OUT -> NONE (done).
+enum {
+  RECOVERY_NONE = 0,
+  RECOVERY_BOT_RESET,
+  RECOVERY_CLEAR_IN,
+  RECOVERY_CLEAR_OUT,
+};
+
 typedef struct {
   uint8_t itf_num;
   uint8_t ep_in;
@@ -93,6 +104,7 @@ typedef struct {
 
   // SCSI command data
   uint8_t stage;
+  uint8_t recovery_stage; // BOT reset recovery state machine
   void* buffer;
   tuh_msc_complete_cb_t complete_cb;
   uintptr_t complete_arg;
@@ -149,21 +161,16 @@ bool tuh_msc_is_cbi(uint8_t dev_addr) {
   return p_msc->protocol == MSC_PROTOCOL_CBI || p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT;
 }
 
-// Send CLEAR_FEATURE(ENDPOINT_HALT) to a single endpoint.
-// Returns true on success. Uses async transfer with timeout to avoid
-// deadlock when the device is unresponsive (blocking tuh_control_xfer
-// has no timeout and will spin forever).
-#define CLEAR_HALT_TIMEOUT_MS 2000
+//--------------------------------------------------------------------+
+// Recovery State Machine (BOT reset + clear halt)
+//--------------------------------------------------------------------+
+// Fully async — each step fires a callback that starts the next
+// control transfer.  No spin-wait, no nested tuh_task().
 
-// Per-device flag to avoid global state aliasing across concurrent
-// recovery or control transfers for different devices.
-static volatile bool _clear_halt_done[CFG_TUH_DEVICE_MAX];
+static void _recovery_cb(tuh_xfer_t* xfer);
 
-static void _clear_halt_cb(tuh_xfer_t* xfer) {
-  _clear_halt_done[xfer->daddr - 1] = true;
-}
-
-static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
+// Send CLEAR_FEATURE(ENDPOINT_HALT) as part of recovery chain.
+static bool _recovery_clear_halt(uint8_t daddr, uint8_t ep_addr) {
   tusb_control_request_t const request = {
       .bmRequestType_bit = {
           .recipient = TUSB_REQ_RCPT_ENDPOINT,
@@ -175,36 +182,64 @@ static bool clear_ep_halt(uint8_t daddr, uint8_t ep_addr) {
       .wIndex   = ep_addr,
       .wLength  = 0
   };
-
-  _clear_halt_done[daddr - 1] = false;
-
   tuh_xfer_t xfer = {
       .daddr       = daddr,
       .ep_addr     = 0,
       .setup       = &request,
       .buffer      = NULL,
-      .complete_cb = _clear_halt_cb,
+      .complete_cb = _recovery_cb,
       .user_data   = 0
   };
+  return tuh_control_xfer(&xfer);
+}
 
-  if (!tuh_control_xfer(&xfer)) return false;
+// Callback for each step of the BOT recovery chain.
+// The control pipe is idle when this fires, so the next
+// tuh_control_xfer() will succeed unless the device is gone.
+static void _recovery_cb(tuh_xfer_t* xfer) {
+  uint8_t const daddr = xfer->daddr;
+  msch_interface_t* p_msc = get_itf(daddr);
 
-  // Wait for completion with timeout — prevents deadlock when the
-  // device is unresponsive (the TinyUSB blocking mode has no timeout).
-  absolute_time_t deadline = make_timeout_time_ms(CLEAR_HALT_TIMEOUT_MS);
-  while (!_clear_halt_done[daddr - 1]) {
-    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
-      // Device not responding — abort the pending control transfer
-      // to free the control pipe for future use.
-      tuh_edpt_abort_xfer(daddr, 0);
-      return false;
-    }
-    if (tuh_task_event_ready()) {
-      tuh_task();  // TODO main_task
-    }
+  if (xfer->result != XFER_RESULT_SUCCESS) {
+    // Transfer failed (device gone, STALL, etc.) — abandon recovery.
+    p_msc->recovery_stage = RECOVERY_NONE;
+    return;
   }
 
-  return true;
+  uint8_t const rhport = usbh_get_rhport(daddr);
+
+  switch (p_msc->recovery_stage) {
+    case RECOVERY_BOT_RESET:
+      // BOT Mass Storage Reset done — clear halt on bulk-in.
+      p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+      if (!_recovery_clear_halt(daddr, p_msc->ep_in)) {
+        p_msc->recovery_stage = RECOVERY_NONE;
+      }
+      break;
+
+    case RECOVERY_CLEAR_IN:
+      // ep_in clear halt done — reset host-side data toggle, start ep_out.
+      hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
+      p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
+      if (!_recovery_clear_halt(daddr, p_msc->ep_out)) {
+        p_msc->recovery_stage = RECOVERY_NONE;
+      }
+      break;
+
+    case RECOVERY_CLEAR_OUT:
+      // ep_out clear halt done — reset host-side data toggle.  Recovery complete.
+      hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+      p_msc->recovery_stage = RECOVERY_NONE;
+      break;
+
+    default:
+      p_msc->recovery_stage = RECOVERY_NONE;
+      break;
+  }
+}
+
+bool tuh_msc_recovery_in_progress(uint8_t dev_addr) {
+  return get_itf(dev_addr)->recovery_stage != RECOVERY_NONE;
 }
 
 bool tuh_msc_reset_recovery(uint8_t dev_addr) {
@@ -229,55 +264,37 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   }
   p_msc->stage = MSC_STAGE_IDLE;
 
-  uint8_t const rhport = usbh_get_rhport(dev_addr);
+  if (is_cbi) {
+    // CBI has no recovery control transfers; done immediately.
+    return true;
+  }
 
-  if (!is_cbi) {
-    // BOT transport: full Bulk-Only Mass Storage Reset sequence
-    // per USB BOT spec section 5.3.4.  The class-specific reset
-    // (bRequest=0xFF) tells the device to abandon any in-progress
-    // BOT transaction and return to the command-transport-ready
-    // state, ready to accept a new CBW.  Without this, the device
-    // stays stuck mid-transaction after an I/O timeout and
-    // misinterprets the next CBW as data.
-    {
-      tusb_control_request_t const request = {
-          .bmRequestType_bit = {
-              .recipient = TUSB_REQ_RCPT_INTERFACE,
-              .type      = TUSB_REQ_TYPE_CLASS,
-              .direction = TUSB_DIR_OUT
-          },
-          .bRequest = 0xFF, // Bulk-Only Mass Storage Reset
-          .wValue   = 0,
-          .wIndex   = p_msc->itf_num,
-          .wLength  = 0
-      };
-      _clear_halt_done[dev_addr - 1] = false;
-      tuh_xfer_t xfer = {
-          .daddr       = dev_addr,
-          .ep_addr     = 0,
-          .setup       = &request,
-          .buffer      = NULL,
-          .complete_cb = _clear_halt_cb,
-          .user_data   = 0
-      };
-      if (tuh_control_xfer(&xfer)) {
-        absolute_time_t deadline = make_timeout_time_ms(CLEAR_HALT_TIMEOUT_MS);
-        while (!_clear_halt_done[dev_addr - 1]) {
-          if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
-            tuh_edpt_abort_xfer(dev_addr, 0);
-            break;
-          }
-          if (tuh_task_event_ready()) tuh_task();
-        }
-      }
-    }
-
-    // Clear halt on both bulk endpoints.
-    // Resets device-side data toggle, then host-side.
-    clear_ep_halt(dev_addr, p_msc->ep_in);
-    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
-    clear_ep_halt(dev_addr, p_msc->ep_out);
-    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+  // BOT transport: start async Bulk-Only Mass Storage Reset.
+  // Recovery proceeds via _recovery_cb chain:
+  //   BOT_RESET -> CLEAR_IN -> CLEAR_OUT -> NONE (done)
+  tusb_control_request_t const request = {
+      .bmRequestType_bit = {
+          .recipient = TUSB_REQ_RCPT_INTERFACE,
+          .type      = TUSB_REQ_TYPE_CLASS,
+          .direction = TUSB_DIR_OUT
+      },
+      .bRequest = 0xFF, // Bulk-Only Mass Storage Reset
+      .wValue   = 0,
+      .wIndex   = p_msc->itf_num,
+      .wLength  = 0
+  };
+  tuh_xfer_t xfer = {
+      .daddr       = dev_addr,
+      .ep_addr     = 0,
+      .setup       = &request,
+      .buffer      = NULL,
+      .complete_cb = _recovery_cb,
+      .user_data   = 0
+  };
+  p_msc->recovery_stage = RECOVERY_BOT_RESET;
+  if (!tuh_control_xfer(&xfer)) {
+    p_msc->recovery_stage = RECOVERY_NONE;
+    return false;
   }
 
   return true;
@@ -330,20 +347,12 @@ static bool cbi_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
       .user_data   = arg
   };
 
-  // The shared control pipe may be temporarily busy (e.g. hub port
-  // status query, device enumeration).  Retry with a timeout so that
-  // transient contention doesn't abort the entire SCSI retry chain.
-  // This follows the same pattern as clear_ep_halt().
-  #define CBI_CONTROL_RETRY_MS 3000
-  absolute_time_t deadline = make_timeout_time_ms(CBI_CONTROL_RETRY_MS);
-  while (!tuh_control_xfer(&xfer)) {
-    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
-      p_msc->stage = MSC_STAGE_IDLE;
-      return false;
-    }
-    if (tuh_task_event_ready()) {
-      tuh_task(); // TODO main_task
-    }
+  // Submit the ADSC control transfer.  If the control pipe is
+  // momentarily busy (hub status query, enumeration), return false.
+  // The caller's retry logic will re-attempt the SCSI command.
+  if (!tuh_control_xfer(&xfer)) {
+    p_msc->stage = MSC_STAGE_IDLE;
+    return false;
   }
   return true;
 }
@@ -561,6 +570,147 @@ bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void* respons
   cbw.command[8]  = alloc_length & 0xFF;
 
   return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
+}
+
+bool tuh_msc_mode_sense6(uint8_t dev_addr, uint8_t lun, void* response,
+                         tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = sizeof(scsi_mode_sense6_resp_t);
+  cbw.dir         = TUSB_DIR_IN_MASK;
+  cbw.cmd_len     = sizeof(scsi_mode_sense6_t);
+
+  scsi_mode_sense6_t const cmd = {
+      .cmd_code              = SCSI_CMD_MODE_SENSE_6,
+      .disable_block_descriptor = 1,
+      .page_code             = 0x3F,
+      .alloc_length          = sizeof(scsi_mode_sense6_resp_t),
+  };
+  memcpy(cbw.command, &cmd, sizeof(cmd));
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
+}
+
+bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
+                             tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  TU_VERIFY(p_msc->configured);
+
+  msc_cbw_t cbw;
+  cbw_init(&cbw, lun);
+
+  cbw.total_bytes = 0;
+  cbw.dir         = TUSB_DIR_OUT;
+  cbw.cmd_len     = 6;
+  cbw.command[0]  = 0x1B; // START STOP UNIT
+  cbw.command[4]  = start ? 0x01 : 0x00;
+
+  return tuh_msc_scsi_command(dev_addr, &cbw, NULL, complete_cb, arg);
+}
+
+//--------------------------------------------------------------------+
+// SYNCHRONOUS I/O FRAMEWORK
+//--------------------------------------------------------------------+
+// Blocking wrappers around the async SCSI API.  Each spin-wait calls
+// tuh_task_device_only() to advance USB processing for the target
+// device without re-entering the full task tree.
+//
+// Only used by FatFS disk_* callbacks where blocking is unavoidable.
+
+extern void tuh_task_device_only(uint8_t dev_addr);
+
+static volatile bool _sync_busy[CFG_TUH_DEVICE_MAX];
+static uint8_t       _sync_csw_status[CFG_TUH_DEVICE_MAX];
+static bool          _sync_timed_out[CFG_TUH_DEVICE_MAX];
+
+static bool _sync_complete_cb(uint8_t dev_addr,
+                              tuh_msc_complete_data_t const *cb_data) {
+  _sync_csw_status[dev_addr - 1] = cb_data->csw->status;
+  _sync_timed_out[dev_addr - 1] = false;
+  _sync_busy[dev_addr - 1] = false;
+  return true;
+}
+
+// Block until tuh_msc_ready() returns true or deadline expires.
+static bool _sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms) {
+  absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
+  while (!tuh_msc_ready(dev_addr)) {
+    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+      return false;
+    tuh_task_device_only(dev_addr);
+  }
+  return true;
+}
+
+// Block until _sync_busy clears or deadline expires.
+// On timeout, triggers reset recovery and returns FAILED.
+static uint8_t _sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms) {
+  absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
+  while (_sync_busy[dev_addr - 1]) {
+    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
+      tuh_msc_reset_recovery(dev_addr);
+      absolute_time_t rec_deadline = make_timeout_time_ms(timeout_ms);
+      while (tuh_msc_recovery_in_progress(dev_addr)) {
+        if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
+          break;
+        tuh_task_device_only(dev_addr);
+      }
+      _sync_timed_out[dev_addr - 1] = true;
+      _sync_busy[dev_addr - 1] = false;
+      _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
+      return MSC_CSW_STATUS_FAILED;
+    }
+    tuh_task_device_only(dev_addr);
+  }
+  return _sync_csw_status[dev_addr - 1];
+}
+
+// --- Public sync helpers ---
+
+// Wait until device is ready, arm the sync busy flag, and return
+// the internal completion callback.  Pass the returned callback to
+// any async TinyUSB MSC submit function.  Returns NULL on timeout.
+// If the subsequent async submit fails, call tuh_msc_sync_clear_busy()
+// to release the busy flag.
+tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr,
+                                         uint32_t timeout_ms) {
+  if (!_sync_wait_ready(dev_addr, timeout_ms))
+    return NULL;
+  _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
+  _sync_busy[dev_addr - 1] = true;
+  return _sync_complete_cb;
+}
+
+// Wait for the in-flight command to complete.
+// Returns CSW status (MSC_CSW_STATUS_PASSED/FAILED/PHASE_ERROR).
+uint8_t tuh_msc_sync_end(uint8_t dev_addr, uint32_t timeout_ms) {
+  return _sync_wait_io(dev_addr, timeout_ms);
+}
+
+bool tuh_msc_sync_io_timed_out(uint8_t dev_addr) {
+  return _sync_timed_out[dev_addr - 1];
+}
+
+// Clear the busy flag — call from tuh_msc_umount_cb to unblock any
+// pending sync wait on disconnect, or after a failed async submit
+// following tuh_msc_sync_begin().
+void tuh_msc_sync_clear_busy(uint8_t dev_addr) {
+  _sync_busy[dev_addr - 1] = false;
+}
+
+// Perform reset recovery with blocking wait.
+void tuh_msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms) {
+  tuh_msc_reset_recovery(dev_addr);
+  absolute_time_t rec_deadline = make_timeout_time_ms(timeout_ms);
+  while (tuh_msc_recovery_in_progress(dev_addr)) {
+    if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
+      break;
+    tuh_task_device_only(dev_addr);
+  }
 }
 
 //--------------------------------------------------------------------+
