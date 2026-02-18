@@ -4,15 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-// DISABLED because it used to crash TinyUSB a lot
-#if 1
-
-#include "usb/xin.h"
-void xin_task(void) { return; }
-int xin_pad_count(void) { return 0; }
-
-#else
-
 #include "hid/hid.h"
 #include "hid/pad.h"
 #include "usb/xin.h"
@@ -20,14 +11,55 @@ int xin_pad_count(void) { return 0; }
 #include <host/usbh_pvt.h>
 #include <string.h>
 
-#define DEBUG_RIA_USB_XIN
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+// GIP init packet definition
+typedef struct
+{
+    uint16_t vid; // 0 = match all
+    uint16_t pid; // 0 = match all
+    const uint8_t *data;
+    uint8_t len;
+} gip_init_packet_t;
+
+// GIP init packets from Linux xpad driver (order matters)
+// clang-format off
+static const uint8_t gip_power_on[]   = {0x05, 0x20, 0x00, 0x01, 0x00};
+static const uint8_t gip_s_init[]     = {0x05, 0x20, 0x00, 0x0f, 0x06};
+static const uint8_t gip_hori_ack[]   = {0x01, 0x20, 0x00, 0x09, 0x00, 0x04, 0x20, 0x3a,
+                                         0x00, 0x00, 0x00, 0x80, 0x00};
+static const uint8_t gip_led_on[]     = {0x0a, 0x20, 0x00, 0x03, 0x00, 0x01, 0x14};
+static const uint8_t gip_auth_done[]  = {0x06, 0x20, 0x00, 0x02, 0x01, 0x00};
+static const uint8_t gip_extra_input[]= {0x4d, 0x10, 0x01, 0x02, 0x07, 0x00};
+static const uint8_t gip_rumble_on[]  = {0x09, 0x00, 0x00, 0x09, 0x00, 0x0f,
+                                         0x00, 0x00, 0x1d, 0x1d, 0xff, 0x00, 0x00};
+static const uint8_t gip_rumble_off[] = {0x09, 0x00, 0x00, 0x09, 0x00, 0x0f,
+                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+static const gip_init_packet_t gip_init_packets[] = {
+    {0x0e6f, 0x0165, gip_hori_ack,    sizeof(gip_hori_ack)},
+    {0x0f0d, 0x0067, gip_hori_ack,    sizeof(gip_hori_ack)},
+    {0x0000, 0x0000, gip_power_on,    sizeof(gip_power_on)},
+    {0x045e, 0x02ea, gip_s_init,      sizeof(gip_s_init)},
+    {0x045e, 0x0b00, gip_s_init,      sizeof(gip_s_init)},
+    {0x045e, 0x0b00, gip_extra_input, sizeof(gip_extra_input)},
+    {0x0000, 0x0000, gip_led_on,      sizeof(gip_led_on)},
+    {0x0000, 0x0000, gip_auth_done,   sizeof(gip_auth_done)},
+    {0x24c6, 0x541a, gip_rumble_on,   sizeof(gip_rumble_on)},
+    {0x24c6, 0x542a, gip_rumble_on,   sizeof(gip_rumble_on)},
+    {0x24c6, 0x543a, gip_rumble_on,   sizeof(gip_rumble_on)},
+    {0x24c6, 0x541a, gip_rumble_off,  sizeof(gip_rumble_off)},
+    {0x24c6, 0x542a, gip_rumble_off,  sizeof(gip_rumble_off)},
+    {0x24c6, 0x543a, gip_rumble_off,  sizeof(gip_rumble_off)},
+};
+// clang-format on
+
+#define GIP_INIT_PACKET_COUNT (sizeof(gip_init_packets) / sizeof(gip_init_packets[0]))
 
 // Xbox controller tracking
 typedef struct
@@ -38,8 +70,14 @@ typedef struct
     uint8_t itf_num;
     uint8_t ep_in;
     uint8_t ep_out;
+    uint16_t vid;
+    uint16_t pid;
+    uint8_t gip_seq;           // GIP sequence number (out_cmd[2]), for all OUT
+    uint8_t init_seq;          // index into gip_init_packets
+    bool init_done;            // true after GIP init sequence sent
+    bool in_data_received;     // true after first IN xfer callback
     uint8_t report_buffer[64]; // XInput max 64 bytes
-    uint8_t out_cmd[5];        // OUT command buffer (persists for async DMA xfer)
+    uint8_t out_cmd[16];       // OUT command buffer (persists for async DMA xfer)
 } xbox_device_t;
 
 #define XIN_MAX_DEVICES 4
@@ -443,7 +481,8 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
         return 0;
     }
 
-    if (!tuh_edpt_open(dev_addr, ep_in_desc) || !tuh_edpt_open(dev_addr, ep_out_desc))
+    if (!tuh_edpt_open(dev_addr, ep_in_desc) ||
+        !tuh_edpt_open(dev_addr, ep_out_desc))
     {
         DBG("XInput: Failed to open endpoints\n");
         return 0;
@@ -455,6 +494,8 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
     xbox_devices[idx].is_xbox_one = is_xbox_one;
     xbox_devices[idx].ep_in = ep_in_desc->bEndpointAddress;
     xbox_devices[idx].ep_out = ep_out_desc->bEndpointAddress;
+    xbox_devices[idx].gip_seq = 0;
+    xbox_devices[idx].init_seq = 0;
 
     // Mount in pad system with synthetic HID descriptor
     uint8_t const *desc_data = is_xbox_one ? xbox_one_fake_desc : xbox_360_fake_desc;
@@ -468,8 +509,85 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
         return 0;
     }
 
-    DBG("XInput: Claimed Xbox controller in index %d\n", idx);
+    xbox_devices[idx].vid = vendor_id;
+    xbox_devices[idx].pid = product_id;
+
+    DBG("XInput: Claimed Xbox controller in index %d (VID=%04X PID=%04X)\n", idx, vendor_id, product_id);
     return max_len;
+}
+
+// Send the next applicable GIP init packet, returns true if one was sent
+static bool xin_send_next_init(xbox_device_t *device)
+{
+    while (device->init_seq < GIP_INIT_PACKET_COUNT)
+    {
+        const gip_init_packet_t *pkt = &gip_init_packets[device->init_seq++];
+
+        // Skip packets not for this device
+        if (pkt->vid != 0 && pkt->vid != device->vid)
+            continue;
+        if (pkt->pid != 0 && pkt->pid != device->pid)
+            continue;
+
+        memcpy(device->out_cmd, pkt->data, pkt->len);
+        device->out_cmd[2] = device->gip_seq++; // set sequence number
+
+        tuh_xfer_t xfer = {
+            .daddr = device->dev_addr,
+            .ep_addr = device->ep_out,
+            .buflen = pkt->len,
+            .buffer = device->out_cmd,
+            .complete_cb = NULL,
+            .user_data = 0};
+        if (tuh_edpt_xfer(&xfer))
+        {
+            DBG("XInput: Queued GIP init %d/%d (cmd=0x%02X, %d bytes, seq=%d) on EP 0x%02X\n",
+                device->init_seq, (int)GIP_INIT_PACKET_COUNT,
+                pkt->data[0], pkt->len, device->out_cmd[2], device->ep_out);
+            return true;
+        }
+        DBG("XInput: FAILED to queue GIP init %d - tuh_edpt_xfer returned false\n", device->init_seq - 1);
+    }
+    DBG("XInput: GIP init sequence complete\n");
+    device->init_done = true;
+    return false;
+}
+
+// Start Xbox One controller — queue IN then begin GIP init.
+// IN is queued first so we catch GIP_CMD_ANNOUNCE (0x02) if the
+// controller fires it.  The init sequence is also started immediately
+// for freshly-powered controllers.  If ANNOUNCE arrives the sequence
+// is restarted from the top (harmless, matches Linux xpad).
+static void xin_start_xbox_one(xbox_device_t *device, int idx)
+{
+    DBG("XInput: Xbox One — queuing IN then starting GIP init\n");
+    tuh_xfer_t in_xfer = {
+        .daddr = device->dev_addr,
+        .ep_addr = device->ep_in,
+        .buflen = sizeof(device->report_buffer),
+        .buffer = device->report_buffer,
+        .complete_cb = NULL,
+        .user_data = (uintptr_t)idx};
+    if (!tuh_edpt_xfer(&in_xfer))
+        DBG("XInput: FAILED to queue IN\n");
+    xin_send_next_init(device);
+}
+
+// Callback after SET_INTERFACE to disable audio completes
+static void xin_audio_disable_cb(tuh_xfer_t *xfer)
+{
+    int idx = (int)xfer->user_data;
+    if (idx < 0 || idx >= XIN_MAX_DEVICES || !xbox_devices[idx].active)
+        return;
+
+    xbox_device_t *device = &xbox_devices[idx];
+
+    if (xfer->result != XFER_RESULT_SUCCESS)
+        DBG("XInput: Audio interface disable failed (result=%d), continuing\n",
+            xfer->result);
+
+    xin_start_xbox_one(device, idx);
+    usbh_driver_set_config_complete(xfer->daddr, device->itf_num);
 }
 
 static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
@@ -477,7 +595,7 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     int idx = xin_find_index_by_dev_addr(dev_addr);
     if (idx < 0 || xbox_devices[idx].itf_num != itf_num)
     {
-        // Not ours, or an extra consumed interface — skip.
+        // Consumed secondary interface — skip.
         usbh_driver_set_config_complete(dev_addr, itf_num);
         return true;
     }
@@ -485,42 +603,34 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     xbox_device_t *device = &xbox_devices[idx];
     DBG("XInput: set_config for dev_addr %d index %d\n", dev_addr, idx);
 
-    // Start listening for input reports
-    tuh_xfer_t in_xfer = {
-        .daddr = dev_addr,
-        .ep_addr = device->ep_in,
-        .buflen = sizeof(device->report_buffer),
-        .buffer = device->report_buffer,
-        .complete_cb = NULL,
-        .user_data = (uintptr_t)idx};
-    if (!tuh_edpt_xfer(&in_xfer))
-        DBG("XInput: Failed to start input for index %d\n", idx);
-
-    // Send init/LED command on the interrupt OUT endpoint
-    // Buffer is in device struct so it persists for async DMA transfer
     if (device->is_xbox_one)
     {
-        device->out_cmd[0] = 0x05;
-        device->out_cmd[1] = 0x20;
-        device->out_cmd[2] = 0x00;
-        device->out_cmd[3] = 0x01;
-        device->out_cmd[4] = 0x00;
-        tuh_xfer_t xfer = {
-            .daddr = dev_addr,
-            .ep_addr = device->ep_out,
-            .buflen = 5,
-            .buffer = device->out_cmd,
-            .complete_cb = NULL,
-            .user_data = (uintptr_t)idx};
-        if (!tuh_edpt_xfer(&xfer))
-            DBG("XInput: Failed to send Xbox One init for index %d\n", idx);
+        // Disable the audio interface — some controllers (e.g., PowerA
+        // 0x20d6:0x200e) won't report the guide button unless this is done.
+        // The callback continues with GIP init after the control transfer.
+        if (tuh_interface_set(dev_addr, 1 /*GIP_WIRED_INTF_AUDIO*/, 0,
+                              xin_audio_disable_cb, (uintptr_t)idx))
+            return true; // init continues in callback
+        // Control transfer failed (no audio interface?) — proceed directly
+        DBG("XInput: Audio disable skipped, starting GIP init directly\n");
+        xin_start_xbox_one(device, idx);
     }
     else
     {
+        // Xbox 360: queue IN immediately, then send LED command
+        tuh_xfer_t in_xfer = {
+            .daddr = dev_addr,
+            .ep_addr = device->ep_in,
+            .buflen = sizeof(device->report_buffer),
+            .buffer = device->report_buffer,
+            .complete_cb = NULL,
+            .user_data = (uintptr_t)idx};
+        tuh_edpt_xfer(&in_xfer);
+
         int pnum = pad_get_player_num(xin_idx_to_hid_slot(idx));
         device->out_cmd[0] = 0x01;
         device->out_cmd[1] = 0x03;
-        device->out_cmd[2] = (uint8_t)(0x08 + (pnum & 0x03));
+        device->out_cmd[2] = (uint8_t)(0x06 + (pnum & 0x03));
         tuh_xfer_t xfer = {
             .daddr = dev_addr,
             .ep_addr = device->ep_out,
@@ -544,38 +654,122 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
 
     xbox_device_t *device = &xbox_devices[idx];
 
-    // OUT completion (init/LED command) — nothing to do
+    // OUT completion — send next init packet in sequence
     if (ep_addr == device->ep_out)
+    {
+        DBG("XInput: OUT complete on EP 0x%02X, result=%d, %lu bytes\n", ep_addr, result, xferred_bytes);
+        if (device->is_xbox_one && !device->init_done)
+            xin_send_next_init(device);
         return true;
+    }
+
+    // IN completion
+    device->in_data_received = true;
+    DBG("XInput: IN on EP 0x%02X, result=%d, %lu bytes\n", ep_addr, result, xferred_bytes);
+
+    if (result == XFER_RESULT_STALLED)
+    {
+        DBG("XInput: EP 0x%02X STALLed, re-queuing\n", ep_addr);
+        tuh_xfer_t xfer = {
+            .daddr = dev_addr,
+            .ep_addr = device->ep_in,
+            .buflen = sizeof(device->report_buffer),
+            .buffer = device->report_buffer,
+            .complete_cb = NULL,
+            .user_data = (uintptr_t)idx};
+        if (!tuh_edpt_xfer(&xfer))
+            DBG("XInput: FAILED to re-queue IN after STALL\n");
+        return true;
+    }
 
     if (result != XFER_RESULT_SUCCESS)
     {
-        DBG("XInput: Transfer failed for index %d, result=%d, len=%lu\n", idx, result, xferred_bytes);
+        DBG("XInput: IN transfer FAILED for index %d, result=%d\n", idx, result);
         return false;
     }
 
     uint8_t *report = device->report_buffer;
-    if (device->is_xbox_one)
+    if (!device->is_xbox_one)
     {
-        // Xbox One GIP protocol: first byte is command type
-        if (xferred_bytes > 4 && report[0] == 0x07)
+        // Xbox 360: type 0x00 means input report, ignore others (LED acks, etc.)
+        if (report[0] == 0x00 && xferred_bytes >= 14)
+            pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+    }
+    else
+    {
+        uint8_t gip_cmd = report[0];
+        DBG("XInput: GIP cmd=0x%02X opts=0x%02X seq=%d len_field=0x%02X\n",
+            gip_cmd,
+            xferred_bytes > 1 ? report[1] : 0,
+            xferred_bytes > 2 ? report[2] : 0,
+            xferred_bytes > 3 ? report[3] : 0);
+
+        if (gip_cmd == 0x02)
         {
-            // GIP_CMD_VIRTUAL_KEY — home button
-            uint8_t home = report[4] & 0x01;
-            DBG("XInput: home button state: %d\n", home);
-            pad_home_button(xin_idx_to_hid_slot(idx), home);
+            // GIP_CMD_ANNOUNCE — controller requesting (re-)initialization.
+            // This happens when the controller resets or changes power state.
+            // Re-run the full GIP init sequence (mirrors Linux xpad behavior).
+            DBG("XInput: GIP announce received, restarting init sequence\n");
+            device->init_seq = 0;
+            device->gip_seq = 0;
+            device->init_done = false;
+            xin_send_next_init(device);
         }
-        else if (report[0] == 0x20)
+        else if (gip_cmd == 0x03)
+        {
+            // GIP_CMD_ACK — controller acknowledging a command we sent.
+            // Expected and harmless; suppress noisy log.
+        }
+        else if (gip_cmd == 0x07 && xferred_bytes > 4)
+        {
+            // GIP_CMD_VIRTUAL_KEY — home button.
+            // Payload format: pairs of [state, 0x5B], len_field/2 pairs total.
+            // Only the final state in the burst matters for our use.
+            {
+                uint8_t num_pairs = report[3] / 2;
+                if (num_pairs > 0)
+                {
+                    uint16_t last_off = (uint16_t)(4u + (uint16_t)(num_pairs - 1u) * 2u);
+                    if (last_off < xferred_bytes)
+                    {
+                        uint8_t si = report[last_off] & 0x01;
+                        DBG("XInput: home button state: %d\n", si);
+                        pad_home_button(xin_idx_to_hid_slot(idx), si);
+                    }
+                }
+            }
+            // ACK for mode button reports
+            if ((report[1] & 0x10) && device->init_done)
+            {
+                device->out_cmd[0] = 0x01;      // GIP_CMD_ACK
+                device->out_cmd[1] = 0x20;      // GIP_OPT_INTERNAL
+                device->out_cmd[2] = report[2]; // echo sequence number
+                device->out_cmd[3] = 0x09;      // GIP_PL_LEN(9)
+                device->out_cmd[4] = 0x00;
+                device->out_cmd[5] = report[0]; // echo original cmd (0x07)
+                device->out_cmd[6] = report[1]; // echo original opts
+                device->out_cmd[7] = report[3]; // echo original len_field
+                memset(&device->out_cmd[8], 0, 5);
+                tuh_xfer_t ack_xfer = {
+                    .daddr = dev_addr,
+                    .ep_addr = device->ep_out,
+                    .buflen = 13,
+                    .buffer = device->out_cmd,
+                    .complete_cb = NULL,
+                    .user_data = (uintptr_t)idx};
+                if (!tuh_edpt_xfer(&ack_xfer))
+                    DBG("XInput: Failed to send home button ACK\n");
+            }
+        }
+        else if (gip_cmd == 0x20)
         {
             // GIP_CMD_INPUT — standard input report
             pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
         }
-        // else: ignore non-input GIP packets (ACK, announce, status, etc.)
-    }
-    else
-    {
-        // Xbox 360: forward raw report to pad system
-        pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+        else
+        {
+            DBG("XInput: Unhandled GIP cmd 0x%02X (%lu bytes)\n", gip_cmd, xferred_bytes);
+        }
     }
     // Restart the transfer to continue receiving reports
     tuh_xfer_t xfer = {
@@ -586,8 +780,7 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
         .complete_cb = NULL,
         .user_data = (uintptr_t)idx};
     if (!tuh_edpt_xfer(&xfer))
-        DBG("XInput: Failed to start interrupt transfer for index %d\n", idx);
-
+        DBG("XInput: FAILED to re-queue IN for index %d\n", idx);
     return true;
 }
 
@@ -629,7 +822,7 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 
 void xin_task(void)
 {
-    // Nothing to do — all setup happens in TinyUSB callbacks now.
+    // TODO remove
 }
 
 int xin_pad_count(void)
@@ -640,5 +833,3 @@ int xin_pad_count(void)
             ++count;
     return count;
 }
-
-#endif

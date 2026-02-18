@@ -16,8 +16,6 @@
 #include "pico/time.h"
 #include "hardware/structs/usb.h"
 
-#define DEBUG_RIA_USB_MSC
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
