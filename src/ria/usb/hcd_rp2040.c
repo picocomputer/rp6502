@@ -228,6 +228,14 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   {
     handled |= USB_INTS_ERROR_RX_TIMEOUT_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS;
+
+    // If EPX has an active transfer, fail it so TinyUSB's retry logic
+    // can attempt re-enumeration instead of silently hanging forever.
+    if (epx.active) {
+      *hwbuf_ctrl_reg_host(&epx) = 0;
+      usb_hw->sie_ctrl = SIE_CTRL_BASE;
+      hw_xfer_complete(&epx, XFER_RESULT_FAILED);
+    }
   }
 
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
