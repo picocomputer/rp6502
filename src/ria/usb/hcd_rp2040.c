@@ -105,7 +105,12 @@ static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_
 
 static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_endpoint *ep) {
   usb_hw_clear->buf_status = bit;
-  const bool done          = hw_endpoint_xfer_continue(ep);
+  // A STALL or RX_TIMEOUT handled earlier in the same IRQ may have
+  // already deactivated this endpoint.  The hardware buf_status bit
+  // is not cleared by those handlers, so we see a stale notification
+  // here.  Just discard it.
+  if (!ep->active) return;
+  const bool done = hw_endpoint_xfer_continue(ep);
   if (done) {
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
   }

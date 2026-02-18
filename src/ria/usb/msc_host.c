@@ -151,6 +151,9 @@ bool tuh_msc_ready(uint8_t dev_addr) {
   msch_interface_t* p_msc = get_itf(dev_addr);
   TU_VERIFY(p_msc->mounted);
   if (p_msc->stage != MSC_STAGE_IDLE) return false;
+  // Block while async CBI recovery (clear-halt chain) is using
+  // the control pipe — otherwise ADSC submissions will fail.
+  if (p_msc->recovery_stage != RECOVERY_NONE) return false;
   if (usbh_edpt_busy(dev_addr, p_msc->ep_in)) return false;
   if (usbh_edpt_busy(dev_addr, p_msc->ep_out)) return false;
   return true;
@@ -265,7 +268,14 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   p_msc->stage = MSC_STAGE_IDLE;
 
   if (is_cbi) {
-    // CBI has no recovery control transfers; done immediately.
+    // CBI has no bulk-only reset, but we must clear halt on the
+    // bulk endpoints to reset data toggles.  Without this, a PID
+    // mismatch after an aborted transfer prevents subsequent SCSI
+    // commands (e.g. REQUEST SENSE) from completing.
+    p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+    if (!_recovery_clear_halt(dev_addr, p_msc->ep_in)) {
+      p_msc->recovery_stage = RECOVERY_NONE;
+    }
     return true;
   }
 
@@ -610,48 +620,6 @@ bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
   cbw.command[4]  = start ? 0x01 : 0x00;
 
   return tuh_msc_scsi_command(dev_addr, &cbw, NULL, complete_cb, arg);
-}
-
-//--------------------------------------------------------------------+
-// SYNCHRONOUS I/O BOOKKEEPING
-//--------------------------------------------------------------------+
-// Flag management for sync wrappers.  No spin-waits here — the caller
-// owns the event-pump loop (tuh_task_device_only lives in msc.c).
-
-static volatile bool _sync_busy[CFG_TUH_DEVICE_MAX];
-static uint8_t       _sync_csw_status[CFG_TUH_DEVICE_MAX];
-
-static bool _sync_complete_cb(uint8_t dev_addr,
-                              tuh_msc_complete_data_t const *cb_data) {
-  _sync_csw_status[dev_addr - 1] = cb_data->csw->status;
-  _sync_busy[dev_addr - 1] = false;
-  return true;
-}
-
-// Arm the sync busy flag and return the internal completion callback.
-// Caller must ensure tuh_msc_ready() before calling.
-// If the subsequent async submit fails, call tuh_msc_sync_clear_busy().
-tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr) {
-  _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
-  _sync_busy[dev_addr - 1] = true;
-  return _sync_complete_cb;
-}
-
-// Non-blocking: check whether the sync operation is still in progress.
-bool tuh_msc_sync_is_busy(uint8_t dev_addr) {
-  return _sync_busy[dev_addr - 1];
-}
-
-// Read the CSW status from the last completed sync operation.
-uint8_t tuh_msc_sync_csw_status(uint8_t dev_addr) {
-  return _sync_csw_status[dev_addr - 1];
-}
-
-// Clear the busy flag — call from tuh_msc_umount_cb to unblock any
-// pending sync wait on disconnect, or after a failed async submit
-// following tuh_msc_sync_begin().
-void tuh_msc_sync_clear_busy(uint8_t dev_addr) {
-  _sync_busy[dev_addr - 1] = false;
 }
 
 //--------------------------------------------------------------------+
