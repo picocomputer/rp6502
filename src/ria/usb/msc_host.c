@@ -613,86 +613,38 @@ bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
 }
 
 //--------------------------------------------------------------------+
-// SYNCHRONOUS I/O FRAMEWORK
+// SYNCHRONOUS I/O BOOKKEEPING
 //--------------------------------------------------------------------+
-// Blocking wrappers around the async SCSI API.  Each spin-wait calls
-// tuh_task_device_only() to advance USB processing for the target
-// device without re-entering the full task tree.
-//
-// Only used by FatFS disk_* callbacks where blocking is unavoidable.
-
-extern void tuh_task_device_only(uint8_t dev_addr);
+// Flag management for sync wrappers.  No spin-waits here — the caller
+// owns the event-pump loop (tuh_task_device_only lives in msc.c).
 
 static volatile bool _sync_busy[CFG_TUH_DEVICE_MAX];
 static uint8_t       _sync_csw_status[CFG_TUH_DEVICE_MAX];
-static bool          _sync_timed_out[CFG_TUH_DEVICE_MAX];
 
 static bool _sync_complete_cb(uint8_t dev_addr,
                               tuh_msc_complete_data_t const *cb_data) {
   _sync_csw_status[dev_addr - 1] = cb_data->csw->status;
-  _sync_timed_out[dev_addr - 1] = false;
   _sync_busy[dev_addr - 1] = false;
   return true;
 }
 
-// Block until tuh_msc_ready() returns true or deadline expires.
-static bool _sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms) {
-  absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
-  while (!tuh_msc_ready(dev_addr)) {
-    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-      return false;
-    tuh_task_device_only(dev_addr);
-  }
-  return true;
-}
-
-// Block until _sync_busy clears or deadline expires.
-// On timeout, triggers reset recovery and returns FAILED.
-static uint8_t _sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms) {
-  absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
-  while (_sync_busy[dev_addr - 1]) {
-    if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0) {
-      tuh_msc_reset_recovery(dev_addr);
-      absolute_time_t rec_deadline = make_timeout_time_ms(timeout_ms);
-      while (tuh_msc_recovery_in_progress(dev_addr)) {
-        if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
-          break;
-        tuh_task_device_only(dev_addr);
-      }
-      _sync_timed_out[dev_addr - 1] = true;
-      _sync_busy[dev_addr - 1] = false;
-      _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
-      return MSC_CSW_STATUS_FAILED;
-    }
-    tuh_task_device_only(dev_addr);
-  }
-  return _sync_csw_status[dev_addr - 1];
-}
-
-// --- Public sync helpers ---
-
-// Wait until device is ready, arm the sync busy flag, and return
-// the internal completion callback.  Pass the returned callback to
-// any async TinyUSB MSC submit function.  Returns NULL on timeout.
-// If the subsequent async submit fails, call tuh_msc_sync_clear_busy()
-// to release the busy flag.
-tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr,
-                                         uint32_t timeout_ms) {
-  if (!_sync_wait_ready(dev_addr, timeout_ms))
-    return NULL;
+// Arm the sync busy flag and return the internal completion callback.
+// Caller must ensure tuh_msc_ready() before calling.
+// If the subsequent async submit fails, call tuh_msc_sync_clear_busy().
+tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr) {
   _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
   _sync_busy[dev_addr - 1] = true;
   return _sync_complete_cb;
 }
 
-// Wait for the in-flight command to complete.
-// Returns CSW status (MSC_CSW_STATUS_PASSED/FAILED/PHASE_ERROR).
-uint8_t tuh_msc_sync_end(uint8_t dev_addr, uint32_t timeout_ms) {
-  return _sync_wait_io(dev_addr, timeout_ms);
+// Non-blocking: check whether the sync operation is still in progress.
+bool tuh_msc_sync_is_busy(uint8_t dev_addr) {
+  return _sync_busy[dev_addr - 1];
 }
 
-bool tuh_msc_sync_io_timed_out(uint8_t dev_addr) {
-  return _sync_timed_out[dev_addr - 1];
+// Read the CSW status from the last completed sync operation.
+uint8_t tuh_msc_sync_csw_status(uint8_t dev_addr) {
+  return _sync_csw_status[dev_addr - 1];
 }
 
 // Clear the busy flag — call from tuh_msc_umount_cb to unblock any
@@ -700,17 +652,6 @@ bool tuh_msc_sync_io_timed_out(uint8_t dev_addr) {
 // following tuh_msc_sync_begin().
 void tuh_msc_sync_clear_busy(uint8_t dev_addr) {
   _sync_busy[dev_addr - 1] = false;
-}
-
-// Perform reset recovery with blocking wait.
-void tuh_msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms) {
-  tuh_msc_reset_recovery(dev_addr);
-  absolute_time_t rec_deadline = make_timeout_time_ms(timeout_ms);
-  while (tuh_msc_recovery_in_progress(dev_addr)) {
-    if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
-      break;
-    tuh_task_device_only(dev_addr);
-  }
 }
 
 //--------------------------------------------------------------------+

@@ -101,6 +101,8 @@ static bool msc_volume_write_protected[FF_VOLUMES];
 // It will not work with: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
 bool tuh_msc_is_cbi(uint8_t dev_addr);
+bool tuh_msc_reset_recovery(uint8_t dev_addr);
+bool tuh_msc_recovery_in_progress(uint8_t dev_addr);
 
 // Async SCSI wrappers (not in upstream header)
 bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *response,
@@ -111,14 +113,12 @@ bool tuh_msc_mode_sense6(uint8_t dev_addr, uint8_t lun, void *response,
 bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
                              tuh_msc_complete_cb_t complete_cb, uintptr_t arg);
 
-// Synchronous I/O primitives (FatFS disk_* paths only).
-// Usage: cb = sync_begin → async submit with cb → sync_end.
-// If async submit fails after sync_begin, call sync_clear_busy.
-tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr, uint32_t timeout_ms);
-uint8_t tuh_msc_sync_end(uint8_t dev_addr, uint32_t timeout_ms);
-bool tuh_msc_sync_io_timed_out(uint8_t dev_addr);
+// Synchronous I/O bookkeeping (no spin-waits — msc_host.c is
+// reentrant-safe; all event-pump loops live here in msc.c).
+tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr);
+bool tuh_msc_sync_is_busy(uint8_t dev_addr);
+uint8_t tuh_msc_sync_csw_status(uint8_t dev_addr);
 void tuh_msc_sync_clear_busy(uint8_t dev_addr);
-void tuh_msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms);
 
 //--------------------------------------------------------------------+
 // Asynchronous volume initialization state machine
@@ -171,6 +171,78 @@ static bool msc_poll_cb(uint8_t dev_addr,
                         tuh_msc_complete_data_t const *cb_data);
 // forward declaration — defined after msc_handle_io_error
 
+//--------------------------------------------------------------------+
+// Synchronous I/O helpers (spin-wait lives here, not in msc_host.c)
+//--------------------------------------------------------------------+
+// tuh_task_device_only pumps USB events for a single device without
+// re-entering the full task tree. Defined in usb/usbh.c.
+void tuh_task_device_only(uint8_t dev_addr);
+
+// Track whether the last msc_sync_wait_io call timed out.
+static bool msc_sync_timed_out;
+
+// Wait until tuh_msc_ready() or timeout.
+static bool msc_sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms)
+{
+    absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
+    while (!tuh_msc_ready(dev_addr))
+    {
+        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+            return false;
+        tuh_task_device_only(dev_addr);
+    }
+    return true;
+}
+
+// Wait ready + arm busy flag → return callback (NULL on timeout).
+static tuh_msc_complete_cb_t msc_sync_begin(uint8_t dev_addr,
+                                            uint32_t timeout_ms)
+{
+    if (!msc_sync_wait_ready(dev_addr, timeout_ms))
+        return NULL;
+    return tuh_msc_sync_begin(dev_addr);
+}
+
+// Wait for in-flight command to complete. On timeout, triggers
+// reset recovery and returns MSC_CSW_STATUS_FAILED.
+static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
+{
+    msc_sync_timed_out = false;
+    absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
+    while (tuh_msc_sync_is_busy(dev_addr))
+    {
+        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+        {
+            tuh_msc_reset_recovery(dev_addr);
+            absolute_time_t rec_deadline = make_timeout_time_ms(timeout_ms);
+            while (tuh_msc_recovery_in_progress(dev_addr))
+            {
+                if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
+                    break;
+                tuh_task_device_only(dev_addr);
+            }
+            tuh_msc_sync_clear_busy(dev_addr);
+            msc_sync_timed_out = true;
+            return MSC_CSW_STATUS_FAILED;
+        }
+        tuh_task_device_only(dev_addr);
+    }
+    return tuh_msc_sync_csw_status(dev_addr);
+}
+
+// Perform reset recovery with blocking wait.
+static void msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms)
+{
+    tuh_msc_reset_recovery(dev_addr);
+    absolute_time_t rec_deadline = make_timeout_time_ms(timeout_ms);
+    while (tuh_msc_recovery_in_progress(dev_addr))
+    {
+        if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
+            break;
+        tuh_task_device_only(dev_addr);
+    }
+}
+
 
 // Issue REQUEST SENSE and store result in per-volume sense arrays.
 // Returns true if the transport succeeded (sense data is valid).
@@ -180,7 +252,7 @@ static bool msc_do_request_sense(uint8_t vol)
     if (dev_addr == 0)
         return false; // device disconnected
 
-    tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
     if (!cb)
         return false;
     scsi_sense_fixed_resp_t sense_resp;
@@ -190,7 +262,7 @@ static bool msc_do_request_sense(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return false;
     }
-    tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS);
+    msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
 
     if (sense_resp.response_code)
     {
@@ -217,7 +289,7 @@ static bool msc_check_write_protect(uint8_t vol)
     if (dev_addr == 0)
         return false; // device disconnected
 
-    tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
     if (!cb)
         return false;
     scsi_mode_sense6_resp_t ms_resp;
@@ -227,7 +299,7 @@ static bool msc_check_write_protect(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return false;
     }
-    uint8_t status = tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS);
+    uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
     if (status != MSC_CSW_STATUS_PASSED)
     {
         DBG("MSC vol %d: MODE SENSE(6) not supported\n", vol);
@@ -247,7 +319,7 @@ static bool msc_send_tur(uint8_t vol)
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
         return false; // device disconnected
-    tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
     if (!cb)
         return false;
     if (!tuh_msc_test_unit_ready(dev_addr, 0, cb, 0))
@@ -255,7 +327,7 @@ static bool msc_send_tur(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return false;
     }
-    return tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS) == MSC_CSW_STATUS_PASSED;
+    return msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS) == MSC_CSW_STATUS_PASSED;
 }
 
 // Send START STOP UNIT (start=1) to spin up the device or
@@ -265,7 +337,7 @@ static void msc_send_start_unit(uint8_t vol)
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
         return; // device disconnected
-    tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
     if (!cb)
         return;
     if (!tuh_msc_start_stop_unit(dev_addr, 0, true, cb, 0))
@@ -273,7 +345,7 @@ static void msc_send_start_unit(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return;
     }
-    tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS);
+    msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
 }
 
 // Check media readiness with a single TUR, then interpret the
@@ -378,7 +450,7 @@ static bool msc_read_capacity(uint8_t vol)
         // capacity. FatFS trusts the BPB on sector 0 for geometry.
         // 4-byte header + 1 descriptor (8 bytes) = 12 bytes
         uint8_t rfc_buf[12];
-        tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+        tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
         if (!cb)
             return false;
         memset(rfc_buf, 0, sizeof(rfc_buf));
@@ -388,7 +460,7 @@ static bool msc_read_capacity(uint8_t vol)
             tuh_msc_sync_clear_busy(dev_addr);
             return false;
         }
-        uint8_t status = tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS);
+        uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
         if (status != MSC_CSW_STATUS_PASSED)
         {
             DBG("MSC vol %d: RFC CSW not passed (%d)\n", vol, status);
@@ -432,7 +504,7 @@ static bool msc_read_capacity(uint8_t vol)
     }
 
     // BOT / non-UFI: use standard Read Capacity
-    tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
     if (!cb)
         return false;
     scsi_read_capacity10_resp_t cap_resp;
@@ -442,7 +514,7 @@ static bool msc_read_capacity(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return false;
     }
-    uint8_t status = tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS);
+    uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
     if (status != MSC_CSW_STATUS_PASSED)
         return false;
 
@@ -1163,7 +1235,7 @@ static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     if (dev_addr == 0)
         return RES_ERROR; // device disconnected
-    tuh_msc_complete_cb_t cb = tuh_msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
     if (!cb)
         return RES_ERROR;
     if (!tuh_msc_scsi_command(dev_addr, cbw, buff, cb, 0))
@@ -1171,13 +1243,13 @@ static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
         tuh_msc_sync_clear_busy(dev_addr);
         return RES_ERROR;
     }
-    uint8_t status = tuh_msc_sync_end(dev_addr, MSC_IO_TIMEOUT_MS);
+    uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
     if (status != MSC_CSW_STATUS_PASSED)
     {
         // Scrub the device now so the next probe finds it in a
         // known-good SCSI state and recovers without delay.
-        if (!tuh_msc_sync_io_timed_out(dev_addr))
-            tuh_msc_sync_recovery(dev_addr, MSC_IO_TIMEOUT_MS);
+        if (!msc_sync_timed_out)
+            msc_sync_recovery(dev_addr, MSC_IO_TIMEOUT_MS);
         msc_send_tur(pdrv);
         msc_do_request_sense(pdrv);
         msc_handle_io_error(pdrv);
