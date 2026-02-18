@@ -80,6 +80,7 @@ typedef enum
 {
     msc_volume_free = 0,
     msc_volume_registered,
+    msc_volume_initialized, // SCSI init done, awaiting f_mount from msc_task
     msc_volume_mounted,
     msc_volume_ejected,
     msc_volume_failed,
@@ -130,18 +131,34 @@ typedef enum
 {
     VINIT_IDLE,
     VINIT_INQUIRY,
-    VINIT_TUR_1,
-    VINIT_SENSE_1,
-    VINIT_TUR_2,
-    VINIT_SENSE_2,
+    VINIT_INQUIRY_SENSE,
+    VINIT_TUR,
+    VINIT_SENSE,
     VINIT_START_UNIT,
-    VINIT_TUR_3,
-    VINIT_SENSE_3,
     VINIT_TUR_UA,
     VINIT_SENSE_UA,
     VINIT_CAPACITY,
+    VINIT_CAPACITY_SENSE,
+    VINIT_READ_BLOCK0,
     VINIT_MODE_SENSE,
+    VINIT_MODE_SENSE_P0,
 } vinit_state_t;
+
+static const char *const vinit_state_name[] = {
+    [VINIT_IDLE] = "IDLE",
+    [VINIT_INQUIRY] = "INQUIRY",
+    [VINIT_INQUIRY_SENSE] = "INQUIRY_SENSE",
+    [VINIT_TUR] = "TUR",
+    [VINIT_SENSE] = "SENSE",
+    [VINIT_START_UNIT] = "START_UNIT",
+    [VINIT_TUR_UA] = "TUR_UA",
+    [VINIT_SENSE_UA] = "SENSE_UA",
+    [VINIT_CAPACITY] = "CAPACITY",
+    [VINIT_CAPACITY_SENSE] = "CAPACITY_SENSE",
+    [VINIT_READ_BLOCK0] = "READ_BLOCK0",
+    [VINIT_MODE_SENSE] = "MODE_SENSE",
+    [VINIT_MODE_SENSE_P0] = "MODE_SENSE_P0",
+};
 
 static vinit_state_t msc_vinit_state[FF_VOLUMES];
 static scsi_sense_fixed_resp_t msc_vinit_sense_buf[FF_VOLUMES];
@@ -151,6 +168,17 @@ static union
     scsi_mode_sense6_resp_t mode_sense;
     uint8_t rfc[12];
 } msc_vinit_buf[FF_VOLUMES];
+
+// Retry counters for unit attention handling during init.
+#define VINIT_UA_RETRIES_MAX 5
+#define VINIT_INQ_RETRIES_MAX 3
+static uint8_t msc_vinit_ua_retries[FF_VOLUMES];
+static uint8_t msc_vinit_inq_retries[FF_VOLUMES];
+
+// Shared discard buffer for read-block-0 (forces device to populate
+// mode pages — data is not used).  Shared across volumes since the
+// contents are thrown away.
+static uint8_t msc_vinit_block0[512];
 
 //--------------------------------------------------------------------+
 // Async TUR poll for removable media detection
@@ -282,37 +310,6 @@ static bool msc_do_request_sense(uint8_t vol)
     return true;
 }
 
-// Check write protection via MODE SENSE(6).
-static bool msc_check_write_protect(uint8_t vol)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    if (dev_addr == 0)
-        return false; // device disconnected
-
-    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
-    if (!cb)
-        return false;
-    scsi_mode_sense6_resp_t ms_resp;
-    memset(&ms_resp, 0, sizeof(ms_resp));
-    if (!tuh_msc_mode_sense6(dev_addr, 0, &ms_resp, cb, 0))
-    {
-        tuh_msc_sync_clear_busy(dev_addr);
-        return false;
-    }
-    uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
-    if (status != MSC_CSW_STATUS_PASSED)
-    {
-        DBG("MSC vol %d: MODE SENSE(6) not supported\n", vol);
-        return false;
-    }
-
-    DBG("MSC vol %d: MODE SENSE WP=%d medium_type=0x%02X\n",
-        vol, ms_resp.write_protected, ms_resp.medium_type);
-
-    msc_volume_write_protected[vol] = ms_resp.write_protected;
-    return true;
-}
-
 // Send a single TUR command and return whether it passed.
 static bool msc_send_tur(uint8_t vol)
 {
@@ -330,227 +327,9 @@ static bool msc_send_tur(uint8_t vol)
     return msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS) == MSC_CSW_STATUS_PASSED;
 }
 
-// Send START STOP UNIT (start=1) to spin up the device or
-// prompt media detection.
-static void msc_send_start_unit(uint8_t vol)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    if (dev_addr == 0)
-        return; // device disconnected
-    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
-    if (!cb)
-        return;
-    if (!tuh_msc_start_stop_unit(dev_addr, 0, true, cb, 0))
-    {
-        tuh_msc_sync_clear_busy(dev_addr);
-        return;
-    }
-    msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
-}
-
-// Check media readiness with a single TUR, then interpret the
-// sense data. Modelled on Linux sd_spinup_disk():
-//   Any check condition — sense read clears it, retry TUR once
-//   NOT_READY           — send START UNIT, retry TUR once
-//   UNIT_ATTENTION      — one-shot, sense clears it, retry TUR
-// No loops: at most 4 TURs (initial, post-sense, post-START, post-UA).
-// Returns true if media is present and ready.
-static bool msc_test_unit_ready(uint8_t vol)
-{
-    // First TUR
-    if (msc_send_tur(vol))
-    {
-        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-        msc_volume_sense_asc[vol] = 0;
-        msc_volume_sense_ascq[vol] = 0;
-        return true;
-    }
-
-    // Sense read clears pending check conditions (unit attention,
-    // stale medium errors after reset recovery, etc.).
-    if (!msc_do_request_sense(vol))
-        return false;
-
-    // Retry TUR — cleared condition often lets this succeed.
-    if (msc_send_tur(vol))
-    {
-        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-        msc_volume_sense_asc[vol] = 0;
-        msc_volume_sense_ascq[vol] = 0;
-        return true;
-    }
-
-    // Second TUR failed — get fresh sense to decide next step.
-    if (!msc_do_request_sense(vol))
-        return false;
-
-    uint8_t sk = msc_volume_sense_key[vol];
-    uint8_t asc = msc_volume_sense_asc[vol];
-
-    // NOT_READY: send START UNIT (spin up / detect media).
-    if (sk == SCSI_SENSE_NOT_READY)
-    {
-        // ASC 0x3A = Medium Not Present — no START UNIT will fix that;
-        // skip it to avoid corrupting the CBI transport on floppy drives.
-        if (asc == 0x3A)
-        {
-            DBG("MSC vol %d: medium not present, skipping START UNIT\n", vol);
-            return false;
-        }
-        DBG("MSC vol %d: not ready (%02Xh/%02Xh), sending START UNIT\n",
-            vol, asc, msc_volume_sense_ascq[vol]);
-        msc_send_start_unit(vol);
-        if (msc_send_tur(vol))
-        {
-            msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-            msc_volume_sense_asc[vol] = 0;
-            msc_volume_sense_ascq[vol] = 0;
-            return true;
-        }
-        msc_do_request_sense(vol);
-        // Fall through — UNIT_ATTENTION check below handles
-        // the common case where START UNIT triggered a media
-        // transition (sense 6/28h "Not Ready to Ready Change").
-    }
-
-    // UNIT_ATTENTION is a one-shot condition — the sense read above
-    // already cleared it.  One more TUR should pass.  This handles
-    // both the post-START-UNIT case (6/28h) and any other transient
-    // unit attention (e.g. after reset recovery).
-    if (msc_volume_sense_key[vol] == SCSI_SENSE_UNIT_ATTENTION)
-    {
-        if (msc_send_tur(vol))
-        {
-            msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-            msc_volume_sense_asc[vol] = 0;
-            msc_volume_sense_ascq[vol] = 0;
-            return true;
-        }
-        msc_do_request_sense(vol);
-    }
-
-    DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh\n",
-        vol, msc_volume_sense_key[vol],
-        msc_volume_sense_asc[vol], msc_volume_sense_ascq[vol]);
-    return false;
-}
-
-// Read the capacity of a volume. Uses Read Format Capacities for
-// CBI/UFI devices and Read Capacity(10) for BOT devices.
-// On success, sets block_count and block_size and returns true.
-static bool msc_read_capacity(uint8_t vol)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    if (dev_addr == 0)
-        return false; // device disconnected
-
-    if (tuh_msc_is_cbi(dev_addr))
-    {
-        // CBI/UFI floppy: use READ FORMAT CAPACITIES to get current
-        // capacity. FatFS trusts the BPB on sector 0 for geometry.
-        // 4-byte header + 1 descriptor (8 bytes) = 12 bytes
-        uint8_t rfc_buf[12];
-        tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
-        if (!cb)
-            return false;
-        memset(rfc_buf, 0, sizeof(rfc_buf));
-        if (!tuh_msc_read_format_capacities(dev_addr, 0, rfc_buf,
-                                            sizeof(rfc_buf), cb, 0))
-        {
-            tuh_msc_sync_clear_busy(dev_addr);
-            return false;
-        }
-        uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
-        if (status != MSC_CSW_STATUS_PASSED)
-        {
-            DBG("MSC vol %d: RFC CSW not passed (%d)\n", vol, status);
-            // CBI/UFI floppies may report non-zero ASC in interrupt
-            // status (e.g. "Medium Not Present") even though the bulk
-            // data phase delivered a valid response.  Continue and let
-            // the descriptor parsing decide.
-        }
-
-        uint8_t list_len = rfc_buf[3]; // capacity list length in bytes
-        if (list_len < 8)
-        {
-            DBG("MSC vol %d: RFC list_len=%d (too short)\n", vol, list_len);
-            return false;
-        }
-
-        // First descriptor (current/maximum) — check desc_type
-        uint8_t desc_type = rfc_buf[4 + 4] & 0x03;
-        if (desc_type == 3) // no media present
-        {
-            DBG("MSC vol %d: RFC desc_type=3 (no media)\n", vol);
-            return false;
-        }
-
-        // Per SFF-8070i, descriptor 0 is the current/maximum capacity.
-        uint8_t *desc0 = &rfc_buf[4];
-        uint32_t blocks = tu_ntohl(*(uint32_t *)&desc0[0]);
-        uint32_t bsize = ((uint32_t)desc0[5] << 16) |
-                         ((uint32_t)desc0[6] << 8) |
-                         (uint32_t)desc0[7];
-
-        DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
-            vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
-
-        if (blocks == 0 || bsize != 512)
-            return false;
-
-        msc_volume_block_count[vol] = blocks;
-        msc_volume_block_size[vol] = bsize;
-        return true;
-    }
-
-    // BOT / non-UFI: use standard Read Capacity
-    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
-    if (!cb)
-        return false;
-    scsi_read_capacity10_resp_t cap_resp;
-    memset(&cap_resp, 0, sizeof(cap_resp));
-    if (!tuh_msc_read_capacity(dev_addr, 0, &cap_resp, cb, 0))
-    {
-        tuh_msc_sync_clear_busy(dev_addr);
-        return false;
-    }
-    uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
-    if (status != MSC_CSW_STATUS_PASSED)
-        return false;
-
-    msc_volume_block_count[vol] = tu_ntohl(cap_resp.last_lba) + 1;
-    msc_volume_block_size[vol] = tu_ntohl(cap_resp.block_size);
-    return true;
-}
-
-// Probe an ejected removable volume for media via SCSI commands.
-// Called from msc_status_count (periodic poll) and disk_initialize
-// (FatFS access). Does TUR, capacity read, and MODE SENSE validation.
-static bool msc_probe_media(uint8_t vol)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    if (dev_addr == 0)
-        return false; // device disconnected
-
-    if (!tuh_msc_mounted(dev_addr))
-        return false;
-    if (!msc_test_unit_ready(vol))
-        return false;
-    if (!msc_read_capacity(vol))
-        return false;
-
-    // Skip MODE SENSE(6) for CBI/UFI floppy drives: they typically
-    // don't support it, and the 3-second I/O timeout wastes time.
-    if (!tuh_msc_is_cbi(dev_addr))
-        msc_check_write_protect(vol);
-
-    msc_volume_status[vol] = msc_volume_mounted;
-    msc_volume_tur_ok[vol] = true;
-    DBG("MSC vol %d: media detected\n", vol);
-    return true;
-}
-
 // Handle I/O error on a removable volume: unmount and mark ejected.
+// The deferred f_mount stays registered so the next FatFS access
+// triggers disk_initialize, which kicks off an async re-probe.
 static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
@@ -559,7 +338,8 @@ static void msc_handle_io_error(uint8_t vol)
     // as ejected — that would prevent the slot from being reused on re-plug.
     if (msc_volume_status[vol] == msc_volume_free)
         return;
-    // Re-register deferred mount so FatFS probes again on next access
+    // Re-register deferred mount so FatFS calls disk_initialize on
+    // the next file access, triggering the async re-probe.
     TCHAR volstr[6] = MSC_VOL0;
     volstr[3] += vol;
     f_mount(&msc_fatfs_volumes[vol], volstr, 0);
@@ -708,25 +488,67 @@ static bool vinit_submit_mode_sense(uint8_t vol)
                                msc_vinit_cb, (uintptr_t)vol);
 }
 
+// MODE SENSE(6) with page 0 — fallback when page 0x3F is rejected.
+static bool vinit_submit_mode_sense_p0(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, 0);
+    cbw.total_bytes = sizeof(scsi_mode_sense6_resp_t);
+    cbw.dir = TUSB_DIR_IN_MASK;
+    cbw.cmd_len = 6;
+    cbw.command[0] = 0x1A; // MODE SENSE(6)
+    cbw.command[1] = 0x08; // DBD=1
+    cbw.command[2] = 0x00; // page code 0
+    cbw.command[4] = sizeof(scsi_mode_sense6_resp_t);
+    memset(&msc_vinit_buf[vol].mode_sense, 0,
+           sizeof(msc_vinit_buf[vol].mode_sense));
+    return tuh_msc_scsi_command(dev_addr, &cbw,
+                                &msc_vinit_buf[vol].mode_sense,
+                                msc_vinit_cb, (uintptr_t)vol);
+}
+
+// Read block 0 — forces some USB devices to populate mode pages
+// with real values (Linux read_before_ms quirk).  Data is discarded.
+static bool vinit_submit_read_block0(uint8_t vol)
+{
+    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint32_t bs = msc_volume_block_size[vol];
+    if (bs == 0 || bs > sizeof(msc_vinit_block0))
+        return false;
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, 0);
+    cbw.total_bytes = bs;
+    cbw.dir = TUSB_DIR_IN_MASK;
+    cbw.cmd_len = sizeof(scsi_read10_t);
+    scsi_read10_t const cmd = {
+        .cmd_code = SCSI_CMD_READ_10,
+        .lba = 0,
+        .block_count = tu_htons(1)};
+    memcpy(cbw.command, &cmd, sizeof(cmd));
+    return tuh_msc_scsi_command(dev_addr, &cbw, msc_vinit_block0,
+                                msc_vinit_cb, (uintptr_t)vol);
+}
+
 // Dispatch the submission for the current vinit state.
 static void msc_vinit_submit(uint8_t vol)
 {
+    DBG("MSC vol %d: vinit -> %s\n", vol,
+        vinit_state_name[msc_vinit_state[vol]]);
     bool ok = false;
     switch (msc_vinit_state[vol])
     {
     case VINIT_INQUIRY:
         ok = vinit_submit_inquiry(vol);
         break;
-    case VINIT_TUR_1:
-    case VINIT_TUR_2:
-    case VINIT_TUR_3:
+    case VINIT_TUR:
     case VINIT_TUR_UA:
         ok = vinit_submit_tur(vol);
         break;
-    case VINIT_SENSE_1:
-    case VINIT_SENSE_2:
-    case VINIT_SENSE_3:
+    case VINIT_INQUIRY_SENSE:
+    case VINIT_SENSE:
     case VINIT_SENSE_UA:
+    case VINIT_CAPACITY_SENSE:
         ok = vinit_submit_sense(vol);
         break;
     case VINIT_START_UNIT:
@@ -735,8 +557,14 @@ static void msc_vinit_submit(uint8_t vol)
     case VINIT_CAPACITY:
         ok = vinit_submit_capacity(vol);
         break;
+    case VINIT_READ_BLOCK0:
+        ok = vinit_submit_read_block0(vol);
+        break;
     case VINIT_MODE_SENSE:
         ok = vinit_submit_mode_sense(vol);
+        break;
+    case VINIT_MODE_SENSE_P0:
+        ok = vinit_submit_mode_sense_p0(vol);
         break;
     default:
         return;
@@ -781,8 +609,13 @@ static void vinit_store_sense(uint8_t vol)
 static void vinit_finish(uint8_t vol, msc_volume_status_t status)
 {
     msc_vinit_state[vol] = VINIT_IDLE;
-    msc_volume_status[vol] = status;
+    DBG("MSC vol %d: vinit -> IDLE\n", vol);
+    // When SCSI init succeeds, set initialized — msc_task() will
+    // register the deferred f_mount and transition to mounted.
     if (status == msc_volume_mounted)
+        status = msc_volume_initialized;
+    msc_volume_status[vol] = status;
+    if (status == msc_volume_initialized)
     {
         msc_volume_tur_ok[vol] = true;
         DBG("MSC vol %d: initialized %lu blocks\n", vol,
@@ -803,6 +636,21 @@ static void vinit_advance_to_capacity(uint8_t vol)
 {
     msc_vinit_state[vol] = VINIT_CAPACITY;
     msc_vinit_submit(vol);
+}
+
+// Post-INQUIRY dispatch — shared by VINIT_INQUIRY success and
+// VINIT_INQUIRY_SENSE fallback when the response data is usable.
+static void vinit_post_inquiry(uint8_t vol)
+{
+    if (msc_inquiry_resp[vol].is_removable)
+    {
+        msc_vinit_state[vol] = VINIT_TUR;
+        msc_vinit_submit(vol);
+    }
+    else
+    {
+        vinit_advance_to_capacity(vol);
+    }
 }
 
 //--------------------------------------------------------------------+
@@ -834,52 +682,52 @@ static bool msc_vinit_cb(uint8_t dev_addr,
         msc_inquiry_rtrims(msc_inquiry_resp[vol].product_rev, 4);
         if (csw_status != MSC_CSW_STATUS_PASSED)
         {
-            scsi_inquiry_resp_t const *inq = &msc_inquiry_resp[vol];
-            if (inq->peripheral_qualifier == 3 ||
-                (inq->response_data_format != 1 &&
-                 inq->response_data_format != 2) ||
-                inq->additional_length < 31)
-            {
-                DBG("MSC vol %d: inquiry failed (invalid response)\n", vol);
-                vinit_finish(vol, msc_volume_failed);
-                return true;
-            }
-            DBG("MSC vol %d: inquiry CSW not passed "
-                "(response valid, continuing)\n", vol);
-        }
-        if (msc_inquiry_resp[vol].is_removable)
-        {
-            msc_vinit_state[vol] = VINIT_TUR_1;
+            // Check for unit attention before giving up on INQUIRY.
+            msc_vinit_state[vol] = VINIT_INQUIRY_SENSE;
             msc_vinit_submit(vol);
+            break;
         }
-        else
-        {
-            vinit_advance_to_capacity(vol);
-        }
+        vinit_post_inquiry(vol);
         break;
     }
 
-    // ---- TUR chain (mirrors msc_test_unit_ready logic) ----
-    case VINIT_TUR_1:
-        if (csw_status == MSC_CSW_STATUS_PASSED)
-        {
-            vinit_clear_sense(vol);
-            vinit_advance_to_capacity(vol);
-        }
-        else
-        {
-            msc_vinit_state[vol] = VINIT_SENSE_1;
-            msc_vinit_submit(vol);
-        }
-        break;
-
-    case VINIT_SENSE_1:
+    case VINIT_INQUIRY_SENSE:
+    {
         vinit_store_sense(vol);
-        msc_vinit_state[vol] = VINIT_TUR_2;
-        msc_vinit_submit(vol);
+        uint8_t sk = msc_volume_sense_key[vol];
+        uint8_t asc = msc_volume_sense_asc[vol];
+        // USB flash devices may report UA 0x28 (not-ready-to-ready)
+        // or 0x29 (power-on/reset) during early enumeration.
+        if (sk == SCSI_SENSE_UNIT_ATTENTION &&
+            (asc == 0x28 || asc == 0x29) &&
+            msc_vinit_inq_retries[vol] < VINIT_INQ_RETRIES_MAX)
+        {
+            msc_vinit_inq_retries[vol]++;
+            DBG("MSC vol %d: INQUIRY unit attention (0x%02X), "
+                "retry %d\n", vol, asc, msc_vinit_inq_retries[vol]);
+            msc_vinit_state[vol] = VINIT_INQUIRY;
+            msc_vinit_submit(vol);
+            break;
+        }
+        // Not UA — check if the INQUIRY response data is usable.
+        scsi_inquiry_resp_t const *inq = &msc_inquiry_resp[vol];
+        if (inq->peripheral_qualifier == 3 ||
+            (inq->response_data_format != 1 &&
+             inq->response_data_format != 2) ||
+            inq->additional_length < 31)
+        {
+            DBG("MSC vol %d: inquiry failed (invalid response)\n", vol);
+            vinit_finish(vol, msc_volume_failed);
+            return true;
+        }
+        DBG("MSC vol %d: inquiry CSW not passed "
+            "(response valid, continuing)\n", vol);
+        vinit_post_inquiry(vol);
         break;
+    }
 
-    case VINIT_TUR_2:
+    // ---- TUR: one round, then decide ----
+    case VINIT_TUR:
         if (csw_status == MSC_CSW_STATUS_PASSED)
         {
             vinit_clear_sense(vol);
@@ -887,12 +735,12 @@ static bool msc_vinit_cb(uint8_t dev_addr,
         }
         else
         {
-            msc_vinit_state[vol] = VINIT_SENSE_2;
+            msc_vinit_state[vol] = VINIT_SENSE;
             msc_vinit_submit(vol);
         }
         break;
 
-    case VINIT_SENSE_2:
+    case VINIT_SENSE:
     {
         vinit_store_sense(vol);
         uint8_t sk = msc_volume_sense_key[vol];
@@ -901,8 +749,7 @@ static bool msc_vinit_cb(uint8_t dev_addr,
         {
             if (asc == 0x3A)
             {
-                DBG("MSC vol %d: medium not present, "
-                    "skipping START UNIT\n", vol);
+                DBG("MSC vol %d: medium not present\n", vol);
                 vinit_finish(vol, msc_volume_ejected);
                 return true;
             }
@@ -914,8 +761,22 @@ static bool msc_vinit_cb(uint8_t dev_addr,
         }
         else if (sk == SCSI_SENSE_UNIT_ATTENTION)
         {
-            msc_vinit_state[vol] = VINIT_TUR_UA;
-            msc_vinit_submit(vol);
+            // USB flash may report UA 0x28/0x29 repeatedly during
+            // slow firmware start-up — retry TUR up to 5 times.
+            if ((asc == 0x28 || asc == 0x29) &&
+                msc_vinit_ua_retries[vol] < VINIT_UA_RETRIES_MAX)
+            {
+                msc_vinit_ua_retries[vol]++;
+                DBG("MSC vol %d: UA 0x%02X, TUR retry %d\n",
+                    vol, asc, msc_vinit_ua_retries[vol]);
+                msc_vinit_state[vol] = VINIT_TUR;
+                msc_vinit_submit(vol);
+            }
+            else
+            {
+                msc_vinit_state[vol] = VINIT_TUR_UA;
+                msc_vinit_submit(vol);
+            }
         }
         else
         {
@@ -927,34 +788,8 @@ static bool msc_vinit_cb(uint8_t dev_addr,
     }
 
     case VINIT_START_UNIT:
-        msc_vinit_state[vol] = VINIT_TUR_3;
+        msc_vinit_state[vol] = VINIT_TUR_UA;
         msc_vinit_submit(vol);
-        break;
-
-    case VINIT_TUR_3:
-        if (csw_status == MSC_CSW_STATUS_PASSED)
-        {
-            vinit_clear_sense(vol);
-            vinit_advance_to_capacity(vol);
-        }
-        else
-        {
-            msc_vinit_state[vol] = VINIT_SENSE_3;
-            msc_vinit_submit(vol);
-        }
-        break;
-
-    case VINIT_SENSE_3:
-        vinit_store_sense(vol);
-        if (msc_volume_sense_key[vol] == SCSI_SENSE_UNIT_ATTENTION)
-        {
-            msc_vinit_state[vol] = VINIT_TUR_UA;
-            msc_vinit_submit(vol);
-        }
-        else
-        {
-            vinit_finish(vol, msc_volume_ejected);
-        }
         break;
 
     case VINIT_TUR_UA:
@@ -971,9 +806,27 @@ static bool msc_vinit_cb(uint8_t dev_addr,
         break;
 
     case VINIT_SENSE_UA:
+    {
         vinit_store_sense(vol);
-        vinit_finish(vol, msc_volume_ejected);
+        uint8_t sk_ua = msc_volume_sense_key[vol];
+        uint8_t asc_ua = msc_volume_sense_asc[vol];
+        // Continue retrying for UA 0x28/0x29 (slow USB firmware).
+        if (sk_ua == SCSI_SENSE_UNIT_ATTENTION &&
+            (asc_ua == 0x28 || asc_ua == 0x29) &&
+            msc_vinit_ua_retries[vol] < VINIT_UA_RETRIES_MAX)
+        {
+            msc_vinit_ua_retries[vol]++;
+            DBG("MSC vol %d: UA 0x%02X post-start, TUR retry %d\n",
+                vol, asc_ua, msc_vinit_ua_retries[vol]);
+            msc_vinit_state[vol] = VINIT_TUR_UA;
+            msc_vinit_submit(vol);
+        }
+        else
+        {
+            vinit_finish(vol, msc_volume_ejected);
+        }
         break;
+    }
 
     // ---- CAPACITY ----
     case VINIT_CAPACITY:
@@ -1021,19 +874,56 @@ static bool msc_vinit_cb(uint8_t dev_addr,
         {
             if (csw_status != MSC_CSW_STATUS_PASSED)
             {
-                vinit_finish(vol, msc_inquiry_resp[vol].is_removable
-                                      ? msc_volume_ejected
-                                      : msc_volume_failed);
+                // For removable media, do REQUEST SENSE to confirm
+                // the failure reason (e.g. ASC 0x3A = no media).
+                if (msc_inquiry_resp[vol].is_removable)
+                {
+                    msc_vinit_state[vol] = VINIT_CAPACITY_SENSE;
+                    msc_vinit_submit(vol);
+                }
+                else
+                {
+                    vinit_finish(vol, msc_volume_failed);
+                }
                 return true;
             }
             scsi_read_capacity10_resp_t *cap = &msc_vinit_buf[vol].cap10;
             msc_volume_block_count[vol] = tu_ntohl(cap->last_lba) + 1;
             msc_volume_block_size[vol] = tu_ntohl(cap->block_size);
-            msc_vinit_state[vol] = VINIT_MODE_SENSE;
+            // Read block 0 to force USB devices to populate mode
+            // pages with real values (Linux read_before_ms quirk).
+            msc_vinit_state[vol] = VINIT_READ_BLOCK0;
             msc_vinit_submit(vol);
         }
         break;
     }
+
+    // ---- CAPACITY SENSE (removable only) ----
+    case VINIT_CAPACITY_SENSE:
+    {
+        vinit_store_sense(vol);
+        if (msc_volume_sense_asc[vol] == 0x3A)
+        {
+            DBG("MSC vol %d: capacity failed — medium not present\n", vol);
+            vinit_finish(vol, msc_volume_ejected);
+        }
+        else
+        {
+            DBG("MSC vol %d: capacity failed — sense %d/%02Xh/%02Xh\n",
+                vol, msc_volume_sense_key[vol],
+                msc_volume_sense_asc[vol], msc_volume_sense_ascq[vol]);
+            vinit_finish(vol, msc_volume_failed);
+        }
+        break;
+    }
+
+    // ---- READ BLOCK 0 (force mode page population) ----
+    case VINIT_READ_BLOCK0:
+        if (csw_status != MSC_CSW_STATUS_PASSED)
+            DBG("MSC vol %d: block 0 read failed (non-fatal)\n", vol);
+        msc_vinit_state[vol] = VINIT_MODE_SENSE;
+        msc_vinit_submit(vol);
+        break;
 
     // ---- MODE SENSE ----
     case VINIT_MODE_SENSE:
@@ -1042,6 +932,24 @@ static bool msc_vinit_cb(uint8_t dev_addr,
             scsi_mode_sense6_resp_t *ms = &msc_vinit_buf[vol].mode_sense;
             DBG("MSC vol %d: MODE SENSE WP=%d medium_type=0x%02X\n",
                 vol, ms->write_protected, ms->medium_type);
+            msc_volume_write_protected[vol] = ms->write_protected;
+            vinit_finish(vol, msc_volume_mounted);
+        }
+        else
+        {
+            DBG("MSC vol %d: MODE SENSE(6) page 0x3F rejected, "
+                "trying page 0\n", vol);
+            msc_vinit_state[vol] = VINIT_MODE_SENSE_P0;
+            msc_vinit_submit(vol);
+        }
+        break;
+
+    case VINIT_MODE_SENSE_P0:
+        if (csw_status == MSC_CSW_STATUS_PASSED)
+        {
+            scsi_mode_sense6_resp_t *ms = &msc_vinit_buf[vol].mode_sense;
+            DBG("MSC vol %d: MODE SENSE(6) page 0 WP=%d\n",
+                vol, ms->write_protected);
             msc_volume_write_protected[vol] = ms->write_protected;
         }
         else
@@ -1067,35 +975,49 @@ static FIL *msc_validate_fil(int desc)
     return &msc_std_fil_pool[desc];
 }
 
-int msc_status_count(void)
+void msc_task(void)
 {
-    int count = 0;
+    static absolute_time_t next_poll_time;
+    bool poll_due = time_reached(next_poll_time);
+    if (poll_due)
+        next_poll_time = make_timeout_time_ms(2500);
+
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_status[vol] == msc_volume_ejected)
+        switch (msc_volume_status[vol])
         {
-            // Re-probe via async vinit (skip INQUIRY — already done)
+        case msc_volume_registered:
+            // Start async SCSI init when the device is ready.
             if (msc_vinit_state[vol] == VINIT_IDLE)
             {
                 uint8_t dev_addr = msc_volume_dev_addr[vol];
                 if (dev_addr != 0 && tuh_msc_mounted(dev_addr) &&
                     tuh_msc_ready(dev_addr))
                 {
-                    msc_volume_status[vol] = msc_volume_registered;
-                    msc_vinit_state[vol] = VINIT_TUR_1;
+                    msc_vinit_inq_retries[vol] = 0;
+                    msc_vinit_ua_retries[vol] = 0;
+                    msc_vinit_state[vol] = VINIT_INQUIRY;
                     msc_vinit_submit(vol);
-                    // If submit failed, vinit sets status to failed.
-                    // Revert to ejected so next poll retries.
-                    if (msc_volume_status[vol] == msc_volume_failed)
-                        msc_volume_status[vol] = msc_volume_ejected;
                 }
             }
-        }
-        else if (msc_volume_status[vol] == msc_volume_mounted &&
-                 msc_inquiry_resp[vol].is_removable)
+            break;
+
+        case msc_volume_initialized:
         {
-            // Async TUR poll for removable media detection
-            if (msc_poll_state[vol] == POLL_IDLE)
+            // SCSI init complete — register deferred f_mount so
+            // FatFS can access the volume on first file operation.
+            TCHAR volstr[6] = MSC_VOL0;
+            volstr[3] += vol;
+            f_mount(&msc_fatfs_volumes[vol], volstr, 0);
+            msc_volume_status[vol] = msc_volume_mounted;
+            DBG("MSC vol %d: f_mount registered\n", vol);
+            break;
+        }
+
+        case msc_volume_mounted:
+            // Async TUR poll for removable media detection.
+            if (poll_due && msc_inquiry_resp[vol].is_removable &&
+                msc_poll_state[vol] == POLL_IDLE)
             {
                 uint8_t dev_addr = msc_volume_dev_addr[vol];
                 if (tuh_msc_ready(dev_addr) &&
@@ -1106,7 +1028,35 @@ int msc_status_count(void)
                     msc_volume_tur_ok[vol] = false;
                 }
             }
+            break;
+
+        case msc_volume_ejected:
+            // Re-probe ejected removable media (skip INQUIRY).
+            if (poll_due && msc_vinit_state[vol] == VINIT_IDLE)
+            {
+                uint8_t dev_addr = msc_volume_dev_addr[vol];
+                if (dev_addr != 0 && tuh_msc_mounted(dev_addr) &&
+                    tuh_msc_ready(dev_addr))
+                {
+                    msc_volume_status[vol] = msc_volume_registered;
+                    msc_vinit_ua_retries[vol] = 0;
+                    msc_vinit_state[vol] = VINIT_TUR;
+                    msc_vinit_submit(vol);
+                }
+            }
+            break;
+
+        default:
+            break;
         }
+    }
+}
+
+int msc_status_count(void)
+{
+    int count = 0;
+    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+    {
         if (msc_volume_status[vol] == msc_volume_mounted ||
             msc_volume_status[vol] == msc_volume_ejected)
             count++;
@@ -1188,12 +1138,9 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
         {
             msc_volume_dev_addr[vol] = dev_addr;
             msc_volume_status[vol] = msc_volume_registered;
-            TCHAR volstr[6] = MSC_VOL0;
-            volstr[3] += vol;
-            f_mount(&msc_fatfs_volumes[vol], volstr, 0);
             DBG("MSC mount dev_addr %d -> vol %d\n", dev_addr, vol);
-            msc_vinit_state[vol] = VINIT_INQUIRY;
-            msc_vinit_submit(vol);
+            // msc_task() will start SCSI init and register
+            // the deferred f_mount after init completes.
             break;
         }
     }
@@ -1225,6 +1172,8 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_volume_sense_asc[vol] = 0;
             msc_volume_sense_ascq[vol] = 0;
             msc_volume_write_protected[vol] = false;
+            msc_vinit_ua_retries[vol] = 0;
+            msc_vinit_inq_retries[vol] = 0;
             DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
@@ -1301,15 +1250,9 @@ DSTATUS disk_initialize(BYTE pdrv)
     if (pdrv >= FF_VOLUMES)
         return STA_NOINIT;
     if (msc_volume_status[pdrv] == msc_volume_ejected)
-    {
-        if (!msc_probe_media(pdrv))
-        {
-            if (msc_volume_sense_key[pdrv] == SCSI_SENSE_NOT_READY &&
-                msc_volume_sense_asc[pdrv] == 0x3A)
-                return STA_NOINIT | STA_NODISK;
-            return STA_NOINIT;
-        }
-    }
+        return STA_NOINIT;
+    if (msc_volume_status[pdrv] != msc_volume_mounted)
+        return STA_NOINIT;
     DSTATUS res = 0;
     if (msc_volume_write_protected[pdrv])
         res |= STA_PROTECT;

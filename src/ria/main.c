@@ -37,6 +37,7 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/xin.h"
 
@@ -91,6 +92,7 @@ static void init(void)
 void main_task(void)
 {
     usb_task();
+    msc_task();
     cpu_task();
     ria_task();
     kbd_task();
