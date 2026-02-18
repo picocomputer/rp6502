@@ -50,7 +50,10 @@ Changes from upstream TinyUSB msc_host.c:
   MSC stage to idle.  For BOT devices it starts an async recovery state
   machine (BOT Mass Storage Reset -> CLEAR_FEATURE on ep_in -> CLEAR_FEATURE
   on ep_out) driven entirely by callbacks — no spin-wait, no nested
-  tuh_task().  Use tuh_msc_recovery_in_progress() to poll completion.
+  tuh_task().  For CBI devices it sends a CBI device reset (SEND_DIAGNOSTIC
+  with SelfTest=1 via ADSC) before clearing endpoints, matching Linux
+  usb-storage usb_stor_CB_reset().  Use tuh_msc_recovery_in_progress()
+  to poll completion.
 
 */
 
@@ -84,10 +87,12 @@ enum {
 };
 
 // Recovery states for tuh_msc_reset_recovery() state machine.
-// BOT recovery chains: RESET -> CLEAR_IN -> CLEAR_OUT -> NONE (done).
+// BOT: BOT_RESET -> CLEAR_IN -> CLEAR_OUT -> NONE (done).
+// CBI: CBI_RESET -> CLEAR_IN -> CLEAR_OUT -> NONE (done).
 enum {
   RECOVERY_NONE = 0,
   RECOVERY_BOT_RESET,
+  RECOVERY_CBI_RESET,
   RECOVERY_CLEAR_IN,
   RECOVERY_CLEAR_OUT,
 };
@@ -220,6 +225,14 @@ static void _recovery_cb(tuh_xfer_t* xfer) {
       }
       break;
 
+    case RECOVERY_CBI_RESET:
+      // CBI device reset (SEND_DIAGNOSTIC) done — clear halt on bulk-in.
+      p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+      if (!_recovery_clear_halt(daddr, p_msc->ep_in)) {
+        p_msc->recovery_stage = RECOVERY_NONE;
+      }
+      break;
+
     case RECOVERY_CLEAR_IN:
       // ep_in clear halt done — reset host-side data toggle, start ep_out.
       hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
@@ -268,13 +281,41 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   p_msc->stage = MSC_STAGE_IDLE;
 
   if (is_cbi) {
-    // CBI has no bulk-only reset, but we must clear halt on the
-    // bulk endpoints to reset data toggles.  Without this, a PID
-    // mismatch after an aborted transfer prevents subsequent SCSI
-    // commands (e.g. REQUEST SENSE) from completing.
-    p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-    if (!_recovery_clear_halt(dev_addr, p_msc->ep_in)) {
-      p_msc->recovery_stage = RECOVERY_NONE;
+    // CBI device reset: send SEND_DIAGNOSTIC(SelfTest=1) via ADSC,
+    // then clear halt on both bulk endpoints.  This matches Linux
+    // usb-storage usb_stor_CB_reset() and is needed to reset the
+    // floppy's firmware state after a transport error — without it
+    // the drive can report stale media status (02/3A) indefinitely.
+    msch_epbuf_t* epbuf = get_epbuf(dev_addr);
+    memset(epbuf->cbi_cmd, 0xFF, 12);
+    epbuf->cbi_cmd[0] = 0x1D; // SEND_DIAGNOSTIC
+    epbuf->cbi_cmd[1] = 0x04; // SelfTest=1
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type      = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_OUT
+        },
+        .bRequest = 0, // ADSC
+        .wValue   = 0,
+        .wIndex   = p_msc->itf_num,
+        .wLength  = 12
+    };
+    tuh_xfer_t xfer = {
+        .daddr       = dev_addr,
+        .ep_addr     = 0,
+        .setup       = &request,
+        .buffer      = epbuf->cbi_cmd,
+        .complete_cb = _recovery_cb,
+        .user_data   = 0
+    };
+    p_msc->recovery_stage = RECOVERY_CBI_RESET;
+    if (!tuh_control_xfer(&xfer)) {
+      // If ADSC fails, fall back to just clearing endpoints
+      p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+      if (!_recovery_clear_halt(dev_addr, p_msc->ep_in)) {
+        p_msc->recovery_stage = RECOVERY_NONE;
+      }
     }
     return true;
   }
@@ -307,6 +348,41 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
     return false;
   }
 
+  return true;
+}
+
+// Abort-only: cancel any in-flight transfers and reset MSC stage
+// without starting the CLEAR_FEATURE recovery chain.  Used during
+// disk_initialize re-probe where CLEAR_FEATURE on CBI bulk endpoints
+// can generate new UNIT ATTENTIONs on the floppy, creating a retry
+// loop that never converges.
+bool tuh_msc_abort_transfers(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  if (!p_msc->configured) return false;
+
+  bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
+                       p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
+
+  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
+    tuh_edpt_abort_xfer(dev_addr, 0);
+  }
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+  if (is_cbi && p_msc->ep_intr) {
+    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
+  }
+  p_msc->stage = MSC_STAGE_IDLE;
+
+  // Reset host-side data toggles to DATA0 on all endpoints.
+  // This avoids data sequence errors on the next command without
+  // sending CLEAR_FEATURE to the device (which would generate
+  // UNIT ATTENTION conditions on CBI floppy drives).
+  uint8_t const rhport = usbh_get_rhport(dev_addr);
+  hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_in);
+  hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_out);
+  if (p_msc->ep_intr) {
+    hcd_edpt_clear_stall(rhport, dev_addr, p_msc->ep_intr);
+  }
   return true;
 }
 

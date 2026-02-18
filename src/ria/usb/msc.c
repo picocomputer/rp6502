@@ -30,6 +30,13 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // Deadline for SCSI command completion and device ready polling
 #define MSC_IO_TIMEOUT_MS 3000
 
+// Shorter timeout and more retries for disk_initialize re-probe.
+// After a CBI device reset (SEND_DIAGNOSTIC), the floppy needs time
+// to complete self-test and re-detect media.  Use a generous retry
+// count with 1-second delays between attempts.
+#define DISK_INIT_TIMEOUT_MS 1000
+#define DISK_INIT_RETRIES    10
+
 // Initialize a CBW with standard boilerplate fields (for disk_read/write).
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 {
@@ -104,6 +111,7 @@ static bool msc_volume_needs_remount[FF_VOLUMES];
 bool tuh_msc_is_cbi(uint8_t dev_addr);
 bool tuh_msc_reset_recovery(uint8_t dev_addr);
 bool tuh_msc_recovery_in_progress(uint8_t dev_addr);
+bool tuh_msc_abort_transfers(uint8_t dev_addr);
 
 // Async SCSI wrappers (not in upstream header)
 bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void *response,
@@ -175,6 +183,7 @@ typedef enum
 } msc_poll_state_t;
 
 static msc_poll_state_t msc_poll_state[FF_VOLUMES];
+static absolute_time_t msc_poll_deadline[FF_VOLUMES]; // staleness guard
 static scsi_sense_fixed_resp_t msc_poll_sense_buf[FF_VOLUMES];
 static bool msc_poll_cb(uint8_t dev_addr,
                         tuh_msc_complete_data_t const *cb_data);
@@ -191,14 +200,19 @@ void tuh_task_device_only(uint8_t dev_addr);
 static bool msc_sync_timed_out;
 
 // Wait until tuh_msc_ready() or timeout.
+// Also checks tuh_msc_mounted() to fail fast on device disconnect,
+// since tuh_task_device_only() defers DEVICE_REMOVE events.
 static bool msc_sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms)
 {
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     while (!tuh_msc_ready(dev_addr))
     {
+        if (!tuh_msc_mounted(dev_addr))
+            return false;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             return false;
-        tuh_task_device_only(dev_addr);
+        // main_task();
+        tuh_task_device_only(dev_addr); // failed attempt to solve a rentrancy problem
     }
     return true;
 }
@@ -213,13 +227,21 @@ static tuh_msc_complete_cb_t msc_sync_begin(uint8_t dev_addr,
 }
 
 // Wait for in-flight command to complete. On timeout, triggers
-// reset recovery and returns MSC_CSW_STATUS_FAILED.
+// reset recovery (or abort-only if msc_sync_abort_only is set)
+// and returns MSC_CSW_STATUS_FAILED.
+// Also checks tuh_msc_mounted() to fail fast on disconnect.
 static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
 {
     msc_sync_timed_out = false;
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     while (tuh_msc_sync_is_busy(dev_addr))
     {
+        if (!tuh_msc_mounted(dev_addr))
+        {
+            tuh_msc_sync_clear_busy(dev_addr);
+            msc_sync_timed_out = true;
+            return MSC_CSW_STATUS_FAILED;
+        }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
             tuh_msc_reset_recovery(dev_addr);
@@ -234,7 +256,8 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
             msc_sync_timed_out = true;
             return MSC_CSW_STATUS_FAILED;
         }
-        tuh_task_device_only(dev_addr);
+        // main_task();
+        tuh_task_device_only(dev_addr); // failed attempt to solve a rentrancy problem
     }
     return tuh_msc_sync_csw_status(dev_addr);
 }
@@ -248,19 +271,24 @@ static void msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms)
     {
         if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
             break;
-        tuh_task_device_only(dev_addr);
+        // main_task();
+        tuh_task_device_only(dev_addr); // failed attempt to solve a rentrancy problem
     }
 }
 
 // Issue REQUEST SENSE and store result in per-volume sense arrays.
 // Returns true if the transport succeeded (sense data is valid).
-static bool msc_do_request_sense(uint8_t vol)
+// Note: for CBI with interrupt endpoint, the sense data buffer is
+// filled during the data phase BEFORE interrupt status.  So even if
+// the interrupt status times out, the sense data may still be valid
+// (response_code != 0).
+static bool msc_do_request_sense(uint8_t vol, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
         return false; // device disconnected
 
-    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, timeout_ms);
     if (!cb)
         return false;
     scsi_sense_fixed_resp_t sense_resp;
@@ -270,7 +298,7 @@ static bool msc_do_request_sense(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return false;
     }
-    msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
+    msc_sync_wait_io(dev_addr, timeout_ms);
 
     if (sense_resp.response_code)
     {
@@ -291,12 +319,12 @@ static bool msc_do_request_sense(uint8_t vol)
 }
 
 // Send a single TUR command and return whether it passed.
-static bool msc_send_tur(uint8_t vol)
+static bool msc_send_tur(uint8_t vol, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
         return false; // device disconnected
-    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, timeout_ms);
     if (!cb)
         return false;
     if (!tuh_msc_test_unit_ready(dev_addr, 0, cb, 0))
@@ -304,7 +332,7 @@ static bool msc_send_tur(uint8_t vol)
         tuh_msc_sync_clear_busy(dev_addr);
         return false;
     }
-    return msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS) == MSC_CSW_STATUS_PASSED;
+    return msc_sync_wait_io(dev_addr, timeout_ms) == MSC_CSW_STATUS_PASSED;
 }
 
 // Mark a removable volume as ejected: clear cached geometry and
@@ -356,6 +384,15 @@ static bool msc_poll_cb(uint8_t dev_addr,
             msc_volume_tur_ok[vol] = true;
             msc_poll_state[vol] = POLL_IDLE;
         }
+        else if (cb_data->csw->status == MSC_CSW_STATUS_PHASE_ERROR)
+        {
+            // BOT spec §5.3.3: device state is undefined after phase
+            // error — do NOT issue REQUEST_SENSE.  Let the next sync
+            // I/O (disk_read/disk_write) handle reset recovery.
+            DBG("MSC vol %d: poll TUR phase error\n", vol);
+            msc_handle_io_error(vol);
+            msc_poll_state[vol] = POLL_IDLE;
+        }
         else
         {
             memset(&msc_poll_sense_buf[vol], 0,
@@ -368,7 +405,10 @@ static bool msc_poll_cb(uint8_t dev_addr,
             }
             else
             {
-                msc_handle_io_error(vol);
+                // Submission failure is transient (e.g. CBI control
+                // pipe busy).  Do NOT eject — retry next poll cycle.
+                DBG("MSC vol %d: poll SENSE submit failed, will retry\n",
+                    vol);
                 msc_poll_state[vol] = POLL_IDLE;
             }
         }
@@ -476,7 +516,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             break;
         }
         // Check sense for unit attention (0x28/0x29 during early enum)
-        msc_do_request_sense(vol);
+        msc_do_request_sense(vol, MSC_IO_TIMEOUT_MS);
         uint8_t sk = msc_volume_sense_key[vol];
         uint8_t asc = msc_volume_sense_asc[vol];
         if (sk == SCSI_SENSE_UNIT_ATTENTION &&
@@ -515,12 +555,12 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         {
             if (!tuh_msc_mounted(dev_addr))
                 return msc_volume_failed;
-            if (msc_send_tur(vol))
+            if (msc_send_tur(vol, MSC_IO_TIMEOUT_MS))
             {
                 tur_ok = true;
                 break;
             }
-            msc_do_request_sense(vol);
+            msc_do_request_sense(vol, MSC_IO_TIMEOUT_MS);
             uint8_t sk = msc_volume_sense_key[vol];
             uint8_t asc = msc_volume_sense_asc[vol];
 
@@ -616,7 +656,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         {
             if (inq->is_removable)
             {
-                msc_do_request_sense(vol);
+                msc_do_request_sense(vol, MSC_IO_TIMEOUT_MS);
                 if (msc_volume_sense_asc[vol] == 0x3A)
                 {
                     DBG("MSC vol %d: capacity — medium not present\n", vol);
@@ -738,7 +778,7 @@ void msc_task(void)
 #ifdef NDEBUG
         next_poll_time = make_timeout_time_ms(250);
 #else
-        poll_due = false;
+        next_poll_time = make_timeout_time_ms(10000);
 #endif
 
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
@@ -773,16 +813,30 @@ void msc_task(void)
 
         case msc_volume_mounted:
             // Async TUR poll for removable media detection.
-            if (poll_due && msc_inquiry_resp[vol].is_removable &&
-                msc_poll_state[vol] == POLL_IDLE)
+            if (poll_due && msc_inquiry_resp[vol].is_removable)
             {
-                uint8_t dev_addr = msc_volume_dev_addr[vol];
-                if (tuh_msc_ready(dev_addr) &&
-                    tuh_msc_test_unit_ready(dev_addr, 0,
-                                            msc_poll_cb, (uintptr_t)vol))
+                // Guard against stale poll state: if a poll callback
+                // never fired (rare HCD issue), force back to IDLE so
+                // polling isn't permanently stuck.
+                if (msc_poll_state[vol] != POLL_IDLE &&
+                    time_reached(msc_poll_deadline[vol]))
                 {
-                    msc_poll_state[vol] = POLL_TUR;
-                    msc_volume_tur_ok[vol] = false;
+                    DBG("MSC vol %d: poll state %d stale, forcing IDLE\n",
+                        vol, msc_poll_state[vol]);
+                    msc_poll_state[vol] = POLL_IDLE;
+                }
+                if (msc_poll_state[vol] == POLL_IDLE)
+                {
+                    uint8_t dev_addr = msc_volume_dev_addr[vol];
+                    if (tuh_msc_ready(dev_addr) &&
+                        tuh_msc_test_unit_ready(dev_addr, 0,
+                                                msc_poll_cb, (uintptr_t)vol))
+                    {
+                        msc_poll_state[vol] = POLL_TUR;
+                        msc_poll_deadline[vol] =
+                            make_timeout_time_ms(MSC_IO_TIMEOUT_MS);
+                        msc_volume_tur_ok[vol] = false;
+                    }
                 }
             }
             break;
@@ -954,23 +1008,24 @@ static DRESULT msc_scsi_xfer(uint8_t pdrv, msc_cbw_t *cbw, void *buff)
     uint8_t status = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
     if (status != MSC_CSW_STATUS_PASSED)
     {
-        if (!msc_sync_timed_out)
+        // For BOT: non-timeout failures (CSW phase error, etc.) need
+        // halt clearing on the data endpoint.
+        // For CBI: non-timeout failures are SCSI-level errors (CHECK
+        // CONDITION reported via interrupt status).  USB recovery is
+        // wrong here — CLEAR_FEATURE on CBI bulk endpoints generates
+        // new UNIT ATTENTIONs that make subsequent re-probe fail.
+        // Timeout failures are handled inside msc_sync_wait_io already.
+        if (!msc_sync_timed_out && !tuh_msc_is_cbi(dev_addr))
             msc_sync_recovery(dev_addr, MSC_IO_TIMEOUT_MS);
-        msc_send_tur(pdrv);
-        msc_do_request_sense(pdrv);
-        // Only eject removable media when sense indicates medium
-        // not present (NOT_READY / 3A).  Do NOT eject for
-        // UNIT_ATTENTION — CBI recovery (CLEAR_FEATURE) commonly
-        // causes a spurious UA (06/28 or 06/29) that does not mean
-        // the media was removed.  Returning RES_ERROR lets FatFS
-        // report the error; the async TUR poll will detect actual
-        // media removal later.
-        uint8_t sk = msc_volume_sense_key[pdrv];
-        uint8_t asc = msc_volume_sense_asc[pdrv];
-        if (sk == SCSI_SENSE_NOT_READY && asc == 0x3A)
-        {
-            msc_handle_io_error(pdrv);
-        }
+        // For removable media, always transition to ejected state.
+        // FatFS's find_volume() checks disk_status() before each
+        // access — when it sees STA_NOINIT, it calls disk_initialize()
+        // which runs the full UA retry loop to re-probe the device.
+        // Attempting TUR+SENSE here is counterproductive: CBI recovery
+        // (CLEAR_FEATURE) generates new UNIT ATTENTIONs that mask the
+        // original failure and prevent the re-probe from succeeding.
+        // For non-removable media, msc_handle_io_error is a no-op.
+        msc_handle_io_error(pdrv);
         return RES_ERROR;
     }
     return RES_OK;
@@ -1112,20 +1167,75 @@ DSTATUS disk_initialize(BYTE pdrv)
         return STA_NOINIT;
 
     // Sync re-probe for ejected removable media.
-    // If the first TUR still fails (e.g. CBI STALL), do recovery
-    // and retry once before giving up.
+    // After media reinsertion, devices typically report one or more
+    // UNIT ATTENTION conditions (06/28 "media changed", 06/29 "reset").
+    //
+    // The CBI recovery chain (triggered by the I/O failure that
+    // caused ejection) already sent a CBI device reset (SEND_DIAGNOSTIC
+    // with SelfTest=1) and cleared endpoint halts.  The floppy needs
+    // time to complete the self-test and re-detect media.  Use a retry
+    // loop with delays to give the drive time to stabilize.
     if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         uint8_t dev_addr = msc_volume_dev_addr[pdrv];
         if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
             return STA_NOINIT | STA_NODISK;
-        if (!msc_send_tur(pdrv))
+
+        bool tur_ok = false;
+        for (int retry = 0; retry <= DISK_INIT_RETRIES; retry++)
         {
-            msc_sync_recovery(dev_addr, MSC_IO_TIMEOUT_MS);
-            msc_do_request_sense(pdrv);
-            if (!msc_send_tur(pdrv))
+            if (!tuh_msc_mounted(dev_addr))
                 return STA_NOINIT | STA_NODISK;
+            if (msc_send_tur(pdrv, DISK_INIT_TIMEOUT_MS))
+            {
+                tur_ok = true;
+                break;
+            }
+            // TUR failed — read sense to determine cause.
+            // For CBI with interrupt endpoint: even if TUR timed out
+            // (interrupt status never arrived), REQUEST_SENSE may still
+            // succeed because its data phase (18 bytes on bulk-in)
+            // provides the sense data before the interrupt status.
+            // The sense buffer is valid even if the command "times out"
+            // in the interrupt status phase.
+            msc_do_request_sense(pdrv, DISK_INIT_TIMEOUT_MS);
+            uint8_t sk = msc_volume_sense_key[pdrv];
+            uint8_t asc = msc_volume_sense_asc[pdrv];
+            if (sk == SCSI_SENSE_UNIT_ATTENTION)
+            {
+                // Reading sense cleared the UA; retry TUR immediately
+                DBG("MSC vol %d: disk_init — UA %02Xh cleared, retry %d\n",
+                    pdrv, asc, retry + 1);
+                continue;
+            }
+            if (sk == SCSI_SENSE_NOT_READY)
+            {
+                // NOT READY covers both 3A (medium not present) and other
+                // sub-codes (04=becoming ready, etc.).  After media
+                // reinsertion, CBI floppy drives often report 3A briefly
+                // while re-detecting the media.  Send START UNIT (start=1)
+                // to trigger media detection, then wait before retrying.
+                // Don't bail immediately on 3A — the drive may just need
+                // time to spin up and recognize the reinserted disk.
+                DBG("MSC vol %d: disk_init — not ready %02Xh, START UNIT, retry %d\n",
+                    pdrv, asc, retry + 1);
+                tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr,
+                                                          DISK_INIT_TIMEOUT_MS);
+                if (cb)
+                {
+                    if (tuh_msc_start_stop_unit(dev_addr, 0, true, cb, 0))
+                        msc_sync_wait_io(dev_addr, DISK_INIT_TIMEOUT_MS);
+                    else
+                        tuh_msc_sync_clear_busy(dev_addr);
+                }
+                sleep_ms(1000);
+                continue;
+            }
+            DBG("MSC vol %d: disk_init — sense %d/%02Xh, retry %d\n",
+                pdrv, sk, asc, retry + 1);
         }
+        if (!tur_ok)
+            return STA_NOINIT | STA_NODISK;
         if (!msc_sync_mount_media(pdrv))
             return STA_NOINIT | STA_NODISK;
         // Fall through to return mounted status.
