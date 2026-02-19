@@ -664,4 +664,25 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   return true;
 }
 
+//--------------------------------------------------------------------+
+// Interrupt endpoint pause/resume
+//--------------------------------------------------------------------+
+// The RP2040 SIE shares a single EPX for all control transfers.
+// Hardware-polled interrupt endpoints can delay the STATUS phase of a
+// control transfer long enough for timing-sensitive CBI devices (e.g.
+// TEAC floppy) to STALL.  Temporarily disabling interrupt endpoint
+// polling during critical control transfers avoids this.
+static uint32_t _saved_int_ep_ctrl;
+
+void hcd_pause_interrupt_eps(uint8_t rhport) {
+  (void) rhport;
+  _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
+  usb_hw->int_ep_ctrl = 0;
+}
+
+void hcd_resume_interrupt_eps(uint8_t rhport) {
+  (void) rhport;
+  usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
+}
+
 #endif

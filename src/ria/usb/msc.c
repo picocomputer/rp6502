@@ -201,6 +201,7 @@ static bool msc_poll_cb(uint8_t dev_addr,
 // tuh_task_device_only pumps USB events for a single device without
 // re-entering the full task tree. Defined in usb/usbh.c.
 void tuh_task_device_only(uint8_t dev_addr);
+// #define tuh_task_device_only(_) main_task(); // also seems to work
 
 // Track whether the last msc_sync_wait_io call timed out.
 static bool msc_sync_timed_out;
@@ -233,8 +234,7 @@ static bool msc_sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms)
             return false;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             return false;
-        // main_task();
-        tuh_task_device_only(dev_addr); // failed attempt to solve a rentrancy problem
+        tuh_task_device_only(dev_addr);
     }
     return true;
 }
@@ -278,8 +278,7 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
             msc_sync_timed_out = true;
             return MSC_CSW_STATUS_FAILED;
         }
-        // main_task();
-        tuh_task_device_only(dev_addr); // failed attempt to solve a rentrancy problem
+        tuh_task_device_only(dev_addr);
     }
     return tuh_msc_sync_csw_status(dev_addr);
 }
@@ -293,8 +292,7 @@ static void msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms)
     {
         if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
             break;
-        // main_task();
-        tuh_task_device_only(dev_addr); // failed attempt to solve a rentrancy problem
+        tuh_task_device_only(dev_addr);
     }
 }
 
@@ -1078,9 +1076,13 @@ DWORD get_fattime(void)
 // arrays, and transitions to msc_volume_mounted on success.
 static bool msc_sync_mount_media(uint8_t vol, uint32_t timeout_ms)
 {
+    // TODO do timeouts like disk_initialize
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
         return false;
+
+    DBG("MSC vol %d: sync_mount_media, dev_addr=%d timeout=%lu cbi=%d\n",
+        vol, dev_addr, (unsigned long)timeout_ms, tuh_msc_is_cbi(dev_addr));
 
     if (tuh_msc_is_cbi(dev_addr))
     {
@@ -1088,29 +1090,50 @@ static bool msc_sync_mount_media(uint8_t vol, uint32_t timeout_ms)
         memset(rfc, 0, sizeof(rfc));
         tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, timeout_ms);
         if (!cb)
+        {
+            DBG("MSC vol %d: sync_mount — RFC sync_begin failed\n", vol);
             return false;
+        }
         if (!tuh_msc_read_format_capacities(dev_addr, 0, rfc, sizeof(rfc),
                                             cb, 0))
         {
+            DBG("MSC vol %d: sync_mount — RFC submit failed\n", vol);
             tuh_msc_sync_clear_busy(dev_addr);
             return false;
         }
-        if (msc_sync_wait_io(dev_addr, timeout_ms) !=
-            MSC_CSW_STATUS_PASSED)
+        uint8_t csw = msc_sync_wait_io(dev_addr, timeout_ms);
+        DBG("MSC vol %d: sync_mount — RFC csw=%d timed_out=%d\n",
+            vol, csw, msc_sync_timed_out);
+        if (csw != MSC_CSW_STATUS_PASSED)
             return false;
+        DBG("MSC vol %d: sync_mount — RFC data: %02X %02X %02X %02X  %02X %02X %02X %02X  %02X %02X %02X %02X\n",
+            vol, rfc[0], rfc[1], rfc[2], rfc[3],
+            rfc[4], rfc[5], rfc[6], rfc[7],
+            rfc[8], rfc[9], rfc[10], rfc[11]);
         uint8_t list_len = rfc[3];
         if (list_len < 8)
+        {
+            DBG("MSC vol %d: sync_mount — RFC list_len=%d < 8\n", vol, list_len);
             return false;
+        }
         uint8_t desc_type = rfc[4 + 4] & 0x03;
         if (desc_type == 3)
+        {
+            DBG("MSC vol %d: sync_mount — RFC desc_type=3 (no media)\n", vol);
             return false;
+        }
         uint8_t *desc0 = &rfc[4];
         uint32_t blocks = tu_ntohl(*(uint32_t *)&desc0[0]);
         uint32_t bsize = ((uint32_t)desc0[5] << 16) |
                          ((uint32_t)desc0[6] << 8) |
                          (uint32_t)desc0[7];
+        DBG("MSC vol %d: sync_mount — RFC blocks=%lu bsize=%lu desc_type=%d\n",
+            vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
         if (blocks == 0 || bsize != 512)
+        {
+            DBG("MSC vol %d: sync_mount — RFC bad geometry\n", vol);
             return false;
+        }
         msc_volume_block_count[vol] = blocks;
         msc_volume_block_size[vol] = bsize;
         msc_volume_write_protected[vol] = false; // CBI: skip MODE SENSE
@@ -1197,9 +1220,12 @@ DSTATUS disk_initialize(BYTE pdrv)
     // caused ejection) already sent a CBI device reset (SEND_DIAGNOSTIC
     // with SelfTest=1) and cleared endpoint halts.  The floppy needs
     // time to complete the self-test and re-detect media.
+    DBG("MSC vol %d: disk_initialize, status=%d\n", pdrv, msc_volume_status[pdrv]);
     if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         uint8_t dev_addr = msc_volume_dev_addr[pdrv];
+        DBG("MSC vol %d: disk_init — ejected, dev_addr=%d mounted=%d\n",
+            pdrv, dev_addr, dev_addr ? tuh_msc_mounted(dev_addr) : 0);
         if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
             return STA_NOINIT | STA_NODISK;
 
@@ -1208,15 +1234,25 @@ DSTATUS disk_initialize(BYTE pdrv)
         for (int retry = 0; retry < 2; retry++)
         {
             if (!tuh_msc_mounted(dev_addr))
+            {
+                DBG("MSC vol %d: disk_init — dev unmounted during retry %d\n", pdrv, retry);
                 return STA_NOINIT | STA_NODISK;
+            }
             uint32_t remaining = stage_remaining(deadline);
+            DBG("MSC vol %d: disk_init — retry %d, remaining=%lu ms\n",
+                pdrv, retry, (unsigned long)remaining);
             if (remaining == 0)
+            {
+                DBG("MSC vol %d: disk_init — deadline expired before TUR\n", pdrv);
                 break;
+            }
             if (msc_send_tur(pdrv, remaining))
             {
+                DBG("MSC vol %d: disk_init — TUR ok on retry %d\n", pdrv, retry);
                 tur_ok = true;
                 break;
             }
+            DBG("MSC vol %d: disk_init — TUR failed on retry %d\n", pdrv, retry);
             // TUR failed — read sense to determine cause.
             // For CBI with interrupt endpoint: even if TUR timed out
             // (interrupt status never arrived), REQUEST_SENSE may still
@@ -1230,6 +1266,8 @@ DSTATUS disk_initialize(BYTE pdrv)
             msc_do_request_sense(pdrv, remaining);
             uint8_t sk = msc_volume_sense_key[pdrv];
             uint8_t asc = msc_volume_sense_asc[pdrv];
+            DBG("MSC vol %d: disk_init — sense %d/%02Xh/%02Xh\n",
+                pdrv, sk, asc, msc_volume_sense_ascq[pdrv]);
             if (sk == SCSI_SENSE_UNIT_ATTENTION)
             {
                 // Reading sense cleared the UA; retry TUR immediately
@@ -1251,16 +1289,31 @@ DSTATUS disk_initialize(BYTE pdrv)
                     pdrv, asc);
                 bool start_ok = false;
                 remaining = stage_remaining(deadline);
+                DBG("MSC vol %d: disk_init — START UNIT, remaining=%lu ms\n",
+                    pdrv, (unsigned long)remaining);
                 tuh_msc_complete_cb_t cb = remaining
                                                ? msc_sync_begin(dev_addr, remaining)
                                                : NULL;
                 if (cb)
                 {
                     if (tuh_msc_start_stop_unit(dev_addr, 0, true, cb, 0))
-                        start_ok = (msc_sync_wait_io(dev_addr,
-                                                     stage_remaining(deadline)) == MSC_CSW_STATUS_PASSED);
+                    {
+                        uint8_t csw = msc_sync_wait_io(dev_addr,
+                                                       stage_remaining(deadline));
+                        start_ok = (csw == MSC_CSW_STATUS_PASSED);
+                        DBG("MSC vol %d: disk_init — START UNIT csw=%d start_ok=%d\n",
+                            pdrv, csw, start_ok);
+                    }
                     else
+                    {
+                        DBG("MSC vol %d: disk_init — START UNIT submit failed\n", pdrv);
                         tuh_msc_sync_clear_busy(dev_addr);
+                    }
+                }
+                else
+                {
+                    DBG("MSC vol %d: disk_init — START UNIT sync_begin failed (remaining=%lu)\n",
+                        pdrv, (unsigned long)remaining);
                 }
                 if (!start_ok && asc == 0x3A)
                 {
@@ -1298,10 +1351,19 @@ DSTATUS disk_initialize(BYTE pdrv)
                 pdrv, sk, asc);
             break;
         }
+        DBG("MSC vol %d: disk_init — loop done, tur_ok=%d\n", pdrv, tur_ok);
         if (!tur_ok)
             return STA_NOINIT | STA_NODISK;
-        if (!msc_sync_mount_media(pdrv, stage_remaining(deadline)))
-            return STA_NOINIT | STA_NODISK;
+        {
+            uint32_t mount_remaining = stage_remaining(deadline);
+            DBG("MSC vol %d: disk_init — calling sync_mount_media, remaining=%lu ms\n",
+                pdrv, (unsigned long)mount_remaining);
+            if (!msc_sync_mount_media(pdrv, mount_remaining))
+            {
+                DBG("MSC vol %d: disk_init — sync_mount_media FAILED\n", pdrv);
+                return STA_NOINIT | STA_NODISK;
+            }
+        }
         // Fall through to return mounted status.
     }
 

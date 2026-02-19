@@ -92,7 +92,6 @@ static void init(void)
 void main_task(void)
 {
     usb_task();
-    msc_task();
     cpu_task();
     ria_task();
     kbd_task();
@@ -111,6 +110,7 @@ void main_task(void)
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
+    msc_task();
     mon_task();
     api_task();
     mem_task();

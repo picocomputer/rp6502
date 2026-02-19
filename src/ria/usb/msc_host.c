@@ -69,6 +69,11 @@ Changes from upstream TinyUSB msc_host.c:
 
 #include "pico/time.h"
 
+// Defined in hcd_rp2040.c — pause/resume hardware interrupt endpoint
+// polling to prevent bus contention during CBI ADSC control transfers.
+extern void hcd_pause_interrupt_eps(uint8_t rhport);
+extern void hcd_resume_interrupt_eps(uint8_t rhport);
+
 // Level where CFG_TUSB_DEBUG must be at least for this driver is logged
 #ifndef CFG_TUH_MSC_LOG_LEVEL
   #define CFG_TUH_MSC_LOG_LEVEL   CFG_TUH_LOG_LEVEL
@@ -433,11 +438,17 @@ static bool cbi_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
       .user_data   = arg
   };
 
-  // Submit the ADSC control transfer.  If the control pipe is
-  // momentarily busy (hub status query, enumeration), return false.
-  // The caller's retry logic will re-attempt the SCSI command.
+  // Pause hardware interrupt endpoint polling for the duration of the
+  // ADSC control transfer.  The RP2040 SIE shares a single EPX for
+  // control and interrupt endpoints; polling other devices' interrupt
+  // EPs can delay the STATUS IN phase long enough for timing-sensitive
+  // CBI devices (e.g. TEAC floppy) to STALL.
+  uint8_t const rhport = usbh_get_rhport(daddr);
+  hcd_pause_interrupt_eps(rhport);
+
   if (!tuh_control_xfer(&xfer)) {
     p_msc->stage = MSC_STAGE_IDLE;
+    hcd_resume_interrupt_eps(rhport);
     return false;
   }
   return true;
@@ -447,6 +458,10 @@ static void cbi_adsc_complete(tuh_xfer_t* xfer) {
   uint8_t const daddr = xfer->daddr;
   msch_interface_t* p_msc = get_itf(daddr);
   msch_epbuf_t* epbuf = get_epbuf(daddr);
+
+  // Resume interrupt endpoint polling that was paused in
+  // cbi_scsi_command() — the ADSC control transfer is now done.
+  hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
 
   if (XFER_RESULT_SUCCESS != xfer->result) {
     // ADSC failed - report as failed command
