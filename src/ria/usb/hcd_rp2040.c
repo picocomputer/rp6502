@@ -597,18 +597,37 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (!ep || !ep->active) return true;
-  *hwbuf_ctrl_reg_host(ep) = 0;
-  hw_endpoint_reset_transfer(ep);
 
-  // For EPX (control/bulk shared endpoint): if the SIE was mid-transaction
-  // (SETUP sent, waiting for device response), the hardware state machine
-  // is stuck.  Reset sie_ctrl to base state to stop the in-progress
-  // transaction so subsequent hcd_setup_send / hcd_edpt_xfer can start
-  // fresh.  Only needed for EPX — interrupt endpoints are handled by the
-  // int_ep hardware, not the SIE state machine.
+  // Disable interrupts so the USB ISR cannot see the endpoint in a
+  // half-torn-down state.  Without this, a stale BUFF_STATUS bit from the
+  // aborted transfer can be processed after a new transfer starts on the
+  // same endpoint, causing sync_ep_buffer() to hit the FULL assertion.
+  uint32_t save = save_and_disable_interrupts();
+
+  // For EPX: stop the SIE state machine first so no new completions arrive.
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
   }
+
+  *hwbuf_ctrl_reg_host(ep) = 0;
+  hw_endpoint_reset_transfer(ep);
+
+  // Clear any pending BUFF_STATUS for this endpoint.  The hardware may have
+  // already latched a completion from the transfer we are aborting.  If we
+  // leave the bit set, the ISR will process it after the next transfer
+  // starts on this endpoint (active == true again) and feed stale data into
+  // sync_ep_buffer(), triggering assert(!(buf_ctrl & USB_BUF_CTRL_FULL)).
+  if (ep == &epx) {
+    // EPX uses BUFF_STATUS bit 0 for both IN and OUT completions in host
+    // mode.  Clear bits 0–1 for safety.
+    usb_hw_clear->buf_status = 0x3u;
+  } else {
+    // Interrupt/bulk endpoints: bits are at (interrupt_num+1)*2 for IN,
+    // (interrupt_num+1)*2+1 for OUT.  Clear both directions.
+    usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
+  }
+
+  restore_interrupts(save);
   return true;
 }
 
@@ -672,17 +691,37 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
 // control transfer long enough for timing-sensitive CBI devices (e.g.
 // TEAC floppy) to STALL.  Temporarily disabling interrupt endpoint
 // polling during critical control transfers avoids this.
+//
+// Reference-counted: callers may nest pause/resume pairs.  The
+// hardware is only modified on the 0→1 (pause) and 1→0 (resume)
+// transitions.
 static uint32_t _saved_int_ep_ctrl;
+static int _int_eps_pause_count;
 
 void hcd_pause_interrupt_eps(uint8_t rhport) {
   (void) rhport;
-  _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
-  usb_hw->int_ep_ctrl = 0;
+  if (_int_eps_pause_count++ == 0) {
+    _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
+    usb_hw->int_ep_ctrl = 0;
+  }
 }
 
 void hcd_resume_interrupt_eps(uint8_t rhport) {
   (void) rhport;
-  usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
+  if (_int_eps_pause_count > 0 && --_int_eps_pause_count == 0) {
+    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
+  }
+}
+
+// Force resume: reset count to zero and restore hardware.  Used by
+// msch_close() when a device disconnects mid-operation — outstanding
+// callbacks that would have resumed are now dead.
+void hcd_force_resume_interrupt_eps(uint8_t rhport) {
+  (void) rhport;
+  if (_int_eps_pause_count > 0) {
+    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
+    _int_eps_pause_count = 0;
+  }
 }
 
 #endif

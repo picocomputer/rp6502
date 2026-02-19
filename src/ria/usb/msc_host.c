@@ -71,8 +71,10 @@ Changes from upstream TinyUSB msc_host.c:
 
 // Defined in hcd_rp2040.c — pause/resume hardware interrupt endpoint
 // polling to prevent bus contention during CBI ADSC control transfers.
+// Reference-counted: nested pause/resume pairs are safe.
 extern void hcd_pause_interrupt_eps(uint8_t rhport);
 extern void hcd_resume_interrupt_eps(uint8_t rhport);
+extern void hcd_force_resume_interrupt_eps(uint8_t rhport);
 
 // Level where CFG_TUSB_DEBUG must be at least for this driver is logged
 #ifndef CFG_TUH_MSC_LOG_LEVEL
@@ -206,6 +208,29 @@ static bool _recovery_clear_halt(uint8_t daddr, uint8_t ep_addr) {
   return tuh_control_xfer(&xfer);
 }
 
+// Cancel all in-flight MSC transfers (CBI ADSC, bulk, interrupt) and
+// reset stage to IDLE.  If a CBI ADSC was in-flight, the per-ADSC
+// interrupt EP pause from cbi_scsi_command() is resumed here since
+// cbi_adsc_complete() will never fire.
+static void _cancel_inflight(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
+                       p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
+
+  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
+    tuh_edpt_abort_xfer(dev_addr, 0);
+    hcd_resume_interrupt_eps(usbh_get_rhport(dev_addr));
+  }
+
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
+  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+  if (p_msc->ep_intr) {
+    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
+  }
+
+  p_msc->stage = MSC_STAGE_IDLE;
+}
+
 // Callback for each step of the BOT recovery chain.
 // The control pipe is idle when this fires, so the next
 // tuh_control_xfer() will succeed unless the device is gone.
@@ -216,6 +241,7 @@ static void _recovery_cb(tuh_xfer_t* xfer) {
   if (xfer->result != XFER_RESULT_SUCCESS) {
     // Transfer failed (device gone, STALL, etc.) — abandon recovery.
     p_msc->recovery_stage = RECOVERY_NONE;
+    hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
     return;
   }
 
@@ -227,6 +253,7 @@ static void _recovery_cb(tuh_xfer_t* xfer) {
       p_msc->recovery_stage = RECOVERY_CLEAR_IN;
       if (!_recovery_clear_halt(daddr, p_msc->ep_in)) {
         p_msc->recovery_stage = RECOVERY_NONE;
+        hcd_resume_interrupt_eps(rhport);
       }
       break;
 
@@ -235,6 +262,7 @@ static void _recovery_cb(tuh_xfer_t* xfer) {
       p_msc->recovery_stage = RECOVERY_CLEAR_IN;
       if (!_recovery_clear_halt(daddr, p_msc->ep_in)) {
         p_msc->recovery_stage = RECOVERY_NONE;
+        hcd_resume_interrupt_eps(rhport);
       }
       break;
 
@@ -244,6 +272,7 @@ static void _recovery_cb(tuh_xfer_t* xfer) {
       p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
       if (!_recovery_clear_halt(daddr, p_msc->ep_out)) {
         p_msc->recovery_stage = RECOVERY_NONE;
+        hcd_resume_interrupt_eps(rhport);
       }
       break;
 
@@ -251,10 +280,12 @@ static void _recovery_cb(tuh_xfer_t* xfer) {
       // ep_out clear halt done — reset host-side data toggle.  Recovery complete.
       hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
       p_msc->recovery_stage = RECOVERY_NONE;
+      hcd_resume_interrupt_eps(rhport);
       break;
 
     default:
       p_msc->recovery_stage = RECOVERY_NONE;
+      hcd_resume_interrupt_eps(rhport);
       break;
   }
 }
@@ -263,28 +294,38 @@ bool tuh_msc_recovery_in_progress(uint8_t dev_addr) {
   return get_itf(dev_addr)->recovery_stage != RECOVERY_NONE;
 }
 
+// Forcibly abort a stuck recovery chain.  Call when the recovery wait
+// times out — the in-flight control transfer (ADSC or CLEAR_FEATURE)
+// is hung and must be cancelled so the device can be used again.
+void tuh_msc_abort_recovery(uint8_t dev_addr) {
+  msch_interface_t* p_msc = get_itf(dev_addr);
+  if (p_msc->recovery_stage == RECOVERY_NONE) return;
+
+  // Abort the stuck control transfer (SETUP/DATA/STATUS on EP0).
+  tuh_edpt_abort_xfer(dev_addr, 0);
+
+  // The recovery chain was holding interrupt EPs paused — release them.
+  hcd_resume_interrupt_eps(usbh_get_rhport(dev_addr));
+
+  p_msc->recovery_stage = RECOVERY_NONE;
+}
+
 bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   msch_interface_t* p_msc = get_itf(dev_addr);
   if (!p_msc->configured) return false;
 
+  uint8_t const rhport = usbh_get_rhport(dev_addr);
+
+  _cancel_inflight(dev_addr);
+
+  // Pause interrupt EP polling for the entire recovery chain.
+  // Every step uses control transfers on the shared EPX; concurrent
+  // interrupt polling can delay the STATUS phase and cause
+  // timing-sensitive devices to STALL.
+  hcd_pause_interrupt_eps(rhport);
+
   bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
                        p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
-
-  // For CBI: if the ADSC control transfer is in-flight (stage == CMD),
-  // abort the control pipe.  Otherwise the shared EP0 stays stuck and
-  // ALL subsequent USB control transfers (to any device) hang.
-  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
-    tuh_edpt_abort_xfer(dev_addr, 0);
-  }
-
-  // Abort any in-flight bulk transfers and reset MSC stage
-  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
-  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
-  if (is_cbi && p_msc->ep_intr) {
-    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
-  }
-  p_msc->stage = MSC_STAGE_IDLE;
-
   if (is_cbi) {
     // CBI device reset: send SEND_DIAGNOSTIC(SelfTest=1) via ADSC,
     // then clear halt on both bulk endpoints.  This matches Linux
@@ -320,6 +361,7 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
       p_msc->recovery_stage = RECOVERY_CLEAR_IN;
       if (!_recovery_clear_halt(dev_addr, p_msc->ep_in)) {
         p_msc->recovery_stage = RECOVERY_NONE;
+        hcd_resume_interrupt_eps(rhport);
       }
     }
     return true;
@@ -350,6 +392,7 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr) {
   p_msc->recovery_stage = RECOVERY_BOT_RESET;
   if (!tuh_control_xfer(&xfer)) {
     p_msc->recovery_stage = RECOVERY_NONE;
+    hcd_resume_interrupt_eps(rhport);
     return false;
   }
 
@@ -365,18 +408,7 @@ bool tuh_msc_abort_transfers(uint8_t dev_addr) {
   msch_interface_t* p_msc = get_itf(dev_addr);
   if (!p_msc->configured) return false;
 
-  bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
-                       p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
-
-  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
-    tuh_edpt_abort_xfer(dev_addr, 0);
-  }
-  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
-  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
-  if (is_cbi && p_msc->ep_intr) {
-    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
-  }
-  p_msc->stage = MSC_STAGE_IDLE;
+  _cancel_inflight(dev_addr);
 
   // Reset host-side data toggles to DATA0 on all endpoints.
   // This avoids data sequence errors on the next command without
@@ -734,20 +766,19 @@ void msch_close(uint8_t dev_addr) {
 
   TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
 
-  // Abort any in-flight transfers before notifying the application.
-  // Without this, the transfer-complete callback fires on zeroed state.
-  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
-  tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
-  if (p_msc->ep_intr) {
-    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_intr);
-  }
-  // If a CBI ADSC control transfer is in-flight, abort EP0 too.
-  bool const is_cbi = (p_msc->protocol == MSC_PROTOCOL_CBI ||
-                       p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT);
-  if (is_cbi && p_msc->stage == MSC_STAGE_CMD) {
-    tuh_edpt_abort_xfer(dev_addr, 0);
-  }
-  p_msc->stage = MSC_STAGE_IDLE;
+  _cancel_inflight(dev_addr);
+
+  // Force-resume resets the pause refcount to zero so stale pauses
+  // from killed recovery callbacks don't accumulate.
+  hcd_force_resume_interrupt_eps(usbh_get_rhport(dev_addr));
+
+  p_msc->recovery_stage = RECOVERY_NONE;
+
+  // Close HCD endpoints so hardware resources are freed.
+  // tuh_edpt_close() also aborts any residual transfers.
+  if (p_msc->ep_in)   tuh_edpt_close(dev_addr, p_msc->ep_in);
+  if (p_msc->ep_out)  tuh_edpt_close(dev_addr, p_msc->ep_out);
+  if (p_msc->ep_intr) tuh_edpt_close(dev_addr, p_msc->ep_intr);
 
   // invoke Application Callback
   if (p_msc->mounted) {
@@ -768,6 +799,13 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
     switch (p_msc->stage) {
       case MSC_STAGE_DATA:
         // Data complete - get status via interrupt or finish
+        if (event == XFER_RESULT_STALLED) {
+          // CBI spec §2.4.3.1.3: bulk pipe must be cleared following
+          // any data-in/out command failure.  Reset host-side toggle
+          // so the next command doesn't get a data sequence error.
+          uint8_t const ep_data = (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
+          hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, ep_data);
+        }
         if (event != XFER_RESULT_SUCCESS || !p_msc->ep_intr) {
           // No interrupt endpoint, or data phase failed - complete now
           p_msc->stage = MSC_STAGE_IDLE;
@@ -891,6 +929,18 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
       break;
 
     case MSC_STAGE_STATUS: {
+      // Some broken devices add unnecessary zero-length packets to the
+      // end of their data transfers.  Such packets show up as 0-length
+      // CSWs.  If we encounter this, retry the CSW read once (Linux
+      // usb_stor_Bulk_transport does the same).
+      if (event == XFER_RESULT_SUCCESS && xferred_bytes == 0) {
+        TU_LOG_DRV("  MSC BOT: 0-length CSW, retrying\r\n");
+        if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t*) csw, (uint16_t) sizeof(msc_csw_t))) {
+          break; // stay in MSC_STAGE_STATUS for the retry
+        }
+        // Retry failed — fall through to report error
+      }
+
       // Validate CSW per BOT spec §6.3:
       // - dCSWSignature must be 53425355h
       // - dCSWTag must match the CBW tag
@@ -902,6 +952,11 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
                         csw->tag == cbw->tag);
       if (!csw_valid) {
         csw->status = MSC_CSW_STATUS_FAILED;
+      }
+      // BOT spec §5.3.3.1: phase error requires reset recovery.
+      // Report it distinctly so the caller can trigger recovery.
+      if (csw_valid && csw->status == MSC_CSW_STATUS_PHASE_ERROR) {
+        csw->status = MSC_CSW_STATUS_PHASE_ERROR;
       }
       if (p_msc->complete_cb != NULL) {
         tuh_msc_complete_data_t const cb_data = {
@@ -938,9 +993,22 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
             MSC_SUBCLASS_UFI  == desc_itf->bInterfaceSubClass ||
             MSC_SUBCLASS_SFF  == desc_itf->bInterfaceSubClass, 0);
 
-  // msc driver length is fixed
-  const uint16_t drv_len =
-    (uint16_t)(sizeof(tusb_desc_interface_t) + desc_itf->bNumEndpoints * sizeof(tusb_desc_endpoint_t));
+  // Compute driver length by walking the actual descriptors rather
+  // than assuming a fixed layout.  Class-specific descriptors between
+  // endpoints are counted so we consume the correct number of bytes.
+  uint16_t drv_len = sizeof(tusb_desc_interface_t);
+  {
+    uint8_t const *p = tu_desc_next(desc_itf);
+    uint8_t const *end = ((uint8_t const*)desc_itf) + max_len;
+    uint8_t ep_found = 0;
+    while (ep_found < desc_itf->bNumEndpoints && p < end) {
+      uint8_t len = ((tusb_desc_interface_t const*)p)->bLength;
+      if (len == 0) break; // safety
+      if (tu_desc_type(p) == TUSB_DESC_ENDPOINT) ep_found++;
+      drv_len = (uint16_t)(drv_len + len);
+      p += len;
+    }
+  }
   TU_ASSERT(drv_len <= max_len, 0);
 
   msch_interface_t *p_msc = get_itf(dev_addr);
