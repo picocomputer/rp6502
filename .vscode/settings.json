@@ -1,8 +1,8 @@
 {
     "search.exclude": {
-        "src/fatfs": true,
-        "src/littlefs": true,
-        "src/tinyusb": true,
+        // "src/fatfs": true,
+        // "src/littlefs": true,
+        // "src/tinyusb": true,
     },
     "files.associations": {
         "*.inc": "c"
