@@ -16,11 +16,6 @@
 #include "api/api.h"
 #include "api/std.h"
 
-/* Task
- */
-
-void msc_task(void);
-
 /* Status
  */
 

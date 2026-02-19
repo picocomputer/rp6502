@@ -37,7 +37,6 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/xin.h"
 
@@ -110,7 +109,6 @@ void main_task(void)
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
-    msc_task();
     mon_task();
     api_task();
     mem_task();

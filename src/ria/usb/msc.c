@@ -15,8 +15,6 @@
 #include <string.h>
 #include "pico/time.h"
 
-#define DEBUG_RIA_USB_MSC
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -42,15 +40,6 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // Delay between retries in disk_initialize NOT_READY path.
 // Gives the drive time to detect reinserted media.
 #define DISK_INIT_DELAY_MS 1000
-
-// Initialize a CBW with standard boilerplate fields (for disk_read/write).
-static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
-{
-    memset(cbw, 0, sizeof(msc_cbw_t));
-    cbw->signature = MSC_CBW_SIGNATURE;
-    cbw->tag = 0x54555342; // "TUSB"
-    cbw->lun = lun;
-}
 
 // Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
@@ -109,7 +98,6 @@ static uint8_t msc_volume_sense_key[FF_VOLUMES];
 static uint8_t msc_volume_sense_asc[FF_VOLUMES];
 static uint8_t msc_volume_sense_ascq[FF_VOLUMES];
 static bool msc_volume_write_protected[FF_VOLUMES];
-static bool msc_volume_needs_remount[FF_VOLUMES];
 
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with: src/tinyusb/src/class/msc/msc_host.c
@@ -128,6 +116,15 @@ bool tuh_msc_mode_sense6(uint8_t dev_addr, uint8_t lun, void *response,
                          tuh_msc_complete_cb_t complete_cb, uintptr_t arg);
 bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
                              tuh_msc_complete_cb_t complete_cb, uintptr_t arg);
+
+// Initialize a CBW with standard boilerplate fields (for disk_read/write).
+static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
+{
+    memset(cbw, 0, sizeof(msc_cbw_t));
+    cbw->signature = MSC_CBW_SIGNATURE;
+    cbw->tag = 0x54555342; // "TUSB"
+    cbw->lun = lun;
+}
 
 //--------------------------------------------------------------------+
 // Synchronous I/O bookkeeping
@@ -160,18 +157,6 @@ static tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr)
     return _sync_complete_cb;
 }
 
-// Non-blocking: check whether the sync operation is still in progress.
-static bool tuh_msc_sync_is_busy(uint8_t dev_addr)
-{
-    return _sync_busy[dev_addr - 1];
-}
-
-// Read the CSW status from the last completed sync operation.
-static uint8_t tuh_msc_sync_csw_status(uint8_t dev_addr)
-{
-    return _sync_csw_status[dev_addr - 1];
-}
-
 // Clear the busy flag - call from tuh_msc_umount_cb to unblock any
 // pending sync wait on disconnect, or after a failed async submit
 // following tuh_msc_sync_begin().
@@ -180,22 +165,8 @@ static void tuh_msc_sync_clear_busy(uint8_t dev_addr)
     _sync_busy[dev_addr - 1] = false;
 }
 
-typedef enum
-{
-    POLL_IDLE,
-    POLL_TUR,
-    POLL_SENSE,
-} msc_poll_state_t;
-
-static msc_poll_state_t msc_poll_state[FF_VOLUMES];
-static absolute_time_t msc_poll_deadline[FF_VOLUMES]; // staleness guard
-static scsi_sense_fixed_resp_t msc_poll_sense_buf[FF_VOLUMES];
-static bool msc_poll_cb(uint8_t dev_addr,
-                        tuh_msc_complete_data_t const *cb_data);
-// forward declaration - defined after msc_handle_io_error
-
 //--------------------------------------------------------------------+
-// Synchronous I/O helpers (spin-wait lives here, not in msc_host.c)
+// Synchronous I/O helpers (spin-wait lives here)
 //--------------------------------------------------------------------+
 
 // Track whether the last msc_sync_wait_io call timed out.
@@ -217,28 +188,19 @@ static inline uint32_t stage_remaining(absolute_time_t deadline)
     return (r == 0) ? 0 : (r < DISK_INIT_MIN_STAGE_MS ? DISK_INIT_MIN_STAGE_MS : r);
 }
 
-// Wait until tuh_msc_ready() or timeout.
-// Also checks tuh_msc_mounted() to fail fast on device disconnect.
-static bool msc_sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms)
+// Wait ready + arm busy flag → return callback (NULL on timeout).
+static tuh_msc_complete_cb_t msc_sync_begin(uint8_t dev_addr,
+                                            uint32_t timeout_ms)
 {
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     while (!tuh_msc_ready(dev_addr))
     {
         if (!tuh_msc_mounted(dev_addr))
-            return false;
+            return NULL;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-            return false;
+            return NULL;
         main_task();
     }
-    return true;
-}
-
-// Wait ready + arm busy flag → return callback (NULL on timeout).
-static tuh_msc_complete_cb_t msc_sync_begin(uint8_t dev_addr,
-                                            uint32_t timeout_ms)
-{
-    if (!msc_sync_wait_ready(dev_addr, timeout_ms))
-        return NULL;
     return tuh_msc_sync_begin(dev_addr);
 }
 
@@ -250,7 +212,7 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
 {
     msc_sync_timed_out = false;
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
-    while (tuh_msc_sync_is_busy(dev_addr))
+    while (_sync_busy[dev_addr - 1])
     {
         if (!tuh_msc_mounted(dev_addr))
         {
@@ -277,7 +239,7 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
         }
         main_task();
     }
-    return tuh_msc_sync_csw_status(dev_addr);
+    return _sync_csw_status[dev_addr - 1];
 }
 
 // Perform reset recovery with blocking wait.
@@ -360,11 +322,9 @@ static bool msc_send_tur(uint8_t vol, uint32_t timeout_ms)
     return msc_sync_wait_io(dev_addr, timeout_ms) == MSC_CSW_STATUS_PASSED;
 }
 
-// Mark a removable volume as ejected: clear cached geometry and
-// set a flag so msc_task() performs the f_unmount/f_mount later.
-// This function is safe to call from any context (USB callbacks,
-// disk_read/disk_write, poll callbacks) because it never touches
-// FatFS - the deferred remount in msc_task() handles that.
+// Mark a removable volume as ejected and clear cached geometry.
+// Safe to call from any context (USB callbacks, disk_read/disk_write,
+// poll callbacks) because it never touches FatFS.
 static void msc_handle_io_error(uint8_t vol)
 {
     if (!msc_inquiry_resp[vol].is_removable)
@@ -381,106 +341,8 @@ static void msc_handle_io_error(uint8_t vol)
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
     msc_volume_write_protected[vol] = false;
-    msc_volume_needs_remount[vol] = true;
 
     DBG("MSC vol %d: media ejected\n", vol);
-}
-
-// Async TUR poll callback for mounted removable volumes.
-// Handles TUR → SENSE sequence; updates cached status on failure.
-static bool msc_poll_cb(uint8_t dev_addr,
-                        tuh_msc_complete_data_t const *cb_data)
-{
-    uint8_t vol = (uint8_t)cb_data->user_arg;
-    if (vol >= FF_VOLUMES ||
-        msc_volume_dev_addr[vol] != dev_addr ||
-        msc_volume_status[vol] != msc_volume_mounted)
-    {
-        if (vol < FF_VOLUMES)
-            msc_poll_state[vol] = POLL_IDLE;
-        return true;
-    }
-
-    switch (msc_poll_state[vol])
-    {
-    case POLL_TUR:
-        if (cb_data->csw->status == MSC_CSW_STATUS_PASSED)
-        {
-            msc_volume_tur_ok[vol] = true;
-            msc_poll_state[vol] = POLL_IDLE;
-        }
-        else if (cb_data->csw->status == MSC_CSW_STATUS_PHASE_ERROR)
-        {
-            // BOT spec §5.3.3: device state is undefined after phase
-            // error - do NOT issue REQUEST_SENSE.  Let the next sync
-            // I/O (disk_read/disk_write) handle reset recovery.
-            DBG("MSC vol %d: poll TUR phase error\n", vol);
-            msc_handle_io_error(vol);
-            msc_poll_state[vol] = POLL_IDLE;
-        }
-        else
-        {
-            memset(&msc_poll_sense_buf[vol], 0,
-                   sizeof(msc_poll_sense_buf[vol]));
-            if (tuh_msc_request_sense(dev_addr, 0,
-                                      &msc_poll_sense_buf[vol],
-                                      msc_poll_cb, (uintptr_t)vol))
-            {
-                msc_poll_state[vol] = POLL_SENSE;
-            }
-            else
-            {
-                // Submission failure is transient (e.g. CBI control
-                // pipe busy).  Do NOT eject - retry next poll cycle.
-                DBG("MSC vol %d: poll SENSE submit failed, will retry\n",
-                    vol);
-                msc_poll_state[vol] = POLL_IDLE;
-            }
-        }
-        break;
-
-    case POLL_SENSE:
-    {
-        scsi_sense_fixed_resp_t const *s = &msc_poll_sense_buf[vol];
-        if (s->response_code)
-        {
-            msc_volume_sense_key[vol] = s->sense_key;
-            msc_volume_sense_asc[vol] = s->add_sense_code;
-            msc_volume_sense_ascq[vol] = s->add_sense_qualifier;
-        }
-        else
-        {
-            msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-            msc_volume_sense_asc[vol] = 0;
-            msc_volume_sense_ascq[vol] = 0;
-        }
-        uint8_t sk = msc_volume_sense_key[vol];
-        uint8_t asc = msc_volume_sense_asc[vol];
-        if ((sk == SCSI_SENSE_NOT_READY && asc == 0x3A) ||
-            sk == SCSI_SENSE_UNIT_ATTENTION)
-        {
-            // Medium not present or media changed - eject.
-            DBG("MSC vol %d: poll sense %d/%02Xh - ejecting\n",
-                vol, sk, asc);
-            msc_handle_io_error(vol);
-            msc_poll_state[vol] = POLL_IDLE;
-        }
-        else
-        {
-            // Transient error - will retry on next poll cycle.
-            DBG("MSC vol %d: poll sense %d/%02Xh (transient)\n",
-                vol, sk, asc);
-            msc_poll_state[vol] = POLL_IDLE;
-        }
-        break;
-    }
-
-    default:
-        msc_poll_state[vol] = POLL_IDLE;
-        break;
-    }
-
-    return true;
 }
 
 // Some vendors pad their strings with spaces, others with zeros.
@@ -809,114 +671,13 @@ static FIL *msc_validate_fil(int desc)
     return &msc_std_fil_pool[desc];
 }
 
-static inline void msc_vol_fmount(uint8_t vol)
-{
-    TCHAR volstr[6] = MSC_VOL0;
-    volstr[3] += vol;
-    f_mount(&msc_fatfs_volumes[vol], volstr, 0);
-}
-
-static inline void msc_vol_funmount(uint8_t vol)
-{
-    TCHAR volstr[6] = MSC_VOL0;
-    volstr[3] += vol;
-    f_unmount(volstr);
-}
-
-// Apply deferred FatFS remount if flagged (main-loop only: never call
-// from USB callbacks or disk I/O paths that may hold FatFS state).
-static void msc_vol_deferred_remount(uint8_t vol)
-{
-    if (msc_volume_needs_remount[vol])
-    {
-        msc_vol_funmount(vol);
-        msc_vol_fmount(vol);
-        msc_volume_needs_remount[vol] = false;
-        DBG("MSC vol %d: deferred FatFS remount\n", vol);
-    }
-}
-
-void msc_task(void)
-{
-    static absolute_time_t next_poll_time;
-    bool poll_due = time_reached(next_poll_time);
-    if (poll_due)
-#ifdef NDEBUG
-        next_poll_time = make_timeout_time_ms(250);
-#else
-        next_poll_time = make_timeout_time_ms(10000);
-#endif
-
-    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-    {
-        switch (msc_volume_status[vol])
-        {
-        case msc_volume_mounted:
-            // Async TUR poll for removable media detection.
-            if (poll_due && msc_inquiry_resp[vol].is_removable)
-            {
-                // Guard against stale poll state: if a poll callback
-                // never fired (rare HCD issue), force back to IDLE so
-                // polling isn't permanently stuck.
-                if (msc_poll_state[vol] != POLL_IDLE &&
-                    time_reached(msc_poll_deadline[vol]))
-                {
-                    DBG("MSC vol %d: poll state %d stale, forcing IDLE\n",
-                        vol, msc_poll_state[vol]);
-                    msc_poll_state[vol] = POLL_IDLE;
-                }
-                if (msc_poll_state[vol] == POLL_IDLE)
-                {
-                    uint8_t dev_addr = msc_volume_dev_addr[vol];
-                    if (tuh_msc_ready(dev_addr) &&
-                        tuh_msc_test_unit_ready(dev_addr, 0,
-                                                msc_poll_cb, (uintptr_t)vol))
-                    {
-                        msc_poll_state[vol] = POLL_TUR;
-                        msc_poll_deadline[vol] =
-                            make_timeout_time_ms(MSC_IO_TIMEOUT_MS);
-                        msc_volume_tur_ok[vol] = false;
-                    }
-                }
-            }
-            break;
-
-        case msc_volume_ejected:
-            // Deferred FatFS cleanup: unmount the stale filesystem
-            // and re-register a deferred f_mount so that the next
-            // FatFS access calls disk_initialize() for re-probe.
-            // This must happen here (main loop) rather than from
-            // disk_read/disk_write callbacks or poll callbacks,
-            // because f_unmount invalidates state that FatFS may
-            // be actively using in those contexts.
-            msc_vol_deferred_remount(vol);
-            break;
-
-        default:
-            break;
-        }
-    }
-}
-
 int msc_status_count(void)
 {
-    // Flush pending state transitions before counting.
-    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-    {
-        // TODO this isn't quite right
-        if (msc_volume_status[vol] == msc_volume_registered)
-            disk_initialize(vol);
-        else if (msc_volume_status[vol] == msc_volume_ejected)
-        {
-            msc_vol_deferred_remount(vol);
-            disk_initialize(vol);
-        }
-    }
-
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_status[vol] == msc_volume_mounted ||
+        if (msc_volume_status[vol] == msc_volume_registered ||
+            msc_volume_status[vol] == msc_volume_mounted ||
             msc_volume_status[vol] == msc_volume_ejected)
             count++;
     }
@@ -927,9 +688,16 @@ int msc_status_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0 || state >= FF_VOLUMES)
         return -1;
-    if (msc_volume_status[state] == msc_volume_mounted ||
+    if (msc_volume_status[state] == msc_volume_registered ||
+        msc_volume_status[state] == msc_volume_mounted ||
         msc_volume_status[state] == msc_volume_ejected)
     {
+        if (msc_volume_status[state] == msc_volume_mounted &&
+            msc_inquiry_resp[state].is_removable &&
+            !msc_send_tur(state, MSC_IO_TIMEOUT_MS))
+            msc_handle_io_error(state);
+        disk_initialize(state);
+
         char sizebuf[24];
         if (msc_volume_status[state] == msc_volume_ejected)
         {
@@ -997,7 +765,9 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
         {
             msc_volume_dev_addr[vol] = dev_addr;
             msc_volume_status[vol] = msc_volume_registered;
-            msc_vol_fmount(vol);
+            TCHAR volstr[6] = MSC_VOL0;
+            volstr[3] += vol;
+            f_mount(&msc_fatfs_volumes[vol], volstr, 0);
             DBG("MSC mount dev_addr %d -> vol %d\n", dev_addr, vol);
             break;
         }
@@ -1017,8 +787,9 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
         if (msc_volume_dev_addr[vol] == dev_addr &&
             msc_volume_status[vol] != msc_volume_free)
         {
-            msc_poll_state[vol] = POLL_IDLE; // cancel in-progress poll
-            msc_vol_funmount(vol);
+            TCHAR volstr[6] = MSC_VOL0;
+            volstr[3] += vol;
+            f_unmount(volstr);
             msc_volume_status[vol] = msc_volume_free;
             msc_volume_dev_addr[vol] = 0;
             msc_volume_block_count[vol] = 0;
@@ -1028,7 +799,6 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_volume_sense_ascq[vol] = 0;
             msc_volume_write_protected[vol] = false;
             msc_volume_tur_ok[vol] = false;
-            msc_volume_needs_remount[vol] = false;
             DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
