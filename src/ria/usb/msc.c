@@ -132,7 +132,7 @@ bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
 // Synchronous I/O bookkeeping
 //--------------------------------------------------------------------+
 // Flag management for sync wrappers.  No spin-waits - the caller
-// owns the event-pump loop (tuh_task_device_only lives here in msc.c).
+// owns the event-pump loop (main_task() is called from the sync helpers).
 
 static volatile bool _sync_busy[CFG_TUH_DEVICE_MAX];
 static uint8_t _sync_csw_status[CFG_TUH_DEVICE_MAX];
@@ -192,10 +192,6 @@ static bool msc_poll_cb(uint8_t dev_addr,
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers (spin-wait lives here, not in msc_host.c)
 //--------------------------------------------------------------------+
-// tuh_task_device_only pumps USB events for a single device without
-// re-entering the full task tree. Defined in usb/usbh.c.
-void tuh_task_device_only(uint8_t dev_addr);
-// #define tuh_task_device_only(_) main_task(); // also seems to work
 
 // Track whether the last msc_sync_wait_io call timed out.
 static bool msc_sync_timed_out;
@@ -217,8 +213,7 @@ static inline uint32_t stage_remaining(absolute_time_t deadline)
 }
 
 // Wait until tuh_msc_ready() or timeout.
-// Also checks tuh_msc_mounted() to fail fast on device disconnect,
-// since tuh_task_device_only() defers DEVICE_REMOVE events.
+// Also checks tuh_msc_mounted() to fail fast on device disconnect.
 static bool msc_sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms)
 {
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
@@ -228,7 +223,7 @@ static bool msc_sync_wait_ready(uint8_t dev_addr, uint32_t timeout_ms)
             return false;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             return false;
-        tuh_task_device_only(dev_addr);
+        main_task();
     }
     return true;
 }
@@ -266,13 +261,13 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, uint32_t timeout_ms)
             {
                 if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
                     break;
-                tuh_task_device_only(dev_addr);
+                main_task();
             }
             tuh_msc_sync_clear_busy(dev_addr);
             msc_sync_timed_out = true;
             return MSC_CSW_STATUS_FAILED;
         }
-        tuh_task_device_only(dev_addr);
+        main_task();
     }
     return tuh_msc_sync_csw_status(dev_addr);
 }
@@ -286,7 +281,7 @@ static void msc_sync_recovery(uint8_t dev_addr, uint32_t timeout_ms)
     {
         if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
             break;
-        tuh_task_device_only(dev_addr);
+        main_task();
     }
 }
 
@@ -490,7 +485,7 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 //--------------------------------------------------------------------+
 // Called from msc_task() when a newly registered volume's device is
 // ready.  Performs the full SCSI init sequence synchronously using
-// the sync helpers (which pump USB events via tuh_task_device_only).
+// the sync helpers (which pump USB events via main_task()).
 //
 // Returns the resulting volume status:
 //   msc_volume_mounted  - success (caller will f_mount)
@@ -1244,7 +1239,7 @@ DSTATUS disk_initialize(BYTE pdrv)
                     {
                         if (!tuh_msc_mounted(dev_addr))
                             return STA_NOINIT | STA_NODISK;
-                        tuh_task_device_only(dev_addr);
+                        main_task();
                     }
                 }
                 continue;

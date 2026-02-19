@@ -575,9 +575,7 @@ bool tuh_task_event_ready(void) {
   return !osal_queue_empty(_usbh_q);
 }
 
-/* Dispatch a single XFER_COMPLETE event.
- * Factored out of tuh_task_ext() so tuh_task_device_only() can reuse it.
- */
+/* Dispatch a single XFER_COMPLETE event. */
 static void _dispatch_xfer_complete(hcd_event_t const* event) {
   uint8_t const ep_addr = event->xfer_complete.ep_addr;
   uint8_t const epnum   = tu_edpt_number(ep_addr);
@@ -635,61 +633,6 @@ static void _dispatch_xfer_complete(hcd_event_t const* event) {
         }
       }
     }
-  }
-}
-
-/* Process only XFER_COMPLETE events for a specific device address.
- * All other events are re-queued for the normal tuh_task() to handle.
- *
- * This is used by the MSC disk I/O spin-waits (which are driven by
- * FatFS and therefore must block) to advance multi-stage BOT/CBI
- * transfers without re-entering the full event dispatcher.  Hub
- * events, device attach/detach, and function-call events are deferred
- * to the main loop's tuh_task(), preventing shared-EPX and control-
- * pipe conflicts.
- *
- * EP 0 (control pipe) completion events for ANY device are also
- * dispatched, because the control pipe is shared (EPX) and its state
- * machine must advance to free the pipe.  Without this, a hub control
- * transfer that was in-flight when the sync wait started would leave
- * ctrl_info->stage stuck in a non-IDLE state, preventing the target
- * device from submitting its own CBI ADSC control transfers.
- * Hub callbacks that fire as a result may start new control transfers
- * (e.g. Clear Feature after Get Port Status), but these run to
- * completion sequentially across loop iterations — no interleaving
- * with the target device's transfers.
- */
-void tuh_task_device_only(uint8_t dev_addr) {
-  if (!tuh_inited()) return;
-
-  hcd_event_t deferred[CFG_TUH_TASK_QUEUE_SZ];
-  unsigned n_deferred = 0;
-  hcd_event_t event;
-
-  while (osal_queue_receive(_usbh_q, &event, 0)) {
-    if (event.event_id == HCD_EVENT_XFER_COMPLETE &&
-        (event.dev_addr == dev_addr ||
-         tu_edpt_number(event.xfer_complete.ep_addr) == 0)) {
-      // Dispatch completions for:
-      // 1. The target device (any endpoint) — advances MSC transfer
-      // 2. Any device on EP 0 (control pipe) — drains the shared EPX
-      //    so the target device can submit control transfers (ADSC)
-      _dispatch_xfer_complete(&event);
-    } else {
-      if (n_deferred < TU_ARRAY_SIZE(deferred)) {
-        deferred[n_deferred++] = event;
-      }
-      // If deferred buffer is full, stop draining — remaining events
-      // stay in the queue and will be processed next time.
-      else {
-        break;
-      }
-    }
-  }
-
-  // Re-queue deferred events for the main loop's tuh_task().
-  for (unsigned i = 0; i < n_deferred; i++) {
-    osal_queue_send(_usbh_q, &deferred[i], false);
   }
 }
 
