@@ -369,21 +369,20 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 //   msc_volume_mounted  - success
 //   msc_volume_ejected  - removable media not present
 //   msc_volume_failed   - non-recoverable error
-#define INIT_INQ_RETRIES_MAX 3
-#define INIT_TUR_RETRIES_MAX 5
 
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     scsi_inquiry_resp_t *inq = &msc_inquiry_resp[vol];
 
-    // ---- INQUIRY (with UA retry) ----
+    // ---- INQUIRY ----
+    // SPC: INQUIRY shall succeed regardless of device state (including
+    // pending Unit Attention); no retry is required.
     bool inquiry_ok = false;
-    for (int retry = 0; retry <= INIT_INQ_RETRIES_MAX; retry++)
+    if (!tuh_msc_mounted(dev_addr))
+        return msc_volume_failed;
+    memset(inq, 0, sizeof(*inq));
     {
-        if (!tuh_msc_mounted(dev_addr))
-            return msc_volume_failed;
-        memset(inq, 0, sizeof(*inq));
         tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
         if (!cb)
             return msc_volume_failed;
@@ -392,38 +391,24 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             tuh_msc_sync_clear_busy(dev_addr);
             return msc_volume_failed;
         }
-        uint8_t csw = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
-        msc_inquiry_rtrims(inq->vendor_id, 8);
-        msc_inquiry_rtrims(inq->product_id, 16);
-        msc_inquiry_rtrims(inq->product_rev, 4);
+    }
+    uint8_t csw = msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
+    msc_inquiry_rtrims(inq->vendor_id, 8);
+    msc_inquiry_rtrims(inq->product_id, 16);
+    msc_inquiry_rtrims(inq->product_rev, 4);
 
-        if (csw == MSC_CSW_STATUS_PASSED)
-        {
-            inquiry_ok = true;
-            break;
-        }
-        // Check sense for unit attention (0x28/0x29 during early enum)
-        msc_do_request_sense(vol, MSC_IO_TIMEOUT_MS);
-        uint8_t sk = msc_volume_sense_key[vol];
-        uint8_t asc = msc_volume_sense_asc[vol];
-        if (sk == SCSI_SENSE_UNIT_ATTENTION &&
-            (asc == 0x28 || asc == 0x29) &&
-            retry < INIT_INQ_RETRIES_MAX)
-        {
-            DBG("MSC vol %d: INQUIRY UA 0x%02X, retry %d\n",
-                vol, asc, retry + 1);
-            continue;
-        }
-        // Accept usable response data despite CSW failure
-        if (inq->peripheral_qualifier != 3 &&
-            (inq->response_data_format == 1 ||
-             inq->response_data_format == 2) &&
-            inq->additional_length >= 31)
-        {
-            DBG("MSC vol %d: INQUIRY CSW failed but response valid\n", vol);
-            inquiry_ok = true;
-        }
-        break;
+    if (csw == MSC_CSW_STATUS_PASSED)
+    {
+        inquiry_ok = true;
+    }
+    // Accept usable response data despite CSW failure (common on CBI)
+    else if (inq->peripheral_qualifier != 3 &&
+             (inq->response_data_format == 1 ||
+              inq->response_data_format == 2) &&
+             inq->additional_length >= 31)
+    {
+        DBG("MSC vol %d: INQUIRY CSW failed but response valid\n", vol);
+        inquiry_ok = true;
     }
     if (!inquiry_ok)
     {
@@ -435,69 +420,43 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         inq->is_removable ? " (removable)" : "");
 
     // ---- TUR (removable media only) ----
+    // After USB enumeration the device has a mandatory pending Unit
+    // Attention (SPC 06/29h power-on / bus reset).  TUR will report
+    // CHECK CONDITION with UA; REQUEST SENSE clears it. One retry
+    // is the expected SCSI protocol flow.  NOT READY and other sense
+    // conditions are terminal here; disk_initialize handles re-probe
+    // with START UNIT for ejected media.
     if (inq->is_removable)
     {
-        bool tur_ok = false;
-        for (int retry = 0; retry <= INIT_TUR_RETRIES_MAX; retry++)
+        if (!tuh_msc_mounted(dev_addr))
+            return msc_volume_failed;
+        if (!msc_send_tur(vol, MSC_IO_TIMEOUT_MS))
         {
-            if (!tuh_msc_mounted(dev_addr))
-                return msc_volume_failed;
-            if (msc_send_tur(vol, MSC_IO_TIMEOUT_MS))
-            {
-                tur_ok = true;
-                break;
-            }
             msc_do_request_sense(vol, MSC_IO_TIMEOUT_MS);
             uint8_t sk = msc_volume_sense_key[vol];
             uint8_t asc = msc_volume_sense_asc[vol];
 
-            if (sk == SCSI_SENSE_NOT_READY && asc == 0x3A)
+            if (sk == SCSI_SENSE_UNIT_ATTENTION)
             {
-                DBG("MSC vol %d: medium not present\n", vol);
+                // UA is expected post-enumeration; retry once.
+                DBG("MSC vol %d: UA 0x%02X, retrying TUR\n", vol, asc);
+                if (!tuh_msc_mounted(dev_addr) ||
+                    !msc_send_tur(vol, MSC_IO_TIMEOUT_MS))
+                    return msc_volume_ejected;
+            }
+            else if (sk == SCSI_SENSE_NOT_READY)
+            {
+                DBG("MSC vol %d: not ready (%02Xh/%02Xh)\n",
+                    vol, asc, msc_volume_sense_ascq[vol]);
                 return msc_volume_ejected;
             }
-            if (sk == SCSI_SENSE_NOT_READY)
+            else
             {
-                // Try START UNIT
-                DBG("MSC vol %d: not ready (%02Xh/%02Xh), START UNIT\n",
-                    vol, asc, msc_volume_sense_ascq[vol]);
-                tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
-                if (cb)
-                {
-                    if (tuh_msc_start_stop_unit(dev_addr, 0, true, cb, 0))
-                        msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS);
-                    else
-                        tuh_msc_sync_clear_busy(dev_addr);
-                }
-                continue;
+                DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh\n",
+                    vol, sk, asc, msc_volume_sense_ascq[vol]);
+                return msc_volume_ejected;
             }
-            if (sk == SCSI_SENSE_UNIT_ATTENTION &&
-                (asc == 0x28 || asc == 0x29) &&
-                retry < INIT_TUR_RETRIES_MAX)
-            {
-                DBG("MSC vol %d: UA 0x%02X, TUR retry %d\n",
-                    vol, asc, retry + 1);
-                // // CBI devices (TEAC floppy) need settling time after UA.
-                // // Without this delay the next ADSC control transfer can
-                // // hang in the STATUS phase, locking the drive up entirely.
-                // if (tuh_msc_is_cbi(dev_addr))
-                // {
-                //     absolute_time_t wake = make_timeout_time_ms(1000);
-                //     while (absolute_time_diff_us(get_absolute_time(), wake) > 0)
-                //     {
-                //         if (!tuh_msc_mounted(dev_addr))
-                //             return msc_volume_failed;
-                //         main_task();
-                //     }
-                // }
-                continue;
-            }
-            DBG("MSC vol %d: TUR sense %d/%02Xh/%02Xh\n",
-                vol, sk, asc, msc_volume_sense_ascq[vol]);
-            return msc_volume_ejected;
         }
-        if (!tur_ok)
-            return msc_volume_ejected;
     }
 
     // ---- CAPACITY ----
