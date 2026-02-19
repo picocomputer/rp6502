@@ -30,12 +30,18 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // Deadline for SCSI command completion and device ready polling
 #define MSC_IO_TIMEOUT_MS 3000
 
-// Shorter timeout and more retries for disk_initialize re-probe.
-// After a CBI device reset (SEND_DIAGNOSTIC), the floppy needs time
-// to complete self-test and re-detect media.  Use a generous retry
-// count with 1-second delays between attempts.
+// Overall deadline for disk_initialize re-probe.
+// Covers TUR + SENSE + START UNIT + delay + retry + mount.
 #define DISK_INIT_TIMEOUT_MS 1000
-#define DISK_INIT_RETRIES    10
+
+// Minimum timeout for any individual SCSI command stage within
+// disk_initialize.  Prevents a nearly-expired deadline from giving
+// a command too little time to complete over CBI transport.
+#define DISK_INIT_MIN_STAGE_MS 500
+
+// Delay between retries in disk_initialize NOT_READY path.
+// Gives the drive time to detect reinserted media.
+#define DISK_INIT_DELAY_MS 1000
 
 // Initialize a CBW with standard boilerplate fields (for disk_read/write).
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
@@ -198,6 +204,22 @@ void tuh_task_device_only(uint8_t dev_addr);
 
 // Track whether the last msc_sync_wait_io call timed out.
 static bool msc_sync_timed_out;
+
+// Compute milliseconds remaining until an absolute deadline.
+static inline uint32_t ms_remaining(absolute_time_t deadline)
+{
+    int64_t us = absolute_time_diff_us(get_absolute_time(), deadline);
+    return (us > 0) ? (uint32_t)(us / 1000) : 0;
+}
+
+// Like ms_remaining but with a floor of DISK_INIT_MIN_STAGE_MS.
+// Returns 0 only when the deadline has truly expired — otherwise
+// returns at least 500 ms so SCSI commands have time to complete.
+static inline uint32_t stage_remaining(absolute_time_t deadline)
+{
+    uint32_t r = ms_remaining(deadline);
+    return (r == 0) ? 0 : (r < DISK_INIT_MIN_STAGE_MS ? DISK_INIT_MIN_STAGE_MS : r);
+}
 
 // Wait until tuh_msc_ready() or timeout.
 // Also checks tuh_msc_mounted() to fail fast on device disconnect,
@@ -712,7 +734,8 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             {
                 // Fallback: MODE SENSE(6) page 0 instead of 0x3F
                 DBG("MSC vol %d: MODE SENSE page 0x3F rejected, "
-                    "trying page 0\n", vol);
+                    "trying page 0\n",
+                    vol);
                 memset(&ms, 0, sizeof(ms));
                 msc_cbw_t cbw;
                 msc_cbw_init(&cbw, 0);
@@ -973,7 +996,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
         if (msc_volume_dev_addr[vol] == dev_addr &&
             msc_volume_status[vol] != msc_volume_free)
         {
-            msc_poll_state[vol] = POLL_IDLE;   // cancel in-progress poll
+            msc_poll_state[vol] = POLL_IDLE; // cancel in-progress poll
             TCHAR volstr[6] = MSC_VOL0;
             volstr[3] += vol;
             f_unmount(volstr);
@@ -1053,7 +1076,7 @@ DWORD get_fattime(void)
 // Synchronous re-probe for ejected removable media.
 // Reads capacity (and MODE SENSE for BOT), updates per-volume
 // arrays, and transitions to msc_volume_mounted on success.
-static bool msc_sync_mount_media(uint8_t vol)
+static bool msc_sync_mount_media(uint8_t vol, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
@@ -1063,7 +1086,7 @@ static bool msc_sync_mount_media(uint8_t vol)
     {
         uint8_t rfc[12];
         memset(rfc, 0, sizeof(rfc));
-        tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+        tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, timeout_ms);
         if (!cb)
             return false;
         if (!tuh_msc_read_format_capacities(dev_addr, 0, rfc, sizeof(rfc),
@@ -1072,7 +1095,7 @@ static bool msc_sync_mount_media(uint8_t vol)
             tuh_msc_sync_clear_busy(dev_addr);
             return false;
         }
-        if (msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS) !=
+        if (msc_sync_wait_io(dev_addr, timeout_ms) !=
             MSC_CSW_STATUS_PASSED)
             return false;
         uint8_t list_len = rfc[3];
@@ -1096,7 +1119,7 @@ static bool msc_sync_mount_media(uint8_t vol)
     {
         scsi_read_capacity10_resp_t cap10;
         memset(&cap10, 0, sizeof(cap10));
-        tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+        tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, timeout_ms);
         if (!cb)
             return false;
         if (!tuh_msc_read_capacity(dev_addr, 0, &cap10, cb, 0))
@@ -1104,7 +1127,7 @@ static bool msc_sync_mount_media(uint8_t vol)
             tuh_msc_sync_clear_busy(dev_addr);
             return false;
         }
-        if (msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS) !=
+        if (msc_sync_wait_io(dev_addr, timeout_ms) !=
             MSC_CSW_STATUS_PASSED)
             return false;
         msc_volume_block_count[vol] = tu_ntohl(cap10.last_lba) + 1;
@@ -1113,10 +1136,10 @@ static bool msc_sync_mount_media(uint8_t vol)
         // MODE SENSE(6) — failure is non-fatal.
         scsi_mode_sense6_resp_t ms;
         memset(&ms, 0, sizeof(ms));
-        cb = msc_sync_begin(dev_addr, MSC_IO_TIMEOUT_MS);
+        cb = msc_sync_begin(dev_addr, timeout_ms);
         if (cb && tuh_msc_mode_sense6(dev_addr, 0, &ms, cb, 0))
         {
-            if (msc_sync_wait_io(dev_addr, MSC_IO_TIMEOUT_MS) ==
+            if (msc_sync_wait_io(dev_addr, timeout_ms) ==
                 MSC_CSW_STATUS_PASSED)
                 msc_volume_write_protected[vol] = ms.write_protected;
             else
@@ -1173,20 +1196,23 @@ DSTATUS disk_initialize(BYTE pdrv)
     // The CBI recovery chain (triggered by the I/O failure that
     // caused ejection) already sent a CBI device reset (SEND_DIAGNOSTIC
     // with SelfTest=1) and cleared endpoint halts.  The floppy needs
-    // time to complete the self-test and re-detect media.  Use a retry
-    // loop with delays to give the drive time to stabilize.
+    // time to complete the self-test and re-detect media.
     if (msc_volume_status[pdrv] == msc_volume_ejected)
     {
         uint8_t dev_addr = msc_volume_dev_addr[pdrv];
         if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
             return STA_NOINIT | STA_NODISK;
 
+        absolute_time_t deadline = make_timeout_time_ms(DISK_INIT_TIMEOUT_MS);
         bool tur_ok = false;
-        for (int retry = 0; retry <= DISK_INIT_RETRIES; retry++)
+        for (int retry = 0; retry < 2; retry++)
         {
             if (!tuh_msc_mounted(dev_addr))
                 return STA_NOINIT | STA_NODISK;
-            if (msc_send_tur(pdrv, DISK_INIT_TIMEOUT_MS))
+            uint32_t remaining = stage_remaining(deadline);
+            if (remaining == 0)
+                break;
+            if (msc_send_tur(pdrv, remaining))
             {
                 tur_ok = true;
                 break;
@@ -1198,45 +1224,83 @@ DSTATUS disk_initialize(BYTE pdrv)
             // provides the sense data before the interrupt status.
             // The sense buffer is valid even if the command "times out"
             // in the interrupt status phase.
-            msc_do_request_sense(pdrv, DISK_INIT_TIMEOUT_MS);
+            remaining = stage_remaining(deadline);
+            if (remaining == 0)
+                break;
+            msc_do_request_sense(pdrv, remaining);
             uint8_t sk = msc_volume_sense_key[pdrv];
             uint8_t asc = msc_volume_sense_asc[pdrv];
             if (sk == SCSI_SENSE_UNIT_ATTENTION)
             {
                 // Reading sense cleared the UA; retry TUR immediately
-                DBG("MSC vol %d: disk_init — UA %02Xh cleared, retry %d\n",
-                    pdrv, asc, retry + 1);
+                DBG("MSC vol %d: disk_init — UA %02Xh cleared\n",
+                    pdrv, asc);
                 continue;
             }
             if (sk == SCSI_SENSE_NOT_READY)
             {
                 // NOT READY covers both 3A (medium not present) and other
-                // sub-codes (04=becoming ready, etc.).  After media
-                // reinsertion, CBI floppy drives often report 3A briefly
-                // while re-detecting the media.  Send START UNIT (start=1)
-                // to trigger media detection, then wait before retrying.
-                // Don't bail immediately on 3A — the drive may just need
-                // time to spin up and recognize the reinserted disk.
-                DBG("MSC vol %d: disk_init — not ready %02Xh, START UNIT, retry %d\n",
-                    pdrv, asc, retry + 1);
-                tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr,
-                                                          DISK_INIT_TIMEOUT_MS);
+                // sub-codes (04=becoming ready, etc.).  Send START UNIT
+                // (start=1) to trigger media detection.
+                //
+                // The key insight: if START UNIT itself STALLs (fails),
+                // the floppy is definitively telling us there's no media.
+                // If START UNIT succeeds, the drive accepted the command
+                // and may be spinning up reinserted media — keep retrying.
+                DBG("MSC vol %d: disk_init — not ready %02Xh, START UNIT\n",
+                    pdrv, asc);
+                bool start_ok = false;
+                remaining = stage_remaining(deadline);
+                tuh_msc_complete_cb_t cb = remaining
+                                               ? msc_sync_begin(dev_addr, remaining)
+                                               : NULL;
                 if (cb)
                 {
                     if (tuh_msc_start_stop_unit(dev_addr, 0, true, cb, 0))
-                        msc_sync_wait_io(dev_addr, DISK_INIT_TIMEOUT_MS);
+                        start_ok = (msc_sync_wait_io(dev_addr,
+                                                     stage_remaining(deadline)) == MSC_CSW_STATUS_PASSED);
                     else
                         tuh_msc_sync_clear_busy(dev_addr);
                 }
-                sleep_ms(1000);
+                if (!start_ok && asc == 0x3A)
+                {
+                    // START UNIT failed AND sense was "medium not present"
+                    // — no point retrying, there's genuinely no disk.
+                    // STOP UNIT won't work (drive STALLs all SCSI
+                    // commands when empty).  Instead, send a CBI device
+                    // reset (SEND_DIAGNOSTIC SelfTest=1) which forces
+                    // the drive back to its power-on state with motor
+                    // off and LED extinguished.
+                    DBG("MSC vol %d: disk_init — no medium, CBI reset\n", pdrv);
+                    if (tuh_msc_is_cbi(dev_addr))
+                        msc_sync_recovery(dev_addr,
+                                          stage_remaining(deadline));
+                    break;
+                }
+                // Delay before retry — pump USB events so the stack
+                // stays alive for this and other devices.
+                {
+                    remaining = ms_remaining(deadline);
+                    if (remaining > DISK_INIT_DELAY_MS)
+                        remaining = DISK_INIT_DELAY_MS;
+                    absolute_time_t wake = make_timeout_time_ms(remaining);
+                    while (absolute_time_diff_us(get_absolute_time(), wake) > 0)
+                    {
+                        if (!tuh_msc_mounted(dev_addr))
+                            return STA_NOINIT | STA_NODISK;
+                        tuh_task_device_only(dev_addr);
+                    }
+                }
                 continue;
             }
-            DBG("MSC vol %d: disk_init — sense %d/%02Xh, retry %d\n",
-                pdrv, sk, asc, retry + 1);
+            // Unexpected sense — bail out rather than loop forever.
+            DBG("MSC vol %d: disk_init — sense %d/%02Xh, giving up\n",
+                pdrv, sk, asc);
+            break;
         }
         if (!tur_ok)
             return STA_NOINIT | STA_NODISK;
-        if (!msc_sync_mount_media(pdrv))
+        if (!msc_sync_mount_media(pdrv, stage_remaining(deadline)))
             return STA_NOINIT | STA_NODISK;
         // Fall through to return mounted status.
     }
