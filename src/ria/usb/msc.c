@@ -32,7 +32,7 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
 // Overall deadline for disk_initialize re-probe.
 // Covers TUR + SENSE + START UNIT + delay + retry + mount.
-#define DISK_INIT_TIMEOUT_MS 1000
+#define DISK_INIT_TIMEOUT_MS 2500
 
 // Minimum timeout for any individual SCSI command stage within
 // disk_initialize.  Prevents a nearly-expired deadline from giving
