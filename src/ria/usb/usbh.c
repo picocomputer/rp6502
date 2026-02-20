@@ -1941,8 +1941,7 @@ static void enum_full_complete(bool success) {
   // Re-queue hub status polling now that enumeration (including all
   // driver set_config callbacks) is complete.  Previously this was
   // started in ENUM_CONFIG_DRIVER *before* drivers ran, which allowed
-  // hub control transfers to interleave on EPX with CBI ADSC commands
-  // during msc_init_volume, corrupting the floppy's SCSI commands.
+  // hub control transfers to interleave on EPX with CBI ADSC commands.
   if (_usbh_data.dev0_bus.hub_addr != 0) {
     hub_edpt_status_xfer(_usbh_data.dev0_bus.hub_addr);
   }

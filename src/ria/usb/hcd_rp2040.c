@@ -158,7 +158,7 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   {
     pico_trace("Sent setup packet\n");
     struct hw_endpoint *ep = &epx;
-    if (!ep->active) return; // aborted, ignore stale interrupt
+    if (!ep->active) return;
     // Set transferred length to 8 for a setup packet
     ep->xferred_len = 8;
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
@@ -247,7 +247,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   {
     usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
-    TU_LOG(2, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
+    TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
            tu_u32_high16(*hwbuf_ctrl_reg_host(&epx)));
     panic("Data Seq Error \n");
   }
@@ -289,8 +289,8 @@ static hw_endpoint_t *hw_endpoint_allocate(uint8_t transfer_type) {
     // Note: even though datasheet name these "Interrupt" endpoints. These are actually
     // "Asynchronous" endpoints and can be used for other type such as: Bulk  (ISO need confirmation)
     ep = _next_free_interrupt_ep();
+    TU_VERIFY(ep, NULL);
     pico_info("Allocate %s ep %d\n", tu_edpt_type_str(transfer_type), ep->interrupt_num);
-    assert(ep);
     // 0 for epx (double buffered): TODO increase to 1024 for ISO
     // 2x64 for intep0
     // 3x64 for intep1
@@ -365,7 +365,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   (void) rhport;
   (void) rh_init;
   pico_trace("hcd_init %d\n", rhport);
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0);
 
   // Reset any previous state
   rp2usb_init();
@@ -423,7 +423,7 @@ bool hcd_port_connect_status(uint8_t rhport)
 {
   (void) rhport;
   pico_trace("hcd_port_connect_status\n");
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0);
   return usb_hw->sie_status & USB_SIE_STATUS_SPEED_BITS;
 }
 
@@ -554,7 +554,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   TU_ASSERT(ep);
 
   // EP should be inactive
-  assert(!ep->active);
+  TU_ASSERT(!ep->active);
 
   // For EP0 (shared EPX): re-init whenever dev_addr, direction, or MPS changed.
   // Another device's control transfer may have reconfigured EPX in between phases.
@@ -598,12 +598,6 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (!ep || !ep->active) return true;
 
-  // Disable interrupts so the USB ISR cannot see the endpoint in a
-  // half-torn-down state.  Without this, a stale BUFF_STATUS bit from the
-  // aborted transfer can be processed after a new transfer starts on the
-  // same endpoint, causing sync_ep_buffer() to hit the FULL assertion.
-  uint32_t save = save_and_disable_interrupts();
-
   // For EPX: stop the SIE state machine first so no new completions arrive.
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
@@ -627,7 +621,6 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
   }
 
-  restore_interrupts(save);
   return true;
 }
 
@@ -645,14 +638,14 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   TU_ASSERT(ep);
 
   // EPX should be inactive
-  assert(!ep->active);
+  TU_ASSERT(!ep->active);
 
   // EP0 out — use the saved MPS for this device, not the (possibly stale) EPX value
   uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
   if (mps == 0) mps = 8; // default for addr0 / unknown
   hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
   
-  assert(ep->configured);
+  TU_ASSERT(ep->configured);
 
   ep->remaining_len = 8;
   ep->active = true;
