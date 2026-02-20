@@ -711,6 +711,26 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
             }
         }
 
+        // TODO find a better/earlier place for this
+        // BOT spec §6.3 / Figure 2: if CSW is not meaningful (wrong
+        // signature or tag mismatch), the host should perform Reset
+        // Recovery.  Some devices (e.g. Kingston card readers) leave a
+        // stale response in their IN pipe after a Bulk-Only Mass Storage
+        // Reset, causing the first CSW read to return the stale packet
+        // instead of the real CSW.  Retry the read once to consume the
+        // stale packet; the second read picks up the real CSW.
+        if (!is_retry && event == XFER_RESULT_SUCCESS &&
+            xferred_bytes == sizeof(msc_csw_t) &&
+            (csw->signature != MSC_CSW_SIGNATURE || csw->tag != cbw->tag))
+        {
+            TU_LOG_DRV("  MSC BOT: CSW sig/tag mismatch, retrying\r\n");
+            p_msc->stage = MSC_STAGE_STATUS_RETRY;
+            if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
+            {
+                break;
+            }
+        }
+
         // Validate CSW per BOT spec §6.3
         p_msc->stage = MSC_STAGE_IDLE;
         bool csw_valid = (event == XFER_RESULT_SUCCESS &&

@@ -125,6 +125,11 @@ static bool msc_sync_timed_out;
 static bool _sync_complete_cb(uint8_t dev_addr,
                               tuh_msc_complete_data_t const *cb_data)
 {
+    DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
+        (unsigned long)cb_data->csw->signature,
+        (unsigned long)cb_data->csw->tag,
+        (unsigned long)cb_data->csw->data_residue,
+        cb_data->csw->status);
     _sync_csw_status[dev_addr - 1] = cb_data->csw->status;
     _sync_busy[dev_addr - 1] = false;
     return true;
@@ -223,6 +228,12 @@ static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 
     if (status != MSC_CSW_STATUS_PASSED)
     {
+        // TODO the msc_sync_timed_out pattern is not good
+        // Preserve the timed_out flag from the original command so
+        // that msc_xfer_error() can skip the redundant reset when
+        // msc_sync_wait_io() already performed one.
+        bool original_timed_out = msc_sync_timed_out;
+
         int vol = -1;
         for (int v = 0; v < FF_VOLUMES; v++)
             if (msc_volume_dev_addr[v] == dev_addr)
@@ -247,6 +258,11 @@ static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
             msc_scsi_sync_raw(dev_addr, &sense_cbw, &sense_resp,
                               stage_deadline(deadline));
 
+            DBG("SENSE raw:");
+            for (unsigned i = 0; i < sizeof(sense_resp); i++)
+                DBG(" %02X", ((uint8_t *)&sense_resp)[i]);
+            DBG("\n");
+
             if (sense_resp.response_code)
             {
                 msc_volume_sense_key[vol] = sense_resp.sense_key;
@@ -264,6 +280,11 @@ static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
                 msc_volume_sense_asc[vol],
                 msc_volume_sense_ascq[vol]);
         }
+
+        // Restore the original timed_out flag so callers like
+        // msc_xfer_error() see whether the *command* timed out,
+        // not the autosense REQUEST SENSE.
+        msc_sync_timed_out = original_timed_out;
     }
 
     return status;
@@ -388,6 +409,24 @@ static uint8_t msc_sync_cache10_sync(uint8_t dev_addr,
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = 10;
     cbw.command[0] = 0x35; // SYNCHRONIZE CACHE (10)
+    return msc_scsi_sync(dev_addr, &cbw, NULL, deadline);
+}
+
+static uint8_t msc_start_stop_unit_sync(uint8_t dev_addr, bool start,
+                                        bool load_eject,
+                                        absolute_time_t deadline)
+{
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, 0);
+    cbw.total_bytes = 0;
+    cbw.dir = TUSB_DIR_OUT;
+    cbw.cmd_len = sizeof(scsi_start_stop_unit_t);
+    scsi_start_stop_unit_t const cmd = {
+        .cmd_code = SCSI_CMD_START_STOP_UNIT,
+        .start = start ? 1u : 0u,
+        .load_eject = load_eject ? 1u : 0u,
+    };
+    memcpy(cbw.command, &cmd, sizeof(cmd));
     return msc_scsi_sync(dev_addr, &cbw, NULL, deadline);
 }
 
@@ -626,14 +665,65 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             inq->is_removable ? " (removable)" : "");
     }
 
-    // ---- TUR / CLEAR UNIT ATTENTION ----
-    // Retry once. I wonder if there's something we can do
-    // to keep the first 0x3A tur from sometimes failing after
-    // errors introduced by ejecting a floppy during read.
-    if ((!msc_send_tur(vol, stage_deadline(deadline)) && msc_volume_sense_asc[vol] == 0x3A) &&
-        !msc_send_tur(vol, stage_deadline(deadline)))
+    // TODO should we be using sense data for this? is this best place? load_eject?
+    //  ---- START STOP UNIT (re-probe of removable media) ----
+    //  Per SBC-4 §5.25, send START STOP UNIT (Start=1) to tell the
+    //  device to initialise newly inserted media.
+    if (!first_mount && inq->is_removable && tuh_msc_mounted(dev_addr))
     {
-        if (inq->is_removable)
+        DBG("MSC vol %d: START STOP UNIT (Start)\n", vol);
+        msc_start_stop_unit_sync(dev_addr, true, false,
+                                 stage_deadline(deadline));
+    }
+
+    // ---- TUR / CLEAR UNIT ATTENTION ----
+    {
+        // Poll TEST UNIT READY until the device is ready, or we're sure
+        // media is absent.  Per SPC-4, after media change the device may
+        // report UNIT ATTENTION (sense key 6) or NOT READY (sense key 2)
+        // while initialising the card.  Some vendors use vendor-specific
+        // ASC codes (e.g. 0x80) during spin-up.  We retry for any
+        // non-ready condition except ASC 0x3A (Medium Not Present),
+        // which means the slot is genuinely empty.
+        bool tur_ok = false;
+        bool sent_start = false;
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            if (!tuh_msc_mounted(dev_addr))
+                return msc_volume_failed;
+            if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+                break;
+            if (msc_send_tur(vol, stage_deadline(deadline)))
+            {
+                tur_ok = true;
+                break;
+            }
+            uint8_t sk = msc_volume_sense_key[vol];
+            uint8_t asc = msc_volume_sense_asc[vol];
+            // Medium Not Present — no point retrying
+            if (asc == 0x3A)
+                break;
+            // NOT READY (2) or UNIT ATTENTION (6) — retry after delay
+            if (sk == SCSI_SENSE_NOT_READY || sk == SCSI_SENSE_UNIT_ATTENTION)
+            {
+                // TODO Should we have done this above?
+                // Per SBC-4, if the device stays NOT READY, send
+                // START STOP UNIT once to kick media initialisation.
+                if (!sent_start && sk == SCSI_SENSE_NOT_READY &&
+                    inq->is_removable && attempt >= 2)
+                {
+                    sent_start = true;
+                    DBG("MSC vol %d: START STOP UNIT (retry)\n", vol);
+                    msc_start_stop_unit_sync(dev_addr, true, true,
+                                             stage_deadline(deadline));
+                }
+                // sleep_ms(250); // TODO doesn't seem necessary
+                continue;
+            }
+            // Any other sense key — stop retrying
+            break;
+        }
+        if (!tur_ok && inq->is_removable)
             return msc_volume_ejected;
     }
 
