@@ -417,10 +417,10 @@ static void msc_handle_io_error(uint8_t vol)
     DBG("MSC vol %d: media ejected\n", vol);
 }
 
-static bool msc_read10_sync(uint8_t vol, void *buff,
-                            uint32_t lba, uint16_t block_count,
-                            uint32_t block_size,
-                            absolute_time_t deadline)
+static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
+                                    uint32_t lba, uint16_t block_count,
+                                    uint32_t block_size,
+                                    absolute_time_t deadline)
 {
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, 0);
@@ -437,15 +437,14 @@ static bool msc_read10_sync(uint8_t vol, void *buff,
     {
         msc_xfer_error(vol, status);
         msc_handle_io_error(vol);
-        return false;
     }
-    return true;
+    return status;
 }
 
-static bool msc_write10_sync(uint8_t vol, const void *buff,
-                             uint32_t lba, uint16_t block_count,
-                             uint32_t block_size,
-                             absolute_time_t deadline)
+static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
+                                     uint32_t lba, uint16_t block_count,
+                                     uint32_t block_size,
+                                     absolute_time_t deadline)
 {
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, 0);
@@ -463,9 +462,8 @@ static bool msc_write10_sync(uint8_t vol, const void *buff,
     {
         msc_xfer_error(vol, status);
         msc_handle_io_error(vol);
-        return false;
     }
-    return true;
+    return status;
 }
 
 //--------------------------------------------------------------------+
@@ -858,11 +856,19 @@ DSTATUS disk_initialize(BYTE pdrv)
     return msc_volume_write_protected[vol] ? STA_PROTECT : 0;
 }
 
-// TODO disk_ functions need to precisely return all of
-// RES_OK, RES_ERROR, RES_WRPRT, RES_NOTRDY, and RES_PARERR.
-// Look deep into fatfs to make sure you understand their details.
-// Currently we lack return state from bools in msc_read10_sync and
-// msc_write10_sync, and ignore what msc_sync_cache10_sync returns.
+static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
+{
+    if (status == msc_status_passed)
+        return RES_OK;
+    if (status == msc_status_timed_out)
+        return RES_NOTRDY;
+    uint8_t sk = msc_volume_sense_key[vol];
+    if (sk == SCSI_SENSE_NOT_READY)
+        return RES_NOTRDY;
+    if (sk == SCSI_SENSE_DATA_PROTECT)
+        return RES_WRPRT;
+    return RES_ERROR;
+}
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
@@ -873,14 +879,13 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
     DBG("MSC R> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0 || dev_addr == 0)
-        return RES_ERROR;
+        return RES_NOTRDY;
     TU_ASSERT(count <= UINT16_MAX, RES_PARERR);
 
     absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
-    return msc_read10_sync(vol, buff, sector, (uint16_t)count,
-                           block_size, msc_sync_deadline(deadline))
-               ? RES_OK
-               : RES_ERROR;
+    msc_status_t status = msc_read10_sync(vol, buff, sector, (uint16_t)count,
+                                          block_size, msc_sync_deadline(deadline));
+    return msc_status_to_dresult(vol, status);
 }
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
@@ -888,18 +893,19 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     if (pdrv >= FF_VOLUMES)
         return RES_PARERR;
     uint8_t vol = pdrv;
+    if (msc_volume_write_protected[vol])
+        return RES_WRPRT;
     uint32_t const block_size = msc_volume_block_size[vol];
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
     DBG("MSC W> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0 || dev_addr == 0)
-        return RES_ERROR;
+        return RES_NOTRDY;
     TU_ASSERT(count <= UINT16_MAX, RES_PARERR);
 
     absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
-    return msc_write10_sync(vol, buff, sector, (uint16_t)count,
-                            block_size, msc_sync_deadline(deadline))
-               ? RES_OK
-               : RES_ERROR;
+    msc_status_t status = msc_write10_sync(vol, buff, sector, (uint16_t)count,
+                                           block_size, msc_sync_deadline(deadline));
+    return msc_status_to_dresult(vol, status);
 }
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
@@ -921,12 +927,11 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
             return RES_OK; // device gone, nothing to flush
         if (msc_volume_block_size[vol] == 0)
             return RES_OK;
-
-        // Best effort: ignore errors - many USB flash drives don't
-        // implement SYNCHRONIZE CACHE.
+        // Best effort: many USB flash drives don't implement
+        // SYNCHRONIZE CACHE, so treat command failures as OK.
         absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
-        msc_sync_cache10_sync(vol, msc_sync_deadline(deadline));
-        return RES_OK;
+        msc_status_t status = msc_sync_cache10_sync(vol, msc_sync_deadline(deadline));
+        return status == msc_status_timed_out ? RES_NOTRDY : RES_OK;
     }
     case GET_SECTOR_COUNT:
         *((DWORD *)buff) = msc_volume_block_count[vol];
@@ -935,7 +940,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         *((WORD *)buff) = (WORD)msc_volume_block_size[vol];
         return RES_OK;
     case GET_BLOCK_SIZE:
-        *((DWORD *)buff) = 1; // 1 sector
+        *((DWORD *)buff) = 1;
         return RES_OK;
     default:
         return RES_PARERR;
