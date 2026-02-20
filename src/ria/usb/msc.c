@@ -677,8 +677,10 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     }
 
     // ---- TUR / CLEAR UNIT ATTENTION ----
-    // Retry once.
-    if (!msc_send_tur(vol, stage_deadline(deadline)) &&
+    // Retry once. I wonder if there's something we can do
+    // to keep the first 0x3A tur from sometimes failing after
+    // errors introduced by ejecting a floppy during read.
+    if ((!msc_send_tur(vol, stage_deadline(deadline)) && msc_volume_sense_asc[vol] == 0x3A) &&
         !msc_send_tur(vol, stage_deadline(deadline)))
     {
         if (inq->is_removable)
@@ -733,12 +735,13 @@ int msc_status_response(char *buf, size_t buf_size, int state)
     {
         if (msc_volume_status[state] == msc_volume_mounted &&
             msc_inquiry_resp[state].is_removable &&
-            !msc_send_tur(state, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)))
+            !msc_send_tur(state, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) &&
+            msc_volume_sense_asc[state] == 0x3A)
             msc_handle_io_error(state);
         disk_initialize(state);
 
         char sizebuf[24];
-        if (msc_volume_status[state] == msc_volume_ejected)
+        if (msc_volume_status[state] != msc_volume_mounted)
         {
             snprintf(sizebuf, sizeof(sizebuf), "%s", STR_PARENS_NO_MEDIA);
         }
