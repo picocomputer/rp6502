@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -32,9 +34,6 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // Overall deadline for msc_init_volume (first mount or re-probe).
 // Covers INQUIRY + TUR + SENSE + START UNIT + delay + retry + capacity + mount.
 #define MSC_INIT_TIMEOUT_MS 4000
-
-// Delay to wait after issuing START UNIT
-#define DISK_START_UNIT_DELAY_MS 1000
 
 // Time budget for any single USB MSC operation: one SCSI command or
 // one reset recovery sequence (BOT: BMR + 2x CLEAR_HALT; CBI: class
@@ -244,9 +243,18 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
     cbw->lun = lun;
 }
 
-// Core submit-and-wait helper.
-static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
-                             void *data, absolute_time_t deadline)
+// Find the volume index for a given device address, or -1 if none.
+static int vol_for_dev_addr(uint8_t dev_addr)
+{
+    for (int v = 0; v < FF_VOLUMES; v++)
+        if (msc_volume_dev_addr[v] == dev_addr)
+            return v;
+    return -1;
+}
+
+// Internal submit-and-wait (no autosense).
+static uint8_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
+                                 void *data, absolute_time_t deadline)
 {
     tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, deadline);
     if (!cb)
@@ -257,6 +265,58 @@ static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
         return MSC_CSW_STATUS_FAILED;
     }
     return msc_sync_wait_io(dev_addr, deadline);
+}
+
+// Core submit-and-wait helper with autosense.
+// On non-PASSED status, automatically issues REQUEST SENSE and
+// populates the per-volume sense arrays (like Linux's autosense
+// in the SCSI midlayer).  Callers never need to explicitly request
+// sense — it's already available after any failed command.
+static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
+                             void *data, absolute_time_t deadline)
+{
+    uint8_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
+
+    if (status != MSC_CSW_STATUS_PASSED)
+    {
+        int vol = vol_for_dev_addr(dev_addr);
+        if (vol >= 0)
+        {
+            scsi_sense_fixed_resp_t sense_resp;
+            memset(&sense_resp, 0, sizeof(sense_resp));
+            // Use raw to avoid infinite recursion.
+            msc_cbw_t sense_cbw;
+            msc_cbw_init(&sense_cbw, 0);
+            sense_cbw.total_bytes = sizeof(scsi_sense_fixed_resp_t);
+            sense_cbw.dir = TUSB_DIR_IN_MASK;
+            sense_cbw.cmd_len = sizeof(scsi_request_sense_t);
+            scsi_request_sense_t const sense_cmd = {
+                .cmd_code = SCSI_CMD_REQUEST_SENSE,
+                .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
+            memcpy(sense_cbw.command, &sense_cmd, sizeof(sense_cmd));
+            msc_scsi_sync_raw(dev_addr, &sense_cbw, &sense_resp,
+                              stage_deadline(deadline));
+
+            if (sense_resp.response_code)
+            {
+                msc_volume_sense_key[vol] = sense_resp.sense_key;
+                msc_volume_sense_asc[vol] = sense_resp.add_sense_code;
+                msc_volume_sense_ascq[vol] = sense_resp.add_sense_qualifier;
+            }
+            else
+            {
+                msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+                msc_volume_sense_asc[vol] = 0;
+                msc_volume_sense_ascq[vol] = 0;
+            }
+            DBG("MSC vol %d: autosense %d/%02Xh/%02Xh\n",
+                vol, msc_volume_sense_key[vol],
+                msc_volume_sense_asc[vol],
+                msc_volume_sense_ascq[vol]);
+        }
+    }
+
+    return status;
 }
 
 static uint8_t msc_inquiry_sync(uint8_t dev_addr, scsi_inquiry_resp_t *resp,
@@ -282,35 +342,6 @@ static uint8_t msc_tur_sync(uint8_t dev_addr, absolute_time_t deadline)
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = sizeof(scsi_test_unit_ready_t);
     cbw.command[0] = SCSI_CMD_TEST_UNIT_READY;
-    return msc_scsi_sync(dev_addr, &cbw, NULL, deadline);
-}
-
-static uint8_t msc_request_sense_sync(uint8_t dev_addr,
-                                      scsi_sense_fixed_resp_t *resp,
-                                      absolute_time_t deadline)
-{
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
-    cbw.total_bytes = sizeof(scsi_sense_fixed_resp_t);
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = sizeof(scsi_request_sense_t);
-    scsi_request_sense_t const cmd = {
-        .cmd_code = SCSI_CMD_REQUEST_SENSE,
-        .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
-    memcpy(cbw.command, &cmd, sizeof(cmd));
-    return msc_scsi_sync(dev_addr, &cbw, resp, deadline);
-}
-
-static uint8_t msc_start_stop_unit_sync(uint8_t dev_addr, bool start,
-                                        absolute_time_t deadline)
-{
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
-    cbw.total_bytes = 0;
-    cbw.dir = TUSB_DIR_OUT;
-    cbw.cmd_len = 6;
-    cbw.command[0] = 0x1B; // START STOP UNIT
-    cbw.command[4] = start ? 0x01 : 0x00;
     return msc_scsi_sync(dev_addr, &cbw, NULL, deadline);
 }
 
@@ -410,36 +441,8 @@ static uint8_t msc_sync_cache10_sync(uint8_t dev_addr,
     return msc_scsi_sync(dev_addr, &cbw, NULL, deadline);
 }
 
-// Issue REQUEST SENSE and store result in per-volume sense arrays.
-static bool msc_do_request_sense(uint8_t vol, absolute_time_t deadline)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    if (dev_addr == 0)
-        return false; // device disconnected
-
-    scsi_sense_fixed_resp_t sense_resp;
-    memset(&sense_resp, 0, sizeof(sense_resp));
-    msc_request_sense_sync(dev_addr, &sense_resp, deadline);
-
-    if (sense_resp.response_code)
-    {
-        msc_volume_sense_key[vol] = sense_resp.sense_key;
-        msc_volume_sense_asc[vol] = sense_resp.add_sense_code;
-        msc_volume_sense_ascq[vol] = sense_resp.add_sense_qualifier;
-    }
-    else
-    {
-        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-        msc_volume_sense_asc[vol] = 0;
-        msc_volume_sense_ascq[vol] = 0;
-    }
-    DBG("MSC vol %d: sense %d/%02Xh/%02Xh\n",
-        vol, msc_volume_sense_key[vol],
-        msc_volume_sense_asc[vol], msc_volume_sense_ascq[vol]);
-    return true;
-}
-
 // Send a single TUR command and return whether it passed.
+// On failure, autosense populates the per-volume sense arrays.
 static bool msc_send_tur(uint8_t vol, absolute_time_t deadline)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
@@ -451,6 +454,7 @@ static bool msc_send_tur(uint8_t vol, absolute_time_t deadline)
 // Mark a removable volume as ejected and clear cached geometry.
 static void msc_handle_io_error(uint8_t vol)
 {
+    DBG("MSC vol %d: msc_handle_io_error\n", vol);
     if (!msc_inquiry_resp[vol].is_removable)
         return;
     if (msc_volume_status[vol] == msc_volume_free ||
@@ -485,70 +489,6 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 // absolute_time_t deadline to coordinate timeouts across the full
 // init sequence.
 
-static bool msc_spinup(uint8_t vol, absolute_time_t deadline)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-
-    for (int retry = 0; retry < 4; retry++)
-    {
-        if (!tuh_msc_mounted(dev_addr))
-            return false;
-
-        if (msc_send_tur(vol, stage_deadline(deadline)))
-        {
-            DBG("MSC vol %d: spinup ok (retry %d)\n", vol, retry);
-            return true;
-        }
-
-        msc_do_request_sense(vol, stage_deadline(deadline));
-        uint8_t sk = msc_volume_sense_key[vol];
-        uint8_t asc = msc_volume_sense_asc[vol];
-        uint8_t ascq = msc_volume_sense_ascq[vol];
-
-        if (sk == SCSI_SENSE_UNIT_ATTENTION)
-        {
-            // UA cleared by REQUEST SENSE; retry TUR immediately.
-            DBG("MSC vol %d: UA %02Xh/%02Xh cleared\n", vol, asc, ascq);
-            continue;
-        }
-
-        if (sk == SCSI_SENSE_NOT_READY)
-        {
-            if (asc == 0x3A)
-            {
-                DBG("MSC vol %d: medium not present\n", vol);
-                if (tuh_msc_is_cbi(dev_addr))
-                    msc_sync_recovery(dev_addr, stage_deadline(deadline));
-                return false;
-            }
-
-            // Not ready (becoming ready, motor starting, etc.).
-            // Send START STOP UNIT (start=1) to trigger detection.
-            DBG("MSC vol %d: not ready %02Xh/%02Xh, START UNIT\n",
-                vol, asc, ascq);
-            msc_start_stop_unit_sync(dev_addr, true, stage_deadline(deadline));
-            // Always delay DISK_START_UNIT_DELAY_MS no matter what.
-            {
-                absolute_time_t wake = make_timeout_time_ms(DISK_START_UNIT_DELAY_MS);
-                while (absolute_time_diff_us(get_absolute_time(), wake) > 0)
-                {
-                    if (!tuh_msc_mounted(dev_addr))
-                        return false;
-                    main_task();
-                }
-            }
-            continue;
-        }
-
-        // Unexpected sense key - stop.
-        DBG("MSC vol %d: spinup sense %d/%02Xh/%02Xh, giving up\n",
-            vol, sk, asc, ascq);
-        break;
-    }
-
-    return false;
-}
-
 // Read device capacity.
 // CBI: READ FORMAT CAPACITIES (UFI mandatory command).
 // BOT: READ CAPACITY(10) (SBC mandatory command).
@@ -566,7 +506,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         uint8_t rfc[12];
         memset(rfc, 0, sizeof(rfc));
         if (msc_read_format_capacities_sync(dev_addr, rfc, sizeof(rfc),
-                                            stage_deadline(deadline)) !=
+                                            deadline) !=
             MSC_CSW_STATUS_PASSED)
             return false;
 
@@ -594,16 +534,13 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         scsi_read_capacity10_resp_t cap10;
         memset(&cap10, 0, sizeof(cap10));
         if (msc_read_capacity10_sync(dev_addr, &cap10,
-                                     stage_deadline(deadline)) !=
+                                     deadline) !=
             MSC_CSW_STATUS_PASSED)
         {
-            // For removable: check if medium not present.
-            if (msc_inquiry_resp[vol].is_removable)
-            {
-                msc_do_request_sense(vol, stage_deadline(deadline));
-                if (msc_volume_sense_asc[vol] == 0x3A)
-                    DBG("MSC vol %d: capacity - medium not present\n", vol);
-            }
+            // Autosense already populated sense data.
+            if (msc_inquiry_resp[vol].is_removable &&
+                msc_volume_sense_asc[vol] == 0x3A)
+                DBG("MSC vol %d: capacity - medium not present\n", vol);
             return false;
         }
         uint32_t last_lba = tu_ntohl(cap10.last_lba);
@@ -631,7 +568,7 @@ static void msc_read_block_zero(uint8_t vol, absolute_time_t deadline)
         return; // CBI: not needed
 
     uint8_t block0[512];
-    msc_read10_sync(dev_addr, block0, 0, 1, bs, stage_deadline(deadline));
+    msc_read10_sync(dev_addr, block0, 0, 1, bs, deadline);
 }
 
 // Determine write protection via MODE SENSE(6).  BOT only; CBI
@@ -657,7 +594,7 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
     scsi_mode_sense6_resp_t ms;
     memset(&ms, 0, sizeof(ms));
     if (msc_mode_sense6_sync(dev_addr, 0x3F, &ms,
-                             stage_deadline(deadline)) ==
+                             deadline) ==
         MSC_CSW_STATUS_PASSED)
     {
         DBG("MSC vol %d: MODE SENSE WP=%d\n", vol, ms.write_protected);
@@ -670,7 +607,7 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
 
     memset(&ms, 0, sizeof(ms));
     if (msc_mode_sense6_sync(dev_addr, 0x00, &ms,
-                             stage_deadline(deadline)) ==
+                             deadline) ==
         MSC_CSW_STATUS_PASSED)
     {
         DBG("MSC vol %d: MODE SENSE page 0 WP=%d\n", vol, ms.write_protected);
@@ -739,27 +676,24 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             inq->is_removable ? " (removable)" : "");
     }
 
-    // ---- CLEAR UNIT ATTENTION ----
-    if (inq->is_removable)
+    // ---- TUR / CLEAR UNIT ATTENTION ----
+    // Retry once.
+    if (!msc_send_tur(vol, stage_deadline(deadline)) &&
+        !msc_send_tur(vol, stage_deadline(deadline)))
     {
-        if (!msc_spinup(vol, deadline))
+        if (inq->is_removable)
             return msc_volume_ejected;
-    }
-    else
-    {
-        if (!msc_send_tur(vol, stage_deadline(deadline)))
-            msc_do_request_sense(vol, stage_deadline(deadline));
     }
 
     // ---- CAPACITY ----
-    if (!msc_read_capacity(vol, deadline))
+    if (!msc_read_capacity(vol, stage_deadline(deadline)))
         return inq->is_removable ? msc_volume_ejected : msc_volume_failed;
 
     // ---- READ BLOCK 0 (non-fatal) ----
-    msc_read_block_zero(vol, deadline);
+    msc_read_block_zero(vol, stage_deadline(deadline));
 
     // ---- WRITE PROTECTION ----
-    msc_read_write_protect(vol, deadline);
+    msc_read_write_protect(vol, stage_deadline(deadline));
 
     msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: init ok, %lu blocks\n", vol,
@@ -909,14 +843,14 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
     }
 }
 
-// Handle SCSI transfer failure: perform BOT reset recovery if appropriate
+// Handle SCSI transfer failure: perform reset recovery if appropriate
 // and mark removable volume as ejected.
 static void msc_xfer_error(uint8_t pdrv)
 {
     uint8_t const dev_addr = msc_volume_dev_addr[pdrv];
     DBG("MSC xfer fail: timed_out=%d, cbi=%d\n",
         msc_sync_timed_out, tuh_msc_is_cbi(dev_addr));
-    if (dev_addr && !msc_sync_timed_out && !tuh_msc_is_cbi(dev_addr))
+    if (dev_addr && !msc_sync_timed_out)
         msc_sync_recovery(dev_addr, make_timeout_time_ms(MSC_OP_TIMEOUT_MS));
     msc_handle_io_error(pdrv);
 }
