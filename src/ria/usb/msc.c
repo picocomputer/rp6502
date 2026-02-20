@@ -75,8 +75,13 @@ const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
     VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7};
 
-#define MSC_VOL0 "MSC0:"
-static_assert(FF_VOLUMES <= 10); // one char 0-9 in "MSC0:"
+// Build a FatFS volume path like "MSC0:" for volume v.
+static inline void msc_vol_path(TCHAR buf[6], uint8_t vol)
+{
+    static_assert(FF_VOLUMES <= 10);
+    memcpy(buf, "MSC0:", 6);
+    buf[3] += vol;
+}
 
 typedef enum
 {
@@ -106,16 +111,16 @@ bool tuh_msc_is_cbi(uint8_t dev_addr);
 bool tuh_msc_reset_recovery(uint8_t dev_addr);
 bool tuh_msc_recovery_in_progress(uint8_t dev_addr);
 void tuh_msc_abort_recovery(uint8_t dev_addr);
-bool tuh_msc_abort_transfers(uint8_t dev_addr);
 
 //--------------------------------------------------------------------+
-// Synchronous I/O bookkeeping
+// Synchronous I/O helpers
 //--------------------------------------------------------------------+
-// Flag management for sync wrappers.  No spin-waits - the caller
-// owns the event-pump loop (main_task() is called from the sync helpers).
+// Spin-wait helpers that pump USB events via main_task() while waiting
+// for in-flight commands to complete.
 
 static volatile bool _sync_busy[CFG_TUH_DEVICE_MAX];
 static uint8_t _sync_csw_status[CFG_TUH_DEVICE_MAX];
+static bool msc_sync_timed_out;
 
 static bool _sync_complete_cb(uint8_t dev_addr,
                               tuh_msc_complete_data_t const *cb_data)
@@ -124,36 +129,6 @@ static bool _sync_complete_cb(uint8_t dev_addr,
     _sync_busy[dev_addr - 1] = false;
     return true;
 }
-
-// Arm the sync busy flag and return the internal completion callback.
-// Caller must ensure tuh_msc_ready() before calling.
-// If the subsequent async submit fails, call tuh_msc_sync_clear_busy().
-static tuh_msc_complete_cb_t tuh_msc_sync_begin(uint8_t dev_addr)
-{
-    // Defensive guard: arming busy on a not-ready device would block
-    // the caller's sync-wait loop indefinitely.
-    assert(tuh_msc_ready(dev_addr));
-    if (!tuh_msc_ready(dev_addr))
-        return NULL;
-    _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
-    _sync_busy[dev_addr - 1] = true;
-    return _sync_complete_cb;
-}
-
-// Clear the busy flag - call from tuh_msc_umount_cb to unblock any
-// pending sync wait on disconnect, or after a failed async submit
-// following tuh_msc_sync_begin().
-static void tuh_msc_sync_clear_busy(uint8_t dev_addr)
-{
-    _sync_busy[dev_addr - 1] = false;
-}
-
-//--------------------------------------------------------------------+
-// Synchronous I/O helpers (spin-wait lives here)
-//--------------------------------------------------------------------+
-
-// Track whether the last msc_sync_wait_io call timed out.
-static bool msc_sync_timed_out;
 
 // Return deadline or now+MSC_OP_TIMEOUT_MS, whichever is later.
 // Prevents a nearly-expired init deadline from giving a command
@@ -164,21 +139,6 @@ static inline absolute_time_t stage_deadline(absolute_time_t deadline)
     return absolute_time_diff_us(deadline, floor) > 0 ? floor : deadline;
 }
 
-// Wait ready + arm busy flag → return callback (NULL on deadline).
-static tuh_msc_complete_cb_t msc_sync_begin(uint8_t dev_addr,
-                                            absolute_time_t deadline)
-{
-    while (!tuh_msc_ready(dev_addr))
-    {
-        if (!tuh_msc_mounted(dev_addr))
-            return NULL;
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-            return NULL;
-        main_task();
-    }
-    return tuh_msc_sync_begin(dev_addr);
-}
-
 // Wait for in-flight command to complete.
 static uint8_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
 {
@@ -187,7 +147,7 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
     {
         if (!tuh_msc_mounted(dev_addr))
         {
-            tuh_msc_sync_clear_busy(dev_addr);
+            _sync_busy[dev_addr - 1] = false;
             msc_sync_timed_out = true;
             return MSC_CSW_STATUS_FAILED;
         }
@@ -204,28 +164,13 @@ static uint8_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
                 }
                 main_task();
             }
-            tuh_msc_sync_clear_busy(dev_addr);
+            _sync_busy[dev_addr - 1] = false;
             msc_sync_timed_out = true;
             return MSC_CSW_STATUS_FAILED;
         }
         main_task();
     }
     return _sync_csw_status[dev_addr - 1];
-}
-
-// Perform reset recovery with blocking wait.
-static void msc_sync_recovery(uint8_t dev_addr, absolute_time_t deadline)
-{
-    tuh_msc_reset_recovery(dev_addr);
-    while (tuh_msc_recovery_in_progress(dev_addr))
-    {
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-        {
-            tuh_msc_abort_recovery(dev_addr);
-            break;
-        }
-        main_task();
-    }
 }
 
 //--------------------------------------------------------------------+
@@ -243,25 +188,24 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
     cbw->lun = lun;
 }
 
-// Find the volume index for a given device address, or -1 if none.
-static int vol_for_dev_addr(uint8_t dev_addr)
-{
-    for (int v = 0; v < FF_VOLUMES; v++)
-        if (msc_volume_dev_addr[v] == dev_addr)
-            return v;
-    return -1;
-}
-
-// Internal submit-and-wait (no autosense).
+// Wait for transport ready, submit command, and wait for completion.
+// No autosense — used directly for REQUEST SENSE itself.
 static uint8_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
                                  void *data, absolute_time_t deadline)
 {
-    tuh_msc_complete_cb_t cb = msc_sync_begin(dev_addr, deadline);
-    if (!cb)
-        return MSC_CSW_STATUS_FAILED;
-    if (!tuh_msc_scsi_command(dev_addr, cbw, data, cb, 0))
+    while (!tuh_msc_ready(dev_addr))
     {
-        tuh_msc_sync_clear_busy(dev_addr);
+        if (!tuh_msc_mounted(dev_addr))
+            return MSC_CSW_STATUS_FAILED;
+        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+            return MSC_CSW_STATUS_FAILED;
+        main_task();
+    }
+    _sync_csw_status[dev_addr - 1] = MSC_CSW_STATUS_FAILED;
+    _sync_busy[dev_addr - 1] = true;
+    if (!tuh_msc_scsi_command(dev_addr, cbw, data, _sync_complete_cb, 0))
+    {
+        _sync_busy[dev_addr - 1] = false;
         return MSC_CSW_STATUS_FAILED;
     }
     return msc_sync_wait_io(dev_addr, deadline);
@@ -279,7 +223,13 @@ static uint8_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 
     if (status != MSC_CSW_STATUS_PASSED)
     {
-        int vol = vol_for_dev_addr(dev_addr);
+        int vol = -1;
+        for (int v = 0; v < FF_VOLUMES; v++)
+            if (msc_volume_dev_addr[v] == dev_addr)
+            {
+                vol = v;
+                break;
+            }
         if (vol >= 0)
         {
             scsi_sense_fixed_resp_t sense_resp;
@@ -807,8 +757,8 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
         {
             msc_volume_dev_addr[vol] = dev_addr;
             msc_volume_status[vol] = msc_volume_registered;
-            TCHAR volstr[6] = MSC_VOL0;
-            volstr[3] += vol;
+            TCHAR volstr[6];
+            msc_vol_path(volstr, vol);
             f_mount(&msc_fatfs_volumes[vol], volstr, 0);
             DBG("MSC mount dev_addr %d -> vol %d\n", dev_addr, vol);
             break;
@@ -818,19 +768,17 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
 
 void tuh_msc_umount_cb(uint8_t dev_addr)
 {
-    // TinyUSB callback when a USB mass storage device is detached.
-    // Clear the busy flag first - msch_close() never fires the
-    // user complete_cb on disconnect, so any pending
-    // sync wait would spin forever without this.
-    tuh_msc_sync_clear_busy(dev_addr);
+    // msch_close() never fires the user complete_cb on disconnect,
+    // so clear the busy flag to unblock any pending sync wait.
+    _sync_busy[dev_addr - 1] = false;
 
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         if (msc_volume_dev_addr[vol] == dev_addr &&
             msc_volume_status[vol] != msc_volume_free)
         {
-            TCHAR volstr[6] = MSC_VOL0;
-            volstr[3] += vol;
+            TCHAR volstr[6];
+            msc_vol_path(volstr, vol);
             f_unmount(volstr);
             msc_volume_status[vol] = msc_volume_free;
             msc_volume_dev_addr[vol] = 0;
@@ -854,7 +802,19 @@ static void msc_xfer_error(uint8_t pdrv)
     DBG("MSC xfer fail: timed_out=%d, cbi=%d\n",
         msc_sync_timed_out, tuh_msc_is_cbi(dev_addr));
     if (dev_addr && !msc_sync_timed_out)
-        msc_sync_recovery(dev_addr, make_timeout_time_ms(MSC_OP_TIMEOUT_MS));
+    {
+        tuh_msc_reset_recovery(dev_addr);
+        absolute_time_t deadline = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
+        while (tuh_msc_recovery_in_progress(dev_addr))
+        {
+            if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+            {
+                tuh_msc_abort_recovery(dev_addr);
+                break;
+            }
+            main_task();
+        }
+    }
     msc_handle_io_error(pdrv);
 }
 
@@ -889,11 +849,7 @@ DSTATUS disk_status(BYTE pdrv)
     if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
         return STA_NOINIT;
 
-    DSTATUS res = 0;
-    if (msc_volume_write_protected[pdrv])
-        res |= STA_PROTECT;
-
-    return res;
+    return msc_volume_write_protected[pdrv] ? STA_PROTECT : 0;
 }
 
 DSTATUS disk_initialize(BYTE pdrv)
@@ -922,10 +878,7 @@ DSTATUS disk_initialize(BYTE pdrv)
     if (msc_volume_status[pdrv] != msc_volume_mounted)
         return STA_NOINIT;
 
-    DSTATUS res = 0;
-    if (msc_volume_write_protected[pdrv])
-        res |= STA_PROTECT;
-    return res;
+    return msc_volume_write_protected[pdrv] ? STA_PROTECT : 0;
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
