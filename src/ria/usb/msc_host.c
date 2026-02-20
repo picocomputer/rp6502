@@ -474,13 +474,6 @@ static void cbi_adsc_complete(tuh_xfer_t* xfer) {
 //--------------------------------------------------------------------+
 // PUBLIC API: SCSI COMMAND
 //--------------------------------------------------------------------+
-static inline void cbw_init(msc_cbw_t* cbw, uint8_t lun) {
-  tu_memclr(cbw, sizeof(msc_cbw_t));
-  cbw->signature = MSC_CBW_SIGNATURE;
-  cbw->tag       = 0x54555342; // TUSB
-  cbw->lun       = lun;
-}
-
 bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
                           tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
   msch_interface_t* p_msc = get_itf(daddr);
@@ -508,138 +501,6 @@ bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const* cbw, void* data,
   }
 
   return true;
-}
-
-bool tuh_msc_read_capacity(uint8_t dev_addr, uint8_t lun, scsi_read_capacity10_resp_t* response,
-                           tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = sizeof(scsi_read_capacity10_resp_t);
-  cbw.dir        = TUSB_DIR_IN_MASK;
-  cbw.cmd_len    = sizeof(scsi_read_capacity10_t);
-  cbw.command[0] = SCSI_CMD_READ_CAPACITY_10;
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
-}
-
-bool tuh_msc_inquiry(uint8_t dev_addr, uint8_t lun, scsi_inquiry_resp_t* response,
-                     tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = sizeof(scsi_inquiry_resp_t);
-  cbw.dir         = TUSB_DIR_IN_MASK;
-  cbw.cmd_len     = sizeof(scsi_inquiry_t);
-
-  scsi_inquiry_t const cmd_inquiry = {
-      .cmd_code     = SCSI_CMD_INQUIRY,
-      .alloc_length = sizeof(scsi_inquiry_resp_t)
-  };
-  memcpy(cbw.command, &cmd_inquiry, cbw.cmd_len); //-V1086
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
-}
-
-bool tuh_msc_test_unit_ready(uint8_t dev_addr, uint8_t lun, tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = 0;
-  cbw.dir        = TUSB_DIR_OUT;
-  cbw.cmd_len    = sizeof(scsi_test_unit_ready_t);
-  cbw.command[0] = SCSI_CMD_TEST_UNIT_READY;
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, NULL, complete_cb, arg);
-}
-
-bool tuh_msc_request_sense(uint8_t dev_addr, uint8_t lun, void* response,
-                           tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = sizeof(scsi_sense_fixed_resp_t);
-  cbw.dir         = TUSB_DIR_IN_MASK;
-  cbw.cmd_len     = sizeof(scsi_request_sense_t);
-
-  scsi_request_sense_t const cmd_request_sense = {
-      .cmd_code     = SCSI_CMD_REQUEST_SENSE,
-      .alloc_length = sizeof(scsi_sense_fixed_resp_t)
-  };
-  memcpy(cbw.command, &cmd_request_sense, cbw.cmd_len); //-V1086
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
-}
-
-bool tuh_msc_read_format_capacities(uint8_t dev_addr, uint8_t lun, void* response,
-                                    uint8_t alloc_length,
-                                    tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = alloc_length;
-  cbw.dir         = TUSB_DIR_IN_MASK;
-  cbw.cmd_len     = 12; // UFI command block is 12 bytes
-  cbw.command[0]  = 0x23; // READ FORMAT CAPACITIES
-  cbw.command[7]  = (alloc_length >> 8) & 0xFF;
-  cbw.command[8]  = alloc_length & 0xFF;
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
-}
-
-bool tuh_msc_mode_sense6(uint8_t dev_addr, uint8_t lun, void* response,
-                         tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = sizeof(scsi_mode_sense6_resp_t);
-  cbw.dir         = TUSB_DIR_IN_MASK;
-  cbw.cmd_len     = sizeof(scsi_mode_sense6_t);
-
-  scsi_mode_sense6_t const cmd = {
-      .cmd_code              = SCSI_CMD_MODE_SENSE_6,
-      .disable_block_descriptor = 1,
-      .page_code             = 0x3F,
-      .alloc_length          = sizeof(scsi_mode_sense6_resp_t),
-  };
-  memcpy(cbw.command, &cmd, sizeof(cmd));
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, response, complete_cb, arg);
-}
-
-bool tuh_msc_start_stop_unit(uint8_t dev_addr, uint8_t lun, bool start,
-                             tuh_msc_complete_cb_t complete_cb, uintptr_t arg) {
-  msch_interface_t* p_msc = get_itf(dev_addr);
-  TU_VERIFY(p_msc->configured);
-
-  msc_cbw_t cbw;
-  cbw_init(&cbw, lun);
-
-  cbw.total_bytes = 0;
-  cbw.dir         = TUSB_DIR_OUT;
-  cbw.cmd_len     = 6;
-  cbw.command[0]  = 0x1B; // START STOP UNIT
-  cbw.command[4]  = start ? 0x01 : 0x00;
-
-  return tuh_msc_scsi_command(dev_addr, &cbw, NULL, complete_cb, arg);
 }
 
 //--------------------------------------------------------------------+
@@ -906,6 +767,10 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
 
     p_desc = tu_desc_next(p_desc);
   }
+
+  // Verify required bulk endpoints were found
+  TU_ASSERT(p_msc->ep_in, 0);
+  TU_ASSERT(p_msc->ep_out, 0);
 
   p_msc->itf_num = desc_itf->bInterfaceNumber;
 
