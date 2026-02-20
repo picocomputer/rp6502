@@ -1041,7 +1041,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
     return state + 1;
 }
 
-static FIL *msc_validate_fil(int desc)
+static FIL *msc_std_validate_fil(int desc)
 {
     if (desc < 0 || desc >= MSC_STD_FIL_MAX)
         return NULL;
@@ -1105,7 +1105,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 
 int msc_std_close(int desc, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc);
+    FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
@@ -1123,7 +1123,7 @@ int msc_std_close(int desc, api_errno *err)
 
 std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc);
+    FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
@@ -1142,7 +1142,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
 
 std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc);
+    FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
@@ -1161,7 +1161,7 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 
 int msc_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc);
+    FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
@@ -1217,7 +1217,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
 
 int msc_std_sync(int desc, api_errno *err)
 {
-    FIL *fp = msc_validate_fil(desc);
+    FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
