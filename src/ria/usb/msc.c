@@ -131,6 +131,23 @@ typedef enum
 static volatile bool msc_sync_busy[CFG_TUH_DEVICE_MAX];
 static msc_status_t msc_sync_csw_status[CFG_TUH_DEVICE_MAX];
 
+// Perform BOT reset recovery and spin-wait for it to finish.
+// Aborts if recovery doesn't complete within MSC_OP_TIMEOUT_MS.
+static void msc_sync_recovery_wait(uint8_t dev_addr)
+{
+    tuh_msc_reset_recovery(dev_addr);
+    absolute_time_t deadline = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
+    while (tuh_msc_recovery_in_progress(dev_addr))
+    {
+        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+        {
+            tuh_msc_abort_recovery(dev_addr);
+            break;
+        }
+        main_task();
+    }
+}
+
 static bool msc_sync_complete_cb(uint8_t dev_addr,
                                  tuh_msc_complete_data_t const *cb_data)
 {
@@ -156,17 +173,7 @@ static msc_status_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
         }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
-            tuh_msc_reset_recovery(dev_addr);
-            absolute_time_t rec_deadline = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
-            while (tuh_msc_recovery_in_progress(dev_addr))
-            {
-                if (absolute_time_diff_us(get_absolute_time(), rec_deadline) <= 0)
-                {
-                    tuh_msc_abort_recovery(dev_addr);
-                    break;
-                }
-                main_task();
-            }
+            msc_sync_recovery_wait(dev_addr);
             msc_sync_busy[dev_addr - 1] = false;
             return msc_status_timed_out;
         }
@@ -177,7 +184,7 @@ static msc_status_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
 
 // Return deadline or now+MSC_OP_TIMEOUT_MS, whichever is later.
 // Prevents a nearly-expired deadline from starving a command.
-static inline absolute_time_t msc_sync_deadline(absolute_time_t deadline)
+static inline absolute_time_t msc_sync_floor(absolute_time_t deadline)
 {
     absolute_time_t floor = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
     return absolute_time_diff_us(deadline, floor) > 0 ? floor : deadline;
@@ -246,7 +253,7 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
             .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
         memcpy(sense_cbw.command, &sense_cmd, sizeof(sense_cmd));
         msc_scsi_sync_raw(dev_addr, &sense_cbw, &sense_resp,
-                          msc_sync_deadline(deadline));
+                          msc_sync_floor(deadline));
         if (sense_resp.response_code)
         {
             msc_volume_sense_key[vol] = sense_resp.sense_key;
@@ -384,20 +391,9 @@ static void msc_xfer_error(uint8_t vol, msc_status_t status)
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
     DBG("MSC xfer fail: timed_out=%d, cbi=%d\n",
         status == msc_status_timed_out, tuh_msc_is_cbi(dev_addr));
+    // On timeout, msc_sync_wait_io() already ran recovery.
     if (dev_addr && status != msc_status_timed_out)
-    {
-        tuh_msc_reset_recovery(dev_addr);
-        absolute_time_t deadline = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
-        while (tuh_msc_recovery_in_progress(dev_addr))
-        {
-            if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-            {
-                tuh_msc_abort_recovery(dev_addr);
-                break;
-            }
-            main_task();
-        }
-    }
+        msc_sync_recovery_wait(dev_addr);
 }
 
 // Mark a removable volume as ejected and clear cached geometry.
@@ -648,7 +644,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         if (!tuh_msc_mounted(dev_addr))
             return msc_volume_failed;
         memset(inq, 0, sizeof(*inq));
-        msc_status_t csw = msc_inquiry_sync(vol, inq, msc_sync_deadline(deadline));
+        msc_status_t csw = msc_inquiry_sync(vol, inq, msc_sync_floor(deadline));
         msc_inquiry_rtrims(inq->vendor_id, 8);
         msc_inquiry_rtrims(inq->product_id, 16);
         msc_inquiry_rtrims(inq->product_rev, 4);
@@ -691,7 +687,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             return msc_volume_failed;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             break;
-        if (msc_tur_sync(vol, msc_sync_deadline(deadline)) == msc_status_passed)
+        if (msc_tur_sync(vol, msc_sync_floor(deadline)) == msc_status_passed)
         {
             tur_ok = true;
             break;
@@ -720,7 +716,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
                 sent_start = true;
                 DBG("MSC vol %d: START STOP UNIT (Start)\n", vol);
                 msc_start_stop_unit_sync(vol, true, false,
-                                         msc_sync_deadline(deadline));
+                                         msc_sync_floor(deadline));
             }
             continue;
         }
@@ -731,14 +727,14 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         return msc_volume_ejected;
 
     // ---- CAPACITY ----
-    if (!msc_read_capacity(vol, msc_sync_deadline(deadline)))
+    if (!msc_read_capacity(vol, msc_sync_floor(deadline)))
         return inq->is_removable ? msc_volume_ejected : msc_volume_failed;
 
     // ---- READ BLOCK 0 (non-fatal) ----
-    msc_read_block_zero(vol, msc_sync_deadline(deadline));
+    msc_read_block_zero(vol, msc_sync_floor(deadline));
 
     // ---- WRITE PROTECTION ----
-    msc_read_write_protect(vol, msc_sync_deadline(deadline));
+    msc_read_write_protect(vol, msc_sync_floor(deadline));
 
     msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: init ok, %lu blocks\n", vol,
@@ -884,7 +880,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 
     absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
     msc_status_t status = msc_read10_sync(vol, buff, sector, (uint16_t)count,
-                                          block_size, msc_sync_deadline(deadline));
+                                          block_size, msc_sync_floor(deadline));
     return msc_status_to_dresult(vol, status);
 }
 
@@ -904,7 +900,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
     absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
     msc_status_t status = msc_write10_sync(vol, buff, sector, (uint16_t)count,
-                                           block_size, msc_sync_deadline(deadline));
+                                           block_size, msc_sync_floor(deadline));
     return msc_status_to_dresult(vol, status);
 }
 
@@ -930,7 +926,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         // Best effort: many USB flash drives don't implement
         // SYNCHRONIZE CACHE, so treat command failures as OK.
         absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
-        msc_status_t status = msc_sync_cache10_sync(vol, msc_sync_deadline(deadline));
+        msc_status_t status = msc_sync_cache10_sync(vol, msc_sync_floor(deadline));
         return status == msc_status_timed_out ? RES_NOTRDY : RES_OK;
     }
     case GET_SECTOR_COUNT:
