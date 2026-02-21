@@ -32,9 +32,12 @@ void ble_set_hid_leds(uint8_t) {}
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+static enum {
+    BLE_OFF,
+    BLE_RUNNING,
+    BLE_SHUTTING_DOWN,
+} ble_state;
 static uint8_t ble_enabled = 1;
-static bool ble_initialized;
-static bool ble_shutting_down;
 static bool ble_pairing;
 static uint8_t ble_count_kbd;
 static uint8_t ble_count_mou;
@@ -211,7 +214,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
     if (packet_type != HCI_EVENT_PACKET)
         return;
-    if (ble_shutting_down)
+    if (ble_state != BLE_RUNNING)
         return;
 
     switch (hci_event_packet_get_type(packet))
@@ -300,7 +303,7 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
     UNUSED(size);
 
     uint8_t event_type = hci_event_packet_get_type(packet);
-    if (ble_shutting_down)
+    if (ble_state != BLE_RUNNING)
         return;
 
     switch (event_type)
@@ -428,12 +431,12 @@ static void ble_init_stack(void)
 
 void ble_task(void)
 {
-    if (!ble_initialized || ble_shutting_down)
+    if (ble_state != BLE_RUNNING)
     {
-        if (!ble_shutting_down && cyw_get_rf_enable() && ble_enabled)
+        if (ble_state == BLE_OFF && cyw_get_rf_enable() && ble_enabled)
         {
             ble_init_stack();
-            ble_initialized = true;
+            ble_state = BLE_RUNNING;
             ble_scan_restarts_at = make_timeout_time_ms(100);
         }
         return;
@@ -514,9 +517,9 @@ void ble_shutdown(void)
     ble_connecting_handle = HCI_CON_HANDLE_INVALID;
     ble_scan_restarts_at = 0;
     ble_hid_leds_at = 0;
-    if (ble_initialized)
+    if (ble_state == BLE_RUNNING)
     {
-        ble_shutting_down = true;
+        ble_state = BLE_SHUTTING_DOWN;
         gap_stop_scan();
         gap_connect_cancel();
         gap_whitelist_clear();
@@ -534,9 +537,8 @@ void ble_shutdown(void)
         l2cap_deinit();
         btstack_memory_deinit();
         btstack_crypto_deinit(); // OMG! This was so hard to find.
-        ble_shutting_down = false;
     }
-    ble_initialized = false;
+    ble_state = BLE_OFF;
 }
 
 int ble_status_response(char *buf, size_t buf_size, int state)
