@@ -68,6 +68,29 @@ enum {
                   USB_SIE_CTRL_PULLDOWN_EN_BITS | USB_SIE_CTRL_EP0_INT_1BUF_BITS
 };
 
+//--------------------------------------------------------------------+
+// Interrupt endpoint polling control
+//--------------------------------------------------------------------+
+// The RP2040 SIE shares a single EPX for all control transfers.
+// If hardware-polled interrupt endpoints are active during an EPX
+// transfer, the SIE can interleave them, corrupting the DATA0/DATA1
+// toggle and causing sequence errors.  Disabling interrupt endpoint
+// polling for each EPX phase prevents this.
+
+static void int_ep_polling_disable(void) {
+  usb_hw->int_ep_ctrl = 0;
+}
+
+static void int_ep_polling_enable(void) {
+  uint32_t ctrl = 0;
+  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+    if (ep_pool[i].configured) {
+      ctrl |= 1u << (ep_pool[i].interrupt_num + 1);
+    }
+  }
+  usb_hw->int_ep_ctrl = ctrl;
+}
+
 static struct hw_endpoint *get_dev_ep(uint8_t dev_addr, uint8_t ep_addr) {
   uint8_t num = tu_edpt_number(ep_addr);
   if (num == 0) {
@@ -95,6 +118,11 @@ TU_ATTR_ALWAYS_INLINE static inline bool need_pre(uint8_t dev_addr) {
 }
 
 static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_result_t xfer_result) {
+  // Re-enable interrupt endpoint polling disabled in hcd_setup_send / hcd_edpt_xfer.
+  if (ep == &epx) {
+    int_ep_polling_enable();
+  }
+
   // Mark transfer as done before we tell the tinyusb stack
   uint8_t dev_addr = ep->dev_addr;
   uint8_t ep_addr = ep->ep_addr;
@@ -571,6 +599,9 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   // sie ctrl registers. Otherwise, interrupt ep registers should
   // already be configured
   if (ep == &epx) {
+    // Pause interrupt endpoint polling while EPX is active to prevent
+    // DATA0/DATA1 sequence errors from SIE interleaving.
+    int_ep_polling_disable();
     hw_endpoint_xfer_start(ep, buffer, NULL, buflen);
 
     // That has set up buffer control, endpoint control etc
@@ -606,6 +637,11 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   *hwbuf_ctrl_reg_host(ep) = 0;
   hw_endpoint_reset_transfer(ep);
 
+  // Resume interrupt endpoint polling if we aborted an EPX transfer.
+  if (ep == &epx) {
+    int_ep_polling_enable();
+  }
+
   // Clear any pending BUFF_STATUS for this endpoint.  The hardware may have
   // already latched a completion from the transfer we are aborting.  If we
   // leave the bit set, the ISR will process it after the next transfer
@@ -639,6 +675,10 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
 
   // EPX should be inactive
   TU_ASSERT(!ep->active);
+
+  // Pause interrupt endpoint polling while EPX is active to prevent
+  // DATA0/DATA1 sequence errors from SIE interleaving.
+  int_ep_polling_disable();
 
   // EP0 out — use the saved MPS for this device, not the (possibly stale) EPX value
   uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
@@ -676,45 +716,5 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   return true;
 }
 
-//--------------------------------------------------------------------+
-// Interrupt endpoint pause/resume
-//--------------------------------------------------------------------+
-// The RP2040 SIE shares a single EPX for all control transfers.
-// Hardware-polled interrupt endpoints can delay the STATUS phase of a
-// control transfer long enough for timing-sensitive CBI devices (e.g.
-// TEAC floppy) to STALL.  Temporarily disabling interrupt endpoint
-// polling during critical control transfers avoids this.
-//
-// Reference-counted: callers may nest pause/resume pairs.  The
-// hardware is only modified on the 0→1 (pause) and 1→0 (resume)
-// transitions.
-static uint32_t _saved_int_ep_ctrl;
-static int _int_eps_pause_count;
-
-void hcd_pause_interrupt_eps(uint8_t rhport) {
-  (void) rhport;
-  if (_int_eps_pause_count++ == 0) {
-    _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
-    usb_hw->int_ep_ctrl = 0;
-  }
-}
-
-void hcd_resume_interrupt_eps(uint8_t rhport) {
-  (void) rhport;
-  if (_int_eps_pause_count > 0 && --_int_eps_pause_count == 0) {
-    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
-  }
-}
-
-// Force resume: reset count to zero and restore hardware.  Used by
-// msch_close() when a device disconnects mid-operation — outstanding
-// callbacks that would have resumed are now dead.
-void hcd_force_resume_interrupt_eps(uint8_t rhport) {
-  (void) rhport;
-  if (_int_eps_pause_count > 0) {
-    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
-    _int_eps_pause_count = 0;
-  }
-}
 
 #endif
