@@ -233,7 +233,12 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
                 if (++term->y_offset >= TERM_MAX_HEIGHT)
                     term->y_offset -= TERM_MAX_HEIGHT;
                 for (size_t i = 0; i < term->height; i++)
+                {
                     term->wrapped[i] = term->wrapped[i + 1];
+                    term->dirty[i] = term->dirty[i + 1];
+                    term->erase_fg_color[i] = term->erase_fg_color[i + 1];
+                    term->erase_bg_color[i] = term->erase_bg_color[i + 1];
+                }
                 continue;
             }
             row = term->y_offset + term->height;
@@ -449,6 +454,8 @@ static void term_out_HT(term_state_t *term)
     if (term->x < term->width)
     {
         int xp = 8 - ((term->x + 8) & 7);
+        if (term->x + xp > term->width)
+            xp = term->width - term->x;
         term->ptr += xp;
         term->x += xp;
     }
@@ -589,12 +596,9 @@ static void term_out_CUB(term_state_t *term)
             term->csi_param[0] = cols - term->x;
             term->ptr += term->width - term->x;
             term->x += term->width - term->x;
-            if (term->y)
-            {
-                term->y--;
-                term->ptr -= term->width;
-                term_constrain_ptr(term);
-            }
+            term->y--;
+            term->ptr -= term->width;
+            term_constrain_ptr(term);
             return term_out_CUB(term);
         }
         else
@@ -666,6 +670,7 @@ static void term_out_EL(term_state_t *term)
     {
     case 0: // to the end of the line
     case 1: // to beginning of the line
+    {
         term_data_t *row = &term->mem[(term->y_offset + term->y) * term->width];
         if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
             row -= term->width * TERM_MAX_HEIGHT;
@@ -689,6 +694,7 @@ static void term_out_EL(term_state_t *term)
             row[x].bg_color = erase_bg_color;
         }
         break;
+    }
     case 2: // full line
         term->wrapped[term->y] = false;
         term->dirty[term->y] = true;
@@ -1054,7 +1060,7 @@ term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_p
         return term_render_640(scanline_id, rgb);
 }
 
-void term_RIS()
+void term_RIS(void)
 {
     term_out_RIS(&term_40);
     term_out_RIS(&term_80);
