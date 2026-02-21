@@ -710,8 +710,8 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         bool const is_retry = (p_msc->stage == MSC_STAGE_STATUS_RETRY);
 
         // BOT spec §6.7.2 / §6.3: retry CSW read once on 0-length,
-        // STALL, or sig/tag mismatch. Some devices (e.g. Kingston card
-        // readers) need this to flush stale IN-pipe responses.
+        // STALL, or sig/tag mismatch. After an abort, some hardware can
+        // have a stale IN-pipe response that the sig/tag mismatch catches.
         bool should_retry = false;
         if (!is_retry)
         {
