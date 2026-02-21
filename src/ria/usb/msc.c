@@ -911,7 +911,8 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             msc_volume_block_size[vol] = 0;
             msc_volume_write_protected[vol] = false;
         }
-        disk_initialize(vol);
+        else
+            disk_initialize(vol);
 
         char sizebuf[24];
         if (msc_volume_status[vol] != msc_volume_mounted)
