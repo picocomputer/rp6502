@@ -456,9 +456,6 @@ bool rom_active(void)
 void rom_break(void)
 {
     rom_state = ROM_IDLE;
-    // if (fp->obj.fs != NULL)
-    //     f_close(&fat_fil);
-    fat_fil.obj.fs = NULL;
 }
 
 int rom_installed_response(char *buf, size_t buf_size, int state)
