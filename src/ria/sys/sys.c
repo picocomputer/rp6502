@@ -18,8 +18,6 @@
 #include "usb/vcp.h"
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
-#include <stdio.h>
-#include <string.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_SYS)
 #include <stdio.h>

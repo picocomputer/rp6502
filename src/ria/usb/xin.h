@@ -17,8 +17,6 @@
 /* Main events
  */
 
-void xin_task(void);
-
 // For monitor status command.
 int xin_pad_count(void);
 

@@ -7,7 +7,6 @@
 #include "main.h"
 #include "api/api.h"
 #include "hid/kbd.h"
-#include "str/rln.h"
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "sys/vga.h"
@@ -20,9 +19,6 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-#define COM_BUF_SIZE 256
-#define COM_CSI_PARAM_MAX_LEN 16
 
 static stdio_driver_t com_stdio_driver;
 
@@ -54,20 +50,24 @@ static void com_clear_all_rx()
 
 static void com_tx_task(void)
 {
-    while (com_tx_head != com_tx_tail &&
-           uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS)
+    if (vga_connected())
     {
-        if (vga_connected())
+        // Use TXFE (empty) to pace VGA PIX sends
+        while (com_tx_head != com_tx_tail &&
+               uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS &&
+               pix_ready())
         {
-            if (!pix_ready())
-                break;
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
-            pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
-            // Keep pace with UART TX
             uart_putc_raw(COM_UART, ch);
+            pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
         }
-        else
+    }
+    else
+    {
+        // Fill UART TX FIFO
+        while (com_tx_head != com_tx_tail &&
+               !(uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
         {
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
@@ -194,12 +194,11 @@ static int com_stdio_in_chars(char *buf, int length)
     if (count < length && REGS(0xFFE0) & 0b01000000)
     {
         // Mixing RIA register input with read() calls isn't perfect,
-        // should be considered underfined behavior, and is discouraged.
-        REGS(0xFFE0) &= ~0b01000000;
-        int ch = REGS(0xFFE2);
-        // Replace char with ASCII NUL
+        // should be considered undefined behavior, and is discouraged.
+        buf[count++] = REGS(0xFFE2);
+        // Replace char with ASCII NUL and clear both ready bits
         REGS(0xFFE2) = 0;
-        buf[count++] = ch;
+        REGS(0xFFE0) = 0;
     }
 
     // Take char from ria.c action loop queue

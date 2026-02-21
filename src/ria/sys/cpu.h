@@ -44,7 +44,7 @@ bool cpu_active(void);
 
 // Return calculated reset time. May be higher than configured
 // to guarantee the 6502 gets two clock cycles during reset.
-uint32_t cpu_get_reset_us();
+uint32_t cpu_get_reset_us(void);
 
 // Configuration setting PHI2
 void cpu_load_phi2_khz(const char *str, size_t len);

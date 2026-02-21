@@ -149,7 +149,7 @@ bool atr_api_set(void)
         rln_set_max_length((uint8_t)value);
         break;
     case ATR_TIMEOUT:
-        rln_set_timeout((uint8_t)value);
+        rln_set_timeout(value);
         break;
     case ATR_CTRL_BITS:
         rln_set_ctrl_bits(value);

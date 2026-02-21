@@ -30,8 +30,8 @@ static struct
     uint8_t pan;
 } mou_state;
 // Higher resolution x and y
-uint16_t mou_x;
-uint16_t mou_y;
+static uint16_t mou_x;
+static uint16_t mou_y;
 
 static uint16_t mou_xram;
 
@@ -143,6 +143,15 @@ bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint1
                 break;
             }
         }
+        else if (item.usage_page == 0x0C) // Consumer
+        {
+            if (item.usage == 0x238) // AC Pan
+            {
+                get_report_id = true;
+                conn->pan_offset = item.bit_pos;
+                conn->pan_size = item.size;
+            }
+        }
         else if (item.usage_page == 0x09) // Button page
         {
             get_report_id = true;
@@ -164,7 +173,7 @@ bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint1
     return conn->valid;
 }
 
-bool mou_umount(int slot)
+bool __in_flash("mou_umount") mou_umount(int slot)
 {
     mou_connection_t *conn = find_connection_by_slot(slot);
     if (conn == NULL)

@@ -33,12 +33,12 @@ extern lfs_t lfs_volume;
 void lfs_init(void);
 
 // Test if file position is at the end of the file.
-int lfs_eof(lfs_file_t *file);
+int lfs_eof(lfs_t *lfs, lfs_file_t *file);
 
 // Print formatted characters to the file.
 int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...);
 
 // Safe gets.
-char *lfs_gets(char *str, int n, lfs_t *lfs, lfs_file_t *file);
+char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file);
 
 #endif /* _RIA_SYS_LFS_H_ */

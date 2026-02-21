@@ -106,7 +106,6 @@ int vcp_status_response(char *buf, size_t buf_size, int state)
     {
         uint16_t vid, pid;
         tuh_vid_pid_get(dev->daddr, &vid, &pid);
-        const char *driver = vcp_alt_vendor_name(vid, pid);
         char vendor[VCP_DESC_STRING_MAX_CHAR_LEN + 1];
         char product[VCP_DESC_STRING_MAX_CHAR_LEN + 1];
         char comname[sizeof(vcp_string) + 2];
@@ -117,15 +116,16 @@ int vcp_status_response(char *buf, size_t buf_size, int state)
             (const tusb_desc_string_t *)dev->product_desc_string,
             product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
-        snprintf(buf, buf_size, STR_STATUS_CDC,
-                 comname, vendor[0] ? vendor : driver, product);
+        snprintf(buf, buf_size, STR_STATUS_CDC, comname,
+                 vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
+                 product);
     }
     return state + 1;
 }
 
 bool vcp_std_handles(const char *name)
 {
-    if (strncasecmp(name, vcp_string, 3) != 0)
+    if (strncasecmp(name, vcp_string, sizeof(vcp_string) - 1) != 0)
         return false;
     if (!isdigit((unsigned char)name[3]))
         return false;
@@ -309,18 +309,20 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size,
     return STD_OK;
 }
 
-static void vcp_vendor_string_cb(tuh_xfer_t *xfer)
+static void vcp_vendor_string_done_cb(tuh_xfer_t *xfer)
 {
     (void)xfer;
 }
 
-static void vcp_product_string_cb(tuh_xfer_t *xfer)
+static void vcp_fetch_vendor_string_cb(tuh_xfer_t *xfer)
 {
+    if (xfer->result != XFER_RESULT_SUCCESS)
+        return;
     uint8_t idx = (uint8_t)xfer->user_data;
     tuh_descriptor_get_manufacturer_string(vcp_mounts[idx].daddr, 0x0409,
                                            vcp_mounts[idx].vendor_desc_string,
                                            sizeof(vcp_mounts[idx].vendor_desc_string),
-                                           vcp_vendor_string_cb, xfer->user_data);
+                                           vcp_vendor_string_done_cb, xfer->user_data);
 }
 
 void tuh_cdc_mount_cb(uint8_t idx)
@@ -342,7 +344,7 @@ void tuh_cdc_mount_cb(uint8_t idx)
     tuh_descriptor_get_product_string(daddr, 0x0409,
                                       dev->product_desc_string,
                                       sizeof(dev->product_desc_string),
-                                      vcp_product_string_cb, (uintptr_t)idx);
+                                      vcp_fetch_vendor_string_cb, (uintptr_t)idx);
 }
 
 void tuh_cdc_umount_cb(uint8_t idx)

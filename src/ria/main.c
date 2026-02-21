@@ -99,7 +99,6 @@ void main_task(void)
     com_task();
     wfi_task();
     ntp_task();
-    xin_task();
     ble_task();
     led_task();
     mdm_task();

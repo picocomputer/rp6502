@@ -43,7 +43,7 @@ static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int32_t rw_pos;
 static volatile int32_t rw_end;
-static volatile bool irq_enabled;
+static volatile uint8_t irq_enabled;
 
 void ria_trigger_irq(void)
 {
@@ -261,7 +261,6 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     {
                         if (rw_pos == rw_end)
                         {
-                            REGS(0xFFF6) = 0x00;
                             gpio_put(CPU_RESB_PIN, false);
                             action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
@@ -331,12 +330,15 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE8): // W XRAM1
                     xram[RIA_ADDR1] = data;
                     PIX_SEND_XRAM(RIA_ADDR1, data);
-                    if (xram_queue_page == REGS(0xFFEB) &&
-                        xram_queue_head + 1 != xram_queue_tail)
+                    if (xram_queue_page == REGS(0xFFEB))
                     {
-                        ++xram_queue_head;
-                        xram_queue[xram_queue_head][0] = REGS(0xFFEA);
-                        xram_queue[xram_queue_head][1] = data;
+                        uint8_t next = xram_queue_head + 1;
+                        if (next != xram_queue_tail)
+                        {
+                            xram_queue[next][0] = REGS(0xFFEA);
+                            xram_queue[next][1] = data;
+                            xram_queue_head = next;
+                        }
                     }
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE8): // R XRAM1
@@ -345,12 +347,15 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                 case CASE_WRITE(0xFFE4): // W XRAM0
                     xram[RIA_ADDR0] = data;
                     PIX_SEND_XRAM(RIA_ADDR0, data);
-                    if (xram_queue_page == REGS(0xFFE7) &&
-                        xram_queue_head + 1 != xram_queue_tail)
+                    if (xram_queue_page == REGS(0xFFE7))
                     {
-                        ++xram_queue_head;
-                        xram_queue[xram_queue_head][0] = REGS(0xFFE6);
-                        xram_queue[xram_queue_head][1] = data;
+                        uint8_t next = xram_queue_head + 1;
+                        if (next != xram_queue_tail)
+                        {
+                            xram_queue[next][0] = REGS(0xFFE6);
+                            xram_queue[next][1] = data;
+                            xram_queue_head = next;
+                        }
                     }
                     __attribute__((fallthrough));
                 case CASE_READ(0xFFE4): // R XRAM0
@@ -412,7 +417,6 @@ static void ria_cs_rwb_pio_init(void)
     sm_config_set_out_shift(&config, true, false, 0);
     sm_config_set_out_pin_count(&config, 8);
     pio_sm_init(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, offset, &config);
-    pio_sm_exec_wait_blocking(RIA_READ_PIO, RIA_READ_SM, pio_encode_set(pio_y, 0));
     pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
 }
 

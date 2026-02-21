@@ -17,9 +17,9 @@
 // 64KB Extended RAM
 // One page is tracked for audio
 extern uint8_t *const xram;
-extern uint8_t xram_queue_page;
-extern uint8_t xram_queue_head;
-extern uint8_t xram_queue_tail;
+extern volatile uint8_t xram_queue_page;
+extern volatile uint8_t xram_queue_head;
+extern volatile uint8_t xram_queue_tail;
 extern uint8_t xram_queue[256][2];
 
 // The xstack is:
@@ -50,10 +50,5 @@ typedef void (*mem_read_callback_t)(bool timeout);
 void mem_task(void);
 void mem_break(void);
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size);
-
-// This is used by the monitor when in reset,
-// and by modem emulation when 6502 is running.
-#define RESPONSE_BUF_SIZE 128
-extern char response_buf[RESPONSE_BUF_SIZE];
 
 #endif /* _RIA_SYS_MEM_H_ */

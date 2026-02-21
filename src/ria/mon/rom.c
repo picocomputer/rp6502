@@ -98,9 +98,9 @@ static bool rom_open(const char *name, bool is_fat)
 static bool rom_eof(void)
 {
     if (is_reading_fat)
-        return !!f_eof(&fat_fil);
+        return f_eof(&fat_fil);
     else
-        return !!lfs_eof(&lfs_file);
+        return lfs_eof(&lfs_volume, &lfs_file);
 }
 
 static bool rom_read(uint32_t len, uint32_t crc)
@@ -282,6 +282,7 @@ void rom_mon_install(const char *args, size_t len)
     if (lfsresult >= 0)
         lfsresult = lfscloseresult;
     fresult = f_close(&fat_fil);
+    fat_fil.obj.fs = NULL;
     mon_add_response_fatfs(fresult);
     if (fresult != FR_OK || lfsresult < 0)
         lfs_remove(&lfs_volume, lfs_name);
@@ -420,6 +421,7 @@ void rom_task(void)
         if (fat_fil.obj.fs)
         {
             FRESULT fresult = f_close(&fat_fil);
+            fat_fil.obj.fs = NULL;
             mon_add_response_fatfs(fresult);
         }
         break;

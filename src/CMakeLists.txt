@@ -48,7 +48,7 @@ set_target_properties(${RIA_TARGET} PROPERTIES
 
 target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
     -Wl,--wrap=iswspace # Avoid 26KB of unicode and jis we don't need
-    -Wl,--wrap=f_close # Wrapper forces obj.fs clearing even on error
+    -Wl,-u,__wrap_iswspace
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE
@@ -147,12 +147,14 @@ target_sources(${RIA_TARGET} PRIVATE
 set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/class/msc/msc_host.c
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/host/usbh.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_btstack/btstack_flash_bank.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
     ria/usb/hcd_rp2040.c
     ria/usb/msc_host.c
+    ria/usb/usbh.c
     ria/net/ble_tlv.c
 )
 

@@ -5,7 +5,7 @@
  */
 
 #ifndef _RIA_SYS_CFG_H_
-#define _CF_RIA_SYS_CFG_H_G_H_
+#define _RIA_SYS_CFG_H_
 
 /* System configuration manager.
  */

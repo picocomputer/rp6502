@@ -7,7 +7,7 @@
 #ifndef RP6502_RIA_W
 #include "net/cyw.h"
 void cyw_init(void) {}
-void cyw_task() {}
+void cyw_task(void) {}
 #else
 
 #include "mon/mon.h"
@@ -239,21 +239,18 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state)
     unsigned el = state;
     for (int i = 0; i < 3; i++)
     {
-        snprintf(buf, buf_size, fmt, cyw_country_abbr[el], cyw_country_name[el]);
-        buf += strlen(buf);
-        if (i < 2)
-            el += rows;
-        else
-            el += 1;
-        if (el >= CYW_COUNTRY_COUNT)
+        if (el < CYW_COUNTRY_COUNT)
         {
-            state = -2;
-            break;
+            snprintf(buf, buf_size, fmt, cyw_country_abbr[el], cyw_country_name[el]);
+            size_t n = strlen(buf);
+            buf += n;
+            buf_size -= n;
         }
+        el += rows;
     }
     *buf++ = '\n';
     *buf = 0;
-    return state + 1;
+    return (unsigned)(state + 1) < rows ? state + 1 : -1;
 }
 
 #endif /* RP6502_RIA_W */

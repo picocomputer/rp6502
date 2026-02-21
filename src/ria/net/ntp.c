@@ -56,7 +56,7 @@ static absolute_time_t ntp_timeout_timer;
 // Be aggressive 5 times then back off
 #define NTP_RETRY_RETRIES 5
 #define NTP_RETRY_RETRY_SECS 2
-#define NTP_RETRY_UNSET_SECS 60
+#define NTP_RETRY_UNSET_SECS 300
 #define NTP_RETRY_REFRESH_SECS (24 * 3600)
 #define NTP_TIMEOUT_SECS 2
 
@@ -66,6 +66,11 @@ static void ntp_retry(void)
     {
         ntp_retry_retry_count++;
         ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_RETRY_SECS * 1000);
+    }
+    else if (ntp_success_at_least_once)
+    {
+        ntp_retry_retry_count = 0;
+        ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_REFRESH_SECS * 1000);
     }
     else
         ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_UNSET_SECS * 1000);
@@ -92,6 +97,11 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
 {
     (void)arg;
     (void)pcb;
+    if (ntp_state != ntp_state_request_wait)
+    {
+        pbuf_free(p);
+        return;
+    }
     uint8_t mode = pbuf_get_at(p, 0) & 0x7;
     uint8_t stratum = pbuf_get_at(p, 1);
 
@@ -111,6 +121,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
         {
             DBG("NET NTP success\n");
             ntp_success_at_least_once = true;
+            ntp_retry_retry_count = 0;
             ntp_retry_timer = make_timeout_time_ms(NTP_RETRY_REFRESH_SECS * 1000);
             ntp_state = ntp_state_success;
         }
@@ -129,6 +140,7 @@ void ntp_task(void)
     if (!wfi_ready() && ntp_state != ntp_state_success)
     {
         ntp_state = ntp_state_init;
+        ntp_retry_retry_count = 0;
         return;
     }
 
@@ -136,7 +148,6 @@ void ntp_task(void)
     {
     case ntp_state_init:
         DBG("NET NTP started\n");
-        ntp_retry_retry_count = 0;
         if (!ntp_pcb)
             ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp_pcb)
@@ -157,6 +168,12 @@ void ntp_task(void)
         break;
     case ntp_state_request:
         struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, NTP_MSG_LEN, PBUF_RAM);
+        if (!p)
+        {
+            ntp_retry();
+            ntp_state = ntp_state_request_timeout;
+            break;
+        }
         uint8_t *req = (uint8_t *)p->payload;
         memset(req, 0, NTP_MSG_LEN);
         req[0] = 0x1b;
@@ -165,8 +182,15 @@ void ntp_task(void)
         ntp_timeout_timer = make_timeout_time_ms(NTP_TIMEOUT_SECS * 1000);
         ntp_state = ntp_state_request_wait;
         break;
-    case ntp_state_request_wait:
     case ntp_state_dns_wait:
+        if (absolute_time_diff_us(get_absolute_time(), ntp_timeout_timer) < 0)
+        {
+            DBG("NET NTP DNS timeout\n");
+            ntp_retry();
+            ntp_state = ntp_state_dns_fail;
+        }
+        break;
+    case ntp_state_request_wait:
         if (absolute_time_diff_us(get_absolute_time(), ntp_timeout_timer) < 0)
         {
             DBG("NET NTP request timeout\n");
@@ -181,10 +205,8 @@ void ntp_task(void)
     case ntp_state_request_timeout:
     case ntp_state_set_time_fail:
         if (absolute_time_diff_us(get_absolute_time(), ntp_retry_timer) < 0)
-        {
             ntp_state = ntp_state_init;
-            break;
-        }
+        break;
     }
 }
 

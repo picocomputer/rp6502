@@ -38,24 +38,23 @@ static struct
     uint8_t _E[0x1000];
     uint8_t _F[0x1000];
 } xram_blocks;
+_Static_assert(sizeof(xram_blocks) == 0x10000, "xram must be 64KB");
 uint8_t *const __uninitialized_ram(xram) __attribute__((aligned(4))) =
     (uint8_t *)&xram_blocks;
 
-uint8_t xram_queue_page;
-uint8_t xram_queue_head;
-uint8_t xram_queue_tail;
+volatile uint8_t xram_queue_page;
+volatile uint8_t xram_queue_head;
+volatile uint8_t xram_queue_tail;
 uint8_t xram_queue[256][2];
 
 uint8_t xstack[XSTACK_SIZE + 1];
-size_t volatile xstack_ptr;
+volatile size_t xstack_ptr;
 
 volatile uint8_t __uninitialized_ram(regs)[0x20]
     __attribute__((aligned(0x20)));
 
 uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
 size_t mbuf_len;
-
-char response_buf[RESPONSE_BUF_SIZE];
 
 static mem_read_callback_t mem_callback;
 static absolute_time_t mem_timer;
@@ -80,7 +79,7 @@ void mem_task(void)
             cc(false);
         }
     }
-    if (mem_callback && mem_timeout_ms &&
+    if (mem_callback &&
         absolute_time_diff_us(get_absolute_time(), mem_timer) < 0)
     {
         mem_read_callback_t cc = mem_callback;
@@ -96,7 +95,9 @@ void mem_break(void)
 
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size)
 {
-    assert(size <= MBUF_SIZE);
+    assert(!mem_callback);
+    assert(timeout_ms);
+    assert(size && size <= MBUF_SIZE);
     mem_size = size;
     mbuf_len = 0;
     mem_timeout_ms = timeout_ms;

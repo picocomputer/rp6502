@@ -5,8 +5,6 @@
  */
 
 #include "main.h"
-#include "api/api.h"
-#include "mon/mon.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -50,7 +48,7 @@ void cpu_main(void)
     // The very first things main() does.
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);
-    gpio_set_dir(CPU_RESB_PIN, true);
+    gpio_set_dir(CPU_RESB_PIN, GPIO_OUT);
     vreg_set_voltage(CPU_RP2350_VREG);
     set_sys_clock_khz(CPU_RP2350_KHZ, true);
 }

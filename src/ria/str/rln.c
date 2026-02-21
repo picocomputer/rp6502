@@ -155,8 +155,7 @@ static void rln_history_add(void)
         if (strcmp(rln_history[last], rln_buf) == 0)
             return;
     }
-    for (size_t i = 0; i < rln_buflen; i++)
-        rln_history[rln_history_head][i] = rln_buf[i];
+    memcpy(rln_history[rln_history_head], rln_buf, rln_buflen);
     rln_history[rln_history_head][rln_buflen] = 0;
     rln_history_head = (rln_history_head + 1) % RLN_HISTORY_SIZE;
     if (rln_history_count < RLN_HISTORY_SIZE)
@@ -204,7 +203,7 @@ static void rln_line_forward(void)
     uint16_t count = rln_csi_param[0];
     if (count < 1)
         count = 1;
-    if (rln_csi_param_count > 1 && !!(rln_csi_param[1] - 1))
+    if (rln_csi_param_count > 1 && rln_csi_param[1] != 1)
         return rln_line_forward_word();
     if (count > rln_buflen - rln_bufpos)
         count = rln_buflen - rln_bufpos;
@@ -243,7 +242,7 @@ static void rln_line_backward(void)
     uint16_t count = rln_csi_param[0];
     if (count < 1)
         count = 1;
-    if (rln_csi_param_count > 1 && !!(rln_csi_param[1] - 1))
+    if (rln_csi_param_count > 1 && rln_csi_param[1] != 1)
         return rln_line_backward_word();
     if (count > rln_bufpos)
         count = rln_bufpos;
@@ -297,7 +296,7 @@ static void rln_line_insert(char ch)
 
 static void rln_line_state_C0(char ch)
 {
-    if (rln_ctrl_bits & (1 << ch))
+    if (ch < 32 && (rln_ctrl_bits & (1u << ch)))
     {
         printf("\n");
         rln_buf[0] = ch;

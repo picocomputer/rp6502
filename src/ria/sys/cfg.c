@@ -18,7 +18,6 @@
 #include "sys/lfs.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
-#include <ctype.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
 #include <stdio.h>
@@ -130,6 +129,8 @@ static void cfg_load_with_boot_opt(bool boot_only)
         while (len && mbuf[len - 1] == '\n')
             len--;
         mbuf[len] = 0;
+        if (len < 2)
+            continue;
         const char *str = (char *)mbuf + 2;
         len -= 2;
         switch (mbuf[1])
