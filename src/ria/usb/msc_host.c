@@ -78,7 +78,7 @@ enum
     MSC_STAGE_CMD,
     MSC_STAGE_DATA,
     MSC_STAGE_STATUS,
-    MSC_STAGE_STATUS_RETRY, // BOT CSW retry (0-length, STALL, or sig/tag mismatch)
+    MSC_STAGE_STATUS_RETRY,
 };
 
 // Recovery state machine.
@@ -95,16 +95,14 @@ enum
 
 typedef struct
 {
+    volatile bool configured;
+    volatile bool mounted;
     uint8_t itf_num;
     uint8_t ep_in;
     uint8_t ep_out;
     uint8_t ep_intr;  // CBI interrupt endpoint (0 if BOT)
     uint8_t protocol; // MSC_PROTOCOL_BOT or MSC_PROTOCOL_CBI*
     uint8_t subclass; // MSC_SUBCLASS_UFI, MSC_SUBCLASS_SFF, etc.
-
-    volatile bool configured;
-    volatile bool mounted;
-
     uint8_t stage;
     uint8_t recovery_stage;
     void *buffer;
@@ -223,28 +221,6 @@ const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr)
 //--------------------------------------------------------------------+
 // Recovery State Machine
 //--------------------------------------------------------------------+
-static void recovery_xfer_cb(tuh_xfer_t *xfer);
-
-static bool recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
-{
-    tusb_control_request_t const request = {
-        .bmRequestType_bit = {
-            .recipient = TUSB_REQ_RCPT_ENDPOINT,
-            .type = TUSB_REQ_TYPE_STANDARD,
-            .direction = TUSB_DIR_OUT},
-        .bRequest = TUSB_REQ_CLEAR_FEATURE,
-        .wValue = TUSB_REQ_FEATURE_EDPT_HALT,
-        .wIndex = ep_addr,
-        .wLength = 0};
-    tuh_xfer_t xfer = {
-        .daddr = daddr,
-        .ep_addr = 0,
-        .setup = &request,
-        .buffer = NULL,
-        .complete_cb = recovery_xfer_cb,
-        .user_data = 0};
-    return tuh_control_xfer(&xfer);
-}
 
 static void cancel_inflight(uint8_t dev_addr)
 {
@@ -273,6 +249,29 @@ static void recovery_done(uint8_t daddr, msch_interface_t *p_msc)
 {
     p_msc->recovery_stage = RECOVERY_NONE;
     hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
+}
+
+static void recovery_xfer_cb(tuh_xfer_t *xfer);
+
+static bool recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
+{
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_ENDPOINT,
+            .type = TUSB_REQ_TYPE_STANDARD,
+            .direction = TUSB_DIR_OUT},
+        .bRequest = TUSB_REQ_CLEAR_FEATURE,
+        .wValue = TUSB_REQ_FEATURE_EDPT_HALT,
+        .wIndex = ep_addr,
+        .wLength = 0};
+    tuh_xfer_t xfer = {
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = NULL,
+        .complete_cb = recovery_xfer_cb,
+        .user_data = 0};
+    return tuh_control_xfer(&xfer);
 }
 
 static void recovery_xfer_cb(tuh_xfer_t *xfer)
