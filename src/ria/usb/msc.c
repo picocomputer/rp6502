@@ -679,12 +679,8 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     }
 
     // ---- TUR / CLEAR UNIT ATTENTION ----
-    // Poll TEST UNIT READY until the device is ready, or we're sure
-    // media is absent.  Per SPC-4, after media change the device may
-    // report UNIT ATTENTION (sense key 6) or NOT READY (sense key 2)
-    // while the device initializes the card.  We retry for any
-    // non-ready condition except ASC 0x3A (Medium Not Present),
-    // which means the slot is genuinely empty.
+    // Poll TEST UNIT READY until the device is ready,
+    // or we're sure media is absent.
     bool tur_ok = false;
     bool sent_start = false;
     for (int attempt = 0; attempt < 8; attempt++)
@@ -701,9 +697,15 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         uint8_t sk = msc_volume_sense_key[vol];
         uint8_t asc = msc_volume_sense_asc[vol];
         uint8_t ascq = msc_volume_sense_ascq[vol];
-        // Medium Not Present - no point retrying
+        // Medium Not Present: some drives (e.g. TEAC floppy) return
+        // stale 2/3Ah/00h after media reinsertion. Allow one retry.
         if (asc == 0x3A)
+        {
+            if (msc_volume_status[vol] == msc_volume_ejected &&
+                attempt == 0)
+                continue;
             break;
+        }
         // NOT READY (2) or UNIT ATTENTION (6) - retry
         if (sk == SCSI_SENSE_NOT_READY || sk == SCSI_SENSE_UNIT_ATTENTION)
         {
