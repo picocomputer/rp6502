@@ -107,9 +107,9 @@ static bool msc_volume_write_protected[FF_VOLUMES];
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
 bool tuh_msc_is_cbi(uint8_t dev_addr);
-bool tuh_msc_reset_recovery(uint8_t dev_addr);
-bool tuh_msc_recovery_in_progress(uint8_t dev_addr);
-void tuh_msc_abort_recovery(uint8_t dev_addr);
+bool tuh_msc_reset(uint8_t dev_addr);
+bool tuh_msc_reset_busy(uint8_t dev_addr);
+void tuh_msc_reset_abort(uint8_t dev_addr);
 
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
@@ -132,15 +132,15 @@ static msc_status_t msc_sync_csw_status[CFG_TUH_DEVICE_MAX];
 
 // Perform reset recovery and spin-wait for it to finish.
 // Aborts if recovery doesn't complete within MSC_OP_TIMEOUT_MS.
-static void msc_sync_recovery_wait(uint8_t dev_addr)
+static void msc_sync_reset_recovery(uint8_t dev_addr)
 {
-    tuh_msc_reset_recovery(dev_addr);
+    tuh_msc_reset(dev_addr);
     absolute_time_t deadline = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
-    while (tuh_msc_recovery_in_progress(dev_addr))
+    while (tuh_msc_reset_busy(dev_addr))
     {
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
-            tuh_msc_abort_recovery(dev_addr);
+            tuh_msc_reset_abort(dev_addr);
             break;
         }
         main_task();
@@ -172,7 +172,7 @@ static msc_status_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
         }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
-            msc_sync_recovery_wait(dev_addr);
+            msc_sync_reset_recovery(dev_addr);
             msc_sync_busy[dev_addr - 1] = false;
             return msc_status_timed_out;
         }
@@ -388,7 +388,7 @@ static void msc_xfer_error(uint8_t vol, msc_status_t status)
     DBG("MSC xfer fail: timed_out=%d, cbi=%d\n",
         status == msc_status_timed_out, tuh_msc_is_cbi(dev_addr));
     if (dev_addr && status != msc_status_timed_out)
-        msc_sync_recovery_wait(dev_addr);
+        msc_sync_reset_recovery(dev_addr);
 }
 
 // Mark a removable volume as ejected and clear cached geometry.
@@ -672,7 +672,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     // Poll TEST UNIT READY until the device is ready, or we're sure
     // media is absent.  Per SPC-4, after media change the device may
     // report UNIT ATTENTION (sense key 6) or NOT READY (sense key 2)
-    // while the device initialises the card.  We retry for any
+    // while the device initializes the card.  We retry for any
     // non-ready condition except ASC 0x3A (Medium Not Present),
     // which means the slot is genuinely empty.
     bool tur_ok = false;
@@ -698,7 +698,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         if (sk == SCSI_SENSE_NOT_READY || sk == SCSI_SENSE_UNIT_ATTENTION)
         {
             // Per SBC-4 §5.25: on first NOT READY, send START STOP UNIT
-            // (Start=1) once to kick media initialisation.
+            // (Start=1) once to kick media initialization.
             // Skip subcases that won't resolve without intervention.
             if (!sent_start && sk == SCSI_SENSE_NOT_READY &&
                 inq->is_removable)

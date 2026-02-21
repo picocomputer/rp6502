@@ -2,7 +2,6 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org)
- * Copyright (c) 2025 Rumbledethumps
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -105,7 +104,6 @@ typedef struct
 
     uint8_t stage;
     uint8_t recovery_stage;
-    uint32_t data_residue; // CBI: carried from data phase to status phase
     void *buffer;
     tuh_msc_complete_cb_t complete_cb;
     uintptr_t complete_arg;
@@ -150,7 +148,7 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t data_ep(msch_interface_t const *p_ms
 //--------------------------------------------------------------------+
 
 // Fabricate a CSW, set stage to IDLE, and invoke the completion callback.
-static void _complete(uint8_t daddr, uint8_t csw_status, uint32_t data_residue)
+static void complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_residue)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
@@ -171,8 +169,8 @@ static void _complete(uint8_t daddr, uint8_t csw_status, uint32_t data_residue)
 }
 
 // Submit data-phase transfer or complete with failure.
-static void _start_data_phase(uint8_t daddr, msch_interface_t *p_msc,
-                              msc_cbw_t const *cbw)
+static void start_data_phase(uint8_t daddr, msch_interface_t *p_msc,
+                             msc_cbw_t const *cbw)
 {
     p_msc->stage = MSC_STAGE_DATA;
     uint16_t xfer_len = (cbw->total_bytes > UINT16_MAX)
@@ -180,7 +178,7 @@ static void _start_data_phase(uint8_t daddr, msch_interface_t *p_msc,
                             : (uint16_t)cbw->total_bytes;
     if (!usbh_edpt_xfer(daddr, data_ep(p_msc, cbw), p_msc->buffer, xfer_len))
     {
-        _complete(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
     }
 }
 
@@ -228,9 +226,9 @@ bool tuh_msc_is_cbi(uint8_t dev_addr)
 //--------------------------------------------------------------------+
 // Recovery State Machine
 //--------------------------------------------------------------------+
-static void _recovery_cb(tuh_xfer_t *xfer);
+static void recovery_xfer_cb(tuh_xfer_t *xfer);
 
-static bool _recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
+static bool recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
 {
     tusb_control_request_t const request = {
         .bmRequestType_bit = {
@@ -246,12 +244,12 @@ static bool _recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
         .ep_addr = 0,
         .setup = &request,
         .buffer = NULL,
-        .complete_cb = _recovery_cb,
+        .complete_cb = recovery_xfer_cb,
         .user_data = 0};
     return tuh_control_xfer(&xfer);
 }
 
-static void _cancel_inflight(uint8_t dev_addr)
+static void cancel_inflight(uint8_t dev_addr)
 {
     msch_interface_t *p_msc = get_itf(dev_addr);
 
@@ -274,20 +272,20 @@ static void _cancel_inflight(uint8_t dev_addr)
 }
 
 // End recovery and resume interrupt EP polling.
-static void _recovery_done(uint8_t daddr, msch_interface_t *p_msc)
+static void recovery_done(uint8_t daddr, msch_interface_t *p_msc)
 {
     p_msc->recovery_stage = RECOVERY_NONE;
     hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
 }
 
-static void _recovery_cb(tuh_xfer_t *xfer)
+static void recovery_xfer_cb(tuh_xfer_t *xfer)
 {
     uint8_t const daddr = xfer->daddr;
     msch_interface_t *p_msc = get_itf(daddr);
 
     if (xfer->result != XFER_RESULT_SUCCESS)
     {
-        _recovery_done(daddr, p_msc);
+        recovery_done(daddr, p_msc);
         return;
     }
 
@@ -298,53 +296,53 @@ static void _recovery_cb(tuh_xfer_t *xfer)
     case RECOVERY_BOT_RESET:
     case RECOVERY_CBI_RESET:
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-        if (!_recovery_clear_halt(daddr, p_msc->ep_in))
+        if (!recovery_clear_halt(daddr, p_msc->ep_in))
         {
-            _recovery_done(daddr, p_msc);
+            recovery_done(daddr, p_msc);
         }
         break;
 
     case RECOVERY_CLEAR_IN:
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
         p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
-        if (!_recovery_clear_halt(daddr, p_msc->ep_out))
+        if (!recovery_clear_halt(daddr, p_msc->ep_out))
         {
-            _recovery_done(daddr, p_msc);
+            recovery_done(daddr, p_msc);
         }
         break;
 
     case RECOVERY_CLEAR_OUT:
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
-        _recovery_done(daddr, p_msc);
+        recovery_done(daddr, p_msc);
         break;
 
     default:
-        _recovery_done(daddr, p_msc);
+        recovery_done(daddr, p_msc);
         break;
     }
 }
 
-bool tuh_msc_recovery_in_progress(uint8_t dev_addr)
+bool tuh_msc_reset_busy(uint8_t dev_addr)
 {
     return get_itf(dev_addr)->recovery_stage != RECOVERY_NONE;
 }
 
-void tuh_msc_abort_recovery(uint8_t dev_addr)
+void tuh_msc_reset_abort(uint8_t dev_addr)
 {
     msch_interface_t *p_msc = get_itf(dev_addr);
     if (p_msc->recovery_stage == RECOVERY_NONE)
         return;
     tuh_edpt_abort_xfer(dev_addr, 0);
-    _recovery_done(dev_addr, p_msc);
+    recovery_done(dev_addr, p_msc);
 }
 
-bool tuh_msc_reset_recovery(uint8_t dev_addr)
+bool tuh_msc_reset(uint8_t dev_addr)
 {
     msch_interface_t *p_msc = get_itf(dev_addr);
     if (!p_msc->configured)
         return false;
 
-    _cancel_inflight(dev_addr);
+    cancel_inflight(dev_addr);
 
     // Pause interrupt EP polling for the entire recovery chain.
     // Every step uses control transfers on the shared EPX.
@@ -373,16 +371,16 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr)
             .ep_addr = 0,
             .setup = &request,
             .buffer = epbuf->cbi_cmd,
-            .complete_cb = _recovery_cb,
+            .complete_cb = recovery_xfer_cb,
             .user_data = 0};
         p_msc->recovery_stage = RECOVERY_CBI_RESET;
         if (!tuh_control_xfer(&xfer))
         {
             // ADSC failed — fall back to just clearing endpoints
             p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-            if (!_recovery_clear_halt(dev_addr, p_msc->ep_in))
+            if (!recovery_clear_halt(dev_addr, p_msc->ep_in))
             {
-                _recovery_done(dev_addr, p_msc);
+                recovery_done(dev_addr, p_msc);
             }
         }
         return true;
@@ -394,7 +392,7 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr)
             .recipient = TUSB_REQ_RCPT_INTERFACE,
             .type = TUSB_REQ_TYPE_CLASS,
             .direction = TUSB_DIR_OUT},
-        .bRequest = 0xFF, // Bulk-Only Mass Storage Reset
+        .bRequest = MSC_REQ_RESET,
         .wValue = 0,
         .wIndex = p_msc->itf_num,
         .wLength = 0};
@@ -403,12 +401,12 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr)
         .ep_addr = 0,
         .setup = &request,
         .buffer = NULL,
-        .complete_cb = _recovery_cb,
+        .complete_cb = recovery_xfer_cb,
         .user_data = 0};
     p_msc->recovery_stage = RECOVERY_BOT_RESET;
     if (!tuh_control_xfer(&xfer))
     {
-        _recovery_done(dev_addr, p_msc);
+        recovery_done(dev_addr, p_msc);
         return false;
     }
 
@@ -424,12 +422,12 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
 
-    // Resume interrupt EP polling paused in cbi_scsi_command().
+    // Resume interrupt EP polling paused in tuh_msc_scsi_command().
     hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
 
     if (XFER_RESULT_SUCCESS != xfer->result)
     {
-        _complete(daddr, MSC_CSW_STATUS_FAILED, epbuf->cbw.total_bytes);
+        complete_command(daddr, MSC_CSW_STATUS_FAILED, epbuf->cbw.total_bytes);
         return;
     }
 
@@ -437,22 +435,22 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     msc_cbw_t const *cbw = &epbuf->cbw;
     if (cbw->total_bytes && p_msc->buffer)
     {
-        _start_data_phase(daddr, p_msc, cbw);
+        start_data_phase(daddr, p_msc, cbw);
     }
     else if (p_msc->ep_intr)
     {
         // No data — read interrupt status directly
-        p_msc->data_residue = 0;
+        epbuf->csw.data_residue = 0;
         p_msc->stage = MSC_STAGE_STATUS;
         if (!usbh_edpt_xfer(daddr, p_msc->ep_intr, epbuf->cbi_status, 2))
         {
-            _complete(daddr, MSC_CSW_STATUS_FAILED, 0);
+            complete_command(daddr, MSC_CSW_STATUS_FAILED, 0);
         }
     }
     else
     {
         // CBI_NO_INTERRUPT with no data — assume success
-        _complete(daddr, MSC_CSW_STATUS_PASSED, 0);
+        complete_command(daddr, MSC_CSW_STATUS_PASSED, 0);
     }
 }
 
@@ -551,7 +549,7 @@ void msch_close(uint8_t dev_addr)
 
     TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
 
-    _cancel_inflight(dev_addr);
+    cancel_inflight(dev_addr);
 
     // Force-resume resets the pause refcount to zero so stale pauses
     // from killed recovery callbacks don't accumulate.
@@ -598,16 +596,16 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
             uint8_t status = (event == XFER_RESULT_SUCCESS)
                                  ? MSC_CSW_STATUS_PASSED
                                  : MSC_CSW_STATUS_FAILED;
-            _complete(dev_addr, status, residue);
+            complete_command(dev_addr, status, residue);
         }
         else
         {
-            // Data succeeded — read interrupt status
-            p_msc->data_residue = residue;
+            // Data succeeded — stash residue in CSW scratch, read interrupt status
+            epbuf->csw.data_residue = residue;
             p_msc->stage = MSC_STAGE_STATUS;
             if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
             {
-                _complete(dev_addr, MSC_CSW_STATUS_FAILED, residue);
+                complete_command(dev_addr, MSC_CSW_STATUS_FAILED, residue);
             }
         }
         break;
@@ -653,7 +651,7 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
                 }
             }
         }
-        _complete(dev_addr, csw_status, p_msc->data_residue);
+        complete_command(dev_addr, csw_status, epbuf->csw.data_residue);
         break;
     }
 
@@ -677,12 +675,12 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
     case MSC_STAGE_CMD:
         if (ep_addr != p_msc->ep_out || event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t))
         {
-            _complete(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
             break;
         }
         if (cbw->total_bytes && p_msc->buffer)
         {
-            _start_data_phase(dev_addr, p_msc, cbw);
+            start_data_phase(dev_addr, p_msc, cbw);
             break;
         }
         TU_ATTR_FALLTHROUGH;
@@ -697,7 +695,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         p_msc->stage = MSC_STAGE_STATUS;
         if (!usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
         {
-            _complete(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
         }
         break;
 
@@ -820,7 +818,8 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     p_msc->subclass = desc_itf->bInterfaceSubClass;
     p_msc->ep_intr = 0;
 
-    // Linux unusual_devs.h quirk: force CBI_NO_INTERRUPT for known devices.
+    // Linux unusual_devs.h quirk:
+    // Force CBI_NO_INTERRUPT for known devices.
     //   0x0644:0x0000  TEAC Floppy Drive
     //   0x04e6:0x0001  Matshita LS-120
     //   0x04e6:0x0007  Sony Hifd
@@ -863,18 +862,12 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
         if (TUSB_XFER_BULK == ep_desc->bmAttributes.xfer)
         {
             if (TUSB_DIR_IN == tu_edpt_dir(ep_desc->bEndpointAddress))
-            {
                 p_msc->ep_in = ep_desc->bEndpointAddress;
-            }
             else
-            {
                 p_msc->ep_out = ep_desc->bEndpointAddress;
-            }
         }
         else if (TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
-        {
             p_msc->ep_intr = ep_desc->bEndpointAddress;
-        }
 
         p_desc = tu_desc_next(p_desc);
     }
