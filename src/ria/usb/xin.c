@@ -44,12 +44,17 @@ static const uint8_t gip_rumble_off[] = {0x09, 0x00, 0x00, 0x09, 0x00, 0x0f,
 static const gip_init_packet_t gip_init_packets[] = {
     {0x0e6f, 0x0165, gip_hori_ack,    sizeof(gip_hori_ack)},
     {0x0f0d, 0x0067, gip_hori_ack,    sizeof(gip_hori_ack)},
+    {0x1430, 0x079b, gip_hori_ack,    sizeof(gip_hori_ack)},
     {0x0000, 0x0000, gip_power_on,    sizeof(gip_power_on)},
     {0x045e, 0x02ea, gip_s_init,      sizeof(gip_s_init)},
     {0x045e, 0x0b00, gip_s_init,      sizeof(gip_s_init)},
     {0x045e, 0x0b00, gip_extra_input, sizeof(gip_extra_input)},
-    {0x0000, 0x0000, gip_led_on,      sizeof(gip_led_on)},
-    {0x0000, 0x0000, gip_auth_done,   sizeof(gip_auth_done)},
+    {0x0e6f, 0x0000, gip_led_on,      sizeof(gip_led_on)},
+    {0x1430, 0x079b, gip_led_on,      sizeof(gip_led_on)},
+    {0x20d6, 0xa01a, gip_led_on,      sizeof(gip_led_on)},
+    {0x0e6f, 0x0000, gip_auth_done,   sizeof(gip_auth_done)},
+    {0x1430, 0x079b, gip_auth_done,   sizeof(gip_auth_done)},
+    {0x20d6, 0xa01a, gip_auth_done,   sizeof(gip_auth_done)},
     {0x24c6, 0x541a, gip_rumble_on,   sizeof(gip_rumble_on)},
     {0x24c6, 0x542a, gip_rumble_on,   sizeof(gip_rumble_on)},
     {0x24c6, 0x543a, gip_rumble_on,   sizeof(gip_rumble_on)},
@@ -78,6 +83,7 @@ typedef struct
     bool in_data_received;     // true after first IN xfer callback
     uint8_t report_buffer[64]; // XInput max 64 bytes
     uint8_t out_cmd[16];       // OUT command buffer (persists for async DMA xfer)
+    uint8_t ack_cmd[16];       // Separate buffer for home button ACK (avoids out_cmd race)
 } xbox_device_t;
 
 #define XIN_MAX_DEVICES 4
@@ -704,7 +710,7 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
             xferred_bytes > 2 ? report[2] : 0,
             xferred_bytes > 3 ? report[3] : 0);
 
-        if (gip_cmd == 0x02)
+        if (gip_cmd == 0x02 && xferred_bytes >= 4)
         {
             // GIP_CMD_ANNOUNCE — controller requesting (re-)initialization.
             // This happens when the controller resets or changes power state.
@@ -738,23 +744,24 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
                     }
                 }
             }
-            // ACK for mode button reports
+            // ACK for mode button reports — uses ack_cmd to avoid
+            // racing with out_cmd which may still be in-flight for init/LED.
             if ((report[1] & 0x10) && device->init_done)
             {
-                device->out_cmd[0] = 0x01;      // GIP_CMD_ACK
-                device->out_cmd[1] = 0x20;      // GIP_OPT_INTERNAL
-                device->out_cmd[2] = report[2]; // echo sequence number
-                device->out_cmd[3] = 0x09;      // GIP_PL_LEN(9)
-                device->out_cmd[4] = 0x00;
-                device->out_cmd[5] = report[0]; // echo original cmd (0x07)
-                device->out_cmd[6] = report[1]; // echo original opts
-                device->out_cmd[7] = report[3]; // echo original len_field
-                memset(&device->out_cmd[8], 0, 5);
+                device->ack_cmd[0] = 0x01;      // GIP_CMD_ACK
+                device->ack_cmd[1] = 0x20;      // GIP_OPT_INTERNAL
+                device->ack_cmd[2] = report[2]; // echo sequence number
+                device->ack_cmd[3] = 0x09;      // GIP_PL_LEN(9)
+                device->ack_cmd[4] = 0x00;
+                device->ack_cmd[5] = report[0]; // echo original cmd (0x07)
+                device->ack_cmd[6] = report[1]; // echo original opts
+                device->ack_cmd[7] = report[3]; // echo original len_field
+                memset(&device->ack_cmd[8], 0, 5);
                 tuh_xfer_t ack_xfer = {
                     .daddr = dev_addr,
                     .ep_addr = device->ep_out,
                     .buflen = 13,
-                    .buffer = device->out_cmd,
+                    .buffer = device->ack_cmd,
                     .complete_cb = NULL,
                     .user_data = (uintptr_t)idx};
                 if (!tuh_edpt_xfer(&ack_xfer))
@@ -818,11 +825,6 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 {
     *driver_count = 1;
     return &xin_class_driver;
-}
-
-void xin_task(void)
-{
-    // TODO remove
 }
 
 int xin_pad_count(void)
