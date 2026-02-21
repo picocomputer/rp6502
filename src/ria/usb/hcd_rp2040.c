@@ -76,19 +76,30 @@ enum {
 // transfer, the SIE can interleave them, corrupting the DATA0/DATA1
 // toggle and causing sequence errors.  Disabling interrupt endpoint
 // polling for each EPX phase prevents this.
+//
+// Reference-counted: callers may nest disable/enable pairs (e.g. a
+// class driver wrapping an entire multi-phase control transfer while
+// the HCD also disables/enables per phase).  Hardware is only
+// modified on the 0->1 (disable) and 1->0 (enable) transitions.
+
+static int _int_ep_polling_ref_count;
 
 static void int_ep_polling_disable(void) {
-  usb_hw->int_ep_ctrl = 0;
+  if (_int_ep_polling_ref_count++ == 0) {
+    usb_hw->int_ep_ctrl = 0;
+  }
 }
 
 static void int_ep_polling_enable(void) {
-  uint32_t ctrl = 0;
-  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
-    if (ep_pool[i].configured) {
-      ctrl |= 1u << (ep_pool[i].interrupt_num + 1);
+  if (_int_ep_polling_ref_count > 0 && --_int_ep_polling_ref_count == 0) {
+    uint32_t ctrl = 0;
+    for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+      if (ep_pool[i].configured) {
+        ctrl |= 1u << (ep_pool[i].interrupt_num + 1);
+      }
     }
+    usb_hw->int_ep_ctrl = ctrl;
   }
-  usb_hw->int_ep_ctrl = ctrl;
 }
 
 static struct hw_endpoint *get_dev_ep(uint8_t dev_addr, uint8_t ep_addr) {
@@ -409,6 +420,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   // clear epx and interrupt eps
   memset(&ep_pool, 0, sizeof(ep_pool));
   memset(_ep0_mps, 0, sizeof(_ep0_mps));
+  _int_ep_polling_ref_count = 0;
 
   // Enable in host mode with SOF / Keep alive on
   usb_hw->main_ctrl = USB_MAIN_CTRL_CONTROLLER_EN_BITS | USB_MAIN_CTRL_HOST_NDEVICE_BITS;
@@ -716,5 +728,39 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   return true;
 }
 
+//--------------------------------------------------------------------+
+// Interrupt endpoint pause/resume for class drivers
+//--------------------------------------------------------------------+
+// Class drivers (e.g. CBI MSC) that run multi-phase operations on the
+// shared EPX can hold interrupt EP polling disabled across the entire
+// sequence.  The ref-counted disable/enable ensures the per-phase
+// enable inside the HCD doesn't prematurely re-enable polling.
+
+void hcd_pause_interrupt_eps(uint8_t rhport) {
+  (void) rhport;
+  int_ep_polling_disable();
+}
+
+void hcd_resume_interrupt_eps(uint8_t rhport) {
+  (void) rhport;
+  int_ep_polling_enable();
+}
+
+// Force resume: reset ref count to zero and restore hardware.  Used
+// when a device disconnects mid-operation and outstanding callbacks
+// that would have resumed are now dead.
+void hcd_force_resume_interrupt_eps(uint8_t rhport) {
+  (void) rhport;
+  if (_int_ep_polling_ref_count > 0) {
+    _int_ep_polling_ref_count = 0;
+    uint32_t ctrl = 0;
+    for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+      if (ep_pool[i].configured) {
+        ctrl |= 1u << (ep_pool[i].interrupt_num + 1);
+      }
+    }
+    usb_hw->int_ep_ctrl = ctrl;
+  }
+}
 
 #endif
