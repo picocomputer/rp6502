@@ -52,7 +52,7 @@
 #endif
 static_assert(PICO_USB_HOST_INTERRUPT_ENDPOINTS <= USB_MAX_ENDPOINTS, "");
 
-// Host mode uses one shared endpoint register for non-interrupt endpoint
+// Host mode uses one shared endpoint register for non-interrupt endpoints
 static struct hw_endpoint ep_pool[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
 #define epx (ep_pool[0])
 
@@ -89,7 +89,7 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t dev_speed(void) {
 }
 
 TU_ATTR_ALWAYS_INLINE static inline bool need_pre(uint8_t dev_addr) {
-  // If this device is different to the speed of the root device
+  // If this device is different from the speed of the root device
   // (i.e. is a low speed device on a full speed hub) then need pre
   return hcd_port_speed_get(0) != tuh_speed_get(dev_addr);
 }
@@ -202,7 +202,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     handled |= USB_INTS_STALL_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
 
-    // Clean up EPX hardware state so the next driver gets a fresh
+    // Clean up EPX hardware state so the next transfer gets a fresh
     // endpoint.  Without this, stale AVAIL/PID bits in the buffer
     // control register and residual RECEIVE/SEND_DATA flags in
     // SIE_CTRL persist across the shared EPX, corrupting the next
@@ -410,7 +410,7 @@ void hcd_port_reset(uint8_t rhport)
 {
   (void) rhport;
   pico_trace("hcd_port_reset\n");
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0, );
   // TODO: Nothing to do here yet. Perhaps need to reset some state?
 }
 
@@ -430,7 +430,7 @@ bool hcd_port_connect_status(uint8_t rhport)
 tusb_speed_t hcd_port_speed_get(uint8_t rhport)
 {
   (void) rhport;
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0);
 
   // TODO: Should enumval this register
   switch ( dev_speed() )

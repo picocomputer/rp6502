@@ -41,6 +41,11 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // overall deadline cannot starve an individual command.
 #define MSC_OP_TIMEOUT_MS 500
 
+// disk_status() issues a TUR on removable volumes only when this many
+// milliseconds have elapsed since the last successful SCSI command.
+// This detects media removal without adding overhead during active I/O.
+#define MSC_DISK_STATUS_TIMEOUT_MS 100
+
 // Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
 static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
@@ -102,6 +107,7 @@ static uint8_t msc_volume_sense_key[FF_VOLUMES];
 static uint8_t msc_volume_sense_asc[FF_VOLUMES];
 static uint8_t msc_volume_sense_ascq[FF_VOLUMES];
 static bool msc_volume_write_protected[FF_VOLUMES];
+static absolute_time_t msc_volume_last_success[FF_VOLUMES];
 
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
@@ -238,7 +244,11 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
     if (dev_addr == 0)
         return msc_status_failed;
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
-    if (status != msc_status_passed)
+    if (status == msc_status_passed)
+    {
+        msc_volume_last_success[vol] = get_absolute_time();
+    }
+    else
     {
         scsi_sense_fixed_resp_t sense_resp;
         memset(&sense_resp, 0, sizeof(sense_resp));
@@ -803,8 +813,6 @@ DWORD get_fattime(void)
 DSTATUS disk_status(BYTE pdrv)
 {
     uint8_t vol = pdrv;
-    if (vol >= FF_VOLUMES)
-        return STA_NOINIT;
     if (msc_volume_status[vol] == msc_volume_ejected)
         return STA_NOINIT | STA_NODISK;
     if (msc_volume_status[vol] != msc_volume_mounted)
@@ -812,16 +820,21 @@ DSTATUS disk_status(BYTE pdrv)
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
         return STA_NOINIT;
-
+    // Detect media removal. Timer suppresses during successful IO.
+    if (msc_inquiry_resp[vol].is_removable &&
+        absolute_time_diff_us(msc_volume_last_success[vol], get_absolute_time()) >=
+            MSC_DISK_STATUS_TIMEOUT_MS * 1000 &&
+        msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != msc_status_passed)
+    {
+        msc_handle_io_error(vol);
+        return STA_NOINIT | STA_NODISK;
+    }
     return msc_volume_write_protected[vol] ? STA_PROTECT : 0;
 }
 
 DSTATUS disk_initialize(BYTE pdrv)
 {
-    if (pdrv >= FF_VOLUMES)
-        return STA_NOINIT;
     uint8_t vol = pdrv;
-
     DBG("MSC vol %d: disk_initialize, status=%d\n", vol, msc_volume_status[vol]);
 
     if (msc_volume_status[vol] == msc_volume_registered ||
@@ -862,8 +875,6 @@ static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
-    if (pdrv >= FF_VOLUMES)
-        return RES_PARERR;
     uint8_t vol = pdrv;
     uint32_t const block_size = msc_volume_block_size[vol];
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
@@ -880,8 +891,6 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
-    if (pdrv >= FF_VOLUMES)
-        return RES_PARERR;
     uint8_t vol = pdrv;
     if (msc_volume_write_protected[vol])
         return RES_WRPRT;
@@ -900,8 +909,6 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 
 DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
-    if (pdrv >= FF_VOLUMES)
-        return RES_PARERR;
     uint8_t vol = pdrv;
     switch (cmd)
     {
