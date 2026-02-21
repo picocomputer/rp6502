@@ -15,8 +15,6 @@
 #include <string.h>
 #include "pico/time.h"
 
-#define DEBUG_RIA_USB_MSC
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -113,9 +111,9 @@ static absolute_time_t msc_volume_last_success[FF_VOLUMES];
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
 bool tuh_msc_is_cbi(uint8_t dev_addr);
-bool tuh_msc_reset(uint8_t dev_addr);
-bool tuh_msc_reset_busy(uint8_t dev_addr);
-void tuh_msc_reset_abort(uint8_t dev_addr);
+bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
+const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr);
+void tuh_msc_abort(uint8_t dev_addr);
 
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
@@ -133,60 +131,6 @@ typedef enum
     msc_status_timed_out,
 } msc_status_t;
 
-static volatile bool msc_sync_busy[CFG_TUH_DEVICE_MAX];
-static msc_status_t msc_sync_csw_status[CFG_TUH_DEVICE_MAX];
-
-// Perform reset recovery and spin-wait for it to finish.
-// Aborts if recovery doesn't complete within MSC_OP_TIMEOUT_MS.
-static void msc_sync_reset_recovery(uint8_t dev_addr)
-{
-    tuh_msc_reset(dev_addr);
-    absolute_time_t deadline = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
-    while (tuh_msc_reset_busy(dev_addr))
-    {
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-        {
-            tuh_msc_reset_abort(dev_addr);
-            break;
-        }
-        main_task();
-    }
-}
-
-static bool msc_sync_complete_cb(uint8_t dev_addr,
-                                 tuh_msc_complete_data_t const *cb_data)
-{
-    DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
-        (unsigned long)cb_data->csw->signature,
-        (unsigned long)cb_data->csw->tag,
-        (unsigned long)cb_data->csw->data_residue,
-        cb_data->csw->status);
-    msc_sync_csw_status[dev_addr - 1] = (msc_status_t)cb_data->csw->status;
-    msc_sync_busy[dev_addr - 1] = false;
-    return true;
-}
-
-// Wait for in-flight command to complete.
-static msc_status_t msc_sync_wait_io(uint8_t dev_addr, absolute_time_t deadline)
-{
-    while (msc_sync_busy[dev_addr - 1])
-    {
-        if (!tuh_msc_mounted(dev_addr))
-        {
-            msc_sync_busy[dev_addr - 1] = false;
-            return msc_status_timed_out;
-        }
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-        {
-            msc_sync_reset_recovery(dev_addr);
-            msc_sync_busy[dev_addr - 1] = false;
-            return msc_status_timed_out;
-        }
-        main_task();
-    }
-    return msc_sync_csw_status[dev_addr - 1];
-}
-
 // Return deadline or now+MSC_OP_TIMEOUT_MS, whichever is later.
 // Prevents a nearly-expired deadline from starving a command.
 static inline absolute_time_t msc_sync_floor(absolute_time_t deadline)
@@ -198,7 +142,7 @@ static inline absolute_time_t msc_sync_floor(absolute_time_t deadline)
 //--------------------------------------------------------------------+
 // Synchronous SCSI command wrappers
 //--------------------------------------------------------------------+
-// Each wrapper builds a CDB, submits it via the async transport API,
+// Each wrapper builds a CDB, submits it via the transport API,
 // and blocks until completion.  Returns the CSW status code.
 
 // Initialize a CBW with standard boilerplate fields.
@@ -223,14 +167,26 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
             return msc_status_failed;
         main_task();
     }
-    msc_sync_csw_status[dev_addr - 1] = msc_status_failed;
-    msc_sync_busy[dev_addr - 1] = true;
-    if (!tuh_msc_scsi_command(dev_addr, cbw, data, msc_sync_complete_cb, 0))
-    {
-        msc_sync_busy[dev_addr - 1] = false;
+    if (!tuh_msc_scsi_submit(dev_addr, cbw, data))
         return msc_status_failed;
+    while (!tuh_msc_ready(dev_addr))
+    {
+        if (!tuh_msc_mounted(dev_addr))
+            return msc_status_timed_out;
+        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
+        {
+            tuh_msc_abort(dev_addr);
+            return msc_status_timed_out;
+        }
+        main_task();
     }
-    return msc_sync_wait_io(dev_addr, deadline);
+    const msc_csw_t *csw = tuh_msc_get_csw(dev_addr);
+    DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
+        (unsigned long)csw->signature,
+        (unsigned long)csw->tag,
+        (unsigned long)csw->data_residue,
+        csw->status);
+    return (msc_status_t)csw->status;
 }
 
 // Core submit-and-wait helper with autosense. On non-PASSED status,
@@ -390,17 +346,6 @@ static msc_status_t msc_start_stop_unit_sync(uint8_t vol, bool start,
 // SCSI read and write commands with automatic error recovery
 //--------------------------------------------------------------------+
 
-// Handle SCSI transfer failure: perform reset recovery if needed.
-// On timeout, msc_sync_wait_io() already ran recovery so we skip.
-static void msc_xfer_error(uint8_t vol, msc_status_t status)
-{
-    uint8_t const dev_addr = msc_volume_dev_addr[vol];
-    DBG("MSC xfer fail: timed_out=%d, cbi=%d\n",
-        status == msc_status_timed_out, tuh_msc_is_cbi(dev_addr));
-    if (dev_addr && status != msc_status_timed_out)
-        msc_sync_reset_recovery(dev_addr);
-}
-
 // Mark a removable volume as ejected and clear cached geometry.
 static void msc_handle_io_error(uint8_t vol)
 {
@@ -434,11 +379,7 @@ static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
     memcpy(cbw.command, &cmd, sizeof(cmd));
     msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
     if (status != msc_status_passed)
-    {
-        msc_xfer_error(vol, status);
-        if (msc_tur_sync(vol, msc_sync_floor(deadline)) != msc_status_passed)
-            msc_handle_io_error(vol);
-    }
+        msc_handle_io_error(vol);
     return status;
 }
 
@@ -460,11 +401,7 @@ static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
     // Cast away const: transport API uses void* for both directions.
     msc_status_t status = msc_scsi_sync(vol, &cbw, (void *)(uintptr_t)buff, deadline);
     if (status != msc_status_passed)
-    {
-        msc_xfer_error(vol, status);
-        if (msc_tur_sync(vol, msc_sync_floor(deadline)) != msc_status_passed)
-            msc_handle_io_error(vol);
-    }
+        msc_handle_io_error(vol);
     return status;
 }
 
@@ -768,10 +705,6 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
 
 void tuh_msc_umount_cb(uint8_t dev_addr)
 {
-    // msch_close() never fires the user complete_cb on disconnect,
-    // so clear the busy flag to unblock any pending sync wait.
-    msc_sync_busy[dev_addr - 1] = false;
-
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         if (msc_volume_dev_addr[vol] == dev_addr &&

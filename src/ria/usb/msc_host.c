@@ -32,7 +32,8 @@ See cmake configuration for override.
 Changes from upstream TinyUSB msc_host.c:
 
 - Add CBI (Control/Bulk/Interrupt) transport support.
-- tuh_msc_scsi_command() routes to CBI or BOT based on protocol.
+- Polling-only interface: tuh_msc_scsi_submit() + tuh_msc_ready() + tuh_msc_get_csw().
+  No per-command completion callbacks; msc.c polls for command completion.
 - msch_open() accepts CBI/CBI_NO_INTERRUPT protocols and UFI/SFF subclasses;
   iterates bNumEndpoints to handle bulk + interrupt endpoints.
 - msch_set_config() skips GET_MAX_LUN and all SCSI enumeration; msc.c handles
@@ -40,7 +41,9 @@ Changes from upstream TinyUSB msc_host.c:
 - max_lun, capacity[], tuh_msc_get_maxlun(), tuh_msc_get_block_count(),
   tuh_msc_get_block_size(), tuh_msc_read10(), tuh_msc_write10() removed:
   msc.c owns LUN enumeration and block size/count tracking.
-- Async reset recovery state machine for both BOT and CBI transports.
+- Automatic reset recovery on phase errors and invalid CSWs.
+  tuh_msc_ready() stays false until recovery completes.
+  tuh_msc_abort() cancels in-flight commands or force-stops hung recovery.
 */
 
 #include "tusb_option.h"
@@ -105,8 +108,6 @@ typedef struct
     uint8_t stage;
     uint8_t recovery_stage;
     void *buffer;
-    tuh_msc_complete_cb_t complete_cb;
-    uintptr_t complete_arg;
 } msch_interface_t;
 
 typedef struct
@@ -147,25 +148,16 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t data_ep(msch_interface_t const *p_ms
 // INTERNAL HELPERS
 //--------------------------------------------------------------------+
 
-// Fabricate a CSW, set stage to IDLE, and invoke the completion callback.
+// Fabricate a CSW and set stage to IDLE.
 static void complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_residue)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
     p_msc->stage = MSC_STAGE_IDLE;
-    if (p_msc->complete_cb)
-    {
-        epbuf->csw.signature = MSC_CSW_SIGNATURE;
-        epbuf->csw.tag = epbuf->cbw.tag;
-        epbuf->csw.data_residue = data_residue;
-        epbuf->csw.status = csw_status;
-        tuh_msc_complete_data_t const cb_data = {
-            .cbw = &epbuf->cbw,
-            .csw = &epbuf->csw,
-            .scsi_data = p_msc->buffer,
-            .user_arg = p_msc->complete_arg};
-        p_msc->complete_cb(daddr, &cb_data);
-    }
+    epbuf->csw.signature = MSC_CSW_SIGNATURE;
+    epbuf->csw.tag = epbuf->cbw.tag;
+    epbuf->csw.data_residue = data_residue;
+    epbuf->csw.status = csw_status;
 }
 
 // Submit data-phase transfer or complete with failure.
@@ -221,6 +213,11 @@ bool tuh_msc_ready(uint8_t dev_addr)
 bool tuh_msc_is_cbi(uint8_t dev_addr)
 {
     return is_cbi(get_itf(dev_addr));
+}
+
+const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr)
+{
+    return &get_epbuf(dev_addr)->csw;
 }
 
 //--------------------------------------------------------------------+
@@ -322,38 +319,26 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
     }
 }
 
-bool tuh_msc_reset_busy(uint8_t dev_addr)
+// Start async reset recovery.  Stage must be IDLE.
+// tuh_msc_ready() returns false until recovery finishes.
+static void start_recovery(uint8_t daddr)
 {
-    return get_itf(dev_addr)->recovery_stage != RECOVERY_NONE;
-}
-
-void tuh_msc_reset_abort(uint8_t dev_addr)
-{
-    msch_interface_t *p_msc = get_itf(dev_addr);
-    if (p_msc->recovery_stage == RECOVERY_NONE)
-        return;
-    tuh_edpt_abort_xfer(dev_addr, 0);
-    recovery_done(dev_addr, p_msc);
-}
-
-bool tuh_msc_reset(uint8_t dev_addr)
-{
-    msch_interface_t *p_msc = get_itf(dev_addr);
+    msch_interface_t *p_msc = get_itf(daddr);
     if (!p_msc->configured)
-        return false;
-
-    cancel_inflight(dev_addr);
+        return;
+    if (p_msc->recovery_stage != RECOVERY_NONE)
+        return;
 
     // Pause interrupt EP polling for the entire recovery chain.
     // Every step uses control transfers on the shared EPX.
-    uint8_t const rhport = usbh_get_rhport(dev_addr);
+    uint8_t const rhport = usbh_get_rhport(daddr);
     hcd_pause_interrupt_eps(rhport);
 
     if (is_cbi(p_msc))
     {
         // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk
         // endpoints.  Matches Linux usb-storage usb_stor_CB_reset().
-        msch_epbuf_t *epbuf = get_epbuf(dev_addr);
+        msch_epbuf_t *epbuf = get_epbuf(daddr);
         memset(epbuf->cbi_cmd, 0xFF, 12);
         epbuf->cbi_cmd[0] = 0x1D; // SEND_DIAGNOSTIC
         epbuf->cbi_cmd[1] = 0x04; // SelfTest=1
@@ -367,7 +352,7 @@ bool tuh_msc_reset(uint8_t dev_addr)
             .wIndex = p_msc->itf_num,
             .wLength = 12};
         tuh_xfer_t xfer = {
-            .daddr = dev_addr,
+            .daddr = daddr,
             .ep_addr = 0,
             .setup = &request,
             .buffer = epbuf->cbi_cmd,
@@ -378,12 +363,12 @@ bool tuh_msc_reset(uint8_t dev_addr)
         {
             // ADSC failed — fall back to just clearing endpoints
             p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-            if (!recovery_clear_halt(dev_addr, p_msc->ep_in))
+            if (!recovery_clear_halt(daddr, p_msc->ep_in))
             {
-                recovery_done(dev_addr, p_msc);
+                recovery_done(daddr, p_msc);
             }
         }
-        return true;
+        return;
     }
 
     // BOT: Bulk-Only Mass Storage Reset, then clear halts.
@@ -397,7 +382,7 @@ bool tuh_msc_reset(uint8_t dev_addr)
         .wIndex = p_msc->itf_num,
         .wLength = 0};
     tuh_xfer_t xfer = {
-        .daddr = dev_addr,
+        .daddr = daddr,
         .ep_addr = 0,
         .setup = &request,
         .buffer = NULL,
@@ -406,11 +391,32 @@ bool tuh_msc_reset(uint8_t dev_addr)
     p_msc->recovery_stage = RECOVERY_BOT_RESET;
     if (!tuh_control_xfer(&xfer))
     {
-        recovery_done(dev_addr, p_msc);
-        return false;
+        recovery_done(daddr, p_msc);
+    }
+}
+
+// Cancel any in-flight command and start async recovery, or
+// force-stop an ongoing recovery that has stalled.
+void tuh_msc_abort(uint8_t daddr)
+{
+    msch_interface_t *p_msc = get_itf(daddr);
+    if (!p_msc->configured)
+        return;
+
+    // If recovery is already in progress, force-stop it.
+    if (p_msc->recovery_stage != RECOVERY_NONE)
+    {
+        tuh_edpt_abort_xfer(daddr, 0);
+        recovery_done(daddr, p_msc);
+        return;
     }
 
-    return true;
+    // Nothing to abort.
+    if (p_msc->stage == MSC_STAGE_IDLE)
+        return;
+
+    cancel_inflight(daddr);
+    start_recovery(daddr);
 }
 
 //--------------------------------------------------------------------+
@@ -422,7 +428,7 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
 
-    // Resume interrupt EP polling paused in tuh_msc_scsi_command().
+    // Resume interrupt EP polling paused in tuh_msc_scsi_submit().
     hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
 
     if (XFER_RESULT_SUCCESS != xfer->result)
@@ -457,8 +463,7 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
 //--------------------------------------------------------------------+
 // PUBLIC API: SCSI COMMAND
 //--------------------------------------------------------------------+
-bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const *cbw, void *data,
-                          tuh_msc_complete_cb_t complete_cb, uintptr_t arg)
+bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     TU_VERIFY(p_msc->configured);
@@ -467,8 +472,6 @@ bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const *cbw, void *data,
 
     epbuf->cbw = *cbw;
     p_msc->buffer = data;
-    p_msc->complete_cb = complete_cb;
-    p_msc->complete_arg = arg;
     p_msc->stage = MSC_STAGE_CMD;
 
     if (is_cbi(p_msc))
@@ -496,7 +499,7 @@ bool tuh_msc_scsi_command(uint8_t daddr, msc_cbw_t const *cbw, void *data,
             .setup = &request,
             .buffer = epbuf->cbi_cmd,
             .complete_cb = cbi_adsc_complete,
-            .user_data = arg};
+            .user_data = 0};
 
         // Pause interrupt EP polling while the ADSC control transfer is
         // in-flight.  The RP2040 SIE shares EPX for control and interrupt
@@ -652,6 +655,8 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
             }
         }
         complete_command(dev_addr, csw_status, epbuf->csw.data_residue);
+        if (csw_status == MSC_CSW_STATUS_PHASE_ERROR)
+            start_recovery(dev_addr);
         break;
     }
 
@@ -748,16 +753,14 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
                           csw->tag == cbw->tag);
         if (!csw_valid)
         {
+            // BOT §5.3.3: invalid CSW requires reset recovery.
             csw->status = MSC_CSW_STATUS_FAILED;
+            start_recovery(dev_addr);
         }
-        if (p_msc->complete_cb != NULL)
+        else if (csw->status == MSC_CSW_STATUS_PHASE_ERROR)
         {
-            tuh_msc_complete_data_t const cb_data = {
-                .cbw = cbw,
-                .csw = csw,
-                .scsi_data = p_msc->buffer,
-                .user_arg = p_msc->complete_arg};
-            (void)p_msc->complete_cb(dev_addr, &cb_data);
+            // BOT §6.7.2: phase error requires reset recovery.
+            start_recovery(dev_addr);
         }
         break;
     }
