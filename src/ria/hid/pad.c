@@ -51,16 +51,25 @@ typedef struct
 
 #define PAD_HOME_BUTTON 12
 
+// LED type for player indicators
+enum
+{
+    PAD_LED_NONE,
+    PAD_LED_DS4,
+    PAD_LED_DS5,
+};
+
 // Gamepad descriptors are normalized to this structure.
 typedef struct
 {
     bool valid;
-    bool sony;           // Indicates gamepad uses sony button labels
-    bool home_pressed;   // Used to inject the out of band home button on xbox one
-    int slot;            // HID protocol drivers use slots assigned in hid.h
-    uint8_t report_id;   // If non zero, the first report byte must match and will be skipped
-    bool x_absolute;     // Will be true for gamepads
-    uint16_t x_offset;   // Left stick X
+    bool sony;         // Indicates gamepad uses sony button labels
+    bool home_pressed; // Used to inject the out of band home button on xbox one
+    int slot;          // HID protocol drivers use slots assigned in hid.h
+    uint8_t led_type;  // PAD_LED_NONE, PAD_LED_DS4, PAD_LED_DS5
+    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
+    bool x_absolute;   // Will be true for gamepads
+    uint16_t x_offset; // Left stick X
     uint8_t x_size;
     int32_t x_min;
     int32_t x_max;
@@ -474,11 +483,13 @@ static void pad_distill_descriptor(
     if (pad_is_sony_ds4(vendor_id, product_id))
     {
         *conn = pad_desc_sony_ds4;
+        conn->led_type = PAD_LED_DS4;
         DBG("Detected Sony DS4 gamepad, using pre-computed descriptor.\n");
     }
     else if (pad_is_sony_ds5(vendor_id, product_id))
     {
         *conn = pad_desc_sony_ds5;
+        conn->led_type = PAD_LED_DS5;
         DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");
     }
     else
@@ -762,4 +773,62 @@ int pad_get_player_num(int slot)
         if (pad_connections[i].slot == slot && pad_connections[i].valid)
             return i;
     return -1;
+}
+
+// Build LED output report for player indicator on Sony controllers.
+// Writes into buf which must be PAD_LED_REPORT_MAX bytes.
+// Sets report_id and report_len. Returns true if a LED report was written.
+_Static_assert(PAD_LED_REPORT_MAX >= 47, "PAD_LED_REPORT_MAX too small for DS5");
+_Static_assert(PAD_LED_REPORT_MAX >= 31, "PAD_LED_REPORT_MAX too small for DS4");
+bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
+                          uint8_t *report_id, uint16_t *report_len)
+{
+    int pnum = pad_get_player_num(slot);
+    if (pnum < 0)
+        return false;
+
+    pad_connection_t *conn = &pad_connections[pnum];
+    int ci = pnum & 0x03;
+
+    // Player indicator colors: Blue, Red, Green, Pink
+    static const uint8_t player_colors[][3] = {
+        {0x00, 0x00, 0x40},
+        {0x40, 0x00, 0x00},
+        {0x00, 0x40, 0x00},
+        {0x20, 0x00, 0x20},
+    };
+
+    switch (conn->led_type)
+    {
+    case PAD_LED_DS5:
+    {
+        // DualSense: player indicator LEDs + lightbar color
+        // Player LED patterns: P1=center, P2=inner pair, P3=three, P4=four
+        static const uint8_t ds5_player_leds[] = {0x04, 0x0A, 0x15, 0x1B};
+        memset(buf, 0, 47);
+        buf[1] = 0x14;                  // valid_flag1: player LEDs (0x10) + lightbar (0x04)
+        buf[38] = 0x02;                 // valid_flag2: lightbar setup
+        buf[43] = ds5_player_leds[ci];  // player LED pattern
+        buf[44] = player_colors[ci][0]; // R
+        buf[45] = player_colors[ci][1]; // G
+        buf[46] = player_colors[ci][2]; // B
+        *report_id = 2;
+        *report_len = 47;
+        return true;
+    }
+    case PAD_LED_DS4:
+    {
+        // DualShock 4: lightbar color for player indication
+        memset(buf, 0, 31);
+        buf[0] = 0xFF;                 // enable all features
+        buf[5] = player_colors[ci][0]; // R
+        buf[6] = player_colors[ci][1]; // G
+        buf[7] = player_colors[ci][2]; // B
+        *report_id = 5;
+        *report_len = 31;
+        return true;
+    }
+    default:
+        return false;
+    }
 }

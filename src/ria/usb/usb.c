@@ -29,6 +29,15 @@ static uint8_t usb_count_hid_kbd;
 static uint8_t usb_count_hid_mou;
 static uint8_t usb_count_hid_pad;
 
+// Deferred pad LED send (not safe to send during mount callback).
+static uint8_t usb_pad_led_dev; // dev_addr, 0 = no pending send
+static uint8_t usb_pad_led_idx;
+
+static inline int usb_idx_to_hid_slot(int idx)
+{
+    return HID_USB_START + idx;
+}
+
 void usb_init(void)
 {
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
@@ -39,6 +48,17 @@ void usb_init(void)
 void usb_task(void)
 {
     tuh_task();
+    if (usb_pad_led_dev)
+    {
+        uint8_t led_buf[PAD_LED_REPORT_MAX];
+        uint8_t report_id;
+        uint16_t report_len;
+        if (pad_build_led_report(usb_idx_to_hid_slot(usb_pad_led_idx), led_buf,
+                                 &report_id, &report_len) &&
+            tuh_hid_send_report(usb_pad_led_dev, usb_pad_led_idx,
+                                report_id, led_buf, report_len))
+            usb_pad_led_dev = 0;
+    }
     while (usb_hid_leds_dev)
     {
         while (usb_hid_leds_idx < CFG_TUH_HID)
@@ -82,11 +102,6 @@ void usb_set_hid_leds(uint8_t leds)
     usb_hid_leds_restart();
 }
 
-static inline int usb_idx_to_hid_slot(int idx)
-{
-    return HID_USB_START + idx;
-}
-
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
 {
     kbd_report(usb_idx_to_hid_slot(idx), report, len);
@@ -123,6 +138,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     {
         ++usb_count_hid_pad;
         valid = true;
+
+        // Defer player LED send — not safe during mount callback
+        usb_pad_led_dev = dev_addr;
+        usb_pad_led_idx = idx;
     }
 
     if (valid)
