@@ -96,7 +96,6 @@ static msc_volume_status_t msc_volume_status[FF_VOLUMES];
 static uint8_t msc_volume_dev_addr[FF_VOLUMES];
 static FATFS msc_fatfs_volumes[FF_VOLUMES];
 static scsi_inquiry_resp_t msc_inquiry_resp[FF_VOLUMES];
-static bool msc_volume_tur_ok[FF_VOLUMES];
 static uint32_t msc_volume_block_count[FF_VOLUMES];
 static uint32_t msc_volume_block_size[FF_VOLUMES];
 static uint8_t msc_volume_sense_key[FF_VOLUMES];
@@ -131,7 +130,7 @@ typedef enum
 static volatile bool msc_sync_busy[CFG_TUH_DEVICE_MAX];
 static msc_status_t msc_sync_csw_status[CFG_TUH_DEVICE_MAX];
 
-// Perform BOT reset recovery and spin-wait for it to finish.
+// Perform reset recovery and spin-wait for it to finish.
 // Aborts if recovery doesn't complete within MSC_OP_TIMEOUT_MS.
 static void msc_sync_recovery_wait(uint8_t dev_addr)
 {
@@ -201,7 +200,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 {
     memset(cbw, 0, sizeof(msc_cbw_t));
     cbw->signature = MSC_CBW_SIGNATURE;
-    cbw->tag = 0x54555342; // "TUSB"
+    cbw->tag = 0x36353032; // "6502"
     cbw->lun = lun;
 }
 
@@ -381,17 +380,13 @@ static msc_status_t msc_start_stop_unit_sync(uint8_t vol, bool start,
 // SCSI read and write commands with automatic error recovery
 //--------------------------------------------------------------------+
 
-// Handle SCSI transfer failure: perform reset recovery if appropriate
-// and mark removable volume as ejected.
-// Pass the CSW status returned by the failed command; when it is
-// msc_status_timed_out, msc_sync_wait_io() already ran recovery
-// and we must not start a second overlapping one.
+// Handle SCSI transfer failure: perform reset recovery if needed.
+// On timeout, msc_sync_wait_io() already ran recovery so we skip.
 static void msc_xfer_error(uint8_t vol, msc_status_t status)
 {
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
     DBG("MSC xfer fail: timed_out=%d, cbi=%d\n",
         status == msc_status_timed_out, tuh_msc_is_cbi(dev_addr));
-    // On timeout, msc_sync_wait_io() already ran recovery.
     if (dev_addr && status != msc_status_timed_out)
         msc_sync_recovery_wait(dev_addr);
 }
@@ -406,7 +401,6 @@ static void msc_handle_io_error(uint8_t vol)
         msc_volume_status[vol] == msc_volume_ejected)
         return;
     msc_volume_status[vol] = msc_volume_ejected;
-    msc_volume_tur_ok[vol] = false;
     msc_volume_block_count[vol] = 0;
     msc_volume_block_size[vol] = 0;
     msc_volume_write_protected[vol] = false;
@@ -432,7 +426,8 @@ static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
     if (status != msc_status_passed)
     {
         msc_xfer_error(vol, status);
-        msc_handle_io_error(vol);
+        if (msc_tur_sync(vol, msc_sync_floor(deadline)) != msc_status_passed)
+            msc_handle_io_error(vol);
     }
     return status;
 }
@@ -457,7 +452,8 @@ static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
     if (status != msc_status_passed)
     {
         msc_xfer_error(vol, status);
-        msc_handle_io_error(vol);
+        if (msc_tur_sync(vol, msc_sync_floor(deadline)) != msc_status_passed)
+            msc_handle_io_error(vol);
     }
     return status;
 }
@@ -736,7 +732,6 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     // ---- WRITE PROTECTION ----
     msc_read_write_protect(vol, msc_sync_floor(deadline));
 
-    msc_volume_tur_ok[vol] = true;
     DBG("MSC vol %d: init ok, %lu blocks\n", vol,
         (unsigned long)msc_volume_block_count[vol]);
     return msc_volume_mounted;
@@ -781,7 +776,6 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_volume_sense_asc[vol] = 0;
             msc_volume_sense_ascq[vol] = 0;
             msc_volume_write_protected[vol] = false;
-            msc_volume_tur_ok[vol] = false;
             DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
@@ -971,7 +965,6 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             msc_volume_sense_asc[vol] == 0x3A)
         {
             msc_volume_status[vol] = msc_volume_ejected;
-            msc_volume_tur_ok[vol] = false;
             msc_volume_block_count[vol] = 0;
             msc_volume_block_size[vol] = 0;
             msc_volume_write_protected[vol] = false;

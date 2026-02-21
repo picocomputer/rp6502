@@ -68,7 +68,7 @@ extern void hcd_force_resume_interrupt_eps(uint8_t rhport);
 #define TU_LOG_DRV(...) TU_LOG(CFG_TUH_MSC_LOG_LEVEL, __VA_ARGS__)
 
 //--------------------------------------------------------------------+
-// MACRO CONSTANT TYPEDEF
+// TYPES AND DATA
 //--------------------------------------------------------------------+
 enum
 {
@@ -76,7 +76,7 @@ enum
     MSC_STAGE_CMD,
     MSC_STAGE_DATA,
     MSC_STAGE_STATUS,
-    MSC_STAGE_STATUS_RETRY, // BOT CSW retry after 0-length or STALL
+    MSC_STAGE_STATUS_RETRY, // BOT CSW retry (0-length, STALL, or sig/tag mismatch)
 };
 
 // Recovery state machine.
@@ -105,6 +105,7 @@ typedef struct
 
     uint8_t stage;
     uint8_t recovery_stage;
+    uint32_t data_residue; // CBI: carried from data phase to status phase
     void *buffer;
     tuh_msc_complete_cb_t complete_cb;
     uintptr_t complete_arg;
@@ -143,6 +144,10 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t data_ep(msch_interface_t const *p_ms
 {
     return (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
 }
+
+//--------------------------------------------------------------------+
+// INTERNAL HELPERS
+//--------------------------------------------------------------------+
 
 // Fabricate a CSW, set stage to IDLE, and invoke the completion callback.
 static void _complete(uint8_t daddr, uint8_t csw_status, uint32_t data_residue)
@@ -413,8 +418,6 @@ bool tuh_msc_reset_recovery(uint8_t dev_addr)
 //--------------------------------------------------------------------+
 // CBI (Control/Bulk/Interrupt) Transport
 //--------------------------------------------------------------------+
-static void cbi_adsc_complete(tuh_xfer_t *xfer);
-
 static void cbi_adsc_complete(tuh_xfer_t *xfer)
 {
     uint8_t const daddr = xfer->daddr;
@@ -439,6 +442,7 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     else if (p_msc->ep_intr)
     {
         // No data — read interrupt status directly
+        p_msc->data_residue = 0;
         p_msc->stage = MSC_STAGE_STATUS;
         if (!usbh_edpt_xfer(daddr, p_msc->ep_intr, epbuf->cbi_status, 2))
         {
@@ -570,89 +574,104 @@ void msch_close(uint8_t dev_addr)
     tu_memclr(p_msc, sizeof(msch_interface_t));
 }
 
-bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
+// CBI transfer-complete handler.
+static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_bytes)
+{
+    msch_interface_t *p_msc = get_itf(dev_addr);
+    msch_epbuf_t *epbuf = get_epbuf(dev_addr);
+    msc_cbw_t const *cbw = &epbuf->cbw;
+
+    switch (p_msc->stage)
+    {
+    case MSC_STAGE_DATA:
+    {
+        uint32_t const residue = cbw->total_bytes - xferred_bytes;
+
+        // CBI spec §2.4.3.1.3: clear bulk pipe after data STALL
+        if (event == XFER_RESULT_STALLED)
+        {
+            hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, data_ep(p_msc, cbw));
+        }
+
+        if (event != XFER_RESULT_SUCCESS || !p_msc->ep_intr)
+        {
+            uint8_t status = (event == XFER_RESULT_SUCCESS)
+                                 ? MSC_CSW_STATUS_PASSED
+                                 : MSC_CSW_STATUS_FAILED;
+            _complete(dev_addr, status, residue);
+        }
+        else
+        {
+            // Data succeeded — read interrupt status
+            p_msc->data_residue = residue;
+            p_msc->stage = MSC_STAGE_STATUS;
+            if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
+            {
+                _complete(dev_addr, MSC_CSW_STATUS_FAILED, residue);
+            }
+        }
+        break;
+    }
+
+    case MSC_STAGE_STATUS:
+    {
+        // CBI interrupt status received (2 bytes).
+        uint8_t csw_status;
+        if (event != XFER_RESULT_SUCCESS || xferred_bytes < 1)
+        {
+            csw_status = MSC_CSW_STATUS_FAILED;
+        }
+        else if (p_msc->subclass == MSC_SUBCLASS_UFI)
+        {
+            // UFI: byte 0 = ASC, byte 1 = ASCQ. ASC == 0 means success.
+            csw_status = (epbuf->cbi_status[0] == 0)
+                             ? MSC_CSW_STATUS_PASSED
+                             : MSC_CSW_STATUS_FAILED;
+        }
+        else
+        {
+            // SFF-8070i and others: byte 0 = bType (must be 0x00),
+            // byte 1 bits [1:0] encode status per CBI spec §3.4.3.1.2:
+            //   0x00 = pass, 0x01 = fail, 0x02 = phase error.
+            if (epbuf->cbi_status[0] != 0)
+            {
+                csw_status = MSC_CSW_STATUS_FAILED;
+            }
+            else
+            {
+                switch (epbuf->cbi_status[1] & 0x03)
+                {
+                case 0x00:
+                    csw_status = MSC_CSW_STATUS_PASSED;
+                    break;
+                case 0x02:
+                    csw_status = MSC_CSW_STATUS_PHASE_ERROR;
+                    break;
+                default:
+                    csw_status = MSC_CSW_STATUS_FAILED;
+                    break;
+                }
+            }
+        }
+        _complete(dev_addr, csw_status, p_msc->data_residue);
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    return true;
+}
+
+// BOT transfer-complete handler.
+static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
     msch_interface_t *p_msc = get_itf(dev_addr);
     msch_epbuf_t *epbuf = get_epbuf(dev_addr);
     msc_cbw_t const *cbw = &epbuf->cbw;
     msc_csw_t *csw = &epbuf->csw;
 
-    // CBI transport
-    if (is_cbi(p_msc))
-    {
-        switch (p_msc->stage)
-        {
-        case MSC_STAGE_DATA:
-            // CBI spec §2.4.3.1.3: clear bulk pipe after data STALL
-            if (event == XFER_RESULT_STALLED)
-            {
-                hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, data_ep(p_msc, cbw));
-            }
-            if (event != XFER_RESULT_SUCCESS || !p_msc->ep_intr)
-            {
-                uint8_t status = (event == XFER_RESULT_SUCCESS) ? MSC_CSW_STATUS_PASSED : MSC_CSW_STATUS_FAILED;
-                _complete(dev_addr, status, cbw->total_bytes - xferred_bytes);
-            }
-            else
-            {
-                // Data succeeded — read interrupt status
-                p_msc->stage = MSC_STAGE_STATUS;
-                if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
-                {
-                    _complete(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes - xferred_bytes);
-                }
-            }
-            break;
-
-        case MSC_STAGE_STATUS:
-        {
-            // CBI interrupt status received (2 bytes)
-            uint8_t csw_status;
-            if (event != XFER_RESULT_SUCCESS || xferred_bytes < 1)
-            {
-                csw_status = MSC_CSW_STATUS_FAILED;
-            }
-            else if (p_msc->subclass == MSC_SUBCLASS_UFI)
-            {
-                // UFI: byte 0 = ASC, byte 1 = ASCQ. ASC == 0 means success.
-                csw_status = (epbuf->cbi_status[0] == 0) ? MSC_CSW_STATUS_PASSED : MSC_CSW_STATUS_FAILED;
-            }
-            else
-            {
-                // SFF-8070i and others: byte 0 = bType (must be 0x00),
-                // byte 1 bits [1:0] encode status per CBI spec §3.4.3.1.2:
-                //   0x00 = pass, 0x01 = fail, 0x02 = phase error.
-                if (epbuf->cbi_status[0] != 0)
-                {
-                    csw_status = MSC_CSW_STATUS_FAILED;
-                }
-                else
-                {
-                    switch (epbuf->cbi_status[1] & 0x03)
-                    {
-                    case 0x00:
-                        csw_status = MSC_CSW_STATUS_PASSED;
-                        break;
-                    case 0x02:
-                        csw_status = MSC_CSW_STATUS_PHASE_ERROR;
-                        break;
-                    default:
-                        csw_status = MSC_CSW_STATUS_FAILED;
-                        break;
-                    }
-                }
-            }
-            _complete(dev_addr, csw_status, 0);
-            break;
-        }
-
-        default:
-            break;
-        }
-        return true;
-    }
-
-    // BOT transport
     switch (p_msc->stage)
     {
     case MSC_STAGE_CMD:
@@ -687,48 +706,40 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
     {
         bool const is_retry = (p_msc->stage == MSC_STAGE_STATUS_RETRY);
 
-        // BOT spec §6.7.2: 0-length CSW or CSW STALL — retry CSW read once.
+        // BOT spec §6.7.2 / §6.3: retry CSW read once on 0-length,
+        // STALL, or sig/tag mismatch. Some devices (e.g. Kingston card
+        // readers) need this to flush stale IN-pipe responses.
+        bool should_retry = false;
         if (!is_retry)
         {
             if (event == XFER_RESULT_SUCCESS && xferred_bytes == 0)
             {
                 TU_LOG_DRV("  MSC BOT: 0-length CSW, retrying\r\n");
-                p_msc->stage = MSC_STAGE_STATUS_RETRY;
-                if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
-                {
-                    break;
-                }
+                should_retry = true;
             }
-            if (event == XFER_RESULT_STALLED)
+            else if (event == XFER_RESULT_STALLED)
             {
                 TU_LOG_DRV("  MSC BOT: CSW STALL, clearing and retrying\r\n");
                 hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, p_msc->ep_in);
-                p_msc->stage = MSC_STAGE_STATUS_RETRY;
-                if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
-                {
-                    break;
-                }
+                should_retry = true;
+            }
+            else if (event == XFER_RESULT_SUCCESS &&
+                     xferred_bytes == sizeof(msc_csw_t) &&
+                     (csw->signature != MSC_CSW_SIGNATURE || csw->tag != cbw->tag))
+            {
+                TU_LOG_DRV("  MSC BOT: CSW sig/tag mismatch, retrying\r\n");
+                should_retry = true;
             }
         }
 
-        // TODO find a better/earlier place for this
-        // BOT spec §6.3 / Figure 2: if CSW is not meaningful (wrong
-        // signature or tag mismatch), the host should perform Reset
-        // Recovery.  Some devices (e.g. Kingston card readers) leave a
-        // stale response in their IN pipe after a Bulk-Only Mass Storage
-        // Reset, causing the first CSW read to return the stale packet
-        // instead of the real CSW.  Retry the read once to consume the
-        // stale packet; the second read picks up the real CSW.
-        if (!is_retry && event == XFER_RESULT_SUCCESS &&
-            xferred_bytes == sizeof(msc_csw_t) &&
-            (csw->signature != MSC_CSW_SIGNATURE || csw->tag != cbw->tag))
+        if (should_retry)
         {
-            TU_LOG_DRV("  MSC BOT: CSW sig/tag mismatch, retrying\r\n");
             p_msc->stage = MSC_STAGE_STATUS_RETRY;
             if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
             {
                 break;
             }
+            // Retry submission failed — fall through to validation
         }
 
         // Validate CSW per BOT spec §6.3
@@ -758,6 +769,13 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
     }
 
     return true;
+}
+
+bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
+{
+    if (is_cbi(get_itf(dev_addr)))
+        return cbi_xfer_cb(dev_addr, event, xferred_bytes);
+    return bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
 }
 
 //--------------------------------------------------------------------+
