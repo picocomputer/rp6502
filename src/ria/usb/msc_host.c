@@ -56,13 +56,6 @@ Changes from upstream TinyUSB msc_host.c:
 
 #include "class/msc/msc_host.h"
 
-// Defined in hcd_rp2040.c — pause/resume hardware interrupt endpoint
-// polling to prevent bus contention during control transfers on the
-// shared EPX.  Reference-counted: nested pause/resume pairs are safe.
-extern void hcd_pause_interrupt_eps(uint8_t rhport);
-extern void hcd_resume_interrupt_eps(uint8_t rhport);
-extern void hcd_force_resume_interrupt_eps(uint8_t rhport);
-
 #ifndef CFG_TUH_MSC_LOG_LEVEL
 #define CFG_TUH_MSC_LOG_LEVEL CFG_TUH_LOG_LEVEL
 #endif
@@ -226,12 +219,10 @@ static void cancel_inflight(uint8_t dev_addr)
 {
     msch_interface_t *p_msc = get_itf(dev_addr);
 
-    // If a CBI ADSC control transfer is in-flight, abort it and release
-    // the interrupt EP pause that tuh_msc_scsi_submit() acquired.
+    // If a CBI ADSC control transfer is in-flight, abort it.
     if (p_msc->stage == MSC_STAGE_CMD && is_cbi(p_msc))
     {
         tuh_edpt_abort_xfer(dev_addr, 0);
-        hcd_resume_interrupt_eps(usbh_get_rhport(dev_addr));
     }
 
     tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
@@ -244,11 +235,10 @@ static void cancel_inflight(uint8_t dev_addr)
     p_msc->stage = MSC_STAGE_IDLE;
 }
 
-// End recovery and resume interrupt EP polling.
 static void recovery_done(uint8_t daddr, msch_interface_t *p_msc)
 {
+    (void)daddr;
     p_msc->recovery_stage = RECOVERY_NONE;
-    hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
 }
 
 static void recovery_xfer_cb(tuh_xfer_t *xfer);
@@ -327,10 +317,6 @@ static void start_recovery(uint8_t daddr)
         return;
     if (p_msc->recovery_stage != RECOVERY_NONE)
         return;
-
-    // Pause interrupt EP polling for the entire recovery chain.
-    // Every step uses control transfers on the shared EPX.
-    hcd_pause_interrupt_eps(usbh_get_rhport(daddr));
 
     if (is_cbi(p_msc))
     {
@@ -426,9 +412,6 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
 
-    // Resume interrupt EP polling paused in tuh_msc_scsi_submit().
-    hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
-
     if (XFER_RESULT_SUCCESS != xfer->result)
     {
         complete_command(daddr, MSC_CSW_STATUS_FAILED, epbuf->cbw.total_bytes);
@@ -499,15 +482,9 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
             .complete_cb = cbi_adsc_complete,
             .user_data = 0};
 
-        // Pause interrupt EP polling while the ADSC control transfer is
-        // in-flight.  The RP2040 SIE shares EPX for control and interrupt
-        // endpoints; concurrent polling can delay the STATUS phase.
-        hcd_pause_interrupt_eps(usbh_get_rhport(daddr));
-
         if (!tuh_control_xfer(&xfer))
         {
             p_msc->stage = MSC_STAGE_IDLE;
-            hcd_resume_interrupt_eps(usbh_get_rhport(daddr));
             return false;
         }
         return true;
@@ -551,10 +528,6 @@ void msch_close(uint8_t dev_addr)
     TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
 
     cancel_inflight(dev_addr);
-
-    // Force-resume resets the pause refcount to zero so stale pauses
-    // from killed recovery callbacks don't accumulate.
-    hcd_force_resume_interrupt_eps(usbh_get_rhport(dev_addr));
 
     p_msc->recovery_stage = RECOVERY_NONE;
 
