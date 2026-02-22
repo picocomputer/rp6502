@@ -117,6 +117,14 @@ bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
 const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr);
 void tuh_msc_abort(uint8_t dev_addr);
 
+// Hub polling pause/resume from our custom hub.c.
+// CBI transport shares EPX with hub EP0 control transfers; pausing
+// hub polling prevents EPX contention during CBI command sequences.
+#if CFG_TUH_HUB
+void hub_pause_polling(void);
+void hub_resume_polling(void);
+#endif
+
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
 //--------------------------------------------------------------------+
@@ -161,6 +169,19 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
                                       void *data, absolute_time_t deadline)
 {
+    // CBI transport shares EPX with hub EP0 control transfers.
+    // Pause hub interrupt polling so that hub event processing cannot
+    // start an EP0 chain that stomps EPX while a CBI bulk transfer is
+    // in flight.  Any status changes are latched by the hub and will be
+    // delivered when polling resumes after the command completes.
+#if CFG_TUH_HUB
+    bool const pause_hub = tuh_msc_is_cbi(dev_addr);
+    if (pause_hub)
+        hub_pause_polling();
+#endif
+
+    msc_status_t result;
+
     // Wait for transport ready AND successfully submit the command.
     // CBI transport sends the CDB via an ADSC control transfer on the
     // shared EPX.  If another control transfer is in-flight (e.g. hub
@@ -170,9 +191,15 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
     for (;;)
     {
         if (!tuh_msc_mounted(dev_addr))
-            return msc_status_failed;
+        {
+            result = msc_status_failed;
+            goto done;
+        }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-            return msc_status_failed;
+        {
+            result = msc_status_failed;
+            goto done;
+        }
         if (!tuh_msc_ready(dev_addr))
         {
             main_task();
@@ -186,21 +213,34 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
     while (!tuh_msc_ready(dev_addr))
     {
         if (!tuh_msc_mounted(dev_addr))
-            return msc_status_timed_out;
+        {
+            result = msc_status_timed_out;
+            goto done;
+        }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
             tuh_msc_abort(dev_addr);
-            return msc_status_timed_out;
+            result = msc_status_timed_out;
+            goto done;
         }
         main_task();
     }
-    const msc_csw_t *csw = tuh_msc_get_csw(dev_addr);
-    DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
-        (unsigned long)csw->signature,
-        (unsigned long)csw->tag,
-        (unsigned long)csw->data_residue,
-        csw->status);
-    return (msc_status_t)csw->status;
+    {
+        const msc_csw_t *csw = tuh_msc_get_csw(dev_addr);
+        DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
+            (unsigned long)csw->signature,
+            (unsigned long)csw->tag,
+            (unsigned long)csw->data_residue,
+            csw->status);
+        result = (msc_status_t)csw->status;
+    }
+
+done:
+#if CFG_TUH_HUB
+    if (pause_hub)
+        hub_resume_polling();
+#endif
+    return result;
 }
 
 // Core submit-and-wait helper with autosense. On non-PASSED status,
@@ -447,6 +487,10 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
                                             deadline) !=
             msc_status_passed)
             return false;
+
+        DBG("MSC vol %d: RFC raw [%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X]\n",
+            vol, rfc[0], rfc[1], rfc[2], rfc[3], rfc[4], rfc[5],
+            rfc[6], rfc[7], rfc[8], rfc[9], rfc[10], rfc[11]);
 
         uint8_t list_len = rfc[3];
         if (list_len < 8)
