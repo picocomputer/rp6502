@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -159,16 +161,28 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
                                       void *data, absolute_time_t deadline)
 {
-    while (!tuh_msc_ready(dev_addr))
+    // Wait for transport ready AND successfully submit the command.
+    // CBI transport sends the CDB via an ADSC control transfer on the
+    // shared EPX.  If another control transfer is in-flight (e.g. hub
+    // Get Port Status), tuh_msc_scsi_submit() returns false even though
+    // the MSC layer is idle.  We must retry submission rather than
+    // failing the entire command.
+    for (;;)
     {
         if (!tuh_msc_mounted(dev_addr))
             return msc_status_failed;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             return msc_status_failed;
+        if (!tuh_msc_ready(dev_addr))
+        {
+            main_task();
+            continue;
+        }
+        if (tuh_msc_scsi_submit(dev_addr, cbw, data))
+            break;
+        // Submit failed (control pipe busy) — pump events and retry
         main_task();
     }
-    if (!tuh_msc_scsi_submit(dev_addr, cbw, data))
-        return msc_status_failed;
     while (!tuh_msc_ready(dev_addr))
     {
         if (!tuh_msc_mounted(dev_addr))
