@@ -544,6 +544,17 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   // Clear hardware buffer control to cancel any pending DMA/transfer
   *hwbuf_ctrl_reg_host(ep) = 0;
 
+  // Clear any pending buf_status bits for this endpoint so that a stale
+  // buffer-complete interrupt does not fire after the endpoint is reused
+  // for a new transfer (which would cause an assertion failure in
+  // sync_ep_buffer due to mismatched buffer state).
+  if (ep == &epx) {
+    usb_hw_clear->buf_status = 1u;
+  } else {
+    uint32_t const mask = 3u << ((ep->interrupt_num + 1) * 2);
+    usb_hw_clear->buf_status = mask;
+  }
+
   // Reset the software transfer state (clears ep->active)
   hw_endpoint_reset_transfer(ep);
 
