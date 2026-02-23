@@ -40,6 +40,11 @@
 #include "host/hcd.h"
 #include "host/usbh.h"
 
+#ifndef CFG_TUH_HCD_LOG_LEVEL
+#define CFG_TUH_HCD_LOG_LEVEL CFG_TUH_LOG_LEVEL
+#endif
+#define TU_LOG_DRV(...) TU_LOG(CFG_TUH_HCD_LOG_LEVEL, __VA_ARGS__)
+
 // port 0 is native USB port, other is counted as software PIO
 #define RHPORT_NATIVE 0
 
@@ -55,6 +60,10 @@ static_assert(PICO_USB_HOST_INTERRUPT_ENDPOINTS <= USB_MAX_ENDPOINTS, "");
 // Host mode uses one shared endpoint register for non-interrupt endpoint
 static struct hw_endpoint ep_pool[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
 #define epx (ep_pool[0])
+
+// EP0 max packet size per device address.  EPX is shared across all
+// devices so we must save/restore wMaxPacketSize when switching.
+static uint16_t _ep0_pktsize[CFG_TUH_DEVICE_MAX + 1];
 
 // Flags we set by default in sie_ctrl (we add other bits on top)
 enum {
@@ -351,6 +360,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 
   // clear epx and interrupt eps
   memset(&ep_pool, 0, sizeof(ep_pool));
+  memset(_ep0_pktsize, 0, sizeof(_ep0_pktsize));
 
   // Enable in host mode with SOF / Keep alive on
   usb_hw->main_ctrl = USB_MAIN_CTRL_CONTROLLER_EN_BITS | USB_MAIN_CTRL_HOST_NDEVICE_BITS;
@@ -420,6 +430,10 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   pico_trace("hcd_device_close %d\n", dev_addr);
   (void) rhport;
 
+  if (dev_addr < TU_ARRAY_SIZE(_ep0_pktsize)) {
+    _ep0_pktsize[dev_addr] = 0;
+  }
+
   // reset epx if it is currently active with unplugged device
   if (epx.configured && epx.active && epx.dev_addr == dev_addr) {
     epx.configured = false;
@@ -472,7 +486,15 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
   hw_endpoint_t *ep = hw_endpoint_allocate(ep_desc->bmAttributes.xfer);
   TU_ASSERT(ep);
 
-  hw_endpoint_init(ep, dev_addr, ep_desc->bEndpointAddress, tu_edpt_packet_size(ep_desc), ep_desc->bmAttributes.xfer,
+  uint16_t pktsize = tu_edpt_packet_size(ep_desc);
+
+  // Track EP0 max packet size per device -- EPX is shared
+  if (tu_edpt_number(ep_desc->bEndpointAddress) == 0 &&
+      dev_addr < TU_ARRAY_SIZE(_ep0_pktsize)) {
+    _ep0_pktsize[dev_addr] = pktsize;
+  }
+
+  hw_endpoint_init(ep, dev_addr, ep_desc->bEndpointAddress, pktsize, ep_desc->bmAttributes.xfer,
                    ep_desc->bInterval);
 
   return true;
@@ -499,12 +521,14 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   // EP should be inactive
   TU_ASSERT(!ep->active);
 
-  // Control endpoint can change direction 0x00 <-> 0x80
-  if (ep_addr != ep->ep_addr) {
-    assert(ep_num == 0);
-
-    // Direction has flipped on endpoint control so re init it but with same properties
-    hw_endpoint_init(ep, dev_addr, ep_addr, ep->wMaxPacketSize, TUSB_XFER_CONTROL, 0);
+  // EPX is shared across all devices: reinit when device or direction changes
+  // to restore the correct EP0 max packet size for the target device.
+  if (ep_num == 0 && (ep_addr != ep->ep_addr || dev_addr != ep->dev_addr)) {
+    uint16_t pktsize = (dev_addr < TU_ARRAY_SIZE(_ep0_pktsize) && _ep0_pktsize[dev_addr])
+                       ? _ep0_pktsize[dev_addr] : ep->wMaxPacketSize;
+    TU_LOG_DRV("  EPX switch dev %d->%d ep %02X pktsize %d->%d\r\n",
+               ep->dev_addr, dev_addr, ep_addr, ep->wMaxPacketSize, pktsize);
+    hw_endpoint_init(ep, dev_addr, ep_addr, pktsize, TUSB_XFER_CONTROL, 0);
   }
 
   // If a normal transfer (non-interrupt) then initiate using
@@ -577,8 +601,12 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // EPX should be inactive
   assert(!ep->active);
 
-  // EP0 out
-  hw_endpoint_init(ep, dev_addr, 0x00, ep->wMaxPacketSize, 0, 0);
+  // EP0 out — restore correct max packet size for this device
+  uint16_t pktsize = (dev_addr < TU_ARRAY_SIZE(_ep0_pktsize) && _ep0_pktsize[dev_addr])
+                     ? _ep0_pktsize[dev_addr] : ep->wMaxPacketSize;
+  TU_LOG_DRV("  EPX setup dev %d->%d pktsize %d->%d\r\n",
+             ep->dev_addr, dev_addr, ep->wMaxPacketSize, pktsize);
+  hw_endpoint_init(ep, dev_addr, 0x00, pktsize, 0, 0);
   assert(ep->configured);
 
   ep->remaining_len = 8;

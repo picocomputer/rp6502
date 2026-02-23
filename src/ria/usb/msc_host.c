@@ -31,7 +31,7 @@ See cmake configuration for override.
 
 Changes from upstream TinyUSB msc_host.c:
 
-- Add CBI (Control/Bulk/Interrupt) transport support.
+- Add CBI (Control/Bulk/Interrupt) and CB (Control/Bulk) transport support.
 - Polling-only interface: tuh_msc_scsi_submit() + tuh_msc_ready() + tuh_msc_get_csw().
   No per-command completion callbacks; msc.c polls for command completion.
 - msch_open() accepts CBI/CBI_NO_INTERRUPT protocols and UFI/SFF subclasses;
@@ -76,7 +76,7 @@ enum
 
 // Recovery state machine.
 // BOT: BOT_RESET -> CLEAR_IN -> CLEAR_OUT -> NONE.
-// CBI: CBI_RESET -> CLEAR_IN -> CLEAR_OUT -> NONE.
+// CBI: CBI_RESET -> CLEAR_IN -> CLEAR_OUT -> CLEAR_INTR -> NONE.
 enum
 {
     RECOVERY_NONE = 0,
@@ -84,6 +84,7 @@ enum
     RECOVERY_CBI_RESET,
     RECOVERY_CLEAR_IN,
     RECOVERY_CLEAR_OUT,
+    RECOVERY_CLEAR_INTR,
 };
 
 typedef struct
@@ -98,6 +99,7 @@ typedef struct
     uint8_t subclass; // MSC_SUBCLASS_UFI, MSC_SUBCLASS_SFF, etc.
     uint8_t stage;
     uint8_t recovery_stage;
+    bool data_stall;  // data endpoint STALLed; device-level clear needed
     void *buffer;
 } msch_interface_t;
 
@@ -198,12 +200,23 @@ bool tuh_msc_ready(uint8_t dev_addr)
         return false;
     if (usbh_edpt_busy(dev_addr, p_msc->ep_out))
         return false;
+    if (p_msc->ep_intr && usbh_edpt_busy(dev_addr, p_msc->ep_intr))
+        return false;
     return true;
 }
 
 bool tuh_msc_is_cbi(uint8_t dev_addr)
 {
     return is_cbi(get_itf(dev_addr));
+}
+
+// True for CB (Control/Bulk) devices: CBI protocol without an
+// interrupt endpoint.  These have no status feedback for commands
+// without a data phase.
+bool tuh_msc_is_cb(uint8_t dev_addr)
+{
+    msch_interface_t *p_msc = get_itf(dev_addr);
+    return is_cbi(p_msc) && p_msc->ep_intr == 0;
 }
 
 const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr)
@@ -299,6 +312,23 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     case RECOVERY_CLEAR_OUT:
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+        // CBI: also clear interrupt endpoint if present.
+        if (is_cbi(p_msc) && p_msc->ep_intr)
+        {
+            p_msc->recovery_stage = RECOVERY_CLEAR_INTR;
+            if (!recovery_clear_halt(daddr, p_msc->ep_intr))
+            {
+                recovery_done(daddr, p_msc);
+            }
+        }
+        else
+        {
+            recovery_done(daddr, p_msc);
+        }
+        break;
+
+    case RECOVERY_CLEAR_INTR:
+        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_intr);
         recovery_done(daddr, p_msc);
         break;
 
@@ -453,6 +483,7 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 
     epbuf->cbw = *cbw;
     p_msc->buffer = data;
+    p_msc->data_stall = false;
     p_msc->stage = MSC_STAGE_CMD;
 
     if (is_cbi(p_msc))
@@ -557,30 +588,44 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
     {
     case MSC_STAGE_DATA:
     {
-        uint32_t const residue = cbw->total_bytes - xferred_bytes;
+        uint32_t const residue = (xferred_bytes <= cbw->total_bytes)
+                                     ? cbw->total_bytes - xferred_bytes
+                                     : 0;
 
-        // CBI spec §2.4.3.1.3: clear bulk pipe after data STALL
+        // CBI spec §2.4.3.1.3: clear bulk pipe at HCD level after data STALL
+        // so the host controller can reuse the pipe.  A device-level
+        // CLEAR_FEATURE(ENDPOINT_HALT) is deferred to recovery below.
         if (event == XFER_RESULT_STALLED)
         {
             hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, data_ep(p_msc, cbw));
+            p_msc->data_stall = true;
         }
 
-        if (event != XFER_RESULT_SUCCESS || !p_msc->ep_intr)
+        if (p_msc->ep_intr)
         {
-            uint8_t status = (event == XFER_RESULT_SUCCESS)
-                                 ? MSC_CSW_STATUS_PASSED
-                                 : MSC_CSW_STATUS_FAILED;
-            complete_command(dev_addr, status, residue);
-        }
-        else
-        {
-            // Data succeeded — stash residue in CSW scratch, read interrupt status
+            // CBI: interrupt status is the authoritative command result
+            // regardless of data-phase outcome.  Always read it.
             epbuf->csw.data_residue = residue;
             p_msc->stage = MSC_STAGE_STATUS;
             if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
             {
                 complete_command(dev_addr, MSC_CSW_STATUS_FAILED, residue);
+                if (p_msc->data_stall)
+                    start_recovery(dev_addr);
             }
+        }
+        else
+        {
+            // CB (no interrupt): infer status from transport result.
+            uint8_t status = (event == XFER_RESULT_SUCCESS)
+                                 ? MSC_CSW_STATUS_PASSED
+                                 : MSC_CSW_STATUS_FAILED;
+            complete_command(dev_addr, status, residue);
+            // After transport error, start recovery to send
+            // CLEAR_FEATURE(ENDPOINT_HALT) to the device so
+            // subsequent transfers can proceed.
+            if (event != XFER_RESULT_SUCCESS)
+                start_recovery(dev_addr);
         }
         break;
     }
@@ -626,7 +671,10 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
             }
         }
         complete_command(dev_addr, csw_status, epbuf->csw.data_residue);
-        if (csw_status == MSC_CSW_STATUS_PHASE_ERROR)
+        // Phase error always requires recovery.  A prior data-phase STALL
+        // also requires device-level CLEAR_FEATURE via recovery so that
+        // the bulk endpoint is usable for subsequent commands.
+        if (csw_status == MSC_CSW_STATUS_PHASE_ERROR || p_msc->data_stall)
             start_recovery(dev_addr);
         break;
     }
@@ -680,9 +728,9 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
     {
         bool const is_retry = (p_msc->stage == MSC_STAGE_STATUS_RETRY);
 
-        // BOT spec §6.7.2 / §6.3: retry CSW read once on 0-length,
-        // STALL, or sig/tag mismatch. After an abort, some hardware can
-        // have a stale IN-pipe response that the sig/tag mismatch catches.
+        // BOT spec §6.7.2: retry CSW read once on 0-length or STALL.
+        // BOT §5.3.3.1: sig/tag mismatch is an invalid CSW — go
+        // straight to reset recovery without retry.
         bool should_retry = false;
         if (!is_retry)
         {
@@ -695,13 +743,6 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
             {
                 TU_LOG_DRV("  MSC BOT: CSW STALL, clearing and retrying\r\n");
                 hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, p_msc->ep_in);
-                should_retry = true;
-            }
-            else if (event == XFER_RESULT_SUCCESS &&
-                     xferred_bytes == sizeof(msc_csw_t) &&
-                     (csw->signature != MSC_CSW_SIGNATURE || csw->tag != cbw->tag))
-            {
-                TU_LOG_DRV("  MSC BOT: CSW sig/tag mismatch, retrying\r\n");
                 should_retry = true;
             }
         }
@@ -797,7 +838,6 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     //   0x0644:0x0000  TEAC Floppy Drive
     //   0x04e6:0x0001  Matshita LS-120
     //   0x04e6:0x0007  Sony Hifd
-    bool force_no_intr = false;
     if (p_msc->protocol == MSC_PROTOCOL_CBI)
     {
         uint16_t vid, pid;
@@ -807,7 +847,6 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
             (vid == 0x04e6 && pid == 0x0007))
         {
             p_msc->protocol = MSC_PROTOCOL_CBI_NO_INTERRUPT;
-            force_no_intr = true;
         }
     }
 
@@ -825,7 +864,10 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
         ep_count++;
         tusb_desc_endpoint_t const *ep_desc = (tusb_desc_endpoint_t const *)p_desc;
 
-        if (force_no_intr && TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
+        // CB protocol (CBI_NO_INTERRUPT): skip interrupt endpoints,
+        // whether declared natively or forced by a quirk above.
+        if (p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT &&
+            TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
         {
             p_desc = tu_desc_next(p_desc);
             continue;
