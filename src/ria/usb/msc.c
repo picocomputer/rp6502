@@ -748,12 +748,11 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         uint8_t ascq = msc_volume_sense_ascq[vol];
         // Medium Not Present: some drives (e.g. TEAC floppy) return
         // stale 2/3Ah/00h after media reinsertion. Allow one retry.
-        if (asc == 0x3A) // TODO do we need to check sk?
+        if (asc == 0x3A)
         {
-            // Keep this here for future TEAC floppy attempts
-            // if (msc_volume_status[vol] == msc_volume_ejected &&
-            //     attempt == 0)
-            //     continue;
+            if (msc_volume_status[vol] == msc_volume_ejected &&
+                attempt == 0)
+                continue;
             break;
         }
         // NOT READY (2) or UNIT ATTENTION (6) - retry

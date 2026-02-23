@@ -227,6 +227,10 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     // stuck active.  The SIE does not raise TRANS_COMPLETE on timeout.
     if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
+    usb_hw->sie_ctrl = SIE_CTRL_BASE; // stop SIE before clearing
+    busy_wait_at_least_cycles(12);    // drain any in-flight SIE writeback
+    usb_hw_clear->buf_status = 0x3u;
+    *hwbuf_ctrl_reg_host(&epx) = 0;
   }
 
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
@@ -317,6 +321,7 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
 
   io_rw_32 *ctrl_reg = hwep_ctrl_reg_host(ep);
   *ctrl_reg          = ctrl_value;
+  *hwbuf_ctrl_reg_host(ep) = 0;
   pico_trace("endpoint control (0x%p) <- 0x%lx\n", ctrl_reg, ctrl_value);
   ep->configured = true;
 
@@ -582,28 +587,23 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
 bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
-  if (!ep || !ep->active) return true;
-
-  // For EPX: stop the SIE state machine first so no new completions arrive.
+  if (!ep) return true;
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
+    busy_wait_at_least_cycles(12);
   }
 
-  *hwbuf_ctrl_reg_host(ep) = 0;
-  hw_endpoint_reset_transfer(ep);
+  // Reset software endpoint state if it is still marked active.
+  if (ep->active) {
+    hw_endpoint_reset_transfer(ep);
+  }
 
-  // Clear any pending BUFF_STATUS for this endpoint.  The hardware may have
-  // already latched a completion from the transfer we are aborting.  If we
-  // leave the bit set, the ISR will process it after the next transfer
-  // starts on this endpoint (active == true again) and feed stale data into
-  // sync_ep_buffer(), triggering assert(!(buf_ctrl & USB_BUF_CTRL_FULL)).
+  // Clear hardware buf_ctrl and pending BUFF_STATUS so a stale completion
+  // cannot fire after the next transfer is armed on this endpoint.
+  *hwbuf_ctrl_reg_host(ep) = 0;
   if (ep == &epx) {
-    // EPX uses BUFF_STATUS bit 0 for both IN and OUT completions in host
-    // mode.  Clear bits 0–1 for safety.
     usb_hw_clear->buf_status = 0x3u;
   } else {
-    // Interrupt/bulk endpoints: bits are at (interrupt_num+1)*2 for IN,
-    // (interrupt_num+1)*2+1 for OUT.  Clear both directions.
     usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
   }
 
