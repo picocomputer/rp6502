@@ -118,12 +118,6 @@ bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
 const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr);
 void tuh_msc_abort(uint8_t dev_addr);
 
-// Hub polling pause/resume from our custom hub.c.
-// CBI transport shares EPX with hub EP0 control transfers; pausing
-// hub polling prevents EPX contention during CBI command sequences.
-void hub_pause_polling(void);
-void hub_resume_polling(void);
-
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
 //--------------------------------------------------------------------+
@@ -267,15 +261,6 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
     if (dev_addr == 0)
         return msc_status_failed;
 
-    // Pause hub polling for CBI/CB devices for the entire command +
-    // autosense sequence.  Both transports send the CDB via an ADSC
-    // control transfer on the shared EPX; hub EP0 control chains
-    // (Get Port Status, Set Port Feature) would contend for EPX.
-    bool const need_hub_pause = tuh_msc_is_cbi(dev_addr) ||
-                                tuh_msc_is_cb(dev_addr);
-    if (need_hub_pause)
-        hub_pause_polling();
-
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
 
     // CB auto-sense: for everything except successful data-in (reads).
@@ -344,8 +329,6 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         }
     }
 
-    if (need_hub_pause)
-        hub_resume_polling();
     return status;
 }
 

@@ -841,26 +841,6 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     p_msc->subclass = desc_itf->bInterfaceSubClass;
     p_msc->ep_intr = 0;
 
-    // Linux unusual_devs.h quirk:
-    // Force CB (Control/Bulk) for devices that declare CBI but whose
-    // interrupt endpoint status is unreliable.  The interrupt endpoint
-    // is still opened (the device doesn't know if we read from it),
-    // but the transport layer never reads it.
-    //   0x0644:0x0000  TEAC Floppy Drive
-    //   0x04e6:0x0001  Matshita LS-120
-    //   0x04e6:0x0007  Sony Hifd
-    if (p_msc->protocol == MSC_PROTOCOL_CBI)
-    {
-        uint16_t vid, pid;
-        tuh_vid_pid_get(dev_addr, &vid, &pid);
-        if ((vid == 0x0644 && pid == 0x0000) ||
-            (vid == 0x04e6 && pid == 0x0001) ||
-            (vid == 0x04e6 && pid == 0x0007))
-        {
-            p_msc->protocol = MSC_PROTOCOL_CBI_NO_INTERRUPT;
-        }
-    }
-
     uint8_t const *p_desc = tu_desc_next(desc_itf);
     uint8_t const *desc_end = ((uint8_t const *)desc_itf) + drv_len;
     uint8_t ep_count = 0;
