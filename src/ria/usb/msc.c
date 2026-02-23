@@ -120,10 +120,6 @@ void tuh_msc_abort(uint8_t dev_addr);
 // Hub polling pause/resume from our custom hub.c.
 // CBI transport shares EPX with hub EP0 control transfers; pausing
 // hub polling prevents EPX contention during CBI command sequences.
-#if CFG_TUH_HUB
-void hub_pause_polling(void);
-void hub_resume_polling(void);
-#endif
 
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
@@ -169,17 +165,6 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
                                       void *data, absolute_time_t deadline)
 {
-    // CBI transport shares EPX with hub EP0 control transfers.
-    // Pause hub interrupt polling so that hub event processing cannot
-    // start an EP0 chain that stomps EPX while a CBI bulk transfer is
-    // in flight.  Any status changes are latched by the hub and will be
-    // delivered when polling resumes after the command completes.
-#if CFG_TUH_HUB
-    bool const pause_hub = tuh_msc_is_cbi(dev_addr);
-    if (pause_hub)
-        hub_pause_polling();
-#endif
-
     msc_status_t result;
 
     // Wait for transport ready AND successfully submit the command.
@@ -214,7 +199,7 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
     {
         if (!tuh_msc_mounted(dev_addr))
         {
-            result = msc_status_timed_out;
+            result = msc_status_failed;
             goto done;
         }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
@@ -236,10 +221,6 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
     }
 
 done:
-#if CFG_TUH_HUB
-    if (pause_hub)
-        hub_resume_polling();
-#endif
     return result;
 }
 
@@ -258,7 +239,7 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
     {
         msc_volume_last_success[vol] = get_absolute_time();
     }
-    else
+    else if (status != msc_status_timed_out)
     {
         scsi_sense_fixed_resp_t sense_resp;
         memset(&sense_resp, 0, sizeof(sense_resp));
@@ -481,6 +462,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
     if (tuh_msc_is_cbi(dev_addr))
     {
         // CBI: READ FORMAT CAPACITIES
+        // TODO does this need to be larger?
         uint8_t rfc[12];
         memset(rfc, 0, sizeof(rfc));
         if (msc_read_format_capacities_sync(vol, rfc, sizeof(rfc),
@@ -551,7 +533,8 @@ static void msc_read_block_zero(uint8_t vol, absolute_time_t deadline)
 
     // Non-fatal probe read: call msc_scsi_sync_raw directly to avoid
     // autosense and triggering error recovery on failure. Ignore result.
-    uint8_t block0[512];
+    // TODO can be local?
+    static uint8_t block0[512];
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, 0);
     cbw.total_bytes = bs;
@@ -807,20 +790,32 @@ DSTATUS disk_status(BYTE pdrv)
 {
     uint8_t vol = pdrv;
     if (msc_volume_status[vol] == msc_volume_ejected)
+    {
+        DBG("MSC vol %d: disk_status, ejected\n", vol);
         return STA_NOINIT | STA_NODISK;
+    }
     if (msc_volume_status[vol] != msc_volume_mounted)
+    {
+        DBG("MSC vol %d: disk_status, not mounted, status=%d\n", vol, msc_volume_status[vol]);
         return STA_NOINIT;
+    }
     uint8_t const dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
+    {
+        DBG("MSC vol %d: disk_status, device not mounted\n", vol);
         return STA_NOINIT;
+    }
     // Detect media removal. Timer suppresses during successful IO.
     if (msc_inquiry_resp[vol].is_removable &&
         absolute_time_diff_us(msc_volume_last_success[vol], get_absolute_time()) >=
-            MSC_DISK_STATUS_TIMEOUT_MS * 1000 &&
-        msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != msc_status_passed)
+            MSC_DISK_STATUS_TIMEOUT_MS * 1000)
     {
-        msc_handle_io_error(vol);
-        return STA_NOINIT | STA_NODISK;
+        DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
+        if (msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != msc_status_passed)
+        {
+            msc_handle_io_error(vol);
+            return STA_NOINIT | STA_NODISK;
+        }
     }
     return msc_volume_write_protected[vol] ? STA_PROTECT : 0;
 }
@@ -863,6 +858,8 @@ static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
         return RES_NOTRDY;
     if (sk == SCSI_SENSE_DATA_PROTECT)
         return RES_WRPRT;
+    if (sk == SCSI_SENSE_ILLEGAL_REQUEST)
+        return RES_PARERR;
     return RES_ERROR;
 }
 
@@ -964,10 +961,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != msc_status_passed &&
             msc_volume_sense_asc[vol] == 0x3A)
         {
-            msc_volume_status[vol] = msc_volume_ejected;
-            msc_volume_block_count[vol] = 0;
-            msc_volume_block_size[vol] = 0;
-            msc_volume_write_protected[vol] = false;
+            msc_handle_io_error(vol);
         }
         else
             disk_initialize(vol);
@@ -1116,6 +1110,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
     FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
+        *bytes_read = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
@@ -1135,6 +1130,7 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
     FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
+        *bytes_written = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
@@ -1175,12 +1171,22 @@ int msc_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
             *err = API_EINVAL;
             return -1;
         }
+        if (offset > 0 && (FSIZE_t)offset > (~(FSIZE_t)0) - current_pos)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
         absolute_offset = current_pos + offset;
     }
     else if (whence == SEEK_END)
     {
         FSIZE_t file_size = f_size(fp);
         if (offset < 0 && (FSIZE_t)(-offset) > file_size)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        if (offset > 0 && (FSIZE_t)offset > (~(FSIZE_t)0) - file_size)
         {
             *err = API_EINVAL;
             return -1;
