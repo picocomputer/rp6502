@@ -321,7 +321,6 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
 
   io_rw_32 *ctrl_reg = hwep_ctrl_reg_host(ep);
   *ctrl_reg          = ctrl_value;
-  *hwbuf_ctrl_reg_host(ep) = 0; // TODO leaning towards removing this, is it useful?
   pico_trace("endpoint control (0x%p) <- 0x%lx\n", ctrl_reg, ctrl_value);
   ep->configured = true;
 
@@ -356,7 +355,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   (void) rhport;
   (void) rh_init;
   pico_trace("hcd_init %d\n", rhport);
-  TU_ASSERT(rhport == 0);
+  assert(rhport == 0);
 
   // Reset any previous state
   rp2usb_init();
@@ -401,27 +400,31 @@ void hcd_port_reset(uint8_t rhport)
 {
   (void) rhport;
   pico_trace("hcd_port_reset\n");
-  TU_ASSERT(rhport == 0, );
-  // TODO: Nothing to do here yet. Perhaps need to reset some state?
+  assert(rhport == 0);
+  // Assert USB bus reset (SE0) per USB 2.0 §7.1.7.5.  The host stack will call
+  // hcd_port_reset_end() after the required ≥10 ms dwell time.
+  // usb_hw_set->sie_ctrl = USB_SIE_CTRL_RESET_BUS_BITS;
 }
 
 void hcd_port_reset_end(uint8_t rhport)
 {
   (void) rhport;
+  // De-assert bus reset; device will enter default state.
+  // usb_hw_clear->sie_ctrl = USB_SIE_CTRL_RESET_BUS_BITS;
 }
 
 bool hcd_port_connect_status(uint8_t rhport)
 {
   (void) rhport;
   pico_trace("hcd_port_connect_status\n");
-  TU_ASSERT(rhport == 0);
+  assert(rhport == 0);
   return usb_hw->sie_status & USB_SIE_STATUS_SPEED_BITS;
 }
 
 tusb_speed_t hcd_port_speed_get(uint8_t rhport)
 {
   (void) rhport;
-  TU_ASSERT(rhport == 0);
+  assert(rhport == 0);
 
   // TODO: Should enumval this register
   switch ( dev_speed() )
@@ -628,7 +631,14 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
 
   // EP0 out — use the saved MPS for this device, not the (possibly stale) EPX value
   uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
-  if (mps == 0) mps = 8; // default for addr0 / unknown
+  if (mps == 0) {
+    if (dev_addr != 0) {
+      TU_LOG(1, "hcd_setup_send: dev_addr=%u has no saved EP0 MPS\r\n", dev_addr);
+      TU_ASSERT(false);
+    }
+    // use the USB 2.0 §9.6.1 mandatory minimum of 8.
+    mps = 8;
+  }
   hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
   
   TU_ASSERT(ep->configured);
