@@ -961,6 +961,10 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     DBG("MSC R> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
+#if FF_LBA64
+    if (sector > UINT32_MAX)
+        return RES_PARERR;
+#endif
 
     // Clamp each transfer so total_bytes fits the 16-bit USB transfer
     // length.  Without this, transfers > 64KB cause a CBW/transfer
@@ -991,6 +995,10 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     DBG("MSC W> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
+#if FF_LBA64
+    if (sector > UINT32_MAX)
+        return RES_PARERR;
+#endif
 
     absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
@@ -1154,6 +1162,8 @@ bool msc_std_handles(const char *path)
 
 int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
+    static_assert(FA_READ == 0x01);
+    static_assert(FA_WRITE == 0x02);
     const uint8_t RDWR = 0x03;
     const uint8_t CREAT = 0x10;
     const uint8_t TRUNC = 0x20;

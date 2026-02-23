@@ -223,6 +223,10 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   {
     handled |= USB_INTS_ERROR_RX_TIMEOUT_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS;
+    // Complete any in-flight EPX transfer so the endpoint is not left
+    // stuck active.  The SIE does not raise TRANS_COMPLETE on timeout.
+    if (epx.active)
+      hw_xfer_complete(&epx, XFER_RESULT_FAILED);
   }
 
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )

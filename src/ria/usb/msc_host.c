@@ -99,7 +99,7 @@ typedef struct
     uint8_t subclass; // MSC_SUBCLASS_UFI, MSC_SUBCLASS_SFF, etc.
     uint8_t stage;
     uint8_t recovery_stage;
-    bool data_stall;  // data endpoint STALLed; device-level clear needed
+    bool data_stall; // data endpoint STALLed; device-level clear needed
     void *buffer;
 } msch_interface_t;
 
@@ -252,12 +252,6 @@ static void cancel_inflight(uint8_t dev_addr)
     p_msc->stage = MSC_STAGE_IDLE;
 }
 
-static void recovery_done(uint8_t daddr, msch_interface_t *p_msc)
-{
-    (void)daddr;
-    p_msc->recovery_stage = RECOVERY_NONE;
-}
-
 static void recovery_xfer_cb(tuh_xfer_t *xfer);
 
 static bool recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
@@ -288,7 +282,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     if (xfer->result != XFER_RESULT_SUCCESS)
     {
-        recovery_done(daddr, p_msc);
+        p_msc->recovery_stage = RECOVERY_NONE;
         return;
     }
 
@@ -301,7 +295,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
         if (!recovery_clear_halt(daddr, p_msc->ep_in))
         {
-            recovery_done(daddr, p_msc);
+            p_msc->recovery_stage = RECOVERY_NONE;
         }
         break;
 
@@ -310,7 +304,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
         p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
         if (!recovery_clear_halt(daddr, p_msc->ep_out))
         {
-            recovery_done(daddr, p_msc);
+            p_msc->recovery_stage = RECOVERY_NONE;
         }
         break;
 
@@ -322,22 +316,22 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
             p_msc->recovery_stage = RECOVERY_CLEAR_INTR;
             if (!recovery_clear_halt(daddr, p_msc->ep_intr))
             {
-                recovery_done(daddr, p_msc);
+                p_msc->recovery_stage = RECOVERY_NONE;
             }
         }
         else
         {
-            recovery_done(daddr, p_msc);
+            p_msc->recovery_stage = RECOVERY_NONE;
         }
         break;
 
     case RECOVERY_CLEAR_INTR:
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_intr);
-        recovery_done(daddr, p_msc);
+        p_msc->recovery_stage = RECOVERY_NONE;
         break;
 
     default:
-        recovery_done(daddr, p_msc);
+        p_msc->recovery_stage = RECOVERY_NONE;
         break;
     }
 }
@@ -383,7 +377,7 @@ static void start_recovery(uint8_t daddr)
             p_msc->recovery_stage = RECOVERY_CLEAR_IN;
             if (!recovery_clear_halt(daddr, p_msc->ep_in))
             {
-                recovery_done(daddr, p_msc);
+                p_msc->recovery_stage = RECOVERY_NONE;
             }
         }
         return;
@@ -409,7 +403,7 @@ static void start_recovery(uint8_t daddr)
     p_msc->recovery_stage = RECOVERY_BOT_RESET;
     if (!tuh_control_xfer(&xfer))
     {
-        recovery_done(daddr, p_msc);
+        p_msc->recovery_stage = RECOVERY_NONE;
     }
 }
 
@@ -425,7 +419,7 @@ void tuh_msc_abort(uint8_t daddr)
     if (p_msc->recovery_stage != RECOVERY_NONE)
     {
         tuh_edpt_abort_xfer(daddr, 0);
-        recovery_done(daddr, p_msc);
+        p_msc->recovery_stage = RECOVERY_NONE;
         return;
     }
 
@@ -653,14 +647,8 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
         }
         else
         {
-            // SFF-8070i and others: byte 0 = bType (must be 0x00),
-            // byte 1 bits [1:0] encode status per CBI spec §3.4.3.1.2:
-            //   0x00 = pass, 0x01 = fail, 0x02 = phase error.
-            if (epbuf->cbi_status[0] != 0)
-            {
-                csw_status = MSC_CSW_STATUS_FAILED;
-            }
-            else
+            // SFF-8070i and any unrecognised subclass
+            if (epbuf->cbi_status[0] == 0)
             {
                 switch (epbuf->cbi_status[1] & 0x03)
                 {
@@ -674,6 +662,10 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
                     csw_status = MSC_CSW_STATUS_FAILED;
                     break;
                 }
+            }
+            else
+            {
+                csw_status = MSC_CSW_STATUS_FAILED;
             }
         }
         complete_command(dev_addr, csw_status, epbuf->csw.data_residue);
