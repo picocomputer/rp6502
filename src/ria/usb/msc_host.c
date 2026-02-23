@@ -157,11 +157,15 @@ static void complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_re
 static void start_data_phase(uint8_t daddr, msch_interface_t *p_msc,
                              msc_cbw_t const *cbw)
 {
+    // Reject transfers that exceed the 16-bit USB transfer length.
+    // Callers must clamp transfer sizes before building the CBW.
+    if (cbw->total_bytes > UINT16_MAX)
+    {
+        complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        return;
+    }
     p_msc->stage = MSC_STAGE_DATA;
-    uint16_t xfer_len = (cbw->total_bytes > UINT16_MAX)
-                            ? UINT16_MAX
-                            : (uint16_t)cbw->total_bytes;
-    if (!usbh_edpt_xfer(daddr, data_ep(p_msc, cbw), p_msc->buffer, xfer_len))
+    if (!usbh_edpt_xfer(daddr, data_ep(p_msc, cbw), p_msc->buffer, (uint16_t)cbw->total_bytes))
     {
         complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
     }
@@ -466,7 +470,9 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     }
     else
     {
-        // CBI_NO_INTERRUPT with no data — assume success
+        // CB (no interrupt) with no data — assume success.
+        // msc_scsi_sync() always does autosense on CB to discover
+        // the real command result.
         complete_command(daddr, MSC_CSW_STATUS_PASSED, 0);
     }
 }
@@ -766,7 +772,9 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         if (!csw_valid)
         {
             // BOT §5.3.3: invalid CSW requires reset recovery.
-            csw->status = MSC_CSW_STATUS_FAILED;
+            // Fabricate a clean failed CSW so callers see a consistent
+            // tag and don't misinterpret a stale/corrupt device response.
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
             start_recovery(dev_addr);
         }
         else if (csw->status == MSC_CSW_STATUS_PHASE_ERROR)
@@ -834,7 +842,10 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     p_msc->ep_intr = 0;
 
     // Linux unusual_devs.h quirk:
-    // Force CBI_NO_INTERRUPT for known devices.
+    // Force CB (Control/Bulk) for devices that declare CBI but whose
+    // interrupt endpoint status is unreliable.  The interrupt endpoint
+    // is still opened (the device doesn't know if we read from it),
+    // but the transport layer never reads it.
     //   0x0644:0x0000  TEAC Floppy Drive
     //   0x04e6:0x0001  Matshita LS-120
     //   0x04e6:0x0007  Sony Hifd
@@ -864,8 +875,11 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
         ep_count++;
         tusb_desc_endpoint_t const *ep_desc = (tusb_desc_endpoint_t const *)p_desc;
 
-        // CB protocol (CBI_NO_INTERRUPT): skip interrupt endpoints,
-        // whether declared natively or forced by a quirk above.
+        // CB protocol: skip interrupt endpoints entirely.  On the
+        // RP2040, hcd_edpt_open() enables a hardware polling slot
+        // that sends IN tokens even without a pending transfer.
+        // The TEAC floppy's USB controller can't handle stray IN
+        // tokens on its interrupt endpoint during bulk data phases.
         if (p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT &&
             TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
         {

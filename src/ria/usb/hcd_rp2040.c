@@ -501,8 +501,30 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
 }
 
 bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
-  (void) rhport; (void) daddr; (void) ep_addr;
-  return false; // TODO not implemented yet
+  (void) rhport;
+
+  // EP0 (epx) is shared and never individually closed
+  if (tu_edpt_number(ep_addr) == 0) {
+    return false;
+  }
+
+  for (uint32_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+    hw_endpoint_t *ep = &ep_pool[i];
+    if (ep->configured && ep->dev_addr == daddr && ep->ep_addr == ep_addr) {
+      // Disable interrupt endpoint hardware polling
+      usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
+      usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
+
+      // Unconfigure the endpoint
+      ep->configured = false;
+      *hwep_ctrl_reg_host(ep)  = 0;
+      *hwbuf_ctrl_reg_host(ep) = 0;
+      hw_endpoint_reset_transfer(ep);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen) {
@@ -573,7 +595,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   // for a new transfer (which would cause an assertion failure in
   // sync_ep_buffer due to mismatched buffer state).
   if (ep == &epx) {
-    usb_hw_clear->buf_status = 1u;
+    usb_hw_clear->buf_status = 3u;
   } else {
     uint32_t const mask = 3u << ((ep->interrupt_num + 1) * 2);
     usb_hw_clear->buf_status = mask;

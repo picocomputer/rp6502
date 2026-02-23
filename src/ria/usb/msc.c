@@ -121,6 +121,8 @@ void tuh_msc_abort(uint8_t dev_addr);
 // Hub polling pause/resume from our custom hub.c.
 // CBI transport shares EPX with hub EP0 control transfers; pausing
 // hub polling prevents EPX contention during CBI command sequences.
+void hub_pause_polling(void);
+void hub_resume_polling(void);
 
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
@@ -245,31 +247,44 @@ done:
 // it's already available after any failed command.
 //
 // CB (Control/Bulk, no interrupt) special handling:
-// Commands without a data phase have no status feedback at all —
-// the transport fabricates PASSED.  We must always issue REQUEST
-// SENSE afterwards to (a) determine the real command result and
-// (b) serialize with the device so it has finished processing the
-// command before we send the next one.  Without this, a TUR that
-// the device failed (e.g. NOT READY) leaves a pending check
-// condition that causes the next data-bearing command to hang.
+// Matches Linux usb_stor_invoke_transport() CB auto-sense logic:
+// auto-sense for everything except successful data-in (reads).
+//
+// No-data commands: transport fabricates PASSED with no device
+// feedback; autosense discovers the real result.
+//
+// Data-out (writes): bulk-out success doesn't confirm SCSI
+// success; autosense checks for errors.
+//
+// Data-in (reads): trust the bulk-in result.  Do NOT autosense —
+// floppy drives can post transient sense (e.g. 2/3Ah/00h) that
+// would override a genuine success.  Devices signal read errors
+// by STALLing the bulk-in pipe.
 static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
                                   void *data, absolute_time_t deadline)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
         return msc_status_failed;
+
+    // Pause hub polling for CBI/CB devices for the entire command +
+    // autosense sequence.  Both transports send the CDB via an ADSC
+    // control transfer on the shared EPX; hub EP0 control chains
+    // (Get Port Status, Set Port Feature) would contend for EPX.
+    bool const need_hub_pause = tuh_msc_is_cbi(dev_addr) ||
+                                tuh_msc_is_cb(dev_addr);
+    if (need_hub_pause)
+        hub_pause_polling();
+
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
 
-    // CB devices have no interrupt endpoint for command status.
-    // No-data commands: transport fabricates PASSED with no device feedback.
-    // Data commands: transport infers status from the bulk result, but a
-    // successful transfer doesn't guarantee SCSI success — the device may
-    // have a pending check condition from a prior or current command.
-    // Always autosense on CB to (a) discover the real result and
-    // (b) serialize with the device so it finishes processing before
-    // we send the next command.
+    // CB auto-sense: for everything except successful data-in (reads).
+    // Matches Linux: srb->sc_data_direction != DMA_FROM_DEVICE.
+    bool is_data_in = (cbw->total_bytes > 0 &&
+                       (cbw->dir & TUSB_DIR_IN_MASK));
     bool cb_probe = (status == msc_status_passed &&
-                     tuh_msc_is_cb(dev_addr));
+                     tuh_msc_is_cb(dev_addr) &&
+                     !is_data_in);
 
     if (status == msc_status_passed && !cb_probe)
     {
@@ -328,6 +343,9 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
             }
         }
     }
+
+    if (need_hub_pause)
+        hub_resume_polling();
     return status;
 }
 
@@ -542,17 +560,17 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
     if (tuh_msc_is_cbi(dev_addr))
     {
         // CBI: READ FORMAT CAPACITIES
-        // TODO does this need to be larger?
-        uint8_t rfc[12];
+        // 4-byte header + up to 3 capacity descriptors (8 bytes each).
+        uint8_t rfc[28];
         memset(rfc, 0, sizeof(rfc));
         if (msc_read_format_capacities_sync(vol, rfc, sizeof(rfc),
                                             deadline) !=
             msc_status_passed)
             return false;
 
-        DBG("MSC vol %d: RFC raw [%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X]\n",
-            vol, rfc[0], rfc[1], rfc[2], rfc[3], rfc[4], rfc[5],
-            rfc[6], rfc[7], rfc[8], rfc[9], rfc[10], rfc[11]);
+        DBG("MSC vol %d: RFC list_len=%d [%02X %02X %02X %02X %02X %02X %02X %02X ...]\n",
+            vol, rfc[3], rfc[4], rfc[5], rfc[6], rfc[7],
+            rfc[8], rfc[9], rfc[10], rfc[11]);
 
         uint8_t list_len = rfc[3];
         if (list_len < 8)
@@ -567,7 +585,9 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
                          (uint32_t)desc0[7];
         DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
             vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
-        if (blocks == 0 || bsize != 512)
+        // Accept power-of-2 sector sizes that FatFS supports.
+        if (blocks == 0 || bsize == 0 ||
+            (bsize & (bsize - 1)) != 0 || bsize > 4096)
             return false;
         msc_volume_block_count[vol] = blocks;
         msc_volume_block_size[vol] = bsize;
@@ -577,9 +597,19 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         // BOT: READ CAPACITY(10)
         scsi_read_capacity10_resp_t cap10;
         memset(&cap10, 0, sizeof(cap10));
-        if (msc_read_capacity10_sync(vol, &cap10,
-                                     deadline) !=
-            msc_status_passed)
+        msc_status_t cap_status = msc_read_capacity10_sync(vol, &cap10, deadline);
+        // Retry once on Unit Attention (sense 6/28h: media changed).
+        // TUR clears the first UA, but a second can arrive between
+        // TUR and capacity read if timing is tight.
+        if (cap_status != msc_status_passed &&
+            msc_volume_sense_key[vol] == SCSI_SENSE_UNIT_ATTENTION &&
+            msc_volume_sense_asc[vol] == 0x28)
+        {
+            DBG("MSC vol %d: capacity UA, retrying\n", vol);
+            memset(&cap10, 0, sizeof(cap10));
+            cap_status = msc_read_capacity10_sync(vol, &cap10, deadline);
+        }
+        if (cap_status != msc_status_passed)
         {
             // Autosense already populated sense data.
             if (msc_inquiry_resp[vol].is_removable &&
