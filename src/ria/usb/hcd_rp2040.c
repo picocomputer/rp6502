@@ -321,7 +321,7 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
 
   io_rw_32 *ctrl_reg = hwep_ctrl_reg_host(ep);
   *ctrl_reg          = ctrl_value;
-  *hwbuf_ctrl_reg_host(ep) = 0;
+  *hwbuf_ctrl_reg_host(ep) = 0; // TODO leaning towards removing this, is it useful?
   pico_trace("endpoint control (0x%p) <- 0x%lx\n", ctrl_reg, ctrl_value);
   ep->configured = true;
 
