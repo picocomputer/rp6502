@@ -32,7 +32,7 @@ See cmake configuration for override.
 Changes from upstream TinyUSB msc_host.c:
 
 - Add CBI (Control/Bulk/Interrupt) and CB (Control/Bulk) transport support.
-- Polling-only interface: tuh_msc_scsi_submit() + tuh_msc_ready() + tuh_msc_get_csw().
+- Polling-only interface: tuh_msc_scsi_submit() + tuh_msc_ready() + tuh_msc_csw().
   No per-command completion callbacks; msc.c polls for command completion.
 - msch_open() accepts CBI/CBI_NO_INTERRUPT protocols and UFI/SFF subclasses;
   iterates bNumEndpoints to handle bulk + interrupt endpoints.
@@ -124,7 +124,7 @@ TU_ATTR_ALWAYS_INLINE static inline msch_epbuf_t *get_epbuf(uint8_t daddr)
     return &_msch_epbuf[daddr - 1];
 }
 
-TU_ATTR_ALWAYS_INLINE static inline bool is_cbi(msch_interface_t const *p_msc)
+TU_ATTR_ALWAYS_INLINE static inline bool is_cbi_or_cb(msch_interface_t const *p_msc)
 {
     return p_msc->protocol == MSC_PROTOCOL_CBI ||
            p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT;
@@ -209,21 +209,12 @@ bool tuh_msc_ready(uint8_t dev_addr)
     return true;
 }
 
-bool tuh_msc_is_cbi(uint8_t dev_addr)
+uint8_t tuh_msc_protocol(uint8_t dev_addr)
 {
-    return is_cbi(get_itf(dev_addr));
+    return get_itf(dev_addr)->protocol;
 }
 
-// True for CB (Control/Bulk) devices: CBI protocol without an
-// interrupt endpoint.  These have no status feedback for commands
-// without a data phase.
-bool tuh_msc_is_cb(uint8_t dev_addr)
-{
-    msch_interface_t *p_msc = get_itf(dev_addr);
-    return is_cbi(p_msc) && p_msc->ep_intr == 0;
-}
-
-const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr)
+const msc_csw_t *tuh_msc_csw(uint8_t dev_addr)
 {
     return &get_epbuf(dev_addr)->csw;
 }
@@ -237,7 +228,7 @@ static void cancel_inflight(uint8_t dev_addr)
     msch_interface_t *p_msc = get_itf(dev_addr);
 
     // If a CBI ADSC control transfer is in-flight, abort it.
-    if (p_msc->stage == MSC_STAGE_CMD && is_cbi(p_msc))
+    if (p_msc->stage == MSC_STAGE_CMD && is_cbi_or_cb(p_msc))
     {
         tuh_edpt_abort_xfer(dev_addr, 0);
     }
@@ -310,8 +301,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     case RECOVERY_CLEAR_OUT:
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
-        // CBI: also clear interrupt endpoint if present.
-        if (is_cbi(p_msc) && p_msc->ep_intr)
+        if (is_cbi_or_cb(p_msc) && p_msc->ep_intr)
         {
             p_msc->recovery_stage = RECOVERY_CLEAR_INTR;
             if (!recovery_clear_halt(daddr, p_msc->ep_intr))
@@ -346,7 +336,7 @@ static void start_recovery(uint8_t daddr)
     if (p_msc->recovery_stage != RECOVERY_NONE)
         return;
 
-    if (is_cbi(p_msc))
+    if (is_cbi_or_cb(p_msc))
     {
         // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk
         // endpoints.  Matches Linux usb-storage usb_stor_CB_reset().
@@ -486,7 +476,7 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     p_msc->data_stall = false;
     p_msc->stage = MSC_STAGE_CMD;
 
-    if (is_cbi(p_msc))
+    if (is_cbi_or_cb(p_msc))
     {
         // CBI: send CDB via ADSC (Accept Device-Specific Command) control request.
         tu_memclr(epbuf->cbi_cmd, 12);
@@ -786,7 +776,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
 
 bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
-    if (is_cbi(get_itf(dev_addr)))
+    if (is_cbi_or_cb(get_itf(dev_addr)))
         return cbi_xfer_cb(dev_addr, event, xferred_bytes);
     return bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
 }

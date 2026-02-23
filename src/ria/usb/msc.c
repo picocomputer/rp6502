@@ -115,11 +115,10 @@ static uint32_t msc_cbw_tag_counter = 0x65020000;
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
-bool tuh_msc_is_cbi(uint8_t dev_addr);
-bool tuh_msc_is_cb(uint8_t dev_addr);
 bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
-const msc_csw_t *tuh_msc_get_csw(uint8_t dev_addr);
 void tuh_msc_abort(uint8_t dev_addr);
+uint8_t tuh_msc_protocol(uint8_t dev_addr);
+const msc_csw_t *tuh_msc_csw(uint8_t dev_addr);
 
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
@@ -182,7 +181,7 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
         }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
-            result = msc_status_failed;
+            result = msc_status_timed_out;
             goto done;
         }
         if (!tuh_msc_ready(dev_addr))
@@ -212,23 +211,29 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
         main_task();
     }
     {
-        const msc_csw_t *csw = tuh_msc_get_csw(dev_addr);
+        const msc_csw_t *csw = tuh_msc_csw(dev_addr);
         DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
             (unsigned long)csw->signature,
             (unsigned long)csw->tag,
             (unsigned long)csw->data_residue,
             csw->status);
-        // Validate CSW tag matches the submitted CBW tag.
-        // A mismatch indicates a stale or corrupt response.
         if (csw->tag != cbw->tag)
         {
             DBG("CSW tag mismatch: expected %08lX got %08lX\n",
                 (unsigned long)cbw->tag, (unsigned long)csw->tag);
-            result = msc_status_failed;
+            result = msc_status_phase_error;
         }
         else
         {
             result = (msc_status_t)csw->status;
+        }
+        if (result == msc_status_passed &&
+            cbw->total_bytes > 0 &&
+            csw->data_residue > 0)
+        {
+            DBG("MSC dev %u: short transfer, residue=%lu\n",
+                dev_addr, (unsigned long)csw->data_residue);
+            result = msc_status_failed;
         }
     }
 
@@ -249,15 +254,20 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
 
-    bool is_data_in = (cbw->total_bytes > 0 &&
-                       (cbw->dir & TUSB_DIR_IN_MASK));
+    // CB (no I) has no interrupt endpoint, use autosense for status as needed.
     bool cb_probe = (status == msc_status_passed &&
-                     tuh_msc_is_cb(dev_addr) &&
-                     !is_data_in);
+                     tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_CBI_NO_INTERRUPT &&
+                     cbw->total_bytes == 0);
 
     if (status == msc_status_passed && !cb_probe)
     {
         msc_volume_last_success[vol] = get_absolute_time();
+    }
+    else if (status == msc_status_phase_error)
+    {
+        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
+        msc_volume_sense_asc[vol] = 0;
+        msc_volume_sense_ascq[vol] = 0;
     }
     else if (status != msc_status_timed_out)
     {
@@ -280,7 +290,7 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         // response_code is valid and the transfer didn't time out.
         bool sense_data_valid = (sense_status == msc_status_passed) ||
                                 (sense_status != msc_status_timed_out &&
-                                 tuh_msc_is_cbi(dev_addr));
+                                 tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT);
         if (sense_data_valid && sense_resp.response_code)
         {
             msc_volume_sense_key[vol] = sense_resp.sense_key;
@@ -462,16 +472,6 @@ static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
         .block_count = tu_htons(block_count)};
     memcpy(cbw.command, &cmd, sizeof(cmd));
     msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
-    if (status == msc_status_passed)
-    {
-        const msc_csw_t *csw = tuh_msc_get_csw(msc_volume_dev_addr[vol]);
-        if (csw->data_residue > 0)
-        {
-            DBG("MSC vol %d: READ10 short, residue=%lu\n",
-                vol, (unsigned long)csw->data_residue);
-            status = msc_status_failed;
-        }
-    }
     if (status != msc_status_passed)
         msc_handle_io_error(vol);
     return status;
@@ -493,16 +493,6 @@ static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
         .block_count = tu_htons(block_count)};
     memcpy(cbw.command, &cmd, sizeof(cmd));
     msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
-    if (status == msc_status_passed)
-    {
-        const msc_csw_t *csw = tuh_msc_get_csw(msc_volume_dev_addr[vol]);
-        if (csw->data_residue > 0)
-        {
-            DBG("MSC vol %d: WRITE10 short, residue=%lu\n",
-                vol, (unsigned long)csw->data_residue);
-            status = msc_status_failed;
-        }
-    }
     if (status != msc_status_passed)
         msc_handle_io_error(vol);
     return status;
@@ -527,7 +517,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
     if (!tuh_msc_mounted(dev_addr))
         return false;
 
-    if (tuh_msc_is_cbi(dev_addr))
+    if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
         // CBI: READ FORMAT CAPACITIES
         // 4-byte header + up to 3 capacity descriptors (8 bytes each).
@@ -543,7 +533,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
             rfc[8], rfc[9], rfc[10], rfc[11]);
 
         uint8_t list_len = rfc[3];
-        if (list_len < 8)
+        if (list_len < 8 || (list_len % 8) != 0)
             return false;
         uint8_t desc_type = rfc[4 + 4] & 0x03;
         if (desc_type == 3) // no media
@@ -590,41 +580,13 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         uint32_t last_lba = tu_ntohl(cap10.last_lba);
         if (last_lba == 0xFFFFFFFF)
             return false; // > 2 TB, unsupported
+        if (last_lba == 0)
+            DBG("MSC vol %d: READ CAPACITY(10) returned last_lba=0\n", vol);
         msc_volume_block_count[vol] = last_lba + 1;
         msc_volume_block_size[vol] = tu_ntohl(cap10.block_size);
     }
 
     return true;
-}
-
-// Read block 0 to force USB devices to populate mode pages with real
-// values before MODE SENSE (Linux read_before_ms quirk).
-// BOT only, non-fatal; data is discarded.
-static void msc_read_block_zero(uint8_t vol, absolute_time_t deadline)
-{
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    uint32_t bs = msc_volume_block_size[vol];
-
-    if (bs == 0 || bs > 512 || !tuh_msc_mounted(dev_addr))
-        return;
-
-    if (tuh_msc_is_cbi(dev_addr))
-        return; // CBI: not needed
-
-    // Non-fatal probe read: call msc_scsi_sync_raw directly to avoid
-    // autosense and triggering error recovery on failure. Ignore result.
-    uint8_t block0[512];
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
-    cbw.total_bytes = bs;
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = sizeof(scsi_read10_t);
-    scsi_read10_t const cmd = {
-        .cmd_code = SCSI_CMD_READ_10,
-        .lba = tu_htonl(0),
-        .block_count = tu_htons(1)};
-    memcpy(cbw.command, &cmd, sizeof(cmd));
-    msc_scsi_sync_raw(dev_addr, &cbw, block0, deadline);
 }
 
 // Determine write protection via MODE SENSE(6).  BOT only; CBI
@@ -635,7 +597,7 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     msc_volume_write_protected[vol] = false;
 
-    if (tuh_msc_is_cbi(dev_addr))
+    if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
         return;
 
     if (!tuh_msc_mounted(dev_addr))
@@ -786,9 +748,6 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     // ---- CAPACITY ----
     if (!msc_read_capacity(vol, msc_sync_floor(deadline)))
         return inq->is_removable ? msc_volume_ejected : msc_volume_failed;
-
-    // ---- READ BLOCK 0 (non-fatal) ----
-    msc_read_block_zero(vol, msc_sync_floor(deadline));
 
     // ---- WRITE PROTECTION ----
     msc_read_write_protect(vol, msc_sync_floor(deadline));
