@@ -67,24 +67,19 @@ Changes from upstream TinyUSB msc_host.c:
 //--------------------------------------------------------------------+
 enum
 {
-    MSC_STAGE_IDLE = 0,
+    MSC_STAGE_IDLE,
     MSC_STAGE_CMD,
     MSC_STAGE_DATA,
     MSC_STAGE_STATUS,
     MSC_STAGE_STATUS_RETRY,
 };
 
-// Recovery state machine.
-// BOT: BOT_RESET -> CLEAR_IN -> CLEAR_OUT -> NONE.
-// CBI: CBI_RESET -> CLEAR_IN -> CLEAR_OUT -> CLEAR_INTR -> NONE.
 enum
 {
-    RECOVERY_NONE = 0,
-    RECOVERY_BOT_RESET,
-    RECOVERY_CBI_RESET,
+    RECOVERY_IDLE,
+    RECOVERY_RESET,
     RECOVERY_CLEAR_IN,
     RECOVERY_CLEAR_OUT,
-    RECOVERY_CLEAR_INTR,
 };
 
 typedef struct
@@ -124,10 +119,9 @@ TU_ATTR_ALWAYS_INLINE static inline msch_epbuf_t *get_epbuf(uint8_t daddr)
     return &_msch_epbuf[daddr - 1];
 }
 
-TU_ATTR_ALWAYS_INLINE static inline bool is_cbi_or_cb(msch_interface_t const *p_msc)
+TU_ATTR_ALWAYS_INLINE static inline bool is_bot(msch_interface_t const *p_msc)
 {
-    return p_msc->protocol == MSC_PROTOCOL_CBI ||
-           p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT;
+    return p_msc->protocol == MSC_PROTOCOL_BOT;
 }
 
 // Resolve data endpoint from CBW direction.
@@ -198,7 +192,7 @@ bool tuh_msc_ready(uint8_t dev_addr)
     TU_VERIFY(p_msc->mounted);
     if (p_msc->stage != MSC_STAGE_IDLE)
         return false;
-    if (p_msc->recovery_stage != RECOVERY_NONE)
+    if (p_msc->recovery_stage != RECOVERY_IDLE)
         return false;
     if (usbh_edpt_busy(dev_addr, p_msc->ep_in))
         return false;
@@ -228,7 +222,7 @@ static void cancel_inflight(uint8_t dev_addr)
     msch_interface_t *p_msc = get_itf(dev_addr);
 
     // If a CBI ADSC control transfer is in-flight, abort it.
-    if (p_msc->stage == MSC_STAGE_CMD && is_cbi_or_cb(p_msc))
+    if (p_msc->stage == MSC_STAGE_CMD && !is_bot(p_msc))
     {
         tuh_edpt_abort_xfer(dev_addr, 0);
     }
@@ -273,7 +267,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     if (xfer->result != XFER_RESULT_SUCCESS)
     {
-        p_msc->recovery_stage = RECOVERY_NONE;
+        p_msc->recovery_stage = RECOVERY_IDLE;
         return;
     }
 
@@ -281,12 +275,11 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     switch (p_msc->recovery_stage)
     {
-    case RECOVERY_BOT_RESET:
-    case RECOVERY_CBI_RESET:
+    case RECOVERY_RESET:
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
         if (!recovery_clear_halt(daddr, p_msc->ep_in))
         {
-            p_msc->recovery_stage = RECOVERY_NONE;
+            p_msc->recovery_stage = RECOVERY_IDLE;
         }
         break;
 
@@ -295,33 +288,17 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
         p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
         if (!recovery_clear_halt(daddr, p_msc->ep_out))
         {
-            p_msc->recovery_stage = RECOVERY_NONE;
+            p_msc->recovery_stage = RECOVERY_IDLE;
         }
         break;
 
     case RECOVERY_CLEAR_OUT:
         hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
-        if (is_cbi_or_cb(p_msc) && p_msc->ep_intr)
-        {
-            p_msc->recovery_stage = RECOVERY_CLEAR_INTR;
-            if (!recovery_clear_halt(daddr, p_msc->ep_intr))
-            {
-                p_msc->recovery_stage = RECOVERY_NONE;
-            }
-        }
-        else
-        {
-            p_msc->recovery_stage = RECOVERY_NONE;
-        }
-        break;
-
-    case RECOVERY_CLEAR_INTR:
-        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_intr);
-        p_msc->recovery_stage = RECOVERY_NONE;
+        p_msc->recovery_stage = RECOVERY_IDLE;
         break;
 
     default:
-        p_msc->recovery_stage = RECOVERY_NONE;
+        p_msc->recovery_stage = RECOVERY_IDLE;
         break;
     }
 }
@@ -333,67 +310,67 @@ static void start_recovery(uint8_t daddr)
     msch_interface_t *p_msc = get_itf(daddr);
     if (!p_msc->configured)
         return;
-    if (p_msc->recovery_stage != RECOVERY_NONE)
+    if (p_msc->recovery_stage != RECOVERY_IDLE)
         return;
 
-    if (is_cbi_or_cb(p_msc))
+    if (is_bot(p_msc))
     {
-        // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk
-        // endpoints.  Matches Linux usb-storage usb_stor_CB_reset().
-        msch_epbuf_t *epbuf = get_epbuf(daddr);
-        memset(epbuf->cbi_cmd, 0xFF, 12);
-        epbuf->cbi_cmd[0] = 0x1D; // SEND_DIAGNOSTIC
-        epbuf->cbi_cmd[1] = 0x04; // SelfTest=1
+        // BOT: Bulk-Only Mass Storage Reset, then clear halts.
         tusb_control_request_t const request = {
             .bmRequestType_bit = {
                 .recipient = TUSB_REQ_RCPT_INTERFACE,
                 .type = TUSB_REQ_TYPE_CLASS,
                 .direction = TUSB_DIR_OUT},
-            .bRequest = 0, // ADSC
+            .bRequest = MSC_REQ_RESET,
             .wValue = 0,
             .wIndex = p_msc->itf_num,
-            .wLength = 12};
+            .wLength = 0};
         tuh_xfer_t xfer = {
             .daddr = daddr,
             .ep_addr = 0,
             .setup = &request,
-            .buffer = epbuf->cbi_cmd,
+            .buffer = NULL,
             .complete_cb = recovery_xfer_cb,
             .user_data = 0};
-        p_msc->recovery_stage = RECOVERY_CBI_RESET;
+        p_msc->recovery_stage = RECOVERY_RESET;
         if (!tuh_control_xfer(&xfer))
         {
-            // ADSC failed — fall back to just clearing endpoints
-            p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-            if (!recovery_clear_halt(daddr, p_msc->ep_in))
-            {
-                p_msc->recovery_stage = RECOVERY_NONE;
-            }
+            p_msc->recovery_stage = RECOVERY_IDLE;
         }
         return;
     }
 
-    // BOT: Bulk-Only Mass Storage Reset, then clear halts.
+    // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk
+    // endpoints.  Matches Linux usb-storage usb_stor_CB_reset().
+    msch_epbuf_t *epbuf = get_epbuf(daddr);
+    memset(epbuf->cbi_cmd, 0xFF, 12);
+    epbuf->cbi_cmd[0] = 0x1D; // SEND_DIAGNOSTIC
+    epbuf->cbi_cmd[1] = 0x04; // SelfTest=1
     tusb_control_request_t const request = {
         .bmRequestType_bit = {
             .recipient = TUSB_REQ_RCPT_INTERFACE,
             .type = TUSB_REQ_TYPE_CLASS,
             .direction = TUSB_DIR_OUT},
-        .bRequest = MSC_REQ_RESET,
+        .bRequest = 0, // ADSC
         .wValue = 0,
         .wIndex = p_msc->itf_num,
-        .wLength = 0};
+        .wLength = 12};
     tuh_xfer_t xfer = {
         .daddr = daddr,
         .ep_addr = 0,
         .setup = &request,
-        .buffer = NULL,
+        .buffer = epbuf->cbi_cmd,
         .complete_cb = recovery_xfer_cb,
         .user_data = 0};
-    p_msc->recovery_stage = RECOVERY_BOT_RESET;
+    p_msc->recovery_stage = RECOVERY_RESET;
     if (!tuh_control_xfer(&xfer))
     {
-        p_msc->recovery_stage = RECOVERY_NONE;
+        // ADSC failed — fall back to just clearing endpoints
+        p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+        if (!recovery_clear_halt(daddr, p_msc->ep_in))
+        {
+            p_msc->recovery_stage = RECOVERY_IDLE;
+        }
     }
 }
 
@@ -406,10 +383,10 @@ void tuh_msc_abort(uint8_t daddr)
         return;
 
     // If recovery is already in progress, force-stop it.
-    if (p_msc->recovery_stage != RECOVERY_NONE)
+    if (p_msc->recovery_stage != RECOVERY_IDLE)
     {
         tuh_edpt_abort_xfer(daddr, 0);
-        p_msc->recovery_stage = RECOVERY_NONE;
+        p_msc->recovery_stage = RECOVERY_IDLE;
         return;
     }
 
@@ -476,51 +453,51 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     p_msc->data_stall = false;
     p_msc->stage = MSC_STAGE_CMD;
 
-    if (is_cbi_or_cb(p_msc))
+    if (is_bot(p_msc))
     {
-        // CBI: send CDB via ADSC (Accept Device-Specific Command) control request.
-        tu_memclr(epbuf->cbi_cmd, 12);
-        uint8_t cmd_len = cbw->cmd_len;
-        if (cmd_len > 12)
-            cmd_len = 12;
-        memcpy(epbuf->cbi_cmd, cbw->command, cmd_len);
+        // BOT transport
+        TU_VERIFY(usbh_edpt_claim(daddr, p_msc->ep_out));
 
-        tusb_control_request_t const request = {
-            .bmRequestType_bit = {
-                .recipient = TUSB_REQ_RCPT_INTERFACE,
-                .type = TUSB_REQ_TYPE_CLASS,
-                .direction = TUSB_DIR_OUT},
-            .bRequest = 0, // ADSC
-            .wValue = 0,
-            .wIndex = p_msc->itf_num,
-            .wLength = 12};
-
-        tuh_xfer_t xfer = {
-            .daddr = daddr,
-            .ep_addr = 0,
-            .setup = &request,
-            .buffer = epbuf->cbi_cmd,
-            .complete_cb = cbi_adsc_complete,
-            .user_data = 0};
-
-        if (!tuh_control_xfer(&xfer))
+        if (!usbh_edpt_xfer(daddr, p_msc->ep_out, (uint8_t *)&epbuf->cbw, sizeof(msc_cbw_t)))
         {
             p_msc->stage = MSC_STAGE_IDLE;
+            (void)usbh_edpt_release(daddr, p_msc->ep_out);
             return false;
         }
+
         return true;
     }
 
-    // BOT transport
-    TU_VERIFY(usbh_edpt_claim(daddr, p_msc->ep_out));
+    // CBI: send CDB via ADSC (Accept Device-Specific Command) control request.
+    tu_memclr(epbuf->cbi_cmd, 12);
+    uint8_t cmd_len = cbw->cmd_len;
+    if (cmd_len > 12)
+        cmd_len = 12;
+    memcpy(epbuf->cbi_cmd, cbw->command, cmd_len);
 
-    if (!usbh_edpt_xfer(daddr, p_msc->ep_out, (uint8_t *)&epbuf->cbw, sizeof(msc_cbw_t)))
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_OUT},
+        .bRequest = 0, // ADSC
+        .wValue = 0,
+        .wIndex = p_msc->itf_num,
+        .wLength = 12};
+
+    tuh_xfer_t xfer = {
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = epbuf->cbi_cmd,
+        .complete_cb = cbi_adsc_complete,
+        .user_data = 0};
+
+    if (!tuh_control_xfer(&xfer))
     {
         p_msc->stage = MSC_STAGE_IDLE;
-        (void)usbh_edpt_release(daddr, p_msc->ep_out);
         return false;
     }
-
     return true;
 }
 
@@ -550,7 +527,7 @@ void msch_close(uint8_t dev_addr)
 
     cancel_inflight(dev_addr);
 
-    p_msc->recovery_stage = RECOVERY_NONE;
+    p_msc->recovery_stage = RECOVERY_IDLE;
 
     if (p_msc->ep_in)
         tuh_edpt_close(dev_addr, p_msc->ep_in);
@@ -776,9 +753,9 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
 
 bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
-    if (is_cbi_or_cb(get_itf(dev_addr)))
-        return cbi_xfer_cb(dev_addr, event, xferred_bytes);
-    return bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
+    if (is_bot(get_itf(dev_addr)))
+        return bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
+    return cbi_xfer_cb(dev_addr, event, xferred_bytes);
 }
 
 //--------------------------------------------------------------------+
