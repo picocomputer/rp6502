@@ -109,6 +109,9 @@ static uint8_t msc_volume_sense_ascq[FF_VOLUMES];
 static bool msc_volume_write_protected[FF_VOLUMES];
 static absolute_time_t msc_volume_last_success[FF_VOLUMES];
 
+// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
+static uint32_t msc_cbw_tag_counter = 0x65020000;
+
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
@@ -148,9 +151,6 @@ static inline absolute_time_t msc_sync_floor(absolute_time_t deadline)
 // Each wrapper builds a CDB, submits it via the transport API,
 // and blocks until completion.  Returns the CSW status code.
 
-// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
-static uint32_t msc_cbw_tag_counter = 0x65020000;
-
 // Initialize a CBW with standard boilerplate fields.
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 {
@@ -163,7 +163,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 // Wait for transport ready, submit command, and wait for completion.
 // No autosense - used directly for REQUEST SENSE itself.
 static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
-                                      void *data, absolute_time_t deadline)
+                                      const void *data, absolute_time_t deadline)
 {
     msc_status_t result;
 
@@ -190,7 +190,8 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
             main_task();
             continue;
         }
-        if (tuh_msc_scsi_submit(dev_addr, cbw, data))
+        // Cast away const: transport API uses void* for both directions.
+        if (tuh_msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
             break;
         // Submit failed (control pipe busy) — pump events and retry
         main_task();
@@ -239,23 +240,8 @@ done:
 // automatically issues REQUEST SENSE and populates the per-volume
 // sense arrays. Callers never need to explicitly request sense -
 // it's already available after any failed command.
-//
-// CB (Control/Bulk, no interrupt) special handling:
-// Matches Linux usb_stor_invoke_transport() CB auto-sense logic:
-// auto-sense for everything except successful data-in (reads).
-//
-// No-data commands: transport fabricates PASSED with no device
-// feedback; autosense discovers the real result.
-//
-// Data-out (writes): bulk-out success doesn't confirm SCSI
-// success; autosense checks for errors.
-//
-// Data-in (reads): trust the bulk-in result.  Do NOT autosense —
-// floppy drives can post transient sense (e.g. 2/3Ah/00h) that
-// would override a genuine success.  Devices signal read errors
-// by STALLing the bulk-in pipe.
 static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
-                                  void *data, absolute_time_t deadline)
+                                  const void *data, absolute_time_t deadline)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
@@ -263,8 +249,6 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
 
-    // CB auto-sense: for everything except successful data-in (reads).
-    // Matches Linux: srb->sc_data_direction != DMA_FROM_DEVICE.
     bool is_data_in = (cbw->total_bytes > 0 &&
                        (cbw->dir & TUSB_DIR_IN_MASK));
     bool cb_probe = (status == msc_status_passed &&
@@ -290,7 +274,14 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         memcpy(sense_cbw.command, &sense_cmd, sizeof(sense_cmd));
         msc_status_t sense_status = msc_scsi_sync_raw(
             dev_addr, &sense_cbw, &sense_resp, msc_sync_floor(deadline));
-        if (sense_status == msc_status_passed && sense_resp.response_code)
+        // On CBI devices the interrupt endpoint carries the accumulated error
+        // state of the previous failed command, not the outcome of REQUEST
+        // SENSE itself.  The bulk data is authoritative — accept it whenever
+        // response_code is valid and the transfer didn't time out.
+        bool sense_data_valid = (sense_status == msc_status_passed) ||
+                                (sense_status != msc_status_timed_out &&
+                                 tuh_msc_is_cbi(dev_addr));
+        if (sense_data_valid && sense_resp.response_code)
         {
             msc_volume_sense_key[vol] = sense_resp.sense_key;
             msc_volume_sense_asc[vol] = sense_resp.add_sense_code;
@@ -473,9 +464,6 @@ static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
     msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
     if (status == msc_status_passed)
     {
-        // Validate no short transfer: CSW data_residue > 0 means the
-        // device transferred fewer bytes than requested.  For sector
-        // I/O the buffer would contain incomplete data.
         const msc_csw_t *csw = tuh_msc_get_csw(msc_volume_dev_addr[vol]);
         if (csw->data_residue > 0)
         {
@@ -504,8 +492,7 @@ static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
         .lba = tu_htonl(lba),
         .block_count = tu_htons(block_count)};
     memcpy(cbw.command, &cmd, sizeof(cmd));
-    // Cast away const: transport API uses void* for both directions.
-    msc_status_t status = msc_scsi_sync(vol, &cbw, (void *)(uintptr_t)buff, deadline);
+    msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
     if (status == msc_status_passed)
     {
         const msc_csw_t *csw = tuh_msc_get_csw(msc_volume_dev_addr[vol]);
@@ -685,14 +672,6 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
 // Called from disk_initialize() for both newly registered and ejected
 // volumes.  Performs the full SCSI init sequence synchronously using
 // the sync helpers (which pump USB events via main_task()).
-//
-// For first mount (registered), sends INQUIRY to identify the device.
-// For re-probe (ejected), cached inquiry data is reused.
-//
-// Returns the resulting volume status:
-//   msc_volume_mounted  - success
-//   msc_volume_ejected  - removable media not present
-//   msc_volume_failed   - non-recoverable error
 
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
@@ -769,11 +748,12 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         uint8_t ascq = msc_volume_sense_ascq[vol];
         // Medium Not Present: some drives (e.g. TEAC floppy) return
         // stale 2/3Ah/00h after media reinsertion. Allow one retry.
-        if (asc == 0x3A)
+        if (asc == 0x3A) // TODO do we need to check sk?
         {
-            if (msc_volume_status[vol] == msc_volume_ejected &&
-                attempt == 0)
-                continue;
+            // Keep this here for future TEAC floppy attempts
+            // if (msc_volume_status[vol] == msc_volume_ejected &&
+            //     attempt == 0)
+            //     continue;
             break;
         }
         // NOT READY (2) or UNIT ATTENTION (6) - retry
@@ -881,34 +861,52 @@ DWORD get_fattime(void)
 DSTATUS disk_status(BYTE pdrv)
 {
     uint8_t vol = pdrv;
-    if (msc_volume_status[vol] == msc_volume_ejected)
-    {
-        DBG("MSC vol %d: disk_status, ejected\n", vol);
-        return STA_NOINIT | STA_NODISK;
-    }
-    if (msc_volume_status[vol] != msc_volume_mounted)
+    bool const ejected = (msc_volume_status[vol] == msc_volume_ejected);
+
+    if (!ejected && msc_volume_status[vol] != msc_volume_mounted)
     {
         DBG("MSC vol %d: disk_status, not mounted, status=%d\n", vol, msc_volume_status[vol]);
         return STA_NOINIT;
     }
-    uint8_t const dev_addr = msc_volume_dev_addr[vol];
-    if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
+
+    if (!ejected)
     {
-        DBG("MSC vol %d: disk_status, device not mounted\n", vol);
-        return STA_NOINIT;
+        uint8_t const dev_addr = msc_volume_dev_addr[vol];
+        if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
+        {
+            DBG("MSC vol %d: disk_status, device not mounted\n", vol);
+            return STA_NOINIT;
+        }
     }
-    // Detect media removal. Timer suppresses during successful IO.
+
+    // TUR for removable volumes: rate-limited by MSC_DISK_STATUS_TIMEOUT_MS.
     if (msc_inquiry_resp[vol].is_removable &&
         absolute_time_diff_us(msc_volume_last_success[vol], get_absolute_time()) >=
             MSC_DISK_STATUS_TIMEOUT_MS * 1000)
     {
+        msc_volume_last_success[vol] = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
-        if (msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != msc_status_passed)
+        if (msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) == msc_status_passed)
         {
-            msc_handle_io_error(vol);
+            if (ejected)
+            {
+                DBG("MSC vol %d: disk_status, media reinserted\n", vol);
+                return STA_NOINIT;
+            }
+        }
+        else
+        {
+            DBG("MSC vol %d: disk_status, no media\n", vol);
+            if (!ejected)
+                msc_handle_io_error(vol);
             return STA_NOINIT | STA_NODISK;
         }
     }
+    else if (ejected)
+    {
+        return STA_NOINIT | STA_NODISK;
+    }
+
     return msc_volume_write_protected[vol] ? STA_PROTECT : 0;
 }
 

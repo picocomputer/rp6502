@@ -40,11 +40,6 @@
 #include "host/hcd.h"
 #include "host/usbh.h"
 
-#ifndef CFG_TUH_HCD_LOG_LEVEL
-#define CFG_TUH_HCD_LOG_LEVEL CFG_TUH_LOG_LEVEL
-#endif
-#define TU_LOG_DRV(...) TU_LOG(CFG_TUH_HCD_LOG_LEVEL, __VA_ARGS__)
-
 // port 0 is native USB port, other is counted as software PIO
 #define RHPORT_NATIVE 0
 
@@ -57,13 +52,15 @@
 #endif
 static_assert(PICO_USB_HOST_INTERRUPT_ENDPOINTS <= USB_MAX_ENDPOINTS, "");
 
-// Host mode uses one shared endpoint register for non-interrupt endpoint
+// Host mode uses one shared endpoint register for non-interrupt endpoints
 static struct hw_endpoint ep_pool[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
 #define epx (ep_pool[0])
 
-// EP0 max packet size per device address.  EPX is shared across all
-// devices so we must save/restore wMaxPacketSize when switching.
-static uint16_t _ep0_pktsize[CFG_TUH_DEVICE_MAX + 1];
+// EP0 max packet size per device address. The RP2040 shares a single EPX for
+// all control transfers, so its wMaxPacketSize can become stale when switching
+// between devices with different EP0 sizes (e.g. low-speed MPS=8 vs full-speed
+// MPS=64). We track the correct value here and apply it in hcd_setup_send().
+static uint8_t _ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1]; // +1 for addr0
 
 // Flags we set by default in sie_ctrl (we add other bits on top)
 enum {
@@ -92,7 +89,7 @@ TU_ATTR_ALWAYS_INLINE static inline uint8_t dev_speed(void) {
 }
 
 TU_ATTR_ALWAYS_INLINE static inline bool need_pre(uint8_t dev_addr) {
-  // If this device is different to the speed of the root device
+  // If this device is different from the speed of the root device
   // (i.e. is a low speed device on a full speed hub) then need pre
   return hcd_port_speed_get(0) != tuh_speed_get(dev_addr);
 }
@@ -108,7 +105,12 @@ static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_
 
 static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_endpoint *ep) {
   usb_hw_clear->buf_status = bit;
-  const bool done          = hw_endpoint_xfer_continue(ep);
+  // A STALL or RX_TIMEOUT handled earlier in the same IRQ may have
+  // already deactivated this endpoint.  The hardware buf_status bit
+  // is not cleared by those handlers, so we see a stale notification
+  // here.  Just discard it.
+  if (!ep->active) return;
+  const bool done = hw_endpoint_xfer_continue(ep);
   if (done) {
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
   }
@@ -146,7 +148,7 @@ static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   }
 
   if (buf_status) {
-    panic("Unhandled buffer %d\n", buf_status);
+    panic("Unhandled buffer %u\n", (uint) buf_status);
   }
 }
 
@@ -156,7 +158,7 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   {
     pico_trace("Sent setup packet\n");
     struct hw_endpoint *ep = &epx;
-    assert(ep->active);
+    TU_ASSERT(ep->active, );
     // Set transferred length to 8 for a setup packet
     ep->xferred_len = 8;
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
@@ -226,7 +228,8 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
   {
     usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
-    TU_LOG(3, "  Seq Error: [0] = 0x%04u  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
+    handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
+    TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
            tu_u32_high16(*hwbuf_ctrl_reg_host(&epx)));
     panic("Data Seq Error \n");
   }
@@ -245,10 +248,9 @@ void __tusb_irq_path_func(hcd_int_handler)(uint8_t rhport, bool in_isr) {
 
 static struct hw_endpoint *_next_free_interrupt_ep(void)
 {
-  struct hw_endpoint * ep = NULL;
   for ( uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++ )
   {
-    ep = &ep_pool[i];
+    struct hw_endpoint *ep = &ep_pool[i];
     if ( !ep->configured )
     {
       // Will be configured by hw_endpoint_init / hw_endpoint_allocate
@@ -256,7 +258,7 @@ static struct hw_endpoint *_next_free_interrupt_ep(void)
       return ep;
     }
   }
-  return ep;
+  return NULL;
 }
 
 static hw_endpoint_t *hw_endpoint_allocate(uint8_t transfer_type) {
@@ -360,7 +362,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 
   // clear epx and interrupt eps
   memset(&ep_pool, 0, sizeof(ep_pool));
-  memset(_ep0_pktsize, 0, sizeof(_ep0_pktsize));
+  memset(_ep0_mps, 0, sizeof(_ep0_mps));
 
   // Enable in host mode with SOF / Keep alive on
   usb_hw->main_ctrl = USB_MAIN_CTRL_CONTROLLER_EN_BITS | USB_MAIN_CTRL_HOST_NDEVICE_BITS;
@@ -430,8 +432,9 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   pico_trace("hcd_device_close %d\n", dev_addr);
   (void) rhport;
 
-  if (dev_addr < TU_ARRAY_SIZE(_ep0_pktsize)) {
-    _ep0_pktsize[dev_addr] = 0;
+  // Clear saved EP0 max packet size
+  if (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) {
+    _ep0_mps[dev_addr] = 0;
   }
 
   // reset epx if it is currently active with unplugged device
@@ -486,16 +489,14 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
   hw_endpoint_t *ep = hw_endpoint_allocate(ep_desc->bmAttributes.xfer);
   TU_ASSERT(ep);
 
-  uint16_t pktsize = tu_edpt_packet_size(ep_desc);
-
-  // Track EP0 max packet size per device -- EPX is shared
-  if (tu_edpt_number(ep_desc->bEndpointAddress) == 0 &&
-      dev_addr < TU_ARRAY_SIZE(_ep0_pktsize)) {
-    _ep0_pktsize[dev_addr] = pktsize;
-  }
-
-  hw_endpoint_init(ep, dev_addr, ep_desc->bEndpointAddress, pktsize, ep_desc->bmAttributes.xfer,
+  hw_endpoint_init(ep, dev_addr, ep_desc->bEndpointAddress, tu_edpt_packet_size(ep_desc), ep_desc->bmAttributes.xfer,
                    ep_desc->bInterval);
+
+  // Remember EP0 max packet size so hcd_setup_send() can restore it
+  if (tu_edpt_number(ep_desc->bEndpointAddress) == 0 &&
+      dev_addr < TU_ARRAY_SIZE(_ep0_mps)) {
+    _ep0_mps[dev_addr] = (uint8_t) tu_edpt_packet_size(ep_desc);
+  }
 
   return true;
 }
@@ -503,28 +504,22 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
 bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   (void) rhport;
 
-  // EP0 (epx) is shared and never individually closed
-  if (tu_edpt_number(ep_addr) == 0) {
-    return false;
+  struct hw_endpoint *ep = get_dev_ep(daddr, ep_addr);
+  if (!ep || !ep->configured || ep == &epx) {
+    return false; // EP0 (epx) is shared and cannot be individually closed
   }
 
-  for (uint32_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
-    hw_endpoint_t *ep = &ep_pool[i];
-    if (ep->configured && ep->dev_addr == daddr && ep->ep_addr == ep_addr) {
-      // Disable interrupt endpoint hardware polling
-      usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
-      usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
+  // Disable the interrupt endpoint in hardware
+  usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
+  usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
 
-      // Unconfigure the endpoint
-      ep->configured = false;
-      *hwep_ctrl_reg_host(ep)  = 0;
-      *hwbuf_ctrl_reg_host(ep) = 0;
-      hw_endpoint_reset_transfer(ep);
-      return true;
-    }
-  }
+  // Unconfigure and reset
+  ep->configured = false;
+  *hwep_ctrl_reg_host(ep)  = 0;
+  *hwbuf_ctrl_reg_host(ep) = 0;
+  hw_endpoint_reset_transfer(ep);
 
-  return false;
+  return true;
 }
 
 bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *buffer, uint16_t buflen) {
@@ -543,14 +538,15 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   // EP should be inactive
   TU_ASSERT(!ep->active);
 
-  // EPX is shared across all devices: reinit when device or direction changes
-  // to restore the correct EP0 max packet size for the target device.
-  if (ep_num == 0 && (ep_addr != ep->ep_addr || dev_addr != ep->dev_addr)) {
-    uint16_t pktsize = (dev_addr < TU_ARRAY_SIZE(_ep0_pktsize) && _ep0_pktsize[dev_addr])
-                       ? _ep0_pktsize[dev_addr] : ep->wMaxPacketSize;
-    TU_LOG_DRV("  EPX switch dev %d->%d ep %02X pktsize %d->%d\r\n",
-               ep->dev_addr, dev_addr, ep_addr, ep->wMaxPacketSize, pktsize);
-    hw_endpoint_init(ep, dev_addr, ep_addr, pktsize, TUSB_XFER_CONTROL, 0);
+  // For EP0 (shared EPX): re-init whenever dev_addr, direction, or MPS changed.
+  // Another device's control transfer may have reconfigured EPX in between phases.
+  if (ep_num == 0) {
+    uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
+    if (mps == 0) mps = 8;
+
+    if (ep_addr != ep->ep_addr || dev_addr != ep->dev_addr || mps != ep->wMaxPacketSize) {
+      hw_endpoint_init(ep, dev_addr, ep_addr, mps, TUSB_XFER_CONTROL, 0);
+    }
   }
 
   // If a normal transfer (non-interrupt) then initiate using
@@ -581,28 +577,31 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
 
 bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
-
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
-  if (!ep || !ep->active) {
-    return true; // nothing to abort
-  }
+  if (!ep || !ep->active) return true;
 
-  // Clear hardware buffer control to cancel any pending DMA/transfer
-  *hwbuf_ctrl_reg_host(ep) = 0;
-
-  // Clear any pending buf_status bits for this endpoint so that a stale
-  // buffer-complete interrupt does not fire after the endpoint is reused
-  // for a new transfer (which would cause an assertion failure in
-  // sync_ep_buffer due to mismatched buffer state).
+  // For EPX: stop the SIE state machine first so no new completions arrive.
   if (ep == &epx) {
-    usb_hw_clear->buf_status = 3u;
-  } else {
-    uint32_t const mask = 3u << ((ep->interrupt_num + 1) * 2);
-    usb_hw_clear->buf_status = mask;
+    usb_hw->sie_ctrl = SIE_CTRL_BASE;
   }
 
-  // Reset the software transfer state (clears ep->active)
+  *hwbuf_ctrl_reg_host(ep) = 0;
   hw_endpoint_reset_transfer(ep);
+
+  // Clear any pending BUFF_STATUS for this endpoint.  The hardware may have
+  // already latched a completion from the transfer we are aborting.  If we
+  // leave the bit set, the ISR will process it after the next transfer
+  // starts on this endpoint (active == true again) and feed stale data into
+  // sync_ep_buffer(), triggering assert(!(buf_ctrl & USB_BUF_CTRL_FULL)).
+  if (ep == &epx) {
+    // EPX uses BUFF_STATUS bit 0 for both IN and OUT completions in host
+    // mode.  Clear bits 0–1 for safety.
+    usb_hw_clear->buf_status = 0x3u;
+  } else {
+    // Interrupt/bulk endpoints: bits are at (interrupt_num+1)*2 for IN,
+    // (interrupt_num+1)*2+1 for OUT.  Clear both directions.
+    usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
+  }
 
   return true;
 }
@@ -621,15 +620,14 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   TU_ASSERT(ep);
 
   // EPX should be inactive
-  assert(!ep->active);
+  TU_ASSERT(!ep->active);
 
-  // EP0 out — restore correct max packet size for this device
-  uint16_t pktsize = (dev_addr < TU_ARRAY_SIZE(_ep0_pktsize) && _ep0_pktsize[dev_addr])
-                     ? _ep0_pktsize[dev_addr] : ep->wMaxPacketSize;
-  TU_LOG_DRV("  EPX setup dev %d->%d pktsize %d->%d\r\n",
-             ep->dev_addr, dev_addr, ep->wMaxPacketSize, pktsize);
-  hw_endpoint_init(ep, dev_addr, 0x00, pktsize, 0, 0);
-  assert(ep->configured);
+  // EP0 out — use the saved MPS for this device, not the (possibly stale) EPX value
+  uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
+  if (mps == 0) mps = 8; // default for addr0 / unknown
+  hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
+  
+  TU_ASSERT(ep->configured);
 
   ep->remaining_len = 8;
   ep->active = true;
