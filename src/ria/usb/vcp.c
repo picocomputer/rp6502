@@ -255,7 +255,7 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    // Connect establishes DTR and RTS for hardware flow control
+    // Connect asserts DTR and RTS
     if (!tuh_cdc_connect(desc, NULL, 0))
     {
         *err = API_EIO;

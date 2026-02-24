@@ -59,7 +59,7 @@ static_assert(FF_FS_RPATH == 2);
 static_assert(FF_MULTI_PARTITION == 0);
 static_assert(FF_FS_LOCK == 8);
 static_assert(FF_FS_NORTC == 0);
-static_assert(FF_VOLUMES == 8);
+static_assert(FF_VOLUMES == 10);
 static_assert(FF_STR_VOLUME_ID == 1);
 #ifdef FF_VOLUME_STRS
 #error FF_VOLUME_STRS must not be defined
@@ -74,9 +74,12 @@ static const char __in_flash("fatfs_vol") VolumeStrMSC4[] = "MSC4";
 static const char __in_flash("fatfs_vol") VolumeStrMSC5[] = "MSC5";
 static const char __in_flash("fatfs_vol") VolumeStrMSC6[] = "MSC6";
 static const char __in_flash("fatfs_vol") VolumeStrMSC7[] = "MSC7";
+static const char __in_flash("fatfs_vol") VolumeStrMSC8[] = "MSC8";
+static const char __in_flash("fatfs_vol") VolumeStrMSC9[] = "MSC9";
 const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
-    VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7};
+    VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7,
+    VolumeStrMSC8, VolumeStrMSC9};
 
 // Build a FatFS volume path like "MSC0:" for volume.
 static inline void msc_vol_path(TCHAR buf[6], uint8_t vol)
@@ -116,7 +119,6 @@ static uint32_t msc_cbw_tag_counter = 0x65020000;
 // These additional interfaces are not in upstream TinyUSB.
 bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
 void tuh_msc_abort(uint8_t dev_addr);
-uint8_t tuh_msc_get_maxlun(uint8_t dev_addr);
 uint8_t tuh_msc_protocol(uint8_t dev_addr);
 const msc_csw_t *tuh_msc_csw(uint8_t dev_addr);
 
@@ -765,41 +767,38 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     return msc_volume_mounted;
 }
 
-void tuh_msc_mount_cb(uint8_t dev_addr)
+void tuh_msc_mount_lun_cb(uint8_t dev_addr, uint8_t lun)
 {
-    uint8_t const max_lun = tuh_msc_get_maxlun(dev_addr);
-    for (uint8_t lun = 0; lun <= max_lun; lun++)
+    // Find a free FatFS volume slot.
+    uint8_t vol = FF_VOLUMES;
+    for (uint8_t v = 0; v < FF_VOLUMES; v++)
     {
-        // Find a free FatFS volume slot.
-        uint8_t vol = FF_VOLUMES;
-        for (uint8_t v = 0; v < FF_VOLUMES; v++)
+        if (msc_volume_status[v] == msc_volume_free)
         {
-            if (msc_volume_status[v] == msc_volume_free)
-            {
-                vol = v;
-                break;
-            }
-        }
-        if (vol == FF_VOLUMES)
-        {
-            DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
+            vol = v;
             break;
         }
-        msc_volume_dev_addr[vol] = dev_addr;
-        msc_volume_lun[vol] = lun;
-        msc_volume_status[vol] = msc_volume_registered;
-        TCHAR volstr[6];
-        msc_vol_path(volstr, vol);
-        f_mount(&msc_fatfs_volumes[vol], volstr, 0);
-        DBG("MSC mount dev_addr %d LUN %d -> vol %d\n", dev_addr, lun, vol);
     }
+    if (vol == FF_VOLUMES)
+    {
+        DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
+        return;
+    }
+    msc_volume_dev_addr[vol] = dev_addr;
+    msc_volume_lun[vol] = lun;
+    msc_volume_status[vol] = msc_volume_registered;
+    TCHAR volstr[6];
+    msc_vol_path(volstr, vol);
+    f_mount(&msc_fatfs_volumes[vol], volstr, 0);
+    DBG("MSC mount dev_addr %d LUN %d -> vol %d\n", dev_addr, lun, vol);
 }
 
-void tuh_msc_umount_cb(uint8_t dev_addr)
+void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
 {
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         if (msc_volume_dev_addr[vol] == dev_addr &&
+            msc_volume_lun[vol] == lun &&
             msc_volume_status[vol] != msc_volume_free)
         {
             TCHAR volstr[6];

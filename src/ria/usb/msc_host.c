@@ -38,7 +38,7 @@ Changes from upstream TinyUSB msc_host.c:
   iterates bNumEndpoints to handle bulk + interrupt endpoints.
 - msch_set_config() skips all SCSI enumeration; msc.c handles everything in
   disk_initialize/msc_init_volume.  For BOT, GET_MAX_LUN is issued here so
-  that tuh_msc_mount_cb receives a valid tuh_msc_get_maxlun() result.
+  tuh_msc_mount_lun_cb is called once per LUN after enumeration.
   For CBI (single-LUN by spec) GET_MAX_LUN is skipped.
 - capacity[], tuh_msc_get_block_count(), tuh_msc_get_block_size(),
   tuh_msc_read10(), tuh_msc_write10() removed:
@@ -105,8 +105,8 @@ typedef struct
 {
     TUH_EPBUF_TYPE_DEF(msc_cbw_t, cbw);
     TUH_EPBUF_TYPE_DEF(msc_csw_t, csw);
-    TUH_EPBUF_DEF(cbi_cmd, 12);   // CBI ADSC command buffer (UFI = 12 bytes)
-    TUH_EPBUF_DEF(cbi_status, 2); // CBI interrupt status (2 bytes)
+    TUH_EPBUF_DEF(cbi_cmd, 12);    // CBI ADSC command buffer (UFI = 12 bytes)
+    TUH_EPBUF_DEF(cbi_status, 2);  // CBI interrupt status (2 bytes)
     TUH_EPBUF_DEF(max_lun_buf, 1); // GET_MAX_LUN response (1 byte)
 } msch_epbuf_t;
 
@@ -172,14 +172,16 @@ static void start_data_phase(uint8_t daddr, msch_interface_t *p_msc,
 //--------------------------------------------------------------------+
 // Weak stubs
 //--------------------------------------------------------------------+
-TU_ATTR_WEAK void tuh_msc_mount_cb(uint8_t dev_addr)
+TU_ATTR_WEAK void tuh_msc_mount_lun_cb(uint8_t dev_addr, uint8_t lun)
 {
     (void)dev_addr;
+    (void)lun;
 }
 
-TU_ATTR_WEAK void tuh_msc_umount_cb(uint8_t dev_addr)
+TU_ATTR_WEAK void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
 {
     (void)dev_addr;
+    (void)lun;
 }
 
 //--------------------------------------------------------------------+
@@ -205,11 +207,6 @@ bool tuh_msc_ready(uint8_t dev_addr)
     if (p_msc->ep_intr && usbh_edpt_busy(dev_addr, p_msc->ep_intr))
         return false;
     return true;
-}
-
-uint8_t tuh_msc_get_maxlun(uint8_t dev_addr)
-{
-    return get_itf(dev_addr)->max_lun;
 }
 
 uint8_t tuh_msc_protocol(uint8_t dev_addr)
@@ -572,7 +569,8 @@ void msch_close(uint8_t dev_addr)
 
     if (p_msc->mounted)
     {
-        tuh_msc_umount_cb(dev_addr);
+        for (uint8_t lun = 0; lun <= p_msc->max_lun; lun++)
+            tuh_msc_umount_lun_cb(dev_addr, lun);
     }
 
     tu_memclr(p_msc, sizeof(msch_interface_t));
@@ -922,7 +920,8 @@ static void get_max_lun_complete_cb(tuh_xfer_t *xfer)
     // else: STALL means no LUNs beyond 0; max_lun stays 0.
 
     p_msc->mounted = true;
-    tuh_msc_mount_cb(daddr);
+    for (uint8_t lun = 0; lun <= p_msc->max_lun; lun++)
+        tuh_msc_mount_lun_cb(daddr, lun);
     usbh_driver_set_config_complete(daddr, p_msc->itf_num);
 }
 
@@ -936,7 +935,7 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
     if (!is_bot(p_msc))
     {
         p_msc->mounted = true;
-        tuh_msc_mount_cb(daddr);
+        tuh_msc_mount_lun_cb(daddr, 0);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
         return true;
     }
@@ -947,24 +946,24 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
     tusb_control_request_t const request = {
         .bmRequestType_bit = {
             .recipient = TUSB_REQ_RCPT_INTERFACE,
-            .type      = TUSB_REQ_TYPE_CLASS,
+            .type = TUSB_REQ_TYPE_CLASS,
             .direction = TUSB_DIR_IN},
         .bRequest = MSC_REQ_GET_MAX_LUN,
-        .wValue   = 0,
-        .wIndex   = p_msc->itf_num,
-        .wLength  = 1};
+        .wValue = 0,
+        .wIndex = p_msc->itf_num,
+        .wLength = 1};
     tuh_xfer_t xfer = {
-        .daddr       = daddr,
-        .ep_addr     = 0,
-        .setup       = &request,
-        .buffer      = epbuf->max_lun_buf,
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = epbuf->max_lun_buf,
         .complete_cb = get_max_lun_complete_cb,
-        .user_data   = 0};
+        .user_data = 0};
     if (!tuh_control_xfer(&xfer))
     {
         // Control pipe busy or error — proceed with LUN 0 only.
         p_msc->mounted = true;
-        tuh_msc_mount_cb(daddr);
+        tuh_msc_mount_lun_cb(daddr, 0);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
     }
     return true;

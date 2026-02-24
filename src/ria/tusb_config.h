@@ -40,7 +40,7 @@
 // Enabled, usb/msc driver defines quantity
 #define CFG_TUH_MSC (1)
 // CDC host (serial adapters)
-#define CFG_TUH_CDC (8)
+#define CFG_TUH_CDC (10)
 #define CFG_TUH_CDC_FTDI (1)
 #define CFG_TUH_CDC_CP210X (1)
 #define CFG_TUH_CDC_CH34X (1)
@@ -48,7 +48,7 @@
 // No vendor driver
 #define CFG_TUH_VENDOR (0)
 
-// 8 drives, 8 input devices, and 8 CDC
-#define CFG_TUH_DEVICE_MAX (24)
+// 8 input devices, 10 drives, and 10 CDC
+#define CFG_TUH_DEVICE_MAX (28)
 
 #endif
