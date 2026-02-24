@@ -416,6 +416,7 @@ static void ria_cs_rwb_pio_init(void)
     sm_config_set_out_pins(&config, RIA_DATA_PIN_BASE, 8);
     sm_config_set_out_shift(&config, true, false, 0);
     sm_config_set_out_pin_count(&config, 8);
+    sm_config_set_jmp_pin(&config, CPU_PHI2_PIN);
     pio_sm_init(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, offset, &config);
     pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
 }

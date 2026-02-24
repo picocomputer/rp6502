@@ -103,14 +103,17 @@ push noblock    side 0 [5]
 .program ria_cs_rwb
 
 .wrap_target
-mov pindirs y
+mov pindirs y ; hi-z data bus
 start:
 mov osr !pins
 out x 2
 jmp !x reading ; select==1 and rwb==1
 .wrap
 reading:
-mov pindirs !y
+jmp pin pindirs_set ; only when PHI2 high
+jmp start
+pindirs_set:
+mov pindirs !y ; drive data bus
 jmp start
 
 
