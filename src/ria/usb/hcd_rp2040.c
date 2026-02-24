@@ -400,7 +400,7 @@ void hcd_port_reset(uint8_t rhport)
 {
   (void) rhport;
   pico_trace("hcd_port_reset\n");
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0, );
   // Assert USB bus reset (SE0) per USB 2.0 §7.1.7.5.  The host stack will call
   // hcd_port_reset_end() after the required ≥10 ms dwell time.
   // usb_hw_set->sie_ctrl = USB_SIE_CTRL_RESET_BUS_BITS;
@@ -409,8 +409,8 @@ void hcd_port_reset(uint8_t rhport)
 void hcd_port_reset_end(uint8_t rhport)
 {
   (void) rhport;
-  // De-assert bus reset; device will enter default state.
-  // usb_hw_clear->sie_ctrl = USB_SIE_CTRL_RESET_BUS_BITS;
+  TU_ASSERT(rhport == 0, );
+  // TODO: Nothing to do here yet. Perhaps need to reset some state?
 }
 
 bool hcd_port_connect_status(uint8_t rhport)
