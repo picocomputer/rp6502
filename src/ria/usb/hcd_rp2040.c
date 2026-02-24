@@ -415,14 +415,14 @@ bool hcd_port_connect_status(uint8_t rhport)
 {
   (void) rhport;
   pico_trace("hcd_port_connect_status\n");
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0);
   return usb_hw->sie_status & USB_SIE_STATUS_SPEED_BITS;
 }
 
 tusb_speed_t hcd_port_speed_get(uint8_t rhport)
 {
   (void) rhport;
-  assert(rhport == 0);
+  TU_ASSERT(rhport == 0);
 
   // TODO: Should enumval this register
   switch ( dev_speed() )
