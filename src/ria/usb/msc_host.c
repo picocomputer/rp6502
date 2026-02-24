@@ -274,6 +274,21 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     if (xfer->result != XFER_RESULT_SUCCESS)
     {
+        // Best-effort: flush HCD data-toggle for any endpoints that have not
+        // been cleared yet, so subsequent transfers are not permanently stuck
+        // on a toggle mismatch even though the device-level CLEAR_FEATURE failed.
+        uint8_t const rhport_err = usbh_get_rhport(daddr);
+        switch (p_msc->recovery_stage)
+        {
+        case RECOVERY_CLEAR_IN:
+            hcd_edpt_clear_stall(rhport_err, daddr, p_msc->ep_in);
+            TU_ATTR_FALLTHROUGH;
+        case RECOVERY_CLEAR_OUT:
+            hcd_edpt_clear_stall(rhport_err, daddr, p_msc->ep_out);
+            break;
+        default:
+            break;
+        }
         p_msc->recovery_stage = RECOVERY_IDLE;
         return;
     }
@@ -295,6 +310,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
         p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
         if (!recovery_clear_halt(daddr, p_msc->ep_out))
         {
+            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
             p_msc->recovery_stage = RECOVERY_IDLE;
         }
         break;
@@ -480,6 +496,10 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
         cmd_len = 12;
     memcpy(epbuf->cbi_cmd, cbw->command, cmd_len);
 
+    // UFI always requires exactly 12 bytes in the ADSC data stage regardless of
+    // the logical command length.  The buffer is already zero-padded to 12 bytes.
+    uint8_t adsc_len = (p_msc->subclass == MSC_SUBCLASS_UFI) ? 12 : cmd_len;
+
     tusb_control_request_t const request = {
         .bmRequestType_bit = {
             .recipient = TUSB_REQ_RCPT_INTERFACE,
@@ -488,7 +508,7 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
         .bRequest = 0, // ADSC
         .wValue = 0,
         .wIndex = p_msc->itf_num,
-        .wLength = 12};
+        .wLength = adsc_len};
 
     tuh_xfer_t xfer = {
         .daddr = daddr,
@@ -625,6 +645,9 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
                 case 0x02:
                     csw_status = MSC_CSW_STATUS_PHASE_ERROR;
                     break;
+                case 0x03:
+                    csw_status = MSC_CSW_STATUS_PHASE_ERROR;
+                    break;
                 default:
                     csw_status = MSC_CSW_STATUS_FAILED;
                     break;
@@ -739,6 +762,11 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
             p_msc->stage = MSC_STAGE_STATUS_RETRY;
             if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
                 break;
+            // Could not queue the retry read — treat as a hard transport error.
+            TU_LOG_DRV("  MSC BOT: CSW retry xfer failed\r\n");
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
+            break;
         }
 
         // Validate CSW per BOT spec §6.3
@@ -746,7 +774,8 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         bool csw_valid = (event == XFER_RESULT_SUCCESS &&
                           xferred_bytes == sizeof(msc_csw_t) &&
                           csw->signature == MSC_CSW_SIGNATURE &&
-                          csw->tag == cbw->tag);
+                          csw->tag == cbw->tag &&
+                          csw->data_residue <= cbw->total_bytes);
         if (!csw_valid)
         {
             // BOT §5.3.3: invalid CSW requires reset recovery.

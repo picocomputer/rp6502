@@ -15,8 +15,6 @@
 #include <string.h>
 #include "pico/time.h"
 
-#define DEBUG_RIA_USB_MSC
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -155,7 +153,11 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
 {
     memset(cbw, 0, sizeof(msc_cbw_t));
     cbw->signature = MSC_CBW_SIGNATURE;
-    cbw->tag = ++msc_cbw_tag_counter;
+    // Skip 0 on wrap: tag 0 is legal per spec but unconventional and
+    // could confuse stale-CSW detection in edge cases.
+    if (++msc_cbw_tag_counter == 0)
+        ++msc_cbw_tag_counter;
+    cbw->tag = msc_cbw_tag_counter;
     cbw->lun = lun;
 }
 
@@ -217,16 +219,16 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
             (unsigned long)csw->tag,
             (unsigned long)csw->data_residue,
             csw->status);
-        if (csw->tag != cbw->tag)
-        {
-            DBG("CSW tag mismatch: expected %08lX got %08lX\n",
-                (unsigned long)cbw->tag, (unsigned long)csw->tag);
-            result = msc_status_phase_error;
-        }
-        else
-        {
-            result = (msc_status_t)csw->status;
-        }
+        // msc_host.c has already validated the CSW (signature, tag, size).
+        // Invalid CSWs (wrong signature, tag, or length) are detected in
+        // bot_xfer_cb(), which calls complete_command() to synthesize a
+        // FAILED CSW with the correct tag, then immediately starts Reset
+        // Recovery (BMR + 2x CLEAR_HALT, BOT §6.3.3).  We arrive here only
+        // after tuh_msc_ready() became true, meaning recovery_stage is IDLE.
+        // A genuine device-reported PHASE_ERROR in an otherwise valid CSW
+        // also triggers recovery; the CSW status is preserved so we can
+        // return msc_status_phase_error to the caller.
+        result = (msc_status_t)csw->status;
         if (result == msc_status_passed &&
             cbw->total_bytes > 0 &&
             csw->data_residue > 0)
@@ -532,17 +534,21 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
             vol, rfc[3], rfc[4], rfc[5], rfc[6], rfc[7],
             rfc[8], rfc[9], rfc[10], rfc[11]);
 
-        uint8_t list_len = rfc[3];
-        if (list_len < 8 || (list_len % 8) != 0)
+        scsi_read_format_capacity_data_t const *cap =
+            (scsi_read_format_capacity_data_t const *)rfc;
+        if (cap->list_length < 8 || (cap->list_length % 8) != 0)
             return false;
-        uint8_t desc_type = rfc[4 + 4] & 0x03;
-        if (desc_type == 3) // no media
+        uint8_t desc_type = cap->descriptor_type & 0x03;
+        if (desc_type == 3) // 0x03 = No Media Present
             return false;
-        uint8_t *desc0 = &rfc[4];
-        uint32_t blocks = tu_ntohl(tu_unaligned_read32(desc0));
-        uint32_t bsize = ((uint32_t)desc0[5] << 16) |
-                         ((uint32_t)desc0[6] << 8) |
-                         (uint32_t)desc0[7];
+        if (cap->reserved2 != 0)
+        {
+            DBG("MSC vol %d: RFC reserved2=0x%02X, non-UFI response rejected\n",
+                vol, cap->reserved2);
+            return false;
+        }
+        uint32_t blocks = tu_ntohl(cap->block_num);
+        uint32_t bsize = tu_ntohs(cap->block_size_u16);
         DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
             vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
         // Accept power-of-2 sector sizes that FatFS supports.

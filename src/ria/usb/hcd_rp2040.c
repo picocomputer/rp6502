@@ -129,7 +129,7 @@ static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   }
 
   // Check "interrupt" (asynchronous) endpoints for both IN and OUT
-  for (uint i = 1; i <= USB_HOST_INTERRUPT_ENDPOINTS && buf_status; i++) {
+  for (uint i = 1; i <= PICO_USB_HOST_INTERRUPT_ENDPOINTS && buf_status; i++) {
     // EPX is bit 0 & 1
     // IEP1 IN  is bit 2
     // IEP1 OUT is bit 3
@@ -505,7 +505,7 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
                    ep_desc->bInterval);
 
   // Remember EP0 max packet size so hcd_setup_send() can restore it
-  if (tu_edpt_number(ep_desc->bEndpointAddress) == 0 &&
+  if (ep_desc->bEndpointAddress == 0x00 &&
       dev_addr < TU_ARRAY_SIZE(_ep0_mps)) {
     _ep0_mps[dev_addr] = (uint8_t) tu_edpt_packet_size(ep_desc);
   }
@@ -518,7 +518,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
 
   struct hw_endpoint *ep = get_dev_ep(daddr, ep_addr);
   if (!ep || !ep->configured || ep == &epx) {
-    return false; // EP0 (epx) is shared and cannot be individually closed
+    return true; // EP0 (epx) is shared
   }
 
   // Disable the interrupt endpoint in hardware
@@ -594,6 +594,8 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
     busy_wait_at_least_cycles(12);
+  } else {
+    usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
 
   // Reset software endpoint state if it is still marked active.
@@ -608,6 +610,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     usb_hw_clear->buf_status = 0x3u;
   } else {
     usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
+    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
 
   return true;
@@ -640,7 +643,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
     mps = 8;
   }
   hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
-  
+
   TU_ASSERT(ep->configured);
 
   ep->remaining_len = 8;
