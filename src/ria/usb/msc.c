@@ -97,6 +97,7 @@ typedef enum
 
 static msc_volume_status_t msc_volume_status[FF_VOLUMES];
 static uint8_t msc_volume_dev_addr[FF_VOLUMES];
+static uint8_t msc_volume_lun[FF_VOLUMES];
 static FATFS msc_fatfs_volumes[FF_VOLUMES];
 static scsi_inquiry_resp_t msc_inquiry_resp[FF_VOLUMES];
 static uint32_t msc_volume_block_count[FF_VOLUMES];
@@ -115,6 +116,7 @@ static uint32_t msc_cbw_tag_counter = 0x65020000;
 // These additional interfaces are not in upstream TinyUSB.
 bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
 void tuh_msc_abort(uint8_t dev_addr);
+uint8_t tuh_msc_get_maxlun(uint8_t dev_addr);
 uint8_t tuh_msc_protocol(uint8_t dev_addr);
 const msc_csw_t *tuh_msc_csw(uint8_t dev_addr);
 
@@ -276,7 +278,7 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         scsi_sense_fixed_resp_t sense_resp;
         memset(&sense_resp, 0, sizeof(sense_resp));
         msc_cbw_t sense_cbw;
-        msc_cbw_init(&sense_cbw, 0);
+        msc_cbw_init(&sense_cbw, msc_volume_lun[vol]);
         sense_cbw.total_bytes = sizeof(scsi_sense_fixed_resp_t);
         sense_cbw.dir = TUSB_DIR_IN_MASK;
         sense_cbw.cmd_len = sizeof(scsi_request_sense_t);
@@ -339,7 +341,7 @@ static msc_status_t msc_inquiry_sync(uint8_t vol, scsi_inquiry_resp_t *resp,
                                      absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = sizeof(scsi_inquiry_resp_t);
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = sizeof(scsi_inquiry_t);
@@ -353,7 +355,7 @@ static msc_status_t msc_inquiry_sync(uint8_t vol, scsi_inquiry_resp_t *resp,
 static msc_status_t msc_tur_sync(uint8_t vol, absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = 0;
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = sizeof(scsi_test_unit_ready_t);
@@ -366,7 +368,7 @@ static msc_status_t msc_read_capacity10_sync(uint8_t vol,
                                              absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = sizeof(scsi_read_capacity10_resp_t);
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = sizeof(scsi_read_capacity10_t);
@@ -379,7 +381,7 @@ static msc_status_t msc_read_format_capacities_sync(uint8_t vol, void *resp,
                                                     absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = alloc_length;
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = 12;      // UFI 12-byte CDB
@@ -394,7 +396,7 @@ static msc_status_t msc_mode_sense6_sync(uint8_t vol, uint8_t page_code,
                                          absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = sizeof(scsi_mode_sense6_resp_t);
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = sizeof(scsi_mode_sense6_t);
@@ -412,7 +414,7 @@ static msc_status_t msc_sync_cache10_sync(uint8_t vol,
                                           absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = 0;
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = 10;
@@ -425,7 +427,7 @@ static msc_status_t msc_start_stop_unit_sync(uint8_t vol, bool start,
                                              absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = 0;
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = sizeof(scsi_start_stop_unit_t);
@@ -464,7 +466,7 @@ static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
                                     absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = block_count * block_size;
     cbw.dir = TUSB_DIR_IN_MASK;
     cbw.cmd_len = sizeof(scsi_read10_t);
@@ -485,7 +487,7 @@ static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
                                      absolute_time_t deadline)
 {
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, 0);
+    msc_cbw_init(&cbw, msc_volume_lun[vol]);
     cbw.total_bytes = block_count * block_size;
     cbw.dir = TUSB_DIR_OUT;
     cbw.cmd_len = sizeof(scsi_write10_t);
@@ -765,18 +767,31 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
 
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
-    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+    uint8_t const max_lun = tuh_msc_get_maxlun(dev_addr);
+    for (uint8_t lun = 0; lun <= max_lun; lun++)
     {
-        if (msc_volume_status[vol] == msc_volume_free)
+        // Find a free FatFS volume slot.
+        uint8_t vol = FF_VOLUMES;
+        for (uint8_t v = 0; v < FF_VOLUMES; v++)
         {
-            msc_volume_dev_addr[vol] = dev_addr;
-            msc_volume_status[vol] = msc_volume_registered;
-            TCHAR volstr[6];
-            msc_vol_path(volstr, vol);
-            f_mount(&msc_fatfs_volumes[vol], volstr, 0);
-            DBG("MSC mount dev_addr %d -> vol %d\n", dev_addr, vol);
+            if (msc_volume_status[v] == msc_volume_free)
+            {
+                vol = v;
+                break;
+            }
+        }
+        if (vol == FF_VOLUMES)
+        {
+            DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
             break;
         }
+        msc_volume_dev_addr[vol] = dev_addr;
+        msc_volume_lun[vol] = lun;
+        msc_volume_status[vol] = msc_volume_registered;
+        TCHAR volstr[6];
+        msc_vol_path(volstr, vol);
+        f_mount(&msc_fatfs_volumes[vol], volstr, 0);
+        DBG("MSC mount dev_addr %d LUN %d -> vol %d\n", dev_addr, lun, vol);
     }
 }
 
@@ -792,6 +807,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             f_unmount(volstr);
             msc_volume_status[vol] = msc_volume_free;
             msc_volume_dev_addr[vol] = 0;
+            msc_volume_lun[vol] = 0;
             msc_volume_block_count[vol] = 0;
             msc_volume_block_size[vol] = 0;
             msc_volume_sense_key[vol] = 0;

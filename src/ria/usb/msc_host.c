@@ -36,11 +36,13 @@ Changes from upstream TinyUSB msc_host.c:
   No per-command completion callbacks; msc.c polls for command completion.
 - msch_open() accepts CBI/CBI_NO_INTERRUPT protocols and UFI/SFF subclasses;
   iterates bNumEndpoints to handle bulk + interrupt endpoints.
-- msch_set_config() skips GET_MAX_LUN and all SCSI enumeration; msc.c handles
-  everything in disk_initialize/msc_init_volume.
-- max_lun, capacity[], tuh_msc_get_maxlun(), tuh_msc_get_block_count(),
-  tuh_msc_get_block_size(), tuh_msc_read10(), tuh_msc_write10() removed:
-  msc.c owns LUN enumeration and block size/count tracking.
+- msch_set_config() skips all SCSI enumeration; msc.c handles everything in
+  disk_initialize/msc_init_volume.  For BOT, GET_MAX_LUN is issued here so
+  that tuh_msc_mount_cb receives a valid tuh_msc_get_maxlun() result.
+  For CBI (single-LUN by spec) GET_MAX_LUN is skipped.
+- capacity[], tuh_msc_get_block_count(), tuh_msc_get_block_size(),
+  tuh_msc_read10(), tuh_msc_write10() removed:
+  msc.c owns block size/count tracking.
 - Automatic reset recovery on phase errors and invalid CSWs.
   tuh_msc_ready() stays false until recovery completes.
   tuh_msc_abort() cancels in-flight commands or force-stops hung recovery.
@@ -96,6 +98,7 @@ typedef struct
     uint8_t recovery_stage;
     bool data_stall; // data endpoint STALLed; device-level clear needed
     void *buffer;
+    uint8_t max_lun; // highest LUN index on this device (0 = single LUN)
 } msch_interface_t;
 
 typedef struct
@@ -104,6 +107,7 @@ typedef struct
     TUH_EPBUF_TYPE_DEF(msc_csw_t, csw);
     TUH_EPBUF_DEF(cbi_cmd, 12);   // CBI ADSC command buffer (UFI = 12 bytes)
     TUH_EPBUF_DEF(cbi_status, 2); // CBI interrupt status (2 bytes)
+    TUH_EPBUF_DEF(max_lun_buf, 1); // GET_MAX_LUN response (1 byte)
 } msch_epbuf_t;
 
 static msch_interface_t _msch_itf[CFG_TUH_DEVICE_MAX];
@@ -201,6 +205,11 @@ bool tuh_msc_ready(uint8_t dev_addr)
     if (p_msc->ep_intr && usbh_edpt_busy(dev_addr, p_msc->ep_intr))
         return false;
     return true;
+}
+
+uint8_t tuh_msc_get_maxlun(uint8_t dev_addr)
+{
+    return get_itf(dev_addr)->max_lun;
 }
 
 uint8_t tuh_msc_protocol(uint8_t dev_addr)
@@ -851,6 +860,7 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     p_msc->protocol = desc_itf->bInterfaceProtocol;
     p_msc->subclass = desc_itf->bInterfaceSubClass;
     p_msc->ep_intr = 0;
+    p_msc->max_lun = 0;
 
     uint8_t const *p_desc = tu_desc_next(desc_itf);
     uint8_t const *desc_end = ((uint8_t const *)desc_itf) + drv_len;
@@ -895,14 +905,68 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_t
     return drv_len;
 }
 
+static void get_max_lun_complete_cb(tuh_xfer_t *xfer)
+{
+    uint8_t daddr = xfer->daddr;
+    msch_interface_t *p_msc = get_itf(daddr);
+    msch_epbuf_t *epbuf = get_epbuf(daddr);
+
+    if (xfer->result == XFER_RESULT_SUCCESS)
+    {
+        // Clamp to CFG_TUH_MSC_MAXLUN-1 per BOT spec §3.2
+        uint8_t ml = epbuf->max_lun_buf[0];
+        if (ml >= CFG_TUH_MSC_MAXLUN)
+            ml = CFG_TUH_MSC_MAXLUN - 1;
+        p_msc->max_lun = ml;
+    }
+    // else: STALL means no LUNs beyond 0; max_lun stays 0.
+
+    p_msc->mounted = true;
+    tuh_msc_mount_cb(daddr);
+    usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+}
+
 bool msch_set_config(uint8_t daddr, uint8_t itf_num)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
     p_msc->configured = true;
-    p_msc->mounted = true;
-    tuh_msc_mount_cb(daddr);
-    usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+
+    // CBI/CB: single-LUN by spec, skip GET_MAX_LUN.
+    if (!is_bot(p_msc))
+    {
+        p_msc->mounted = true;
+        tuh_msc_mount_cb(daddr);
+        usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+        return true;
+    }
+
+    // BOT: issue GET_MAX_LUN; completion fires get_max_lun_complete_cb.
+    msch_epbuf_t *epbuf = get_epbuf(daddr);
+    epbuf->max_lun_buf[0] = 0;
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type      = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_IN},
+        .bRequest = MSC_REQ_GET_MAX_LUN,
+        .wValue   = 0,
+        .wIndex   = p_msc->itf_num,
+        .wLength  = 1};
+    tuh_xfer_t xfer = {
+        .daddr       = daddr,
+        .ep_addr     = 0,
+        .setup       = &request,
+        .buffer      = epbuf->max_lun_buf,
+        .complete_cb = get_max_lun_complete_cb,
+        .user_data   = 0};
+    if (!tuh_control_xfer(&xfer))
+    {
+        // Control pipe busy or error — proceed with LUN 0 only.
+        p_msc->mounted = true;
+        tuh_msc_mount_cb(daddr);
+        usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+    }
     return true;
 }
 
