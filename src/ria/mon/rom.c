@@ -17,6 +17,7 @@
 #include "sys/ria.h"
 #include <fatfs/ff.h>
 #include <ctype.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
 #include <stdio.h>
@@ -138,15 +139,13 @@ static bool rom_next_chunk(void)
     mbuf_len = 0;
     size_t len = rom_gets();
     for (size_t i = 0; i < len; i++)
-        switch (mbuf[i])
-        {
-        case ' ':
+    {
+        if (mbuf[i] == ' ')
             continue;
-        case '#':
+        if (mbuf[i] == '#')
             return true;
-        default:
-            break;
-        }
+        break;
+    }
     uint32_t rom_crc;
     const char *args = (char *)mbuf;
     if (str_parse_uint32(&args, &len, &rom_addr) &&
@@ -232,6 +231,7 @@ void rom_mon_install(const char *args, size_t len)
         if (i && lfs_name[i] >= '0' && lfs_name[i] <= '9')
             continue;
         lfs_name_len = 0;
+        break;
     }
     // Test for system conflicts
     if (!lfs_name_len ||
@@ -508,7 +508,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
                 }
                 line += 1;
                 if (state == line)
-                    sprintf(buf, "%s", lfs_info.name);
+                    snprintf(buf, buf_size, "%s", lfs_info.name);
                 col = len;
             }
             else
@@ -520,7 +520,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
                     col += 1;
                 }
                 if (state == line)
-                    sprintf(buf + col, "%s", lfs_info.name);
+                    snprintf(buf + col, buf_size - col, "%s", lfs_info.name);
                 col += len;
             }
         }
