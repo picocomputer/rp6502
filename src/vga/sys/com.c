@@ -10,6 +10,7 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>
+#include <assert.h>
 
 size_t com_in_head;
 size_t com_in_tail;
@@ -18,6 +19,11 @@ char com_in_buf[COM_IN_BUF_SIZE];
 size_t com_out_head;
 size_t com_out_tail;
 char com_out_buf[COM_OUT_BUF_SIZE];
+
+static_assert((COM_IN_BUF_SIZE & (COM_IN_BUF_SIZE - 1)) == 0,
+              "COM_IN_BUF_SIZE must be a power of 2");
+static_assert((COM_OUT_BUF_SIZE & (COM_OUT_BUF_SIZE - 1)) == 0,
+              "COM_OUT_BUF_SIZE must be a power of 2");
 
 size_t com_in_free(void)
 {
@@ -35,9 +41,11 @@ void com_in_write_ansi_CPR(int row, int col)
     // If USB terminal connected, let it respond instead of us
     if (!tud_cdc_connected() && com_in_empty())
     {
-        snprintf(com_in_buf, COM_IN_BUF_SIZE, "\33[%u;%uR", row, col);
-        com_in_tail = COM_OUT_BUF_SIZE - 1;
-        com_in_head = strlen(com_in_buf) - 1;
+        int n = snprintf(com_in_buf, COM_IN_BUF_SIZE, "\33[%u;%uR", row, col);
+        if (n < 0 || n >= COM_IN_BUF_SIZE)
+            return;
+        com_in_tail = COM_IN_BUF_SIZE - 1;
+        com_in_head = n - 1;
     }
 }
 
@@ -96,11 +104,7 @@ void com_init(void)
 
 void com_pre_reclock(void)
 {
-    while (!com_in_empty() && uart_is_writable(COM_UART_INTERFACE))
-    {
-        com_in_tail = (com_in_tail + 1) % COM_IN_BUF_SIZE;
-        uart_get_hw(COM_UART_INTERFACE)->dr = com_in_buf[com_in_tail];
-    }
+    uart_tx_wait_blocking(COM_UART_INTERFACE);
 }
 
 void com_post_reclock(void)

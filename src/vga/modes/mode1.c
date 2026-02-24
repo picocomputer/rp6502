@@ -75,8 +75,8 @@ mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_
     }
     if (*row < 0 || *row >= height || config->width_chars < 1 || height < 1)
         return NULL;
-    const int32_t sizeof_row = (int32_t)config->width_chars * cell_size;
-    const int32_t sizeof_bitmap = (int32_t)config->height_chars * sizeof_row;
+    const uint32_t sizeof_row = (uint32_t)config->width_chars * cell_size;
+    const uint32_t sizeof_bitmap = (uint32_t)config->height_chars * sizeof_row;
     if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
         return NULL;
     return &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
@@ -86,7 +86,7 @@ static volatile const uint16_t *
 mode1_get_palette(mode1_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
-        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
+        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (1 << bpp))
         return (uint16_t *)&xram[config->xram_palette_ptr];
     if (bpp == 1)
         return color_2;

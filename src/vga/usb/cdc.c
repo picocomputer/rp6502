@@ -22,8 +22,22 @@ static void send_break_ms(uint16_t duration_ms)
 void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms)
 {
     (void)itf;
-    (void)duration_ms;
-    send_break_ms(duration_ms);
+    if (duration_ms == 0x0000)
+    {
+        is_breaking = false;
+        com_set_uart_break(false);
+    }
+    else if (duration_ms == 0xFFFF)
+    {
+        // Indefinite break — hold until 0x0000 is received
+        break_timer = at_the_end_of_time;
+        is_breaking = true;
+        com_set_uart_break(true);
+    }
+    else
+    {
+        send_break_ms(duration_ms);
+    }
 }
 
 void cdc_task(void)
@@ -51,9 +65,12 @@ void cdc_task(void)
         if (tud_cdc_available())
         {
             size_t bufsize = com_in_free();
-            size_t data_len = tud_cdc_read(read_buf, bufsize);
-            for (size_t i = 0; i < data_len; i++)
-                com_in_write(read_buf[i]);
+            if (bufsize > 0)
+            {
+                size_t data_len = tud_cdc_read(read_buf, bufsize);
+                for (size_t i = 0; i < data_len; i++)
+                    com_in_write(read_buf[i]);
+            }
         }
     }
 }
