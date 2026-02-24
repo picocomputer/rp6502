@@ -22,16 +22,14 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+static uint8_t usb_pad_led_dev;
+static uint8_t usb_pad_led_idx;
 static uint8_t usb_hid_leds;
 static uint8_t usb_hid_leds_dev;
 static uint8_t usb_hid_leds_idx;
 static uint8_t usb_count_hid_kbd;
 static uint8_t usb_count_hid_mou;
 static uint8_t usb_count_hid_pad;
-
-// Deferred pad LED send (not safe to send during mount callback).
-static uint8_t usb_pad_led_dev; // dev_addr, 0 = no pending send
-static uint8_t usb_pad_led_idx;
 
 static inline int usb_idx_to_hid_slot(int idx)
 {

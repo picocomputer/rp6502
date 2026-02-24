@@ -129,7 +129,7 @@ static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   }
 
   // Check "interrupt" (asynchronous) endpoints for both IN and OUT
-  for (uint i = 1; i <= USB_HOST_INTERRUPT_ENDPOINTS && buf_status; i++) {
+  for (uint i = 1; i <= PICO_USB_HOST_INTERRUPT_ENDPOINTS && buf_status; i++) {
     // EPX is bit 0 & 1
     // IEP1 IN  is bit 2
     // IEP1 OUT is bit 3
@@ -158,7 +158,7 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   {
     pico_trace("Sent setup packet\n");
     struct hw_endpoint *ep = &epx;
-    if (!ep->active) return;
+    TU_ASSERT(ep->active, );
     // Set transferred length to 8 for a setup packet
     ep->xferred_len = 8;
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
@@ -201,16 +201,6 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     pico_trace("Stall REC\n");
     handled |= USB_INTS_STALL_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
-
-    // Clean up EPX hardware state so the next transfer gets a fresh
-    // endpoint.  Without this, stale AVAIL/PID bits in the buffer
-    // control register and residual RECEIVE/SEND_DATA flags in
-    // SIE_CTRL persist across the shared EPX, corrupting the next
-    // device's control transfer (same cleanup hcd_edpt_abort_xfer
-    // performs).
-    *hwbuf_ctrl_reg_host(&epx) = 0;
-    usb_hw->sie_ctrl = SIE_CTRL_BASE;
-
     hw_xfer_complete(&epx, XFER_RESULT_STALLED);
   }
 
@@ -233,14 +223,14 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   {
     handled |= USB_INTS_ERROR_RX_TIMEOUT_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS;
-
-    // If EPX has an active transfer, fail it so TinyUSB's retry logic
-    // can attempt re-enumeration instead of silently hanging forever.
-    if (epx.active) {
-      *hwbuf_ctrl_reg_host(&epx) = 0;
-      usb_hw->sie_ctrl = SIE_CTRL_BASE;
+    // Complete any in-flight EPX transfer so the endpoint is not left
+    // stuck active.  The SIE does not raise TRANS_COMPLETE on timeout.
+    if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
-    }
+    usb_hw->sie_ctrl = SIE_CTRL_BASE; // stop SIE before clearing
+    busy_wait_at_least_cycles(12);    // drain any in-flight SIE writeback
+    usb_hw_clear->buf_status = 0x3u;
+    *hwbuf_ctrl_reg_host(&epx) = 0;
   }
 
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
@@ -365,7 +355,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   (void) rhport;
   (void) rh_init;
   pico_trace("hcd_init %d\n", rhport);
-  TU_ASSERT(rhport == 0);
+  assert(rhport == 0);
 
   // Reset any previous state
   rp2usb_init();
@@ -417,6 +407,8 @@ void hcd_port_reset(uint8_t rhport)
 void hcd_port_reset_end(uint8_t rhport)
 {
   (void) rhport;
+  TU_ASSERT(rhport == 0, );
+  // TODO: Nothing to do here yet. Perhaps need to reset some state?
 }
 
 bool hcd_port_connect_status(uint8_t rhport)
@@ -511,7 +503,7 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
                    ep_desc->bInterval);
 
   // Remember EP0 max packet size so hcd_setup_send() can restore it
-  if (tu_edpt_number(ep_desc->bEndpointAddress) == 0 &&
+  if (ep_desc->bEndpointAddress == 0x00 &&
       dev_addr < TU_ARRAY_SIZE(_ep0_mps)) {
     _ep0_mps[dev_addr] = (uint8_t) tu_edpt_packet_size(ep_desc);
   }
@@ -524,7 +516,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
 
   struct hw_endpoint *ep = get_dev_ep(daddr, ep_addr);
   if (!ep || !ep->configured || ep == &epx) {
-    return false; // EP0 (epx) is shared and cannot be individually closed
+    return true; // EP0 (epx) is shared
   }
 
   // Disable the interrupt endpoint in hardware
@@ -596,29 +588,27 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
 bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
-  if (!ep || !ep->active) return true;
-
-  // For EPX: stop the SIE state machine first so no new completions arrive.
+  if (!ep) return true;
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
+    busy_wait_at_least_cycles(12);
+  } else {
+    usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
 
-  *hwbuf_ctrl_reg_host(ep) = 0;
-  hw_endpoint_reset_transfer(ep);
+  // Reset software endpoint state if it is still marked active.
+  if (ep->active) {
+    hw_endpoint_reset_transfer(ep);
+  }
 
-  // Clear any pending BUFF_STATUS for this endpoint.  The hardware may have
-  // already latched a completion from the transfer we are aborting.  If we
-  // leave the bit set, the ISR will process it after the next transfer
-  // starts on this endpoint (active == true again) and feed stale data into
-  // sync_ep_buffer(), triggering assert(!(buf_ctrl & USB_BUF_CTRL_FULL)).
+  // Clear hardware buf_ctrl and pending BUFF_STATUS so a stale completion
+  // cannot fire after the next transfer is armed on this endpoint.
+  *hwbuf_ctrl_reg_host(ep) = 0;
   if (ep == &epx) {
-    // EPX uses BUFF_STATUS bit 0 for both IN and OUT completions in host
-    // mode.  Clear bits 0–1 for safety.
     usb_hw_clear->buf_status = 0x3u;
   } else {
-    // Interrupt/bulk endpoints: bits are at (interrupt_num+1)*2 for IN,
-    // (interrupt_num+1)*2+1 for OUT.  Clear both directions.
     usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
+    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
 
   return true;
@@ -642,9 +632,16 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
 
   // EP0 out — use the saved MPS for this device, not the (possibly stale) EPX value
   uint16_t mps = (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) ? _ep0_mps[dev_addr] : 0;
-  if (mps == 0) mps = 8; // default for addr0 / unknown
+  if (mps == 0) {
+    if (dev_addr != 0) {
+      TU_LOG(1, "hcd_setup_send: dev_addr=%u has no saved EP0 MPS\r\n", dev_addr);
+      TU_ASSERT(false);
+    }
+    // use the USB 2.0 §9.6.1 mandatory minimum of 8.
+    mps = 8;
+  }
   hw_endpoint_init(ep, dev_addr, 0x00, mps, 0, 0);
-  
+
   TU_ASSERT(ep->configured);
 
   ep->remaining_len = 8;
@@ -674,47 +671,6 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     ep->next_pid = 0; // Reset data toggle to DATA0
   }
   return true;
-}
-
-//--------------------------------------------------------------------+
-// Interrupt endpoint pause/resume
-//--------------------------------------------------------------------+
-// The RP2040 SIE shares a single EPX for all control transfers.
-// Hardware-polled interrupt endpoints can delay the STATUS phase of a
-// control transfer long enough for timing-sensitive CBI devices (e.g.
-// TEAC floppy) to STALL.  Temporarily disabling interrupt endpoint
-// polling during critical control transfers avoids this.
-//
-// Reference-counted: callers may nest pause/resume pairs.  The
-// hardware is only modified on the 0→1 (pause) and 1→0 (resume)
-// transitions.
-static uint32_t _saved_int_ep_ctrl;
-static int _int_eps_pause_count;
-
-void hcd_pause_interrupt_eps(uint8_t rhport) {
-  (void) rhport;
-  if (_int_eps_pause_count++ == 0) {
-    _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
-    usb_hw->int_ep_ctrl = 0;
-  }
-}
-
-void hcd_resume_interrupt_eps(uint8_t rhport) {
-  (void) rhport;
-  if (_int_eps_pause_count > 0 && --_int_eps_pause_count == 0) {
-    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
-  }
-}
-
-// Force resume: reset count to zero and restore hardware.  Used by
-// msch_close() when a device disconnects mid-operation — outstanding
-// callbacks that would have resumed are now dead.
-void hcd_force_resume_interrupt_eps(uint8_t rhport) {
-  (void) rhport;
-  if (_int_eps_pause_count > 0) {
-    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
-    _int_eps_pause_count = 0;
-  }
 }
 
 #endif

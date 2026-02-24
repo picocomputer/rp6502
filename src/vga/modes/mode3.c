@@ -51,7 +51,7 @@ static volatile const uint16_t *
 mode3_get_palette(mode3_config_t *config, int16_t bpp)
 {
     if (!(config->xram_palette_ptr & 1) &&
-        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (2 ^ bpp))
+        config->xram_palette_ptr <= 0x10000 - sizeof(uint16_t) * (1 << bpp))
         return (uint16_t *)&xram[config->xram_palette_ptr];
     if (bpp == 1)
         return color_2;
@@ -465,7 +465,7 @@ bool mode3_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
-    void *render_fn;
+    bool (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t);
     switch (attributes)
     {
     case 0:

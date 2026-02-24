@@ -39,7 +39,7 @@ typedef struct
 // a00, a01, b0,   a10, a11, b1
 // i.e. the top two rows of the matrix
 // [ a00 a01 b0 ]
-// [ a01 a11 b1 ]
+// [ a10 a11 b1 ]
 // [ 0   0   1  ]
 // Then pack integers appropriately
 
@@ -52,7 +52,7 @@ static inline int32_t mul_fp1616(int32_t x, int32_t y)
     return result >> 16;
 }
 
-// result can not be == left or right
+// result must not alias left or right
 static inline void affine_mul(affine_transform_t result, const affine_transform_t left,
                               const affine_transform_t right)
 {
@@ -207,7 +207,7 @@ static inline intersect_t _get_sprite_intersect(const mode4_sprite_t *sp, uint r
 
 // Sprites may have an array of metadata on the end.
 // One word per line, encodes first opaque pixel, last opaque pixel,
-// and whether the span in between is solid. This allows fewer
+// and whether the span in between is solid. This allows fewer pixel-by-pixel alpha tests.
 static inline intersect_t _intersect_with_metadata(intersect_t isct, uint32_t meta)
 {
     int span_end = meta & 0xffff;
@@ -537,7 +537,7 @@ bool mode4_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
     const uint16_t config_ptr = xregs[3];
-    const int16_t length = xregs[4];
+    const uint16_t length = xregs[4];
     const int16_t plane = xregs[5];
     const int16_t scanline_begin = xregs[6];
     const int16_t scanline_end = xregs[7];
@@ -545,7 +545,7 @@ bool mode4_prog(uint16_t *xregs)
     if (config_ptr & 1)
         return false;
 
-    void *render_fn;
+    void (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t, uint16_t);
     switch (attributes)
     {
     case 0:
