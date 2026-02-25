@@ -21,7 +21,6 @@ std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *
 #include "net/tel.h"
 #include "str/str.h"
 #include "sys/lfs.h"
-#include "sys/mem.h"
 #include <pico/time.h>
 #include <stdlib.h>
 
@@ -37,8 +36,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // Old modems have 40 chars, Hayes V.series has 255.
 #define MDM_AT_COMMAND_LEN (255)
-static char mdm_cmd_buf[MDM_AT_COMMAND_LEN + 1];
 static size_t mdm_cmd_buf_len;
+static char mdm_cmd_buf[MDM_AT_COMMAND_LEN + 1];
+static char mdm_phone_buf[MDM_AT_COMMAND_LEN + 1];
 
 #define MDM_RESPONSE_BUF_SIZE 128
 static char mdm_response_buf[MDM_RESPONSE_BUF_SIZE];
@@ -253,15 +253,15 @@ const char *mdm_read_phonebook_entry(unsigned index)
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_PHONEBOOK,
                                      LFS_O_RDONLY, &lfs_file_config);
-    mbuf[0] = 0;
+    mdm_phone_buf[0] = 0;
     if (lfsresult < 0)
-        return (char *)mbuf;
-    for (; lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file); index--)
+        return mdm_phone_buf;
+    for (; lfs_gets(mdm_phone_buf, sizeof(mdm_phone_buf), &lfs_volume, &lfs_file); index--)
     {
-        size_t len = strlen((char *)mbuf);
-        while (len && mbuf[len - 1] == '\n')
+        size_t len = strlen(mdm_phone_buf);
+        while (len && mdm_phone_buf[len - 1] == '\n')
             len--;
-        mbuf[len] = 0;
+        mdm_phone_buf[len] = 0;
         if (index == 0)
             break;
     }
@@ -269,8 +269,8 @@ const char *mdm_read_phonebook_entry(unsigned index)
     if (lfsresult < 0)
         DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_PHONEBOOK, lfsresult);
     if (index)
-        mbuf[0] = 0;
-    return (char *)mbuf;
+        mdm_phone_buf[0] = 0;
+    return mdm_phone_buf;
 }
 
 bool mdm_write_phonebook_entry(const char *entry, unsigned index)
@@ -372,7 +372,6 @@ bool mdm_read_settings(mdm_settings_t *settings)
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_SETTINGS,
                                      LFS_O_RDONLY, &lfs_file_config);
-    mbuf[0] = 0;
     if (lfsresult < 0)
     {
         if (lfsresult == LFS_ERR_NOENT)
@@ -380,15 +379,16 @@ bool mdm_read_settings(mdm_settings_t *settings)
         DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", STR_MDM_SETTINGS, lfsresult);
         return false;
     }
-    while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
+    char line[MDM_AT_COMMAND_LEN + 1];
+    while (lfs_gets(line, sizeof(line), &lfs_volume, &lfs_file))
     {
-        size_t len = strlen((char *)mbuf);
-        while (len && mbuf[len - 1] == '\n')
+        size_t len = strlen(line);
+        while (len && line[len - 1] == '\n')
             len--;
-        mbuf[len] = 0;
-        const char *str = (char *)(mbuf + 1);
+        line[len] = 0;
+        const char *str = line + 1;
         len -= 1;
-        switch (mbuf[0])
+        switch (line[0])
         {
         case 'E':
             settings->echo = atoi(str);
@@ -448,10 +448,9 @@ bool mdm_dial(const char *s)
 {
     if (mdm_state != mdm_state_on_hook)
         return false;
-    // Use mbuf to slice the string.
-    if (strlen(s) >= MBUF_SIZE)
+    if (strlen(s) >= MDM_AT_COMMAND_LEN)
         return false;
-    char *buf = (char *)mbuf;
+    char buf[MDM_AT_COMMAND_LEN + 1];
     strcpy(buf, s);
     uint16_t port;
     char *port_str = strrchr(buf, ':');
