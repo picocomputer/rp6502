@@ -58,7 +58,10 @@ bool api_set_errno_opt(uint8_t opt);
 uint16_t api_platform_errno(api_errno num);
 
 // Convert a FatFs FRESULT to an api_errno.
-api_errno api_errno_from_fresult(unsigned fresult);
+api_errno api_errno_from_fatfs(unsigned fresult);
+
+// Convert a littlefs error code to an api_errno.
+api_errno api_errno_from_lfs(int lfs_err);
 
 /* RIA fastcall registers
  */
@@ -204,7 +207,7 @@ static inline bool api_return_errno(api_errno errnum)
 // Failure returns -1 and sets errno from FatFS FRESULT
 static inline bool api_return_fresult(unsigned fresult)
 {
-    uint16_t platform_errno = api_platform_errno(api_errno_from_fresult(fresult));
+    uint16_t platform_errno = api_platform_errno(api_errno_from_fatfs(fresult));
     if (platform_errno)
         API_ERRNO = platform_errno;
     xstack_ptr = XSTACK_SIZE;

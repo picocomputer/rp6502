@@ -1180,7 +1180,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fresult(fresult);
+        *err = api_errno_from_fatfs(fresult);
         return -1;
     }
 
@@ -1199,7 +1199,7 @@ int msc_std_close(int desc, api_errno *err)
     fp->obj.fs = NULL;
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fresult(fresult);
+        *err = api_errno_from_fatfs(fresult);
         return -1;
     }
     return 0;
@@ -1219,7 +1219,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
     *bytes_read = br;
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fresult(fresult);
+        *err = api_errno_from_fatfs(fresult);
         return STD_ERROR;
     }
     return STD_OK;
@@ -1239,7 +1239,7 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
     *bytes_written = bw;
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fresult(fresult);
+        *err = api_errno_from_fatfs(fresult);
         return STD_ERROR;
     }
     return STD_OK;
@@ -1301,7 +1301,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
     FRESULT fresult = f_lseek(fp, absolute_offset);
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fresult(fresult);
+        *err = api_errno_from_fatfs(fresult);
         return -1;
     }
     FSIZE_t fpos = f_tell(fp);
@@ -1322,7 +1322,7 @@ int msc_std_sync(int desc, api_errno *err)
     FRESULT fresult = f_sync(fp);
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fresult(fresult);
+        *err = api_errno_from_fatfs(fresult);
         return -1;
     }
     return 0;

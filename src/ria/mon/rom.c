@@ -1,11 +1,40 @@
 /*
- * Copyright (c) 2025 Rumbledethumps
+ * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+/* ROM file format:
+ *
+ * All commands end with \r or \r\n; raw binary data has no termination.
+ *
+ *   "#!RP6502"          - required shebang on the first line
+ *   "# comment"         - help/info lines begin with "# " (one space)
+ *   "addr len crc"      - memory chunk header, followed by raw binary data
+ *   "#-SOME_DISABLE"    - disable a named option
+ *   "#+SOME_ENABLE"     - enable a named option
+ *   "#+SOME_OPT=value"  - set a named option to a numeric value
+ *   "#!END"             - end of ROM data; raw application data follows
+ *
+ * The #!END sentinel records the byte offset at which application payload
+ * data begins.  If #!END is absent, rom_end_offset defaults to the end of
+ * the file (EOF), making the ROM: virtual file appear empty.
+ *
+ * After a ROM is successfully loaded the underlying lfs_file / fat_fil is
+ * kept open until rom_break() so application code can read the payload via
+ * the "ROM:" virtual filename exposed through std.c.
+ *
+ * ROM: virtual file:
+ *   - Case-insensitive filename "ROM:" is matched by rom_std_handles().
+ *   - Only one file descriptor may be open at a time (rom_std_open).
+ *   - Write operations are not supported (returns EACCES).
+ *   - rom_std_lseek() treats position 0 as the byte immediately after
+ *     the #!END sentinel (or the start of the file when #!END is absent).
+ */
+
 #include "main.h"
 #include "api/api.h"
+#include "api/std.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
@@ -33,11 +62,14 @@ static enum {
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
     ROM_RIA_VERIFYING,
+    ROM_RUNNING,
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
+static uint32_t rom_end_offset;
 static bool rom_FFFC;
 static bool rom_FFFD;
+static bool rom_std_is_open;
 static bool is_reading_fat;
 static bool lfs_file_open;
 static lfs_file_t lfs_file;
@@ -91,17 +123,35 @@ static bool rom_open(const char *name, bool is_fat)
         rom_state = ROM_IDLE;
         return false;
     }
+    rom_end_offset = 0;
     rom_FFFC = false;
     rom_FFFD = false;
     return true;
 }
 
-static bool rom_eof(void)
+// Record the current file position as the payload start offset.
+static void rom_record_offset(void)
 {
     if (is_reading_fat)
-        return f_eof(&fat_fil);
+    {
+        rom_end_offset = (uint32_t)f_tell(&fat_fil);
+    }
     else
-        return lfs_eof(&lfs_volume, &lfs_file);
+    {
+        lfs_soff_t pos = lfs_file_tell(&lfs_volume, &lfs_file);
+        rom_end_offset = (pos >= 0) ? (uint32_t)pos : 0;
+    }
+}
+
+static bool rom_done(void)
+{
+    if (rom_end_offset)
+        return true;
+    bool eof = is_reading_fat ? f_eof(&fat_fil)
+                              : lfs_eof(&lfs_volume, &lfs_file);
+    if (eof)
+        rom_record_offset();
+    return eof;
 }
 
 static bool rom_read(uint32_t len, uint32_t crc)
@@ -138,13 +188,11 @@ static bool rom_next_chunk(void)
 {
     mbuf_len = 0;
     size_t len = rom_gets();
-    for (size_t i = 0; i < len; i++)
+    if (mbuf[0] == '#')
     {
-        if (mbuf[i] == ' ')
-            continue;
-        if (mbuf[i] == '#')
-            return true;
-        break;
+        if (!strcasecmp((char *)mbuf, "#!END"))
+            rom_record_offset();
+        return true;
     }
     uint32_t rom_crc;
     const char *args = (char *)mbuf;
@@ -177,13 +225,18 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
-    if (rom_eof())
+    if (rom_done())
     {
-        rom_state = ROM_IDLE;
         if (rom_FFFC && rom_FFFD)
+        {
+            rom_state = ROM_RUNNING;
             main_run();
+        }
         else
+        {
+            rom_state = ROM_IDLE;
             mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
+        }
         return;
     }
     if (!rom_next_chunk())
@@ -244,7 +297,7 @@ void rom_mon_install(const char *args, size_t len)
     // Test contents of file
     if (!rom_open(args, true))
         return;
-    while (!rom_eof())
+    while (!rom_done())
         if (!rom_next_chunk())
             return;
     if (!rom_FFFC || !rom_FFFD)
@@ -426,6 +479,7 @@ void rom_task(void)
         }
         break;
     case ROM_HELPING:
+    case ROM_RUNNING:
         break; // NOP
     case ROM_LOADING:
         rom_loading();
@@ -456,6 +510,13 @@ bool rom_active(void)
 void rom_break(void)
 {
     rom_state = ROM_IDLE;
+}
+
+void rom_stop(void)
+{
+    rom_std_is_open = false;
+    if (rom_state == ROM_RUNNING)
+        rom_state = ROM_IDLE;
 }
 
 int rom_installed_response(char *buf, size_t buf_size, int state)
@@ -568,4 +629,186 @@ bool rom_set_boot(char *str)
 const char *rom_get_boot(void)
 {
     return cfg_load_boot();
+}
+
+bool rom_std_handles(const char *path)
+{
+    return !strcasecmp(path, "ROM:");
+}
+
+int rom_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    (void)path;
+    if (flags & FA_WRITE)
+    {
+        *err = API_EACCES;
+        return -1;
+    }
+    if (rom_state != ROM_RUNNING)
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    if (rom_std_is_open)
+    {
+        *err = API_EMFILE;
+        return -1;
+    }
+    rom_std_is_open = true;
+    if (is_reading_fat)
+    {
+        FRESULT fresult = f_lseek(&fat_fil, rom_end_offset);
+        if (fresult != FR_OK)
+        {
+            rom_std_is_open = false;
+            *err = api_errno_from_fatfs(fresult);
+            return -1;
+        }
+    }
+    else
+    {
+        lfs_soff_t pos = lfs_file_seek(&lfs_volume, &lfs_file,
+                                       (lfs_soff_t)rom_end_offset, LFS_SEEK_SET);
+        if (pos < 0)
+        {
+            rom_std_is_open = false;
+            *err = api_errno_from_lfs((int)pos);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int rom_std_close(int desc, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    rom_std_is_open = false;
+    return 0;
+}
+
+std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+{
+    (void)desc;
+    if (!rom_std_is_open)
+    {
+        *bytes_read = 0;
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    if (is_reading_fat)
+    {
+        UINT br;
+        FRESULT fresult = f_read(&fat_fil, buf, count, &br);
+        *bytes_read = br;
+        if (fresult != FR_OK)
+        {
+            *err = api_errno_from_fatfs(fresult);
+            return STD_ERROR;
+        }
+    }
+    else
+    {
+        lfs_ssize_t result = lfs_file_read(&lfs_volume, &lfs_file, buf, count);
+        if (result < 0)
+        {
+            *bytes_read = 0;
+            *err = api_errno_from_lfs((int)result);
+            return STD_ERROR;
+        }
+        *bytes_read = (uint32_t)result;
+    }
+    return STD_OK;
+}
+
+std_rw_result rom_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+{
+    (void)desc;
+    (void)buf;
+    (void)count;
+    *bytes_written = 0;
+    *err = API_EACCES;
+    return STD_ERROR;
+}
+
+int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
+{
+    (void)desc;
+    if (!rom_std_is_open)
+    {
+        *err = API_EBADF;
+        return -1;
+    }
+    uint32_t virtual_size;
+    if (is_reading_fat)
+    {
+        FSIZE_t file_size = f_size(&fat_fil);
+        virtual_size = file_size > rom_end_offset
+                           ? (uint32_t)(file_size - rom_end_offset)
+                           : 0;
+    }
+    else
+    {
+        lfs_soff_t sz = lfs_file_size(&lfs_volume, &lfs_file);
+        uint32_t file_size = sz >= 0 ? (uint32_t)sz : 0;
+        virtual_size = file_size > rom_end_offset ? file_size - rom_end_offset : 0;
+    }
+    int32_t new_pos;
+    if (whence == SEEK_SET)
+    {
+        if (offset < 0)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        new_pos = offset;
+    }
+    else if (whence == SEEK_CUR)
+    {
+        uint32_t cur;
+        if (is_reading_fat)
+            cur = (uint32_t)f_tell(&fat_fil);
+        else
+        {
+            lfs_soff_t p = lfs_file_tell(&lfs_volume, &lfs_file);
+            cur = (p >= 0) ? (uint32_t)p : rom_end_offset;
+        }
+        new_pos = (int32_t)(cur - rom_end_offset) + offset;
+    }
+    else if (whence == SEEK_END)
+    {
+        new_pos = (int32_t)virtual_size + offset;
+    }
+    else
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (new_pos < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (is_reading_fat)
+    {
+        FRESULT fresult = f_lseek(&fat_fil, rom_end_offset + (uint32_t)new_pos);
+        if (fresult != FR_OK)
+        {
+            *err = api_errno_from_fatfs(fresult);
+            return -1;
+        }
+    }
+    else
+    {
+        lfs_soff_t p = lfs_file_seek(&lfs_volume, &lfs_file,
+                                     (lfs_soff_t)(rom_end_offset + (uint32_t)new_pos),
+                                     LFS_SEEK_SET);
+        if (p < 0)
+        {
+            *err = api_errno_from_lfs((int)p);
+            return -1;
+        }
+    }
+    *pos = new_pos;
+    return 0;
 }

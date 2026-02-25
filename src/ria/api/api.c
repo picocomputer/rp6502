@@ -7,6 +7,7 @@
 #include "main.h"
 #include "api/api.h"
 #include "sys/cpu.h"
+#include "sys/lfs.h"
 #include "sys/ria.h"
 #include <fatfs/ff.h>
 #include <pico.h>
@@ -175,7 +176,7 @@ uint16_t __in_flash("api_platform_errno") api_platform_errno(api_errno num)
     }
 }
 
-api_errno __in_flash("api_errno_from_fresult") api_errno_from_fresult(unsigned fresult)
+api_errno __in_flash("api_errno_from_fatfs") api_errno_from_fatfs(unsigned fresult)
 {
     switch ((FRESULT)fresult)
     {
@@ -211,6 +212,36 @@ api_errno __in_flash("api_errno_from_fresult") api_errno_from_fresult(unsigned f
         return API_EMFILE;
     default:
         assert(false); // internal error
+        return API_EIO;
+    }
+}
+
+api_errno __in_flash("api_errno_from_lfs") api_errno_from_lfs(int lfs_err)
+{
+    switch (lfs_err)
+    {
+    case LFS_ERR_IO:
+    case LFS_ERR_CORRUPT:
+    case LFS_ERR_NOATTR:
+        return API_EIO;
+    case LFS_ERR_NOENT:
+        return API_ENOENT;
+    case LFS_ERR_EXIST:
+        return API_EEXIST;
+    case LFS_ERR_NOTDIR:
+    case LFS_ERR_ISDIR:
+    case LFS_ERR_NOTEMPTY:
+    case LFS_ERR_INVAL:
+    case LFS_ERR_NAMETOOLONG:
+        return API_EINVAL;
+    case LFS_ERR_BADF:
+        return API_EBADF;
+    case LFS_ERR_FBIG:
+    case LFS_ERR_NOSPC:
+        return API_ENOSPC;
+    case LFS_ERR_NOMEM:
+        return API_ENOMEM;
+    default:
         return API_EIO;
     }
 }
