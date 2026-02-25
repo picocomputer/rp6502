@@ -259,9 +259,9 @@ bool std_api_read_xram(void)
         return api_return_errno(API_ENOSYS);
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
+    if (xram_addr + std_size > 0x10000)
+        std_size = 0x10000 - xram_addr;
     std_buf = (char *)&xram[xram_addr];
-    if (std_buf + std_size > (char *)xram + 0x10000)
-        return api_return_errno(API_EINVAL);
     std_fd = fd;
     std_pos = 0;
     return api_working();
