@@ -99,8 +99,8 @@ static void vga_rln_callback(bool timeout)
 
 static void vga_connect(void)
 {
-    // Drop cold boot noise reported in field. Ned says works down to 2 ms.
-    busy_wait_ms(5);
+    // Drop cold boot noise reported in field. Ned says works down to 4 ms.
+    busy_wait_ms(10);
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
 
