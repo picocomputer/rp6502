@@ -4,39 +4,28 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* ROM file format:
+/* ROM file formats:
  *
- * All commands end with \r or \r\n; raw binary data has no termination.
- *
+ * Classic format:
  *   "#!RP6502"          - required shebang on the first line
  *   "# comment"         - help/info lines begin with "# " (one space)
  *   "addr len crc"      - memory chunk header, followed by raw binary data
- *   "#-SOME_DISABLE"    - disable a named option
- *   "#+SOME_ENABLE"     - enable a named option
- *   "#+SOME_OPT=value"  - set a named option to a numeric value
- *   "#!ASSETS"          - end of ROM data; named asset directory follows
+ *   end of file
  *
- * #!ASSETS records the byte offset (rom_asset_offset) at which the asset
- * directory begins.  If absent, rom_asset_offset defaults to EOF and no
- * assets are accessible.
+ * New format (detected when the second line starts with "#>"):
+ *   "#!RP6502"          - required shebang on the first line
+ *   "#>len crc"         - null-named asset; data is classic memory chunks
+ *   "#>len crc name"    - named asset; data is raw bytes
+ *   repeat or end of file
  *
- * #!ASSETS – a sequence of named asset entries follows.  Each entry is:
- *     <len> <name>\n   (text line; len is the decimal byte count of the data)
- *     <len bytes of raw binary data>
- *   Entries repeat until EOF.  Assets are opened as "ROM:<name>" virtual
- *   files (case-insensitive).  Up to ROM_ASSET_MAX descriptors may be open
- *   simultaneously.  Every read/lseek seeks the underlying file handle to
- *   the correct position so concurrent descriptors work correctly.
+ * All commands end with \r or \r\n; raw binary data has no termination.
+ * Asset CRCs are present for tooling but are not verified at load time.
  *
- * After a ROM is successfully loaded the underlying lfs_file / fat_fil is
- * kept open until rom_break() so application code can read assets via the
- * "ROM:<name>" virtual filenames exposed through std.c.
- *
- * ROM:<name> virtual files (requires #!ASSETS):
- *   - Case-insensitive prefix "ROM:" followed by the asset name.
- *   - Up to ROM_ASSET_MAX files may be open simultaneously.
- *   - Write operations are not supported (returns EACCES).
- *   - lseek() treats position 0 as the first byte of the asset data.
+ * In the new format the "help" named asset replaces "# comment" lines.
+ * std ops open "ROM:" for the null (memory-chunks) asset and
+ * "ROM:name" for named assets.  Up to ROM_ASSET_MAX descriptors may be
+ * open simultaneously.  Every read/lseek seeks the underlying file handle
+ * to the correct position so concurrent descriptors work correctly.
  */
 
 #include "main.h"
@@ -73,7 +62,6 @@ static enum {
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
-static uint32_t rom_asset_offset;
 static bool rom_FFFC;
 static bool rom_FFFD;
 static bool is_reading_fat;
@@ -81,6 +69,8 @@ static bool lfs_file_open;
 static lfs_file_t lfs_file;
 LFS_FILE_CONFIG(lfs_file_config, static);
 static FIL fat_fil;
+static uint32_t rom_end_pos;
+static uint32_t rom_asset_dir_start;
 
 #define ROM_ASSET_MAX 8
 typedef struct
@@ -114,6 +104,21 @@ static size_t rom_gets(void)
     return len;
 }
 
+static uint32_t rom_ftell(void)
+{
+    if (is_reading_fat)
+        return (uint32_t)f_tell(&fat_fil);
+    lfs_soff_t p = lfs_file_tell(&lfs_volume, &lfs_file);
+    return p >= 0 ? (uint32_t)p : 0;
+}
+
+static bool rom_fseek_to(uint32_t pos)
+{
+    if (is_reading_fat)
+        return f_lseek(&fat_fil, (FSIZE_t)pos) == FR_OK;
+    return lfs_file_seek(&lfs_volume, &lfs_file, (lfs_soff_t)pos, LFS_SEEK_SET) >= 0;
+}
+
 static bool rom_open(const char *name, bool is_fat)
 {
     is_reading_fat = is_fat;
@@ -139,36 +144,48 @@ static bool rom_open(const char *name, bool is_fat)
         rom_state = ROM_IDLE;
         return false;
     }
-    rom_asset_offset = 0;
+    uint32_t after_shebang = rom_ftell();
+    size_t line2_len = rom_gets();
+    if (line2_len >= 2 && mbuf[0] == '#' && mbuf[1] == '>')
+    {
+        // New format: parse null-asset header "#>len crc"
+        const char *p = (const char *)mbuf + 2;
+        size_t plen = line2_len - 2;
+        uint32_t chunks_len, chunks_crc;
+        (void)chunks_crc;
+        if (!str_parse_uint32(&p, &plen, &chunks_len) ||
+            !str_parse_uint32(&p, &plen, &chunks_crc))
+        {
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
+            rom_state = ROM_IDLE;
+            return false;
+        }
+        rom_end_pos = rom_ftell() + chunks_len;
+        rom_asset_dir_start = after_shebang;
+    }
+    else
+    {
+        rom_end_pos = 0;
+        rom_asset_dir_start = 0;
+        // Seek back so classic parsing starts from line 2
+        if (!rom_fseek_to(after_shebang))
+        {
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
+            rom_state = ROM_IDLE;
+            return false;
+        }
+    }
     rom_FFFC = false;
     rom_FFFD = false;
     return true;
 }
 
-static uint32_t rom_ftell(void)
-{
-    if (is_reading_fat)
-        return (uint32_t)f_tell(&fat_fil);
-    lfs_soff_t p = lfs_file_tell(&lfs_volume, &lfs_file);
-    return p >= 0 ? (uint32_t)p : 0;
-}
-
-static bool rom_fseek_to(uint32_t pos)
-{
-    if (is_reading_fat)
-        return f_lseek(&fat_fil, (FSIZE_t)pos) == FR_OK;
-    return lfs_file_seek(&lfs_volume, &lfs_file, (lfs_soff_t)pos, LFS_SEEK_SET) >= 0;
-}
-
 static bool rom_done(void)
 {
-    if (rom_asset_offset)
-        return true;
-    bool eof = is_reading_fat ? f_eof(&fat_fil)
-                              : lfs_eof(&lfs_volume, &lfs_file);
-    if (eof)
-        rom_asset_offset = rom_ftell();
-    return eof;
+    if (rom_end_pos)
+        return rom_ftell() >= rom_end_pos;
+    return is_reading_fat ? f_eof(&fat_fil)
+                          : lfs_eof(&lfs_volume, &lfs_file);
 }
 
 static bool rom_read(uint32_t len, uint32_t crc)
@@ -206,11 +223,7 @@ static bool rom_next_chunk(void)
     mbuf_len = 0;
     size_t len = rom_gets();
     if (mbuf[0] == '#')
-    {
-        if (!strcasecmp((char *)mbuf, "#!ASSETS"))
-            rom_asset_offset = rom_ftell();
-        return true;
-    }
+        return true; // skip comment lines
     uint32_t rom_crc;
     const char *args = (char *)mbuf;
     if (str_parse_uint32(&args, &len, &rom_addr) &&
@@ -399,6 +412,34 @@ bool rom_load_installed(const char *args, size_t len)
     return true;
 }
 
+// Seek to the named asset in the #> directory. On success, the file position
+// is at the start of the asset data and *out_len is the asset byte length.
+// Returns false if not found or on parse error.
+static bool rom_find_asset(const char *name, uint32_t *out_len)
+{
+    if (!rom_fseek_to(rom_asset_dir_start))
+        return false;
+    while (rom_gets())
+    {
+        if (mbuf[0] != '#' || mbuf[1] != '>')
+            return false;
+        const char *scan = (const char *)mbuf + 2;
+        size_t scan_len = strlen(scan);
+        uint32_t asset_len, asset_crc;
+        if (!str_parse_uint32(&scan, &scan_len, &asset_len) ||
+            !str_parse_uint32(&scan, &scan_len, &asset_crc))
+            return false;
+        if (!strcasecmp(scan, name))
+        {
+            *out_len = asset_len;
+            return true;
+        }
+        if (!rom_fseek_to(rom_ftell() + asset_len))
+            return false;
+    }
+    return false;
+}
+
 static int rom_help_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
@@ -406,6 +447,27 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
         rom_state = ROM_IDLE;
         return state;
     }
+    // New asset format: use help asset
+    if (rom_end_pos)
+    {
+        if (!state)
+        {
+            uint32_t asset_len;
+            if (!rom_find_asset("help", &asset_len))
+                goto no_help;
+            rom_end_pos = rom_ftell() + asset_len;
+            state = 1;
+        }
+        // Stream one line from the help asset
+        if (rom_ftell() < rom_end_pos && rom_gets())
+        {
+            snprintf(buf, buf_size, "%s\n", (char *)mbuf);
+            return state;
+        }
+        rom_state = ROM_IDLE;
+        return -1;
+    }
+    // Classic format: look for "# " comment lines
     if (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
     {
         snprintf(buf, buf_size, "%s\n", (char *)mbuf + 2);
@@ -419,6 +481,10 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
         return -1;
     }
     return state;
+no_help:
+    mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+    rom_state = ROM_IDLE;
+    return -1;
 }
 
 void rom_mon_info(const char *args, size_t len)
@@ -667,41 +733,25 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     const char *asset_name = path + 4; // skip "ROM:"
-    if (!rom_fseek_to(rom_asset_offset))
+    uint32_t asset_len;
+    if (!rom_find_asset(asset_name, &asset_len))
     {
-        *err = API_EIO;
+        *err = API_ENOENT;
         return -1;
     }
-    while (rom_gets())
+    uint32_t data_start = rom_ftell();
+    for (int s = 0; s < ROM_ASSET_MAX; s++)
     {
-        const char *scan = (const char *)mbuf;
-        size_t scan_len = strlen(scan);
-        uint32_t asset_len;
-        if (!str_parse_uint32(&scan, &scan_len, &asset_len))
-            break; // malformed directory entry
-        if (!strcasecmp(scan, asset_name))
+        if (!rom_assets[s].is_open)
         {
-            // Found the matching asset; current position is right after the header line
-            uint32_t data_start = rom_ftell();
-            for (int s = 0; s < ROM_ASSET_MAX; s++)
-            {
-                if (!rom_assets[s].is_open)
-                {
-                    rom_assets[s].is_open = true;
-                    rom_assets[s].start = data_start;
-                    rom_assets[s].length = asset_len;
-                    rom_assets[s].pos = 0;
-                    return s;
-                }
-            }
-            *err = API_EMFILE;
-            return -1;
+            rom_assets[s].is_open = true;
+            rom_assets[s].start = data_start;
+            rom_assets[s].length = asset_len;
+            rom_assets[s].pos = 0;
+            return s;
         }
-        // Skip this asset's data to reach the next header
-        if (!rom_fseek_to(rom_ftell() + asset_len))
-            break;
     }
-    *err = API_ENOENT;
+    *err = API_EMFILE;
     return -1;
 }
 
