@@ -293,9 +293,6 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
         default:
             break;
         }
-        // RECOVERY_RESET failed (e.g. SEND_DIAGNOSTIC STALLed).
-        // Still clear bulk endpoints — matches Linux usb-storage behavior
-        // and the submission-failure fallback in start_recovery().
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
         if (!recovery_clear_halt(daddr, p_msc->ep_in))
         {
@@ -314,6 +311,8 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
         if (!recovery_clear_halt(daddr, p_msc->ep_in))
         {
+            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
+            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
             p_msc->recovery_stage = RECOVERY_IDLE;
         }
         break;
