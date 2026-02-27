@@ -736,12 +736,6 @@ int rom_std_close(int desc, api_errno *err)
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    if (desc < 0 || desc >= ROM_ASSET_MAX || !rom_assets[desc].is_open)
-    {
-        *bytes_read = 0;
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
     rom_asset_fd_t *afd = &rom_assets[desc];
     uint32_t remaining = afd->length - afd->pos;
     if (count > remaining)
@@ -785,11 +779,6 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
 
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
-    if (desc < 0 || desc >= ROM_ASSET_MAX || !rom_assets[desc].is_open)
-    {
-        *err = API_EBADF;
-        return -1;
-    }
     rom_asset_fd_t *afd = &rom_assets[desc];
     int32_t new_pos;
     if (whence == SEEK_SET)
