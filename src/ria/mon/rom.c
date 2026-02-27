@@ -703,11 +703,6 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EACCES;
         return -1;
     }
-    if (rom_state != ROM_RUNNING)
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
     const char *asset_name = path + 4; // skip "ROM:"
     uint32_t asset_len;
     if (!rom_find_asset(asset_name, &asset_len))
@@ -786,16 +781,6 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
     }
     afd->pos += *bytes_read;
     return STD_OK;
-}
-
-std_rw_result rom_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
-{
-    (void)desc;
-    (void)buf;
-    (void)count;
-    *bytes_written = 0;
-    *err = API_EACCES;
-    return STD_ERROR;
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
