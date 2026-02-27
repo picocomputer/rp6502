@@ -4,30 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* ROM file formats:
- *
- * Classic format:
- *   "#!RP6502"          - required shebang on the first line
- *   "# comment"         - help/info lines begin with "# " (one space)
- *   "addr len crc"      - memory chunk header, followed by raw binary data
- *   end of file
- *
- * New format (detected when the second line starts with "#>"):
- *   "#!RP6502"          - required shebang on the first line
- *   "#>len crc"         - null-named asset; data is classic memory chunks
- *   "#>len crc name"    - named asset; data is raw bytes
- *   repeat or end of file
- *
- * All commands end with \r or \r\n; raw binary data has no termination.
- * Asset CRCs are present for tooling but are not verified at load time.
- *
- * In the new format the "help" named asset replaces "# comment" lines.
- * std ops open "ROM:" for the null (memory-chunks) asset and
- * "ROM:name" for named assets.  Up to ROM_ASSET_MAX descriptors may be
- * open simultaneously.  Every read/lseek seeks the underlying file handle
- * to the correct position so concurrent descriptors work correctly.
- */
-
 #include "main.h"
 #include "api/api.h"
 #include "api/std.h"
