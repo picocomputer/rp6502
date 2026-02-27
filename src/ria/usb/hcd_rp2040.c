@@ -194,14 +194,12 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 
   if ( status & USB_INTS_STALL_BITS )
   {
-    // We have rx'd a stall from the device
-    // NOTE THIS SHOULD HAVE PRIORITY OVER BUFF_STATUS
-    // AND TRANS_COMPLETE as the stall is an alternative response
-    // to one of those events
     pico_trace("Stall REC\n");
     handled |= USB_INTS_STALL_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
     hw_xfer_complete(&epx, XFER_RESULT_STALLED);
+    usb_hw_clear->buf_status = 0x3u;
+    *hwbuf_ctrl_reg_host(&epx) = 0;
   }
 
   if ( status & USB_INTS_BUFF_STATUS_BITS )
@@ -668,7 +666,11 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (ep) {
-    ep->next_pid = 0; // Reset data toggle to DATA0
+    ep->next_pid = 0;
+    if (ep != &epx) {
+      *hwbuf_ctrl_reg_host(ep) = 0;
+      usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
+    }
   }
   return true;
 }

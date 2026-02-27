@@ -280,9 +280,6 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 
     if (xfer->result != XFER_RESULT_SUCCESS)
     {
-        // Best-effort: flush HCD data-toggle for any endpoints that have not
-        // been cleared yet, so subsequent transfers are not permanently stuck
-        // on a toggle mismatch even though the device-level CLEAR_FEATURE failed.
         uint8_t const rhport_err = usbh_get_rhport(daddr);
         switch (p_msc->recovery_stage)
         {
@@ -291,11 +288,21 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
             TU_ATTR_FALLTHROUGH;
         case RECOVERY_CLEAR_OUT:
             hcd_edpt_clear_stall(rhport_err, daddr, p_msc->ep_out);
-            break;
+            p_msc->recovery_stage = RECOVERY_IDLE;
+            return;
         default:
             break;
         }
-        p_msc->recovery_stage = RECOVERY_IDLE;
+        // RECOVERY_RESET failed (e.g. SEND_DIAGNOSTIC STALLed).
+        // Still clear bulk endpoints — matches Linux usb-storage behavior
+        // and the submission-failure fallback in start_recovery().
+        p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+        if (!recovery_clear_halt(daddr, p_msc->ep_in))
+        {
+            hcd_edpt_clear_stall(rhport_err, daddr, p_msc->ep_in);
+            hcd_edpt_clear_stall(rhport_err, daddr, p_msc->ep_out);
+            p_msc->recovery_stage = RECOVERY_IDLE;
+        }
         return;
     }
 
@@ -369,8 +376,7 @@ static void start_recovery(uint8_t daddr)
         return;
     }
 
-    // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk
-    // endpoints.  Matches Linux usb-storage usb_stor_CB_reset().
+    // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk endpoints.
     msch_epbuf_t *epbuf = get_epbuf(daddr);
     memset(epbuf->cbi_cmd, 0x00, 12); // UFI spec: reserved CDB bytes shall be 0x00
     epbuf->cbi_cmd[0] = 0x1D;         // SEND_DIAGNOSTIC
@@ -394,7 +400,6 @@ static void start_recovery(uint8_t daddr)
     p_msc->recovery_stage = RECOVERY_RESET;
     if (!tuh_control_xfer(&xfer))
     {
-        // ADSC failed — fall back to just clearing endpoints
         p_msc->recovery_stage = RECOVERY_CLEAR_IN;
         if (!recovery_clear_halt(daddr, p_msc->ep_in))
         {
@@ -450,7 +455,6 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     }
     else if (p_msc->ep_intr)
     {
-        // No data — read interrupt status directly
         epbuf->csw.data_residue = 0;
         p_msc->stage = MSC_STAGE_STATUS;
         if (!usbh_edpt_xfer(daddr, p_msc->ep_intr, epbuf->cbi_status, 2))

@@ -526,8 +526,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
     if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
         // CBI: READ FORMAT CAPACITIES
-        // 4-byte header + up to 3 capacity descriptors (8 bytes each).
-        uint8_t rfc[28];
+        uint8_t rfc[12];
         memset(rfc, 0, sizeof(rfc));
         if (msc_read_format_capacities_sync(vol, rfc, sizeof(rfc),
                                             deadline) !=
