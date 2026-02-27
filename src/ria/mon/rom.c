@@ -423,14 +423,18 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
         rom_state = ROM_IDLE;
         return state;
     }
-    // New asset format: use help asset
+    // Help asset format
     if (rom_end_pos)
     {
         if (!state)
         {
             uint32_t asset_len;
             if (!rom_find_asset("help", &asset_len))
-                goto no_help;
+            {
+                mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+                rom_state = ROM_IDLE;
+                return -1;
+            }
             rom_end_pos = rom_ftell() + asset_len;
             state = 1;
         }
@@ -457,10 +461,6 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
         return -1;
     }
     return state;
-no_help:
-    mon_add_response_str(STR_ERR_NO_HELP_FOUND);
-    rom_state = ROM_IDLE;
-    return -1;
 }
 
 void rom_mon_info(const char *args, size_t len)
