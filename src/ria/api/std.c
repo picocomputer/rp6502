@@ -11,6 +11,7 @@
 #include "net/mdm.h"
 #include "usb/vcp.h"
 #include "usb/msc.h"
+#include "mon/rom.h"
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
@@ -35,6 +36,7 @@ typedef struct
 __in_flash("std_drivers") static const std_driver_t std_drivers[] = {
     {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
+    {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
     {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
 };
 #define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
@@ -257,9 +259,9 @@ bool std_api_read_xram(void)
         return api_return_errno(API_ENOSYS);
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
+    if (xram_addr + std_size > 0x10000)
+        std_size = 0x10000 - xram_addr;
     std_buf = (char *)&xram[xram_addr];
-    if (std_buf + std_size > (char *)xram + 0x10000)
-        return api_return_errno(API_EINVAL);
     std_fd = fd;
     std_pos = 0;
     return api_working();

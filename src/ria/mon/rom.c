@@ -1,11 +1,12 @@
 /*
- * Copyright (c) 2025 Rumbledethumps
+ * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "main.h"
 #include "api/api.h"
+#include "api/std.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
@@ -17,6 +18,7 @@
 #include "sys/ria.h"
 #include <fatfs/ff.h>
 #include <ctype.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_ROM)
 #include <stdio.h>
@@ -32,6 +34,7 @@ static enum {
     ROM_XRAM_WRITING,
     ROM_RIA_WRITING,
     ROM_RIA_VERIFYING,
+    ROM_RUNNING,
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
@@ -42,6 +45,18 @@ static bool lfs_file_open;
 static lfs_file_t lfs_file;
 LFS_FILE_CONFIG(lfs_file_config, static);
 static FIL fat_fil;
+static uint32_t rom_end_pos;
+static uint32_t rom_asset_dir_start;
+
+#define ROM_ASSET_MAX 8
+typedef struct
+{
+    bool is_open;
+    uint32_t start;  // absolute file offset where asset data begins
+    uint32_t length; // byte length of the asset data
+    uint32_t pos;    // current read position (0-based from start)
+} rom_asset_fd_t;
+static rom_asset_fd_t rom_assets[ROM_ASSET_MAX];
 
 static size_t rom_gets(void)
 {
@@ -63,6 +78,21 @@ static size_t rom_gets(void)
         len--;
     mbuf[len] = 0;
     return len;
+}
+
+static uint32_t rom_ftell(void)
+{
+    if (is_reading_fat)
+        return (uint32_t)f_tell(&fat_fil);
+    lfs_soff_t p = lfs_file_tell(&lfs_volume, &lfs_file);
+    return p >= 0 ? (uint32_t)p : 0;
+}
+
+static bool rom_fseek_to(uint32_t pos)
+{
+    if (is_reading_fat)
+        return f_lseek(&fat_fil, (FSIZE_t)pos) == FR_OK;
+    return lfs_file_seek(&lfs_volume, &lfs_file, (lfs_soff_t)pos, LFS_SEEK_SET) >= 0;
 }
 
 static bool rom_open(const char *name, bool is_fat)
@@ -90,17 +120,48 @@ static bool rom_open(const char *name, bool is_fat)
         rom_state = ROM_IDLE;
         return false;
     }
+    uint32_t after_shebang = rom_ftell();
+    size_t line2_len = rom_gets();
+    if (line2_len >= 2 && mbuf[0] == '#' && mbuf[1] == '>')
+    {
+        // New format: parse null-asset header "#>len crc"
+        const char *p = (const char *)mbuf + 2;
+        size_t plen = line2_len - 2;
+        uint32_t chunks_len, chunks_crc;
+        (void)chunks_crc;
+        if (!str_parse_uint32(&p, &plen, &chunks_len) ||
+            !str_parse_uint32(&p, &plen, &chunks_crc))
+        {
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
+            rom_state = ROM_IDLE;
+            return false;
+        }
+        rom_end_pos = rom_ftell() + chunks_len;
+        rom_asset_dir_start = after_shebang;
+    }
+    else
+    {
+        rom_end_pos = 0;
+        rom_asset_dir_start = 0;
+        // Seek back so classic parsing starts from line 2
+        if (!rom_fseek_to(after_shebang))
+        {
+            mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
+            rom_state = ROM_IDLE;
+            return false;
+        }
+    }
     rom_FFFC = false;
     rom_FFFD = false;
     return true;
 }
 
-static bool rom_eof(void)
+static bool rom_done(void)
 {
-    if (is_reading_fat)
-        return f_eof(&fat_fil);
-    else
-        return lfs_eof(&lfs_volume, &lfs_file);
+    if (rom_end_pos)
+        return rom_ftell() >= rom_end_pos;
+    return is_reading_fat ? f_eof(&fat_fil)
+                          : lfs_eof(&lfs_volume, &lfs_file);
 }
 
 static bool rom_read(uint32_t len, uint32_t crc)
@@ -137,16 +198,8 @@ static bool rom_next_chunk(void)
 {
     mbuf_len = 0;
     size_t len = rom_gets();
-    for (size_t i = 0; i < len; i++)
-        switch (mbuf[i])
-        {
-        case ' ':
-            continue;
-        case '#':
-            return true;
-        default:
-            break;
-        }
+    if (mbuf[0] == '#')
+        return true; // skip comment lines
     uint32_t rom_crc;
     const char *args = (char *)mbuf;
     if (str_parse_uint32(&args, &len, &rom_addr) &&
@@ -178,13 +231,18 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
-    if (rom_eof())
+    if (rom_done())
     {
-        rom_state = ROM_IDLE;
         if (rom_FFFC && rom_FFFD)
+        {
+            rom_state = ROM_RUNNING;
             main_run();
+        }
         else
+        {
+            rom_state = ROM_IDLE;
             mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
+        }
         return;
     }
     if (!rom_next_chunk())
@@ -232,6 +290,7 @@ void rom_mon_install(const char *args, size_t len)
         if (i && lfs_name[i] >= '0' && lfs_name[i] <= '9')
             continue;
         lfs_name_len = 0;
+        break;
     }
     // Test for system conflicts
     if (!lfs_name_len ||
@@ -244,7 +303,7 @@ void rom_mon_install(const char *args, size_t len)
     // Test contents of file
     if (!rom_open(args, true))
         return;
-    while (!rom_eof())
+    while (!rom_done())
         if (!rom_next_chunk())
             return;
     if (!rom_FFFC || !rom_FFFD)
@@ -329,6 +388,34 @@ bool rom_load_installed(const char *args, size_t len)
     return true;
 }
 
+// Seek to the named asset in the #> directory. On success, the file position
+// is at the start of the asset data and *out_len is the asset byte length.
+// Returns false if not found or on parse error.
+static bool rom_find_asset(const char *name, uint32_t *out_len)
+{
+    if (!rom_fseek_to(rom_asset_dir_start))
+        return false;
+    while (rom_gets())
+    {
+        if (mbuf[0] != '#' || mbuf[1] != '>')
+            return false;
+        const char *scan = (const char *)mbuf + 2;
+        size_t scan_len = strlen(scan);
+        uint32_t asset_len, asset_crc;
+        if (!str_parse_uint32(&scan, &scan_len, &asset_len) ||
+            !str_parse_uint32(&scan, &scan_len, &asset_crc))
+            return false;
+        if (!strcasecmp(scan, name))
+        {
+            *out_len = asset_len;
+            return true;
+        }
+        if (!rom_fseek_to(rom_ftell() + asset_len))
+            return false;
+    }
+    return false;
+}
+
 static int rom_help_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
@@ -336,6 +423,31 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
         rom_state = ROM_IDLE;
         return state;
     }
+    // Help asset format
+    if (rom_end_pos)
+    {
+        if (!state)
+        {
+            uint32_t asset_len;
+            if (!rom_find_asset("help", &asset_len))
+            {
+                mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+                rom_state = ROM_IDLE;
+                return -1;
+            }
+            rom_end_pos = rom_ftell() + asset_len;
+            state = 1;
+        }
+        // Stream one line from the help asset
+        if (rom_ftell() < rom_end_pos && rom_gets())
+        {
+            snprintf(buf, buf_size, "%s\n", (char *)mbuf);
+            return state;
+        }
+        rom_state = ROM_IDLE;
+        return -1;
+    }
+    // Classic format: look for "# " comment lines
     if (rom_gets() && mbuf[0] == '#' && mbuf[1] == ' ')
     {
         snprintf(buf, buf_size, "%s\n", (char *)mbuf + 2);
@@ -426,6 +538,7 @@ void rom_task(void)
         }
         break;
     case ROM_HELPING:
+    case ROM_RUNNING:
         break; // NOP
     case ROM_LOADING:
         rom_loading();
@@ -456,6 +569,14 @@ bool rom_active(void)
 void rom_break(void)
 {
     rom_state = ROM_IDLE;
+}
+
+void rom_stop(void)
+{
+    for (int i = 0; i < ROM_ASSET_MAX; i++)
+        rom_assets[i].is_open = false;
+    if (rom_state == ROM_RUNNING)
+        rom_state = ROM_IDLE;
 }
 
 int rom_installed_response(char *buf, size_t buf_size, int state)
@@ -508,7 +629,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
                 }
                 line += 1;
                 if (state == line)
-                    sprintf(buf, "%s", lfs_info.name);
+                    snprintf(buf, buf_size, "%s", lfs_info.name);
                 col = len;
             }
             else
@@ -520,7 +641,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
                     col += 1;
                 }
                 if (state == line)
-                    sprintf(buf + col, "%s", lfs_info.name);
+                    snprintf(buf + col, buf_size - col, "%s", lfs_info.name);
                 col += len;
             }
         }
@@ -568,4 +689,128 @@ bool rom_set_boot(char *str)
 const char *rom_get_boot(void)
 {
     return cfg_load_boot();
+}
+
+bool rom_std_handles(const char *path)
+{
+    return !strncasecmp(path, "ROM:", 4);
+}
+
+int rom_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    if (flags & FA_WRITE)
+    {
+        *err = API_EACCES;
+        return -1;
+    }
+    const char *asset_name = path + 4; // skip "ROM:"
+    uint32_t asset_len;
+    if (!rom_find_asset(asset_name, &asset_len))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    uint32_t data_start = rom_ftell();
+    for (int s = 0; s < ROM_ASSET_MAX; s++)
+    {
+        if (!rom_assets[s].is_open)
+        {
+            rom_assets[s].is_open = true;
+            rom_assets[s].start = data_start;
+            rom_assets[s].length = asset_len;
+            rom_assets[s].pos = 0;
+            return s;
+        }
+    }
+    *err = API_EMFILE;
+    return -1;
+}
+
+int rom_std_close(int desc, api_errno *err)
+{
+    (void)err;
+    if (desc >= 0 && desc < ROM_ASSET_MAX)
+        rom_assets[desc].is_open = false;
+    return 0;
+}
+
+std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+{
+    rom_asset_fd_t *afd = &rom_assets[desc];
+    uint32_t remaining = afd->length - afd->pos;
+    if (count > remaining)
+        count = remaining;
+    if (!count)
+    {
+        *bytes_read = 0;
+        return STD_OK;
+    }
+    if (!rom_fseek_to(afd->start + afd->pos))
+    {
+        *bytes_read = 0;
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    if (is_reading_fat)
+    {
+        UINT br;
+        FRESULT fresult = f_read(&fat_fil, buf, count, &br);
+        *bytes_read = br;
+        if (fresult != FR_OK)
+        {
+            *err = api_errno_from_fatfs(fresult);
+            return STD_ERROR;
+        }
+    }
+    else
+    {
+        lfs_ssize_t result = lfs_file_read(&lfs_volume, &lfs_file, buf, count);
+        if (result < 0)
+        {
+            *bytes_read = 0;
+            *err = api_errno_from_lfs((int)result);
+            return STD_ERROR;
+        }
+        *bytes_read = (uint32_t)result;
+    }
+    afd->pos += *bytes_read;
+    return STD_OK;
+}
+
+int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
+{
+    rom_asset_fd_t *afd = &rom_assets[desc];
+    int32_t new_pos;
+    if (whence == SEEK_SET)
+    {
+        if (offset < 0)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        new_pos = offset;
+    }
+    else if (whence == SEEK_CUR)
+    {
+        new_pos = (int32_t)afd->pos + offset;
+    }
+    else if (whence == SEEK_END)
+    {
+        new_pos = (int32_t)afd->length + offset;
+    }
+    else
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (new_pos < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if ((uint32_t)new_pos > afd->length)
+        new_pos = (int32_t)afd->length;
+    afd->pos = (uint32_t)new_pos;
+    *pos = new_pos;
+    return 0;
 }
