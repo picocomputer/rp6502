@@ -409,7 +409,7 @@ static bool xin_class_driver_init(void)
     return true;
 }
 
-static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
@@ -419,18 +419,13 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
 
     // Only handle vendor-specific interfaces
     if (desc_itf->bInterfaceClass != 0xFF)
-        return 0;
+        return false;
 
     // Already claimed this device — consume extra vendor interfaces
     if (xin_find_index_by_dev_addr(dev_addr) >= 0)
     {
         DBG("XInput: Consuming extra interface for dev_addr %d\n", dev_addr);
-        // Walk past this interface's descriptors to return correct consumed length
-        uint8_t const *p = tu_desc_next(desc_itf);
-        uint8_t const *end = (uint8_t const *)desc_itf + max_len;
-        while (p < end && tu_desc_type(p) != TUSB_DESC_INTERFACE)
-            p = tu_desc_next(p);
-        return (uint16_t)(p - (uint8_t const *)desc_itf);
+        return true;
     }
 
     // Identify controller type
@@ -441,7 +436,7 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
 
     // Don't consume — could be a non-Xbox vendor device
     if (!is_xbox_one && !is_x360)
-        return 0;
+        return false;
 
     DBG("XInput: Detected %s controller interface\n",
         is_xbox_one ? "Xbox One/Series" : "Xbox 360");
@@ -477,21 +472,21 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
     if (!ep_in_desc || !ep_out_desc)
     {
         DBG("XInput: Missing endpoints (in=%p out=%p)\n", ep_in_desc, ep_out_desc);
-        return 0;
+        return false;
     }
 
     int idx = xin_find_free_index();
     if (idx < 0)
     {
         DBG("XInput: No free device slots\n");
-        return 0;
+        return false;
     }
 
     if (!tuh_edpt_open(dev_addr, ep_in_desc) ||
         !tuh_edpt_open(dev_addr, ep_out_desc))
     {
         DBG("XInput: Failed to open endpoints\n");
-        return 0;
+        return false;
     }
 
     xbox_devices[idx].active = true;
@@ -512,14 +507,14 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
     {
         DBG("XInput: Failed to mount in pad system\n");
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-        return 0;
+        return false;
     }
 
     xbox_devices[idx].vid = vendor_id;
     xbox_devices[idx].pid = product_id;
 
     DBG("XInput: Claimed Xbox controller in index %d (VID=%04X PID=%04X)\n", idx, vendor_id, product_id);
-    return max_len;
+    return true;
 }
 
 // Send the next applicable GIP init packet, returns true if one was sent

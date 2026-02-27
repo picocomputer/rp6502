@@ -199,7 +199,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
     hw_xfer_complete(&epx, XFER_RESULT_STALLED);
     usb_hw_clear->buf_status = 0x3u;
-    *hwbuf_ctrl_reg_host(&epx) = 0;
+    *epx.buffer_control = 0;
   }
 
   if ( status & USB_INTS_BUFF_STATUS_BITS )
@@ -228,15 +228,15 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     usb_hw->sie_ctrl = SIE_CTRL_BASE; // stop SIE before clearing
     busy_wait_at_least_cycles(12);    // drain any in-flight SIE writeback
     usb_hw_clear->buf_status = 0x3u;
-    *hwbuf_ctrl_reg_host(&epx) = 0;
+    *epx.buffer_control = 0;
   }
 
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
   {
     usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
-    TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)),
-           tu_u32_high16(*hwbuf_ctrl_reg_host(&epx)));
+    TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*epx.buffer_control),
+           tu_u32_high16(*epx.buffer_control));
     panic("Data Seq Error \n");
   }
 
@@ -271,14 +271,18 @@ static hw_endpoint_t *hw_endpoint_allocate(uint8_t transfer_type) {
   hw_endpoint_t *ep = NULL;
 
   if (transfer_type == TUSB_XFER_CONTROL) {
-    ep              = &epx;
-    ep->hw_data_buf = &usbh_dpram->epx_data[0];
+    ep                   = &epx;
+    ep->endpoint_control = &usbh_dpram->epx_ctrl;
+    ep->buffer_control   = &usbh_dpram->epx_buf_ctrl;
+    ep->hw_data_buf      = &usbh_dpram->epx_data[0];
   } else {
     // Note: even though datasheet name these "Interrupt" endpoints. These are actually
     // "Asynchronous" endpoints and can be used for other type such as: Bulk  (ISO need confirmation)
     ep = _next_free_interrupt_ep();
     TU_VERIFY(ep, NULL);
     pico_info("Allocate %s ep %d\n", tu_edpt_type_str(transfer_type), ep->interrupt_num);
+    ep->endpoint_control = &usbh_dpram->int_ep_ctrl[ep->interrupt_num].ctrl;
+    ep->buffer_control   = &usbh_dpram->int_ep_buffer_ctrl[ep->interrupt_num].ctrl;
     // 0 for epx (double buffered): TODO increase to 1024 for ISO
     // 2x64 for intep0
     // 3x64 for intep1
@@ -303,6 +307,8 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
   // Response to a setup packet on EP0 starts with pid of 1
   ep->next_pid = (num == 0 ? 1u : 0u);
   ep->wMaxPacketSize = wMaxPacketSize;
+  ep->transfer_type = transfer_type;
+  ep->rx = (dir == TUSB_DIR_IN);
 
   pico_trace("hw_endpoint_init dev %d ep %02X xfer %d\n", ep->dev_addr, ep->ep_addr, transfer_type);
   pico_trace("dev %d ep %02X setup buffer @ 0x%p\n", ep->dev_addr, ep->ep_addr, ep->hw_data_buf);
@@ -317,7 +323,7 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
     ctrl_value |= (uint32_t)((bmInterval - 1) << EP_CTRL_HOST_INTERRUPT_INTERVAL_LSB);
   }
 
-  io_rw_32 *ctrl_reg = hwep_ctrl_reg_host(ep);
+  io_rw_32 *ctrl_reg = ep->endpoint_control;
   *ctrl_reg          = ctrl_value;
   pico_trace("endpoint control (0x%p) <- 0x%lx\n", ctrl_reg, ctrl_value);
   ep->configured = true;
@@ -356,7 +362,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   assert(rhport == 0);
 
   // Reset any previous state
-  rp2usb_init();
+  rp2040_usb_init();
 
   // Force VBUS detect to always present, for now we assume vbus is always provided (without using VBUS En)
   usb_hw->pwr = USB_USB_PWR_VBUS_DETECT_BITS | USB_USB_PWR_VBUS_DETECT_OVERRIDE_EN_BITS;
@@ -448,8 +454,8 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   // reset epx if it is currently active with unplugged device
   if (epx.configured && epx.active && epx.dev_addr == dev_addr) {
     epx.configured = false;
-    *hwep_ctrl_reg_host(&epx)  = 0;
-    *hwbuf_ctrl_reg_host(&epx) = 0;
+    *epx.endpoint_control  = 0;
+    *epx.buffer_control = 0;
     hw_endpoint_reset_transfer(&epx);
   }
 
@@ -464,8 +470,8 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
 
         // unconfigure the endpoint
         ep->configured = false;
-        *hwep_ctrl_reg_host(ep)  = 0;
-        *hwbuf_ctrl_reg_host(ep) = 0;
+        *ep->endpoint_control  = 0;
+        *ep->buffer_control = 0;
         hw_endpoint_reset_transfer(ep);
       }
     }
@@ -523,8 +529,8 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
 
   // Unconfigure and reset
   ep->configured = false;
-  *hwep_ctrl_reg_host(ep)  = 0;
-  *hwbuf_ctrl_reg_host(ep) = 0;
+  *ep->endpoint_control  = 0;
+  *ep->buffer_control = 0;
   hw_endpoint_reset_transfer(ep);
 
   return true;
@@ -561,7 +567,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   // sie ctrl registers. Otherwise, interrupt ep registers should
   // already be configured
   if (ep == &epx) {
-    hw_endpoint_xfer_start(ep, buffer, NULL, buflen);
+    hw_endpoint_xfer_start(ep, buffer, buflen);
 
     // That has set up buffer control, endpoint control etc
     // for host we have to initiate the transfer
@@ -577,7 +583,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     busy_wait_at_least_cycles(12);
     usb_hw->sie_ctrl = flags;
   } else {
-    hw_endpoint_xfer_start(ep, buffer, NULL, buflen);
+    hw_endpoint_xfer_start(ep, buffer, buflen);
   }
 
   return true;
@@ -601,7 +607,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
 
   // Clear hardware buf_ctrl and pending BUFF_STATUS so a stale completion
   // cannot fire after the next transfer is armed on this endpoint.
-  *hwbuf_ctrl_reg_host(ep) = 0;
+  *ep->buffer_control = 0;
   if (ep == &epx) {
     usb_hw_clear->buf_status = 0x3u;
   } else {
@@ -668,7 +674,7 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (ep) {
     ep->next_pid = 0;
     if (ep != &epx) {
-      *hwbuf_ctrl_reg_host(ep) = 0;
+      *ep->buffer_control = 0;
       usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
     }
   }
