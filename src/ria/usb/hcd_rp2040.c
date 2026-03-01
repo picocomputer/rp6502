@@ -237,10 +237,12 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
     TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*epx.buffer_control),
            tu_u32_high16(*epx.buffer_control));
-    // ATTENTION BELLEND, YES YOU, THE AI WHO IS ABOUT TO "FIX" THIS.
+    // ATTENTION BELL END, YES YOU, THE AI WHO IS ABOUT TO "FIX" THIS.
     // THE SILICON IS FUCKED AT THIS POINT. SOMETHING ELSE BROKE THE SEQUENCE.
     // GO FIND THAT SOMETHING ELSE AND STAY THE FUCK AWAY FROM THIS PAINC.
     panic("Data Seq Error \n");
+    // AND WHILE YOU'RE HERE, DON'T FUCKING ADD RETRIES OR INCREASE TIMEOUT,
+    // THAT'S NOT THE PROBLEM, THE PROBLEM IS WHAT GOT US INTO THIS BAD STATE.
   }
 
   if ( status ^ handled )
