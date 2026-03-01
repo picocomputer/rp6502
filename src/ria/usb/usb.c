@@ -14,7 +14,11 @@
 #include "usb/usb.h"
 #include "usb/xin.h"
 #include <tusb.h>
+#include "host/hcd.h"
+#include <pico/time.h>
 #include <stdio.h>
+
+#define DEBUG_RIA_USB_USB
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
 #define DBG(...) printf(__VA_ARGS__)
@@ -30,6 +34,9 @@ static uint8_t usb_hid_leds_idx;
 static uint8_t usb_count_hid_kbd;
 static uint8_t usb_count_hid_mou;
 static uint8_t usb_count_hid_pad;
+
+static absolute_time_t usb_boot_enum_timeout;
+static bool usb_boot_enum_finished;
 
 static inline int usb_idx_to_hid_slot(int idx)
 {
@@ -155,4 +162,41 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
         --usb_count_hid_mou;
     if (pad_umount(usb_idx_to_hid_slot(idx)))
         --usb_count_hid_pad;
+}
+
+void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
+{
+    (void)rhport;
+    (void)in_isr;
+    if (eventid == HCD_EVENT_DEVICE_ATTACH)
+    {
+        // The first tuh_event_hook_cb fires well before anything calls
+        // usb_boot_enumerating. This timeout
+        usb_boot_enum_timeout = make_timeout_time_ms(5000);
+        DBG("USB: ATTACH at %lums\n", to_ms_since_boot(get_absolute_time()));
+    }
+}
+
+void tuh_mount_cb(uint8_t daddr)
+{
+    (void)daddr;
+    usb_boot_enum_timeout = make_timeout_time_ms(125);
+    DBG("USB: MOUNT %lums\n", to_ms_since_boot(get_absolute_time()));
+}
+
+// TinyUSB strikes again. This is shit but it's impossible to do
+// without taking over yet more of its interfnals.
+bool usb_boot_enumerating(void)
+{
+    // tuh_connected(0);
+    if (usb_boot_enum_finished)
+        return false;
+    bool active = !time_reached(usb_boot_enum_timeout);
+    if (!active && !usb_boot_enum_finished)
+    {
+        usb_boot_enum_finished = true;
+        DBG("USB: boot enumeration done at %lums\n",
+            to_ms_since_boot(get_absolute_time()));
+    }
+    return active;
 }

@@ -18,6 +18,7 @@
 #include "sys/mem.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
 #include <pico/stdlib.h>
@@ -490,7 +491,8 @@ void mon_task(void)
     // These can run the 6502 multiple times
     if (ram_active() ||
         rom_active() ||
-        fil_active())
+        fil_active() ||
+        usb_boot_enumerating())
         return;
     // The monitor has control
     if (mon_needs_prompt)
