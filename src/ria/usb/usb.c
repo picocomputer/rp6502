@@ -22,6 +22,10 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+/* RPi Keyboard and Hub (79-key, embedded numpad) — don't force Num Lock at boot */
+#define RPI_KBD_VID 0x04D9
+#define RPI_KBD_PID 0x0006
+
 static uint8_t usb_pad_led_dev;
 static uint8_t usb_pad_led_idx;
 static uint8_t usb_hid_leds;
@@ -62,9 +66,16 @@ void usb_task(void)
         while (usb_hid_leds_idx < CFG_TUH_HID)
         {
             if (tuh_hid_interface_protocol(usb_hid_leds_dev, usb_hid_leds_idx) == HID_ITF_PROTOCOL_KEYBOARD)
+            {
+                uint16_t vid, pid;
+                tuh_vid_pid_get(usb_hid_leds_dev, &vid, &pid);
+                uint8_t leds = (vid == RPI_KBD_VID && pid == RPI_KBD_PID)
+                                   ? (usb_hid_leds & ~(1 << 0)) /* Num Lock off for RPi keyboard */
+                                   : usb_hid_leds;
                 if (!tuh_hid_set_report(usb_hid_leds_dev, usb_hid_leds_idx, 0, HID_REPORT_TYPE_OUTPUT,
-                                        &usb_hid_leds, sizeof(usb_hid_leds)))
+                                        &leds, sizeof(leds)))
                     return; // Control endpoint busy, resume next task
+            }
             usb_hid_leds_idx++;
         }
         usb_hid_leds_idx = 0;
