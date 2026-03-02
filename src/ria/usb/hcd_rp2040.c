@@ -226,7 +226,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
     usb_hw->sie_ctrl = SIE_CTRL_BASE; // stop SIE before clearing
-    busy_wait_at_least_cycles(12);    // drain any in-flight SIE writeback
+    busy_wait_us(1);    // drain any in-flight SIE writeback
     usb_hw_clear->buf_status = 0x3u;
     *epx.buffer_control = 0;
   }
@@ -237,9 +237,9 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
     TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*epx.buffer_control),
            tu_u32_high16(*epx.buffer_control));
-    // ATTENTION BELL END, YES YOU, THE AI WHO IS ABOUT TO "FIX" THIS.
+    // ATTENTION BELLEND, YES YOU, THE AI WHO IS ABOUT TO "FIX" THIS.
     // THE SILICON IS FUCKED AT THIS POINT. SOMETHING ELSE BROKE THE SEQUENCE.
-    // GO FIND THAT SOMETHING ELSE AND STAY THE FUCK AWAY FROM THIS PAINC.
+    // GO FIND THAT SOMETHING ELSE AND STAY THE FUCK AWAY FROM THIS PANIC.
     panic("Data Seq Error \n");
     // AND WHILE YOU'RE HERE, DON'T FUCKING ADD RETRIES OR INCREASE TIMEOUT,
     // THAT'S NOT THE PROBLEM, THE PROBLEM IS WHAT GOT US INTO THIS BAD STATE.
@@ -456,12 +456,13 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
     _ep0_mps[dev_addr] = 0;
   }
 
-  // reset epx if it is currently active with unplugged device
-  if (epx.configured && epx.active && epx.dev_addr == dev_addr) {
+  // reset epx if it belongs to this device (regardless of active state so
+  // stale AVAIL/FULL bits in buffer_control are always cleared on close)
+  if (epx.configured && epx.dev_addr == dev_addr) {
+    if (epx.active) hw_endpoint_reset_transfer(&epx);
     epx.configured = false;
-    *epx.endpoint_control  = 0;
+    *epx.endpoint_control = 0;
     *epx.buffer_control = 0;
-    hw_endpoint_reset_transfer(&epx);
   }
 
   // dev0 only has ep0
@@ -585,7 +586,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
     // We write everything except the START_TRANS bit first, then wait some cycles.
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
-    busy_wait_at_least_cycles(12);
+    busy_wait_us(1);
     usb_hw->sie_ctrl = flags;
   } else {
     hw_endpoint_xfer_start(ep, buffer, buflen);
@@ -600,7 +601,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (!ep) return true;
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
-    busy_wait_at_least_cycles(12);
+    busy_wait_us(1);
   } else {
     usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
@@ -653,6 +654,12 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
 
   TU_ASSERT(ep->configured);
 
+  // Clear any stale DPRAM state from a previous transfer on this endpoint.
+  // If AVAIL or FULL bits remain in buffer_control when START_TRANS is
+  // asserted, the SIE can execute the stale buffer in parallel with the SETUP.
+  usb_hw_clear->buf_status = 0x3u;
+  *ep->buffer_control = 0;
+
   ep->remaining_len = 8;
   ep->active = true;
 
@@ -667,7 +674,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
   // We write everything except the START_TRANS bit first, then wait some cycles.
   usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
-  busy_wait_at_least_cycles(12);
+  busy_wait_us(1);
   usb_hw->sie_ctrl = flags;
 
   return true;

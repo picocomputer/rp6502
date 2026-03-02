@@ -34,9 +34,7 @@ static uint8_t usb_hid_leds_idx;
 static uint8_t usb_count_hid_kbd;
 static uint8_t usb_count_hid_mou;
 static uint8_t usb_count_hid_pad;
-
 static absolute_time_t usb_boot_enum_timeout;
-static bool usb_boot_enum_finished;
 
 static inline int usb_idx_to_hid_slot(int idx)
 {
@@ -164,15 +162,69 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
         --usb_count_hid_pad;
 }
 
+// TinyUSB strikes again. This is shit but it's impossible to do
+// without taking over yet more of its interfnals.
+// bool old_usb_boot_enumerating(void)
+// {
+//     // tuh_connected(0);
+//     if (usb_boot_enum_finished)
+//         return false;
+//     bool active = !time_reached(usb_boot_enum_timeout);
+//     if (!active && !usb_boot_enum_finished)
+//     {
+//         usb_boot_enum_finished = true;
+//         DBG("USB: boot enumeration done at %lums\n",
+//             to_ms_since_boot(get_absolute_time()));
+//     }
+//     return active;
+// }
+
+// The only way to detect when USB is done enumerating at boot is
+// with timers. We start with a long timer when a device attaches
+// then we drop to a
+
+// There's a baked in delay
+
+#define ATTACH_MS 500
+#define IDLE_MS 150
+
+bool usb_boot_enumerating(void)
+{
+    static bool usb_boot_enum_finished;
+    static bool was_connected;
+    if (usb_boot_enum_finished)
+        return false;
+    bool connected = tuh_connected(0);
+    if (connected)
+    {
+        was_connected = true;
+        return true;
+    }
+    if (was_connected)
+    {
+        DBG("USB: CONNECTED at %lums\n",
+            to_ms_since_boot(get_absolute_time()));
+        was_connected = false;
+        usb_boot_enum_timeout = make_timeout_time_ms(ATTACH_MS);
+    }
+    // Not currently enumerating — wait for the timeout before finishing
+    if (time_reached(usb_boot_enum_timeout))
+    {
+        usb_boot_enum_finished = true;
+        DBG("USB: boot enumeration done at %lums\n",
+            to_ms_since_boot(get_absolute_time()));
+        return false;
+    }
+    return true;
+}
+
 void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
 {
     (void)rhport;
     (void)in_isr;
     if (eventid == HCD_EVENT_DEVICE_ATTACH)
     {
-        // The first tuh_event_hook_cb fires well before anything calls
-        // usb_boot_enumerating. This timeout
-        usb_boot_enum_timeout = make_timeout_time_ms(5000);
+        usb_boot_enum_timeout = make_timeout_time_ms(ATTACH_MS);
         DBG("USB: ATTACH at %lums\n", to_ms_since_boot(get_absolute_time()));
     }
 }
@@ -180,23 +232,6 @@ void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
 void tuh_mount_cb(uint8_t daddr)
 {
     (void)daddr;
-    usb_boot_enum_timeout = make_timeout_time_ms(125);
+    usb_boot_enum_timeout = make_timeout_time_ms(IDLE_MS);
     DBG("USB: MOUNT %lums\n", to_ms_since_boot(get_absolute_time()));
-}
-
-// TinyUSB strikes again. This is shit but it's impossible to do
-// without taking over yet more of its interfnals.
-bool usb_boot_enumerating(void)
-{
-    // tuh_connected(0);
-    if (usb_boot_enum_finished)
-        return false;
-    bool active = !time_reached(usb_boot_enum_timeout);
-    if (!active && !usb_boot_enum_finished)
-    {
-        usb_boot_enum_finished = true;
-        DBG("USB: boot enumeration done at %lums\n",
-            to_ms_since_boot(get_absolute_time()));
-    }
-    return active;
 }

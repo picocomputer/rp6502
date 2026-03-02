@@ -146,12 +146,14 @@ target_sources(${RIA_TARGET} PRIVATE
 # The magic is that header-only files don't get compiled.
 set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
+    ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
     ${CMAKE_CURRENT_LIST_DIR}/tinyusb/src/class/msc/msc_host.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_btstack/btstack_flash_bank.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
     ria/usb/hcd_rp2040.c
+    ria/usb/rp2040_usb.c
     ria/usb/msc_host.c
     ria/net/ble_tlv.c
 )
