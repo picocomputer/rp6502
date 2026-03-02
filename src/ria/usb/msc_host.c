@@ -595,6 +595,18 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
                                      ? cbw->total_bytes - xferred_bytes
                                      : 0;
 
+        if (event == XFER_RESULT_FAILED && residue > 0)
+        {
+            // pico-feedback #394 recovery briefly fails all active async
+            // endpoints.  Re-arm the data endpoint from the current offset;
+            // next_pid is already correct for the device's pending retransmission.
+            if (usbh_edpt_xfer(dev_addr, data_ep(p_msc, cbw),
+                               (uint8_t *)p_msc->buffer + xferred_bytes,
+                               (uint16_t)residue))
+                break;
+            // Re-arm failed (device gone); fall through to status phase.
+        }
+
         // CBI spec §2.4.3.1.3: clear bulk pipe at HCD level after data STALL
         // so the host controller can reuse the pipe.  A device-level
         // CLEAR_FEATURE(ENDPOINT_HALT) is deferred to recovery below.

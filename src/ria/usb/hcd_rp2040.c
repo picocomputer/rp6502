@@ -113,24 +113,25 @@ static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_
 
 static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_endpoint *ep) {
   usb_hw_clear->buf_status = bit;
-  // A STALL or RX_TIMEOUT handled earlier in the same IRQ may have
-  // already deactivated this endpoint.  The hardware buf_status bit
-  // is not cleared by those handlers, so we see a stale notification
-  // here.  Just discard it.
+  
   if (!ep->active) return;
+  
+  // Update timestamp BEFORE checking for completion
+  // This is because hw_endpoint_xfer_continue might complete the transfer
+  // and we want to ensure the watchdog sees activity regardless.
+  uint idx = (uint)(ep - ep_pool);
+  if (idx > 0 && idx < TU_ARRAY_SIZE(ep_armed_frame))
+      ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
+
   const bool done = hw_endpoint_xfer_continue(ep);
   if (done) {
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
-  } else {
-    // Buffer continuation — update armed timestamp for #394 watchdog
-    uint idx = (uint)(ep - ep_pool);
-    if (idx > 0 && idx < TU_ARRAY_SIZE(ep_armed_frame))
-        ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
   }
 }
 
 static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   uint32_t buf_status = usb_hw->buf_status;
+  // usb_hw_clear->buf_status = buf_status;   // <---- REMOVED THIS
   pico_trace("buf_status 0x%08lx\n", buf_status);
 
   // Check EPX first
@@ -200,7 +201,15 @@ static void recover_data_seq_deadlock(void) {
     struct hw_endpoint *ep = &ep_pool[i];
     if (!ep->active) continue;
 
-    uint16_t elapsed = now - ep_armed_frame[i];
+    // Mask to 11 bits: sof_rd is an 11-bit USB SOF counter (wraps 2047→0).
+    // Without the mask, a roll-over produces a spuriously large uint16_t elapsed.
+    uint16_t elapsed = (uint16_t)((now - ep_armed_frame[i]) & 0x7ffu);
+    // Only reset endpoints that have been active for >10ms (approx 10 frames).
+    // A stuck endpoint will have been retransmitting for much longer than that
+    // before it causes a DATA_SEQ_ERROR on EPX.  Innocent endpoints are
+    // re-armed frequently by their drivers.
+    if (elapsed < 10) continue;
+
     TU_LOG(1, "  Reset EP %02X (armed %u frames ago, next_pid %u)\r\n",
            ep->ep_addr, elapsed, ep->next_pid);
 
@@ -211,12 +220,22 @@ static void recover_data_seq_deadlock(void) {
     *ep->buffer_control = 0;
     usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
 
-    // Do NOT flip next_pid.  prepare_ep_buffer already toggled it when
-    // arming.  The stuck buffer used (next_pid ^ 1), which the device
-    // rejected.  The current next_pid value IS the PID the device is
-    // sending, so re-arming with it will accept the retransmission.
+    // prepare_ep_buffer arms with next_pid then immediately flips it.
+    //
+    // IN (host receives / ep->rx == true):
+    //   The device is retransmitting the same PID it sent when the RP2040 last
+    //   failed to ACK.  That PID is the complement of what next_pid now holds
+    //   (prepare_ep_buffer already advanced it past the failed packet).
+    //   Flip it back so the re-arm expects the PID the device is about to send
+    //   (USB 2.0 §8.6.2).
+    //
+    // OUT (host sends / ep->rx == false):
+    //   The device did not advance its sequence bit — it still expects the PID
+    //   that prepare_ep_buffer advanced to.  next_pid is already correct;
+    //   no flip needed (USB 2.0 §8.6.3).
+    if (ep->rx) ep->next_pid ^= 1u;
 
-    // Complete as failed — class driver re-arms with corrected PID
+    // Complete as failed — class driver re-arms with the now-corrected PID
     hw_xfer_complete(ep, XFER_RESULT_FAILED);
 
     // Re-enable so the SIE will poll when the driver re-arms
@@ -248,6 +267,9 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 
   if ( status & USB_INTS_STALL_BITS )
   {
+    // We have rx'd a stall from the device.
+    // NOTE THIS SHOULD HAVE PRIORITY OVER BUFF_STATUS AND TRANS_COMPLETE
+    // as the stall is an alternative response to one of those events.
     pico_trace("Stall REC\n");
     handled |= USB_INTS_STALL_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
@@ -295,10 +317,12 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
            tu_u32_low16(*epx.buffer_control), tu_u32_high16(*epx.buffer_control));
 
-    // DATA_SEQ_ERROR only fires for EPX.  An EP1-EP15 stuck in the #394
-    // deadlock corrupts bus timing until it spills over into EPX.  Fail the
-    // EPX transfer (TinyUSB retries at the stack level) and scan EP1-EP15
-    // for the actual stuck endpoint that caused this.
+    // DATA_SEQ_ERROR fires for any PID mismatch on EPX (DATA0 or DATA1 — the
+    // DATA1_PID flag in buf_ctrl only describes what we sent, not what the
+    // device replied with).  An EP1-EP15 stuck in the #394 deadlock corrupts
+    // bus timing until it spills over into EPX.  Always fail the EPX transfer
+    // (TinyUSB retries at the stack level) when it is active, then scan
+    // EP1-EP15 for the actual stuck endpoint.
     if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
@@ -357,6 +381,8 @@ static hw_endpoint_t *hw_endpoint_allocate(uint8_t transfer_type) {
     // 2x64 for intep0
     // 3x64 for intep1
     // etc
+    // EP data buffers are allocated from the epx_data region (0x180 onwards)
+    // We treat epx_data as a flat array and assume 64-byte blocks for interrupts
     ep->hw_data_buf = &usbh_dpram->epx_data[64 * (ep->interrupt_num + 2)];
   }
 
@@ -386,9 +412,13 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
   // Bits 0-5 should be 0
   assert(!(dpram_offset & 0b111111));
 
-  // Fill in endpoint control register with buffer offset
+  // Fill in endpoint control register with buffer offset.
+  // Bits [15:6] of the EP_CTRL register hold dpram_offset directly (offset is
+  // always 64-byte aligned so bits [5:0] are zero).  EP_CTRL_HOST_INTERRUPT_INTERVAL_LSB
+  // is bit 16, which is above the address field — do NOT shift dpram_offset up.
   uint32_t ctrl_value = EP_CTRL_ENABLE_BITS | EP_CTRL_INTERRUPT_PER_BUFFER |
-                        ((uint32_t)transfer_type << EP_CTRL_BUFFER_TYPE_LSB) | dpram_offset;
+                        ((uint32_t)transfer_type << EP_CTRL_BUFFER_TYPE_LSB) |
+                        dpram_offset;
   if (bmInterval) {
     ctrl_value |= (uint32_t)((bmInterval - 1) << EP_CTRL_HOST_INTERRUPT_INTERVAL_LSB);
   }
