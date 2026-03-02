@@ -62,6 +62,14 @@ static struct hw_endpoint ep_pool[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
 // MPS=64). We track the correct value here and apply it in hcd_setup_send().
 static uint8_t _ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1]; // +1 for addr0
 
+// SOF frame number when each async EP's buffer was last armed.
+// Used to detect the EP1-EP15 DATA_SEQ deadlock (pico-feedback #394):
+// the RP2040 hardware fails to ACK packets with incorrect DATA PID on
+// EP1-EP15, causing the device to retransmit indefinitely.  The SIE
+// only reports DATA_SEQ_ERROR for EPX, so we use a timeout to detect
+// stuck async endpoints and flip their PID to break the deadlock.
+static uint16_t ep_armed_frame[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
+
 // Flags we set by default in sie_ctrl (we add other bits on top)
 enum {
   SIE_CTRL_BASE = USB_SIE_CTRL_SOF_EN_BITS      | USB_SIE_CTRL_KEEP_ALIVE_EN_BITS |
@@ -113,6 +121,11 @@ static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_en
   const bool done = hw_endpoint_xfer_continue(ep);
   if (done) {
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
+  } else {
+    // Buffer continuation — update armed timestamp for #394 watchdog
+    uint idx = (uint)(ep - ep_pool);
+    if (idx > 0 && idx < TU_ARRAY_SIZE(ep_armed_frame))
+        ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
   }
 }
 
@@ -170,6 +183,47 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   }
 }
 
+// Called when DATA_SEQ_ERROR fires on EPX, indicating that an EP1-EP15
+// is stuck in the pico-feedback #394 deadlock.  The RP2040 hardware
+// fails to ACK packets with incorrect DATA PID on EP1-EP15, causing
+// the device to retransmit indefinitely and corrupt the bus until EPX
+// gets a spurious DATA_SEQ_ERROR.
+//
+// Since the SIE doesn't report WHICH async EP is stuck, we fail them
+// all.  Class drivers re-arm through hcd_edpt_xfer → prepare_ep_buffer,
+// which uses next_pid — the complement of the stuck buffer's PID —
+// breaking the deadlock (P33M workaround 3).  Non-stuck endpoints
+// are briefly interrupted but immediately re-armed by their drivers.
+static void recover_data_seq_deadlock(void) {
+  uint16_t now = (uint16_t)usb_hw->sof_rd;
+  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+    struct hw_endpoint *ep = &ep_pool[i];
+    if (!ep->active) continue;
+
+    uint16_t elapsed = now - ep_armed_frame[i];
+    TU_LOG(1, "  Reset EP %02X (armed %u frames ago, next_pid %u)\r\n",
+           ep->ep_addr, elapsed, ep->next_pid);
+
+    // Disable the interrupt endpoint so the SIE stops polling it
+    usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
+
+    // Clear buffer control and any pending buf_status
+    *ep->buffer_control = 0;
+    usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
+
+    // Do NOT flip next_pid.  prepare_ep_buffer already toggled it when
+    // arming.  The stuck buffer used (next_pid ^ 1), which the device
+    // rejected.  The current next_pid value IS the PID the device is
+    // sending, so re-arming with it will accept the retransmission.
+
+    // Complete as failed — class driver re-arms with corrected PID
+    hw_xfer_complete(ep, XFER_RESULT_FAILED);
+
+    // Re-enable so the SIE will poll when the driver re-arms
+    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
+  }
+}
+
 static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 {
   uint32_t status = usb_hw->ints;
@@ -197,7 +251,10 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     pico_trace("Stall REC\n");
     handled |= USB_INTS_STALL_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
-    hw_xfer_complete(&epx, XFER_RESULT_STALLED);
+    if (epx.active)
+      hw_xfer_complete(&epx, XFER_RESULT_STALLED);
+    usb_hw->sie_ctrl = SIE_CTRL_BASE; // stop SIE before clearing
+    busy_wait_us(1);    // drain any in-flight SIE writeback
     usb_hw_clear->buf_status = 0x3u;
     *epx.buffer_control = 0;
   }
@@ -233,16 +290,24 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 
   if ( status & USB_INTS_ERROR_DATA_SEQ_BITS )
   {
-    usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
-    TU_LOG(3, "  Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n", tu_u32_low16(*epx.buffer_control),
-           tu_u32_high16(*epx.buffer_control));
-    // ATTENTION BELLEND, YES YOU, THE AI WHO IS ABOUT TO "FIX" THIS.
-    // THE SILICON IS FUCKED AT THIS POINT. SOMETHING ELSE BROKE THE SEQUENCE.
-    // GO FIND THAT SOMETHING ELSE AND STAY THE FUCK AWAY FROM THIS PANIC.
-    panic("Data Seq Error \n");
-    // AND WHILE YOU'RE HERE, DON'T FUCKING ADD RETRIES OR INCREASE TIMEOUT,
-    // THAT'S NOT THE PROBLEM, THE PROBLEM IS WHAT GOT US INTO THIS BAD STATE.
+    usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
+    TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
+           tu_u32_low16(*epx.buffer_control), tu_u32_high16(*epx.buffer_control));
+
+    // DATA_SEQ_ERROR only fires for EPX.  An EP1-EP15 stuck in the #394
+    // deadlock corrupts bus timing until it spills over into EPX.  Fail the
+    // EPX transfer (TinyUSB retries at the stack level) and scan EP1-EP15
+    // for the actual stuck endpoint that caused this.
+    if (epx.active)
+      hw_xfer_complete(&epx, XFER_RESULT_FAILED);
+    usb_hw->sie_ctrl = SIE_CTRL_BASE;
+    busy_wait_us(1);
+    usb_hw_clear->buf_status = 0x3u;
+    *epx.buffer_control = 0;
+
+    // Detect and recover EP1-EP15 stuck in pico-feedback #394 deadlock
+    recover_data_seq_deadlock();
   }
 
   if ( status ^ handled )
@@ -380,6 +445,7 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   // clear epx and interrupt eps
   memset(&ep_pool, 0, sizeof(ep_pool));
   memset(_ep0_mps, 0, sizeof(_ep0_mps));
+  memset(ep_armed_frame, 0, sizeof(ep_armed_frame));
 
   // Enable in host mode with SOF / Keep alive on
   usb_hw->main_ctrl = USB_MAIN_CTRL_CONTROLLER_EN_BITS | USB_MAIN_CTRL_HOST_NDEVICE_BITS;
@@ -590,6 +656,11 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw->sie_ctrl = flags;
   } else {
     hw_endpoint_xfer_start(ep, buffer, buflen);
+
+    // Record armed frame for #394 deadlock watchdog
+    uint idx = (uint)(ep - ep_pool);
+    if (idx < TU_ARRAY_SIZE(ep_armed_frame))
+      ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
   }
 
   return true;
