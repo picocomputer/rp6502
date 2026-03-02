@@ -577,6 +577,7 @@ void msch_close(uint8_t dev_addr)
     }
 
     tu_memclr(p_msc, sizeof(msch_interface_t));
+    tu_memclr(get_epbuf(dev_addr), sizeof(msch_epbuf_t));
 }
 
 // CBI transfer-complete handler.
@@ -630,6 +631,15 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
 
     case MSC_STAGE_STATUS:
     {
+        if (event == XFER_RESULT_FAILED)
+        {
+            // pico-feedback #394 recovery briefly fails all active async
+            // endpoints.  Re-arm immediately; next_pid was already corrected
+            // by the HCD if this endpoint was the stuck one.
+            if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
+                complete_command(dev_addr, MSC_CSW_STATUS_FAILED, epbuf->csw.data_residue);
+            break;
+        }
         uint8_t csw_status;
         if (event != XFER_RESULT_SUCCESS || xferred_bytes < 2)
         {
