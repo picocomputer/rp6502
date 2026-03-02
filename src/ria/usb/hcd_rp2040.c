@@ -553,12 +553,18 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   }
 
   // reset epx if it belongs to this device (regardless of active state so
-  // stale AVAIL/FULL bits in buffer_control are always cleared on close)
+  // stale AVAIL/FULL bits in buffer_control are always cleared on close).
+  // Critical section: an IRQ between the epx.active check and
+  // hw_endpoint_reset_transfer would deliver hcd_event_xfer_complete, letting
+  // the class driver re-arm EPX; the close would then zero endpoint_control
+  // and buffer_control under the live new transfer (Race 3).
   if (epx.configured && epx.dev_addr == dev_addr) {
+    uint32_t const saved = save_and_disable_interrupts();
     if (epx.active) hw_endpoint_reset_transfer(&epx);
     epx.configured = false;
     *epx.endpoint_control = 0;
     *epx.buffer_control = 0;
+    restore_interrupts(saved);
   }
 
   // dev0 only has ep0
@@ -566,6 +572,10 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
     for (size_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
       hw_endpoint_t *ep = &ep_pool[i];
       if (ep->dev_addr == dev_addr && ep->configured) {
+        // Critical section: same Race 3 as EPX — IRQ between the configured
+        // check and hw_endpoint_reset_transfer can deliver a completion and
+        // let the class driver re-arm before we zero endpoint_control.
+        uint32_t const saved = save_and_disable_interrupts();
         // in case it is an interrupt endpoint, disable it
         usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
         usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
@@ -575,6 +585,7 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
         *ep->endpoint_control  = 0;
         *ep->buffer_control = 0;
         hw_endpoint_reset_transfer(ep);
+        restore_interrupts(saved);
       }
     }
   }
@@ -669,6 +680,12 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   // sie ctrl registers. Otherwise, interrupt ep registers should
   // already be configured
   if (ep == &epx) {
+    // Disable USB IRQ for the window between ep->active=true (set inside
+    // hw_endpoint_xfer_start) and the final START_TRANS write.  Without this,
+    // a STALL/RX_TIMEOUT/DATA_SEQ IRQ can fire, see ep->active==true, call
+    // hw_xfer_complete (clearing active), then we write START_TRANS anyway —
+    // hardware starts a real transaction with ep->active==false (Race 1).
+    uint32_t const saved = save_and_disable_interrupts();
     hw_endpoint_xfer_start(ep, buffer, buflen);
 
     // That has set up buffer control, endpoint control etc
@@ -684,13 +701,17 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
     busy_wait_us(1);
     usb_hw->sie_ctrl = flags;
+    restore_interrupts(saved);
   } else {
-    hw_endpoint_xfer_start(ep, buffer, buflen);
-
-    // Record armed frame for #394 deadlock watchdog
+    // Record armed frame BEFORE hw_endpoint_xfer_start so that if the IRQ
+    // fires immediately after arming (buffer fills in <1 SOF frame), the
+    // timestamp is already valid.  Writing it after the arm produces a stale
+    // "just armed" timestamp that masks a real #394 deadlock on this EP
+    // (Race 2).
     uint idx = (uint)(ep - ep_pool);
     if (idx < TU_ARRAY_SIZE(ep_armed_frame))
       ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
+    hw_endpoint_xfer_start(ep, buffer, buflen);
   }
 
   return true;
@@ -700,6 +721,14 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (!ep) return true;
+
+  // Critical section: disabling the endpoint in HW does not dequeue an
+  // already-latched NVIC BUFF_STATUS pending.  Without the critical section
+  // the IRQ can fire after the HW disable, complete the transfer, let the
+  // class driver re-arm (new buffer_control written), then we zero
+  // buffer_control under the new live transfer (Race 4).
+  uint32_t const saved = save_and_disable_interrupts();
+
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
     busy_wait_us(1);
@@ -722,6 +751,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
 
+  restore_interrupts(saved);
   return true;
 }
 
@@ -761,6 +791,12 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   usb_hw_clear->buf_status = 0x3u;
   *ep->buffer_control = 0;
 
+  // Disable USB IRQ for the window between ep->active=true and the final
+  // START_TRANS write.  A STALL/RX_TIMEOUT/DATA_SEQ IRQ fired in this window
+  // would see ep->active==true, call hw_xfer_complete (clearing active), then
+  // we write START_TRANS — hardware fires a real transaction with ep->active
+  // already false; the TRANS_COMPLETE handler silently no-ops (Race 1).
+  uint32_t const saved = save_and_disable_interrupts();
   ep->remaining_len = 8;
   ep->active = true;
 
@@ -777,6 +813,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
   busy_wait_us(1);
   usb_hw->sie_ctrl = flags;
+  restore_interrupts(saved);
 
   return true;
 }
@@ -785,11 +822,16 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (ep) {
+    // Critical section: recover_data_seq_deadlock (IRQ context) does
+    // ep->next_pid ^= 1u concurrently.  Without protection the XOR can
+    // race with our zero-write, leaving the wrong PID (Race 5).
+    uint32_t const saved = save_and_disable_interrupts();
     ep->next_pid = 0;
     if (ep != &epx) {
       *ep->buffer_control = 0;
       usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
     }
+    restore_interrupts(saved);
   }
   return true;
 }
