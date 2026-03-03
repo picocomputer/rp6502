@@ -24,30 +24,6 @@
  * This file is part of the TinyUSB stack.
  */
 
-/*
-This file overrides the TinyUSB file:
-src/tinyusb/src/class/msc/msc_host.c
-See cmake configuration for override.
-
-Changes from upstream TinyUSB msc_host.c:
-
-- Add CBI (Control/Bulk/Interrupt) and CB (Control/Bulk) transport support.
-- Polling-only interface: tuh_msc_scsi_submit() + tuh_msc_ready() + tuh_msc_csw().
-  No per-command completion callbacks; msc.c polls for command completion.
-- msch_open() accepts CBI/CBI_NO_INTERRUPT protocols and UFI/SFF subclasses;
-  iterates bNumEndpoints to handle bulk + interrupt endpoints.
-- msch_set_config() skips all SCSI enumeration; msc.c handles everything in
-  disk_initialize/msc_init_volume.  For BOT, GET_MAX_LUN is issued here so
-  tuh_msc_mount_lun_cb is called once per LUN after enumeration.
-  For CBI (single-LUN by spec) GET_MAX_LUN is skipped.
-- capacity[], tuh_msc_get_block_count(), tuh_msc_get_block_size(),
-  tuh_msc_read10(), tuh_msc_write10() removed:
-  msc.c owns block size/count tracking.
-- Automatic reset recovery on phase errors and invalid CSWs.
-  tuh_msc_ready() stays false until recovery completes.
-  tuh_msc_abort() cancels in-flight commands or force-stops hung recovery.
-*/
-
 #include "tusb_option.h"
 
 #if CFG_TUH_ENABLED && CFG_TUH_MSC
@@ -704,8 +680,8 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
 }
 
 // Callback following a device-level CLEAR_FEATURE(ENDPOINT_HALT) issued after a
-// BOT data-phase or CSW-phase STALL.  Proceeds to the CSW read regardless of
-// whether the control transfer succeeded.
+// BOT data-phase or CSW-phase STALL.
+// On success, queue CSW read; on failure, fail command and start recovery.
 //   user_data == 0: first-attempt CSW read (data-phase STALL, BOT §6.6.1)
 //   user_data == 1: retry CSW read         (CSW-phase STALL,  BOT §6.7.2)
 static void bot_clear_for_csw_cb(tuh_xfer_t *xfer)
@@ -715,11 +691,18 @@ static void bot_clear_for_csw_cb(tuh_xfer_t *xfer)
     msch_epbuf_t *epbuf = get_epbuf(daddr);
     msc_csw_t *csw = &epbuf->csw;
     msc_cbw_t const *cbw = &epbuf->cbw;
+    if (xfer->result != XFER_RESULT_SUCCESS)
+    {
+        complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        start_recovery(daddr);
+        return;
+    }
     bool const is_retry = (xfer->user_data != 0);
     p_msc->stage = is_retry ? MSC_STAGE_STATUS_RETRY : MSC_STAGE_STATUS;
     if (!usbh_edpt_xfer(daddr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
     {
         complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        start_recovery(daddr);
     }
 }
 
@@ -748,6 +731,18 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         TU_ATTR_FALLTHROUGH;
 
     case MSC_STAGE_DATA:
+        if (ep_addr != data_ep(p_msc, cbw))
+        {
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
+            break;
+        }
+        if (event == XFER_RESULT_FAILED)
+        {
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
+            break;
+        }
         if (event == XFER_RESULT_STALLED)
         {
             uint8_t const stalled_ep = data_ep(p_msc, cbw);
@@ -757,18 +752,28 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
                 p_msc->stage = MSC_STAGE_STATUS;
                 break;
             }
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
+            break;
         }
         // Read CSW
         p_msc->stage = MSC_STAGE_STATUS;
         if (!usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
         {
             complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
         }
         break;
 
     case MSC_STAGE_STATUS:
     case MSC_STAGE_STATUS_RETRY:
     {
+        if (ep_addr != p_msc->ep_in)
+        {
+            complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
+            break;
+        }
         bool should_retry = false;
         if (p_msc->stage != MSC_STAGE_STATUS_RETRY)
         {
@@ -786,7 +791,9 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
                     p_msc->stage = MSC_STAGE_STATUS_RETRY;
                     break;
                 }
-                should_retry = true;
+                complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+                start_recovery(dev_addr);
+                break;
             }
         }
 
@@ -808,6 +815,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
                           xferred_bytes == sizeof(msc_csw_t) &&
                           csw->signature == MSC_CSW_SIGNATURE &&
                           csw->tag == cbw->tag &&
+                          csw->status <= MSC_CSW_STATUS_PHASE_ERROR &&
                           csw->data_residue <= cbw->total_bytes);
         if (!csw_valid)
         {
