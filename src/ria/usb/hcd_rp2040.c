@@ -62,14 +62,6 @@ static struct hw_endpoint ep_pool[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
 // MPS=64). We track the correct value here and apply it in hcd_setup_send().
 static uint8_t _ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1]; // +1 for addr0
 
-// SOF frame number when each async EP's buffer was last armed.
-// Used to detect the EP1-EP15 DATA_SEQ deadlock (pico-feedback #394):
-// the RP2040 hardware fails to ACK packets with incorrect DATA PID on
-// EP1-EP15, causing the device to retransmit indefinitely.  The SIE
-// only reports DATA_SEQ_ERROR for EPX, so we use a timeout to detect
-// stuck async endpoints and flip their PID to break the deadlock.
-static uint16_t ep_armed_frame[1 + PICO_USB_HOST_INTERRUPT_ENDPOINTS];
-
 // Flags we set by default in sie_ctrl (we add other bits on top)
 enum {
   SIE_CTRL_BASE = USB_SIE_CTRL_SOF_EN_BITS      | USB_SIE_CTRL_KEEP_ALIVE_EN_BITS |
@@ -113,15 +105,8 @@ static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_
 
 static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_endpoint *ep) {
   usb_hw_clear->buf_status = bit;
-  
+
   if (!ep->active) return;
-  
-  // Update timestamp BEFORE checking for completion
-  // This is because hw_endpoint_xfer_continue might complete the transfer
-  // and we want to ensure the watchdog sees activity regardless.
-  uint idx = (uint)(ep - ep_pool);
-  if (idx > 0 && idx < TU_ARRAY_SIZE(ep_armed_frame))
-      ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
 
   const bool done = hw_endpoint_xfer_continue(ep);
   if (done) {
@@ -131,7 +116,6 @@ static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_en
 
 static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   uint32_t buf_status = usb_hw->buf_status;
-  // usb_hw_clear->buf_status = buf_status;   // <---- REMOVED THIS
   pico_trace("buf_status 0x%08lx\n", buf_status);
 
   // Check EPX first
@@ -172,7 +156,10 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   {
     pico_trace("Sent setup packet\n");
     struct hw_endpoint *ep = &epx;
-    TU_ASSERT(ep->active, );
+    // EPX may have been completed already by the DATA_SEQ_ERROR drain in the
+    // same IRQ snapshot (drain consumed TRANS_COMPLETE before this block ran).
+    // That is not an error — just a no-op here.
+    if (!ep->active) return;
     // Set transferred length to 8 for a setup packet
     ep->xferred_len = 8;
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
@@ -184,65 +171,6 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
   }
 }
 
-// Called when DATA_SEQ_ERROR fires on EPX, indicating that an EP1-EP15
-// is stuck in the pico-feedback #394 deadlock.  The RP2040 hardware
-// fails to ACK packets with incorrect DATA PID on EP1-EP15, causing
-// the device to retransmit indefinitely and corrupt the bus until EPX
-// gets a spurious DATA_SEQ_ERROR.
-//
-// Since the SIE doesn't report WHICH async EP is stuck, we fail them
-// all.  Class drivers re-arm through hcd_edpt_xfer → prepare_ep_buffer,
-// which uses next_pid — the complement of the stuck buffer's PID —
-// breaking the deadlock (P33M workaround 3).  Non-stuck endpoints
-// are briefly interrupted but immediately re-armed by their drivers.
-static void recover_data_seq_deadlock(void) {
-  uint16_t now = (uint16_t)usb_hw->sof_rd;
-  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
-    struct hw_endpoint *ep = &ep_pool[i];
-    if (!ep->active) continue;
-
-    // Mask to 11 bits: sof_rd is an 11-bit USB SOF counter (wraps 2047→0).
-    // Without the mask, a roll-over produces a spuriously large uint16_t elapsed.
-    uint16_t elapsed = (uint16_t)((now - ep_armed_frame[i]) & 0x7ffu);
-    // Only reset endpoints that have been active for >10ms (approx 10 frames).
-    // A stuck endpoint will have been retransmitting for much longer than that
-    // before it causes a DATA_SEQ_ERROR on EPX.  Innocent endpoints are
-    // re-armed frequently by their drivers.
-    if (elapsed < 10) continue;
-
-    TU_LOG(1, "  Reset EP %02X (armed %u frames ago, next_pid %u)\r\n",
-           ep->ep_addr, elapsed, ep->next_pid);
-
-    // Disable the interrupt endpoint so the SIE stops polling it
-    usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
-
-    // Clear buffer control and any pending buf_status
-    *ep->buffer_control = 0;
-    usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
-
-    // prepare_ep_buffer arms with next_pid then immediately flips it.
-    //
-    // IN (host receives / ep->rx == true):
-    //   The device is retransmitting the same PID it sent when the RP2040 last
-    //   failed to ACK.  That PID is the complement of what next_pid now holds
-    //   (prepare_ep_buffer already advanced it past the failed packet).
-    //   Flip it back so the re-arm expects the PID the device is about to send
-    //   (USB 2.0 §8.6.2).
-    //
-    // OUT (host sends / ep->rx == false):
-    //   The device did not advance its sequence bit — it still expects the PID
-    //   that prepare_ep_buffer advanced to.  next_pid is already correct;
-    //   no flip needed (USB 2.0 §8.6.3).
-    if (ep->rx) ep->next_pid ^= 1u;
-
-    // Complete as failed — class driver re-arms with the now-corrected PID
-    hw_xfer_complete(ep, XFER_RESULT_FAILED);
-
-    // Re-enable so the SIE will poll when the driver re-arms
-    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
-  }
-}
-
 static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 {
   uint32_t status = usb_hw->ints;
@@ -251,6 +179,13 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   if ( status & USB_INTS_HOST_CONN_DIS_BITS )
   {
     handled |= USB_INTS_HOST_CONN_DIS_BITS;
+    // Clear the speed-change latch first so subsequent reads of sie_status
+    // reflect the new (post-event) state.  The busy_wait gives the APB write
+    // time to propagate before we read the bits back via dev_speed(); without
+    // it the read can return 0 on a fast connect path (Heisenbug: the delay
+    // introduced by UART logging masked this window).
+    usb_hw_clear->sie_status = USB_SIE_STATUS_SPEED_BITS;
+    busy_wait_us(1);
 
     if ( dev_speed() )
     {
@@ -258,11 +193,46 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     }
     else
     {
+      // Device disconnected.  The SIE can have BUFF_STATUS and/or
+      // TRANS_COMPLETE set simultaneously in this same status snapshot
+      // (a transfer completed as the cable was pulled).  We must silence
+      // the hardware and reset all endpoint software state NOW — before
+      // the subsequent if-blocks run — so they find nothing to process.
+      // If we let handle_hwbuf_status() or hw_trans_complete() run after
+      // this, they deliver hcd_event_xfer_complete for a device the stack
+      // is about to tear down, corrupting enumeration state.
+
+      // Stop the SIE immediately (no new transactions).
+      usb_hw->sie_ctrl = SIE_CTRL_BASE;
+      busy_wait_us(1);  // drain any in-flight SIE writeback
+
+      // Disable all EP1-15 interrupt endpoint polling.
+      usb_hw->int_ep_ctrl = 0;
+
+      // Clear every pending buf_status bit so handle_hwbuf_status() is a
+      // guaranteed no-op if BUFF_STATUS was also set in this snapshot.
+      usb_hw_clear->buf_status = 0xffffffffu;
+      *epx.buffer_control = 0;
+
+      // Reset software endpoint state without delivering any completions.
+      // hcd_device_close() (called by the stack from task context in
+      // response to the remove event below) does the full teardown.
+      if (epx.active) hw_endpoint_reset_transfer(&epx);
+      for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+        if (ep_pool[i].active) hw_endpoint_reset_transfer(&ep_pool[i]);
+      }
+
       hcd_event_device_remove(RHPORT_NATIVE, true);
     }
+  }
 
-    // Clear speed change interrupt
-    usb_hw_clear->sie_status = USB_SIE_STATUS_SPEED_BITS;
+  if ( status & USB_INTS_HOST_RESUME_BITS )
+  {
+    // Remote wakeup: the device drove resume signalling.  The SIE resumes
+    // SOF generation automatically; class drivers will re-arm their IN
+    // endpoints on the next poll.  Acknowledge and move on.
+    handled |= USB_INTS_HOST_RESUME_BITS;
+    usb_hw_clear->sie_status = USB_SIE_STATUS_RESUME_BITS;
   }
 
   if ( status & USB_INTS_STALL_BITS )
@@ -314,24 +284,19 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   {
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS;
+    // busy_wait lets the status-clear propagate before we act on the endpoint.
+    // Previously the TU_LOG call below provided this latency incidentally; when
+    // logging was disabled the window collapsed (Heisenbug: same pattern as
+    // SPEED_BITS above).
+    busy_wait_us(1);
     TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
            tu_u32_low16(*epx.buffer_control), tu_u32_high16(*epx.buffer_control));
-
-    // DATA_SEQ_ERROR fires for any PID mismatch on EPX (DATA0 or DATA1 — the
-    // DATA1_PID flag in buf_ctrl only describes what we sent, not what the
-    // device replied with).  An EP1-EP15 stuck in the #394 deadlock corrupts
-    // bus timing until it spills over into EPX.  Always fail the EPX transfer
-    // (TinyUSB retries at the stack level) when it is active, then scan
-    // EP1-EP15 for the actual stuck endpoint.
     if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
     busy_wait_us(1);
     usb_hw_clear->buf_status = 0x3u;
     *epx.buffer_control = 0;
-
-    // Detect and recover EP1-EP15 stuck in pico-feedback #394 deadlock
-    recover_data_seq_deadlock();
   }
 
   if ( status ^ handled )
@@ -406,6 +371,11 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
   ep->transfer_type = transfer_type;
   ep->rx = (dir == TUSB_DIR_IN);
 
+  // Store the polling interval so recover_data_seq_deadlock() can use a
+  // per-endpoint threshold instead of a global one.  On RP2040 (FS/LS only)
+  // bInterval is directly in milliseconds == SOF frames.  Treat 0 as 1.
+  ep->sof_interval = bmInterval ? bmInterval : 1u;
+
   pico_trace("hw_endpoint_init dev %d ep %02X xfer %d\n", ep->dev_addr, ep->ep_addr, transfer_type);
   pico_trace("dev %d ep %02X setup buffer @ 0x%p\n", ep->dev_addr, ep->ep_addr, ep->hw_data_buf);
   uint dpram_offset = hw_data_offset(ep->hw_data_buf);
@@ -475,7 +445,6 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   // clear epx and interrupt eps
   memset(&ep_pool, 0, sizeof(ep_pool));
   memset(_ep0_mps, 0, sizeof(_ep0_mps));
-  memset(ep_armed_frame, 0, sizeof(ep_armed_frame));
 
   // Enable in host mode with SOF / Keep alive on
   usb_hw->main_ctrl = USB_MAIN_CTRL_CONTROLLER_EN_BITS | USB_MAIN_CTRL_HOST_NDEVICE_BITS;
@@ -636,8 +605,10 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
     return true; // EP0 (epx) is shared
   }
 
+  uint32_t const saved = save_and_disable_interrupts();
+
   // Disable the interrupt endpoint in hardware
-  usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
+  usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
 
   // Unconfigure and reset
@@ -646,6 +617,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   *ep->buffer_control = 0;
   hw_endpoint_reset_transfer(ep);
 
+  restore_interrupts(saved);
   return true;
 }
 
@@ -703,14 +675,6 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw->sie_ctrl = flags;
     restore_interrupts(saved);
   } else {
-    // Record armed frame BEFORE hw_endpoint_xfer_start so that if the IRQ
-    // fires immediately after arming (buffer fills in <1 SOF frame), the
-    // timestamp is already valid.  Writing it after the arm produces a stale
-    // "just armed" timestamp that masks a real #394 deadlock on this EP
-    // (Race 2).
-    uint idx = (uint)(ep - ep_pool);
-    if (idx < TU_ARRAY_SIZE(ep_armed_frame))
-      ep_armed_frame[idx] = (uint16_t)usb_hw->sof_rd;
     hw_endpoint_xfer_start(ep, buffer, buflen);
   }
 
@@ -822,9 +786,9 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   (void) rhport;
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (ep) {
-    // Critical section: recover_data_seq_deadlock (IRQ context) does
-    // ep->next_pid ^= 1u concurrently.  Without protection the XOR can
-    // race with our zero-write, leaving the wrong PID (Race 5).
+    // Critical section: prepare_ep_buffer() (IRQ context) reads ep->next_pid
+    // and then does ep->next_pid ^= 1u.  Without protection our zero-write
+    // can land between the read and the XOR, losing the reset (Race 5).
     uint32_t const saved = save_and_disable_interrupts();
     ep->next_pid = 0;
     if (ep != &epx) {
