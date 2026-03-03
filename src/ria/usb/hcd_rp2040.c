@@ -371,11 +371,6 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
   ep->transfer_type = transfer_type;
   ep->rx = (dir == TUSB_DIR_IN);
 
-  // Store the polling interval so recover_data_seq_deadlock() can use a
-  // per-endpoint threshold instead of a global one.  On RP2040 (FS/LS only)
-  // bInterval is directly in milliseconds == SOF frames.  Treat 0 as 1.
-  ep->sof_interval = bmInterval ? bmInterval : 1u;
-
   pico_trace("hw_endpoint_init dev %d ep %02X xfer %d\n", ep->dev_addr, ep->ep_addr, transfer_type);
   pico_trace("dev %d ep %02X setup buffer @ 0x%p\n", ep->dev_addr, ep->ep_addr, ep->hw_data_buf);
   uint dpram_offset = hw_data_offset(ep->hw_data_buf);

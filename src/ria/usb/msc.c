@@ -296,7 +296,8 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         // response_code is valid and the transfer didn't time out.
         bool sense_data_valid = (sense_status == msc_status_passed) ||
                                 (sense_status != msc_status_timed_out &&
-                                 tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT);
+                                 (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT ||
+                                  sense_resp.response_code != 0));
         if (sense_data_valid && sense_resp.response_code)
         {
             msc_volume_sense_key[vol] = sense_resp.sense_key;
@@ -544,14 +545,8 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         uint8_t desc_type = cap->descriptor_type & 0x03;
         if (desc_type == 3) // 0x03 = No Media Present
             return false;
-        if (cap->reserved2 != 0)
-        {
-            DBG("MSC vol %d: RFC reserved2=0x%02X, non-UFI response rejected\n",
-                vol, cap->reserved2);
-            return false;
-        }
         uint32_t blocks = tu_ntohl(cap->block_num);
-        uint32_t bsize = tu_ntohs(cap->block_size_u16);
+        uint32_t bsize = ((uint32_t)cap->reserved2 << 16) | tu_ntohs(cap->block_size_u16);
         DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
             vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
         // Accept power-of-2 sector sizes that FatFS supports.
@@ -732,8 +727,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             // Per SBC-4 §5.25: on first NOT READY, send START STOP UNIT
             // (Start=1) once to kick media initialization.
             // Skip subcases that won't resolve without intervention.
-            if (!sent_start && sk == SCSI_SENSE_NOT_READY &&
-                inq->is_removable)
+            if (!sent_start && sk == SCSI_SENSE_NOT_READY)
             {
                 if (asc == 0x04)
                 {

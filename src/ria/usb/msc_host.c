@@ -737,6 +737,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         if (ep_addr != p_msc->ep_out || event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t))
         {
             complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            start_recovery(dev_addr);
             break;
         }
         if (cbw->total_bytes && p_msc->buffer)
