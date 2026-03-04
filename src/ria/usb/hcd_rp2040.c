@@ -66,8 +66,8 @@ static uint8_t _ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1]; // +1 for addr0
 // etc.) across EPX and interrupt endpoint transactions.  When the SIE finishes
 // an EPX transaction and immediately starts an interrupt endpoint poll, the
 // poll's handshake response overwrites the EPX latches before the IRQ handler
-// can read them.  This causes a valid ACK'd EPX completion to appear as
-// "no-ACK" — triggering the coincident-RX-Timeout failure path.
+// can read them.  Without suppression, a valid ACK'd EPX completion appears
+// as RX_TIMEOUT or DATA_SEQ_ERROR, breaking control transfer enumeration.
 //
 // To prevent this, we disable interrupt endpoint polling (int_ep_ctrl = 0)
 // before every EPX START_TRANS and restore it after the IRQ handler has
@@ -111,45 +111,6 @@ TU_ATTR_ALWAYS_INLINE static inline bool need_pre(uint8_t dev_addr) {
   return hcd_port_speed_get(0) != tuh_speed_get(dev_addr);
 }
 
-TU_ATTR_ALWAYS_INLINE static inline bool trace_port3_request(uint8_t dev_addr, volatile uint8_t const setup_packet[8]) {
-  if (dev_addr != 29) {
-    return false;
-  }
-
-  if (setup_packet[4] != 0x03 || setup_packet[5] != 0x00) {
-    return false;
-  }
-
-  return setup_packet[0] == 0x23 || setup_packet[0] == 0xA3;
-}
-
-TU_ATTR_ALWAYS_INLINE static inline void trace_port3_ep0_state(char const* tag, uint8_t dev_addr, uint8_t ep_addr,
-                                                                uint16_t buflen) {
-  uint32_t const sie = usb_hw->sie_status;
-  uint16_t const bc0 = tu_u32_low16(*epx.buffer_control);
-  uint8_t const pid0 = (bc0 & USB_BUF_CTRL_DATA1_PID) ? 1u : 0u;
-
-  TU_LOG(2,
-         "  TRACE %s dev=%u ep=0x%02x len=%u setup=%02x %02x %02x %02x %02x %02x %02x %02x "
-         "sie=0x%08lx [ACK=%u NAK=%u STALL=%u RXTO=%u DSEQ=%u EPERR=%u SHORT=%u TCOMP=%u LS=%lu SPD=%lu] "
-         "bc0=0x%04x pid0=%u next=%u active=%u\r\n",
-         tag, dev_addr, ep_addr, buflen,
-         usbh_dpram->setup_packet[0], usbh_dpram->setup_packet[1], usbh_dpram->setup_packet[2], usbh_dpram->setup_packet[3],
-         usbh_dpram->setup_packet[4], usbh_dpram->setup_packet[5], usbh_dpram->setup_packet[6], usbh_dpram->setup_packet[7],
-         sie,
-         !!(sie & USB_SIE_STATUS_ACK_REC_BITS),
-         !!(sie & USB_SIE_STATUS_NAK_REC_BITS),
-         !!(sie & USB_SIE_STATUS_STALL_REC_BITS),
-         !!(sie & USB_SIE_STATUS_RX_TIMEOUT_BITS),
-         !!(sie & USB_SIE_STATUS_DATA_SEQ_ERROR_BITS),
-         !!(sie & 0x00800000u),
-         !!(sie & USB_SIE_STATUS_RX_SHORT_PACKET_BITS),
-         !!(sie & USB_SIE_STATUS_TRANS_COMPLETE_BITS),
-         (sie & USB_SIE_STATUS_LINE_STATE_BITS) >> USB_SIE_STATUS_LINE_STATE_LSB,
-         (sie & USB_SIE_STATUS_SPEED_BITS) >> USB_SIE_STATUS_SPEED_LSB,
-         bc0, pid0, epx.next_pid, epx.active);
-}
-
 TU_ATTR_ALWAYS_INLINE static inline void epx_hard_reset(void) {
   usb_hw->sie_ctrl = SIE_CTRL_BASE; // stop SIE before clearing
   busy_wait_us(1);    // drain any in-flight SIE writeback
@@ -157,35 +118,15 @@ TU_ATTR_ALWAYS_INLINE static inline void epx_hard_reset(void) {
   *epx.buffer_control = 0;
 }
 
-TU_ATTR_ALWAYS_INLINE static inline void epx_clear_rx_timeout_sticky(void) {
-  // RX_TIMEOUT can remain level-asserted across several IRQ entries after a
-  // failed control phase. Clear it after SIE halt and spin briefly until the
-  // SIE status source deasserts.
-  uint32_t const sticky_mask = USB_SIE_STATUS_RX_TIMEOUT_BITS | 0x00800000u;
-  for (uint8_t i = 0; i < 32; i++) {
-    usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS | 0x00800000u;
-    busy_wait_us(1);
-    if ((usb_hw->sie_status & sticky_mask) == 0) {
-      break;
-    }
+TU_ATTR_ALWAYS_INLINE static inline void epx_prepare_for_start(void) {
+  // Zero EPX buffer_control before each phase start so stale terminal values
+  // cannot influence the next transaction.
+  if (!epx.active) {
+    usb_hw_clear->buf_status = 0x3u;
+    *epx.buffer_control = 0;
   }
-}
 
-static void __tusb_irq_path_func(epx_sie_reset)(void) {
-  // Aggressively reset EPX after a coincident RX_TIMEOUT without ACK, where
-  // the SIE consumed the buffer but the device never acknowledged — leaving
-  // hidden internal state corrupted.
-  //
-  // We must NOT toggle CONTROLLER_EN: that clears the SPEED bits in
-  // sie_status, causing hcd_port_speed_get() to panic("Invalid speed") on
-  // the very next TinyUSB retry.  Instead, halt the SIE via sie_ctrl,
-  // scrub all buffer/status state, and clear every sticky status latch.
-  // The SIE's per-transaction state (PID tracking, handshake FSM) resets
-  // on the next START_TRANS write, so this is sufficient.
-  usb_hw->sie_ctrl = 0;                    // kill SOF + all transaction bits
-  busy_wait_us(2);
-  usb_hw_clear->buf_status = 0xffffffffu;  // drain all pending completions
-  *epx.buffer_control = 0;
+  // Clear transient handshake/status latches before each EP0 phase start.
   usb_hw_clear->sie_status = USB_SIE_STATUS_ACK_REC_BITS |
                              USB_SIE_STATUS_NAK_REC_BITS |
                              USB_SIE_STATUS_STALL_REC_BITS |
@@ -194,50 +135,6 @@ static void __tusb_irq_path_func(epx_sie_reset)(void) {
                              USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
                              USB_SIE_STATUS_TRANS_COMPLETE_BITS |
                              0x00800000u;
-  busy_wait_us(1);
-  usb_hw->sie_ctrl = SIE_CTRL_BASE;        // restore SOF generation
-  busy_wait_us(1);
-  epx_clear_rx_timeout_sticky();
-}
-
-TU_ATTR_ALWAYS_INLINE static inline void epx_prepare_for_start(void) {
-  // Defensive: zero EPX buffer_control before each phase start so stale
-  // terminal values (e.g. 0x4000 from a late timeout edge) cannot influence
-  // the next transaction. The root cause (no-ACK coincident timeout) is now
-  // handled by epx_sie_reset(), but this remains as a safety net.
-  if (!epx.active) {
-    usb_hw_clear->buf_status = 0x3u;
-    *epx.buffer_control = 0;
-  }
-
-  // Clear transient handshake/status latches before each EP0 phase start.
-  // ACK/NAK can remain set after a successful prior request and should not
-  // influence the next setup/data/status transaction.
-  uint32_t const latch_clear_mask = USB_SIE_STATUS_ACK_REC_BITS |
-                                    USB_SIE_STATUS_NAK_REC_BITS |
-                                    USB_SIE_STATUS_STALL_REC_BITS |
-                                    USB_SIE_STATUS_DATA_SEQ_ERROR_BITS |
-                                    USB_SIE_STATUS_RX_TIMEOUT_BITS |
-                                    USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
-                                    USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                                    0x00800000u;
-  uint32_t const sticky_err_mask = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS |
-                                   USB_SIE_STATUS_STALL_REC_BITS |
-                                   USB_SIE_STATUS_RX_TIMEOUT_BITS |
-                                   0x00800000u;
-
-  usb_hw_clear->sie_status = latch_clear_mask;
-  busy_wait_us(1);
-
-  // Fast path: do not hard-reset EPX between successful control phases.
-  // Repeatedly forcing SIE idle + raw buffer_control writes here can itself
-  // perturb the next phase. Only do destructive cleanup when an error remains latched.
-  if (usb_hw->sie_status & sticky_err_mask) {
-    epx_hard_reset();
-    usb_hw_clear->sie_status = latch_clear_mask;
-    busy_wait_us(1);
-    epx_clear_rx_timeout_sticky();
-  }
 }
 
 static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_result_t xfer_result) {
@@ -306,9 +203,6 @@ static void __tusb_irq_path_func(hw_trans_complete)(void)
     struct hw_endpoint *ep = &epx;
     TU_LOG(2, "  hw_trans_complete: SETUP path, ep->active=%u sie_ctrl=0x%08lx\r\n",
            ep->active, usb_hw->sie_ctrl);
-    // EPX may have been completed already by the DATA_SEQ_ERROR drain in the
-    // same IRQ snapshot (drain consumed TRANS_COMPLETE before this block ran).
-    // That is not an error — just a no-op here.
     if (!ep->active) return;
     // Set transferred length to 8 for a setup packet
     ep->xferred_len = 8;
@@ -325,16 +219,8 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 {
   uint32_t status = usb_hw->ints;
   uint32_t handled = 0;
-  bool suppress_completion_paths = false;
-  bool defer_timeout_clear = false;
-  bool defer_timeout_sanitize = false;
   TU_LOG(2, "  IRQ ints=0x%08lx sie_status=0x%08lx sie_ctrl=0x%08lx epx.active=%u\r\n",
          status, usb_hw->sie_status, usb_hw->sie_ctrl, epx.active);
-  if (trace_port3_request(epx.dev_addr, usbh_dpram->setup_packet) &&
-      (status & (USB_INTS_BUFF_STATUS_BITS | USB_INTS_TRANS_COMPLETE_BITS |
-                 USB_INTS_ERROR_DATA_SEQ_BITS | USB_INTS_ERROR_RX_TIMEOUT_BITS))) {
-    trace_port3_ep0_state("P3_IRQ", epx.dev_addr, epx.ep_addr, epx.remaining_len);
-  }
 
   if ( status & USB_INTS_HOST_CONN_DIS_BITS )
   {
@@ -422,24 +308,18 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     // USB_INTS_ERROR_DATA_SEQ_BITS is wired to SIE_STATUS which only tracks
     // EPx — this interrupt never fires for EP1-15.
     handled |= USB_INTS_ERROR_DATA_SEQ_BITS;
-    // DATA_SEQ is an error alternative to normal completion; if the same IRQ
-    // snapshot also carries BUFF_STATUS/TRANS_COMPLETE, suppress those paths
-    // so the transfer is never reported as SUCCESS.
-    suppress_completion_paths = true;
+    // DATA_SEQ is an error alternative to normal completion; suppress
+    // BUFF_STATUS/TRANS_COMPLETE so the transfer is never reported SUCCESS.
     handled |= status & (USB_INTS_BUFF_STATUS_BITS | USB_INTS_TRANS_COMPLETE_BITS);
-    // Clear DATA_SEQ_ERROR and also the undocumented bit 23 (0x00800000) which
-    // the silicon sets alongside it and is never otherwise cleared.
     usb_hw_clear->sie_status = USB_SIE_STATUS_DATA_SEQ_ERROR_BITS |
                    USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
                    USB_SIE_STATUS_RX_TIMEOUT_BITS |
                    USB_SIE_STATUS_TRANS_COMPLETE_BITS |
                    0x00800000u;
-    // Let status-clear propagate before touching EPX state.
     busy_wait_us(1);
     TU_LOG(2, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
            tu_u32_low16(*epx.buffer_control), tu_u32_high16(*epx.buffer_control));
-    epx_hard_reset(); // drain EPX bits before BUFF_STATUS runs
-    epx_clear_rx_timeout_sticky();
+    epx_hard_reset();
     if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
   }
@@ -447,121 +327,35 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   if ( status & USB_INTS_ERROR_RX_TIMEOUT_BITS )
   {
     handled |= USB_INTS_ERROR_RX_TIMEOUT_BITS;
-    bool const timeout_with_completion = (status & USB_INTS_TRANS_COMPLETE_BITS) != 0;
-    bool const timeout_with_data_completion =
-      (status & USB_INTS_BUFF_STATUS_BITS) &&
-      (status & USB_INTS_TRANS_COMPLETE_BITS);
-    bool const late_timeout_after_complete = !epx.active && timeout_with_completion;
     TU_LOG(2, "  RX Timeout: epx.active=%u ep_addr=0x%02x\r\n", epx.active, epx.ep_addr);
-    TU_LOG(2, "  RX Timeout detail: dev_addr_ctrl=0x%08lx sie_ctrl=0x%08lx setup=%02x %02x %02x %02x %02x %02x %02x %02x\r\n",
-           usb_hw->dev_addr_ctrl, usb_hw->sie_ctrl,
-           usbh_dpram->setup_packet[0], usbh_dpram->setup_packet[1],
-           usbh_dpram->setup_packet[2], usbh_dpram->setup_packet[3],
-           usbh_dpram->setup_packet[4], usbh_dpram->setup_packet[5],
-           usbh_dpram->setup_packet[6], usbh_dpram->setup_packet[7]);
 
-    if (timeout_with_completion) {
-      // RX_TIMEOUT arrived in the same snapshot as TRANS_COMPLETE and/or
-      // BUFF_STATUS. Check whether the device actually ACK'd the transaction.
-      // If ACK_REC is absent, the SIE consumed the buffer but the device
-      // never acknowledged — a "phantom completion." Letting the completion
-      // paths run would report SUCCESS for un-ACK'd data, leaving the SIE's
-      // internal PID/transaction state corrupted. This later manifests as a
-      // DATA_SEQ_ERROR on a subsequent transfer to a different device.
-      uint32_t const sie_snap = usb_hw->sie_status;
-      bool const has_ack = (sie_snap & USB_SIE_STATUS_ACK_REC_BITS) != 0;
+    // RX_TIMEOUT is an error alternative to BUFF_STATUS/TRANS_COMPLETE.
+    // Suppress any coincident completion bits.
+    handled |= status & (USB_INTS_BUFF_STATUS_BITS | USB_INTS_TRANS_COMPLETE_BITS);
 
-      if (!has_ack && epx.active) {
-        // No ACK: suppress completions, fail the transfer, and do an
-        // aggressive SIE reset to clear hidden internal state.
-        TU_LOG(2, "  RX Timeout coincident-no-ACK: failing transfer, resetting SIE\r\n");
-        suppress_completion_paths = true;
-        handled |= status & (USB_INTS_BUFF_STATUS_BITS | USB_INTS_TRANS_COMPLETE_BITS);
-        hw_xfer_complete(&epx, XFER_RESULT_FAILED);
-        epx_sie_reset();
-      } else {
-        // ACK present (or epx already inactive): the transaction completed
-        // on the wire. Let BUFF_STATUS/TRANS_COMPLETE run first, then
-        // sanitize EPX afterwards to clear the timeout residue.
-        if (timeout_with_data_completion) {
-          TU_LOG(2, "  RX Timeout coincident-with-ACK (data+trans): deferring cleanup\r\n");
-        } else {
-          TU_LOG(2, "  RX Timeout coincident-with-ACK (trans): deferring cleanup\r\n");
-        }
-        defer_timeout_clear = true;
-        defer_timeout_sanitize = true;
-      }
-    } else if (!epx.active) {
-      // Timeout source while EPX is already inactive is stale/late edge noise.
-      // This can arrive as 0x58 (BUFF_STATUS+TRANS_COMPLETE+RX_TIMEOUT) and
-      // leave EPX bufctrl in a bad terminal value (e.g. 0x4000), poisoning the
-      // next EP0 transfer. Sanitize EPX state but do not fail any transfer.
-      if (late_timeout_after_complete) {
-        TU_LOG(2, "  RX Timeout late-after-complete: sanitizing EPX\r\n");
-      }
-      epx_hard_reset();
-      usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS |
-                                 USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
-                                 USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                                 0x00800000u;
-      epx_clear_rx_timeout_sticky();
-    } else {
-      // RX timeout is an error alternative to BUFF_STATUS/TRANS_COMPLETE for
-      // EPX. In mixed snapshots (e.g. 0x58), prefer timeout and suppress the
-      // completion paths to avoid accepting corrupted control phases as SUCCESS.
-      suppress_completion_paths = true;
-      handled |= status & (USB_INTS_BUFF_STATUS_BITS | USB_INTS_TRANS_COMPLETE_BITS);
-
+    if (epx.active)
       hw_xfer_complete(&epx, XFER_RESULT_FAILED);
 
-      epx_hard_reset();
-
-      // Clear timeout/trans-complete after reset, then quench any sticky timeout
-      // assertion before letting EP0 continue.
-      usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS |
-                                 USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
-                                 USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                                 0x00800000u;
-      epx_clear_rx_timeout_sticky();
-    }
+    epx_hard_reset();
+    usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS |
+                               USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
+                               USB_SIE_STATUS_TRANS_COMPLETE_BITS |
+                               0x00800000u;
   }
 
-  if ( (status & USB_INTS_BUFF_STATUS_BITS) && !suppress_completion_paths )
+  if ( status & USB_INTS_BUFF_STATUS_BITS )
   {
     handled |= USB_INTS_BUFF_STATUS_BITS;
     TU_LOG(2, "Buffer complete\r\n");
     handle_hwbuf_status();
   }
 
-  if ( (status & USB_INTS_TRANS_COMPLETE_BITS) && !suppress_completion_paths )
+  if ( status & USB_INTS_TRANS_COMPLETE_BITS )
   {
     handled |= USB_INTS_TRANS_COMPLETE_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_TRANS_COMPLETE_BITS;
     TU_LOG(2, "Transfer complete\r\n");
     hw_trans_complete();
-  }
-
-  if (defer_timeout_clear) {
-    usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS |
-                               USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
-                               0x00800000u;
-    busy_wait_us(1);
-    if (!epx.active) {
-      if (defer_timeout_sanitize) {
-        // A completion-coincident timeout indicates EPX state may be dirty even
-        // when the transfer reports success. Reset EPX datapath now that
-        // completion processing is done so the next control phase starts clean.
-        epx_hard_reset();
-      }
-      usb_hw_clear->sie_status = USB_SIE_STATUS_ACK_REC_BITS |
-                                 USB_SIE_STATUS_NAK_REC_BITS |
-                                 USB_SIE_STATUS_STALL_REC_BITS |
-                                 USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                                 USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
-                                 USB_SIE_STATUS_RX_TIMEOUT_BITS |
-                                 0x00800000u;
-      epx_clear_rx_timeout_sticky();
-    }
   }
 
   // Restore interrupt endpoint polling only when the EPX transfer is fully
@@ -796,7 +590,7 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   // Critical section: an IRQ between the epx.active check and
   // hw_endpoint_reset_transfer would deliver hcd_event_xfer_complete, letting
   // the class driver re-arm EPX; the close would then zero endpoint_control
-  // and buffer_control under the live new transfer (Race 3).
+  // and buffer_control under the live new transfer.
   if (epx.configured && epx.dev_addr == dev_addr) {
     uint32_t const saved = save_and_disable_interrupts();
     if (epx.active) hw_endpoint_reset_transfer(&epx);
@@ -811,9 +605,10 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
     for (size_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
       hw_endpoint_t *ep = &ep_pool[i];
       if (ep->dev_addr == dev_addr && ep->configured) {
-        // Critical section: same Race 3 as EPX — IRQ between the configured
-        // check and hw_endpoint_reset_transfer can deliver a completion and
-        // let the class driver re-arm before we zero endpoint_control.
+        // Critical section: same race as EPX close above — an IRQ between
+        // the configured check and hw_endpoint_reset_transfer can deliver a
+        // completion, letting the class driver re-arm before we zero
+        // endpoint_control.
         uint32_t const saved = save_and_disable_interrupts();
         // in case it is an interrupt endpoint, disable it
         usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
@@ -925,14 +720,10 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // hw_endpoint_xfer_start) and the final START_TRANS write.  Without this,
     // a STALL/RX_TIMEOUT/DATA_SEQ IRQ can fire, see ep->active==true, call
     // hw_xfer_complete (clearing active), then we write START_TRANS anyway —
-    // hardware starts a real transaction with ep->active==false (Race 1).
+    // hardware starts a real transaction with ep->active==false.
     uint32_t const saved = save_and_disable_interrupts();
     epx_prepare_for_start();
     hw_endpoint_xfer_start(ep, buffer, buflen);
-
-    if (trace_port3_request(dev_addr, usbh_dpram->setup_packet)) {
-      trace_port3_ep0_state("P3_XFER_PRESTART", dev_addr, ep_addr, buflen);
-    }
 
     // That has set up buffer control, endpoint control etc
     // for host we have to initiate the transfer
@@ -955,9 +746,6 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
     busy_wait_us(1);
     usb_hw->sie_ctrl = flags;
-    if (trace_port3_request(dev_addr, usbh_dpram->setup_packet)) {
-      trace_port3_ep0_state("P3_XFER_ARMED", dev_addr, ep_addr, buflen);
-    }
     restore_interrupts(saved);
   } else {
     hw_endpoint_xfer_start(ep, buffer, buflen);
@@ -975,7 +763,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   // already-latched NVIC BUFF_STATUS pending.  Without the critical section
   // the IRQ can fire after the HW disable, complete the transfer, let the
   // class driver re-arm (new buffer_control written), then we zero
-  // buffer_control under the new live transfer (Race 4).
+  // buffer_control under the new live transfer.
   uint32_t const saved = save_and_disable_interrupts();
 
   if (ep == &epx) {
@@ -1043,7 +831,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // START_TRANS write.  A STALL/RX_TIMEOUT/DATA_SEQ IRQ fired in this window
   // would see ep->active==true, call hw_xfer_complete (clearing active), then
   // we write START_TRANS — hardware fires a real transaction with ep->active
-  // already false; the TRANS_COMPLETE handler silently no-ops (Race 1).
+  // already false; the TRANS_COMPLETE handler silently no-ops.
   TU_LOG(2, "  setup_send dev=%u pid=%u bc=[0x%04x:0x%04x] buf_status=0x%08lx sie_status=0x%08lx\r\n",
          dev_addr, ep->next_pid,
          tu_u32_low16(*ep->buffer_control), tu_u32_high16(*ep->buffer_control),
@@ -1051,9 +839,6 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
     TU_LOG(2, "  setup pkt: %02x %02x %02x %02x %02x %02x %02x %02x\r\n",
       setup_packet[0], setup_packet[1], setup_packet[2], setup_packet[3],
       setup_packet[4], setup_packet[5], setup_packet[6], setup_packet[7]);
-  if (trace_port3_request(dev_addr, setup_packet)) {
-    trace_port3_ep0_state("P3_SETUP_PRE", dev_addr, 0x00, 8);
-  }
   uint32_t const saved = save_and_disable_interrupts();
   epx_prepare_for_start();
   ep->remaining_len = 8;
@@ -1076,9 +861,6 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
   busy_wait_us(1);
   usb_hw->sie_ctrl = flags;
-  if (trace_port3_request(dev_addr, setup_packet)) {
-    trace_port3_ep0_state("P3_SETUP_ARMED", dev_addr, 0x00, 8);
-  }
   restore_interrupts(saved);
 
   return true;
@@ -1090,7 +872,7 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   if (ep) {
     // Critical section: prepare_ep_buffer() (IRQ context) reads ep->next_pid
     // and then does ep->next_pid ^= 1u.  Without protection our zero-write
-    // can land between the read and the XOR, losing the reset (Race 5).
+    // can land between the read and the XOR, losing the reset.
     uint32_t const saved = save_and_disable_interrupts();
     ep->next_pid = 0;
     if (ep != &epx) {
