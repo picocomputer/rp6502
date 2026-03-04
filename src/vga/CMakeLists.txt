@@ -13,7 +13,7 @@ set_target_properties(rp6502_vga PROPERTIES
 target_link_options(rp6502_vga PRIVATE ${IPO_PRINTF_LINK_OPTIONS})
 
 target_compile_options(rp6502_vga PRIVATE
-    -Wall -Wextra
+    -Wall -Wextra -Wsign-compare
 )
 
 target_include_directories(rp6502_vga PRIVATE

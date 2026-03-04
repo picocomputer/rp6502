@@ -107,17 +107,13 @@ void __tusb_irq_path_func(_hw_endpoint_buffer_control_update32)(struct hw_endpoi
       if (*ep->buffer_control & USB_BUF_CTRL_AVAIL) {
         panic("ep %02X was already available", ep->ep_addr);
       }
-      // TODO this is questionable AI slot
-      // RP2040 datasheet §4.1.2.5.1 Concurrent access: write everything
-      // except AVAILABLE first, wait >= 12 USB-clock cycles, then set
-      // AVAILABLE.  Mask both buffer-0 and buffer-1 AVAIL bits so the
-      // controller cannot start either buffer before parameters are stable.
-      // The delay is also required in host mode: after the initial
-      // START_TRANS the SIE polls buffer_control asynchronously for
-      // continuation batches on double-buffered EPX transfers.
-      uint32_t const avail_mask = USB_BUF_CTRL_AVAIL | ((uint32_t)USB_BUF_CTRL_AVAIL << 16);
-      *ep->buffer_control = value & ~avail_mask;
-      busy_wait_us(1);
+      *ep->buffer_control = value & ~USB_BUF_CTRL_AVAIL;
+      // RP2040 datasheet §4.1.2.5.1 Con-current access: after writing
+      // buffer_control, wait 12 cycles before setting AVAILABLE.
+      // Host mode does not require this delay since host drives transfer start.
+      if (!is_host_mode()) {
+        busy_wait_us(1);
+      }
     }
   }
 

@@ -37,7 +37,7 @@ target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE
-    -Wall -Wextra
+    -Wall -Wextra -Wsign-compare
     $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
     $<$<CONFIG:Release>:-Os>
 )

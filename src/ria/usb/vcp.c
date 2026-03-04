@@ -330,7 +330,8 @@ void tuh_cdc_mount_cb(uint8_t idx)
     if (idx >= CFG_TUH_CDC)
         return;
     tuh_itf_info_t itf_info;
-    tuh_cdc_itf_get_info(idx, &itf_info);
+    if (!tuh_cdc_itf_get_info(idx, &itf_info))
+        return;
     uint8_t daddr = itf_info.daddr;
     vcp_t *dev = &vcp_mounts[idx];
     memset(dev, 0, sizeof(*dev));

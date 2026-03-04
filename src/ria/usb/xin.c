@@ -506,6 +506,8 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         !pad_mount(xin_idx_to_hid_slot(idx), desc_data, desc_len, vendor_id, product_id))
     {
         DBG("XInput: Failed to mount in pad system\n");
+        tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
+        tuh_edpt_close(dev_addr, ep_out_desc->bEndpointAddress);
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
         return false;
     }
@@ -659,7 +661,7 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
     if (ep_addr == device->ep_out)
     {
         DBG("XInput: OUT complete on EP 0x%02X, result=%d, %lu bytes\n", ep_addr, result, xferred_bytes);
-        if (device->is_xbox_one && !device->init_done)
+        if (result == XFER_RESULT_SUCCESS && device->is_xbox_one && !device->init_done)
             xin_send_next_init(device);
         return true;
     }
@@ -670,16 +672,10 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
 
     if (result == XFER_RESULT_STALLED)
     {
-        DBG("XInput: EP 0x%02X STALLed, re-queuing\n", ep_addr);
-        tuh_xfer_t xfer = {
-            .daddr = dev_addr,
-            .ep_addr = device->ep_in,
-            .buflen = sizeof(device->report_buffer),
-            .buffer = device->report_buffer,
-            .complete_cb = NULL,
-            .user_data = (uintptr_t)idx};
-        if (!tuh_edpt_xfer(&xfer))
-            DBG("XInput: FAILED to re-queue IN after STALL\n");
+        // Endpoint is halted; re-queuing would loop forever since only
+        // CLEAR_FEATURE(ENDPOINT_HALT) can recover it. Stop polling and
+        // let the controller drop/reconnect (matches Linux xpad behaviour).
+        DBG("XInput: EP 0x%02X STALLed, halting poll\n", ep_addr);
         return true;
     }
 
