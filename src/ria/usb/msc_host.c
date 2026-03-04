@@ -573,9 +573,8 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
 
         if (event == XFER_RESULT_FAILED && residue > 0)
         {
-            // pico-feedback #394 recovery briefly fails all active async
-            // endpoints.  Re-arm the data endpoint from the current offset;
-            // next_pid is already correct for the device's pending retransmission.
+            // Transient failure on an async endpoint (e.g. device NAK'd or
+            // hub glitch).  Re-arm from the current offset before giving up.
             if (usbh_edpt_xfer(dev_addr, data_ep(p_msc, cbw),
                                (uint8_t *)p_msc->buffer + xferred_bytes,
                                (uint16_t)residue))
@@ -621,9 +620,8 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
     {
         if (event == XFER_RESULT_FAILED)
         {
-            // pico-feedback #394 recovery briefly fails all active async
-            // endpoints.  Re-arm immediately; next_pid was already corrected
-            // by the HCD if this endpoint was the stuck one.
+            // Transient failure on the interrupt status endpoint.
+            // Re-arm once before giving up.
             if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
                 complete_command(dev_addr, MSC_CSW_STATUS_FAILED, epbuf->csw.data_residue);
             break;
