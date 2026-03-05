@@ -71,9 +71,28 @@ static uint8_t _ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1]; // +1 for addr0
 //
 // To prevent this, we disable interrupt endpoint polling (int_ep_ctrl = 0)
 // before every EPX START_TRANS and restore it after the IRQ handler has
-// finished processing the EPX completion.  The saved value lives here so the
-// IRQ handler can restore it.
-static uint32_t _saved_int_ep_ctrl;
+// finished processing the EPX completion.
+//
+// We track suppression with a boolean flag rather than saving/restoring the
+// register value.  A save/restore pattern is racy: if hw_endpoint_init()
+// adds a new endpoint to int_ep_ctrl while polling is suppressed (register
+// is 0), the new bit gets set in hardware, but the stale saved copy doesn't
+// include it — the restore overwrites the new bit with zero.
+//
+// Instead, compute_int_ep_ctrl() derives the correct value from ep_pool[]
+// every time we need to re-enable polling.  This is always authoritative.
+static bool _int_ep_suppressed;
+
+// Compute the int_ep_ctrl value from the current set of configured endpoints.
+TU_ATTR_ALWAYS_INLINE static inline uint32_t compute_int_ep_ctrl(void) {
+  uint32_t val = 0;
+  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+    if (ep_pool[i].configured) {
+      val |= 1u << (ep_pool[i].interrupt_num + 1);
+    }
+  }
+  return val;
+}
 
 // Flags we set by default in sie_ctrl (we add other bits on top)
 enum {
@@ -219,8 +238,14 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 {
   uint32_t status = usb_hw->ints;
   uint32_t handled = 0;
-  TU_LOG(2, "  IRQ ints=0x%08lx sie_status=0x%08lx sie_ctrl=0x%08lx epx.active=%u\r\n",
-         status, usb_hw->sie_status, usb_hw->sie_ctrl, epx.active);
+  { // TODO remove this after debugging
+    // Snapshot and log under PRIMASK so no higher-priority ISR can
+    // preempt mid-printf and garble the output.
+    uint32_t const log_save = save_and_disable_interrupts();
+    TU_LOG(2, "  IRQ ints=0x%08lx sie_status=0x%08lx sie_ctrl=0x%08lx epx.active=%u\r\n",
+           status, usb_hw->sie_status, usb_hw->sie_ctrl, epx.active);
+    restore_interrupts(log_save);
+  }
 
   if ( status & USB_INTS_HOST_CONN_DIS_BITS )
   {
@@ -254,7 +279,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 
       // Disable all EP1-15 interrupt endpoint polling.
       usb_hw->int_ep_ctrl = 0;
-      _saved_int_ep_ctrl = 0;
+      _int_ep_suppressed = false;
 
       // Clear every pending buf_status bit so handle_hwbuf_status() is a
       // guaranteed no-op if BUFF_STATUS was also set in this snapshot.
@@ -363,9 +388,9 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
   // IRQs — intermediate buffer-pair completions leave epx.active==true.
   // Re-enabling polling at that point would let the SIE start an interrupt
   // endpoint poll that clobbers the handshake latches mid-transfer.
-  if (_saved_int_ep_ctrl && !epx.active) {
-    usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
-    _saved_int_ep_ctrl = 0;
+  if (_int_ep_suppressed && !epx.active) {
+    usb_hw->int_ep_ctrl = compute_int_ep_ctrl();
+    _int_ep_suppressed = false;
   }
 
   if ( status ^ handled )
@@ -722,6 +747,10 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // hw_xfer_complete (clearing active), then we write START_TRANS anyway —
     // hardware starts a real transaction with ep->active==false.
     uint32_t const saved = save_and_disable_interrupts();
+    TU_LOG(2, "  edpt_xfer START dev=%u ep=0x%02x pid=%u bc=[0x%04x:0x%04x] buf_status=0x%08lx\r\n",
+           dev_addr, ep_addr, ep->next_pid,
+           tu_u32_low16(*ep->buffer_control), tu_u32_high16(*ep->buffer_control),
+           usb_hw->buf_status);
     epx_prepare_for_start();
     hw_endpoint_xfer_start(ep, buffer, buflen);
 
@@ -734,15 +763,11 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
                      (need_pre(dev_addr) ? USB_SIE_CTRL_PREAMBLE_EN_BITS : 0);
     // Suppress interrupt endpoint polling for the duration of this EPX
     // transaction so the SIE cannot overwrite EPX handshake latches.
-    _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
     usb_hw->int_ep_ctrl = 0;
+    _int_ep_suppressed = true;
     // START_TRANS bit on SIE_CTRL seems to exhibit the same behavior as the AVAILABLE bit
     // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
     // We write everything except the START_TRANS bit first, then wait some cycles.
-    TU_LOG(2, "  edpt_xfer START dev=%u ep=0x%02x pid=%u bc=[0x%04x:0x%04x] buf_status=0x%08lx\r\n",
-           dev_addr, ep_addr, ep->next_pid,
-           tu_u32_low16(*ep->buffer_control), tu_u32_high16(*ep->buffer_control),
-           usb_hw->buf_status);
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
     busy_wait_us(1);
     usb_hw->sie_ctrl = flags;
@@ -783,9 +808,9 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   *ep->buffer_control = 0;
   if (ep == &epx) {
     // Restore interrupt endpoint polling since this EPX transaction is done.
-    if (_saved_int_ep_ctrl) {
-      usb_hw->int_ep_ctrl = _saved_int_ep_ctrl;
-      _saved_int_ep_ctrl = 0;
+    if (_int_ep_suppressed) {
+      usb_hw->int_ep_ctrl = compute_int_ep_ctrl();
+      _int_ep_suppressed = false;
     }
     usb_hw_clear->buf_status = 0x3u;
   } else {
@@ -832,14 +857,14 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // would see ep->active==true, call hw_xfer_complete (clearing active), then
   // we write START_TRANS — hardware fires a real transaction with ep->active
   // already false; the TRANS_COMPLETE handler silently no-ops.
+  uint32_t const saved = save_and_disable_interrupts();
   TU_LOG(2, "  setup_send dev=%u pid=%u bc=[0x%04x:0x%04x] buf_status=0x%08lx sie_status=0x%08lx\r\n",
          dev_addr, ep->next_pid,
          tu_u32_low16(*ep->buffer_control), tu_u32_high16(*ep->buffer_control),
          usb_hw->buf_status, usb_hw->sie_status);
-    TU_LOG(2, "  setup pkt: %02x %02x %02x %02x %02x %02x %02x %02x\r\n",
+  TU_LOG(2, "  setup pkt: %02x %02x %02x %02x %02x %02x %02x %02x\r\n",
       setup_packet[0], setup_packet[1], setup_packet[2], setup_packet[3],
       setup_packet[4], setup_packet[5], setup_packet[6], setup_packet[7]);
-  uint32_t const saved = save_and_disable_interrupts();
   epx_prepare_for_start();
   ep->remaining_len = 8;
   ep->active = true;
@@ -853,8 +878,8 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
 
   // Suppress interrupt endpoint polling for the duration of this EPX
   // transaction so the SIE cannot overwrite EPX handshake latches.
-  _saved_int_ep_ctrl = usb_hw->int_ep_ctrl;
   usb_hw->int_ep_ctrl = 0;
+  _int_ep_suppressed = true;
   // START_TRANS bit on SIE_CTRL seems to exhibit the same behavior as the AVAILABLE bit
   // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
   // We write everything except the START_TRANS bit first, then wait some cycles.
