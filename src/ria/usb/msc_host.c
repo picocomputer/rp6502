@@ -249,6 +249,23 @@ static bool recovery_clear_halt(uint8_t daddr, uint8_t ep_addr)
     return clear_endpoint_halt(daddr, ep_addr, recovery_xfer_cb, 0);
 }
 
+// Fall back to endpoint clear-halt recovery when a reset request cannot
+// be queued on EP0 (typically because the control pipe is busy).
+static void recovery_start_clear_halts(uint8_t daddr)
+{
+    msch_interface_t *p_msc = get_itf(daddr);
+    uint8_t const rhport = usbh_get_rhport(daddr);
+
+    p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+    if (!recovery_clear_halt(daddr, p_msc->ep_in))
+    {
+        // Last-resort local clear so the transport does not remain wedged.
+        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
+        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+        p_msc->recovery_stage = RECOVERY_IDLE;
+    }
+}
+
 static void recovery_xfer_cb(tuh_xfer_t *xfer)
 {
     uint8_t const daddr = xfer->daddr;
@@ -346,7 +363,7 @@ static void start_recovery(uint8_t daddr)
         p_msc->recovery_stage = RECOVERY_RESET;
         if (!tuh_control_xfer(&xfer))
         {
-            p_msc->recovery_stage = RECOVERY_IDLE;
+            recovery_start_clear_halts(daddr);
         }
         return;
     }
@@ -375,11 +392,7 @@ static void start_recovery(uint8_t daddr)
     p_msc->recovery_stage = RECOVERY_RESET;
     if (!tuh_control_xfer(&xfer))
     {
-        p_msc->recovery_stage = RECOVERY_CLEAR_IN;
-        if (!recovery_clear_halt(daddr, p_msc->ep_in))
-        {
-            p_msc->recovery_stage = RECOVERY_IDLE;
-        }
+        recovery_start_clear_halts(daddr);
     }
 }
 
@@ -394,8 +407,12 @@ void tuh_msc_abort(uint8_t daddr)
     // If recovery is already in progress, force-stop it.
     if (p_msc->recovery_stage != RECOVERY_IDLE)
     {
+        // Cancel the in-flight recovery request and restart recovery from a
+        // clean state so we never return while transport may still be wedged.
         tuh_edpt_abort_xfer(daddr, 0);
+        cancel_inflight(daddr);
         p_msc->recovery_stage = RECOVERY_IDLE;
+        start_recovery(daddr);
         return;
     }
 
@@ -824,6 +841,9 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         else if (csw->status == MSC_CSW_STATUS_PHASE_ERROR)
         {
             // BOT §6.7.2: phase error requires reset recovery.
+            // The raw device CSW (with PHASE_ERROR status) is preserved in
+            // epbuf->csw so that msc_scsi_sync_raw() can return
+            // msc_status_phase_error to the caller.
             start_recovery(dev_addr);
         }
         break;

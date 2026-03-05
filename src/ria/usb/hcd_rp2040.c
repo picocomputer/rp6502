@@ -110,10 +110,8 @@ TU_ATTR_ALWAYS_INLINE static inline uint32_t compute_int_ep_ctrl(void) {
 }
 
 static void suppress_int_polling(void) {
-  // Disable the async endpoint scheduler by clearing EP0_INT_1BUF, the
-  // scheduler's master enable.  Also zero int_ep_ctrl for good measure.
-  // Clearing EP0_INT_1BUF ensures the SIE cannot start any new async
-  // poll while EPX owns the handshake latches.
+  // Zero int_ep_ctrl to disable all async endpoint polling slots while
+  // EPX owns the handshake latches.
   usb_hw->int_ep_ctrl = 0;
   _int_ep_suppressed = true;
 }
@@ -211,20 +209,6 @@ static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_en
 
   if (!ep->active) {
     return;
-  }
-
-  // TODO really?
-  // Detect stale EPX completions: after an abort, the SIE can write FULL
-  // to buffer_control for a previous IN (RX) transaction.  If the current
-  // EPX transfer is TX but buffer_control shows FULL, this is a stale
-  // completion from the aborted transfer — discard it and clear the
-  // stale FULL so the current transfer proceeds cleanly.
-  if (ep == &epx && !ep->rx) {
-    uint32_t bc = _hw_endpoint_buffer_control_get_value32(ep);
-    if (bc & USB_BUF_CTRL_FULL) {
-      _hw_endpoint_buffer_control_set_value32(ep, bc & ~USB_BUF_CTRL_FULL);
-      return;
-    }
   }
 
   const bool done = hw_endpoint_xfer_continue(ep);
@@ -819,6 +803,8 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     restore_interrupts(saved);
   } else {
     hw_endpoint_xfer_start(ep, buffer, buflen);
+    // Ensure the async slot is enabled — hcd_edpt_abort_xfer disables it.
+    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
   return true;
 }
@@ -851,7 +837,9 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     unsuppress_int_polling();
   } else {
     usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
-    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
+    // Do not re-enable int_ep_ctrl here.  The endpoint has no armed buffer
+    // after abort; re-enabling would let the SIE poll the device with no
+    // backing buffer.  The next hcd_edpt_xfer() will re-enable it.
   }
 
   restore_interrupts(saved);
