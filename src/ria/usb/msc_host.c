@@ -867,24 +867,24 @@ bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32
 // MSC Enumeration
 //--------------------------------------------------------------------+
 
-bool msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
     TU_VERIFY(MSC_PROTOCOL_BOT == desc_itf->bInterfaceProtocol ||
                   MSC_PROTOCOL_CBI == desc_itf->bInterfaceProtocol ||
                   MSC_PROTOCOL_CBI_NO_INTERRUPT == desc_itf->bInterfaceProtocol,
-              false);
+              0);
 
     if (desc_itf->bInterfaceProtocol == MSC_PROTOCOL_BOT)
     {
-        TU_VERIFY(MSC_SUBCLASS_SCSI == desc_itf->bInterfaceSubClass, false);
+        TU_VERIFY(MSC_SUBCLASS_SCSI == desc_itf->bInterfaceSubClass, 0);
     }
     else // CBI
     {
         TU_VERIFY(MSC_SUBCLASS_UFI == desc_itf->bInterfaceSubClass ||
                       MSC_SUBCLASS_SFF == desc_itf->bInterfaceSubClass,
-                  false);
+                  0);
     }
 
     // Walk descriptors to compute driver length
@@ -904,7 +904,7 @@ bool msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *de
             p += len;
         }
     }
-    TU_ASSERT(drv_len <= max_len, false);
+    TU_ASSERT(drv_len <= max_len, 0);
 
     msch_interface_t *p_msc = get_itf(dev_addr);
     p_msc->protocol = desc_itf->bInterfaceProtocol;
@@ -934,7 +934,7 @@ bool msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *de
             continue;
         }
 
-        TU_ASSERT(tuh_edpt_open(dev_addr, ep_desc), false);
+        TU_ASSERT(tuh_edpt_open(dev_addr, ep_desc), 0);
 
         if (TUSB_XFER_BULK == ep_desc->bmAttributes.xfer)
         {
@@ -949,10 +949,10 @@ bool msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *de
         p_desc = tu_desc_next(p_desc);
     }
 
-    TU_ASSERT(p_msc->ep_in, false);
-    TU_ASSERT(p_msc->ep_out, false);
+    TU_ASSERT(p_msc->ep_in, 0);
+    TU_ASSERT(p_msc->ep_out, 0);
     p_msc->itf_num = desc_itf->bInterfaceNumber;
-    return true;
+    return drv_len;
 }
 
 static void get_max_lun_complete_cb(tuh_xfer_t *xfer)
