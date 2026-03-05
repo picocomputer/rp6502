@@ -193,6 +193,8 @@ void __tusb_irq_path_func(hw_endpoint_start_next_buffer)(struct hw_endpoint* ep)
 }
 
 void hw_endpoint_xfer_start(struct hw_endpoint* ep, uint8_t* buffer, uint16_t total_len) {
+  hw_endpoint_lock_update(ep, 1);
+
   if (ep->active) {
     // TODO: Is this acceptable for interrupt packets?
     TU_LOG(1, "WARN: starting new transfer on already active ep %02X\r\n", ep->ep_addr);
@@ -214,6 +216,8 @@ void hw_endpoint_xfer_start(struct hw_endpoint* ep, uint8_t* buffer, uint16_t to
   } else {
     hw_endpoint_start_next_buffer(ep);
   }
+
+  hw_endpoint_lock_update(ep, -1);
 }
 
 // sync endpoint buffer and return transferred bytes
@@ -277,7 +281,7 @@ static void __tusb_irq_path_func(_hw_endpoint_xfer_sync)(struct hw_endpoint* ep)
       // Abort the still-armed buf1. Gate on B2+ chip where abort works;
       // on B1 silicon the register has no effect but the buffer_control
       // clear below is still safe.
-      if (rp2040_chip_version() >= 2) {
+      if (!is_host_mode() && rp2040_chip_version() >= 2) {
         usb_hw_set->abort = TU_BIT(ep_id);
         while (!(usb_hw->abort_done & TU_BIT(ep_id))) {}
         usb_hw_clear->abort = TU_BIT(ep_id);
@@ -299,6 +303,8 @@ static void __tusb_irq_path_func(_hw_endpoint_xfer_sync)(struct hw_endpoint* ep)
 
 // Returns true if transfer is complete
 bool __tusb_irq_path_func(hw_endpoint_xfer_continue)(struct hw_endpoint* ep) {
+  hw_endpoint_lock_update(ep, 1);
+
   // Part way through a transfer
   if (!ep->active) {
     panic("Can't continue xfer on inactive ep %02X", ep->ep_addr);
@@ -312,6 +318,7 @@ bool __tusb_irq_path_func(hw_endpoint_xfer_continue)(struct hw_endpoint* ep) {
   if (ep->remaining_len == 0) {
     pico_trace("Completed transfer of %d bytes on ep %02X\r\n", ep->xferred_len, ep->ep_addr);
     // Notify caller we are done so it can notify the tinyusb stack
+    hw_endpoint_lock_update(ep, -1);
     return true;
   } else {
     if (e15_is_critical_frame_period(ep)) {
@@ -321,6 +328,7 @@ bool __tusb_irq_path_func(hw_endpoint_xfer_continue)(struct hw_endpoint* ep) {
     }
   }
 
+  hw_endpoint_lock_update(ep, -1);
   // More work to do
   return false;
 }

@@ -154,9 +154,15 @@ TU_ATTR_ALWAYS_INLINE static inline bool need_pre(uint8_t dev_addr) {
   return hcd_port_speed_get(0) != tuh_speed_get(dev_addr);
 }
 
+// RP2040 §4.1.2.5.1: APB writes to USB SIE registers (sie_ctrl, sie_status,
+// buf_status, buffer_control AVAIL) need ~12 SIE clock cycles to propagate.
+TU_ATTR_ALWAYS_INLINE static inline void hw_sie_settle(void) {
+  busy_wait_us(1);
+}
+
 TU_ATTR_ALWAYS_INLINE static inline void epx_hard_reset(void) {
   usb_hw->sie_ctrl = SIE_CTRL_BASE;
-  busy_wait_us(1);    // drain any in-flight SIE writeback
+  hw_sie_settle();
   usb_hw_clear->buf_status = 0x3u;
   *epx.buffer_control = 0;
 }
@@ -179,7 +185,7 @@ TU_ATTR_ALWAYS_INLINE static inline void epx_prepare_for_start(void) {
                              USB_SIE_STATUS_TRANS_COMPLETE_BITS |
                              0x00800000u;
   // Ensure status-latch clear is visible before we arm START_TRANS.
-  busy_wait_us(1);
+  hw_sie_settle();
 }
 
 static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_result_t xfer_result) {
@@ -296,7 +302,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     // it the read can return 0 on a fast connect path (Heisenbug: the delay
     // introduced by UART logging masked this window).
     usb_hw_clear->sie_status = USB_SIE_STATUS_SPEED_BITS;
-    busy_wait_us(1);
+    hw_sie_settle();
 
     if ( dev_speed() )
     {
@@ -315,7 +321,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 
       // Stop the SIE immediately (no new transactions).
       usb_hw->sie_ctrl = SIE_CTRL_BASE;
-      busy_wait_us(1);  // drain any in-flight SIE writeback
+      hw_sie_settle();
 
       // Disable all EP1-15 interrupt endpoint polling.
       usb_hw->int_ep_ctrl = 0;
@@ -381,7 +387,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
                    USB_SIE_STATUS_RX_TIMEOUT_BITS |
                    USB_SIE_STATUS_TRANS_COMPLETE_BITS |
                    0x00800000u;
-    busy_wait_us(1);
+    hw_sie_settle();
     TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
            tu_u32_low16(*epx.buffer_control), tu_u32_high16(*epx.buffer_control));
     epx_hard_reset();
@@ -798,7 +804,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
     // We write everything except the START_TRANS bit first, then wait some cycles.
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
-    busy_wait_us(1);
+    hw_sie_settle();
     usb_hw->sie_ctrl = flags;
     hcd_int_enable(rhport);
   } else {
@@ -818,7 +824,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
 
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
-    busy_wait_us(1);
+    hw_sie_settle();
   } else {
     usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
   }
@@ -899,7 +905,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
   // We write everything except the START_TRANS bit first, then wait some cycles.
   usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
-  busy_wait_us(1);
+  hw_sie_settle();
   usb_hw->sie_ctrl = flags;
   hcd_int_enable(rhport);
 

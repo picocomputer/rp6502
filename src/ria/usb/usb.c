@@ -231,7 +231,18 @@ void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
 
 void tuh_mount_cb(uint8_t daddr)
 {
-    (void)daddr;
+    tuh_bus_info_t bi;
+    tuh_bus_info_get(daddr, &bi);
     usb_boot_enum_timeout = make_timeout_time_ms(IDLE_MS);
-    DBG("USB: MOUNT %lums\n", to_ms_since_boot(get_absolute_time()));
+    DBG("USB: MOUNT %lums  dev=%u hub=%u port=%u\n",
+        to_ms_since_boot(get_absolute_time()), daddr, bi.hub_addr, bi.hub_port);
+}
+
+void tuh_enum_descriptor_device_cb(uint8_t daddr, const tusb_desc_device_t *desc_device)
+{
+    tuh_bus_info_t bi;
+    tuh_bus_info_get(daddr, &bi);
+    DBG("USB: ENUM  dev=%u vid=%04x pid=%04x hub=%u port=%u\n",
+        daddr, desc_device->idVendor, desc_device->idProduct,
+        bi.hub_addr, bi.hub_port);
 }
