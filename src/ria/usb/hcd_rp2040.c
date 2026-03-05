@@ -265,11 +265,12 @@ static void __tusb_irq_path_func(hw_trans_complete)(uint32_t buf_status_snapshot
   }
   else
   {
-    // TODO really?
     // For non-setup EPX phases, completion is normally reported via BUFF_STATUS.
-    // Some timing windows can present TRANS_COMPLETE without EPX BUFF_STATUS bits
-    // (notably zero-length status ACK). If EPX is still active in that case,
-    // complete it here to avoid leaving control transfers stuck active.
+    // However, a STATUS-phase ZLP (LEN=0) generates TRANS_COMPLETE without
+    // BUFF_STATUS: the SIE raises TRANS_COMPLETE when START_TRANS completes,
+    // but BUFF_STATUS only fires on actual DPRAM buffer movement (zero bytes =
+    // no movement). If EPX is still active here, complete it to avoid leaving
+    // control transfers stuck.
     if (epx.active && ((buf_status_snapshot & 0x3u) == 0)) {
       hw_xfer_complete(&epx, XFER_RESULT_SUCCESS);
       return;
@@ -629,8 +630,7 @@ tusb_speed_t hcd_port_speed_get(uint8_t rhport)
     case 2:
       return TUSB_SPEED_FULL;
     default:
-      panic("Invalid speed\n");
-      // return TUSB_SPEED_INVALID;
+      TU_ASSERT(false, TUSB_SPEED_INVALID);
   }
 }
 
@@ -729,7 +729,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
     return true; // EP0 (epx) is shared
   }
 
-  uint32_t const saved = save_and_disable_interrupts();
+  hcd_int_disable(rhport);
 
   // Disable the interrupt endpoint in hardware
   usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
@@ -741,7 +741,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   *ep->buffer_control = 0;
   hw_endpoint_reset_transfer(ep);
 
-  restore_interrupts(saved);
+  hcd_int_enable(rhport);
   return true;
 }
 
@@ -780,7 +780,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // a STALL/RX_TIMEOUT/DATA_SEQ IRQ can fire, see ep->active==true, call
     // hw_xfer_complete (clearing active), then we write START_TRANS anyway —
     // hardware starts a real transaction with ep->active==false.
-    uint32_t const saved = save_and_disable_interrupts();
+    hcd_int_disable(rhport);
     epx_prepare_for_start();
     hw_endpoint_xfer_start(ep, buffer, buflen);
 
@@ -800,7 +800,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
     busy_wait_us(1);
     usb_hw->sie_ctrl = flags;
-    restore_interrupts(saved);
+    hcd_int_enable(rhport);
   } else {
     hw_endpoint_xfer_start(ep, buffer, buflen);
     // Ensure the async slot is enabled — hcd_edpt_abort_xfer disables it.
@@ -814,7 +814,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (!ep) return true;
 
-  uint32_t const saved = save_and_disable_interrupts();
+  hcd_int_disable(rhport);
 
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
@@ -842,7 +842,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     // backing buffer.  The next hcd_edpt_xfer() will re-enable it.
   }
 
-  restore_interrupts(saved);
+  hcd_int_enable(rhport);
   return true;
 }
 
@@ -880,7 +880,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // would see ep->active==true, call hw_xfer_complete (clearing active), then
   // we write START_TRANS — hardware fires a real transaction with ep->active
   // already false; the TRANS_COMPLETE handler silently no-ops.
-  uint32_t const saved = save_and_disable_interrupts();
+  hcd_int_disable(rhport);
   epx_prepare_for_start();
   ep->remaining_len = 8;
   ep->active = true;
@@ -901,7 +901,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
   busy_wait_us(1);
   usb_hw->sie_ctrl = flags;
-  restore_interrupts(saved);
+  hcd_int_enable(rhport);
 
   return true;
 }

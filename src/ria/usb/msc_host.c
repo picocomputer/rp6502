@@ -128,9 +128,10 @@ static void complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_re
 }
 
 // Submit data-phase transfer or complete with failure.
-static void start_data_phase(uint8_t daddr, msch_interface_t *p_msc,
-                             msc_cbw_t const *cbw)
+static void start_data_phase(uint8_t daddr)
 {
+    msch_interface_t *p_msc = get_itf(daddr);
+    msc_cbw_t const *cbw = &get_epbuf(daddr)->cbw;
     // Reject transfers that exceed the 16-bit USB transfer length.
     // Callers must clamp transfer sizes before building the CBW.
     if (cbw->total_bytes > UINT16_MAX)
@@ -440,10 +441,9 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
     }
 
     // ADSC succeeded — start data phase or status phase
-    msc_cbw_t const *cbw = &epbuf->cbw;
-    if (cbw->total_bytes && p_msc->buffer)
+    if (epbuf->cbw.total_bytes && p_msc->buffer)
     {
-        start_data_phase(daddr, p_msc, cbw);
+        start_data_phase(daddr);
     }
     else if (p_msc->ep_intr)
     {
@@ -740,7 +740,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         }
         if (cbw->total_bytes && p_msc->buffer)
         {
-            start_data_phase(dev_addr, p_msc, cbw);
+            start_data_phase(dev_addr);
             break;
         }
         TU_ATTR_FALLTHROUGH;
