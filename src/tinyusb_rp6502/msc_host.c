@@ -590,8 +590,9 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
 
         if (event == XFER_RESULT_FAILED && residue > 0)
         {
-            // Transient failure on an async endpoint (e.g. device NAK'd or
-            // hub glitch).  Re-arm from the current offset before giving up.
+            // Some bytes arrived before the error (short/partial bulk transfer).
+            // Re-arm from the already-transferred offset to attempt the remainder
+            // before falling through to the status phase.
             if (usbh_edpt_xfer(dev_addr, data_ep(p_msc, cbw),
                                (uint8_t *)p_msc->buffer + xferred_bytes,
                                (uint16_t)residue))
@@ -599,8 +600,8 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
             // Re-arm failed (device gone); fall through to status phase.
         }
 
-        // CBI spec §2.4.3.1.3: clear bulk pipe at HCD level after data STALL
-        // so the host controller can reuse the pipe.  A device-level
+        // After a data-phase STALL, clear the HCD-level halt so the host
+        // controller can reuse the pipe.  The device-level
         // CLEAR_FEATURE(ENDPOINT_HALT) is deferred to recovery below.
         if (event == XFER_RESULT_STALLED)
         {
@@ -650,29 +651,33 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
         }
         else if (p_msc->subclass == MSC_SUBCLASS_UFI)
         {
-            // UFI: byte 0 = ASC, byte 1 = ASCQ.
+            // UFI CBI interrupt packet: bType (byte 0) = ASC, bValue (byte 1) = ASCQ.
+            // Both bytes zero means no additional sense — command passed.
             csw_status = (epbuf->cbi_status[0] == 0 && epbuf->cbi_status[1] == 0)
                              ? MSC_CSW_STATUS_PASSED
                              : MSC_CSW_STATUS_FAILED;
         }
         else
         {
-            // SFF-8070i and any unrecognised subclass
+            // SFF-8070i (and any unrecognised subclass): CBI interrupt packet has
+            // bType (byte 0) = 0x00 for a command-complete interrupt; non-zero
+            // means a device-class-specific interrupt that is not a command result.
             if (epbuf->cbi_status[0] == 0)
             {
+                // bValue (byte 1) bits[1:0] encode the command outcome.
                 switch (epbuf->cbi_status[1] & 0x03)
                 {
-                case 0x00:
+                case 0x00: // Completed without error
                     csw_status = MSC_CSW_STATUS_PASSED;
                     break;
-                case 0x02:
-                    csw_status = MSC_CSW_STATUS_PHASE_ERROR;
-                    break;
-                case 0x03:
-                    csw_status = MSC_CSW_STATUS_PHASE_ERROR;
-                    break;
-                default:
+                case 0x01: // Command failed
                     csw_status = MSC_CSW_STATUS_FAILED;
+                    break;
+                case 0x02: // Phase error
+                    csw_status = MSC_CSW_STATUS_PHASE_ERROR;
+                    break;
+                case 0x03: // Persistent failure (treated as phase error)
+                    csw_status = MSC_CSW_STATUS_PHASE_ERROR;
                     break;
                 }
             }

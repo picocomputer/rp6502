@@ -31,22 +31,23 @@
 
 #include "pico.h"
 #include "portable/raspberrypi/rp2040/rp2040_usb.h"
-
-//--------------------------------------------------------------------+
-// INCLUDE
-//--------------------------------------------------------------------+
 #include "osal/osal.h"
-
 #include "host/hcd.h"
 #include "host/usbh.h"
+
+// These two SIE_STATUS bits are absent from the RP2040 SDK
+// headers but are present in the RP2350 SDK headers.
+#ifndef USB_SIE_STATUS_RX_SHORT_PACKET_BITS
+#define USB_SIE_STATUS_RX_SHORT_PACKET_BITS 0x00001000u
+#endif
+#ifndef USB_SIE_STATUS_ENDPOINT_ERROR_BITS
+#define USB_SIE_STATUS_ENDPOINT_ERROR_BITS 0x00800000u
+#endif
 
 // port 0 is native USB port, other is counted as software PIO
 #define RHPORT_NATIVE 0
 
-//--------------------------------------------------------------------+
-// Low level rp2040 controller functions
-//--------------------------------------------------------------------+
-
+// First EP0 is shared EPX
 #ifndef PICO_USB_HOST_INTERRUPT_ENDPOINTS
 #define PICO_USB_HOST_INTERRUPT_ENDPOINTS (USB_MAX_ENDPOINTS - 1)
 #endif
@@ -101,7 +102,6 @@ TU_ATTR_ALWAYS_INLINE static inline uint32_t compute_int_ep_addr(struct hw_endpo
 TU_ATTR_ALWAYS_INLINE static inline uint32_t compute_int_ep_ctrl(void) {
   uint32_t val = 0;
   for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
-    // if (ep_pool[i].configured && ep_pool[i].active) {
     if (ep_pool[i].configured) {
       val |= 1u << (ep_pool[i].interrupt_num + 1);
     }
@@ -123,10 +123,6 @@ static void unsuppress_int_polling(void) {
   usb_hw->int_ep_ctrl = compute_int_ep_ctrl();
   _int_ep_suppressed = false;
 }
-
-#ifndef USB_SIE_STATUS_RX_SHORT_PACKET_BITS
-#define USB_SIE_STATUS_RX_SHORT_PACKET_BITS 0x00001000u
-#endif
 
 static struct hw_endpoint *get_dev_ep(uint8_t dev_addr, uint8_t ep_addr) {
   uint8_t num = tu_edpt_number(ep_addr);
@@ -168,8 +164,10 @@ TU_ATTR_ALWAYS_INLINE static inline void epx_hard_reset(void) {
 }
 
 TU_ATTR_ALWAYS_INLINE static inline void epx_prepare_for_start(void) {
-  // Zero EPX buffer_control before each phase start so stale terminal values
-  // cannot influence the next transaction.
+  // Zero EPX buf_status and buffer_control so stale FULL/AVAIL bits from the
+  // previous phase cannot be misread as a new completion.  Both call sites
+  // (hcd_edpt_xfer and hcd_setup_send) assert !epx.active before reaching
+  // here, so this block always executes.
   if (!epx.active) {
     usb_hw_clear->buf_status = 0x3u;
     *hwbuf_ctrl_reg_host(&epx) = 0;
@@ -183,26 +181,14 @@ TU_ATTR_ALWAYS_INLINE static inline void epx_prepare_for_start(void) {
                              USB_SIE_STATUS_RX_TIMEOUT_BITS |
                              USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
                              USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                             0x00800000u;
+                             USB_SIE_STATUS_ENDPOINT_ERROR_BITS;
   // Ensure status-latch clear is visible before we arm START_TRANS.
   hw_sie_settle();
 }
 
 static void __tusb_irq_path_func(hw_xfer_complete)(struct hw_endpoint *ep, xfer_result_t xfer_result) {
-
-  // if (usb_hw->sie_ctrl & USB_SIE_CTRL_SEND_SETUP_BITS)
-  // {
-  //   pico_trace("Sent setup packet\n");
-  //   struct hw_endpoint *ep = &epx;
-  //   TU_LOG(2, "  hw_trans_complete: SETUP path, ep->active=%u sie_ctrl=0x%08lx\r\n",
-  //          ep->active, usb_hw->sie_ctrl);
-  //   if (!ep->active) return;
-  //   // Set transferred length to 8 for a setup packet
-  //   ep->xferred_len = 8;
-  //   hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
-  // }
-
-  // Mark transfer as done before we tell the tinyusb stack
+  // Reset endpoint state before notifying the stack so a re-arm inside the callback
+  // sees ep->active == false and a clean xferred_len.
   uint8_t dev_addr = ep->dev_addr;
   uint8_t ep_addr = ep->ep_addr;
   uint xferred_len = ep->xferred_len;
@@ -226,7 +212,10 @@ static void __tusb_irq_path_func(handle_hwbuf_status_bit)(uint bit, struct hw_en
 static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
   uint32_t buf_status = usb_hw->buf_status;
 
-  // Check EPX first
+  // Check EPX first.
+  // In host mode, EPX uses a single buffer-control register (usbh_dpram->epx_buf_ctrl),
+  // so only bit 0 of buf_status fires.  Bit 1 is the EP0_OUT slot in device mode but is
+  // unused in host mode; the defensive 0x3u clears elsewhere handle it.
   uint32_t bit = 1u;
   if (buf_status & bit) {
     buf_status &= ~bit;
@@ -234,16 +223,12 @@ static void __tusb_irq_path_func(handle_hwbuf_status)(void) {
     handle_hwbuf_status_bit(bit, ep);
   }
 
-  // Check "interrupt" (asynchronous) endpoints for both IN and OUT
+  // Check interrupt (async) endpoints.  Each IEP occupies two consecutive bits:
+  // the lower bit is the IN direction and the upper bit is OUT.
+  //   IEP1 IN  = bit 2,  IEP1 OUT = bit 3
+  //   IEP2 IN  = bit 4,  IEP2 OUT = bit 5
+  //   IEP3 IN  = bit 6,  IEP3 OUT = bit 7  ...etc.
   for (uint i = 1; i <= PICO_USB_HOST_INTERRUPT_ENDPOINTS && buf_status; i++) {
-    // EPX is bit 0 & 1
-    // IEP1 IN  is bit 2
-    // IEP1 OUT is bit 3
-    // IEP2 IN  is bit 4
-    // IEP2 OUT is bit 5
-    // IEP3 IN  is bit 6
-    // IEP3 OUT is bit 7
-    // etc
     for (uint j = 0; j < 2; j++) {
       bit = 1 << (i * 2 + j);
       if (buf_status & bit) {
@@ -265,7 +250,7 @@ static void __tusb_irq_path_func(hw_trans_complete)(uint32_t buf_status_snapshot
     pico_trace("Sent setup packet\n");
     struct hw_endpoint *ep = &epx;
     if (!ep->active) return;
-    // Set transferred length to 8 for a setup packet
+    // A SETUP token is always exactly 8 bytes (USB 2.0 §9.3).
     ep->xferred_len = 8;
     hw_xfer_complete(ep, XFER_RESULT_SUCCESS);
   }
@@ -346,9 +331,10 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
 
   if ( status & USB_INTS_HOST_RESUME_BITS )
   {
-    // Remote wakeup: the device drove resume signalling.  The SIE resumes
-    // SOF generation automatically; class drivers will re-arm their IN
-    // endpoints on the next poll.  Acknowledge and move on.
+    // Remote wakeup: the device drove resume signalling on the bus.
+    // Acknowledge the hardware latch.  Full suspend/resume state-machine
+    // handling (hcd_event_device_resume) is not implemented; the RP6502 host
+    // does not suspend devices, so this path is not expected in normal use.
     handled |= USB_INTS_HOST_RESUME_BITS;
     usb_hw_clear->sie_status = USB_SIE_STATUS_RESUME_BITS;
   }
@@ -386,7 +372,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
                    USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
                    USB_SIE_STATUS_RX_TIMEOUT_BITS |
                    USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                   0x00800000u;
+                   USB_SIE_STATUS_ENDPOINT_ERROR_BITS;
     hw_sie_settle();
     TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
            tu_u32_low16(*hwbuf_ctrl_reg_host(&epx)), tu_u32_high16(*hwbuf_ctrl_reg_host(&epx)));
@@ -410,7 +396,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void)
     usb_hw_clear->sie_status = USB_SIE_STATUS_RX_TIMEOUT_BITS |
                                USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
                                USB_SIE_STATUS_TRANS_COMPLETE_BITS |
-                               0x00800000u;
+                               USB_SIE_STATUS_ENDPOINT_ERROR_BITS;
   }
 
   if ( status & USB_INTS_BUFF_STATUS_BITS )
@@ -646,6 +632,18 @@ tusb_speed_t hcd_port_speed_get(uint8_t rhport)
   }
 }
 
+// Disable and unconfigure an interrupt endpoint (EP1-15).
+static void hw_intep_close(struct hw_endpoint *ep) {
+  uint32_t const saved = usb_irq_save();
+  usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
+  usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
+  ep->configured = false;
+  *hwep_ctrl_reg_host(ep)  = 0;
+  *hwbuf_ctrl_reg_host(ep) = 0;
+  hw_endpoint_reset_transfer(ep);
+  usb_irq_restore(saved);
+}
+
 // Close all opened endpoint belong to this device
 void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   pico_trace("hcd_device_close %d\n", dev_addr);
@@ -676,21 +674,7 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
     for (size_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
       hw_endpoint_t *ep = &ep_pool[i];
       if (ep->dev_addr == dev_addr && ep->configured) {
-        // Critical section: same race as EPX close above — an IRQ between
-        // the configured check and hw_endpoint_reset_transfer can deliver a
-        // completion, letting the class driver re-arm before we zero
-        // endpoint_control.
-        uint32_t const saved = usb_irq_save();
-        // in case it is an interrupt endpoint, disable it
-        usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
-        usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
-
-        // unconfigure the endpoint
-        ep->configured = false;
-        *hwep_ctrl_reg_host(ep)  = 0;
-        *hwbuf_ctrl_reg_host(ep) = 0;
-        hw_endpoint_reset_transfer(ep);
-        usb_irq_restore(saved);
+        hw_intep_close(ep);
       }
     }
   }
@@ -744,19 +728,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
     return true; // EP0 (epx) is shared
   }
 
-  uint32_t const saved = usb_irq_save();
-
-  // Disable the interrupt endpoint in hardware
-  usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
-  usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
-
-  // Unconfigure and reset
-  ep->configured = false;
-  *hwep_ctrl_reg_host(ep)  = 0;
-  *hwbuf_ctrl_reg_host(ep) = 0;
-  hw_endpoint_reset_transfer(ep);
-
-  usb_irq_restore(saved);
+  hw_intep_close(ep);
   return true;
 }
 
