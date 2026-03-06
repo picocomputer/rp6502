@@ -417,10 +417,6 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
         desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass,
         desc_itf->bInterfaceProtocol, desc_itf->bInterfaceNumber);
 
-    // Only handle vendor-specific interfaces
-    if (desc_itf->bInterfaceClass != 0xFF)
-        return 0;
-
     // Walk descriptors to find endpoints and compute drv_len
     uint8_t const *p_desc = tu_desc_next(desc_itf);
     uint8_t const *desc_end = (uint8_t const *)desc_itf + max_len;
@@ -450,12 +446,17 @@ static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_des
     }
     uint16_t const drv_len = (uint16_t)((uintptr_t)p_desc - (uintptr_t)desc_itf);
 
-    // Already claimed this device — consume extra vendor interfaces without re-opening
+    // Already claimed this device (XInput) — consume all remaining interfaces
+    // regardless of class, preventing HID from opening them and wasting ep slots.
     if (xin_find_index_by_dev_addr(dev_addr) >= 0)
     {
         DBG("XInput: Consuming extra interface for dev_addr %d\n", dev_addr);
         return drv_len;
     }
+
+    // Only handle vendor-specific interfaces
+    if (desc_itf->bInterfaceClass != 0xFF)
+        return 0;
 
     // Identify controller type
     bool is_xbox_one = (desc_itf->bInterfaceSubClass == 0x47 &&
