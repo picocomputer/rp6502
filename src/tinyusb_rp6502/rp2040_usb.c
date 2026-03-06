@@ -55,12 +55,14 @@ static void unaligned_memcpy(uint8_t *dst, const uint8_t *src, size_t n) {
 
 void tu_hwfifo_write(volatile void *hwfifo, const uint8_t *src, uint16_t len, const tu_hwfifo_access_t *access_mode) {
   (void)access_mode;
-  unaligned_memcpy((uint8_t *)(uintptr_t)hwfifo, src, len);
+  volatile uint8_t *dst8 = (volatile uint8_t *)hwfifo;
+  while (len--) *dst8++ = *src++;
 }
 
 void tu_hwfifo_read(const volatile void *hwfifo, uint8_t *dest, uint16_t len, const tu_hwfifo_access_t *access_mode) {
   (void)access_mode;
-  unaligned_memcpy(dest, (const uint8_t *)(uintptr_t)hwfifo, len);
+  const volatile uint8_t *src8 = (const volatile uint8_t *)hwfifo;
+  while (len--) *dest++ = *src8++;
 }
 
 void rp2usb_init(void) {

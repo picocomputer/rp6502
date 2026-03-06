@@ -20,6 +20,16 @@ target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
 )
 
+target_compile_definitions(rp6502_vga PRIVATE
+    PICO_SCANVIDEO_PLANE_COUNT=3
+    PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
+    PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT=10
+    PICO_SCANVIDEO_COLOR_PIN_BASE=6
+    PICO_SCANVIDEO_SYNC_PIN_BASE=26
+    PICO_RP2040_USB_DEVICE_ENUMERATION_FIX=1
+    PICO_RP2040_USB_DEVICE_UFRAME_FIX=1
+)
+
 target_sources(rp6502_vga PRIVATE
     main.c
     modes/mode1.c
@@ -64,14 +74,14 @@ pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/scanvideo/timing.pio
 )
 
-target_compile_definitions(rp6502_vga PRIVATE
-    PICO_SCANVIDEO_PLANE_COUNT=3
-    PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS=323
-    PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT=10
-    PICO_SCANVIDEO_COLOR_PIN_BASE=6
-    PICO_SCANVIDEO_SYNC_PIN_BASE=26
-    PICO_RP2040_USB_DEVICE_ENUMERATION_FIX=1
-    PICO_RP2040_USB_DEVICE_UFRAME_FIX=1
+# Override various lib files with custom code.
+# The magic is that header-only files don't get compiled.
+set_source_files_properties(
+    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
+    PROPERTIES HEADER_FILE_ONLY TRUE
+)
+target_sources(rp6502_vga PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
 )
 
 # If no version set, set a define for C preprocessor and touch

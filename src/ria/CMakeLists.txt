@@ -56,24 +56,6 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
     USE_EMU8950_OPL=1
 )
 
-target_link_libraries(${RIA_TARGET} PRIVATE
-    pico_aon_timer
-    pico_stdlib
-    pico_multicore
-    pico_rand
-    hardware_pio
-    hardware_dma
-    hardware_pwm
-    hardware_flash
-    tinyusb_host
-    pico_btstack_ble
-    cmsis_core
-)
-
-pico_generate_pio_header(${RIA_TARGET}
-    ${CMAKE_CURRENT_LIST_DIR}/ria.pio
-)
-
 target_sources(${RIA_TARGET} PRIVATE
     ../emu8950/emu8950.c
     ../fatfs/ff.c
@@ -126,6 +108,24 @@ target_sources(${RIA_TARGET} PRIVATE
     usb/xin.c
 )
 
+target_link_libraries(${RIA_TARGET} PRIVATE
+    pico_aon_timer
+    pico_stdlib
+    pico_multicore
+    pico_rand
+    hardware_pio
+    hardware_dma
+    hardware_pwm
+    hardware_flash
+    tinyusb_host
+    pico_btstack_ble
+    cmsis_core
+)
+
+pico_generate_pio_header(${RIA_TARGET}
+    ${CMAKE_CURRENT_LIST_DIR}/ria.pio
+)
+
 # Override various lib files with custom code.
 # The magic is that header-only files don't get compiled.
 set_source_files_properties(
@@ -136,9 +136,9 @@ set_source_files_properties(
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
-    usb/hcd_rp2040.c
-    usb/rp2040_usb.c
-    usb/msc_host.c
+    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/hcd_rp2040.c
+    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
+    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/msc_host.c
     net/ble_tlv.c
 )
 

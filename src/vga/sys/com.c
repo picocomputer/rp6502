@@ -104,7 +104,8 @@ void com_init(void)
 
 void com_pre_reclock(void)
 {
-    uart_tx_wait_blocking(COM_UART_INTERFACE);
+    // TODO this locks up
+    // uart_tx_wait_blocking(COM_UART_INTERFACE);
 }
 
 void com_post_reclock(void)
