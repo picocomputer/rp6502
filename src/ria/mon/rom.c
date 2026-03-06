@@ -527,17 +527,16 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
+        // Don't log close errors; would be misleading or redundant.
         if (lfs_file_open)
         {
-            int lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
-            mon_add_response_lfs(lfsresult);
+            lfs_file_close(&lfs_volume, &lfs_file);
             lfs_file_open = false;
         }
         if (fat_fil.obj.fs)
         {
-            FRESULT fresult = f_close(&fat_fil);
+            f_close(&fat_fil);
             fat_fil.obj.fs = NULL;
-            mon_add_response_fatfs(fresult);
         }
         break;
     case ROM_HELPING:
