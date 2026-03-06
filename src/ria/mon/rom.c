@@ -16,6 +16,7 @@
 #include "sys/lfs.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "usb/usb.h"
 #include <fatfs/ff.h>
 #include <ctype.h>
 #include <string.h>
@@ -231,6 +232,8 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
+    if (usb_boot_enumerating())
+        return;
     if (rom_done())
     {
         if (rom_FFFC && rom_FFFD)

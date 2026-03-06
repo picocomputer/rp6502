@@ -167,6 +167,8 @@ void cyw_init(void)
         cyw_led_status = cyw_led_requested;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, cyw_led_status);
     }
+    // Upload the bluetooth firmware now so it doesn't lazy load.
+    cyw43_bluetooth_hci_init();
 }
 
 void cyw_load_rf_enable(const char *str, size_t len)

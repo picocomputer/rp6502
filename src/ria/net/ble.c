@@ -157,7 +157,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         int slot = ble_hids_cid_to_hid_slot(cid);
         const uint8_t *descriptor = hids_client_descriptor_storage_get_descriptor_data(cid, 0);
         uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
-        if (kbd_mount(slot, descriptor, descriptor_len))
+        if (kbd_mount(slot, descriptor, descriptor_len, 0, 0))
         {
             if (ble_count_kbd < MAX_NR_HIDS_CLIENTS)
                 ble_kbd_cids[ble_count_kbd++] = cid;

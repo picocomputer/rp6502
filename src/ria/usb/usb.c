@@ -14,7 +14,11 @@
 #include "usb/usb.h"
 #include "usb/xin.h"
 #include <tusb.h>
+#include <pico/time.h>
 #include <stdio.h>
+#include "host/hcd.h"
+
+extern int hcd_free_ep_count(void);
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
 #define DBG(...) printf(__VA_ARGS__)
@@ -30,6 +34,11 @@ static uint8_t usb_hid_leds_idx;
 static uint8_t usb_count_hid_kbd;
 static uint8_t usb_count_hid_mou;
 static uint8_t usb_count_hid_pad;
+static absolute_time_t usb_enum_timeout;
+
+// Max bInterval is 255ms then enough time
+// for the slowest driver to mount.
+#define USB_ENUM_WINDOW_MS (255 + 100)
 
 static inline int usb_idx_to_hid_slot(int idx)
 {
@@ -79,12 +88,14 @@ int usb_status_response(char *buf, size_t buf_size, int state)
     int count_gamepad = usb_count_hid_pad + xin_pad_count();
     int count_storage = msc_status_count();
     int count_serial = vcp_status_count();
+    int count_ep_free = hcd_free_ep_count();
     snprintf(buf, buf_size, STR_STATUS_USB,
              usb_count_hid_kbd, usb_count_hid_kbd == 1 ? STR_KEYBOARD_SINGULAR : STR_KEYBOARD_PLURAL,
              usb_count_hid_mou, usb_count_hid_mou == 1 ? STR_MOUSE_SINGULAR : STR_MOUSE_PLURAL,
              count_gamepad, count_gamepad == 1 ? STR_GAMEPAD_SINGULAR : STR_GAMEPAD_PLURAL,
              count_storage, count_storage == 1 ? STR_STORAGE_SINGULAR : STR_STORAGE_PLURAL,
-             count_serial, count_serial == 1 ? STR_SERIAL_SINGULAR : STR_SERIAL_PLURAL);
+             count_serial, count_serial == 1 ? STR_SERIAL_SINGULAR : STR_SERIAL_PLURAL,
+             count_ep_free, count_ep_free == 1 ? STR_EP_FREE_SINGULAR : STR_EP_FREE_PLURAL);
     return -1;
 }
 
@@ -118,10 +129,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     uint16_t product_id;
     tuh_vid_pid_get(dev_addr, &vendor_id, &product_id);
 
-    DBG("HID device mounted: dev_addr=%d, idx=%d, protocol=%d, desc_len=%d\n",
-        dev_addr, idx, itf_protocol, desc_len);
+    DBG("HID: %lums HID dev=%d idx=%d protocol=%d desc_len=%d\n",
+        to_ms_since_boot(get_absolute_time()), dev_addr, idx, itf_protocol, desc_len);
 
-    if (kbd_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len))
+    if (kbd_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len, vendor_id, product_id))
     {
         ++usb_count_hid_kbd;
         usb_hid_leds_restart();
@@ -155,4 +166,73 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
         --usb_count_hid_mou;
     if (pad_umount(usb_idx_to_hid_slot(idx)))
         --usb_count_hid_pad;
+}
+
+bool usb_boot_enumerating(void)
+{
+    static bool usb_boot_enum_finished;
+    static bool was_connected;
+    if (usb_boot_enum_finished)
+        return false;
+    // true when a device being enumerated
+    bool connected = tuh_connected(0);
+    if (connected)
+    {
+        was_connected = true;
+        return true;
+    }
+    if (was_connected)
+    {
+        was_connected = false;
+        usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+        DBG("HID: %lums CONNECT\n", to_ms_since_boot(get_absolute_time()));
+    }
+    // Not currently enumerating — wait for the timeout before finishing
+    if (time_reached(usb_enum_timeout))
+    {
+        usb_boot_enum_finished = true;
+        DBG("HID: %lums READY !!!\n", to_ms_since_boot(get_absolute_time()));
+        return false;
+    }
+    return true;
+}
+
+void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
+{
+    (void)rhport;
+    (void)in_isr;
+    if (eventid == HCD_EVENT_DEVICE_ATTACH)
+    {
+        usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+        DBG("HID: %lums ATTACH rhport=%u\n",
+            to_ms_since_boot(get_absolute_time()), rhport);
+    }
+}
+
+void tuh_mount_cb(uint8_t daddr)
+{
+    tuh_bus_info_t bi;
+    tuh_bus_info_get(daddr, &bi);
+    usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+    DBG("HID: %lums MOUNT dev=%u hub=%u port=%u\n",
+        to_ms_since_boot(get_absolute_time()), daddr, bi.hub_addr, bi.hub_port);
+}
+
+void tuh_enum_descriptor_device_cb(uint8_t daddr, const tusb_desc_device_t *desc_device)
+{
+    (void)daddr;
+    (void)desc_device;
+    usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+    DBG("HID: %lums DESC DEVICE\n", to_ms_since_boot(get_absolute_time()));
+}
+
+bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
+                                          const tusb_desc_configuration_t *desc_config)
+{
+    (void)daddr;
+    (void)cfg_index;
+    (void)desc_config;
+    usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+    DBG("HID: %lums DESC CONFIG\n", to_ms_since_boot(get_absolute_time()));
+    return true;
 }

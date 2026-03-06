@@ -409,7 +409,7 @@ static bool xin_class_driver_init(void)
     return true;
 }
 
-static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
@@ -417,31 +417,7 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass,
         desc_itf->bInterfaceProtocol, desc_itf->bInterfaceNumber);
 
-    // Only handle vendor-specific interfaces
-    if (desc_itf->bInterfaceClass != 0xFF)
-        return false;
-
-    // Already claimed this device — consume extra vendor interfaces
-    if (xin_find_index_by_dev_addr(dev_addr) >= 0)
-    {
-        DBG("XInput: Consuming extra interface for dev_addr %d\n", dev_addr);
-        return true;
-    }
-
-    // Identify controller type
-    bool is_xbox_one = (desc_itf->bInterfaceSubClass == 0x47 &&
-                        desc_itf->bInterfaceProtocol == 0xD0);
-    bool is_x360 = (desc_itf->bInterfaceSubClass == 0x5D &&
-                    desc_itf->bInterfaceProtocol == 0x01);
-
-    // Don't consume — could be a non-Xbox vendor device
-    if (!is_xbox_one && !is_x360)
-        return false;
-
-    DBG("XInput: Detected %s controller interface\n",
-        is_xbox_one ? "Xbox One/Series" : "Xbox 360");
-
-    // Find interrupt IN and OUT endpoints
+    // Walk descriptors to find endpoints and compute drv_len
     uint8_t const *p_desc = tu_desc_next(desc_itf);
     uint8_t const *desc_end = (uint8_t const *)desc_itf + max_len;
     tusb_desc_endpoint_t const *ep_in_desc = NULL;
@@ -468,25 +444,51 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         }
         p_desc = tu_desc_next(p_desc);
     }
+    uint16_t const drv_len = (uint16_t)((uintptr_t)p_desc - (uintptr_t)desc_itf);
+
+    // Already claimed this device (XInput) — consume all remaining interfaces
+    // regardless of class, preventing HID from opening them and wasting ep slots.
+    if (xin_find_index_by_dev_addr(dev_addr) >= 0)
+    {
+        DBG("XInput: Consuming extra interface for dev_addr %d\n", dev_addr);
+        return drv_len;
+    }
+
+    // Only handle vendor-specific interfaces
+    if (desc_itf->bInterfaceClass != 0xFF)
+        return 0;
+
+    // Identify controller type
+    bool is_xbox_one = (desc_itf->bInterfaceSubClass == 0x47 &&
+                        desc_itf->bInterfaceProtocol == 0xD0);
+    bool is_x360 = (desc_itf->bInterfaceSubClass == 0x5D &&
+                    desc_itf->bInterfaceProtocol == 0x01);
+
+    // Don't consume — could be a non-Xbox vendor device
+    if (!is_xbox_one && !is_x360)
+        return 0;
+
+    DBG("XInput: Detected %s controller interface\n",
+        is_xbox_one ? "Xbox One/Series" : "Xbox 360");
 
     if (!ep_in_desc || !ep_out_desc)
     {
         DBG("XInput: Missing endpoints (in=%p out=%p)\n", ep_in_desc, ep_out_desc);
-        return false;
+        return 0;
     }
 
     int idx = xin_find_free_index();
     if (idx < 0)
     {
         DBG("XInput: No free device slots\n");
-        return false;
+        return 0;
     }
 
     if (!tuh_edpt_open(dev_addr, ep_in_desc) ||
         !tuh_edpt_open(dev_addr, ep_out_desc))
     {
         DBG("XInput: Failed to open endpoints\n");
-        return false;
+        return 0;
     }
 
     xbox_devices[idx].active = true;
@@ -506,15 +508,17 @@ static bool xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_in
         !pad_mount(xin_idx_to_hid_slot(idx), desc_data, desc_len, vendor_id, product_id))
     {
         DBG("XInput: Failed to mount in pad system\n");
+        tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
+        tuh_edpt_close(dev_addr, ep_out_desc->bEndpointAddress);
         memset(&xbox_devices[idx], 0, sizeof(xbox_device_t));
-        return false;
+        return 0;
     }
 
     xbox_devices[idx].vid = vendor_id;
     xbox_devices[idx].pid = product_id;
 
     DBG("XInput: Claimed Xbox controller in index %d (VID=%04X PID=%04X)\n", idx, vendor_id, product_id);
-    return true;
+    return drv_len;
 }
 
 // Send the next applicable GIP init packet, returns true if one was sent
@@ -659,7 +663,7 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
     if (ep_addr == device->ep_out)
     {
         DBG("XInput: OUT complete on EP 0x%02X, result=%d, %lu bytes\n", ep_addr, result, xferred_bytes);
-        if (device->is_xbox_one && !device->init_done)
+        if (result == XFER_RESULT_SUCCESS && device->is_xbox_one && !device->init_done)
             xin_send_next_init(device);
         return true;
     }
@@ -670,16 +674,10 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
 
     if (result == XFER_RESULT_STALLED)
     {
-        DBG("XInput: EP 0x%02X STALLed, re-queuing\n", ep_addr);
-        tuh_xfer_t xfer = {
-            .daddr = dev_addr,
-            .ep_addr = device->ep_in,
-            .buflen = sizeof(device->report_buffer),
-            .buffer = device->report_buffer,
-            .complete_cb = NULL,
-            .user_data = (uintptr_t)idx};
-        if (!tuh_edpt_xfer(&xfer))
-            DBG("XInput: FAILED to re-queue IN after STALL\n");
+        // Endpoint is halted; re-queuing would loop forever since only
+        // CLEAR_FEATURE(ENDPOINT_HALT) can recover it. Stop polling and
+        // let the controller drop/reconnect (matches Linux xpad behaviour).
+        DBG("XInput: EP 0x%02X STALLed, halting poll\n", ep_addr);
         return true;
     }
 

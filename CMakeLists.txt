@@ -29,4 +29,29 @@ project(RP6502 C CXX ASM)
 
 pico_sdk_init()
 
-add_subdirectory(src)
+# Force wrappers defined by pico_printf and pico_stdlib to be
+# preserved during link-time interprocedural optimizations.
+set(IPO_PRINTF_LINK_OPTIONS
+    -Wl,-u,__wrap_printf
+    -Wl,-u,__wrap_vprintf
+    -Wl,-u,__wrap_puts
+    -Wl,-u,__wrap_putchar
+    -Wl,-u,__wrap_getchar
+    -Wl,-u,__wrap_sprintf
+    -Wl,-u,__wrap_snprintf
+    -Wl,-u,__wrap_vsnprintf
+)
+
+# Project definitions for both RIA and VIA.
+# Please change name for hardware forks.
+# For release, set version string and set code page to 0.
+set(RP6502_PROJECT_DEFINITIONS
+    RP6502_NAME="Picocomputer 6502"
+    RP6502_VERSION=""
+    RP6502_CODE_PAGE=437
+    RP6502_LOCALE="str_en.inc"
+    RP6502_EXFAT=0
+)
+
+add_subdirectory(src/ria)
+add_subdirectory(src/vga)

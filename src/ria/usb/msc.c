@@ -247,10 +247,11 @@ done:
     return result;
 }
 
-// Core submit-and-wait helper with autosense. On non-PASSED status,
-// automatically issues REQUEST SENSE and populates the per-volume
-// sense arrays. Callers never need to explicitly request sense -
-// it's already available after any failed command.
+// Core submit-and-wait helper with autosense.
+// - BOT/CBI: on non-PASSED status, issue REQUEST SENSE and cache sense data.
+// - CB (CBI no interrupt): issue REQUEST SENSE after every command to
+//   determine command outcome because transport status is unavailable.
+// Callers never need to explicitly issue REQUEST SENSE.
 static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
                                   const void *data, absolute_time_t deadline)
 {
@@ -259,17 +260,9 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         return msc_status_failed;
 
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
+    bool cb_no_interrupt = (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_CBI_NO_INTERRUPT);
 
-    // CB (no I) has no interrupt endpoint, use autosense for status as needed.
-    bool cb_probe = (status == msc_status_passed &&
-                     tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_CBI_NO_INTERRUPT &&
-                     cbw->total_bytes == 0);
-
-    if (status == msc_status_passed && !cb_probe)
-    {
-        msc_volume_last_success[vol] = get_absolute_time();
-    }
-    else if (status == msc_status_phase_error)
+    if (status == msc_status_phase_error)
     {
         msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
         msc_volume_sense_asc[vol] = 0;
@@ -277,6 +270,15 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
     }
     else if (status != msc_status_timed_out)
     {
+        // CB (no interrupt endpoint) has no transport status phase.
+        // Determine command outcome via REQUEST SENSE for every command.
+        bool need_autosense = (status != msc_status_passed) || cb_no_interrupt;
+        if (!need_autosense)
+        {
+            msc_volume_last_success[vol] = get_absolute_time();
+            return status;
+        }
+
         scsi_sense_fixed_resp_t sense_resp;
         memset(&sense_resp, 0, sizeof(sense_resp));
         msc_cbw_t sense_cbw;
@@ -290,13 +292,14 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         memcpy(sense_cbw.command, &sense_cmd, sizeof(sense_cmd));
         msc_status_t sense_status = msc_scsi_sync_raw(
             dev_addr, &sense_cbw, &sense_resp, msc_sync_floor(deadline));
-        // On CBI devices the interrupt endpoint carries the accumulated error
-        // state of the previous failed command, not the outcome of REQUEST
-        // SENSE itself.  The bulk data is authoritative — accept it whenever
-        // response_code is valid and the transfer didn't time out.
+        // On CBI with an interrupt endpoint, the interrupt status can reflect
+        // prior command state rather than REQUEST SENSE completion. The sense
+        // payload is authoritative when it is present and the transfer did not
+        // time out.
         bool sense_data_valid = (sense_status == msc_status_passed) ||
                                 (sense_status != msc_status_timed_out &&
-                                 tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT);
+                                 (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT ||
+                                  sense_resp.response_code != 0));
         if (sense_data_valid && sense_resp.response_code)
         {
             msc_volume_sense_key[vol] = sense_resp.sense_key;
@@ -314,17 +317,14 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
             msc_volume_sense_asc[vol],
             msc_volume_sense_ascq[vol]);
 
-        // CB no-data probe: if sense indicates no error, the command
-        // actually succeeded.  If autosense itself failed, the original
-        // command status is unknown — report failure.
-        if (cb_probe)
+        if (cb_no_interrupt)
         {
-            if (sense_status != msc_status_passed)
+            if (!sense_data_valid || sense_status == msc_status_timed_out)
             {
-                // Autosense failed — original status ambiguous.
-                status = msc_status_failed;
+                status = msc_status_timed_out;
             }
-            else if (msc_volume_sense_key[vol] == SCSI_SENSE_NONE)
+            else if (msc_volume_sense_key[vol] == SCSI_SENSE_NONE ||
+                     msc_volume_sense_key[vol] == SCSI_SENSE_RECOVERED_ERROR)
             {
                 status = msc_status_passed;
                 msc_volume_last_success[vol] = get_absolute_time();
@@ -544,14 +544,8 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         uint8_t desc_type = cap->descriptor_type & 0x03;
         if (desc_type == 3) // 0x03 = No Media Present
             return false;
-        if (cap->reserved2 != 0)
-        {
-            DBG("MSC vol %d: RFC reserved2=0x%02X, non-UFI response rejected\n",
-                vol, cap->reserved2);
-            return false;
-        }
         uint32_t blocks = tu_ntohl(cap->block_num);
-        uint32_t bsize = tu_ntohs(cap->block_size_u16);
+        uint32_t bsize = ((uint32_t)cap->reserved2 << 16) | tu_ntohs(cap->block_size_u16);
         DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
             vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
         // Accept power-of-2 sector sizes that FatFS supports.
@@ -591,8 +585,13 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
             return false; // > 2 TB, unsupported
         if (last_lba == 0)
             DBG("MSC vol %d: READ CAPACITY(10) returned last_lba=0\n", vol);
+        uint32_t bsize = tu_ntohl(cap10.block_size);
+        if (bsize == 0 ||
+            (bsize & (bsize - 1)) != 0 ||
+            bsize > 4096)
+            return false;
         msc_volume_block_count[vol] = last_lba + 1;
-        msc_volume_block_size[vol] = tu_ntohl(cap10.block_size);
+        msc_volume_block_size[vol] = bsize;
     }
 
     return true;
@@ -732,8 +731,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             // Per SBC-4 §5.25: on first NOT READY, send START STOP UNIT
             // (Start=1) once to kick media initialization.
             // Skip subcases that won't resolve without intervention.
-            if (!sent_start && sk == SCSI_SENSE_NOT_READY &&
-                inq->is_removable)
+            if (!sent_start && sk == SCSI_SENSE_NOT_READY)
             {
                 if (asc == 0x04)
                 {
@@ -944,9 +942,8 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         return RES_PARERR;
 #endif
 
-    // Clamp each transfer so total_bytes fits the 16-bit USB transfer
-    // length.  Without this, transfers > 64KB cause a CBW/transfer
-    // size mismatch (BOT §6.7.2 case 7).
+    // Clamp each transfer so total_bytes fits the USB host transfer
+    // length limit (uint16_t).
     absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
     while (count > 0)
