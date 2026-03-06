@@ -34,21 +34,18 @@
 
 // One root hub and four more
 #define CFG_TUH_HUB (5)
-// 8 for four keyboards and mice reporting as both
-// 4 for gamepads, and 4 for weird device extras
-#define CFG_TUH_HID (16)
+// Limited by free eps, want more
+#define CFG_TUH_HID (8)
 // Enabled, usb/msc driver defines quantity
 #define CFG_TUH_MSC (1)
-// CDC host (serial adapters)
-#define CFG_TUH_CDC (10)
+// CDC host (serial adapters), enable all drivers
+#define CFG_TUH_CDC (4)
 #define CFG_TUH_CDC_FTDI (1)
 #define CFG_TUH_CDC_CP210X (1)
 #define CFG_TUH_CDC_CH34X (1)
 #define CFG_TUH_CDC_PL2303 (1)
-// No vendor driver
-#define CFG_TUH_VENDOR (0)
 
-// 8 input devices, 10 drives, and 10 CDC
-#define CFG_TUH_DEVICE_MAX (28)
+// Limited by free eps, want more
+#define CFG_TUH_DEVICE_MAX (16)
 
 #endif
