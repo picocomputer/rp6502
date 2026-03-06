@@ -232,7 +232,7 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
-    if (usb_enumerating())
+    if (usb_boot_enumerating())
         return;
     if (rom_done())
     {

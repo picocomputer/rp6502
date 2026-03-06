@@ -14,13 +14,13 @@
 #include "usb/usb.h"
 #include "usb/xin.h"
 #include <tusb.h>
-#include "host/hcd.h"
 #include <pico/time.h>
+#include <stdio.h>
+#include "host/hcd.h"
 
 extern int hcd_free_ep_count(void);
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -132,7 +132,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     DBG("HID: %lums HID dev=%d idx=%d protocol=%d desc_len=%d\n",
         to_ms_since_boot(get_absolute_time()), dev_addr, idx, itf_protocol, desc_len);
 
-    if (kbd_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len))
+    if (kbd_mount(usb_idx_to_hid_slot(idx), desc_report, desc_len, vendor_id, product_id))
     {
         ++usb_count_hid_kbd;
         usb_hid_leds_restart();
@@ -168,7 +168,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
         --usb_count_hid_pad;
 }
 
-bool usb_enumerating(void)
+bool usb_boot_enumerating(void)
 {
     static bool usb_boot_enum_finished;
     static bool was_connected;

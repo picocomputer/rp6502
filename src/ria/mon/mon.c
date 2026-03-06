@@ -492,7 +492,7 @@ void mon_task(void)
     if (ram_active() ||
         rom_active() ||
         fil_active() ||
-        usb_enumerating())
+        usb_boot_enumerating())
         return;
     // The monitor has control
     if (mon_needs_prompt)

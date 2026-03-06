@@ -88,6 +88,17 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define KBD_LED_CAPSLOCK (1 << 1)   // Caps Lock LED
 #define KBD_LED_SCROLLLOCK (1 << 2) // Scroll Lock LED
 
+// RP6502 and Windows boots like an IBM AT with num lock on.
+// The Raspberry Pi Keyboard uses num lock to enable a num pad on
+// letter keys; it was designed for Linux where num lock boots off.
+static const struct
+{
+    uint16_t vid;
+    uint16_t pid;
+} kbd_numlock_off_at_boot[] = {
+    {0x04D9, 0x0006}, // Raspberry Pi Keyboard
+};
+
 #define KBD_REPEAT_DELAY 500000
 #define KBD_REPEAT_RATE 30000
 
@@ -705,7 +716,8 @@ overflow_error:
     mon_add_response_str(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
 }
 
-bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
+                                       uint16_t vendor_id, uint16_t product_id)
 {
     int conn_num = -1;
     for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
@@ -755,6 +767,15 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
                 conn->keycodes[item.usage] = item.bit_pos;
         }
     }
+    if (conn->valid && usb_boot_enumerating())
+        for (int i = 0; i < (int)(sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0])); i++)
+            if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
+                kbd_numlock_off_at_boot[i].pid == product_id)
+            {
+                kbd_hid_leds &= ~KBD_LED_NUMLOCK;
+                kbd_send_leds();
+                break;
+            }
     return conn->valid;
 }
 

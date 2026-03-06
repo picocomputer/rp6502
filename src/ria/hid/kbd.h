@@ -56,8 +56,9 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state);
 // Called when code page changes so cache can be rebuilt.
 void kbd_rebuild_code_page_cache(void);
 
-// Parse HID report descriptor
-bool kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len);
+// Attempt to mount this HID descriptor
+bool kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
+               uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
 bool kbd_umount(int slot);
