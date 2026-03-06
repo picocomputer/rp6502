@@ -104,8 +104,10 @@ void com_init(void)
 
 void com_pre_reclock(void)
 {
-    // TODO this locks up
-    // uart_tx_wait_blocking(COM_UART_INTERFACE);
+    // LCR_H.BRK drives TXD low indefinitely, keeping BUSY set forever.
+    if (uart_get_hw(COM_UART_INTERFACE)->lcr_h & UART_UARTLCR_H_BRK_BITS)
+        return;
+    uart_tx_wait_blocking(COM_UART_INTERFACE);
 }
 
 void com_post_reclock(void)
