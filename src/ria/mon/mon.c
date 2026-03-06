@@ -488,11 +488,11 @@ void mon_task(void)
             mon_next_response();
         return;
     }
-    // These can run the 6502 multiple times
+    // ram/rom can run the 6502 multiple times
     if (ram_active() ||
         rom_active() ||
         fil_active() ||
-        usb_boot_enumerating())
+        usb_enumerating())
         return;
     // The monitor has control
     if (mon_needs_prompt)

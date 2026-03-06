@@ -447,6 +447,14 @@ void __tusb_irq_path_func(hcd_int_handler)(uint8_t rhport, bool in_isr) {
   hcd_rp2040_irq();
 }
 
+int hcd_free_ep_count(void)
+{
+  int count = 0;
+  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++)
+    if (!ep_pool[i].configured) count++;
+  return count;
+}
+
 static struct hw_endpoint *_next_free_interrupt_ep(void)
 {
   for ( uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++ )

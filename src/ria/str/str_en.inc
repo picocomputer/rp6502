@@ -119,6 +119,8 @@ X(STR_STORAGE_SINGULAR, "storage")
 X(STR_STORAGE_PLURAL, "storage")
 X(STR_SERIAL_SINGULAR, "serial")
 X(STR_SERIAL_PLURAL, "serial")
+X(STR_EP_FREE_SINGULAR, "ep free")
+X(STR_EP_FREE_PLURAL, "ep free")
 
 // Installed ROM list
 X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
