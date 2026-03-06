@@ -548,6 +548,18 @@ static void hw_endpoint_init(struct hw_endpoint *ep, uint8_t dev_addr, uint8_t e
 //--------------------------------------------------------------------+
 // HCD API
 //--------------------------------------------------------------------+
+
+// Save and disable only USBCTRL_IRQ — finer-grained than save_and_disable_interrupts().
+// Use these for internal critical sections; hcd_int_enable/disable is for setup.
+TU_ATTR_ALWAYS_INLINE static inline uint32_t usb_irq_save(void) {
+  uint32_t prev = irq_is_enabled(USBCTRL_IRQ) ? 1u : 0u;
+  irq_set_enabled(USBCTRL_IRQ, false);
+  return prev;
+}
+TU_ATTR_ALWAYS_INLINE static inline void usb_irq_restore(uint32_t prev) {
+  if (prev) irq_set_enabled(USBCTRL_IRQ, true);
+}
+
 bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
   (void) rhport;
   (void) rh_init;
@@ -559,11 +571,6 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 
   // Force VBUS detect to always present, for now we assume vbus is always provided (without using VBUS En)
   usb_hw->pwr = USB_USB_PWR_VBUS_DETECT_BITS | USB_USB_PWR_VBUS_DETECT_OVERRIDE_EN_BITS;
-
-  // Remove shared irq if it was previously added so as not to fill up shared irq slots
-  irq_remove_handler(USBCTRL_IRQ, hcd_rp2040_irq);
-
-  irq_add_shared_handler(USBCTRL_IRQ, hcd_rp2040_irq, PICO_SHARED_IRQ_HANDLER_HIGHEST_ORDER_PRIORITY);
 
   // clear epx and interrupt eps
   memset(&ep_pool, 0, sizeof(ep_pool));
@@ -586,11 +593,8 @@ bool hcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 
 bool hcd_deinit(uint8_t rhport) {
   (void) rhport;
-
-  irq_remove_handler(USBCTRL_IRQ, hcd_rp2040_irq);
   reset_block(RESETS_RESET_USBCTRL_BITS);
   unreset_block_wait(RESETS_RESET_USBCTRL_BITS);
-
   return true;
 }
 
@@ -651,12 +655,12 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
   // the class driver re-arm EPX; the close would then zero endpoint_control
   // and buffer_control under the live new transfer.
   if (epx.configured && epx.dev_addr == dev_addr) {
-    uint32_t const saved = save_and_disable_interrupts();
+    uint32_t const saved = usb_irq_save();
     if (epx.active) hw_endpoint_reset_transfer(&epx);
     epx.configured = false;
     *hwep_ctrl_reg_host(&epx) = 0;
     *hwbuf_ctrl_reg_host(&epx) = 0;
-    restore_interrupts(saved);
+    usb_irq_restore(saved);
   }
 
   // dev0 only has ep0
@@ -668,7 +672,7 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
         // the configured check and hw_endpoint_reset_transfer can deliver a
         // completion, letting the class driver re-arm before we zero
         // endpoint_control.
-        uint32_t const saved = save_and_disable_interrupts();
+        uint32_t const saved = usb_irq_save();
         // in case it is an interrupt endpoint, disable it
         usb_hw_clear->int_ep_ctrl = (1 << (ep->interrupt_num + 1));
         usb_hw->int_ep_addr_ctrl[ep->interrupt_num] = 0;
@@ -678,7 +682,7 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
         *hwep_ctrl_reg_host(ep)  = 0;
         *hwbuf_ctrl_reg_host(ep) = 0;
         hw_endpoint_reset_transfer(ep);
-        restore_interrupts(saved);
+        usb_irq_restore(saved);
       }
     }
   }
@@ -691,13 +695,16 @@ uint32_t hcd_frame_number(uint8_t rhport) {
 
 void hcd_int_enable(uint8_t rhport) {
   (void)rhport;
+  // Defensive remove before add so re-init never fills up shared IRQ handler slots.
+  irq_remove_handler(USBCTRL_IRQ, hcd_rp2040_irq);
+  irq_add_shared_handler(USBCTRL_IRQ, hcd_rp2040_irq, PICO_SHARED_IRQ_HANDLER_HIGHEST_ORDER_PRIORITY);
   irq_set_enabled(USBCTRL_IRQ, true);
 }
 
 void hcd_int_disable(uint8_t rhport) {
   (void)rhport;
-  // todo we should check this is disabling from the correct core; note currently this is never called
   irq_set_enabled(USBCTRL_IRQ, false);
+  irq_remove_handler(USBCTRL_IRQ, hcd_rp2040_irq);
 }
 
 //--------------------------------------------------------------------+
@@ -729,7 +736,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
     return true; // EP0 (epx) is shared
   }
 
-  hcd_int_disable(rhport);
+  uint32_t const saved = usb_irq_save();
 
   // Disable the interrupt endpoint in hardware
   usb_hw_clear->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
@@ -741,7 +748,7 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   *hwbuf_ctrl_reg_host(ep) = 0;
   hw_endpoint_reset_transfer(ep);
 
-  hcd_int_enable(rhport);
+  usb_irq_restore(saved);
   return true;
 }
 
@@ -780,7 +787,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // a STALL/RX_TIMEOUT/DATA_SEQ IRQ can fire, see ep->active==true, call
     // hw_xfer_complete (clearing active), then we write START_TRANS anyway —
     // hardware starts a real transaction with ep->active==false.
-    hcd_int_disable(rhport);
+    uint32_t const saved = usb_irq_save();
     epx_prepare_for_start();
     hw_endpoint_xfer_start(ep, buffer, NULL, buflen);
 
@@ -800,7 +807,7 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
     hw_sie_settle();
     usb_hw->sie_ctrl = flags;
-    hcd_int_enable(rhport);
+    usb_irq_restore(saved);
   } else {
     hw_endpoint_xfer_start(ep, buffer, NULL, buflen);
     // Ensure the async slot is enabled — hcd_edpt_abort_xfer disables it.
@@ -814,7 +821,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   struct hw_endpoint *ep = get_dev_ep(dev_addr, ep_addr);
   if (!ep) return true;
 
-  hcd_int_disable(rhport);
+  uint32_t const saved = usb_irq_save();
 
   if (ep == &epx) {
     usb_hw->sie_ctrl = SIE_CTRL_BASE;
@@ -842,7 +849,7 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     // backing buffer.  The next hcd_edpt_xfer() will re-enable it.
   }
 
-  hcd_int_enable(rhport);
+  usb_irq_restore(saved);
   return true;
 }
 
@@ -880,7 +887,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   // would see ep->active==true, call hw_xfer_complete (clearing active), then
   // we write START_TRANS — hardware fires a real transaction with ep->active
   // already false; the TRANS_COMPLETE handler silently no-ops.
-  hcd_int_disable(rhport);
+  uint32_t const saved = usb_irq_save();
   epx_prepare_for_start();
   ep->remaining_len = 8;
   ep->active = true;
@@ -901,7 +908,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, uint8_t const setup_packet
   usb_hw->sie_ctrl = flags & ~USB_SIE_CTRL_START_TRANS_BITS;
   hw_sie_settle();
   usb_hw->sie_ctrl = flags;
-  hcd_int_enable(rhport);
+  usb_irq_restore(saved);
 
   return true;
 }
@@ -913,13 +920,13 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
     // Critical section: prepare_ep_buffer() (IRQ context) reads ep->next_pid
     // and then does ep->next_pid ^= 1u.  Without protection our zero-write
     // can land between the read and the XOR, losing the reset.
-    uint32_t const saved = save_and_disable_interrupts();
+    uint32_t const saved = usb_irq_save();
     ep->next_pid = 0;
     if (ep != &epx) {
       *hwbuf_ctrl_reg_host(ep) = 0;
       usb_hw_clear->buf_status = 0x3u << ((ep->interrupt_num + 1) * 2);
     }
-    restore_interrupts(saved);
+    usb_irq_restore(saved);
   }
   return true;
 }
