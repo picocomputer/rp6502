@@ -509,7 +509,11 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     }
 
     // ---- TUR ----
-    bool tur_ok = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED;
+    bool tur_ok;
+    do
+        tur_ok = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED;
+    while (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+           !time_reached(deadline));
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
