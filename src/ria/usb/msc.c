@@ -135,7 +135,7 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 
 // Override of the weak tuh_msc_pump() default in msc_host.c.
 // Pumps USB events and all application tasks during blocking I/O.
-// FatFs rentry would be a problem so main_task() does not call FatFs
+// FatFs re-entry would be a problem so main_task() does not call FatFs
 // but it does call the required tuh_task().
 void tuh_msc_pump(void) { main_task(); }
 
@@ -173,8 +173,8 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
 // - CB (CBI no interrupt): issue REQUEST SENSE after every command to
 //   determine command outcome because transport status is unavailable.
 // Callers never need to explicitly issue REQUEST SENSE.
-static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
-                                  const void *data, uint32_t timeout_ms)
+static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
+                                     const void *data, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
     if (dev_addr == 0)
@@ -265,7 +265,7 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
         .alloc_length = sizeof(scsi_inquiry_resp_t)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_sync(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
 }
 
 static msc_status_t msc_scsi_test_unit_ready(uint8_t vol, uint32_t timeout_ms)
@@ -273,7 +273,7 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol, uint32_t timeout_ms)
     scsi_test_unit_ready_t const cmd = {.cmd_code = SCSI_CMD_TEST_UNIT_READY};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    return msc_scsi_sync(vol, &cbw, NULL, timeout_ms);
+    return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
 }
 
 static msc_status_t msc_scsi_read_capacity10(uint8_t vol, uint32_t timeout_ms,
@@ -282,7 +282,7 @@ static msc_status_t msc_scsi_read_capacity10(uint8_t vol, uint32_t timeout_ms,
     scsi_read_capacity10_t const cmd = {.cmd_code = SCSI_CMD_READ_CAPACITY_10};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_sync(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
 }
 
 static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, uint32_t timeout_ms,
@@ -293,7 +293,7 @@ static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, uint32_t timeou
         .alloc_length = tu_htons(alloc_length)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, alloc_length, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_sync(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
 }
 
 static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint32_t timeout_ms,
@@ -307,7 +307,7 @@ static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint32_t timeout_ms,
     };
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense6_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_sync(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
 }
 
 static msc_status_t msc_scsi_sync_cache10(uint8_t vol, uint32_t timeout_ms)
@@ -315,20 +315,7 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol, uint32_t timeout_ms)
     uint8_t cmd[10] = {0x35}; // SYNCHRONIZE CACHE (10)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
-    return msc_scsi_sync(vol, &cbw, NULL, timeout_ms);
-}
-
-static msc_status_t msc_scsi_start_stop_unit(uint8_t vol, uint32_t timeout_ms,
-                                             bool start, bool load_eject)
-{
-    scsi_start_stop_unit_t const cmd = {
-        .cmd_code = SCSI_CMD_START_STOP_UNIT,
-        .start = start ? 1u : 0u,
-        .load_eject = load_eject ? 1u : 0u,
-    };
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    return msc_scsi_sync(vol, &cbw, NULL, timeout_ms);
+    return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
 }
 
 //--------------------------------------------------------------------+
@@ -336,9 +323,9 @@ static msc_status_t msc_scsi_start_stop_unit(uint8_t vol, uint32_t timeout_ms,
 //--------------------------------------------------------------------+
 
 // Mark a removable volume as ejected and clear cached geometry.
-static void msc_handle_io_error(uint8_t vol)
+static void msc_vol_set_ejected(uint8_t vol)
 {
-    DBG("MSC vol %d: msc_handle_io_error\n", vol);
+    DBG("MSC vol %d: msc_vol_set_ejected\n", vol);
     if (!msc_vol[vol].removable)
         return;
     if (msc_vol[vol].status == msc_volume_free ||
@@ -361,10 +348,7 @@ static msc_status_t msc_scsi_read10(uint8_t vol, uint32_t timeout_ms,
         .block_count = tu_htons(block_count)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    msc_status_t status = msc_scsi_sync(vol, &cbw, buff, timeout_ms);
-    if (status != MSC_STATUS_PASSED)
-        msc_handle_io_error(vol);
-    return status;
+    return msc_scsi_command(vol, &cbw, buff, timeout_ms);
 }
 
 static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
@@ -377,10 +361,7 @@ static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
         .block_count = tu_htons(block_count)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    msc_status_t status = msc_scsi_sync(vol, &cbw, buff, timeout_ms);
-    if (status != MSC_STATUS_PASSED)
-        msc_handle_io_error(vol);
-    return status;
+    return msc_scsi_command(vol, &cbw, buff, timeout_ms);
 }
 
 //--------------------------------------------------------------------+
@@ -398,9 +379,6 @@ static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
 static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
-
-    if (!tuh_msc_mounted(dev_addr))
-        return false;
 
     if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
@@ -497,15 +475,12 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
-    uint8_t dev_addr = msc_vol[vol].dev_addr;
     absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
 
     // ---- INQUIRY (first mount only) ----
     if (msc_vol[vol].status == msc_volume_registered)
     {
         bool inquiry_ok = false;
-        if (!tuh_msc_mounted(dev_addr))
-            return msc_volume_failed;
         scsi_inquiry_resp_t inq;
         memset(&inq, 0, sizeof(inq));
         msc_status_t csw = msc_scsi_inquiry(vol, msc_floor_ms(deadline), &inq);
@@ -533,58 +508,8 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             inq.vendor_id, inq.is_removable ? " (removable)" : "");
     }
 
-    // ---- TUR / CLEAR UNIT ATTENTION ----
-    // Poll TEST UNIT READY until the device is ready,
-    // or we're sure media is absent.
-    bool tur_ok = false;
-    bool sent_start = false;
-    for (int attempt = 0; attempt < 8; attempt++)
-    {
-        if (!tuh_msc_mounted(dev_addr))
-            return msc_volume_failed;
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-            break;
-        if (msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED)
-        {
-            tur_ok = true;
-            break;
-        }
-        uint8_t sk = msc_vol[vol].sense_key;
-        uint8_t asc = msc_vol[vol].sense_asc;
-        uint8_t ascq = msc_vol[vol].sense_ascq;
-        // Medium Not Present: some drives (e.g. TEAC floppy) return
-        // stale 2/3Ah/00h after media reinsertion. Allow one retry.
-        if (asc == 0x3A)
-        {
-            if (msc_vol[vol].status == msc_volume_ejected &&
-                attempt == 0)
-                continue;
-            break;
-        }
-        // NOT READY (2) or UNIT ATTENTION (6) - retry
-        if (sk == SCSI_SENSE_NOT_READY || sk == SCSI_SENSE_UNIT_ATTENTION)
-        {
-            // Per SBC-4 §5.25: on first NOT READY, send START STOP UNIT
-            // (Start=1) once to kick media initialization.
-            // Skip subcases that won't resolve without intervention.
-            if (!sent_start && sk == SCSI_SENSE_NOT_READY)
-            {
-                if (asc == 0x04)
-                {
-                    // Manual intervention, standby, unavailable - hopeless
-                    if (ascq == 0x03 || ascq == 0x0B || ascq == 0x0C)
-                        break;
-                }
-                sent_start = true;
-                DBG("MSC vol %d: START STOP UNIT (Start)\n", vol);
-                msc_scsi_start_stop_unit(vol, msc_floor_ms(deadline),
-                                         true, false);
-            }
-            continue;
-        }
-        // Any other sense key - stop retrying
-        break;
-    }
+    // ---- TUR ----
+    bool tur_ok = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED;
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
@@ -676,6 +601,7 @@ DWORD get_fattime(void)
 
 DSTATUS disk_status(BYTE pdrv)
 {
+    // We only support partition 0, so one vol per physical drive.
     uint8_t vol = pdrv;
     bool const ejected = (msc_vol[vol].status == msc_volume_ejected);
 
@@ -704,7 +630,7 @@ DSTATUS disk_status(BYTE pdrv)
         {
             DBG("MSC vol %d: disk_status, no media\n", vol);
             if (!ejected)
-                msc_handle_io_error(vol);
+                msc_vol_set_ejected(vol);
             return STA_NOINIT | STA_NODISK;
         }
     }
@@ -873,7 +799,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
             msc_vol[vol].sense_asc == 0x3A)
         {
-            msc_handle_io_error(vol);
+            msc_vol_set_ejected(vol);
         }
         else
             disk_initialize(vol);
