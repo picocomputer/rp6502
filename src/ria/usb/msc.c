@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -29,15 +31,11 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // Needs headroom for 3.5" floppy disk drives.
 #define MSC_SCSI_RW_TIMEOUT_MS 2000
 
-// Overall deadline for msc_init_volume (first mount or re-probe).
-// Covers INQUIRY + TUR + SENSE + START UNIT + delay + retry + capacity + mount.
-#define MSC_INIT_TIMEOUT_MS 4000
-
 // Time budget for any single USB MSC operation: one SCSI command or
 // one reset recovery sequence (BOT: BMR + 2x CLEAR_HALT; CBI: class
 // reset).  Also the floor given to each init stage so a nearly-expired
 // overall deadline cannot starve an individual command.
-#define MSC_OP_TIMEOUT_MS 500
+#define MSC_SCSI_OP_TIMEOUT_MS 500
 
 // disk_status() issues a TUR on removable volumes only when this many
 // milliseconds have elapsed since the last successful SCSI command.
@@ -139,15 +137,6 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 // but it does call the required tuh_task().
 void tuh_msc_pump(void) { main_task(); }
 
-// Convert absolute deadline to remaining milliseconds, floored at MSC_OP_TIMEOUT_MS.
-// Prevents a nearly-expired deadline from starving a subordinate command.
-static inline uint32_t msc_floor_ms(absolute_time_t deadline)
-{
-    int64_t diff_us = absolute_time_diff_us(get_absolute_time(), deadline);
-    uint32_t remaining = diff_us > 0 ? (uint32_t)(diff_us / 1000) : 0;
-    return remaining > MSC_OP_TIMEOUT_MS ? remaining : MSC_OP_TIMEOUT_MS;
-}
-
 //--------------------------------------------------------------------+
 // Synchronous SCSI command wrappers
 //--------------------------------------------------------------------+
@@ -204,7 +193,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
                  sizeof(sense_cmd), &sense_cmd);
     msc_status_t sense_status = tuh_msc_scsi_sync(
-        dev_addr, &sense_cbw, &sense_resp, MSC_OP_TIMEOUT_MS);
+        dev_addr, &sense_cbw, &sense_resp, MSC_SCSI_OP_TIMEOUT_MS);
     bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
                             (sense_status != MSC_STATUS_TIMED_OUT &&
                              sense_resp.response_code != 0);
@@ -312,6 +301,17 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol, uint32_t timeout_ms)
     uint8_t cmd[10] = {0x35}; // SYNCHRONIZE CACHE (10)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
+    return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
+}
+
+static msc_status_t msc_scsi_start_stop_unit(uint8_t vol, uint32_t timeout_ms)
+{
+    scsi_start_stop_unit_t const cmd = {
+        .cmd_code = SCSI_CMD_START_STOP_UNIT,
+        .start = 1,
+    };
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
 }
 
@@ -471,42 +471,64 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
-    absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
+    DBG("MSC: %lums init vol %d\n", to_ms_since_boot(get_absolute_time()), vol);
 
     // ---- INQUIRY (first mount only) ----
     if (msc_vol[vol].status == msc_volume_registered)
     {
         scsi_inquiry_resp_t inq;
-        if (msc_scsi_inquiry(vol, msc_floor_ms(deadline), &inq) != MSC_STATUS_PASSED)
+        if (msc_scsi_inquiry(vol, MSC_SCSI_OP_TIMEOUT_MS, &inq) != MSC_STATUS_PASSED)
         {
-            DBG("MSC vol %d: INQUIRY failed\n", vol);
+            DBG("MSC: %lums vol %d INQUIRY failed\n", to_ms_since_boot(get_absolute_time()), vol);
             return msc_volume_failed;
         }
         msc_vol[vol].removable = inq.is_removable;
     }
+    DBG("MSC: %lums vol %d INQUIRY ok\n", to_ms_since_boot(get_absolute_time()), vol);
 
-    // ---- TUR ----
-    bool tur_ok;
-    do
+    // ---- TEST UNIT READY (TUR) ----
+    bool tur_ok = msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) == MSC_STATUS_PASSED;
+    // Retry loop for UNIT_ATTENTION up to cumulative MSC_SCSI_RW_TIMEOUT_MS
+    if (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)
     {
-        tur_ok = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED;
-        DBG("MSC vol %d: TUR %s (sk=%d asc=%02Xh ascq=%02Xh)\n", vol,
-            tur_ok ? "ok" : "failed",
-            msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq);
-    } while (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
-             !time_reached(deadline));
+        absolute_time_t tur_deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
+        do {
+            DBG("MSC: %lums vol %d retry tur (unit attention)\n", to_ms_since_boot(get_absolute_time()), vol);
+            tur_ok = msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) == MSC_STATUS_PASSED;
+        } while (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+                 !time_reached(tur_deadline));
+    }
+    // Single retry for no media (e.g. TEAC floppy drive ASC 0x3A)
+    if (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY &&
+                   msc_vol[vol].sense_asc == 0x3A)
+    {
+        DBG("MSC: %lums vol %d retry tur (no media)\n", to_ms_since_boot(get_absolute_time()), vol);
+        tur_ok = msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) == MSC_STATUS_PASSED;
+    }
+    DBG("MSC: %lums vol %d TUR %s (sk=%d asc=%02Xh ascq=%02Xh)\n",
+        to_ms_since_boot(get_absolute_time()), vol,
+        tur_ok ? "ok" : "failed",
+        msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq);
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
     // ---- CAPACITY ----
-    if (!msc_read_capacity(vol, msc_floor_ms(deadline)))
+    // Longer timeout becuase removable drives need to read media
+    if (!msc_read_capacity(vol, MSC_SCSI_RW_TIMEOUT_MS))
+    {
+        DBG("MSC: %lums vol %d capacity failed\n", to_ms_since_boot(get_absolute_time()), vol);
         return msc_vol[vol].removable ? msc_volume_ejected : msc_volume_failed;
+    }
+    DBG("MSC: %lums vol %d capacity ok\n", to_ms_since_boot(get_absolute_time()), vol);
 
     // ---- WRITE PROTECTION ----
-    msc_read_write_protect(vol, msc_floor_ms(deadline));
+    msc_read_write_protect(vol, MSC_SCSI_OP_TIMEOUT_MS);
 
-    DBG("MSC vol %d: init ok, %lu blocks\n", vol,
-        (unsigned long)msc_vol[vol].block_count);
+    DBG("MSC: %lums vol %d init ok %lu blocks * %lu bytes wp=%d\n",
+        to_ms_since_boot(get_absolute_time()), vol,
+        (unsigned long)msc_vol[vol].block_count,
+        (unsigned long)msc_vol[vol].block_size,
+        msc_vol[vol].write_prot);
     return msc_volume_mounted;
 }
 
@@ -603,7 +625,7 @@ DSTATUS disk_status(BYTE pdrv)
     {
         msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
-        if (msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) == MSC_STATUS_PASSED)
+        if (msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) == MSC_STATUS_PASSED)
         {
             if (ejected)
             {
@@ -781,7 +803,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         // Fully initialize and check removable media.
         if (msc_vol[vol].status == msc_volume_mounted &&
             msc_vol[vol].removable &&
-            msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
+            msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
             msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
         {
             msc_vol_set_ejected(vol);
@@ -839,7 +861,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             }
         }
         scsi_inquiry_resp_t inq;
-        msc_status_t csw = msc_scsi_inquiry(vol, MSC_OP_TIMEOUT_MS, &inq);
+        msc_status_t csw = msc_scsi_inquiry(vol, MSC_SCSI_OP_TIMEOUT_MS, &inq);
         if (csw == MSC_STATUS_PASSED)
         {
             msc_inquiry_rtrims(inq.vendor_id, 8);
