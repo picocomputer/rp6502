@@ -117,7 +117,7 @@ typedef struct
 
 static msc_vol_t msc_vol[FF_VOLUMES];
 
-// This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
+// This driver requires our custom TinyUSB: src/tinyusb_rp6502/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
 
@@ -136,7 +136,7 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 
 // Override of the weak tuh_msc_pump() default in msc_host.c.
 // Pumps USB events and all application tasks during blocking I/O.
-// FatFs re-entry would be a problem so main_task() does not call FatFs
+// FatFs re-entry would be a problem so main_task() never calls FatFs
 // but it does call the required tuh_task().
 void tuh_msc_pump(void) { main_task(); }
 
@@ -160,13 +160,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
     memcpy(cbw->command, cmd, cmd_len);
 }
 
-// Core submit-and-wait helper with autosense.
-// - BOT: on non-PASSED CSW status, issue REQUEST SENSE and cache sense data.
-// - CBI: on non-PASSED interrupt status, issue REQUEST SENSE; sense data
-//   overrides the interrupt status to correctly handle recovered errors.
-// - CB: issue REQUEST SENSE after every command; no transport status exists
-//   so sense data is the sole source of command outcome.
-// Callers never need to explicitly issue REQUEST SENSE.
+// Core SCSI helper with autosense.
 static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                      const void *data, uint32_t timeout_ms)
 {
@@ -299,42 +293,56 @@ static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint32_t timeout_ms,
     return msc_scsi_command(vol, &cbw, resp, timeout_ms);
 }
 
+// TinyUSB does not define MODE SENSE(10) structs; define them locally.
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t cmd_code;
+    uint8_t : 3;
+    bool disable_block_descriptor : 1;
+    uint8_t : 4;
+    uint8_t page_code : 6;
+    uint8_t page_control : 2;
+    uint8_t subpage_code;
+    uint8_t reserved[3];
+    uint16_t alloc_length; // big-endian
+    uint8_t control;
+} scsi_mode_sense10_t;
+
+TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_t) == 10, "size is not correct");
+
+typedef struct TU_ATTR_PACKED
+{
+    uint16_t data_len; // big-endian
+    uint8_t medium_type;
+    uint8_t : 7;
+    bool write_protected : 1; // bit 7: write protect
+    uint8_t long_lba_bit;
+    uint8_t reserved;
+    uint16_t block_descriptor_len; // big-endian
+} scsi_mode_sense10_resp_t;
+
+TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_resp_t) == 8, "size is not correct");
+
+static msc_status_t msc_scsi_mode_sense10(uint8_t vol, uint32_t timeout_ms,
+                                          uint8_t page_code, scsi_mode_sense10_resp_t *resp)
+{
+    scsi_mode_sense10_t const cmd = {
+        .cmd_code = 0x5A,
+        .disable_block_descriptor = 1,
+        .page_code = page_code,
+        .alloc_length = tu_htons(sizeof(scsi_mode_sense10_resp_t)),
+    };
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
+    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
+}
+
 static msc_status_t msc_scsi_sync_cache10(uint8_t vol, uint32_t timeout_ms)
 {
     uint8_t cmd[10] = {0x35}; // SYNCHRONIZE CACHE (10)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
     return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
-}
-
-static msc_status_t msc_scsi_start_stop_unit(uint8_t vol, uint32_t timeout_ms)
-{
-    scsi_start_stop_unit_t const cmd = {
-        .cmd_code = SCSI_CMD_START_STOP_UNIT,
-        .start = 1,
-    };
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
-}
-
-//--------------------------------------------------------------------+
-// SCSI read and write commands with automatic error recovery
-//--------------------------------------------------------------------+
-
-// Mark a removable volume as ejected and clear cached geometry.
-static void msc_vol_set_ejected(uint8_t vol)
-{
-    if (!msc_vol[vol].removable)
-        return;
-    if (msc_vol[vol].status == msc_volume_free ||
-        msc_vol[vol].status == msc_volume_ejected)
-        return;
-    msc_vol[vol].status = msc_volume_ejected;
-    msc_vol[vol].block_count = 0;
-    msc_vol[vol].block_size = 0;
-    msc_vol[vol].write_prot = false;
-    DBG("MSC vol %d: media ejected\n", vol);
 }
 
 static msc_status_t msc_scsi_read10(uint8_t vol, uint32_t timeout_ms,
@@ -362,14 +370,6 @@ static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     return msc_scsi_command(vol, &cbw, buff, timeout_ms);
 }
-
-//--------------------------------------------------------------------+
-// Shared SCSI initialization helpers
-//--------------------------------------------------------------------+
-// Building blocks of msc_init_volume().  Each function performs one
-// SCSI operation synchronously using the sync helpers.  All use an
-// absolute_time_t deadline to coordinate timeouts across the full
-// init sequence.
 
 // Read device capacity.
 // CBI: READ FORMAT CAPACITIES (UFI mandatory command).
@@ -433,31 +433,34 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
     return true;
 }
 
-// Determine write protection via MODE SENSE(6).  BOT only; CBI
-// devices skip this (assumed not protected).  Non-fatal: defaults
-// to not protected on failure.
+// Determine write protection via MODE SENSE.
+// CBI: MODE SENSE(10) (UFI mandatory command, opcode 0x5A).
+// BOT: MODE SENSE(6) (SBC mandatory command, opcode 0x1A).
+// Non-fatal: defaults to not protected on failure.
 static void msc_read_write_protect(uint8_t vol, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
     msc_vol[vol].write_prot = false;
 
-    if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
-        return;
-
-    scsi_mode_sense6_resp_t ms;
-    if (msc_scsi_mode_sense6(vol, timeout_ms, 0x3F, &ms) == MSC_STATUS_PASSED)
+    if (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
     {
-        DBG("MSC vol %d: MODE SENSE WP=%d\n", vol, ms.write_protected);
-        msc_vol[vol].write_prot = ms.write_protected;
-        return;
+        scsi_mode_sense6_resp_t ms6;
+        if (msc_scsi_mode_sense6(vol, timeout_ms, 0x3F, &ms6) == MSC_STATUS_PASSED)
+        {
+            DBG("MSC vol %d: MODE SENSE(6) WP=%d\n", vol, ms6.write_protected);
+            msc_vol[vol].write_prot = ms6.write_protected;
+        }
+    }
+    else
+    {
+        scsi_mode_sense10_resp_t ms10;
+        if (msc_scsi_mode_sense10(vol, timeout_ms, 0x3F, &ms10) == MSC_STATUS_PASSED)
+        {
+            DBG("MSC vol %d: MODE SENSE(10) WP=%d\n", vol, ms10.write_protected);
+            msc_vol[vol].write_prot = ms10.write_protected;
+        }
     }
 }
-
-//--------------------------------------------------------------------+
-// Synchronous volume initialization
-//--------------------------------------------------------------------+
-// Called from disk_initialize() for both newly registered and ejected
-// volumes.  Performs the full SCSI init sequence synchronously.
 
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
@@ -472,6 +475,8 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
     }
 }
 
+// Convert absolute deadline to remaining milliseconds, floored at MSC_OP_TIMEOUT_MS.
+// Prevents a nearly-expired deadline from starving a subordinate command.
 static uint32_t msc_floor_ms(absolute_time_t deadline)
 {
     int64_t diff_us = absolute_time_diff_us(get_absolute_time(), deadline);
@@ -479,10 +484,9 @@ static uint32_t msc_floor_ms(absolute_time_t deadline)
     return remaining > MSC_SCSI_OP_TIMEOUT_MS ? remaining : MSC_SCSI_OP_TIMEOUT_MS;
 }
 
+// Initialize a new or ejected volume
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
-    // Convert absolute deadline to remaining milliseconds, floored at MSC_OP_TIMEOUT_MS.
-    // Prevents a nearly-expired deadline from starving a subordinate command.
     absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
 
     // ---- INQUIRY (first mount only) ----
@@ -513,6 +517,8 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
               (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION))); // normal ua clearing
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
+
+    // TODO should we proceed if !tur_ok?
 
     // ---- CAPACITY ----
     if (!msc_read_capacity(vol, msc_floor_ms(deadline)))
@@ -598,6 +604,21 @@ DWORD get_fattime(void)
                    ((WORD)(tm.tm_sec >> 1));
     }
     return ((DWORD)0 << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
+}
+
+// Mark a removable volume as ejected and clear cached geometry.
+static void msc_vol_set_ejected(uint8_t vol)
+{
+    if (!msc_vol[vol].removable)
+        return;
+    if (msc_vol[vol].status == msc_volume_free ||
+        msc_vol[vol].status == msc_volume_ejected)
+        return;
+    msc_vol[vol].status = msc_volume_ejected;
+    msc_vol[vol].block_count = 0;
+    msc_vol[vol].block_size = 0;
+    msc_vol[vol].write_prot = false;
+    DBG("MSC vol %d: media ejected\n", vol);
 }
 
 DSTATUS disk_status(BYTE pdrv)
