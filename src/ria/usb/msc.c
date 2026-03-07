@@ -98,18 +98,23 @@ typedef enum
     msc_volume_failed,
 } msc_volume_status_t;
 
-static msc_volume_status_t msc_volume_status[FF_VOLUMES];
-static uint8_t msc_volume_dev_addr[FF_VOLUMES];
-static uint8_t msc_volume_lun[FF_VOLUMES];
-static FATFS msc_fatfs_volumes[FF_VOLUMES];
-static bool msc_volume_is_removable[FF_VOLUMES];
-static uint32_t msc_volume_block_count[FF_VOLUMES];
-static uint32_t msc_volume_block_size[FF_VOLUMES];
-static uint8_t msc_volume_sense_key[FF_VOLUMES];
-static uint8_t msc_volume_sense_asc[FF_VOLUMES];
-static uint8_t msc_volume_sense_ascq[FF_VOLUMES];
-static bool msc_volume_write_protected[FF_VOLUMES];
-static absolute_time_t msc_volume_last_success[FF_VOLUMES];
+typedef struct
+{
+    msc_volume_status_t status;
+    uint8_t dev_addr;
+    uint8_t lun;
+    FATFS fatfs;
+    bool removable;
+    uint32_t block_count;
+    uint32_t block_size;
+    uint8_t sense_key;
+    uint8_t sense_asc;
+    uint8_t sense_ascq;
+    bool write_prot;
+    absolute_time_t last_ok;
+} msc_vol_t;
+
+static msc_vol_t msc_vol[FF_VOLUMES];
 
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
@@ -156,7 +161,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
                                 uint8_t cmd_len, const void *cmd)
 {
     memset(cbw, 0, sizeof(msc_cbw_t));
-    cbw->lun = msc_volume_lun[vol];
+    cbw->lun = msc_vol[vol].lun;
     cbw->total_bytes = total_bytes;
     cbw->dir = dir;
     cbw->cmd_len = cmd_len;
@@ -171,7 +176,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
 static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
                                   const void *data, uint32_t timeout_ms)
 {
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint8_t dev_addr = msc_vol[vol].dev_addr;
     if (dev_addr == 0)
         return MSC_STATUS_FAILED;
 
@@ -180,9 +185,9 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 
     if (status == MSC_STATUS_PHASE_ERROR)
     {
-        msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-        msc_volume_sense_asc[vol] = 0;
-        msc_volume_sense_ascq[vol] = 0;
+        msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+        msc_vol[vol].sense_asc = 0;
+        msc_vol[vol].sense_ascq = 0;
     }
     else if (status != MSC_STATUS_TIMED_OUT)
     {
@@ -191,7 +196,7 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         bool need_autosense = (status != MSC_STATUS_PASSED) || cb_no_interrupt;
         if (!need_autosense)
         {
-            msc_volume_last_success[vol] = get_absolute_time();
+            msc_vol[vol].last_ok = get_absolute_time();
             return status;
         }
 
@@ -215,20 +220,20 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
                                   sense_resp.response_code != 0));
         if (sense_data_valid && sense_resp.response_code)
         {
-            msc_volume_sense_key[vol] = sense_resp.sense_key;
-            msc_volume_sense_asc[vol] = sense_resp.add_sense_code;
-            msc_volume_sense_ascq[vol] = sense_resp.add_sense_qualifier;
+            msc_vol[vol].sense_key = sense_resp.sense_key;
+            msc_vol[vol].sense_asc = sense_resp.add_sense_code;
+            msc_vol[vol].sense_ascq = sense_resp.add_sense_qualifier;
         }
         else
         {
-            msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
-            msc_volume_sense_asc[vol] = 0;
-            msc_volume_sense_ascq[vol] = 0;
+            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+            msc_vol[vol].sense_asc = 0;
+            msc_vol[vol].sense_ascq = 0;
         }
         DBG("MSC vol %d: autosense %d/%02Xh/%02Xh\n",
-            vol, msc_volume_sense_key[vol],
-            msc_volume_sense_asc[vol],
-            msc_volume_sense_ascq[vol]);
+            vol, msc_vol[vol].sense_key,
+            msc_vol[vol].sense_asc,
+            msc_vol[vol].sense_ascq);
 
         if (cb_no_interrupt)
         {
@@ -236,11 +241,11 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
             {
                 status = MSC_STATUS_TIMED_OUT;
             }
-            else if (msc_volume_sense_key[vol] == SCSI_SENSE_NONE ||
-                     msc_volume_sense_key[vol] == SCSI_SENSE_RECOVERED_ERROR)
+            else if (msc_vol[vol].sense_key == SCSI_SENSE_NONE ||
+                     msc_vol[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
             {
                 status = MSC_STATUS_PASSED;
-                msc_volume_last_success[vol] = get_absolute_time();
+                msc_vol[vol].last_ok = get_absolute_time();
             }
             else
             {
@@ -334,15 +339,15 @@ static msc_status_t msc_scsi_start_stop_unit(uint8_t vol, uint32_t timeout_ms,
 static void msc_handle_io_error(uint8_t vol)
 {
     DBG("MSC vol %d: msc_handle_io_error\n", vol);
-    if (!msc_volume_is_removable[vol])
+    if (!msc_vol[vol].removable)
         return;
-    if (msc_volume_status[vol] == msc_volume_free ||
-        msc_volume_status[vol] == msc_volume_ejected)
+    if (msc_vol[vol].status == msc_volume_free ||
+        msc_vol[vol].status == msc_volume_ejected)
         return;
-    msc_volume_status[vol] = msc_volume_ejected;
-    msc_volume_block_count[vol] = 0;
-    msc_volume_block_size[vol] = 0;
-    msc_volume_write_protected[vol] = false;
+    msc_vol[vol].status = msc_volume_ejected;
+    msc_vol[vol].block_count = 0;
+    msc_vol[vol].block_size = 0;
+    msc_vol[vol].write_prot = false;
     DBG("MSC vol %d: media ejected\n", vol);
 }
 
@@ -392,7 +397,7 @@ static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
 // Returns true on success, populating block_count and block_size.
 static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
 {
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint8_t dev_addr = msc_vol[vol].dev_addr;
 
     if (!tuh_msc_mounted(dev_addr))
         return false;
@@ -400,46 +405,37 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
     if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
         // CBI: READ FORMAT CAPACITIES
-        uint8_t rfc[12];
-        memset(rfc, 0, sizeof(rfc));
+        scsi_read_format_capacity_data_t rfc;
         if (msc_scsi_read_format_capacities(vol, timeout_ms,
-                                            rfc, sizeof(rfc)) !=
+                                            &rfc, sizeof(rfc)) !=
             MSC_STATUS_PASSED)
             return false;
-
-        DBG("MSC vol %d: RFC list_len=%d [%02X %02X %02X %02X %02X %02X %02X %02X ...]\n",
-            vol, rfc[3], rfc[4], rfc[5], rfc[6], rfc[7],
-            rfc[8], rfc[9], rfc[10], rfc[11]);
-
-        scsi_read_format_capacity_data_t const *cap =
-            (scsi_read_format_capacity_data_t const *)rfc;
-        if (cap->list_length < 8 || (cap->list_length % 8) != 0)
+        if (rfc.list_length < 8 || (rfc.list_length % 8) != 0)
             return false;
-        uint8_t desc_type = cap->descriptor_type & 0x03;
+        uint8_t desc_type = rfc.descriptor_type & 0x03;
         if (desc_type == 3) // 0x03 = No Media Present
             return false;
-        uint32_t blocks = tu_ntohl(cap->block_num);
-        uint32_t bsize = ((uint32_t)cap->reserved2 << 16) | tu_ntohs(cap->block_size_u16);
-        DBG("MSC vol %d: RFC %lu blocks, %lu bytes/block, type %d\n",
-            vol, (unsigned long)blocks, (unsigned long)bsize, desc_type);
+        uint32_t blocks = tu_ntohl(rfc.block_num);
+        uint32_t bsize = ((uint32_t)rfc.reserved2 << 16) | tu_ntohs(rfc.block_size_u16);
+        DBG("MSC vol %d: RFC list_len=%d blocks=%lu bsize=%lu type=%d\n",
+            vol, rfc.list_length, (unsigned long)blocks, (unsigned long)bsize, desc_type);
         // Accept power-of-2 sector sizes that FatFS supports.
         if (blocks == 0 || bsize == 0 ||
             (bsize & (bsize - 1)) != 0 || bsize > 4096)
             return false;
-        msc_volume_block_count[vol] = blocks;
-        msc_volume_block_size[vol] = bsize;
+        msc_vol[vol].block_count = blocks;
+        msc_vol[vol].block_size = bsize;
     }
     else
     {
         // BOT: READ CAPACITY(10)
         scsi_read_capacity10_resp_t cap10;
-        memset(&cap10, 0, sizeof(cap10));
         msc_status_t cap_status = msc_scsi_read_capacity10(vol, timeout_ms, &cap10);
         if (cap_status != MSC_STATUS_PASSED)
         {
             // Autosense already populated sense data.
-            if (msc_volume_is_removable[vol] &&
-                msc_volume_sense_asc[vol] == 0x3A)
+            if (msc_vol[vol].removable &&
+                msc_vol[vol].sense_asc == 0x3A) // TODO what is this 3A?
                 DBG("MSC vol %d: capacity - medium not present\n", vol);
             return false;
         }
@@ -453,8 +449,8 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
             (bsize & (bsize - 1)) != 0 ||
             bsize > 4096)
             return false;
-        msc_volume_block_count[vol] = last_lba + 1;
-        msc_volume_block_size[vol] = bsize;
+        msc_vol[vol].block_count = last_lba + 1;
+        msc_vol[vol].block_size = bsize;
     }
 
     return true;
@@ -465,18 +461,17 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
 // to not protected on failure.
 static void msc_read_write_protect(uint8_t vol, uint32_t timeout_ms)
 {
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
-    msc_volume_write_protected[vol] = false;
+    uint8_t dev_addr = msc_vol[vol].dev_addr;
+    msc_vol[vol].write_prot = false;
 
     if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
         return;
 
     scsi_mode_sense6_resp_t ms;
-    memset(&ms, 0, sizeof(ms));
     if (msc_scsi_mode_sense6(vol, timeout_ms, 0x3F, &ms) == MSC_STATUS_PASSED)
     {
         DBG("MSC vol %d: MODE SENSE WP=%d\n", vol, ms.write_protected);
-        msc_volume_write_protected[vol] = ms.write_protected;
+        msc_vol[vol].write_prot = ms.write_protected;
         return;
     }
 }
@@ -502,11 +497,11 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
-    uint8_t dev_addr = msc_volume_dev_addr[vol];
+    uint8_t dev_addr = msc_vol[vol].dev_addr;
     absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
 
     // ---- INQUIRY (first mount only) ----
-    if (msc_volume_status[vol] == msc_volume_registered)
+    if (msc_vol[vol].status == msc_volume_registered)
     {
         bool inquiry_ok = false;
         if (!tuh_msc_mounted(dev_addr))
@@ -533,7 +528,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             DBG("MSC vol %d: INQUIRY failed\n", vol);
             return msc_volume_failed;
         }
-        msc_volume_is_removable[vol] = inq.is_removable;
+        msc_vol[vol].removable = inq.is_removable;
         DBG("MSC vol %d: %s%s\n", vol,
             inq.vendor_id, inq.is_removable ? " (removable)" : "");
     }
@@ -554,14 +549,14 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             tur_ok = true;
             break;
         }
-        uint8_t sk = msc_volume_sense_key[vol];
-        uint8_t asc = msc_volume_sense_asc[vol];
-        uint8_t ascq = msc_volume_sense_ascq[vol];
+        uint8_t sk = msc_vol[vol].sense_key;
+        uint8_t asc = msc_vol[vol].sense_asc;
+        uint8_t ascq = msc_vol[vol].sense_ascq;
         // Medium Not Present: some drives (e.g. TEAC floppy) return
         // stale 2/3Ah/00h after media reinsertion. Allow one retry.
         if (asc == 0x3A)
         {
-            if (msc_volume_status[vol] == msc_volume_ejected &&
+            if (msc_vol[vol].status == msc_volume_ejected &&
                 attempt == 0)
                 continue;
             break;
@@ -590,18 +585,18 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         // Any other sense key - stop retrying
         break;
     }
-    if (!tur_ok && msc_volume_is_removable[vol])
+    if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
     // ---- CAPACITY ----
     if (!msc_read_capacity(vol, msc_floor_ms(deadline)))
-        return msc_volume_is_removable[vol] ? msc_volume_ejected : msc_volume_failed;
+        return msc_vol[vol].removable ? msc_volume_ejected : msc_volume_failed;
 
     // ---- WRITE PROTECTION ----
     msc_read_write_protect(vol, msc_floor_ms(deadline));
 
     DBG("MSC vol %d: init ok, %lu blocks\n", vol,
-        (unsigned long)msc_volume_block_count[vol]);
+        (unsigned long)msc_vol[vol].block_count);
     return msc_volume_mounted;
 }
 
@@ -614,7 +609,7 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
         uint8_t vol = FF_VOLUMES;
         for (uint8_t v = 0; v < FF_VOLUMES; v++)
         {
-            if (msc_volume_status[v] == msc_volume_free)
+            if (msc_vol[v].status == msc_volume_free)
             {
                 vol = v;
                 break;
@@ -625,12 +620,12 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
             DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
             continue;
         }
-        msc_volume_dev_addr[vol] = dev_addr;
-        msc_volume_lun[vol] = lun;
-        msc_volume_status[vol] = msc_volume_registered;
+        msc_vol[vol].dev_addr = dev_addr;
+        msc_vol[vol].lun = lun;
+        msc_vol[vol].status = msc_volume_registered;
         TCHAR volstr[6];
         msc_vol_path(volstr, vol);
-        f_mount(&msc_fatfs_volumes[vol], volstr, 0);
+        f_mount(&msc_vol[vol].fatfs, volstr, 0);
         DBG("MSC mount dev_addr %d LUN %d -> vol %d\n", dev_addr, lun, vol);
     }
 }
@@ -639,22 +634,22 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
 {
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_dev_addr[vol] == dev_addr &&
-            msc_volume_status[vol] != msc_volume_free)
+        if (msc_vol[vol].dev_addr == dev_addr &&
+            msc_vol[vol].status != msc_volume_free)
         {
             TCHAR volstr[6];
             msc_vol_path(volstr, vol);
             f_unmount(volstr);
-            msc_volume_status[vol] = msc_volume_free;
-            msc_volume_dev_addr[vol] = 0;
-            msc_volume_lun[vol] = 0;
-            msc_volume_block_count[vol] = 0;
-            msc_volume_block_size[vol] = 0;
-            msc_volume_sense_key[vol] = 0;
-            msc_volume_sense_asc[vol] = 0;
-            msc_volume_sense_ascq[vol] = 0;
-            msc_volume_write_protected[vol] = false;
-            msc_volume_is_removable[vol] = false;
+            msc_vol[vol].status = msc_volume_free;
+            msc_vol[vol].dev_addr = 0;
+            msc_vol[vol].lun = 0;
+            msc_vol[vol].block_count = 0;
+            msc_vol[vol].block_size = 0;
+            msc_vol[vol].sense_key = 0;
+            msc_vol[vol].sense_asc = 0;
+            msc_vol[vol].sense_ascq = 0;
+            msc_vol[vol].write_prot = false;
+            msc_vol[vol].removable = false;
             DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
@@ -682,30 +677,20 @@ DWORD get_fattime(void)
 DSTATUS disk_status(BYTE pdrv)
 {
     uint8_t vol = pdrv;
-    bool const ejected = (msc_volume_status[vol] == msc_volume_ejected);
+    bool const ejected = (msc_vol[vol].status == msc_volume_ejected);
 
-    if (!ejected && msc_volume_status[vol] != msc_volume_mounted)
+    if (!ejected && msc_vol[vol].status != msc_volume_mounted)
     {
-        DBG("MSC vol %d: disk_status, not mounted, status=%d\n", vol, msc_volume_status[vol]);
+        DBG("MSC vol %d: disk_status, not mounted, status=%d\n", vol, msc_vol[vol].status);
         return STA_NOINIT;
     }
 
-    if (!ejected)
-    {
-        uint8_t const dev_addr = msc_volume_dev_addr[vol];
-        if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
-        {
-            DBG("MSC vol %d: disk_status, device not mounted\n", vol);
-            return STA_NOINIT;
-        }
-    }
-
     // TUR for removable volumes: rate-limited by MSC_DISK_STATUS_TIMEOUT_MS.
-    if (msc_volume_is_removable[vol] &&
-        absolute_time_diff_us(msc_volume_last_success[vol], get_absolute_time()) >=
+    if (msc_vol[vol].removable &&
+        absolute_time_diff_us(msc_vol[vol].last_ok, get_absolute_time()) >=
             MSC_DISK_STATUS_TIMEOUT_MS * 1000)
     {
-        msc_volume_last_success[vol] = get_absolute_time(); // always rate-limit
+        msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
         if (msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) == MSC_STATUS_PASSED)
         {
@@ -728,34 +713,29 @@ DSTATUS disk_status(BYTE pdrv)
         return STA_NOINIT | STA_NODISK;
     }
 
-    return msc_volume_write_protected[vol] ? STA_PROTECT : 0;
+    return msc_vol[vol].write_prot ? STA_PROTECT : 0;
 }
 
 DSTATUS disk_initialize(BYTE pdrv)
 {
     uint8_t vol = pdrv;
-    DBG("MSC vol %d: disk_initialize, status=%d\n", vol, msc_volume_status[vol]);
+    DBG("MSC vol %d: disk_initialize, status=%d\n", vol, msc_vol[vol].status);
 
-    if (msc_volume_status[vol] == msc_volume_registered ||
-        msc_volume_status[vol] == msc_volume_ejected)
+    if (msc_vol[vol].status == msc_volume_registered ||
+        msc_vol[vol].status == msc_volume_ejected)
     {
-        uint8_t dev_addr = msc_volume_dev_addr[vol];
-        if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
-            return STA_NOINIT |
-                   (msc_volume_status[vol] == msc_volume_ejected ? STA_NODISK : 0);
-
         msc_volume_status_t result = msc_init_volume(vol);
         if (result != msc_volume_failed)
-            msc_volume_status[vol] = result;
+            msc_vol[vol].status = result;
     }
 
-    if (msc_volume_status[vol] == msc_volume_ejected)
+    if (msc_vol[vol].status == msc_volume_ejected)
         return STA_NOINIT | STA_NODISK;
 
-    if (msc_volume_status[vol] != msc_volume_mounted)
+    if (msc_vol[vol].status != msc_volume_mounted)
         return STA_NOINIT;
 
-    return msc_volume_write_protected[vol] ? STA_PROTECT : 0;
+    return msc_vol[vol].write_prot ? STA_PROTECT : 0;
 }
 
 static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
@@ -764,7 +744,7 @@ static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
         return RES_OK;
     if (status == MSC_STATUS_TIMED_OUT)
         return RES_NOTRDY;
-    uint8_t sk = msc_volume_sense_key[vol];
+    uint8_t sk = msc_vol[vol].sense_key;
     if (sk == SCSI_SENSE_NOT_READY)
         return RES_NOTRDY;
     if (sk == SCSI_SENSE_DATA_PROTECT)
@@ -777,8 +757,8 @@ static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t vol = pdrv;
-    uint32_t const block_size = msc_volume_block_size[vol];
-    uint8_t const dev_addr = msc_volume_dev_addr[vol];
+    uint32_t const block_size = msc_vol[vol].block_size;
+    uint8_t const dev_addr = msc_vol[vol].dev_addr;
     DBG("MSC R> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
@@ -806,10 +786,10 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t vol = pdrv;
-    if (msc_volume_write_protected[vol])
+    if (msc_vol[vol].write_prot)
         return RES_WRPRT;
-    uint32_t const block_size = msc_volume_block_size[vol];
-    uint8_t const dev_addr = msc_volume_dev_addr[vol];
+    uint32_t const block_size = msc_vol[vol].block_size;
+    uint8_t const dev_addr = msc_vol[vol].dev_addr;
     DBG("MSC W> %lu+%u\n", (unsigned long)sector, count);
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
@@ -842,12 +822,9 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         // SCSI SYNCHRONIZE CACHE (10): flush the device's write cache.
         // Skip for write-protected volumes (no writes to flush) and
         // for disconnected devices (can't send commands).
-        if (msc_volume_write_protected[vol])
+        if (msc_vol[vol].write_prot)
             return RES_OK;
-        uint8_t const dev_addr = msc_volume_dev_addr[vol];
-        if (dev_addr == 0 || !tuh_msc_mounted(dev_addr))
-            return RES_OK; // device gone, nothing to flush
-        if (msc_volume_block_size[vol] == 0)
+        if (msc_vol[vol].block_size == 0)
             return RES_OK;
         // Best effort: many USB flash drives don't implement
         // SYNCHRONIZE CACHE, so treat command failures as OK.
@@ -855,10 +832,10 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         return status == MSC_STATUS_TIMED_OUT ? RES_NOTRDY : RES_OK;
     }
     case GET_SECTOR_COUNT:
-        *((DWORD *)buff) = msc_volume_block_count[vol];
+        *((DWORD *)buff) = msc_vol[vol].block_count;
         return RES_OK;
     case GET_SECTOR_SIZE:
-        *((WORD *)buff) = (WORD)msc_volume_block_size[vol];
+        *((WORD *)buff) = (WORD)msc_vol[vol].block_size;
         return RES_OK;
     case GET_BLOCK_SIZE:
         *((DWORD *)buff) = 1;
@@ -873,9 +850,9 @@ int msc_status_count(void)
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
-        if (msc_volume_status[vol] == msc_volume_registered ||
-            msc_volume_status[vol] == msc_volume_mounted ||
-            msc_volume_status[vol] == msc_volume_ejected)
+        if (msc_vol[vol].status == msc_volume_registered ||
+            msc_vol[vol].status == msc_volume_mounted ||
+            msc_vol[vol].status == msc_volume_ejected)
             count++;
     }
     return count;
@@ -886,15 +863,15 @@ int msc_status_response(char *buf, size_t buf_size, int state)
     if (state < 0 || state >= FF_VOLUMES)
         return -1;
     uint8_t vol = state;
-    if (msc_volume_status[vol] == msc_volume_registered ||
-        msc_volume_status[vol] == msc_volume_mounted ||
-        msc_volume_status[vol] == msc_volume_ejected)
+    if (msc_vol[vol].status == msc_volume_registered ||
+        msc_vol[vol].status == msc_volume_mounted ||
+        msc_vol[vol].status == msc_volume_ejected)
     {
         // Fully initialize and check removable media.
-        if (msc_volume_status[vol] == msc_volume_mounted &&
-            msc_volume_is_removable[vol] &&
+        if (msc_vol[vol].status == msc_volume_mounted &&
+            msc_vol[vol].removable &&
             msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
-            msc_volume_sense_asc[vol] == 0x3A)
+            msc_vol[vol].sense_asc == 0x3A)
         {
             msc_handle_io_error(vol);
         }
@@ -902,7 +879,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             disk_initialize(vol);
 
         char sizebuf[24];
-        if (msc_volume_status[vol] != msc_volume_mounted)
+        if (msc_vol[vol].status != msc_volume_mounted)
         {
             snprintf(sizebuf, sizeof(sizebuf), "%s", STR_PARENS_NO_MEDIA);
         }
@@ -912,8 +889,8 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             // Everything else: pure decimal raw/1000/1000
             const char *xb;
             double size;
-            uint64_t raw = (uint64_t)msc_volume_block_count[vol] *
-                           (uint64_t)msc_volume_block_size[vol];
+            uint64_t raw = (uint64_t)msc_vol[vol].block_count *
+                           (uint64_t)msc_vol[vol].block_size;
             if (raw < 5000000ULL)
             {
                 xb = "KB";
@@ -951,7 +928,6 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             }
         }
         scsi_inquiry_resp_t inq;
-        memset(&inq, 0, sizeof(inq));
         msc_status_t csw = msc_scsi_inquiry(vol, MSC_OP_TIMEOUT_MS, &inq);
         if (csw == MSC_STATUS_PASSED)
         {
