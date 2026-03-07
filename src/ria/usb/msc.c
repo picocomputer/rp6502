@@ -27,13 +27,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MSC_STD_FIL_MAX 8
 static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
+// Overall deadline for msc_init_volume (first mount or re-probe).
+#define MSC_INIT_TIMEOUT_MS 4000
+
 // Timeout for read/write/sync SCSI commands.
 // Needs headroom for 3.5" floppy disk drives.
 #define MSC_SCSI_RW_TIMEOUT_MS 2000
-
-// Overall deadline for msc_init_volume (first mount or re-probe).
-// Covers INQUIRY + TUR + SENSE + START UNIT + delay + retry + capacity + mount.
-#define MSC_INIT_TIMEOUT_MS 4000
 
 // Time budget for any single USB MSC operation: one SCSI command or
 // one reset recovery sequence (BOT: BMR + 2x CLEAR_HALT; CBI: class
@@ -141,14 +140,6 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 // but it does call the required tuh_task().
 void tuh_msc_pump(void) { main_task(); }
 
-// Convert absolute deadline to remaining milliseconds, floored at MSC_OP_TIMEOUT_MS.
-// Prevents a nearly-expired deadline from starving a subordinate command.
-static inline uint32_t msc_floor_ms(absolute_time_t deadline)
-{
-    int64_t diff_us = absolute_time_diff_us(get_absolute_time(), deadline);
-    uint32_t remaining = diff_us > 0 ? (uint32_t)(diff_us / 1000) : 0;
-    return remaining > MSC_SCSI_OP_TIMEOUT_MS ? remaining : MSC_SCSI_OP_TIMEOUT_MS;
-}
 //--------------------------------------------------------------------+
 // Synchronous SCSI command wrappers
 //--------------------------------------------------------------------+
@@ -481,8 +472,17 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
     }
 }
 
+static uint32_t msc_floor_ms(absolute_time_t deadline)
+{
+    int64_t diff_us = absolute_time_diff_us(get_absolute_time(), deadline);
+    uint32_t remaining = diff_us > 0 ? (uint32_t)(diff_us / 1000) : 0;
+    return remaining > MSC_SCSI_OP_TIMEOUT_MS ? remaining : MSC_SCSI_OP_TIMEOUT_MS;
+}
+
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
+    // Convert absolute deadline to remaining milliseconds, floored at MSC_OP_TIMEOUT_MS.
+    // Prevents a nearly-expired deadline from starving a subordinate command.
     absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
 
     // ---- INQUIRY (first mount only) ----
@@ -498,15 +498,19 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     }
 
     // ---- TUR ----
+    int tur_count = 0;
     bool tur_ok;
     do
     {
-        tur_ok = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED;
-        DBG("MSC vol %d: TUR %s (sk=%d asc=%02Xh ascq=%02Xh)\n", vol,
-            tur_ok ? "ok" : "failed",
+        tur_count++;
+        msc_status_t status = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline));
+        tur_ok = status == MSC_STATUS_PASSED;
+        DBG("MSC vol %d: TUR %s %d (sk=%d asc=%02Xh ascq=%02Xh)\n", vol,
+            tur_ok ? "ok" : "failed", status,
             msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq);
-    } while (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
-             !time_reached(deadline));
+    } while (!tur_ok && !time_reached(deadline) &&
+             ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) || // one retry for media sense
+              (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION))); // normal ua clearing
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
