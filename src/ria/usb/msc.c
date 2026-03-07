@@ -111,16 +111,13 @@ static uint8_t msc_volume_sense_ascq[FF_VOLUMES];
 static bool msc_volume_write_protected[FF_VOLUMES];
 static absolute_time_t msc_volume_last_success[FF_VOLUMES];
 
-// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
-static uint32_t msc_cbw_tag_counter = 0x65020000;
-
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
+uint8_t tuh_msc_protocol(uint8_t dev_addr);
+msc_csw_status_t tuh_msc_csw_status(uint8_t dev_addr);
 bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
 void tuh_msc_abort(uint8_t dev_addr);
-uint8_t tuh_msc_protocol(uint8_t dev_addr);
-const msc_csw_t *tuh_msc_csw(uint8_t dev_addr);
 
 //--------------------------------------------------------------------+
 // Synchronous I/O helpers
@@ -132,10 +129,10 @@ const msc_csw_t *tuh_msc_csw(uint8_t dev_addr);
 // We need an additional value for timeout.
 typedef enum
 {
-    msc_status_passed,      // MSC_CSW_STATUS_PASSED
-    msc_status_failed,      // MSC_CSW_STATUS_FAILED
-    msc_status_phase_error, // MSC_CSW_STATUS_PHASE_ERROR
-    msc_status_timed_out,
+    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
+    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
+    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
+    MSC_STATUS_TIMED_OUT,   // local extension
 } msc_status_t;
 
 // Return deadline or now+MSC_OP_TIMEOUT_MS, whichever is later.
@@ -152,17 +149,18 @@ static inline absolute_time_t msc_sync_floor(absolute_time_t deadline)
 // Each wrapper builds a CDB, submits it via the transport API,
 // and blocks until completion.  Returns the CSW status code.
 
-// Initialize a CBW with standard boilerplate fields.
-static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t lun)
+// Initialize a CBW for a volume's LUN.
+// Signature and tag are stamped by tuh_msc_scsi_submit().
+static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
+                                uint32_t total_bytes, uint8_t dir,
+                                uint8_t cmd_len, const void *cmd)
 {
     memset(cbw, 0, sizeof(msc_cbw_t));
-    cbw->signature = MSC_CBW_SIGNATURE;
-    // Skip 0 on wrap: tag 0 is legal per spec but unconventional and
-    // could confuse stale-CSW detection in edge cases.
-    if (++msc_cbw_tag_counter == 0)
-        ++msc_cbw_tag_counter;
-    cbw->tag = msc_cbw_tag_counter;
-    cbw->lun = lun;
+    cbw->lun = msc_volume_lun[vol];
+    cbw->total_bytes = total_bytes;
+    cbw->dir = dir;
+    cbw->cmd_len = cmd_len;
+    memcpy(cbw->command, cmd, cmd_len);
 }
 
 // Wait for transport ready, submit command, and wait for completion.
@@ -182,12 +180,12 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
     {
         if (!tuh_msc_mounted(dev_addr))
         {
-            result = msc_status_failed;
+            result = MSC_STATUS_FAILED;
             goto done;
         }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
-            result = msc_status_timed_out;
+            result = MSC_STATUS_TIMED_OUT;
             goto done;
         }
         if (!tuh_msc_ready(dev_addr))
@@ -205,24 +203,20 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
     {
         if (!tuh_msc_mounted(dev_addr))
         {
-            result = msc_status_failed;
+            result = MSC_STATUS_FAILED;
             goto done;
         }
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
         {
             tuh_msc_abort(dev_addr);
-            result = msc_status_timed_out;
+            result = MSC_STATUS_TIMED_OUT;
             goto done;
         }
         main_task();
     }
     {
-        const msc_csw_t *csw = tuh_msc_csw(dev_addr);
-        DBG("CSW: sig=%08lX tag=%08lX residue=%lu status=%u\n",
-            (unsigned long)csw->signature,
-            (unsigned long)csw->tag,
-            (unsigned long)csw->data_residue,
-            csw->status);
+        msc_csw_status_t csw_status = tuh_msc_csw_status(dev_addr);
+        DBG("CSW: status=%u\n", csw_status);
         // msc_host.c has already validated the CSW (signature, tag, size).
         // Invalid CSWs (wrong signature, tag, or length) are detected in
         // bot_xfer_cb(), which calls complete_command() to synthesize a
@@ -231,16 +225,8 @@ static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
         // after tuh_msc_ready() became true, meaning recovery_stage is IDLE.
         // A genuine device-reported PHASE_ERROR in an otherwise valid CSW
         // also triggers recovery; the CSW status is preserved so we can
-        // return msc_status_phase_error to the caller.
-        result = (msc_status_t)csw->status;
-        if (result == msc_status_passed &&
-            cbw->total_bytes > 0 &&
-            csw->data_residue > 0)
-        {
-            DBG("MSC dev %u: short transfer, residue=%lu\n",
-                dev_addr, (unsigned long)csw->data_residue);
-            result = msc_status_failed;
-        }
+        // return MSC_STATUS_PHASE_ERROR to the caller.
+        result = (msc_status_t)csw_status;
     }
 
 done:
@@ -257,22 +243,22 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
     if (dev_addr == 0)
-        return msc_status_failed;
+        return MSC_STATUS_FAILED;
 
     msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
     bool cb_no_interrupt = (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_CBI_NO_INTERRUPT);
 
-    if (status == msc_status_phase_error)
+    if (status == MSC_STATUS_PHASE_ERROR)
     {
         msc_volume_sense_key[vol] = SCSI_SENSE_NONE;
         msc_volume_sense_asc[vol] = 0;
         msc_volume_sense_ascq[vol] = 0;
     }
-    else if (status != msc_status_timed_out)
+    else if (status != MSC_STATUS_TIMED_OUT)
     {
         // CB (no interrupt endpoint) has no transport status phase.
         // Determine command outcome via REQUEST SENSE for every command.
-        bool need_autosense = (status != msc_status_passed) || cb_no_interrupt;
+        bool need_autosense = (status != MSC_STATUS_PASSED) || cb_no_interrupt;
         if (!need_autosense)
         {
             msc_volume_last_success[vol] = get_absolute_time();
@@ -281,23 +267,20 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 
         scsi_sense_fixed_resp_t sense_resp;
         memset(&sense_resp, 0, sizeof(sense_resp));
-        msc_cbw_t sense_cbw;
-        msc_cbw_init(&sense_cbw, msc_volume_lun[vol]);
-        sense_cbw.total_bytes = sizeof(scsi_sense_fixed_resp_t);
-        sense_cbw.dir = TUSB_DIR_IN_MASK;
-        sense_cbw.cmd_len = sizeof(scsi_request_sense_t);
         scsi_request_sense_t const sense_cmd = {
             .cmd_code = SCSI_CMD_REQUEST_SENSE,
             .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
-        memcpy(sense_cbw.command, &sense_cmd, sizeof(sense_cmd));
+        msc_cbw_t sense_cbw;
+        msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
+                     sizeof(sense_cmd), &sense_cmd);
         msc_status_t sense_status = msc_scsi_sync_raw(
             dev_addr, &sense_cbw, &sense_resp, msc_sync_floor(deadline));
         // On CBI with an interrupt endpoint, the interrupt status can reflect
         // prior command state rather than REQUEST SENSE completion. The sense
         // payload is authoritative when it is present and the transfer did not
         // time out.
-        bool sense_data_valid = (sense_status == msc_status_passed) ||
-                                (sense_status != msc_status_timed_out &&
+        bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
+                                (sense_status != MSC_STATUS_TIMED_OUT &&
                                  (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT ||
                                   sense_resp.response_code != 0));
         if (sense_data_valid && sense_resp.response_code)
@@ -319,19 +302,19 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 
         if (cb_no_interrupt)
         {
-            if (!sense_data_valid || sense_status == msc_status_timed_out)
+            if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
             {
-                status = msc_status_timed_out;
+                status = MSC_STATUS_TIMED_OUT;
             }
             else if (msc_volume_sense_key[vol] == SCSI_SENSE_NONE ||
                      msc_volume_sense_key[vol] == SCSI_SENSE_RECOVERED_ERROR)
             {
-                status = msc_status_passed;
+                status = MSC_STATUS_PASSED;
                 msc_volume_last_success[vol] = get_absolute_time();
             }
             else
             {
-                status = msc_status_failed;
+                status = MSC_STATUS_FAILED;
             }
         }
     }
@@ -342,26 +325,19 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
 static msc_status_t msc_inquiry_sync(uint8_t vol, scsi_inquiry_resp_t *resp,
                                      absolute_time_t deadline)
 {
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = sizeof(scsi_inquiry_resp_t);
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = sizeof(scsi_inquiry_t);
     scsi_inquiry_t const cmd = {
         .cmd_code = SCSI_CMD_INQUIRY,
         .alloc_length = sizeof(scsi_inquiry_resp_t)};
-    memcpy(cbw.command, &cmd, sizeof(cmd));
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     return msc_scsi_sync(vol, &cbw, resp, deadline);
 }
 
 static msc_status_t msc_tur_sync(uint8_t vol, absolute_time_t deadline)
 {
+    scsi_test_unit_ready_t const cmd = {.cmd_code = SCSI_CMD_TEST_UNIT_READY};
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = 0;
-    cbw.dir = TUSB_DIR_OUT;
-    cbw.cmd_len = sizeof(scsi_test_unit_ready_t);
-    cbw.command[0] = SCSI_CMD_TEST_UNIT_READY;
+    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     return msc_scsi_sync(vol, &cbw, NULL, deadline);
 }
 
@@ -369,12 +345,9 @@ static msc_status_t msc_read_capacity10_sync(uint8_t vol,
                                              scsi_read_capacity10_resp_t *resp,
                                              absolute_time_t deadline)
 {
+    scsi_read_capacity10_t const cmd = {.cmd_code = SCSI_CMD_READ_CAPACITY_10};
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = sizeof(scsi_read_capacity10_resp_t);
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = sizeof(scsi_read_capacity10_t);
-    cbw.command[0] = SCSI_CMD_READ_CAPACITY_10;
+    msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     return msc_scsi_sync(vol, &cbw, resp, deadline);
 }
 
@@ -382,14 +355,11 @@ static msc_status_t msc_read_format_capacities_sync(uint8_t vol, void *resp,
                                                     uint8_t alloc_length,
                                                     absolute_time_t deadline)
 {
+    uint8_t cmd[12] = {0x23, 0, 0, 0, 0, 0, 0, // READ FORMAT CAPACITIES
+                       (alloc_length >> 8) & 0xFF,
+                       alloc_length & 0xFF};
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = alloc_length;
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = 12;      // UFI 12-byte CDB
-    cbw.command[0] = 0x23; // READ FORMAT CAPACITIES
-    cbw.command[7] = (alloc_length >> 8) & 0xFF;
-    cbw.command[8] = alloc_length & 0xFF;
+    msc_cbw_init(&cbw, vol, alloc_length, TUSB_DIR_IN_MASK, 12, cmd);
     return msc_scsi_sync(vol, &cbw, resp, deadline);
 }
 
@@ -397,30 +367,23 @@ static msc_status_t msc_mode_sense6_sync(uint8_t vol, uint8_t page_code,
                                          scsi_mode_sense6_resp_t *resp,
                                          absolute_time_t deadline)
 {
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = sizeof(scsi_mode_sense6_resp_t);
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = sizeof(scsi_mode_sense6_t);
     scsi_mode_sense6_t const cmd = {
         .cmd_code = SCSI_CMD_MODE_SENSE_6,
         .disable_block_descriptor = 1,
         .page_code = page_code,
         .alloc_length = sizeof(scsi_mode_sense6_resp_t),
     };
-    memcpy(cbw.command, &cmd, sizeof(cmd));
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense6_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     return msc_scsi_sync(vol, &cbw, resp, deadline);
 }
 
 static msc_status_t msc_sync_cache10_sync(uint8_t vol,
                                           absolute_time_t deadline)
 {
+    uint8_t cmd[10] = {0x35}; // SYNCHRONIZE CACHE (10)
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = 0;
-    cbw.dir = TUSB_DIR_OUT;
-    cbw.cmd_len = 10;
-    cbw.command[0] = 0x35; // SYNCHRONIZE CACHE (10)
+    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
     return msc_scsi_sync(vol, &cbw, NULL, deadline);
 }
 
@@ -428,17 +391,13 @@ static msc_status_t msc_start_stop_unit_sync(uint8_t vol, bool start,
                                              bool load_eject,
                                              absolute_time_t deadline)
 {
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = 0;
-    cbw.dir = TUSB_DIR_OUT;
-    cbw.cmd_len = sizeof(scsi_start_stop_unit_t);
     scsi_start_stop_unit_t const cmd = {
         .cmd_code = SCSI_CMD_START_STOP_UNIT,
         .start = start ? 1u : 0u,
         .load_eject = load_eject ? 1u : 0u,
     };
-    memcpy(cbw.command, &cmd, sizeof(cmd));
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     return msc_scsi_sync(vol, &cbw, NULL, deadline);
 }
 
@@ -467,18 +426,14 @@ static msc_status_t msc_read10_sync(uint8_t vol, void *buff,
                                     uint32_t block_size,
                                     absolute_time_t deadline)
 {
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = block_count * block_size;
-    cbw.dir = TUSB_DIR_IN_MASK;
-    cbw.cmd_len = sizeof(scsi_read10_t);
     scsi_read10_t const cmd = {
         .cmd_code = SCSI_CMD_READ_10,
         .lba = tu_htonl(lba),
         .block_count = tu_htons(block_count)};
-    memcpy(cbw.command, &cmd, sizeof(cmd));
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
-    if (status != msc_status_passed)
+    if (status != MSC_STATUS_PASSED)
         msc_handle_io_error(vol);
     return status;
 }
@@ -488,18 +443,14 @@ static msc_status_t msc_write10_sync(uint8_t vol, const void *buff,
                                      uint32_t block_size,
                                      absolute_time_t deadline)
 {
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, msc_volume_lun[vol]);
-    cbw.total_bytes = block_count * block_size;
-    cbw.dir = TUSB_DIR_OUT;
-    cbw.cmd_len = sizeof(scsi_write10_t);
     scsi_write10_t const cmd = {
         .cmd_code = SCSI_CMD_WRITE_10,
         .lba = tu_htonl(lba),
         .block_count = tu_htons(block_count)};
-    memcpy(cbw.command, &cmd, sizeof(cmd));
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_sync(vol, &cbw, buff, deadline);
-    if (status != msc_status_passed)
+    if (status != MSC_STATUS_PASSED)
         msc_handle_io_error(vol);
     return status;
 }
@@ -530,7 +481,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         memset(rfc, 0, sizeof(rfc));
         if (msc_read_format_capacities_sync(vol, rfc, sizeof(rfc),
                                             deadline) !=
-            msc_status_passed)
+            MSC_STATUS_PASSED)
             return false;
 
         DBG("MSC vol %d: RFC list_len=%d [%02X %02X %02X %02X %02X %02X %02X %02X ...]\n",
@@ -564,7 +515,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         // Retry once on Unit Attention (sense 6/28h: media changed).
         // TUR clears the first UA, but a second can arrive between
         // TUR and capacity read if timing is tight.
-        if (cap_status != msc_status_passed &&
+        if (cap_status != MSC_STATUS_PASSED &&
             msc_volume_sense_key[vol] == SCSI_SENSE_UNIT_ATTENTION &&
             msc_volume_sense_asc[vol] == 0x28)
         {
@@ -572,7 +523,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
             memset(&cap10, 0, sizeof(cap10));
             cap_status = msc_read_capacity10_sync(vol, &cap10, deadline);
         }
-        if (cap_status != msc_status_passed)
+        if (cap_status != MSC_STATUS_PASSED)
         {
             // Autosense already populated sense data.
             if (msc_inquiry_resp[vol].is_removable &&
@@ -614,7 +565,7 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
     // Try MODE SENSE(6) page 0x3F (all pages)
     scsi_mode_sense6_resp_t ms;
     memset(&ms, 0, sizeof(ms));
-    if (msc_mode_sense6_sync(vol, 0x3F, &ms, deadline) == msc_status_passed)
+    if (msc_mode_sense6_sync(vol, 0x3F, &ms, deadline) == MSC_STATUS_PASSED)
     {
         DBG("MSC vol %d: MODE SENSE WP=%d\n", vol, ms.write_protected);
         msc_volume_write_protected[vol] = ms.write_protected;
@@ -625,7 +576,7 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
     DBG("MSC vol %d: MODE SENSE page 0x3F rejected, trying page 0\n", vol);
 
     memset(&ms, 0, sizeof(ms));
-    if (msc_mode_sense6_sync(vol, 0x00, &ms, deadline) == msc_status_passed)
+    if (msc_mode_sense6_sync(vol, 0x00, &ms, deadline) == MSC_STATUS_PASSED)
     {
         DBG("MSC vol %d: MODE SENSE page 0 WP=%d\n", vol, ms.write_protected);
         msc_volume_write_protected[vol] = ms.write_protected;
@@ -674,7 +625,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         msc_inquiry_rtrims(inq->product_id, 16);
         msc_inquiry_rtrims(inq->product_rev, 4);
 
-        if (csw == msc_status_passed)
+        if (csw == MSC_STATUS_PASSED)
         {
             inquiry_ok = true;
         }
@@ -708,7 +659,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             return msc_volume_failed;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             break;
-        if (msc_tur_sync(vol, msc_sync_floor(deadline)) == msc_status_passed)
+        if (msc_tur_sync(vol, msc_sync_floor(deadline)) == MSC_STATUS_PASSED)
         {
             tur_ok = true;
             break;
@@ -862,7 +813,7 @@ DSTATUS disk_status(BYTE pdrv)
     {
         msc_volume_last_success[vol] = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
-        if (msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) == msc_status_passed)
+        if (msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) == MSC_STATUS_PASSED)
         {
             if (ejected)
             {
@@ -915,9 +866,9 @@ DSTATUS disk_initialize(BYTE pdrv)
 
 static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
 {
-    if (status == msc_status_passed)
+    if (status == MSC_STATUS_PASSED)
         return RES_OK;
-    if (status == msc_status_timed_out)
+    if (status == MSC_STATUS_TIMED_OUT)
         return RES_NOTRDY;
     uint8_t sk = msc_volume_sense_key[vol];
     if (sk == SCSI_SENSE_NOT_READY)
@@ -951,7 +902,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
         uint16_t n = (count > max_blocks) ? max_blocks : (uint16_t)count;
         msc_status_t status = msc_read10_sync(vol, buff, sector, n,
                                               block_size, msc_sync_floor(deadline));
-        if (status != msc_status_passed)
+        if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
         buff += (uint32_t)n * block_size;
         sector += n;
@@ -982,7 +933,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
         uint16_t n = (count > max_blocks) ? max_blocks : (uint16_t)count;
         msc_status_t status = msc_write10_sync(vol, buff, sector, n,
                                                block_size, msc_sync_floor(deadline));
-        if (status != msc_status_passed)
+        if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
         buff += (uint32_t)n * block_size;
         sector += n;
@@ -1012,7 +963,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         // SYNCHRONIZE CACHE, so treat command failures as OK.
         absolute_time_t deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
         msc_status_t status = msc_sync_cache10_sync(vol, msc_sync_floor(deadline));
-        return status == msc_status_timed_out ? RES_NOTRDY : RES_OK;
+        return status == MSC_STATUS_TIMED_OUT ? RES_NOTRDY : RES_OK;
     }
     case GET_SECTOR_COUNT:
         *((DWORD *)buff) = msc_volume_block_count[vol];
@@ -1052,7 +1003,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
     {
         if (msc_volume_status[vol] == msc_volume_mounted &&
             msc_inquiry_resp[vol].is_removable &&
-            msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != msc_status_passed &&
+            msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != MSC_STATUS_PASSED &&
             msc_volume_sense_asc[vol] == 0x3A)
         {
             msc_handle_io_error(vol);

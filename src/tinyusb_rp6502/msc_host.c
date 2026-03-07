@@ -89,6 +89,9 @@ typedef struct
 static msch_interface_t _msch_itf[CFG_TUH_DEVICE_MAX];
 CFG_TUH_MEM_SECTION static msch_epbuf_t _msch_epbuf[CFG_TUH_DEVICE_MAX];
 
+// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
+static uint32_t msc_cbw_tag_counter = 0x65020000;
+
 TU_ATTR_ALWAYS_INLINE static inline msch_interface_t *get_itf(uint8_t daddr)
 {
     return &_msch_itf[daddr - 1];
@@ -191,9 +194,9 @@ uint8_t tuh_msc_protocol(uint8_t dev_addr)
     return get_itf(dev_addr)->protocol;
 }
 
-const msc_csw_t *tuh_msc_csw(uint8_t dev_addr)
+msc_csw_status_t tuh_msc_csw_status(uint8_t dev_addr)
 {
-    return &get_epbuf(dev_addr)->csw;
+    return get_epbuf(dev_addr)->csw.status;
 }
 
 //--------------------------------------------------------------------+
@@ -472,6 +475,13 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     msch_epbuf_t *epbuf = get_epbuf(daddr);
 
     epbuf->cbw = *cbw;
+    // Stamp signature and tag — callers don't need to set these.
+    epbuf->cbw.signature = MSC_CBW_SIGNATURE;
+    // Skip 0 on wrap: tag 0 is legal per spec but unconventional and
+    // could confuse stale-CSW detection in edge cases.
+    if (++msc_cbw_tag_counter == 0)
+        ++msc_cbw_tag_counter;
+    epbuf->cbw.tag = msc_cbw_tag_counter;
     p_msc->buffer = data;
     p_msc->data_stall = false;
     p_msc->stage = MSC_STAGE_CMD;
@@ -624,9 +634,13 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
         }
         else
         {
-            uint8_t status = (event == XFER_RESULT_SUCCESS)
-                                 ? MSC_CSW_STATUS_PASSED
-                                 : MSC_CSW_STATUS_FAILED;
+            uint8_t status;
+            if (event != XFER_RESULT_SUCCESS)
+                status = MSC_CSW_STATUS_FAILED;
+            else if (cbw->total_bytes > 0 && residue > 0)
+                status = MSC_CSW_STATUS_FAILED; // short transfer
+            else
+                status = MSC_CSW_STATUS_PASSED;
             complete_command(dev_addr, status, residue);
             if (event != XFER_RESULT_SUCCESS)
                 start_recovery(dev_addr);
@@ -850,6 +864,12 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
             // epbuf->csw so that msc_scsi_sync_raw() can return
             // msc_status_phase_error to the caller.
             start_recovery(dev_addr);
+        }
+        else if (csw->status == MSC_CSW_STATUS_PASSED &&
+                 cbw->total_bytes > 0 && csw->data_residue > 0)
+        {
+            // Short transfer: device reported fewer bytes than requested.
+            csw->status = MSC_CSW_STATUS_FAILED;
         }
         break;
     }
