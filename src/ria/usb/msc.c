@@ -169,94 +169,80 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
 }
 
 // Core submit-and-wait helper with autosense.
-// - BOT/CBI: on non-PASSED status, issue REQUEST SENSE and cache sense data.
-// - CB (CBI no interrupt): issue REQUEST SENSE after every command to
-//   determine command outcome because transport status is unavailable.
+// - BOT: on non-PASSED CSW status, issue REQUEST SENSE and cache sense data.
+// - CBI: on non-PASSED interrupt status, issue REQUEST SENSE; sense data
+//   overrides the interrupt status to correctly handle recovered errors.
+// - CB: issue REQUEST SENSE after every command; no transport status exists
+//   so sense data is the sole source of command outcome.
 // Callers never need to explicitly issue REQUEST SENSE.
 static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                      const void *data, uint32_t timeout_ms)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
-    if (dev_addr == 0)
-        return MSC_STATUS_FAILED;
-
     msc_status_t status = tuh_msc_scsi_sync(dev_addr, cbw, data, timeout_ms);
-    bool cb_no_interrupt = (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_CBI_NO_INTERRUPT);
-
+    if (status == MSC_STATUS_TIMED_OUT)
+        return status;
     if (status == MSC_STATUS_PHASE_ERROR)
     {
         msc_vol[vol].sense_key = SCSI_SENSE_NONE;
         msc_vol[vol].sense_asc = 0;
         msc_vol[vol].sense_ascq = 0;
+        return status;
     }
-    else if (status != MSC_STATUS_TIMED_OUT)
+    if (status == MSC_STATUS_PASSED &&
+        tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_CBI_NO_INTERRUPT)
     {
-        // CB (no interrupt endpoint) has no transport status phase.
-        // Determine command outcome via REQUEST SENSE for every command.
-        bool need_autosense = (status != MSC_STATUS_PASSED) || cb_no_interrupt;
-        if (!need_autosense)
+        msc_vol[vol].last_ok = get_absolute_time();
+        return status;
+    }
+    scsi_sense_fixed_resp_t sense_resp;
+    memset(&sense_resp, 0, sizeof(sense_resp));
+    scsi_request_sense_t const sense_cmd = {
+        .cmd_code = SCSI_CMD_REQUEST_SENSE,
+        .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
+    msc_cbw_t sense_cbw;
+    msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
+                 sizeof(sense_cmd), &sense_cmd);
+    msc_status_t sense_status = tuh_msc_scsi_sync(
+        dev_addr, &sense_cbw, &sense_resp, MSC_OP_TIMEOUT_MS);
+    bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
+                            (sense_status != MSC_STATUS_TIMED_OUT &&
+                             sense_resp.response_code != 0);
+    if (sense_data_valid && sense_resp.response_code)
+    {
+        msc_vol[vol].sense_key = sense_resp.sense_key;
+        msc_vol[vol].sense_asc = sense_resp.add_sense_code;
+        msc_vol[vol].sense_ascq = sense_resp.add_sense_qualifier;
+    }
+    else
+    {
+        msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+        msc_vol[vol].sense_asc = 0;
+        msc_vol[vol].sense_ascq = 0;
+    }
+    if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
+    {
+        // CB: sense data is the only outcome indicator (no transport status).
+        // CBI: sense data overrides the interrupt status to handle recovered errors.
+        if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
         {
-            msc_vol[vol].last_ok = get_absolute_time();
-            return status;
+            status = MSC_STATUS_TIMED_OUT;
         }
-
-        scsi_sense_fixed_resp_t sense_resp;
-        memset(&sense_resp, 0, sizeof(sense_resp));
-        scsi_request_sense_t const sense_cmd = {
-            .cmd_code = SCSI_CMD_REQUEST_SENSE,
-            .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
-        msc_cbw_t sense_cbw;
-        msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
-                     sizeof(sense_cmd), &sense_cmd);
-        msc_status_t sense_status = tuh_msc_scsi_sync(
-            dev_addr, &sense_cbw, &sense_resp, MSC_OP_TIMEOUT_MS);
-        // On CBI with an interrupt endpoint, the interrupt status can reflect
-        // prior command state rather than REQUEST SENSE completion. The sense
-        // payload is authoritative when it is present and the transfer did not
-        // time out.
-        bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
-                                (sense_status != MSC_STATUS_TIMED_OUT &&
-                                 (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT ||
-                                  sense_resp.response_code != 0));
-        if (sense_data_valid && sense_resp.response_code)
+        else if (msc_vol[vol].sense_key == SCSI_SENSE_NONE ||
+                 msc_vol[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
         {
-            msc_vol[vol].sense_key = sense_resp.sense_key;
-            msc_vol[vol].sense_asc = sense_resp.add_sense_code;
-            msc_vol[vol].sense_ascq = sense_resp.add_sense_qualifier;
+            status = MSC_STATUS_PASSED;
+            msc_vol[vol].last_ok = get_absolute_time();
         }
         else
         {
-            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-            msc_vol[vol].sense_asc = 0;
-            msc_vol[vol].sense_ascq = 0;
-        }
-        DBG("MSC vol %d: autosense %d/%02Xh/%02Xh\n",
-            vol, msc_vol[vol].sense_key,
-            msc_vol[vol].sense_asc,
-            msc_vol[vol].sense_ascq);
-
-        // For all non-BOT protocols (CB and CBI), resolve command outcome
-        // from sense data.  BOT CSW status is authoritative; CBI interrupt
-        // status can reflect a prior command and must be overridden here.
-        if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
-        {
-            if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
-            {
-                status = MSC_STATUS_TIMED_OUT;
-            }
-            else if (msc_vol[vol].sense_key == SCSI_SENSE_NONE ||
-                     msc_vol[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
-            {
-                status = MSC_STATUS_PASSED;
-                msc_vol[vol].last_ok = get_absolute_time();
-            }
-            else
-            {
-                status = MSC_STATUS_FAILED;
-            }
+            status = MSC_STATUS_FAILED;
         }
     }
-
+    DBG("MSC vol %d: autosense %d/%02Xh/%02Xh\n",
+        vol, msc_vol[vol].sense_key,
+        msc_vol[vol].sense_asc,
+        msc_vol[vol].sense_ascq);
     return status;
 }
 
@@ -270,15 +256,12 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, timeout_ms);
-    // SPC-4 §4.8.3: INQUIRY must not clear UNIT_ATTENTION; response data is
-    // valid regardless.  Promote to PASSED so callers see clean success.
-    if (status != MSC_STATUS_PASSED &&
-        msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)
-    {
-        DBG("MSC vol %d: INQUIRY UNIT_ATTENTION, data valid\n", vol);
-        msc_vol[vol].last_ok = get_absolute_time();
+    // Per SPC-4 §6.4.1, INQUIRY is one of the few commands that executes in any
+    // device state and explicitly does not clear a UNIT ATTENTION condition.
+    if (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+        resp->response_data_format != 0)
         status = MSC_STATUS_PASSED;
-    }
+    DBG("MSC vol %d: INQUIRY (status %d)\n", vol, status);
     return status;
 }
 
