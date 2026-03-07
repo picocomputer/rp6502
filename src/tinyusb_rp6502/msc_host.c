@@ -152,16 +152,14 @@ static void start_data_phase(uint8_t daddr)
 //--------------------------------------------------------------------+
 // Weak stubs
 //--------------------------------------------------------------------+
-TU_ATTR_WEAK void tuh_msc_mount_lun_cb(uint8_t dev_addr, uint8_t lun)
+TU_ATTR_WEAK void tuh_msc_mount_cb(uint8_t dev_addr)
 {
     (void)dev_addr;
-    (void)lun;
 }
 
-TU_ATTR_WEAK void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
+TU_ATTR_WEAK void tuh_msc_umount_cb(uint8_t dev_addr)
 {
     (void)dev_addr;
-    (void)lun;
 }
 
 // Superset of msc_csw_status_t with an additional timeout value.
@@ -202,6 +200,11 @@ bool tuh_msc_ready(uint8_t dev_addr)
     if (p_msc->ep_intr && usbh_edpt_busy(dev_addr, p_msc->ep_intr))
         return false;
     return true;
+}
+
+uint8_t tuh_msc_get_maxlun(uint8_t dev_addr)
+{
+    return get_itf(dev_addr)->max_lun;
 }
 
 uint8_t tuh_msc_protocol(uint8_t dev_addr)
@@ -661,8 +664,7 @@ void msch_close(uint8_t dev_addr)
 
     if (p_msc->mounted)
     {
-        for (uint8_t lun = 0; lun <= p_msc->max_lun; lun++)
-            tuh_msc_umount_lun_cb(dev_addr, lun);
+        tuh_msc_umount_cb(dev_addr);
     }
 
     tu_memclr(p_msc, sizeof(msch_interface_t));
@@ -1083,8 +1085,7 @@ static void get_max_lun_complete_cb(tuh_xfer_t *xfer)
     // else: STALL means no LUNs beyond 0; max_lun stays 0.
 
     p_msc->mounted = true;
-    for (uint8_t lun = 0; lun <= p_msc->max_lun; lun++)
-        tuh_msc_mount_lun_cb(daddr, lun);
+    tuh_msc_mount_cb(daddr);
     usbh_driver_set_config_complete(daddr, p_msc->itf_num);
 }
 
@@ -1098,7 +1099,7 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
     if (!is_bot(p_msc))
     {
         p_msc->mounted = true;
-        tuh_msc_mount_lun_cb(daddr, 0);
+        tuh_msc_mount_cb(daddr);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
         return true;
     }
@@ -1126,7 +1127,7 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
     {
         // Control pipe busy or error — proceed with LUN 0 only.
         p_msc->mounted = true;
-        tuh_msc_mount_lun_cb(daddr, 0);
+        tuh_msc_mount_cb(daddr);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
     }
     return true;

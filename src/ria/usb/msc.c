@@ -102,7 +102,7 @@ static msc_volume_status_t msc_volume_status[FF_VOLUMES];
 static uint8_t msc_volume_dev_addr[FF_VOLUMES];
 static uint8_t msc_volume_lun[FF_VOLUMES];
 static FATFS msc_fatfs_volumes[FF_VOLUMES];
-static scsi_inquiry_resp_t msc_inquiry_resp[FF_VOLUMES];
+static bool msc_volume_is_removable[FF_VOLUMES];
 static uint32_t msc_volume_block_count[FF_VOLUMES];
 static uint32_t msc_volume_block_size[FF_VOLUMES];
 static uint8_t msc_volume_sense_key[FF_VOLUMES];
@@ -345,7 +345,7 @@ static msc_status_t msc_start_stop_unit_sync(uint8_t vol, bool start,
 static void msc_handle_io_error(uint8_t vol)
 {
     DBG("MSC vol %d: msc_handle_io_error\n", vol);
-    if (!msc_inquiry_resp[vol].is_removable)
+    if (!msc_volume_is_removable[vol])
         return;
     if (msc_volume_status[vol] == msc_volume_free ||
         msc_volume_status[vol] == msc_volume_ejected)
@@ -462,7 +462,7 @@ static bool msc_read_capacity(uint8_t vol, absolute_time_t deadline)
         if (cap_status != MSC_STATUS_PASSED)
         {
             // Autosense already populated sense data.
-            if (msc_inquiry_resp[vol].is_removable &&
+            if (msc_volume_is_removable[vol] &&
                 msc_volume_sense_asc[vol] == 0x3A)
                 DBG("MSC vol %d: capacity - medium not present\n", vol);
             return false;
@@ -545,7 +545,6 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
     uint8_t dev_addr = msc_volume_dev_addr[vol];
-    scsi_inquiry_resp_t *inq = &msc_inquiry_resp[vol];
     absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
 
     // ---- INQUIRY (first mount only) ----
@@ -554,21 +553,19 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         bool inquiry_ok = false;
         if (!tuh_msc_mounted(dev_addr))
             return msc_volume_failed;
-        memset(inq, 0, sizeof(*inq));
-        msc_status_t csw = msc_inquiry_sync(vol, inq, msc_sync_floor(deadline));
-        msc_inquiry_rtrims(inq->vendor_id, 8);
-        msc_inquiry_rtrims(inq->product_id, 16);
-        msc_inquiry_rtrims(inq->product_rev, 4);
+        scsi_inquiry_resp_t inq;
+        memset(&inq, 0, sizeof(inq));
+        msc_status_t csw = msc_inquiry_sync(vol, &inq, msc_sync_floor(deadline));
 
         if (csw == MSC_STATUS_PASSED)
         {
             inquiry_ok = true;
         }
         // Accept usable response data despite CSW failure (common on CBI)
-        else if (inq->peripheral_qualifier != 3 &&
-                 (inq->response_data_format == 1 ||
-                  inq->response_data_format == 2) &&
-                 inq->additional_length >= 31)
+        else if (inq.peripheral_qualifier != 3 &&
+                 (inq.response_data_format == 1 ||
+                  inq.response_data_format == 2) &&
+                 inq.additional_length >= 31)
         {
             DBG("MSC vol %d: INQUIRY CSW failed but response valid\n", vol);
             inquiry_ok = true;
@@ -578,9 +575,9 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             DBG("MSC vol %d: INQUIRY failed\n", vol);
             return msc_volume_failed;
         }
-        DBG("MSC vol %d: %.8s %.16s rev %.4s%s\n", vol,
-            inq->vendor_id, inq->product_id, inq->product_rev,
-            inq->is_removable ? " (removable)" : "");
+        msc_volume_is_removable[vol] = inq.is_removable;
+        DBG("MSC vol %d: %s%s\n", vol,
+            inq.vendor_id, inq.is_removable ? " (removable)" : "");
     }
 
     // ---- TUR / CLEAR UNIT ATTENTION ----
@@ -635,12 +632,12 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
         // Any other sense key - stop retrying
         break;
     }
-    if (!tur_ok && inq->is_removable)
+    if (!tur_ok && msc_volume_is_removable[vol])
         return msc_volume_ejected;
 
     // ---- CAPACITY ----
     if (!msc_read_capacity(vol, msc_sync_floor(deadline)))
-        return inq->is_removable ? msc_volume_ejected : msc_volume_failed;
+        return msc_volume_is_removable[vol] ? msc_volume_ejected : msc_volume_failed;
 
     // ---- WRITE PROTECTION ----
     msc_read_write_protect(vol, msc_sync_floor(deadline));
@@ -650,38 +647,41 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     return msc_volume_mounted;
 }
 
-void tuh_msc_mount_lun_cb(uint8_t dev_addr, uint8_t lun)
+void tuh_msc_mount_cb(uint8_t dev_addr)
 {
-    // Find a free FatFS volume slot.
-    uint8_t vol = FF_VOLUMES;
-    for (uint8_t v = 0; v < FF_VOLUMES; v++)
+    uint8_t const max_lun = tuh_msc_get_maxlun(dev_addr);
+    for (uint8_t lun = 0; lun <= max_lun; lun++)
     {
-        if (msc_volume_status[v] == msc_volume_free)
+        // Find a free FatFS volume slot.
+        uint8_t vol = FF_VOLUMES;
+        for (uint8_t v = 0; v < FF_VOLUMES; v++)
         {
-            vol = v;
-            break;
+            if (msc_volume_status[v] == msc_volume_free)
+            {
+                vol = v;
+                break;
+            }
         }
+        if (vol == FF_VOLUMES)
+        {
+            DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
+            continue;
+        }
+        msc_volume_dev_addr[vol] = dev_addr;
+        msc_volume_lun[vol] = lun;
+        msc_volume_status[vol] = msc_volume_registered;
+        TCHAR volstr[6];
+        msc_vol_path(volstr, vol);
+        f_mount(&msc_fatfs_volumes[vol], volstr, 0);
+        DBG("MSC mount dev_addr %d LUN %d -> vol %d\n", dev_addr, lun, vol);
     }
-    if (vol == FF_VOLUMES)
-    {
-        DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
-        return;
-    }
-    msc_volume_dev_addr[vol] = dev_addr;
-    msc_volume_lun[vol] = lun;
-    msc_volume_status[vol] = msc_volume_registered;
-    TCHAR volstr[6];
-    msc_vol_path(volstr, vol);
-    f_mount(&msc_fatfs_volumes[vol], volstr, 0);
-    DBG("MSC mount dev_addr %d LUN %d -> vol %d\n", dev_addr, lun, vol);
 }
 
-void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
+void tuh_msc_umount_cb(uint8_t dev_addr)
 {
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
         if (msc_volume_dev_addr[vol] == dev_addr &&
-            msc_volume_lun[vol] == lun &&
             msc_volume_status[vol] != msc_volume_free)
         {
             TCHAR volstr[6];
@@ -696,6 +696,7 @@ void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
             msc_volume_sense_asc[vol] = 0;
             msc_volume_sense_ascq[vol] = 0;
             msc_volume_write_protected[vol] = false;
+            msc_volume_is_removable[vol] = false;
             DBG("MSC unmounted dev_addr %d from vol %d\n", dev_addr, vol);
         }
     }
@@ -742,7 +743,7 @@ DSTATUS disk_status(BYTE pdrv)
     }
 
     // TUR for removable volumes: rate-limited by MSC_DISK_STATUS_TIMEOUT_MS.
-    if (msc_inquiry_resp[vol].is_removable &&
+    if (msc_volume_is_removable[vol] &&
         absolute_time_diff_us(msc_volume_last_success[vol], get_absolute_time()) >=
             MSC_DISK_STATUS_TIMEOUT_MS * 1000)
     {
@@ -936,8 +937,9 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         msc_volume_status[vol] == msc_volume_mounted ||
         msc_volume_status[vol] == msc_volume_ejected)
     {
+        // Fully initialize and check removable media.
         if (msc_volume_status[vol] == msc_volume_mounted &&
-            msc_inquiry_resp[vol].is_removable &&
+            msc_volume_is_removable[vol] &&
             msc_tur_sync(vol, make_timeout_time_ms(MSC_OP_TIMEOUT_MS)) != MSC_STATUS_PASSED &&
             msc_volume_sense_asc[vol] == 0x3A)
         {
@@ -995,12 +997,28 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                 snprintf(sizebuf, sizeof(sizebuf), "%.1f %s", size, xb);
             }
         }
-        snprintf(buf, buf_size, STR_STATUS_MSC,
-                 VolumeStr[vol],
-                 sizebuf,
-                 msc_inquiry_resp[vol].vendor_id,
-                 msc_inquiry_resp[vol].product_id,
-                 msc_inquiry_resp[vol].product_rev);
+        scsi_inquiry_resp_t inq;
+        memset(&inq, 0, sizeof(inq));
+        msc_status_t csw = msc_inquiry_sync(vol, &inq, make_timeout_time_ms(MSC_OP_TIMEOUT_MS));
+        if (csw == MSC_STATUS_PASSED)
+        {
+            msc_inquiry_rtrims(inq.vendor_id, 8);
+            msc_inquiry_rtrims(inq.product_id, 16);
+            msc_inquiry_rtrims(inq.product_rev, 4);
+            snprintf(buf, buf_size, STR_STATUS_MSC,
+                     VolumeStr[vol],
+                     sizebuf,
+                     inq.vendor_id,
+                     inq.product_id,
+                     inq.product_rev);
+        }
+        else
+        {
+            snprintf(buf, buf_size, STR_STATUS_MSC,
+                     VolumeStr[vol],
+                     sizebuf,
+                     STR_PARENS_NONE, STR_PARENS_NONE, STR_PARENS_NONE);
+        }
     }
     return state + 1;
 }
