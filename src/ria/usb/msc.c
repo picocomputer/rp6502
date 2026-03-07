@@ -235,7 +235,10 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             msc_vol[vol].sense_asc,
             msc_vol[vol].sense_ascq);
 
-        if (cb_no_interrupt)
+        // For all non-BOT protocols (CB and CBI), resolve command outcome
+        // from sense data.  BOT CSW status is authoritative; CBI interrupt
+        // status can reflect a prior command and must be overridden here.
+        if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
         {
             if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
             {
@@ -263,9 +266,20 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
     scsi_inquiry_t const cmd = {
         .cmd_code = SCSI_CMD_INQUIRY,
         .alloc_length = sizeof(scsi_inquiry_resp_t)};
+    memset(resp, 0, sizeof(*resp));
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    msc_status_t status = msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    // SPC-4 §4.8.3: INQUIRY must not clear UNIT_ATTENTION; response data is
+    // valid regardless.  Promote to PASSED so callers see clean success.
+    if (status != MSC_STATUS_PASSED &&
+        msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)
+    {
+        DBG("MSC vol %d: INQUIRY UNIT_ATTENTION, data valid\n", vol);
+        msc_vol[vol].last_ok = get_absolute_time();
+        status = MSC_STATUS_PASSED;
+    }
+    return status;
 }
 
 static msc_status_t msc_scsi_test_unit_ready(uint8_t vol, uint32_t timeout_ms)
@@ -325,7 +339,6 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol, uint32_t timeout_ms)
 // Mark a removable volume as ejected and clear cached geometry.
 static void msc_vol_set_ejected(uint8_t vol)
 {
-    DBG("MSC vol %d: msc_vol_set_ejected\n", vol);
     if (!msc_vol[vol].removable)
         return;
     if (msc_vol[vol].status == msc_volume_free ||
@@ -413,7 +426,7 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
         {
             // Autosense already populated sense data.
             if (msc_vol[vol].removable &&
-                msc_vol[vol].sense_asc == 0x3A) // TODO what is this 3A?
+                msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
                 DBG("MSC vol %d: capacity - medium not present\n", vol);
             return false;
         }
@@ -480,40 +493,25 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     // ---- INQUIRY (first mount only) ----
     if (msc_vol[vol].status == msc_volume_registered)
     {
-        bool inquiry_ok = false;
         scsi_inquiry_resp_t inq;
-        memset(&inq, 0, sizeof(inq));
-        msc_status_t csw = msc_scsi_inquiry(vol, msc_floor_ms(deadline), &inq);
-
-        if (csw == MSC_STATUS_PASSED)
-        {
-            inquiry_ok = true;
-        }
-        // Accept usable response data despite CSW failure (common on CBI)
-        else if (inq.peripheral_qualifier != 3 &&
-                 (inq.response_data_format == 1 ||
-                  inq.response_data_format == 2) &&
-                 inq.additional_length >= 31)
-        {
-            DBG("MSC vol %d: INQUIRY CSW failed but response valid\n", vol);
-            inquiry_ok = true;
-        }
-        if (!inquiry_ok)
+        if (msc_scsi_inquiry(vol, msc_floor_ms(deadline), &inq) != MSC_STATUS_PASSED)
         {
             DBG("MSC vol %d: INQUIRY failed\n", vol);
             return msc_volume_failed;
         }
         msc_vol[vol].removable = inq.is_removable;
-        DBG("MSC vol %d: %s%s\n", vol,
-            inq.vendor_id, inq.is_removable ? " (removable)" : "");
     }
 
     // ---- TUR ----
     bool tur_ok;
     do
+    {
         tur_ok = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED;
-    while (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
-           !time_reached(deadline));
+        DBG("MSC vol %d: TUR %s (sk=%d asc=%02Xh ascq=%02Xh)\n", vol,
+            tur_ok ? "ok" : "failed",
+            msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq);
+    } while (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+             !time_reached(deadline));
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
@@ -801,7 +799,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         if (msc_vol[vol].status == msc_volume_mounted &&
             msc_vol[vol].removable &&
             msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
-            msc_vol[vol].sense_asc == 0x3A)
+            msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
         {
             msc_vol_set_ejected(vol);
         }
