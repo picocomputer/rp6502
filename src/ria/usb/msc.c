@@ -114,29 +114,35 @@ static absolute_time_t msc_volume_last_success[FF_VOLUMES];
 // This driver requires our custom TinyUSB: src/ria/usb/msc_host.c.
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
-uint8_t tuh_msc_protocol(uint8_t dev_addr);
-msc_csw_status_t tuh_msc_csw_status(uint8_t dev_addr);
-bool tuh_msc_scsi_submit(uint8_t dev_addr, msc_cbw_t const *cbw, void *data);
-void tuh_msc_abort(uint8_t dev_addr);
 
-//--------------------------------------------------------------------+
-// Synchronous I/O helpers
-//--------------------------------------------------------------------+
-// Spin-wait helpers that pump USB events via main_task() while waiting
-// for in-flight commands to complete.
-
-// Local superset of TinyUSB's msc_csw_status_t.
-// We need an additional value for timeout.
+// Superset of msc_csw_status_t (defined in msc_host.c) with a timeout value.
 typedef enum
 {
     MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
     MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
     MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
-    MSC_STATUS_TIMED_OUT,   // local extension
+    MSC_STATUS_TIMED_OUT,   // not a CSW status; returned on I/O timeout
 } msc_status_t;
 
-// Return deadline or now+MSC_OP_TIMEOUT_MS, whichever is later.
-// Prevents a nearly-expired deadline from starving a command.
+uint8_t tuh_msc_protocol(uint8_t dev_addr);
+msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
+                               const void *data, uint32_t timeout_ms);
+
+// Override of the weak tuh_msc_pump() default in msc_host.c.
+// Pumps USB events and all application tasks during blocking I/O.
+// FatFs rentry would be a problem so main_task() does not call FatFs
+// but it does call the required tuh_task().
+void tuh_msc_pump(void) { main_task(); }
+
+// Convert absolute deadline to remaining milliseconds.
+static inline uint32_t msc_deadline_to_ms(absolute_time_t deadline)
+{
+    int64_t diff_us = absolute_time_diff_us(get_absolute_time(), deadline);
+    return diff_us > 0 ? (uint32_t)(diff_us / 1000) : 0;
+}
+
+// Like msc_deadline_to_ms but floored at MSC_OP_TIMEOUT_MS.
+// Prevents a nearly-expired deadline from starving a subordinate command.
 static inline absolute_time_t msc_sync_floor(absolute_time_t deadline)
 {
     absolute_time_t floor = make_timeout_time_ms(MSC_OP_TIMEOUT_MS);
@@ -163,76 +169,6 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
     memcpy(cbw->command, cmd, cmd_len);
 }
 
-// Wait for transport ready, submit command, and wait for completion.
-// No autosense - used directly for REQUEST SENSE itself.
-static msc_status_t msc_scsi_sync_raw(uint8_t dev_addr, msc_cbw_t *cbw,
-                                      const void *data, absolute_time_t deadline)
-{
-    msc_status_t result;
-
-    // Wait for transport ready AND successfully submit the command.
-    // CBI transport sends the CDB via an ADSC control transfer on the
-    // shared EPX.  If another control transfer is in-flight (e.g. hub
-    // Get Port Status), tuh_msc_scsi_submit() returns false even though
-    // the MSC layer is idle.  We must retry submission rather than
-    // failing the entire command.
-    for (;;)
-    {
-        if (!tuh_msc_mounted(dev_addr))
-        {
-            result = MSC_STATUS_FAILED;
-            goto done;
-        }
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-        {
-            result = MSC_STATUS_TIMED_OUT;
-            goto done;
-        }
-        if (!tuh_msc_ready(dev_addr))
-        {
-            main_task();
-            continue;
-        }
-        // Cast away const: transport API uses void* for both directions.
-        if (tuh_msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
-            break;
-        // Submit failed (control pipe busy) — pump events and retry
-        main_task();
-    }
-    while (!tuh_msc_ready(dev_addr))
-    {
-        if (!tuh_msc_mounted(dev_addr))
-        {
-            result = MSC_STATUS_FAILED;
-            goto done;
-        }
-        if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
-        {
-            tuh_msc_abort(dev_addr);
-            result = MSC_STATUS_TIMED_OUT;
-            goto done;
-        }
-        main_task();
-    }
-    {
-        msc_csw_status_t csw_status = tuh_msc_csw_status(dev_addr);
-        DBG("CSW: status=%u\n", csw_status);
-        // msc_host.c has already validated the CSW (signature, tag, size).
-        // Invalid CSWs (wrong signature, tag, or length) are detected in
-        // bot_xfer_cb(), which calls complete_command() to synthesize a
-        // FAILED CSW with the correct tag, then immediately starts Reset
-        // Recovery (BMR + 2x CLEAR_HALT, BOT §6.3.3).  We arrive here only
-        // after tuh_msc_ready() became true, meaning recovery_stage is IDLE.
-        // A genuine device-reported PHASE_ERROR in an otherwise valid CSW
-        // also triggers recovery; the CSW status is preserved so we can
-        // return MSC_STATUS_PHASE_ERROR to the caller.
-        result = (msc_status_t)csw_status;
-    }
-
-done:
-    return result;
-}
-
 // Core submit-and-wait helper with autosense.
 // - BOT/CBI: on non-PASSED status, issue REQUEST SENSE and cache sense data.
 // - CB (CBI no interrupt): issue REQUEST SENSE after every command to
@@ -245,7 +181,7 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
     if (dev_addr == 0)
         return MSC_STATUS_FAILED;
 
-    msc_status_t status = msc_scsi_sync_raw(dev_addr, cbw, data, deadline);
+    msc_status_t status = tuh_msc_scsi_sync(dev_addr, cbw, data, msc_deadline_to_ms(deadline));
     bool cb_no_interrupt = (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_CBI_NO_INTERRUPT);
 
     if (status == MSC_STATUS_PHASE_ERROR)
@@ -273,8 +209,8 @@ static msc_status_t msc_scsi_sync(uint8_t vol, msc_cbw_t *cbw,
         msc_cbw_t sense_cbw;
         msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
                      sizeof(sense_cmd), &sense_cmd);
-        msc_status_t sense_status = msc_scsi_sync_raw(
-            dev_addr, &sense_cbw, &sense_resp, msc_sync_floor(deadline));
+        msc_status_t sense_status = tuh_msc_scsi_sync(
+            dev_addr, &sense_cbw, &sense_resp, msc_deadline_to_ms(msc_sync_floor(deadline)));
         // On CBI with an interrupt endpoint, the interrupt status can reflect
         // prior command state rather than REQUEST SENSE completion. The sense
         // payload is authoritative when it is present and the transfer did not
@@ -591,8 +527,7 @@ static void msc_read_write_protect(uint8_t vol, absolute_time_t deadline)
 // Synchronous volume initialization
 //--------------------------------------------------------------------+
 // Called from disk_initialize() for both newly registered and ejected
-// volumes.  Performs the full SCSI init sequence synchronously using
-// the sync helpers (which pump USB events via main_task()).
+// volumes.  Performs the full SCSI init sequence synchronously.
 
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.

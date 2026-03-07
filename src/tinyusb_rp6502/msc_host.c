@@ -164,6 +164,21 @@ TU_ATTR_WEAK void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
     (void)lun;
 }
 
+// Superset of msc_csw_status_t with an additional timeout value.
+typedef enum
+{
+    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
+    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
+    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
+    MSC_STATUS_TIMED_OUT,   // not a CSW status; returned on I/O timeout
+} msc_status_t;
+
+// Weak pump hook called from tuh_msc_scsi_sync() while waiting for
+// USB events.  Override with main_task() or any application-level tasks
+// that must run during blocking MSC I/O.
+extern void tuh_task(void);
+TU_ATTR_WEAK void tuh_msc_pump(void) { tuh_task(); }
+
 //--------------------------------------------------------------------+
 // PUBLIC API
 //--------------------------------------------------------------------+
@@ -539,6 +554,77 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 }
 
 //--------------------------------------------------------------------+
+// PUBLIC API: SYNCHRONOUS I/O
+//--------------------------------------------------------------------+
+// Wait for transport ready, submit command, and wait for completion.
+// No autosense — used directly for REQUEST SENSE itself.
+// Calls tuh_msc_pump() while spinning.
+msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
+                               const void *data, uint32_t timeout_ms)
+{
+    msc_status_t result;
+    uint32_t const start_ms = tusb_time_millis_api();
+
+    // Wait for transport ready AND successfully submit the command.
+    // CBI transport sends the CDB via an ADSC control transfer on the
+    // shared EPX.  If another control transfer is in-flight (e.g. hub
+    // Get Port Status), tuh_msc_scsi_submit() returns false even though
+    // the MSC layer is idle.  We must retry submission rather than
+    // failing the entire command.
+    for (;;)
+    {
+        if (!tuh_msc_mounted(dev_addr))
+        {
+            result = MSC_STATUS_FAILED;
+            goto done;
+        }
+        if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
+        {
+            result = MSC_STATUS_TIMED_OUT;
+            goto done;
+        }
+        if (!tuh_msc_ready(dev_addr))
+        {
+            tuh_msc_pump();
+            continue;
+        }
+        // Cast away const: transport API uses void* for both directions.
+        if (tuh_msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
+            break;
+        // Submit failed (control pipe busy) — pump events and retry
+        tuh_msc_pump();
+    }
+    while (!tuh_msc_ready(dev_addr))
+    {
+        if (!tuh_msc_mounted(dev_addr))
+        {
+            result = MSC_STATUS_FAILED;
+            goto done;
+        }
+        if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
+        {
+            tuh_msc_abort(dev_addr);
+            result = MSC_STATUS_TIMED_OUT;
+            goto done;
+        }
+        tuh_msc_pump();
+    }
+    // msc_host.c has already validated the CSW (signature, tag, size).
+    // Invalid CSWs (wrong signature, tag, or length) are detected in
+    // bot_xfer_cb(), which calls complete_command() to synthesize a
+    // FAILED CSW with the correct tag, then immediately starts Reset
+    // Recovery (BMR + 2x CLEAR_HALT, BOT §6.3.3).  We arrive here only
+    // after tuh_msc_ready() became true, meaning recovery_stage is IDLE.
+    // A genuine device-reported PHASE_ERROR in an otherwise valid CSW
+    // also triggers recovery; the CSW status is preserved so we can
+    // return MSC_STATUS_PHASE_ERROR to the caller.
+    result = (msc_status_t)tuh_msc_csw_status(dev_addr);
+
+done:
+    return result;
+}
+
+//--------------------------------------------------------------------+
 // CLASS-USBH API
 //--------------------------------------------------------------------+
 bool msch_init(void)
@@ -861,7 +947,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         {
             // BOT §6.7.2: phase error requires reset recovery.
             // The raw device CSW (with PHASE_ERROR status) is preserved in
-            // epbuf->csw so that msc_scsi_sync_raw() can return
+            // epbuf->csw so that tuh_msc_scsi_sync() can return
             // msc_status_phase_error to the caller.
             start_recovery(dev_addr);
         }
