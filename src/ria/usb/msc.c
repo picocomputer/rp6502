@@ -263,7 +263,7 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
     return msc_scsi_sync(vol, &cbw, resp, timeout_ms);
 }
 
-static msc_status_t msc_scsi_tur(uint8_t vol, uint32_t timeout_ms)
+static msc_status_t msc_scsi_test_unit_ready(uint8_t vol, uint32_t timeout_ms)
 {
     scsi_test_unit_ready_t const cmd = {.cmd_code = SCSI_CMD_TEST_UNIT_READY};
     msc_cbw_t cbw;
@@ -283,11 +283,11 @@ static msc_status_t msc_scsi_read_capacity10(uint8_t vol, uint32_t timeout_ms,
 static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, uint32_t timeout_ms,
                                                     void *resp, uint8_t alloc_length)
 {
-    uint8_t cmd[12] = {0x23, 0, 0, 0, 0, 0, 0, // READ FORMAT CAPACITIES
-                       (alloc_length >> 8) & 0xFF,
-                       alloc_length & 0xFF};
+    scsi_read_format_capacity_t const cmd = {
+        .cmd_code = SCSI_CMD_READ_FORMAT_CAPACITY,
+        .alloc_length = tu_htons(alloc_length)};
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, alloc_length, TUSB_DIR_IN_MASK, 12, cmd);
+    msc_cbw_init(&cbw, vol, alloc_length, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     return msc_scsi_sync(vol, &cbw, resp, timeout_ms);
 }
 
@@ -549,7 +549,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
             return msc_volume_failed;
         if (absolute_time_diff_us(get_absolute_time(), deadline) <= 0)
             break;
-        if (msc_scsi_tur(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED)
+        if (msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline)) == MSC_STATUS_PASSED)
         {
             tur_ok = true;
             break;
@@ -707,7 +707,7 @@ DSTATUS disk_status(BYTE pdrv)
     {
         msc_volume_last_success[vol] = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
-        if (msc_scsi_tur(vol, MSC_OP_TIMEOUT_MS) == MSC_STATUS_PASSED)
+        if (msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) == MSC_STATUS_PASSED)
         {
             if (ejected)
             {
@@ -786,7 +786,6 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     if (sector > UINT32_MAX)
         return RES_PARERR;
 #endif
-
     // Clamp each transfer so total_bytes fits the USB host transfer
     // length limit (uint16_t).
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
@@ -818,7 +817,6 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     if (sector > UINT32_MAX)
         return RES_PARERR;
 #endif
-
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
     while (count > 0)
     {
@@ -895,7 +893,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         // Fully initialize and check removable media.
         if (msc_volume_status[vol] == msc_volume_mounted &&
             msc_volume_is_removable[vol] &&
-            msc_scsi_tur(vol, MSC_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
+            msc_scsi_test_unit_ready(vol, MSC_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
             msc_volume_sense_asc[vol] == 0x3A)
         {
             msc_handle_io_error(vol);
