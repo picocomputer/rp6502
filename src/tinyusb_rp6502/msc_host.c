@@ -62,7 +62,6 @@ enum
 
 typedef struct
 {
-    volatile bool configured;
     volatile bool mounted;
     uint8_t itf_num;
     uint8_t ep_in;
@@ -124,8 +123,6 @@ static void complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_re
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
     p_msc->stage = MSC_STAGE_IDLE;
-    epbuf->csw.signature = MSC_CSW_SIGNATURE;
-    epbuf->csw.tag = epbuf->cbw.tag;
     epbuf->csw.data_residue = data_residue;
     epbuf->csw.status = csw_status;
 }
@@ -168,13 +165,12 @@ typedef enum
     MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
     MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
     MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
-    MSC_STATUS_TIMED_OUT,   // not a CSW status; returned on I/O timeout
+    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
 } msc_status_t;
 
 // Weak pump hook called from tuh_msc_scsi_sync() while waiting for
-// USB events.  Override with main_task() or any application-level tasks
-// that must run during blocking MSC I/O.
-extern void tuh_task(void);
+// USB events.  Override should call tuh_task() along with its own
+// application-level tasks that must run during blocking MSC I/O.
 TU_ATTR_WEAK void tuh_msc_pump(void) { tuh_task(); }
 
 //--------------------------------------------------------------------+
@@ -358,7 +354,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 static void start_recovery(uint8_t daddr)
 {
     msch_interface_t *p_msc = get_itf(daddr);
-    if (!p_msc->configured)
+    if (!p_msc->ep_in)
         return;
     if (p_msc->recovery_stage != RECOVERY_IDLE)
         return;
@@ -423,7 +419,7 @@ static void start_recovery(uint8_t daddr)
 void tuh_msc_abort(uint8_t daddr)
 {
     msch_interface_t *p_msc = get_itf(daddr);
-    if (!p_msc->configured)
+    if (!p_msc->ep_in)
         return;
 
     // If recovery is already in progress, force-stop it.
@@ -488,7 +484,7 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
 bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 {
     msch_interface_t *p_msc = get_itf(daddr);
-    TU_VERIFY(p_msc->configured);
+    TU_VERIFY(p_msc->ep_in);
     TU_VERIFY(p_msc->stage == MSC_STAGE_IDLE);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
 
@@ -647,7 +643,7 @@ void msch_close(uint8_t dev_addr)
 {
     TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, );
     msch_interface_t *p_msc = get_itf(dev_addr);
-    TU_VERIFY(p_msc->configured, );
+    TU_VERIFY(p_msc->ep_in, );
 
     TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
 
@@ -704,13 +700,15 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
         if (event == XFER_RESULT_STALLED)
         {
             hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, data_ep(p_msc, cbw));
-            p_msc->data_stall = true;
         }
 
         if (p_msc->ep_intr)
         {
             // CBI: interrupt status is the authoritative command result
             // regardless of data-phase outcome.  Always read it.
+            // Track the stall so the STATUS callback can kick off recovery.
+            if (event == XFER_RESULT_STALLED)
+                p_msc->data_stall = true;
             epbuf->csw.data_residue = residue;
             p_msc->stage = MSC_STAGE_STATUS;
             if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
@@ -1085,7 +1083,6 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
-    p_msc->configured = true;
 
     // CBI/CB: single-LUN by spec, skip GET_MAX_LUN.
     if (!is_bot(p_msc))
