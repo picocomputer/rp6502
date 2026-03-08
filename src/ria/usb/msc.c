@@ -230,7 +230,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     return status;
 }
 
-static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_inquiry(uint8_t vol,
                                      scsi_inquiry_resp_t *resp)
 {
     scsi_inquiry_t const cmd = {
@@ -239,7 +239,7 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
     memset(resp, 0, sizeof(*resp));
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
     // Per SPC-4 §6.4.1, INQUIRY is one of the few commands that executes in any
     // device state and explicitly does not clear a UNIT ATTENTION condition.
     if (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
@@ -249,28 +249,28 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol, uint32_t timeout_ms,
     return status;
 }
 
-static msc_status_t msc_scsi_test_unit_ready(uint8_t vol, uint32_t timeout_ms)
+static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
 {
     scsi_test_unit_ready_t const cmd = {.cmd_code = SCSI_CMD_TEST_UNIT_READY};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    //TODO timestamp and pretty
-    msc_status_t status = msc_scsi_command(vol, &cbw, NULL, timeout_ms);
+    // TODO timestamp and pretty
+    msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
     DBG("MSC vol %d: TUR -> %d (sk=0x%02x asc=0x%02x)\n", vol, status,
         msc_vol[vol].sense_key, msc_vol[vol].sense_asc);
     return status;
 }
 
-static msc_status_t msc_scsi_read_capacity10(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_read_capacity10(uint8_t vol,
                                              scsi_read_capacity10_resp_t *resp)
 {
     scsi_read_capacity10_t const cmd = {.cmd_code = SCSI_CMD_READ_CAPACITY_10};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
 }
 
-static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_read_format_capacities(uint8_t vol,
                                                     void *resp, uint8_t alloc_length)
 {
     scsi_read_format_capacity_t const cmd = {
@@ -278,10 +278,10 @@ static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, uint32_t timeou
         .alloc_length = tu_htons(alloc_length)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, alloc_length, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
 }
 
-static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_mode_sense6(uint8_t vol,
                                          uint8_t page_code, scsi_mode_sense6_resp_t *resp)
 {
     scsi_mode_sense6_t const cmd = {
@@ -292,7 +292,7 @@ static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint32_t timeout_ms,
     };
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense6_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
 }
 
 // TinyUSB does not define MODE SENSE(10) structs; define them locally.
@@ -325,7 +325,7 @@ typedef struct TU_ATTR_PACKED
 
 TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_resp_t) == 8, "size is not correct");
 
-static msc_status_t msc_scsi_mode_sense10(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_mode_sense10(uint8_t vol,
                                           uint8_t page_code, scsi_mode_sense10_resp_t *resp)
 {
     scsi_mode_sense10_t const cmd = {
@@ -336,18 +336,18 @@ static msc_status_t msc_scsi_mode_sense10(uint8_t vol, uint32_t timeout_ms,
     };
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_mode_sense10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, resp, timeout_ms);
+    return msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
 }
 
-static msc_status_t msc_scsi_sync_cache10(uint8_t vol, uint32_t timeout_ms)
+static msc_status_t msc_scsi_sync_cache10(uint8_t vol)
 {
     uint8_t cmd[10] = {0x35}; // SYNCHRONIZE CACHE (10)
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
-    return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
+    return msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
 }
 
-static msc_status_t msc_scsi_read10(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_read10(uint8_t vol,
                                     void *buff, uint32_t lba, uint16_t block_count,
                                     uint32_t block_size)
 {
@@ -357,10 +357,10 @@ static msc_status_t msc_scsi_read10(uint8_t vol, uint32_t timeout_ms,
         .block_count = tu_htons(block_count)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, buff, timeout_ms);
+    return msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
 }
 
-static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
+static msc_status_t msc_scsi_write10(uint8_t vol,
                                      const void *buff, uint32_t lba, uint16_t block_count,
                                      uint32_t block_size)
 {
@@ -370,14 +370,14 @@ static msc_status_t msc_scsi_write10(uint8_t vol, uint32_t timeout_ms,
         .block_count = tu_htons(block_count)};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, buff, timeout_ms);
+    return msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
 }
 
 // Read device capacity.
 // CBI: READ FORMAT CAPACITIES (UFI mandatory command).
 // BOT: READ CAPACITY(10) (SBC mandatory command).
 // Returns true on success, populating block_count and block_size.
-static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
+static bool msc_read_capacity(uint8_t vol)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
 
@@ -385,7 +385,7 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
     {
         // CBI: READ FORMAT CAPACITIES
         scsi_read_format_capacity_data_t rfc = {0};
-        if (msc_scsi_read_format_capacities(vol, timeout_ms,
+        if (msc_scsi_read_format_capacities(vol,
                                             &rfc, sizeof(rfc)) !=
             MSC_STATUS_PASSED)
             return false;
@@ -409,7 +409,7 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
     {
         // BOT: READ CAPACITY(10)
         scsi_read_capacity10_resp_t cap10 = {0};
-        msc_status_t cap_status = msc_scsi_read_capacity10(vol, timeout_ms, &cap10);
+        msc_status_t cap_status = msc_scsi_read_capacity10(vol, &cap10);
         if (cap_status != MSC_STATUS_PASSED)
         {
             // Autosense already populated sense data.
@@ -439,7 +439,7 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
 // CBI: MODE SENSE(10) (UFI mandatory command, opcode 0x5A).
 // BOT: MODE SENSE(6) (SBC mandatory command, opcode 0x1A).
 // Non-fatal: defaults to not protected on failure.
-static void msc_read_write_protect(uint8_t vol, uint32_t timeout_ms)
+static void msc_sense_write_protect(uint8_t vol)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
     msc_vol[vol].write_prot = false;
@@ -447,7 +447,7 @@ static void msc_read_write_protect(uint8_t vol, uint32_t timeout_ms)
     if (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
     {
         scsi_mode_sense6_resp_t ms6;
-        if (msc_scsi_mode_sense6(vol, timeout_ms, 0x3F, &ms6) == MSC_STATUS_PASSED)
+        if (msc_scsi_mode_sense6(vol, 0x3F, &ms6) == MSC_STATUS_PASSED)
         {
             DBG("MSC vol %d: MODE SENSE(6) WP=%d\n", vol, ms6.write_protected);
             msc_vol[vol].write_prot = ms6.write_protected;
@@ -456,7 +456,7 @@ static void msc_read_write_protect(uint8_t vol, uint32_t timeout_ms)
     else
     {
         scsi_mode_sense10_resp_t ms10;
-        if (msc_scsi_mode_sense10(vol, timeout_ms, 0x3F, &ms10) == MSC_STATUS_PASSED)
+        if (msc_scsi_mode_sense10(vol, 0x3F, &ms10) == MSC_STATUS_PASSED)
         {
             DBG("MSC vol %d: MODE SENSE(10) WP=%d\n", vol, ms10.write_protected);
             msc_vol[vol].write_prot = ms10.write_protected;
@@ -485,7 +485,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     if (msc_vol[vol].status == msc_volume_registered)
     {
         scsi_inquiry_resp_t inq;
-        if (msc_scsi_inquiry(vol, MSC_SCSI_OP_TIMEOUT_MS, &inq) != MSC_STATUS_PASSED)
+        if (msc_scsi_inquiry(vol, &inq) != MSC_STATUS_PASSED)
         {
             DBG("MSC vol %d: INQUIRY failed\n", vol);
             return msc_volume_failed;
@@ -500,7 +500,7 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     do
     {
         tur_count++;
-        msc_status_t status = msc_scsi_test_unit_ready(vol, MSC_SCSI_RW_TIMEOUT_MS);
+        msc_status_t status = msc_scsi_test_unit_ready(vol);
         tur_ok = status == MSC_STATUS_PASSED;
         DBG("MSC vol %d: TUR %s %d (sk=%d asc=%02Xh ascq=%02Xh)\n", vol,
             tur_ok ? "ok" : "failed", status,
@@ -516,11 +516,11 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     // TODO should we proceed if !tur_ok?
 
     // ---- CAPACITY ----
-    if (!msc_read_capacity(vol, MSC_SCSI_OP_TIMEOUT_MS))
+    if (!msc_read_capacity(vol))
         return msc_vol[vol].removable ? msc_volume_ejected : msc_volume_failed;
 
     // ---- WRITE PROTECTION ----
-    msc_read_write_protect(vol, MSC_SCSI_OP_TIMEOUT_MS);
+    msc_sense_write_protect(vol);
 
     DBG("MSC vol %d: init ok, %lu blocks\n", vol,
         (unsigned long)msc_vol[vol].block_count);
@@ -635,7 +635,7 @@ DSTATUS disk_status(BYTE pdrv)
     {
         msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
-        if (msc_scsi_test_unit_ready(vol, MSC_SCSI_RW_TIMEOUT_MS) == MSC_STATUS_PASSED)
+        if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED)
         {
             if (ejected)
             {
@@ -715,7 +715,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     while (count > 0)
     {
         uint16_t n = (count > max_blocks) ? max_blocks : (uint16_t)count;
-        msc_status_t status = msc_scsi_read10(vol, MSC_SCSI_RW_TIMEOUT_MS,
+        msc_status_t status = msc_scsi_read10(vol,
                                               buff, sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
@@ -744,7 +744,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     while (count > 0)
     {
         uint16_t n = (count > max_blocks) ? max_blocks : (uint16_t)count;
-        msc_status_t status = msc_scsi_write10(vol, MSC_SCSI_RW_TIMEOUT_MS,
+        msc_status_t status = msc_scsi_write10(vol,
                                                buff, sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
@@ -767,11 +767,12 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         // for disconnected devices (can't send commands).
         if (msc_vol[vol].write_prot)
             return RES_OK;
+        // TODO why do we check clock size, who cares here?
         if (msc_vol[vol].block_size == 0)
             return RES_OK;
         // Best effort: many USB flash drives don't implement
         // SYNCHRONIZE CACHE, so treat command failures as OK.
-        msc_status_t status = msc_scsi_sync_cache10(vol, MSC_SCSI_RW_TIMEOUT_MS);
+        msc_status_t status = msc_scsi_sync_cache10(vol);
         return status == MSC_STATUS_TIMED_OUT ? RES_NOTRDY : RES_OK;
     }
     case GET_SECTOR_COUNT:
@@ -813,7 +814,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         // Fully initialize and check removable media.
         if (msc_vol[vol].status == msc_volume_mounted &&
             msc_vol[vol].removable &&
-            msc_scsi_test_unit_ready(vol, MSC_SCSI_RW_TIMEOUT_MS) != MSC_STATUS_PASSED &&
+            msc_scsi_test_unit_ready(vol) != MSC_STATUS_PASSED &&
             msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
         {
             msc_vol_set_ejected(vol);
@@ -871,7 +872,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             }
         }
         scsi_inquiry_resp_t inq;
-        msc_status_t csw = msc_scsi_inquiry(vol, MSC_SCSI_OP_TIMEOUT_MS, &inq);
+        msc_status_t csw = msc_scsi_inquiry(vol, &inq);
         if (csw == MSC_STATUS_PASSED)
         {
             msc_inquiry_rtrims(inq.vendor_id, 8);
