@@ -21,11 +21,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define DBG_VOL(vol, fmt, ...)                                   \
-    printf("MSC:%lums vol %u: " fmt,                             \
-           (unsigned long)to_ms_since_boot(get_absolute_time()), \
-           (unsigned)(vol),                                      \
-           ##__VA_ARGS__)
+#define DBG_VOL(vol, fmt, ...)                                \
+    DBG("MSC:%lums vol %u: " fmt,                             \
+        (unsigned long)to_ms_since_boot(get_absolute_time()), \
+        (unsigned)(vol),                                      \
+        ##__VA_ARGS__)
 
 #define DBG_CMD(vol, cmd, status)                                           \
     DBG_VOL(vol, cmd " (status=0x%02x sk=0x%02x asc=0x%02x ascq=0x%02x)\n", \
