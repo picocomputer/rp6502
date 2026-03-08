@@ -48,7 +48,7 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // disk_status() issues a TUR on removable volumes only when this many
 // milliseconds have elapsed since the last successful SCSI command.
 // This detects media removal without adding overhead during active I/O.
-#define MSC_DISK_STATUS_TIMEOUT_MS 100
+#define MSC_DISK_STATUS_TIMEOUT_MS 250
 
 // Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
@@ -101,7 +101,6 @@ typedef enum
     msc_volume_registered,
     msc_volume_mounted,
     msc_volume_ejected,
-    msc_volume_failed,
 } msc_volume_status_t;
 
 typedef struct
@@ -473,60 +472,6 @@ static void msc_sense_write_protect(uint8_t vol)
     }
 }
 
-// Some vendors pad their strings with spaces, others with zeros.
-// This will ensure zeros, which prints better.
-static void msc_inquiry_rtrims(uint8_t *s, size_t l)
-{
-    while (l--)
-    {
-        if (s[l] == ' ')
-            s[l] = '\0';
-        else
-            break;
-    }
-}
-
-// Initialize a new or ejected volume
-static msc_volume_status_t msc_init_volume(uint8_t vol)
-{
-    // ---- INQUIRY (first mount only) ----
-    if (msc_vol[vol].status == msc_volume_registered)
-    {
-        scsi_inquiry_resp_t inq;
-        if (msc_scsi_inquiry(vol, &inq) != MSC_STATUS_PASSED)
-            return msc_volume_failed;
-        msc_vol[vol].removable = inq.is_removable;
-    }
-
-    // ---- TUR ----
-    absolute_time_t tur_deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
-    int tur_count = 0;
-    bool tur_ok;
-    do
-    {
-        tur_count++;
-        msc_status_t status = msc_scsi_test_unit_ready(vol);
-        tur_ok = status == MSC_STATUS_PASSED;
-    } while (!tur_ok && !time_reached(tur_deadline) &&
-             // Only one retry for media sense. Need for TEAC floppy.
-             ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) ||
-              // Normal UA clearing per the specs.
-              (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)));
-    if (!tur_ok && msc_vol[vol].removable)
-        return msc_volume_ejected;
-
-    // TODO should we proceed if !tur_ok?
-
-    // ---- CAPACITY ----
-    if (!msc_read_capacity(vol))
-        return msc_vol[vol].removable ? msc_volume_ejected : msc_volume_failed;
-
-    // ---- WRITE PROTECTION ----
-    msc_sense_write_protect(vol);
-
-    return msc_volume_mounted;
-}
-
 void tuh_msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const max_lun = tuh_msc_get_maxlun(dev_addr);
@@ -665,9 +610,41 @@ DSTATUS disk_initialize(BYTE pdrv)
     if (msc_vol[vol].status == msc_volume_registered ||
         msc_vol[vol].status == msc_volume_ejected)
     {
-        msc_volume_status_t result = msc_init_volume(vol);
-        if (result != msc_volume_failed)
-            msc_vol[vol].status = result;
+        // ---- INQUIRY (first mount only) ----
+        if (msc_vol[vol].status == msc_volume_registered)
+        {
+            scsi_inquiry_resp_t inq;
+            if (msc_scsi_inquiry(vol, &inq) != MSC_STATUS_PASSED)
+                return STA_NOINIT;
+            msc_vol[vol].removable = inq.is_removable;
+        }
+
+        // ---- TUR ----
+        absolute_time_t tur_deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
+        int tur_count = 0;
+        bool tur_ok;
+        do
+        {
+            tur_count++;
+            msc_status_t tur_status = msc_scsi_test_unit_ready(vol);
+            tur_ok = tur_status == MSC_STATUS_PASSED;
+        } while (!tur_ok && !time_reached(tur_deadline) &&
+                 // Only one retry for media sense. Need for TEAC floppy.
+                 ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) ||
+                  // Normal UA clearing per the specs.
+                  (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)));
+        if (!tur_ok)
+        {
+            if (msc_vol[vol].removable)
+                msc_vol[vol].status = msc_volume_ejected;
+        }
+        // ---- CAPACITY ----
+        else if (msc_read_capacity(vol))
+        {
+            // ---- WRITE PROTECTION ----
+            msc_sense_write_protect(vol);
+            msc_vol[vol].status = msc_volume_mounted;
+        }
     }
 
     if (msc_vol[vol].status == msc_volume_ejected)
@@ -763,9 +740,8 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         // for disconnected devices (can't send commands).
         if (msc_vol[vol].write_prot)
             return RES_OK;
-        // TODO why do we check clock size, who cares here?
-        if (msc_vol[vol].block_size == 0)
-            return RES_OK;
+        if (msc_vol[vol].dev_addr == 0 || msc_vol[vol].block_size == 0)
+            return RES_NOTRDY;
         // Best effort: many USB flash drives don't implement
         // SYNCHRONIZE CACHE, so treat command failures as OK.
         msc_status_t status = msc_scsi_sync_cache10(vol);
@@ -796,6 +772,19 @@ int msc_status_count(void)
             count++;
     }
     return count;
+}
+
+// Some vendors pad their strings with spaces, others with zeros.
+// This will ensure zeros, which prints better.
+static void msc_inquiry_rtrims(uint8_t *s, size_t l)
+{
+    while (l--)
+    {
+        if (s[l] == ' ')
+            s[l] = '\0';
+        else
+            break;
+    }
 }
 
 int msc_status_response(char *buf, size_t buf_size, int state)
