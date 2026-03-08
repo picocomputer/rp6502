@@ -725,8 +725,6 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
             uint8_t status;
             if (event != XFER_RESULT_SUCCESS)
                 status = MSC_CSW_STATUS_FAILED;
-            else if (cbw->total_bytes > 0 && residue > 0)
-                status = MSC_CSW_STATUS_FAILED; // short transfer
             else
                 status = MSC_CSW_STATUS_PASSED;
             complete_command(dev_addr, status, residue);
@@ -952,12 +950,6 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
             // epbuf->csw so that tuh_msc_scsi_sync() can return
             // msc_status_phase_error to the caller.
             start_recovery(dev_addr);
-        }
-        else if (csw->status == MSC_CSW_STATUS_PASSED &&
-                 cbw->total_bytes > 0 && csw->data_residue > 0)
-        {
-            // Short transfer: device reported fewer bytes than requested.
-            csw->status = MSC_CSW_STATUS_FAILED;
         }
         break;
     }

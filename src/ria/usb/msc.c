@@ -27,18 +27,16 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MSC_STD_FIL_MAX 8
 static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
-// Overall deadline for msc_init_volume (first mount or re-probe).
-#define MSC_INIT_TIMEOUT_MS 4000
-
-// Timeout for read/write/sync SCSI commands.
+// Timeout for read/write/sync SCSI commands and.
+// anything that might interact with motors.
 // Needs headroom for 3.5" floppy disk drives.
-#define MSC_SCSI_RW_TIMEOUT_MS 2000
+#define MSC_SCSI_RW_TIMEOUT_MS 2500
 
 // Time budget for any single USB MSC operation: one SCSI command or
 // one reset recovery sequence (BOT: BMR + 2x CLEAR_HALT; CBI: class
 // reset).  Also the floor given to each init stage so a nearly-expired
 // overall deadline cannot starve an individual command.
-#define MSC_SCSI_OP_TIMEOUT_MS 500
+#define MSC_SCSI_OP_TIMEOUT_MS 250
 
 // disk_status() issues a TUR on removable volumes only when this many
 // milliseconds have elapsed since the last successful SCSI command.
@@ -256,7 +254,11 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol, uint32_t timeout_ms)
     scsi_test_unit_ready_t const cmd = {.cmd_code = SCSI_CMD_TEST_UNIT_READY};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), &cmd);
-    return msc_scsi_command(vol, &cbw, NULL, timeout_ms);
+    //TODO timestamp and pretty
+    msc_status_t status = msc_scsi_command(vol, &cbw, NULL, timeout_ms);
+    DBG("MSC vol %d: TUR -> %d (sk=0x%02x asc=0x%02x)\n", vol, status,
+        msc_vol[vol].sense_key, msc_vol[vol].sense_asc);
+    return status;
 }
 
 static msc_status_t msc_scsi_read_capacity10(uint8_t vol, uint32_t timeout_ms,
@@ -382,7 +384,7 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
     if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
         // CBI: READ FORMAT CAPACITIES
-        scsi_read_format_capacity_data_t rfc;
+        scsi_read_format_capacity_data_t rfc = {0};
         if (msc_scsi_read_format_capacities(vol, timeout_ms,
                                             &rfc, sizeof(rfc)) !=
             MSC_STATUS_PASSED)
@@ -406,7 +408,7 @@ static bool msc_read_capacity(uint8_t vol, uint32_t timeout_ms)
     else
     {
         // BOT: READ CAPACITY(10)
-        scsi_read_capacity10_resp_t cap10;
+        scsi_read_capacity10_resp_t cap10 = {0};
         msc_status_t cap_status = msc_scsi_read_capacity10(vol, timeout_ms, &cap10);
         if (cap_status != MSC_STATUS_PASSED)
         {
@@ -475,25 +477,15 @@ static void msc_inquiry_rtrims(uint8_t *s, size_t l)
     }
 }
 
-// Convert absolute deadline to remaining milliseconds, floored at MSC_OP_TIMEOUT_MS.
-// Prevents a nearly-expired deadline from starving a subordinate command.
-static uint32_t msc_floor_ms(absolute_time_t deadline)
-{
-    int64_t diff_us = absolute_time_diff_us(get_absolute_time(), deadline);
-    uint32_t remaining = diff_us > 0 ? (uint32_t)(diff_us / 1000) : 0;
-    return remaining > MSC_SCSI_OP_TIMEOUT_MS ? remaining : MSC_SCSI_OP_TIMEOUT_MS;
-}
-
 // Initialize a new or ejected volume
 static msc_volume_status_t msc_init_volume(uint8_t vol)
 {
-    absolute_time_t deadline = make_timeout_time_ms(MSC_INIT_TIMEOUT_MS);
 
     // ---- INQUIRY (first mount only) ----
     if (msc_vol[vol].status == msc_volume_registered)
     {
         scsi_inquiry_resp_t inq;
-        if (msc_scsi_inquiry(vol, msc_floor_ms(deadline), &inq) != MSC_STATUS_PASSED)
+        if (msc_scsi_inquiry(vol, MSC_SCSI_OP_TIMEOUT_MS, &inq) != MSC_STATUS_PASSED)
         {
             DBG("MSC vol %d: INQUIRY failed\n", vol);
             return msc_volume_failed;
@@ -502,30 +494,33 @@ static msc_volume_status_t msc_init_volume(uint8_t vol)
     }
 
     // ---- TUR ----
+    absolute_time_t tur_deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
     int tur_count = 0;
     bool tur_ok;
     do
     {
         tur_count++;
-        msc_status_t status = msc_scsi_test_unit_ready(vol, msc_floor_ms(deadline));
+        msc_status_t status = msc_scsi_test_unit_ready(vol, MSC_SCSI_RW_TIMEOUT_MS);
         tur_ok = status == MSC_STATUS_PASSED;
         DBG("MSC vol %d: TUR %s %d (sk=%d asc=%02Xh ascq=%02Xh)\n", vol,
             tur_ok ? "ok" : "failed", status,
             msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq);
-    } while (!tur_ok && !time_reached(deadline) &&
-             ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) || // one retry for media sense
-              (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION))); // normal ua clearing
+    } while (!tur_ok && !time_reached(tur_deadline) &&
+             // Only one retry for media sense. Need for TEAC floppy.
+             ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) ||
+              // Normal UA clearing per the specs.
+              (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)));
     if (!tur_ok && msc_vol[vol].removable)
         return msc_volume_ejected;
 
     // TODO should we proceed if !tur_ok?
 
     // ---- CAPACITY ----
-    if (!msc_read_capacity(vol, msc_floor_ms(deadline)))
+    if (!msc_read_capacity(vol, MSC_SCSI_OP_TIMEOUT_MS))
         return msc_vol[vol].removable ? msc_volume_ejected : msc_volume_failed;
 
     // ---- WRITE PROTECTION ----
-    msc_read_write_protect(vol, msc_floor_ms(deadline));
+    msc_read_write_protect(vol, MSC_SCSI_OP_TIMEOUT_MS);
 
     DBG("MSC vol %d: init ok, %lu blocks\n", vol,
         (unsigned long)msc_vol[vol].block_count);
@@ -640,7 +635,7 @@ DSTATUS disk_status(BYTE pdrv)
     {
         msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG("MSC vol %d: disk_status, issuing TUR\n", vol);
-        if (msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) == MSC_STATUS_PASSED)
+        if (msc_scsi_test_unit_ready(vol, MSC_SCSI_RW_TIMEOUT_MS) == MSC_STATUS_PASSED)
         {
             if (ejected)
             {
@@ -818,7 +813,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         // Fully initialize and check removable media.
         if (msc_vol[vol].status == msc_volume_mounted &&
             msc_vol[vol].removable &&
-            msc_scsi_test_unit_ready(vol, MSC_SCSI_OP_TIMEOUT_MS) != MSC_STATUS_PASSED &&
+            msc_scsi_test_unit_ready(vol, MSC_SCSI_RW_TIMEOUT_MS) != MSC_STATUS_PASSED &&
             msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
         {
             msc_vol_set_ejected(vol);
