@@ -36,15 +36,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MSC_STD_FIL_MAX 8
 static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
-// Timeout for read/write/sync SCSI commands and.
+// Timeout for read/write/sync SCSI commands and
 // anything that might interact with motors.
 // Needs headroom for 3.5" floppy disk drives.
 #define MSC_SCSI_RW_TIMEOUT_MS 2500
 
-// Time budget for any single USB MSC operation: one SCSI command or
-// one reset recovery sequence (BOT: BMR + 2x CLEAR_HALT; CBI: class
-// reset).  Also the floor given to each init stage so a nearly-expired
-// overall deadline cannot starve an individual command.
+// Time budget for SCSI commands which do
+// not need to account for mechanical delay.
 #define MSC_SCSI_OP_TIMEOUT_MS 250
 
 // disk_status() issues a TUR on removable volumes only when this many
@@ -124,7 +122,7 @@ typedef struct
 
 static msc_vol_t msc_vol[FF_VOLUMES];
 
-// This driver requires our custom TinyUSB: src/tinyusb_rp6502/msc_host.c.
+// This driver requires our custom TinyUSB: src/tinyusb_rp6502/msc_host.c
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
 // These additional interfaces are not in upstream TinyUSB.
 
@@ -134,7 +132,7 @@ typedef enum
     MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
     MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
     MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
-    MSC_STATUS_TIMED_OUT,   // not a CSW status; returned on I/O timeout
+    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
 } msc_status_t;
 
 uint8_t tuh_msc_protocol(uint8_t dev_addr);
@@ -146,12 +144,6 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 // FatFs re-entry would be a problem so main_task() never calls FatFs
 // but it does call the required tuh_task().
 void tuh_msc_pump(void) { main_task(); }
-
-//--------------------------------------------------------------------+
-// Synchronous SCSI command wrappers
-//--------------------------------------------------------------------+
-// Each wrapper builds a CDB, submits it via the transport API,
-// and blocks until completion.  Returns the CSW status code.
 
 // Initialize a CBW for a volume's LUN.
 // Signature and tag are stamped by tuh_msc_scsi_submit().
@@ -621,12 +613,11 @@ static void msc_vol_set_ejected(uint8_t vol)
     msc_vol[vol].block_count = 0;
     msc_vol[vol].block_size = 0;
     msc_vol[vol].write_prot = false;
-    DBG_VOL(vol, "media ejected\n");
 }
 
 DSTATUS disk_status(BYTE pdrv)
 {
-    // We only support partition 0, so one vol per physical drive.
+    // We only support partition 0. One vol per physical drive.
     uint8_t vol = pdrv;
     bool const ejected = (msc_vol[vol].status == msc_volume_ejected);
 
@@ -654,8 +645,7 @@ DSTATUS disk_status(BYTE pdrv)
         else
         {
             DBG_VOL(vol, "disk_status, no media\n");
-            if (!ejected)
-                msc_vol_set_ejected(vol);
+            msc_vol_set_ejected(vol);
             return STA_NOINIT | STA_NODISK;
         }
     }
@@ -896,7 +886,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             snprintf(buf, buf_size, STR_STATUS_MSC,
                      VolumeStr[vol],
                      sizebuf,
-                     STR_PARENS_NONE, STR_PARENS_NONE, STR_PARENS_NONE);
+                     STR_PARENS_NONE, STR_PARENS_NONE, "");
         }
     }
     return state + 1;
