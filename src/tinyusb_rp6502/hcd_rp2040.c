@@ -791,7 +791,12 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
   } else {
     hw_endpoint_xfer_start(ep, buffer, NULL, buflen);
     // Ensure the async slot is enabled — hcd_edpt_abort_xfer disables it.
-    usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
+    // Skip during EPX suppression: the SIE would poll this endpoint and
+    // clobber EPX handshake latches. unsuppress_int_polling() restores all
+    // configured bits (including this one) after EPX completes.
+    if (!_int_ep_suppressed) {
+      usb_hw_set->int_ep_ctrl = (1u << (ep->interrupt_num + 1));
+    }
   }
   return true;
 }
@@ -813,6 +818,12 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   // Reset software endpoint state if it is still marked active.
   if (ep->active) {
     hw_endpoint_reset_transfer(ep);
+  }
+
+  // Resetting to DATA0 here pairs with the CLEAR_FEATURE(ENDPOINT_HALT)
+  // that callers are expected to send, which resets the device's toggle to DATA0.
+  if (ep != &epx) {
+    ep->next_pid = 0;
   }
 
   // Clear hardware buf_ctrl and pending BUFF_STATUS so a stale completion

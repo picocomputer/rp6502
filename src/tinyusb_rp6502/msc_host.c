@@ -43,6 +43,16 @@
 //--------------------------------------------------------------------+
 // TYPES AND DATA
 //--------------------------------------------------------------------+
+
+// Superset of msc_csw_status_t with an additional timeout value.
+typedef enum
+{
+    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
+    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
+    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
+    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
+} msc_status_t;
+
 enum
 {
     MSC_STAGE_IDLE,
@@ -62,7 +72,6 @@ enum
 
 typedef struct
 {
-    volatile bool configured;
     volatile bool mounted;
     uint8_t itf_num;
     uint8_t ep_in;
@@ -88,6 +97,9 @@ typedef struct
 
 static msch_interface_t _msch_itf[CFG_TUH_DEVICE_MAX];
 CFG_TUH_MEM_SECTION static msch_epbuf_t _msch_epbuf[CFG_TUH_DEVICE_MAX];
+
+// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
+static uint32_t msc_cbw_tag_counter = 0x65020000;
 
 TU_ATTR_ALWAYS_INLINE static inline msch_interface_t *get_itf(uint8_t daddr)
 {
@@ -121,8 +133,6 @@ static void complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_re
     msch_interface_t *p_msc = get_itf(daddr);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
     p_msc->stage = MSC_STAGE_IDLE;
-    epbuf->csw.signature = MSC_CSW_SIGNATURE;
-    epbuf->csw.tag = epbuf->cbw.tag;
     epbuf->csw.data_residue = data_residue;
     epbuf->csw.status = csw_status;
 }
@@ -149,21 +159,26 @@ static void start_data_phase(uint8_t daddr)
 //--------------------------------------------------------------------+
 // Weak stubs
 //--------------------------------------------------------------------+
-TU_ATTR_WEAK void tuh_msc_mount_lun_cb(uint8_t dev_addr, uint8_t lun)
+
+TU_ATTR_WEAK void tuh_msc_mount_cb(uint8_t dev_addr)
 {
     (void)dev_addr;
-    (void)lun;
 }
 
-TU_ATTR_WEAK void tuh_msc_umount_lun_cb(uint8_t dev_addr, uint8_t lun)
+TU_ATTR_WEAK void tuh_msc_umount_cb(uint8_t dev_addr)
 {
     (void)dev_addr;
-    (void)lun;
 }
+
+// Weak pump hook called from tuh_msc_scsi_sync() while waiting for
+// USB events.  Override should call tuh_task() along with its own
+// application-level tasks that must run during blocking MSC I/O.
+TU_ATTR_WEAK void tuh_msc_pump(void) { tuh_task(); }
 
 //--------------------------------------------------------------------+
 // PUBLIC API
 //--------------------------------------------------------------------+
+
 bool tuh_msc_mounted(uint8_t dev_addr)
 {
     return get_itf(dev_addr)->mounted;
@@ -186,14 +201,19 @@ bool tuh_msc_ready(uint8_t dev_addr)
     return true;
 }
 
+uint8_t tuh_msc_get_maxlun(uint8_t dev_addr)
+{
+    return get_itf(dev_addr)->max_lun;
+}
+
 uint8_t tuh_msc_protocol(uint8_t dev_addr)
 {
     return get_itf(dev_addr)->protocol;
 }
 
-const msc_csw_t *tuh_msc_csw(uint8_t dev_addr)
+msc_csw_status_t tuh_msc_csw_status(uint8_t dev_addr)
 {
-    return &get_epbuf(dev_addr)->csw;
+    return get_epbuf(dev_addr)->csw.status;
 }
 
 //--------------------------------------------------------------------+
@@ -337,7 +357,7 @@ static void recovery_xfer_cb(tuh_xfer_t *xfer)
 static void start_recovery(uint8_t daddr)
 {
     msch_interface_t *p_msc = get_itf(daddr);
-    if (!p_msc->configured)
+    if (!p_msc->ep_in)
         return;
     if (p_msc->recovery_stage != RECOVERY_IDLE)
         return;
@@ -402,7 +422,7 @@ static void start_recovery(uint8_t daddr)
 void tuh_msc_abort(uint8_t daddr)
 {
     msch_interface_t *p_msc = get_itf(daddr);
-    if (!p_msc->configured)
+    if (!p_msc->ep_in)
         return;
 
     // If recovery is already in progress, force-stop it.
@@ -467,11 +487,18 @@ static void cbi_adsc_complete(tuh_xfer_t *xfer)
 bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 {
     msch_interface_t *p_msc = get_itf(daddr);
-    TU_VERIFY(p_msc->configured);
+    TU_VERIFY(p_msc->ep_in);
     TU_VERIFY(p_msc->stage == MSC_STAGE_IDLE);
     msch_epbuf_t *epbuf = get_epbuf(daddr);
 
     epbuf->cbw = *cbw;
+    // Stamp signature and tag — callers don't need to set these.
+    epbuf->cbw.signature = MSC_CBW_SIGNATURE;
+    // Skip 0 on wrap: tag 0 is legal per spec but unconventional and
+    // could confuse stale-CSW detection in edge cases.
+    if (++msc_cbw_tag_counter == 0)
+        ++msc_cbw_tag_counter;
+    epbuf->cbw.tag = msc_cbw_tag_counter;
     p_msc->buffer = data;
     p_msc->data_stall = false;
     p_msc->stage = MSC_STAGE_CMD;
@@ -529,6 +556,77 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 }
 
 //--------------------------------------------------------------------+
+// PUBLIC API: SYNCHRONOUS I/O
+//--------------------------------------------------------------------+
+// Wait for transport ready, submit command, and wait for completion.
+// No autosense — used directly for REQUEST SENSE itself.
+// Calls tuh_msc_pump() while spinning.
+msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
+                               const void *data, uint32_t timeout_ms)
+{
+    msc_status_t result;
+    uint32_t const start_ms = tusb_time_millis_api();
+
+    // Wait for transport ready AND successfully submit the command.
+    // CBI transport sends the CDB via an ADSC control transfer on the
+    // shared EPX.  If another control transfer is in-flight (e.g. hub
+    // Get Port Status), tuh_msc_scsi_submit() returns false even though
+    // the MSC layer is idle.  We must retry submission rather than
+    // failing the entire command.
+    for (;;)
+    {
+        if (!tuh_msc_mounted(dev_addr))
+        {
+            result = MSC_STATUS_FAILED;
+            goto done;
+        }
+        if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
+        {
+            result = MSC_STATUS_TIMED_OUT;
+            goto done;
+        }
+        if (!tuh_msc_ready(dev_addr))
+        {
+            tuh_msc_pump();
+            continue;
+        }
+        // Cast away const: transport API uses void* for both directions.
+        if (tuh_msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
+            break;
+        // Submit failed (control pipe busy) — pump events and retry
+        tuh_msc_pump();
+    }
+    while (!tuh_msc_ready(dev_addr))
+    {
+        if (!tuh_msc_mounted(dev_addr))
+        {
+            result = MSC_STATUS_FAILED;
+            goto done;
+        }
+        if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
+        {
+            tuh_msc_abort(dev_addr);
+            result = MSC_STATUS_TIMED_OUT;
+            goto done;
+        }
+        tuh_msc_pump();
+    }
+    // msc_host.c has already validated the CSW (signature, tag, size).
+    // Invalid CSWs (wrong signature, tag, or length) are detected in
+    // bot_xfer_cb(), which calls complete_command() to synthesize a
+    // FAILED CSW with the correct tag, then immediately starts Reset
+    // Recovery (BMR + 2x CLEAR_HALT, BOT §6.3.3).  We arrive here only
+    // after tuh_msc_ready() became true, meaning recovery_stage is IDLE.
+    // A genuine device-reported PHASE_ERROR in an otherwise valid CSW
+    // also triggers recovery; the CSW status is preserved so we can
+    // return MSC_STATUS_PHASE_ERROR to the caller.
+    result = (msc_status_t)tuh_msc_csw_status(dev_addr);
+
+done:
+    return result;
+}
+
+//--------------------------------------------------------------------+
 // CLASS-USBH API
 //--------------------------------------------------------------------+
 bool msch_init(void)
@@ -548,7 +646,7 @@ void msch_close(uint8_t dev_addr)
 {
     TU_VERIFY(dev_addr <= CFG_TUH_DEVICE_MAX, );
     msch_interface_t *p_msc = get_itf(dev_addr);
-    TU_VERIFY(p_msc->configured, );
+    TU_VERIFY(p_msc->ep_in, );
 
     TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
 
@@ -565,8 +663,7 @@ void msch_close(uint8_t dev_addr)
 
     if (p_msc->mounted)
     {
-        for (uint8_t lun = 0; lun <= p_msc->max_lun; lun++)
-            tuh_msc_umount_lun_cb(dev_addr, lun);
+        tuh_msc_umount_cb(dev_addr);
     }
 
     tu_memclr(p_msc, sizeof(msch_interface_t));
@@ -606,13 +703,15 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
         if (event == XFER_RESULT_STALLED)
         {
             hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, data_ep(p_msc, cbw));
-            p_msc->data_stall = true;
         }
 
         if (p_msc->ep_intr)
         {
             // CBI: interrupt status is the authoritative command result
             // regardless of data-phase outcome.  Always read it.
+            // Track the stall so the STATUS callback can kick off recovery.
+            if (event == XFER_RESULT_STALLED)
+                p_msc->data_stall = true;
             epbuf->csw.data_residue = residue;
             p_msc->stage = MSC_STAGE_STATUS;
             if (!usbh_edpt_xfer(dev_addr, p_msc->ep_intr, epbuf->cbi_status, 2))
@@ -624,9 +723,11 @@ static bool cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_
         }
         else
         {
-            uint8_t status = (event == XFER_RESULT_SUCCESS)
-                                 ? MSC_CSW_STATUS_PASSED
-                                 : MSC_CSW_STATUS_FAILED;
+            uint8_t status;
+            if (event != XFER_RESULT_SUCCESS)
+                status = MSC_CSW_STATUS_FAILED;
+            else
+                status = MSC_CSW_STATUS_PASSED;
             complete_command(dev_addr, status, residue);
             if (event != XFER_RESULT_SUCCESS)
                 start_recovery(dev_addr);
@@ -847,7 +948,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
         {
             // BOT §6.7.2: phase error requires reset recovery.
             // The raw device CSW (with PHASE_ERROR status) is preserved in
-            // epbuf->csw so that msc_scsi_sync_raw() can return
+            // epbuf->csw so that tuh_msc_scsi_sync() can return
             // msc_status_phase_error to the caller.
             start_recovery(dev_addr);
         }
@@ -977,8 +1078,7 @@ static void get_max_lun_complete_cb(tuh_xfer_t *xfer)
     // else: STALL means no LUNs beyond 0; max_lun stays 0.
 
     p_msc->mounted = true;
-    for (uint8_t lun = 0; lun <= p_msc->max_lun; lun++)
-        tuh_msc_mount_lun_cb(daddr, lun);
+    tuh_msc_mount_cb(daddr);
     usbh_driver_set_config_complete(daddr, p_msc->itf_num);
 }
 
@@ -986,13 +1086,12 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
-    p_msc->configured = true;
 
     // CBI/CB: single-LUN by spec, skip GET_MAX_LUN.
     if (!is_bot(p_msc))
     {
         p_msc->mounted = true;
-        tuh_msc_mount_lun_cb(daddr, 0);
+        tuh_msc_mount_cb(daddr);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
         return true;
     }
@@ -1020,7 +1119,7 @@ bool msch_set_config(uint8_t daddr, uint8_t itf_num)
     {
         // Control pipe busy or error — proceed with LUN 0 only.
         p_msc->mounted = true;
-        tuh_msc_mount_lun_cb(daddr, 0);
+        tuh_msc_mount_cb(daddr);
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
     }
     return true;
