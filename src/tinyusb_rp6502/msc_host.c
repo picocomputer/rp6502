@@ -43,6 +43,16 @@
 //--------------------------------------------------------------------+
 // TYPES AND DATA
 //--------------------------------------------------------------------+
+
+// Superset of msc_csw_status_t with an additional timeout value.
+typedef enum
+{
+    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
+    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
+    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
+    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
+} msc_status_t;
+
 enum
 {
     MSC_STAGE_IDLE,
@@ -149,6 +159,7 @@ static void start_data_phase(uint8_t daddr)
 //--------------------------------------------------------------------+
 // Weak stubs
 //--------------------------------------------------------------------+
+
 TU_ATTR_WEAK void tuh_msc_mount_cb(uint8_t dev_addr)
 {
     (void)dev_addr;
@@ -159,15 +170,6 @@ TU_ATTR_WEAK void tuh_msc_umount_cb(uint8_t dev_addr)
     (void)dev_addr;
 }
 
-// Superset of msc_csw_status_t with an additional timeout value.
-typedef enum
-{
-    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
-    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
-    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
-    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
-} msc_status_t;
-
 // Weak pump hook called from tuh_msc_scsi_sync() while waiting for
 // USB events.  Override should call tuh_task() along with its own
 // application-level tasks that must run during blocking MSC I/O.
@@ -176,6 +178,7 @@ TU_ATTR_WEAK void tuh_msc_pump(void) { tuh_task(); }
 //--------------------------------------------------------------------+
 // PUBLIC API
 //--------------------------------------------------------------------+
+
 bool tuh_msc_mounted(uint8_t dev_addr)
 {
     return get_itf(dev_addr)->mounted;
