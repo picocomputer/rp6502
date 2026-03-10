@@ -546,57 +546,54 @@ DWORD get_fattime(void)
     return ((DWORD)0 << 25 | (DWORD)1 << 21 | (DWORD)1 << 16);
 }
 
-// Mark a removable volume as ejected and clear cached geometry.
-static void msc_vol_set_ejected(uint8_t vol)
-{
-    if (!msc_vol[vol].removable)
-        return;
-    if (msc_vol[vol].status == msc_volume_free ||
-        msc_vol[vol].status == msc_volume_ejected)
-        return;
-    msc_vol[vol].status = msc_volume_ejected;
-    msc_vol[vol].block_count = 0;
-    msc_vol[vol].block_size = 0;
-    msc_vol[vol].write_prot = false;
-}
-
 DSTATUS disk_status(BYTE pdrv)
 {
     // We only support partition 0. One vol per physical drive.
     uint8_t vol = pdrv;
-    bool const ejected = (msc_vol[vol].status == msc_volume_ejected);
 
-    if (!ejected && msc_vol[vol].status != msc_volume_mounted)
+    if (msc_vol[vol].status == msc_volume_free ||
+        msc_vol[vol].status == msc_volume_registered)
     {
         DBG_VOL(vol, "disk_status, not mounted, status=%d\n", msc_vol[vol].status);
         return STA_NOINIT;
     }
 
-    // TUR for removable volumes: rate-limited by MSC_DISK_STATUS_TIMEOUT_MS.
+    if (msc_vol[vol].status == msc_volume_ejected)
+    {
+        if (absolute_time_diff_us(msc_vol[vol].last_ok, get_absolute_time()) >=
+            MSC_DISK_STATUS_TIMEOUT_MS * 1000)
+        {
+            msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
+            DBG_VOL(vol, "disk_status, ejected, issuing TUR\n");
+            msc_status_t tur = msc_scsi_test_unit_ready(vol);
+            if (tur != MSC_STATUS_FAILED || msc_vol[vol].sense_asc != 0x3A)
+            {
+                DBG_VOL(vol, "disk_status, media reinserted\n");
+                return STA_NOINIT;
+            }
+        }
+        return STA_NOINIT | STA_NODISK;
+    }
+
     if (msc_vol[vol].removable &&
         absolute_time_diff_us(msc_vol[vol].last_ok, get_absolute_time()) >=
             MSC_DISK_STATUS_TIMEOUT_MS * 1000)
     {
         msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG_VOL(vol, "disk_status, issuing TUR\n");
-        if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED)
-        {
-            if (ejected)
-            {
-                DBG_VOL(vol, "disk_status, media reinserted\n");
-                return STA_NOINIT;
-            }
-        }
-        else
+        if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED &&
+            msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
         {
             DBG_VOL(vol, "disk_status, no media\n");
-            msc_vol_set_ejected(vol);
+            msc_vol[vol].status = msc_volume_ejected;
+            msc_vol[vol].block_count = 0;
+            msc_vol[vol].block_size = 0;
+            msc_vol[vol].write_prot = false;
+            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+            msc_vol[vol].sense_asc = 0;
+            msc_vol[vol].sense_ascq = 0;
             return STA_NOINIT | STA_NODISK;
         }
-    }
-    else if (ejected)
-    {
-        return STA_NOINIT | STA_NODISK;
     }
 
     return msc_vol[vol].write_prot ? STA_PROTECT : 0;
@@ -796,15 +793,8 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         msc_vol[vol].status == msc_volume_mounted ||
         msc_vol[vol].status == msc_volume_ejected)
     {
-        // Fully initialize and check removable media.
-        if (msc_vol[vol].status == msc_volume_mounted &&
-            msc_vol[vol].removable &&
-            msc_scsi_test_unit_ready(vol) != MSC_STATUS_PASSED &&
-            msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
-        {
-            msc_vol_set_ejected(vol);
-        }
-        else
+        // Refresh or init media status
+        if (disk_status(vol) == STA_NOINIT)
             disk_initialize(vol);
 
         char sizebuf[24];
