@@ -411,8 +411,13 @@ void rom_mon_load(const char *args)
                     ((char *)mbuf)[base_len++] = '/';
             }
             size_t fn_len = strlen(filename);
-            if (base_len && base_len + fn_len < MBUF_SIZE)
+            if (base_len)
             {
+                if (base_len + fn_len > 255)
+                {
+                    mon_add_response_str(STR_ERR_ROM_PATH_OVERFLOW);
+                    return;
+                }
                 memcpy((char *)mbuf + base_len, filename, fn_len + 1);
                 full_path = (char *)mbuf;
             }
