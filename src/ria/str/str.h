@@ -46,14 +46,17 @@ bool str_parse_uint32(const char **args, uint32_t *result);
 // Ensure there are no more arguments (only spaces to the null terminator).
 bool str_parse_end(const char *args);
 
-/* Part 1 of putting string literals into flash.
- */
-
+// String literal are in flash.
 #define X(name, value) \
-    extern const char name[]; \
-    enum { name##_LEN = sizeof(value) - 1 };
+    extern const char name[];
 #include "str.inc"
 #include RP6502_LOCALE
+#undef X
+
+// Provide length of non-localized string literals.
+#define X(name, value) \
+    enum { name##_LEN = sizeof(value) - 1 };
+#include "str.inc"
 #undef X
 
 #endif /* _RIA_STR_STR_H_ */

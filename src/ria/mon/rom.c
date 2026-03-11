@@ -388,6 +388,20 @@ void rom_mon_remove(const char *args)
     mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
 }
 
+bool rom_exec(void)
+{
+    const char *path = pro_argv_index(0);
+    if (!path)
+        return false;
+    bool is_fat = strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) != 0;
+    if (!is_fat)
+        path += STR_ROM_COLON_LEN;
+    if (!rom_open(path, is_fat))
+        return false;
+    rom_state = ROM_LOADING;
+    return true;
+}
+
 void rom_mon_load(const char *args)
 {
     const char *filename = str_parse_string(&args);
@@ -420,7 +434,7 @@ void rom_mon_load(const char *args)
             {
                 if (base_len + fn_len > 255)
                 {
-                    mon_add_response_str(STR_ERR_ROM_PATH_OVERFLOW);
+                    mon_add_response_str(STR_ERR_ROM_ARGV_OVERFLOW);
                     return;
                 }
                 memcpy((char *)mbuf + base_len, filename, fn_len + 1);
@@ -436,11 +450,11 @@ void rom_mon_load(const char *args)
             if (!pro_argv_append(arg))
             {
                 pro_argv_clear();
-                break;
+                mon_add_response_str(STR_ERR_ROM_ARGV_OVERFLOW);
+                return;
             }
     }
-    if (rom_open(full_path, true))
-        rom_state = ROM_LOADING;
+    rom_exec();
 }
 
 static bool rom_is_installed(const char *name)
@@ -474,27 +488,11 @@ bool rom_load_installed(const char *args)
             if (!pro_argv_append(arg))
             {
                 pro_argv_clear();
-                break;
+                mon_add_response_str(STR_ERR_ROM_ARGV_OVERFLOW);
+                return false;
             }
     }
-    if (!rom_open(name, false))
-        return false;
-    rom_state = ROM_LOADING;
-    return true;
-}
-
-bool rom_exec(void)
-{
-    const char *path = pro_argv_index(0);
-    if (!path)
-        return false;
-    bool is_fat = strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) != 0;
-    if (!is_fat)
-        path += STR_ROM_COLON_LEN;
-    if (!rom_open(path, is_fat))
-        return false;
-    rom_state = ROM_LOADING;
-    return true;
+    return rom_exec();
 }
 
 // Seek to the named asset in the #> directory. On success, the file position
