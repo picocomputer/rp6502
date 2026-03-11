@@ -68,6 +68,7 @@ target_sources(${RIA_TARGET} PRIVATE
     api/clk.c
     api/dir.c
     api/oem.c
+    api/pro.c
     api/std.c
     aud/aud.c
     aud/opl.c

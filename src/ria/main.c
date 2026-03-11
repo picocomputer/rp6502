@@ -10,6 +10,7 @@
 #include "api/clk.h"
 #include "api/dir.h"
 #include "api/oem.h"
+#include "api/pro.h"
 #include "api/std.h"
 #include "aud/aud.h"
 #include "aud/opl.h"
@@ -214,6 +215,10 @@ bool main_api(uint8_t operation)
         return atr_api_stdin_opt();
     case 0x06:
         return atr_api_errno_opt();
+    case 0x08:
+        return pro_api_argv();
+    case 0x09:
+        return pro_api_execv();
     case 0x0A:
         return atr_api_get();
     case 0x0B:
