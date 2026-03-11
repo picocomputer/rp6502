@@ -419,11 +419,17 @@ void rom_mon_load(const char *args)
         }
     }
     pro_argv_clear();
-    pro_argv_append(full_path);
-    char *arg;
-    while ((arg = str_parse_string(&args)) != NULL)
-        pro_argv_append(arg);
-    if (rom_open(pro_argv_index(0), true))
+    if (pro_argv_append(full_path))
+    {
+        char *arg;
+        while ((arg = str_parse_string(&args)) != NULL)
+            if (!pro_argv_append(arg))
+            {
+                pro_argv_clear();
+                break;
+            }
+    }
+    if (rom_open(full_path, true))
         rom_state = ROM_LOADING;
 }
 
@@ -443,10 +449,16 @@ bool rom_load_installed(const char *args)
     char rom_argv0[4 + LFS_NAME_MAX + 1];
     snprintf(rom_argv0, sizeof(rom_argv0), "ROM:%s", name);
     pro_argv_clear();
-    pro_argv_append(rom_argv0);
-    char *arg;
-    while ((arg = str_parse_string(&args)) != NULL)
-        pro_argv_append(arg);
+    if (pro_argv_append(rom_argv0))
+    {
+        char *arg;
+        while ((arg = str_parse_string(&args)) != NULL)
+            if (!pro_argv_append(arg))
+            {
+                pro_argv_clear();
+                break;
+            }
+    }
     if (!rom_open(name, false))
         return false;
     rom_state = ROM_LOADING;
