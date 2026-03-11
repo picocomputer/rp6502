@@ -145,10 +145,12 @@ static void mon_enter(bool timeout, const char *buf)
         return func(args);
     if (rom_load_installed(buf))
         return;
-    // Supress error for empty lines
-    for (const char *b = buf; b < args; b++)
-        if (b[0] != ' ')
-            return mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
+    // Suppress error for empty lines
+    const char *b = buf;
+    while (*b == ' ')
+        b++;
+    if (*b)
+        mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
 }
 
 static int mon_str_response(char *buf, size_t buf_size, int state)
