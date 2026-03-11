@@ -400,8 +400,6 @@ void rom_mon_load(const char *args)
         rom_state = ROM_LOADING;
 }
 
-
-
 static bool rom_is_installed(char *name)
 {
     if (!rom_validate_name(name))
@@ -718,22 +716,16 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
 
 bool rom_set_boot(const char *args)
 {
-    size_t len = strlen(args);
-    while (len && args[len - 1] == ' ')
-        len--;
-    if (len)
+    const char *p = args;
+    char *name = str_parse_string(&p);
+    if (!name)
     {
-        const char *p = args;
-        char *name = str_parse_string(&p);
-        if (!name || !rom_is_installed(name))
-            return false;
+        cfg_save_boot("");
+        return true;
     }
-    if (len >= MBUF_SIZE)
+    if (!rom_is_installed(name))
         return false;
-    char boot[MBUF_SIZE];
-    memcpy(boot, args, len);
-    boot[len] = 0;
-    cfg_save_boot(boot);
+    cfg_save_boot(args);
     return true;
 }
 
