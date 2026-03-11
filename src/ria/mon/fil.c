@@ -87,7 +87,13 @@ void fil_mon_chdir(const char *args, size_t len)
         mon_add_response_fn(fil_chdir_response);
         return;
     }
-    result = f_opendir(&dir, args);
+    char *path = str_parse_string(&args, &len);
+    if (!path || !str_parse_end(args, len))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    result = f_opendir(&dir, path);
     mon_add_response_fatfs(result);
     if (result == FR_OK)
     {
@@ -97,34 +103,31 @@ void fil_mon_chdir(const char *args, size_t len)
     }
     if (result == FR_OK)
     {
-        result = f_chdir(args);
+        result = f_chdir(path);
         mon_add_response_fatfs(result);
     }
 }
 
 void fil_mon_mkdir(const char *args, size_t len)
 {
-    FRESULT result;
-    if (!len)
+    char *path = str_parse_string(&args, &len);
+    if (!path || !str_parse_end(args, len))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    result = f_mkdir(args);
+    FRESULT result = f_mkdir(path);
     mon_add_response_fatfs(result);
 }
 
 void fil_mon_chdrive(const char *args, size_t len)
 {
-    (void)len;
     FRESULT result = FR_INVALID_DRIVE;
     DIR dir;
-    char s[7]; // up to "USB99:\0"
-    if (len &&
-        str_parse_string(&args, &len, s, sizeof(s)) &&
-        str_parse_end(args, len))
+    const char *tok = str_parse_string(&args, &len);
+    if (tok && str_parse_end(args, len))
     {
-        result = f_opendir(&dir, s);
+        result = f_opendir(&dir, tok);
     }
     mon_add_response_fatfs(result);
     if (result == FR_OK)
@@ -135,7 +138,7 @@ void fil_mon_chdrive(const char *args, size_t len)
     }
     if (result == FR_OK)
     {
-        result = f_chdrive(s);
+        result = f_chdrive(tok);
         mon_add_response_fatfs(result);
     }
 }
@@ -190,10 +193,13 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
 
 void fil_mon_ls(const char *args, size_t len)
 {
-    const char *dpath = ".";
-    if (len)
-        dpath = args;
-    FRESULT fresult = f_opendir(&fil_fatfs_dir, dpath);
+    char *path = str_parse_string(&args, &len);
+    if (path && !str_parse_end(args, len))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT fresult = f_opendir(&fil_fatfs_dir, path ? path : ".");
     mon_add_response_fatfs(fresult);
     if (FR_OK != fresult)
         return;
@@ -276,14 +282,15 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
 
 void fil_mon_upload(const char *args, size_t len)
 {
-    if (!len)
+    char *path = str_parse_string(&args, &len);
+    if (!path || !str_parse_end(args, len))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    FRESULT result = f_open(&fil_fatfs_fil, args, FA_READ | FA_WRITE);
+    FRESULT result = f_open(&fil_fatfs_fil, path, FA_READ | FA_WRITE);
     if (result == FR_NO_FILE)
-        result = f_open(&fil_fatfs_fil, args, FA_CREATE_NEW | FA_WRITE);
+        result = f_open(&fil_fatfs_fil, path, FA_CREATE_NEW | FA_WRITE);
     if (result != FR_OK)
     {
         mon_add_response_fatfs(result);
@@ -296,8 +303,13 @@ void fil_mon_upload(const char *args, size_t len)
 
 void fil_mon_unlink(const char *args, size_t len)
 {
-    (void)(len);
-    FRESULT result = f_unlink(args);
+    char *path = str_parse_string(&args, &len);
+    if (!path || !str_parse_end(args, len))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT result = f_unlink(path);
     mon_add_response_fatfs(result);
 }
 

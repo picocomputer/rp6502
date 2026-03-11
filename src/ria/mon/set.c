@@ -16,11 +16,11 @@
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
-#include "sys/lfs.h"
 #include "sys/vga.h"
+#include <stdio.h>
+#include <pico.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_SET)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -56,14 +56,11 @@ static int set_boot_response(char *buf, size_t buf_size, int state)
 
 static void set_boot(const char *args, size_t len)
 {
-    char lfs_name[LFS_NAME_MAX + 1];
     if (len)
     {
         if (args[0] == '-' && str_parse_end(++args, --len))
-            rom_set_boot("");
-        else if (!str_parse_rom_name(&args, &len, lfs_name) ||
-                 !str_parse_end(args, len) ||
-                 !rom_set_boot(lfs_name))
+            rom_set_boot("", 0);
+        else if (!rom_set_boot(args, len))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_boot_response);
@@ -147,15 +144,16 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state)
 
 static void set_rfcc(const char *args, size_t len)
 {
-    char rfcc[3];
     if (len)
     {
         if (args[0] == '-' && str_parse_end(++args, --len))
             cyw_set_rf_country_code("");
-        else if (!str_parse_string(&args, &len, rfcc, sizeof(rfcc)) ||
-                 !str_parse_end(args, len) ||
-                 !cyw_set_rf_country_code(rfcc))
-            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        else
+        {
+            const char *tok = str_parse_string(&args, &len);
+            if (!tok || !str_parse_end(args, len) || !cyw_set_rf_country_code(tok))
+                return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        }
     }
     mon_add_response_fn(set_rfcc_response);
 }
@@ -180,30 +178,32 @@ static int set_pass_response(char *buf, size_t buf_size, int state)
 
 static void set_ssid(const char *args, size_t len)
 {
-    char ssid[WFI_SSID_SIZE];
     if (!len)
         return mon_add_response_fn(set_ssid_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
         wfi_set_ssid("");
-    else if (!str_parse_string(&args, &len, ssid, sizeof(ssid)) ||
-             !str_parse_end(args, len) ||
-             !wfi_set_ssid(ssid))
-        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    else
+    {
+        const char *tok = str_parse_string(&args, &len);
+        if (!tok || !str_parse_end(args, len) || !wfi_set_ssid(tok))
+            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    }
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
 }
 
 static void set_pass(const char *args, size_t len)
 {
-    char pass[WFI_PASS_SIZE];
     if (!len)
         return mon_add_response_fn(set_pass_response);
     if (args[0] == '-' && str_parse_end(++args, --len))
         wfi_set_pass("");
-    else if (!str_parse_string(&args, &len, pass, sizeof(pass)) ||
-             !str_parse_end(args, len) ||
-             !wfi_set_pass(pass))
-        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    else
+    {
+        const char *tok = str_parse_string(&args, &len);
+        if (!tok || !str_parse_end(args, len) || !wfi_set_pass(tok))
+            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    }
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
 }
@@ -241,13 +241,16 @@ static int set_time_zone_response(char *buf, size_t buf_size, int state)
 
 static void set_time_zone(const char *args, size_t len)
 {
-    char tz[CLK_TZ_MAX_SIZE];
-    if (len && (!str_parse_string(&args, &len, tz, sizeof(tz)) ||
-                !str_parse_end(args, len) ||
-                !clk_set_time_zone(tz)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
-    else
-        mon_add_response_fn(set_time_zone_response);
+    if (len)
+    {
+        const char *tok = str_parse_string(&args, &len);
+        if (!tok || !str_parse_end(args, len) || !clk_set_time_zone(tok))
+        {
+            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return;
+        }
+    }
+    mon_add_response_fn(set_time_zone_response);
 }
 
 static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
@@ -259,13 +262,16 @@ static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
 
 static void set_kbd_layout(const char *args, size_t len)
 {
-    char kb[KBD_LAYOUT_MAX_NAME_SIZE];
-    if (len && (!str_parse_string(&args, &len, kb, sizeof(kb)) ||
-                !str_parse_end(args, len) ||
-                !kbd_set_layout(kb)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
-    else
-        mon_add_response_fn(set_kbd_layout_response);
+    if (len)
+    {
+        const char *tok = str_parse_string(&args, &len);
+        if (!tok || !str_parse_end(args, len) || !kbd_set_layout(tok))
+        {
+            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return;
+        }
+    }
+    mon_add_response_fn(set_kbd_layout_response);
 }
 
 typedef void (*set_function)(const char *, size_t);
@@ -294,21 +300,12 @@ void set_mon_set(const char *args, size_t len)
 {
     if (len)
     {
-        size_t i = 0;
-        for (; i < len; i++)
-            if (args[i] == ' ')
-                break;
-        size_t attr_len = i;
-        for (; i < len; i++)
-            if (args[i] != ' ')
-                break;
-        size_t args_start = i;
-        for (i = 0; i < SET_ATTRIBUTES_COUNT; i++)
+        char *attr = str_parse_string(&args, &len);
+        for (size_t i = 0; i < SET_ATTRIBUTES_COUNT; i++)
         {
-            if (attr_len == strlen(SET_ATTRIBUTES[i].attr) &&
-                !strncasecmp(args, SET_ATTRIBUTES[i].attr, attr_len))
+            if (!strcasecmp(attr, SET_ATTRIBUTES[i].attr))
             {
-                SET_ATTRIBUTES[i].func(&args[args_start], len - args_start);
+                SET_ATTRIBUTES[i].func(args, len);
                 return;
             }
         }

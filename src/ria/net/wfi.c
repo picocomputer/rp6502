@@ -224,7 +224,7 @@ bool wfi_ready(void)
 
 void wfi_load_ssid(const char *str, size_t len)
 {
-    str_parse_string(&str, &len, wfi_ssid, sizeof(wfi_ssid));
+    str_deprecated(&str, &len, wfi_ssid, sizeof(wfi_ssid));
 }
 
 bool wfi_set_ssid(const char *ssid)
@@ -251,7 +251,7 @@ const char *wfi_get_ssid(void)
 
 void wfi_load_pass(const char *str, size_t len)
 {
-    str_parse_string(&str, &len, wfi_pass, sizeof(wfi_pass));
+    str_deprecated(&str, &len, wfi_pass, sizeof(wfi_pass));
 }
 
 bool wfi_set_pass(const char *pass)

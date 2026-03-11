@@ -29,7 +29,14 @@
 int str_xdigit_to_int(char ch);
 
 // Parse everything else as a string, truncating trailing spaces.
-bool str_parse_string(const char **args, size_t *len, char *dest, size_t maxlen);
+bool str_deprecated(const char **args, size_t *len, char *dest, size_t maxlen);
+
+// Parse next whitespace- or quote-delimited token. Handles "quoted strings"
+// with backslash escape sequences (\\, \", \n, \t, \r). Returns a pointer to
+// static storage valid until the next call, or NULL if no token is present or
+// if the output would exceed 255 characters. Advances *args and *len past the
+// consumed token and any trailing spaces.
+char *str_parse_string(const char **args, size_t *len);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint8(const char **args, size_t *len, uint8_t *result);
@@ -39,11 +46,6 @@ bool str_parse_uint16(const char **args, size_t *len, uint16_t *result);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint32(const char **args, size_t *len, uint32_t *result);
-
-// A ROM name converted to upper case.
-// Only A-Z allowed in first character, A-Z0-9 for remainder.
-// Return argument name must hold LFS_NAME_MAX+1.
-bool str_parse_rom_name(const char **args, size_t *len, char *name);
 
 // Ensure there are no more arguments.
 bool str_parse_end(const char *args, size_t len);

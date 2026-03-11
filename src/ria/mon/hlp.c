@@ -89,46 +89,35 @@ static void help_response_lookup(const char *args, size_t len, const char **cp, 
 {
     *cp = NULL;
     *fnp = NULL;
-    size_t cmd_len;
-    for (cmd_len = 0; cmd_len < len; cmd_len++)
-        if (args[cmd_len] == ' ')
-            break;
+    char *word = str_parse_string(&args, &len);
+    if (!word)
+        return;
     // SET command has another level of help
-    if (cmd_len == strlen(STR_SET) && !strncasecmp(args, STR_SET, cmd_len))
+    if (!strcasecmp(word, STR_SET))
     {
-        args += cmd_len;
-        len -= cmd_len;
-        while (len && args[0] == ' ')
-            args++, len--;
-        size_t set_len;
-        for (set_len = 0; set_len < len; set_len++)
-            if (args[set_len] == ' ')
-                break;
-        if (!set_len)
+        char *attr = str_parse_string(&args, &len);
+        if (!attr)
         {
             *cp = STR_HELP_SET;
             return;
         }
         for (size_t i = 0; i < SETTINGS_COUNT; i++)
-            if (set_len == strlen(HLP_SETTINGS[i].cmd))
-                if (!strncasecmp(args, HLP_SETTINGS[i].cmd, set_len))
-                {
-                    *cp = HLP_SETTINGS[i].text;
-                    *fnp = HLP_SETTINGS[i].extra_fn;
-                    return;
-                }
+            if (!strcasecmp(attr, HLP_SETTINGS[i].cmd))
+            {
+                *cp = HLP_SETTINGS[i].text;
+                *fnp = HLP_SETTINGS[i].extra_fn;
+                return;
+            }
         return;
     }
     // Help for commands and a couple special words.
     for (size_t i = 1; i < COMMANDS_COUNT; i++)
-        if (cmd_len == strlen(HLP_COMMANDS[i].cmd))
-            if (!strncasecmp(args, HLP_COMMANDS[i].cmd, cmd_len))
-            {
-                *cp = HLP_COMMANDS[i].text;
-                *fnp = HLP_COMMANDS[i].extra_fn;
-                return;
-            }
-    return;
+        if (!strcasecmp(word, HLP_COMMANDS[i].cmd))
+        {
+            *cp = HLP_COMMANDS[i].text;
+            *fnp = HLP_COMMANDS[i].extra_fn;
+            return;
+        }
 }
 
 void hlp_mon_help(const char *args, size_t len)

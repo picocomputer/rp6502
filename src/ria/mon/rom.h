@@ -45,7 +45,8 @@ int rom_installed_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting BOOT
 // No loader because this isn't stored in RAM
-bool rom_set_boot(char *str);
+// Accepts the full argument string (may include args after the ROM name).
+bool rom_set_boot(const char *args, size_t len);
 const char *rom_get_boot(void); // uses mbuf
 
 /* STDIO 

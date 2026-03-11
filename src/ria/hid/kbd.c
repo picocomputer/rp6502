@@ -907,7 +907,7 @@ int kbd_stdio_in_chars(char *buf, int length)
 void kbd_load_layout(const char *str, size_t len)
 {
     char kb[KBD_LAYOUT_MAX_NAME_SIZE];
-    if (str_parse_string(&str, &len, kb, sizeof(kb)))
+    if (str_deprecated(&str, &len, kb, sizeof(kb)))
     {
         kbd_layout_index = kbd_sanitize_layout(kb);
         kbd_layout_loaded = true;

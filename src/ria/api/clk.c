@@ -201,7 +201,7 @@ int clk_status_response(char *buf, size_t buf_size, int state)
 void clk_load_time_zone(const char *str, size_t len)
 {
     char tz[CLK_TZ_MAX_SIZE];
-    if (!str_parse_string(&str, &len, tz, sizeof(tz)))
+    if (!str_deprecated(&str, &len, tz, sizeof(tz)))
         return;
     for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
