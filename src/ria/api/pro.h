@@ -14,6 +14,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* argv management
+ */
+
+uint16_t pro_argv_count(void);
+void pro_argv_clear(void);
+bool pro_argv_append(const char *str);
+const char *pro_argv_index(uint16_t idx);
+
 /* The API implementation
  */
 
