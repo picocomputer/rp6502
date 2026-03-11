@@ -94,7 +94,7 @@ static mon_function mon_command_lookup(const char **buf)
     const char *cmd = *buf;
     if (!*cmd)
         return NULL;
-    char *tok = str_parse_string(buf);
+    const char *tok = str_parse_string(buf);
     if (!tok)
         return NULL;
     bool is_maybe_addr = false;

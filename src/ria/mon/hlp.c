@@ -89,13 +89,13 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
 {
     *cp = NULL;
     *fnp = NULL;
-    char *word = str_parse_string(&args);
+    const char *word = str_parse_string(&args);
     if (!word)
         return;
     // SET command has another level of help
     if (!strcasecmp(word, STR_SET))
     {
-        char *attr = str_parse_string(&args);
+        const char *attr = str_parse_string(&args);
         if (!attr)
         {
             *cp = STR_HELP_SET;

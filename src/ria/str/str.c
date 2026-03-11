@@ -113,7 +113,7 @@ bool str_parse_uint32(const char **args, uint32_t *result)
     return true;
 }
 
-char *str_parse_string(const char **args)
+const char *str_parse_string(const char **args)
 {
     static char buf[256];
     size_t i = 0;
@@ -135,10 +135,63 @@ char *str_parse_string(const char **args)
                 j++;
                 switch ((*args)[j])
                 {
-                case 'n': buf[out++] = '\n'; break;
-                case 't': buf[out++] = '\t'; break;
-                case 'r': buf[out++] = '\r'; break;
-                default:  buf[out++] = (*args)[j]; break;
+                case 'n':
+                    buf[out++] = '\n';
+                    break;
+                case 't':
+                    buf[out++] = '\t';
+                    break;
+                case 'r':
+                    buf[out++] = '\r';
+                    break;
+                case 'a':
+                    buf[out++] = '\a';
+                    break;
+                case 'b':
+                    buf[out++] = '\b';
+                    break;
+                case 'f':
+                    buf[out++] = '\f';
+                    break;
+                case 'v':
+                    buf[out++] = '\v';
+                    break;
+                case 'x':
+                {
+                    if (!isxdigit((unsigned char)(*args)[j + 1]))
+                        return NULL;
+                    uint32_t val = 0;
+                    while (isxdigit((unsigned char)(*args)[j + 1]))
+                    {
+                        val = val * 16 + (uint32_t)str_xdigit_to_int((*args)[++j]);
+                    }
+                    if ((val & 0xFF) == 0)
+                        return NULL;
+                    buf[out++] = (char)(val & 0xFF);
+                    break;
+                }
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                {
+                    uint32_t val = (uint32_t)((*args)[j] - '0');
+                    if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
+                        val = val * 8 + (uint32_t)((*args)[++j] - '0');
+                    if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
+                        val = val * 8 + (uint32_t)((*args)[++j] - '0');
+                    if ((val & 0xFF) == 0)
+                        return NULL;
+                    buf[out++] = (char)(val & 0xFF);
+                    break;
+                }
+                default:
+                    buf[out++] = (*args)[j];
+                    break;
                 }
             }
             else

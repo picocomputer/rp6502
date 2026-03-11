@@ -84,7 +84,7 @@ void fil_mon_chdir(const char *args)
         mon_add_response_fn(fil_chdir_response);
         return;
     }
-    char *path = str_parse_string(&args);
+    const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -106,7 +106,7 @@ void fil_mon_chdir(const char *args)
 
 void fil_mon_mkdir(const char *args)
 {
-    char *path = str_parse_string(&args);
+    const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -188,7 +188,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
 
 void fil_mon_ls(const char *args)
 {
-    char *path = str_parse_string(&args);
+    const char *path = str_parse_string(&args);
     if (path && !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -277,7 +277,7 @@ static void fil_command_dispatch(bool timeout, const char *buf)
 
 void fil_mon_upload(const char *args)
 {
-    char *path = str_parse_string(&args);
+    const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -298,7 +298,7 @@ void fil_mon_upload(const char *args)
 
 void fil_mon_unlink(const char *args)
 {
-    char *path = str_parse_string(&args);
+    const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);

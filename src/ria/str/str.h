@@ -28,12 +28,11 @@
 // Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
 
-// Parse next whitespace- or quote-delimited token. Handles "quoted strings"
-// with backslash escape sequences (\\, \", \n, \t, \r). Returns a pointer to
-// static storage valid until the next call, or NULL if no token is present or
-// if the output would exceed 255 characters. Advances *args past the
-// consumed token and any trailing spaces.
-char *str_parse_string(const char **args);
+// A string, optionally quoted with escape sequences.
+// Returns a pointer to static storage valid until the next call,
+// or NULL if no token is present, a null byte is produced, or the
+// output would exceed 255 characters.
+const char *str_parse_string(const char **args);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
 bool str_parse_uint8(const char **args, uint8_t *result);
