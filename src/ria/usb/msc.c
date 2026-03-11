@@ -255,8 +255,7 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
     return status;
 }
 
-static msc_status_t msc_scsi_read_capacity10(uint8_t vol,
-                                             scsi_read_capacity10_resp_t *resp)
+static msc_status_t msc_scsi_read_capacity10(uint8_t vol, scsi_read_capacity10_resp_t *resp)
 {
     scsi_read_capacity10_t const cmd = {.cmd_code = SCSI_CMD_READ_CAPACITY_10};
     msc_cbw_t cbw;
@@ -266,21 +265,19 @@ static msc_status_t msc_scsi_read_capacity10(uint8_t vol,
     return status;
 }
 
-static msc_status_t msc_scsi_read_format_capacities(uint8_t vol,
-                                                    void *resp, uint8_t alloc_length)
+static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, void *resp)
 {
     scsi_read_format_capacity_t const cmd = {
         .cmd_code = SCSI_CMD_READ_FORMAT_CAPACITY,
-        .alloc_length = tu_htons(alloc_length)};
+        .alloc_length = tu_htons(sizeof(scsi_read_format_capacity_data_t))};
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, alloc_length, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
+    msc_cbw_init(&cbw, vol, sizeof(scsi_read_format_capacity_data_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
     DBG_CMD(vol, "READ FORMAT CAPACITIES", status);
     return status;
 }
 
-static msc_status_t msc_scsi_mode_sense6(uint8_t vol,
-                                         uint8_t page_code, scsi_mode_sense6_resp_t *resp)
+static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint8_t page_code, scsi_mode_sense6_resp_t *resp)
 {
     scsi_mode_sense6_t const cmd = {
         .cmd_code = SCSI_CMD_MODE_SENSE_6,
@@ -393,20 +390,12 @@ static bool msc_read_capacity(uint8_t vol)
     {
         // CBI: READ FORMAT CAPACITIES
         scsi_read_format_capacity_data_t rfc = {0};
-        if (msc_scsi_read_format_capacities(vol,
-                                            &rfc, sizeof(rfc)) !=
-            MSC_STATUS_PASSED)
+        if (msc_scsi_read_format_capacities(vol, &rfc) != MSC_STATUS_PASSED)
             return false;
         if (rfc.list_length < 8 || (rfc.list_length % 8) != 0)
             return false;
-        uint8_t desc_type = rfc.descriptor_type & 0x03;
-        if (desc_type == 3) // 0x03 = No Media Present
-            return false;
         uint32_t blocks = tu_ntohl(rfc.block_num);
         uint32_t bsize = ((uint32_t)rfc.reserved2 << 16) | tu_ntohs(rfc.block_size_u16);
-        DBG_VOL(vol, "RFC list_len=%d blocks=%lu bsize=%lu type=%d\n",
-                rfc.list_length, (unsigned long)blocks, (unsigned long)bsize, desc_type);
-        // Accept power-of-2 sector sizes that FatFS supports.
         if (blocks == 0 || bsize == 0 ||
             (bsize & (bsize - 1)) != 0 || bsize > 4096)
             return false;
@@ -417,20 +406,11 @@ static bool msc_read_capacity(uint8_t vol)
     {
         // BOT: READ CAPACITY(10)
         scsi_read_capacity10_resp_t cap10 = {0};
-        msc_status_t cap_status = msc_scsi_read_capacity10(vol, &cap10);
-        if (cap_status != MSC_STATUS_PASSED)
-        {
-            // Autosense already populated sense data.
-            if (msc_vol[vol].removable &&
-                msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
-                DBG_VOL(vol, "capacity - medium not present\n");
+        if (msc_scsi_read_capacity10(vol, &cap10) != MSC_STATUS_PASSED)
             return false;
-        }
         uint32_t last_lba = tu_ntohl(cap10.last_lba);
-        if (last_lba == 0xFFFFFFFF)
-            return false; // > 2 TB, unsupported
-        if (last_lba == 0)
-            DBG_VOL(vol, "READ CAPACITY(10) returned last_lba=0\n");
+        if (last_lba == 0xFFFFFFFF) // sentinel
+            return false;           // > 2 TB, unsupported
         uint32_t bsize = tu_ntohl(cap10.block_size);
         if (bsize == 0 ||
             (bsize & (bsize - 1)) != 0 ||
@@ -450,8 +430,6 @@ static bool msc_read_capacity(uint8_t vol)
 static void msc_sense_write_protect(uint8_t vol)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
-    msc_vol[vol].write_prot = false;
-
     if (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
     {
         scsi_mode_sense6_resp_t ms6;
@@ -582,7 +560,7 @@ DSTATUS disk_status(BYTE pdrv)
         msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG_VOL(vol, "disk_status, issuing TUR\n");
         if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED &&
-            msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT (SPC-4 §D.2)
+            msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT
         {
             DBG_VOL(vol, "disk_status, no media\n");
             msc_vol[vol].status = msc_volume_ejected;
@@ -623,8 +601,7 @@ DSTATUS disk_initialize(BYTE pdrv)
         do
         {
             tur_count++;
-            msc_status_t tur_status = msc_scsi_test_unit_ready(vol);
-            tur_ok = tur_status == MSC_STATUS_PASSED;
+            tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
         } while (!tur_ok && !time_reached(tur_deadline) &&
                  // Only one retry for media sense. Need for TEAC floppy.
                  ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) ||
