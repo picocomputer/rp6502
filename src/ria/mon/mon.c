@@ -146,10 +146,7 @@ static void mon_enter(bool timeout, const char *buf)
     if (rom_load_installed(buf))
         return;
     // Suppress error for empty lines
-    const char *b = buf;
-    while (*b == ' ')
-        b++;
-    if (*b)
+    if (!str_parse_end(buf))
         mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
 }
 

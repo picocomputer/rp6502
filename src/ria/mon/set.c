@@ -58,7 +58,9 @@ static void set_boot(const char *args)
 {
     if (*args)
     {
-        if (args[0] == '-' && str_parse_end(args + 1))
+        const char *scan = args;
+        const char *tok = str_parse_string(&scan);
+        if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
             rom_set_boot("");
         else if (!rom_set_boot(args))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -146,12 +148,13 @@ static void set_rfcc(const char *args)
 {
     if (*args)
     {
-        if (args[0] == '-' && str_parse_end(args + 1))
+        const char *scan = args;
+        const char *tok = str_parse_string(&scan);
+        if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
             cyw_set_rf_country_code("");
         else
         {
-            const char *tok = str_parse_string(&args);
-            if (!tok || !str_parse_end(args) || !cyw_set_rf_country_code(tok))
+            if (!tok || !str_parse_end(scan) || !cyw_set_rf_country_code(tok))
                 return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         }
     }
@@ -180,12 +183,13 @@ static void set_ssid(const char *args)
 {
     if (!*args)
         return mon_add_response_fn(set_ssid_response);
-    if (args[0] == '-' && str_parse_end(args + 1))
+    const char *scan = args;
+    const char *tok = str_parse_string(&scan);
+    if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
         wfi_set_ssid("");
     else
     {
-        const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !wfi_set_ssid(tok))
+        if (!tok || !str_parse_end(scan) || !wfi_set_ssid(tok))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_ssid_response);
@@ -196,12 +200,13 @@ static void set_pass(const char *args)
 {
     if (!*args)
         return mon_add_response_fn(set_pass_response);
-    if (args[0] == '-' && str_parse_end(args + 1))
+    const char *scan = args;
+    const char *tok = str_parse_string(&scan);
+    if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
         wfi_set_pass("");
     else
     {
-        const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !wfi_set_pass(tok))
+        if (!tok || !str_parse_end(scan) || !wfi_set_pass(tok))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_ssid_response);

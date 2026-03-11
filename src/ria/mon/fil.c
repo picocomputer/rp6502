@@ -249,7 +249,9 @@ static void fil_command_dispatch(bool timeout, const char *buf)
         return;
     }
     const char *args = buf;
-    if (!*args || !strcasecmp(args, STR_END))
+    const char *scan = args;
+    const char *tok = str_parse_string(&scan);
+    if (!tok || (!strcasecmp(tok, STR_END) && str_parse_end(scan)))
     {
         fil_state = FIL_IDLE;
         FRESULT result = f_close(&fil_fatfs_fil);
