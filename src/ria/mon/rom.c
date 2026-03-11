@@ -391,8 +391,35 @@ void rom_mon_load(const char *args)
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
+    // Build fully-qualified FAT path ("MSC0:/dir/file") in mbuf
+    char *full_path = filename;
+    if (!strchr(filename, ':'))
+    {
+        if (f_getcwd((TCHAR *)mbuf, MBUF_SIZE) == FR_OK)
+        {
+            size_t base_len;
+            if (filename[0] == '/')
+            {
+                // Absolute path: keep only the "VOL:" prefix from cwd
+                char *colon = strchr((char *)mbuf, ':');
+                base_len = colon ? (size_t)(colon - (char *)mbuf + 1) : 0;
+            }
+            else
+            {
+                base_len = strlen((char *)mbuf);
+                if (base_len && ((char *)mbuf)[base_len - 1] != '/')
+                    ((char *)mbuf)[base_len++] = '/';
+            }
+            size_t fn_len = strlen(filename);
+            if (base_len && base_len + fn_len < MBUF_SIZE)
+            {
+                memcpy((char *)mbuf + base_len, filename, fn_len + 1);
+                full_path = (char *)mbuf;
+            }
+        }
+    }
     pro_argv_clear();
-    pro_argv_append(filename);
+    pro_argv_append(full_path);
     char *arg;
     while ((arg = str_parse_string(&args)) != NULL)
         pro_argv_append(arg);
@@ -413,12 +440,14 @@ bool rom_load_installed(const char *args)
     char *name = str_parse_string(&args);
     if (!name || !rom_is_installed(name))
         return false;
+    char rom_argv0[4 + LFS_NAME_MAX + 1];
+    snprintf(rom_argv0, sizeof(rom_argv0), "ROM:%s", name);
     pro_argv_clear();
-    pro_argv_append(name);
+    pro_argv_append(rom_argv0);
     char *arg;
     while ((arg = str_parse_string(&args)) != NULL)
         pro_argv_append(arg);
-    if (!rom_open(pro_argv_index(0), false))
+    if (!rom_open(name, false))
         return false;
     rom_state = ROM_LOADING;
     return true;

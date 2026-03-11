@@ -15,8 +15,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#define DEBUG_RIA_MON_FIL
-
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
