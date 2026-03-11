@@ -26,6 +26,6 @@ const char *pro_argv_index(uint16_t idx);
  */
 
 bool pro_api_argv(void);
-bool pro_api_execv(void);
+bool pro_api_exec(void);
 
 #endif /* _RIA_API_PRO_H_ */

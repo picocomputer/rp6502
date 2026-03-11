@@ -218,7 +218,7 @@ bool main_api(uint8_t operation)
     case 0x08:
         return pro_api_argv();
     case 0x09:
-        return pro_api_execv();
+        return pro_api_exec();
     case 0x0A:
         return atr_api_get();
     case 0x0B:

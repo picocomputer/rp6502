@@ -109,16 +109,26 @@ const char *pro_argv_index(uint16_t idx)
 }
 
 
-// TODO don't implement this placeholder
-// int get_argv(char *const argv[], int size);
+// int get_argv(char *const argv[]);
 bool pro_api_argv(void)
 {
-    return api_return_errno(API_ENOSYS);
+    uint16_t size = pro_argv_size();
+    xstack_ptr = XSTACK_SIZE - size;
+    memcpy(&xstack[xstack_ptr], pro_argv, size);
+    return api_return_ax(size);
 }
 
-// TODO don't implement this placeholder
-// int execv(const char *path, char *const argv[]);
-bool pro_api_execv(void)
+// int exec(char *const argv[]);
+bool pro_api_exec(void)
 {
-    return api_return_errno(API_ENOSYS);
+    uint16_t size = (uint16_t)(XSTACK_SIZE - xstack_ptr);
+    memcpy(pro_argv, &xstack[xstack_ptr], size);
+    memset(&pro_argv[size], 0, XSTACK_SIZE - size);
+    xstack_ptr = XSTACK_SIZE;
+    if (!pro_argv_validate())
+    {
+        pro_argv_clear();
+        return api_return_errno(API_EINVAL);
+    }
+    return api_return_ax(0);
 }
