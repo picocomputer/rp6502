@@ -767,15 +767,20 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
                 conn->keycodes[item.usage] = item.bit_pos;
         }
     }
-    if (conn->valid && usb_boot_enumerating())
-        for (int i = 0; i < (int)(sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0])); i++)
-            if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
-                kbd_numlock_off_at_boot[i].pid == product_id)
-            {
-                kbd_hid_leds &= ~KBD_LED_NUMLOCK;
-                kbd_send_leds();
-                break;
-            }
+    if (conn->valid)
+    {
+        static bool numlock_boot_applied;
+        if (!numlock_boot_applied)
+            for (int i = 0; i < (int)(sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0])); i++)
+                if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
+                    kbd_numlock_off_at_boot[i].pid == product_id)
+                {
+                    kbd_hid_leds &= ~KBD_LED_NUMLOCK;
+                    kbd_send_leds();
+                    numlock_boot_applied = true;
+                    break;
+                }
+    }
     return conn->valid;
 }
 
