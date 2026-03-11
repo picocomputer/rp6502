@@ -98,6 +98,7 @@ X(STR_6_COLON, "6:")
 X(STR_7_COLON, "7:")
 X(STR_8_COLON, "8:")
 X(STR_9_COLON, "9:")
+X(STR_ROM_COLON, "ROM:")
 
 // Settings interface
 X(STR_SET_PHI2_RESPONSE, "PHI2: %ld (kHz)\n")

@@ -465,7 +465,7 @@ bool rom_load_installed(const char *args)
     if (!rom_validate_name(name) || !rom_is_installed(name))
         return false;
     char rom_argv0[4 + LFS_NAME_MAX + 1];
-    snprintf(rom_argv0, sizeof(rom_argv0), "ROM:%s", name);
+    snprintf(rom_argv0, sizeof(rom_argv0), "%s%s", STR_ROM_COLON, name);
     pro_argv_clear();
     if (pro_argv_append(rom_argv0))
     {
@@ -478,6 +478,20 @@ bool rom_load_installed(const char *args)
             }
     }
     if (!rom_open(name, false))
+        return false;
+    rom_state = ROM_LOADING;
+    return true;
+}
+
+bool rom_exec(void)
+{
+    const char *path = pro_argv_index(0);
+    if (!path)
+        return false;
+    bool is_fat = strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) != 0;
+    if (!is_fat)
+        path += STR_ROM_COLON_LEN;
+    if (!rom_open(path, is_fat))
         return false;
     rom_state = ROM_LOADING;
     return true;
@@ -800,7 +814,7 @@ const char *rom_get_boot(void)
 
 bool rom_std_handles(const char *path)
 {
-    return !strncasecmp(path, "ROM:", 4);
+    return !strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN);
 }
 
 int rom_std_open(const char *path, uint8_t flags, api_errno *err)
@@ -810,7 +824,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EACCES;
         return -1;
     }
-    const char *asset_name = path + 4; // skip "ROM:"
+    const char *asset_name = path + STR_ROM_COLON_LEN; // skip "ROM:"
     uint32_t asset_len;
     if (!rom_find_asset(asset_name, &asset_len))
     {

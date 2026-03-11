@@ -101,7 +101,7 @@ int vip_response(char *buf, size_t buf_size, int state)
         vips[i] = vips[swap];
         vips[swap] = tmp;
     }
-    int row_prefix_len = strlen(STR_HELP_ABOUT_VIP);
+    int row_prefix_len = STR_HELP_ABOUT_VIP_LEN;
     int row = 0;
     if (state == row)
     {

@@ -50,7 +50,8 @@ bool str_parse_end(const char *args);
  */
 
 #define X(name, value) \
-    extern const char name[];
+    extern const char name[]; \
+    enum { name##_LEN = sizeof(value) - 1 };
 #include "str.inc"
 #include RP6502_LOCALE
 #undef X

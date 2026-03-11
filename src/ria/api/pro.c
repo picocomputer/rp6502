@@ -6,6 +6,8 @@
 
 #include "api/api.h"
 #include "api/pro.h"
+#include "main.h"
+#include "mon/rom.h"
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PRO)
@@ -108,7 +110,6 @@ const char *pro_argv_index(uint16_t idx)
     return (const char *)&pro_argv[offset];
 }
 
-
 // int get_argv(char *const argv[]);
 bool pro_api_argv(void)
 {
@@ -130,5 +131,7 @@ bool pro_api_exec(void)
         pro_argv_clear();
         return api_return_errno(API_EINVAL);
     }
+    main_stop();
+    rom_exec();
     return api_return_ax(0);
 }
