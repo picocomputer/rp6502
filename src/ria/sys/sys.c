@@ -53,25 +53,22 @@ void sys_init(void)
     mon_add_response_fn(vga_boot_response);
 }
 
-void sys_mon_reboot(const char *args, size_t len)
+void sys_mon_reboot(const char *args)
 {
     (void)(args);
-    (void)(len);
     stdio_flush();
     watchdog_reboot(0, 0, 0);
 }
 
-void sys_mon_reset(const char *args, size_t len)
+void sys_mon_reset(const char *args)
 {
     (void)(args);
-    (void)(len);
     main_run();
 }
 
-void sys_mon_status(const char *args, size_t len)
+void sys_mon_status(const char *args)
 {
     (void)(args);
-    (void)(len);
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
     mon_add_response_fn(vga_status_response);

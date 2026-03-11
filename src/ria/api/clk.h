@@ -30,7 +30,7 @@ int clk_tzdata_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting TZ
 // Use POSIX TZ format. e.g. PST8PDT,M3.2.0/2,M11.1.0/2
-void clk_load_time_zone(const char *str, size_t len);
+void clk_load_time_zone(const char *str);
 bool clk_set_time_zone(const char *tz);
 const char *clk_get_time_zone(void);
 

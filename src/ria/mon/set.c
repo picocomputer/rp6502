@@ -33,12 +33,12 @@ static int set_phi2_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_phi2(const char *args, size_t len)
+static void set_phi2(const char *args)
 {
     uint32_t val;
-    if (len && (!str_parse_uint32(&args, &len, &val) ||
-                !str_parse_end(args, len) ||
-                !cpu_set_phi2_khz(val)))
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !cpu_set_phi2_khz(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_phi2_response);
@@ -54,13 +54,13 @@ static int set_boot_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_boot(const char *args, size_t len)
+static void set_boot(const char *args)
 {
-    if (len)
+    if (*args)
     {
-        if (args[0] == '-' && str_parse_end(++args, --len))
-            rom_set_boot("", 0);
-        else if (!rom_set_boot(args, len))
+        if (args[0] == '-' && str_parse_end(args + 1))
+            rom_set_boot("");
+        else if (!rom_set_boot(args))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_boot_response);
@@ -77,12 +77,12 @@ static int set_code_page_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_code_page(const char *args, size_t len)
+static void set_code_page(const char *args)
 {
     uint32_t val;
-    if (len && (!str_parse_uint32(&args, &len, &val) ||
-                !str_parse_end(args, len) ||
-                !oem_set_code_page(val)))
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !oem_set_code_page(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_code_page_response);
@@ -96,12 +96,12 @@ static int set_vga_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_vga(const char *args, size_t len)
+static void set_vga(const char *args)
 {
     uint32_t val;
-    if (len && (!str_parse_uint32(&args, &len, &val) ||
-                !str_parse_end(args, len) ||
-                !vga_set_display_type(val)))
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !vga_set_display_type(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_vga_response);
@@ -118,12 +118,12 @@ static int set_rf_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_rf(const char *args, size_t len)
+static void set_rf(const char *args)
 {
     uint32_t val;
-    if (len && (!str_parse_uint32(&args, &len, &val) ||
-                !str_parse_end(args, len) ||
-                !cyw_set_rf_enable(val)))
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !cyw_set_rf_enable(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_rf_response);
@@ -142,16 +142,16 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_rfcc(const char *args, size_t len)
+static void set_rfcc(const char *args)
 {
-    if (len)
+    if (*args)
     {
-        if (args[0] == '-' && str_parse_end(++args, --len))
+        if (args[0] == '-' && str_parse_end(args + 1))
             cyw_set_rf_country_code("");
         else
         {
-            const char *tok = str_parse_string(&args, &len);
-            if (!tok || !str_parse_end(args, len) || !cyw_set_rf_country_code(tok))
+            const char *tok = str_parse_string(&args);
+            if (!tok || !str_parse_end(args) || !cyw_set_rf_country_code(tok))
                 return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         }
     }
@@ -176,32 +176,32 @@ static int set_pass_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_ssid(const char *args, size_t len)
+static void set_ssid(const char *args)
 {
-    if (!len)
+    if (!*args)
         return mon_add_response_fn(set_ssid_response);
-    if (args[0] == '-' && str_parse_end(++args, --len))
+    if (args[0] == '-' && str_parse_end(args + 1))
         wfi_set_ssid("");
     else
     {
-        const char *tok = str_parse_string(&args, &len);
-        if (!tok || !str_parse_end(args, len) || !wfi_set_ssid(tok))
+        const char *tok = str_parse_string(&args);
+        if (!tok || !str_parse_end(args) || !wfi_set_ssid(tok))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
 }
 
-static void set_pass(const char *args, size_t len)
+static void set_pass(const char *args)
 {
-    if (!len)
+    if (!*args)
         return mon_add_response_fn(set_pass_response);
-    if (args[0] == '-' && str_parse_end(++args, --len))
+    if (args[0] == '-' && str_parse_end(args + 1))
         wfi_set_pass("");
     else
     {
-        const char *tok = str_parse_string(&args, &len);
-        if (!tok || !str_parse_end(args, len) || !wfi_set_pass(tok))
+        const char *tok = str_parse_string(&args);
+        if (!tok || !str_parse_end(args) || !wfi_set_pass(tok))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_ssid_response);
@@ -219,12 +219,12 @@ static int set_ble_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_ble(const char *args, size_t len)
+static void set_ble(const char *args)
 {
     uint32_t val;
-    if (len && (!str_parse_uint32(&args, &len, &val) ||
-                !str_parse_end(args, len) ||
-                !ble_set_enabled(val)))
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !ble_set_enabled(val)))
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_ble_response);
@@ -239,12 +239,12 @@ static int set_time_zone_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_time_zone(const char *args, size_t len)
+static void set_time_zone(const char *args)
 {
-    if (len)
+    if (*args)
     {
-        const char *tok = str_parse_string(&args, &len);
-        if (!tok || !str_parse_end(args, len) || !clk_set_time_zone(tok))
+        const char *tok = str_parse_string(&args);
+        if (!tok || !str_parse_end(args) || !clk_set_time_zone(tok))
         {
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
@@ -260,12 +260,12 @@ static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static void set_kbd_layout(const char *args, size_t len)
+static void set_kbd_layout(const char *args)
 {
-    if (len)
+    if (*args)
     {
-        const char *tok = str_parse_string(&args, &len);
-        if (!tok || !str_parse_end(args, len) || !kbd_set_layout(tok))
+        const char *tok = str_parse_string(&args);
+        if (!tok || !str_parse_end(args) || !kbd_set_layout(tok))
         {
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
@@ -274,7 +274,7 @@ static void set_kbd_layout(const char *args, size_t len)
     mon_add_response_fn(set_kbd_layout_response);
 }
 
-typedef void (*set_function)(const char *, size_t);
+typedef void (*set_function)(const char *);
 __in_flash("set_attributes") static struct
 {
     const char *const attr;
@@ -296,16 +296,16 @@ __in_flash("set_attributes") static struct
 };
 static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
 
-void set_mon_set(const char *args, size_t len)
+void set_mon_set(const char *args)
 {
-    if (len)
+    if (*args)
     {
-        char *attr = str_parse_string(&args, &len);
+        char *attr = str_parse_string(&args);
         for (size_t i = 0; i < SET_ATTRIBUTES_COUNT; i++)
         {
             if (!strcasecmp(attr, SET_ATTRIBUTES[i].attr))
             {
-                SET_ATTRIBUTES[i].func(args, len);
+                SET_ATTRIBUTES[i].func(args);
                 return;
             }
         }

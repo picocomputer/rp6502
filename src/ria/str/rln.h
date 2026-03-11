@@ -25,7 +25,7 @@ void rln_break(void);
 
 // Timeout is true when input is idle too long.
 // Requesting a timeout of 0 ms will disable the idle timer.
-typedef void (*rln_read_callback_t)(bool timeout, const char *buf, size_t length);
+typedef void (*rln_read_callback_t)(bool timeout, const char *buf);
 
 // Prepare the line editor. The rln module can read entire
 // lines of input with editing on ANSI terminals.

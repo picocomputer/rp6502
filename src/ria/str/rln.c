@@ -82,7 +82,7 @@ static void rln_complete(void)
         rln_enable_history = rln_programmatic_saved_enable_history;
         rln_programmatic_mode = false;
     }
-    cc(rln_timed_out, rln_timed_out ? NULL : rln_buf, rln_timed_out ? 0 : rln_buflen);
+    cc(rln_timed_out, rln_buf);
 }
 
 static void rln_set_buf(void)

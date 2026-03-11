@@ -85,17 +85,17 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-static void help_response_lookup(const char *args, size_t len, const char **cp, mon_response_fn *fnp)
+static void help_response_lookup(const char *args, const char **cp, mon_response_fn *fnp)
 {
     *cp = NULL;
     *fnp = NULL;
-    char *word = str_parse_string(&args, &len);
+    char *word = str_parse_string(&args);
     if (!word)
         return;
     // SET command has another level of help
     if (!strcasecmp(word, STR_SET))
     {
-        char *attr = str_parse_string(&args, &len);
+        char *attr = str_parse_string(&args);
         if (!attr)
         {
             *cp = STR_HELP_SET;
@@ -120,31 +120,29 @@ static void help_response_lookup(const char *args, size_t len, const char **cp, 
         }
 }
 
-void hlp_mon_help(const char *args, size_t len)
+void hlp_mon_help(const char *args)
 {
-    if (!len)
+    if (!*args)
     {
         mon_add_response_str(STR_HELP_HELP);
         mon_add_response_fn(rom_installed_response);
         return;
     }
-    while (len && args[len - 1] == ' ')
-        len--;
     const char *c;
     mon_response_fn fn;
-    help_response_lookup(args, len, &c, &fn);
+    help_response_lookup(args, &c, &fn);
     if (c != NULL)
         mon_add_response_str(c);
     if (fn != NULL)
         mon_add_response_fn(fn);
     if (c == NULL && fn == NULL)
-        rom_mon_help(args, len);
+        rom_mon_help(args);
 }
 
-bool hlp_topic_exists(const char *buf, size_t buflen)
+bool hlp_topic_exists(const char *buf)
 {
     const char *c;
     mon_response_fn fn;
-    help_response_lookup(buf, buflen, &c, &fn);
+    help_response_lookup(buf, &c, &fn);
     return c != NULL || fn != NULL;
 }

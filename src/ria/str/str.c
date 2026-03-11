@@ -43,27 +43,10 @@ int str_xdigit_to_int(char ch)
     return ch;
 }
 
-bool str_deprecated(const char **args, size_t *len, char *dest, size_t maxlen)
-{
-    size_t cpylen = *len;
-    while (cpylen && (*args)[cpylen - 1] == ' ')
-        cpylen--;
-    if (cpylen < maxlen)
-    {
-        memcpy(dest, *args, cpylen);
-        dest[cpylen] = 0;
-        *len -= cpylen;
-        *args += cpylen;
-        return true;
-    }
-    dest[0] = 0;
-    return false;
-}
-
-bool str_parse_uint8(const char **args, size_t *len, uint8_t *result)
+bool str_parse_uint8(const char **args, uint8_t *result)
 {
     uint32_t result32;
-    if (str_parse_uint32(args, len, &result32) && result32 < 0x100)
+    if (str_parse_uint32(args, &result32) && result32 < 0x100)
     {
         *result = result32;
         return true;
@@ -71,10 +54,10 @@ bool str_parse_uint8(const char **args, size_t *len, uint8_t *result)
     return false;
 }
 
-bool str_parse_uint16(const char **args, size_t *len, uint16_t *result)
+bool str_parse_uint16(const char **args, uint16_t *result)
 {
     uint32_t result32;
-    if (str_parse_uint32(args, len, &result32) && result32 < 0x10000)
+    if (str_parse_uint32(args, &result32) && result32 < 0x10000)
     {
         *result = result32;
         return true;
@@ -82,33 +65,30 @@ bool str_parse_uint16(const char **args, size_t *len, uint16_t *result)
     return false;
 }
 
-bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
+bool str_parse_uint32(const char **args, uint32_t *result)
 {
-    size_t i;
-    for (i = 0; i < *len; i++)
-    {
-        if ((*args)[i] != ' ')
-            break;
-    }
+    size_t i = 0;
+    while ((*args)[i] == ' ')
+        i++;
     size_t start = i;
     uint32_t base = 10;
     uint32_t value = 0;
     uint32_t prefix = 0;
-    if (i < (*len) && (*args)[i] == '$')
+    if ((*args)[i] == '$')
     {
         base = 16;
         prefix = 1;
     }
-    else if (i + 1 < *len && (*args)[i] == '0' &&
+    else if ((*args)[i] == '0' &&
              ((*args)[i + 1] == 'x' || (*args)[i + 1] == 'X'))
     {
         base = 16;
         prefix = 2;
     }
     i = start + prefix;
-    if (i == *len)
+    if (!(*args)[i])
         return false;
-    for (; i < *len; i++)
+    for (; (*args)[i]; i++)
     {
         char ch = (*args)[i];
         if (base == 10 && !isdigit(ch))
@@ -124,37 +104,33 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
     }
     if (i == start + prefix)
         return false;
-    if (i < *len && (*args)[i] != ' ')
+    if ((*args)[i] && (*args)[i] != ' ')
         return false;
-    for (; i < *len; i++)
-        if ((*args)[i] != ' ')
-            break;
-    *len -= i;
+    while ((*args)[i] == ' ')
+        i++;
     *args += i;
     *result = value;
     return true;
 }
 
-char *str_parse_string(const char **args, size_t *len)
+char *str_parse_string(const char **args)
 {
     static char buf[256];
-    size_t i;
-    for (i = 0; i < *len; i++)
-        if ((*args)[i] != ' ')
-            break;
-    if (i == *len)
+    size_t i = 0;
+    while ((*args)[i] == ' ')
+        i++;
+    if (!(*args)[i])
         return NULL;
     *args += i;
-    *len -= i;
     size_t out = 0;
     if ((*args)[0] == '"')
     {
         size_t j = 1;
-        while (j < *len && (*args)[j] != '"')
+        while ((*args)[j] && (*args)[j] != '"')
         {
             if (out >= 255)
                 return NULL;
-            if ((*args)[j] == '\\' && j + 1 < *len)
+            if ((*args)[j] == '\\' && (*args)[j + 1])
             {
                 j++;
                 switch ((*args)[j])
@@ -169,40 +145,39 @@ char *str_parse_string(const char **args, size_t *len)
                 buf[out++] = (*args)[j];
             j++;
         }
-        if (j >= *len)
+        if (!(*args)[j])
             return NULL; // unclosed quote
         j++;             // skip closing "
-        if (j < *len && (*args)[j] != ' ')
+        if ((*args)[j] && (*args)[j] != ' ')
             return NULL; // garbage after closing quote
-        while (j < *len && (*args)[j] == ' ')
+        while ((*args)[j] == ' ')
             j++;
         *args += j;
-        *len -= j;
     }
     else
     {
         size_t j = 0;
-        while (j < *len && (*args)[j] != ' ')
+        while ((*args)[j] && (*args)[j] != ' ')
         {
             if (out >= 255)
                 return NULL;
             buf[out++] = (*args)[j++];
         }
-        while (j < *len && (*args)[j] == ' ')
+        while ((*args)[j] == ' ')
             j++;
         *args += j;
-        *len -= j;
     }
     buf[out] = 0;
     return buf;
 }
 
-bool str_parse_end(const char *args, size_t len)
+bool str_parse_end(const char *args)
 {
-    for (size_t i = 0; i < len; i++)
+    while (*args)
     {
-        if (args[i] != ' ')
+        if (*args != ' ')
             return false;
+        args++;
     }
     return true;
 }

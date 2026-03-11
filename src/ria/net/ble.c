@@ -562,9 +562,9 @@ int ble_status_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-void ble_load_enabled(const char *str, size_t len)
+void ble_load_enabled(const char *str)
 {
-    str_parse_uint8(&str, &len, &ble_enabled);
+    str_parse_uint8(&str, &ble_enabled);
     if (ble_enabled > 1)
         ble_enabled = 0;
     ble_set_config(ble_enabled);

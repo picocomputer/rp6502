@@ -26,7 +26,7 @@ bool ram_active(void);
 /* Monitor commands
  */
 
-void ram_mon_binary(const char *args, size_t len);
-void ram_mon_address(const char *args, size_t len);
+void ram_mon_binary(const char *args);
+void ram_mon_address(const char *args);
 
 #endif /* _RIA_MON_RAM_H_ */

@@ -133,11 +133,10 @@ static void ram_begin_write(void)
     cmd_state = SYS_WRITE;
 }
 
-static void ram_intel_hex(const char *args, size_t len)
+static void ram_intel_hex(const char *args)
 {
-    assert(len < MBUF_SIZE);
-    args += 1;
-    len -= 1;
+    args += 1; // eat colon
+    size_t len = strlen(args);
     while (len && args[len - 1] == ' ')
         len--;
     if (len < 10 || len % 2)
@@ -210,16 +209,16 @@ static void ram_intel_hex(const char *args, size_t len)
 }
 
 // Commands that start with a hex address. Read or write memory.
-void ram_mon_address(const char *args, size_t len)
+void ram_mon_address(const char *args)
 {
-    if (len && *args == ':')
-        return ram_intel_hex(args, len);
+    if (*args == ':')
+        return ram_intel_hex(args);
     ram_rw_addr = 0;
     ram_rw_end = 0;
     bool second_found = false;
     bool second_selected = false;
     size_t i = 0;
-    for (; i < len; i++)
+    for (; args[i]; i++)
     {
         char ch = args[i];
         if (isxdigit(ch))
@@ -251,9 +250,8 @@ void ram_mon_address(const char *args, size_t len)
     }
     if (args[i] == ':')
         i++;
-    for (; i < len; i++)
-        if (args[i] != ' ')
-            break;
+    for (; args[i] == ' '; i++)
+        ;
     if (args[i] == ':')
         i++;
     if (ram_rw_addr > 0x1FFFF || ram_rw_end > 0x1FFFF || ram_rw_addr > ram_rw_end)
@@ -261,7 +259,7 @@ void ram_mon_address(const char *args, size_t len)
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    if (i == len)
+    if (!args[i])
     {
         mbuf_len = ram_rw_end - ram_rw_addr + 1;
         if (mbuf_len > 16)
@@ -282,7 +280,7 @@ void ram_mon_address(const char *args, size_t len)
     }
     uint32_t data = 0x80000000;
     mbuf_len = 0;
-    for (; i < len; i++)
+    for (; args[i]; i++)
     {
         char ch = args[i];
         if (ch == '|')
@@ -294,7 +292,7 @@ void ram_mon_address(const char *args, size_t len)
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
-        if (ch == ' ' || i == len - 1)
+        if (ch == ' ' || !args[i + 1])
         {
             if (data < 0x100)
             {
@@ -306,9 +304,8 @@ void ram_mon_address(const char *args, size_t len)
                 mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
                 return;
             }
-            for (; i + 1 < len; i++)
-                if (args[i + 1] != ' ')
-                    break;
+            for (; args[i + 1] == ' '; i++)
+                ;
         }
     }
     ram_begin_write();
@@ -352,12 +349,12 @@ static void cmd_xram()
     cmd_state = SYS_IDLE;
 }
 
-void ram_mon_binary(const char *args, size_t len)
+void ram_mon_binary(const char *args)
 {
-    if (str_parse_uint32(&args, &len, &ram_rw_addr) &&
-        str_parse_uint32(&args, &len, &ram_rw_size) &&
-        str_parse_uint32(&args, &len, &ram_rw_crc) &&
-        str_parse_end(args, len))
+    if (str_parse_uint32(&args, &ram_rw_addr) &&
+        str_parse_uint32(&args, &ram_rw_size) &&
+        str_parse_uint32(&args, &ram_rw_crc) &&
+        str_parse_end(args))
     {
         if (ram_rw_addr > 0x1FFFF)
         {

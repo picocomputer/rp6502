@@ -39,6 +39,6 @@ void mon_add_response_fatfs(int fresult);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.
-bool mon_command_exists(const char *buf, size_t buflen);
+bool mon_command_exists(const char *buf);
 
 #endif /* _RIA_MON_MON_H_ */

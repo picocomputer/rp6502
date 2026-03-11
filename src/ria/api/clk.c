@@ -198,11 +198,14 @@ int clk_status_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-void clk_load_time_zone(const char *str, size_t len)
+void clk_load_time_zone(const char *str)
 {
     char tz[CLK_TZ_MAX_SIZE];
-    if (!str_deprecated(&str, &len, tz, sizeof(tz)))
+    size_t n = strlen(str);
+    if (n >= sizeof(tz))
         return;
+    memcpy(tz, str, n);
+    tz[n] = 0;
     for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
         if (!strcasecmp(tz, clk_tzinfo_name[i]))

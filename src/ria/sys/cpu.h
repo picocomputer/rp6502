@@ -47,7 +47,7 @@ bool cpu_active(void);
 uint32_t cpu_get_reset_us(void);
 
 // Configuration setting PHI2
-void cpu_load_phi2_khz(const char *str, size_t len);
+void cpu_load_phi2_khz(const char *str);
 bool cpu_set_phi2_khz(uint16_t phi2_khz);
 uint16_t cpu_get_phi2_khz(void);
 

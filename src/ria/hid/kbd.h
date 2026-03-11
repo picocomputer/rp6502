@@ -73,7 +73,7 @@ bool kbd_xreg(uint16_t word);
 int kbd_stdio_in_chars(char *buf, int length);
 
 // Configuration setting KB
-void kbd_load_layout(const char *str, size_t len);
+void kbd_load_layout(const char *str);
 bool kbd_set_layout(const char *kb);
 const char *kbd_get_layout(void);
 const char *kbd_get_layout_verbose(void);

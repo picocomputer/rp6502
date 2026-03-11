@@ -30,12 +30,12 @@ void wfi_shutdown(void);
 bool wfi_ready(void);
 
 // Configuration setting SSID
-void wfi_load_ssid(const char *str, size_t len);
+void wfi_load_ssid(const char *str);
 bool wfi_set_ssid(const char *ssid);
 const char *wfi_get_ssid(void);
 
 // Configuration setting PASS
-void wfi_load_pass(const char *str, size_t len);
+void wfi_load_pass(const char *str);
 bool wfi_set_pass(const char *pass);
 const char *wfi_get_pass(void);
 
