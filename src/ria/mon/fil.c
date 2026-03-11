@@ -15,6 +15,8 @@
 #include <string.h>
 #include <ctype.h>
 
+#define DEBUG_RIA_MON_FIL
+
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
@@ -36,17 +38,17 @@ static FIL fil_fatfs_fil;
 
 bool fil_drive_exists(const char *args)
 {
-    // 0:-7:
-    if (args[0] >= '0' && args[0] <= '7' && args[1] == ':')
-        return true;
-    // USB0:-USB7:
-    if (toupper(args[0]) == 'U' &&
-        toupper(args[1]) == 'S' &&
-        toupper(args[2]) == 'B' &&
-        args[3] >= '0' && args[3] <= '7' &&
-        args[4] == ':')
-        return true;
-    return false;
+    const char *tok = str_parse_string(&args);
+    if (!tok)
+        return false;
+    size_t len = strlen(tok);
+    if (len < 2 || tok[len - 1] != ':')
+        return false;
+    DIR dir;
+    FRESULT result = f_opendir(&dir, tok);
+    if (result == FR_OK)
+        f_closedir(&dir);
+    return result != FR_INVALID_DRIVE;
 }
 
 static int fil_chdir_response(char *buf, size_t buf_size, int state)
@@ -95,7 +97,6 @@ void fil_mon_chdir(const char *args)
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
-        dir.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
@@ -130,7 +131,6 @@ void fil_mon_chdrive(const char *args)
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
-        dir.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
