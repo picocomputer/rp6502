@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -559,18 +561,20 @@ DSTATUS disk_status(BYTE pdrv)
     {
         msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG_VOL(vol, "disk_status, issuing TUR\n");
-        if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED &&
-            msc_vol[vol].sense_asc == 0x3A) // ASC 0x3A: MEDIUM NOT PRESENT
+        if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED)
         {
-            DBG_VOL(vol, "disk_status, no media\n");
-            msc_vol[vol].status = msc_volume_ejected;
-            msc_vol[vol].block_count = 0;
-            msc_vol[vol].block_size = 0;
-            msc_vol[vol].write_prot = false;
-            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-            msc_vol[vol].sense_asc = 0;
-            msc_vol[vol].sense_ascq = 0;
-            return STA_NOINIT | STA_NODISK;
+            uint8_t asc = msc_vol[vol].sense_asc;
+            if (asc == 0x3A || asc == 0x28) // MEDIUM NOT PRESENT or MAY HAVE CHANGED
+            {
+                msc_vol[vol].status = msc_volume_ejected;
+                msc_vol[vol].block_count = 0;
+                msc_vol[vol].block_size = 0;
+                msc_vol[vol].write_prot = false;
+                msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+                msc_vol[vol].sense_asc = 0;
+                msc_vol[vol].sense_ascq = 0;
+                return STA_NOINIT | (asc == 0x3A ? STA_NODISK : 0);
+            }
         }
     }
 
