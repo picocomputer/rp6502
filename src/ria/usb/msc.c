@@ -412,6 +412,7 @@ static msc_status_t msc_scsi_read_capacity16(uint8_t vol, scsi_read_capacity16_r
     return status;
 }
 
+#if FF_LBA64
 static msc_status_t msc_scsi_read16(uint8_t vol,
                                     void *buff, uint64_t lba, uint16_t block_count,
                                     uint32_t block_size)
@@ -445,6 +446,7 @@ static msc_status_t msc_scsi_write16(uint8_t vol,
     DBG_CMD(vol, "WRITE(16)", status);
     return status;
 }
+#endif // FF_LBA64
 
 static msc_status_t msc_scsi_read_format_capacities(uint8_t vol, void *resp)
 {
