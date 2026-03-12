@@ -124,7 +124,68 @@ static msc_vol_t msc_vol[FF_VOLUMES];
 
 // This driver requires our custom TinyUSB: src/tinyusb_rp6502/msc_host.c
 // It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
-// These additional interfaces are not in upstream TinyUSB.
+// Additional SCSI commands and interfaces are not in upstream TinyUSB.
+
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t cmd_code;
+    uint8_t : 3;
+    bool disable_block_descriptor : 1;
+    uint8_t : 4;
+    uint8_t page_code : 6;
+    uint8_t page_control : 2;
+    uint8_t subpage_code;
+    uint8_t reserved[3];
+    uint16_t alloc_length; // big-endian
+    uint8_t control;
+} scsi_mode_sense10_t;
+TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_t) == 10, "size is not correct");
+
+typedef struct TU_ATTR_PACKED
+{
+    uint16_t data_len; // big-endian
+    uint8_t medium_type;
+    uint8_t : 7;
+    bool write_protected : 1; // bit 7: write protect
+    uint8_t long_lba_bit;
+    uint8_t reserved;
+    uint16_t block_descriptor_len; // big-endian
+} scsi_mode_sense10_resp_t;
+TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_resp_t) == 8, "size is not correct");
+
+// SBC-3 §5.25: UNMAP command (opcode 0x42)
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t cmd_code; // 0x42
+    uint8_t anchor : 1;
+    uint8_t : 7;
+    uint8_t reserved[4];
+    uint8_t group_number : 5;
+    uint8_t : 3;
+    uint16_t param_list_length; // big-endian
+    uint8_t control;
+} scsi_unmap_t;
+TU_VERIFY_STATIC(sizeof(scsi_unmap_t) == 10, "size is not correct");
+
+// SBC-3 §5.25.2: UNMAP block descriptor
+typedef struct TU_ATTR_PACKED
+{
+    uint32_t lba_hi;      // big-endian, upper 32 bits
+    uint32_t lba_lo;      // big-endian, lower 32 bits
+    uint32_t block_count; // big-endian
+    uint8_t reserved[4];
+} scsi_unmap_block_desc_t;
+TU_VERIFY_STATIC(sizeof(scsi_unmap_block_desc_t) == 16, "size is not correct");
+
+// SBC-3 §5.25.1: UNMAP parameter list header + one block descriptor
+typedef struct TU_ATTR_PACKED
+{
+    uint16_t data_length;       // big-endian (total bytes - 2)
+    uint16_t block_desc_length; // big-endian
+    uint8_t reserved[4];
+    scsi_unmap_block_desc_t desc;
+} scsi_unmap_param_t;
+TU_VERIFY_STATIC(sizeof(scsi_unmap_param_t) == 24, "size is not correct");
 
 // Superset of msc_csw_status_t (defined in msc_host.c) with a timeout value.
 typedef enum
@@ -293,36 +354,6 @@ static msc_status_t msc_scsi_mode_sense6(uint8_t vol, uint8_t page_code, scsi_mo
     return status;
 }
 
-// TinyUSB does not define MODE SENSE(10) structs; define them locally.
-typedef struct TU_ATTR_PACKED
-{
-    uint8_t cmd_code;
-    uint8_t : 3;
-    bool disable_block_descriptor : 1;
-    uint8_t : 4;
-    uint8_t page_code : 6;
-    uint8_t page_control : 2;
-    uint8_t subpage_code;
-    uint8_t reserved[3];
-    uint16_t alloc_length; // big-endian
-    uint8_t control;
-} scsi_mode_sense10_t;
-
-TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_t) == 10, "size is not correct");
-
-typedef struct TU_ATTR_PACKED
-{
-    uint16_t data_len; // big-endian
-    uint8_t medium_type;
-    uint8_t : 7;
-    bool write_protected : 1; // bit 7: write protect
-    uint8_t long_lba_bit;
-    uint8_t reserved;
-    uint16_t block_descriptor_len; // big-endian
-} scsi_mode_sense10_resp_t;
-
-TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_resp_t) == 8, "size is not correct");
-
 static msc_status_t msc_scsi_mode_sense10(uint8_t vol,
                                           uint8_t page_code, scsi_mode_sense10_resp_t *resp)
 {
@@ -351,35 +382,21 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol)
 
 static msc_status_t msc_scsi_unmap(uint8_t vol, uint32_t lba, uint32_t block_count)
 {
-    // SCSI UNMAP command (SBC-3): opcode 0x42
-    // CDB is 10 bytes; parameter list is 24 bytes (one block descriptor).
-    uint8_t cmd[10] = {0};
-    cmd[0] = 0x42; // UNMAP
-    cmd[7] = 0;    // parameter list length MSB
-    cmd[8] = 24;   // parameter list length LSB
-
-    uint8_t param[24] = {0};
-    // Bytes 0-1: UNMAP data length (22 = total - 2)
-    param[0] = 0;
-    param[1] = 22;
-    // Bytes 2-3: block descriptor data length (16 = one descriptor)
-    param[2] = 0;
-    param[3] = 16;
-    // Bytes 8-11: UNMAP logical block address (upper 32 bits zero)
-    // Bytes 12-15: UNMAP logical block address (lower 32 bits)
-    param[12] = (uint8_t)(lba >> 24);
-    param[13] = (uint8_t)(lba >> 16);
-    param[14] = (uint8_t)(lba >> 8);
-    param[15] = (uint8_t)(lba);
-    // Bytes 16-19: number of logical blocks
-    param[16] = (uint8_t)(block_count >> 24);
-    param[17] = (uint8_t)(block_count >> 16);
-    param[18] = (uint8_t)(block_count >> 8);
-    param[19] = (uint8_t)(block_count);
-
+    scsi_unmap_t const cmd = {
+        .cmd_code = 0x42,
+        .param_list_length = tu_htons(sizeof(scsi_unmap_param_t)),
+    };
+    scsi_unmap_param_t param = {
+        .data_length = tu_htons(sizeof(scsi_unmap_param_t) - 2),
+        .block_desc_length = tu_htons(sizeof(scsi_unmap_block_desc_t)),
+        .desc = {
+            .lba_lo = tu_htonl(lba),
+            .block_count = tu_htonl(block_count),
+        },
+    };
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, 10, cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_SCSI_RW_TIMEOUT_MS);
+    msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, sizeof(cmd), &cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, &param, MSC_SCSI_RW_TIMEOUT_MS);
     DBG_CMD(vol, "UNMAP", status);
     return status;
 }
