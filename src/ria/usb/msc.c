@@ -65,6 +65,7 @@ static_assert(FF_FS_RPATH == 2);
 static_assert(FF_MULTI_PARTITION == 0);
 static_assert(FF_FS_LOCK == 8);
 static_assert(FF_FS_NORTC == 0);
+static_assert(FF_USE_TRIM == 1);
 static_assert(FF_VOLUMES == 10);
 static_assert(FF_STR_VOLUME_ID == 1);
 #ifdef FF_VOLUME_STRS
@@ -345,6 +346,41 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol)
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, 10, cmd);
     msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
     DBG_CMD(vol, "SYNC CACHE(10)", status);
+    return status;
+}
+
+static msc_status_t msc_scsi_unmap(uint8_t vol, uint32_t lba, uint32_t block_count)
+{
+    // SCSI UNMAP command (SBC-3): opcode 0x42
+    // CDB is 10 bytes; parameter list is 24 bytes (one block descriptor).
+    uint8_t cmd[10] = {0};
+    cmd[0] = 0x42; // UNMAP
+    cmd[7] = 0;    // parameter list length MSB
+    cmd[8] = 24;   // parameter list length LSB
+
+    uint8_t param[24] = {0};
+    // Bytes 0-1: UNMAP data length (22 = total - 2)
+    param[0] = 0;
+    param[1] = 22;
+    // Bytes 2-3: block descriptor data length (16 = one descriptor)
+    param[2] = 0;
+    param[3] = 16;
+    // Bytes 8-11: UNMAP logical block address (upper 32 bits zero)
+    // Bytes 12-15: UNMAP logical block address (lower 32 bits)
+    param[12] = (uint8_t)(lba >> 24);
+    param[13] = (uint8_t)(lba >> 16);
+    param[14] = (uint8_t)(lba >> 8);
+    param[15] = (uint8_t)(lba);
+    // Bytes 16-19: number of logical blocks
+    param[16] = (uint8_t)(block_count >> 24);
+    param[17] = (uint8_t)(block_count >> 16);
+    param[18] = (uint8_t)(block_count >> 8);
+    param[19] = (uint8_t)(block_count);
+
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, 10, cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_SCSI_RW_TIMEOUT_MS);
+    DBG_CMD(vol, "UNMAP", status);
     return status;
 }
 
@@ -732,6 +768,31 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     case GET_BLOCK_SIZE:
         *((DWORD *)buff) = 1;
         return RES_OK;
+    case CTRL_TRIM:
+    {
+        // SCSI UNMAP: inform the device that sectors are no longer in use.
+        // Best effort: many USB flash drives don't support UNMAP.
+        if (msc_vol[vol].write_prot)
+            return RES_OK;
+        if (msc_vol[vol].dev_addr == 0 || msc_vol[vol].block_size == 0)
+            return RES_NOTRDY;
+        // CBI devices (floppies) don't support UNMAP.
+        if (tuh_msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
+            return RES_OK;
+        LBA_t *rt = (LBA_t *)buff;
+        LBA_t start = rt[0];
+        LBA_t end = rt[1];
+        if (start > end)
+            return RES_PARERR;
+#if FF_LBA64
+        if (start > UINT32_MAX || end > UINT32_MAX)
+            return RES_PARERR;
+#endif
+        uint32_t lba = (uint32_t)start;
+        uint32_t count = (uint32_t)(end - start + 1);
+        msc_status_t status = msc_scsi_unmap(vol, lba, count);
+        return status == MSC_STATUS_TIMED_OUT ? RES_NOTRDY : RES_OK;
+    }
     default:
         return RES_PARERR;
     }
