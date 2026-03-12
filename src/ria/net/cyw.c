@@ -120,8 +120,9 @@ static int cyw_lookup_country(const char *cc)
 
 static void cyw_reset_radio(void)
 {
-    wfi_shutdown();
-    ble_shutdown();
+    // ble_shutdown calls main_task which can restart wfi early
+    ble_shutdown(); // must be first
+    wfi_shutdown(); // must be second
     cyw43_arch_deinit();
     cyw_init();
 }
