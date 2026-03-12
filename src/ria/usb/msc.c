@@ -111,7 +111,7 @@ typedef struct
     uint8_t lun;
     FATFS fatfs;
     bool removable;
-    uint8_t spc_version; // INQUIRY byte 2: 0x05=SPC-3, 0x06=SPC-4, 0x07=SPC-5
+    uint8_t spc_version; // 0x05=SPC-3, 0x06=SPC-4, 0x07=SPC-5
     uint64_t block_count;
     uint32_t block_size;
     uint8_t sense_key;
@@ -649,7 +649,6 @@ static void msc_sense_write_protect(uint8_t vol)
 }
 
 // Probe VPD page B2 to check whether the device supports SCSI UNMAP.
-// Returns true only if the device correctly returns the page and sets LBPU=1.
 static bool msc_probe_unmap(uint8_t vol)
 {
     scsi_inquiry_t const cmd = {
@@ -844,9 +843,6 @@ DSTATUS disk_initialize(BYTE pdrv)
             // ---- WRITE PROTECTION ----
             msc_sense_write_protect(vol);
             // ---- UNMAP SUPPORT ----
-            // VPD page B2 is only meaningful for BOT (SBC) block devices.
-            // Only issue the EVPD INQUIRY if the device advertised LBPME in
-            // READ CAPACITY(16), avoiding timeouts on non-provisioning devices.
             if (!msc_vol[vol].write_prot &&
                 tuh_msc_protocol(msc_vol[vol].dev_addr) == MSC_PROTOCOL_BOT &&
                 msc_vol[vol].lbpme)
