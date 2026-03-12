@@ -111,12 +111,15 @@ typedef struct
     uint8_t lun;
     FATFS fatfs;
     bool removable;
-    uint32_t block_count;
+    uint8_t spc_version; // INQUIRY byte 2: 0x05=SPC-3, 0x06=SPC-4, 0x07=SPC-5
+    uint64_t block_count;
     uint32_t block_size;
     uint8_t sense_key;
     uint8_t sense_asc;
     uint8_t sense_ascq;
     bool write_prot;
+    bool unmap_supported;
+    bool lbpme;
     absolute_time_t last_ok;
 } msc_vol_t;
 
@@ -152,6 +155,74 @@ typedef struct TU_ATTR_PACKED
     uint16_t block_descriptor_len; // big-endian
 } scsi_mode_sense10_resp_t;
 TU_VERIFY_STATIC(sizeof(scsi_mode_sense10_resp_t) == 8, "size is not correct");
+
+// SBC-3 §5.15.2: READ CAPACITY(16) (SERVICE ACTION IN, opcode 0x9E, SA 0x10).
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t cmd_code;       // 0x9E
+    uint8_t service_action; // 0x10
+    uint8_t reserved1[8];
+    uint32_t alloc_length; // big-endian
+    uint8_t reserved2;
+    uint8_t control;
+} scsi_read_capacity16_t;
+TU_VERIFY_STATIC(sizeof(scsi_read_capacity16_t) == 16, "size is not correct");
+
+typedef struct TU_ATTR_PACKED
+{
+    uint32_t last_lba_hi; // big-endian, bytes 0-3
+    uint32_t last_lba_lo; // big-endian, bytes 4-7
+    uint32_t block_size;  // big-endian, bytes 8-11
+    uint8_t prot;         // byte 12
+    uint8_t lbppbe;       // byte 13
+    uint8_t lbpme_byte;   // byte 14: bit 7 = LBPME, bit 6 = LBPRZ
+    uint8_t reserved[17]; // bytes 15-31
+} scsi_read_capacity16_resp_t;
+TU_VERIFY_STATIC(sizeof(scsi_read_capacity16_resp_t) == 32, "size is not correct");
+
+// SBC-3 §5.6: READ(16) (opcode 0x88)
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t cmd_code; // 0x88
+    uint8_t flags;
+    uint32_t lba_hi;      // big-endian, bytes 2-5
+    uint32_t lba_lo;      // big-endian, bytes 6-9
+    uint32_t block_count; // big-endian, bytes 10-13
+    uint8_t group_number; // byte 14
+    uint8_t control;      // byte 15
+} scsi_read16_t;
+TU_VERIFY_STATIC(sizeof(scsi_read16_t) == 16, "size is not correct");
+
+// SBC-3 §5.24: WRITE(16) (opcode 0x8A)
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t cmd_code; // 0x8A
+    uint8_t flags;
+    uint32_t lba_hi;      // big-endian, bytes 2-5
+    uint32_t lba_lo;      // big-endian, bytes 6-9
+    uint32_t block_count; // big-endian, bytes 10-13
+    uint8_t group_number; // byte 14
+    uint8_t control;      // byte 15
+} scsi_write16_t;
+TU_VERIFY_STATIC(sizeof(scsi_write16_t) == 16, "size is not correct");
+
+// SPC-4 §7.8.16: Logical Block Provisioning VPD page (page code 0xB2).
+// We only need the first 6 bytes.
+typedef struct TU_ATTR_PACKED
+{
+    uint8_t peripheral_device_type : 5;
+    uint8_t peripheral_qualifier : 3;
+    uint8_t page_code;    // 0xB2
+    uint16_t page_length; // big-endian, min 0x0004
+    uint8_t threshold_exponent;
+    // Byte 5 — bit 7 = LBPU, bit 6 = LBPWS, bit 5 = LBPWS10, bits 2:0 = LBPRZ
+    uint8_t lbprz : 3;
+    uint8_t : 2;
+    bool lbpws10 : 1;
+    bool lbpws : 1;
+    bool lbpu : 1;
+} scsi_vpd_lbp_t;
+TU_VERIFY_STATIC(sizeof(scsi_vpd_lbp_t) == 6, "size is not correct");
 
 // SBC-3 §5.25: UNMAP command (opcode 0x42)
 typedef struct TU_ATTR_PACKED
@@ -297,7 +368,7 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol,
     memset(resp, 0, sizeof(*resp));
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_inquiry_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
+    msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
     // Per SPC-4 §6.4.1, INQUIRY is one of the few commands that executes in any
     // device state and explicitly does not clear a UNIT ATTENTION condition.
     if (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
@@ -322,8 +393,56 @@ static msc_status_t msc_scsi_read_capacity10(uint8_t vol, scsi_read_capacity10_r
     scsi_read_capacity10_t const cmd = {.cmd_code = SCSI_CMD_READ_CAPACITY_10};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity10_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
+    msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
     DBG_CMD(vol, "READ CAPACITY(10)", status);
+    return status;
+}
+
+static msc_status_t msc_scsi_read_capacity16(uint8_t vol, scsi_read_capacity16_resp_t *resp)
+{
+    scsi_read_capacity16_t const cmd = {
+        .cmd_code = 0x9E,
+        .service_action = 0x10,
+        .alloc_length = tu_htonl(sizeof(scsi_read_capacity16_resp_t)),
+    };
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, sizeof(scsi_read_capacity16_resp_t), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_OP_TIMEOUT_MS);
+    DBG_CMD(vol, "READ CAPACITY(16)", status);
+    return status;
+}
+
+static msc_status_t msc_scsi_read16(uint8_t vol,
+                                    void *buff, uint64_t lba, uint16_t block_count,
+                                    uint32_t block_size)
+{
+    scsi_read16_t const cmd = {
+        .cmd_code = 0x88,
+        .lba_hi = tu_htonl((uint32_t)(lba >> 32)),
+        .lba_lo = tu_htonl((uint32_t)lba),
+        .block_count = tu_htonl(block_count),
+    };
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, (uint32_t)block_count * block_size, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
+    DBG_CMD(vol, "READ(16)", status);
+    return status;
+}
+
+static msc_status_t msc_scsi_write16(uint8_t vol,
+                                     const void *buff, uint64_t lba, uint16_t block_count,
+                                     uint32_t block_size)
+{
+    scsi_write16_t const cmd = {
+        .cmd_code = 0x8A,
+        .lba_hi = tu_htonl((uint32_t)(lba >> 32)),
+        .lba_lo = tu_htonl((uint32_t)lba),
+        .block_count = tu_htonl(block_count),
+    };
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, (uint32_t)block_count * block_size, TUSB_DIR_OUT, sizeof(cmd), &cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, buff, MSC_SCSI_RW_TIMEOUT_MS);
+    DBG_CMD(vol, "WRITE(16)", status);
     return status;
 }
 
@@ -380,7 +499,7 @@ static msc_status_t msc_scsi_sync_cache10(uint8_t vol)
     return status;
 }
 
-static msc_status_t msc_scsi_unmap(uint8_t vol, uint32_t lba, uint32_t block_count)
+static msc_status_t msc_scsi_unmap(uint8_t vol, LBA_t lba, uint32_t block_count)
 {
     scsi_unmap_t const cmd = {
         .cmd_code = 0x42,
@@ -390,7 +509,10 @@ static msc_status_t msc_scsi_unmap(uint8_t vol, uint32_t lba, uint32_t block_cou
         .data_length = tu_htons(sizeof(scsi_unmap_param_t) - 2),
         .block_desc_length = tu_htons(sizeof(scsi_unmap_block_desc_t)),
         .desc = {
-            .lba_lo = tu_htonl(lba),
+#if FF_LBA64
+            .lba_hi = tu_htonl((uint32_t)((uint64_t)lba >> 32)),
+#endif
+            .lba_lo = tu_htonl((uint32_t)lba),
             .block_count = tu_htonl(block_count),
         },
     };
@@ -433,7 +555,8 @@ static msc_status_t msc_scsi_write10(uint8_t vol,
 
 // Read device capacity.
 // CBI: READ FORMAT CAPACITIES (UFI mandatory command).
-// BOT: READ CAPACITY(10) (SBC mandatory command).
+// BOT: tries READ CAPACITY(16) first (also captures LBPME for TRIM gating);
+//      falls back to READ CAPACITY(10) for older SBC-2 devices.
 // Returns true on success, populating block_count and block_size.
 static bool msc_read_capacity(uint8_t vol)
 {
@@ -457,17 +580,37 @@ static bool msc_read_capacity(uint8_t vol)
     }
     else
     {
-        // BOT: READ CAPACITY(10)
+        // BOT: try READ CAPACITY(16) on SPC-3+ devices (INQUIRY version >= 0x05).
+        scsi_read_capacity16_resp_t cap16 = {0};
+        if (msc_vol[vol].spc_version >= 0x05 &&
+            msc_scsi_read_capacity16(vol, &cap16) == MSC_STATUS_PASSED)
+        {
+            uint64_t last_lba64 = ((uint64_t)tu_ntohl(cap16.last_lba_hi) << 32) |
+                                  (uint64_t)tu_ntohl(cap16.last_lba_lo);
+            uint32_t bsize16 = tu_ntohl(cap16.block_size);
+            if (bsize16 == 0 || (bsize16 & (bsize16 - 1)) != 0 || bsize16 > 4096)
+                return false;
+#if !FF_LBA64
+            if (last_lba64 > UINT32_MAX)
+                return false; // >2TB not supported without FF_LBA64
+#endif
+            msc_vol[vol].block_count = last_lba64 + 1;
+            msc_vol[vol].block_size = bsize16;
+            msc_vol[vol].lbpme = (cap16.lbpme_byte >> 7) & 1;
+            DBG_VOL(vol, "READ CAPACITY(16): %llu blocks, %lu bytes/block, LBPME=%d\n",
+                    (unsigned long long)msc_vol[vol].block_count,
+                    (unsigned long)bsize16, msc_vol[vol].lbpme);
+            return true;
+        }
+        // BOT: READ CAPACITY(10) — mandatory SBC command, works on all devices.
         scsi_read_capacity10_resp_t cap10 = {0};
         if (msc_scsi_read_capacity10(vol, &cap10) != MSC_STATUS_PASSED)
             return false;
         uint32_t last_lba = tu_ntohl(cap10.last_lba);
-        if (last_lba == 0xFFFFFFFF) // sentinel
-            return false;           // > 2 TB, unsupported
+        if (last_lba == 0xFFFFFFFF)
+            return false; // >2TB sentinel without FF_LBA64 (or RC(16) already failed)
         uint32_t bsize = tu_ntohl(cap10.block_size);
-        if (bsize == 0 ||
-            (bsize & (bsize - 1)) != 0 ||
-            bsize > 4096)
+        if (bsize == 0 || (bsize & (bsize - 1)) != 0 || bsize > 4096)
             return false;
         msc_vol[vol].block_count = last_lba + 1;
         msc_vol[vol].block_size = bsize;
@@ -501,6 +644,28 @@ static void msc_sense_write_protect(uint8_t vol)
             msc_vol[vol].write_prot = ms10.write_protected;
         }
     }
+}
+
+// Probe VPD page B2 to check whether the device supports SCSI UNMAP.
+// Returns true only if the device correctly returns the page and sets LBPU=1.
+static bool msc_probe_unmap(uint8_t vol)
+{
+    scsi_inquiry_t const cmd = {
+        .cmd_code = SCSI_CMD_INQUIRY,
+        .reserved1 = 1, // EVPD = 1 (bit 0 of byte 1)
+        .page_code = 0xB2,
+        .alloc_length = sizeof(scsi_vpd_lbp_t),
+    };
+    scsi_vpd_lbp_t resp;
+    memset(&resp, 0, sizeof(resp));
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, sizeof(resp), TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, &resp, MSC_SCSI_OP_TIMEOUT_MS);
+    DBG_CMD(vol, "INQUIRY VPD B2", status);
+    if (status != MSC_STATUS_PASSED || resp.page_code != 0xB2)
+        return false;
+    DBG_VOL(vol, "VPD B2: LBPU=%d\n", resp.lbpu);
+    return resp.lbpu;
 }
 
 void tuh_msc_mount_cb(uint8_t dev_addr)
@@ -552,7 +717,10 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_vol[vol].sense_asc = 0;
             msc_vol[vol].sense_ascq = 0;
             msc_vol[vol].write_prot = false;
+            msc_vol[vol].unmap_supported = false;
+            msc_vol[vol].lbpme = false;
             msc_vol[vol].removable = false;
+            msc_vol[vol].spc_version = 0;
             DBG_VOL(vol, "unmounted (dev_addr %d)\n", dev_addr);
         }
     }
@@ -647,6 +815,7 @@ DSTATUS disk_initialize(BYTE pdrv)
             if (msc_scsi_inquiry(vol, &inq) != MSC_STATUS_PASSED)
                 return STA_NOINIT;
             msc_vol[vol].removable = inq.is_removable;
+            msc_vol[vol].spc_version = inq.version;
         }
 
         // ---- TUR ----
@@ -672,6 +841,14 @@ DSTATUS disk_initialize(BYTE pdrv)
         {
             // ---- WRITE PROTECTION ----
             msc_sense_write_protect(vol);
+            // ---- UNMAP SUPPORT ----
+            // VPD page B2 is only meaningful for BOT (SBC) block devices.
+            // Only issue the EVPD INQUIRY if the device advertised LBPME in
+            // READ CAPACITY(16), avoiding timeouts on non-provisioning devices.
+            if (!msc_vol[vol].write_prot &&
+                tuh_msc_protocol(msc_vol[vol].dev_addr) == MSC_PROTOCOL_BOT &&
+                msc_vol[vol].lbpme)
+                msc_vol[vol].unmap_supported = msc_probe_unmap(vol);
             msc_vol[vol].status = msc_volume_mounted;
         }
     }
@@ -708,18 +885,19 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     uint8_t const dev_addr = msc_vol[vol].dev_addr;
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
-#if FF_LBA64
-    if (sector > UINT32_MAX)
-        return RES_PARERR;
-#endif
     // Clamp each transfer so total_bytes fits the USB host transfer
     // length limit (uint16_t).
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
     while (count > 0)
     {
         uint16_t n = (count > max_blocks) ? max_blocks : (uint16_t)count;
-        msc_status_t status = msc_scsi_read10(vol,
-                                              buff, sector, n, block_size);
+        msc_status_t status;
+#if FF_LBA64
+        if (sector > UINT32_MAX)
+            status = msc_scsi_read16(vol, buff, (uint64_t)sector, n, block_size);
+        else
+#endif
+            status = msc_scsi_read10(vol, buff, (uint32_t)sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
         buff += (uint32_t)n * block_size;
@@ -738,16 +916,17 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     uint8_t const dev_addr = msc_vol[vol].dev_addr;
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
-#if FF_LBA64
-    if (sector > UINT32_MAX)
-        return RES_PARERR;
-#endif
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
     while (count > 0)
     {
         uint16_t n = (count > max_blocks) ? max_blocks : (uint16_t)count;
-        msc_status_t status = msc_scsi_write10(vol,
-                                               buff, sector, n, block_size);
+        msc_status_t status;
+#if FF_LBA64
+        if (sector > UINT32_MAX)
+            status = msc_scsi_write16(vol, buff, (uint64_t)sector, n, block_size);
+        else
+#endif
+            status = msc_scsi_write10(vol, buff, (uint32_t)sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
         buff += (uint32_t)n * block_size;
@@ -764,20 +943,21 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     {
     case CTRL_SYNC:
     {
-        // SCSI SYNCHRONIZE CACHE (10): flush the device's write cache.
-        // Skip for write-protected volumes (no writes to flush) and
-        // for disconnected devices (can't send commands).
+        if (msc_vol[vol].dev_addr == 0)
+            return RES_NOTRDY;
         if (msc_vol[vol].write_prot)
             return RES_OK;
-        if (msc_vol[vol].dev_addr == 0 || msc_vol[vol].block_size == 0)
-            return RES_NOTRDY;
-        // Best effort: many USB flash drives don't implement
-        // SYNCHRONIZE CACHE, so treat command failures as OK.
+        if (tuh_msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
+            return RES_OK;
         msc_status_t status = msc_scsi_sync_cache10(vol);
-        return status == MSC_STATUS_TIMED_OUT ? RES_NOTRDY : RES_OK;
+        return msc_status_to_dresult(vol, status);
     }
     case GET_SECTOR_COUNT:
-        *((DWORD *)buff) = msc_vol[vol].block_count;
+#if FF_LBA64
+        *((LBA_t *)buff) = msc_vol[vol].block_count;
+#else
+        *((DWORD *)buff) = (DWORD)msc_vol[vol].block_count;
+#endif
         return RES_OK;
     case GET_SECTOR_SIZE:
         *((WORD *)buff) = (WORD)msc_vol[vol].block_size;
@@ -787,27 +967,17 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         return RES_OK;
     case CTRL_TRIM:
     {
-        // SCSI UNMAP: inform the device that sectors are no longer in use.
-        // Best effort: many USB flash drives don't support UNMAP.
-        if (msc_vol[vol].write_prot)
-            return RES_OK;
-        if (msc_vol[vol].dev_addr == 0 || msc_vol[vol].block_size == 0)
-            return RES_NOTRDY;
-        // CBI devices (floppies) don't support UNMAP.
-        if (tuh_msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
+        if (!msc_vol[vol].unmap_supported)
             return RES_OK;
         LBA_t *rt = (LBA_t *)buff;
         LBA_t start = rt[0];
         LBA_t end = rt[1];
         if (start > end)
             return RES_PARERR;
-#if FF_LBA64
-        if (start > UINT32_MAX || end > UINT32_MAX)
+        // UNMAP block descriptor block_count is 32-bit.
+        if ((end - start) >= (LBA_t)UINT32_MAX)
             return RES_PARERR;
-#endif
-        uint32_t lba = (uint32_t)start;
-        uint32_t count = (uint32_t)(end - start + 1);
-        msc_status_t status = msc_scsi_unmap(vol, lba, count);
+        msc_status_t status = msc_scsi_unmap(vol, start, (uint32_t)(end - start + 1));
         return status == MSC_STATUS_TIMED_OUT ? RES_NOTRDY : RES_OK;
     }
     default:

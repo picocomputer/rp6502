@@ -564,7 +564,6 @@ bool tuh_msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
                                const void *data, uint32_t timeout_ms)
 {
-    msc_status_t result;
     uint32_t const start_ms = tusb_time_millis_api();
 
     // Wait for transport ready AND successfully submit the command.
@@ -576,15 +575,9 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
     for (;;)
     {
         if (!tuh_msc_mounted(dev_addr))
-        {
-            result = MSC_STATUS_FAILED;
-            goto done;
-        }
+            return MSC_STATUS_FAILED;
         if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
-        {
-            result = MSC_STATUS_TIMED_OUT;
-            goto done;
-        }
+            return MSC_STATUS_TIMED_OUT;
         if (!tuh_msc_ready(dev_addr))
         {
             tuh_msc_pump();
@@ -599,15 +592,11 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
     while (!tuh_msc_ready(dev_addr))
     {
         if (!tuh_msc_mounted(dev_addr))
-        {
-            result = MSC_STATUS_FAILED;
-            goto done;
-        }
+            return MSC_STATUS_FAILED;
         if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
         {
             tuh_msc_abort(dev_addr);
-            result = MSC_STATUS_TIMED_OUT;
-            goto done;
+            return MSC_STATUS_TIMED_OUT;
         }
         tuh_msc_pump();
     }
@@ -620,10 +609,7 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
     // A genuine device-reported PHASE_ERROR in an otherwise valid CSW
     // also triggers recovery; the CSW status is preserved so we can
     // return MSC_STATUS_PHASE_ERROR to the caller.
-    result = (msc_status_t)tuh_msc_csw_status(dev_addr);
-
-done:
-    return result;
+    return (msc_status_t)tuh_msc_csw_status(dev_addr);
 }
 
 //--------------------------------------------------------------------+
