@@ -750,36 +750,16 @@ DSTATUS disk_status(BYTE pdrv)
 {
     // We only support partition 0. One vol per physical drive.
     uint8_t vol = pdrv;
-
-    if (msc_vol[vol].status == msc_volume_free ||
-        msc_vol[vol].status == msc_volume_registered)
+    if (msc_vol[vol].status != msc_volume_mounted)
     {
         DBG_VOL(vol, "disk_status, not mounted, status=%d\n", msc_vol[vol].status);
         return STA_NOINIT;
     }
-
-    if (msc_vol[vol].status == msc_volume_ejected)
-    {
-        if (absolute_time_diff_us(msc_vol[vol].last_ok, get_absolute_time()) >=
-            MSC_DISK_STATUS_TIMEOUT_MS * 1000)
-        {
-            msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
-            DBG_VOL(vol, "disk_status, ejected, issuing TUR\n");
-            msc_status_t tur = msc_scsi_test_unit_ready(vol);
-            if (tur != MSC_STATUS_FAILED || msc_vol[vol].sense_asc != 0x3A)
-            {
-                DBG_VOL(vol, "disk_status, media reinserted\n");
-                return STA_NOINIT;
-            }
-        }
-        return STA_NOINIT | STA_NODISK;
-    }
-
+    // Test for removed media if we haven't used the drive in a while.
     if (msc_vol[vol].removable &&
         absolute_time_diff_us(msc_vol[vol].last_ok, get_absolute_time()) >=
             MSC_DISK_STATUS_TIMEOUT_MS * 1000)
     {
-        msc_vol[vol].last_ok = get_absolute_time(); // always rate-limit
         DBG_VOL(vol, "disk_status, issuing TUR\n");
         if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED)
         {
@@ -793,11 +773,10 @@ DSTATUS disk_status(BYTE pdrv)
                 msc_vol[vol].sense_key = SCSI_SENSE_NONE;
                 msc_vol[vol].sense_asc = 0;
                 msc_vol[vol].sense_ascq = 0;
-                return STA_NOINIT | (asc == 0x3A ? STA_NODISK : 0);
+                return STA_NOINIT;
             }
         }
     }
-
     return msc_vol[vol].write_prot ? STA_PROTECT : 0;
 }
 
