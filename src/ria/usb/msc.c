@@ -831,7 +831,7 @@ DSTATUS disk_initialize(BYTE pdrv)
     }
 
     if (msc_vol[vol].status == msc_volume_ejected)
-        return STA_NOINIT | STA_NODISK;
+        return STA_NODISK;
 
     if (msc_vol[vol].status != msc_volume_mounted)
         return STA_NOINIT;
