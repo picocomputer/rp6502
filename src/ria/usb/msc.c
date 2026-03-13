@@ -15,6 +15,8 @@
 #include <string.h>
 #include "pico/time.h"
 
+#define DEBUG_RIA_USB_MSC
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_MSC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -320,8 +322,9 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     msc_cbw_t sense_cbw;
     msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
                  sizeof(sense_cmd), &sense_cmd);
+    uint32_t sense_timeout = timeout_ms > MSC_SCSI_OP_TIMEOUT_MS ? timeout_ms : MSC_SCSI_OP_TIMEOUT_MS;
     msc_status_t sense_status = tuh_msc_scsi_sync(
-        dev_addr, &sense_cbw, &sense_resp, MSC_SCSI_OP_TIMEOUT_MS);
+        dev_addr, &sense_cbw, &sense_resp, sense_timeout);
     bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
                             (sense_status != MSC_STATUS_TIMED_OUT &&
                              sense_resp.response_code != 0);
