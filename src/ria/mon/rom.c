@@ -393,9 +393,9 @@ bool rom_exec(void)
     const char *path = pro_argv_index(0);
     if (!path)
         return false;
-    bool is_fat = strncasecmp(path, STR_ROM_COLON, STR_ROM_COLON_LEN) != 0;
+    bool is_fat = *path != ':';
     if (!is_fat)
-        path += STR_ROM_COLON_LEN;
+        path += 1;
     if (!rom_open(path, is_fat))
         return false;
     rom_state = ROM_LOADING;
@@ -479,7 +479,7 @@ bool rom_load_installed(const char *args)
     if (!rom_validate_name(name) || !rom_is_installed(name))
         return false;
     char rom_argv0[4 + LFS_NAME_MAX + 1];
-    snprintf(rom_argv0, sizeof(rom_argv0), "%s%s", STR_ROM_COLON, name);
+    snprintf(rom_argv0, sizeof(rom_argv0), ":%s", name);
     pro_argv_clear();
     if (pro_argv_append(rom_argv0))
     {
