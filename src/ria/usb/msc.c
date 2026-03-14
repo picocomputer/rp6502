@@ -295,6 +295,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
 static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                      const void *data, uint32_t timeout_ms)
 {
+    absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     uint8_t dev_addr = msc_vol[vol].dev_addr;
     msc_status_t status = tuh_msc_scsi_sync(dev_addr, cbw, data, timeout_ms);
     if (status == MSC_STATUS_TIMED_OUT)
@@ -320,7 +321,10 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
     msc_cbw_t sense_cbw;
     msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
                  sizeof(sense_cmd), &sense_cmd);
-    uint32_t sense_timeout = timeout_ms > MSC_SCSI_OP_TIMEOUT_MS ? timeout_ms : MSC_SCSI_OP_TIMEOUT_MS;
+    int64_t remaining_ms = absolute_time_diff_us(get_absolute_time(), deadline) / 1000;
+    uint32_t sense_timeout = remaining_ms > MSC_SCSI_OP_TIMEOUT_MS
+                                 ? (uint32_t)remaining_ms
+                                 : MSC_SCSI_OP_TIMEOUT_MS;
     msc_status_t sense_status = tuh_msc_scsi_sync(
         dev_addr, &sense_cbw, &sense_resp, sense_timeout);
     bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
