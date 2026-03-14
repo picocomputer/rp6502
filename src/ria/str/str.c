@@ -38,116 +38,87 @@ static char str_buf[256];
 
 const char *str_abs_path(const char *path)
 {
-    char tmp[256];
     size_t drive_len;
+    const char *segs_src;
 
     if (strchr(path, ':'))
     {
-        if (strlen(path) >= sizeof(tmp))
+        const char *colon = strchr(path, ':');
+        drive_len = (size_t)(colon - path) + 1;
+        if (drive_len >= sizeof(str_buf))
             return NULL;
-        strcpy(tmp, path);
-        drive_len = (size_t)(strchr(tmp, ':') - tmp) + 1;
+        for (size_t i = 0; i + 1 < drive_len; i++)
+            str_buf[i] = (char)toupper((unsigned char)path[i]);
+        str_buf[drive_len - 1] = ':';
+        segs_src = colon + 1;
+        if (*segs_src == '/')
+            segs_src++;
     }
     else
     {
-        if (f_getcwd(tmp, sizeof(tmp)) != FR_OK)
+        if (f_getcwd(str_buf, sizeof(str_buf)) != FR_OK)
             return NULL;
-        const char *colon = strchr(tmp, ':');
+        const char *colon = strchr(str_buf, ':');
         if (!colon)
             return NULL;
-        drive_len = (size_t)(colon - tmp) + 1;
-        if (path[0] == '/')
+        drive_len = (size_t)(colon - str_buf) + 1;
+        segs_src = path;
+        if (*segs_src == '/')
+            segs_src++;
+    }
+
+    // For relative paths start at the end of the CWD already in str_buf.
+    // For absolute paths start fresh after the drive prefix.
+    size_t out;
+    if (!strchr(path, ':') && path[0] != '/')
+    {
+        out = strlen(str_buf);
+        while (out > drive_len && str_buf[out - 1] == '/')
+            out--;
+    }
+    else
+    {
+        out = drive_len;
+    }
+
+    // Write segments into str_buf, resolve . and ..
+    const char *seg = segs_src;
+    while (*seg)
+    {
+        const char *next = strchr(seg, '/');
+        size_t slen = next ? (size_t)(next - seg) : strlen(seg);
+        if (slen == 0 || (slen == 1 && seg[0] == '.'))
         {
-            if (drive_len + strlen(path) >= sizeof(tmp))
-                return NULL;
-            strcpy(tmp + drive_len, path);
+            // skip empty segment or "."
+        }
+        else if (slen == 2 && seg[0] == '.' && seg[1] == '.')
+        {
+            if (out > drive_len)
+            {
+                out--;
+                while (out > drive_len && str_buf[out] != '/')
+                    out--;
+            }
         }
         else
         {
-            size_t cwd_len = strlen(tmp);
-            size_t path_len = strlen(path);
-            if (cwd_len + 1 + path_len >= sizeof(tmp))
-                return NULL;
-            if (tmp[cwd_len - 1] != '/')
-                tmp[cwd_len++] = '/';
-            memcpy(tmp + cwd_len, path, path_len + 1);
-        }
-    }
-
-    // Uppercase the drive prefix letters (e.g. "msc0:" -> "MSC0:")
-    for (size_t i = 0; i + 1 < drive_len; i++)
-        tmp[i] = (char)toupper((unsigned char)tmp[i]);
-
-    // Ensure a '/' follows the drive prefix
-    if (tmp[drive_len] != '/')
-    {
-        size_t len = strlen(tmp + drive_len);
-        if (strlen(tmp) + 1 >= sizeof(tmp))
-            return NULL;
-        memmove(tmp + drive_len + 1, tmp + drive_len, len + 1);
-        tmp[drive_len] = '/';
-    }
-
-    // Normalize: tokenize path segments after "VOL:/", resolve . and ..
-    char path_copy[256];
-    const char *path_start = tmp + drive_len + 1; // skip leading '/'
-    if (strlen(path_start) >= sizeof(path_copy))
-        return NULL;
-    strcpy(path_copy, path_start);
-
-    const char *segs[128];
-    int depth = 0;
-    char *seg = path_copy;
-    while (*seg)
-    {
-        char *next = strchr(seg, '/');
-        if (next)
-            *next = '\0';
-        if (*seg != '\0' && strcmp(seg, ".") != 0)
-        {
-            if (strcmp(seg, "..") == 0)
-            {
-                if (depth > 0)
-                    depth--;
-            }
-            else
-            {
-                if (depth >= (int)(sizeof(segs) / sizeof(segs[0])))
-                    return NULL;
-                segs[depth++] = seg;
-            }
-        }
-        seg = next ? next + 1 : seg + strlen(seg);
-    }
-
-    if (drive_len > 255)
-        return NULL;
-    memcpy(str_buf, tmp, drive_len);
-    size_t out = drive_len;
-    if (depth == 0)
-    {
-        if (out + 1 > 255)
-            return NULL;
-        str_buf[out++] = '/';
-    }
-    else
-    {
-        for (int i = 0; i < depth; i++)
-        {
-            size_t slen = strlen(segs[i]);
             if (out + 1 + slen > 255)
                 return NULL;
             str_buf[out++] = '/';
             if (drive_len == 1) // ":" installed ROM
                 for (size_t k = 0; k < slen; k++)
-                    str_buf[out++] = (char)toupper((unsigned char)segs[i][k]);
+                    str_buf[out++] = (char)toupper((unsigned char)seg[k]);
             else
             {
-                memcpy(str_buf + out, segs[i], slen);
+                memcpy(str_buf + out, seg, slen);
                 out += slen;
             }
         }
+        seg = next ? next + 1 : seg + slen;
     }
+
+    if (out == drive_len)
+        str_buf[out++] = '/';
     str_buf[out] = '\0';
     return str_buf;
 }
