@@ -119,6 +119,7 @@ typedef struct
     uint8_t sense_ascq;
     bool write_prot;
     bool unmap_supported;
+    bool sync_cache_supressed;
     bool lbpme;
     absolute_time_t last_ok;
 } msc_vol_t;
@@ -724,6 +725,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             msc_vol[vol].sense_ascq = 0;
             msc_vol[vol].write_prot = false;
             msc_vol[vol].unmap_supported = false;
+            msc_vol[vol].sync_cache_supressed = false;
             msc_vol[vol].lbpme = false;
             msc_vol[vol].removable = false;
             msc_vol[vol].spc_version = 0;
@@ -931,7 +933,15 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
             return RES_OK;
         if (tuh_msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
             return RES_OK;
+        if (msc_vol[vol].sync_cache_supressed)
+            return RES_OK;
         msc_status_t status = msc_scsi_sync_cache10(vol);
+        if (status == MSC_STATUS_FAILED &&
+            msc_vol[vol].sense_key == SCSI_SENSE_ILLEGAL_REQUEST)
+        {
+            msc_vol[vol].sync_cache_supressed = true;
+            return RES_OK;
+        }
         return msc_status_to_dresult(vol, status);
     }
     case GET_SECTOR_COUNT:
