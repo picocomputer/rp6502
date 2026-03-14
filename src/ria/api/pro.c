@@ -16,25 +16,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// TODO, saved
-// The monitor (mon.c) sometimes uses str_deprecated which
-// was put tgogether in a hurry. It's time to do it right.
-// We need a str_something helper which will parse a quoted-escaped
-// string in the usual manner. Max output len 255, as usual for our strings.
-// It should provide its own storage which is only valid until the next call.
-// All non-numeric strings, including the commands like "load, help, set, etc."
-// should parse through str_something.
-// the str_parse_rom_name in set.c should be changed to str_something.
-// the logic of str_parse_rom_name itself should be moved to rom.c as validation.
-// rom_is_installed should use that validation before opening lfs which may
-// allow us to remove some extra checks.
-// The load and "{rom}" commands should use pro_argv_clear and pro_argv_append
-// to populate the exectuable name and arguments, which we don't yet support.
-// don't worry about what happpens to argv later, just do the parsing right now.
-// The entire call chain string from static mon_enter needs to be checked for
-// internally coded checks for strings by searching for spaces.
-// Make sure our space-collapsing between arguments is maintained.
-
 // A zero terminated list of uint16 which points
 // to zero terminated strings within pro_argv.
 // Maintans no space between pointers and chars.
@@ -110,7 +91,41 @@ const char *pro_argv_index(uint16_t idx)
     return (const char *)&pro_argv[offset];
 }
 
-// int get_argv(char *const argv[]);
+bool pro_argv_replace(uint16_t idx, const char *str)
+{
+    uint16_t count = pro_argv_count();
+    if (idx >= count)
+        return false;
+    uint16_t old_offset = pro_argv[idx * 2] | ((uint16_t)pro_argv[idx * 2 + 1] << 8);
+    uint16_t old_len = (uint16_t)strlen((const char *)&pro_argv[old_offset]) + 1;
+    uint16_t new_len = (uint16_t)strlen(str) + 1;
+    uint16_t old_size = pro_argv_size();
+    uint16_t tail_len = old_size - (old_offset + old_len);
+    if (new_len != old_len)
+    {
+        if (new_len > old_len && old_size + (new_len - old_len) > XSTACK_SIZE)
+            return false;
+        memmove(&pro_argv[old_offset + new_len],
+                &pro_argv[old_offset + old_len],
+                tail_len);
+        for (uint16_t i = 0; i < count; i++)
+        {
+            uint16_t offset = pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
+            if (offset >= old_offset + old_len)
+            {
+                if (new_len > old_len)
+                    offset += new_len - old_len;
+                else
+                    offset -= old_len - new_len;
+                pro_argv[i * 2] = offset & 0xFF;
+                pro_argv[i * 2 + 1] = offset >> 8;
+            }
+        }
+    }
+    memcpy(&pro_argv[old_offset], str, new_len);
+    return true;
+}
+
 bool pro_api_argv(void)
 {
     uint16_t size = pro_argv_size();
@@ -119,7 +134,6 @@ bool pro_api_argv(void)
     return api_return_ax(size);
 }
 
-// int exec(char *const argv[]);
 bool pro_api_exec(void)
 {
     uint16_t size = (uint16_t)(XSTACK_SIZE - xstack_ptr);

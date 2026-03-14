@@ -6,6 +6,7 @@
 
 #include "str/str.h"
 #include "sys/cpu.h"
+#include <fatfs/ff.h>
 #include <string.h>
 #include <ctype.h>
 #include <pico.h>
@@ -31,6 +32,125 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #include "str.inc"
 #include RP6502_LOCALE
 #undef X
+
+// Shared output buffer for str_parse_string and str_abs_path.
+static char str_buf[256];
+
+const char *str_abs_path(const char *path)
+{
+    char tmp[256];
+    size_t drive_len;
+
+    if (strchr(path, ':'))
+    {
+        if (strlen(path) >= sizeof(tmp))
+            return NULL;
+        strcpy(tmp, path);
+        drive_len = (size_t)(strchr(tmp, ':') - tmp) + 1;
+    }
+    else
+    {
+        if (f_getcwd(tmp, sizeof(tmp)) != FR_OK)
+            return NULL;
+        const char *colon = strchr(tmp, ':');
+        if (!colon)
+            return NULL;
+        drive_len = (size_t)(colon - tmp) + 1;
+        if (path[0] == '/')
+        {
+            if (drive_len + strlen(path) >= sizeof(tmp))
+                return NULL;
+            strcpy(tmp + drive_len, path);
+        }
+        else
+        {
+            size_t cwd_len = strlen(tmp);
+            size_t path_len = strlen(path);
+            if (cwd_len + 1 + path_len >= sizeof(tmp))
+                return NULL;
+            if (tmp[cwd_len - 1] != '/')
+                tmp[cwd_len++] = '/';
+            memcpy(tmp + cwd_len, path, path_len + 1);
+        }
+    }
+
+    // Uppercase the drive prefix letters (e.g. "msc0:" -> "MSC0:")
+    for (size_t i = 0; i + 1 < drive_len; i++)
+        tmp[i] = (char)toupper((unsigned char)tmp[i]);
+
+    // Ensure a '/' follows the drive prefix
+    if (tmp[drive_len] != '/')
+    {
+        size_t len = strlen(tmp + drive_len);
+        if (strlen(tmp) + 1 >= sizeof(tmp))
+            return NULL;
+        memmove(tmp + drive_len + 1, tmp + drive_len, len + 1);
+        tmp[drive_len] = '/';
+    }
+
+    // Normalize: tokenize path segments after "VOL:/", resolve . and ..
+    char path_copy[256];
+    const char *path_start = tmp + drive_len + 1; // skip leading '/'
+    if (strlen(path_start) >= sizeof(path_copy))
+        return NULL;
+    strcpy(path_copy, path_start);
+
+    const char *segs[128];
+    int depth = 0;
+    char *seg = path_copy;
+    while (*seg)
+    {
+        char *next = strchr(seg, '/');
+        if (next)
+            *next = '\0';
+        if (*seg != '\0' && strcmp(seg, ".") != 0)
+        {
+            if (strcmp(seg, "..") == 0)
+            {
+                if (depth > 0)
+                    depth--;
+            }
+            else
+            {
+                if (depth >= (int)(sizeof(segs) / sizeof(segs[0])))
+                    return NULL;
+                segs[depth++] = seg;
+            }
+        }
+        seg = next ? next + 1 : seg + strlen(seg);
+    }
+
+    if (drive_len > 255)
+        return NULL;
+    memcpy(str_buf, tmp, drive_len);
+    size_t out = drive_len;
+    if (depth == 0)
+    {
+        if (out + 1 > 255)
+            return NULL;
+        str_buf[out++] = '/';
+    }
+    else
+    {
+        for (int i = 0; i < depth; i++)
+        {
+            size_t slen = strlen(segs[i]);
+            if (out + 1 + slen > 255)
+                return NULL;
+            str_buf[out++] = '/';
+            if (drive_len == 1) // ":" installed ROM
+                for (size_t k = 0; k < slen; k++)
+                    str_buf[out++] = (char)toupper((unsigned char)segs[i][k]);
+            else
+            {
+                memcpy(str_buf + out, segs[i], slen);
+                out += slen;
+            }
+        }
+    }
+    str_buf[out] = '\0';
+    return str_buf;
+}
 
 int str_xdigit_to_int(char ch)
 {
@@ -115,7 +235,6 @@ bool str_parse_uint32(const char **args, uint32_t *result)
 
 const char *str_parse_string(const char **args)
 {
-    static char buf[256];
     size_t i = 0;
     while ((*args)[i] == ' ')
         i++;
@@ -136,25 +255,25 @@ const char *str_parse_string(const char **args)
                 switch ((*args)[j])
                 {
                 case 'n':
-                    buf[out++] = '\n';
+                    str_buf[out++] = '\n';
                     break;
                 case 't':
-                    buf[out++] = '\t';
+                    str_buf[out++] = '\t';
                     break;
                 case 'r':
-                    buf[out++] = '\r';
+                    str_buf[out++] = '\r';
                     break;
                 case 'a':
-                    buf[out++] = '\a';
+                    str_buf[out++] = '\a';
                     break;
                 case 'b':
-                    buf[out++] = '\b';
+                    str_buf[out++] = '\b';
                     break;
                 case 'f':
-                    buf[out++] = '\f';
+                    str_buf[out++] = '\f';
                     break;
                 case 'v':
-                    buf[out++] = '\v';
+                    str_buf[out++] = '\v';
                     break;
                 case 'x':
                 {
@@ -167,7 +286,7 @@ const char *str_parse_string(const char **args)
                     }
                     if ((val & 0xFF) == 0)
                         return NULL;
-                    buf[out++] = (char)(val & 0xFF);
+                    str_buf[out++] = (char)(val & 0xFF);
                     break;
                 }
                 case '0':
@@ -186,16 +305,16 @@ const char *str_parse_string(const char **args)
                         val = val * 8 + (uint32_t)((*args)[++j] - '0');
                     if ((val & 0xFF) == 0)
                         return NULL;
-                    buf[out++] = (char)(val & 0xFF);
+                    str_buf[out++] = (char)(val & 0xFF);
                     break;
                 }
                 default:
-                    buf[out++] = (*args)[j];
+                    str_buf[out++] = (*args)[j];
                     break;
                 }
             }
             else
-                buf[out++] = (*args)[j];
+                str_buf[out++] = (*args)[j];
             j++;
         }
         if (!(*args)[j])
@@ -214,14 +333,14 @@ const char *str_parse_string(const char **args)
         {
             if (out >= 255)
                 return NULL;
-            buf[out++] = (*args)[j++];
+            str_buf[out++] = (*args)[j++];
         }
         while ((*args)[j] == ' ')
             j++;
         *args += j;
     }
-    buf[out] = 0;
-    return buf;
+    str_buf[out] = 0;
+    return str_buf;
 }
 
 bool str_parse_end(const char *args)

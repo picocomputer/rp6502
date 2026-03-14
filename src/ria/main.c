@@ -110,11 +110,11 @@ void main_task(void)
 static void task(void)
 {
     mon_task();
-    api_task();
     mem_task();
     rln_task();
     fil_task();
     rom_task();
+    api_task(); // must be last for exec
 }
 
 // Event to start running the 6502.

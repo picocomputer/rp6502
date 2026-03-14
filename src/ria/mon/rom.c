@@ -390,12 +390,28 @@ void rom_mon_remove(const char *args)
 
 bool rom_exec(void)
 {
-    const char *path = pro_argv_index(0);
-    if (!path)
+    const char *argv0 = pro_argv_index(0);
+    if (!argv0)
         return false;
-    bool is_fat = *path != ':';
+    const char *path = str_abs_path(argv0);
+    if (!path || !pro_argv_replace(0, path))
+        return false;
+    bool is_fat = *argv0 != ':';
     if (!is_fat)
-        path += 1;
+        path += 1; // skip ':' prefix for LFS
+
+    // TODO make dry at least, close std too, rom_open not print errors
+    if (lfs_file_open)
+    {
+        lfs_file_close(&lfs_volume, &lfs_file);
+        lfs_file_open = false;
+    }
+    if (fat_fil.obj.fs)
+    {
+        f_close(&fat_fil);
+        fat_fil.obj.fs = NULL;
+    }
+
     if (!rom_open(path, is_fat))
         return false;
     rom_state = ROM_LOADING;
@@ -410,40 +426,8 @@ void rom_mon_load(const char *args)
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    // Build fully-qualified FAT path ("MSC0:/dir/file") in mbuf
-    const char *full_path = filename;
-    if (!strchr(filename, ':'))
-    {
-        if (f_getcwd((TCHAR *)mbuf, MBUF_SIZE) == FR_OK)
-        {
-            size_t base_len;
-            if (filename[0] == '/')
-            {
-                // Absolute path: keep only the "VOL:" prefix from cwd
-                char *colon = strchr((char *)mbuf, ':');
-                base_len = colon ? (size_t)(colon - (char *)mbuf + 1) : 0;
-            }
-            else
-            {
-                base_len = strlen((char *)mbuf);
-                if (base_len && ((char *)mbuf)[base_len - 1] != '/')
-                    ((char *)mbuf)[base_len++] = '/';
-            }
-            size_t fn_len = strlen(filename);
-            if (base_len)
-            {
-                if (base_len + fn_len > 255)
-                {
-                    mon_add_response_str(STR_ERR_ROM_ARGV_OVERFLOW);
-                    return;
-                }
-                memcpy((char *)mbuf + base_len, filename, fn_len + 1);
-                full_path = (char *)mbuf;
-            }
-        }
-    }
     pro_argv_clear();
-    if (pro_argv_append(full_path))
+    if (pro_argv_append(filename))
     {
         const char *arg;
         while ((arg = str_parse_string(&args)) != NULL)
