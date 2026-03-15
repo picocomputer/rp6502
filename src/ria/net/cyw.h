@@ -27,12 +27,12 @@ void cyw_task(void);
 void cyw_led_set(bool on);
 
 // Configuration setting RF
-void cyw_load_rf_enable(const char *str, size_t len);
+void cyw_load_rf_enable(const char *str);
 bool cyw_set_rf_enable(uint8_t rf);
 uint8_t cyw_get_rf_enable(void);
 
 // Configuration setting RFCC
-void cyw_load_rf_country_code(const char *str, size_t len);
+void cyw_load_rf_country_code(const char *str);
 bool cyw_set_rf_country_code(const char *rfcc);
 const char *cyw_get_rf_country_code(void);
 const char *cyw_get_rf_country_code_verbose(void);

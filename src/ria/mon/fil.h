@@ -25,16 +25,16 @@ void fil_break(void);
 bool fil_active(void);
 
 // Predicts if a chdrive will succeed
-bool fil_drive_exists(const char *args, size_t len);
+bool fil_drive_exists(const char *args);
 
 /* Monitor commands
  */
 
-void fil_mon_chdir(const char *args, size_t len);
-void fil_mon_mkdir(const char *args, size_t len);
-void fil_mon_chdrive(const char *args, size_t len);
-void fil_mon_ls(const char *args, size_t len);
-void fil_mon_upload(const char *args, size_t len);
-void fil_mon_unlink(const char *args, size_t len);
+void fil_mon_chdir(const char *args);
+void fil_mon_mkdir(const char *args);
+void fil_mon_chdrive(const char *args);
+void fil_mon_ls(const char *args);
+void fil_mon_upload(const char *args);
+void fil_mon_unlink(const char *args);
 
 #endif /* _RIA_MON_FIL_H_ */

@@ -18,10 +18,10 @@
 /* Monitor commands
  */
 
-void hlp_mon_help(const char *args, size_t len);
+void hlp_mon_help(const char *args);
 
 // Test if help exists. Used to determine
 // acceptable names when installing ROMs.
-bool hlp_topic_exists(const char *buf, size_t buflen);
+bool hlp_topic_exists(const char *buf);
 
 #endif /* _RIA_MON_HLP_H_ */

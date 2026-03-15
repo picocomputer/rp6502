@@ -904,11 +904,14 @@ int kbd_stdio_in_chars(char *buf, int length)
     return i ? i : PICO_ERROR_NO_DATA;
 }
 
-void kbd_load_layout(const char *str, size_t len)
+void kbd_load_layout(const char *str)
 {
     char kb[KBD_LAYOUT_MAX_NAME_SIZE];
-    if (str_parse_string(&str, &len, kb, sizeof(kb)))
+    size_t n = strlen(str);
+    if (n < sizeof(kb))
     {
+        memcpy(kb, str, n);
+        kb[n] = 0;
         kbd_layout_index = kbd_sanitize_layout(kb);
         kbd_layout_loaded = true;
         kbd_rebuild_code_page_cache();

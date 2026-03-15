@@ -31,21 +31,25 @@ bool rom_active(void);
 /* Monitor commands
  */
 
-void rom_mon_load(const char *args, size_t len);
-void rom_mon_info(const char *args, size_t len);
-void rom_mon_install(const char *args, size_t len);
-void rom_mon_remove(const char *args, size_t len);
-void rom_mon_help(const char *args, size_t len);
+void rom_mon_load(const char *args);
+void rom_mon_info(const char *args);
+void rom_mon_install(const char *args);
+void rom_mon_remove(const char *args);
+void rom_mon_help(const char *args);
 
 // Begin loading an installed rom, if exists.
-bool rom_load_installed(const char *args, size_t len);
+bool rom_load_installed(const char *args);
+
+// Begin loading the ROM from pro_argv[0].
+void rom_exec(void);
 
 // Responder prints all installed ROMs.
 int rom_installed_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting BOOT
 // No loader because this isn't stored in RAM
-bool rom_set_boot(char *str);
+// Accepts the full argument string (may include args after the ROM name).
+bool rom_set_boot(const char *args);
 const char *rom_get_boot(void); // uses mbuf
 
 /* STDIO 

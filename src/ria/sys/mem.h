@@ -45,7 +45,7 @@ extern volatile uint8_t regs[];
 extern uint8_t mbuf[];
 extern size_t mbuf_len;
 
-// Memory buffer reading
+// Read memory buffer from stdio
 typedef void (*mem_read_callback_t)(bool timeout);
 void mem_task(void);
 void mem_break(void);

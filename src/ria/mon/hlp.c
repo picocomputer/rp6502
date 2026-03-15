@@ -85,77 +85,65 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-static void help_response_lookup(const char *args, size_t len, const char **cp, mon_response_fn *fnp)
+static void help_response_lookup(const char *args, const char **cp, mon_response_fn *fnp)
 {
     *cp = NULL;
     *fnp = NULL;
-    size_t cmd_len;
-    for (cmd_len = 0; cmd_len < len; cmd_len++)
-        if (args[cmd_len] == ' ')
-            break;
+    const char *word = str_parse_string(&args);
+    if (!word)
+        return;
     // SET command has another level of help
-    if (cmd_len == strlen(STR_SET) && !strncasecmp(args, STR_SET, cmd_len))
+    if (!strcasecmp(word, STR_SET))
     {
-        args += cmd_len;
-        len -= cmd_len;
-        while (len && args[0] == ' ')
-            args++, len--;
-        size_t set_len;
-        for (set_len = 0; set_len < len; set_len++)
-            if (args[set_len] == ' ')
-                break;
-        if (!set_len)
+        const char *attr = str_parse_string(&args);
+        if (!attr)
         {
-            *cp = STR_HELP_SET;
+            if (str_parse_end(args))
+                *cp = STR_HELP_SET;
             return;
         }
         for (size_t i = 0; i < SETTINGS_COUNT; i++)
-            if (set_len == strlen(HLP_SETTINGS[i].cmd))
-                if (!strncasecmp(args, HLP_SETTINGS[i].cmd, set_len))
-                {
-                    *cp = HLP_SETTINGS[i].text;
-                    *fnp = HLP_SETTINGS[i].extra_fn;
-                    return;
-                }
+            if (!strcasecmp(attr, HLP_SETTINGS[i].cmd))
+            {
+                *cp = HLP_SETTINGS[i].text;
+                *fnp = HLP_SETTINGS[i].extra_fn;
+                return;
+            }
         return;
     }
     // Help for commands and a couple special words.
     for (size_t i = 1; i < COMMANDS_COUNT; i++)
-        if (cmd_len == strlen(HLP_COMMANDS[i].cmd))
-            if (!strncasecmp(args, HLP_COMMANDS[i].cmd, cmd_len))
-            {
-                *cp = HLP_COMMANDS[i].text;
-                *fnp = HLP_COMMANDS[i].extra_fn;
-                return;
-            }
-    return;
+        if (!strcasecmp(word, HLP_COMMANDS[i].cmd))
+        {
+            *cp = HLP_COMMANDS[i].text;
+            *fnp = HLP_COMMANDS[i].extra_fn;
+            return;
+        }
 }
 
-void hlp_mon_help(const char *args, size_t len)
+void hlp_mon_help(const char *args)
 {
-    if (!len)
+    if (!*args)
     {
         mon_add_response_str(STR_HELP_HELP);
         mon_add_response_fn(rom_installed_response);
         return;
     }
-    while (len && args[len - 1] == ' ')
-        len--;
     const char *c;
     mon_response_fn fn;
-    help_response_lookup(args, len, &c, &fn);
+    help_response_lookup(args, &c, &fn);
     if (c != NULL)
         mon_add_response_str(c);
     if (fn != NULL)
         mon_add_response_fn(fn);
     if (c == NULL && fn == NULL)
-        rom_mon_help(args, len);
+        rom_mon_help(args);
 }
 
-bool hlp_topic_exists(const char *buf, size_t buflen)
+bool hlp_topic_exists(const char *buf)
 {
     const char *c;
     mon_response_fn fn;
-    help_response_lookup(buf, buflen, &c, &fn);
+    help_response_lookup(buf, &c, &fn);
     return c != NULL || fn != NULL;
 }

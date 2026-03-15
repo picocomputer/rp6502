@@ -132,39 +132,38 @@ static void cfg_load_with_boot_opt(bool boot_only)
         if (len < 2)
             continue;
         const char *str = (char *)mbuf + 2;
-        len -= 2;
         switch (mbuf[1])
         {
         case 'P':
-            cpu_load_phi2_khz(str, len);
+            cpu_load_phi2_khz(str);
             break;
         case 'T':
-            clk_load_time_zone(str, len);
+            clk_load_time_zone(str);
             break;
         case 'S':
-            oem_load_code_page(str, len);
+            oem_load_code_page(str);
             break;
         case 'L':
-            kbd_load_layout(str, len);
+            kbd_load_layout(str);
             break;
         case 'D':
-            vga_load_display_type(str, len);
+            vga_load_display_type(str);
             break;
 #ifdef RP6502_RIA_W
         case 'E':
-            cyw_load_rf_enable(str, len);
+            cyw_load_rf_enable(str);
             break;
         case 'F':
-            cyw_load_rf_country_code(str, len);
+            cyw_load_rf_country_code(str);
             break;
         case 'W':
-            wfi_load_ssid(str, len);
+            wfi_load_ssid(str);
             break;
         case 'K':
-            wfi_load_pass(str, len);
+            wfi_load_pass(str);
             break;
         case 'B':
-            ble_load_enabled(str, len);
+            ble_load_enabled(str);
             break;
 #endif /* RP6502_RIA_W */
         default:

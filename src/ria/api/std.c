@@ -80,13 +80,13 @@ static std_fd_t *std_validate_fd(int fd)
     return &std_fd_pool[fd];
 }
 
-static void std_rln_callback(bool timeout, const char *buf, size_t length)
+static void std_rln_callback(bool timeout, const char *buf)
 {
     (void)timeout;
     std_rln_active = false;
     std_rln_buf = buf;
     std_rln_pos = 0;
-    std_rln_len = length;
+    std_rln_len = strlen(buf);
     std_rln_needs_nl = true;
 }
 

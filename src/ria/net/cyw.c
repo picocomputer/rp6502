@@ -120,8 +120,9 @@ static int cyw_lookup_country(const char *cc)
 
 static void cyw_reset_radio(void)
 {
-    wfi_shutdown();
-    ble_shutdown();
+    // ble_shutdown calls main_task which can restart wfi early
+    ble_shutdown(); // must be first
+    wfi_shutdown(); // must be second
     cyw43_arch_deinit();
     cyw_init();
 }
@@ -171,9 +172,9 @@ void cyw_init(void)
     cyw43_bluetooth_hci_init();
 }
 
-void cyw_load_rf_enable(const char *str, size_t len)
+void cyw_load_rf_enable(const char *str)
 {
-    str_parse_uint8(&str, &len, &cyw_rf_enable);
+    str_parse_uint8(&str, &cyw_rf_enable);
     if (cyw_rf_enable > 1)
         cyw_rf_enable = 0;
 }
@@ -196,9 +197,8 @@ uint8_t cyw_get_rf_enable(void)
     return cyw_rf_enable;
 }
 
-void cyw_load_rf_country_code(const char *str, size_t len)
+void cyw_load_rf_country_code(const char *str)
 {
-    (void)len;
     cyw_country = cyw_lookup_country(str);
 }
 

@@ -222,9 +222,14 @@ bool wfi_ready(void)
     return wfi_state == wfi_state_connected;
 }
 
-void wfi_load_ssid(const char *str, size_t len)
+void wfi_load_ssid(const char *str)
 {
-    str_parse_string(&str, &len, wfi_ssid, sizeof(wfi_ssid));
+    size_t n = strlen(str);
+    if (n < sizeof(wfi_ssid))
+    {
+        memcpy(wfi_ssid, str, n);
+        wfi_ssid[n] = 0;
+    }
 }
 
 bool wfi_set_ssid(const char *ssid)
@@ -249,9 +254,14 @@ const char *wfi_get_ssid(void)
     return wfi_ssid;
 }
 
-void wfi_load_pass(const char *str, size_t len)
+void wfi_load_pass(const char *str)
 {
-    str_parse_string(&str, &len, wfi_pass, sizeof(wfi_pass));
+    size_t n = strlen(str);
+    if (n < sizeof(wfi_pass))
+    {
+        memcpy(wfi_pass, str, n);
+        wfi_pass[n] = 0;
+    }
 }
 
 bool wfi_set_pass(const char *pass)

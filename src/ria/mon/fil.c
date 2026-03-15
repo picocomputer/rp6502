@@ -34,22 +34,19 @@ static uint32_t fil_rx_crc;
 static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
 
-bool fil_drive_exists(const char *args, size_t len)
+bool fil_drive_exists(const char *args)
 {
-    // 0:-7:
-    if (len == 2 &&
-        args[0] >= '0' && args[0] <= '7' &&
-        args[1] == ':')
-        return true;
-    // USB0:-USB7:
-    if (len == 5 &&
-        toupper(args[0]) == 'U' &&
-        toupper(args[1]) == 'S' &&
-        toupper(args[2]) == 'B' &&
-        args[3] >= '0' && args[3] <= '7' &&
-        args[4] == ':')
-        return true;
-    return false;
+    const char *tok = str_parse_string(&args);
+    if (!tok)
+        return false;
+    size_t len = strlen(tok);
+    if (len < 2 || tok[len - 1] != ':')
+        return false;
+    DIR dir;
+    FRESULT result = f_opendir(&dir, tok);
+    if (result == FR_OK)
+        f_closedir(&dir);
+    return result != FR_INVALID_DRIVE;
 }
 
 static int fil_chdir_response(char *buf, size_t buf_size, int state)
@@ -78,64 +75,65 @@ static int fil_chdir_response(char *buf, size_t buf_size, int state)
     return state + 1;
 }
 
-void fil_mon_chdir(const char *args, size_t len)
+void fil_mon_chdir(const char *args)
 {
     FRESULT result;
     DIR dir;
-    if (!len)
+    if (!*args)
     {
         mon_add_response_fn(fil_chdir_response);
         return;
     }
-    result = f_opendir(&dir, args);
-    mon_add_response_fatfs(result);
-    if (result == FR_OK)
-    {
-        result = f_closedir(&dir);
-        dir.obj.fs = NULL;
-        mon_add_response_fatfs(result);
-    }
-    if (result == FR_OK)
-    {
-        result = f_chdir(args);
-        mon_add_response_fatfs(result);
-    }
-}
-
-void fil_mon_mkdir(const char *args, size_t len)
-{
-    FRESULT result;
-    if (!len)
+    const char *path = str_parse_string(&args);
+    if (!path || !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    result = f_mkdir(args);
+    result = f_opendir(&dir, path);
+    mon_add_response_fatfs(result);
+    if (result == FR_OK)
+    {
+        result = f_closedir(&dir);
+        mon_add_response_fatfs(result);
+    }
+    if (result == FR_OK)
+    {
+        result = f_chdir(path);
+        mon_add_response_fatfs(result);
+    }
+}
+
+void fil_mon_mkdir(const char *args)
+{
+    const char *path = str_parse_string(&args);
+    if (!path || !str_parse_end(args))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT result = f_mkdir(path);
     mon_add_response_fatfs(result);
 }
 
-void fil_mon_chdrive(const char *args, size_t len)
+void fil_mon_chdrive(const char *args)
 {
-    (void)len;
     FRESULT result = FR_INVALID_DRIVE;
     DIR dir;
-    char s[7]; // up to "USB99:\0"
-    if (len &&
-        str_parse_string(&args, &len, s, sizeof(s)) &&
-        str_parse_end(args, len))
+    const char *tok = str_parse_string(&args);
+    if (tok && str_parse_end(args))
     {
-        result = f_opendir(&dir, s);
+        result = f_opendir(&dir, tok);
     }
     mon_add_response_fatfs(result);
     if (result == FR_OK)
     {
         result = f_closedir(&dir);
-        dir.obj.fs = NULL;
         mon_add_response_fatfs(result);
     }
     if (result == FR_OK)
     {
-        result = f_chdrive(s);
+        result = f_chdrive(tok);
         mon_add_response_fatfs(result);
     }
 }
@@ -188,19 +186,22 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
     return 0;
 }
 
-void fil_mon_ls(const char *args, size_t len)
+void fil_mon_ls(const char *args)
 {
-    const char *dpath = ".";
-    if (len)
-        dpath = args;
-    FRESULT fresult = f_opendir(&fil_fatfs_dir, dpath);
+    const char *path = str_parse_string(&args);
+    if (!str_parse_end(args))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT fresult = f_opendir(&fil_fatfs_dir, path ? path : ".");
     mon_add_response_fatfs(fresult);
     if (FR_OK != fresult)
         return;
     mon_add_response_fn(fil_dir_entry_response);
 }
 
-static void fil_command_dispatch(bool timeout, const char *buf, size_t len);
+static void fil_command_dispatch(bool timeout, const char *buf);
 
 static void fil_com_rx_mbuf(bool timeout)
 {
@@ -238,7 +239,7 @@ static void fil_com_rx_mbuf(bool timeout)
         fil_state = FIL_IDLE;
 }
 
-static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
+static void fil_command_dispatch(bool timeout, const char *buf)
 {
     if (timeout)
     {
@@ -248,17 +249,18 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
         return;
     }
     const char *args = buf;
-    if (len == 0 || (len == 3 && !strncasecmp(STR_END, args, 3)))
+    const char *scan = args;
+    const char *tok = str_parse_string(&scan);
+    if (!tok && !str_parse_end(scan))
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    if (!tok || (!strcasecmp(tok, STR_END) && str_parse_end(scan)))
     {
         fil_state = FIL_IDLE;
-        FRESULT result = f_close(&fil_fatfs_fil);
-        fil_fatfs_fil.obj.fs = NULL;
-        mon_add_response_fatfs(result);
         return;
     }
-    if (str_parse_uint32(&args, &len, &fil_rx_size) &&
-        str_parse_uint32(&args, &len, &fil_rx_crc) &&
-        str_parse_end(args, len))
+    if (str_parse_uint32(&args, &fil_rx_size) &&
+        str_parse_uint32(&args, &fil_rx_crc) &&
+        str_parse_end(args))
     {
         if (!fil_rx_size || fil_rx_size > MBUF_SIZE)
         {
@@ -274,16 +276,17 @@ static void fil_command_dispatch(bool timeout, const char *buf, size_t len)
     return;
 }
 
-void fil_mon_upload(const char *args, size_t len)
+void fil_mon_upload(const char *args)
 {
-    if (!len)
+    const char *path = str_parse_string(&args);
+    if (!path || !str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    FRESULT result = f_open(&fil_fatfs_fil, args, FA_READ | FA_WRITE);
+    FRESULT result = f_open(&fil_fatfs_fil, path, FA_READ | FA_WRITE);
     if (result == FR_NO_FILE)
-        result = f_open(&fil_fatfs_fil, args, FA_CREATE_NEW | FA_WRITE);
+        result = f_open(&fil_fatfs_fil, path, FA_CREATE_NEW | FA_WRITE);
     if (result != FR_OK)
     {
         mon_add_response_fatfs(result);
@@ -294,10 +297,15 @@ void fil_mon_upload(const char *args, size_t len)
     rln_read_line_programmatic(fil_command_dispatch, FIL_TIMEOUT_MS);
 }
 
-void fil_mon_unlink(const char *args, size_t len)
+void fil_mon_unlink(const char *args)
 {
-    (void)(len);
-    FRESULT result = f_unlink(args);
+    const char *path = str_parse_string(&args);
+    if (!path || !str_parse_end(args))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT result = f_unlink(path);
     mon_add_response_fatfs(result);
 }
 

@@ -109,10 +109,10 @@ uint32_t cpu_get_reset_us(void)
                : RP6502_RESB_US;
 }
 
-void cpu_load_phi2_khz(const char *str, size_t len)
+void cpu_load_phi2_khz(const char *str)
 {
     uint16_t phi2_khz;
-    if (str_parse_uint16(&str, &len, &phi2_khz) && phi2_khz)
+    if (str_parse_uint16(&str, &phi2_khz) && phi2_khz)
         cpu_change_phi2_khz(phi2_khz);
 }
 

@@ -35,7 +35,7 @@ void ble_shutdown(void);
 int ble_status_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting BLE
-void ble_load_enabled(const char *str, size_t len);
+void ble_load_enabled(const char *str);
 bool ble_set_enabled(uint8_t bt);
 uint8_t ble_get_enabled(void);
 

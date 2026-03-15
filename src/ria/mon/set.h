@@ -17,6 +17,6 @@
 /* Monitor commands
  */
 
-void set_mon_set(const char *args, size_t len);
+void set_mon_set(const char *args);
 
 #endif /* _RIA_MON_SET_H_ */

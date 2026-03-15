@@ -91,10 +91,10 @@ uint16_t oem_get_code_page(void)
     return oem_code_page;
 }
 
-void oem_load_code_page(const char *str, size_t len)
+void oem_load_code_page(const char *str)
 {
     uint16_t cp;
-    if (!str_parse_uint16(&str, &len, &cp))
+    if (!str_parse_uint16(&str, &cp))
         return;
     oem_request_code_page(cp);
     oem_code_page_setting = oem_code_page;

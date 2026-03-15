@@ -28,33 +28,44 @@
 // Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
 
-// Parse everything else as a string, truncating trailing spaces.
-bool str_parse_string(const char **args, size_t *len, char *dest, size_t maxlen);
+// A string, optionally quoted with escape sequences.
+// Returns a pointer to static storage valid until the next str_* call,
+// or NULL if no token is present, a null byte is produced, or the
+// output would exceed 255 characters.
+const char *str_parse_string(const char **args);
+
+// Converts a FatFS path to a fully-qualified absolute path,
+// resolving the CWD for relative paths. Returns a pointer to static
+// storage shared with str_parse_string, valid until the next str_* call.
+// Returns NULL if the path exceeds 255 characters or CWD lookup fails.
+const char *str_abs_path(const char *path);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
-bool str_parse_uint8(const char **args, size_t *len, uint8_t *result);
+bool str_parse_uint8(const char **args, uint8_t *result);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
-bool str_parse_uint16(const char **args, size_t *len, uint16_t *result);
+bool str_parse_uint16(const char **args, uint16_t *result);
 
 // A single argument in hex or decimal. e.g. 0x0, $0, 0
-bool str_parse_uint32(const char **args, size_t *len, uint32_t *result);
+bool str_parse_uint32(const char **args, uint32_t *result);
 
-// A ROM name converted to upper case.
-// Only A-Z allowed in first character, A-Z0-9 for remainder.
-// Return argument name must hold LFS_NAME_MAX+1.
-bool str_parse_rom_name(const char **args, size_t *len, char *name);
+// Ensure there are no more arguments (only spaces to the null terminator).
+bool str_parse_end(const char *args);
 
-// Ensure there are no more arguments.
-bool str_parse_end(const char *args, size_t len);
-
-/* Part 1 of putting string literals into flash.
- */
-
+// String literal are in flash.
 #define X(name, value) \
     extern const char name[];
 #include "str.inc"
 #include RP6502_LOCALE
+#undef X
+
+// Provide length of non-localized string literals.
+#define X(name, value)                 \
+    enum                               \
+    {                                  \
+        name##_LEN = sizeof(value) - 1 \
+    };
+#include "str.inc"
 #undef X
 
 #endif /* _RIA_STR_STR_H_ */

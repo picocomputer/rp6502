@@ -10,6 +10,7 @@
 #include "api/clk.h"
 #include "api/dir.h"
 #include "api/oem.h"
+#include "api/pro.h"
 #include "api/std.h"
 #include "aud/aud.h"
 #include "aud/opl.h"
@@ -68,7 +69,6 @@ static void init(void)
     // Misc device drivers, add yours here.
     cyw_init();
     oem_init();
-    usb_init();
     led_init();
     aud_init();
     kbd_init();
@@ -78,6 +78,9 @@ static void init(void)
     clk_init();
     mdm_init();
     rln_init();
+
+    // USB near end for boot enum timing
+    usb_init();
 
     // CPU must be last. Triggers a reclock.
     cpu_init();
@@ -109,11 +112,11 @@ void main_task(void)
 static void task(void)
 {
     mon_task();
-    api_task();
     mem_task();
     rln_task();
     fil_task();
     rom_task();
+    api_task(); // must be last for exec
 }
 
 // Event to start running the 6502.
@@ -214,6 +217,10 @@ bool main_api(uint8_t operation)
         return atr_api_stdin_opt();
     case 0x06:
         return atr_api_errno_opt();
+    case 0x08:
+        return pro_api_argv();
+    case 0x09:
+        return pro_api_exec();
     case 0x0A:
         return atr_api_get();
     case 0x0B:

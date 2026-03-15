@@ -6,6 +6,7 @@
 
 #include "str/str.h"
 #include "sys/cpu.h"
+#include <fatfs/ff.h>
 #include <string.h>
 #include <ctype.h>
 #include <pico.h>
@@ -32,6 +33,96 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #include RP6502_LOCALE
 #undef X
 
+// Shared output buffer for str_parse_string and str_abs_path.
+static char str_buf[256];
+
+const char *str_abs_path(const char *path)
+{
+    size_t drive_len;
+    const char *segs_src;
+
+    if (strchr(path, ':'))
+    {
+        const char *colon = strchr(path, ':');
+        drive_len = (size_t)(colon - path) + 1;
+        if (drive_len >= sizeof(str_buf))
+            return NULL;
+        for (size_t i = 0; i + 1 < drive_len; i++)
+            str_buf[i] = (char)toupper((unsigned char)path[i]);
+        str_buf[drive_len - 1] = ':';
+        segs_src = colon + 1;
+        if (*segs_src == '/')
+            segs_src++;
+    }
+    else
+    {
+        if (f_getcwd(str_buf, sizeof(str_buf)) != FR_OK)
+            return NULL;
+        const char *colon = strchr(str_buf, ':');
+        if (!colon)
+            return NULL;
+        drive_len = (size_t)(colon - str_buf) + 1;
+        segs_src = path;
+        if (*segs_src == '/')
+            segs_src++;
+    }
+
+    // For relative paths start at the end of the CWD already in str_buf.
+    // For absolute paths start fresh after the drive prefix.
+    size_t out;
+    if (!strchr(path, ':') && path[0] != '/')
+    {
+        out = strlen(str_buf);
+        while (out > drive_len && str_buf[out - 1] == '/')
+            out--;
+    }
+    else
+    {
+        out = drive_len;
+    }
+
+    // Write segments into str_buf, resolve . and ..
+    const char *seg = segs_src;
+    while (*seg)
+    {
+        const char *next = strchr(seg, '/');
+        size_t slen = next ? (size_t)(next - seg) : strlen(seg);
+        if (slen == 0 || (slen == 1 && seg[0] == '.'))
+        {
+            // skip empty segment or "."
+        }
+        else if (slen == 2 && seg[0] == '.' && seg[1] == '.')
+        {
+            if (out > drive_len)
+            {
+                out--;
+                while (out > drive_len && str_buf[out] != '/')
+                    out--;
+            }
+        }
+        else
+        {
+            if (out + 1 + slen > 255)
+                return NULL;
+            str_buf[out++] = '/';
+            if (drive_len == 1) // ":" installed ROM
+                for (size_t k = 0; k < slen; k++)
+                    str_buf[out++] = (char)toupper((unsigned char)seg[k]);
+            else
+            {
+                memcpy(str_buf + out, seg, slen);
+                out += slen;
+            }
+        }
+        seg = next ? next + 1 : seg + slen;
+    }
+
+    if (out == drive_len)
+        str_buf[out++] = '/';
+    str_buf[out] = '\0';
+    return str_buf;
+}
+
 int str_xdigit_to_int(char ch)
 {
     if (ch >= '0' && ch <= '9')
@@ -43,27 +134,10 @@ int str_xdigit_to_int(char ch)
     return ch;
 }
 
-bool str_parse_string(const char **args, size_t *len, char *dest, size_t maxlen)
-{
-    size_t cpylen = *len;
-    while (cpylen && (*args)[cpylen - 1] == ' ')
-        cpylen--;
-    if (cpylen < maxlen)
-    {
-        memcpy(dest, *args, cpylen);
-        dest[cpylen] = 0;
-        *len -= cpylen;
-        *args += cpylen;
-        return true;
-    }
-    dest[0] = 0;
-    return false;
-}
-
-bool str_parse_uint8(const char **args, size_t *len, uint8_t *result)
+bool str_parse_uint8(const char **args, uint8_t *result)
 {
     uint32_t result32;
-    if (str_parse_uint32(args, len, &result32) && result32 < 0x100)
+    if (str_parse_uint32(args, &result32) && result32 < 0x100)
     {
         *result = result32;
         return true;
@@ -71,10 +145,10 @@ bool str_parse_uint8(const char **args, size_t *len, uint8_t *result)
     return false;
 }
 
-bool str_parse_uint16(const char **args, size_t *len, uint16_t *result)
+bool str_parse_uint16(const char **args, uint16_t *result)
 {
     uint32_t result32;
-    if (str_parse_uint32(args, len, &result32) && result32 < 0x10000)
+    if (str_parse_uint32(args, &result32) && result32 < 0x10000)
     {
         *result = result32;
         return true;
@@ -82,33 +156,30 @@ bool str_parse_uint16(const char **args, size_t *len, uint16_t *result)
     return false;
 }
 
-bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
+bool str_parse_uint32(const char **args, uint32_t *result)
 {
-    size_t i;
-    for (i = 0; i < *len; i++)
-    {
-        if ((*args)[i] != ' ')
-            break;
-    }
+    size_t i = 0;
+    while ((*args)[i] == ' ')
+        i++;
     size_t start = i;
     uint32_t base = 10;
     uint32_t value = 0;
     uint32_t prefix = 0;
-    if (i < (*len) && (*args)[i] == '$')
+    if ((*args)[i] == '$')
     {
         base = 16;
         prefix = 1;
     }
-    else if (i + 1 < *len && (*args)[i] == '0' &&
+    else if ((*args)[i] == '0' &&
              ((*args)[i + 1] == 'x' || (*args)[i + 1] == 'X'))
     {
         base = 16;
         prefix = 2;
     }
     i = start + prefix;
-    if (i == *len)
+    if (!(*args)[i])
         return false;
-    for (; i < *len; i++)
+    for (; (*args)[i]; i++)
     {
         char ch = (*args)[i];
         if (base == 10 && !isdigit(ch))
@@ -124,64 +195,132 @@ bool str_parse_uint32(const char **args, size_t *len, uint32_t *result)
     }
     if (i == start + prefix)
         return false;
-    if (i < *len && (*args)[i] != ' ')
+    if ((*args)[i] && (*args)[i] != ' ')
         return false;
-    for (; i < *len; i++)
-        if ((*args)[i] != ' ')
-            break;
-    *len -= i;
+    while ((*args)[i] == ' ')
+        i++;
     *args += i;
     *result = value;
     return true;
 }
 
-bool str_parse_rom_name(const char **args, size_t *len, char *name)
+const char *str_parse_string(const char **args)
 {
-    name[0] = 0;
-    size_t i;
-    for (i = 0; i < *len; i++)
-    {
-        if ((*args)[i] != ' ')
-            break;
-    }
-    if (i == *len)
-        return false;
-    size_t name_len;
-    for (name_len = 0; i < *len && name_len < LFS_NAME_MAX; i++)
-    {
-        char ch = toupper((*args)[i]);
-        if (ch == ' ')
-            break;
-        if (isupper(ch) || (name_len && isdigit(ch)))
-        {
-            name[name_len++] = ch;
-            continue;
-        }
-        name[0] = 0;
-        return false;
-    }
-    if (!name_len)
-        return false;
-    if (i < *len && (*args)[i] != ' ')
-    {
-        name[0] = 0;
-        return false;
-    }
-    for (; i < *len; i++)
-        if ((*args)[i] != ' ')
-            break;
-    *len -= i;
+    size_t i = 0;
+    while ((*args)[i] == ' ')
+        i++;
+    if (!(*args)[i])
+        return NULL;
     *args += i;
-    name[name_len] = 0;
-    return true;
+    size_t out = 0;
+    if ((*args)[0] == '"')
+    {
+        size_t j = 1;
+        while ((*args)[j] && (*args)[j] != '"')
+        {
+            if (out >= 255)
+                return NULL;
+            if ((*args)[j] == '\\' && (*args)[j + 1])
+            {
+                j++;
+                switch ((*args)[j])
+                {
+                case 'n':
+                    str_buf[out++] = '\n';
+                    break;
+                case 't':
+                    str_buf[out++] = '\t';
+                    break;
+                case 'r':
+                    str_buf[out++] = '\r';
+                    break;
+                case 'a':
+                    str_buf[out++] = '\a';
+                    break;
+                case 'b':
+                    str_buf[out++] = '\b';
+                    break;
+                case 'f':
+                    str_buf[out++] = '\f';
+                    break;
+                case 'v':
+                    str_buf[out++] = '\v';
+                    break;
+                case 'x':
+                {
+                    if (!isxdigit((unsigned char)(*args)[j + 1]))
+                        return NULL;
+                    uint32_t val = 0;
+                    while (isxdigit((unsigned char)(*args)[j + 1]))
+                    {
+                        val = val * 16 + (uint32_t)str_xdigit_to_int((*args)[++j]);
+                    }
+                    if ((val & 0xFF) == 0)
+                        return NULL;
+                    str_buf[out++] = (char)(val & 0xFF);
+                    break;
+                }
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                {
+                    uint32_t val = (uint32_t)((*args)[j] - '0');
+                    if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
+                        val = val * 8 + (uint32_t)((*args)[++j] - '0');
+                    if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
+                        val = val * 8 + (uint32_t)((*args)[++j] - '0');
+                    if ((val & 0xFF) == 0)
+                        return NULL;
+                    str_buf[out++] = (char)(val & 0xFF);
+                    break;
+                }
+                default:
+                    str_buf[out++] = (*args)[j];
+                    break;
+                }
+            }
+            else
+                str_buf[out++] = (*args)[j];
+            j++;
+        }
+        if (!(*args)[j])
+            return NULL; // unclosed quote
+        j++;             // skip closing "
+        if ((*args)[j] && (*args)[j] != ' ')
+            return NULL; // garbage after closing quote
+        while ((*args)[j] == ' ')
+            j++;
+        *args += j;
+    }
+    else
+    {
+        size_t j = 0;
+        while ((*args)[j] && (*args)[j] != ' ')
+        {
+            if (out >= 255)
+                return NULL;
+            str_buf[out++] = (*args)[j++];
+        }
+        while ((*args)[j] == ' ')
+            j++;
+        *args += j;
+    }
+    str_buf[out] = 0;
+    return str_buf;
 }
 
-bool str_parse_end(const char *args, size_t len)
+bool str_parse_end(const char *args)
 {
-    for (size_t i = 0; i < len; i++)
+    while (*args)
     {
-        if (args[i] != ' ')
+        if (*args != ' ')
             return false;
+        args++;
     }
     return true;
 }

@@ -25,7 +25,7 @@ void oem_stop(void);
 void oem_set_code_page_ephemeral(uint16_t cp);
 
 // Configuration setting KB
-void oem_load_code_page(const char *str, size_t len);
+void oem_load_code_page(const char *str);
 bool oem_set_code_page(uint32_t cp);
 uint16_t oem_get_code_page(void);
 

@@ -58,7 +58,7 @@ static enum {
     MON_MORE_SS3,
 } mon_more_state;
 
-typedef void (*mon_function)(const char *, size_t);
+typedef void (*mon_function)(const char *);
 __in_flash("mon_commands") static struct
 {
     const char *const cmd;
@@ -87,44 +87,31 @@ __in_flash("mon_commands") static struct
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
 // Returns NULL if not found. Advances buf to start of args.
-static mon_function mon_command_lookup(const char **buf, size_t buflen)
+static mon_function mon_command_lookup(const char **buf)
 {
-    size_t i;
-    for (i = 0; i < buflen; i++)
-    {
-        if ((*buf)[i] != ' ')
-            break;
-    }
-    const char *cmd = (*buf) + i;
+    while (**buf == ' ')
+        (*buf)++;
+    const char *cmd = *buf;
+    if (!*cmd)
+        return NULL;
+    const char *tok = str_parse_string(buf);
+    if (!tok)
+        return NULL;
     bool is_maybe_addr = false;
     bool is_not_addr = false;
-    for (; i < buflen; i++)
+    for (const char *p = tok; *p; p++)
     {
-        uint8_t ch = (*buf)[i];
-        if (isxdigit(ch) || ch == '-')
+        uint8_t ch = *p;
+        if (isxdigit(ch) || ch == '-' || ch == ':')
             is_maybe_addr = true;
-        else if (ch == ' ')
-            break;
-        else if (ch == ':')
-        {
-            is_maybe_addr = true;
-            i++;
-            break;
-        }
         else
             is_not_addr = true;
     }
-    size_t cmd_len = (*buf) + i - cmd;
-    for (; i < buflen; i++)
-    {
-        if ((*buf)[i] != ' ')
-            break;
-    }
     // cd for chdir, 00cd for r/w address
-    if (cmd_len == 2 && !strncasecmp(cmd, STR_CD, cmd_len))
+    if (!strcasecmp(tok, STR_CD))
         is_not_addr = true;
-    // 0:-7: and USB0:-USB7:
-    if (fil_drive_exists(cmd, cmd_len))
+    // 0:-7: and MSC0:-MSC7:
+    if (fil_drive_exists(cmd))
     {
         *buf = cmd;
         return fil_mon_chdrive;
@@ -135,37 +122,32 @@ static mon_function mon_command_lookup(const char **buf, size_t buflen)
         *buf = cmd;
         return ram_mon_address;
     }
-    *buf += i;
-    for (i = 0; i < MON_COMMANDS_COUNT; i++)
-    {
-        if (cmd_len == strlen(MON_COMMANDS[i].cmd))
-            if (!strncasecmp(cmd, MON_COMMANDS[i].cmd, cmd_len))
-                return MON_COMMANDS[i].func;
-    }
+    for (size_t i = 0; i < MON_COMMANDS_COUNT; i++)
+        if (!strcasecmp(tok, MON_COMMANDS[i].cmd))
+            return MON_COMMANDS[i].func;
     return NULL;
 }
 
-bool mon_command_exists(const char *buf, size_t buflen)
+bool mon_command_exists(const char *buf)
 {
-    return !!mon_command_lookup(&buf, buflen);
+    return !!mon_command_lookup(&buf);
 }
 
-static void mon_enter(bool timeout, const char *buf, size_t length)
+static void mon_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
     mon_needs_prompt = true;
     const char *args = buf;
     stdio_flush();
-    mon_function func = mon_command_lookup(&args, length);
+    mon_function func = mon_command_lookup(&args);
     if (func)
-        return func(args, length - (args - buf));
-    if (rom_load_installed(buf, length))
+        return func(args);
+    if (rom_load_installed(buf))
         return;
-    // Supress error for empty lines
-    for (const char *b = buf; b < args; b++)
-        if (b[0] != ' ')
-            return mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
+    // Suppress error for empty lines
+    if (!str_parse_end(buf))
+        mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
 }
 
 static int mon_str_response(char *buf, size_t buf_size, int state)

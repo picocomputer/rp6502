@@ -36,7 +36,7 @@ int vga_boot_response(char *buf, size_t buf_size, int state);
 int vga_status_response(char *buf, size_t buf_size, int state);
 
 // Configuration setting VGA
-void vga_load_display_type(const char *str, size_t len);
+void vga_load_display_type(const char *str);
 bool vga_set_display_type(uint8_t display_type);
 uint8_t vga_get_display_type(void);
 const char *vga_get_display_type_verbose(void);

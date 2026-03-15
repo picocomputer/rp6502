@@ -268,9 +268,9 @@ int vga_status_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-void vga_load_display_type(const char *str, size_t len)
+void vga_load_display_type(const char *str)
 {
-    str_parse_uint8(&str, &len, &vga_display_type);
+    str_parse_uint8(&str, &vga_display_type);
     if (vga_display_type > 2)
         vga_display_type = 0;
 }
