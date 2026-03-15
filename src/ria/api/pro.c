@@ -140,12 +140,11 @@ bool pro_api_exec(void)
     memcpy(pro_argv, &xstack[xstack_ptr], size);
     memset(&pro_argv[size], 0, XSTACK_SIZE - size);
     xstack_ptr = XSTACK_SIZE;
-    if (!pro_argv_validate())
+    if (!pro_argv_validate() || !rom_exec())
     {
         pro_argv_clear();
         return api_return_errno(API_EINVAL);
     }
     main_stop();
-    rom_exec();
     return api_return_ax(0);
 }

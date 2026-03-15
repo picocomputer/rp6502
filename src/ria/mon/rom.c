@@ -118,19 +118,21 @@ static bool rom_fseek_to(uint32_t pos)
     return lfs_file_seek(&lfs_volume, &lfs_file, (lfs_soff_t)pos, LFS_SEEK_SET) >= 0;
 }
 
-static bool rom_open(const char *name, bool is_fat)
+static bool rom_open(const char *path)
 {
+    bool is_fat = (*path != ':');
     is_reading_fat = is_fat;
     if (is_fat)
     {
-        FRESULT fresult = f_open(&fat_fil, name, FA_READ);
+        FRESULT fresult = f_open(&fat_fil, path, FA_READ);
         mon_add_response_fatfs(fresult);
         if (fresult != FR_OK)
             return false;
     }
     else
     {
-        int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, name,
+        const char *lfs_path = path + 1;
+        int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, lfs_path,
                                          LFS_O_RDONLY, &lfs_file_config);
         mon_add_response_lfs(lfsresult);
         if (lfsresult < 0)
@@ -286,7 +288,13 @@ static void rom_loading(void)
     }
 }
 
-static bool rom_validate_name(char *name)
+static void rom_upcase_name(char *name)
+{
+    for (size_t i = 0; name[i]; i++)
+        name[i] = (char)toupper((unsigned char)name[i]);
+}
+
+static bool rom_validate_install_name(const char *name)
 {
     if (!name || !name[0])
         return false;
@@ -294,12 +302,8 @@ static bool rom_validate_name(char *name)
     {
         if (i >= LFS_NAME_MAX)
             return false;
-        char ch = (char)toupper((unsigned char)name[i]);
-        if (isupper((unsigned char)ch))
-        {
-            name[i] = ch;
+        if (isalpha((unsigned char)name[i]))
             continue;
-        }
         if (i && isdigit((unsigned char)name[i]))
             continue;
         return false;
@@ -310,6 +314,7 @@ static bool rom_validate_name(char *name)
 void rom_mon_install(const char *args)
 {
     // Parse the FAT filename and derive the LFS ROM name
+    const char *args_start = args;
     const char *tok = str_parse_string(&args);
     if (!tok || !str_parse_end(args))
     {
@@ -328,11 +333,12 @@ void rom_mon_install(const char *args)
     }
     memcpy(lfs_name, tok, lfs_name_len);
     lfs_name[lfs_name_len] = 0;
-    if (!rom_validate_name(lfs_name))
+    if (!rom_validate_install_name(lfs_name))
     {
         mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
         return;
     }
+    rom_upcase_name(lfs_name);
     // Test for system conflicts
     if (mon_command_exists(lfs_name) ||
         hlp_topic_exists(lfs_name))
@@ -340,8 +346,9 @@ void rom_mon_install(const char *args)
         mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
         return;
     }
-    // Test contents of file
-    if (!rom_open(tok, true))
+    // mon_command_exists and hlp_topic_exists nuke our string
+    tok = str_parse_string(&args_start);
+    if (!rom_open(tok))
         return;
     while (!rom_done())
         if (!rom_next_chunk())
@@ -390,22 +397,20 @@ void rom_mon_install(const char *args)
 void rom_mon_remove(const char *args)
 {
     const char *tok = str_parse_string(&args);
-    char name[LFS_NAME_MAX + 1];
-    if (tok && strlen(tok) <= LFS_NAME_MAX)
+    if (!tok || !str_parse_end(args) || !rom_validate_install_name(tok))
     {
-        memcpy(name, tok, strlen(tok) + 1);
-        if (rom_validate_name(name) && str_parse_end(args))
-        {
-            size_t nlen = strlen(name);
-            const char *boot = rom_get_boot();
-            if (!strncasecmp(name, boot, nlen) && (boot[nlen] == '\0' || boot[nlen] == ' '))
-                rom_set_boot("");
-            int lfsresult = lfs_remove(&lfs_volume, name);
-            mon_add_response_lfs(lfsresult);
-            return;
-        }
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
     }
-    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    char name[LFS_NAME_MAX + 1];
+    memcpy(name, tok, strlen(tok) + 1);
+    rom_upcase_name(name);
+    size_t nlen = strlen(name);
+    const char *boot = rom_get_boot();
+    if (!strncasecmp(name, boot, nlen) && (boot[nlen] == '\0' || boot[nlen] == ' '))
+        rom_set_boot("");
+    int lfsresult = lfs_remove(&lfs_volume, name);
+    mon_add_response_lfs(lfsresult);
 }
 
 bool rom_exec(void)
@@ -413,17 +418,19 @@ bool rom_exec(void)
     const char *argv0 = pro_argv_index(0);
     if (!argv0)
         return false;
+    if (*argv0 == ':')
+    {
+        const char *lfs_name = argv0 + 1;
+        if (*lfs_name == '/')
+            lfs_name++;
+        if (!rom_validate_install_name(lfs_name))
+            return false;
+    }
     const char *filepath = str_abs_path(argv0);
     if (!filepath || !pro_argv_replace(0, filepath))
         return false;
-    bool is_fat = *argv0 != ':';
-    if (!is_fat)
-        filepath += 1; // skip ':' prefix for LFS
-
-    // TODO make sure filepath exists
-    
     rom_close();
-    if (!rom_open(filepath, is_fat))
+    if (!rom_open(filepath))
         return false;
     rom_state = ROM_LOADING;
     return true;
@@ -432,7 +439,7 @@ bool rom_exec(void)
 void rom_mon_load(const char *args)
 {
     const char *filename = str_parse_string(&args);
-    if (!filename)
+    if (!filename || *filename == ':')
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
@@ -454,12 +461,11 @@ void rom_mon_load(const char *args)
 
 static bool rom_is_installed(const char *name)
 {
+    if (!name || !rom_validate_install_name(name))
+        return false;
     char buf[LFS_NAME_MAX + 1];
-    if (!name || strlen(name) > LFS_NAME_MAX)
-        return false;
     memcpy(buf, name, strlen(name) + 1);
-    if (!rom_validate_name(buf))
-        return false;
+    rom_upcase_name(buf);
     struct lfs_info info;
     return lfs_stat(&lfs_volume, buf, &info) >= 0;
 }
@@ -467,13 +473,14 @@ static bool rom_is_installed(const char *name)
 bool rom_load_installed(const char *args)
 {
     const char *tok = str_parse_string(&args);
-    if (!tok || strlen(tok) > LFS_NAME_MAX)
+    if (!tok || !rom_validate_install_name(tok))
         return false;
     char name[LFS_NAME_MAX + 1];
     memcpy(name, tok, strlen(tok) + 1);
-    if (!rom_validate_name(name) || !rom_is_installed(name))
+    rom_upcase_name(name);
+    if (!rom_is_installed(name))
         return false;
-    char rom_argv0[4 + LFS_NAME_MAX + 1];
+    char rom_argv0[2 + LFS_NAME_MAX + 1];
     snprintf(rom_argv0, sizeof(rom_argv0), ":%s", name);
     pro_argv_clear();
     if (pro_argv_append(rom_argv0))
@@ -567,32 +574,36 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
 void rom_mon_info(const char *args)
 {
     const char *tok = str_parse_string(&args);
-    if (tok && rom_open(tok, true))
+    if (!tok || *tok == ':')
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    if (rom_open(tok))
     {
         rom_state = ROM_HELPING;
         mon_add_response_fn(rom_help_response);
     }
-    else if (!tok)
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
 }
 
 void rom_mon_help(const char *args)
 {
-    struct lfs_info info;
     const char *tok = str_parse_string(&args);
-    char name[LFS_NAME_MAX + 1];
-    if (tok && strlen(tok) <= LFS_NAME_MAX)
+    if (!tok || !rom_validate_install_name(tok) || !str_parse_end(args))
     {
-        memcpy(name, tok, strlen(tok) + 1);
-        if (rom_validate_name(name) &&
-            str_parse_end(args) &&
-            lfs_stat(&lfs_volume, name, &info) >= 0 &&
-            rom_open(name, false))
-        {
-            rom_state = ROM_HELPING;
-            mon_add_response_fn(rom_help_response);
-            return;
-        }
+        mon_add_response_str(STR_ERR_NO_HELP_FOUND);
+        return;
+    }
+    char name[2 + LFS_NAME_MAX + 1];
+    name[0] = ':';
+    memcpy(name + 1, tok, strlen(tok) + 1);
+    rom_upcase_name(name + 1);
+    struct lfs_info info;
+    if (lfs_stat(&lfs_volume, name + 1, &info) >= 0 && rom_open(name))
+    {
+        rom_state = ROM_HELPING;
+        mon_add_response_fn(rom_help_response);
+        return;
     }
     mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
