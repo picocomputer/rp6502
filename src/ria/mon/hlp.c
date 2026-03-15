@@ -98,7 +98,8 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
         const char *attr = str_parse_string(&args);
         if (!attr)
         {
-            *cp = STR_HELP_SET;
+            if (str_parse_end(args))
+                *cp = STR_HELP_SET;
             return;
         }
         for (size_t i = 0; i < SETTINGS_COUNT; i++)

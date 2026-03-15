@@ -189,7 +189,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
 void fil_mon_ls(const char *args)
 {
     const char *path = str_parse_string(&args);
-    if (path && !str_parse_end(args))
+    if (!str_parse_end(args))
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
@@ -251,12 +251,11 @@ static void fil_command_dispatch(bool timeout, const char *buf)
     const char *args = buf;
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
+    if (!tok && !str_parse_end(scan))
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     if (!tok || (!strcasecmp(tok, STR_END) && str_parse_end(scan)))
     {
         fil_state = FIL_IDLE;
-        FRESULT result = f_close(&fil_fatfs_fil);
-        fil_fatfs_fil.obj.fs = NULL;
-        mon_add_response_fatfs(result);
         return;
     }
     if (str_parse_uint32(&args, &fil_rx_size) &&

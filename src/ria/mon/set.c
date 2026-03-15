@@ -304,12 +304,15 @@ void set_mon_set(const char *args)
     if (*args)
     {
         const char *attr = str_parse_string(&args);
-        for (size_t i = 0; i < SET_ATTRIBUTES_COUNT; i++)
+        if (attr)
         {
-            if (!strcasecmp(attr, SET_ATTRIBUTES[i].attr))
+            for (size_t i = 0; i < SET_ATTRIBUTES_COUNT; i++)
             {
-                SET_ATTRIBUTES[i].func(args);
-                return;
+                if (!strcasecmp(attr, SET_ATTRIBUTES[i].attr))
+                {
+                    SET_ATTRIBUTES[i].func(args);
+                    return;
+                }
             }
         }
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);

@@ -402,7 +402,8 @@ void rom_mon_remove(const char *args)
     size_t nlen = strlen(name);
     const char *boot = rom_get_boot();
     boot = str_parse_string(&boot);
-    if (!strncasecmp(name, boot, nlen) && (boot[nlen] == '\0' || boot[nlen] == ' '))
+    if (boot && !strncasecmp(name, boot, nlen) &&
+        (boot[nlen] == '\0' || boot[nlen] == ' '))
         rom_set_boot("");
     int lfsresult = lfs_remove(&lfs_volume, name);
     mon_add_response_lfs(lfsresult);
