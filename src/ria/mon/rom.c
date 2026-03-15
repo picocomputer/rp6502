@@ -91,6 +91,26 @@ static uint32_t rom_ftell(void)
     return p >= 0 ? (uint32_t)p : 0;
 }
 
+static void rom_close(void)
+{
+    bool closed = false;
+    if (lfs_file_open)
+    {
+        lfs_file_close(&lfs_volume, &lfs_file);
+        lfs_file_open = false;
+        closed = true;
+    }
+    if (fat_fil.obj.fs)
+    {
+        f_close(&fat_fil);
+        fat_fil.obj.fs = NULL;
+        closed = true;
+    }
+    if (closed)
+        for (int i = 0; i < ROM_ASSET_MAX; i++)
+            rom_assets[i].is_open = false;
+}
+
 static bool rom_fseek_to(uint32_t pos)
 {
     if (is_reading_fat)
@@ -393,26 +413,17 @@ bool rom_exec(void)
     const char *argv0 = pro_argv_index(0);
     if (!argv0)
         return false;
-    const char *path = str_abs_path(argv0);
-    if (!path || !pro_argv_replace(0, path))
+    const char *filepath = str_abs_path(argv0);
+    if (!filepath || !pro_argv_replace(0, filepath))
         return false;
     bool is_fat = *argv0 != ':';
     if (!is_fat)
-        path += 1; // skip ':' prefix for LFS
+        filepath += 1; // skip ':' prefix for LFS
 
-    // TODO make dry at least, close std too, rom_open not print errors
-    if (lfs_file_open)
-    {
-        lfs_file_close(&lfs_volume, &lfs_file);
-        lfs_file_open = false;
-    }
-    if (fat_fil.obj.fs)
-    {
-        f_close(&fat_fil);
-        fat_fil.obj.fs = NULL;
-    }
-
-    if (!rom_open(path, is_fat))
+    // TODO make sure filepath exists
+    
+    rom_close();
+    if (!rom_open(filepath, is_fat))
         return false;
     rom_state = ROM_LOADING;
     return true;
@@ -622,16 +633,7 @@ void rom_task(void)
     {
     case ROM_IDLE:
         // Don't log close errors; would be misleading or redundant.
-        if (lfs_file_open)
-        {
-            lfs_file_close(&lfs_volume, &lfs_file);
-            lfs_file_open = false;
-        }
-        if (fat_fil.obj.fs)
-        {
-            f_close(&fat_fil);
-            fat_fil.obj.fs = NULL;
-        }
+        rom_close();
         break;
     case ROM_HELPING:
     case ROM_RUNNING:
@@ -669,8 +671,6 @@ void rom_break(void)
 
 void rom_stop(void)
 {
-    for (int i = 0; i < ROM_ASSET_MAX; i++)
-        rom_assets[i].is_open = false;
     if (rom_state == ROM_RUNNING)
         rom_state = ROM_IDLE;
 }
