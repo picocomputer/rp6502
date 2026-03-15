@@ -58,9 +58,7 @@ static void set_boot(const char *args)
 {
     if (*args)
     {
-        const char *scan = args;
-        const char *tok = str_parse_string(&scan);
-        if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
+        if (args[0] == '-' && str_parse_end(args + 1))
             rom_set_boot("");
         else if (!rom_set_boot(args))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
