@@ -37,24 +37,31 @@ void pro_argv_clear(void)
 static uint16_t pro_argv_size(void)
 {
     uint16_t count = pro_argv_count();
-    uint16_t pos = (count + 1) * 2;
-    for (uint16_t i = 0; i < count; i++)
-        pos += strlen((const char *)&pro_argv[pos]) + 1;
-    return pos;
+    if (count == 0)
+        return 2;
+    uint16_t last = (count - 1) * 2;
+    uint16_t offset = pro_argv[last] | ((uint16_t)pro_argv[last + 1] << 8);
+    return offset + (uint16_t)strlen((const char *)&pro_argv[offset]) + 1;
 }
 
 static bool pro_argv_validate(void)
 {
     uint16_t count = pro_argv_count();
-    if ((count + 1) * 2 > XSTACK_SIZE)
+    uint16_t pos = (count + 1) * 2;
+    if (pos >= XSTACK_SIZE)
         return false;
     for (uint16_t i = 0; i < count; i++)
     {
         uint16_t offset = pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
-        if (offset >= XSTACK_SIZE)
+        if (offset != pos)
             return false;
+        while (pos < XSTACK_SIZE && pro_argv[pos] != 0)
+            pos++;
+        if (pos >= XSTACK_SIZE)
+            return false;
+        pos++;
     }
-    return pro_argv_size() <= XSTACK_SIZE;
+    return true;
 }
 
 bool pro_argv_append(const char *str)
@@ -136,8 +143,9 @@ bool pro_api_argv(void)
 
 bool pro_api_exec(void)
 {
-    uint16_t size = (uint16_t)(XSTACK_SIZE - xstack_ptr);
-    memcpy(pro_argv, &xstack[xstack_ptr], size);
+    size_t ptr = xstack_ptr;
+    uint16_t size = (uint16_t)(XSTACK_SIZE - ptr);
+    memcpy(pro_argv, &xstack[ptr], size);
     memset(&pro_argv[size], 0, XSTACK_SIZE - size);
     xstack_ptr = XSTACK_SIZE;
     if (!pro_argv_validate() || !pro_argv_count())
@@ -151,5 +159,3 @@ bool pro_api_exec(void)
     rom_exec();
     return api_return_ax(0);
 }
-
-// TODO double check for safety later

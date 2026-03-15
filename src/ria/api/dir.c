@@ -316,9 +316,6 @@ bool dir_api_setlabel(void)
 // int f_getlabel(const char* path, char* label)
 bool dir_api_getlabel(void)
 {
-    // The FatFs docs say to use 23.
-    // Windows and Linux have an 11 char limit.
-    // TODO Figure out why it's not 12.
     const int label_size = 23;
     char label[label_size];
     DWORD vsn;
