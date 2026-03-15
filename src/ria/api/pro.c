@@ -140,11 +140,16 @@ bool pro_api_exec(void)
     memcpy(pro_argv, &xstack[xstack_ptr], size);
     memset(&pro_argv[size], 0, XSTACK_SIZE - size);
     xstack_ptr = XSTACK_SIZE;
-    if (!pro_argv_validate() || !rom_exec())
+    if (!pro_argv_validate() || !pro_argv_count())
     {
         pro_argv_clear();
         return api_return_errno(API_EINVAL);
     }
+    // If we get this far, always stop.
+    // Problems in rom.c will log to the console
     main_stop();
+    rom_exec();
     return api_return_ax(0);
 }
+
+// TODO double check for safety later
