@@ -69,7 +69,6 @@ static void init(void)
     // Misc device drivers, add yours here.
     cyw_init();
     oem_init();
-    usb_init();
     led_init();
     aud_init();
     kbd_init();
@@ -79,6 +78,9 @@ static void init(void)
     clk_init();
     mdm_init();
     rln_init();
+
+    // USB near end for boot enum timing
+    usb_init();
 
     // CPU must be last. Triggers a reclock.
     cpu_init();
