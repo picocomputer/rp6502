@@ -50,6 +50,8 @@ void usb_init(void)
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(TUH_OPT_RHPORT, &rh_init);
     tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
+    usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+    DBG("USB: %lums INIT\n", to_ms_since_boot(get_absolute_time()));
 }
 
 void usb_task(void)
