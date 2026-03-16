@@ -256,12 +256,12 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
-    if (usb_boot_enumerating())
-        return;
     if (rom_done())
     {
         if (rom_FFFC && rom_FFFD)
         {
+            if (usb_boot_enumerating())
+                return;
             rom_state = ROM_RUNNING;
             main_run();
         }
