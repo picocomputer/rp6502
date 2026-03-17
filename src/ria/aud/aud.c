@@ -118,5 +118,9 @@ Move the psh shared constants into bel.h.
 Make a few "Bell" sounds for me to try out. Small bells like old
 typewriters and teletypes have are what I want. Put them in Pico flash.
 
+Don't make a master irq handler. Each driver should provide an IRQ
+handler so the compiler can best optimize. The bel driver IRQ is
+installed whenever nothing else is. The bel driver will provide
+samples via a function which accepts a sample rate argument.
 
 */
