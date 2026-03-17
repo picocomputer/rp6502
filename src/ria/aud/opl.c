@@ -5,6 +5,7 @@
  */
 
 #include "aud/aud.h"
+#include "aud/bel.h"
 #include "aud/opl.h"
 #include "mon/mon.h"
 #include "str/str.h"
@@ -43,6 +44,8 @@ static void
     OPL_calc_buffer(opl_emu8950, &next, 1);
     const int boost_bits = 2;
     opl_sample = next >> (16 - AUD_PWM_BITS - boost_bits);
+    // Mix in bel
+    opl_sample += bel_sample(OPL_SAMPLE_RATE);
     int16_t max_val = (1 << (AUD_PWM_BITS - 1)) - 1;
     int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
     if (opl_sample < min_val)

@@ -49,4 +49,9 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate);
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
+/* Sine table for waveform generation, shared by all audio drivers.
+ */
+
+extern int8_t aud_sine_table[256];
+
 #endif /* _RIA_AUD_AUD_H_ */

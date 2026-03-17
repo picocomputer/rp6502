@@ -5,11 +5,11 @@
  */
 
 #include "aud/aud.h"
+#include "aud/bel.h"
 #include "aud/psg.h"
 #include "sys/mem.h"
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
-#include <math.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -25,10 +25,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 enum psg_adsr_state
 {
+    release,
     attack,
     decay,
     sustain,
-    release
 };
 
 static volatile uint16_t psg_xaddr;
@@ -113,8 +113,6 @@ static struct
     uint32_t noise2;
 } psg_channel_state[PSG_CHANNELS];
 
-static int8_t psg_sine_table[256];
-
 static void
     __attribute__((optimize("O3")))
     __isr
@@ -143,6 +141,9 @@ static void
     int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
     sample_l <<= (AUD_PWM_BITS - 8);
     sample_r <<= (AUD_PWM_BITS - 8);
+    int16_t bel = bel_sample(PSG_RATE);
+    sample_l += bel;
+    sample_r += bel;
     if (sample_l < min_val)
         sample_l = min_val;
     if (sample_l > max_val)
@@ -168,7 +169,7 @@ static void
             if (phase < 128u - duty || phase >= 128u + duty)
                 psg_channel_state[i].sample = -127;
             else
-                psg_channel_state[i].sample = psg_sine_table[phase];
+                psg_channel_state[i].sample = aud_sine_table[phase];
             break;
         case 1: // square
             if (phase > duty)
@@ -271,18 +272,12 @@ bool psg_xreg(uint16_t word)
         psg_xaddr = 0xFFFF;
         return word == 0xFFFF;
     }
-    if (!*psg_sine_table)
+    // Set up linear-feedback shift register for noise. Starting constants from here:
+    // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        // Set up sine table
-        for (unsigned i = 0; i < 256; i++)
-            psg_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
-        // Set up linear-feedback shift register for noise. Starting constants from here:
-        // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
-        for (unsigned i = 0; i < PSG_CHANNELS; i++)
-        {
-            psg_channel_state[i].noise1 = 0x67452301;
-            psg_channel_state[i].noise2 = 0xEFCDAB89;
-        }
+        psg_channel_state[i].noise1 = 0x67452301;
+        psg_channel_state[i].noise2 = 0xEFCDAB89;
     }
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {

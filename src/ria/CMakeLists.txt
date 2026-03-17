@@ -71,6 +71,7 @@ target_sources(${RIA_TARGET} PRIVATE
     api/pro.c
     api/std.c
     aud/aud.c
+    aud/bel.c
     aud/opl.c
     aud/psg.c
     hid/hid.c

@@ -50,6 +50,8 @@ static void com_clear_all_rx()
 
 static void com_tx_task(void)
 {
+    // TODO aud_bel_add(&bel_teletype);
+
     if (vga_connected())
     {
         // Use TXFE (empty) to pace VGA PIX sends
