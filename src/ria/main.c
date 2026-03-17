@@ -213,8 +213,6 @@ bool main_api(uint8_t operation)
         return atr_api_code_page();
     case 0x04:
         return atr_api_lrand();
-    case 0x05:
-        return atr_api_stdin_opt();
     case 0x06:
         return atr_api_errno_opt();
     case 0x08:
@@ -237,8 +235,6 @@ bool main_api(uint8_t operation)
         return clk_api_get_time();
     case 0x12:
         return clk_api_set_time();
-    case 0x13: // ok to reuse
-        break; // retired clk_api_get_time_zone
     case 0x14:
         return std_api_open();
     case 0x15:

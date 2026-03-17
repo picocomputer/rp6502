@@ -55,33 +55,15 @@ static uint8_t rln_bufpos;
 static rln_ansi_state_t rln_ansi_state;
 static uint16_t rln_csi_param[RLN_CSI_PARAM_MAX_LEN];
 static uint8_t rln_csi_param_count;
-static uint32_t rln_ctrl_bits;
-
-// Programmatic state
-static bool rln_programmatic_mode;
-static uint32_t rln_programmatic_saved_timeout_ms;
-static bool rln_programmatic_saved_enable_history;
-
-// Configuration and exposed status
-static bool rln_suppress_end_move;
-static bool rln_suppress_newline;
 static bool rln_enable_history;
 static uint8_t rln_max_length;
 static uint32_t rln_timeout_ms;
-static uint8_t rln_end_char;
-static bool rln_timed_out;
-static uint8_t rln_cursor_pos;
 
-static void rln_complete(void)
+static void rln_complete(bool rln_timed_out)
 {
     rln_read_callback_t cc = rln_callback;
+    rln_timeout_ms = 0;
     rln_callback = NULL;
-    if (rln_programmatic_mode)
-    {
-        rln_timeout_ms = rln_programmatic_saved_timeout_ms;
-        rln_enable_history = rln_programmatic_saved_enable_history;
-        rln_programmatic_mode = false;
-    }
     cc(rln_timed_out, rln_buf);
 }
 
@@ -111,7 +93,7 @@ static void rln_line_redraw(void)
 
 static void rln_line_up(void)
 {
-    if (!rln_enable_history)
+    if (!rln_enable_history || rln_timeout_ms)
         return;
     if (rln_history_count == 0)
         return;
@@ -133,7 +115,7 @@ static void rln_line_up(void)
 
 static void rln_line_down(void)
 {
-    if (!rln_enable_history)
+    if (!rln_enable_history || rln_timeout_ms)
         return;
     if (rln_history_pos < 0)
         return;
@@ -145,7 +127,7 @@ static void rln_line_down(void)
 
 static void rln_history_add(void)
 {
-    if (!rln_enable_history)
+    if (!rln_enable_history || rln_timeout_ms)
         return;
     if (rln_buflen == 0)
         return;
@@ -296,20 +278,12 @@ static void rln_line_insert(char ch)
 
 static void rln_line_state_C0(char ch)
 {
-    if (ch < 32 && (rln_ctrl_bits & (1u << ch)))
-    {
-        printf("\n");
-        rln_buf[0] = ch;
-        rln_buf[1] = 0;
-        rln_buflen = 1;
-        rln_complete();
-    }
-    else if (ch == '\r')
+    if (ch == '\r')
     {
         printf("\n");
         rln_buf[rln_buflen] = 0;
         rln_history_add();
-        rln_complete();
+        rln_complete(false);
     }
     else if (ch == '\33')
         rln_ansi_state = ansi_state_Fe;
@@ -463,24 +437,18 @@ static void rln_line_rx(uint8_t ch)
 
 void rln_read_line(rln_read_callback_t callback)
 {
-    rln_timed_out = false;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_ansi_state = ansi_state_C0;
-    rln_timer = make_timeout_time_ms(rln_timeout_ms);
     rln_callback = callback;
     rln_history_pos = -1;
     rln_buf = rln_newest_buf;
 }
 
-void rln_read_line_programmatic(rln_read_callback_t callback, uint32_t timeout_ms)
+void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
-    rln_programmatic_saved_timeout_ms = rln_timeout_ms;
-    rln_programmatic_saved_enable_history = rln_enable_history;
-    rln_programmatic_mode = true;
     rln_timeout_ms = timeout_ms;
-    rln_enable_history = false;
     rln_read_line(callback);
 }
 
@@ -496,11 +464,9 @@ void rln_task(void)
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
         rln_line_rx(ch);
     }
-    if (rln_callback && rln_timeout_ms &&
-        absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
+    if (rln_timeout_ms && absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
     {
-        rln_timed_out = true;
-        rln_complete();
+        rln_complete(true);
     }
 }
 
@@ -508,16 +474,8 @@ void rln_init(void)
 {
     rln_callback = NULL;
     rln_history = rln_history_mon;
-    rln_suppress_end_move = false;
-    rln_suppress_newline = false;
     rln_enable_history = true;
-    rln_max_length = 254;
-    rln_timeout_ms = 0;
-    rln_programmatic_saved_timeout_ms = 0;
-    rln_ctrl_bits = 0;
-    rln_end_char = '\r';
-    rln_timed_out = false;
-    rln_cursor_pos = 0xFF;
+    rln_max_length = 254; // 1 for newline
 }
 
 void rln_run(void)
@@ -549,27 +507,5 @@ void rln_break(void)
 
 /* Readline configuration getters/setters */
 
-bool rln_get_suppress_end_move(void) { return rln_suppress_end_move; }
-void rln_set_suppress_end_move(bool v) { rln_suppress_end_move = v; }
-
-bool rln_get_suppress_newline(void) { return rln_suppress_newline; }
-void rln_set_suppress_newline(bool v) { rln_suppress_newline = v; }
-
-bool rln_get_enable_history(void) { return rln_enable_history; }
-void rln_set_enable_history(bool v) { rln_enable_history = v; }
-
-uint8_t rln_get_max_length(void) { return rln_max_length; }
 void rln_set_max_length(uint8_t v) { rln_max_length = v; }
-
-uint32_t rln_get_timeout(void) { return rln_timeout_ms; }
-void rln_set_timeout(uint32_t v) { rln_timeout_ms = v; }
-
-uint32_t rln_get_ctrl_bits(void) { return rln_ctrl_bits; }
-void rln_set_ctrl_bits(uint32_t v) { rln_ctrl_bits = v; }
-
-uint8_t rln_get_cursor_pos(void) { return rln_cursor_pos; }
-void rln_set_cursor_pos(uint8_t v) { rln_cursor_pos = v; }
-
-uint8_t rln_get_end_char(void) { return rln_end_char; }
-
-bool rln_get_timed_out(void) { return rln_timed_out; }
+uint8_t rln_get_max_length(void) { return rln_max_length; }

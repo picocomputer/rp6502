@@ -48,21 +48,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
  */
 
 // Attribute IDs - readline (0x00-0x0F)
-#define ATR_SUPPRESS_END_MOVE 0x01
-#define ATR_SUPPRESS_NEWLINE 0x02
-#define ATR_ENABLE_HISTORY 0x03
 #define ATR_MAX_LENGTH 0x04
-#define ATR_TIMEOUT 0x05
-#define ATR_CTRL_BITS 0x06
-#define ATR_END_CHAR 0x07
-#define ATR_TIMED_OUT 0x08
-#define ATR_CURSOR_POS 0x09
 
 // Attribute IDs - system (0x80-0x8F) - mirrors deprecated APIs
 #define ATR_PHI2_KHZ 0x80
 #define ATR_CODE_PAGE 0x81
 #define ATR_LRAND 0x82
-#define ATR_ERRNO_OPT 0x83
+#define ATR_ERRNO_OPT 0x66
 
 // int ria_get_attr(uint32_t *attr, uint8_t attr_id);
 bool atr_api_get(void)
@@ -73,32 +65,8 @@ bool atr_api_get(void)
     switch (attr_id)
     {
     // Readline attributes - dispatch to rln.c
-    case ATR_SUPPRESS_END_MOVE:
-        value = rln_get_suppress_end_move() ? 1 : 0;
-        break;
-    case ATR_SUPPRESS_NEWLINE:
-        value = rln_get_suppress_newline() ? 1 : 0;
-        break;
-    case ATR_ENABLE_HISTORY:
-        value = rln_get_enable_history() ? 1 : 0;
-        break;
     case ATR_MAX_LENGTH:
         value = rln_get_max_length();
-        break;
-    case ATR_TIMEOUT:
-        value = rln_get_timeout();
-        break;
-    case ATR_CTRL_BITS:
-        value = rln_get_ctrl_bits();
-        break;
-    case ATR_END_CHAR:
-        value = rln_get_end_char();
-        break;
-    case ATR_TIMED_OUT:
-        value = rln_get_timed_out() ? 1 : 0;
-        break;
-    case ATR_CURSOR_POS:
-        value = rln_get_cursor_pos();
         break;
 
     // System attributes - dispatch to respective modules
@@ -136,32 +104,8 @@ bool atr_api_set(void)
     switch (attr_id)
     {
     // Readline attributes - dispatch to rln.c
-    case ATR_SUPPRESS_END_MOVE:
-        rln_set_suppress_end_move(value != 0);
-        break;
-    case ATR_SUPPRESS_NEWLINE:
-        rln_set_suppress_newline(value != 0);
-        break;
-    case ATR_ENABLE_HISTORY:
-        rln_set_enable_history(value != 0);
-        break;
     case ATR_MAX_LENGTH:
         rln_set_max_length((uint8_t)value);
-        break;
-    case ATR_TIMEOUT:
-        rln_set_timeout(value);
-        break;
-    case ATR_CTRL_BITS:
-        rln_set_ctrl_bits(value);
-        break;
-    case ATR_END_CHAR:
-        // Read-only, ignore silently
-        break;
-    case ATR_TIMED_OUT:
-        // Read-only, ignore silently
-        break;
-    case ATR_CURSOR_POS:
-        rln_set_cursor_pos((uint8_t)value);
         break;
 
     // System attributes
@@ -183,41 +127,6 @@ bool atr_api_set(void)
         return api_return_errno(API_EINVAL);
     }
 
-    return api_return_ax(0);
-}
-
-// int ria_set_readline(char *buf);
-// Sets buffer for readline continuation. Buffer is on xstack, null-terminated.
-bool atr_api_set_readline(void)
-{
-    // Get buffer from xstack (null-terminated string)
-    char *buf = (char *)&xstack[xstack_ptr];
-    size_t len = strlen(buf);
-
-    // Clamp length to max_length
-    uint8_t max_len = rln_get_max_length();
-    if (len > max_len)
-        len = max_len;
-
-    // Validate cursor position (0xFF means end of line)
-    uint8_t cursor_pos = rln_get_cursor_pos();
-    if (cursor_pos > len)
-        cursor_pos = len;
-    rln_set_cursor_pos(cursor_pos);
-
-    // Output the buffer contents (with potential newline expansion based on setting)
-    for (size_t i = 0; i < len; i++)
-    {
-        putchar(buf[i]);
-    }
-
-    // Move cursor back if not at end and not suppressing end move
-    if (!rln_get_suppress_end_move() && cursor_pos < len)
-    {
-        printf("\33[%dD", (int)(len - cursor_pos));
-    }
-
-    xstack_ptr = XSTACK_SIZE;
     return api_return_ax(0);
 }
 
@@ -248,18 +157,6 @@ bool atr_api_code_page(void)
 bool atr_api_lrand(void)
 {
     return api_return_axsreg(get_rand_32() & 0x7FFFFFFF);
-}
-
-// int stdin_opt(unsigned long ctrl_bits, unsigned char str_length)
-bool atr_api_stdin_opt(void)
-{
-    uint8_t str_length = API_A;
-    uint32_t ctrl_bits;
-    if (!api_pop_uint32_end(&ctrl_bits))
-        return api_return_errno(API_EINVAL);
-    rln_set_max_length(str_length);
-    rln_set_ctrl_bits(ctrl_bits);
-    return api_return_ax(0);
 }
 
 // int errno_opt(unsigned char opt) - set errno mapping
