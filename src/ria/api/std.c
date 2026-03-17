@@ -12,7 +12,9 @@
 #include "usb/vcp.h"
 #include "usb/msc.h"
 #include "mon/rom.h"
+#include <pico/stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
 #define DBG(...) printf(__VA_ARGS__)
@@ -46,7 +48,8 @@ __in_flash("std_drivers") static const std_driver_t std_drivers[] = {
 #define STD_FD_STDIN 0
 #define STD_FD_STDOUT 1
 #define STD_FD_STDERR 2
-#define STD_FD_FIRST_FREE 3
+#define STD_FD_STDIO 3
+#define STD_FD_FIRST_FREE 4
 typedef struct
 {
     bool is_open;
@@ -127,10 +130,39 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
     return (i < count) ? STD_PENDING : STD_OK;
 }
 
+static std_rw_result std_stdin_read_raw(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    uint32_t i = 0;
+    for (; i < count; i++)
+    {
+        int ch = stdio_getchar_timeout_us(0);
+        if (ch == PICO_ERROR_TIMEOUT)
+            break;
+        buf[i] = (char)ch;
+    }
+    *bytes_read = i;
+    return STD_OK;
+}
+
+static std_rw_result std_stdout_write_raw(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    uint32_t i = 0;
+    for (; i < count && com_tx_writable(); i++)
+        com_tx_write(buf[i]);
+    *bytes_written = i;
+    return STD_OK;
+}
+
 bool std_api_open(void)
 {
     char *path = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
+    if (strcasecmp(path, "STD:") == 0)
+        return api_return_ax(STD_FD_STDIO);
     int fd = -1;
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
         if (!std_fd_pool[i].is_open)
@@ -164,6 +196,8 @@ bool std_api_open(void)
 bool std_api_close(void)
 {
     int fd = API_A;
+    if (fd == STD_FD_STDIO)
+        return api_return_ax(0);
     if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
         return api_return_errno(API_EBADF);
     std_fd_t *f = &std_fd_pool[fd];
@@ -410,6 +444,9 @@ void std_run(void)
     std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
     std_fd_pool[STD_FD_STDERR].is_open = true;
     std_fd_pool[STD_FD_STDERR].write = std_stdout_write;
+    std_fd_pool[STD_FD_STDIO].is_open = true;
+    std_fd_pool[STD_FD_STDIO].read = std_stdin_read_raw;
+    std_fd_pool[STD_FD_STDIO].write = std_stdout_write_raw;
 }
 
 void std_stop(void)
