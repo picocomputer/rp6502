@@ -423,6 +423,7 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
     rln_timeout_ms = timeout_ms;
+    rln_timer = make_timeout_time_ms(rln_timeout_ms);
     rln_read_line(callback);
 }
 
