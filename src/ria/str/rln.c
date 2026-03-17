@@ -30,24 +30,18 @@ typedef enum
 } rln_ansi_state_t;
 
 #define RLN_BUF_SIZE 256
-#define RLN_HISTORY_SIZE 3
+#define RLN_HISTORY_SIZE 8
 #define RLN_CSI_PARAM_MAX_LEN 16
 
 // History storage
-static char rln_newest_buf[RLN_BUF_SIZE];
-static char rln_history_run[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-static char rln_history_mon[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
-static uint8_t rln_history_head_mon;
-static uint8_t rln_history_count_mon;
-
-// Current history
-static char (*rln_history)[RLN_BUF_SIZE];
-static uint8_t rln_history_head;
+// history[0] is the current input being edited.
+// history[1..RLN_HISTORY_SIZE-1] hold previous entries.
+static char rln_history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
 static uint8_t rln_history_count;
-static int8_t rln_history_pos;
+static uint8_t rln_history_pos;
 
 // Input state
-static char *rln_buf;
+static char rln_buf[RLN_BUF_SIZE];
 static rln_read_callback_t rln_callback;
 static absolute_time_t rln_timer;
 static uint8_t rln_buflen;
@@ -67,17 +61,6 @@ static void rln_complete(bool rln_timed_out)
     cc(rln_timed_out, rln_buf);
 }
 
-static void rln_set_buf(void)
-{
-    if (rln_history_pos < 0)
-        rln_buf = rln_newest_buf;
-    else
-    {
-        uint8_t idx = (rln_history_head - 1 - rln_history_pos + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
-        rln_buf = rln_history[idx];
-    }
-}
-
 static void rln_line_redraw(void)
 {
     if (rln_bufpos)
@@ -95,21 +78,12 @@ static void rln_line_up(void)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
-    if (rln_history_count == 0)
+    if (rln_history_pos >= rln_history_count)
         return;
-    if (rln_history_pos < 0)
-    {
-        rln_buf[rln_buflen] = 0;
-        rln_history_pos = 0;
-    }
-    else if (rln_history_pos < rln_history_count - 1)
-    {
-        rln_buf[rln_buflen] = 0;
-        rln_history_pos++;
-    }
-    else // at oldest
-        return;
-    rln_set_buf();
+    rln_buf[rln_buflen] = 0;
+    memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
+    rln_history_pos++;
+    memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
     rln_line_redraw();
 }
 
@@ -117,11 +91,12 @@ static void rln_line_down(void)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
-    if (rln_history_pos < 0)
+    if (rln_history_pos <= 0)
         return;
     rln_buf[rln_buflen] = 0;
+    memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
     rln_history_pos--;
-    rln_set_buf();
+    memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
     rln_line_redraw();
 }
 
@@ -131,16 +106,15 @@ static void rln_history_add(void)
         return;
     if (rln_buflen == 0)
         return;
-    if (rln_history_count > 0)
-    {
-        uint8_t last = (rln_history_head - 1 + RLN_HISTORY_SIZE) % RLN_HISTORY_SIZE;
-        if (strcmp(rln_history[last], rln_buf) == 0)
-            return;
-    }
-    memcpy(rln_history[rln_history_head], rln_buf, rln_buflen);
-    rln_history[rln_history_head][rln_buflen] = 0;
-    rln_history_head = (rln_history_head + 1) % RLN_HISTORY_SIZE;
-    if (rln_history_count < RLN_HISTORY_SIZE)
+    rln_buf[rln_buflen] = 0;
+    if (rln_history_count > 0 && strcmp(rln_history[1], rln_buf) == 0)
+        return;
+    // Shift history up, oldest entry dropped if full
+    for (int i = RLN_HISTORY_SIZE - 1; i > 1; i--)
+        memcpy(rln_history[i], rln_history[i - 1], RLN_BUF_SIZE);
+    memcpy(rln_history[1], rln_buf, rln_buflen + 1);
+    rln_history[0][0] = 0;
+    if (rln_history_count < RLN_HISTORY_SIZE - 1)
         rln_history_count++;
 }
 
@@ -441,8 +415,8 @@ void rln_read_line(rln_read_callback_t callback)
     rln_bufpos = 0;
     rln_ansi_state = ansi_state_C0;
     rln_callback = callback;
-    rln_history_pos = -1;
-    rln_buf = rln_newest_buf;
+    rln_history_pos = 0;
+    rln_buf[0] = 0;
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -473,31 +447,20 @@ void rln_task(void)
 void rln_init(void)
 {
     rln_callback = NULL;
-    rln_history = rln_history_mon;
     rln_enable_history = true;
-    rln_max_length = 254; // 1 for newline
+    rln_max_length = 255;
 }
 
 void rln_run(void)
 {
-    rln_init();
-    rln_history = rln_history_run;
+    rln_callback = NULL;
     rln_enable_history = false;
-    // Preserve history counters
-    rln_history_head_mon = rln_history_head;
-    rln_history_count_mon = rln_history_count;
-    // Run with clean history
-    memset(rln_history_run, 0, sizeof(rln_history_run));
-    rln_history_head = 0;
-    rln_history_count = 0;
+    rln_max_length = 254; // 1 for newline
 }
 
 void rln_stop(void)
 {
     rln_init();
-    // Restore history counters
-    rln_history_head = rln_history_head_mon;
-    rln_history_count = rln_history_count_mon;
 }
 
 void rln_break(void)
@@ -505,7 +468,7 @@ void rln_break(void)
     rln_init();
 }
 
-/* Readline configuration getters/setters */
+/* 6502 applications may configure the max length */
 
 void rln_set_max_length(uint8_t v) { rln_max_length = v; }
 uint8_t rln_get_max_length(void) { return rln_max_length; }
