@@ -13,7 +13,6 @@
 #include <assert.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -235,6 +234,67 @@ static void rln_line_backspace(void)
         rln_buf[i] = rln_buf[i + 1];
 }
 
+static void rln_line_backward_kill_word(void)
+{
+    if (!rln_bufpos)
+        return;
+    uint8_t orig_pos = rln_bufpos;
+    while (true)
+    {
+        if (!--rln_bufpos)
+            break;
+        if (!rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
+            rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
+            break;
+    }
+    int count = orig_pos - rln_bufpos;
+    for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
+        rln_buf[i] = rln_buf[i + count];
+    rln_buflen -= count;
+    printf("\33[%dD\33[%dP", count, count);
+}
+
+static void rln_line_forward_kill_word(void)
+{
+    if (rln_bufpos >= rln_buflen)
+        return;
+    uint8_t pos = rln_bufpos;
+    int count = 0;
+    while (true)
+    {
+        count++;
+        if (++pos >= rln_buflen)
+            break;
+        if (rln_is_word_delimiter(rln_buf[pos]) &&
+            !rln_is_word_delimiter(rln_buf[pos - 1]))
+            break;
+    }
+    for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
+        rln_buf[i] = rln_buf[i + count];
+    rln_buflen -= count;
+    printf("\33[%dP", count);
+}
+
+static void rln_line_kill_to_end(void)
+{
+    if (rln_bufpos == rln_buflen)
+        return;
+    rln_buflen = rln_bufpos;
+    printf("\33[K");
+}
+
+static void rln_line_kill_to_start(void)
+{
+    if (!rln_bufpos)
+        return;
+    int count = rln_bufpos;
+    for (size_t i = 0; i + count < rln_buflen; i++)
+        rln_buf[i] = rln_buf[i + count];
+    rln_buflen -= count;
+    rln_bufpos = 0;
+    printf("\33[%dD\33[%dP", count, count);
+}
+
 static void rln_line_insert(char ch)
 {
     if (ch < 32 || rln_buflen + 1 >= rln_max_length)
@@ -267,10 +327,22 @@ static void rln_line_state_C0(char ch)
         rln_line_home();
     else if (ch == 2) // ctrl-b
         rln_line_backward_1();
+    else if (ch == 4) // ctrl-d
+        rln_line_delete();
     else if (ch == 5) // ctrl-e
         rln_line_end();
     else if (ch == 6) // ctrl-f
         rln_line_forward_1();
+    else if (ch == 11) // ctrl-k
+        rln_line_kill_to_end();
+    else if (ch == 14) // ctrl-n
+        rln_line_down();
+    else if (ch == 16) // ctrl-p
+        rln_line_up();
+    else if (ch == 21) // ctrl-u
+        rln_line_kill_to_start();
+    else if (ch == 23) // ctrl-w
+        rln_line_backward_kill_word();
     else
         rln_line_insert(ch);
 }
@@ -297,11 +369,16 @@ static void rln_line_state_Fe(char ch)
         rln_ansi_state = ansi_state_SS2;
     else if (ch == 'O')
         rln_ansi_state = ansi_state_SS3;
+    else if (ch == 'd')
+    {
+        rln_ansi_state = ansi_state_C0;
+        rln_line_forward_kill_word();
+    }
     else
     {
         rln_ansi_state = ansi_state_C0;
-        if (ch == 127)
-            rln_line_delete();
+        if (ch == 127 || ch == '\b')
+            rln_line_backward_kill_word();
     }
 }
 
