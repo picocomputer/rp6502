@@ -28,37 +28,24 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define ATR_MAX_LENGTH 0x03
 #define ATR_LRAND 0x04
 
-// int ria_get_attr(uint32_t *attr, uint8_t attr_id);
+// long ria_get_attr(uint8_t attr_id);
 bool atr_api_get(void)
 {
-    uint8_t attr_id = API_A;
-    uint32_t value = 0;
-
-    switch (attr_id)
+    switch (API_A)
     {
     case ATR_ERRNO_OPT:
-        value = api_get_errno_opt();
-        break;
+        return api_return_axsreg(api_get_errno_opt());
     case ATR_PHI2_KHZ:
-        value = cpu_get_phi2_khz();
-        break;
+        return api_return_axsreg(cpu_get_phi2_khz());
     case ATR_CODE_PAGE:
-        value = oem_get_code_page();
-        break;
+        return api_return_axsreg(oem_get_code_page());
     case ATR_MAX_LENGTH:
-        value = rln_get_max_length();
-        break;
+        return api_return_axsreg(rln_get_max_length());
     case ATR_LRAND:
-        value = get_rand_32() & 0x7FFFFFFF;
-        break;
+        return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
     default:
         return api_return_errno(API_EINVAL);
     }
-
-    // Push value to xstack for return
-    if (!api_push_uint32(&value))
-        return api_return_errno(API_ENOMEM);
-    return api_return_ax(0);
 }
 
 // int ria_set_attr(uint32_t attr, uint8_t attr_id);
@@ -68,10 +55,8 @@ bool atr_api_set(void)
     uint32_t value;
     if (!api_pop_uint32_end(&value))
         return api_return_errno(API_EINVAL);
-
     switch (attr_id)
     {
-
     case ATR_ERRNO_OPT:
         api_set_errno_opt((uint8_t)value);
         break;
@@ -89,7 +74,6 @@ bool atr_api_set(void)
     default:
         return api_return_errno(API_EINVAL);
     }
-
     return api_return_ax(0);
 }
 
@@ -119,7 +103,7 @@ bool atr_api_code_page(void)
 // long lrand(void) - get random number
 bool atr_api_lrand(void)
 {
-    return api_return_axsreg(get_rand_32() & 0x7FFFFFFF);
+    return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
 }
 
 // int errno_opt(unsigned char opt) - set errno mapping
