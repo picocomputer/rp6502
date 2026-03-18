@@ -27,6 +27,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define ATR_CODE_PAGE 0x02
 #define ATR_MAX_LENGTH 0x03
 #define ATR_LRAND 0x04
+// ATR_BEL
+// ATR_LAUNCHER
 
 // long ria_get_attr(uint8_t attr_id);
 bool atr_api_get(void)
