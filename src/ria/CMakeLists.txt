@@ -57,11 +57,6 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 )
 
 target_sources(${RIA_TARGET} PRIVATE
-    ../emu8950/emu8950.c
-    ../fatfs/ff.c
-    ../fatfs/ffunicode.c
-    ../littlefs/lfs.c
-    ../littlefs/lfs_util.c
     main.c
     api/api.c
     api/atr.c
@@ -105,9 +100,18 @@ target_sources(${RIA_TARGET} PRIVATE
     sys/sys.c
     sys/vga.c
     usb/msc.c
+    usb/nfc.c
     usb/usb.c
     usb/vcp.c
     usb/xin.c
+)
+
+target_sources(${RIA_TARGET} PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/emu8950/emu8950.c
+    ${PROJECT_SOURCE_DIR}/src/fatfs/ff.c
+    ${PROJECT_SOURCE_DIR}/src/fatfs/ffunicode.c
+    ${PROJECT_SOURCE_DIR}/src/littlefs/lfs.c
+    ${PROJECT_SOURCE_DIR}/src/littlefs/lfs_util.c
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE
