@@ -31,4 +31,12 @@ int vcp_std_close(int desc, api_errno *err);
 std_rw_result vcp_std_read(int desc, char *buf, uint32_t buf_size, uint32_t *bytes_read, api_errno *err);
 std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size, uint32_t *bytes_written, api_errno *err);
 
+/* NFC device tracking
+ */
+
+void vcp_load_nfc_device(const char *str);
+void vcp_set_nfc_device(const char *name);
+const char *vcp_get_nfc_device_str(void);
+bool vcp_get_nfc_device(char *name, size_t size);
+
 #endif /* _RIA_USB_VCP_H_ */

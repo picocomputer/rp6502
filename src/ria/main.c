@@ -39,6 +39,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/nfc.h"
 #include "usb/xin.h"
 
 /**************************************/
@@ -104,6 +105,7 @@ void main_task(void)
     wfi_task();
     ntp_task();
     ble_task();
+    nfc_task();
     led_task();
     mdm_task();
     ram_task();

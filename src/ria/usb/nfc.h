@@ -14,4 +14,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Main events
+ */
+
+void nfc_task(void);
+
+/* Configuration setting NFC
+ */
+
+void nfc_load_enabled(const char *str);
+bool nfc_set_enabled(uint8_t val);
+uint8_t nfc_get_enabled(void);
+
 #endif /* _RIA_USB_NFC_H_ */

@@ -17,6 +17,7 @@
 #include "sys/cfg.h"
 #include "sys/cpu.h"
 #include "sys/vga.h"
+#include "usb/nfc.h"
 #include <stdio.h>
 #include <pico.h>
 
@@ -235,6 +236,26 @@ static void set_ble(const char *args)
 
 #endif
 
+static int set_nfc_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    uint8_t en = nfc_get_enabled();
+    snprintf(buf, buf_size, STR_SET_NFC_RESPONSE,
+             en, en ? STR_ENABLED : STR_DISABLED);
+    return -1;
+}
+
+static void set_nfc(const char *args)
+{
+    uint32_t val;
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !nfc_set_enabled(val)))
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    else
+        mon_add_response_fn(set_nfc_response);
+}
+
 static int set_time_zone_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
@@ -289,6 +310,7 @@ __in_flash("set_attributes") static struct
     {STR_KB, set_kbd_layout},
     {STR_CP, set_code_page},
     {STR_VGA, set_vga},
+    {STR_NFC, set_nfc},
 #ifdef RP6502_RIA_W
     {STR_RF, set_rf},
     {STR_RFCC, set_rfcc},
@@ -325,6 +347,7 @@ void set_mon_set(const char *args)
     mon_add_response_fn(set_kbd_layout_response);
     mon_add_response_fn(set_code_page_response);
     mon_add_response_fn(set_vga_response);
+    mon_add_response_fn(set_nfc_response);
 #ifdef RP6502_RIA_W
     mon_add_response_fn(set_rf_response);
     mon_add_response_fn(set_rfcc_response);

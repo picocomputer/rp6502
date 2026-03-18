@@ -10,6 +10,7 @@
 #include "str/str.h"
 #include <tusb.h>
 #include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
@@ -32,12 +33,20 @@ typedef struct
 {
     bool mounted;
     bool opened;
+    bool strings_ready;
     uint8_t daddr;
     uint8_t vendor_desc_string[VCP_DESC_STRING_BUF_SIZE];
     uint8_t product_desc_string[VCP_DESC_STRING_BUF_SIZE];
+    uint8_t serial_desc_string[VCP_DESC_STRING_BUF_SIZE];
 } vcp_t;
 static vcp_t vcp_mounts[CFG_TUH_CDC];
 static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
+
+// NFC device tracking: hash identifies a specific USB VCP device.
+// Format: "VVVV:PPPP:serial" with ASCII serial (non-ASCII replaced with 0x7F).
+#define VCP_NFC_HASH_SIZE 48
+static char nfc_device_hash[VCP_NFC_HASH_SIZE];
+static bool nfc_scanned;
 
 __in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
 __in_flash("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
@@ -309,20 +318,50 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size,
     return STD_OK;
 }
 
-static void vcp_vendor_string_done_cb(tuh_xfer_t *xfer)
+static void vcp_serial_string_done_cb(tuh_xfer_t *xfer)
 {
-    (void)xfer;
+    uint8_t idx = (uint8_t)xfer->user_data;
+    if (idx < CFG_TUH_CDC)
+    {
+        vcp_mounts[idx].strings_ready = true;
+        nfc_scanned = false;
+    }
+}
+
+static void vcp_fetch_serial_string_cb(tuh_xfer_t *xfer)
+{
+    uint8_t idx = (uint8_t)xfer->user_data;
+    if (idx >= CFG_TUH_CDC)
+        return;
+    if (xfer->result != XFER_RESULT_SUCCESS ||
+        !tuh_descriptor_get_serial_string(vcp_mounts[idx].daddr, 0x0409,
+                                          vcp_mounts[idx].serial_desc_string,
+                                          sizeof(vcp_mounts[idx].serial_desc_string),
+                                          vcp_serial_string_done_cb, xfer->user_data))
+    {
+        vcp_mounts[idx].strings_ready = true;
+    }
 }
 
 static void vcp_fetch_vendor_string_cb(tuh_xfer_t *xfer)
 {
-    if (xfer->result != XFER_RESULT_SUCCESS)
-        return;
     uint8_t idx = (uint8_t)xfer->user_data;
-    tuh_descriptor_get_manufacturer_string(vcp_mounts[idx].daddr, 0x0409,
-                                           vcp_mounts[idx].vendor_desc_string,
-                                           sizeof(vcp_mounts[idx].vendor_desc_string),
-                                           vcp_vendor_string_done_cb, xfer->user_data);
+    if (idx >= CFG_TUH_CDC)
+        return;
+    if (xfer->result != XFER_RESULT_SUCCESS ||
+        !tuh_descriptor_get_manufacturer_string(vcp_mounts[idx].daddr, 0x0409,
+                                                vcp_mounts[idx].vendor_desc_string,
+                                                sizeof(vcp_mounts[idx].vendor_desc_string),
+                                                vcp_fetch_serial_string_cb, xfer->user_data))
+    {
+        if (!tuh_descriptor_get_serial_string(vcp_mounts[idx].daddr, 0x0409,
+                                              vcp_mounts[idx].serial_desc_string,
+                                              sizeof(vcp_mounts[idx].serial_desc_string),
+                                              vcp_serial_string_done_cb, xfer->user_data))
+        {
+            vcp_mounts[idx].strings_ready = true;
+        }
+    }
 }
 
 void tuh_cdc_mount_cb(uint8_t idx)
@@ -356,4 +395,88 @@ void tuh_cdc_umount_cb(uint8_t idx)
         vcp_mounts[idx].mounted = false;
         vcp_mounts[idx].opened = false;
     }
+}
+
+// Convert USB string descriptor to ASCII for hashing.
+// Non-ASCII codepoints are replaced with 0x7F.
+static void vcp_desc_string_to_ascii(const tusb_desc_string_t *desc, char *dest, size_t dest_size)
+{
+    uint16_t ulen = 0;
+    if (desc->bDescriptorType == TUSB_DESC_STRING && desc->bLength >= 2)
+    {
+        ulen = (desc->bLength - 2) / 2;
+        if (ulen > VCP_DESC_STRING_MAX_CHAR_LEN)
+            ulen = VCP_DESC_STRING_MAX_CHAR_LEN;
+    }
+    size_t pos = 0;
+    for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
+    {
+        uint16_t ch = desc->utf16le[i];
+        dest[pos++] = (ch >= 0x20 && ch <= 0x7E) ? (char)ch : '\x7F';
+    }
+    dest[pos] = '\0';
+}
+
+// Build a hash string from VID:PID:serial for device identification.
+static void vcp_hash_dev(uint8_t idx, char *hash)
+{
+    uint16_t vid, pid;
+    tuh_vid_pid_get(vcp_mounts[idx].daddr, &vid, &pid);
+    char serial[VCP_DESC_STRING_MAX_CHAR_LEN + 1];
+    vcp_desc_string_to_ascii(
+        (const tusb_desc_string_t *)vcp_mounts[idx].serial_desc_string,
+        serial, sizeof(serial));
+    snprintf(hash, VCP_NFC_HASH_SIZE, "%04X:%04X:%s", vid, pid, serial);
+}
+
+void vcp_load_nfc_device(const char *str)
+{
+    size_t len = strlen(str);
+    if (len >= VCP_NFC_HASH_SIZE)
+        len = VCP_NFC_HASH_SIZE - 1;
+    memcpy(nfc_device_hash, str, len);
+    nfc_device_hash[len] = '\0';
+    nfc_scanned = false;
+}
+
+void vcp_set_nfc_device(const char *name)
+{
+    nfc_scanned = false;
+    if (!name || !name[0])
+    {
+        nfc_device_hash[0] = '\0';
+        return;
+    }
+    if (!vcp_std_handles(name))
+        return;
+    uint8_t idx = name[3] - '0';
+    if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
+        return;
+    vcp_hash_dev(idx, nfc_device_hash);
+}
+
+const char *vcp_get_nfc_device_str(void)
+{
+    return nfc_device_hash;
+}
+
+bool vcp_get_nfc_device(char *name, size_t size)
+{
+    if (nfc_device_hash[0] == '\0' || nfc_scanned)
+        return false;
+    char hash[VCP_NFC_HASH_SIZE];
+    for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
+    {
+        if (!vcp_mounts[idx].mounted || !vcp_mounts[idx].strings_ready)
+            continue;
+        vcp_hash_dev(idx, hash);
+        if (strcmp(hash, nfc_device_hash) == 0)
+        {
+            nfc_scanned = true;
+            snprintf(name, size, "VCP%d:", idx);
+            return true;
+        }
+    }
+    nfc_scanned = true;
+    return false;
 }
