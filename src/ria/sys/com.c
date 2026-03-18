@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "aud/bel.h"
 #include "hid/kbd.h"
 #include "sys/com.h"
 #include "sys/pix.h"
@@ -50,8 +51,6 @@ static void com_clear_all_rx()
 
 static void com_tx_task(void)
 {
-    // TODO aud_bel_add(&bel_teletype);
-
     if (vga_connected())
     {
         // Use TXFE (empty) to pace VGA PIX sends
@@ -63,6 +62,8 @@ static void com_tx_task(void)
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
+            if (ch == '\a')
+                aud_bel_add(&bel_teletype);
         }
     }
     else
@@ -74,6 +75,8 @@ static void com_tx_task(void)
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
+            if (ch == '\a')
+                aud_bel_add(&bel_teletype);
         }
     }
 }

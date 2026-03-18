@@ -21,10 +21,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 enum bel_adsr_state
 {
-    bel_release,
-    bel_attack,
-    bel_decay,
-    bel_sustain,
+    release,
+    attack,
+    decay,
+    sustain,
 };
 
 /* Volume table: 16 levels in 16.16 fixed point.
@@ -112,14 +112,74 @@ static struct
 
 // Warmer teletype bell: triangle wave, medium ring, retrigger-capable
 __in_flash("bel_presets") const ria_bel_t bel_teletype = {
-    .freq = 1800,
-    .duty = 224,          // hint of grit
+    .freq = 1760,         // A6
+    .duty = 215,          // hint of grit
     .vol_attack = 0x51,   // attack to -5vol in 8ms
     .vol_decay = 0x60,    // decay to -6vol in 6ms
     .wave_release = 0x39, // triangle wave, release to zero in 750ms
     .restrike_ms = 100,   // restrike 10 Hz
     .release_ms = 20,
     .end_ms = 800,
+};
+
+// NFC card detected: bright sine ping at C6
+__in_flash("bel_presets") const ria_bel_t bel_nfc_detect = {
+    .freq = 1046,
+    .duty = 255,          // full cycle
+    .vol_attack = 0x60,   // attack to -6vol in 2ms
+    .vol_decay = 0x60,    // sustain at -6vol
+    .wave_release = 0x03, // sine, release to zero in 72ms
+    .restrike_ms = 0,
+    .release_ms = 40,
+    .end_ms = 130,
+};
+
+// NFC success note 1: ascending sine at G4 (queue bel_nfc_success_2 after)
+__in_flash("bel_presets") const ria_bel_t bel_nfc_success_1 = {
+    .freq = 784,
+    .duty = 255,          // full cycle
+    .vol_attack = 0x60,   // attack to -6vol in 2ms
+    .vol_decay = 0x60,    // sustain at -6vol
+    .wave_release = 0x03, // sine, release to zero in 72ms
+    .restrike_ms = 0,
+    .release_ms = 90,
+    .end_ms = 170,
+};
+
+// NFC success note 2: ascending sine at G5 (queue after bel_nfc_success_1)
+__in_flash("bel_presets") const ria_bel_t bel_nfc_success_2 = {
+    .freq = 1568,
+    .duty = 255,          // full cycle
+    .vol_attack = 0x60,   // attack to -6vol in 2ms
+    .vol_decay = 0x60,    // sustain at -6vol
+    .wave_release = 0x06, // sine, release to zero in 204ms
+    .restrike_ms = 0,
+    .release_ms = 130,
+    .end_ms = 350,
+};
+
+// NFC fail/error: low square buzz at E3
+__in_flash("bel_presets") const ria_bel_t bel_nfc_fail = {
+    .freq = 330,
+    .duty = 127,          // 50% square
+    .vol_attack = 0x80,   // attack to -8vol in 2ms
+    .vol_decay = 0x80,    // sustain at -8vol
+    .wave_release = 0x15, // square, release to zero in 168ms
+    .restrike_ms = 0,
+    .release_ms = 200,
+    .end_ms = 420,
+};
+
+// NFC card removed: soft triangle pip at F4
+__in_flash("bel_presets") const ria_bel_t bel_nfc_remove = {
+    .freq = 698,
+    .duty = 255,          // full cycle
+    .vol_attack = 0xA0,   // attack to -10vol in 2ms
+    .vol_decay = 0xA0,    // sustain at -10vol
+    .wave_release = 0x33, // triangle, release to zero in 72ms
+    .restrike_ms = 0,
+    .release_ms = 30,
+    .end_ms = 110,
 };
 
 void aud_bel_add(const ria_bel_t *sound)
@@ -134,7 +194,7 @@ void aud_bel_add(const ria_bel_t *sound)
     if (!bel_state.active)
     {
         bel_state.active = true;
-        bel_state.adsr = bel_attack;
+        bel_state.adsr = attack;
         bel_state.vol = 0;
         bel_state.phase = 0;
         bel_state.elapsed_samples = 0;
@@ -156,7 +216,8 @@ static inline uint32_t bel_decay_release_rate(uint8_t nibble, uint32_t rate)
     return (1 << 24) / (rate / 1000 * bel_decay_release_ms_table[nibble]);
 }
 
-int16_t bel_sample(uint32_t rate)
+__attribute__((optimize("O3"))) int16_t
+__time_critical_func(bel_sample)(uint32_t rate)
 {
     if (!bel_state.active)
         return 0;
@@ -178,7 +239,7 @@ int16_t bel_sample(uint32_t rate)
             {
                 // Restrike: advance to next sound, immediate attack
                 bel_queue_tail = next;
-                bel_state.adsr = bel_attack;
+                bel_state.adsr = attack;
                 bel_state.vol = 0;
                 bel_state.elapsed_samples = 0;
                 snd = next_snd;
@@ -189,9 +250,9 @@ int16_t bel_sample(uint32_t rate)
 
     // Check release_ms
     if (snd->release_ms > 0 && elapsed_ms_val >= snd->release_ms &&
-        bel_state.adsr != bel_release)
+        bel_state.adsr != release)
     {
-        bel_state.adsr = bel_release;
+        bel_state.adsr = release;
     }
 
     // Check end_ms: advance to next sound
@@ -202,14 +263,15 @@ int16_t bel_sample(uint32_t rate)
         {
             bel_queue_tail = next;
             snd = &bel_queue[bel_queue_tail];
-            bel_state.adsr = bel_attack;
+            bel_state.adsr = attack;
             bel_state.vol = 0;
             bel_state.phase = 0;
             bel_state.elapsed_samples = 0;
         }
         else
         {
-            // No more sounds
+            // No more sounds — consume the last entry so the slot is free
+            bel_queue_tail = next;
             bel_state.active = false;
             bel_state.vol = 0;
             return 0;
@@ -277,28 +339,28 @@ generate:;
 
     switch (bel_state.adsr)
     {
-    case bel_attack:
+    case attack:
         bel_state.vol += atk_rate;
         if (bel_state.vol >= atk_target)
         {
             bel_state.vol = atk_target;
-            bel_state.adsr = bel_decay;
+            bel_state.adsr = decay;
         }
         break;
-    case bel_decay:
+    case decay:
         if (bel_state.vol <= dec_rate)
             bel_state.vol = 0;
         else
             bel_state.vol -= dec_rate;
         if (bel_state.vol > dec_target)
             break;
-        bel_state.adsr = bel_sustain;
+        bel_state.adsr = sustain;
         __attribute__((fallthrough));
-    case bel_sustain:
+    case sustain:
         if (dec_target <= atk_target)
             bel_state.vol = dec_target;
         break;
-    case bel_release:
+    case release:
         if (bel_state.vol <= rel_rate)
             bel_state.vol = 0;
         else
@@ -313,8 +375,7 @@ generate:;
     return out;
 }
 
-static void __attribute__((optimize("O3")))
-__isr
+static __isr __attribute__((optimize("O3"))) void
 __time_critical_func(bel_irq_handler)(void)
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
