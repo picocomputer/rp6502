@@ -37,9 +37,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define PN532_ACK_FRAME_SIZE 6
 #define PN532_MAX_FRAME_SIZE 64
+#define PN532_WAKEUP_SIZE 16
 
 // Timeouts
-#define NFC_WAKEUP_MS 100
 #define NFC_ACK_TIMEOUT_MS 100
 #define NFC_RESPONSE_TIMEOUT_MS 500
 #define NFC_POLL_INTERVAL_MS 500
@@ -52,26 +52,38 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define NDEF_TLV_TERMINATOR 0xFE
 
 static const char *const nfc_state_names[] = {
-    "OFF", "WAIT_DEVICE", "SCAN_OPEN", "SCAN_PROBE_TX",
-    "SCAN_PROBE_ACK", "SCAN_PROBE_RX", "SCAN_CLOSE",
-    "OPENING", "WAKEUP", "SAM_TX", "SAM_ACK", "SAM_RX",
-    "IDLE", "POLL_TX", "POLL_ACK", "POLL_RX",
-    "READ_TX", "READ_ACK", "READ_RX",
-    "CARD_PRESENT", "DETECT_REMOVAL_TX", "DETECT_REMOVAL_ACK",
-    "DETECT_REMOVAL_RX", "CLOSING",
+    "OFF",
+    "WAIT_DEVICE",
+    "SCAN_OPEN",
+    "SCAN_GFV_TX",
+    "SCAN_PROBE_ACK",
+    "SCAN_PROBE_RX",
+    "SCAN_CLOSE",
+    "SAM_TX",
+    "SAM_ACK",
+    "SAM_RX",
+    "IDLE",
+    "POLL_TX",
+    "POLL_ACK",
+    "POLL_RX",
+    "READ_TX",
+    "READ_ACK",
+    "READ_RX",
+    "CARD_PRESENT",
+    "DETECT_REMOVAL_TX",
+    "DETECT_REMOVAL_ACK",
+    "DETECT_REMOVAL_RX",
+    "CLOSING",
 };
 
-static enum
-{
+static enum {
     NFC_OFF,
     NFC_WAIT_DEVICE,
     NFC_SCAN_OPEN,
-    NFC_SCAN_PROBE_TX,
+    NFC_SCAN_GFV_TX,
     NFC_SCAN_PROBE_ACK,
     NFC_SCAN_PROBE_RX,
     NFC_SCAN_CLOSE,
-    NFC_OPENING,
-    NFC_WAKEUP,
     NFC_SAM_TX,
     NFC_SAM_ACK,
     NFC_SAM_RX,
@@ -93,11 +105,37 @@ static uint8_t nfc_enabled;
 static bool nfc_scanning;
 static int nfc_desc = -1;
 static uint8_t nfc_scan_idx;
+static uint8_t nfc_scan_baud_idx;
+static uint8_t nfc_scan_retries;
 static absolute_time_t nfc_timeout;
 
+// Wakeup preamble sent before every command frame (Zaparoo convention).
+static const uint8_t nfc_wakeup[PN532_WAKEUP_SIZE] = {
+    0x55,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+};
+
+static const uint32_t nfc_scan_bauds[] = {115200, 9600};
+#define NFC_SCAN_NBAUDS ((uint8_t)(sizeof(nfc_scan_bauds) / sizeof(nfc_scan_bauds[0])))
+
 // Transport layer: non-blocking TX/RX with position tracking.
-static uint8_t nfc_tx_buf[PN532_MAX_FRAME_SIZE];
+static uint8_t nfc_tx_buf[PN532_WAKEUP_SIZE + PN532_MAX_FRAME_SIZE];
 static size_t nfc_tx_len;
+static size_t nfc_ack_end;
 static size_t nfc_tx_pos;
 static uint8_t nfc_rx_buf[PN532_MAX_FRAME_SIZE];
 static size_t nfc_rx_pos;
@@ -111,18 +149,25 @@ static void nfc_set_state(int new_state)
 {
     if (nfc_state != new_state)
     {
-        DBG("NFC: %s -> %s\n", nfc_state_names[nfc_state],
-            nfc_state_names[new_state]);
+        if (!(nfc_state == NFC_POLL_TX || new_state == NFC_POLL_TX ||
+              nfc_state == NFC_POLL_RX || new_state == NFC_POLL_RX))
+            DBG("[%6lu] NFC: %s -> %s\n",
+                (unsigned long)to_ms_since_boot(get_absolute_time()),
+                nfc_state_names[nfc_state],
+                nfc_state_names[new_state]);
         nfc_state = new_state;
     }
 }
 
 // --- Transport layer ---
 
-// Build a PN532 frame into TX buffer and reset TX position.
+// Build a PN532 frame into TX buffer with wakeup prefix and reset TX position.
+// Follows the Zaparoo convention: wakeup preamble is sent before every command.
 static size_t nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
 {
-    size_t fi = 0;
+    // Prepend wakeup preamble
+    memcpy(nfc_tx_buf, nfc_wakeup, PN532_WAKEUP_SIZE);
+    size_t fi = PN532_WAKEUP_SIZE;
     uint8_t len = (uint8_t)(data_len + 2); // TFI + cmd + data
     nfc_tx_buf[fi++] = PN532_PREAMBLE;
     nfc_tx_buf[fi++] = PN532_STARTCODE1;
@@ -144,16 +189,6 @@ static size_t nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
     return fi;
 }
 
-// Load raw data into TX buffer (for wakeup preamble).
-static void nfc_load_tx(const uint8_t *data, size_t len)
-{
-    if (len > PN532_MAX_FRAME_SIZE)
-        len = PN532_MAX_FRAME_SIZE;
-    memcpy(nfc_tx_buf, data, len);
-    nfc_tx_len = len;
-    nfc_tx_pos = 0;
-}
-
 // Non-blocking send. Returns: 1 = complete, 0 = pending, -1 = error.
 // Call repeatedly from the same state until complete or error.
 static int nfc_send(void)
@@ -168,6 +203,14 @@ static int nfc_send(void)
                                          &bytes_written, &err);
     if (result != STD_OK)
         return -1;
+    // if (bytes_written > 0)
+    // {
+    //     uint32_t ts = (uint32_t)to_ms_since_boot(get_absolute_time());
+    //     DBG("[%6lu] NFC TX:", (unsigned long)ts);
+    //     for (uint32_t i = 0; i < bytes_written; i++)
+    //         printf(" %02X", nfc_tx_buf[nfc_tx_pos + i]);
+    //     printf("\n");
+    // }
     nfc_tx_pos += bytes_written;
     return (nfc_tx_pos >= nfc_tx_len) ? 1 : 0;
 }
@@ -179,28 +222,44 @@ static uint32_t nfc_recv(void)
     api_errno err;
     vcp_std_read(nfc_desc, (char *)nfc_rx_buf + nfc_rx_pos,
                  (uint32_t)(sizeof(nfc_rx_buf) - nfc_rx_pos), &bytes_read, &err);
+    // if (bytes_read > 0)
+    // {
+    //     uint32_t ts = (uint32_t)to_ms_since_boot(get_absolute_time());
+    //     DBG("[%6lu] NFC RX:", (unsigned long)ts);
+    //     for (uint32_t i = 0; i < bytes_read; i++)
+    //         printf(" %02X", nfc_rx_buf[nfc_rx_pos + i]);
+    //     printf("\n");
+    // }
     nfc_rx_pos += bytes_read;
     return bytes_read;
 }
 
-// Check if we received the 6-byte ACK frame
+// Check if we received the 6-byte ACK frame anywhere in the buffer.
+// The PN532 spec allows one or more 0x00 preamble bytes before the ACK.
+// Sets nfc_ack_end to the buffer position immediately after the ACK.
 static bool nfc_check_ack(void)
 {
-    if (nfc_rx_pos < PN532_ACK_FRAME_SIZE)
-        return false;
-    return nfc_rx_buf[0] == 0x00 && nfc_rx_buf[1] == 0x00 &&
-           nfc_rx_buf[2] == 0xFF && nfc_rx_buf[3] == 0x00 &&
-           nfc_rx_buf[4] == 0xFF && nfc_rx_buf[5] == 0x00;
+    static const uint8_t ack[PN532_ACK_FRAME_SIZE] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
+    for (size_t i = 0; i + PN532_ACK_FRAME_SIZE <= nfc_rx_pos; i++)
+    {
+        if (memcmp(nfc_rx_buf + i, ack, PN532_ACK_FRAME_SIZE) == 0)
+        {
+            nfc_ack_end = i + PN532_ACK_FRAME_SIZE;
+            return true;
+        }
+    }
+    return false;
 }
 
 // Parse a response frame after ACK. Returns pointer to response data
 // (after TFI+cmd_response) or NULL if incomplete/invalid.
+// nfc_ack_end must have been set by a successful nfc_check_ack() call.
 static const uint8_t *nfc_parse_response(size_t *resp_len)
 {
-    if (nfc_rx_pos < PN532_ACK_FRAME_SIZE + 7)
+    if (nfc_rx_pos < nfc_ack_end + 7)
         return NULL;
-    const uint8_t *f = nfc_rx_buf + PN532_ACK_FRAME_SIZE;
-    size_t remain = nfc_rx_pos - PN532_ACK_FRAME_SIZE;
+    const uint8_t *f = nfc_rx_buf + nfc_ack_end;
+    size_t remain = nfc_rx_pos - nfc_ack_end;
     if (f[0] != 0x00 || f[1] != 0x00 || f[2] != 0xFF)
         return NULL;
     uint8_t len = f[3];
@@ -257,6 +316,7 @@ static void nfc_set_config(uint8_t val)
         nfc_close_device();
         nfc_scanning = true;
         nfc_scan_idx = 0;
+        nfc_scan_baud_idx = 0;
         nfc_set_state(NFC_SCAN_OPEN);
         break;
     case 86:
@@ -319,16 +379,16 @@ void nfc_task(void)
             nfc_desc = vcp_std_open(name, 0, &err);
             if (nfc_desc >= 0)
             {
-                DBG("NFC: opened %s\n", name);
-                uint8_t wakeup[16];
-                memset(wakeup, 0x55, sizeof(wakeup));
-                nfc_load_tx(wakeup, sizeof(wakeup));
-                nfc_timeout = make_timeout_time_ms(NFC_WAKEUP_MS);
-                nfc_set_state(NFC_WAKEUP);
+                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+                DBG("opened %s\n", name);
+                nfc_tx_len = 0;
+                nfc_tx_pos = 0;
+                nfc_set_state(NFC_SAM_TX);
             }
             else
             {
-                DBG("NFC: open %s failed\n", name);
+                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+                DBG("open %s failed\n", name);
                 nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
             }
         }
@@ -339,55 +399,53 @@ void nfc_task(void)
     {
         if (nfc_scan_idx >= CFG_TUH_CDC)
         {
-            DBG("NFC: no PN532 found\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("no PN532 found\n");
             nfc_scanning = false;
             nfc_set_state(NFC_WAIT_DEVICE);
             break;
         }
-        char name[8];
-        snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
+        char name[16];
+        snprintf(name, sizeof(name), "VCP%d:%lu",
+                 nfc_scan_idx, (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
         api_errno err;
         nfc_desc = vcp_std_open(name, 0, &err);
         if (nfc_desc >= 0)
         {
-            DBG("NFC: scanning %s\n", name);
-            uint8_t wakeup[16];
-            memset(wakeup, 0x55, sizeof(wakeup));
-            nfc_load_tx(wakeup, sizeof(wakeup));
-            nfc_timeout = make_timeout_time_ms(NFC_WAKEUP_MS);
-            nfc_set_state(NFC_SCAN_PROBE_TX);
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("scanning %s at %lu baud\n",
+                name, (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
+            nfc_scan_retries = 0;
+            nfc_tx_len = 0;
+            nfc_tx_pos = 0;
+            nfc_set_state(NFC_SCAN_GFV_TX);
         }
         else
         {
+            // Device not available; skip all baud rates for this index
             nfc_scan_idx++;
+            nfc_scan_baud_idx = 0;
         }
         break;
     }
 
-    case NFC_SCAN_PROBE_TX:
+    case NFC_SCAN_GFV_TX:
     {
+        if (nfc_tx_len == 0)
+            nfc_build_frame(PN532_CMD_GETFIRMWAREVERSION, NULL, 0);
         int rc = nfc_send();
         if (rc < 0)
         {
             nfc_set_state(NFC_SCAN_CLOSE);
             break;
         }
-        if (rc == 0 || !nfc_timed_out())
-            break;
-        // Wakeup sent and delay elapsed, send GetFirmwareVersion
-        nfc_build_frame(PN532_CMD_GETFIRMWAREVERSION, NULL, 0);
-        rc = nfc_send();
-        if (rc < 0)
-        {
-            nfc_set_state(NFC_SCAN_CLOSE);
-        }
-        else if (rc == 1)
+        if (rc == 1)
         {
             nfc_rx_pos = 0;
+            nfc_ack_end = 0;
             nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
             nfc_set_state(NFC_SCAN_PROBE_ACK);
         }
-        // rc == 0: frame just built, will finish next call
         break;
     }
 
@@ -400,7 +458,16 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            nfc_set_state(NFC_SCAN_CLOSE);
+            if (nfc_scan_retries++ == 0)
+            {
+                nfc_tx_len = 0;
+                nfc_tx_pos = 0;
+                nfc_set_state(NFC_SCAN_GFV_TX);
+            }
+            else
+            {
+                nfc_set_state(NFC_SCAN_CLOSE);
+            }
         }
         break;
 
@@ -411,10 +478,13 @@ void nfc_task(void)
         const uint8_t *resp = nfc_parse_response(&resp_len);
         if (resp && resp_len >= 3)
         {
-            DBG("NFC: PN532 found IC=0x%02X Ver=%d.%d\n",
-                resp[0], resp[1], resp[2]);
-            char name[8];
-            snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("PN532 found IC=0x%02X Ver=%d.%d at %lu baud\n",
+                resp[0], resp[1], resp[2],
+                (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
+            char name[16];
+            snprintf(name, sizeof(name), "VCP%d:%lu",
+                     nfc_scan_idx, (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
             vcp_set_nfc_device(name);
             nfc_scanning = false;
             cfg_save();
@@ -432,32 +502,14 @@ void nfc_task(void)
 
     case NFC_SCAN_CLOSE:
         nfc_close_device();
-        nfc_scan_idx++;
+        nfc_scan_baud_idx++;
+        if (nfc_scan_baud_idx >= NFC_SCAN_NBAUDS)
+        {
+            nfc_scan_baud_idx = 0;
+            nfc_scan_idx++;
+        }
         nfc_set_state(NFC_SCAN_OPEN);
         break;
-
-    case NFC_OPENING:
-        break;
-
-    case NFC_WAKEUP:
-    {
-        int rc = nfc_send();
-        if (rc < 0)
-        {
-            nfc_close_device();
-            nfc_set_state(NFC_WAIT_DEVICE);
-            nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
-            break;
-        }
-        if (rc == 0 || !nfc_timed_out())
-            break;
-        // Wakeup sent and delay elapsed
-        nfc_tx_len = 0;
-        nfc_tx_pos = 0;
-        nfc_timeout = make_timeout_time_ms(0);
-        nfc_set_state(NFC_SAM_TX);
-        break;
-    }
 
     case NFC_SAM_TX:
     {
@@ -469,7 +521,8 @@ void nfc_task(void)
         int rc = nfc_send();
         if (rc < 0)
         {
-            DBG("NFC: SAM send failed\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("SAM send failed\n");
             nfc_close_device();
             nfc_set_state(NFC_WAIT_DEVICE);
             nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
@@ -477,6 +530,7 @@ void nfc_task(void)
         else if (rc == 1)
         {
             nfc_rx_pos = 0;
+            nfc_ack_end = 0;
             nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
             nfc_set_state(NFC_SAM_ACK);
         }
@@ -492,7 +546,8 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            DBG("NFC: SAM ACK timeout\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("SAM ACK timeout\n");
             nfc_close_device();
             nfc_set_state(NFC_WAIT_DEVICE);
             nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
@@ -506,13 +561,15 @@ void nfc_task(void)
         const uint8_t *resp = nfc_parse_response(&resp_len);
         if (resp)
         {
-            DBG("NFC: SAM configured\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("SAM configured\n");
             nfc_set_state(NFC_IDLE);
             nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
         }
         else if (nfc_timed_out())
         {
-            DBG("NFC: SAM response timeout\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("SAM response timeout\n");
             nfc_close_device();
             nfc_set_state(NFC_WAIT_DEVICE);
             nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
@@ -539,7 +596,8 @@ void nfc_task(void)
         int rc = nfc_send();
         if (rc < 0)
         {
-            DBG("NFC: poll send failed\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("poll send failed\n");
             nfc_close_device();
             nfc_set_state(NFC_WAIT_DEVICE);
             nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
@@ -547,6 +605,7 @@ void nfc_task(void)
         else if (rc == 1)
         {
             nfc_rx_pos = 0;
+            nfc_ack_end = 0;
             nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
             nfc_set_state(NFC_POLL_ACK);
         }
@@ -562,7 +621,8 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            DBG("NFC: poll ACK timeout\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("poll ACK timeout\n");
             nfc_close_device();
             nfc_set_state(NFC_WAIT_DEVICE);
             nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
@@ -578,7 +638,8 @@ void nfc_task(void)
         {
             if (resp_len >= 1 && resp[0] > 0)
             {
-                DBG("NFC: detected\n");
+                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+                DBG("detected\n");
                 aud_bel_add(&bel_nfc_detect);
                 nfc_read_page = 4;
                 nfc_ndef_len = 0;
@@ -610,7 +671,8 @@ void nfc_task(void)
         int rc = nfc_send();
         if (rc < 0)
         {
-            DBG("NFC: read ndef fail\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("read ndef fail\n");
             aud_bel_add(&bel_nfc_fail);
             nfc_set_state(NFC_IDLE);
             nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
@@ -618,6 +680,7 @@ void nfc_task(void)
         else if (rc == 1)
         {
             nfc_rx_pos = 0;
+            nfc_ack_end = 0;
             nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
             nfc_set_state(NFC_READ_ACK);
         }
@@ -633,7 +696,8 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            DBG("NFC: read ndef fail\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("read ndef fail\n");
             aud_bel_add(&bel_nfc_fail);
             nfc_set_state(NFC_IDLE);
             nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
@@ -666,7 +730,8 @@ void nfc_task(void)
 
                 if (found_terminator || nfc_ndef_len >= sizeof(nfc_ndef_buf))
                 {
-                    DBG("NFC: read ndef success (%u bytes)\n", (unsigned)nfc_ndef_len);
+                    DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+                    DBG("read ndef success (%u bytes)\n", (unsigned)nfc_ndef_len);
                     aud_bel_add(&bel_nfc_success_1);
                     nfc_set_state(NFC_CARD_PRESENT);
                     nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
@@ -681,7 +746,8 @@ void nfc_task(void)
             }
             else
             {
-                DBG("NFC: read ndef fail\n");
+                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+                DBG("read ndef fail\n");
                 aud_bel_add(&bel_nfc_fail);
                 nfc_set_state(NFC_CARD_PRESENT);
                 nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
@@ -689,7 +755,8 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            DBG("NFC: read ndef fail\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("read ndef fail\n");
             aud_bel_add(&bel_nfc_fail);
             nfc_set_state(NFC_IDLE);
             nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
@@ -723,6 +790,7 @@ void nfc_task(void)
         else if (rc == 1)
         {
             nfc_rx_pos = 0;
+            nfc_ack_end = 0;
             nfc_timeout = make_timeout_time_ms(NFC_ACK_TIMEOUT_MS);
             nfc_set_state(NFC_DETECT_REMOVAL_ACK);
         }
@@ -758,7 +826,8 @@ void nfc_task(void)
             }
             else
             {
-                DBG("NFC: removed\n");
+                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+                DBG("removed\n");
                 aud_bel_add(&bel_nfc_remove);
                 nfc_set_state(NFC_IDLE);
                 nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
@@ -766,7 +835,8 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            DBG("NFC: removed\n");
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("removed\n");
             aud_bel_add(&bel_nfc_remove);
             nfc_set_state(NFC_IDLE);
             nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
