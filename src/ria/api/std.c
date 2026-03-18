@@ -6,6 +6,7 @@
 
 #include "api/api.h"
 #include "str/rln.h"
+#include "str/str.h"
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "net/mdm.h"
@@ -48,8 +49,9 @@ __in_flash("std_drivers") static const std_driver_t std_drivers[] = {
 #define STD_FD_STDIN 0
 #define STD_FD_STDOUT 1
 #define STD_FD_STDERR 2
-#define STD_FD_STDIO 3
-#define STD_FD_FIRST_FREE 4
+#define STD_FD_CON 3
+#define STD_FD_TTY 4
+#define STD_FD_FIRST_FREE 5
 typedef struct
 {
     bool is_open;
@@ -130,7 +132,19 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
     return (i < count) ? STD_PENDING : STD_OK;
 }
 
-static std_rw_result std_stdin_read_raw(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+static std_rw_result std_con_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
+{
+    std_rw_result result = std_stdin_read(desc, buf, count, bytes_read, err);
+    return (result == STD_PENDING) ? STD_OK : result;
+}
+
+static std_rw_result std_con_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+{
+    std_rw_result result = std_stdout_write(desc, buf, count, bytes_written, err);
+    return (result == STD_PENDING) ? STD_OK : result;
+}
+
+static std_rw_result std_tty_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -146,7 +160,7 @@ static std_rw_result std_stdin_read_raw(int desc, char *buf, uint32_t count, uin
     return STD_OK;
 }
 
-static std_rw_result std_stdout_write_raw(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
+static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -161,8 +175,10 @@ bool std_api_open(void)
 {
     char *path = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    if (strcasecmp(path, "STD:") == 0)
-        return api_return_ax(STD_FD_STDIO);
+    if (strcasecmp(path, STR_TTY_COLON) == 0)
+        return api_return_ax(STD_FD_TTY);
+    if (strcasecmp(path, STR_CON_COLON) == 0)
+        return api_return_ax(STD_FD_CON);
     int fd = -1;
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
         if (!std_fd_pool[i].is_open)
@@ -196,7 +212,7 @@ bool std_api_open(void)
 bool std_api_close(void)
 {
     int fd = API_A;
-    if (fd == STD_FD_STDIO)
+    if (fd == STD_FD_TTY || fd == STD_FD_CON)
         return api_return_ax(0);
     if (fd < STD_FD_FIRST_FREE || fd >= STD_FD_MAX || !std_fd_pool[fd].is_open)
         return api_return_errno(API_EBADF);
@@ -430,7 +446,24 @@ bool std_api_lseek_llvm(void)
     return api_return_axsreg(pos);
 }
 
-void std_run(void)
+void std_init(void)
+{
+    std_pix = -1;
+    std_fd_pool[STD_FD_STDIN].is_open = true;
+    std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
+    std_fd_pool[STD_FD_STDOUT].is_open = true;
+    std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
+    std_fd_pool[STD_FD_STDERR].is_open = true;
+    std_fd_pool[STD_FD_STDERR].write = std_stdout_write;
+    std_fd_pool[STD_FD_CON].is_open = true;
+    std_fd_pool[STD_FD_CON].read = std_con_read;
+    std_fd_pool[STD_FD_CON].write = std_con_write;
+    std_fd_pool[STD_FD_TTY].is_open = true;
+    std_fd_pool[STD_FD_TTY].read = std_tty_read;
+    std_fd_pool[STD_FD_TTY].write = std_tty_write;
+}
+
+void std_stop(void)
 {
     std_fd = NULL;
     std_pix = -1;
@@ -438,19 +471,6 @@ void std_run(void)
     std_rln_needs_nl = false;
     std_rln_pos = 0;
     std_rln_len = 0;
-    std_fd_pool[STD_FD_STDIN].is_open = true;
-    std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
-    std_fd_pool[STD_FD_STDOUT].is_open = true;
-    std_fd_pool[STD_FD_STDOUT].write = std_stdout_write;
-    std_fd_pool[STD_FD_STDERR].is_open = true;
-    std_fd_pool[STD_FD_STDERR].write = std_stdout_write;
-    std_fd_pool[STD_FD_STDIO].is_open = true;
-    std_fd_pool[STD_FD_STDIO].read = std_stdin_read_raw;
-    std_fd_pool[STD_FD_STDIO].write = std_stdout_write_raw;
-}
-
-void std_stop(void)
-{
     for (int i = STD_FD_FIRST_FREE; i < STD_FD_MAX; i++)
     {
         if (!std_fd_pool[i].is_open)

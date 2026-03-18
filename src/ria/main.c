@@ -67,6 +67,7 @@ static void init(void)
     cfg_init(); // Config stored on lfs
 
     // Misc device drivers, add yours here.
+    std_init();
     cyw_init();
     oem_init();
     led_init();
@@ -123,7 +124,6 @@ static void task(void)
 static void run(void)
 {
     com_run();
-    std_run();
     rln_run();
     dir_run();
     vga_run();
