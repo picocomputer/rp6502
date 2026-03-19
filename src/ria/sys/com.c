@@ -63,7 +63,7 @@ static void com_tx_task(void)
             uart_putc_raw(COM_UART, ch);
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
             if (ch == '\a')
-                aud_bel_add(&bel_teletype);
+                bel_add(&bel_teletype);
         }
     }
     else
@@ -76,7 +76,7 @@ static void com_tx_task(void)
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
             if (ch == '\a')
-                aud_bel_add(&bel_teletype);
+                bel_add(&bel_teletype);
         }
     }
 }

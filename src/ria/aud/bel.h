@@ -40,7 +40,7 @@ void bel_setup(void);
 int16_t bel_sample(uint32_t rate);
 
 // Queue a sound to play.
-void aud_bel_add(const ria_bel_t *sound);
+void bel_add(const ria_bel_t *sound);
 
 // Preset bell sounds
 extern const ria_bel_t bel_teletype;

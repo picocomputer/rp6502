@@ -93,8 +93,7 @@ static void vcp_desc_string_to_oem(const tusb_desc_string_t *desc, char *dest, s
     for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
     {
         WCHAR ch = ff_uni2oem(desc->utf16le[i], cp);
-        if (ch)
-            dest[pos++] = (char)ch;
+        dest[pos++] = ch ? (char)ch : '?';
     }
     dest[pos] = '\0';
 }

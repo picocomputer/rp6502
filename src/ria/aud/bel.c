@@ -182,7 +182,7 @@ __in_flash("bel_presets") const ria_bel_t bel_nfc_remove = {
     .end_ms = 110,
 };
 
-void aud_bel_add(const ria_bel_t *sound)
+void bel_add(const ria_bel_t *sound)
 {
     uint8_t next = (bel_queue_head + 1) % BEL_QUEUE_SIZE;
     if (next == bel_queue_tail)
