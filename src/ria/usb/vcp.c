@@ -383,7 +383,7 @@ static void vcp_check_nfc_hash(uint8_t idx)
 {
     if (vcp_nfc_device_hash[0] == '\0')
         return;
-    if (vcp_nfc_device_idx < 0)
+    if (vcp_nfc_device_idx >= 0)
         return;
     char hash[VCP_NFC_HASH_SIZE];
     vcp_hash_dev(idx, hash);
