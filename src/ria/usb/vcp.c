@@ -13,6 +13,8 @@
 #include <string.h>
 #include <ctype.h>
 
+#define DEBUG_RIA_USB_VCP
+
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -340,6 +342,7 @@ static void vcp_fetch_serial_string_cb(tuh_xfer_t *xfer)
                                           vcp_serial_string_done_cb, xfer->user_data))
     {
         vcp_mounts[idx].strings_ready = true;
+        nfc_scanned = false;
     }
 }
 
@@ -360,6 +363,7 @@ static void vcp_fetch_vendor_string_cb(tuh_xfer_t *xfer)
                                               vcp_serial_string_done_cb, xfer->user_data))
         {
             vcp_mounts[idx].strings_ready = true;
+            nfc_scanned = false;
         }
     }
 }
@@ -433,15 +437,13 @@ void vcp_load_nfc_device(const char *str)
 {
     size_t len = strlen(str);
     if (len >= VCP_NFC_HASH_SIZE)
-        len = VCP_NFC_HASH_SIZE - 1;
+        return;
     memcpy(nfc_device_hash, str, len);
     nfc_device_hash[len] = '\0';
-    nfc_scanned = false;
 }
 
 void vcp_set_nfc_device(const char *name)
 {
-    nfc_scanned = false;
     if (!name || !name[0])
     {
         nfc_device_hash[0] = '\0';
@@ -452,6 +454,7 @@ void vcp_set_nfc_device(const char *name)
     uint8_t idx = name[3] - '0';
     if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
         return;
+    // TODO cfg_save?
     vcp_hash_dev(idx, nfc_device_hash);
 }
 
@@ -462,12 +465,16 @@ const char *vcp_get_nfc_device_str(void)
 
 bool vcp_get_nfc_device(char *name, size_t size)
 {
-    if (nfc_device_hash[0] == '\0' || nfc_scanned)
+    if (nfc_scanned)
+        return false;
+    if (nfc_device_hash[0] == '\0')
         return false;
     char hash[VCP_NFC_HASH_SIZE];
     for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
     {
-        if (!vcp_mounts[idx].mounted || !vcp_mounts[idx].strings_ready)
+        if (!vcp_mounts[idx].mounted)
+            continue;
+        if (!vcp_mounts[idx].strings_ready)
             continue;
         vcp_hash_dev(idx, hash);
         if (strcmp(hash, nfc_device_hash) == 0)

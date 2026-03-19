@@ -105,32 +105,8 @@ static uint8_t nfc_enabled;
 static bool nfc_scanning;
 static int nfc_desc = -1;
 static uint8_t nfc_scan_idx;
-static uint8_t nfc_scan_baud_idx;
 static uint8_t nfc_scan_retries;
 static absolute_time_t nfc_timeout;
-
-// Wakeup preamble sent before every command frame (Zaparoo convention).
-static const uint8_t nfc_wakeup[PN532_WAKEUP_SIZE] = {
-    0x55,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-    0x00,
-};
-
-static const uint32_t nfc_scan_bauds[] = {115200, 9600};
-#define NFC_SCAN_NBAUDS ((uint8_t)(sizeof(nfc_scan_bauds) / sizeof(nfc_scan_bauds[0])))
 
 // Transport layer: non-blocking TX/RX with position tracking.
 static uint8_t nfc_tx_buf[PN532_WAKEUP_SIZE + PN532_MAX_FRAME_SIZE];
@@ -161,12 +137,11 @@ static void nfc_set_state(int new_state)
 
 // --- Transport layer ---
 
-// Build a PN532 frame into TX buffer with wakeup prefix and reset TX position.
-// Follows the Zaparoo convention: wakeup preamble is sent before every command.
+// Build a PN532 frame into TX buffer and reset TX position.
 static size_t nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
 {
-    // Prepend wakeup preamble
-    memcpy(nfc_tx_buf, nfc_wakeup, PN532_WAKEUP_SIZE);
+    nfc_tx_buf[0] = 0x55;
+    memset(nfc_tx_buf + 1, 0x00, PN532_WAKEUP_SIZE - 1);
     size_t fi = PN532_WAKEUP_SIZE;
     uint8_t len = (uint8_t)(data_len + 2); // TFI + cmd + data
     nfc_tx_buf[fi++] = PN532_PREAMBLE;
@@ -316,7 +291,6 @@ static void nfc_set_config(uint8_t val)
         nfc_close_device();
         nfc_scanning = true;
         nfc_scan_idx = 0;
-        nfc_scan_baud_idx = 0;
         nfc_set_state(NFC_SCAN_OPEN);
         break;
     case 86:
@@ -405,16 +379,14 @@ void nfc_task(void)
             nfc_set_state(NFC_WAIT_DEVICE);
             break;
         }
-        char name[16];
-        snprintf(name, sizeof(name), "VCP%d:%lu",
-                 nfc_scan_idx, (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
+        char name[8];
+        snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
         api_errno err;
         nfc_desc = vcp_std_open(name, 0, &err);
         if (nfc_desc >= 0)
         {
             DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
-            DBG("scanning %s at %lu baud\n",
-                name, (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
+            DBG("scanning %s\n", name);
             nfc_scan_retries = 0;
             nfc_tx_len = 0;
             nfc_tx_pos = 0;
@@ -422,9 +394,7 @@ void nfc_task(void)
         }
         else
         {
-            // Device not available; skip all baud rates for this index
             nfc_scan_idx++;
-            nfc_scan_baud_idx = 0;
         }
         break;
     }
@@ -479,12 +449,10 @@ void nfc_task(void)
         if (resp && resp_len >= 3)
         {
             DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
-            DBG("PN532 found IC=0x%02X Ver=%d.%d at %lu baud\n",
-                resp[0], resp[1], resp[2],
-                (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
-            char name[16];
-            snprintf(name, sizeof(name), "VCP%d:%lu",
-                     nfc_scan_idx, (unsigned long)nfc_scan_bauds[nfc_scan_baud_idx]);
+            DBG("PN532 found IC=0x%02X Ver=%d.%d\n",
+                resp[0], resp[1], resp[2]);
+            char name[8];
+            snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
             vcp_set_nfc_device(name);
             nfc_scanning = false;
             cfg_save();
@@ -502,12 +470,7 @@ void nfc_task(void)
 
     case NFC_SCAN_CLOSE:
         nfc_close_device();
-        nfc_scan_baud_idx++;
-        if (nfc_scan_baud_idx >= NFC_SCAN_NBAUDS)
-        {
-            nfc_scan_baud_idx = 0;
-            nfc_scan_idx++;
-        }
+        nfc_scan_idx++;
         nfc_set_state(NFC_SCAN_OPEN);
         break;
 
