@@ -483,12 +483,6 @@ int vcp_nfc_open(void)
     if (nfc_device_idx < 0)
         return -1;
     uint8_t idx = (uint8_t)nfc_device_idx;
-    if (!vcp_mounts[idx].mounted || vcp_mounts[idx].opened)
-    {
-        if (!vcp_mounts[idx].mounted)
-            nfc_device_idx = -1;
-        return -1;
-    }
     if (!tuh_cdc_set_baudrate(idx, 115200, NULL, 0))
         return -1;
     if (!tuh_cdc_set_data_format(idx, 0, 0, 8, NULL, 0))

@@ -40,9 +40,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define PN532_WAKEUP_SIZE 16
 
 // Timeouts
-#define NFC_ACK_TIMEOUT_MS 100
-#define NFC_RESPONSE_TIMEOUT_MS 500
-#define NFC_POLL_INTERVAL_MS 500
+#define NFC_ACK_TIMEOUT_MS 50
+#define NFC_RESPONSE_TIMEOUT_MS 100
+#define NFC_POLL_INTERVAL_MS 250
 #define NFC_RETRY_INTERVAL_MS 2000
 
 // NDEF Type 2 Tag commands (NTAG/Mifare Ultralight)
