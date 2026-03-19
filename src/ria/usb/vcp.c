@@ -150,6 +150,12 @@ int vcp_status_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                  vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                  product);
+        if (state == nfc_device_idx)
+        {
+            size_t len = strlen(buf);
+            if (len > 0 && buf[len - 1] == '\n')
+                snprintf(buf + len - 1, buf_size - (len - 1), " (NFC)\n");
+        }
     }
     return state + 1;
 }
@@ -177,6 +183,11 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
     if (desc >= CFG_TUH_CDC)
     {
         *err = API_ENODEV;
+        return -1;
+    }
+    if ((int)desc == nfc_device_idx)
+    {
+        *err = API_EBUSY;
         return -1;
     }
     if (!vcp_mounts[desc].mounted || vcp_mounts[desc].opened)
@@ -478,8 +489,13 @@ int vcp_nfc_open(void)
             nfc_device_idx = -1;
         return -1;
     }
-    char name[8];
-    snprintf(name, sizeof(name), "VCP%d:", idx);
-    api_errno err;
-    return vcp_std_open(name, 0, &err);
+    if (!tuh_cdc_set_baudrate(idx, 115200, NULL, 0))
+        return -1;
+    if (!tuh_cdc_set_data_format(idx, 0, 0, 8, NULL, 0))
+        return -1;
+    if (!tuh_cdc_connect(idx, NULL, 0))
+        return -1;
+    DBG("VCP%d: nfc open\n", idx);
+    vcp_mounts[idx].opened = true;
+    return idx;
 }

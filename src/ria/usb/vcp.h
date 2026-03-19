@@ -40,23 +40,3 @@ void vcp_set_nfc_device_name(const char *name);
 int vcp_nfc_open(void);
 
 #endif /* _RIA_USB_VCP_H_ */
-
-/* TODO
-
-nfc should continue to scan with vcp_std_open and vcp_set_nfc_device_name.
-
-After a vcp device is mounted and its strings obtrained,
-it needs to be hash tested to see if its the nfc device.
-There can be only one, so use a global index to track.
-
-vcp_set_nfc_device_name needs to save.
-vcp_set_nfc_device_name will search mounted devices to set global indexx.
-
-vcp_get_nfc_device_name with be replaced with a int vcp_nfc_open(void).
-It simply opens and returns the nfc global index if there is one.
-vcp_std_close() should work for ccolosing.
-
-unmount needs to clean appropriuate global index.
-
-
-*/

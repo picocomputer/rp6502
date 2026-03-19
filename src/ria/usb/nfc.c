@@ -102,10 +102,8 @@ static enum {
 } nfc_state;
 
 static uint8_t nfc_enabled;
-static bool nfc_scanning;
 static int nfc_desc = -1;
 static uint8_t nfc_scan_idx;
-static uint8_t nfc_scan_retries;
 static absolute_time_t nfc_timeout;
 
 // Transport layer: non-blocking TX/RX with position tracking.
@@ -279,23 +277,20 @@ static void nfc_set_config(uint8_t val)
     {
     case 0:
         nfc_close_device();
-        nfc_scanning = false;
         nfc_set_state(NFC_OFF);
         break;
     case 1:
-        nfc_scanning = false;
         if (nfc_state == NFC_OFF)
             nfc_set_state(NFC_WAIT_DEVICE);
         break;
     case 2:
-        nfc_close_device();
-        nfc_scanning = true;
+        if (nfc_desc >= 0)
+            break;
         nfc_scan_idx = 0;
         nfc_set_state(NFC_SCAN_OPEN);
         break;
     case 86:
         nfc_close_device();
-        nfc_scanning = false;
         vcp_set_nfc_device_name("");
         nfc_set_state(NFC_OFF);
         break;
@@ -364,7 +359,6 @@ void nfc_task(void)
         {
             DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
             DBG("no PN532 found\n");
-            nfc_scanning = false;
             nfc_set_state(NFC_WAIT_DEVICE);
             break;
         }
@@ -376,7 +370,6 @@ void nfc_task(void)
         {
             DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
             DBG("scanning %s\n", name);
-            nfc_scan_retries = 0;
             nfc_tx_len = 0;
             nfc_tx_pos = 0;
             nfc_set_state(NFC_SCAN_GFV_TX);
@@ -417,16 +410,7 @@ void nfc_task(void)
         }
         else if (nfc_timed_out())
         {
-            if (nfc_scan_retries++ == 0)
-            {
-                nfc_tx_len = 0;
-                nfc_tx_pos = 0;
-                nfc_set_state(NFC_SCAN_GFV_TX);
-            }
-            else
-            {
-                nfc_set_state(NFC_SCAN_CLOSE);
-            }
+            nfc_set_state(NFC_SCAN_CLOSE);
         }
         break;
 
@@ -443,7 +427,6 @@ void nfc_task(void)
             char name[8];
             snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
             vcp_set_nfc_device_name(name);
-            nfc_scanning = false;
             nfc_tx_len = 0;
             nfc_tx_pos = 0;
             nfc_timeout = make_timeout_time_ms(0);
