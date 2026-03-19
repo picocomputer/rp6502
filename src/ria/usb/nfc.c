@@ -296,7 +296,7 @@ static void nfc_set_config(uint8_t val)
     case 86:
         nfc_close_device();
         nfc_scanning = false;
-        vcp_set_nfc_device("");
+        vcp_set_nfc_device_name("");
         nfc_set_state(NFC_OFF);
         break;
     }
@@ -346,25 +346,14 @@ void nfc_task(void)
 
     case NFC_WAIT_DEVICE:
     {
-        char name[8];
-        if (vcp_get_nfc_device(name, sizeof(name)))
+        nfc_desc = vcp_nfc_open();
+        if (nfc_desc >= 0)
         {
-            api_errno err;
-            nfc_desc = vcp_std_open(name, 0, &err);
-            if (nfc_desc >= 0)
-            {
-                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
-                DBG("opened %s\n", name);
-                nfc_tx_len = 0;
-                nfc_tx_pos = 0;
-                nfc_set_state(NFC_SAM_TX);
-            }
-            else
-            {
-                DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
-                DBG("open %s failed\n", name);
-                nfc_timeout = make_timeout_time_ms(NFC_RETRY_INTERVAL_MS);
-            }
+            DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
+            DBG("opened VCP desc %d\n", nfc_desc);
+            nfc_tx_len = 0;
+            nfc_tx_pos = 0;
+            nfc_set_state(NFC_SAM_TX);
         }
         break;
     }
@@ -453,9 +442,8 @@ void nfc_task(void)
                 resp[0], resp[1], resp[2]);
             char name[8];
             snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
-            vcp_set_nfc_device(name);
+            vcp_set_nfc_device_name(name);
             nfc_scanning = false;
-            cfg_save();
             nfc_tx_len = 0;
             nfc_tx_pos = 0;
             nfc_timeout = make_timeout_time_ms(0);

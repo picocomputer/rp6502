@@ -95,7 +95,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                kbd_get_layout(),
                                vga_get_display_type(),
                                nfc_get_enabled(),
-                               vcp_get_nfc_device_str(),
+                               vcp_get_nfc_device_hash(),
 #ifdef RP6502_RIA_W
                                cyw_get_rf_enable(),
                                cyw_get_rf_country_code(),
@@ -159,7 +159,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             nfc_load_enabled(str);
             break;
         case 'G':
-            vcp_load_nfc_device(str);
+            vcp_load_nfc_device_hash(str);
             break;
 #ifdef RP6502_RIA_W
         case 'E':
