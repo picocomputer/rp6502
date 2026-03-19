@@ -45,10 +45,9 @@ static vcp_t vcp_mounts[CFG_TUH_CDC];
 static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
 // NFC device tracking: hash identifies a specific USB VCP device.
-// Format: "VVVV:PPPP:serial" with ASCII serial (non-ASCII replaced with 0x7F).
-#define VCP_NFC_HASH_SIZE 48
-static char nfc_device_hash[VCP_NFC_HASH_SIZE];
-static int nfc_device_idx = -1;
+#define VCP_NFC_HASH_SIZE 128
+static char vcp_nfc_device_hash[VCP_NFC_HASH_SIZE];
+static int vcp_nfc_device_idx = -1;
 
 __in_flash("vcp_ftdi_list") static const uint16_t vcp_ftdi_list[][2] = {CFG_TUH_CDC_FTDI_VID_PID_LIST};
 __in_flash("vcp_cp210x_list") static const uint16_t vcp_cp210x_list[][2] = {CFG_TUH_CDC_CP210X_VID_PID_LIST};
@@ -99,7 +98,6 @@ static void vcp_desc_string_to_oem(const tusb_desc_string_t *desc, char *dest, s
 }
 
 // Convert USB string descriptor to ASCII for hashing.
-// Non-ASCII codepoints are replaced with 0x7F.
 static void vcp_desc_string_to_ascii(const tusb_desc_string_t *desc, char *dest, size_t dest_size)
 {
     uint16_t ulen = 0;
@@ -149,7 +147,7 @@ int vcp_status_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                  vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                  product);
-        if (state == nfc_device_idx)
+        if (state == vcp_nfc_device_idx)
         {
             size_t len = strlen(buf);
             if (len > 0 && buf[len - 1] == '\n')
@@ -184,7 +182,7 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         *err = API_ENODEV;
         return -1;
     }
-    if ((int)desc == nfc_device_idx)
+    if ((int)desc == vcp_nfc_device_idx)
     {
         *err = API_EBUSY;
         return -1;
@@ -354,21 +352,43 @@ static void vcp_hash_dev(uint8_t idx, char *hash)
 {
     uint16_t vid, pid;
     tuh_vid_pid_get(vcp_mounts[idx].daddr, &vid, &pid);
-    char serial[VCP_DESC_STRING_MAX_CHAR_LEN + 1];
+    tusb_desc_device_t dev_desc;
+    uint16_t bcd = 0;
+    if (tuh_descriptor_get_device_local(vcp_mounts[idx].daddr, &dev_desc))
+        bcd = dev_desc.bcdDevice;
+    int n = snprintf(hash, VCP_NFC_HASH_SIZE, "%04X:%04X:%04X:",
+                     vid, pid, bcd);
+    if (n < 0 || n >= VCP_NFC_HASH_SIZE)
+        return;
+    vcp_desc_string_to_ascii(
+        (const tusb_desc_string_t *)vcp_mounts[idx].vendor_desc_string,
+        hash + n, VCP_NFC_HASH_SIZE - n);
+    n += strlen(hash + n);
+    if (n < VCP_NFC_HASH_SIZE - 1)
+        hash[n++] = ':';
+    hash[n] = '\0';
+    vcp_desc_string_to_ascii(
+        (const tusb_desc_string_t *)vcp_mounts[idx].product_desc_string,
+        hash + n, VCP_NFC_HASH_SIZE - n);
+    n += strlen(hash + n);
+    if (n < VCP_NFC_HASH_SIZE - 1)
+        hash[n++] = ':';
+    hash[n] = '\0';
     vcp_desc_string_to_ascii(
         (const tusb_desc_string_t *)vcp_mounts[idx].serial_desc_string,
-        serial, sizeof(serial));
-    snprintf(hash, VCP_NFC_HASH_SIZE, "%04X:%04X:%s", vid, pid, serial);
+        hash + n, VCP_NFC_HASH_SIZE - n);
 }
 
 static void vcp_check_nfc_hash(uint8_t idx)
 {
-    if (nfc_device_hash[0] == '\0')
+    if (vcp_nfc_device_hash[0] == '\0')
+        return;
+    if (vcp_nfc_device_idx < 0)
         return;
     char hash[VCP_NFC_HASH_SIZE];
     vcp_hash_dev(idx, hash);
-    if (strcmp(hash, nfc_device_hash) == 0)
-        nfc_device_idx = idx;
+    if (strcmp(hash, vcp_nfc_device_hash) == 0)
+        vcp_nfc_device_idx = idx;
 }
 
 static void vcp_serial_string_done_cb(tuh_xfer_t *xfer)
@@ -440,8 +460,8 @@ void tuh_cdc_umount_cb(uint8_t idx)
     {
         vcp_mounts[idx].mounted = false;
         vcp_mounts[idx].opened = false;
-        if ((int)idx == nfc_device_idx)
-            nfc_device_idx = -1;
+        if ((int)idx == vcp_nfc_device_idx)
+            vcp_nfc_device_idx = -1;
     }
 }
 
@@ -450,16 +470,16 @@ void vcp_load_nfc_device_hash(const char *str)
     size_t len = strlen(str);
     if (len >= VCP_NFC_HASH_SIZE)
         return;
-    memcpy(nfc_device_hash, str, len);
-    nfc_device_hash[len] = '\0';
+    memcpy(vcp_nfc_device_hash, str, len);
+    vcp_nfc_device_hash[len] = '\0';
 }
 
 void vcp_set_nfc_device_name(const char *name)
 {
     if (!name || !name[0])
     {
-        nfc_device_hash[0] = '\0';
-        nfc_device_idx = -1;
+        vcp_nfc_device_hash[0] = '\0';
+        vcp_nfc_device_idx = -1;
         return;
     }
     if (!vcp_std_handles(name))
@@ -467,21 +487,21 @@ void vcp_set_nfc_device_name(const char *name)
     uint8_t idx = name[3] - '0';
     if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
         return;
-    vcp_hash_dev(idx, nfc_device_hash);
-    nfc_device_idx = idx;
+    vcp_hash_dev(idx, vcp_nfc_device_hash);
+    vcp_nfc_device_idx = idx;
     cfg_save();
 }
 
 const char *vcp_get_nfc_device_hash(void)
 {
-    return nfc_device_hash;
+    return vcp_nfc_device_hash;
 }
 
 int vcp_nfc_open(void)
 {
-    if (nfc_device_idx < 0)
+    if (vcp_nfc_device_idx < 0)
         return -1;
-    uint8_t idx = (uint8_t)nfc_device_idx;
+    uint8_t idx = (uint8_t)vcp_nfc_device_idx;
     if (!tuh_cdc_set_baudrate(idx, 115200, NULL, 0))
         return -1;
     if (!tuh_cdc_set_data_format(idx, 0, 0, 8, NULL, 0))
