@@ -263,7 +263,7 @@ static void rom_loading(void)
             if (usb_boot_enumerating())
                 return;
             rom_state = ROM_RUNNING;
-            pro_run();
+            main_run();
         }
         else
         {

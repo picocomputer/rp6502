@@ -65,7 +65,7 @@ void sys_mon_reset(const char *args)
 {
     (void)(args);
     pro_argv_clear();
-    pro_run();
+    main_run();
 }
 
 void sys_mon_status(const char *args)

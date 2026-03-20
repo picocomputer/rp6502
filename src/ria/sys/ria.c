@@ -41,8 +41,8 @@ static absolute_time_t action_watchdog_timer;
 static volatile int32_t action_result = RIA_ACTION_RESULT_NONE;
 static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
-static volatile int32_t rw_pos;
-static volatile int32_t rw_end;
+static volatile int16_t rw_pos;
+static volatile int16_t rw_end;
 static volatile uint8_t irq_enabled;
 
 void ria_trigger_irq(void)
@@ -85,7 +85,6 @@ void ria_run(void)
         // FFF2  8D 00 00  STA $0000
         // FFF5  80 F9     BRA $FFF0
         // FFF7  80 FE     BRA $FFF7
-        ria_set_watch_address(0xFFF5);
         REGS(0xFFF0) = 0xA9;
         REGS(0xFFF1) = mbuf[0];
         REGS(0xFFF2) = 0x8D;
@@ -256,7 +255,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                 uint32_t data = rw_addr_data & 0xFF;
                 switch (rw_addr_data >> 8)
                 {
-                case CASE_READ(0xFFF5): // action write
+                case CASE_READ(0xFFF4): // action write
                     if (action_state == action_state_write)
                     {
                         if (rw_pos == rw_end)

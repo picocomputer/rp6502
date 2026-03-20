@@ -125,6 +125,7 @@ static void task(void)
 // Event to start running the 6502.
 static void run(void)
 {
+    pro_run();
     com_run();
     rln_run();
     dir_run();
@@ -154,6 +155,7 @@ static void stop(void)
     aud_stop();
     mdm_stop();
     rom_stop();
+    pro_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
