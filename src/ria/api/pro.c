@@ -186,7 +186,7 @@ void pro_nfc(const uint8_t *ndef, size_t len)
     }
     if (strcmp(abs, pro_running) == 0)
     {
-        bel_add(&bel_nfc_fail);
+        bel_add(&bel_nfc_success_1);
         return;
     }
     strncpy(work, abs, sizeof(work) - 1);
