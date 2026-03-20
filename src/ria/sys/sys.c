@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/clk.h"
+#include "api/pro.h"
 #include "mon/mon.h"
 #include "net/ble.h"
 #include "net/ntp.h"
@@ -63,7 +64,8 @@ void sys_mon_reboot(const char *args)
 void sys_mon_reset(const char *args)
 {
     (void)(args);
-    main_run();
+    pro_argv_clear();
+    pro_run();
 }
 
 void sys_mon_status(const char *args)

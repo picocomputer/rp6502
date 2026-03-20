@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api/pro.h"
 #include "usb/nfc.h"
 #include "usb/vcp.h"
 #include "aud/bel.h"
@@ -676,8 +677,7 @@ void nfc_task(void)
                 {
                     DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
                     DBG("read ndef success (%u bytes)\n", (unsigned)nfc_ndef_len);
-                    bel_add(&bel_nfc_success_1);
-                    bel_add(&bel_nfc_success_2);
+                    pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                     nfc_set_state(NFC_CARD_PRESENT);
                     nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
                 }

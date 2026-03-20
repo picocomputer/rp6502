@@ -6,6 +6,7 @@
 
 #include "api/api.h"
 #include "api/pro.h"
+#include "aud/bel.h"
 #include "main.h"
 #include "mon/rom.h"
 #include <stdio.h>
@@ -131,6 +132,31 @@ bool pro_argv_replace(uint16_t idx, const char *str)
     }
     memcpy(&pro_argv[old_offset], str, new_len);
     return true;
+}
+
+void pro_run(void)
+{
+    // todo
+    // assert not main running
+    // save argv[0] to uint8_t pro_running[256]
+    main_run();
+}
+
+void pro_nfc(const uint8_t *ndef, size_t len)
+{
+    // todo
+    // make a single 256 byte work area
+    // find ndef text then send it through str_parse_string for first arg then str_abs_path (use work buffer)
+    // if same as pro_running then error
+    // if starts with ":" then error
+    // if fatfs file does not exist then error
+    bel_add(&bel_nfc_fail);
+    // on success
+    bel_add(&bel_nfc_success_1);
+    bel_add(&bel_nfc_success_2);
+    main_stop();
+    // fatfs chdir to dirpath
+    // rom_mon_load(ndef_text); // use work buffer as needed
 }
 
 bool pro_api_argv(void)

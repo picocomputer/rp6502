@@ -29,4 +29,12 @@ const char *pro_argv_index(uint16_t idx);
 bool pro_api_argv(void);
 bool pro_api_exec(void);
 
+// Records the current argv[0] as the running
+// process, then calls main_start().
+void pro_run(void);
+
+// Load a ROM via NFC
+void pro_nfc(const uint8_t *ndef, size_t len);
+
+
 #endif /* _RIA_API_PRO_H_ */
