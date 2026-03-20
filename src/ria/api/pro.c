@@ -9,6 +9,10 @@
 #include "aud/bel.h"
 #include "main.h"
 #include "mon/rom.h"
+#include "str/str.h"
+#include "usb/nfc.h"
+#include <fatfs/ff.h>
+#include <assert.h>
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PRO)
@@ -16,6 +20,9 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+// Records argv[0] of the most recently started process.
+static char pro_running[256];
 
 // A zero terminated list of uint16 which points
 // to zero terminated strings within pro_argv.
@@ -136,27 +143,78 @@ bool pro_argv_replace(uint16_t idx, const char *str)
 
 void pro_run(void)
 {
-    // todo
-    // assert not main running
-    // save argv[0] to uint8_t pro_running[256]
+    assert(!main_active());
+    const char *argv0 = pro_argv_index(0);
+    if (argv0)
+    {
+        strncpy(pro_running, argv0, sizeof(pro_running) - 1);
+        pro_running[sizeof(pro_running) - 1] = '\0';
+    }
+    else
+        pro_running[0] = '\0';
     main_run();
 }
 
 void pro_nfc(const uint8_t *ndef, size_t len)
 {
-    // todo
-    // make a single 256 byte work area
-    // find ndef text then send it through str_parse_string for first arg then str_abs_path (use work buffer)
-    // if same as pro_running then error
-    // if starts with ":" then error
-    // if fatfs file does not exist then error
-    bel_add(&bel_nfc_fail);
-    // on success
+    char work[256];
+    DBG("pro_nfc(%zu bytes)\n", len);
+
+    if (!nfc_parse_text(ndef, len, work, sizeof(work)))
+    {
+        bel_add(&bel_nfc_fail);
+        return;
+    }
+    DBG("pro_nfc text %s\n", work);
+
+    // Parse the first arg for the ROM path, then resolve to absolute path
+    const char *args = work;
+    const char *first_arg = str_parse_string(&args);
+    if (!first_arg || *first_arg == ':')
+    {
+        bel_add(&bel_nfc_fail);
+        return;
+    }
+    // Copy first_arg into work before str_abs_path (both share the same static buffer)
+    strncpy(work, first_arg, sizeof(work) - 1);
+    work[sizeof(work) - 1] = '\0';
+    const char *abs = str_abs_path(work);
+    if (!abs)
+    {
+        bel_add(&bel_nfc_fail);
+        return;
+    }
+    if (strcmp(abs, pro_running) == 0)
+    {
+        bel_add(&bel_nfc_fail);
+        return;
+    }
+    strncpy(work, abs, sizeof(work) - 1);
+    work[sizeof(work) - 1] = '\0';
+    DBG("pro_nfc argv[0] %s\n", work);
+
+    // Check file exists in FatFS
+    FILINFO finfo;
+    if (f_stat(work, &finfo) != FR_OK)
+    {
+        bel_add(&bel_nfc_fail);
+        return;
+    }
+
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
     main_stop();
-    // fatfs chdir to dirpath
-    // rom_mon_load(ndef_text); // use work buffer as needed
+
+    // Change to the directory containing the ROM before loading
+    char *slash = strrchr(work, '/');
+    if (slash && slash > work)
+    {
+        *slash = '\0';
+        f_chdir(work);
+    }
+    nfc_parse_text(ndef, len, work, sizeof(work));
+    DBG("pro_nfc loading %s\n", work);
+    rom_mon_load(work);
 }
 
 bool pro_api_argv(void)

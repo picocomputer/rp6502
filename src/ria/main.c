@@ -105,7 +105,6 @@ void main_task(void)
     wfi_task();
     ntp_task();
     ble_task();
-    nfc_task();
     led_task();
     mdm_task();
     ram_task();
@@ -119,6 +118,7 @@ static void task(void)
     rln_task();
     fil_task();
     rom_task();
+    nfc_task(); // must be last for exec
     api_task(); // must be last for exec
 }
 

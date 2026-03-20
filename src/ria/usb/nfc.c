@@ -337,6 +337,107 @@ uint8_t nfc_get_enabled(void)
     return nfc_enabled;
 }
 
+// Parse raw NDEF TLV bytes and extract the first Well Known Text record
+// into buf (NUL-terminated). Returns false if no text record is found.
+bool nfc_parse_text(const uint8_t *ndef, size_t len, char *buf, size_t buf_size)
+{
+    // Walk TLV blocks to find the NDEF Message TLV (type 0x03)
+    const uint8_t *msg = NULL;
+    size_t msg_len = 0;
+    size_t pos = 0;
+    while (pos < len)
+    {
+        uint8_t tlv_type = ndef[pos++];
+        if (tlv_type == 0xFE) // terminator
+            break;
+        if (tlv_type == 0x00) // null
+            continue;
+        if (pos >= len)
+            break;
+        size_t tlv_len;
+        if (ndef[pos] == 0xFF) // three-byte length
+        {
+            if (pos + 2 >= len)
+                break;
+            tlv_len = ((size_t)ndef[pos + 1] << 8) | ndef[pos + 2];
+            pos += 3;
+        }
+        else
+        {
+            tlv_len = ndef[pos++];
+        }
+        if (pos + tlv_len > len)
+            break;
+        if (tlv_type == 0x03) // NDEF Message
+        {
+            msg = ndef + pos;
+            msg_len = tlv_len;
+            break;
+        }
+        pos += tlv_len;
+    }
+    if (!msg)
+        return false;
+
+    // Find the first NDEF Well Known Type "T" (text) record
+    size_t rpos = 0;
+    while (rpos < msg_len)
+    {
+        uint8_t hdr = msg[rpos++];
+        uint8_t tnf = hdr & 0x07;
+        bool sr = (bool)((hdr >> 4) & 1);
+        bool il = (bool)((hdr >> 3) & 1);
+        if (rpos >= msg_len)
+            break;
+        uint8_t type_len = msg[rpos++];
+        uint32_t payload_len;
+        if (sr)
+        {
+            if (rpos >= msg_len)
+                break;
+            payload_len = msg[rpos++];
+        }
+        else
+        {
+            if (rpos + 4 > msg_len)
+                break;
+            payload_len = ((uint32_t)msg[rpos] << 24) | ((uint32_t)msg[rpos + 1] << 16) |
+                          ((uint32_t)msg[rpos + 2] << 8) | msg[rpos + 3];
+            rpos += 4;
+        }
+        uint8_t id_len = 0;
+        if (il)
+        {
+            if (rpos >= msg_len)
+                break;
+            id_len = msg[rpos++];
+        }
+        if (rpos + type_len + id_len > msg_len)
+            break;
+        const uint8_t *type_data = msg + rpos;
+        rpos += type_len + id_len;
+        if (rpos + payload_len > msg_len)
+            break;
+        const uint8_t *payload = msg + rpos;
+        rpos += payload_len;
+        if (tnf == 0x01 && type_len == 1 && type_data[0] == 'T' && payload_len >= 1)
+        {
+            uint8_t status = payload[0];
+            uint8_t lang_len = status & 0x3F;
+            if (payload_len <= (uint32_t)(1 + lang_len))
+                continue;
+            const uint8_t *txt = payload + 1 + lang_len;
+            size_t txt_len = payload_len - 1 - lang_len;
+            if (txt_len >= buf_size)
+                txt_len = buf_size - 1;
+            memcpy(buf, txt, txt_len);
+            buf[txt_len] = '\0';
+            return true;
+        }
+    }
+    return false;
+}
+
 // --- State machine task ---
 
 void nfc_task(void)
@@ -677,9 +778,9 @@ void nfc_task(void)
                 {
                     DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
                     DBG("read ndef success (%u bytes)\n", (unsigned)nfc_ndef_len);
-                    pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                     nfc_set_state(NFC_CARD_PRESENT);
                     nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
+                    pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                 }
                 else
                 {
