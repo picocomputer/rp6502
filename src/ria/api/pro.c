@@ -237,10 +237,13 @@ void pro_nfc(const uint8_t *ndef, size_t len)
     char *slash = strrchr(work, '/');
     if (slash && slash > work)
     {
-        *slash = '\0';
+        // For root ("DRV:/file"), keep the slash; otherwise strip it
+        char *term = (*(slash - 1) == ':') ? slash + 1 : slash;
+        char saved = *term;
+        *term = '\0';
         f_chdrive(work);
         f_chdir(work);
-        *slash = '/';
+        *term = saved;
     }
 
     printf(STR_SYS_TERM_RESET);
