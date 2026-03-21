@@ -113,9 +113,9 @@ static size_t nfc_tx_pos;
 static uint8_t nfc_rx_buf[PN532_MAX_FRAME_SIZE];
 static size_t nfc_rx_pos;
 
-// NDEF read state
+// NDEF read state, up to NTAG216 size
 static uint8_t nfc_read_page;
-static uint8_t nfc_ndef_buf[128];
+static uint8_t nfc_ndef_buf[888];
 static size_t nfc_ndef_len;
 
 static void nfc_set_state(int new_state)
