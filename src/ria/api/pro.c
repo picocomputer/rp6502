@@ -230,7 +230,7 @@ void pro_nfc(const uint8_t *ndef, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    mon_break();
+    mon_stop(); // reset input
     main_stop();
 
     printf("\nNFC loading %s\n", work);

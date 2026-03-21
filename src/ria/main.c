@@ -155,6 +155,7 @@ static void stop(void)
     mdm_stop();
     rom_stop();
     pro_stop();
+    mon_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.

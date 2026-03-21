@@ -125,13 +125,37 @@ __in_flash("bel_presets") const ria_bel_t bel_teletype = {
 // NFC card detected: bright sine ping at C6
 __in_flash("bel_presets") const ria_bel_t bel_nfc_detect = {
     .freq = 1046,
-    .duty = 255,          // full cycle
-    .vol_attack = 0x60,   // attack to -6vol in 2ms
-    .vol_decay = 0x60,    // sustain at -6vol
-    .wave_release = 0x03, // sine, release to zero in 72ms
+    .duty = 128,          // full cycle
+    .vol_attack = 0xB0,   // attack to -9vol in 2ms
+    .vol_decay = 0xB0,    // sustain at -9vol
+    .wave_release = 0x31, // triangle, release to zero in 72ms
     .restrike_ms = 0,
-    .release_ms = 40,
-    .end_ms = 130,
+    .release_ms = 8,
+    .end_ms = 100,
+};
+
+// NFC card removed: soft triangle pip at F4
+__in_flash("bel_presets") const ria_bel_t bel_nfc_remove = {
+    .freq = 698,
+    .duty = 128,          // full cycle
+    .vol_attack = 0xB0,   // attack to -10vol in 2ms
+    .vol_decay = 0xB0,    // sustain at -10vol
+    .wave_release = 0x31, // triangle, release to zero in 72ms
+    .restrike_ms = 0,
+    .release_ms = 8,
+    .end_ms = 100,
+};
+
+// NFC fail/error: low square buzz at E3
+__in_flash("bel_presets") const ria_bel_t bel_nfc_fail = {
+    .freq = 330,
+    .duty = 127,          // 50% square
+    .vol_attack = 0x80,   // attack to -8vol in 2ms
+    .vol_decay = 0x80,    // sustain at -8vol
+    .wave_release = 0x15, // square, release to zero in 168ms
+    .restrike_ms = 0,
+    .release_ms = 200,
+    .end_ms = 420,
 };
 
 // NFC success note 1: ascending sine at G4 (queue bel_nfc_success_2 after)
@@ -156,30 +180,6 @@ __in_flash("bel_presets") const ria_bel_t bel_nfc_success_2 = {
     .restrike_ms = 0,
     .release_ms = 130,
     .end_ms = 350,
-};
-
-// NFC fail/error: low square buzz at E3
-__in_flash("bel_presets") const ria_bel_t bel_nfc_fail = {
-    .freq = 330,
-    .duty = 127,          // 50% square
-    .vol_attack = 0x80,   // attack to -8vol in 2ms
-    .vol_decay = 0x80,    // sustain at -8vol
-    .wave_release = 0x15, // square, release to zero in 168ms
-    .restrike_ms = 0,
-    .release_ms = 200,
-    .end_ms = 420,
-};
-
-// NFC card removed: soft triangle pip at F4
-__in_flash("bel_presets") const ria_bel_t bel_nfc_remove = {
-    .freq = 698,
-    .duty = 255,          // full cycle
-    .vol_attack = 0xA0,   // attack to -10vol in 2ms
-    .vol_decay = 0xA0,    // sustain at -10vol
-    .wave_release = 0x33, // triangle, release to zero in 72ms
-    .restrike_ms = 0,
-    .release_ms = 30,
-    .end_ms = 110,
 };
 
 void bel_add(const ria_bel_t *sound)

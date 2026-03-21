@@ -137,7 +137,7 @@ static void mon_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
-    if (mon_needs_read_line) // cancelled by reset
+    if (mon_needs_read_line) // cancelled
         return;
     mon_needs_prompt = true;
     mon_needs_read_line = true;
@@ -500,10 +500,15 @@ void mon_task(void)
     }
 }
 
-void mon_break(void)
+void mon_stop(void)
 {
     mon_needs_prompt = true;
     mon_needs_read_line = true;
+}
+
+void mon_break(void)
+{
     mon_needs_newline = true;
     mon_needs_break = true;
+    mon_stop();
 }

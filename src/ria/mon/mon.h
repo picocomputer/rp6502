@@ -18,6 +18,7 @@
  */
 
 void mon_task(void);
+void mon_stop(void);
 void mon_break(void);
 
 // Monitor response system paginates without blocking.
