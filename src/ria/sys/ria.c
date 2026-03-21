@@ -57,18 +57,8 @@ uint32_t ria_buf_crc32(void)
     return ~lfs_crc(~0, mbuf, mbuf_len);
 }
 
-// The PIO will notify the action loop of all register writes.
-// Only every fourth register (0, 4, 8, ...) is watched for
-// read access. This additional read address to be watched
-// is varied based on the state of the RIA.
-static void ria_set_watch_address(uint32_t addr)
-{
-    pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, addr & 0x1F);
-}
-
 void ria_run(void)
 {
-    ria_set_watch_address(0xFFE2); // UART Rx
     if (action_state == action_state_idle)
         return;
     action_result = RIA_ACTION_RESULT_NONE;
@@ -84,7 +74,6 @@ void ria_run(void)
         // FFF0  A9 00     LDA #$00
         // FFF2  8D 00 00  STA $0000
         // FFF5  80 F9     BRA $FFF0
-        // FFF7  80 FE     BRA $FFF7
         REGS(0xFFF0) = 0xA9;
         REGS(0xFFF1) = mbuf[0];
         REGS(0xFFF2) = 0x8D;
@@ -92,8 +81,6 @@ void ria_run(void)
         REGS(0xFFF4) = rw_addr >> 8;
         REGS(0xFFF5) = 0x80;
         REGS(0xFFF6) = 0xF9;
-        REGS(0xFFF7) = 0x80;
-        REGS(0xFFF8) = 0xFE;
         break;
     case action_state_read:
     case action_state_verify:
@@ -260,12 +247,14 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     {
                         if (rw_pos == rw_end)
                         {
-                            gpio_put(CPU_RESB_PIN, false);
                             action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
                         }
-                        REGS(0xFFF1) = mbuf[++rw_pos];
-                        REGSW(0xFFF3) += 1;
+                        else if (++rw_pos < rw_end)
+                        {
+                            REGS(0xFFF1) = mbuf[rw_pos];
+                            REGSW(0xFFF3) += 1;
+                        }
                     }
                     break;
                 case CASE_WRITE(0xFFFD): // action read
@@ -275,7 +264,6 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                         mbuf[rw_pos] = data;
                         if (++rw_pos == rw_end)
                         {
-                            gpio_put(CPU_RESB_PIN, false);
                             action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
                         }
@@ -289,7 +277,6 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                             action_result = REGSW(0xFFF1) - 1;
                         if (++rw_pos == rw_end)
                         {
-                            gpio_put(CPU_RESB_PIN, false);
                             if (action_result < 0)
                                 action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
@@ -311,10 +298,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                         api_return_ax(0);
                     }
                     else if (data == 0xFF) // exit()
-                    {
-                        gpio_put(CPU_RESB_PIN, false);
                         main_stop();
-                    }
                     break;
                 case CASE_WRITE(0xFFEC): // xstack
                     if (xstack_ptr)
@@ -529,7 +513,9 @@ static void ria_act_pio_init(void)
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, true, true, 32);
     pio_sm_init(RIA_ACT_PIO, RIA_ACT_SM, offset, &config);
-    ria_set_watch_address(0);
+    // Only every fourth register (0, 4, 8, ...) is watched for
+    // read access. This is an additional read address to be watched.
+    pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, 0xFFE2 & 0x1F); // UART Rx
     pio_sm_set_enabled(RIA_ACT_PIO, RIA_ACT_SM, true);
     multicore_launch_core1(act_loop);
 }

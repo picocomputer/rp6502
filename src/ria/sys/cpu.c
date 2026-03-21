@@ -22,6 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static uint16_t cpu_phi2_khz;
 static uint16_t cpu_phi2_khz_active;
 static bool cpu_run_requested;
+static bool cpu_halt_requested;
 static absolute_time_t cpu_resb_timer;
 
 // 6502 to RP2350 clock ratio is 1:32
@@ -62,9 +63,9 @@ void cpu_init(void)
 
 void cpu_task(void)
 {
-    // Enforce minimum RESB time
-    if (cpu_run_requested && !gpio_get(CPU_RESB_PIN))
+    if (!cpu_halt_requested && cpu_run_requested && !gpio_get(CPU_RESB_PIN))
     {
+        // Enforce minimum RESB time
         absolute_time_t now = get_absolute_time();
         if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
             gpio_put(CPU_RESB_PIN, true);
@@ -76,9 +77,16 @@ void cpu_run(void)
     cpu_run_requested = true;
 }
 
+void cpu_halt(void)
+{
+    cpu_halt_requested = true;
+    gpio_put(CPU_RESB_PIN, false);
+}
+
 void cpu_stop(void)
 {
     cpu_run_requested = false;
+    cpu_halt_requested = false;
     gpio_put(CPU_RESB_PIN, false);
     cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
