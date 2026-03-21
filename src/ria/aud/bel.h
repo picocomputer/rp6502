@@ -44,8 +44,6 @@ void bel_add(const ria_bel_t *sound);
 
 // Preset bell sounds
 extern const ria_bel_t bel_teletype;
-extern const ria_bel_t bel_nfc_detect;
-extern const ria_bel_t bel_nfc_remove;
 extern const ria_bel_t bel_nfc_fail;
 extern const ria_bel_t bel_nfc_success_1;
 extern const ria_bel_t bel_nfc_success_2;

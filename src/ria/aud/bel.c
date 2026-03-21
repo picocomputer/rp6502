@@ -122,30 +122,6 @@ __in_flash("bel_presets") const ria_bel_t bel_teletype = {
     .end_ms = 800,
 };
 
-// NFC card detected: bright sine ping at C6
-__in_flash("bel_presets") const ria_bel_t bel_nfc_detect = {
-    .freq = 1046,
-    .duty = 128,          // full cycle
-    .vol_attack = 0xB0,   // attack to -9vol in 2ms
-    .vol_decay = 0xB0,    // sustain at -9vol
-    .wave_release = 0x31, // triangle, release to zero in 72ms
-    .restrike_ms = 0,
-    .release_ms = 8,
-    .end_ms = 100,
-};
-
-// NFC card removed: soft triangle pip at F4
-__in_flash("bel_presets") const ria_bel_t bel_nfc_remove = {
-    .freq = 698,
-    .duty = 128,          // full cycle
-    .vol_attack = 0xB0,   // attack to -10vol in 2ms
-    .vol_decay = 0xB0,    // sustain at -10vol
-    .wave_release = 0x31, // triangle, release to zero in 72ms
-    .restrike_ms = 0,
-    .release_ms = 8,
-    .end_ms = 100,
-};
-
 // NFC fail/error: low square buzz at E3
 __in_flash("bel_presets") const ria_bel_t bel_nfc_fail = {
     .freq = 330,

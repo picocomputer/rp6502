@@ -233,8 +233,6 @@ void pro_nfc(const uint8_t *ndef, size_t len)
     mon_stop(); // reset input
     main_stop();
 
-    printf("\nNFC loading %s\n", work);
-
     // Change to the directory containing the ROM before loading
     char *slash = strrchr(work, '/');
     if (slash && slash > work)
@@ -242,8 +240,34 @@ void pro_nfc(const uint8_t *ndef, size_t len)
         *slash = '\0';
         f_chdrive(work);
         f_chdir(work);
+        *slash = '/';
     }
+
+    printf("\nNFC loading \"");
+    for (const char *p = work; *p; p++)
+    {
+        unsigned char c = (unsigned char)*p;
+        if (c == '\\' || c == '"')
+            printf("\\%c", c);
+        else if (c < 32 || c > 126)
+            printf("\\%03o", c);
+        else
+            putchar(c);
+    }
+    putchar('"');
     nfc_parse_text(ndef, len, work, sizeof(work));
+    args = work;
+    str_parse_string(&args);
+    if (*args)
+    {
+        putchar(' ');
+        for (const char *p = args; *p; p++)
+        {
+            unsigned char c = (unsigned char)*p;
+            putchar(c < 32 || c > 127 ? '?' : c);
+        }
+    }
+    putchar('\n');
     DBG("pro_nfc loading %s\n", work);
     rom_mon_load(work);
     return;

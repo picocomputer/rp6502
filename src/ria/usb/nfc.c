@@ -289,6 +289,7 @@ static void nfc_set_config(uint8_t val)
         if (nfc_desc >= 0)
         {
             bel_add(&bel_nfc_success_1);
+            bel_add(&bel_nfc_success_2);
             break;
         }
         nfc_scan_idx = 0;
@@ -537,6 +538,7 @@ void nfc_task(void)
             snprintf(name, sizeof(name), "VCP%d:", nfc_scan_idx);
             vcp_set_nfc_device_name(name);
             bel_add(&bel_nfc_success_1);
+            bel_add(&bel_nfc_success_2);
             nfc_tx_len = 0;
             nfc_tx_pos = 0;
             nfc_timeout = make_timeout_time_ms(0);
@@ -684,7 +686,6 @@ void nfc_task(void)
             {
                 DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
                 DBG("detected\n");
-                bel_add(&bel_nfc_detect);
                 nfc_read_page = 4;
                 nfc_ndef_len = 0;
                 nfc_tx_len = 0;
@@ -872,7 +873,6 @@ void nfc_task(void)
             {
                 DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
                 DBG("removed\n");
-                bel_add(&bel_nfc_remove);
                 nfc_set_state(NFC_IDLE);
                 nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
             }
@@ -881,7 +881,6 @@ void nfc_task(void)
         {
             DBG("[%6lu] NFC: ", (unsigned long)to_ms_since_boot(get_absolute_time()));
             DBG("removed\n");
-            bel_add(&bel_nfc_remove);
             nfc_set_state(NFC_IDLE);
             nfc_timeout = make_timeout_time_ms(NFC_POLL_INTERVAL_MS);
         }
