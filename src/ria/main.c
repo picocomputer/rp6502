@@ -318,7 +318,7 @@ void main_run(void)
 
 void main_stop(void)
 {
-    cpu_stop();
+    cpu_stop(); // Pull down RESB
     if (main_state == starting)
         main_state = stopped;
     if (main_state != stopped)
