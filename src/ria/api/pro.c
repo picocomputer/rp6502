@@ -270,7 +270,6 @@ void pro_nfc(const uint8_t *ndef, size_t len)
         }
     }
     putchar('\n');
-    DBG("pro_nfc loading %s\n", work);
     rom_mon_load(work);
     return;
 
