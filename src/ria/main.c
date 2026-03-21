@@ -139,7 +139,6 @@ static void run(void)
 // Event to stop the 6502.
 static void stop(void)
 {
-    cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
     com_stop();
     rln_stop();
@@ -317,7 +316,7 @@ void main_run(void)
 
 void main_stop(void)
 {
-    cpu_halt();
+    cpu_stop();
     if (main_state == starting)
         main_state = stopped;
     if (main_state != stopped)

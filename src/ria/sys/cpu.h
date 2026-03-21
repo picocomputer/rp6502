@@ -36,7 +36,6 @@ void cpu_init(void);
 void cpu_task(void);
 void cpu_run(void);
 void cpu_stop(void);
-void cpu_halt(void);
 void cpu_reclock(void);
 
 // The CPU is active when RESB is high or when

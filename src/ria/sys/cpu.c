@@ -10,6 +10,7 @@
 #include "sys/cpu.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
+#include <hardware/sync.h>
 #include <hardware/vreg.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CPU)
@@ -21,8 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static uint16_t cpu_phi2_khz;
 static uint16_t cpu_phi2_khz_active;
-static bool cpu_run_requested;
-static bool cpu_halt_requested;
+static volatile bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
 
 // 6502 to RP2350 clock ratio is 1:32
@@ -63,12 +63,19 @@ void cpu_init(void)
 
 void cpu_task(void)
 {
-    if (!cpu_halt_requested && cpu_run_requested && !gpio_get(CPU_RESB_PIN))
+    if (!gpio_get(CPU_RESB_PIN))
     {
-        // Enforce minimum RESB time
-        absolute_time_t now = get_absolute_time();
-        if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
-            gpio_put(CPU_RESB_PIN, true);
+        // Acquire barrier pairs with the release DMB in cpu_stop().
+        // If cpu_stop() lowered RESB before we observed it, we will
+        // also observe cpu_run_requested=false and skip raising RESB.
+        __dmb();
+        if (cpu_run_requested)
+        {
+            // Enforce minimum RESB time
+            absolute_time_t now = get_absolute_time();
+            if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
+                gpio_put(CPU_RESB_PIN, true);
+        }
     }
 }
 
@@ -77,16 +84,14 @@ void cpu_run(void)
     cpu_run_requested = true;
 }
 
-void cpu_halt(void)
-{
-    cpu_halt_requested = true;
-    gpio_put(CPU_RESB_PIN, false);
-}
-
 void cpu_stop(void)
 {
+    // Called from both cpu0 and cpu1 (via act_loop). The DMB ensures
+    // cpu_run_requested=false is visible to cpu0's cpu_task() before the GPIO
+    // change is observable, preventing cpu_task() from raising RESB after we
+    // lower it.
     cpu_run_requested = false;
-    cpu_halt_requested = false;
+    __dmb();
     gpio_put(CPU_RESB_PIN, false);
     cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
 }
