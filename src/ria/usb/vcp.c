@@ -14,8 +14,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#define DEBUG_RIA_USB_VCP
-
 #if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
 #define DBG(...) printf(__VA_ARGS__)
 #else

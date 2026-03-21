@@ -243,7 +243,9 @@ void pro_nfc(const uint8_t *ndef, size_t len)
         *slash = '/';
     }
 
-    printf("\nNFC loading \"");
+    printf(STR_SYS_TERM_RESET);
+    printf("NFC ");
+    putchar('"');
     for (const char *p = work; *p; p++)
     {
         unsigned char c = (unsigned char)*p;

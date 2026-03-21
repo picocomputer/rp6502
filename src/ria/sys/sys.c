@@ -47,7 +47,7 @@ void sys_init(void)
 #ifdef NDEBUG
     mon_add_response_str(STR_SYS_FULL_TERM_RESET);
 #else
-    mon_add_response_str(STR_SYS_DEBUG_TERM_RESET);
+    mon_add_response_str(STR_SYS_TERM_RESET);
 #endif
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
