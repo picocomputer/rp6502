@@ -227,8 +227,9 @@ void ria_write_buf(uint16_t addr)
 #define RIA_RW1 REGS(0xFFE8)
 #define RIA_STEP1 *(int8_t *)&REGS(0xFFE9)
 #define RIA_ADDR1 REGSW(0xFFEA)
-// O3 works now but didn't in the past. I still don't trust it.
-__attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_loop)(void)
+// 6502 writes to regs can arrive later than these events.
+// Make sure to use the FIFO event data in here instead.
+__attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_loop)(void)
 {
     while (true)
     {
@@ -290,7 +291,7 @@ __attribute__((optimize("O1"))) static void __no_inline_not_in_flash_func(act_lo
                     gpio_put(CPU_IRQB_PIN, true);
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
-                    API_OP = data;       // don't wait for DMA
+                    API_OP = data;       // get ahead of DMA
                     api_set_regs_blocked();
                     if (data == 0x00) // zxstack()
                     {
