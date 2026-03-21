@@ -168,44 +168,79 @@ void pro_nfc(const uint8_t *ndef, size_t len)
         goto fail;
     DBG("pro_nfc text %s\n", work);
 
-    // Parse the first arg for the ROM path, then resolve to absolute path
+    // Parse the first arg for the ROM path
     const char *args = work;
     const char *first_arg = str_parse_string(&args);
     if (!first_arg || *first_arg == ':')
         goto fail;
-    // Copy first_arg into work before str_abs_path (both share the same static buffer)
-    strncpy(work, first_arg, sizeof(work) - 1);
-    work[sizeof(work) - 1] = '\0';
-    const char *abs = str_abs_path(work);
-    if (!abs)
-        goto fail;
-    if (strcmp(abs, pro_running) == 0)
-    {
-        // Half success, already running
-        bel_add(&bel_nfc_success_1);
-        return;
-    }
-    strncpy(work, abs, sizeof(work) - 1);
-    work[sizeof(work) - 1] = '\0';
-    DBG("pro_nfc argv[0] %s\n", work);
 
-    // Check file exists in FatFS
-    FILINFO finfo;
-    if (f_stat(work, &finfo) != FR_OK)
-        goto fail;
+    bool has_drive = (strchr(first_arg, ':') != NULL);
+    if (has_drive)
+    {
+        strncpy(work, first_arg, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        const char *abs = str_abs_path(work);
+        if (!abs)
+            goto fail;
+        if (strcmp(abs, pro_running) == 0)
+        {
+            // Half success, already running
+            bel_add(&bel_nfc_success_1);
+            return;
+        }
+        strncpy(work, abs, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        DBG("pro_nfc argv[0] %s\n", work);
+        FILINFO finfo;
+        if (f_stat(work, &finfo) != FR_OK)
+            goto fail;
+    }
+    else
+    {
+        // Build canonical "MSC0:/path" in work; str_abs_path writes str_buf not work
+        const char *p = (*first_arg == '/') ? first_arg + 1 : first_arg;
+        snprintf(work, sizeof(work), "MSC0:/%s", p);
+        const char *abs = str_abs_path(work);
+        if (!abs)
+            goto fail;
+        strncpy(work, abs, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        bool found = false;
+        for (int drive = 0; drive <= 9; drive++)
+        {
+            work[3] = (char)('0' + drive);
+            FILINFO finfo;
+            if (f_stat(work, &finfo) == FR_OK)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            goto fail;
+        if (strcmp(work, pro_running) == 0)
+        {
+            // Half success, already running
+            bel_add(&bel_nfc_success_1);
+            return;
+        }
+        DBG("pro_nfc argv[0] %s\n", work);
+    }
 
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
     mon_break();
     main_stop();
-    mon_add_response_str("\nNFC TODO\n");
+
+    printf("\nNFC loading %s\n", work);
 
     // Change to the directory containing the ROM before loading
     char *slash = strrchr(work, '/');
     if (slash && slash > work)
     {
         *slash = '\0';
+        f_chdrive(work);
         f_chdir(work);
     }
     nfc_parse_text(ndef, len, work, sizeof(work));
