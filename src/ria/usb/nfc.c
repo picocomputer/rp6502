@@ -21,6 +21,12 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+// Timeouts
+#define NFC_ACK_TIMEOUT_MS 50
+#define NFC_RESPONSE_TIMEOUT_MS 100
+#define NFC_POLL_INTERVAL_MS 200
+#define NFC_RETRY_INTERVAL_MS 2000
+
 // PN532 command codes
 #define PN532_PREAMBLE 0x00
 #define PN532_STARTCODE1 0x00
@@ -37,12 +43,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define PN532_ACK_FRAME_SIZE 6
 #define PN532_MAX_FRAME_SIZE 64
 #define PN532_WAKEUP_SIZE 16
-
-// Timeouts
-#define NFC_ACK_TIMEOUT_MS 50
-#define NFC_RESPONSE_TIMEOUT_MS 100
-#define NFC_POLL_INTERVAL_MS 250
-#define NFC_RETRY_INTERVAL_MS 2000
 
 // NDEF Type 2 Tag commands (NTAG/Mifare Ultralight)
 #define NDEF_READ_CMD 0x30
@@ -132,8 +132,6 @@ static void nfc_set_state(int new_state)
     }
 }
 
-// --- Transport layer ---
-
 // Build a PN532 frame into TX buffer and reset TX position.
 static size_t nfc_build_frame(uint8_t cmd, const uint8_t *data, size_t data_len)
 {
@@ -175,14 +173,6 @@ static int nfc_send(void)
                                          &bytes_written, &err);
     if (result != STD_OK)
         return -1;
-    // if (bytes_written > 0)
-    // {
-    //     uint32_t ts = (uint32_t)to_ms_since_boot(get_absolute_time());
-    //     DBG("[%6lu] NFC TX:", (unsigned long)ts);
-    //     for (uint32_t i = 0; i < bytes_written; i++)
-    //         printf(" %02X", nfc_tx_buf[nfc_tx_pos + i]);
-    //     printf("\n");
-    // }
     nfc_tx_pos += bytes_written;
     return (nfc_tx_pos >= nfc_tx_len) ? 1 : 0;
 }
@@ -194,14 +184,6 @@ static uint32_t nfc_recv(void)
     api_errno err;
     vcp_std_read(nfc_desc, (char *)nfc_rx_buf + nfc_rx_pos,
                  (uint32_t)(sizeof(nfc_rx_buf) - nfc_rx_pos), &bytes_read, &err);
-    // if (bytes_read > 0)
-    // {
-    //     uint32_t ts = (uint32_t)to_ms_since_boot(get_absolute_time());
-    //     DBG("[%6lu] NFC RX:", (unsigned long)ts);
-    //     for (uint32_t i = 0; i < bytes_read; i++)
-    //         printf(" %02X", nfc_rx_buf[nfc_rx_pos + i]);
-    //     printf("\n");
-    // }
     nfc_rx_pos += bytes_read;
     return bytes_read;
 }
@@ -268,8 +250,6 @@ static void nfc_close_device(void)
     }
 }
 
-// --- Configuration ---
-
 static void nfc_set_config(uint8_t val)
 {
     switch (val)
@@ -302,8 +282,6 @@ static void nfc_set_config(uint8_t val)
         break;
     }
 }
-
-// --- Public API ---
 
 void nfc_load_enabled(const char *str)
 {
@@ -436,8 +414,6 @@ bool nfc_parse_text(const uint8_t *ndef, size_t len, char *buf, size_t buf_size)
     }
     return false;
 }
-
-// --- State machine task ---
 
 void nfc_task(void)
 {
