@@ -37,6 +37,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +S437       | Code Page
 // +LUS        | Keyboard Layout
 // +D0         | VGA display type
+// +N1         | NFC Enabled
+// +HvCpHaSh   | NFC VCP Hash
 // +E1         | RF Enabled
 // +FUS        | RF Country Code
 // +WMyWiFi    | WiFi SSID
@@ -79,7 +81,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "+L%s\n"
                                "+D%u\n"
                                "+N%u\n"
-                               "+G%s\n"
+                               "+H%s\n"
 #ifdef RP6502_RIA_W
                                "+E%u\n"
                                "+F%s\n"
@@ -158,7 +160,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         case 'N':
             nfc_load_enabled(str);
             break;
-        case 'G':
+        case 'H':
             vcp_load_nfc_device_hash(str);
             break;
 #ifdef RP6502_RIA_W

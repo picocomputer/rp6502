@@ -248,8 +248,8 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     {
                         if (rw_pos == rw_end)
                         {
-                            main_stop();
                             action_result = RIA_ACTION_RESULT_FINISHED;
+                            main_stop();
                         }
                         else if (++rw_pos < rw_end)
                         {
@@ -265,8 +265,8 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         mbuf[rw_pos] = data;
                         if (++rw_pos == rw_end)
                         {
-                            main_stop();
                             action_result = RIA_ACTION_RESULT_FINISHED;
+                            main_stop();
                         }
                     }
                     break;
@@ -278,9 +278,9 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                             action_result = REGSW(0xFFF1) - 1;
                         if (++rw_pos == rw_end)
                         {
-                            main_stop();
                             if (action_result < 0)
                                 action_result = RIA_ACTION_RESULT_FINISHED;
+                            main_stop();
                         }
                     }
                     break;

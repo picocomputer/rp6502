@@ -197,7 +197,7 @@ void pro_nfc(const uint8_t *ndef, size_t len)
     }
     else
     {
-        // Build canonical "MSC0:/path" in work; str_abs_path writes str_buf not work
+        // Build canonical "MSC0:/path"
         const char *p = (*first_arg == '/') ? first_arg + 1 : first_arg;
         snprintf(work, sizeof(work), "MSC0:/%s", p);
         const char *abs = str_abs_path(work);

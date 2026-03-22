@@ -107,10 +107,10 @@ static struct
     uint32_t noise1;
     uint32_t noise2;
     uint32_t elapsed_samples;
-    bool active;
+    volatile bool active;
 } bel_state;
 
-// Warmer teletype bell: triangle wave, medium ring, retrigger-capable
+// Teletype bell: retrigger-capable
 __in_flash("bel_presets") const ria_bel_t bel_teletype = {
     .freq = 1760,         // A6
     .duty = 215,          // hint of grit
@@ -122,7 +122,7 @@ __in_flash("bel_presets") const ria_bel_t bel_teletype = {
     .end_ms = 800,
 };
 
-// NFC fail/error: low square buzz at E3
+// NFC fail/error: low square buzz
 __in_flash("bel_presets") const ria_bel_t bel_nfc_fail = {
     .freq = 330,
     .duty = 127,          // 50% square
@@ -134,7 +134,7 @@ __in_flash("bel_presets") const ria_bel_t bel_nfc_fail = {
     .end_ms = 420,
 };
 
-// NFC success note 1: ascending sine at G4 (queue bel_nfc_success_2 after)
+// NFC success note 1
 __in_flash("bel_presets") const ria_bel_t bel_nfc_success_1 = {
     .freq = 784,
     .duty = 255,          // full cycle
@@ -146,7 +146,7 @@ __in_flash("bel_presets") const ria_bel_t bel_nfc_success_1 = {
     .end_ms = 170,
 };
 
-// NFC success note 2: ascending sine at G5 (queue after bel_nfc_success_1)
+// NFC success note 2
 __in_flash("bel_presets") const ria_bel_t bel_nfc_success_2 = {
     .freq = 1568,
     .duty = 255,          // full cycle
@@ -169,17 +169,12 @@ void bel_add(const ria_bel_t *sound)
     // If not currently playing, start this sound
     if (!bel_state.active)
     {
-        bel_state.active = true;
         bel_state.adsr = attack;
         bel_state.vol = 0;
         bel_state.phase = 0;
         bel_state.elapsed_samples = 0;
+        bel_state.active = true; // published last; IRQ always sees consistent state
     }
-}
-
-static inline uint32_t bel_ms_to_samples(uint16_t ms, uint32_t rate)
-{
-    return (uint32_t)ms * rate / 1000;
 }
 
 static inline uint32_t bel_attack_rate(uint8_t nibble, uint32_t rate)

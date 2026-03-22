@@ -307,9 +307,8 @@ X(STR_HELP_SET_VGA,
   "  2 - 1280x1024, for 5:4 SXGA displays\n")
 
 X(STR_HELP_SET_NFC,
-  "Setting 0 disables NFC and releases the VCP. Setting 1 enables NFC and claims\n"
-  "the VCP. Setting 2 scans all VCPs to find a PN532 device. Setting 86 clears\n"
-  "the saved NFC device.\n")
+  "Setting 0 disables NFC reader. Setting 1 enables. Setting 2 scans all VCPs to\n"
+  "find a PN532 device. Setting 86 clears the saved NFC device.\n")
 
 X(STR_HELP_SET_RF,
   "SET RF (0|1) turns all radios off or on.\n")

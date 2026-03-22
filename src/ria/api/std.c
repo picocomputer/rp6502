@@ -465,8 +465,8 @@ void std_init(void)
 
 void std_stop(void)
 {
-    std_fd = NULL;
     std_pix = -1;
+    std_fd = NULL;
     std_rln_active = false;
     std_rln_needs_nl = false;
     std_rln_pos = 0;
