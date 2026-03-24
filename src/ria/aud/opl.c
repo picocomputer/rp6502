@@ -57,10 +57,10 @@ static void
     uint8_t max_work = 8;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
-        ++xram_queue_tail;
+        uint8_t tail = ++xram_queue_tail;
         OPL_writeReg(opl_emu8950,
-                     xram_queue[xram_queue_tail][0],
-                     xram_queue[xram_queue_tail][1]);
+                     xram_queue[tail][0],
+                     xram_queue[tail][1]);
     }
 }
 

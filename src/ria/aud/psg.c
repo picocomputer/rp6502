@@ -244,9 +244,9 @@ static void
     uint8_t max_work = 32;
     while (max_work-- && xram_queue_tail != xram_queue_head)
     {
-        ++xram_queue_tail;
-        uint8_t loc = xram_queue[xram_queue_tail][0];
-        uint8_t val = xram_queue[xram_queue_tail][1];
+        uint8_t tail = ++xram_queue_tail;
+        uint8_t loc = xram_queue[tail][0];
+        uint8_t val = xram_queue[tail][1];
         uint16_t xaddr = (psg_xaddr & 0xFF00) + loc;
         uint16_t offset = xaddr - psg_xaddr;
         if ((offset % sizeof(struct psg_channel)) == offsetof(struct psg_channel, pan_gate))

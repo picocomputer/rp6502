@@ -45,7 +45,7 @@ uint8_t *const __uninitialized_ram(xram) __attribute__((aligned(4))) =
 volatile uint8_t xram_queue_page;
 volatile uint8_t xram_queue_head;
 volatile uint8_t xram_queue_tail;
-uint8_t xram_queue[256][2];
+volatile uint8_t xram_queue[256][2];
 
 uint8_t xstack[XSTACK_SIZE + 1];
 volatile size_t xstack_ptr;
