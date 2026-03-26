@@ -45,6 +45,8 @@ bool atr_api_get(void)
         return api_return_axsreg(rln_get_max_length());
     case ATR_LRAND:
         return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+    case ATR_BEL:
+        return api_return_axsreg(com_get_bel());
     default:
         return api_return_errno(API_EINVAL);
     }
@@ -70,6 +72,9 @@ bool atr_api_set(void)
         break;
     case ATR_RLN_LENGTH:
         rln_set_max_length((uint8_t)value);
+        break;
+    case ATR_BEL:
+        com_set_bel(value);
         break;
     case ATR_LRAND: // Read only
     default:

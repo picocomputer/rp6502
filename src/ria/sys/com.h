@@ -27,6 +27,10 @@ void com_init(void);
 void com_run(void);
 void com_stop(void);
 
+// The '\a' BEL alert
+bool com_get_bel(void);
+void com_set_bel(bool value);
+
 /* Expose the internals here because ria.c needs direct access
  */
 
