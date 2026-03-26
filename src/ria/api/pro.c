@@ -25,6 +25,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // Records argv[0] of the currently running process.
 static char pro_running[256];
 
+// Records the launcher that will re-run when an exec process stops.
+static char pro_launcher[256];
+
+// Records if the launcher chain should be maintained.
+static bool pro_in_launcher;
+
 // A zero terminated list of uint16 which points
 // to zero terminated strings within pro_argv.
 // Maintans no space between pointers and chars.
@@ -42,9 +48,35 @@ void pro_run(void)
         pro_running[0] = '\0';
 }
 
+bool pro_get_launcher(void)
+{
+    return pro_launcher[0] != '\0';
+}
+
+void pro_set_launcher(bool is_launcher)
+{
+    if (is_launcher)
+    {
+        strncpy(pro_launcher, pro_running, sizeof(pro_launcher) - 1);
+        pro_launcher[sizeof(pro_launcher) - 1] = '\0';
+    }
+    else
+        pro_launcher[0] = '\0';
+}
+
 void pro_stop(void)
 {
+    bool relaunch = pro_launcher[0] != '\0' && strcmp(pro_running, pro_launcher) != 0;
     pro_running[0] = '\0';
+    if (!pro_in_launcher && !relaunch)
+        pro_launcher[0] = '\0';
+    pro_in_launcher = false;
+    if (relaunch)
+    {
+        pro_argv_clear();
+        pro_argv_append(pro_launcher);
+        rom_exec();
+    }
 }
 
 uint16_t pro_argv_count(void)
@@ -302,6 +334,7 @@ bool pro_api_exec(void)
     }
     // If we get this far, always stop.
     // Problems in rom.c will log to the console
+    pro_in_launcher = true;
     main_stop();
     rom_exec();
     return api_return_ax(0);

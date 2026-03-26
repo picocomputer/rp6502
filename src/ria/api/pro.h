@@ -35,6 +35,12 @@ const char *pro_argv_index(uint16_t idx);
 bool pro_api_argv(void);
 bool pro_api_exec(void);
 
+/* Launcher: when set, pro_stop() will re-exec the launcher ROM
+ * unless it was the currently running process (to prevent loops).
+ */
+bool pro_get_launcher(void);
+void pro_set_launcher(bool is_launcher);
+
 // Load a ROM via NFC
 void pro_nfc(const uint8_t *ndef, size_t len);
 

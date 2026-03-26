@@ -7,6 +7,7 @@
 #include "api/api.h"
 #include "api/atr.h"
 #include "api/oem.h"
+#include "api/pro.h"
 #include "api/std.h"
 #include "str/rln.h"
 #include "sys/com.h"
@@ -47,6 +48,8 @@ bool atr_api_get(void)
         return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
     case ATR_BEL:
         return api_return_axsreg(com_get_bel());
+    case ATR_LAUNCHER:
+        return api_return_axsreg(pro_get_launcher());
     default:
         return api_return_errno(API_EINVAL);
     }
@@ -75,6 +78,9 @@ bool atr_api_set(void)
         break;
     case ATR_BEL:
         com_set_bel((bool)!!(uint8_t)value);
+        break;
+    case ATR_LAUNCHER:
+        pro_set_launcher((bool)!!(uint8_t)value);
         break;
     case ATR_LRAND: // Read only
     default:
