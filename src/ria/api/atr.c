@@ -74,7 +74,7 @@ bool atr_api_set(void)
         rln_set_max_length((uint8_t)value);
         break;
     case ATR_BEL:
-        com_set_bel(value);
+        com_set_bel((bool)!!(uint8_t)value);
         break;
     case ATR_LRAND: // Read only
     default:

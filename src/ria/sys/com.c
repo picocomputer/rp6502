@@ -151,7 +151,7 @@ bool com_get_bel(void)
 
 void com_set_bel(bool value)
 {
-    com_bel_enabled = !!value;
+    com_bel_enabled = value;
 }
 
 void com_task(void)
