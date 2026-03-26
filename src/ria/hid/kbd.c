@@ -361,25 +361,25 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         if (modifier & KBD_MODIFIER_RIGHTALT)
         {
             if (is_shifted)
-                ch = ff_uni2oem(keys[keycode][3], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][3], oem_get_code_page_run());
             else
-                ch = ff_uni2oem(keys[keycode][2], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][2], oem_get_code_page_run());
         }
         else
         {
             if (is_shifted)
-                ch = ff_uni2oem(keys[keycode][1], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][1], oem_get_code_page_run());
             else
-                ch = ff_uni2oem(keys[keycode][0], oem_get_code_page());
+                ch = ff_uni2oem(keys[keycode][0], oem_get_code_page_run());
         }
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
         if (is_shifted)
-            ch = ff_uni2oem(keys[keycode][1], oem_get_code_page());
+            ch = ff_uni2oem(keys[keycode][1], oem_get_code_page_run());
         else
-            ch = ff_uni2oem(keys[keycode][0], oem_get_code_page());
+            ch = ff_uni2oem(keys[keycode][0], oem_get_code_page_run());
         if (key_ctrl)
         {
             if (ch >= '`' && ch <= '~')
@@ -678,7 +678,7 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state)
 void kbd_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
-    uint16_t code_page = oem_get_code_page();
+    uint16_t code_page = oem_get_code_page_run();
     kbd_cached_dead2 = (void *)&kbd_deadkey_cache[cache_index];
     for (int i = 0; kbd_layout_dead2[kbd_layout_index][i][0]; i++)
     {

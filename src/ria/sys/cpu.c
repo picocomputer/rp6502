@@ -20,8 +20,8 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static uint16_t cpu_phi2_khz;
-static uint16_t cpu_phi2_khz_active;
+static uint16_t cpu_phi2_khz_run;
+static uint16_t cpu_phi2_khz_set;
 static volatile bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
 
@@ -37,10 +37,10 @@ static void cpu_change_phi2_khz(uint16_t freq_khz)
     float clkdiv = CPU_RP2350_KHZ / 32.f / freq_khz;
     uint16_t clkdiv_int = clkdiv;
     uint8_t clkdiv_frac = (clkdiv - clkdiv_int) * (1u << 8u);
-    cpu_phi2_khz = CPU_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
-    if (cpu_phi2_khz_active == cpu_phi2_khz)
+    uint16_t new_khz = CPU_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
+    if (cpu_phi2_khz_run == new_khz)
         return;
-    cpu_phi2_khz_active = cpu_phi2_khz;
+    cpu_phi2_khz_run = new_khz;
     main_reclock(clkdiv_int, clkdiv_frac);
 }
 
@@ -57,8 +57,11 @@ void cpu_main(void)
 void cpu_init(void)
 {
     // Setting default
-    if (!cpu_phi2_khz)
+    if (!cpu_phi2_khz_run)
+    {
         cpu_change_phi2_khz(CPU_PHI2_DEFAULT);
+        cpu_phi2_khz_set = cpu_phi2_khz_run;
+    }
 }
 
 void cpu_task(void)
@@ -75,6 +78,10 @@ void cpu_task(void)
             absolute_time_t now = get_absolute_time();
             if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
                 gpio_put(CPU_RESB_PIN, true);
+        }
+        else if (cpu_phi2_khz_run != cpu_phi2_khz_set)
+        {
+            cpu_change_phi2_khz(cpu_phi2_khz_set);
         }
     }
 }
@@ -114,7 +121,7 @@ uint32_t cpu_get_reset_us(void)
     // If provided, use RP6502_RESB_US unless PHI2
     // speed needs longer for 2 clock cycles.
     // One extra microsecond to get ceil.
-    uint32_t reset_us = 2000 / cpu_phi2_khz + 1;
+    uint32_t reset_us = 2000 / cpu_phi2_khz_run + 1;
     if (!RP6502_RESB_US)
         return reset_us;
     return RP6502_RESB_US < reset_us
@@ -126,21 +133,36 @@ void cpu_load_phi2_khz(const char *str)
 {
     uint16_t phi2_khz;
     if (str_parse_uint16(&str, &phi2_khz) && phi2_khz)
+    {
         cpu_change_phi2_khz(phi2_khz);
+        cpu_phi2_khz_set = cpu_phi2_khz_run;
+    }
+}
+
+void cpu_set_phi2_khz_run(uint16_t phi2_khz)
+{
+    cpu_change_phi2_khz(phi2_khz);
 }
 
 bool cpu_set_phi2_khz(uint16_t phi2_khz)
 {
     if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
         return false;
-    uint16_t old_phi2_khz = cpu_phi2_khz;
     cpu_change_phi2_khz(phi2_khz);
-    if (old_phi2_khz != cpu_phi2_khz)
+    if (cpu_phi2_khz_set != cpu_phi2_khz_run)
+    {
+        cpu_phi2_khz_set = cpu_phi2_khz_run;
         cfg_save();
+    }
     return true;
 }
 
 uint16_t cpu_get_phi2_khz(void)
 {
-    return cpu_phi2_khz;
+    return cpu_phi2_khz_set;
+}
+
+uint16_t cpu_get_phi2_khz_run(void)
+{
+    return cpu_phi2_khz_run;
 }

@@ -46,6 +46,10 @@ bool cpu_active(void);
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us(void);
 
+// PHI2 without saving to config
+void cpu_set_phi2_khz_run(uint16_t phi2_khz);
+uint16_t cpu_get_phi2_khz_run(void);
+
 // Configuration setting PHI2
 void cpu_load_phi2_khz(const char *str);
 bool cpu_set_phi2_khz(uint16_t phi2_khz);

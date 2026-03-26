@@ -25,10 +25,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define ATR_ERRNO_OPT 0x00
 #define ATR_PHI2_KHZ 0x01
 #define ATR_CODE_PAGE 0x02
-#define ATR_MAX_LENGTH 0x03
+#define ATR_RLN_LENGTH 0x03
 #define ATR_LRAND 0x04
-// ATR_BEL
-// ATR_LAUNCHER
+#define ATR_BEL 0x05
+#define ATR_LAUNCHER 0x06
 
 // long ria_get_attr(uint8_t attr_id);
 bool atr_api_get(void)
@@ -38,10 +38,10 @@ bool atr_api_get(void)
     case ATR_ERRNO_OPT:
         return api_return_axsreg(api_get_errno_opt());
     case ATR_PHI2_KHZ:
-        return api_return_axsreg(cpu_get_phi2_khz());
+        return api_return_axsreg(cpu_get_phi2_khz_run());
     case ATR_CODE_PAGE:
-        return api_return_axsreg(oem_get_code_page());
-    case ATR_MAX_LENGTH:
+        return api_return_axsreg(oem_get_code_page_run());
+    case ATR_RLN_LENGTH:
         return api_return_axsreg(rln_get_max_length());
     case ATR_LRAND:
         return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
@@ -63,13 +63,12 @@ bool atr_api_set(void)
         api_set_errno_opt((uint8_t)value);
         break;
     case ATR_PHI2_KHZ:
-        // TODO ephemeral
-        cpu_set_phi2_khz((uint16_t)value);
+        cpu_set_phi2_khz_run((uint16_t)value);
         break;
     case ATR_CODE_PAGE:
-        oem_set_code_page_ephemeral((uint16_t)value);
+        oem_set_code_page_run((uint16_t)value);
         break;
-    case ATR_MAX_LENGTH:
+    case ATR_RLN_LENGTH:
         rln_set_max_length((uint8_t)value);
         break;
     case ATR_LRAND: // Read only
@@ -84,13 +83,10 @@ bool atr_api_set(void)
  * These are the old API op codes that are now accessible via attributes.
  */
 
-// int phi2(unsigned khz) - set/get CPU clock
+// int phi2(void) - set/get CPU clock
 bool atr_api_phi2(void)
 {
-    uint16_t khz = API_AX;
-    if (khz)
-        cpu_set_phi2_khz(khz);
-    return api_return_ax(cpu_get_phi2_khz());
+    return api_return_ax(cpu_get_phi2_khz_run());
 }
 
 // int codepage(unsigned cp) - set/get OEM code page
@@ -98,8 +94,8 @@ bool atr_api_code_page(void)
 {
     uint16_t cp = API_AX;
     if (cp)
-        oem_set_code_page_ephemeral(cp);
-    return api_return_ax(oem_get_code_page());
+        oem_set_code_page_run(cp);
+    return api_return_ax(oem_get_code_page_run());
 }
 
 // long lrand(void) - get random number

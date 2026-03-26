@@ -85,7 +85,7 @@ static void vcp_desc_string_to_oem(const tusb_desc_string_t *desc, char *dest, s
         if (ulen > VCP_DESC_STRING_MAX_CHAR_LEN)
             ulen = VCP_DESC_STRING_MAX_CHAR_LEN;
     }
-    uint16_t cp = oem_get_code_page();
+    uint16_t cp = oem_get_code_page_run();
     size_t pos = 0;
     for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
     {

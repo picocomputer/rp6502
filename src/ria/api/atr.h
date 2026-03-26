@@ -8,7 +8,7 @@
 #define _RIA_API_ATR_H_
 
 /* The ATR driver dispatches get/set attribute calls.
- * The API allows for 256 attributes of 32 bits.
+ * The API allows for 256 attributes of 31 bits.
  */
 
 #include <stddef.h>

@@ -25,48 +25,48 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // This is the default for when RP6502_CODE_PAGE == 0.
 #define OEM_DEFAULT_CODE_PAGE 437
 
-static uint16_t oem_code_page_setting;
-static uint16_t oem_code_page;
+static uint16_t oem_code_page_set;
+static uint16_t oem_code_page_run;
 
 static void oem_request_code_page(uint16_t cp)
 {
-    uint16_t old_code_page = oem_code_page;
+    uint16_t old_code_page = oem_code_page_run;
 #if RP6502_CODE_PAGE
     (void)cp;
-    oem_code_page = RP6502_CODE_PAGE;
+    oem_code_page_run = RP6502_CODE_PAGE;
 #else
     if (f_setcp(cp) == FR_OK)
-        oem_code_page = cp;
-    else if (oem_code_page == 0)
+        oem_code_page_run = cp;
+    else if (oem_code_page_run == 0)
     {
         if (f_setcp(OEM_DEFAULT_CODE_PAGE) != FR_OK)
             mon_add_response_str(STR_ERR_INTERNAL_ERROR);
-        oem_code_page = OEM_DEFAULT_CODE_PAGE;
+        oem_code_page_run = OEM_DEFAULT_CODE_PAGE;
     }
 #endif
-    if (old_code_page != oem_code_page)
+    if (old_code_page != oem_code_page_run)
     {
-        pix_send_blocking(PIX_DEVICE_VGA, 0xFu, 0x01u, oem_code_page);
+        pix_send_blocking(PIX_DEVICE_VGA, 0xFu, 0x01u, oem_code_page_run);
         kbd_rebuild_code_page_cache();
     }
 }
 
 void oem_init(void)
 {
-    if (!oem_code_page)
+    if (!oem_code_page_run)
     {
         oem_request_code_page(OEM_DEFAULT_CODE_PAGE);
-        oem_code_page_setting = oem_code_page;
+        oem_code_page_set = oem_code_page_run;
     }
 }
 
 void oem_stop(void)
 {
-    if (oem_code_page != oem_code_page_setting)
-        oem_request_code_page(oem_code_page_setting);
+    if (oem_code_page_run != oem_code_page_set)
+        oem_request_code_page(oem_code_page_set);
 }
 
-void oem_set_code_page_ephemeral(uint16_t cp)
+void oem_set_code_page_run(uint16_t cp)
 {
     oem_request_code_page(cp);
 }
@@ -76,11 +76,11 @@ bool oem_set_code_page(uint32_t cp)
     if (cp > UINT16_MAX)
         return false;
     oem_request_code_page(cp);
-    if (cp != oem_code_page)
+    if (cp != oem_code_page_run)
         return false;
-    if (oem_code_page_setting != oem_code_page)
+    if (oem_code_page_set != oem_code_page_run)
     {
-        oem_code_page_setting = oem_code_page;
+        oem_code_page_set = oem_code_page_run;
         cfg_save();
     }
     return true;
@@ -88,7 +88,12 @@ bool oem_set_code_page(uint32_t cp)
 
 uint16_t oem_get_code_page(void)
 {
-    return oem_code_page;
+    return oem_code_page_set;
+}
+
+uint16_t oem_get_code_page_run(void)
+{
+    return oem_code_page_run;
 }
 
 void oem_load_code_page(const char *str)
@@ -97,5 +102,5 @@ void oem_load_code_page(const char *str)
     if (!str_parse_uint16(&str, &cp))
         return;
     oem_request_code_page(cp);
-    oem_code_page_setting = oem_code_page;
+    oem_code_page_set = oem_code_page_run;
 }
