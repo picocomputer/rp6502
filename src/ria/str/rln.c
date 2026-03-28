@@ -297,7 +297,7 @@ static void rln_line_kill_to_start(void)
 
 static void rln_line_insert(char ch)
 {
-    if (ch < 32 || rln_buflen + 1 >= rln_max_length)
+    if (ch < 32 || rln_buflen >= rln_max_length)
         return;
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
         rln_buf[i] = rln_buf[i - 1];
