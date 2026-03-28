@@ -170,6 +170,7 @@ static void break_(void) // break is keyword
     vga_break();
     mem_break();
     rln_break();
+    pro_break();
 }
 
 // Triggered once after init then after every PHI2 change.

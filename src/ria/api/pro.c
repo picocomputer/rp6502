@@ -25,11 +25,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // Records argv[0] of the currently running process.
 static char pro_running[256];
 
-// Records the launcher that will re-run when an exec process stops.
+// Records the launcher that will re-run when program ends.
 static char pro_launcher[256];
-
-// Records if the launcher chain should be maintained.
-static bool pro_in_launcher;
 
 // A zero terminated list of uint16 which points
 // to zero terminated strings within pro_argv.
@@ -48,35 +45,30 @@ void pro_run(void)
         pro_running[0] = '\0';
 }
 
-bool pro_get_launcher(void)
-{
-    return pro_launcher[0] != '\0';
-}
-
-void pro_set_launcher(bool is_launcher)
-{
-    if (is_launcher)
-    {
-        strncpy(pro_launcher, pro_running, sizeof(pro_launcher) - 1);
-        pro_launcher[sizeof(pro_launcher) - 1] = '\0';
-    }
-    else
-        pro_launcher[0] = '\0';
-}
-
 void pro_stop(void)
 {
-    bool relaunch = pro_launcher[0] != '\0' && strcmp(pro_running, pro_launcher) != 0;
+    if (rom_active())
+    {
+        // pro_api_exec or pro_nfc launching
+        pro_running[0] = '\0';
+        return;
+    }
+    bool relaunch = pro_launcher[0] != '\0' &&
+                    strcmp(pro_running, pro_launcher) != 0;
     pro_running[0] = '\0';
-    if (!pro_in_launcher && !relaunch)
+    if (!relaunch)
         pro_launcher[0] = '\0';
-    pro_in_launcher = false;
     if (relaunch)
     {
         pro_argv_clear();
         pro_argv_append(pro_launcher);
         rom_exec();
     }
+}
+
+void pro_break(void)
+{
+    pro_launcher[0] = '\0';
 }
 
 uint16_t pro_argv_count(void)
@@ -189,6 +181,49 @@ bool pro_argv_replace(uint16_t idx, const char *str)
     }
     memcpy(&pro_argv[old_offset], str, new_len);
     return true;
+}
+
+bool pro_api_argv(void)
+{
+    uint16_t size = pro_argv_size();
+    xstack_ptr = XSTACK_SIZE - size;
+    memcpy(&xstack[xstack_ptr], pro_argv, size);
+    return api_return_ax(size);
+}
+
+bool pro_api_exec(void)
+{
+    size_t ptr = xstack_ptr;
+    uint16_t size = (uint16_t)(XSTACK_SIZE - ptr);
+    memcpy(pro_argv, &xstack[ptr], size);
+    memset(&pro_argv[size], 0, XSTACK_SIZE - size);
+    xstack_ptr = XSTACK_SIZE;
+    if (!pro_argv_validate() || !pro_argv_count())
+    {
+        pro_argv_clear();
+        return api_return_errno(API_EINVAL);
+    }
+    // If we get this far, always stop.
+    // Problems in rom.c will log to the console
+    main_stop();
+    rom_exec();
+    return api_return_ax(0);
+}
+
+bool pro_get_launcher(void)
+{
+    return pro_launcher[0] != '\0';
+}
+
+void pro_set_launcher(bool is_launcher)
+{
+    if (is_launcher)
+    {
+        strncpy(pro_launcher, pro_running, sizeof(pro_launcher) - 1);
+        pro_launcher[sizeof(pro_launcher) - 1] = '\0';
+    }
+    else
+        pro_launcher[0] = '\0';
 }
 
 void pro_nfc(const uint8_t *ndef, size_t len)
@@ -310,32 +345,4 @@ void pro_nfc(const uint8_t *ndef, size_t len)
 
 fail:
     bel_add(&bel_nfc_fail);
-}
-
-bool pro_api_argv(void)
-{
-    uint16_t size = pro_argv_size();
-    xstack_ptr = XSTACK_SIZE - size;
-    memcpy(&xstack[xstack_ptr], pro_argv, size);
-    return api_return_ax(size);
-}
-
-bool pro_api_exec(void)
-{
-    size_t ptr = xstack_ptr;
-    uint16_t size = (uint16_t)(XSTACK_SIZE - ptr);
-    memcpy(pro_argv, &xstack[ptr], size);
-    memset(&pro_argv[size], 0, XSTACK_SIZE - size);
-    xstack_ptr = XSTACK_SIZE;
-    if (!pro_argv_validate() || !pro_argv_count())
-    {
-        pro_argv_clear();
-        return api_return_errno(API_EINVAL);
-    }
-    // If we get this far, always stop.
-    // Problems in rom.c will log to the console
-    pro_in_launcher = true;
-    main_stop();
-    rom_exec();
-    return api_return_ax(0);
 }
