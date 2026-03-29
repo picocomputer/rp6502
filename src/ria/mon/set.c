@@ -59,10 +59,15 @@ static void set_boot(const char *args)
 {
     if (*args)
     {
-        if (args[0] == '-' && str_parse_end(args + 1))
+        const char *scan = args;
+        const char *tok = str_parse_string(&scan);
+        if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
             rom_set_boot("");
-        else if (!rom_set_boot(args))
-            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        else
+        {
+            if (!tok || !str_parse_end(scan) || !rom_set_boot(tok))
+                return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        }
     }
     mon_add_response_fn(set_boot_response);
 }
