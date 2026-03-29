@@ -233,7 +233,7 @@ static void fil_com_rx_mbuf(bool timeout)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        rln_read_line_programmatic(fil_command_dispatch, FIL_TIMEOUT_MS);
+        rln_read_line_timeout(fil_command_dispatch, FIL_TIMEOUT_MS);
     }
     else
         fil_state = FIL_IDLE;
@@ -294,7 +294,7 @@ void fil_mon_upload(const char *args)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    rln_read_line_programmatic(fil_command_dispatch, FIL_TIMEOUT_MS);
+    rln_read_line_timeout(fil_command_dispatch, FIL_TIMEOUT_MS);
 }
 
 void fil_mon_unlink(const char *args)

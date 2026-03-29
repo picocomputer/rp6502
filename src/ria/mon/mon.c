@@ -45,7 +45,7 @@ static int mon_response_line;
 static int mon_response_pos = -1;
 static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
-static bool mon_needs_read_line = false;
+static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static enum {
     MON_MORE_OFF,
@@ -137,7 +137,10 @@ static void mon_enter(bool timeout, const char *buf)
 {
     (void)timeout;
     assert(!timeout);
+    if (mon_needs_read_line) // cancelled
+        return;
     mon_needs_prompt = true;
+    mon_needs_read_line = true;
     const char *args = buf;
     stdio_flush();
     mon_function func = mon_command_lookup(&args);
@@ -485,7 +488,6 @@ void mon_task(void)
             mon_add_response_str(STR_MON_PROMPT);
         mon_needs_prompt = false;
         mon_needs_newline = false;
-        mon_needs_read_line = true;
         mon_response_line = 0;
         return;
     }
@@ -498,9 +500,15 @@ void mon_task(void)
     }
 }
 
-void mon_break(void)
+void mon_stop(void)
 {
     mon_needs_prompt = true;
+    mon_needs_read_line = true;
+}
+
+void mon_break(void)
+{
     mon_needs_newline = true;
     mon_needs_break = true;
+    mon_stop();
 }

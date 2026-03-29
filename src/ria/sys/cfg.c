@@ -18,6 +18,8 @@
 #include "sys/lfs.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
+#include "usb/nfc.h"
+#include "usb/vcp.h"
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
 #include <stdio.h>
@@ -35,6 +37,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +S437       | Code Page
 // +LUS        | Keyboard Layout
 // +D0         | VGA display type
+// +N1         | NFC Enabled
+// +HvCpHaSh   | NFC VCP Hash
 // +E1         | RF Enabled
 // +FUS        | RF Country Code
 // +WMyWiFi    | WiFi SSID
@@ -76,6 +80,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "+S%u\n"
                                "+L%s\n"
                                "+D%u\n"
+                               "+N%u\n"
+                               "+H%s\n"
 #ifdef RP6502_RIA_W
                                "+E%u\n"
                                "+F%s\n"
@@ -90,6 +96,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                oem_get_code_page(),
                                kbd_get_layout(),
                                vga_get_display_type(),
+                               nfc_get_enabled(),
+                               vcp_get_nfc_device_hash(),
 #ifdef RP6502_RIA_W
                                cyw_get_rf_enable(),
                                cyw_get_rf_country_code(),
@@ -148,6 +156,12 @@ static void cfg_load_with_boot_opt(bool boot_only)
             break;
         case 'D':
             vga_load_display_type(str);
+            break;
+        case 'N':
+            nfc_load_enabled(str);
+            break;
+        case 'H':
+            vcp_load_nfc_device_hash(str);
             break;
 #ifdef RP6502_RIA_W
         case 'E':

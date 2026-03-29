@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/clk.h"
+#include "api/pro.h"
 #include "mon/mon.h"
 #include "net/ble.h"
 #include "net/ntp.h"
@@ -46,7 +47,7 @@ void sys_init(void)
 #ifdef NDEBUG
     mon_add_response_str(STR_SYS_FULL_TERM_RESET);
 #else
-    mon_add_response_str(STR_SYS_DEBUG_TERM_RESET);
+    mon_add_response_str(STR_SYS_TERM_RESET);
 #endif
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
@@ -63,6 +64,7 @@ void sys_mon_reboot(const char *args)
 void sys_mon_reset(const char *args)
 {
     (void)(args);
+    pro_argv_clear();
     main_run();
 }
 

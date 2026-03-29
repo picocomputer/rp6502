@@ -6,8 +6,14 @@
 
 #include "api/api.h"
 #include "api/pro.h"
+#include "aud/bel.h"
 #include "main.h"
+#include "mon/mon.h"
 #include "mon/rom.h"
+#include "str/str.h"
+#include "usb/nfc.h"
+#include <fatfs/ff.h>
+#include <assert.h>
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PRO)
@@ -16,10 +22,54 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+// Records argv[0] of the currently running process.
+static char pro_running[256];
+
+// Records the launcher that will re-run when program ends.
+static char pro_launcher[256];
+
 // A zero terminated list of uint16 which points
 // to zero terminated strings within pro_argv.
 // Maintans no space between pointers and chars.
 static uint8_t pro_argv[XSTACK_SIZE];
+
+void pro_run(void)
+{
+    const char *argv0 = pro_argv_index(0);
+    if (argv0)
+    {
+        strncpy(pro_running, argv0, sizeof(pro_running) - 1);
+        pro_running[sizeof(pro_running) - 1] = '\0';
+    }
+    else
+        pro_running[0] = '\0';
+}
+
+void pro_stop(void)
+{
+    if (rom_active())
+    {
+        // pro_api_exec or pro_nfc launching
+        pro_running[0] = '\0';
+        return;
+    }
+    bool relaunch = pro_launcher[0] != '\0' &&
+                    strcmp(pro_running, pro_launcher) != 0;
+    pro_running[0] = '\0';
+    if (!relaunch)
+        pro_launcher[0] = '\0';
+    if (relaunch)
+    {
+        pro_argv_clear();
+        pro_argv_append(pro_launcher);
+        rom_exec();
+    }
+}
+
+void pro_break(void)
+{
+    pro_launcher[0] = '\0';
+}
 
 uint16_t pro_argv_count(void)
 {
@@ -158,4 +208,141 @@ bool pro_api_exec(void)
     main_stop();
     rom_exec();
     return api_return_ax(0);
+}
+
+bool pro_get_launcher(void)
+{
+    return pro_launcher[0] != '\0';
+}
+
+void pro_set_launcher(bool is_launcher)
+{
+    if (is_launcher)
+    {
+        strncpy(pro_launcher, pro_running, sizeof(pro_launcher) - 1);
+        pro_launcher[sizeof(pro_launcher) - 1] = '\0';
+    }
+    else
+        pro_launcher[0] = '\0';
+}
+
+void pro_nfc(const uint8_t *ndef, size_t len)
+{
+    char work[256];
+    DBG("pro_nfc(%zu bytes)\n", len);
+
+    if (!nfc_parse_text(ndef, len, work, sizeof(work)))
+        goto fail;
+    DBG("pro_nfc text %s\n", work);
+
+    // Parse the first arg for the ROM path
+    const char *args = work;
+    const char *first_arg = str_parse_string(&args);
+    if (!first_arg || *first_arg == ':')
+        goto fail;
+
+    bool has_drive = (strchr(first_arg, ':') != NULL);
+    if (has_drive)
+    {
+        strncpy(work, first_arg, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        const char *abs = str_abs_path(work);
+        if (!abs)
+            goto fail;
+        if (strcmp(abs, pro_running) == 0)
+        {
+            // Half success, already running
+            bel_add(&bel_nfc_success_1);
+            return;
+        }
+        strncpy(work, abs, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        DBG("pro_nfc argv[0] %s\n", work);
+        FILINFO finfo;
+        if (f_stat(work, &finfo) != FR_OK)
+            goto fail;
+    }
+    else
+    {
+        // Build canonical "MSC0:/path"
+        const char *p = (*first_arg == '/') ? first_arg + 1 : first_arg;
+        snprintf(work, sizeof(work), "MSC0:/%s", p);
+        const char *abs = str_abs_path(work);
+        if (!abs)
+            goto fail;
+        strncpy(work, abs, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        bool found = false;
+        for (int drive = 0; drive <= 9; drive++)
+        {
+            work[3] = (char)('0' + drive);
+            FILINFO finfo;
+            if (f_stat(work, &finfo) == FR_OK)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            goto fail;
+        if (strcmp(work, pro_running) == 0)
+        {
+            // Half success, already running
+            bel_add(&bel_nfc_success_1);
+            return;
+        }
+        DBG("pro_nfc argv[0] %s\n", work);
+    }
+
+    // Full success
+    bel_add(&bel_nfc_success_1);
+    bel_add(&bel_nfc_success_2);
+    mon_stop(); // reset input
+    main_stop();
+
+    // Change to the directory containing the ROM before loading
+    char *slash = strrchr(work, '/');
+    if (slash && slash > work)
+    {
+        // For root ("DRV:/file"), keep the slash; otherwise strip it
+        char *term = (*(slash - 1) == ':') ? slash + 1 : slash;
+        char saved = *term;
+        *term = '\0';
+        f_chdrive(work);
+        f_chdir(work);
+        *term = saved;
+    }
+
+    printf(STR_SYS_TERM_RESET);
+    printf("NFC ");
+    putchar('"');
+    for (const char *p = work; *p; p++)
+    {
+        unsigned char c = (unsigned char)*p;
+        if (c == '\\' || c == '"')
+            printf("\\%c", c);
+        else if (c < 32 || c > 126)
+            printf("\\%03o", c);
+        else
+            putchar(c);
+    }
+    putchar('"');
+    nfc_parse_text(ndef, len, work, sizeof(work));
+    args = work;
+    str_parse_string(&args);
+    if (*args)
+    {
+        putchar(' ');
+        for (const char *p = args; *p; p++)
+        {
+            unsigned char c = (unsigned char)*p;
+            putchar(c < 32 || c > 127 ? '?' : c);
+        }
+    }
+    putchar('\n');
+    rom_mon_load(work);
+    return;
+
+fail:
+    bel_add(&bel_nfc_fail);
 }

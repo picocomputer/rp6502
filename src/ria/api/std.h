@@ -17,7 +17,7 @@
 /* Main events
  */
 
-void std_run(void);
+void std_init(void);
 void std_stop(void);
 
 /* The API implementation for stdio support.

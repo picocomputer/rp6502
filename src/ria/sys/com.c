@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "aud/bel.h"
 #include "hid/kbd.h"
 #include "sys/com.h"
 #include "sys/pix.h"
@@ -19,6 +20,8 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+static bool com_bel_enabled = true;
 
 static stdio_driver_t com_stdio_driver;
 
@@ -61,6 +64,8 @@ static void com_tx_task(void)
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
+            if (ch == '\a' && com_bel_enabled)
+                bel_add(&bel_teletype);
         }
     }
     else
@@ -72,6 +77,8 @@ static void com_tx_task(void)
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
+            if (ch == '\a' && com_bel_enabled)
+                bel_add(&bel_teletype);
         }
     }
 }
@@ -135,6 +142,16 @@ void com_run()
 void com_stop()
 {
     com_clear_all_rx();
+}
+
+bool com_get_bel(void)
+{
+    return com_bel_enabled;
+}
+
+void com_set_bel(bool value)
+{
+    com_bel_enabled = value;
 }
 
 void com_task(void)

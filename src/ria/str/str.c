@@ -26,7 +26,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX STRINGIFY(CPU_PHI2_MIN_KHZ) "-" STRINGIFY(CPU_PHI2_MAX_KHZ)
 #define STR_RP6502_CODE_PAGE STRINGIFY(RP6502_CODE_PAGE)
 
-// Part 2 of putting string literals into flash.
+// Put string literals into flash.
 #define X(name, value) \
     const char __in_flash(STRINGIFY(name)) name[] = value;
 #include "str.inc"
@@ -213,103 +213,98 @@ const char *str_parse_string(const char **args)
         return NULL;
     *args += i;
     size_t out = 0;
-    if ((*args)[0] == '"')
+    size_t j = 0;
+    while ((*args)[j] && (*args)[j] != ' ')
     {
-        size_t j = 1;
-        while ((*args)[j] && (*args)[j] != '"')
+        if ((*args)[j] == '"')
         {
-            if (out >= 255)
-                return NULL;
-            if ((*args)[j] == '\\' && (*args)[j + 1])
+            j++; // skip opening "
+            while ((*args)[j] && (*args)[j] != '"')
             {
-                j++;
-                switch ((*args)[j])
+                if (out >= 255)
+                    return NULL;
+                if ((*args)[j] == '\\' && (*args)[j + 1])
                 {
-                case 'n':
-                    str_buf[out++] = '\n';
-                    break;
-                case 't':
-                    str_buf[out++] = '\t';
-                    break;
-                case 'r':
-                    str_buf[out++] = '\r';
-                    break;
-                case 'a':
-                    str_buf[out++] = '\a';
-                    break;
-                case 'b':
-                    str_buf[out++] = '\b';
-                    break;
-                case 'f':
-                    str_buf[out++] = '\f';
-                    break;
-                case 'v':
-                    str_buf[out++] = '\v';
-                    break;
-                case 'x':
-                {
-                    if (!isxdigit((unsigned char)(*args)[j + 1]))
-                        return NULL;
-                    uint32_t val = 0;
-                    while (isxdigit((unsigned char)(*args)[j + 1]))
+                    j++;
+                    switch ((*args)[j])
                     {
-                        val = val * 16 + (uint32_t)str_xdigit_to_int((*args)[++j]);
+                    case 'n':
+                        str_buf[out++] = '\n';
+                        break;
+                    case 't':
+                        str_buf[out++] = '\t';
+                        break;
+                    case 'r':
+                        str_buf[out++] = '\r';
+                        break;
+                    case 'a':
+                        str_buf[out++] = '\a';
+                        break;
+                    case 'b':
+                        str_buf[out++] = '\b';
+                        break;
+                    case 'f':
+                        str_buf[out++] = '\f';
+                        break;
+                    case 'v':
+                        str_buf[out++] = '\v';
+                        break;
+                    case 'x':
+                    {
+                        if (!isxdigit((unsigned char)(*args)[j + 1]))
+                            return NULL;
+                        uint32_t val = 0;
+                        while (isxdigit((unsigned char)(*args)[j + 1]))
+                        {
+                            val = val * 16 + (uint32_t)str_xdigit_to_int((*args)[++j]);
+                        }
+                        if ((val & 0xFF) == 0)
+                            return NULL;
+                        str_buf[out++] = (char)(val & 0xFF);
+                        break;
                     }
-                    if ((val & 0xFF) == 0)
-                        return NULL;
-                    str_buf[out++] = (char)(val & 0xFF);
-                    break;
+                    case '0':
+                    case '1':
+                    case '2':
+                    case '3':
+                    case '4':
+                    case '5':
+                    case '6':
+                    case '7':
+                    {
+                        uint32_t val = (uint32_t)((*args)[j] - '0');
+                        if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
+                            val = val * 8 + (uint32_t)((*args)[++j] - '0');
+                        if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
+                            val = val * 8 + (uint32_t)((*args)[++j] - '0');
+                        if ((val & 0xFF) == 0)
+                            return NULL;
+                        str_buf[out++] = (char)(val & 0xFF);
+                        break;
+                    }
+                    default:
+                        str_buf[out++] = (*args)[j];
+                        break;
+                    }
                 }
-                case '0':
-                case '1':
-                case '2':
-                case '3':
-                case '4':
-                case '5':
-                case '6':
-                case '7':
-                {
-                    uint32_t val = (uint32_t)((*args)[j] - '0');
-                    if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
-                        val = val * 8 + (uint32_t)((*args)[++j] - '0');
-                    if ((*args)[j + 1] >= '0' && (*args)[j + 1] <= '7')
-                        val = val * 8 + (uint32_t)((*args)[++j] - '0');
-                    if ((val & 0xFF) == 0)
-                        return NULL;
-                    str_buf[out++] = (char)(val & 0xFF);
-                    break;
-                }
-                default:
+                else
                     str_buf[out++] = (*args)[j];
-                    break;
-                }
+                j++;
             }
-            else
-                str_buf[out++] = (*args)[j];
-            j++;
+            if (!(*args)[j])
+                return NULL; // unclosed quote
+            j++;             // skip closing "
         }
-        if (!(*args)[j])
-            return NULL; // unclosed quote
-        j++;             // skip closing "
-        if ((*args)[j] && (*args)[j] != ' ')
-            return NULL; // garbage after closing quote
-        while ((*args)[j] == ' ')
-            j++;
-        *args += j;
-    }
-    else
-    {
-        size_t j = 0;
-        while ((*args)[j] && (*args)[j] != ' ')
+        else
         {
             if (out >= 255)
                 return NULL;
             str_buf[out++] = (*args)[j++];
         }
-        while ((*args)[j] == ' ')
-            j++;
-        *args += j;
     }
+    while ((*args)[j] == ' ')
+        j++;
+    *args += j;
     str_buf[out] = 0;
     return str_buf;
 }

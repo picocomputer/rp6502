@@ -75,6 +75,7 @@ __in_flash("hlp_settings") static struct
     {STR_KB, STR_HELP_SET_KB, kbd_layouts_response},
     {STR_CP, STR_HELP_SET_CP, NULL},
     {STR_VGA, STR_HELP_SET_VGA, NULL},
+    {STR_NFC, STR_HELP_SET_NFC, NULL},
 #ifdef RP6502_RIA_W
     {STR_RF, STR_HELP_SET_RF, NULL},
     {STR_RFCC, STR_HELP_SET_RFCC, cyw_country_code_response},

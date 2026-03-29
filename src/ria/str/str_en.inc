@@ -40,20 +40,20 @@ X(STR_ERR_ROM_NAME_INVALID, "?ROM name invalid\n")
 X(STR_ERR_ROM_DATA_INVALID, "?ROM data invalid\n")
 
 // Littlefs errors
-X(STR_ERR_LFS_IO, "?IO error\n")                      // -5
-X(STR_ERR_LFS_CORRUPT, "?Corrupted\n")                // -84
-X(STR_ERR_LFS_NOENT, "?No directory entry\n")         // -2
-X(STR_ERR_LFS_EXIST, "?Entry already exists\n")       // -17
-X(STR_ERR_LFS_NOTDIR, "?Entry is not a directory\n")  // -20
-X(STR_ERR_LFS_ISDIR, "?Entry is a directory\n")       // -21
-X(STR_ERR_LFS_NOTEMPTY, "?Directory is not empty\n")  // -39
-X(STR_ERR_LFS_BADF, "?Bad file number\n")             // -9
-X(STR_ERR_LFS_FBIG, "?File too large\n")              // -27
-X(STR_ERR_LFS_INVAL, "?Invalid parameter\n")          // -22
-X(STR_ERR_LFS_NOSPC, "?No space left on device\n")    // -28
-X(STR_ERR_LFS_NOMEM, "?No more memory available\n")   // -12
-X(STR_ERR_LFS_NOATTR, "?No data/attr available\n")    // -61
-X(STR_ERR_LFS_NAMETOOLONG, "?File name too long\n")   // -36
+X(STR_ERR_LFS_IO, "?IO error\n")                     // -5
+X(STR_ERR_LFS_CORRUPT, "?Corrupted\n")               // -84
+X(STR_ERR_LFS_NOENT, "?No directory entry\n")        // -2
+X(STR_ERR_LFS_EXIST, "?Entry already exists\n")      // -17
+X(STR_ERR_LFS_NOTDIR, "?Entry is not a directory\n") // -20
+X(STR_ERR_LFS_ISDIR, "?Entry is a directory\n")      // -21
+X(STR_ERR_LFS_NOTEMPTY, "?Directory is not empty\n") // -39
+X(STR_ERR_LFS_BADF, "?Bad file number\n")            // -9
+X(STR_ERR_LFS_FBIG, "?File too large\n")             // -27
+X(STR_ERR_LFS_INVAL, "?Invalid parameter\n")         // -22
+X(STR_ERR_LFS_NOSPC, "?No space left on device\n")   // -28
+X(STR_ERR_LFS_NOMEM, "?No more memory available\n")  // -12
+X(STR_ERR_LFS_NOATTR, "?No data/attr available\n")   // -61
+X(STR_ERR_LFS_NAMETOOLONG, "?File name too long\n")  // -36
 
 // FatFs errors
 X(STR_ERR_FATFS_DISK_ERR, "?Disk error\n")                     // 1
@@ -160,12 +160,13 @@ X(STR_HELP_SET,
   "SET KB (layout)     - Query or set keyboard layout.\n"
   "SET CP (cp)         - Query or set code page.\n"
   "SET VGA (0|1|2)     - Query or set display type for VGA output.\n"
+  "SET NFC (0|1|2|86)  - Disable or enable NFC reader. 2 scans for PN532.\n"
 #ifdef RP6502_RIA_W
   "SET RF (0|1)        - Disable or enable radio.\n"
   "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
   "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
   "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none.\n"
-  "SET BLE (0|1|2)     - Disable or enable Bluetooth LE. 2 enables pairing.\n"
+  "SET BLE (0|1|2|86)  - Disable or enable Bluetooth LE. 2 enables pairing.\n"
 #endif
   "")
 
@@ -304,6 +305,10 @@ X(STR_HELP_SET_VGA,
   "  0 - 640x480, for 4:3 displays\n"
   "  1 - 640x480 and 1280x720, for 16:9 displays\n"
   "  2 - 1280x1024, for 5:4 SXGA displays\n")
+
+X(STR_HELP_SET_NFC,
+  "Setting 0 disables NFC reader. Setting 1 enables. Setting 2 scans all VCPs to\n"
+  "find a PN532 device. Setting 86 clears the saved NFC device.\n")
 
 X(STR_HELP_SET_RF,
   "SET RF (0|1) turns all radios off or on.\n")

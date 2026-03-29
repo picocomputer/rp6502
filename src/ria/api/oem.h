@@ -21,8 +21,9 @@
 void oem_init(void);
 void oem_stop(void);
 
-// Set code page without saving to config
-void oem_set_code_page_ephemeral(uint16_t cp);
+// Code page without saving to config
+void oem_set_code_page_run(uint16_t cp);
+uint16_t oem_get_code_page_run(void);
 
 // Configuration setting KB
 void oem_load_code_page(const char *str);

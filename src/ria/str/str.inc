@@ -43,8 +43,8 @@ X(STR_STATUS_MSC, "%s: %s %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: %s %s\n")
 
 // ANSI to reset the terminal at boot
+X(STR_SYS_TERM_RESET, "\30\33[0m\33[?25h\n");
 X(STR_SYS_FULL_TERM_RESET, "\30\33c\n");
-X(STR_SYS_DEBUG_TERM_RESET, "\30\33[0m\33[?25h\n\n");
 
 // Monitor prompts
 X(STR_MON_PROMPT_NEWLINE, "\30\33[0m\33[?25h\n]")
@@ -83,6 +83,7 @@ X(STR_RFCC, "RFCC")
 X(STR_SSID, "SSID")
 X(STR_PASS, "PASS")
 X(STR_BLE, "BLE")
+X(STR_NFC, "NFC")
 X(STR_ABOUT, "ABOUT")
 X(STR_CREDITS, "CREDITS")
 X(STR_SYSTEM, "SYSTEM")
@@ -99,6 +100,8 @@ X(STR_7_COLON, "7:")
 X(STR_8_COLON, "8:")
 X(STR_9_COLON, "9:")
 X(STR_ROM_COLON, "ROM:")
+X(STR_CON_COLON, "CON:")
+X(STR_TTY_COLON, "TTY:")
 
 // Settings interface
 X(STR_SET_PHI2_RESPONSE, "PHI2: %ld (kHz)\n")
@@ -108,6 +111,7 @@ X(STR_SET_KB_RESPONSE, "KB  : %s (%s)\n")
 X(STR_SET_CODE_PAGE_DEV_RESPONSE, "CP  : %d (dev)\n")
 X(STR_SET_CODE_PAGE_RESPONSE, "CP  : %d\n")
 X(STR_SET_VGA_RESPONSE, "VGA : %d (%s)\n")
+X(STR_SET_NFC_RESPONSE, "NFC : %d (%s)\n")
 X(STR_SET_RF_RESPONSE, "RF  : %d (%s)\n")
 X(STR_SET_RFCC_RESPONSE, "RFCC: %s%s(%s)\n")
 X(STR_SET_SSID_RESPONSE, "SSID: %s\n")

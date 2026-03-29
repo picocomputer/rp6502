@@ -39,6 +39,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/nfc.h"
 #include "usb/xin.h"
 
 /**************************************/
@@ -67,6 +68,7 @@ static void init(void)
     cfg_init(); // Config stored on lfs
 
     // Misc device drivers, add yours here.
+    std_init();
     cyw_init();
     oem_init();
     led_init();
@@ -116,14 +118,15 @@ static void task(void)
     rln_task();
     fil_task();
     rom_task();
+    nfc_task(); // must be last for exec
     api_task(); // must be last for exec
 }
 
 // Event to start running the 6502.
 static void run(void)
 {
+    pro_run();
     com_run();
-    std_run();
     rln_run();
     dir_run();
     vga_run();
@@ -152,6 +155,8 @@ static void stop(void)
     aud_stop();
     mdm_stop();
     rom_stop();
+    pro_stop();
+    mon_stop();
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
@@ -165,6 +170,7 @@ static void break_(void) // break is keyword
     vga_break();
     mem_break();
     rln_break();
+    pro_break();
 }
 
 // Triggered once after init then after every PHI2 change.
@@ -213,8 +219,6 @@ bool main_api(uint8_t operation)
         return atr_api_code_page();
     case 0x04:
         return atr_api_lrand();
-    case 0x05:
-        return atr_api_stdin_opt();
     case 0x06:
         return atr_api_errno_opt();
     case 0x08:
@@ -237,8 +241,6 @@ bool main_api(uint8_t operation)
         return clk_api_get_time();
     case 0x12:
         return clk_api_set_time();
-    case 0x13: // ok to reuse
-        break; // retired clk_api_get_time_zone
     case 0x14:
         return std_api_open();
     case 0x15:
@@ -317,6 +319,7 @@ void main_run(void)
 
 void main_stop(void)
 {
+    cpu_stop(); // Pull down RESB
     if (main_state == starting)
         main_state = stopped;
     if (main_state != stopped)
