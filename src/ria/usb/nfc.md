@@ -33,6 +33,8 @@ int fd = open("NFC:", O_RDWR);
   `EBUSY`.
 - `close()` disarms any pending write command and releases the descriptor.
   The PN532 hardware continues running.
+- While open, `pro_nfc()` is not called; the 6502 application receives NDEF data
+  directly via `read()`.
 
 
 ## write() — Commands
@@ -44,6 +46,9 @@ A single `write()` call sends one command. Commands are:
 | `NFC_CMD_READ` (1 byte) | Snapshot current NFC state and post the result immediately. |
 | `NFC_CMD_WRITE, lenLo, lenHi, payload…` | Arm a write with an NDEF payload. |
 | `NFC_CMD_CANCEL` (1 byte) | Disarm any armed write. |
+| `NFC_CMD_SUCCESS1` (1 byte) | Play `bel_nfc_success_1`. |
+| `NFC_CMD_SUCCESS2` (1 byte) | Play `bel_nfc_success_2`. |
+| `NFC_CMD_ERROR` (1 byte) | Play `bel_nfc_fail`. |
 
 ### Command semantics
 
@@ -57,11 +62,15 @@ bytes into a staging buffer and arms the write once the full payload has
 arrived. The NDEF payload is delivered to the current card if one is present,
 or to the next card that is presented. When the write eventually completes,
 `NFC_WRITE_SUCCESS` or `NFC_WRITE_ERROR` is posted to the pool. A second
-`NFC_CMD_WRITE` while one is already armed posts `NFC_WRITE_CANCELLED`
-and overwrites it (last write wins).
+`NFC_CMD_WRITE` while one is already armed silently overwrites it (last write wins).
 
-**`NFC_CMD_CANCEL`** immediately disarms any armed write and posts
-`NFC_WRITE_CANCELLED` to the pool.
+**`NFC_CMD_CANCEL`** immediately disarms any armed write. No response is posted.
+
+**`NFC_CMD_SUCCESS1`** plays `bel_nfc_success_1`. No response is posted.
+
+**`NFC_CMD_SUCCESS2`** plays `bel_nfc_success_2`. No response is posted.
+
+**`NFC_CMD_ERROR`** plays `bel_nfc_fail`. No response is posted.
 
 **Concurrency**: Any combination of commands may be armed simultaneously.
 `NFC_CMD_READ` responses are always delivered before any pending write
@@ -83,7 +92,6 @@ Only `NFC_DATA` has additional bytes following it.
 | `NFC_DATA` | 4 bytes CC, `uint8_t age_ds`, `uint8_t lenLo`, `uint8_t lenHi`, then `len` NDEF bytes | `NFC_CMD_READ` when card has been read (len may be 0 for blank/null NDEF) |
 | `NFC_WRITE_SUCCESS` | — | `NFC_CMD_WRITE` when write completed successfully |
 | `NFC_WRITE_ERROR` | — | `NFC_CMD_WRITE` when write failed |
-| `NFC_WRITE_CANCELLED` | — | `NFC_CMD_CANCEL` or `NFC_CMD_WRITE` overwrite |
 
 `age_ds` is the age of the card data in tenths of a second (0.1 s resolution),
 capped at 255 (25.5 s). If the data is older than 25.5 seconds it is discarded
@@ -103,9 +111,7 @@ calls `read()` repeatedly until it receives all expected responses.
 | Reader attached, no card present | `NFC_NO_CARD` |
 | Card present, not yet read | `NFC_CARD_INSERTED` |
 | Card successfully read, data ≤ 25.5 s old, not yet delivered | `NFC_DATA` (len may be 0) |
-| Card successfully read, data > 25.5 s old | `NFC_CARD_INSERTED` |
-| Card successfully read, `NFC_DATA` already delivered once | `NFC_CARD_INSERTED` |
-| Card read failed | `NFC_READ_ERROR` |
+| Card read failed ≤ 25.5 s ago | `NFC_READ_ERROR` |
 
 `NFC_CMD_WRITE` arms a write and posts one of:
 
@@ -114,7 +120,9 @@ calls `read()` repeatedly until it receives all expected responses.
 | Write completed successfully | `NFC_WRITE_SUCCESS` |
 | Write failed | `NFC_WRITE_ERROR` |
 
-`NFC_CMD_CANCEL` immediately posts `NFC_WRITE_CANCELLED`.
+`NFC_CMD_CANCEL` disarms any armed write and posts nothing.
+
+`NFC_CMD_SUCCESS1`, `NFC_CMD_SUCCESS2`, and `NFC_CMD_ERROR` play sounds and post nothing.
 
 ### Snapshot rule
 
