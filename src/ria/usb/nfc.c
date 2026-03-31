@@ -21,6 +21,27 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+// NFC API command opcodes (written by 6502)
+#define NFC_CMD_READ 0x01
+#define NFC_CMD_WRITE 0x02
+#define NFC_CMD_CANCEL 0x03
+#define NFC_CMD_SUCCESS1 0x04
+#define NFC_CMD_SUCCESS2 0x05
+#define NFC_CMD_ERROR 0x06
+
+// NFC API response types (read by 6502)
+#define NFC_RESP_IDLE 0x00
+#define NFC_RESP_NO_READER 0x01
+#define NFC_RESP_NO_CARD 0x02
+#define NFC_RESP_CARD_INSERTED 0x03
+#define NFC_RESP_READ_ERROR 0x04
+#define NFC_RESP_READ_SUCCESS 0x05
+#define NFC_RESP_WRITE_SUCCESS 0x06
+#define NFC_RESP_WRITE_ERROR 0x07
+
+// Max NDEF data area for NTAG216 (CC byte 2 = 0x6D, 109 * 8)
+#define NFC_NDEF_BUF_SIZE 872
+
 // Timeouts
 #define NFC_ACK_TIMEOUT_MS 50
 #define NFC_RESPONSE_TIMEOUT_MS 100
@@ -75,6 +96,9 @@ static const char *const nfc_state_names[] = {
     "DETECT_REMOVAL_TX",
     "DETECT_REMOVAL_ACK",
     "DETECT_REMOVAL_RX",
+    "TAG_WRITE_TX",
+    "TAG_WRITE_ACK",
+    "TAG_WRITE_RX",
     "CLOSING",
 };
 
@@ -103,6 +127,9 @@ static enum {
     NFC_DETECT_REMOVAL_TX,
     NFC_DETECT_REMOVAL_ACK,
     NFC_DETECT_REMOVAL_RX,
+    NFC_TAG_WRITE_TX,
+    NFC_TAG_WRITE_ACK,
+    NFC_TAG_WRITE_RX,
     NFC_CLOSING,
 } nfc_state;
 
@@ -121,8 +148,30 @@ static size_t nfc_rx_pos;
 
 // NDEF read state, up to NTAG216 size
 static uint8_t nfc_read_page;
-static uint8_t nfc_ndef_buf[888];
+static uint8_t nfc_ndef_buf[NFC_NDEF_BUF_SIZE];
 static size_t nfc_ndef_len;
+static uint8_t nfc_cc[4];
+static absolute_time_t nfc_read_stamp;
+static bool nfc_read_failed;
+
+// 6502 API state
+static bool nfc_api_open;
+static uint8_t nfc_read_buf[NFC_NDEF_BUF_SIZE];
+static size_t nfc_read_len;
+static size_t nfc_read_pos;        // drain position through header + payload
+static uint8_t nfc_read_hdr[8];    // age_ds, CC[4], lenLo, lenHi
+static uint8_t nfc_read_response;  // pending NFC_CMD_READ result (0 = none)
+static uint8_t nfc_write_response; // pending NFC_CMD_WRITE result (0 = none)
+
+// Write staging
+static uint8_t nfc_write_buf[NFC_NDEF_BUF_SIZE];
+static size_t nfc_write_len;
+static size_t nfc_write_expected;
+static bool nfc_write_armed;
+static bool nfc_write_accumulating;
+static uint8_t nfc_write_cmd_pos; // position within NFC_CMD_WRITE stream (0=len_lo, 1=len_hi, 2+=payload)
+static uint8_t nfc_write_page;
+static size_t nfc_write_pos;
 
 static void nfc_goto(int new_state, uint32_t ms)
 {
@@ -268,8 +317,17 @@ static void nfc_close_device(void)
 
 static void nfc_recover(void)
 {
+    nfc_read_failed = false;
     nfc_close_device();
     nfc_goto(NFC_WAIT_DEVICE, NFC_RETRY_INTERVAL_MS);
+}
+
+static void nfc_write_fail(void)
+{
+    nfc_write_armed = false;
+    bel_add(&bel_nfc_fail);
+    nfc_write_response = NFC_RESP_WRITE_ERROR;
+    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
 }
 
 static void nfc_begin_receive(int ack_state)
@@ -607,6 +665,8 @@ void nfc_task(void)
             {
                 nfc_read_page = 4;
                 nfc_ndef_len = 0;
+                nfc_read_failed = false;
+                memset(nfc_cc, 0, sizeof(nfc_cc));
                 nfc_start_tx(NFC_CC_TX);
             }
             else
@@ -650,6 +710,7 @@ void nfc_task(void)
             if (resp_len >= 5 && resp[0] == 0x00)
             {
                 const uint8_t *cc = resp + 1;
+                memcpy(nfc_cc, cc, 4);
                 DBG("NFC: CC magic=0x%02X ver=0x%02X size=%u(%u bytes) access=0x%02X\n",
                     cc[0], cc[1], cc[2], (unsigned)(cc[2] * 8), cc[3]);
             }
@@ -713,7 +774,11 @@ void nfc_task(void)
                 {
                     nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
                     if (nfc_ndef_len > 0)
-                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
+                    {
+                        nfc_read_stamp = get_absolute_time();
+                        if (!nfc_api_open)
+                            pro_nfc(nfc_ndef_buf, nfc_ndef_len);
+                    }
                     break;
                 }
 
@@ -732,8 +797,10 @@ void nfc_task(void)
 
                 if (found_terminator || nfc_ndef_len >= sizeof(nfc_ndef_buf))
                 {
+                    nfc_read_stamp = get_absolute_time();
                     nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
-                    pro_nfc(nfc_ndef_buf, nfc_ndef_len);
+                    if (!nfc_api_open)
+                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                 }
                 else
                 {
@@ -743,12 +810,14 @@ void nfc_task(void)
             }
             else
             {
+                nfc_read_failed = true;
                 bel_add(&bel_nfc_fail);
                 nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
             }
         }
         else if (nfc_timed_out())
         {
+            nfc_read_failed = true;
             bel_add(&bel_nfc_fail);
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         }
@@ -757,7 +826,24 @@ void nfc_task(void)
 
     case NFC_CARD_PRESENT:
         if (nfc_timed_out())
-            nfc_start_tx(NFC_DETECT_REMOVAL_TX);
+        {
+            if (nfc_write_armed)
+            {
+                // Pre-check: does write fit in tag?
+                // tag_capacity == 0 means CC was never read; reject.
+                size_t tag_capacity = (size_t)nfc_cc[2] * 8;
+                if (tag_capacity == 0 || nfc_write_len > tag_capacity)
+                    nfc_write_fail();
+                else
+                {
+                    nfc_write_page = 4;
+                    nfc_write_pos = 0;
+                    nfc_start_tx(NFC_TAG_WRITE_TX);
+                }
+            }
+            else
+                nfc_start_tx(NFC_DETECT_REMOVAL_TX);
+        }
         break;
 
     case NFC_DETECT_REMOVAL_TX:
@@ -804,5 +890,315 @@ void nfc_task(void)
         nfc_close_device();
         nfc_goto(NFC_OFF, 0);
         break;
+
+    case NFC_TAG_WRITE_TX:
+    {
+        if (nfc_tx_len == 0)
+        {
+            uint8_t page_data[4] = {0};
+            size_t remaining = (nfc_write_pos < nfc_write_len)
+                                   ? nfc_write_len - nfc_write_pos
+                                   : 0;
+            size_t n = (remaining > 4) ? 4 : remaining;
+            memcpy(page_data, nfc_write_buf + nfc_write_pos, n);
+            // NTAG WRITE command: {tg, cmd, page, d0, d1, d2, d3}
+            uint8_t write_data[] = {
+                0x01, 0xA2, nfc_write_page,
+                page_data[0], page_data[1], page_data[2], page_data[3]};
+            nfc_build_frame(PN532_CMD_INDATAEXCHANGE, write_data, sizeof(write_data));
+        }
+        int rc = nfc_send();
+        if (rc < 0)
+            nfc_write_fail();
+        else if (rc == 1)
+            nfc_begin_receive(NFC_TAG_WRITE_ACK);
+        break;
     }
+
+    case NFC_TAG_WRITE_ACK:
+        nfc_recv();
+        if (nfc_check_ack())
+            nfc_goto(NFC_TAG_WRITE_RX, NFC_RESPONSE_TIMEOUT_MS);
+        else if (nfc_timed_out())
+            nfc_write_fail();
+        break;
+
+    case NFC_TAG_WRITE_RX:
+    {
+        nfc_recv();
+        size_t resp_len;
+        const uint8_t *resp = nfc_parse_response(PN532_CMD_INDATAEXCHANGE, &resp_len);
+        if (resp)
+        {
+            if (resp_len >= 1 && resp[0] == 0x00)
+            {
+                // Page written successfully, advance
+                nfc_write_pos += 4;
+                nfc_write_page++;
+                if (nfc_write_pos >= nfc_write_len)
+                {
+                    nfc_write_armed = false;
+                    nfc_write_response = NFC_RESP_WRITE_SUCCESS;
+                    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
+                }
+                else
+                    nfc_start_tx(NFC_TAG_WRITE_TX);
+            }
+            else
+                nfc_write_fail();
+        }
+        else if (nfc_timed_out())
+            nfc_write_fail();
+        break;
+    }
+    }
+}
+
+// --- 6502 std driver interface ---
+
+bool nfc_std_handles(const char *name)
+{
+    return strcasecmp(name, "NFC:") == 0;
+}
+
+int nfc_std_open(const char *name, uint8_t flags, api_errno *err)
+{
+    (void)name;
+    (void)flags;
+    if (nfc_api_open)
+    {
+        *err = API_EBUSY;
+        return -1;
+    }
+    nfc_api_open = true;
+    nfc_read_response = 0;
+    nfc_write_response = 0;
+    nfc_read_pos = 0;
+    nfc_read_len = 0;
+    nfc_write_armed = false;
+    nfc_write_accumulating = false;
+    return 0;
+}
+
+int nfc_std_close(int desc, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    nfc_write_armed = false;
+    nfc_write_accumulating = false;
+    nfc_api_open = false;
+    return 0;
+}
+
+static void nfc_cmd_read_snapshot(void)
+{
+    if (nfc_state == NFC_OFF || nfc_desc < 0)
+    {
+        nfc_read_response = NFC_RESP_NO_READER;
+        return;
+    }
+    if (nfc_state == NFC_IDLE ||
+        nfc_state == NFC_POLL_TX ||
+        nfc_state == NFC_POLL_ACK ||
+        nfc_state == NFC_POLL_RX)
+    {
+        nfc_read_response = NFC_RESP_NO_CARD;
+        return;
+    }
+    if (nfc_state == NFC_CC_TX ||
+        nfc_state == NFC_CC_ACK ||
+        nfc_state == NFC_CC_RX ||
+        nfc_state == NFC_READ_TX ||
+        nfc_state == NFC_READ_ACK ||
+        nfc_state == NFC_READ_RX)
+    {
+        nfc_read_response = NFC_RESP_CARD_INSERTED;
+        return;
+    }
+    // NFC_CARD_PRESENT, NFC_DETECT_REMOVAL_*, or NFC_TAG_WRITE_*
+    if (nfc_read_failed)
+    {
+        nfc_read_response = NFC_RESP_READ_ERROR;
+        return;
+    }
+    if (nfc_ndef_len == 0)
+    {
+        nfc_read_response = NFC_RESP_CARD_INSERTED;
+        return;
+    }
+    // Check age
+    int64_t age_us = absolute_time_diff_us(nfc_read_stamp, get_absolute_time());
+    if (age_us > 25500000) // 25.5 seconds
+    {
+        nfc_read_response = NFC_RESP_CARD_INSERTED;
+        return;
+    }
+    nfc_read_response = NFC_RESP_READ_SUCCESS;
+}
+
+std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
+                            uint32_t *bytes_written, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        uint8_t b = (uint8_t)buf[i];
+
+        if (nfc_write_accumulating)
+        {
+            // Streaming NFC_CMD_WRITE: len_lo, len_hi, then payload
+            switch (nfc_write_cmd_pos)
+            {
+            case 0:
+                nfc_write_expected = b;
+                nfc_write_cmd_pos = 1;
+                break;
+            case 1:
+                nfc_write_expected |= (size_t)b << 8;
+                if (nfc_write_expected > NFC_NDEF_BUF_SIZE)
+                    nfc_write_expected = NFC_NDEF_BUF_SIZE;
+                nfc_write_len = 0;
+                nfc_write_cmd_pos = 2;
+                if (nfc_write_expected == 0)
+                {
+                    nfc_write_accumulating = false;
+                    nfc_write_armed = true;
+                }
+                break;
+            default:
+                if (nfc_write_len < nfc_write_expected)
+                    nfc_write_buf[nfc_write_len++] = b;
+                if (nfc_write_len >= nfc_write_expected)
+                {
+                    nfc_write_accumulating = false;
+                    nfc_write_armed = true;
+                }
+                break;
+            }
+            continue;
+        }
+
+        switch (b)
+        {
+        case NFC_CMD_READ:
+            nfc_cmd_read_snapshot();
+            break;
+        case NFC_CMD_WRITE:
+            nfc_write_accumulating = true;
+            nfc_write_cmd_pos = 0;
+            nfc_write_armed = false;
+            break;
+        case NFC_CMD_CANCEL:
+            nfc_write_armed = false;
+            nfc_write_accumulating = false;
+            break;
+        case NFC_CMD_SUCCESS1:
+            bel_add(&bel_nfc_success_1);
+            break;
+        case NFC_CMD_SUCCESS2:
+            bel_add(&bel_nfc_success_2);
+            break;
+        case NFC_CMD_ERROR:
+            bel_add(&bel_nfc_fail);
+            break;
+        }
+    }
+
+    *bytes_written = count;
+    return STD_OK;
+}
+
+std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
+                           uint32_t *bytes_read, api_errno *err)
+{
+    (void)desc;
+    (void)err;
+    uint32_t pos = 0;
+
+    // If draining an NFC_DATA response (header + payload)
+    if (nfc_read_pos > 0 || nfc_read_len > 0)
+    {
+        size_t total = 7 + nfc_read_len; // header is 7 bytes
+        while (pos < count && nfc_read_pos < total)
+        {
+            if (nfc_read_pos < 7)
+                buf[pos++] = (char)nfc_read_hdr[nfc_read_pos++];
+            else
+                buf[pos++] = (char)nfc_read_buf[nfc_read_pos++ - 7];
+        }
+        if (nfc_read_pos >= total)
+        {
+            nfc_read_pos = 0;
+            nfc_read_len = 0;
+        }
+        *bytes_read = pos;
+        return STD_OK;
+    }
+
+    // Check priority slots: read response first, then write response
+    uint8_t resp = 0;
+    if (nfc_read_response)
+    {
+        resp = nfc_read_response;
+        nfc_read_response = 0;
+    }
+    else if (nfc_write_response)
+    {
+        resp = nfc_write_response;
+        nfc_write_response = 0;
+    }
+
+    if (resp == 0)
+    {
+        // Floor: no pending responses
+        if (count > 0)
+            buf[pos++] = (nfc_state == NFC_OFF || nfc_desc < 0)
+                             ? (char)NFC_RESP_NO_READER
+                             : (char)NFC_RESP_IDLE;
+        *bytes_read = pos;
+        return STD_OK;
+    }
+
+    if (resp == NFC_RESP_READ_SUCCESS)
+    {
+        // Freeze snapshot
+        memcpy(nfc_read_buf, nfc_ndef_buf, nfc_ndef_len);
+        nfc_read_len = nfc_ndef_len;
+
+        // Build header: age_ds, CC[4], lenLo, lenHi
+        int64_t age_us = absolute_time_diff_us(nfc_read_stamp, get_absolute_time());
+        int64_t age_ds = age_us / 100000;
+        nfc_read_hdr[0] = (age_ds > 255) ? 255 : (uint8_t)age_ds;
+        memcpy(&nfc_read_hdr[1], nfc_cc, 4);
+        nfc_read_hdr[5] = (uint8_t)(nfc_read_len & 0xFF);
+        nfc_read_hdr[6] = (uint8_t)((nfc_read_len >> 8) & 0xFF);
+
+        // Return response byte + start draining header
+        if (count > 0)
+            buf[pos++] = (char)NFC_RESP_READ_SUCCESS;
+        nfc_read_pos = 0;
+        size_t total = 7 + nfc_read_len;
+        while (pos < count && nfc_read_pos < total)
+        {
+            if (nfc_read_pos < 7)
+                buf[pos++] = (char)nfc_read_hdr[nfc_read_pos++];
+            else
+                buf[pos++] = (char)nfc_read_buf[nfc_read_pos++ - 7];
+        }
+        if (nfc_read_pos >= total)
+        {
+            nfc_read_pos = 0;
+            nfc_read_len = 0;
+        }
+        *bytes_read = pos;
+        return STD_OK;
+    }
+
+    // Single-byte response
+    if (count > 0)
+        buf[pos++] = (char)resp;
+    *bytes_read = pos;
+    return STD_OK;
 }
