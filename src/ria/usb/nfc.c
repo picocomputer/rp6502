@@ -1015,8 +1015,6 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
                 break;
             case 1:
                 nfc_write_expected |= (size_t)b << 8;
-                if (nfc_write_expected > NFC_NDEF_BUF_SIZE)
-                    nfc_write_expected = NFC_NDEF_BUF_SIZE;
                 nfc_write_len = 0;
                 nfc_write_cmd_pos = 2;
                 if (nfc_write_expected == 0)
@@ -1026,12 +1024,14 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
                 }
                 break;
             default:
-                if (nfc_write_len < nfc_write_expected)
-                    nfc_write_buf[nfc_write_len++] = b;
+                if (nfc_write_len < NFC_NDEF_BUF_SIZE)
+                    nfc_write_buf[nfc_write_len] = b;
+                nfc_write_len++;
                 if (nfc_write_len >= nfc_write_expected)
                 {
                     nfc_write_accumulating = false;
-                    nfc_write_armed = true;
+                    if (nfc_write_expected <= NFC_NDEF_BUF_SIZE)
+                        nfc_write_armed = true;
                 }
                 break;
             }
