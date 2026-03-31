@@ -64,6 +64,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // NDEF Type 2 Tag commands (NTAG/Mifare Ultralight)
 #define NDEF_READ_CMD 0x30
+#define NDEF_WRITE_CMD 0xA2
 #define NDEF_TLV_NULL 0x00
 #define NDEF_TLV_NDEF_MESSAGE 0x03
 #define NDEF_TLV_TERMINATOR 0xFE
@@ -163,6 +164,7 @@ static uint8_t nfc_write_buf[NFC_NDEF_BUF_SIZE];
 static size_t nfc_write_len;
 static size_t nfc_write_expected;
 static bool nfc_write_armed;
+static bool nfc_write_failed;
 static bool nfc_read_armed;
 static bool nfc_write_accumulating;
 static uint8_t nfc_write_cmd_pos; // position within NFC_CMD_WRITE stream (0=len_lo, 1=len_hi, 2+=payload)
@@ -179,8 +181,12 @@ static void nfc_goto(int new_state, uint32_t ms)
                 (unsigned long)to_ms_since_boot(get_absolute_time()),
                 nfc_state_names[nfc_state],
                 nfc_state_names[new_state]);
-        if (new_state == NFC_OFF || new_state == NFC_WAIT_DEVICE || new_state == NFC_IDLE)
+        if (new_state == NFC_OFF || new_state == NFC_WAIT_DEVICE ||
+            new_state == NFC_IDLE || new_state == NFC_CLOSING)
+        {
             nfc_card_inserted = false;
+            nfc_write_failed = false;
+        }
         nfc_state = new_state;
     }
     nfc_timeout = make_timeout_time_ms(ms);
@@ -321,8 +327,17 @@ static void nfc_recover(void)
 
 static void nfc_write_fail(void)
 {
+    nfc_write_failed = true;
     bel_add(&bel_nfc_fail);
     nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
+}
+
+static void nfc_read_complete(void)
+{
+    nfc_read_stamp = get_absolute_time();
+    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
+    if (nfc_ndef_len > 0 && !nfc_api_open)
+        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
 }
 
 static void nfc_begin_receive(int ack_state)
@@ -666,6 +681,7 @@ void nfc_task(void)
                 nfc_read_stamp = nil_time;
                 memset(nfc_cc, 0, sizeof(nfc_cc));
                 nfc_card_inserted = true;
+                nfc_write_failed = false;
                 nfc_start_tx(NFC_CC_TX);
             }
             else
@@ -771,45 +787,31 @@ void nfc_task(void)
                     }
                 if (blank)
                 {
-                    nfc_read_stamp = get_absolute_time();
-                    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
-                    if (nfc_ndef_len > 0 && !nfc_api_open)
-                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
+                    nfc_read_complete();
                     break;
                 }
 
+                size_t old_len = nfc_ndef_len;
                 for (size_t i = 0; i < data_len && nfc_ndef_len < sizeof(nfc_ndef_buf); i++)
                     nfc_ndef_buf[nfc_ndef_len++] = data[i];
 
                 bool found_terminator = false;
-                for (size_t i = 0; i < nfc_ndef_len; i++)
-                {
+                for (size_t i = old_len; i < nfc_ndef_len; i++)
                     if (nfc_ndef_buf[i] == NDEF_TLV_TERMINATOR)
                     {
                         found_terminator = true;
                         break;
                     }
-                }
 
                 if (found_terminator || nfc_ndef_len >= sizeof(nfc_ndef_buf))
-                {
-                    nfc_read_stamp = get_absolute_time();
-                    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
-                    if (!nfc_api_open)
-                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
-                }
-                else if (nfc_read_page <= 251)
+                    nfc_read_complete();
+                else if (nfc_read_page <= 227)
                 {
                     nfc_read_page += 4;
                     nfc_start_tx(NFC_READ_TX);
                 }
                 else
-                {
-                    nfc_read_stamp = get_absolute_time();
-                    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
-                    if (nfc_ndef_len > 0 && !nfc_api_open)
-                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
-                }
+                    nfc_read_complete();
             }
             else
             {
@@ -828,7 +830,7 @@ void nfc_task(void)
     case NFC_CARD_PRESENT:
         if (nfc_timed_out())
         {
-            if (nfc_write_armed)
+            if (nfc_write_armed && !nfc_write_failed)
             {
                 // Pre-check: does write fit in tag?
                 // tag_capacity == 0 means CC was never read; reject.
@@ -904,7 +906,7 @@ void nfc_task(void)
             memcpy(page_data, nfc_write_buf + nfc_write_pos, n);
             // NTAG WRITE command: {tg, cmd, page, d0, d1, d2, d3}
             uint8_t write_data[] = {
-                0x01, 0xA2, nfc_write_page,
+                0x01, NDEF_WRITE_CMD, nfc_write_page,
                 page_data[0], page_data[1], page_data[2], page_data[3]};
             nfc_build_frame(PN532_CMD_INDATAEXCHANGE, write_data, sizeof(write_data));
         }
@@ -935,7 +937,7 @@ void nfc_task(void)
             {
                 // Page written successfully, advance
                 nfc_write_pos += 4;
-                if (nfc_write_page < 255)
+                if (nfc_write_page < 231)
                     nfc_write_page++;
                 if (nfc_write_pos >= nfc_write_len)
                 {
