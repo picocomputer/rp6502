@@ -289,15 +289,19 @@ static void __tusb_irq_path_func(xfer_complete_isr)(hw_endpoint_t *ep, xfer_resu
   rp2usb_reset_transfer(ep);
   hcd_event_xfer_complete(ep->dev_addr, ep->ep_addr, xferred_len, xfer_result, true);
 
-  // Restore interrupt endpoint polling now that EPX completed.
-  unsuppress_int_polling();
-
   // Carry more transfer on epx
   if (is_more) {
     hw_endpoint_t *next_ep = epx_next_pending(epx);
     if (next_ep != NULL) {
-      epx_switch_ep(next_ep); // re-suppresses inside epx_start_xfer
+      epx_switch_ep(next_ep);
     }
+  }
+
+  // Restore interrupt endpoint polling once EPX is fully idle.
+  // Multi-packet transfers leave epx->active==true between packets;
+  // unsuppressing then would let an interrupt poll clobber EPX handshake latches.
+  if (_int_ep_suppressed && !epx->active) {
+    unsuppress_int_polling();
   }
 }
 
@@ -768,8 +772,10 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // SETUP forces DATA0 in hardware regardless; after completion the next stage
     // (DATA or STATUS) must start with DATA1 per USB 2.0 §8.5.3.
     // The old ep_addr-change check missed the SETUP→DATA OUT case where both are 0x00.
-    ep->ep_addr  = ep_addr;
-    ep->next_pid = 1;
+    ep->ep_addr = ep_addr;
+    if (tu_edpt_number(ep_addr) == 0) {
+      ep->next_pid = 1;
+    }
 
     // If EPX is busy with another transfer, mark as pending
     rp2usb_critical_enter();
