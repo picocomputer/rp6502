@@ -47,7 +47,8 @@ has a trailing payload.
 | `NFC_RESP_READ` (0x05) | 7 byte header + NDEF | Armed read complete |
 
 `NFC_RESP_READ` and `NFC_RESP_WRITE` should be followed with one or more tone
-commands, or the application's own sounds.
+commands, or the application's own sounds. The read or write will then need to
+be armed again as needed.
 
 ### NFC_RESP_READ header (7 bytes)
 
