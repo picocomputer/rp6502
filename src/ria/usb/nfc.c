@@ -153,10 +153,9 @@ static absolute_time_t nfc_read_stamp;
 
 // 6502 API state
 static bool nfc_api_open;
-static uint8_t nfc_read_buf[NFC_NDEF_BUF_SIZE];
+static uint8_t nfc_read_buf[7 + NFC_NDEF_BUF_SIZE]; // age_ds, CC[4], lenLo, lenHi, NDEF...
 static size_t nfc_read_len;
-static size_t nfc_read_pos;        // drain position through header + payload
-static uint8_t nfc_read_hdr[7];    // age_ds, CC[4], lenLo, lenHi
+static size_t nfc_read_pos; // drain position through header + payload
 static bool nfc_write_response;
 
 // Write staging
@@ -772,13 +771,10 @@ void nfc_task(void)
                     }
                 if (blank)
                 {
+                    nfc_read_stamp = get_absolute_time();
                     nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
-                    if (nfc_ndef_len > 0)
-                    {
-                        nfc_read_stamp = get_absolute_time();
-                        if (!nfc_api_open)
-                            pro_nfc(nfc_ndef_buf, nfc_ndef_len);
-                    }
+                    if (nfc_ndef_len > 0 && !nfc_api_open)
+                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                     break;
                 }
 
@@ -802,10 +798,17 @@ void nfc_task(void)
                     if (!nfc_api_open)
                         pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                 }
-                else
+                else if (nfc_read_page <= 251)
                 {
                     nfc_read_page += 4;
                     nfc_start_tx(NFC_READ_TX);
+                }
+                else
+                {
+                    nfc_read_stamp = get_absolute_time();
+                    nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
+                    if (nfc_ndef_len > 0 && !nfc_api_open)
+                        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
                 }
             }
             else
@@ -932,7 +935,8 @@ void nfc_task(void)
             {
                 // Page written successfully, advance
                 nfc_write_pos += 4;
-                nfc_write_page++;
+                if (nfc_write_page < 255)
+                    nfc_write_page++;
                 if (nfc_write_pos >= nfc_write_len)
                 {
                     nfc_write_armed = false;
@@ -985,6 +989,7 @@ int nfc_std_close(int desc, api_errno *err)
     nfc_read_armed = false;
     nfc_write_armed = false;
     nfc_write_accumulating = false;
+    nfc_write_response = false;
     nfc_api_open = false;
     return 0;
 }
@@ -1045,6 +1050,7 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
             break;
         case NFC_CMD_CANCEL:
             nfc_read_armed = false;
+            nfc_read_stamp = nil_time;
             nfc_write_armed = false;
             nfc_write_accumulating = false;
             break;
@@ -1071,25 +1077,8 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
     (void)err;
     uint32_t pos = 0;
 
-    // If draining an NFC_DATA response (header + payload)
-    if (nfc_read_pos > 0 || nfc_read_len > 0)
-    {
-        size_t total = 7 + nfc_read_len; // header is 7 bytes
-        while (pos < count && nfc_read_pos < total)
-        {
-            if (nfc_read_pos < 7)
-                buf[pos++] = (char)nfc_read_hdr[nfc_read_pos++];
-            else
-                buf[pos++] = (char)nfc_read_buf[nfc_read_pos++ - 7];
-        }
-        if (nfc_read_pos >= total)
-        {
-            nfc_read_pos = 0;
-            nfc_read_len = 0;
-        }
-        *bytes_read = pos;
-        return STD_OK;
-    }
+    if (nfc_read_len > 0)
+        goto drain;
 
     // Check priority slots: read response first, then write response
     uint8_t resp = 0;
@@ -1124,44 +1113,32 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
         return STD_OK;
     }
 
-    if (resp == NFC_RESP_READ)
-    {
-        // Freeze snapshot
-        memcpy(nfc_read_buf, nfc_ndef_buf, nfc_ndef_len);
-        nfc_read_len = nfc_ndef_len;
-
-        // Build header: age_ds, CC[4], lenLo, lenHi
-        int64_t age_us = absolute_time_diff_us(nfc_read_stamp, get_absolute_time());
-        int64_t age_ds = age_us / 100000;
-        nfc_read_hdr[0] = (age_ds > 255) ? 255 : (uint8_t)age_ds;
-        memcpy(&nfc_read_hdr[1], nfc_cc, 4);
-        nfc_read_hdr[5] = (uint8_t)(nfc_read_len & 0xFF);
-        nfc_read_hdr[6] = (uint8_t)((nfc_read_len >> 8) & 0xFF);
-
-        // Return response byte + start draining header
-        if (count > 0)
-            buf[pos++] = (char)NFC_RESP_READ;
-        nfc_read_pos = 0;
-        size_t total = 7 + nfc_read_len;
-        while (pos < count && nfc_read_pos < total)
-        {
-            if (nfc_read_pos < 7)
-                buf[pos++] = (char)nfc_read_hdr[nfc_read_pos++];
-            else
-                buf[pos++] = (char)nfc_read_buf[nfc_read_pos++ - 7];
-        }
-        if (nfc_read_pos >= total)
-        {
-            nfc_read_pos = 0;
-            nfc_read_len = 0;
-        }
-        *bytes_read = pos;
-        return STD_OK;
-    }
-
-    // Single-byte response
     if (count > 0)
         buf[pos++] = (char)resp;
+
+    if (resp == NFC_RESP_READ)
+    {
+        // Freeze snapshot into unified buffer: header at [0..6], payload at [7..]
+        size_t ndef_len = nfc_ndef_len;
+        int64_t age_us = absolute_time_diff_us(nfc_read_stamp, get_absolute_time());
+        int64_t age_ds = age_us / 100000;
+        nfc_read_buf[0] = (age_ds > 255) ? 255 : (uint8_t)age_ds;
+        memcpy(&nfc_read_buf[1], nfc_cc, 4);
+        nfc_read_buf[5] = (uint8_t)(ndef_len & 0xFF);
+        nfc_read_buf[6] = (uint8_t)((ndef_len >> 8) & 0xFF);
+        memcpy(&nfc_read_buf[7], nfc_ndef_buf, ndef_len);
+        nfc_read_len = 7 + ndef_len;
+        nfc_read_pos = 0;
+    }
+
+drain:
+    while (pos < count && nfc_read_pos < nfc_read_len)
+        buf[pos++] = (char)nfc_read_buf[nfc_read_pos++];
+    if (nfc_read_pos >= nfc_read_len)
+    {
+        nfc_read_pos = 0;
+        nfc_read_len = 0;
+    }
     *bytes_read = pos;
     return STD_OK;
 }
