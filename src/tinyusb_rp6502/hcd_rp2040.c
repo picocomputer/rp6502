@@ -387,6 +387,10 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
     }
   }
 
+  if (status & USB_INTS_HOST_RESUME_BITS) {
+    usb_hw_clear->sie_status = USB_SIE_STATUS_RESUME_BITS;
+  }
+
   if (status & USB_INTS_STALL_BITS) {
     usb_hw_clear->sie_status = USB_SIE_STATUS_STALL_REC_BITS;
     usb_hw_clear->buf_status = 0x3u;    // prevent spurious EPX BUFF_STATUS
