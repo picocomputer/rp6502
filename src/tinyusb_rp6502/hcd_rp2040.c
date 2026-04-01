@@ -100,10 +100,14 @@ int hcd_free_ep_count(void) {
 }
 
 static hw_endpoint_t *edpt_find(uint8_t daddr, uint8_t ep_addr) {
-  for (uint32_t i = 0; i < TU_ARRAY_SIZE(ep_pool); i++) {
+  // EP0 (control) always uses the shared EPX at ep_pool[0]
+  if (tu_edpt_number(ep_addr) == 0) {
+    return &ep_pool[0];
+  }
+
+  for (uint32_t i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
     hw_endpoint_t *ep = &ep_pool[i];
-    if ((ep->dev_addr == daddr) && (ep->max_packet_size > 0) &&
-        (ep->ep_addr == ep_addr || (tu_edpt_number(ep_addr) == 0 && tu_edpt_number(ep->ep_addr) == 0))) {
+    if ((ep->dev_addr == daddr) && (ep->max_packet_size > 0) && (ep->ep_addr == ep_addr)) {
       return ep;
     }
   }
@@ -621,8 +625,8 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
   (void)rhport;
   pico_trace("hcd_edpt_open dev_addr %d, ep_addr %d\n", dev_addr, ep_desc->bEndpointAddress);
   hw_endpoint_t *ep;
-  if (dev_addr == 0) {
-    ep = &ep_pool[0];
+  if (dev_addr == 0 || ep_desc->bmAttributes.xfer == TUSB_XFER_CONTROL) {
+    ep = &ep_pool[0]; // EP0 shares EPX, no pool slot needed
   } else {
     ep = edpt_alloc();
   }
@@ -766,6 +770,8 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // (DATA or STATUS) must start with DATA1 per USB 2.0 §8.5.3.
     ep->ep_addr = ep_addr;
     if (tu_edpt_number(ep_addr) == 0) {
+      ep->dev_addr = dev_addr;
+      ep->need_pre = need_pre(dev_addr);
       ep->next_pid = 1;
     }
 
@@ -812,6 +818,8 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, const uint8_t setup_packet
     usbh_dpram->setup_packet[i] = setup_packet[i];
   }
 
+  ep->dev_addr      = dev_addr;
+  ep->need_pre      = need_pre(dev_addr);
   ep->ep_addr       = 0; // setup is OUT
   ep->remaining_len = 8;
   ep->xferred_len   = 0;
