@@ -89,6 +89,16 @@ static hw_endpoint_t *edpt_alloc(void) {
   return NULL;
 }
 
+int hcd_free_ep_count(void) {
+  int count = 0;
+  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
+    if (ep_pool[i].max_packet_size == 0) {
+      count++;
+    }
+  }
+  return count;
+}
+
 static hw_endpoint_t *edpt_find(uint8_t daddr, uint8_t ep_addr) {
   for (uint32_t i = 0; i < TU_ARRAY_SIZE(ep_pool); i++) {
     hw_endpoint_t *ep = &ep_pool[i];
@@ -384,6 +394,9 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
     const uint32_t sie_ctrl = (usb_hw->sie_ctrl & SIE_CTRL_BASE_MASK) | USB_SIE_CTRL_STOP_TRANS_BITS;
     usb_hw->sie_ctrl        = sie_ctrl;
     // while (usb_hw->sie_ctrl & USB_SIE_CTRL_STOP_TRANS_BITS) {}
+
+    usb_hw_clear->buf_status = 0x3u;    // prevent spurious EPX BUFF_STATUS
+    usbh_dpram->epx_buf_ctrl = 0;
 
     // Even if STOP_TRANS bit is clear, controller maybe in middle of retrying and may re-raise timeout once extra time
     // Only handle if epx is active, don't carry more epx transfer since STOP_TRANS is raced and not safe.
@@ -683,16 +696,21 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   hw_endpoint_t *ep = edpt_find(daddr, ep_addr);
   if (!ep) return true;
 
+  rp2usb_critical_enter();
   if (ep->interrupt_num) {
-    rp2usb_critical_enter();
     usb_hw_clear->int_ep_ctrl                       = TU_BIT(ep->interrupt_num);
     usb_hw->int_ep_addr_ctrl[ep->interrupt_num - 1] = 0;
     *dpram_int_ep_ctrl(ep->interrupt_num)           = 0;
     *dpram_int_ep_buffer_ctrl(ep->interrupt_num)    = 0;
-    rp2usb_reset_transfer(ep);
-    ep->max_packet_size = 0;
-    rp2usb_critical_exit();
+  } else {
+    // Non-interrupt (bulk/iso) endpoint using shared EPX
+    if (epx == ep) {
+      usbh_dpram->epx_buf_ctrl = 0;
+    }
   }
+  rp2usb_reset_transfer(ep);
+  ep->max_packet_size = 0;
+  rp2usb_critical_exit();
   return true;
 }
 
