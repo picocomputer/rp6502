@@ -74,36 +74,7 @@ enum {
   SIE_CTRL_SPEED_FULL       = 2,
 };
 
-// Interrupt endpoint polling suppression.
-// The RP2040 SIE fires TRANS_COMPLETE for interrupt endpoint transactions too.
-// A 0-byte EPX transfer (control STATUS phase) has no BUFF_STATUS, so the
-// TRANS_COMPLETE handler uses buf_status==0 + epx->active as a ZLP heuristic.
-// An interrupt poll completing while EPX is NAK-retrying a ZLP would match
-// that heuristic and falsely complete EPX.  Zero int_ep_ctrl before every
-// EPX START_TRANS and restore it once EPX is idle.
-static bool _int_ep_suppressed = false;
-
-static uint32_t compute_int_ep_ctrl(void) {
-  uint32_t val = 0;
-  for (uint i = 1; i < TU_ARRAY_SIZE(ep_pool); i++) {
-    if (ep_pool[i].interrupt_num && ep_pool[i].max_packet_size > 0) {
-      val |= TU_BIT(ep_pool[i].interrupt_num);
-    }
-  }
-  return val;
-}
-
-static void suppress_int_polling(void) {
-  usb_hw->int_ep_ctrl = 0;
-  _int_ep_suppressed  = true;
-}
-
-static void unsuppress_int_polling(void) {
-  if (!_int_ep_suppressed) return;
-  usb_hw->int_ep_ctrl = compute_int_ep_ctrl();
-  _int_ep_suppressed  = false;
-}
-
+//--------------------------------------------------------------------+
 //--------------------------------------------------------------------+
 //
 //--------------------------------------------------------------------+
@@ -181,8 +152,18 @@ TU_ATTR_ALWAYS_INLINE static inline void sie_start_xfer(bool send_setup, bool is
 }
 
 TU_ATTR_ALWAYS_INLINE static inline void epx_start_xfer(hw_endpoint_t *ep, bool is_setup) {
+  // Clear transient handshake/status latches from the prior EPX phase so
+  // stale bits cannot trigger immediate spurious interrupts on the new transfer.
+  usb_hw_clear->sie_status = USB_SIE_STATUS_ACK_REC_BITS |
+                             USB_SIE_STATUS_NAK_REC_BITS |
+                             USB_SIE_STATUS_STALL_REC_BITS |
+                             USB_SIE_STATUS_DATA_SEQ_ERROR_BITS |
+                             USB_SIE_STATUS_RX_TIMEOUT_BITS |
+                             USB_SIE_STATUS_RX_SHORT_PACKET_BITS |
+                             USB_SIE_STATUS_TRANS_COMPLETE_BITS |
+                             USB_SIE_STATUS_ENDPOINT_ERROR_BITS;
+  usb_hw_clear->buf_status = 0x3u; // clear stale EPX buf_status
   usb_hw->dev_addr_ctrl = (uint32_t)(ep->dev_addr | (tu_edpt_number(ep->ep_addr) << USB_ADDR_ENDP_ENDPOINT_LSB));
-  suppress_int_polling();
   sie_start_xfer(is_setup, tu_edpt_dir(ep->ep_addr) == TUSB_DIR_IN, ep->need_pre);
 }
 
@@ -249,7 +230,7 @@ static void __tusb_irq_path_func(epx_switch_ep)(hw_endpoint_t *ep) {
   ep->active  = true;
 
   if (is_setup) {
-    // panic("new setup \n");
+    usbh_dpram->epx_buf_ctrl = 0;  // clear stale buf_ctrl from previous endpoint
     epx_start_xfer(ep, true);
   } else {
     io_rw_32 *ep_reg  = &usbh_dpram->epx_ctrl;
@@ -295,13 +276,6 @@ static void __tusb_irq_path_func(xfer_complete_isr)(hw_endpoint_t *ep, xfer_resu
     if (next_ep != NULL) {
       epx_switch_ep(next_ep);
     }
-  }
-
-  // Restore interrupt endpoint polling once EPX is fully idle.
-  // Multi-packet transfers leave epx->active==true between packets;
-  // unsuppressing then would let an interrupt poll clobber EPX handshake latches.
-  if (_int_ep_suppressed && !epx->active) {
-    unsuppress_int_polling();
   }
 }
 
@@ -372,7 +346,6 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
       // completions for the device the stack is about to tear down.
       usb_hw->sie_ctrl         = SIE_CTRL_BASE;
       usb_hw->int_ep_ctrl      = 0;
-      _int_ep_suppressed       = false;
       usb_hw_clear->buf_status = 0xffffffffu;
       usbh_dpram->epx_buf_ctrl = 0;
   #ifndef HAS_STOP_EPX_ON_NAK
@@ -386,7 +359,10 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
       if (speed == SIE_CTRL_SPEED_LOW) {
         usb_hw->sie_ctrl = SIE_CTRL_BASE | USB_SIE_CTRL_KEEP_ALIVE_EN_BITS;
       } else {
-        usb_hw->sie_ctrl = SIE_CTRL_BASE | USB_SIE_CTRL_SOF_EN_BITS;
+        // KEEP_ALIVE_EN is needed even for full-speed root devices (hubs) when
+        // low-speed devices are attached downstream. It sends a low-speed EOP
+        // before each SOF so low-speed devices behind the hub can see SOFs.
+        usb_hw->sie_ctrl = SIE_CTRL_BASE | USB_SIE_CTRL_SOF_EN_BITS | USB_SIE_CTRL_KEEP_ALIVE_EN_BITS;
       }
       hcd_event_device_attach(RHPORT_NATIVE, true);
     }
@@ -739,7 +715,6 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
       sie_stop_xfer();
       usbh_dpram->epx_buf_ctrl = 0;
       rp2usb_reset_transfer(ep);
-      unsuppress_int_polling();
     } else {
       ep->pending       = 0;
       ep->remaining_len = 0;
@@ -771,7 +746,6 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // Control transfers: always reset next_pid to DATA1 for data and status stages.
     // SETUP forces DATA0 in hardware regardless; after completion the next stage
     // (DATA or STATUS) must start with DATA1 per USB 2.0 §8.5.3.
-    // The old ep_addr-change check missed the SETUP→DATA OUT case where both are 0x00.
     ep->ep_addr = ep_addr;
     if (tu_edpt_number(ep_addr) == 0) {
       ep->next_pid = 1;
@@ -836,6 +810,7 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, const uint8_t setup_packet
   } else {
     epx        = ep;
     ep->active = true;
+    usbh_dpram->epx_buf_ctrl = 0;  // clear stale buf_ctrl from previous phase
     epx_start_xfer(ep, true);
   }
 
