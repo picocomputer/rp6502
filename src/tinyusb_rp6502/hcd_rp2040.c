@@ -64,6 +64,11 @@
 static hw_endpoint_t  ep_pool[USB_MAX_ENDPOINTS];
 static hw_endpoint_t *epx = &ep_pool[0]; // current active endpoint
 
+// EP0 max packet size per device address. EPX is shared across all devices so
+// its max_packet_size can become stale when switching between devices with
+// different EP0 sizes (e.g. low-speed MPS=8 vs full-speed MPS=64).
+static uint8_t _ep0_mps[CFG_TUH_DEVICE_MAX + CFG_TUH_HUB + 1]; // +1 for addr0
+
   #ifndef HAS_STOP_EPX_ON_NAK
 static volatile bool epx_switch_request = false;
   #endif
@@ -573,6 +578,10 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
     return; // address 0 is for device enumeration
   }
 
+  if (dev_addr < TU_ARRAY_SIZE(_ep0_mps)) {
+    _ep0_mps[dev_addr] = 0;
+  }
+
   // reset epx if it is currently active with unplugged device
   if (epx->max_packet_size > 0 && epx->dev_addr == dev_addr) {
     // if (epx->active) {
@@ -642,6 +651,11 @@ bool hcd_edpt_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_endpoint_t 
   ep->transfer_type   = transfer_type;
   ep->need_pre        = need_pre(dev_addr);
   ep->next_pid        = 0u;
+
+  // Remember EP0 max packet size so hcd_setup_send/hcd_edpt_xfer can restore it
+  if (tu_edpt_number(ep_addr) == 0 && dev_addr < TU_ARRAY_SIZE(_ep0_mps)) {
+    _ep0_mps[dev_addr] = (uint8_t)max_packet_size;
+  }
 
   if (transfer_type != TUSB_XFER_INTERRUPT) {
     ep->dpram_buf = usbh_dpram->epx_data;
@@ -770,8 +784,10 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     // (DATA or STATUS) must start with DATA1 per USB 2.0 §8.5.3.
     ep->ep_addr = ep_addr;
     if (tu_edpt_number(ep_addr) == 0) {
-      ep->dev_addr = dev_addr;
-      ep->need_pre = need_pre(dev_addr);
+      ep->dev_addr        = dev_addr;
+      ep->need_pre        = need_pre(dev_addr);
+      ep->max_packet_size = (dev_addr < TU_ARRAY_SIZE(_ep0_mps) && _ep0_mps[dev_addr])
+                          ? _ep0_mps[dev_addr] : 8;
       ep->next_pid = 1;
     }
 
@@ -818,11 +834,13 @@ bool hcd_setup_send(uint8_t rhport, uint8_t dev_addr, const uint8_t setup_packet
     usbh_dpram->setup_packet[i] = setup_packet[i];
   }
 
-  ep->dev_addr      = dev_addr;
-  ep->need_pre      = need_pre(dev_addr);
-  ep->ep_addr       = 0; // setup is OUT
-  ep->remaining_len = 8;
-  ep->xferred_len   = 0;
+  ep->dev_addr        = dev_addr;
+  ep->need_pre        = need_pre(dev_addr);
+  ep->max_packet_size = (dev_addr < TU_ARRAY_SIZE(_ep0_mps) && _ep0_mps[dev_addr])
+                      ? _ep0_mps[dev_addr] : 8;
+  ep->ep_addr         = 0; // setup is OUT
+  ep->remaining_len   = 8;
+  ep->xferred_len     = 0;
 
   // If EPX is busy, mark as pending setup (DPRAM already has the packet)
   if (epx->active) {
