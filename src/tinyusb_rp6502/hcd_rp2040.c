@@ -289,8 +289,12 @@ static void __tusb_irq_path_func(xfer_complete_isr)(hw_endpoint_t *ep, xfer_resu
   rp2usb_reset_transfer(ep);
   hcd_event_xfer_complete(ep->dev_addr, ep->ep_addr, xferred_len, xfer_result, true);
 
-  // Carry more transfer on epx
-  if (is_more) {
+  // Carry more transfer on epx.
+  // Don't dispatch pending after EP0 (control) completions — leave EPX idle
+  // so the stack's next phase call (hcd_setup_send/hcd_edpt_xfer) starts
+  // directly.  This prevents bulk traffic (e.g. VCP) from monopolising EPX
+  // between control phases, which starves recovery sequences.
+  if (is_more && tu_edpt_number(ep->ep_addr) != 0) {
     hw_endpoint_t *next_ep = epx_next_pending(epx);
     if (next_ep != NULL) {
       epx_switch_ep(next_ep);
@@ -406,15 +410,15 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
 
     const uint32_t sie_ctrl = (usb_hw->sie_ctrl & SIE_CTRL_BASE_MASK) | USB_SIE_CTRL_STOP_TRANS_BITS;
     usb_hw->sie_ctrl        = sie_ctrl;
-    // while (usb_hw->sie_ctrl & USB_SIE_CTRL_STOP_TRANS_BITS) {}
+    while (usb_hw->sie_ctrl & USB_SIE_CTRL_STOP_TRANS_BITS) tight_loop_contents();
 
     usb_hw_clear->buf_status = 0x3u;    // prevent spurious EPX BUFF_STATUS
     usbh_dpram->epx_buf_ctrl = 0;
 
-    // Even if STOP_TRANS bit is clear, controller maybe in middle of retrying and may re-raise timeout once extra time
-    // Only handle if epx is active, don't carry more epx transfer since STOP_TRANS is raced and not safe.
     if (epx->active) {
       xfer_complete_isr(epx, XFER_RESULT_FAILED, false);
+    } else {
+      // Spurious timeout (EPX not active) — nothing to complete.
     }
   }
 
@@ -443,9 +447,15 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
                                USB_SIE_STATUS_RX_TIMEOUT_BITS      |
                                USB_SIE_STATUS_TRANS_COMPLETE_BITS  |
                                USB_SIE_STATUS_ENDPOINT_ERROR_BITS;
+
+    const uint32_t ds_sie_ctrl = (usb_hw->sie_ctrl & SIE_CTRL_BASE_MASK) | USB_SIE_CTRL_STOP_TRANS_BITS;
+    usb_hw->sie_ctrl           = ds_sie_ctrl;
+    while (usb_hw->sie_ctrl & USB_SIE_CTRL_STOP_TRANS_BITS) tight_loop_contents();
+
     usb_hw_clear->buf_status = 0x3u;
     TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
            tu_u32_low16(usbh_dpram->epx_buf_ctrl), tu_u32_high16(usbh_dpram->epx_buf_ctrl));
+    usbh_dpram->epx_buf_ctrl = 0;
     if (epx->active) {
       xfer_complete_isr(epx, XFER_RESULT_FAILED, false);
     }
@@ -482,6 +492,11 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
       usb_hw_clear->inte = USB_INTE_HOST_SOF_BITS;
       usb_hw->nak_poll   = USB_NAK_POLL_RESET;
       epx_switch_request = false;
+    } else if (!epx->active) {
+      // EPX is idle with pending transfers (e.g. after RX_TIMEOUT).
+      // Start the next pending transfer directly.
+      epx_switch_request = false;
+      epx_switch_ep(next_ep);
     } else if (epx->active) {
       if (epx_switch_request) {
         // Second SOF with no transfer completion: endpoint is NAK-retrying, safe to switch.
@@ -495,7 +510,6 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
     }
   }
   #endif
-
 }
 
 void __tusb_irq_path_func(hcd_int_handler)(uint8_t rhport, bool in_isr) {
@@ -744,10 +758,6 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
   rp2usb_critical_enter();
 
   if (ep->interrupt_num) {
-    // Zero buf_ctrl to stop the in-flight transfer without clearing the
-    // int_ep_ctrl slot bit.  Keeping the bit set preserves the slot ownership
-    // so hcd_edpt_xfer can re-arm immediately and hcd_edpt_open's ep_pool scan
-    // continues to see this slot as occupied.
     *dpram_int_ep_buffer_ctrl(ep->interrupt_num) = 0;
     rp2usb_reset_transfer(ep);
   } else {
@@ -755,6 +765,15 @@ bool hcd_edpt_abort_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
       sie_stop_xfer();
       usbh_dpram->epx_buf_ctrl = 0;
       rp2usb_reset_transfer(ep);
+
+      // Clear any pending NAK/SOF round-robin state so a stale interrupt
+      // doesn't immediately dispatch another endpoint when IRQs re-enable.
+  #ifdef HAS_STOP_EPX_ON_NAK
+      usb_hw_clear->nak_poll = USB_NAK_POLL_EPX_STOPPED_ON_NAK_BITS |
+                               USB_NAK_POLL_STOP_EPX_ON_NAK_BITS;
+  #else
+      epx_switch_request = false;
+  #endif
     } else {
       ep->pending       = 0;
       ep->remaining_len = 0;
@@ -784,8 +803,6 @@ bool hcd_edpt_xfer(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr, uint8_t *b
     usb_hw_set->int_ep_ctrl = TU_BIT(ep->interrupt_num);
   } else {
     // Control transfers: always reset next_pid to DATA1 for data and status stages.
-    // SETUP forces DATA0 in hardware regardless; after completion the next stage
-    // (DATA or STATUS) must start with DATA1 per USB 2.0 §8.5.3.
     ep->ep_addr = ep_addr;
     if (tu_edpt_number(ep_addr) == 0) {
       ep->dev_addr        = dev_addr;
