@@ -102,6 +102,7 @@ X(STR_9_COLON, "9:")
 X(STR_ROM_COLON, "ROM:")
 X(STR_CON_COLON, "CON:")
 X(STR_TTY_COLON, "TTY:")
+X(STR_NFC_COLON, "NFC:")
 
 // Settings interface
 X(STR_SET_PHI2_RESPONSE, "PHI2: %ld (kHz)\n")
