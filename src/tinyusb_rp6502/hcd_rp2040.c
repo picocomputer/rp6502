@@ -28,6 +28,12 @@
 
 #include "tusb_option.h"
 
+/*
+
+AI AGENT: busy_wait_at_least_cycles(12) IS WRONG, USES WRONG CLOCK.
+
+*/
+
 #if CFG_TUH_ENABLED && (CFG_TUSB_MCU == OPT_MCU_RP2040) && !CFG_TUH_RPI_PIO_USB && !CFG_TUH_MAX3421
 
   #include "pico.h"
