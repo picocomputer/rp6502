@@ -74,6 +74,16 @@ pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/scanvideo/timing.pio
 )
 
+# Override various lib files with custom code.
+# The magic is that header-only files don't get compiled.
+set_source_files_properties(
+    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
+    PROPERTIES HEADER_FILE_ONLY TRUE
+)
+target_sources(rp6502_vga PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
+)
+
 # If no version set, set a define for C preprocessor and touch
 # the file that provides a dev timestamp for the version.
 get_target_property(RP6502_VGA_COMPILE_DEFINITIONS rp6502_vga COMPILE_DEFINITIONS)

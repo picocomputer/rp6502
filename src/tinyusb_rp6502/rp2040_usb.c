@@ -30,7 +30,7 @@
 #if CFG_TUSB_MCU == OPT_MCU_RP2040 && (CFG_TUD_ENABLED || CFG_TUH_ENABLED)
 
   #include <stdlib.h>
-  #include "rp2040_usb.h"
+  #include "portable/raspberrypi/rp2040/rp2040_usb.h"
 
   #include "device/dcd.h"
   #include "host/hcd.h"

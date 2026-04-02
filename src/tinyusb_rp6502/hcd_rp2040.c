@@ -50,7 +50,7 @@
   //--------------------------------------------------------------------+
   // INCLUDE
   //--------------------------------------------------------------------+
-  #include "rp2040_usb.h"
+  #include "portable/raspberrypi/rp2040/rp2040_usb.h"
   #include "osal/osal.h"
 
   #include "host/hcd.h"
