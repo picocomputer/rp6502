@@ -7,7 +7,6 @@
 #include "hid/hid.h"
 #include "hid/mou.h"
 #include "sys/mem.h"
-#include <btstack_hid_parser.h>
 #include <pico.h>
 #include <string.h>
 
@@ -86,7 +85,63 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
+static bool __in_flash("mou_parse") mou_parse_field(const hid_field_t *field, void *context)
+{
+    mou_connection_t *conn = (mou_connection_t *)context;
+
+    // Skip items from other report IDs once we've identified ours
+    if (conn->report_id != 0 && field->report_id != 0xFFFF &&
+        field->report_id != conn->report_id)
+        return true;
+
+    bool get_report_id = false;
+    if (field->usage_page == 0x01) // Generic Desktop
+    {
+        get_report_id = true;
+        switch (field->usage)
+        {
+        case 0x30: // X axis
+            conn->x_offset = field->bit_pos;
+            conn->x_size = field->size;
+            conn->x_relative = (field->input_flags & 0x04) != 0;
+            break;
+        case 0x31: // Y axis
+            conn->y_offset = field->bit_pos;
+            conn->y_size = field->size;
+            break;
+        case 0x38: // Wheel
+            conn->wheel_offset = field->bit_pos;
+            conn->wheel_size = field->size;
+            break;
+        case 0x3C: // Pan/horizontal wheel
+            conn->pan_offset = field->bit_pos;
+            conn->pan_size = field->size;
+            break;
+        }
+    }
+    else if (field->usage_page == 0x0C) // Consumer
+    {
+        if (field->usage == 0x238) // AC Pan
+        {
+            get_report_id = true;
+            conn->pan_offset = field->bit_pos;
+            conn->pan_size = field->size;
+        }
+    }
+    else if (field->usage_page == 0x09) // Button page
+    {
+        get_report_id = true;
+        if (field->usage >= 1 && field->usage <= 8)
+            conn->button_offsets[field->usage - 1] = field->bit_pos;
+    }
+
+    if (get_report_id && conn->report_id == 0 && field->report_id != 0xFFFF)
+        conn->report_id = field->report_id;
+
+    return true;
+}
+
+bool __in_flash("ac") mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
 {
     int desc_idx = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
@@ -105,70 +160,16 @@ bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint1
         conn->button_offsets[i] = 0xFFFF;
     conn->slot = slot;
 
-    // Use BTstack HID parser to parse the descriptor
-    btstack_hid_usage_iterator_t iterator;
-    btstack_hid_usage_iterator_init(&iterator, desc_data, desc_len, HID_REPORT_TYPE_INPUT);
-
-    while (btstack_hid_usage_iterator_has_more(&iterator))
-    {
-        btstack_hid_usage_item_t item;
-        btstack_hid_usage_iterator_get_item(&iterator, &item);
-
-        // Log each HID usage item
-        // DBG("HID item: page=0x%02x, usage=0x%02x, report_id=0x%04x\n",
-        //     item.usage_page, item.usage, item.report_id);
-
-        bool get_report_id = false;
-        if (item.usage_page == 0x01) // Generic Desktop
-        {
-            get_report_id = true;
-            switch (item.usage)
-            {
-            case 0x30: // X axis
-                conn->x_offset = item.bit_pos;
-                conn->x_size = item.size;
-                conn->x_relative = (iterator.descriptor_item.item_value & 0x04) != 0;
-                break;
-            case 0x31: // Y axis
-                conn->y_offset = item.bit_pos;
-                conn->y_size = item.size;
-                break;
-            case 0x38: // Wheel
-                conn->wheel_offset = item.bit_pos;
-                conn->wheel_size = item.size;
-                break;
-            case 0x3C: // Pan/horizontal wheel
-                conn->pan_offset = item.bit_pos;
-                conn->pan_size = item.size;
-                break;
-            }
-        }
-        else if (item.usage_page == 0x0C) // Consumer
-        {
-            if (item.usage == 0x238) // AC Pan
-            {
-                get_report_id = true;
-                conn->pan_offset = item.bit_pos;
-                conn->pan_size = item.size;
-            }
-        }
-        else if (item.usage_page == 0x09) // Button page
-        {
-            get_report_id = true;
-            if (item.usage >= 1 && item.usage <= 8)
-                conn->button_offsets[item.usage - 1] = item.bit_pos;
-        }
-
-        // Store report ID if this is the first one we encounter
-        if (get_report_id && conn->report_id == 0 && item.report_id != 0xFFFF)
-            conn->report_id = item.report_id;
-    }
+    hid_descriptor_parse(desc_data, desc_len, mou_parse_field, conn);
 
     // If it squeaks like a mouse.
     conn->valid = conn->x_relative && conn->x_size > 0;
 
-    DBG("mou_mount: slot=%d, valid=%d, x_size=%d, y_size=%d\n",
-        slot, conn->valid, conn->x_size, conn->y_size);
+    DBG("mou_mount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
+    DBG("  x: offset=%d, size=%d, relative=%d\n", conn->x_offset, conn->x_size, conn->x_relative);
+    DBG("  y: offset=%d, size=%d\n", conn->y_offset, conn->y_size);
+    DBG("  wheel: offset=%d, size=%d\n", conn->wheel_offset, conn->wheel_size);
+    DBG("  pan: offset=%d, size=%d\n", conn->pan_offset, conn->pan_size);
 
     return conn->valid;
 }
@@ -178,6 +179,7 @@ bool __in_flash("mou_umount") mou_umount(int slot)
     mou_connection_t *conn = find_connection_by_slot(slot);
     if (conn == NULL)
         return false;
+    DBG("mou_umount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
     conn->valid = false;
     return true;
 }

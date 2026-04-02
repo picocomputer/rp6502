@@ -7,7 +7,6 @@
 #include "hid/hid.h"
 #include "hid/pad.h"
 #include "sys/mem.h"
-#include <btstack_hid_parser.h>
 #include <pico.h>
 #include <string.h>
 
@@ -326,6 +325,93 @@ static const pad_connection_t pad_desc_sony_ds5 = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
+static bool __in_flash("pad_parse") pad_parse_field(const hid_field_t *field, void *context)
+{
+    pad_connection_t *conn = (pad_connection_t *)context;
+
+    bool get_report_id = false;
+    if (field->usage_page == 0x01) // Generic Desktop
+    {
+        get_report_id = true;
+        switch (field->usage)
+        {
+        case 0x30: // X axis (left stick X)
+            conn->x_offset = field->bit_pos;
+            conn->x_size = field->size;
+            conn->x_min = field->logical_min;
+            conn->x_max = field->logical_max;
+            conn->x_absolute = !(field->input_flags & 0x04);
+            break;
+        case 0x31: // Y axis (left stick Y)
+            conn->y_offset = field->bit_pos;
+            conn->y_size = field->size;
+            conn->y_min = field->logical_min;
+            conn->y_max = field->logical_max;
+            break;
+        case 0x32: // Z axis (right stick X)
+            conn->z_offset = field->bit_pos;
+            conn->z_size = field->size;
+            conn->z_min = field->logical_min;
+            conn->z_max = field->logical_max;
+            break;
+        case 0x35: // Rz axis (right stick Y)
+            conn->rz_offset = field->bit_pos;
+            conn->rz_size = field->size;
+            conn->rz_min = field->logical_min;
+            conn->rz_max = field->logical_max;
+            break;
+        case 0x33: // Rx axis (left trigger)
+            conn->rx_offset = field->bit_pos;
+            conn->rx_size = field->size;
+            conn->rx_min = field->logical_min;
+            conn->rx_max = field->logical_max;
+            break;
+        case 0x34: // Ry axis (right trigger)
+            conn->ry_offset = field->bit_pos;
+            conn->ry_size = field->size;
+            conn->ry_min = field->logical_min;
+            conn->ry_max = field->logical_max;
+            break;
+        case 0x39: // Hat switch (D-pad)
+            conn->hat_offset = field->bit_pos;
+            conn->hat_size = field->size;
+            conn->hat_min = field->logical_min;
+            conn->hat_max = field->logical_max;
+            break;
+        }
+    }
+    else if (field->usage_page == 0x02) // Simulation Controls
+    {
+        get_report_id = true;
+        switch (field->usage)
+        {
+        case 0xC5: // Brake (left trigger)
+            conn->rx_offset = field->bit_pos;
+            conn->rx_size = field->size;
+            conn->rx_min = field->logical_min;
+            conn->rx_max = field->logical_max;
+            break;
+        case 0xC4: // Accelerator (right trigger)
+            conn->ry_offset = field->bit_pos;
+            conn->ry_size = field->size;
+            conn->ry_min = field->logical_min;
+            conn->ry_max = field->logical_max;
+            break;
+        }
+    }
+    else if (field->usage_page == 0x09) // Button page
+    {
+        get_report_id = true;
+        uint8_t button_index = field->usage - 1;
+        if (button_index < PAD_MAX_BUTTONS)
+            conn->button_offsets[button_index] = field->bit_pos;
+    }
+    if (get_report_id && conn->report_id == 0 && field->report_id != 0xFFFF)
+        conn->report_id = field->report_id;
+
+    return true;
+}
+
 static void pad_parse_descriptor(
     pad_connection_t *conn, uint8_t const *desc_data, uint16_t desc_len)
 {
@@ -343,99 +429,7 @@ static void pad_parse_descriptor(
     if (desc_len % 26 != 0)
         DBG("\n");
 
-    // Use BTstack HID parser to parse the descriptor
-    btstack_hid_usage_iterator_t iterator;
-    btstack_hid_usage_iterator_init(&iterator, desc_data, desc_len, HID_REPORT_TYPE_INPUT);
-    while (btstack_hid_usage_iterator_has_more(&iterator))
-    {
-        btstack_hid_usage_item_t item;
-        btstack_hid_usage_iterator_get_item(&iterator, &item);
-
-        // Log each HID usage item
-        // DBG("HID item: usage_page=0x%02x, usage=0x%02x, report_id=0x%04x\n",
-        //     item.usage_page, item.usage, item.report_id);
-
-        bool get_report_id = false;
-        if (item.usage_page == 0x01) // Generic Desktop
-        {
-            get_report_id = true;
-            switch (item.usage)
-            {
-            case 0x30: // X axis (left stick X)
-                conn->x_offset = item.bit_pos;
-                conn->x_size = item.size;
-                conn->x_min = iterator.global_logical_minimum;
-                conn->x_max = iterator.global_logical_maximum;
-                conn->x_absolute = !(iterator.descriptor_item.item_value & 0x04);
-                break;
-            case 0x31: // Y axis (left stick Y)
-                conn->y_offset = item.bit_pos;
-                conn->y_size = item.size;
-                conn->y_min = iterator.global_logical_minimum;
-                conn->y_max = iterator.global_logical_maximum;
-                break;
-            case 0x32: // Z axis (right stick X)
-                conn->z_offset = item.bit_pos;
-                conn->z_size = item.size;
-                conn->z_min = iterator.global_logical_minimum;
-                conn->z_max = iterator.global_logical_maximum;
-                break;
-            case 0x35: // Rz axis (right stick Y)
-                conn->rz_offset = item.bit_pos;
-                conn->rz_size = item.size;
-                conn->rz_min = iterator.global_logical_minimum;
-                conn->rz_max = iterator.global_logical_maximum;
-                break;
-            case 0x33: // Rx axis (left trigger)
-                conn->rx_offset = item.bit_pos;
-                conn->rx_size = item.size;
-                conn->rx_min = iterator.global_logical_minimum;
-                conn->rx_max = iterator.global_logical_maximum;
-                break;
-            case 0x34: // Ry axis (right trigger)
-                conn->ry_offset = item.bit_pos;
-                conn->ry_size = item.size;
-                conn->ry_min = iterator.global_logical_minimum;
-                conn->ry_max = iterator.global_logical_maximum;
-                break;
-            case 0x39: // Hat switch (D-pad)
-                conn->hat_offset = item.bit_pos;
-                conn->hat_size = item.size;
-                conn->hat_min = iterator.global_logical_minimum;
-                conn->hat_max = iterator.global_logical_maximum;
-                break;
-            }
-        }
-        else if (item.usage_page == 0x02) // Simulation Controls
-        {
-            get_report_id = true;
-            switch (item.usage)
-            {
-            case 0xC5: // Brake (left trigger)
-                conn->rx_offset = item.bit_pos;
-                conn->rx_size = item.size;
-                conn->rx_min = iterator.global_logical_minimum;
-                conn->rx_max = iterator.global_logical_maximum;
-                break;
-            case 0xC4: // Accelerator (right trigger)
-                conn->ry_offset = item.bit_pos;
-                conn->ry_size = item.size;
-                conn->ry_min = iterator.global_logical_minimum;
-                conn->ry_max = iterator.global_logical_maximum;
-                break;
-            }
-        }
-        else if (item.usage_page == 0x09) // Button page
-        {
-            get_report_id = true;
-            uint8_t button_index = item.usage - 1; // Buttons 1-indexed
-            if (button_index < PAD_MAX_BUTTONS)
-                conn->button_offsets[button_index] = item.bit_pos;
-        }
-        // Store report ID if this is the first one we encounter
-        if (get_report_id && conn->report_id == 0 && item.report_id != 0xFFFF)
-            conn->report_id = item.report_id;
-    }
+    hid_descriptor_parse(desc_data, desc_len, pad_parse_field, conn);
 
     // If it creaks like a gamepad.
     if (conn->x_absolute && conn->button_offsets[0] != 0xFFFF &&

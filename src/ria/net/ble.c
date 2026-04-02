@@ -65,6 +65,21 @@ static uint8_t hid_descriptor_storage[3 * 1024];
 static absolute_time_t ble_scan_restarts_at;
 static hci_con_handle_t ble_connecting_handle;
 
+static const uint8_t __in_flash("ble_att_profile_data") ble_att_profile_data[] = {
+    // clang-format off
+    // ATT DB Version
+    1,
+    // GAP_SERVICE
+    0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18,
+    // GAP_DEVICE_NAME
+    0x0d, 0x00, 0x02, 0x00, 0x02, 0x00, 0x03, 0x28, 0x02, 0x03, 0x00, 0x00, 0x2a,
+    // "RP6502"
+    0x0e, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x2a, 0x52, 0x50, 0x36, 0x35, 0x30, 0x32,
+    // END
+    0x00, 0x00,
+    // clang-format on
+};
+
 static void ble_connect_with_whitelist(void)
 {
     // Add all bonded devices to whitelist
@@ -410,6 +425,10 @@ static void ble_init_stack(void)
 
     // Initialize GATT Client
     gatt_client_init();
+
+    // Initialize ATT Server with minimal GATT database so peripherals
+    // that discover our services get proper ATT responses.
+    att_server_init(ble_att_profile_data, NULL, NULL);
 
     // Initialize HID over GATT Client with descriptor storage
     memset(hid_descriptor_storage, 0, sizeof(hid_descriptor_storage));

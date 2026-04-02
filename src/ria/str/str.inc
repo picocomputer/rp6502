@@ -131,13 +131,11 @@ X(STR_MDM_RESPONSE_7, "BUSY")
 X(STR_MDM_RESPONSE_8, "NO ANSWER")
 
 // The only bit of help we don't localize.
-// Note that BTstack HID descriptor parsing is used for non-W builds.
 X(STR_HELP_ABOUT,
   "Picocomputer 6502 - Copyright (c) 2025 Rumbledethumps.\n"
   "     Pi Pico SDKs - Copyright (c) 2020 Raspberry Pi (Trading) Ltd.\n"
   "      Tiny printf - Copyright (c) 2014-2019 Marco Paland, PALANDesign.\n"
   "          TinyUSB - Copyright (c) 2018 hathach (tinyusb.org)\n"
-  "          BTstack - Copyright (c) 2009 BlueKitchen GmbH\n"
   "            FatFs - Copyright (c) 20xx ChaN.\n"
   "         littlefs - Copyright (c) 2022 The littlefs authors.\n"
   "                    Copyright (c) 2017 Arm Limited.\n"
@@ -145,6 +143,7 @@ X(STR_HELP_ABOUT,
   "                    Copyright (c) 2021-2022 Graham Sanderson\n"
 #ifdef RP6502_RIA_W
   "   CYW43xx driver - Copyright (c) 2019-2022 George Robotics Pty Ltd.\n"
+  "          BTstack - Copyright (c) 2009 BlueKitchen GmbH\n"
   "             lwIP - Copyright (c) 2001-2002 Swedish Institute of\n"
   "                                            Computer Science.\n"
 #endif

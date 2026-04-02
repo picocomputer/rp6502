@@ -102,3 +102,130 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
 {
     return hid_scale_analog(raw_value, bit_size, logical_min, logical_max) - 128;
 }
+
+void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t cb, void *context)
+{
+    // Global state
+    uint16_t usage_page = 0;
+    int32_t logical_min = 0;
+    int32_t logical_max = 0;
+    uint32_t report_size = 0;
+    uint32_t report_count = 0;
+    uint16_t report_id = 0xFFFF;
+    uint16_t bit_pos = 0;
+
+    // Local state (cleared after each Main item)
+    uint16_t usages[32];
+    uint8_t usage_count = 0;
+    uint16_t usage_min = 0;
+    uint16_t usage_max = 0;
+    bool have_usage_range = false;
+
+    uint16_t pos = 0;
+    while (pos < desc_len)
+    {
+        uint8_t b = desc[pos];
+        uint8_t sz = b & 0x03;
+        if (sz == 3)
+            sz = 4;
+        uint8_t type = (b >> 2) & 0x03;
+        uint8_t tag = (b >> 4) & 0x0F;
+
+        if (pos + 1 + sz > desc_len)
+            break;
+
+        uint32_t val = 0;
+        for (uint8_t i = 0; i < sz; i++)
+            val |= (uint32_t)desc[pos + 1 + i] << (8 * i);
+        int32_t sval = (int32_t)val;
+        if (sz > 0 && sz < 4 && (val & (1u << (sz * 8 - 1))))
+            sval = (int32_t)(val | (~0u << (sz * 8)));
+
+        switch (type)
+        {
+        case 1: // Global
+            switch (tag)
+            {
+            case 0:
+                usage_page = val;
+                break;
+            case 1:
+                logical_min = sval;
+                break;
+            case 2:
+                logical_max = sval;
+                break;
+            case 7:
+                report_size = val;
+                break;
+            case 8:
+                report_id = val;
+                bit_pos = 0;
+                break;
+            case 9:
+                report_count = val;
+                break;
+            }
+            break;
+
+        case 2: // Local
+            switch (tag)
+            {
+            case 0: // Usage
+                if (usage_count < sizeof(usages) / sizeof(usages[0]))
+                    usages[usage_count++] = val;
+                break;
+            case 1: // Usage Minimum
+                usage_min = val;
+                have_usage_range = true;
+                break;
+            case 2: // Usage Maximum
+                usage_max = val;
+                break;
+            }
+            break;
+
+        case 0:           // Main
+            if (tag == 8) // Input
+            {
+                // Expand usage range into usage list
+                if (have_usage_range && usage_count == 0)
+                    for (uint16_t u = usage_min;
+                         u <= usage_max && usage_count < sizeof(usages) / sizeof(usages[0]);
+                         u++)
+                        usages[usage_count++] = u;
+
+                for (uint32_t i = 0; i < report_count; i++)
+                {
+                    uint16_t usage = (i < usage_count) ? usages[i] : (usage_count > 0) ? usages[usage_count - 1]
+                                                                                       : 0;
+
+                    hid_field_t field = {
+                        .usage_page = usage_page,
+                        .usage = usage,
+                        .report_id = report_id,
+                        .bit_pos = bit_pos,
+                        .size = report_size,
+                        .logical_min = logical_min,
+                        .logical_max = logical_max,
+                        .input_flags = val,
+                    };
+
+                    if (!(val & 1)) // Not constant
+                        if (!cb(&field, context))
+                            return;
+
+                    bit_pos += report_size;
+                }
+            }
+            // Clear local state after any Main item
+            usage_count = 0;
+            have_usage_range = false;
+            usage_min = 0;
+            usage_max = 0;
+            break;
+        }
+
+        pos += 1 + sz;
+    }
+}
