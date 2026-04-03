@@ -1018,9 +1018,11 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const
         ep_count++;
         tusb_desc_endpoint_t const *ep_desc = (tusb_desc_endpoint_t const *)p_desc;
 
-        // CB (no I) protocol: skip interrupt endpoints entirely.
-        if (p_msc->protocol == MSC_PROTOCOL_CBI_NO_INTERRUPT &&
-            TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
+        // Skip CBI interrupt endpoints entirely — treat all CBI as CB.
+        // The interrupt status phase adds bInterval ms of latency per command
+        // with no practical benefit for block storage: the CB path infers
+        // command status from the data-phase outcome, which is sufficient.
+        if (TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
         {
             p_desc = tu_desc_next(p_desc);
             continue;
@@ -1028,15 +1030,10 @@ uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const
 
         TU_ASSERT(tuh_edpt_open(dev_addr, ep_desc), 0);
 
-        if (TUSB_XFER_BULK == ep_desc->bmAttributes.xfer)
-        {
-            if (TUSB_DIR_IN == tu_edpt_dir(ep_desc->bEndpointAddress))
-                p_msc->ep_in = ep_desc->bEndpointAddress;
-            else
-                p_msc->ep_out = ep_desc->bEndpointAddress;
-        }
-        else if (TUSB_XFER_INTERRUPT == ep_desc->bmAttributes.xfer)
-            p_msc->ep_intr = ep_desc->bEndpointAddress;
+        if (TUSB_DIR_IN == tu_edpt_dir(ep_desc->bEndpointAddress))
+            p_msc->ep_in = ep_desc->bEndpointAddress;
+        else
+            p_msc->ep_out = ep_desc->bEndpointAddress;
 
         p_desc = tu_desc_next(p_desc);
     }
