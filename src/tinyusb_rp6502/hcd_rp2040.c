@@ -28,12 +28,6 @@
 
 #include "tusb_option.h"
 
-/*
-
-AI AGENT: busy_wait_at_least_cycles(12) IS WRONG, USES WRONG CLOCK.
-
-*/
-
 #if CFG_TUH_ENABLED && (CFG_TUSB_MCU == OPT_MCU_RP2040) && !CFG_TUH_RPI_PIO_USB && !CFG_TUH_MAX3421
 
   #include "pico.h"
@@ -188,7 +182,7 @@ static void __tusb_irq_path_func(sie_start_xfer)(bool send_setup, bool is_rx, bo
   // described in RP2040 Datasheet, release 2.1, section "4.1.2.5.1. Concurrent access".
   // We write everything except the START_TRANS bit first, then wait some cycles.
   usb_hw->sie_ctrl = sie_ctrl;
-  busy_wait_us(1);
+  busy_wait_at_least_cycles(32);
   usb_hw->sie_ctrl = sie_ctrl | USB_SIE_CTRL_START_TRANS_BITS;
 }
 
@@ -356,7 +350,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
   if (status & USB_INTS_HOST_CONN_DIS_BITS) {
     // Clear speed latch first; after settle the re-read reflects the true current state.
     usb_hw_clear->sie_status = USB_SIE_STATUS_SPEED_BITS;
-    busy_wait_us(1);
+    busy_wait_at_least_cycles(32);
     const uint8_t speed = dev_speed();
     if (speed == SIE_CTRL_SPEED_DISCONNECT) {
       // Stop SIE and silence hardware before emitting remove. Concurrent
