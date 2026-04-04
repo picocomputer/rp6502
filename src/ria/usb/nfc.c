@@ -36,8 +36,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define NFC_RESP_WRITE 0x04
 #define NFC_RESP_READ 0x05
 
-// Max NDEF data area for NTAG216 (CC byte 2 = 0x6D, 109 * 8)
-#define NFC_NDEF_BUF_SIZE 872
+// Max tag data area for NTAG216 (CC byte 2 = 0x6D, 109 * 8)
+#define NFC_TAG_BUF_SIZE 872
 
 // Timeouts
 #define NFC_ACK_TIMEOUT_MS 50
@@ -145,22 +145,22 @@ static size_t nfc_tx_pos;
 static uint8_t nfc_rx_buf[PN532_MAX_FRAME_SIZE];
 static size_t nfc_rx_pos;
 
-// NDEF read state, up to NTAG216 size
+// Tag data read state, up to NTAG216 size
 static uint8_t nfc_read_page;
-static uint8_t nfc_ndef_buf[NFC_NDEF_BUF_SIZE];
-static size_t nfc_ndef_len;
+static uint8_t nfc_tag_buf[NFC_TAG_BUF_SIZE];
+static size_t nfc_tag_len;
 static uint8_t nfc_cc[4];
 static absolute_time_t nfc_read_stamp;
 
 // 6502 API state
 static bool nfc_api_open;
-static uint8_t nfc_read_buf[7 + NFC_NDEF_BUF_SIZE]; // age_ds, CC[4], lenLo, lenHi, NDEF...
+static uint8_t nfc_read_buf[7 + NFC_TAG_BUF_SIZE]; // age_ds, CC[4], lenLo, lenHi, tag data...
 static size_t nfc_read_len;
 static size_t nfc_read_pos; // drain position through header + payload
 static bool nfc_write_response;
 
 // Write staging
-static uint8_t nfc_write_buf[NFC_NDEF_BUF_SIZE];
+static uint8_t nfc_write_buf[NFC_TAG_BUF_SIZE];
 static size_t nfc_write_len;
 static size_t nfc_write_expected;
 static bool nfc_write_armed;
@@ -186,6 +186,7 @@ static void nfc_goto(int new_state, uint32_t ms)
         {
             nfc_card_inserted = false;
             nfc_write_failed = false;
+            nfc_read_stamp = nil_time;
         }
         nfc_state = new_state;
     }
@@ -336,8 +337,8 @@ static void nfc_read_complete(void)
 {
     nfc_read_stamp = get_absolute_time();
     nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
-    if (nfc_ndef_len > 0 && !nfc_api_open)
-        pro_nfc(nfc_ndef_buf, nfc_ndef_len);
+    if (nfc_tag_len > 0 && !nfc_api_open)
+        pro_nfc(nfc_tag_buf, nfc_tag_len);
 }
 
 static void nfc_begin_receive(int ack_state)
@@ -419,9 +420,9 @@ uint8_t nfc_get_enabled(void)
     return nfc_enabled;
 }
 
-// Parse raw NDEF TLV bytes and extract the first Well Known Text record
+// Parse tag data and extract the first Well Known Text record
 // into buf (NUL-terminated). Returns false if no text record is found.
-bool nfc_parse_text(const uint8_t *ndef, size_t len, char *buf, size_t buf_size)
+bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size)
 {
     // Walk TLV blocks to find the NDEF Message TLV (type 0x03)
     const uint8_t *msg = NULL;
@@ -429,7 +430,7 @@ bool nfc_parse_text(const uint8_t *ndef, size_t len, char *buf, size_t buf_size)
     size_t pos = 0;
     while (pos < len)
     {
-        uint8_t tlv_type = ndef[pos++];
+        uint8_t tlv_type = tag_data[pos++];
         if (tlv_type == 0xFE) // terminator
             break;
         if (tlv_type == 0x00) // null
@@ -437,22 +438,22 @@ bool nfc_parse_text(const uint8_t *ndef, size_t len, char *buf, size_t buf_size)
         if (pos >= len)
             break;
         size_t tlv_len;
-        if (ndef[pos] == 0xFF) // three-byte length
+        if (tag_data[pos] == 0xFF) // three-byte length
         {
             if (pos + 2 >= len)
                 break;
-            tlv_len = ((size_t)ndef[pos + 1] << 8) | ndef[pos + 2];
+            tlv_len = ((size_t)tag_data[pos + 1] << 8) | tag_data[pos + 2];
             pos += 3;
         }
         else
         {
-            tlv_len = ndef[pos++];
+            tlv_len = tag_data[pos++];
         }
         if (pos + tlv_len > len)
             break;
         if (tlv_type == 0x03) // NDEF Message
         {
-            msg = ndef + pos;
+            msg = tag_data + pos;
             msg_len = tlv_len;
             break;
         }
@@ -677,7 +678,7 @@ void nfc_task(void)
             if (resp_len >= 1 && resp[0] > 0)
             {
                 nfc_read_page = 4;
-                nfc_ndef_len = 0;
+                nfc_tag_len = 0;
                 nfc_read_stamp = nil_time;
                 memset(nfc_cc, 0, sizeof(nfc_cc));
                 nfc_card_inserted = true;
@@ -791,19 +792,19 @@ void nfc_task(void)
                     break;
                 }
 
-                size_t old_len = nfc_ndef_len;
-                for (size_t i = 0; i < data_len && nfc_ndef_len < sizeof(nfc_ndef_buf); i++)
-                    nfc_ndef_buf[nfc_ndef_len++] = data[i];
+                size_t old_len = nfc_tag_len;
+                for (size_t i = 0; i < data_len && nfc_tag_len < sizeof(nfc_tag_buf); i++)
+                    nfc_tag_buf[nfc_tag_len++] = data[i];
 
                 bool found_terminator = false;
-                for (size_t i = old_len; i < nfc_ndef_len; i++)
-                    if (nfc_ndef_buf[i] == NDEF_TLV_TERMINATOR)
+                for (size_t i = old_len; i < nfc_tag_len; i++)
+                    if (nfc_tag_buf[i] == NDEF_TLV_TERMINATOR)
                     {
                         found_terminator = true;
                         break;
                     }
 
-                if (found_terminator || nfc_ndef_len >= sizeof(nfc_ndef_buf))
+                if (found_terminator || nfc_tag_len >= sizeof(nfc_tag_buf))
                     nfc_read_complete();
                 else if (nfc_read_page <= 227)
                 {
@@ -1026,13 +1027,13 @@ std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,
                 }
                 break;
             default:
-                if (nfc_write_len < NFC_NDEF_BUF_SIZE)
+                if (nfc_write_len < NFC_TAG_BUF_SIZE)
                     nfc_write_buf[nfc_write_len] = b;
                 nfc_write_len++;
                 if (nfc_write_len >= nfc_write_expected)
                 {
                     nfc_write_accumulating = false;
-                    if (nfc_write_expected <= NFC_NDEF_BUF_SIZE)
+                    if (nfc_write_expected <= NFC_TAG_BUF_SIZE)
                         nfc_write_armed = true;
                 }
                 break;
@@ -1120,16 +1121,17 @@ std_rw_result nfc_std_read(int desc, char *buf, uint32_t count,
 
     if (resp == NFC_RESP_READ)
     {
-        // Freeze snapshot into unified buffer: header at [0..6], payload at [7..]
-        size_t ndef_len = nfc_ndef_len;
+        // Freeze snapshot into unified buffer: header at [0..6], tag data at [7..]
+        size_t tag_len = nfc_tag_len;
         int64_t age_us = absolute_time_diff_us(nfc_read_stamp, get_absolute_time());
         int64_t age_ds = age_us / 100000;
+        nfc_read_stamp = nil_time;
         nfc_read_buf[0] = (age_ds > 255) ? 255 : (uint8_t)age_ds;
         memcpy(&nfc_read_buf[1], nfc_cc, 4);
-        nfc_read_buf[5] = (uint8_t)(ndef_len & 0xFF);
-        nfc_read_buf[6] = (uint8_t)((ndef_len >> 8) & 0xFF);
-        memcpy(&nfc_read_buf[7], nfc_ndef_buf, ndef_len);
-        nfc_read_len = 7 + ndef_len;
+        nfc_read_buf[5] = (uint8_t)(tag_len & 0xFF);
+        nfc_read_buf[6] = (uint8_t)((tag_len >> 8) & 0xFF);
+        memcpy(&nfc_read_buf[7], nfc_tag_buf, tag_len);
+        nfc_read_len = 7 + tag_len;
         nfc_read_pos = 0;
     }
 

@@ -226,12 +226,12 @@ void pro_set_launcher(bool is_launcher)
         pro_launcher[0] = '\0';
 }
 
-void pro_nfc(const uint8_t *ndef, size_t len)
+void pro_nfc(const uint8_t *tag_data, size_t len)
 {
     char work[256];
     DBG("pro_nfc(%zu bytes)\n", len);
 
-    if (!nfc_parse_text(ndef, len, work, sizeof(work)))
+    if (!nfc_parse_text(tag_data, len, work, sizeof(work)))
         goto fail;
     DBG("pro_nfc text %s\n", work);
 
@@ -327,7 +327,7 @@ void pro_nfc(const uint8_t *ndef, size_t len)
             putchar(c);
     }
     putchar('"');
-    nfc_parse_text(ndef, len, work, sizeof(work));
+    nfc_parse_text(tag_data, len, work, sizeof(work));
     args = work;
     str_parse_string(&args);
     if (*args)

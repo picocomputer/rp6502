@@ -30,7 +30,7 @@ uint8_t nfc_get_enabled(void);
 
 // Parse raw NDEF TLV bytes and extract the first Well Known Text record
 // into buf (NUL-terminated). Returns false if no text record is found.
-bool nfc_parse_text(const uint8_t *ndef, size_t len, char *buf, size_t buf_size);
+bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_size);
 
 /* 6502 std driver interface
  */

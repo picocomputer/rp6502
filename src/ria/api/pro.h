@@ -43,6 +43,6 @@ bool pro_get_launcher(void);
 void pro_set_launcher(bool is_launcher);
 
 // Load a ROM via NFC
-void pro_nfc(const uint8_t *ndef, size_t len);
+void pro_nfc(const uint8_t *tag_data, size_t len);
 
 #endif /* _RIA_API_PRO_H_ */
