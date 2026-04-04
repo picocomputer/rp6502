@@ -307,28 +307,40 @@ static bool rom_copy_install_name(char *dst, const char *src, size_t len)
 
 void rom_mon_install(const char *args)
 {
-    // Parse the FAT filename and derive the LFS ROM name
     const char *args_start = args;
     const char *tok = str_parse_string(&args);
-    if (!tok || *tok == ':' || !str_parse_end(args))
+    if (!tok || *tok == ':')
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    // Strip .RP6502 extension, validate and upcase to get LFS name
     char lfs_name[LFS_NAME_MAX + 1];
-    size_t lfs_name_len = strlen(tok);
-    if (lfs_name_len > 7 && !strncasecmp(".RP6502", tok + lfs_name_len - 7, 7))
-        lfs_name_len -= 7;
-    if (lfs_name_len == 0 || lfs_name_len > LFS_NAME_MAX)
+    const char *lfs_tok = str_parse_string(&args);
+    if (lfs_tok)
     {
-        mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
-        return;
+        // Optional second arg: explicit LFS ROM name
+        if (!str_parse_end(args))
+        {
+            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return;
+        }
+        if (!rom_copy_install_name(lfs_name, lfs_tok, 0))
+        {
+            mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
+            return;
+        }
     }
-    if (!rom_copy_install_name(lfs_name, tok, lfs_name_len))
+    else
     {
-        mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
-        return;
+        // Derive LFS ROM name from FAT filename
+        size_t lfs_name_len = strlen(tok);
+        if (lfs_name_len > 7 && !strncasecmp(".RP6502", tok + lfs_name_len - 7, 7))
+            lfs_name_len -= 7;
+        if (!rom_copy_install_name(lfs_name, tok, lfs_name_len))
+        {
+            mon_add_response_str(STR_ERR_ROM_NAME_INVALID);
+            return;
+        }
     }
     // Test for system conflicts
     if (mon_command_exists(lfs_name) ||

@@ -140,7 +140,7 @@ X(STR_HELP_HELP,
   "(MSC)0:             - MSC0:-MSC9: Change current storage device.\n"
   "LOAD file           - Load ROM file. Start if contains reset vector.\n"
   "INFO file           - Show help text, if any, contained in ROM file.\n"
-  "INSTALL file        - Install ROM file on RIA.\n"
+  "INSTALL file (rom)  - Install ROM file on RIA.\n"
   "rom                 - Load and start an installed ROM.\n"
   "REMOVE rom          - Remove ROM from RIA.\n"
   "REBOOT              - Reboot the RIA. Will load selected boot ROM.\n"
