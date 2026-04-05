@@ -30,12 +30,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define NFC_CMD_ERROR 0x06
 
 // NFC API response types (read by 6502)
-#define NFC_RESP_NO_READER 0x01
-#define NFC_RESP_NO_CARD 0x02
-#define NFC_RESP_CARD_INSERTED 0x03
-#define NFC_RESP_CARD_READY 0x04
-#define NFC_RESP_WRITE 0x05
-#define NFC_RESP_READ 0x06
+#define NFC_RESP_READ 0x01
+#define NFC_RESP_WRITE 0x02
+#define NFC_RESP_NO_READER 0x03
+#define NFC_RESP_NO_CARD 0x04
+#define NFC_RESP_CARD_INSERTED 0x05
+#define NFC_RESP_CARD_READY 0x06
 
 // Max tag data area for NTAG216
 #define NFC_TAG_BUF_SIZE 888
