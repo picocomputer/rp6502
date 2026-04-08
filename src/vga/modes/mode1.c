@@ -77,7 +77,7 @@ mode1_scanline_to_data(int16_t scanline_id, mode1_config_t *config, size_t cell_
         return NULL;
     const uint32_t sizeof_row = (uint32_t)config->width_chars * cell_size;
     const uint32_t sizeof_bitmap = (uint32_t)config->height_chars * sizeof_row;
-    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
+    if (sizeof_bitmap > (uint32_t)(0x10000 - config->xram_data_ptr))
         return NULL;
     return &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
 }

@@ -36,6 +36,7 @@ target_sources(rp6502_vga PRIVATE
     modes/mode2.c
     modes/mode3.c
     modes/mode4.c
+    modes/mode5.c
     scanvideo/scanvideo.c
     sys/com.c
     sys/led.c

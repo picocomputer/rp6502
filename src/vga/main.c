@@ -9,6 +9,7 @@
 #include "modes/mode2.h"
 #include "modes/mode3.h"
 #include "modes/mode4.h"
+#include "modes/mode5.h"
 #include "sys/com.h"
 #include "sys/led.h"
 #include "sys/pix.h"
@@ -75,6 +76,8 @@ bool main_prog(uint16_t *xregs)
         return mode3_prog(xregs);
     case 4:
         return mode4_prog(xregs);
+    case 5:
+        return mode5_prog(xregs);
     default:
         return false;
     }
