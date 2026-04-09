@@ -20,7 +20,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static uint32_t pix_send_count;
 static absolute_time_t pix_api_state_timer;
-static enum state {
+
+// This may be modified in an IRQ from vga.c
+static volatile enum state {
     pix_api_running,
     pix_api_waiting,
     pix_api_ack,

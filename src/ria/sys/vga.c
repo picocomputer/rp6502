@@ -43,6 +43,7 @@ static enum {
 
 static bool vga_needs_reset = true;
 static uint8_t vga_display_type;
+static volatile bool vga_vsync_received;
 static absolute_time_t vga_vsync_timer;
 static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
@@ -66,13 +67,25 @@ static inline void vga_pix_backchannel_request(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 2);
 }
 
-static void vga_backchannel_command(uint8_t byte)
+static inline void vga_backchannel_irq_enable(void)
+{
+    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO,
+                                pis_sm2_rx_fifo_not_empty, true);
+}
+
+static inline void vga_backchannel_irq_disable(void)
+{
+    pio_set_irq0_source_enabled(VGA_BACKCHANNEL_PIO,
+                                pis_sm2_rx_fifo_not_empty, false);
+}
+
+static inline void vga_backchannel_command(uint8_t byte)
 {
     uint8_t scalar = byte & 0xF;
     switch (byte & 0xF0)
     {
     case 0x80:
-        vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
+        vga_vsync_received = true;
         if (scalar < (vga_vsync_frame & 0xF))
             vga_vsync_frame = (vga_vsync_frame & 0xF0) + 0x10;
         vga_vsync_frame = (vga_vsync_frame & 0xF0) | scalar;
@@ -88,6 +101,19 @@ static void vga_backchannel_command(uint8_t byte)
     }
 }
 
+static void
+    __attribute__((optimize("O3")))
+    __isr
+    __time_critical_func(vga_backchannel_irq_handler)(void)
+{
+    while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+    {
+        uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
+        if (byte & 0x80)
+            vga_backchannel_command(byte);
+    }
+}
+
 static void vga_rln_callback(bool timeout)
 {
     // VGA1 means VGA on PIX 1
@@ -99,6 +125,8 @@ static void vga_rln_callback(bool timeout)
 
 static void vga_connect(void)
 {
+    vga_backchannel_irq_disable();
+
     // Drop cold boot noise reported in field. Ned says works down to 4 ms.
     busy_wait_ms(20);
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
@@ -155,6 +183,10 @@ static void vga_connect(void)
             break;
         }
     }
+
+    // Enable backchannel IRQ now that version string phase is complete
+    vga_vsync_received = false;
+    vga_backchannel_irq_enable();
 }
 
 void vga_init(void)
@@ -176,6 +208,11 @@ void vga_init(void)
     pio_sm_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, offset, &c);
     pio_sm_set_enabled(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM, true);
 
+    // Set up PIO IRQ for backchannel RX, source stays disabled until connect
+    irq_set_exclusive_handler(PIO1_IRQ_0, vga_backchannel_irq_handler);
+    irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+    irq_set_enabled(PIO1_IRQ_0, true);
+
     // Disable backchannel again, for safety.
     vga_pix_backchannel_disable();
 
@@ -185,16 +222,16 @@ void vga_init(void)
 
 void vga_task(void)
 {
-    while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+    if (vga_vsync_received)
     {
-        uint8_t byte = pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM) >> 24;
-        if (byte & 0x80)
-            vga_backchannel_command(byte);
+        vga_vsync_received = false;
+        vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
     }
 
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
         absolute_time_diff_us(get_absolute_time(), vga_vsync_timer) < 0)
     {
+        vga_backchannel_irq_disable();
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_CONNECTION_LOST;
