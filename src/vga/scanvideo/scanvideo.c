@@ -1255,6 +1255,114 @@ pio_sm_config video_24mhz_composable_configure_pio(pio_hw_t *pio, uint sm, uint 
     return config;
 }
 
+void scanvideo_remode(const scanvideo_mode_t *mode)
+{
+    assert(mode->default_timing == video_mode.default_timing);
+
+    // Keep timing SM (SM3) running so the monitor stays in sync.
+    // Disable scanline and DMA IRQs to freeze scanline processing.
+    // PIO0_IRQ_1 (timing FIFO top-up) stays enabled.
+    irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << DMA_IRQ_0), false);
+
+    // Abort scanline DMA
+    dma_channel_abort(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL0);
+    dma_channel_abort(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL1);
+    dma_channel_abort(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL2);
+
+    // Stop scanline SMs
+    uint32_t sm_mask = (1u << PICO_SCANVIDEO_SCANLINE_SM0) |
+                       (1u << PICO_SCANVIDEO_SCANLINE_SM1) |
+                       (1u << PICO_SCANVIDEO_SCANLINE_SM2);
+    pio_set_sm_mask_enabled(video_pio, sm_mask, false);
+
+    // Update mode state
+    const scanvideo_timing_t *timing = mode->default_timing;
+    video_mode = *mode;
+    video_mode.default_timing = timing;
+    if (!video_mode.yscale_denominator)
+        video_mode.yscale_denominator = 1;
+
+    v_content_start = mode->v_offset;
+    v_content_end = mode->v_offset +
+                    ((uint32_t)mode->height * mode->yscale + video_mode.yscale_denominator - 1) /
+                        video_mode.yscale_denominator;
+    assert(v_content_end <= (int32_t)timing->v_active);
+
+    ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
+
+    // Re-adapt PIO program for new xscale and reload in-place
+    uint16_t instructions[32];
+    copy_program(mode->pio_program->program, instructions, count_of(instructions));
+    mode->pio_program->adapt_for_mode(mode->pio_program, mode, &_missing_scanline_buffer.core, instructions);
+    _missing_scanline_buffer.core.status = SCANLINE_OK;
+    for (uint i = 0; i < mode->pio_program->program->length; i++)
+        video_pio->instr_mem[video_program_load_offset + i] = instructions[i];
+
+    // Find wait index
+    int program_wait_index = -1;
+    for (int i = 0; i < mode->pio_program->program->length; i++)
+    {
+        if (instructions[i] == PIO_WAIT_IRQ4)
+        {
+            program_wait_index = i;
+            break;
+        }
+    }
+    assert(program_wait_index != -1);
+
+    // Reset shared state
+    __builtin_memset(&shared_state, 0, sizeof(shared_state));
+    shared_state.scanline.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK);
+    shared_state.dma.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_DMA_LOCK);
+    shared_state.free_list.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
+    shared_state.in_use.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK);
+    shared_state.scanline.last_scanline_id = 0xffffffff;
+    shared_state.scanline_program_wait_index = program_wait_index;
+
+    // Re-init scanline buffers
+    for (int i = 0; i < PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
+    {
+        memset(scanline_data0[i], 0, sizeof(scanline_data0[i]));
+        scanline_buffers[i].core.data0 = scanline_data0[i];
+        scanline_buffers[i].core.data0_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
+        memset(scanline_data1[i], 0, sizeof(scanline_data1[i]));
+        scanline_buffers[i].core.data1 = scanline_data1[i];
+        scanline_buffers[i].core.data1_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
+        memset(scanline_data2[i], 0, sizeof(scanline_data2[i]));
+        scanline_buffers[i].core.data2 = scanline_data2[i];
+        scanline_buffers[i].core.data2_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
+        scanline_buffers[i].next = i != PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1 ? &scanline_buffers[i + 1] : NULL;
+    }
+    shared_state.free_list.free_list = &scanline_buffers[0];
+    __mem_fence_release();
+
+    active_scanline_number = 0;
+    vblank_scanline_number = 0;
+
+    _blank_scanline_buffer.core.data0 = _blank_scanline_data;
+    _blank_scanline_buffer.core.data0_used = _blank_scanline_buffer.core.data0_max = count_of(_blank_scanline_data);
+    _blank_scanline_buffer.core.data1 = missing_scanline_data_overlay;
+    _blank_scanline_buffer.core.data1_used = _blank_scanline_buffer.core.data1_max = count_of(missing_scanline_data_overlay);
+    _blank_scanline_buffer.core.data2 = missing_scanline_data_overlay;
+    _blank_scanline_buffer.core.data2_used = _blank_scanline_buffer.core.data2_max = count_of(missing_scanline_data_overlay);
+    _blank_scanline_buffer.core.status = SCANLINE_OK;
+
+    // Re-init and restart scanline SMs
+    setup_sm(PICO_SCANVIDEO_SCANLINE_SM0, video_program_load_offset);
+    setup_sm(PICO_SCANVIDEO_SCANLINE_SM1, video_program_load_offset);
+    setup_sm(PICO_SCANVIDEO_SCANLINE_SM2, video_program_load_offset);
+    pio_clkdiv_restart_sm_mask(video_pio, sm_mask);
+
+    uint jmp = video_program_load_offset + pio_encode_jmp(video_mode.pio_program->entry_point);
+    pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0, jmp);
+    pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, jmp);
+    pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, jmp);
+    pio_set_sm_mask_enabled(video_pio, sm_mask, true);
+
+    // Re-enable IRQs
+    irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << DMA_IRQ_0), true);
+}
+
 void scanvideo_timing_enable(bool enable)
 {
     if (enable != video_timing_enabled)

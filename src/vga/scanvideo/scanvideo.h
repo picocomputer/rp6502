@@ -128,6 +128,7 @@ struct scanvideo_pio_program
 extern const scanvideo_pio_program_t video_24mhz_composable;
 
 extern bool scanvideo_setup(const scanvideo_mode_t *mode);
+extern void scanvideo_remode(const scanvideo_mode_t *mode);
 extern void scanvideo_teardown(void);
 extern void scanvideo_timing_enable(bool enable);
 extern bool scanvideo_vsync_pausing(void);

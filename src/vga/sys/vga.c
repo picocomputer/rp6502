@@ -197,30 +197,40 @@ static void vga_scanvideo_switch(void)
     if (!vga_scanvideo_mode_switching)
         return;
 
-    // Prevent core 1 from being inside scanvideo calls during teardown+setup,
-    // since scanvideo_setup() zeroes shared state including spinlocks.
+    // Prevent core 1 from being inside scanvideo calls during switch,
+    // since shared state including spinlocks gets zeroed.
     mutex_enter_blocking(&vga_scanline_mutex);
 
-    scanvideo_teardown();
-
-    // Set system clock for the new video mode
-    uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
-    if (clk == 25200000)
-        clk = 25200000 * 8; // 201.6 MHz
-    else if (clk == 54000000)
-        clk = 54000000 * 4; // 216.0 MHz
-    else if (clk == 37125000)
-        clk = 37125000 * 4; // 148.5 MHz
-    assert(clk >= 120000000 && clk <= 266000000);
-    if (clk != clock_get_hz(clk_sys))
+    if (vga_scanvideo_mode_current &&
+        vga_scanvideo_mode_selected->default_timing == vga_scanvideo_mode_current->default_timing)
     {
-        main_pre_reclock();
-        set_sys_clock_khz(clk / 1000, true);
-        main_post_reclock();
+        // Same timing: remode without disturbing the timing SM.
+        // The monitor won't resync. Blank lines render until next frame.
+        scanvideo_remode(vga_scanvideo_mode_selected);
     }
+    else
+    {
+        // Different timing: full teardown + clock change + setup.
+        scanvideo_teardown();
 
-    scanvideo_setup(vga_scanvideo_mode_selected);
-    scanvideo_timing_enable(true);
+        uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
+        if (clk == 25200000)
+            clk = 25200000 * 8; // 201.6 MHz
+        else if (clk == 54000000)
+            clk = 54000000 * 4; // 216.0 MHz
+        else if (clk == 37125000)
+            clk = 37125000 * 4; // 148.5 MHz
+        assert(clk >= 120000000 && clk <= 266000000);
+        if (clk != clock_get_hz(clk_sys))
+        {
+            main_pre_reclock();
+            set_sys_clock_khz(clk / 1000, true);
+            main_post_reclock();
+        }
+
+        scanvideo_setup(vga_scanvideo_mode_selected);
+        scanvideo_timing_enable(true);
+    }
 
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
@@ -229,6 +239,7 @@ static void vga_scanvideo_switch(void)
     vga_scanvideo_mode_switching = false;
 
     mutex_exit(&vga_scanline_mutex);
+    ria_vsync();
 }
 
 static void vga_render_scanline(void)
