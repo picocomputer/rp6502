@@ -50,6 +50,7 @@ void aud_init(void)
     for (unsigned i = 0; i < 256; i++)
         aud_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
 
+    irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
     bel_setup();
 }
 
@@ -62,7 +63,7 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
 {
     if (aud_irq_fn != irq_fn)
     {
-        irq_set_enabled(PWM_IRQ_WRAP, false);
+        irq_set_enabled(PWM_IRQ_WRAP_0, false);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
         if (aud_irq_fn != NULL)
             irq_remove_handler(PWM_IRQ_WRAP_0, aud_irq_fn);
@@ -71,6 +72,6 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
         irq_set_exclusive_handler(PWM_IRQ_WRAP_0, irq_fn);
         pwm_set_wrap(AUD_IRQ_SLICE, CPU_RP2350_KHZ / (rate / 1000.f) - 1);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
-        irq_set_enabled(PWM_IRQ_WRAP, true);
+        irq_set_enabled(PWM_IRQ_WRAP_0, true);
     }
 }
