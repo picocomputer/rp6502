@@ -916,6 +916,8 @@ bool scanvideo_setup(const scanvideo_mode_t *mode)
 
     video_mode = *mode;
     video_mode.default_timing = timing;
+    active_scanline_number = 0;
+    vblank_scanline_number = 0;
 
     static_assert(BPP == 16, "");
     if (!video_mode.yscale_denominator)

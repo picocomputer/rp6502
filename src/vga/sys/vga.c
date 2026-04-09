@@ -243,6 +243,10 @@ static void vga_scanvideo_switch(void)
     if (!vga_scanvideo_mode_switching)
         return;
 
+    // Prevent core 1 from being inside scanvideo calls during teardown+setup,
+    // since scanvideo_setup() zeroes shared state including spinlocks.
+    mutex_enter_blocking(&vga_scanline_mutex);
+
     scanvideo_teardown();
 
     // Set system clock for the new video mode
@@ -267,7 +271,10 @@ static void vga_scanvideo_switch(void)
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
     vga_canvas_current = vga_canvas_selected;
+    vga_scanline_num = -1;
     vga_scanvideo_mode_switching = false;
+
+    mutex_exit(&vga_scanline_mutex);
 }
 
 static void vga_render_scanline(void)
