@@ -65,7 +65,7 @@ static void set_boot(const char *args)
             rom_set_boot("");
         else
         {
-            if (!tok || !str_parse_end(scan) || !rom_set_boot(tok))
+            if (!rom_set_boot(args))
                 return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
         }
     }

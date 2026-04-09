@@ -79,7 +79,8 @@ static inline void vga_backchannel_irq_disable(void)
                                 pis_sm2_rx_fifo_not_empty, false);
 }
 
-static inline void vga_backchannel_command(uint8_t byte)
+static inline void __attribute__((always_inline))
+vga_backchannel_command(uint8_t byte)
 {
     uint8_t scalar = byte & 0xF;
     switch (byte & 0xF0)
