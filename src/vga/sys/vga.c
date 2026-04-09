@@ -39,6 +39,7 @@ static vga_prog_t vga_prog[VGA_PROG_MAX];
 
 static mutex_t vga_scanline_mutex;
 static int16_t vga_scanline_num;
+static int16_t vga_highest_scanline;
 static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
 static volatile vga_canvas_t vga_canvas_current;
@@ -63,42 +64,7 @@ static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .v_total = 525,
     .v_sync_polarity = 1};
 
-static const scanvideo_timing_t vga_timing_640x480_wide_60_cea = {
-    .clock_freq = 25200000,
-
-    .h_active = 640,
-    .v_active = 360,
-
-    .h_front_porch = 16,
-    .h_pulse = 96,
-    .h_total = 800,
-    .h_sync_polarity = 1,
-
-    // porch extended for letterbox effect (480->360)
-    .v_front_porch = 70,
-    .v_pulse = 2,
-    .v_total = 525,
-    .v_sync_polarity = 1};
-
 static const scanvideo_timing_t vga_timing_1280x1024_60_dmt = {
-    // half clock rate, effective 2 xscale
-    .clock_freq = 54000000,
-
-    .h_active = 640,
-    .v_active = 960,
-
-    .h_front_porch = 24,
-    .h_pulse = 56,
-    .h_total = 844,
-    .h_sync_polarity = 0,
-
-    // porch extended for letterbox effect (1024->960)
-    .v_front_porch = 33,
-    .v_pulse = 3,
-    .v_total = 1066,
-    .v_sync_polarity = 1};
-
-static const scanvideo_timing_t vga_timing_1280x1024_tall_60_dmt = {
     // half clock rate, effective 2 xscale
     .clock_freq = 54000000,
 
@@ -111,24 +77,6 @@ static const scanvideo_timing_t vga_timing_1280x1024_tall_60_dmt = {
     .h_sync_polarity = 0,
 
     .v_front_porch = 1,
-    .v_pulse = 3,
-    .v_total = 1066,
-    .v_sync_polarity = 1};
-
-static const scanvideo_timing_t vga_timing_1280x1024_wide_60_dmt = {
-    // half clock rate, effective 2 xscale
-    .clock_freq = 54000000,
-
-    .h_active = 640,
-    .v_active = 720,
-
-    .h_front_porch = 24,
-    .h_pulse = 56,
-    .h_total = 844,
-    .h_sync_polarity = 0,
-
-    // porch extended for letterbox effect (1024->720)
-    .v_front_porch = 153,
     .v_pulse = 3,
     .v_total = 1066,
     .v_sync_polarity = 1};
@@ -167,20 +115,22 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x480 = {
     .yscale = 1};
 
 static const scanvideo_mode_t vga_scanvideo_mode_320x180 = {
-    .default_timing = &vga_timing_640x480_wide_60_cea,
+    .default_timing = &vga_timing_640x480_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 320,
     .height = 180,
     .xscale = 2,
-    .yscale = 2};
+    .yscale = 2,
+    .v_offset = 60};
 
 static const scanvideo_mode_t vga_scanvideo_mode_640x360 = {
-    .default_timing = &vga_timing_640x480_wide_60_cea,
+    .default_timing = &vga_timing_640x480_60_cea,
     .pio_program = &video_24mhz_composable,
     .width = 640,
     .height = 360,
     .xscale = 1,
-    .yscale = 1};
+    .yscale = 1,
+    .v_offset = 60};
 
 static const scanvideo_mode_t vga_scanvideo_mode_320x240_sxga = {
     .default_timing = &vga_timing_1280x1024_60_dmt,
@@ -188,7 +138,8 @@ static const scanvideo_mode_t vga_scanvideo_mode_320x240_sxga = {
     .width = 320,
     .height = 240,
     .xscale = 2,
-    .yscale = 4};
+    .yscale = 4,
+    .v_offset = 32};
 
 static const scanvideo_mode_t vga_scanvideo_mode_640x480_sxga = {
     .default_timing = &vga_timing_1280x1024_60_dmt,
@@ -196,10 +147,11 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x480_sxga = {
     .width = 640,
     .height = 480,
     .xscale = 1,
-    .yscale = 2};
+    .yscale = 2,
+    .v_offset = 32};
 
 static const scanvideo_mode_t vga_scanvideo_mode_640x512_sxga = {
-    .default_timing = &vga_timing_1280x1024_tall_60_dmt,
+    .default_timing = &vga_timing_1280x1024_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 640,
     .height = 512,
@@ -207,20 +159,22 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x512_sxga = {
     .yscale = 2};
 
 static const scanvideo_mode_t vga_scanvideo_mode_320x180_sxga = {
-    .default_timing = &vga_timing_1280x1024_wide_60_dmt,
+    .default_timing = &vga_timing_1280x1024_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 320,
     .height = 180,
     .xscale = 2,
-    .yscale = 4};
+    .yscale = 4,
+    .v_offset = 152};
 
 static const scanvideo_mode_t vga_scanvideo_mode_640x360_sxga = {
-    .default_timing = &vga_timing_1280x1024_wide_60_dmt,
+    .default_timing = &vga_timing_1280x1024_60_dmt,
     .pio_program = &video_24mhz_composable,
     .width = 640,
     .height = 360,
     .xscale = 1,
-    .yscale = 2};
+    .yscale = 2,
+    .v_offset = 152};
 
 static const scanvideo_mode_t vga_scanvideo_mode_320x180_hd = {
     .default_timing = &vga_timing_1280x720_60_cea,
@@ -283,7 +237,10 @@ static void vga_render_scanline(void)
         return;
     if (scanvideo_vsync_pausing())
     {
-        if (vga_scanline_num >= vga_scanvideo_mode_current->height)
+        int16_t vsync_at = vga_highest_scanline > 0
+                               ? vga_highest_scanline
+                               : vga_scanvideo_mode_current->height;
+        if (vga_scanline_num >= vsync_at)
         {
             ria_vsync();
             vga_scanline_num = -1;
@@ -468,6 +425,7 @@ void vga_xreg_canvas(uint16_t *xregs)
         return;
     }
     memset(&vga_prog, 0, sizeof(vga_prog));
+    vga_highest_scanline = 0;
     if (canvas == vga_console)
         vga_reset_console_prog();
     if (xregs)
@@ -531,6 +489,8 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
         vga_prog[i].fill_config[plane] = config_ptr;
         vga_prog[i].fill_fn[plane] = fill_fn;
     }
+    if (scanline_end > vga_highest_scanline)
+        vga_highest_scanline = scanline_end;
     return true;
 }
 
@@ -555,6 +515,8 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
         vga_prog[i].fill_config[plane] = config_ptr;
         vga_prog[i].fill_fn[plane] = fill_fn;
     }
+    if (scanline_end > vga_highest_scanline)
+        vga_highest_scanline = scanline_end;
     return true;
 }
 
@@ -578,6 +540,8 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
         vga_prog[i].sprite_length[plane] = length;
         vga_prog[i].sprite_fn[plane] = sprite_fn;
     }
+    if (scanline_end > vga_highest_scanline)
+        vga_highest_scanline = scanline_end;
     return true;
 }
 

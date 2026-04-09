@@ -192,6 +192,12 @@ uint32_t missing_scanline_data_overlay[] = {
 
 static full_scanline_buffer_t _missing_scanline_buffer;
 
+static uint32_t _blank_scanline_data[] = {
+    COMPOSABLE_RAW_1P | (0 << 16),
+    COMPOSABLE_EOL_SKIP_ALIGN,
+};
+static full_scanline_buffer_t _blank_scanline_buffer;
+
 static inline bool is_scanline_after(uint32_t scanline_id1, uint32_t scanline_id2)
 {
     return ((int32_t)(scanline_id1 - scanline_id2)) > 0;
@@ -206,6 +212,10 @@ static void setup_sm(int sm, uint offset);
 // -- MISC stuff
 static scanvideo_mode_t video_mode;
 static bool video_timing_enabled = false;
+static int32_t active_scanline_number;
+static int32_t vblank_scanline_number;
+static int32_t v_content_start;
+static int32_t v_content_end;
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
 {
@@ -535,9 +545,83 @@ static void set_next_scanline_id(uint32_t scanline_id)
     shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(scanline_id) * video_mode.yscale;
 }
 
+static inline void __not_in_flash_func(recover_pio_sms_and_dma_blank)(int *buffers_to_free_count)
+{
+    update_dma_transfer_state_irqs_enabled(true, buffers_to_free_count);
+
+    if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM0))
+    {
+        pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM0);
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0, pio_encode_out(pio_null, 32));
+    }
+    if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM0].instr != PIO_WAIT_IRQ4)
+    {
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0, pio_encode_wait_irq(1, false, 4));
+        if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM0))
+        {
+            if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM0].addr != shared_state.scanline_program_wait_index + 1u)
+            {
+                pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0,
+                            pio_encode_jmp(shared_state.scanline_program_wait_index));
+            }
+        }
+        else
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0,
+                        pio_encode_jmp(shared_state.scanline_program_wait_index + 1));
+        }
+    }
+    if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM1))
+    {
+        pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM1);
+    }
+    if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM1].instr != PIO_WAIT_IRQ4)
+    {
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_wait_irq(1, false, 4));
+        if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM1))
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_jmp(shared_state.scanline_program_wait_index));
+        }
+        else
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1,
+                        pio_encode_jmp(shared_state.scanline_program_wait_index + 1));
+        }
+    }
+
+    dma_channel_transfer_from_buffer_now(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL0, _blank_scanline_buffer.core.data0,
+                                         (uint32_t)_blank_scanline_buffer.core.data0_used);
+    dma_channel_transfer_from_buffer_now(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL1, _blank_scanline_buffer.core.data1,
+                                         (uint32_t)_blank_scanline_buffer.core.data1_used);
+    dma_channel_transfer_from_buffer_now(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL2, _blank_scanline_buffer.core.data2,
+                                         (uint32_t)_blank_scanline_buffer.core.data2_used);
+}
+
 void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)()
 {
     DEBUG_PINS_SET(video_timing, 1);
+
+    // Offset scanlines: DMA blank data, skip scanline state advancement
+    if (active_scanline_number < v_content_start || active_scanline_number >= v_content_end)
+    {
+        int buffers_to_free_count = 0;
+        recover_pio_sms_and_dma_blank(&buffers_to_free_count);
+
+        uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
+        shared_state.scanline.in_vblank = false;
+        spin_lock_unsafe_blocking(shared_state.dma.lock);
+        shared_state.dma.scanline_in_progress = 1;
+        spin_unlock_unsafe(shared_state.dma.lock);
+        spin_unlock(shared_state.scanline.lock, save);
+
+        full_scanline_buffer_t *local_free_list = NULL;
+        release_scanline_irqs_enabled(buffers_to_free_count, &local_free_list);
+        free_local_free_list_irqs_enabled(local_free_list);
+        DEBUG_PINS_CLR(video_timing, 1);
+        return;
+    }
+
+    // Content scanlines: normal path
     full_scanline_buffer_t *local_free_list = NULL;
     int buffers_to_free_count = 0;
     uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
@@ -751,8 +835,6 @@ static inline void top_up_timing_pio_fifo()
     }
 }
 
-static int32_t active_scanline_number;
-static int32_t vblank_scanline_number;
 
 void __isr __not_in_flash_func(isr_pio0_0)()
 {
@@ -784,7 +866,7 @@ void __isr __not_in_flash_func(isr_pio0_0)()
 bool scanvideo_vsync_pausing()
 {
     bool late = active_scanline_number >=
-                timing_state.v_active - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1;
+                v_content_end - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1;
     bool early = vblank_scanline_number <
                  timing_state.v_total - timing_state.v_active - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT;
     return late || early;
@@ -922,6 +1004,20 @@ bool scanvideo_setup(const scanvideo_mode_t *mode)
     static_assert(BPP == 16, "");
     if (!video_mode.yscale_denominator)
         video_mode.yscale_denominator = 1;
+
+    v_content_start = mode->v_offset;
+    v_content_end = mode->v_offset +
+                    ((uint32_t)mode->height * mode->yscale + video_mode.yscale_denominator - 1) /
+                        video_mode.yscale_denominator;
+
+    _blank_scanline_buffer.core.data0 = _blank_scanline_data;
+    _blank_scanline_buffer.core.data0_used = _blank_scanline_buffer.core.data0_max = count_of(_blank_scanline_data);
+    _blank_scanline_buffer.core.data1 = missing_scanline_data_overlay;
+    _blank_scanline_buffer.core.data1_used = _blank_scanline_buffer.core.data1_max = count_of(missing_scanline_data_overlay);
+    _blank_scanline_buffer.core.data2 = missing_scanline_data_overlay;
+    _blank_scanline_buffer.core.data2_used = _blank_scanline_buffer.core.data2_max = count_of(missing_scanline_data_overlay);
+    _blank_scanline_buffer.core.status = SCANLINE_OK;
+
     ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
 
     for (int i = 0; i < PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
@@ -972,7 +1068,7 @@ bool scanvideo_setup(const scanvideo_mode_t *mode)
     }
 
     assert(mode->width * mode->xscale <= timing->h_active);
-    assert(mode->height * mode->yscale <= timing->v_active * video_mode.yscale_denominator);
+    assert(v_content_end <= (int32_t)timing->v_active);
 
     uint16_t instructions[32];
     pio_program_t modified_program = copy_program(mode->pio_program->program, instructions,

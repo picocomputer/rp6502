@@ -88,6 +88,7 @@ typedef struct scanvideo_mode
     uint8_t xscale;
     uint16_t yscale;
     uint16_t yscale_denominator;
+    uint16_t v_offset;
 } scanvideo_mode_t;
 
 typedef struct scanvideo_scanline_buffer
