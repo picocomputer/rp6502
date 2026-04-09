@@ -10,7 +10,6 @@
 #include "sys/mem.h"
 #include "term/term.h"
 #include "scanvideo/scanvideo.h"
-#include "scanvideo/composable_scanline.h"
 #include <pico/stdlib.h>
 #include <pico/multicore.h>
 #include <hardware/clocks.h>
@@ -319,7 +318,7 @@ static void vga_render_scanline(void)
     // Scanline ready, do it.
     const uint16_t width = vga_scanvideo_mode_current->width;
     const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
-    uint32_t *const data[3] = {scanline_buffer->data, scanline_buffer->data2, scanline_buffer->data3};
+    uint32_t *const data[3] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
     bool filled[3] = {false, false, false};
     uint32_t *foreground = NULL;
     vga_prog_t prog = vga_prog[scanline_id];
@@ -369,13 +368,13 @@ static void vga_render_scanline(void)
         switch (i)
         {
         case 0:
-            scanline_buffer->data_used = data_used;
+            scanline_buffer->data0_used = data_used;
             break;
         case 1:
-            scanline_buffer->data2_used = data_used;
+            scanline_buffer->data1_used = data_used;
             break;
         case 2:
-            scanline_buffer->data3_used = data_used;
+            scanline_buffer->data2_used = data_used;
             break;
         }
     }
