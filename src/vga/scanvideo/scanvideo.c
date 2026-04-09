@@ -835,7 +835,6 @@ static inline void top_up_timing_pio_fifo()
     }
 }
 
-
 void __isr __not_in_flash_func(isr_pio0_0)()
 {
     if (video_pio->irq & 1u)
@@ -985,7 +984,7 @@ static pio_program_t copy_program(const pio_program_t *program, uint16_t *instru
     return copy;
 }
 
-bool scanvideo_setup(const scanvideo_mode_t *mode)
+static bool scanvideo_setup(const scanvideo_mode_t *mode)
 {
     const scanvideo_timing_t *timing = mode->default_timing;
 
@@ -1255,11 +1254,75 @@ pio_sm_config video_24mhz_composable_configure_pio(pio_hw_t *pio, uint sm, uint 
     return config;
 }
 
+static void scanvideo_timing_enable(bool enable)
+{
+    if (enable != video_timing_enabled)
+    {
+        pio_set_irq0_source_mask_enabled(video_pio, (1u << pis_interrupt0) | (1u << pis_interrupt1), true);
+        pio_set_irq1_source_enabled(video_pio, pis_sm0_tx_fifo_not_full + PICO_SCANVIDEO_TIMING_SM, true);
+        irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << PIO0_IRQ_1) | (1u << DMA_IRQ_0),
+                             enable);
+        uint32_t sm_mask = (1u << PICO_SCANVIDEO_SCANLINE_SM0) | 1u << PICO_SCANVIDEO_TIMING_SM;
+        sm_mask |= 1u << PICO_SCANVIDEO_SCANLINE_SM1;
+        sm_mask |= 1u << PICO_SCANVIDEO_SCANLINE_SM2;
+        pio_claim_sm_mask(video_pio, sm_mask);
+        pio_set_sm_mask_enabled(video_pio, sm_mask, false);
+        pio_clkdiv_restart_sm_mask(video_pio, sm_mask);
+
+        if (enable)
+        {
+            uint jmp = video_program_load_offset + pio_encode_jmp(video_mode.pio_program->entry_point);
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0, jmp);
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, jmp);
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, jmp);
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_TIMING_SM,
+                        pio_encode_jmp(video_htiming_load_offset + video_htiming_offset_entry_point));
+            pio_set_sm_mask_enabled(video_pio, sm_mask, true);
+        }
+        video_timing_enabled = enable;
+    }
+}
+
+static void scanvideo_teardown(void)
+{
+    // Abort and unclaim DMA channels
+    for (uint i = 0; i < PICO_SCANVIDEO_PLANE_COUNT; i++)
+    {
+        dma_channel_abort(i);
+        if (dma_channel_is_claimed(i))
+            dma_channel_unclaim(i);
+    }
+
+    // Clear PIO instruction memory
+    pio_clear_instruction_memory(video_pio);
+
+    // scanvideo_timing_enable calls pio_claim_sm_mask internally,
+    // so we must unclaim first, then again after to fully release.
+    for (int sm = 0; sm < 4; sm++)
+        if (pio_sm_is_claimed(video_pio, sm))
+            pio_sm_unclaim(video_pio, sm);
+    scanvideo_timing_enable(false);
+    for (int sm = 0; sm < 4; sm++)
+        if (pio_sm_is_claimed(video_pio, sm))
+            pio_sm_unclaim(video_pio, sm);
+}
+
 void scanvideo_remode(const scanvideo_mode_t *mode)
 {
-    assert(mode->default_timing == video_mode.default_timing);
+    bool first_call = !video_timing_enabled;
+    bool timing_changed = first_call || mode->default_timing != video_mode.default_timing;
 
-    // Keep timing SM (SM3) running so the monitor stays in sync.
+    if (timing_changed)
+    {
+        // Full teardown + setup + enable for timing changes and first call.
+        if (!first_call)
+            scanvideo_teardown();
+        scanvideo_setup(mode);
+        scanvideo_timing_enable(true);
+        return;
+    }
+
+    // Same timing: keep timing SM (SM3) running so the monitor stays in sync.
     // Disable scanline and DMA IRQs to freeze scanline processing.
     // PIO0_IRQ_1 (timing FIFO top-up) stays enabled.
     irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << DMA_IRQ_0), false);
@@ -1361,59 +1424,6 @@ void scanvideo_remode(const scanvideo_mode_t *mode)
 
     // Re-enable IRQs
     irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << DMA_IRQ_0), true);
-}
-
-void scanvideo_timing_enable(bool enable)
-{
-    if (enable != video_timing_enabled)
-    {
-        pio_set_irq0_source_mask_enabled(video_pio, (1u << pis_interrupt0) | (1u << pis_interrupt1), true);
-        pio_set_irq1_source_enabled(video_pio, pis_sm0_tx_fifo_not_full + PICO_SCANVIDEO_TIMING_SM, true);
-        irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << PIO0_IRQ_1) | (1u << DMA_IRQ_0),
-                             enable);
-        uint32_t sm_mask = (1u << PICO_SCANVIDEO_SCANLINE_SM0) | 1u << PICO_SCANVIDEO_TIMING_SM;
-        sm_mask |= 1u << PICO_SCANVIDEO_SCANLINE_SM1;
-        sm_mask |= 1u << PICO_SCANVIDEO_SCANLINE_SM2;
-        pio_claim_sm_mask(video_pio, sm_mask);
-        pio_set_sm_mask_enabled(video_pio, sm_mask, false);
-        pio_clkdiv_restart_sm_mask(video_pio, sm_mask);
-
-        if (enable)
-        {
-            uint jmp = video_program_load_offset + pio_encode_jmp(video_mode.pio_program->entry_point);
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM0, jmp);
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, jmp);
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, jmp);
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_TIMING_SM,
-                        pio_encode_jmp(video_htiming_load_offset + video_htiming_offset_entry_point));
-            pio_set_sm_mask_enabled(video_pio, sm_mask, true);
-        }
-        video_timing_enabled = enable;
-    }
-}
-
-void scanvideo_teardown(void)
-{
-    // Abort and unclaim DMA channels
-    for (uint i = 0; i < PICO_SCANVIDEO_PLANE_COUNT; i++)
-    {
-        dma_channel_abort(i);
-        if (dma_channel_is_claimed(i))
-            dma_channel_unclaim(i);
-    }
-
-    // Clear PIO instruction memory
-    pio_clear_instruction_memory(video_pio);
-
-    // scanvideo_timing_enable calls pio_claim_sm_mask internally,
-    // so we must unclaim first, then again after to fully release.
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(video_pio, sm))
-            pio_sm_unclaim(video_pio, sm);
-    scanvideo_timing_enable(false);
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(video_pio, sm))
-            pio_sm_unclaim(video_pio, sm);
 }
 
 #pragma GCC pop_options
