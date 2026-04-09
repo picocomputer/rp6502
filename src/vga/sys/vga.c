@@ -13,7 +13,6 @@
 #include "scanvideo/composable_scanline.h"
 #include <pico/stdlib.h>
 #include <pico/multicore.h>
-#include <hardware/dma.h>
 #include <hardware/clocks.h>
 #include <string.h>
 
@@ -249,28 +248,9 @@ static void vga_scanvideo_switch(void)
         !mutex_try_enter(&vga_mode_mutex, 0))
         return;
 
-    // "video_set_display_mode(...)" "doesn't exist yet!" -scanvideo_base.h
-    // Until it does, a brute force shutdown between frames seems to work.
+    scanvideo_teardown();
 
-    // Stop and release resources previously held by scanvideo_setup()
-    for (int i = 0; i < 3; i++)
-    {
-        dma_channel_abort(i);
-        if (dma_channel_is_claimed(i))
-            dma_channel_unclaim(i);
-    }
-    pio_clear_instruction_memory(pio0);
-
-    // scanvideo_timing_enable is almost able to stop itself
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(pio0, sm))
-            pio_sm_unclaim(pio0, sm);
-    scanvideo_timing_enable(false);
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(pio0, sm))
-            pio_sm_unclaim(pio0, sm);
-
-    // begin scanvideo setup with clock setup
+    // Set system clock for the new video mode
     uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
     if (clk == 25200000)
         clk = 25200000 * 8; // 201.6 MHz
@@ -286,9 +266,6 @@ static void vga_scanvideo_switch(void)
         main_post_reclock();
     }
 
-    // These two calls are the main scanvideo startup.
-    // There's a memory leak in scanvideo_setup which is
-    // patched in the fork we use.
     scanvideo_setup(vga_scanvideo_mode_selected);
     scanvideo_timing_enable(true);
 
