@@ -37,7 +37,6 @@ typedef struct
 } vga_prog_t;
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
-static mutex_t vga_mode_mutex;
 static mutex_t vga_scanline_mutex;
 static int16_t vga_scanline_num;
 static volatile vga_display_t vga_display_current;
@@ -47,8 +46,6 @@ static vga_canvas_t vga_canvas_selected;
 static volatile scanvideo_mode_t const *vga_scanvideo_mode_current;
 static scanvideo_mode_t const *vga_scanvideo_mode_selected;
 static volatile bool vga_scanvideo_mode_switching;
-static volatile bool vga_canvas_ack_pending;
-static scanvideo_scanline_buffer_t *volatile vga_scanline_buffer_core0;
 
 static const scanvideo_timing_t vga_timing_640x480_60_cea = {
     .clock_freq = 25200000,
@@ -243,8 +240,7 @@ static const scanvideo_mode_t vga_scanvideo_mode_640x360_hd = {
 
 static void vga_scanvideo_switch(void)
 {
-    if (!vga_scanvideo_mode_switching ||
-        !mutex_try_enter(&vga_mode_mutex, 0))
+    if (!vga_scanvideo_mode_switching)
         return;
 
     scanvideo_teardown();
@@ -268,51 +264,40 @@ static void vga_scanvideo_switch(void)
     scanvideo_setup(vga_scanvideo_mode_selected);
     scanvideo_timing_enable(true);
 
-    // Swap in the new config
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
     vga_canvas_current = vga_canvas_selected;
     vga_scanvideo_mode_switching = false;
-
-    if (vga_canvas_ack_pending)
-    {
-        vga_canvas_ack_pending = false;
-        ria_ack();
-    }
-
-    mutex_exit(&vga_mode_mutex);
 }
 
 static void vga_render_scanline(void)
 {
-    // Check if any scanlines are ready to render.
-    // This also manages vsync timing for the RIA/6502 and a
-    // lock to ensure mode switching happens at the correct time.
     if (!mutex_try_enter(&vga_scanline_mutex, 0))
         return;
     if (scanvideo_vsync_pausing())
     {
         if (vga_scanline_num >= vga_scanvideo_mode_current->height)
         {
-            ria_vsync();                 // send to RIA
-            mutex_exit(&vga_mode_mutex); // ok to mode switch
-            vga_scanline_num = -1;       // do once
+            ria_vsync();
+            vga_scanline_num = -1;
         }
         if (vga_scanline_num == -1)
-            return mutex_exit(&vga_scanline_mutex);
+        {
+            mutex_exit(&vga_scanline_mutex);
+            return;
+        }
     }
     if (vga_scanline_num == -1)
-    {
-        if (vga_scanvideo_mode_switching || !mutex_try_enter(&vga_mode_mutex, 0))
-            return mutex_exit(&vga_scanline_mutex);
-        vga_scanline_num = 0; // frame starts now
-    }
+        vga_scanline_num = 0;
     scanvideo_scanline_buffer_t *const scanline_buffer =
         scanvideo_begin_scanline_generation(false);
     if (!scanline_buffer)
-        return mutex_exit(&vga_scanline_mutex);
+    {
+        mutex_exit(&vga_scanline_mutex);
+        return;
+    }
     if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
-        vga_scanline_num = 0; // safety net
+        vga_scanline_num = 0;
     mutex_exit(&vga_scanline_mutex);
 
     // Scanline ready, do it.
@@ -451,7 +436,6 @@ void vga_set_display(vga_display_t display)
 // ACK is deferred until vga_scanvideo_switch() when a mode switch is pending.
 void vga_xreg_canvas(uint16_t *xregs)
 {
-    vga_canvas_ack_pending = false;
     vga_canvas_t canvas = xregs ? xregs[0] : vga_console;
     switch (canvas)
     {
@@ -480,12 +464,7 @@ void vga_xreg_canvas(uint16_t *xregs)
     if (canvas == vga_console)
         vga_reset_console_prog();
     if (xregs)
-    {
-        if (vga_scanvideo_mode_switching)
-            vga_canvas_ack_pending = true;
-        else
-            ria_ack();
-    }
+        ria_ack();
 }
 
 int16_t vga_canvas_height(void)
@@ -504,12 +483,10 @@ void vga_init(void)
     // safety check for compiler alignment
     assert(!((uintptr_t)xram & 0xFFFF));
 
-    mutex_init(&vga_mode_mutex);
     mutex_init(&vga_scanline_mutex);
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
     vga_scanvideo_switch();
-    mutex_try_enter(&vga_mode_mutex, 0);
     multicore_launch_core1(vga_render_loop);
 }
 
