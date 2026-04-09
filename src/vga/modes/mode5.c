@@ -36,9 +36,12 @@ mode5_render(int16_t scanline, int16_t width, uint16_t *rgb,
              uint16_t config_ptr, uint16_t length,
              int16_t sprite_size, int16_t bpp)
 {
-    const mode5_sprite_t *sprites = (const mode5_sprite_t *)&xram[config_ptr];
     const int16_t bytes_per_row = sprite_size * bpp / 8;
-    const uint16_t sprite_data_size = sprite_size * bytes_per_row;
+    const uint32_t sprite_data_size = (uint32_t)sprite_size * bytes_per_row;
+    if (sprite_data_size > 0x10000)
+        return;
+
+    const mode5_sprite_t *sprites = (const mode5_sprite_t *)&xram[config_ptr];
 
     for (uint16_t i = 0; i < length; i++)
     {
@@ -137,6 +140,126 @@ mode5_render_8bpp_16x16(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t
     mode5_render(scanline, width, rgb, config_ptr, length, 16, 8);
 }
 
+static void
+mode5_render_1bpp_32x32(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 32, 1);
+}
+
+static void
+mode5_render_2bpp_32x32(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 32, 2);
+}
+
+static void
+mode5_render_4bpp_32x32(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 32, 4);
+}
+
+static void
+mode5_render_8bpp_32x32(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 32, 8);
+}
+
+static void
+mode5_render_1bpp_64x64(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 64, 1);
+}
+
+static void
+mode5_render_2bpp_64x64(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 64, 2);
+}
+
+static void
+mode5_render_4bpp_64x64(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 64, 4);
+}
+
+static void
+mode5_render_8bpp_64x64(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 64, 8);
+}
+
+static void
+mode5_render_1bpp_128x128(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 128, 1);
+}
+
+static void
+mode5_render_2bpp_128x128(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 128, 2);
+}
+
+static void
+mode5_render_4bpp_128x128(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 128, 4);
+}
+
+static void
+mode5_render_8bpp_128x128(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 128, 8);
+}
+
+static void
+mode5_render_1bpp_256x256(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 256, 1);
+}
+
+static void
+mode5_render_2bpp_256x256(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 256, 2);
+}
+
+static void
+mode5_render_4bpp_256x256(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 256, 4);
+}
+
+static void
+mode5_render_8bpp_256x256(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 256, 8);
+}
+
+static void
+mode5_render_1bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 512, 1);
+}
+
+static void
+mode5_render_2bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 512, 2);
+}
+
+static void
+mode5_render_4bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 512, 4);
+}
+
+static void
+mode5_render_8bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
+{
+    mode5_render(scanline, width, rgb, config_ptr, length, 512, 8);
+}
+
 bool mode5_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -178,6 +301,66 @@ bool mode5_prog(uint16_t *xregs)
         break;
     case 11:
         render_fn = mode5_render_8bpp_16x16;
+        break;
+    case 16:
+        render_fn = mode5_render_1bpp_32x32;
+        break;
+    case 17:
+        render_fn = mode5_render_2bpp_32x32;
+        break;
+    case 18:
+        render_fn = mode5_render_4bpp_32x32;
+        break;
+    case 19:
+        render_fn = mode5_render_8bpp_32x32;
+        break;
+    case 24:
+        render_fn = mode5_render_1bpp_64x64;
+        break;
+    case 25:
+        render_fn = mode5_render_2bpp_64x64;
+        break;
+    case 26:
+        render_fn = mode5_render_4bpp_64x64;
+        break;
+    case 27:
+        render_fn = mode5_render_8bpp_64x64;
+        break;
+    case 32:
+        render_fn = mode5_render_1bpp_128x128;
+        break;
+    case 33:
+        render_fn = mode5_render_2bpp_128x128;
+        break;
+    case 34:
+        render_fn = mode5_render_4bpp_128x128;
+        break;
+    case 35:
+        render_fn = mode5_render_8bpp_128x128;
+        break;
+    case 40:
+        render_fn = mode5_render_1bpp_256x256;
+        break;
+    case 41:
+        render_fn = mode5_render_2bpp_256x256;
+        break;
+    case 42:
+        render_fn = mode5_render_4bpp_256x256;
+        break;
+    case 43:
+        render_fn = mode5_render_8bpp_256x256;
+        break;
+    case 48:
+        render_fn = mode5_render_1bpp_512x512;
+        break;
+    case 49:
+        render_fn = mode5_render_2bpp_512x512;
+        break;
+    case 50:
+        render_fn = mode5_render_4bpp_512x512;
+        break;
+    case 51:
+        render_fn = mode5_render_8bpp_512x512;
         break;
     default:
         return false;
