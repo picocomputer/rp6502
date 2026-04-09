@@ -9,17 +9,7 @@
 #define _VGA_SCANVIDEO_SCANVIDEO_BASE_H_
 
 #include "pico/types.h"
-
-#if !PICO_NO_HARDWARE
-
 #include "hardware/pio.h"
-
-#endif
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
 
 /** \file scanvideo_base.h
  *  \defgroup pico_scanvideo pico_scanvideo
@@ -27,35 +17,16 @@ extern "C"
  * Common Scan-out Video API
  */
 // == CONFIG ============
-#ifndef PICO_SCANVIDEO_PLANE_COUNT
-#define PICO_SCANVIDEO_PLANE_COUNT 1
-#endif
-
-#ifndef PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT
-#define PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT 8
-#endif
-
-#ifndef PICO_SCANVIDEO_COLOR_PIN_BASE
-#define PICO_SCANVIDEO_COLOR_PIN_BASE 0
-#endif
-
-#ifndef PICO_SCANVIDEO_COLOR_PIN_COUNT
+#define PICO_SCANVIDEO_PLANE_COUNT 3
+#define PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT 10
+#define PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS 323
+#define PICO_SCANVIDEO_COLOR_PIN_BASE 6
 #define PICO_SCANVIDEO_COLOR_PIN_COUNT 16
-#endif
-
-#ifndef PICO_SCANVIDEO_SYNC_PIN_BASE
-#define PICO_SCANVIDEO_SYNC_PIN_BASE (PICO_SCANVIDEO_COLOR_PIN_BASE + PICO_SCANVIDEO_COLOR_PIN_COUNT)
-#endif
-
-#ifndef PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS
-#define PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS 180
-#endif
-#ifndef PICO_SCANVIDEO_MAX_SCANLINE_BUFFER2_WORDS
-#define PICO_SCANVIDEO_MAX_SCANLINE_BUFFER2_WORDS PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS
-#endif
-#ifndef PICO_SCANVIDEO_MAX_SCANLINE_BUFFER3_WORDS
-#define PICO_SCANVIDEO_MAX_SCANLINE_BUFFER3_WORDS PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS
-#endif
+#define PICO_SCANVIDEO_SYNC_PIN_BASE 26
+#define PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK 2
+#define PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK 3
+#define PICO_SPINLOCK_ID_VIDEO_DMA_LOCK 4
+#define PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK 5
 
     // ======================
 
@@ -148,34 +119,15 @@ extern "C"
 
     struct scanvideo_pio_program
     {
-#if !PICO_NO_HARDWARE
         const pio_program_t *program;
         const uint8_t entry_point;
         bool (*adapt_for_mode)(const scanvideo_pio_program_t *program, const scanvideo_mode_t *mode,
                                scanvideo_scanline_buffer_t *missing_scanline_buffer, uint16_t *modifiable_instructions);
         pio_sm_config (*configure_pio)(pio_hw_t *pio, uint sm, uint offset);
-#else
-    const char *id;
-#endif
     };
 
     extern const scanvideo_pio_program_t video_24mhz_composable;
 
-#ifndef PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK
-#define PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK 2
-#endif
-
-#ifndef PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK
-#define PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK 3
-#endif
-
-#ifndef PICO_SPINLOCK_ID_VIDEO_DMA_LOCK
-#define PICO_SPINLOCK_ID_VIDEO_DMA_LOCK 4
-#endif
-
-#ifndef PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK
-#define PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK 5
-#endif
 
 // note this is not necessarily an absolute gpio pin mask, it is still shifted by PICO_SCANVIDEO_COLOR_PIN_BASE
 #define PICO_SCANVIDEO_ALPHA_MASK (1u << PICO_SCANVIDEO_ALPHA_PIN)
@@ -198,10 +150,6 @@ extern "C"
 
 #ifndef PICO_SCANVIDEO_B5_FROM_PIXEL
 #define PICO_SCANVIDEO_B5_FROM_PIXEL(p) (((p) >> PICO_SCANVIDEO_PIXEL_BSHIFT) & 0x1f)
-#endif
-
-#ifdef __cplusplus
-}
 #endif
 
 #endif /* _VGA_SCANVIDEO_SCANVIDEO_BASE_H_ */

@@ -177,9 +177,9 @@ full_scanline_buffer_t scanline_buffers[PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT];
 
 static uint32_t scanline_data[PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT][PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 #if PICO_SCANVIDEO_PLANE_COUNT > 1
-static uint32_t scanline_data2[PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT][PICO_SCANVIDEO_MAX_SCANLINE_BUFFER2_WORDS];
+static uint32_t scanline_data2[PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT][PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 #if PICO_SCANVIDEO_PLANE_COUNT > 2
-static uint32_t scanline_data3[PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT][PICO_SCANVIDEO_MAX_SCANLINE_BUFFER3_WORDS];
+static uint32_t scanline_data3[PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT][PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 #endif
 #endif
 
@@ -1033,11 +1033,11 @@ bool scanvideo_setup(const scanvideo_mode_t *mode)
 #if PICO_SCANVIDEO_PLANE_COUNT > 1
         memset(scanline_data2[i], 0, sizeof(scanline_data2[i]));
         scanline_buffers[i].core.data2 = scanline_data2[i];
-        scanline_buffers[i].core.data2_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER2_WORDS;
+        scanline_buffers[i].core.data2_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
 #if PICO_SCANVIDEO_PLANE_COUNT > 2
         memset(scanline_data3[i], 0, sizeof(scanline_data3[i]));
         scanline_buffers[i].core.data3 = scanline_data3[i];
-        scanline_buffers[i].core.data3_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER3_WORDS;
+        scanline_buffers[i].core.data3_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
 #endif
 #endif
         scanline_buffers[i].next = i != PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1 ? &scanline_buffers[i + 1] : NULL;
