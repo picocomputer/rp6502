@@ -9,9 +9,8 @@
 #include <string.h>
 #include "pico.h"
 
-GCC_Pragma("GCC push_options")
-
-    GCC_Pragma("GCC optimize(\"O3\")")
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 
 #include "pico/sync.h"
 #include "hardware/clocks.h"
@@ -27,7 +26,6 @@ GCC_Pragma("GCC push_options")
 #define PICO_SCANVIDEO_ENABLE_SCANLINE_ASSERTIONS 0
 #endif
 
-
 #define PICO_SCANVIDEO_SCANLINE_SM0 0u
 #define PICO_SCANVIDEO_SCANLINE_SM1 1u
 #define PICO_SCANVIDEO_SCANLINE_SM2 2u
@@ -37,10 +35,10 @@ GCC_Pragma("GCC push_options")
 #define PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL2 2u
 #define PICO_SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK ((1u << PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL0) | (1u << PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL1) | (1u << PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL2))
 
-    // == DEBUGGING =========
+// == DEBUGGING =========
 
-    CU_REGISTER_DEBUG_PINS(video_timing, video_dma_buffer, video_irq, video_dma_completion, video_generation,
-                           video_recovery, video_in_use, video_link)
+CU_REGISTER_DEBUG_PINS(video_timing, video_dma_buffer, video_irq, video_dma_completion, video_generation,
+                       video_recovery, video_in_use, video_link)
 
 // ---- select at most one ---
 // CU_SELECT_DEBUG_PINS(video_recovery)
@@ -67,26 +65,15 @@ GCC_Pragma("GCC push_options")
 
 #define video_pio pio0
 
-#ifdef VIDEO_MOST_TIME_CRITICAL_CODE_SECTION
-#define __video_most_time_critical_func(x) __attribute__((section(__XSTRING(VIDEO_MOST_TIME_CRITICAL_CODE_SECTION) "." x))) x
-#else
-#define __video_most_time_critical_func(x) __not_in_flash_func(x)
-#endif
-
-#ifdef VIDEO_TIME_CRITICAL_CODE_SECTION
-#define __video_time_critical_func(x) __attribute__((section(__XSTRING(VIDEO_TIME_CRITICAL_CODE_SECTION) "." x))) x
-#else
-#define __video_time_critical_func(x) __not_in_flash_func(x)
-#endif
 // --- video_24mhz_composable ---
 
 #define video_24mhz_composable_program __CONCAT(video_24mhz_composable_prefix, _program)
 #define video_24mhz_composable_wrap_target __CONCAT(video_24mhz_composable_prefix, _wrap_target)
 #define video_24mhz_composable_wrap __CONCAT(video_24mhz_composable_prefix, _wrap)
 
-        bool video_24mhz_composable_adapt_for_mode(const scanvideo_pio_program_t *program, const scanvideo_mode_t *mode,
-                                                   scanvideo_scanline_buffer_t *missing_scanline_buffer,
-                                                   uint16_t *modifiable_instructions);
+bool video_24mhz_composable_adapt_for_mode(const scanvideo_pio_program_t *program, const scanvideo_mode_t *mode,
+                                           scanvideo_scanline_buffer_t *missing_scanline_buffer,
+                                           uint16_t *modifiable_instructions);
 
 pio_sm_config video_24mhz_composable_configure_pio(pio_hw_t *pio, uint sm, uint offset);
 
@@ -548,7 +535,7 @@ static void set_next_scanline_id(uint32_t scanline_id)
     shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(scanline_id) * video_mode.yscale;
 }
 
-void __video_most_time_critical_func(prepare_for_active_scanline_irqs_enabled)()
+void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)()
 {
     DEBUG_PINS_SET(video_timing, 1);
     full_scanline_buffer_t *local_free_list = NULL;
@@ -654,7 +641,7 @@ void __video_most_time_critical_func(prepare_for_active_scanline_irqs_enabled)()
     free_local_free_list_irqs_enabled(local_free_list);
 }
 
-static void __video_time_critical_func(prepare_for_vblank_scanline_irqs_enabled)()
+static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)()
 {
     bool signal = false;
 
@@ -767,7 +754,7 @@ static inline void top_up_timing_pio_fifo()
 static int32_t active_scanline_number;
 static int32_t vblank_scanline_number;
 
-void __isr __video_most_time_critical_func(isr_pio0_0)()
+void __isr __not_in_flash_func(isr_pio0_0)()
 {
     if (video_pio->irq & 1u)
     {
@@ -804,7 +791,7 @@ bool scanvideo_vsync_pausing()
 }
 
 // irq for PIO FIFO
-void __isr __video_most_time_critical_func(isr_pio0_1)()
+void __isr __not_in_flash_func(isr_pio0_1)()
 {
     DEBUG_PINS_SET(video_irq, 4);
     top_up_timing_pio_fifo();
@@ -812,7 +799,7 @@ void __isr __video_most_time_critical_func(isr_pio0_1)()
 }
 
 // DMA complete
-void __isr __video_time_critical_func(isr_dma_0)()
+void __isr __not_in_flash_func(isr_dma_0)()
 {
     DEBUG_PINS_SET(video_irq, 4);
     scanline_dma_complete_irqs_enabled();
@@ -842,7 +829,7 @@ void setup_sm(int sm, uint offset)
     pio_sm_init(video_pio, sm, offset, &config); // now paused
 }
 
-extern scanvideo_scanline_buffer_t *__video_time_critical_func(scanvideo_begin_scanline_generation)(
+extern scanvideo_scanline_buffer_t *__not_in_flash_func(scanvideo_begin_scanline_generation)(
     bool block)
 {
     full_scanline_buffer_t *fsb;
@@ -886,7 +873,7 @@ extern scanvideo_scanline_buffer_t *__video_time_critical_func(scanvideo_begin_s
     return (scanvideo_scanline_buffer_t *)fsb;
 }
 
-extern void __video_time_critical_func(scanvideo_end_scanline_generation)(
+extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
     scanvideo_scanline_buffer_t *scanline_buffer)
 {
     DEBUG_PINS_SET(video_generation, 2);
@@ -1176,8 +1163,7 @@ void scanvideo_timing_enable(bool enable)
     {
         pio_set_irq0_source_mask_enabled(video_pio, (1u << pis_interrupt0) | (1u << pis_interrupt1), true);
         pio_set_irq1_source_enabled(video_pio, pis_sm0_tx_fifo_not_full + PICO_SCANVIDEO_TIMING_SM, true);
-        irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << PIO0_IRQ_1)
-                                 | (1u << DMA_IRQ_0),
+        irq_set_mask_enabled((1u << PIO0_IRQ_0) | (1u << PIO0_IRQ_1) | (1u << DMA_IRQ_0),
                              enable);
         uint32_t sm_mask = (1u << PICO_SCANVIDEO_SCANLINE_SM0) | 1u << PICO_SCANVIDEO_TIMING_SM;
         sm_mask |= 1u << PICO_SCANVIDEO_SCANLINE_SM1;
@@ -1224,4 +1210,4 @@ void scanvideo_teardown(void)
             pio_sm_unclaim(video_pio, sm);
 }
 
-GCC_Pragma("GCC pop_options")
+#pragma GCC pop_options
