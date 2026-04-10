@@ -189,6 +189,7 @@ static scanvideo_view_t video_mode;
 static bool video_timing_enabled = false;
 static int32_t active_scanline_number;
 static int32_t vblank_scanline_number;
+static volatile int32_t display_scanline_pos;
 static int32_t v_content_start;
 static int32_t v_content_end;
 static volatile bool generation_allowed;
@@ -696,6 +697,7 @@ void __isr __not_in_flash_func(isr_pio0_0)()
         prepare_for_active_scanline_irqs_enabled();
         active_scanline_number++;
         vblank_scanline_number = 0;
+        display_scanline_pos = active_scanline_number;
     }
     if (video_pio->irq & 2u)
     {
@@ -703,6 +705,7 @@ void __isr __not_in_flash_func(isr_pio0_0)()
         prepare_for_vblank_scanline_irqs_enabled();
         vblank_scanline_number++;
         active_scanline_number = 0;
+        display_scanline_pos = timing_state.v_active + vblank_scanline_number;
     }
 }
 
@@ -749,18 +752,13 @@ scanvideo_scanline_buffer_t *__not_in_flash_func(scanvideo_begin_scanline_genera
 
     if (!generation_allowed)
     {
-        int32_t pos = vblank_scanline_number > 0
-                          ? timing_state.v_active + vblank_scanline_number
-                          : active_scanline_number;
-        int32_t distance = v_content_start - pos;
+        int32_t distance = v_content_start - display_scanline_pos;
         if (distance < 0)
             distance += timing_state.v_total;
-        if (distance <= SCANVIDEO_SCANLINE_BUFFER_COUNT)
+        if (distance < SCANVIDEO_SCANLINE_BUFFER_COUNT)
             generation_allowed = true;
         else
-        {
             return NULL;
-        }
     }
 
     uint32_t save = spin_lock_blocking(shared_state.free_list.lock);
@@ -917,6 +915,7 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
 
     active_scanline_number = 0;
     vblank_scanline_number = 0;
+    display_scanline_pos = 0;
 
     v_content_start = mode->y_offset;
     v_content_end = mode->y_offset +
@@ -1226,6 +1225,7 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     // Force remaining scanlines to blank until vblank resets to 0
     active_scanline_number = v_content_end;
     vblank_scanline_number = 0;
+    display_scanline_pos = v_content_end;
     generation_allowed = true;
 
     // Re-init and restart scanline SMs
