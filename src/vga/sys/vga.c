@@ -201,36 +201,23 @@ static void vga_scanvideo_switch(void)
     // since shared state including spinlocks gets zeroed.
     mutex_enter_blocking(&vga_scanline_mutex);
 
-    if (vga_scanvideo_mode_current &&
-        vga_scanvideo_mode_selected->default_timing == vga_scanvideo_mode_current->default_timing)
+    // Set system clock for the new video mode (must happen before remode)
+    uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
+    if (clk == 25200000)
+        clk = 25200000 * 8; // 201.6 MHz
+    else if (clk == 54000000)
+        clk = 54000000 * 4; // 216.0 MHz
+    else if (clk == 37125000)
+        clk = 37125000 * 4; // 148.5 MHz
+    assert(clk >= 120000000 && clk <= 266000000);
+    if (clk != clock_get_hz(clk_sys))
     {
-        // Same timing: remode without disturbing the timing SM.
-        // The monitor won't resync. Blank lines render until next frame.
-        scanvideo_remode(vga_scanvideo_mode_selected);
+        main_pre_reclock();
+        set_sys_clock_khz(clk / 1000, true);
+        main_post_reclock();
     }
-    else
-    {
-        // Different timing: full teardown + clock change + setup.
-        scanvideo_teardown();
 
-        uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
-        if (clk == 25200000)
-            clk = 25200000 * 8; // 201.6 MHz
-        else if (clk == 54000000)
-            clk = 54000000 * 4; // 216.0 MHz
-        else if (clk == 37125000)
-            clk = 37125000 * 4; // 148.5 MHz
-        assert(clk >= 120000000 && clk <= 266000000);
-        if (clk != clock_get_hz(clk_sys))
-        {
-            main_pre_reclock();
-            set_sys_clock_khz(clk / 1000, true);
-            main_post_reclock();
-        }
-
-        scanvideo_setup(vga_scanvideo_mode_selected);
-        scanvideo_timing_enable(true);
-    }
+    scanvideo_remode(vga_scanvideo_mode_selected);
 
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;

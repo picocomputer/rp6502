@@ -994,6 +994,7 @@ static bool scanvideo_setup(const scanvideo_mode_t *mode)
     shared_state.free_list.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
     shared_state.in_use.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK);
     shared_state.scanline.last_scanline_id = 0xffffffff;
+    shared_state.scanline.y_repeat_target = mode->yscale;
 
     video_mode = *mode;
     video_mode.default_timing = timing;
@@ -1380,6 +1381,7 @@ void scanvideo_remode(const scanvideo_mode_t *mode)
     shared_state.free_list.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
     shared_state.in_use.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK);
     shared_state.scanline.last_scanline_id = 0xffffffff;
+    shared_state.scanline.y_repeat_target = video_mode.yscale;
     shared_state.scanline_program_wait_index = program_wait_index;
 
     // Re-init scanline buffers
@@ -1399,7 +1401,11 @@ void scanvideo_remode(const scanvideo_mode_t *mode)
     shared_state.free_list.free_list = &scanline_buffers[0];
     __mem_fence_release();
 
-    active_scanline_number = 0;
+    // Force remaining scanlines in the current frame to take the blank
+    // (black) path. The ISR sees active_scanline_number >= v_content_end
+    // for all remaining active lines, outputting black until vblank
+    // naturally resets active_scanline_number to 0 for the next frame.
+    active_scanline_number = v_content_end;
     vblank_scanline_number = 0;
 
     _blank_scanline_buffer.core.data0 = _blank_scanline_data;
