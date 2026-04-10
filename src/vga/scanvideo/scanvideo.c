@@ -580,13 +580,18 @@ static inline void __not_in_flash_func(recover_pio_sms_and_dma_blank)(int *buffe
     if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM1))
     {
         pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM1);
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_out(pio_null, 32));
     }
     if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM1].instr != PIO_WAIT_IRQ4)
     {
         pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_wait_irq(1, false, 4));
         if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM1))
         {
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_jmp(shared_state.scanline_program_wait_index));
+            if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM1].addr != shared_state.scanline_program_wait_index + 1u)
+            {
+                pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1,
+                            pio_encode_jmp(shared_state.scanline_program_wait_index));
+            }
         }
         else
         {
@@ -598,13 +603,18 @@ static inline void __not_in_flash_func(recover_pio_sms_and_dma_blank)(int *buffe
     if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
     {
         pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM2);
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_out(pio_null, 32));
     }
     if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM2].instr != PIO_WAIT_IRQ4)
     {
         pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_wait_irq(1, false, 4));
         if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
         {
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_jmp(shared_state.scanline_program_wait_index));
+            if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM2].addr != shared_state.scanline_program_wait_index + 1u)
+            {
+                pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2,
+                            pio_encode_jmp(shared_state.scanline_program_wait_index));
+            }
         }
         else
         {
@@ -693,13 +703,18 @@ void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)()
     if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM1))
     {
         pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM1);
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_out(pio_null, 32));
     }
     if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM1].instr != PIO_WAIT_IRQ4)
     {
         pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_wait_irq(1, false, 4));
         if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM1))
         {
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1, pio_encode_jmp(shared_state.scanline_program_wait_index));
+            if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM1].addr != shared_state.scanline_program_wait_index + 1u)
+            {
+                pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1,
+                            pio_encode_jmp(shared_state.scanline_program_wait_index));
+            }
         }
         else
         {
@@ -710,13 +725,18 @@ void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)()
     if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
     {
         pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM2);
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_out(pio_null, 32));
     }
     if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM2].instr != PIO_WAIT_IRQ4)
     {
         pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_wait_irq(1, false, 4));
         if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
         {
-            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_jmp(shared_state.scanline_program_wait_index));
+            if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM2].addr != shared_state.scanline_program_wait_index + 1u)
+            {
+                pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2,
+                            pio_encode_jmp(shared_state.scanline_program_wait_index));
+            }
         }
         else
         {
