@@ -259,7 +259,7 @@ static void vga_render_scanline(void)
     if (!mutex_try_enter(&vga_scanline_mutex, 0))
         return;
     scanvideo_scanline_buffer_t *const scanline_buffer =
-        scanvideo_begin_scanline_generation(false);
+        scanvideo_begin_scanline_generation();
     if (!scanline_buffer)
     {
         mutex_exit(&vga_scanline_mutex);

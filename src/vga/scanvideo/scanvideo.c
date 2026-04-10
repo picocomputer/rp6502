@@ -913,70 +913,54 @@ void setup_sm(int sm, uint offset)
     pio_sm_init(video_pio, sm, offset, &config); // now paused
 }
 
-extern scanvideo_scanline_buffer_t *__not_in_flash_func(scanvideo_begin_scanline_generation)(
-    bool block)
+extern scanvideo_scanline_buffer_t *__not_in_flash_func(scanvideo_begin_scanline_generation)(void)
 {
-    full_scanline_buffer_t *fsb;
-
     DEBUG_PINS_SET(video_link, 1);
     DEBUG_PINS_SET(video_generation, 1);
-    do
+
+    if (!generation_allowed)
     {
-        if (!generation_allowed)
+        int32_t pos = vblank_scanline_number > 0
+                          ? timing_state.v_active + vblank_scanline_number
+                          : active_scanline_number;
+        int32_t distance = v_content_start - pos;
+        if (distance < 0)
+            distance += timing_state.v_total;
+        if (distance <= PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT)
+            generation_allowed = true;
+        else
         {
-            int32_t pos = vblank_scanline_number > 0
-                              ? timing_state.v_active + vblank_scanline_number
-                              : active_scanline_number;
-            int32_t distance = v_content_start - pos;
-            if (distance < 0)
-                distance += timing_state.v_total;
-            if (distance <= PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT)
-                generation_allowed = true;
-            else if (!block)
-            {
-                DEBUG_PINS_CLR(video_link, 1);
-                DEBUG_PINS_CLR(video_generation, 1);
-                return NULL;
-            }
-            else
-            {
-                __wfe();
-                continue;
-            }
+            DEBUG_PINS_CLR(video_link, 1);
+            DEBUG_PINS_CLR(video_generation, 1);
+            return NULL;
         }
+    }
 
-        uint32_t save = spin_lock_blocking(shared_state.free_list.lock);
-        fsb = list_remove_head(&shared_state.free_list.free_list);
-        spin_unlock(shared_state.free_list.lock, save);
+    uint32_t save = spin_lock_blocking(shared_state.free_list.lock);
+    full_scanline_buffer_t *fsb = list_remove_head(&shared_state.free_list.free_list);
+    spin_unlock(shared_state.free_list.lock, save);
 
-        if (fsb)
-        {
-            save = spin_lock_blocking(shared_state.scanline.lock);
-            DEBUG_PINS_SET(video_timing, 1);
+    if (fsb)
+    {
+        save = spin_lock_blocking(shared_state.scanline.lock);
+        DEBUG_PINS_SET(video_timing, 1);
 #if PICO_SCANVIDEO_ENABLE_SCANLINE_ASSERTIONS && GENERATING_LIST
-            list_prepend(&shared_state.scanline.generating_list, fsb);
+        list_prepend(&shared_state.scanline.generating_list, fsb);
 #endif
-            uint32_t scanline_id = shared_state.scanline.next_scanline_id;
+        uint32_t scanline_id = shared_state.scanline.next_scanline_id;
 
-            if (!is_scanline_after(scanline_id, shared_state.scanline.last_scanline_id))
-            {
-                scanline_id = scanline_id_after(shared_state.scanline.last_scanline_id);
-            }
-
-            fsb->core.scanline_id = shared_state.scanline.last_scanline_id = scanline_id;
-            core_generating[get_core_num()] = scanline_id + 1;
-            if (scanvideo_scanline_number(scanline_id) >= video_mode.height - 1)
-                generation_allowed = false;
-            DEBUG_PINS_CLR(video_timing, 1);
-            spin_unlock(shared_state.scanline.lock, save);
-            break;
-        }
-
-        if (block)
+        if (!is_scanline_after(scanline_id, shared_state.scanline.last_scanline_id))
         {
-            __wfe();
+            scanline_id = scanline_id_after(shared_state.scanline.last_scanline_id);
         }
-    } while (block);
+
+        fsb->core.scanline_id = shared_state.scanline.last_scanline_id = scanline_id;
+        core_generating[get_core_num()] = scanline_id + 1;
+        if (scanvideo_scanline_number(scanline_id) >= video_mode.height - 1)
+            generation_allowed = false;
+        DEBUG_PINS_CLR(video_timing, 1);
+        spin_unlock(shared_state.scanline.lock, save);
+    }
 
     DEBUG_PINS_CLR(video_link, 1);
     DEBUG_PINS_CLR(video_generation, 1);

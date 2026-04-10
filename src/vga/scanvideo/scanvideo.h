@@ -130,7 +130,7 @@ extern const scanvideo_pio_program_t video_24mhz_composable;
 extern void scanvideo_set_mode(const scanvideo_mode_t *mode);
 void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t frame, uint16_t scanline));
 
-scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(bool block);
+scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(void);
 void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);
 
 static inline uint16_t scanvideo_frame_number(uint32_t scanline_id)
