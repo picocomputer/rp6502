@@ -64,20 +64,17 @@ typedef struct scanvideo_timing
     uint8_t clock_polarity;
 } scanvideo_timing_t;
 
-typedef struct scanvideo_pio_program scanvideo_pio_program_t;
-
-typedef struct scanvideo_mode
+typedef struct scanvideo_view
 {
     const scanvideo_timing_t *default_timing;
-    const scanvideo_pio_program_t *pio_program;
 
     uint16_t width;
     uint16_t height;
-    uint8_t xscale;
-    uint16_t yscale;
+    uint8_t x_scale;
+    uint16_t y_scale;
     uint16_t yscale_denominator;
-    uint16_t v_offset;
-} scanvideo_mode_t;
+    uint16_t y_offset;
+} scanvideo_view_t;
 
 typedef struct scanvideo_scanline_buffer
 {
@@ -97,9 +94,7 @@ typedef struct scanvideo_scanline_buffer
 
 // == API ===============
 
-extern const scanvideo_pio_program_t video_24mhz_composable;
-
-extern void scanvideo_set_mode(const scanvideo_mode_t *mode);
+extern void scanvideo_set_mode(const scanvideo_view_t *mode);
 
 scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(void);
 void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);
