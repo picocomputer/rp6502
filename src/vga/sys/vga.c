@@ -224,8 +224,7 @@ static void vga_scanvideo_switch(void)
     mutex_exit(&vga_scanline_mutex);
 }
 
-// Called from scanvideo with contiguous scanline progress from the render
-// loop, and with mode height from the ISR at vblank entry.
+// Called from scanvideo with contiguous scanline progress
 void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
 {
     if (scanline == 0)

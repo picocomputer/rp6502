@@ -72,7 +72,6 @@ typedef struct scanvideo_view
     uint16_t height;
     uint8_t x_scale;
     uint16_t y_scale;
-    uint16_t yscale_denominator;
     uint16_t y_offset;
 } scanvideo_view_t;
 

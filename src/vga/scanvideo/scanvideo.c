@@ -544,7 +544,7 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
     shared_state.scanline.in_vblank = false;
     bool was_correct_scanline = (fsb != &_missing_scanline_buffer);
     bool free_scanline = false;
-    shared_state.scanline.y_repeat_index += video_mode.yscale_denominator;
+    shared_state.scanline.y_repeat_index++;
     if (shared_state.scanline.y_repeat_index >= shared_state.scanline.y_repeat_target)
     {
         if (was_correct_scanline)
@@ -900,9 +900,6 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
 
     video_mode = *mode;
     video_mode.default_timing = timing;
-    if (!video_mode.yscale_denominator)
-        video_mode.yscale_denominator = 1;
-
     init_shared_state();
 
     active_scanline_number = 0;
@@ -911,8 +908,7 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
 
     v_content_start = mode->y_offset;
     v_content_end = mode->y_offset +
-                    ((uint32_t)mode->height * mode->y_scale + video_mode.yscale_denominator - 1) /
-                        video_mode.yscale_denominator;
+                    (uint32_t)mode->height * mode->y_scale;
 
     init_static_scanline_buffers();
     ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
@@ -1177,13 +1173,9 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     const scanvideo_timing_t *timing = mode->default_timing;
     video_mode = *mode;
     video_mode.default_timing = timing;
-    if (!video_mode.yscale_denominator)
-        video_mode.yscale_denominator = 1;
-
     v_content_start = mode->y_offset;
     v_content_end = mode->y_offset +
-                    ((uint32_t)mode->height * mode->y_scale + video_mode.yscale_denominator - 1) /
-                        video_mode.yscale_denominator;
+                    (uint32_t)mode->height * mode->y_scale;
     assert(v_content_end <= (int32_t)timing->v_active);
 
     ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
