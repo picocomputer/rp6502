@@ -66,4 +66,7 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
                                        uint16_t config_ptr,
                                        uint16_t length));
 
+// Called by scanvideo from ISR and render loop
+void vga_scanline_complete(uint16_t scanline);
+
 #endif /* _VGA_SYS_VGA_H_ */

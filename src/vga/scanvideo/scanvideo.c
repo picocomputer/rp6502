@@ -20,6 +20,7 @@
 #include "hardware/irq.h"
 #include "timing.pio.h"
 #include "scanvideo.h"
+#include "sys/vga.h"
 #include "pico/binary_info.h"
 
 #ifndef PICO_SCANVIDEO_ENABLE_SCANLINE_ASSERTIONS
@@ -218,7 +219,6 @@ static uint32_t core_generating[2];
 static uint16_t complete_frame;
 static uint16_t complete_count;
 static uint16_t complete_reported;
-static void (*scanline_complete_callback)(uint16_t frame, uint16_t scanline);
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
 {
@@ -724,6 +724,7 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)()
 
     if (signal)
     {
+        vga_scanline_complete(video_mode.height);
         __sev();
     }
 }
@@ -809,17 +810,6 @@ void __isr __not_in_flash_func(isr_pio0_0)()
         vblank_scanline_number++;
         active_scanline_number = 0;
     }
-}
-
-// The contract for this callback is that all buffers up to the frame/scanline
-// have been submitted to scanvideo_end_scanline_generation, accounting for
-// multiple CPUs working on different scanlines and possibly returning many
-// scanlines late, which is why we have PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT
-// buffers. This is also guaranteed to call the last scanline during normal
-// operation.
-void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t frame, uint16_t scanline))
-{
-    scanline_complete_callback = cb;
 }
 
 // irq for PIO FIFO
@@ -930,7 +920,6 @@ extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
     list_insert_ascending(&shared_state.scanline.generated_ascending_scanline_id_list,
                           &shared_state.scanline.generated_ascending_scanline_id_list_tail, fsb);
     core_generating[get_core_num()] = 0;
-    if (scanline_complete_callback)
     {
         uint16_t frame = scanvideo_frame_number(scanline_buffer->scanline_id);
         if (frame != complete_frame)
@@ -960,7 +949,7 @@ extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
         if (safe < UINT16_MAX && safe != complete_reported)
         {
             complete_reported = safe;
-            scanline_complete_callback(frame, safe);
+            vga_scanline_complete(safe);
         }
     }
     spin_unlock(shared_state.scanline.lock, save);

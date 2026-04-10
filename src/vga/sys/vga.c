@@ -225,21 +225,19 @@ static void vga_scanvideo_switch(void)
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
     vga_canvas_current = vga_canvas_selected;
-    vga_vsync_fired = false;
     vga_scanvideo_mode_switching = false;
 
     mutex_exit(&vga_scanline_mutex);
 }
 
-static uint16_t vga_last_frame;
-
-static void __not_in_flash_func(vga_scanline_complete)(uint16_t frame, uint16_t scanline)
+// Called from scanvideo with contiguous scanline progress from the render
+// loop, and with mode height from the ISR at vblank entry.
+void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
 {
-    if (frame != vga_last_frame)
+    if (scanline == 0)
     {
         if (!vga_vsync_fired)
             ria_vsync();
-        vga_last_frame = frame;
         vga_vsync_fired = false;
     }
     if (vga_vsync_fired)
@@ -452,7 +450,6 @@ void vga_init(void)
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
     vga_scanvideo_switch();
-    scanvideo_set_scanline_complete_callback(vga_scanline_complete);
     multicore_launch_core1(vga_render_loop);
 }
 
