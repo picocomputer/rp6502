@@ -216,7 +216,15 @@ static int32_t active_scanline_number;
 static int32_t vblank_scanline_number;
 static int32_t v_content_start;
 static int32_t v_content_end;
-static void (*scanline_complete_callback)(uint16_t scanline);
+static uint16_t complete_frame;
+static uint16_t complete_count;
+
+// The contact for this callback is that all buffers up the the frame/scanline
+// have been submitted to scanvideo_end_scanline_generation, accounting for
+// multiple CPUs working on different scanlines and possible returning many
+// scanlines lates, which is why we have PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT
+// buffers.
+static void (*scanline_complete_callback)(uint16_t frame, uint16_t scanline);
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
 {
@@ -858,7 +866,7 @@ void __isr __not_in_flash_func(isr_pio0_0)()
     }
 }
 
-void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t scanline))
+void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t frame, uint16_t scanline))
 {
     scanline_complete_callback = cb;
 }
@@ -959,20 +967,13 @@ extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
                           &shared_state.scanline.generated_ascending_scanline_id_list_tail, fsb);
     if (scanline_complete_callback)
     {
-        full_scanline_buffer_t *entry =
-            shared_state.scanline.generated_ascending_scanline_id_list;
-        uint32_t next = shared_state.scanline.next_scanline_id;
-        uint32_t completed = 0;
-        bool any = false;
-        while (entry && entry->core.scanline_id == next)
+        uint16_t frame = scanvideo_frame_number(scanline_buffer->scanline_id);
+        if (frame != complete_frame)
         {
-            completed = next;
-            any = true;
-            next = scanline_id_after(next);
-            entry = entry->next;
+            complete_frame = frame;
+            complete_count = 0;
         }
-        if (any)
-            scanline_complete_callback(scanvideo_scanline_number(completed));
+        scanline_complete_callback(frame, complete_count++);
     }
     spin_unlock(shared_state.scanline.lock, save);
     DEBUG_PINS_CLR(video_generation, 2);

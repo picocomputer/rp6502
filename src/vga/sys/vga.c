@@ -228,12 +228,16 @@ static void vga_scanvideo_switch(void)
     mutex_exit(&vga_scanline_mutex);
 }
 
-static void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
+static uint16_t vga_last_frame;
+
+static void __not_in_flash_func(vga_scanline_complete)(uint16_t frame, uint16_t scanline)
 {
-    if (scanline == 0)
+    if (frame != vga_last_frame)
     {
+        if (!vga_vsync_fired)
+            ria_vsync();
+        vga_last_frame = frame;
         vga_vsync_fired = false;
-        return;
     }
     if (vga_vsync_fired)
         return;

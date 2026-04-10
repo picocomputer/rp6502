@@ -128,7 +128,7 @@ struct scanvideo_pio_program
 extern const scanvideo_pio_program_t video_24mhz_composable;
 
 extern void scanvideo_remode(const scanvideo_mode_t *mode);
-void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t scanline));
+void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t frame, uint16_t scanline));
 
 scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(bool block);
 void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);
