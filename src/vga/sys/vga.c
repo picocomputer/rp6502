@@ -412,13 +412,16 @@ void vga_task(void)
     vga_render_scanline();
 }
 
-static bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t scanline_end)
+static bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end)
 {
-    const int16_t scanline_count = scanline_end - scanline_begin;
+    if (!*scanline_end)
+        *scanline_end = vga_canvas_height();
     if (plane < 0 || plane >= SCANVIDEO_PLANE_COUNT ||
-        scanline_begin < 0 || scanline_end > vga_canvas_height() ||
-        scanline_count < 1)
+        scanline_begin < 0 || *scanline_end > vga_canvas_height() ||
+        *scanline_end - scanline_begin < 1)
         return false;
+    if (*scanline_end > vga_highest_scanline)
+        vga_highest_scanline = *scanline_end;
     return true;
 }
 
@@ -431,17 +434,13 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
 {
     if (vga_canvas_selected == vga_console)
         return false;
-    if (!scanline_end)
-        scanline_end = vga_canvas_height();
-    if (!vga_prog_valid(plane, scanline_begin, scanline_end))
+    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
         vga_prog[i].fill_config[plane] = config_ptr;
         vga_prog[i].fill_fn[plane] = fill_fn;
     }
-    if (scanline_end > vga_highest_scanline)
-        vga_highest_scanline = scanline_end;
     return true;
 }
 
@@ -452,9 +451,7 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
                                         uint16_t *rgb,
                                         uint16_t config_ptr))
 {
-    if (!scanline_end)
-        scanline_end = vga_canvas_height();
-    if (!vga_prog_valid(plane, scanline_begin, scanline_end))
+    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     // Remove all previous programming
     for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
@@ -466,8 +463,6 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
         vga_prog[i].fill_config[plane] = config_ptr;
         vga_prog[i].fill_fn[plane] = fill_fn;
     }
-    if (scanline_end > vga_highest_scanline)
-        vga_highest_scanline = scanline_end;
     return true;
 }
 
@@ -481,9 +476,7 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
 {
     if (vga_canvas_selected == vga_console)
         return false;
-    if (!scanline_end)
-        scanline_end = vga_canvas_height();
-    if (!vga_prog_valid(plane, scanline_begin, scanline_end))
+    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
     {
@@ -491,8 +484,6 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
         vga_prog[i].sprite_length[plane] = length;
         vga_prog[i].sprite_fn[plane] = sprite_fn;
     }
-    if (scanline_end > vga_highest_scanline)
-        vga_highest_scanline = scanline_end;
     return true;
 }
 

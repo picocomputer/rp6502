@@ -252,13 +252,8 @@ inline static full_scanline_buffer_t *list_remove_head_ascending(full_scanline_b
         *phead = fsb->next;
 
         if (!fsb->next)
-        {
             *ptail = NULL;
-        }
-        else
-        {
-            fsb->next = NULL;
-        }
+        fsb->next = NULL;
     }
 
     return fsb;
@@ -341,7 +336,7 @@ inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs
             {
                 if (shared_state.scanline.next_scanline_id == fsb->core.scanline_id)
                 {
-                    full_scanline_buffer_t __unused *dbg = list_remove_head_ascending(
+                    list_remove_head_ascending(
                         &shared_state.scanline.generated_ascending_scanline_id_list,
                         &shared_state.scanline.generated_ascending_scanline_id_list_tail);
                     spin_lock_unsafe_blocking(shared_state.in_use.lock);
@@ -360,7 +355,7 @@ inline static full_scanline_buffer_t *scanline_locked_try_latch_fsb_if_null_irqs
             else
             {
                 // scanline is in the past
-                full_scanline_buffer_t __unused *dbg = list_remove_head_ascending(
+                list_remove_head_ascending(
                     &shared_state.scanline.generated_ascending_scanline_id_list,
                     &shared_state.scanline.generated_ascending_scanline_id_list_tail);
                 list_prepend(local_free_list, fsb);
@@ -418,9 +413,6 @@ static inline bool update_dma_transfer_state_irqs_enabled(bool cancel_if_not_com
         {
             *scanline_buffers_to_release = shared_state.dma.buffers_to_release;
             shared_state.dma.buffers_to_release = 0;
-            if (*scanline_buffers_to_release)
-            {
-            }
             shared_state.dma.dma_completion_state = shared_state.dma.scanline_in_progress = 0;
             spin_unlock(shared_state.dma.lock, save);
             return true;
