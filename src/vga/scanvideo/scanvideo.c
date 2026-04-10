@@ -216,14 +216,10 @@ static int32_t active_scanline_number;
 static int32_t vblank_scanline_number;
 static int32_t v_content_start;
 static int32_t v_content_end;
+static uint32_t core_generating[2];
 static uint16_t complete_frame;
 static uint16_t complete_count;
-
-// The contact for this callback is that all buffers up the the frame/scanline
-// have been submitted to scanvideo_end_scanline_generation, accounting for
-// multiple CPUs working on different scanlines and possible returning many
-// scanlines lates, which is why we have PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT
-// buffers.
+static uint16_t complete_reported;
 static void (*scanline_complete_callback)(uint16_t frame, uint16_t scanline);
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
@@ -866,6 +862,11 @@ void __isr __not_in_flash_func(isr_pio0_0)()
     }
 }
 
+// The contract for this callback is that all buffers up to the frame/scanline
+// have been submitted to scanvideo_end_scanline_generation, accounting for
+// multiple CPUs working on different scanlines and possibly returning many
+// scanlines late, which is why we have PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT
+// buffers.
 void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t frame, uint16_t scanline))
 {
     scanline_complete_callback = cb;
@@ -938,6 +939,7 @@ extern scanvideo_scanline_buffer_t *__not_in_flash_func(scanvideo_begin_scanline
             }
 
             fsb->core.scanline_id = shared_state.scanline.last_scanline_id = scanline_id;
+            core_generating[get_core_num()] = scanline_id + 1;
             DEBUG_PINS_CLR(video_timing, 1);
             spin_unlock(shared_state.scanline.lock, save);
             break;
@@ -965,6 +967,7 @@ extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
 #endif
     list_insert_ascending(&shared_state.scanline.generated_ascending_scanline_id_list,
                           &shared_state.scanline.generated_ascending_scanline_id_list_tail, fsb);
+    core_generating[get_core_num()] = 0;
     if (scanline_complete_callback)
     {
         uint16_t frame = scanvideo_frame_number(scanline_buffer->scanline_id);
@@ -972,8 +975,31 @@ extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
         {
             complete_frame = frame;
             complete_count = 0;
+            complete_reported = UINT16_MAX;
         }
-        scanline_complete_callback(frame, complete_count++);
+        complete_count++;
+        // Find lowest in-flight scanline for this frame
+        uint16_t gap = UINT16_MAX;
+        for (int i = 0; i < 2; i++)
+        {
+            if (core_generating[i] &&
+                scanvideo_frame_number(core_generating[i] - 1) == frame)
+            {
+                uint16_t s = scanvideo_scanline_number(core_generating[i] - 1);
+                if (s < gap)
+                    gap = s;
+            }
+        }
+        // Contiguous completion: up to just before the gap,
+        // or up to total submitted if no gap
+        uint16_t safe = (gap < UINT16_MAX)
+                            ? (gap > 0 ? gap - 1 : UINT16_MAX)
+                            : complete_count - 1;
+        if (safe < UINT16_MAX && safe != complete_reported)
+        {
+            complete_reported = safe;
+            scanline_complete_callback(frame, safe);
+        }
     }
     spin_unlock(shared_state.scanline.lock, save);
     DEBUG_PINS_CLR(video_generation, 2);
