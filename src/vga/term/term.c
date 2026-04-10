@@ -288,8 +288,8 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     {
         // e.g. ESC[38;2;255;255;255m - RBG color
         if (color)
-            *color = PICO_SCANVIDEO_ALPHA_MASK |
-                     PICO_SCANVIDEO_PIXEL_FROM_RGB8(
+            *color = SCANVIDEO_ALPHA_MASK |
+                     SCANVIDEO_PIXEL_FROM_RGB8(
                          term->csi_param[idx + 2],
                          term->csi_param[idx + 3],
                          term->csi_param[idx + 4]);
@@ -300,8 +300,8 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     {
         // e.g. ESC[38:2::255:255:255:::m - RBG color (ITU)
         if (color)
-            *color = PICO_SCANVIDEO_ALPHA_MASK |
-                     PICO_SCANVIDEO_PIXEL_FROM_RGB8(
+            *color = SCANVIDEO_ALPHA_MASK |
+                     SCANVIDEO_PIXEL_FROM_RGB8(
                          term->csi_param[idx + 3],
                          term->csi_param[idx + 4],
                          term->csi_param[idx + 5]);
@@ -311,7 +311,7 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     {
         // e.g. ESC[38;1m - transparent
         if (color)
-            *color = *color & ~PICO_SCANVIDEO_ALPHA_MASK;
+            *color = *color & ~SCANVIDEO_ALPHA_MASK;
     }
 }
 

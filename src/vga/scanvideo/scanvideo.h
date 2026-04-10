@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
- * Copyright (c) 2025 Rumbledethumps
+ * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,37 +9,25 @@
 #define _VGA_SCANVIDEO_SCANVIDEO_H_
 
 #include "pico/types.h"
-#include "hardware/pio.h"
 #include "scanvideo.pio.h"
 
 // == CONFIG ============
-#define PICO_SCANVIDEO_PLANE_COUNT 3
-#define PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT 10
-#define PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS 323
-#define PICO_SCANVIDEO_COLOR_PIN_BASE 6
-#define PICO_SCANVIDEO_COLOR_PIN_COUNT 16
-#define PICO_SCANVIDEO_SYNC_PIN_BASE 26
-#define PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK 2
-#define PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK 3
-#define PICO_SPINLOCK_ID_VIDEO_DMA_LOCK 4
-#define PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK 5
+#define SCANVIDEO_PLANE_COUNT 3
 
 // == PIXEL FORMAT ======
-#define BPP 16
-#define PICO_SCANVIDEO_ALPHA_PIN 5u
-#define PICO_SCANVIDEO_PIXEL_RSHIFT 0u
-#define PICO_SCANVIDEO_PIXEL_GSHIFT 6u
-#define PICO_SCANVIDEO_PIXEL_BSHIFT 11u
-#define PICO_SCANVIDEO_PIXEL_RCOUNT 5
-#define PICO_SCANVIDEO_PIXEL_GCOUNT 5
-#define PICO_SCANVIDEO_PIXEL_BCOUNT 5
-#define PICO_SCANVIDEO_ALPHA_MASK (1u << PICO_SCANVIDEO_ALPHA_PIN)
-
-#define PICO_SCANVIDEO_PIXEL_FROM_RGB8(r, g, b) ((((b) >> 3u) << PICO_SCANVIDEO_PIXEL_BSHIFT) | (((g) >> 3u) << PICO_SCANVIDEO_PIXEL_GSHIFT) | (((r) >> 3u) << PICO_SCANVIDEO_PIXEL_RSHIFT))
-#define PICO_SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) (((b) << PICO_SCANVIDEO_PIXEL_BSHIFT) | ((g) << PICO_SCANVIDEO_PIXEL_GSHIFT) | ((r) << PICO_SCANVIDEO_PIXEL_RSHIFT))
-#define PICO_SCANVIDEO_R5_FROM_PIXEL(p) (((p) >> PICO_SCANVIDEO_PIXEL_RSHIFT) & 0x1f)
-#define PICO_SCANVIDEO_G5_FROM_PIXEL(p) (((p) >> PICO_SCANVIDEO_PIXEL_GSHIFT) & 0x1f)
-#define PICO_SCANVIDEO_B5_FROM_PIXEL(p) (((p) >> PICO_SCANVIDEO_PIXEL_BSHIFT) & 0x1f)
+#define SCANVIDEO_ALPHA_PIN 5u
+#define SCANVIDEO_ALPHA_MASK (1u << SCANVIDEO_ALPHA_PIN)
+#define SCANVIDEO_PIXEL_RSHIFT 0u
+#define SCANVIDEO_PIXEL_GSHIFT 6u
+#define SCANVIDEO_PIXEL_BSHIFT 11u
+#define SCANVIDEO_PIXEL_RCOUNT 5u
+#define SCANVIDEO_PIXEL_GCOUNT 5u
+#define SCANVIDEO_PIXEL_BCOUNT 5u
+#define SCANVIDEO_PIXEL_FROM_RGB8(r, g, b) ((((b) >> 3u) << SCANVIDEO_PIXEL_BSHIFT) | (((g) >> 3u) << SCANVIDEO_PIXEL_GSHIFT) | (((r) >> 3u) << SCANVIDEO_PIXEL_RSHIFT))
+#define SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) (((b) << SCANVIDEO_PIXEL_BSHIFT) | ((g) << SCANVIDEO_PIXEL_GSHIFT) | ((r) << SCANVIDEO_PIXEL_RSHIFT))
+#define SCANVIDEO_R5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_RSHIFT) & 0x1f)
+#define SCANVIDEO_G5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_GSHIFT) & 0x1f)
+#define SCANVIDEO_B5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_BSHIFT) & 0x1f)
 
 // == COMPOSABLE SCANLINE ==
 #define video_24mhz_composable_prefix video_24mhz_composable_default
@@ -107,22 +95,6 @@ typedef struct scanvideo_scanline_buffer
     uint8_t status;
 } scanvideo_scanline_buffer_t;
 
-enum
-{
-    SCANLINE_OK = 1,
-    SCANLINE_ERROR,
-    SCANLINE_SKIPPED
-};
-
-struct scanvideo_pio_program
-{
-    const pio_program_t *program;
-    const uint8_t entry_point;
-    bool (*adapt_for_mode)(const scanvideo_pio_program_t *program, const scanvideo_mode_t *mode,
-                           scanvideo_scanline_buffer_t *missing_scanline_buffer, uint16_t *modifiable_instructions);
-    pio_sm_config (*configure_pio)(pio_hw_t *pio, uint sm, uint offset);
-};
-
 // == API ===============
 
 extern const scanvideo_pio_program_t video_24mhz_composable;
@@ -131,11 +103,6 @@ extern void scanvideo_set_mode(const scanvideo_mode_t *mode);
 
 scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(void);
 void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);
-
-static inline uint16_t scanvideo_frame_number(uint32_t scanline_id)
-{
-    return (uint16_t)(scanline_id >> 16u);
-}
 
 static inline uint16_t scanvideo_scanline_number(uint32_t scanline_id)
 {

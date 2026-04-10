@@ -21,19 +21,19 @@
 #define VGA_PROG_MAX 512
 typedef struct
 {
-    bool (*fill_fn[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline,
-                                                int16_t width,
-                                                uint16_t *rgb,
-                                                uint16_t config_ptr);
-    uint16_t fill_config[PICO_SCANVIDEO_PLANE_COUNT];
+    bool (*fill_fn[SCANVIDEO_PLANE_COUNT])(int16_t scanline,
+                                           int16_t width,
+                                           uint16_t *rgb,
+                                           uint16_t config_ptr);
+    uint16_t fill_config[SCANVIDEO_PLANE_COUNT];
 
-    void (*sprite_fn[PICO_SCANVIDEO_PLANE_COUNT])(int16_t scanline,
-                                                  int16_t width,
-                                                  uint16_t *rgb,
-                                                  uint16_t config_ptr,
-                                                  uint16_t length);
-    uint16_t sprite_config[PICO_SCANVIDEO_PLANE_COUNT];
-    uint16_t sprite_length[PICO_SCANVIDEO_PLANE_COUNT];
+    void (*sprite_fn[SCANVIDEO_PLANE_COUNT])(int16_t scanline,
+                                             int16_t width,
+                                             uint16_t *rgb,
+                                             uint16_t config_ptr,
+                                             uint16_t length);
+    uint16_t sprite_config[SCANVIDEO_PLANE_COUNT];
+    uint16_t sprite_length[SCANVIDEO_PLANE_COUNT];
 } vga_prog_t;
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
@@ -421,7 +421,7 @@ void vga_task(void)
 static bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t scanline_end)
 {
     const int16_t scanline_count = scanline_end - scanline_begin;
-    if (plane < 0 || plane >= PICO_SCANVIDEO_PLANE_COUNT ||
+    if (plane < 0 || plane >= SCANVIDEO_PLANE_COUNT ||
         scanline_begin < 0 || scanline_end > vga_canvas_height() ||
         scanline_count < 1)
         return false;
@@ -464,7 +464,7 @@ bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_
         return false;
     // Remove all previous programming
     for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
-        for (uint16_t j = 0; j < PICO_SCANVIDEO_PLANE_COUNT; j++)
+        for (uint16_t j = 0; j < SCANVIDEO_PLANE_COUNT; j++)
             if (vga_prog[i].fill_fn[j] == fill_fn)
                 vga_prog[i].fill_fn[j] = NULL;
     for (int16_t i = scanline_begin; i < scanline_end; i++)
