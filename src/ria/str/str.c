@@ -10,6 +10,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <pico.h>
+#include <sys/cdefs.h>
 
 #if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
 #include <stdio.h>
@@ -18,17 +19,13 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Stringify various defines for inclusion in string literals.
-// This scope hides it from accidental use as a RAM literal.
-#define _STRINGIFY(x) #x
-#define STRINGIFY(x) _STRINGIFY(x)
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
-#define STR_PHI2_MIN_MAX STRINGIFY(CPU_PHI2_MIN_KHZ) "-" STRINGIFY(CPU_PHI2_MAX_KHZ)
-#define STR_RP6502_CODE_PAGE STRINGIFY(RP6502_CODE_PAGE)
+#define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
+#define STR_RP6502_CODE_PAGE __XSTRING(RP6502_CODE_PAGE)
 
 // Put string literals into flash.
 #define X(name, value) \
-    const char __in_flash(STRINGIFY(name)) name[] = value;
+    const char __in_flash(__XSTRING(name)) name[] = value;
 #include "str.inc"
 #include RP6502_LOCALE
 #undef X
