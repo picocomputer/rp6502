@@ -595,6 +595,24 @@ static inline void __not_in_flash_func(recover_pio_sms_and_dma_blank)(int *buffe
         }
     }
 
+    if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
+    {
+        pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM2);
+    }
+    if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM2].instr != PIO_WAIT_IRQ4)
+    {
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_wait_irq(1, false, 4));
+        if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_jmp(shared_state.scanline_program_wait_index));
+        }
+        else
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2,
+                        pio_encode_jmp(shared_state.scanline_program_wait_index + 1));
+        }
+    }
+
     dma_channel_transfer_from_buffer_now(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL0, _blank_scanline_buffer.core.data0,
                                          (uint32_t)_blank_scanline_buffer.core.data0_used);
     dma_channel_transfer_from_buffer_now(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL1, _blank_scanline_buffer.core.data1,
@@ -686,6 +704,23 @@ void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)()
         else
         {
             pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM1,
+                        pio_encode_jmp(shared_state.scanline_program_wait_index + 1));
+        }
+    }
+    if (!pio_sm_is_tx_fifo_empty(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
+    {
+        pio_sm_clear_fifos(video_pio, PICO_SCANVIDEO_SCANLINE_SM2);
+    }
+    if (video_pio->sm[PICO_SCANVIDEO_SCANLINE_SM2].instr != PIO_WAIT_IRQ4)
+    {
+        pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_wait_irq(1, false, 4));
+        if (pio_sm_is_exec_stalled(video_pio, PICO_SCANVIDEO_SCANLINE_SM2))
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2, pio_encode_jmp(shared_state.scanline_program_wait_index));
+        }
+        else
+        {
+            pio_sm_exec(video_pio, PICO_SCANVIDEO_SCANLINE_SM2,
                         pio_encode_jmp(shared_state.scanline_program_wait_index + 1));
         }
     }
@@ -1454,8 +1489,17 @@ void scanvideo_set_mode(const scanvideo_mode_t *mode)
     // (black) path. The ISR sees active_scanline_number >= v_content_end
     // for all remaining active lines, outputting black until vblank
     // naturally resets active_scanline_number to 0 for the next frame.
+    // Reset file-scope state not covered by shared_state memset
+    core_generating[0] = 0;
+    core_generating[1] = 0;
+    complete_frame = 0;
+    complete_count = 0;
+    complete_reported = UINT16_MAX;
+    scanvideo_set_scanline_repeat_fn(NULL);
+
     active_scanline_number = v_content_end;
     vblank_scanline_number = 0;
+    generation_allowed = true;
 
     _blank_scanline_buffer.core.data0 = _blank_scanline_data;
     _blank_scanline_buffer.core.data0_used = _blank_scanline_buffer.core.data0_max = count_of(_blank_scanline_data);
