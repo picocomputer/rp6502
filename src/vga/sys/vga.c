@@ -38,8 +38,8 @@ typedef struct
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
 static mutex_t vga_scanline_mutex;
-static int16_t vga_scanline_num;
 static int16_t vga_highest_scanline;
+static volatile bool vga_vsync_fired;
 static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
 static volatile vga_canvas_t vga_canvas_current;
@@ -222,35 +222,35 @@ static void vga_scanvideo_switch(void)
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
     vga_canvas_current = vga_canvas_selected;
-    vga_scanline_num = -1;
+    vga_vsync_fired = false;
     vga_scanvideo_mode_switching = false;
 
     mutex_exit(&vga_scanline_mutex);
-    ria_vsync();
+}
+
+static void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
+{
+    if (scanline == 0)
+    {
+        vga_vsync_fired = false;
+        return;
+    }
+    if (vga_vsync_fired)
+        return;
+    int16_t highest = vga_highest_scanline > 0
+                          ? vga_highest_scanline
+                          : vga_scanvideo_mode_current->height;
+    if (scanline + 1 >= highest)
+    {
+        ria_vsync();
+        vga_vsync_fired = true;
+    }
 }
 
 static void vga_render_scanline(void)
 {
     if (!mutex_try_enter(&vga_scanline_mutex, 0))
         return;
-    if (scanvideo_vsync_pausing())
-    {
-        int16_t vsync_at = vga_highest_scanline > 0
-                               ? vga_highest_scanline
-                               : vga_scanvideo_mode_current->height;
-        if (vga_scanline_num >= vsync_at)
-        {
-            ria_vsync();
-            vga_scanline_num = -1;
-        }
-        if (vga_scanline_num == -1)
-        {
-            mutex_exit(&vga_scanline_mutex);
-            return;
-        }
-    }
-    if (vga_scanline_num == -1)
-        vga_scanline_num = 0;
     scanvideo_scanline_buffer_t *const scanline_buffer =
         scanvideo_begin_scanline_generation(false);
     if (!scanline_buffer)
@@ -258,8 +258,6 @@ static void vga_render_scanline(void)
         mutex_exit(&vga_scanline_mutex);
         return;
     }
-    if (scanvideo_scanline_number(scanline_buffer->scanline_id) == 0)
-        vga_scanline_num = 0;
     mutex_exit(&vga_scanline_mutex);
 
     // Scanline ready, do it.
@@ -326,11 +324,6 @@ static void vga_render_scanline(void)
         }
     }
     scanvideo_end_scanline_generation(scanline_buffer);
-
-    // Wait to count until after scanvideo library has accepted buffer.
-    mutex_enter_blocking(&vga_scanline_mutex);
-    vga_scanline_num++;
-    mutex_exit(&vga_scanline_mutex);
 }
 
 static void vga_scanvideo_update(void)
@@ -450,6 +443,7 @@ void vga_init(void)
     vga_set_display(vga_sd);
     vga_xreg_canvas(NULL);
     vga_scanvideo_switch();
+    scanvideo_set_scanline_complete_callback(vga_scanline_complete);
     multicore_launch_core1(vga_render_loop);
 }
 

@@ -216,6 +216,7 @@ static int32_t active_scanline_number;
 static int32_t vblank_scanline_number;
 static int32_t v_content_start;
 static int32_t v_content_end;
+static void (*scanline_complete_callback)(uint16_t scanline);
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
 {
@@ -857,18 +858,9 @@ void __isr __not_in_flash_func(isr_pio0_0)()
     }
 }
 
-// The RP6502 VGA wants to wait until the last possible moment before trying to
-// fill buffers. This gives applications the most amount of time to do processing
-// during vsync. Note that this doesn't indicate when all buffers for a frame are
-// finished, but it leaves a safety margin to ensure this starts returning true
-// before the buffers empty.
-bool scanvideo_vsync_pausing()
+void scanvideo_set_scanline_complete_callback(void (*cb)(uint16_t scanline))
 {
-    bool late = active_scanline_number >=
-                v_content_end - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1;
-    bool early = vblank_scanline_number <
-                 timing_state.v_total - timing_state.v_active - PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT;
-    return late || early;
+    scanline_complete_callback = cb;
 }
 
 // irq for PIO FIFO
@@ -965,6 +957,23 @@ extern void __not_in_flash_func(scanvideo_end_scanline_generation)(
 #endif
     list_insert_ascending(&shared_state.scanline.generated_ascending_scanline_id_list,
                           &shared_state.scanline.generated_ascending_scanline_id_list_tail, fsb);
+    if (scanline_complete_callback)
+    {
+        full_scanline_buffer_t *entry =
+            shared_state.scanline.generated_ascending_scanline_id_list;
+        uint32_t next = shared_state.scanline.next_scanline_id;
+        uint32_t completed = 0;
+        bool any = false;
+        while (entry && entry->core.scanline_id == next)
+        {
+            completed = next;
+            any = true;
+            next = scanline_id_after(next);
+            entry = entry->next;
+        }
+        if (any)
+            scanline_complete_callback(scanvideo_scanline_number(completed));
+    }
     spin_unlock(shared_state.scanline.lock, save);
     DEBUG_PINS_CLR(video_generation, 2);
 }
