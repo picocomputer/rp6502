@@ -38,6 +38,7 @@ typedef struct
 static vga_prog_t vga_prog[VGA_PROG_MAX];
 
 static mutex_t vga_scanline_mutex;
+static volatile bool vga_rendering[2];
 static int16_t vga_highest_scanline;
 static volatile bool vga_vsync_fired;
 static volatile vga_display_t vga_display_current;
@@ -197,9 +198,11 @@ static void vga_scanvideo_switch(void)
     if (!vga_scanvideo_mode_switching)
         return;
 
-    // Prevent core 1 from being inside scanvideo calls during switch,
-    // since shared state including spinlocks gets zeroed.
+    // Prevent new renders from starting, then wait for any in-flight
+    // render to finish, since shared state including spinlocks gets zeroed.
     mutex_enter_blocking(&vga_scanline_mutex);
+    while (vga_rendering[0] || vga_rendering[1])
+        tight_loop_contents();
 
     // Set system clock for the new video mode (must happen before remode)
     uint32_t clk = vga_scanvideo_mode_selected->default_timing->clock_freq;
@@ -263,6 +266,7 @@ static void vga_render_scanline(void)
         mutex_exit(&vga_scanline_mutex);
         return;
     }
+    vga_rendering[get_core_num()] = true;
     mutex_exit(&vga_scanline_mutex);
 
     // Scanline ready, do it.
@@ -329,6 +333,7 @@ static void vga_render_scanline(void)
         }
     }
     scanvideo_end_scanline_generation(scanline_buffer);
+    vga_rendering[get_core_num()] = false;
 }
 
 static void vga_scanvideo_update(void)
