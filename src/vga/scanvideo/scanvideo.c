@@ -215,7 +215,7 @@ static int32_t vblank_scanline_number;
 static int32_t v_content_start;
 static int32_t v_content_end;
 static volatile bool generation_allowed;
-static uint32_t core_generating[2];
+static volatile uint32_t core_generating[2];
 static uint16_t complete_frame;
 static uint16_t complete_count;
 static uint16_t complete_reported;
@@ -454,15 +454,12 @@ static inline void release_scanline_irqs_enabled(int buffers_to_free_count,
     }
 }
 
-static inline void abort_all_dma_channels_assuming_no_irq_preemption()
+static inline void __not_in_flash_func(abort_all_dma_channels)(void)
 {
     dma_hw->abort = PICO_SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK;
-    while (dma_channel_is_busy(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL0))
-        tight_loop_contents();
-    while (dma_channel_is_busy(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL1))
-        tight_loop_contents();
-    while (dma_channel_is_busy(PICO_SCANVIDEO_SCANLINE_DMA_CHANNEL2))
-        tight_loop_contents();
+    for (int i = 0; i < PICO_SCANVIDEO_PLANE_COUNT; i++)
+        while (dma_channel_is_busy(scanline_dma_ch[i]))
+            tight_loop_contents();
     dma_hw->ints0 = PICO_SCANVIDEO_SCANLINE_DMA_CHANNELS_MASK;
 }
 
@@ -516,7 +513,7 @@ static inline bool update_dma_transfer_state_irqs_enabled(bool cancel_if_not_com
             shared_state.dma.buffers_to_release = 0;
             DEBUG_PINS_XOR(video_in_use, 4);
         }
-        abort_all_dma_channels_assuming_no_irq_preemption();
+        abort_all_dma_channels();
     }
     spin_unlock(shared_state.dma.lock, save);
     return cancel_if_not_complete;
@@ -623,17 +620,8 @@ void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)()
 
     spin_unlock(shared_state.scanline.lock, save);
     DEBUG_PINS_CLR(video_timing, 1);
-    if (fsb)
-    {
-        if (fsb->core.scanline_id != shared_state.scanline.next_scanline_id)
-        {
-            fsb = &_missing_scanline_buffer;
-        }
-    }
-    else
-    {
+    if (!fsb || fsb->core.scanline_id != shared_state.scanline.next_scanline_id)
         fsb = &_missing_scanline_buffer;
-    }
 
     update_dma_transfer_state_irqs_enabled(true, &buffers_to_free_count);
     recover_scanline_sms();
@@ -971,43 +959,20 @@ static pio_program_t copy_program(const pio_program_t *program, uint16_t *instru
     return copy;
 }
 
-static bool scanvideo_setup(const scanvideo_mode_t *mode)
+static void init_shared_state(void)
 {
-    const scanvideo_timing_t *timing = mode->default_timing;
-
-    __builtin_memset(&shared_state, 0, sizeof(shared_state));
+    memset(&shared_state, 0, sizeof(shared_state));
     shared_state.scanline.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK);
     shared_state.dma.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_DMA_LOCK);
     shared_state.free_list.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
     shared_state.in_use.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK);
     // Must be next_scanline_id - 1 so is_scanline_after() succeeds on first generation
     shared_state.scanline.last_scanline_id = shared_state.scanline.next_scanline_id - 1;
-    shared_state.scanline.y_repeat_target = mode->yscale;
+    shared_state.scanline.y_repeat_target = video_mode.yscale;
+}
 
-    video_mode = *mode;
-    video_mode.default_timing = timing;
-    active_scanline_number = 0;
-    vblank_scanline_number = 0;
-
-    static_assert(BPP == 16, "");
-    if (!video_mode.yscale_denominator)
-        video_mode.yscale_denominator = 1;
-
-    v_content_start = mode->v_offset;
-    v_content_end = mode->v_offset +
-                    ((uint32_t)mode->height * mode->yscale + video_mode.yscale_denominator - 1) /
-                        video_mode.yscale_denominator;
-
-    _blank_scanline_buffer.core.data0 = _blank_scanline_data;
-    _blank_scanline_buffer.core.data0_used = _blank_scanline_buffer.core.data0_max = count_of(_blank_scanline_data);
-    _blank_scanline_buffer.core.data1 = missing_scanline_data_overlay;
-    _blank_scanline_buffer.core.data1_used = _blank_scanline_buffer.core.data1_max = count_of(missing_scanline_data_overlay);
-    _blank_scanline_buffer.core.data2 = missing_scanline_data_overlay;
-    _blank_scanline_buffer.core.data2_used = _blank_scanline_buffer.core.data2_max = count_of(missing_scanline_data_overlay);
-    _blank_scanline_buffer.core.status = SCANLINE_OK;
-
-    ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
-
+static void init_scanline_buffers(void)
+{
     memset(scanline_data, 0, sizeof(scanline_data));
     for (int i = 0; i < PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
     {
@@ -1019,9 +984,53 @@ static bool scanvideo_setup(const scanvideo_mode_t *mode)
         scanline_buffers[i].core.data2_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
         scanline_buffers[i].next = i != PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1 ? &scanline_buffers[i + 1] : NULL;
     }
-
     shared_state.free_list.free_list = &scanline_buffers[0];
     __mem_fence_release();
+}
+
+static void init_blank_scanline_buffer(void)
+{
+    _blank_scanline_buffer.core.data0 = _blank_scanline_data;
+    _blank_scanline_buffer.core.data0_used = _blank_scanline_buffer.core.data0_max = count_of(_blank_scanline_data);
+    _blank_scanline_buffer.core.data1 = missing_scanline_data_overlay;
+    _blank_scanline_buffer.core.data1_used = _blank_scanline_buffer.core.data1_max = count_of(missing_scanline_data_overlay);
+    _blank_scanline_buffer.core.data2 = missing_scanline_data_overlay;
+    _blank_scanline_buffer.core.data2_used = _blank_scanline_buffer.core.data2_max = count_of(missing_scanline_data_overlay);
+    _blank_scanline_buffer.core.status = SCANLINE_OK;
+}
+
+static int find_program_wait_index(const uint16_t *instructions, int length)
+{
+    for (int i = 0; i < length; i++)
+        if (instructions[i] == PIO_WAIT_IRQ4)
+            return i;
+    assert(false);
+    return -1;
+}
+
+static bool scanvideo_setup(const scanvideo_mode_t *mode)
+{
+    const scanvideo_timing_t *timing = mode->default_timing;
+
+    video_mode = *mode;
+    video_mode.default_timing = timing;
+    static_assert(BPP == 16, "");
+    if (!video_mode.yscale_denominator)
+        video_mode.yscale_denominator = 1;
+
+    init_shared_state();
+
+    active_scanline_number = 0;
+    vblank_scanline_number = 0;
+
+    v_content_start = mode->v_offset;
+    v_content_end = mode->v_offset +
+                    ((uint32_t)mode->height * mode->yscale + video_mode.yscale_denominator - 1) /
+                        video_mode.yscale_denominator;
+
+    init_blank_scanline_buffer();
+    ((uint16_t *)(_missing_scanline_data))[2] = mode->width / 2 - 3;
+    init_scanline_buffers();
 
     uint pin_mask = 3u << PICO_SCANVIDEO_SYNC_PIN_BASE;
     bi_decl_if_func_used(bi_2pins_with_names(PICO_SCANVIDEO_SYNC_PIN_BASE, "HSync",
@@ -1067,17 +1076,8 @@ static bool scanvideo_setup(const scanvideo_mode_t *mode)
     assert(_missing_scanline_buffer.core.data0 && _missing_scanline_buffer.core.data0_used);
     video_program_load_offset = pio_add_program(video_pio, &modified_program);
 
-    int program_wait_index = -1;
-    for (int i = 0; i < mode->pio_program->program->length; i++)
-    {
-        if (instructions[i] == PIO_WAIT_IRQ4)
-        {
-            assert(program_wait_index == -1);
-            program_wait_index = i;
-        }
-    }
-    assert(program_wait_index != -1);
-    shared_state.scanline_program_wait_index = program_wait_index;
+    shared_state.scanline_program_wait_index =
+        find_program_wait_index(instructions, mode->pio_program->program->length);
 
     assert(_missing_scanline_buffer.core.data1 && _missing_scanline_buffer.core.data1_used);
     assert(_missing_scanline_buffer.core.data2 && _missing_scanline_buffer.core.data2_used);
@@ -1331,49 +1331,17 @@ void scanvideo_set_mode(const scanvideo_mode_t *mode)
     for (uint i = 0; i < mode->pio_program->program->length; i++)
         video_pio->instr_mem[video_program_load_offset + i] = instructions[i];
 
-    // Find wait index
-    int program_wait_index = -1;
-    for (int i = 0; i < mode->pio_program->program->length; i++)
-    {
-        if (instructions[i] == PIO_WAIT_IRQ4)
-        {
-            program_wait_index = i;
-            break;
-        }
-    }
-    assert(program_wait_index != -1);
-
     // Reset shared state, advancing to the next frame
     uint32_t next_frame = (scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u;
-    __builtin_memset(&shared_state, 0, sizeof(shared_state));
-    shared_state.scanline.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK);
-    shared_state.dma.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_DMA_LOCK);
-    shared_state.free_list.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
-    shared_state.in_use.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK);
+    init_shared_state();
     shared_state.scanline.next_scanline_id = next_frame;
     shared_state.scanline.last_scanline_id = next_frame - 1;
-    shared_state.scanline.y_repeat_target = video_mode.yscale;
-    shared_state.scanline_program_wait_index = program_wait_index;
+    shared_state.scanline_program_wait_index =
+        find_program_wait_index(instructions, mode->pio_program->program->length);
 
-    // Re-init scanline buffers
-    memset(scanline_data, 0, sizeof(scanline_data));
-    for (int i = 0; i < PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT; i++)
-    {
-        scanline_buffers[i].core.data0 = scanline_data[0][i];
-        scanline_buffers[i].core.data0_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
-        scanline_buffers[i].core.data1 = scanline_data[1][i];
-        scanline_buffers[i].core.data1_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
-        scanline_buffers[i].core.data2 = scanline_data[2][i];
-        scanline_buffers[i].core.data2_max = PICO_SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS;
-        scanline_buffers[i].next = i != PICO_SCANVIDEO_SCANLINE_BUFFER_COUNT - 1 ? &scanline_buffers[i + 1] : NULL;
-    }
-    shared_state.free_list.free_list = &scanline_buffers[0];
-    __mem_fence_release();
+    init_scanline_buffers();
+    init_blank_scanline_buffer();
 
-    // Force remaining scanlines in the current frame to take the blank
-    // (black) path. The ISR sees active_scanline_number >= v_content_end
-    // for all remaining active lines, outputting black until vblank
-    // naturally resets active_scanline_number to 0 for the next frame.
     // Reset file-scope state not covered by shared_state memset
     core_generating[0] = 0;
     core_generating[1] = 0;
@@ -1382,17 +1350,10 @@ void scanvideo_set_mode(const scanvideo_mode_t *mode)
     complete_reported = UINT16_MAX;
     scanvideo_set_scanline_repeat_fn(NULL);
 
+    // Force remaining scanlines to blank until vblank resets to 0
     active_scanline_number = v_content_end;
     vblank_scanline_number = 0;
     generation_allowed = true;
-
-    _blank_scanline_buffer.core.data0 = _blank_scanline_data;
-    _blank_scanline_buffer.core.data0_used = _blank_scanline_buffer.core.data0_max = count_of(_blank_scanline_data);
-    _blank_scanline_buffer.core.data1 = missing_scanline_data_overlay;
-    _blank_scanline_buffer.core.data1_used = _blank_scanline_buffer.core.data1_max = count_of(missing_scanline_data_overlay);
-    _blank_scanline_buffer.core.data2 = missing_scanline_data_overlay;
-    _blank_scanline_buffer.core.data2_used = _blank_scanline_buffer.core.data2_max = count_of(missing_scanline_data_overlay);
-    _blank_scanline_buffer.core.status = SCANLINE_OK;
 
     // Re-init and restart scanline SMs
     uint jmp = video_program_load_offset + pio_encode_jmp(video_mode.pio_program->entry_point);

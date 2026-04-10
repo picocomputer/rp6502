@@ -270,6 +270,8 @@ static void vga_render_scanline(void)
     const uint16_t width = vga_scanvideo_mode_current->width;
     const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
     uint32_t *const data[3] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
+    uint16_t *const data_used_ptr[3] = {
+        &scanline_buffer->data0_used, &scanline_buffer->data1_used, &scanline_buffer->data2_used};
     bool filled[3] = {false, false, false};
     uint32_t *foreground = NULL;
     vga_prog_t prog = vga_prog[scanline_id];
@@ -301,80 +303,37 @@ static void vga_render_scanline(void)
     }
     for (int8_t i = 0; i < 3; i++)
     {
-        uint16_t data_used;
         if (filled[i])
         {
             data[i][0] = COMPOSABLE_RAW_RUN | (data[i][1] << 16);
             data[i][1] = (width - 3) | (data[i][1] & 0xFFFF0000);
             data[i][width / 2 + 1] = COMPOSABLE_RAW_1P | (0 << 16);
             data[i][width / 2 + 2] = COMPOSABLE_EOL_SKIP_ALIGN;
-            data_used = width / 2 + 3;
+            *data_used_ptr[i] = width / 2 + 3;
         }
         else
         {
             data[i][0] = COMPOSABLE_RAW_1P | (0 << 16);
             data[i][1] = COMPOSABLE_EOL_SKIP_ALIGN;
-            data_used = 2;
-        }
-        switch (i)
-        {
-        case 0:
-            scanline_buffer->data0_used = data_used;
-            break;
-        case 1:
-            scanline_buffer->data1_used = data_used;
-            break;
-        case 2:
-            scanline_buffer->data2_used = data_used;
-            break;
+            *data_used_ptr[i] = 2;
         }
     }
     scanvideo_end_scanline_generation(scanline_buffer);
     vga_rendering[get_core_num()] = false;
 }
 
+// [canvas][display: sd, hd, sxga]
+static const scanvideo_mode_t *const vga_mode_table[][3] = {
+    [vga_console] = {&vga_scanvideo_mode_640x480, &vga_scanvideo_mode_640x480, &vga_scanvideo_mode_640x512_sxga},
+    [vga_320_240] = {&vga_scanvideo_mode_320x240, &vga_scanvideo_mode_320x240, &vga_scanvideo_mode_320x240_sxga},
+    [vga_320_180] = {&vga_scanvideo_mode_320x180, &vga_scanvideo_mode_320x180_hd, &vga_scanvideo_mode_320x180_sxga},
+    [vga_640_480] = {&vga_scanvideo_mode_640x480, &vga_scanvideo_mode_640x480, &vga_scanvideo_mode_640x480_sxga},
+    [vga_640_360] = {&vga_scanvideo_mode_640x360, &vga_scanvideo_mode_640x360_hd, &vga_scanvideo_mode_640x360_sxga},
+};
+
 static void vga_scanvideo_update(void)
 {
-    if (vga_canvas_selected == vga_console)
-    {
-        if (vga_display_selected == vga_sxga)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x512_sxga;
-        else
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x480;
-    }
-    else if (vga_canvas_selected == vga_320_240)
-    {
-        if (vga_display_selected == vga_sxga)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x240_sxga;
-        else
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x240;
-    }
-    else if (vga_canvas_selected == vga_640_480)
-    {
-        if (vga_display_selected == vga_sxga)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x480_sxga;
-        else
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x480;
-    }
-    else if (vga_canvas_selected == vga_320_180)
-    {
-        if (vga_display_selected == vga_sxga)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x180_sxga;
-        else if (vga_display_selected == vga_hd)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x180_hd;
-        else
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_320x180;
-    }
-    else if (vga_canvas_selected == vga_640_360)
-    {
-        if (vga_display_selected == vga_sxga)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x360_sxga;
-        else if (vga_display_selected == vga_hd)
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x360_hd;
-        else
-            vga_scanvideo_mode_selected = &vga_scanvideo_mode_640x360;
-    }
-    // trigger only if change detected
+    vga_scanvideo_mode_selected = vga_mode_table[vga_canvas_selected][vga_display_selected];
     if (vga_scanvideo_mode_selected != vga_scanvideo_mode_current)
         vga_scanvideo_mode_switching = true;
 }
