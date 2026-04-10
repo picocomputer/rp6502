@@ -932,6 +932,8 @@ void __not_in_flash_func(scanvideo_end_scanline_generation)(
                             : complete_count - 1;
         if (safe < UINT16_MAX && safe != complete_reported)
         {
+            if (complete_reported == UINT16_MAX && safe > 0)
+                vga_scanline_complete(0);
             complete_reported = safe;
             vga_scanline_complete(safe);
         }
