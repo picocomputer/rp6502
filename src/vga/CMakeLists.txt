@@ -66,10 +66,6 @@ pico_generate_pio_header(rp6502_vga
     ${CMAKE_CURRENT_LIST_DIR}/scanvideo/scanvideo.pio
 )
 
-pico_generate_pio_header(rp6502_vga
-    ${CMAKE_CURRENT_LIST_DIR}/scanvideo/timing.pio
-)
-
 # Override various lib files with custom code.
 # The magic is that header-only files don't get compiled.
 set_source_files_properties(

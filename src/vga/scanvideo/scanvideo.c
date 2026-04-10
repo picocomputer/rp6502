@@ -17,7 +17,6 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 #include "hardware/irq.h"
-#include "timing.pio.h"
 #include "scanvideo.h"
 #include "sys/vga.h"
 #include "pico/binary_info.h"
@@ -39,17 +38,6 @@ enum
     SCANLINE_OK = 1,
     SCANLINE_ERROR,
     SCANLINE_SKIPPED
-};
-
-typedef struct scanvideo_pio_program scanvideo_pio_program_t;
-
-struct scanvideo_pio_program
-{
-    const pio_program_t *program;
-    const uint8_t entry_point;
-    bool (*adapt_for_mode)(const scanvideo_pio_program_t *program, const scanvideo_view_t *mode,
-                           scanvideo_scanline_buffer_t *missing_scanline_buffer, uint16_t *modifiable_instructions);
-    pio_sm_config (*configure_pio)(pio_hw_t *pio, uint sm, uint offset);
 };
 
 static inline uint16_t scanvideo_frame_number(uint32_t scanline_id)
@@ -75,21 +63,12 @@ static const uint scanline_dma_ch[SCANVIDEO_PLANE_COUNT] = {
 
 #define video_pio pio0
 
-// --- video_24mhz_composable ---
+// Convenience macro for PIO program offset constants
+#define PIO_OFFSET(x) composable_offset_##x
 
-#define video_24mhz_composable_program __CONCAT(video_24mhz_composable_prefix, _program)
-
-bool video_24mhz_composable_adapt_for_mode(const scanvideo_pio_program_t *program, const scanvideo_view_t *mode,
-                                           scanvideo_scanline_buffer_t *missing_scanline_buffer,
-                                           uint16_t *modifiable_instructions);
-
-pio_sm_config video_24mhz_composable_configure_pio(pio_hw_t *pio, uint sm, uint offset);
-
-static const scanvideo_pio_program_t video_24mhz_composable = {
-    .program = &video_24mhz_composable_program,
-    .entry_point = video_24mhz_composable_program_extern(entry_point),
-    .adapt_for_mode = video_24mhz_composable_adapt_for_mode,
-    .configure_pio = video_24mhz_composable_configure_pio};
+static void composable_adapt_for_mode(const scanvideo_view_t *mode,
+                                      uint16_t *modifiable_instructions);
+static pio_sm_config composable_configure_pio(pio_hw_t *pio, uint sm, uint offset);
 
 #define PIO_WAIT_IRQ4 pio_encode_wait_irq(1, false, 4)
 static uint8_t video_htiming_load_offset;
@@ -749,7 +728,7 @@ static inline bool is_scanline_sm(int sm)
 
 static void setup_sm(int sm, uint offset)
 {
-    pio_sm_config config = is_scanline_sm(sm) ? video_24mhz_composable.configure_pio(video_pio, sm, offset) : video_htiming_program_get_default_config(offset);
+    pio_sm_config config = is_scanline_sm(sm) ? composable_configure_pio(video_pio, sm, offset) : video_htiming_program_get_default_config(offset);
 
     sm_config_set_clkdiv_int_frac(&config, video_clock_down_times_2 / 2, (video_clock_down_times_2 & 1u) << 7u);
 
@@ -982,15 +961,14 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
     assert(v_content_end <= (int32_t)timing->v_active);
 
     uint16_t instructions[32];
-    pio_program_t modified_program = copy_program(video_24mhz_composable.program, instructions,
+    pio_program_t modified_program = copy_program(&composable_program, instructions,
                                                   count_of(instructions));
 
-    if (!video_24mhz_composable.adapt_for_mode(&video_24mhz_composable, mode, &_missing_scanline_buffer.core, instructions))
-        assert(false);
+    composable_adapt_for_mode(mode, instructions);
     video_program_load_offset = pio_add_program(video_pio, &modified_program);
 
     shared_state.scanline_program_wait_index =
-        find_program_wait_index(instructions, video_24mhz_composable.program->length);
+        find_program_wait_index(instructions, composable_program.length);
 
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
         setup_sm(scanline_sm[i], video_program_load_offset);
@@ -1081,26 +1059,22 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
     return true;
 }
 
-bool video_24mhz_composable_adapt_for_mode(const scanvideo_pio_program_t *program, const scanvideo_view_t *mode,
-                                           scanvideo_scanline_buffer_t *missing_scanline_buffer,
-                                           uint16_t *modifiable_instructions)
+static void composable_adapt_for_mode(const scanvideo_view_t *mode,
+                                      uint16_t *modifiable_instructions)
 {
-    (void)program;
-    (void)missing_scanline_buffer;
     int delay0 = 2 * mode->x_scale - 2;
     int delay1 = delay0 + 1;
     assert(delay0 <= 31);
     assert(delay1 <= 31);
 
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_a_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_b_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_c_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_d_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_e_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_f_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_g_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[video_24mhz_composable_program_extern(delay_h_0)] |= (unsigned)delay0 << 8u;
-    return true;
+    modifiable_instructions[PIO_OFFSET(delay_a_1)] |= (unsigned)delay1 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_b_1)] |= (unsigned)delay1 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_c_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_d_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_e_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_f_1)] |= (unsigned)delay1 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_g_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_h_0)] |= (unsigned)delay0 << 8u;
 }
 
 static void scanvideo_default_configure_pio(pio_hw_t *pio, uint sm, uint offset, pio_sm_config *config, bool overlay)
@@ -1120,9 +1094,9 @@ static void scanvideo_default_configure_pio(pio_hw_t *pio, uint sm, uint offset,
     }
 }
 
-pio_sm_config video_24mhz_composable_configure_pio(pio_hw_t *pio, uint sm, uint offset)
+static pio_sm_config composable_configure_pio(pio_hw_t *pio, uint sm, uint offset)
 {
-    pio_sm_config config = video_24mhz_composable_default_program_get_default_config(offset);
+    pio_sm_config config = composable_program_get_default_config(offset);
     scanvideo_default_configure_pio(pio, sm, offset, &config, sm != SCANVIDEO_SCANLINE_SM0);
     return config;
 }
@@ -1144,7 +1118,7 @@ static void scanvideo_timing_enable(bool enable)
 
         if (enable)
         {
-            uint jmp = video_program_load_offset + pio_encode_jmp(video_24mhz_composable.entry_point);
+            uint jmp = video_program_load_offset + pio_encode_jmp(PIO_OFFSET(entry_point));
             for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
                 pio_sm_exec(video_pio, scanline_sm[i], jmp);
             pio_sm_exec(video_pio, SCANVIDEO_TIMING_SM,
@@ -1225,9 +1199,9 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
 
     // Re-adapt PIO program for new x_scale and reload in-place
     uint16_t instructions[32];
-    copy_program(video_24mhz_composable.program, instructions, count_of(instructions));
-    video_24mhz_composable.adapt_for_mode(&video_24mhz_composable, mode, &_missing_scanline_buffer.core, instructions);
-    for (uint i = 0; i < video_24mhz_composable.program->length; i++)
+    copy_program(&composable_program, instructions, count_of(instructions));
+    composable_adapt_for_mode(mode, instructions);
+    for (uint i = 0; i < composable_program.length; i++)
         video_pio->instr_mem[video_program_load_offset + i] = instructions[i];
 
     // Reset shared state, advancing to the next frame
@@ -1236,7 +1210,7 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     shared_state.scanline.next_scanline_id = next_frame;
     shared_state.scanline.last_scanline_id = next_frame - 1;
     shared_state.scanline_program_wait_index =
-        find_program_wait_index(instructions, video_24mhz_composable.program->length);
+        find_program_wait_index(instructions, composable_program.length);
 
     init_scanline_buffers();
     init_static_scanline_buffers();
@@ -1255,7 +1229,7 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     generation_allowed = true;
 
     // Re-init and restart scanline SMs
-    uint jmp = video_program_load_offset + pio_encode_jmp(video_24mhz_composable.entry_point);
+    uint jmp = video_program_load_offset + pio_encode_jmp(PIO_OFFSET(entry_point));
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
         setup_sm(scanline_sm[i], video_program_load_offset);
     pio_clkdiv_restart_sm_mask(video_pio, sm_mask);

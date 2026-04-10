@@ -8,6 +8,10 @@
 #ifndef _VGA_SCANVIDEO_SCANVIDEO_H_
 #define _VGA_SCANVIDEO_SCANVIDEO_H_
 
+// This is a fork of pico_scanvideo_dpi from:
+// https://github.com/raspberrypi/pico-extras
+// It has been heavily modified for RP6502.
+
 #include "pico/types.h"
 #include "scanvideo.pio.h"
 
@@ -30,17 +34,13 @@
 #define SCANVIDEO_B5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_BSHIFT) & 0x1f)
 
 // == COMPOSABLE SCANLINE ==
-#define video_24mhz_composable_prefix video_24mhz_composable_default
-#define __EXTRA_CONCAT(x, y) __CONCAT(x, y)
-#define video_24mhz_composable_program_extern(x) __EXTRA_CONCAT(__EXTRA_CONCAT(video_24mhz_composable_prefix, _offset_), x)
-#define __DVP_JMP(x) ((unsigned)video_24mhz_composable_program_extern(x))
-#define COMPOSABLE_COLOR_RUN __DVP_JMP(color_run)
-#define COMPOSABLE_EOL_ALIGN __DVP_JMP(end_of_scanline_ALIGN)
-#define COMPOSABLE_EOL_SKIP_ALIGN __DVP_JMP(end_of_scanline_skip_ALIGN)
-#define COMPOSABLE_RAW_RUN __DVP_JMP(raw_run)
-#define COMPOSABLE_RAW_1P __DVP_JMP(raw_1p)
-#define COMPOSABLE_RAW_2P __DVP_JMP(raw_2p)
-#define COMPOSABLE_RAW_1P_SKIP_ALIGN __DVP_JMP(raw_1p_skip_ALIGN)
+#define COMPOSABLE_COLOR_RUN ((unsigned)composable_offset_color_run)
+#define COMPOSABLE_EOL_ALIGN ((unsigned)composable_offset_end_of_scanline_ALIGN)
+#define COMPOSABLE_EOL_SKIP_ALIGN ((unsigned)composable_offset_end_of_scanline_skip_ALIGN)
+#define COMPOSABLE_RAW_RUN ((unsigned)composable_offset_raw_run)
+#define COMPOSABLE_RAW_1P ((unsigned)composable_offset_raw_1p)
+#define COMPOSABLE_RAW_2P ((unsigned)composable_offset_raw_2p)
+#define COMPOSABLE_RAW_1P_SKIP_ALIGN ((unsigned)composable_offset_raw_1p_skip_ALIGN)
 
 // == TYPES =============
 
