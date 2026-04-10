@@ -1437,12 +1437,14 @@ void scanvideo_set_mode(const scanvideo_mode_t *mode)
     }
     assert(program_wait_index != -1);
 
-    // Reset shared state
+    // Reset shared state, advancing to the next frame
+    uint32_t next_frame = (scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u;
     __builtin_memset(&shared_state, 0, sizeof(shared_state));
     shared_state.scanline.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_SCANLINE_LOCK);
     shared_state.dma.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_DMA_LOCK);
     shared_state.free_list.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_FREE_LIST_LOCK);
     shared_state.in_use.lock = spin_lock_init(PICO_SPINLOCK_ID_VIDEO_IN_USE_LOCK);
+    shared_state.scanline.next_scanline_id = next_frame;
     shared_state.scanline.last_scanline_id = 0xffffffff;
     shared_state.scanline.y_repeat_target = video_mode.yscale;
     shared_state.scanline_program_wait_index = program_wait_index;

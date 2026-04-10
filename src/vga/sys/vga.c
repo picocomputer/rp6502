@@ -237,7 +237,6 @@ static void __not_in_flash_func(vga_scanline_complete)(uint16_t frame, uint16_t 
 {
     if (frame != vga_last_frame)
     {
-        // prevent lost signal // TODO test???
         if (!vga_vsync_fired)
             ria_vsync();
         vga_last_frame = frame;
