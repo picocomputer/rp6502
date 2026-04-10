@@ -1371,7 +1371,7 @@ static void scanvideo_teardown(void)
             pio_sm_unclaim(video_pio, sm);
 }
 
-void scanvideo_remode(const scanvideo_mode_t *mode)
+void scanvideo_set_mode(const scanvideo_mode_t *mode)
 {
     bool first_call = !video_timing_enabled;
     bool timing_changed = first_call || mode->default_timing != video_mode.default_timing;

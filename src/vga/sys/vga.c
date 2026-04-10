@@ -220,7 +220,7 @@ static void vga_scanvideo_switch(void)
         main_post_reclock();
     }
 
-    scanvideo_remode(vga_scanvideo_mode_selected);
+    scanvideo_set_mode(vga_scanvideo_mode_selected);
 
     vga_scanvideo_mode_current = vga_scanvideo_mode_selected;
     vga_display_current = vga_display_selected;
