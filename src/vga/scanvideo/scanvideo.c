@@ -158,9 +158,11 @@ static struct
     int scanline_program_wait_index;
 } shared_state;
 
-// Overlay planes (SM1/SM2) use EOL_ALIGN for empty output
+// Overlay planes (SM1/SM2) output a transparent pixel to clear sticky alpha
 static uint32_t _missing_scanline_overlay[] = {
-    0u | (COMPOSABLE_EOL_ALIGN << 16u)};
+    COMPOSABLE_RAW_1P | (0 << 16),
+    COMPOSABLE_EOL_SKIP_ALIGN,
+};
 
 // Missing scanline: blue debug color on base plane, empty overlays
 #ifndef SCANVIDEO_MISSING_SCANLINE_COLOR
@@ -194,9 +196,6 @@ static int32_t v_content_start;
 static int32_t v_content_end;
 static volatile bool generation_allowed;
 static volatile uint32_t core_generating[2];
-static uint16_t complete_frame;
-static uint16_t complete_count;
-static uint16_t complete_reported;
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
 {
@@ -458,7 +457,7 @@ static void set_next_scanline_id(uint32_t scanline_id)
     shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(scanline_id) * video_mode.y_scale;
 }
 
-static inline void __not_in_flash_func(recover_scanline_sms)(void)
+static inline __attribute__((always_inline)) void __not_in_flash_func(recover_scanline_sms)(void)
 {
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
@@ -535,8 +534,7 @@ static void __not_in_flash_func(prepare_for_active_scanline_irqs_enabled)(void)
 
     update_dma_transfer_state_irqs_enabled(true, &buffers_to_free_count);
     recover_scanline_sms();
-    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL0, fsb->core.data0,
-                                         (uint32_t)fsb->core.data0_used);
+    dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL0, fsb->core.data0, (uint32_t)fsb->core.data0_used);
     dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL1, fsb->core.data1, (uint32_t)fsb->core.data1_used);
     dma_channel_transfer_from_buffer_now(SCANVIDEO_SCANLINE_DMA_CHANNEL2, fsb->core.data2, (uint32_t)fsb->core.data2_used);
 
@@ -593,7 +591,7 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
         {
             shared_state.scanline.next_scanline_id =
                 (scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u;
-            shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(shared_state.scanline.next_scanline_id);
+            shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(shared_state.scanline.next_scanline_id) * video_mode.y_scale;
         }
 
         signal = true;
@@ -785,40 +783,6 @@ void __not_in_flash_func(scanvideo_end_scanline_generation)(
     list_insert_ascending(&shared_state.scanline.generated_ascending_scanline_id_list,
                           &shared_state.scanline.generated_ascending_scanline_id_list_tail, fsb);
     core_generating[get_core_num()] = 0;
-    {
-        uint16_t frame = scanvideo_frame_number(scanline_buffer->scanline_id);
-        if (frame != complete_frame)
-        {
-            complete_frame = frame;
-            complete_count = 0;
-            complete_reported = UINT16_MAX;
-        }
-        complete_count++;
-        // Find lowest in-flight scanline for this frame
-        uint16_t gap = UINT16_MAX;
-        for (int i = 0; i < 2; i++)
-        {
-            if (core_generating[i] &&
-                scanvideo_frame_number(core_generating[i] - 1) == frame)
-            {
-                uint16_t s = scanvideo_scanline_number(core_generating[i] - 1);
-                if (s < gap)
-                    gap = s;
-            }
-        }
-        // Contiguous completion: up to just before the gap,
-        // or up to total submitted if no gap
-        uint16_t safe = (gap < UINT16_MAX)
-                            ? (gap > 0 ? gap - 1 : UINT16_MAX)
-                            : complete_count - 1;
-        if (safe < UINT16_MAX && safe != complete_reported)
-        {
-            if (complete_reported == UINT16_MAX && safe > 0)
-                vga_scanline_complete(0);
-            complete_reported = safe;
-            vga_scanline_complete(safe);
-        }
-    }
     spin_unlock(shared_state.scanline.lock, save);
 }
 
@@ -1201,9 +1165,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     // Reset file-scope state not covered by shared_state memset
     core_generating[0] = 0;
     core_generating[1] = 0;
-    complete_frame = 0;
-    complete_count = 0;
-    complete_reported = UINT16_MAX;
     scanvideo_set_scanline_repeat_fn(NULL);
 
     // Force remaining scanlines to blank until vblank resets to 0
