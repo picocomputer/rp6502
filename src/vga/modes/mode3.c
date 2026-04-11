@@ -112,6 +112,8 @@ mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
         int16_t part = 8 - (col & 7);
         if (part > config->width_px - col)
             part = config->width_px - col;
+        if (part > fill_cols)
+            part = fill_cols;
         fill_cols -= part;
         col += part;
         switch (part)
@@ -183,6 +185,8 @@ mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
         int16_t part = 8 - (col & 7);
         if (part > config->width_px - col)
             part = config->width_px - col;
+        if (part > fill_cols)
+            part = fill_cols;
         fill_cols -= part;
         col += part;
         switch (part)
@@ -254,6 +258,8 @@ mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
         int16_t part = 4 - (col & 3);
         if (part > config->width_px - col)
             part = config->width_px - col;
+        if (part > fill_cols)
+            part = fill_cols;
         fill_cols -= part;
         col += part;
         switch (part)
@@ -307,6 +313,8 @@ mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
         int16_t part = 4 - (col & 3);
         if (part > config->width_px - col)
             part = config->width_px - col;
+        if (part > fill_cols)
+            part = fill_cols;
         fill_cols -= part;
         col += part;
         switch (part)

@@ -425,10 +425,11 @@ static inline bool update_dma_transfer_state_irqs_enabled(bool cancel_if_not_com
     {
         if (shared_state.dma.buffers_to_release)
         {
-            shared_state.dma.dma_completion_state = shared_state.dma.scanline_in_progress = 0;
+            shared_state.dma.scanline_in_progress = 0;
             *scanline_buffers_to_release = shared_state.dma.buffers_to_release;
             shared_state.dma.buffers_to_release = 0;
         }
+        shared_state.dma.dma_completion_state = 0;
         abort_all_dma_channels();
     }
     spin_unlock(shared_state.dma.lock, save);

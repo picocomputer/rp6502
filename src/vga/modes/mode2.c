@@ -131,6 +131,8 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         uint32_t tile_mem = mode2_get_glyph_tile_mem(config, 1, tile_size, col, row, row_data, &index);
         uint8_t glyph = xram[tile_mem + index];
         int16_t part = 8 - (col & 7);
+        if (part > fill_cols)
+            part = fill_cols;
         fill_cols -= part;
         col += part;
         switch (part)
@@ -222,6 +224,8 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         uint32_t tile_mem = mode2_get_glyph_tile_mem(config, 2, tile_size, col, row, row_data, &index);
         uint8_t glyph = xram[tile_mem + index];
         int16_t part = 4 - (col & 3);
+        if (part > fill_cols)
+            part = fill_cols;
         fill_cols -= part;
         col += part;
         switch (part)
