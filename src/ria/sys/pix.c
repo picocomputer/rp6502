@@ -30,7 +30,7 @@ static volatile enum state {
 } pix_api_state;
 
 // Timeout needs a full VGA frame
-#define PIX_ACK_TIMEOUT_MS 20
+#define PIX_ACK_TIMEOUT_MS 2
 
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {

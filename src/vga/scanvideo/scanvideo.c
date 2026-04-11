@@ -18,7 +18,6 @@
 #include "hardware/pio.h"
 #include "hardware/irq.h"
 #include "scanvideo.h"
-#include "sys/vga.h"
 #include "pico/binary_info.h"
 
 #define SCANVIDEO_SCANLINE_BUFFER_COUNT 10
@@ -458,7 +457,7 @@ static void set_next_scanline_id(uint32_t scanline_id)
     shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(scanline_id) * video_mode.y_scale;
 }
 
-static inline __attribute__((always_inline)) void __not_in_flash_func(recover_scanline_sms)(void)
+static inline void __not_in_flash_func(recover_scanline_sms)(void)
 {
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
@@ -615,10 +614,7 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
     free_local_free_list_irqs_enabled(local_free_list);
 
     if (signal)
-    {
-        vga_scanline_complete(video_mode.height);
         __sev();
-    }
 }
 
 #define setup_dma_states_vblank()              \

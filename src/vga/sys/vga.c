@@ -225,7 +225,7 @@ static void vga_scanvideo_switch(void)
 }
 
 // Called from scanvideo with contiguous scanline progress
-void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
+static void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
 {
     if (scanline == 0)
     {

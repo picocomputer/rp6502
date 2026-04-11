@@ -93,7 +93,7 @@ typedef struct scanvideo_scanline_buffer
 
 // == API ===============
 
-extern void scanvideo_set_mode(const scanvideo_view_t *mode);
+void scanvideo_set_mode(const scanvideo_view_t *mode);
 
 scanvideo_scanline_buffer_t *scanvideo_begin_scanline_generation(void);
 void scanvideo_end_scanline_generation(scanvideo_scanline_buffer_t *scanline_buffer);
