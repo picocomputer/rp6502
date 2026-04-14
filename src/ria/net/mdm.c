@@ -59,6 +59,7 @@ static bool mdm_is_parsing;
 static const char *mdm_parse_str;
 static bool mdm_parse_result;
 static bool mdm_is_open;
+static int mdm_settings_slot;
 static unsigned mdm_escape_count;
 static absolute_time_t mdm_escape_last_char;
 static absolute_time_t mdm_escape_guard;
@@ -319,16 +320,20 @@ bool mdm_write_phonebook_entry(const char *entry, unsigned index)
 
 bool mdm_write_settings(const mdm_settings_t *settings)
 {
+    if (mdm_settings_slot < 0)
+        return false;
+    char settings_file[11];
+    snprintf(settings_file, sizeof(settings_file), STR_MDM_SETTINGS, mdm_settings_slot);
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_SETTINGS,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, settings_file,
                                      LFS_O_RDWR | LFS_O_CREAT,
                                      &lfs_file_config);
     if (lfsresult < 0)
-        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", STR_MDM_SETTINGS, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", settings_file, lfsresult);
     if (lfsresult >= 0)
         if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            DBG("?Unable to lfs_file_truncate %s (%d)\n", STR_MDM_SETTINGS, lfsresult);
+            DBG("?Unable to lfs_file_truncate %s (%d)\n", settings_file, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -352,14 +357,14 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                settings->lf_char,
                                settings->bs_char);
         if (lfsresult < 0)
-            DBG("?Unable to write %s contents (%d)\n", STR_MDM_SETTINGS, lfsresult);
+            DBG("?Unable to write %s contents (%d)\n", settings_file, lfsresult);
     }
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfscloseresult < 0)
-        DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_SETTINGS, lfscloseresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", settings_file, lfscloseresult);
     if (lfsresult < 0 || lfscloseresult < 0)
     {
-        lfs_remove(&lfs_volume, STR_MDM_SETTINGS);
+        lfs_remove(&lfs_volume, settings_file);
         return false;
     }
     return true;
@@ -368,15 +373,19 @@ bool mdm_write_settings(const mdm_settings_t *settings)
 bool mdm_read_settings(mdm_settings_t *settings)
 {
     mdm_factory_settings(settings);
+    if (mdm_settings_slot < 0)
+        return true;
+    char settings_file[11];
+    snprintf(settings_file, sizeof(settings_file), STR_MDM_SETTINGS, mdm_settings_slot);
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, STR_MDM_SETTINGS,
+    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, settings_file,
                                      LFS_O_RDONLY, &lfs_file_config);
     if (lfsresult < 0)
     {
         if (lfsresult == LFS_ERR_NOENT)
             return true;
-        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", STR_MDM_SETTINGS, lfsresult);
+        DBG("?Unable to lfs_file_opencfg %s for reading (%d)\n", settings_file, lfsresult);
         return false;
     }
     char line[MDM_AT_COMMAND_LEN + 1];
@@ -438,7 +447,7 @@ bool mdm_read_settings(mdm_settings_t *settings)
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     if (lfsresult < 0)
     {
-        DBG("?Unable to lfs_file_close %s (%d)\n", STR_MDM_SETTINGS, lfsresult);
+        DBG("?Unable to lfs_file_close %s (%d)\n", settings_file, lfsresult);
         return false;
     }
     return true;
@@ -597,7 +606,13 @@ static void mdm_translate_newlines(void)
 
 bool mdm_std_handles(const char *filename)
 {
-    return !strncasecmp(filename, "AT:", 3);
+    if (strncasecmp(filename, "AT", 2) != 0)
+        return false;
+    if (filename[2] == ':')
+        return true;
+    if (filename[2] >= '0' && filename[2] <= '9' && filename[3] == ':')
+        return true;
+    return false;
 }
 
 int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
@@ -609,17 +624,36 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     const char *filename = path;
-    if (!strncasecmp(filename, "AT:", 3))
-        filename += 3;
+    if (!strncasecmp(filename, "AT", 2))
+    {
+        filename += 2;
+        if (*filename >= '0' && *filename <= '9')
+        {
+            mdm_settings_slot = *filename - '0';
+            filename++;
+        }
+        else
+            mdm_settings_slot = -1;
+        if (*filename == ':')
+            filename++;
+        else
+        {
+            *err = API_ENOENT;
+            return -1;
+        }
+    }
     else
     {
         *err = API_ENOENT;
         return -1;
     }
-    mdm_read_settings(&mdm_settings);
+    if (mdm_settings_slot >= 0)
+        mdm_read_settings(&mdm_settings);
+    else
+        mdm_factory_settings(&mdm_settings);
     mdm_is_open = true;
     // Optionally process filename as AT command
-    // after NVRAM read. e.g. AT:&F
+    // after NVRAM read. e.g. AT0:&F
     if (filename[0])
     {
         mdm_is_parsing = true;
