@@ -97,7 +97,8 @@ static bool cmd_hook(const char **s)
     {
     case -1:
     case 0:
-        return mdm_hangup();
+        mdm_hangup();
+        return true;
     }
     return false;
 }

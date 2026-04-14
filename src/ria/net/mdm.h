@@ -62,6 +62,7 @@ const char *mdm_read_phonebook_entry(unsigned index);
 bool mdm_dial(const char *s);
 bool mdm_connect(void);
 bool mdm_hangup(void);
+void mdm_dial_failed(void);
 void mdm_carrier_lost(void);
 
 #endif /* _RIA_NET_MDM_H_ */

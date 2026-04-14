@@ -55,7 +55,18 @@ void tel_close(void)
         tel_drain();
     if (state == tel_state_closed)
         return;
-    mdm_hangup();
+    switch (state)
+    {
+    case tel_state_dns_lookup:
+    case tel_state_connecting:
+        mdm_dial_failed();
+        break;
+    case tel_state_connected:
+        mdm_carrier_lost();
+        break;
+    default:
+        break;
+    }
     if (tel_pcb)
         switch (state)
         {

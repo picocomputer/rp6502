@@ -458,7 +458,8 @@ bool mdm_dial(const char *s)
         port = 23;
     else
     {
-        port_str++[0] = 0;
+        *port_str = '\0';
+        port_str++;
         port = atoi(port_str);
     }
     if (tel_open(buf, port))
@@ -467,7 +468,9 @@ bool mdm_dial(const char *s)
         mdm_in_command_mode = false;
         return true;
     }
-    return false;
+    mdm_is_parsing = false;
+    mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+    return true;
 }
 
 bool mdm_connect(void)
@@ -496,6 +499,16 @@ bool mdm_hangup(void)
         return true;
     }
     return false;
+}
+
+void mdm_dial_failed(void)
+{
+    if (mdm_state == mdm_state_dialing)
+    {
+        mdm_state = mdm_state_on_hook;
+        mdm_in_command_mode = true;
+        mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+    }
 }
 
 void mdm_carrier_lost(void)
