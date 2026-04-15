@@ -7,9 +7,13 @@
 #ifndef RP6502_RIA_W
 #include "sys/rem.h"
 #include <pico/stdlib.h>
+char rem_tx_buf[REM_TX_BUF_SIZE];
+volatile size_t rem_tx_head;
+volatile size_t rem_tx_tail;
 void rem_init(void) {}
-void rem_task(void) {}
-void rem_tx(char ch) { (void)ch; }
+void rem_task(void) { rem_tx_tail = rem_tx_head; }
+void rem_pump(void) { rem_tx_tail = rem_tx_head; }
+void rem_flush(void) {}
 int rem_rx(char *buf, int length)
 {
     (void)buf;
@@ -33,7 +37,7 @@ bool rem_set_key(const char *key)
 #else
 
 #include "sys/rem.h"
-#include "main.h"
+#include "net/cyw.h"
 #include "net/net.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
@@ -80,10 +84,9 @@ static char rem_auth_buf[REM_KEY_SIZE];
 static uint8_t rem_auth_len;
 
 // TX ring buffer (console output -> telnet)
-#define REM_TX_BUF_SIZE 256
-static char rem_tx_buf[REM_TX_BUF_SIZE];
-static volatile size_t rem_tx_head;
-static volatile size_t rem_tx_tail;
+char rem_tx_buf[REM_TX_BUF_SIZE];
+volatile size_t rem_tx_head;
+volatile size_t rem_tx_tail;
 
 // RX ring buffer (telnet input -> console)
 #define REM_RX_BUF_SIZE 64
@@ -373,43 +376,37 @@ static void rem_drain_rx(void)
 
 static void rem_drain_tx(void)
 {
-    // Peek ahead without advancing tail
-    char out[64];
-    size_t pos = 0;
-    size_t peek = rem_tx_tail;
-
-    while (peek != rem_tx_head && pos < sizeof(out))
+    if (rem_state != rem_state_connected)
     {
-        peek = (peek + 1) % REM_TX_BUF_SIZE;
-        out[pos++] = rem_tx_buf[peek];
+        // Discard — nobody to send to
+        rem_tx_tail = rem_tx_head;
+        return;
     }
-
-    if (pos > 0)
-    {
-        uint16_t sent = net_tx(SYS_TEL_DESC, out, pos);
-        for (uint16_t i = 0; i < sent; i++)
-            rem_tx_tail = (rem_tx_tail + 1) % REM_TX_BUF_SIZE;
-    }
+    if (rem_tx_tail == rem_tx_head)
+        return;
+    size_t start = (rem_tx_tail + 1) % REM_TX_BUF_SIZE;
+    size_t len;
+    if (rem_tx_head >= start)
+        len = rem_tx_head - start + 1;
+    else
+        len = REM_TX_BUF_SIZE - start;
+    uint16_t sent = net_tx(SYS_TEL_DESC, &rem_tx_buf[start], len);
+    rem_tx_tail = (rem_tx_tail + sent) % REM_TX_BUF_SIZE;
 }
 
 // -- Public interface --
 
-void rem_tx(char ch)
+void rem_pump(void)
 {
-    if (rem_state != rem_state_connected)
-        return;
-    size_t next = (rem_tx_head + 1) % REM_TX_BUF_SIZE;
-    while (next == rem_tx_tail)
-    {
-        rem_drain_tx();
-        if (next != rem_tx_tail)
-            break;
-        main_task();
-        if (rem_state != rem_state_connected)
-            return;
-    }
-    rem_tx_buf[next] = ch;
-    rem_tx_head = next;
+    rem_drain_tx();
+    if (rem_tx_head != rem_tx_tail)
+        cyw_task();
+}
+
+void rem_flush(void)
+{
+    while (rem_state == rem_state_connected && rem_tx_head != rem_tx_tail)
+        rem_pump();
 }
 
 int rem_rx(char *buf, int length)

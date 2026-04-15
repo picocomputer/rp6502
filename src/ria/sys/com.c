@@ -65,9 +65,6 @@ static void com_tx_task(void)
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
-#ifdef RP6502_RIA_W
-            rem_tx(ch);
-#endif
             if (ch == '\a' && com_bel_enabled)
                 bel_add(&bel_teletype);
         }
@@ -81,9 +78,6 @@ static void com_tx_task(void)
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
-#ifdef RP6502_RIA_W
-            rem_tx(ch);
-#endif
             if (ch == '\a' && com_bel_enabled)
                 bel_add(&bel_teletype);
         }
@@ -169,6 +163,7 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
+
 void com_task(void)
 {
     // Process transmit.
@@ -202,11 +197,23 @@ static void com_stdio_out_chars(const char *buf, int len)
 {
     while (len--)
     {
-        // Wait for room in buffer before we add next char
-        while ((com_tx_head + 1) % COM_TX_BUF_SIZE == com_tx_tail)
+        while (!com_tx_writable()
+#ifdef RP6502_RIA_W
+               || !rem_tx_writable()
+#endif
+        )
+        {
             com_tx_task();
+#ifdef RP6502_RIA_W
+            rem_pump();
+#endif
+        }
+        char ch = *buf++;
         com_tx_head = (com_tx_head + 1) % COM_TX_BUF_SIZE;
-        com_tx_buf[com_tx_head] = *buf++;
+        com_tx_buf[com_tx_head] = ch;
+#ifdef RP6502_RIA_W
+        rem_putc(ch);
+#endif
     }
 }
 
@@ -214,6 +221,9 @@ static void com_stdio_out_flush(void)
 {
     while (com_tx_head != com_tx_tail)
         com_tx_task();
+#ifdef RP6502_RIA_W
+    rem_flush();
+#endif
     while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
         tight_loop_contents();
 }

@@ -15,6 +15,7 @@
 #include "str/rln.h"
 #include "str/str.h"
 #include "sys/com.h"
+#include "sys/rem.h"
 #include "sys/mem.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
@@ -446,7 +447,7 @@ void mon_task(void)
     {
         int rows_max = mon_guess_console_rows() - 1;
         char c;
-        while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
+        while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready() && rem_putchar_ready())
         {
             if (mon_response_line >= rows_max)
             {
