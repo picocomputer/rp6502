@@ -82,6 +82,8 @@ __in_flash("hlp_settings") static struct
     {STR_SSID, STR_HELP_SET_SSID, NULL},
     {STR_PASS, STR_HELP_SET_PASS, NULL},
     {STR_BLE, STR_HELP_SET_BLE, NULL},
+    {STR_PORT, STR_HELP_SET_PORT, NULL},
+    {STR_KEY, STR_HELP_SET_KEY, NULL},
 #endif
 };
 static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;

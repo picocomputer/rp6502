@@ -34,10 +34,12 @@ void mdm_listen_update(void) {}
 
 #include "net/cmd.h"
 #include "net/mdm.h"
+#include "net/net.h"
 #include "net/tel.h"
 #include "net/wfi.h"
 #include "str/str.h"
 #include "sys/lfs.h"
+#include "sys/rem.h"
 #include <pico/time.h>
 #include <stdlib.h>
 
@@ -94,6 +96,9 @@ typedef struct
 static mdm_conn_t mdm_conns[MDM_MAX_CONNECTIONS];
 static mdm_conn_t *mdm_conn;
 mdm_settings_t *mdm_settings;
+
+static void mdm_net_on_close(int desc);
+static bool mdm_net_on_accept(uint16_t port);
 
 static char mdm_phone_buf[MDM_AT_COMMAND_LEN + 1];
 
@@ -638,7 +643,7 @@ bool mdm_answer(void)
 {
     if (mdm_conn->state != mdm_state_ringing)
         return false;
-    if (!tel_accept(mdm_desc(), mdm_settings->listen_port))
+    if (!tel_accept(mdm_desc(), mdm_settings->listen_port, mdm_net_on_close))
     {
         // Call gone — answered elsewhere or remote hung up
         mdm_conn->state = mdm_state_on_hook;
@@ -657,6 +662,30 @@ bool mdm_answer(void)
     return true;
 }
 
+static void mdm_net_on_close(int desc)
+{
+    mdm_set_conn(desc);
+    mdm_carrier_lost();
+}
+
+static bool mdm_net_on_accept(uint16_t port)
+{
+    bool any_rang = false;
+    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    {
+        if (!mdm_conns[i].is_open)
+            continue;
+        if (mdm_conns[i].settings.listen_port != port)
+            continue;
+        if (!net_is_closed(i))
+            continue;
+        mdm_set_conn(i);
+        mdm_ring();
+        any_rang = true;
+    }
+    return any_rang;
+}
+
 void mdm_listen_update(void)
 {
     uint16_t old_port = mdm_conn->active_listen_port;
@@ -671,12 +700,12 @@ void mdm_listen_update(void)
             mdm_conn->state = mdm_state_on_hook;
             mdm_conn->ring_count = 0;
         }
-        tel_listen_close(mdm_desc(), old_port);
+        tel_listen_close(old_port);
         mdm_conn->active_listen_port = 0;
     }
     if (new_port > 0 && wfi_ready())
     {
-        if (tel_listen(mdm_desc(), new_port))
+        if (tel_listen(new_port, mdm_net_on_accept))
         {
             mdm_conn->active_listen_port = new_port;
             DBG("NET MDM %d listening on port %u\n", mdm_desc(), new_port);
@@ -719,7 +748,9 @@ void mdm_task()
         if (mdm_conn->active_listen_port == 0 &&
             mdm_settings->listen_port > 0 && wfi_ready())
         {
-            if (tel_listen(i, mdm_settings->listen_port))
+            if (mdm_settings->listen_port == rem_get_port())
+                mdm_settings->listen_port = 0;
+            else if (tel_listen(mdm_settings->listen_port, mdm_net_on_accept))
             {
                 mdm_conn->active_listen_port = mdm_settings->listen_port;
                 DBG("NET MDM %d listening on port %u\n", i, mdm_settings->listen_port);
@@ -750,7 +781,8 @@ void mdm_task()
         {
             if (wfi_ready())
             {
-                if (tel_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port))
+                if (tel_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port,
+                             mdm_net_on_close))
                     mdm_conn->state = mdm_state_dialing;
                 else
                 {
@@ -785,7 +817,7 @@ static void mdm_conn_stop(mdm_conn_t *conn)
     mdm_settings = &conn->settings;
     if (conn->active_listen_port > 0)
     {
-        tel_listen_close((int)(conn - mdm_conns), conn->active_listen_port);
+        tel_listen_close(conn->active_listen_port);
         conn->active_listen_port = 0;
     }
     tel_close((int)(conn - mdm_conns));
@@ -888,10 +920,16 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
         mdm_read_settings(mdm_settings);
     else
         mdm_factory_settings(mdm_settings);
+    if (mdm_settings->listen_port > 0 &&
+        mdm_settings->listen_port == rem_get_port())
+    {
+        mdm_settings->listen_port = 0;
+        DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", desc);
+    }
     mdm_conn->is_open = true;
     if (mdm_settings->listen_port > 0 && wfi_ready())
     {
-        if (tel_listen(desc, mdm_settings->listen_port))
+        if (tel_listen(mdm_settings->listen_port, mdm_net_on_accept))
         {
             mdm_conn->active_listen_port = mdm_settings->listen_port;
             DBG("NET MDM %d listening on port %u\n", desc, mdm_settings->listen_port);

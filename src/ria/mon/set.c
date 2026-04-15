@@ -13,6 +13,7 @@
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "sys/rem.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -239,6 +240,50 @@ static void set_ble(const char *args)
         mon_add_response_fn(set_ble_response);
 }
 
+static int set_port_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, STR_SET_PORT_RESPONSE, rem_get_port());
+    return -1;
+}
+
+static void set_port(const char *args)
+{
+    uint32_t val;
+    if (*args && (!str_parse_uint32(&args, &val) ||
+                  !str_parse_end(args) ||
+                  !rem_set_port(val)))
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    else
+        mon_add_response_fn(set_port_response);
+}
+
+static int set_key_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    const char *key = rem_get_key();
+    snprintf(buf, buf_size, STR_SET_KEY_RESPONSE,
+             strlen(key) ? STR_PARENS_SET : STR_PARENS_NONE);
+    return -1;
+}
+
+static void set_key(const char *args)
+{
+    if (!*args)
+        return mon_add_response_fn(set_key_response);
+    const char *scan = args;
+    const char *tok = str_parse_string(&scan);
+    if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
+        rem_set_key("");
+    else
+    {
+        if (!tok || !str_parse_end(scan) || !rem_set_key(tok))
+            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    }
+    mon_add_response_fn(set_port_response);
+    mon_add_response_fn(set_key_response);
+}
+
 #endif
 
 static int set_nfc_response(char *buf, size_t buf_size, int state)
@@ -322,6 +367,8 @@ __in_flash("set_attributes") static struct
     {STR_SSID, set_ssid},
     {STR_PASS, set_pass},
     {STR_BLE, set_ble},
+    {STR_PORT, set_port},
+    {STR_KEY, set_key},
 #endif
 };
 static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
@@ -359,5 +406,7 @@ void set_mon_set(const char *args)
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
     mon_add_response_fn(set_ble_response);
+    mon_add_response_fn(set_port_response);
+    mon_add_response_fn(set_key_response);
 #endif
 }

@@ -10,6 +10,7 @@
 #include "hid/kbd.h"
 #include "sys/com.h"
 #include "sys/pix.h"
+#include "sys/rem.h"
 #include "sys/vga.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
@@ -64,6 +65,9 @@ static void com_tx_task(void)
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
+#ifdef RP6502_RIA_W
+            rem_tx(ch);
+#endif
             if (ch == '\a' && com_bel_enabled)
                 bel_add(&bel_teletype);
         }
@@ -77,6 +81,9 @@ static void com_tx_task(void)
             com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
             char ch = com_tx_buf[com_tx_tail];
             uart_putc_raw(COM_UART, ch);
+#ifdef RP6502_RIA_W
+            rem_tx(ch);
+#endif
             if (ch == '\a' && com_bel_enabled)
                 bel_add(&bel_teletype);
         }
@@ -100,6 +107,14 @@ static int com_rx_task(char *buf, int length)
             in_keyboard = true;
             return i;
         }
+#ifdef RP6502_RIA_W
+        i = rem_rx(buf, length);
+        if (i != PICO_ERROR_NO_DATA)
+        {
+            in_keyboard = true;
+            return i;
+        }
+#endif
         in_keyboard = false;
     }
 

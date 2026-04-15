@@ -12,6 +12,7 @@
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "sys/rem.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -88,6 +89,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "+W%s\n"
                                "+K%s\n"
                                "+B%u\n"
+                               "+O%u\n"
+                               "+A%s\n"
 #endif /* RP6502_RIA_W */
                                "%s",
                                CFG_VERSION,
@@ -104,6 +107,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                wfi_get_ssid(),
                                wfi_get_pass(),
                                ble_get_enabled(),
+                               rem_get_port(),
+                               rem_get_key(),
 #endif /* RP6502_RIA_W */
                                opt_str);
     }
@@ -178,6 +183,12 @@ static void cfg_load_with_boot_opt(bool boot_only)
             break;
         case 'B':
             ble_load_enabled(str);
+            break;
+        case 'O':
+            rem_load_port(str);
+            break;
+        case 'A':
+            rem_load_key(str);
             break;
 #endif /* RP6502_RIA_W */
         default:

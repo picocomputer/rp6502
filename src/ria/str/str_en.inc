@@ -167,6 +167,8 @@ X(STR_HELP_SET,
   "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
   "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none.\n"
   "SET BLE (0|1|2|86)  - Disable or enable Bluetooth LE. 2 enables pairing.\n"
+  "SET PORT (port)     - Set TCP port for remote console telnet access.\n"
+  "SET KEY (key|-)     - Set passkey for remote console access. \"-\" for none.\n"
 #endif
   "")
 
@@ -328,3 +330,11 @@ X(STR_HELP_SET_BLE,
   "Setting 0 disables Bluetooth LE. Setting 1 enables. Setting 2 enters pairing\n"
   "mode which will remain active until successful. Setting 86 clears all bonds\n"
   "and disconnects all devices.\n")
+
+X(STR_HELP_SET_PORT,
+  "SET PORT sets the TCP port for remote console access via telnet. Setting 0\n"
+  "disables the telnet console. Both PORT and KEY must be set to enable.\n")
+
+X(STR_HELP_SET_KEY,
+  "SET KEY sets the passkey for remote console access. Use \"-\" to clear.\n"
+  "Both PORT and KEY must be set to enable telnet console access.\n")

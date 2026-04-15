@@ -30,6 +30,7 @@
 #include "str/rln.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
+#include "sys/rem.h"
 #include "sys/cpu.h"
 #include "sys/led.h"
 #include "sys/lfs.h"
@@ -79,6 +80,7 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
+    rem_init();
     rln_init();
 
     // USB near end for boot enum timing
@@ -108,6 +110,7 @@ void main_task(void)
     ble_task();
     led_task();
     mdm_task();
+    rem_task();
     ram_task();
 }
 

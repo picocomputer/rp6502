@@ -66,7 +66,7 @@ typedef struct
     bool last_rx_was_cr;
 } tel_conn_t;
 
-static tel_conn_t tel_conns[MDM_MAX_CONNECTIONS];
+static tel_conn_t tel_conns[NET_MAX_CONNECTIONS];
 
 static uint8_t tel_opt_bit(uint8_t opt)
 {
@@ -349,9 +349,10 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
     return consumed;
 }
 
-bool tel_open(int desc, const char *hostname, uint16_t port)
+bool tel_open(int desc, const char *hostname, uint16_t port,
+              void (*on_close)(int))
 {
-    return net_open(desc, hostname, port);
+    return net_open(desc, hostname, port, on_close);
 }
 
 static void tel_reset(int desc)
@@ -395,20 +396,20 @@ void tel_on_connect(int desc)
     DBG("NET TEL sent initial negotiation\n");
 }
 
-bool tel_listen(int desc, uint16_t port)
+bool tel_listen(uint16_t port, net_accept_fn on_accept)
 {
-    return net_listen(desc, port);
+    return net_listen(port, on_accept);
 }
 
-void tel_listen_close(int desc, uint16_t port)
+void tel_listen_close(uint16_t port)
 {
-    net_listen_close(desc, port);
+    net_listen_close(port);
 }
 
-bool tel_accept(int desc, uint16_t port)
+bool tel_accept(int desc, uint16_t port, void (*on_close)(int))
 {
     tel_reset(desc);
-    if (!net_accept(desc, port))
+    if (!net_accept(desc, port, on_close))
         return false;
     tel_on_connect(desc);
     return true;

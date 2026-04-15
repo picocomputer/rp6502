@@ -37,9 +37,10 @@ typedef struct
     uint8_t pbuf_head;
     uint8_t pbuf_tail;
     uint16_t pbuf_pos;
+    void (*on_close)(int);
 } net_conn_t;
 
-static net_conn_t net_conns[MDM_MAX_CONNECTIONS];
+static net_conn_t net_conns[NET_MAX_CONNECTIONS];
 
 typedef struct
 {
@@ -47,9 +48,10 @@ typedef struct
     struct tcp_pcb *listen_pcb;
     struct tcp_pcb *pending_pcb;
     uint8_t ref_count;
+    net_accept_fn on_accept;
 } net_listener_t;
 
-static net_listener_t net_listeners[MDM_MAX_CONNECTIONS];
+static net_listener_t net_listeners[NET_MAX_LISTENERS];
 
 static int net_desc(net_conn_t *nc)
 {
@@ -75,19 +77,8 @@ void net_close(int desc)
         net_drain(nc);
     if (state == net_state_closed)
         return;
-    mdm_set_conn(desc);
-    switch (state)
-    {
-    case net_state_dns_lookup:
-    case net_state_connecting:
-        mdm_dial_failed();
-        break;
-    case net_state_connected:
-        mdm_carrier_lost();
-        break;
-    default:
-        break;
-    }
+    if (nc->on_close)
+        nc->on_close(desc);
     if (nc->pcb)
     {
         tcp_arg(nc->pcb, NULL);
@@ -188,8 +179,8 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
     if (!p)
     {
         nc->state = net_state_closing;
-        mdm_set_conn(desc);
-        mdm_carrier_lost();
+        if (nc->on_close)
+            nc->on_close(desc);
         if (nc->pbuf_head == nc->pbuf_tail)
             net_close(desc);
         return ERR_OK;
@@ -210,13 +201,17 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
 static err_t net_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
 {
     net_conn_t *nc = (net_conn_t *)arg;
+    int desc = net_desc(nc);
     (void)tpcb;
     (void)err;
     assert(err == ERR_OK);
     DBG("NET TCP Connected %d\n", err);
     nc->state = net_state_connected;
-    mdm_set_conn(net_desc(nc));
-    mdm_connect();
+    if (desc < MDM_MAX_CONNECTIONS)
+    {
+        mdm_set_conn(desc);
+        mdm_connect();
+    }
     return ERR_OK;
 }
 
@@ -262,10 +257,12 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
     }
 }
 
-bool net_open(int desc, const char *hostname, uint16_t port)
+bool net_open(int desc, const char *hostname, uint16_t port,
+              void (*on_close)(int))
 {
     net_conn_t *nc = &net_conns[desc];
     assert(nc->state == net_state_closed);
+    nc->on_close = on_close;
     ip_addr_t ipaddr;
     nc->port = port;
     err_t err = dns_gethostbyname(hostname, &ipaddr, net_dns_found, nc);
@@ -304,31 +301,21 @@ static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
         return ERR_ABRT;
     }
     nl->pending_pcb = newpcb;
-    bool any_rang = false;
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    bool handled = nl->on_accept ? nl->on_accept(nl->port) : false;
+    if (!handled)
     {
-        if (!mdm_conns_is_open(i))
-            continue;
-        if (mdm_conns_listen_port(i) != nl->port)
-            continue;
-        if (net_conns[i].state != net_state_closed)
-            continue;
-        mdm_set_conn(i);
-        mdm_ring();
-        any_rang = true;
-    }
-    if (!any_rang)
-    {
-        tcp_abort(nl->pending_pcb);
-        nl->pending_pcb = NULL;
+        if (nl->pending_pcb)
+        {
+            tcp_abort(nl->pending_pcb);
+            nl->pending_pcb = NULL;
+        }
         return ERR_ABRT;
     }
     return ERR_OK;
 }
 
-bool net_listen(int desc, uint16_t port)
+bool net_listen(uint16_t port, net_accept_fn on_accept)
 {
-    (void)desc;
     net_listener_t *nl = net_find_listener(port);
     if (nl)
     {
@@ -337,7 +324,7 @@ bool net_listen(int desc, uint16_t port)
     }
     // Find empty slot
     nl = NULL;
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    for (int i = 0; i < NET_MAX_LISTENERS; i++)
     {
         if (net_listeners[i].ref_count == 0)
         {
@@ -371,15 +358,15 @@ bool net_listen(int desc, uint16_t port)
     nl->listen_pcb = listen_pcb;
     nl->pending_pcb = NULL;
     nl->ref_count = 1;
+    nl->on_accept = on_accept;
     tcp_arg(listen_pcb, nl);
     tcp_accept(listen_pcb, net_accept_cb);
     DBG("NET listening on port %u\n", port);
     return true;
 }
 
-void net_listen_close(int desc, uint16_t port)
+void net_listen_close(uint16_t port)
 {
-    (void)desc;
     net_listener_t *nl = net_find_listener(port);
     if (!nl)
         return;
@@ -397,7 +384,7 @@ void net_listen_close(int desc, uint16_t port)
     }
 }
 
-bool net_accept(int desc, uint16_t port)
+bool net_accept(int desc, uint16_t port, void (*on_close)(int))
 {
     net_listener_t *nl = net_find_listener(port);
     if (!nl || !nl->pending_pcb)
@@ -406,12 +393,18 @@ bool net_accept(int desc, uint16_t port)
     nc->pcb = nl->pending_pcb;
     nl->pending_pcb = NULL;
     nc->state = net_state_connected;
+    nc->on_close = on_close;
     tcp_arg(nc->pcb, nc);
     tcp_nagle_disable(nc->pcb);
     tcp_err(nc->pcb, net_err);
     tcp_recv(nc->pcb, net_recv);
     DBG("NET accepted connection on port %u desc %d\n", port, desc);
     return true;
+}
+
+bool net_is_closed(int desc)
+{
+    return net_conns[desc].state == net_state_closed;
 }
 
 void net_reject(uint16_t port)
