@@ -83,13 +83,13 @@ static char rem_auth_buf[REM_KEY_SIZE];
 static uint8_t rem_auth_len;
 
 // TX ring buffer (console output -> telnet)
-#define REM_TX_BUF_SIZE 256
+#define REM_TX_BUF_SIZE 32
 static char rem_tx_buf[REM_TX_BUF_SIZE];
 static volatile size_t rem_tx_head;
 static volatile size_t rem_tx_tail;
 
 // RX ring buffer (telnet input -> console)
-#define REM_RX_BUF_SIZE 64
+#define REM_RX_BUF_SIZE 32
 static char rem_rx_buf[REM_RX_BUF_SIZE];
 static size_t rem_rx_head;
 static size_t rem_rx_tail;
@@ -440,6 +440,7 @@ void rem_init(void)
 
 void rem_task(void)
 {
+    rem_drain_tx();
     switch (rem_state)
     {
     case rem_state_idle:
@@ -462,7 +463,6 @@ void rem_task(void)
         break;
     case rem_state_connected:
         rem_drain_rx();
-        rem_drain_tx();
         break;
     }
 }

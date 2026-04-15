@@ -7,7 +7,9 @@
 #ifndef _RIA_SYS_COM_H_
 #define _RIA_SYS_COM_H_
 
-/* UART driver.
+/* Console I/O multiplexer and UART driver.
+ * TX fan-out to UART and REM (telnet).
+ * RX merge from UART, keyboard, and remote.
  */
 
 #include <stddef.h>
@@ -29,17 +31,39 @@ void com_task(void);
 bool com_get_bel(void);
 void com_set_bel(bool value);
 
-/* TX — for tee to call
+/* TX — console output
  */
 
-bool com_tx_writable(void);
-void com_tx_write(char ch);
-void com_pump(void);
-void com_flush(void);
+#define COM_BUF_SIZE 32
+extern volatile uint8_t com_buf[COM_BUF_SIZE];
+extern volatile size_t com_head;
+extern volatile size_t com_tail;
 
-/* RX — for tee to call
+// Ensure putchar will not block even with a newline expansion
+static inline bool com_putchar_ready(void)
+{
+    return (
+        (((com_head + 1) % COM_BUF_SIZE) != com_tail) &&
+        (((com_head + 2) % COM_BUF_SIZE) != com_tail));
+}
+
+// Ensure space for com_write()
+static inline bool com_writable(void)
+{
+    return (((com_head + 1) % COM_BUF_SIZE) != com_tail);
+}
+
+// Bypasses Pico SDK stdout newline expansion
+static inline void com_write(char ch)
+{
+    com_head = (com_head + 1) % COM_BUF_SIZE;
+    com_buf[com_head] = ch;
+}
+
+/* RX — console input
  */
 
-int com_rx(char *buf, int length);
+// 1-byte message queue to the RIA action loop. -1 = empty
+extern volatile int com_rx_char;
 
 #endif /* _RIA_SYS_COM_H_ */

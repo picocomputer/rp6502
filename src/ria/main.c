@@ -31,7 +31,6 @@
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/rem.h"
-#include "sys/tee.h"
 #include "sys/cpu.h"
 #include "sys/led.h"
 #include "sys/lfs.h"
@@ -56,7 +55,6 @@ static void init(void)
 {
     // Bring up stdio dispatcher first for DBG().
     com_init();
-    tee_init();
 
     // Queue startup message.
     sys_init();
@@ -113,7 +111,6 @@ void main_task(void)
     led_task();
     mdm_task();
     rem_task();
-    tee_task();
     ram_task();
 }
 
@@ -133,7 +130,6 @@ static void task(void)
 static void run(void)
 {
     pro_run();
-    tee_run();
     rln_run();
     dir_run();
     vga_run();
@@ -148,7 +144,6 @@ static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
-    tee_stop();
     rln_stop();
     api_stop();
     ria_stop();

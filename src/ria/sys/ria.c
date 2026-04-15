@@ -8,8 +8,8 @@
 #include "api/api.h"
 #include "mon/mon.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/cpu.h"
-#include "sys/tee.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "ria.pio.h"
@@ -348,12 +348,12 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
-                    int ch = tee_rx_char;
+                    int ch = com_rx_char;
                     if (ch >= 0)
                     {
                         REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        tee_rx_char = -1;
+                        com_rx_char = -1;
                     }
                     else
                     {
@@ -363,23 +363,23 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    if (tee_writable())
-                        tee_write(data);
-                    if (tee_writable())
+                    if (com_writable())
+                        com_write(data);
+                    if (com_writable())
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
                     break;
                 case CASE_READ(0xFFE0): // UART Tx/Rx flow control
                 {
-                    int ch = tee_rx_char;
+                    int ch = com_rx_char;
                     if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
                     {
                         REGS(0xFFE2) = ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        tee_rx_char = -1;
+                        com_rx_char = -1;
                     }
-                    if (tee_writable())
+                    if (com_writable())
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
