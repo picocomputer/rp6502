@@ -577,7 +577,7 @@ static bool cmd_backslash_n(const char **s)
         return true;
     }
     int num = cmd_parse_num(s);
-    if (num >= 0 && num <= 2)
+    if (num >= 0 && num <= 1)
     {
         mdm_settings->net_mode = num;
         return true;
