@@ -375,14 +375,53 @@ void tel_on_connect(int desc)
     tc->opts_we_do = TEL_BIT_BINARY | TEL_BIT_SGA;
 
     char buf[] = {
-        TEL_IAC, TEL_WILL, TEL_OPT_BINARY,
-        TEL_IAC, TEL_DO, TEL_OPT_BINARY,
-        TEL_IAC, TEL_WILL, TEL_OPT_SGA,
-        TEL_IAC, TEL_DO, TEL_OPT_SGA,
-        TEL_IAC, TEL_WILL, TEL_OPT_TTYPE,
+        TEL_IAC,
+        TEL_WILL,
+        TEL_OPT_BINARY,
+        TEL_IAC,
+        TEL_DO,
+        TEL_OPT_BINARY,
+        TEL_IAC,
+        TEL_WILL,
+        TEL_OPT_SGA,
+        TEL_IAC,
+        TEL_DO,
+        TEL_OPT_SGA,
+        TEL_IAC,
+        TEL_WILL,
+        TEL_OPT_TTYPE,
     };
     net_tx(desc, buf, sizeof(buf));
     DBG("NET TEL sent initial negotiation\n");
+}
+
+bool tel_listen(int desc, uint16_t port)
+{
+    return net_listen(desc, port);
+}
+
+void tel_listen_close(int desc, uint16_t port)
+{
+    net_listen_close(desc, port);
+}
+
+bool tel_accept(int desc, uint16_t port)
+{
+    tel_reset(desc);
+    if (!net_accept(desc, port))
+        return false;
+    tel_on_connect(desc);
+    return true;
+}
+
+void tel_reject(uint16_t port)
+{
+    net_reject(port);
+}
+
+bool tel_has_pending(uint16_t port)
+{
+    return net_has_pending(port);
 }
 
 #endif /* RP6502_RIA_W */

@@ -41,7 +41,15 @@ typedef struct
 
 static net_conn_t net_conns[MDM_MAX_CONNECTIONS];
 
-static_assert(MDM_MAX_CONNECTIONS < MEMP_NUM_TCP_PCB);
+typedef struct
+{
+    uint16_t port;
+    struct tcp_pcb *listen_pcb;
+    struct tcp_pcb *pending_pcb;
+    uint8_t ref_count;
+} net_listener_t;
+
+static net_listener_t net_listeners[MDM_MAX_CONNECTIONS];
 
 static int net_desc(net_conn_t *nc)
 {
@@ -276,6 +284,150 @@ bool net_open(int desc, const char *hostname, uint16_t port)
     }
     DBG("NET dns_gethostbyname (%d)\n", err);
     return false;
+}
+
+static net_listener_t *net_find_listener(uint16_t port)
+{
+    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+        if (net_listeners[i].ref_count > 0 && net_listeners[i].port == port)
+            return &net_listeners[i];
+    return NULL;
+}
+
+static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
+{
+    net_listener_t *nl = (net_listener_t *)arg;
+    (void)err;
+    if (nl->pending_pcb)
+    {
+        tcp_abort(newpcb);
+        return ERR_ABRT;
+    }
+    nl->pending_pcb = newpcb;
+    bool any_rang = false;
+    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    {
+        if (!mdm_conns_is_open(i))
+            continue;
+        if (mdm_conns_listen_port(i) != nl->port)
+            continue;
+        if (net_conns[i].state != net_state_closed)
+            continue;
+        mdm_set_conn(i);
+        mdm_ring();
+        any_rang = true;
+    }
+    if (!any_rang)
+    {
+        tcp_abort(nl->pending_pcb);
+        nl->pending_pcb = NULL;
+        return ERR_ABRT;
+    }
+    return ERR_OK;
+}
+
+bool net_listen(int desc, uint16_t port)
+{
+    (void)desc;
+    net_listener_t *nl = net_find_listener(port);
+    if (nl)
+    {
+        nl->ref_count++;
+        return true;
+    }
+    // Find empty slot
+    nl = NULL;
+    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    {
+        if (net_listeners[i].ref_count == 0)
+        {
+            nl = &net_listeners[i];
+            break;
+        }
+    }
+    if (!nl)
+        return false;
+    struct tcp_pcb *pcb = tcp_new();
+    if (!pcb)
+    {
+        DBG("NET tcp_new failed for listen\n");
+        return false;
+    }
+    err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
+    if (err != ERR_OK)
+    {
+        DBG("NET tcp_bind port %u failed %d\n", port, err);
+        tcp_close(pcb);
+        return false;
+    }
+    struct tcp_pcb *listen_pcb = tcp_listen_with_backlog(pcb, 1);
+    if (!listen_pcb)
+    {
+        DBG("NET tcp_listen failed\n");
+        tcp_close(pcb);
+        return false;
+    }
+    nl->port = port;
+    nl->listen_pcb = listen_pcb;
+    nl->pending_pcb = NULL;
+    nl->ref_count = 1;
+    tcp_arg(listen_pcb, nl);
+    tcp_accept(listen_pcb, net_accept_cb);
+    DBG("NET listening on port %u\n", port);
+    return true;
+}
+
+void net_listen_close(int desc, uint16_t port)
+{
+    (void)desc;
+    net_listener_t *nl = net_find_listener(port);
+    if (!nl)
+        return;
+    if (--nl->ref_count == 0)
+    {
+        if (nl->pending_pcb)
+        {
+            tcp_abort(nl->pending_pcb);
+            nl->pending_pcb = NULL;
+        }
+        tcp_close(nl->listen_pcb);
+        nl->listen_pcb = NULL;
+        nl->port = 0;
+        DBG("NET listener closed on port %u\n", port);
+    }
+}
+
+bool net_accept(int desc, uint16_t port)
+{
+    net_listener_t *nl = net_find_listener(port);
+    if (!nl || !nl->pending_pcb)
+        return false;
+    net_conn_t *nc = &net_conns[desc];
+    nc->pcb = nl->pending_pcb;
+    nl->pending_pcb = NULL;
+    nc->state = net_state_connected;
+    tcp_arg(nc->pcb, nc);
+    tcp_nagle_disable(nc->pcb);
+    tcp_err(nc->pcb, net_err);
+    tcp_recv(nc->pcb, net_recv);
+    DBG("NET accepted connection on port %u desc %d\n", port, desc);
+    return true;
+}
+
+void net_reject(uint16_t port)
+{
+    net_listener_t *nl = net_find_listener(port);
+    if (nl && nl->pending_pcb)
+    {
+        tcp_abort(nl->pending_pcb);
+        nl->pending_pcb = NULL;
+    }
+}
+
+bool net_has_pending(uint16_t port)
+{
+    net_listener_t *nl = net_find_listener(port);
+    return nl && nl->pending_pcb != NULL;
 }
 
 #endif /* RP6502_RIA_W */

@@ -32,6 +32,7 @@ typedef struct
     uint8_t bs_char;
     uint8_t s_pointer;
     uint8_t net_mode;
+    uint16_t listen_port;
     char tty_type[41];
 } mdm_settings_t;
 
@@ -69,5 +70,11 @@ bool mdm_connect(void);
 bool mdm_hangup(void);
 void mdm_dial_failed(void);
 void mdm_carrier_lost(void);
+void mdm_ring(void);
+bool mdm_answer(void);
+uint8_t mdm_get_ring_count(void);
+void mdm_listen_update(void);
+bool mdm_conns_is_open(int desc);
+uint16_t mdm_conns_listen_port(int desc);
 
 #endif /* _RIA_NET_MDM_H_ */
