@@ -553,6 +553,7 @@ void mdm_dial_failed(void)
 {
     if (mdm_conn->state == mdm_state_dialing)
     {
+        DBG("NET MDM dial failed (async)\n");
         mdm_conn->state = mdm_state_on_hook;
         mdm_conn->in_command_mode = true;
         mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
@@ -563,6 +564,7 @@ void mdm_carrier_lost(void)
 {
     if (mdm_conn->state != mdm_state_on_hook)
     {
+        DBG("NET MDM carrier lost\n");
         mdm_hangup();
         mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
     }
@@ -608,6 +610,7 @@ void mdm_task()
                     mdm_conn->state = mdm_state_dialing;
                 else
                 {
+                    DBG("NET MDM dial failed after wifi ready\n");
                     mdm_conn->state = mdm_state_on_hook;
                     mdm_conn->in_command_mode = true;
                     mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
@@ -615,6 +618,7 @@ void mdm_task()
             }
             else if (!wfi_connecting())
             {
+                DBG("NET MDM dial failed, wifi not connecting\n");
                 mdm_conn->state = mdm_state_on_hook;
                 mdm_conn->in_command_mode = true;
                 mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER

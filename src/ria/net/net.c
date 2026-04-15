@@ -12,7 +12,7 @@
 #include <lwip/dns.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_TEL)
+#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NET)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -81,6 +81,10 @@ void net_close(int desc)
         break;
     }
     if (nc->pcb)
+    {
+        tcp_arg(nc->pcb, NULL);
+        tcp_err(nc->pcb, NULL);
+        tcp_recv(nc->pcb, NULL);
         switch (state)
         {
         case net_state_connecting:
@@ -105,6 +109,7 @@ void net_close(int desc)
         case net_state_dns_lookup:
             break;
         }
+    }
 }
 
 uint16_t net_rx(int desc, char *buf, uint16_t len)
