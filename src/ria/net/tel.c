@@ -27,34 +27,47 @@ typedef enum
     tel_state_connected,
     tel_state_closing,
 } tel_state_t;
-static tel_state_t tel_state;
 
-static struct tcp_pcb *tel_pcb;
-static u16_t tel_port;
-
-static struct pbuf *tel_pbufs[PBUF_POOL_SIZE];
-static uint8_t tel_pbuf_head;
-static uint8_t tel_pbuf_tail;
-static u16_t tel_pbuf_pos;
-
-static void tel_drain(void)
+typedef struct
 {
-    while (tel_pbuf_head != tel_pbuf_tail)
-    {
-        pbuf_free(tel_pbufs[tel_pbuf_tail]);
-        tel_pbuf_tail = (tel_pbuf_tail + 1) % PBUF_POOL_SIZE;
-    }
-    tel_pbuf_pos = 0;
+    tel_state_t state;
+    struct tcp_pcb *pcb;
+    uint16_t port;
+    struct pbuf *pbufs[PBUF_POOL_SIZE];
+    uint8_t pbuf_head;
+    uint8_t pbuf_tail;
+    uint16_t pbuf_pos;
+} tel_conn_t;
+
+static tel_conn_t tel_conns[MDM_MAX_CONNECTIONS];
+
+static_assert(MDM_MAX_CONNECTIONS < MEMP_NUM_TCP_PCB);
+
+static int tel_desc(tel_conn_t *tc)
+{
+    return (int)(tc - tel_conns);
 }
 
-void tel_close(void)
+static void tel_drain(tel_conn_t *tc)
 {
-    tel_state_t state = tel_state;
-    tel_state = tel_state_closed;
+    while (tc->pbuf_head != tc->pbuf_tail)
+    {
+        pbuf_free(tc->pbufs[tc->pbuf_tail]);
+        tc->pbuf_tail = (tc->pbuf_tail + 1) % PBUF_POOL_SIZE;
+    }
+    tc->pbuf_pos = 0;
+}
+
+void tel_close(int desc)
+{
+    tel_conn_t *tc = &tel_conns[desc];
+    tel_state_t state = tc->state;
+    tc->state = tel_state_closed;
     if (state == tel_state_connected || state == tel_state_closing)
-        tel_drain();
+        tel_drain(tc);
     if (state == tel_state_closed)
         return;
+    mdm_set_conn(desc);
     switch (state)
     {
     case tel_state_dns_lookup:
@@ -67,25 +80,25 @@ void tel_close(void)
     default:
         break;
     }
-    if (tel_pcb)
+    if (tc->pcb)
         switch (state)
         {
         case tel_state_connecting:
             DBG("NET TEL tcp_abort\n");
-            tcp_abort(tel_pcb);
-            tel_pcb = NULL;
+            tcp_abort(tc->pcb);
+            tc->pcb = NULL;
             return;
         case tel_state_connected:
         case tel_state_closing:
         {
             DBG("NET TEL tcp_close\n");
-            err_t err = tcp_close(tel_pcb);
+            err_t err = tcp_close(tc->pcb);
             if (err != ERR_OK)
             {
                 DBG("NET TEL tcp_close failed\n");
-                tcp_abort(tel_pcb);
+                tcp_abort(tc->pcb);
             }
-            tel_pcb = NULL;
+            tc->pcb = NULL;
             return;
         }
         case tel_state_closed:
@@ -94,83 +107,87 @@ void tel_close(void)
         }
 }
 
-uint16_t tel_rx(char *buf, uint16_t len)
+uint16_t tel_rx(int desc, char *buf, uint16_t len)
 {
+    tel_conn_t *tc = &tel_conns[desc];
     uint16_t total = 0;
-    while (total < len && tel_pbuf_head != tel_pbuf_tail)
+    while (total < len && tc->pbuf_head != tc->pbuf_tail)
     {
-        struct pbuf *p = tel_pbufs[tel_pbuf_tail];
-        uint16_t avail = p->len - tel_pbuf_pos;
+        struct pbuf *p = tc->pbufs[tc->pbuf_tail];
+        uint16_t avail = p->len - tc->pbuf_pos;
         uint16_t copy = (len - total < avail) ? (len - total) : avail;
-        memcpy(buf + total, (char *)p->payload + tel_pbuf_pos, copy);
+        memcpy(buf + total, (char *)p->payload + tc->pbuf_pos, copy);
         total += copy;
-        tel_pbuf_pos += copy;
-        if (tel_pbuf_pos >= p->len)
+        tc->pbuf_pos += copy;
+        if (tc->pbuf_pos >= p->len)
         {
             if (p->next)
             {
-                tel_pbufs[tel_pbuf_tail] = p->next;
+                tc->pbufs[tc->pbuf_tail] = p->next;
                 pbuf_ref(p->next);
             }
             else
             {
-                tel_pbuf_tail = (tel_pbuf_tail + 1) % PBUF_POOL_SIZE;
+                tc->pbuf_tail = (tc->pbuf_tail + 1) % PBUF_POOL_SIZE;
             }
             pbuf_free(p);
-            tel_pbuf_pos = 0;
+            tc->pbuf_pos = 0;
         }
     }
-    if (total && tel_pcb)
-        tcp_recved(tel_pcb, total);
-    if (tel_pbuf_head == tel_pbuf_tail && tel_state == tel_state_closing)
-        tel_close();
+    if (total && tc->pcb)
+        tcp_recved(tc->pcb, total);
+    if (tc->pbuf_head == tc->pbuf_tail && tc->state == tel_state_closing)
+        tel_close(desc);
     return total;
 }
 
-uint16_t tel_tx(const char *buf, uint16_t len)
+uint16_t tel_tx(int desc, const char *buf, uint16_t len)
 {
-    if (!tel_pcb)
+    tel_conn_t *tc = &tel_conns[desc];
+    if (!tc->pcb)
         return 0;
-    if (tel_state == tel_state_connected)
+    if (tc->state == tel_state_connected)
     {
-        u16_t space = tcp_sndbuf(tel_pcb);
+        u16_t space = tcp_sndbuf(tc->pcb);
         if (space == 0)
             return 0;
         if (len > space)
             len = space;
-        err_t err = tcp_write(tel_pcb, buf, len, TCP_WRITE_FLAG_COPY);
+        err_t err = tcp_write(tc->pcb, buf, len, TCP_WRITE_FLAG_COPY);
         if (err == ERR_OK)
         {
-            tcp_output(tel_pcb);
+            tcp_output(tc->pcb);
             return len;
         }
         if (err == ERR_CONN)
-            tel_close();
+            tel_close(desc);
     }
     return 0;
 }
 
 static err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
-    (void)arg;
+    tel_conn_t *tc = (tel_conn_t *)arg;
+    int desc = tel_desc(tc);
     (void)tpcb;
     (void)err;
     assert(err == ERR_OK);
     if (!p)
     {
-        tel_state = tel_state_closing;
+        tc->state = tel_state_closing;
+        mdm_set_conn(desc);
         mdm_carrier_lost();
-        if (tel_pbuf_head == tel_pbuf_tail)
-            tel_close();
+        if (tc->pbuf_head == tc->pbuf_tail)
+            tel_close(desc);
         return ERR_OK;
     }
-    if (tel_state == tel_state_connected)
+    if (tc->state == tel_state_connected)
     {
-        uint8_t next = (tel_pbuf_head + 1) % PBUF_POOL_SIZE;
-        if (next == tel_pbuf_tail)
+        uint8_t next = (tc->pbuf_head + 1) % PBUF_POOL_SIZE;
+        if (next == tc->pbuf_tail)
             return ERR_MEM;
-        tel_pbufs[tel_pbuf_head] = p;
-        tel_pbuf_head = next;
+        tc->pbufs[tc->pbuf_head] = p;
+        tc->pbuf_head = next;
         return ERR_OK;
     }
     pbuf_free(p);
@@ -179,75 +196,78 @@ static err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
 
 static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
 {
-    (void)arg;
+    tel_conn_t *tc = (tel_conn_t *)arg;
     (void)tpcb;
     (void)err;
     assert(err == ERR_OK);
     DBG("NET TEL TCP Connected %d\n", err);
-    tel_state = tel_state_connected;
+    tc->state = tel_state_connected;
+    mdm_set_conn(tel_desc(tc));
     mdm_connect();
     return ERR_OK;
 }
 
 static void tel_err(void *arg, err_t err)
 {
-    (void)arg;
+    tel_conn_t *tc = (tel_conn_t *)arg;
     (void)err;
     DBG("NET TEL tcp_err %d\n", err);
-    tel_pcb = NULL; // PCB already freed by lwip
-    tel_close();
+    tc->pcb = NULL; // PCB already freed by lwip
+    tel_close(tel_desc(tc));
 }
 
 static void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
+    tel_conn_t *tc = (tel_conn_t *)arg;
     (void)name;
-    (void)arg;
-    if (tel_state != tel_state_dns_lookup)
+    if (tc->state != tel_state_dns_lookup)
         return;
     if (!ipaddr)
     {
         DBG("NET TEL DNS did not resolve\n");
-        tel_close();
+        tel_close(tel_desc(tc));
         return;
     }
-    tel_pcb = tcp_new_ip_type(IP_GET_TYPE(ipaddr));
-    if (!tel_pcb)
+    tc->pcb = tcp_new_ip_type(IP_GET_TYPE(ipaddr));
+    if (!tc->pcb)
     {
         DBG("NET TEL tcp_new_ip_type failed\n");
-        tel_close();
+        tel_close(tel_desc(tc));
         return;
     }
     DBG("NET TEL connecting\n");
-    tel_state = tel_state_connecting;
-    tcp_nagle_disable(tel_pcb);
-    tcp_err(tel_pcb, tel_err);
-    tcp_recv(tel_pcb, tel_recv);
-    err_t err = tcp_connect(tel_pcb, ipaddr, tel_port, tel_connected);
+    tc->state = tel_state_connecting;
+    tcp_arg(tc->pcb, tc);
+    tcp_nagle_disable(tc->pcb);
+    tcp_err(tc->pcb, tel_err);
+    tcp_recv(tc->pcb, tel_recv);
+    err_t err = tcp_connect(tc->pcb, ipaddr, tc->port, tel_connected);
     if (err != ERR_OK)
     {
         DBG("NET TEL tcp_connect failed %d\n", err);
-        tel_close();
+        tel_close(tel_desc(tc));
     }
 }
 
-bool tel_open(const char *hostname, uint16_t port)
+bool tel_open(int desc, const char *hostname, uint16_t port)
 {
-    assert(tel_state == tel_state_closed);
+    tel_conn_t *tc = &tel_conns[desc];
+    assert(tc->state == tel_state_closed);
     ip_addr_t ipaddr;
-    tel_port = port;
-    err_t err = dns_gethostbyname(hostname, &ipaddr, tel_dns_found, NULL);
+    tc->port = port;
+    err_t err = dns_gethostbyname(hostname, &ipaddr, tel_dns_found, tc);
     if (err == ERR_INPROGRESS)
     {
         DBG("NET TEL DNS looking up\n");
-        tel_state = tel_state_dns_lookup;
+        tc->state = tel_state_dns_lookup;
         return true;
     }
     if (err == ERR_OK)
     {
         DBG("NET TEL DNS resolved locally\n");
-        tel_state = tel_state_dns_lookup;
-        tel_dns_found(hostname, &ipaddr, NULL);
-        return tel_state == tel_state_connecting;
+        tc->state = tel_state_dns_lookup;
+        tel_dns_found(hostname, &ipaddr, tc);
+        return tc->state == tel_state_connecting;
     }
     DBG("NET TEL dns_gethostbyname (%d)\n", err);
     return false;

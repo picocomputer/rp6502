@@ -16,6 +16,7 @@
 #include "api/api.h"
 #include "api/std.h"
 
+#define MDM_MAX_CONNECTIONS 4
 #define MDM_PHONEBOOK_ENTRIES 4
 
 typedef struct
@@ -48,10 +49,12 @@ int mdm_std_close(int desc, api_errno *err);
 std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
-/* Modem control interface
+/* Modem control interface.
+ * Functions below operate on the current connection set by mdm_set_conn().
  */
 
-extern mdm_settings_t mdm_settings;
+extern mdm_settings_t *mdm_settings;
+void mdm_set_conn(int desc);
 int mdm_response_code(char *buf, size_t buf_size, int state);
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
 void mdm_factory_settings(mdm_settings_t *settings);

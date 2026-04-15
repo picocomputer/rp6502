@@ -14,12 +14,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Utility
- */
-
-uint16_t tel_rx(char *buf, uint16_t len);
-uint16_t tel_tx(const char *buf, uint16_t len);
-bool tel_open(const char *hostname, uint16_t port);
-void tel_close(void);
+uint16_t tel_rx(int desc, char *buf, uint16_t len);
+uint16_t tel_tx(int desc, const char *buf, uint16_t len);
+bool tel_open(int desc, const char *hostname, uint16_t port);
+void tel_close(int desc);
 
 #endif /* _RIA_NET_TEL_H_ */
