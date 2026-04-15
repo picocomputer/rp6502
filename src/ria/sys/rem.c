@@ -7,12 +7,11 @@
 #ifndef RP6502_RIA_W
 #include "sys/rem.h"
 #include <pico/stdlib.h>
-char rem_tx_buf[REM_TX_BUF_SIZE];
-volatile size_t rem_tx_head;
-volatile size_t rem_tx_tail;
 void rem_init(void) {}
-void rem_task(void) { rem_tx_tail = rem_tx_head; }
-void rem_pump(void) { rem_tx_tail = rem_tx_head; }
+void rem_task(void) {}
+bool rem_tx_writable(void) { return true; }
+void rem_tx_write(char ch) { (void)ch; }
+void rem_pump(void) {}
 void rem_flush(void) {}
 int rem_rx(char *buf, int length)
 {
@@ -84,9 +83,10 @@ static char rem_auth_buf[REM_KEY_SIZE];
 static uint8_t rem_auth_len;
 
 // TX ring buffer (console output -> telnet)
-char rem_tx_buf[REM_TX_BUF_SIZE];
-volatile size_t rem_tx_head;
-volatile size_t rem_tx_tail;
+#define REM_TX_BUF_SIZE 256
+static char rem_tx_buf[REM_TX_BUF_SIZE];
+static volatile size_t rem_tx_head;
+static volatile size_t rem_tx_tail;
 
 // RX ring buffer (telnet input -> console)
 #define REM_RX_BUF_SIZE 64
@@ -392,6 +392,19 @@ static void rem_drain_tx(void)
         len = REM_TX_BUF_SIZE - start;
     uint16_t sent = net_tx(SYS_TEL_DESC, &rem_tx_buf[start], len);
     rem_tx_tail = (rem_tx_tail + sent) % REM_TX_BUF_SIZE;
+}
+
+// -- TX for tee --
+
+bool rem_tx_writable(void)
+{
+    return ((rem_tx_head + 1) % REM_TX_BUF_SIZE) != rem_tx_tail;
+}
+
+void rem_tx_write(char ch)
+{
+    rem_tx_head = (rem_tx_head + 1) % REM_TX_BUF_SIZE;
+    rem_tx_buf[rem_tx_head] = ch;
 }
 
 // -- Public interface --

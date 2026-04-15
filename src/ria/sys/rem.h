@@ -20,34 +20,17 @@
 void rem_init(void);
 void rem_task(void);
 
-/* Console tee
+/* TX — for tee to call
  */
 
-#define REM_TX_BUF_SIZE 256
-extern char rem_tx_buf[REM_TX_BUF_SIZE];
-extern volatile size_t rem_tx_head;
-extern volatile size_t rem_tx_tail;
-
-static inline bool rem_putchar_ready(void)
-{
-    return (
-        (((rem_tx_head + 1) % REM_TX_BUF_SIZE) != rem_tx_tail) &&
-        (((rem_tx_head + 2) % REM_TX_BUF_SIZE) != rem_tx_tail));
-}
-
-static inline bool rem_tx_writable(void)
-{
-    return ((rem_tx_head + 1) % REM_TX_BUF_SIZE) != rem_tx_tail;
-}
-
-static inline void rem_putc(char ch)
-{
-    rem_tx_head = (rem_tx_head + 1) % REM_TX_BUF_SIZE;
-    rem_tx_buf[rem_tx_head] = ch;
-}
-
+bool rem_tx_writable(void);
+void rem_tx_write(char ch);
 void rem_pump(void);
 void rem_flush(void);
+
+/* RX — for tee to call
+ */
+
 int rem_rx(char *buf, int length);
 
 /* Configuration

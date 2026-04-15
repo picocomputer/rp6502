@@ -92,6 +92,7 @@ target_sources(${RIA_TARGET} PRIVATE
     str/str.c
     sys/cfg.c
     sys/com.c
+    sys/tee.c
     sys/rem.c
     sys/cpu.c
     sys/led.c

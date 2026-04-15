@@ -7,8 +7,7 @@
 #include "api/api.h"
 #include "str/rln.h"
 #include "str/str.h"
-#include "sys/com.h"
-#include "sys/rem.h"
+#include "sys/tee.h"
 #include "sys/pix.h"
 #include "net/mdm.h"
 #include "usb/nfc.h"
@@ -130,7 +129,7 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
     (void)desc;
     (void)err;
     uint32_t i = 0;
-    for (; i < count && com_putchar_ready() && rem_putchar_ready(); i++)
+    for (; i < count && tee_putchar_ready(); i++)
         putchar(buf[i]);
     *bytes_written = i;
     return (i < count) ? STD_PENDING : STD_OK;
@@ -169,11 +168,8 @@ static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, ui
     (void)desc;
     (void)err;
     uint32_t i = 0;
-    for (; i < count && com_tx_writable() && rem_tx_writable(); i++)
-    {
-        com_tx_write(buf[i]);
-        rem_putc(buf[i]);
-    }
+    for (; i < count && tee_writable(); i++)
+        tee_write(buf[i]);
     *bytes_written = i;
     return STD_OK;
 }
