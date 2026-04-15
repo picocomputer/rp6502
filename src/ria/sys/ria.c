@@ -347,13 +347,10 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     RIA_ADDR0 += RIA_STEP0;
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
-                {
-                    int ch = com_rx_char;
-                    if (ch >= 0)
+                    if (com_readable())
                     {
-                        REGS(0xFFE2) = ch;
+                        REGS(0xFFE2) = com_read();
                         REGS(0xFFE0) |= 0b01000000;
-                        com_rx_char = -1;
                     }
                     else
                     {
@@ -361,7 +358,6 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         REGS(0xFFE2) = 0;
                     }
                     break;
-                }
                 case CASE_WRITE(0xFFE1): // UART Tx
                     if (com_writable())
                         com_write(data);
@@ -371,20 +367,16 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         REGS(0xFFE0) &= ~0b10000000;
                     break;
                 case CASE_READ(0xFFE0): // UART Tx/Rx flow control
-                {
-                    int ch = com_rx_char;
-                    if (!(REGS(0xFFE0) & 0b01000000) && ch >= 0)
+                    if (!(REGS(0xFFE0) & 0b01000000) && com_readable())
                     {
-                        REGS(0xFFE2) = ch;
+                        REGS(0xFFE2) = com_read();
                         REGS(0xFFE0) |= 0b01000000;
-                        com_rx_char = -1;
                     }
                     if (com_writable())
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
                     break;
-                }
                 }
             }
         }

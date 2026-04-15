@@ -34,36 +34,49 @@ void com_set_bel(bool value);
 /* TX — console output
  */
 
-#define COM_BUF_SIZE 32
-extern volatile uint8_t com_buf[COM_BUF_SIZE];
-extern volatile size_t com_head;
-extern volatile size_t com_tail;
+#define COM_TX_BUF_SIZE 32
+extern volatile uint8_t com_tx_buf[COM_TX_BUF_SIZE];
+extern volatile size_t com_tx_head;
+extern volatile size_t com_tx_tail;
 
 // Ensure putchar will not block even with a newline expansion
 static inline bool com_putchar_ready(void)
 {
     return (
-        (((com_head + 1) % COM_BUF_SIZE) != com_tail) &&
-        (((com_head + 2) % COM_BUF_SIZE) != com_tail));
+        (((com_tx_head + 1) % COM_TX_BUF_SIZE) != com_tx_tail) &&
+        (((com_tx_head + 2) % COM_TX_BUF_SIZE) != com_tx_tail));
 }
 
 // Ensure space for com_write()
 static inline bool com_writable(void)
 {
-    return (((com_head + 1) % COM_BUF_SIZE) != com_tail);
+    return (((com_tx_head + 1) % COM_TX_BUF_SIZE) != com_tx_tail);
 }
 
 // Bypasses Pico SDK stdout newline expansion
 static inline void com_write(char ch)
 {
-    com_head = (com_head + 1) % COM_BUF_SIZE;
-    com_buf[com_head] = ch;
+    com_tx_head = (com_tx_head + 1) % COM_TX_BUF_SIZE;
+    com_tx_buf[com_tx_head] = ch;
 }
 
 /* RX — console input
  */
 
-// 1-byte message queue to the RIA action loop. -1 = empty
-extern volatile int com_rx_char;
+#define COM_RX_BUF_SIZE 32
+extern volatile uint8_t com_rx_buf[COM_RX_BUF_SIZE];
+extern volatile size_t com_rx_head;
+extern volatile size_t com_rx_tail;
+
+static inline bool com_readable(void)
+{
+    return com_rx_head != com_rx_tail;
+}
+
+static inline char com_read(void)
+{
+    com_rx_tail = (com_rx_tail + 1) % COM_RX_BUF_SIZE;
+    return com_rx_buf[com_rx_tail];
+}
 
 #endif /* _RIA_SYS_COM_H_ */
