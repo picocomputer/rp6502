@@ -270,7 +270,7 @@ static bool rem_on_accept(uint16_t port)
         return false;
 
     rem_negotiate();
-    rem_send_str("\r\nPassword: ");
+    rem_send_str("\r\nPasskey: ");
 
     rem_auth_len = 0;
     rem_tel_state = rem_tel_data;
@@ -321,13 +321,13 @@ static void rem_auth_process(uint8_t ch)
         rem_auth_buf[rem_auth_len] = 0;
         if (strcmp(rem_auth_buf, rem_key) == 0)
         {
-            rem_send_str("\r\n");
+            rem_send_str("\r\nConnected.\r\n");
             rem_state = rem_state_connected;
             DBG("SYS REM authenticated\n");
         }
         else
         {
-            rem_send_str("\r\nBad passkey.\r\n");
+            rem_send_str("\r\nAccess denied.\r\n");
             DBG("SYS REM auth failed\n");
             rem_state = rem_state_listening;
             net_close(SYS_TEL_DESC);
