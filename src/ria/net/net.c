@@ -12,6 +12,11 @@
 #include <lwip/dns.h>
 #include <string.h>
 
+_Static_assert(MEMP_NUM_TCP_PCB >= NET_MAX_CONNECTIONS,
+    "MEMP_NUM_TCP_PCB must be >= NET_MAX_CONNECTIONS");
+_Static_assert(MEMP_NUM_TCP_PCB_LISTEN >= NET_MAX_LISTENERS,
+    "MEMP_NUM_TCP_PCB_LISTEN must be >= NET_MAX_LISTENERS");
+
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NET)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
@@ -33,7 +38,7 @@ typedef struct
     net_state_t state;
     struct tcp_pcb *pcb;
     uint16_t port;
-    struct pbuf *pbufs[PBUF_POOL_SIZE];
+    struct pbuf *pbufs[NET_CONN_PBUF_DEPTH];
     uint8_t pbuf_head;
     uint8_t pbuf_tail;
     uint16_t pbuf_pos;
@@ -63,7 +68,7 @@ static void net_drain(net_conn_t *nc)
     while (nc->pbuf_head != nc->pbuf_tail)
     {
         pbuf_free(nc->pbufs[nc->pbuf_tail]);
-        nc->pbuf_tail = (nc->pbuf_tail + 1) % PBUF_POOL_SIZE;
+        nc->pbuf_tail = (nc->pbuf_tail + 1) % NET_CONN_PBUF_DEPTH;
     }
     nc->pbuf_pos = 0;
 }
@@ -77,7 +82,7 @@ void net_close(int desc)
         net_drain(nc);
     if (state == net_state_closed)
         return;
-    if (nc->on_close)
+    if (nc->on_close && state != net_state_closing)
         nc->on_close(desc);
     if (nc->pcb)
     {
@@ -132,7 +137,7 @@ uint16_t net_rx(int desc, char *buf, uint16_t len)
             }
             else
             {
-                nc->pbuf_tail = (nc->pbuf_tail + 1) % PBUF_POOL_SIZE;
+                nc->pbuf_tail = (nc->pbuf_tail + 1) % NET_CONN_PBUF_DEPTH;
             }
             pbuf_free(p);
             nc->pbuf_pos = 0;
@@ -187,7 +192,7 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
     }
     if (nc->state == net_state_connected)
     {
-        uint8_t next = (nc->pbuf_head + 1) % PBUF_POOL_SIZE;
+        uint8_t next = (nc->pbuf_head + 1) % NET_CONN_PBUF_DEPTH;
         if (next == nc->pbuf_tail)
             return ERR_MEM;
         nc->pbufs[nc->pbuf_head] = p;
@@ -207,7 +212,7 @@ static err_t net_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     assert(err == ERR_OK);
     DBG("NET TCP Connected %d\n", err);
     nc->state = net_state_connected;
-    if (desc < MDM_MAX_CONNECTIONS)
+    if (desc < NET_MDM_DESCS)
     {
         mdm_set_conn(desc);
         mdm_connect();
@@ -285,7 +290,7 @@ bool net_open(int desc, const char *hostname, uint16_t port,
 
 static net_listener_t *net_find_listener(uint16_t port)
 {
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    for (int i = 0; i < NET_MAX_LISTENERS; i++)
         if (net_listeners[i].ref_count > 0 && net_listeners[i].port == port)
             return &net_listeners[i];
     return NULL;

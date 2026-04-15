@@ -135,7 +135,8 @@ bool rem_set_port(uint32_t port)
     if (rem_port != (uint16_t)port)
     {
         rem_port = port;
-        rem_shutdown();
+        if (port == 0)
+            rem_shutdown();
         cfg_save();
     }
     return true;
@@ -148,7 +149,8 @@ bool rem_set_key(const char *key)
     if (strcmp(rem_key, key))
     {
         strncpy(rem_key, key, REM_KEY_SIZE);
-        rem_shutdown();
+        if (rem_key[0] == 0)
+            rem_shutdown();
         cfg_save();
     }
     return true;
@@ -455,7 +457,7 @@ void rem_task(void)
         }
         break;
     case rem_state_listening:
-        if (!rem_should_listen())
+        if (!rem_should_listen() || rem_active_port != rem_port)
             rem_shutdown();
         break;
     case rem_state_auth:

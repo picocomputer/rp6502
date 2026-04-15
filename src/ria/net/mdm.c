@@ -93,7 +93,7 @@ typedef struct
     uint16_t active_listen_port;
 } mdm_conn_t;
 
-static mdm_conn_t mdm_conns[MDM_MAX_CONNECTIONS];
+static mdm_conn_t mdm_conns[NET_MDM_DESCS];
 static mdm_conn_t *mdm_conn;
 mdm_settings_t *mdm_settings;
 
@@ -671,7 +671,7 @@ static void mdm_net_on_close(int desc)
 static bool mdm_net_on_accept(uint16_t port)
 {
     bool any_rang = false;
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    for (int i = 0; i < NET_MDM_DESCS; i++)
     {
         if (!mdm_conns[i].is_open)
             continue;
@@ -720,7 +720,7 @@ void mdm_init(void)
 
 void mdm_task()
 {
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    for (int i = 0; i < NET_MDM_DESCS; i++)
     {
         if (!mdm_conns[i].is_open)
             continue;
@@ -836,7 +836,7 @@ static void mdm_conn_stop(mdm_conn_t *conn)
 
 void mdm_stop(void)
 {
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    for (int i = 0; i < NET_MDM_DESCS; i++)
         mdm_conn_stop(&mdm_conns[i]);
 }
 
@@ -878,7 +878,7 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     (void)flags;
     int desc = -1;
-    for (int i = 0; i < MDM_MAX_CONNECTIONS; i++)
+    for (int i = 0; i < NET_MDM_DESCS; i++)
     {
         if (!mdm_conns[i].is_open)
         {
@@ -949,7 +949,7 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
 
 int mdm_std_close(int desc, api_errno *err)
 {
-    if (desc < 0 || desc >= MDM_MAX_CONNECTIONS || !mdm_conns[desc].is_open)
+    if (desc < 0 || desc >= NET_MDM_DESCS || !mdm_conns[desc].is_open)
     {
         *err = API_EBADF;
         return -1;
@@ -960,7 +960,7 @@ int mdm_std_close(int desc, api_errno *err)
 
 std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    if (desc < 0 || desc >= MDM_MAX_CONNECTIONS || !mdm_conns[desc].is_open)
+    if (desc < 0 || desc >= NET_MDM_DESCS || !mdm_conns[desc].is_open)
     {
         *err = API_EIO;
         return STD_ERROR;
@@ -998,7 +998,7 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
 
 std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err)
 {
-    if (desc < 0 || desc >= MDM_MAX_CONNECTIONS || !mdm_conns[desc].is_open)
+    if (desc < 0 || desc >= NET_MDM_DESCS || !mdm_conns[desc].is_open)
     {
         *err = API_EIO;
         return STD_ERROR;

@@ -16,7 +16,6 @@
 #include "api/api.h"
 #include "api/std.h"
 
-#define MDM_MAX_CONNECTIONS 4
 #define MDM_PHONEBOOK_ENTRIES 4
 
 typedef struct
