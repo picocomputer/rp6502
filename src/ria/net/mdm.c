@@ -605,9 +605,7 @@ void mdm_task()
             if (wfi_ready())
             {
                 if (tel_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port))
-                {
                     mdm_conn->state = mdm_state_dialing;
-                }
                 else
                 {
                     mdm_conn->state = mdm_state_on_hook;
