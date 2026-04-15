@@ -45,7 +45,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 typedef enum
 {
     mdm_state_on_hook,
-    mdm_state_wifi_wait,
+    mdm_state_wait,
     mdm_state_dialing,
     mdm_state_connected,
 } mdm_state_t;
@@ -512,23 +512,11 @@ bool mdm_dial(const char *s)
         port_str++;
         port = atoi(port_str);
     }
-    if (tel_open(mdm_desc(), buf, port))
-    {
-        mdm_conn->state = mdm_state_dialing;
-        mdm_conn->in_command_mode = false;
-        return true;
-    }
-    if (wfi_connecting())
-    {
-        mdm_conn->is_parsing = false;
-        strcpy(mdm_conn->cmd_buf, buf);
-        mdm_conn->dial_port = port;
-        mdm_conn->state = mdm_state_wifi_wait;
-        mdm_conn->in_command_mode = false;
-        return true;
-    }
     mdm_conn->is_parsing = false;
-    mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+    strcpy(mdm_conn->cmd_buf, buf);
+    mdm_conn->dial_port = port;
+    mdm_conn->state = mdm_state_wait;
+    mdm_conn->in_command_mode = false;
     return true;
 }
 
@@ -612,7 +600,7 @@ void mdm_task()
                 mdm_conn->parse_result = cmd_parse(&mdm_conn->parse_str);
             }
         }
-        if (mdm_conn->state == mdm_state_wifi_wait)
+        if (mdm_conn->state == mdm_state_wait)
         {
             if (wfi_ready())
             {
