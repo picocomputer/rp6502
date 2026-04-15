@@ -21,6 +21,7 @@ std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *
 #include "net/cmd.h"
 #include "net/mdm.h"
 #include "net/tel.h"
+#include "net/wfi.h"
 #include "str/str.h"
 #include "sys/lfs.h"
 #include <pico/time.h>
@@ -44,6 +45,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 typedef enum
 {
     mdm_state_on_hook,
+    mdm_state_wifi_wait,
     mdm_state_dialing,
     mdm_state_connected,
 } mdm_state_t;
@@ -65,6 +67,7 @@ typedef struct
     bool is_parsing;
     const char *parse_str;
     bool parse_result;
+    uint16_t dial_port;
     unsigned escape_count;
     absolute_time_t escape_last_char;
     absolute_time_t escape_guard;
@@ -515,6 +518,15 @@ bool mdm_dial(const char *s)
         mdm_conn->in_command_mode = false;
         return true;
     }
+    if (wfi_connecting())
+    {
+        mdm_conn->is_parsing = false;
+        strcpy(mdm_conn->cmd_buf, buf);
+        mdm_conn->dial_port = port;
+        mdm_conn->state = mdm_state_wifi_wait;
+        mdm_conn->in_command_mode = false;
+        return true;
+    }
     mdm_conn->is_parsing = false;
     mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
     return true;
@@ -598,6 +610,28 @@ void mdm_task()
             else
             {
                 mdm_conn->parse_result = cmd_parse(&mdm_conn->parse_str);
+            }
+        }
+        if (mdm_conn->state == mdm_state_wifi_wait)
+        {
+            if (wfi_ready())
+            {
+                if (tel_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port))
+                {
+                    mdm_conn->state = mdm_state_dialing;
+                }
+                else
+                {
+                    mdm_conn->state = mdm_state_on_hook;
+                    mdm_conn->in_command_mode = true;
+                    mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+                }
+            }
+            else if (!wfi_connecting())
+            {
+                mdm_conn->state = mdm_state_on_hook;
+                mdm_conn->in_command_mode = true;
+                mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
             }
         }
         if (mdm_conn->escape_count == MDM_ESCAPE_COUNT &&

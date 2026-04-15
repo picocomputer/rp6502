@@ -222,6 +222,12 @@ bool wfi_ready(void)
     return wfi_state == wfi_state_connected;
 }
 
+bool wfi_connecting(void)
+{
+    return wfi_state == wfi_state_connect ||
+           wfi_state == wfi_state_connecting;
+}
+
 void wfi_load_ssid(const char *str)
 {
     size_t n = strlen(str);

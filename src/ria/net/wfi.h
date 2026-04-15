@@ -28,6 +28,7 @@ void wfi_task(void);
 int wfi_status_response(char *buf, size_t buf_size, int state);
 void wfi_shutdown(void);
 bool wfi_ready(void);
+bool wfi_connecting(void);
 
 // Configuration setting SSID
 void wfi_load_ssid(const char *str);
