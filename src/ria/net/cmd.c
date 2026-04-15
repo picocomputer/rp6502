@@ -281,11 +281,13 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "ACTIVE PROFILE:\r\n");
         break;
     case 1:
-        snprintf(buf, buf_size, "E%u Q%u V%u X%u\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u X%u \\N%u \\T=%s\r\n",
                  mdm_settings->echo,
                  mdm_settings->quiet,
                  mdm_settings->verbose,
-                 mdm_settings->progress);
+                 mdm_settings->progress,
+                 mdm_settings->net_mode,
+                 mdm_settings->tty_type);
         break;
     case 2:
         snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
@@ -301,11 +303,13 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     case 4:
         mdm_read_settings(&nvr_settings);
-        snprintf(buf, buf_size, "E%u Q%u V%u X%u\r\n",
+        snprintf(buf, buf_size, "E%u Q%u V%u X%u \\N%u \\T=%s\r\n",
                  nvr_settings.echo,
                  nvr_settings.quiet,
                  nvr_settings.verbose,
-                 nvr_settings.progress);
+                 nvr_settings.progress,
+                 nvr_settings.net_mode,
+                 nvr_settings.tty_type);
         break;
     case 5:
         mdm_read_settings(&nvr_settings);
@@ -330,6 +334,25 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     case 10:
         snprintf(buf, buf_size, "3=%s\r\n", mdm_read_phonebook_entry(3));
+        break;
+    case 11:
+        snprintf(buf, buf_size, "\r\nNETWORK:\r\n");
+        break;
+    case 12:
+        snprintf(buf, buf_size, "RF=%u\r\n", cyw_get_rf_enable());
+        break;
+    case 13:
+    {
+        const char *cc = cyw_get_rf_country_code();
+        snprintf(buf, buf_size, "RFCC=%s\r\n", strlen(cc) ? cc : STR_WORLDWIDE);
+        break;
+    }
+    case 14:
+        snprintf(buf, buf_size, "SSID=%s\r\n", wfi_get_ssid());
+        break;
+    case 15:
+        snprintf(buf, buf_size, "PASS=%s\r\n",
+                 strlen(wfi_get_pass()) ? STR_PARENS_SET : STR_PARENS_NONE);
         __attribute__((fallthrough));
     default:
         return -1;
@@ -535,6 +558,81 @@ static bool cmd_parse_modern(const char **s)
     return false;
 }
 
+// \N?
+static int cmd_backslash_n_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, "%u\r\n", mdm_settings->net_mode);
+    return -1;
+}
+
+// \N
+static bool cmd_backslash_n(const char **s)
+{
+    char ch = **s;
+    if (ch == '?')
+    {
+        ++*s;
+        mdm_set_response_fn(cmd_backslash_n_response, 0);
+        return true;
+    }
+    int num = cmd_parse_num(s);
+    if (num >= 0 && num <= 2)
+    {
+        mdm_settings->net_mode = num;
+        return true;
+    }
+    return false;
+}
+
+// \T?
+static int cmd_backslash_t_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    snprintf(buf, buf_size, "%s\r\n", mdm_settings->tty_type);
+    return -1;
+}
+
+// \T
+static bool cmd_backslash_t(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (ch)
+    {
+    case '?':
+        mdm_set_response_fn(cmd_backslash_t_response, 0);
+        return true;
+    case '=':
+    {
+        size_t len = strlen(*s);
+        if (len >= sizeof(mdm_settings->tty_type))
+            return false;
+        strcpy(mdm_settings->tty_type, *s);
+        *s += len;
+        return true;
+    }
+    }
+    --*s;
+    return false;
+}
+
+// backslash
+static bool cmd_parse_backslash(const char **s)
+{
+    char ch = **s;
+    ++*s;
+    switch (toupper(ch))
+    {
+    case 'N':
+        return cmd_backslash_n(s);
+    case 'T':
+        return cmd_backslash_t(s);
+    }
+    --*s;
+    return false;
+}
+
 // Parse AT command (without the AT)
 bool cmd_parse(const char **s)
 {
@@ -570,6 +668,8 @@ bool cmd_parse(const char **s)
         return cmd_parse_amp(s);
     case '+':
         return cmd_parse_modern(s);
+    case '\\':
+        return cmd_parse_backslash(s);
     }
     --*s;
     return false;

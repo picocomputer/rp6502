@@ -31,6 +31,8 @@ typedef struct
     uint8_t lf_char;
     uint8_t bs_char;
     uint8_t s_pointer;
+    uint8_t net_mode;
+    char tty_type[41];
 } mdm_settings_t;
 
 /* Main events

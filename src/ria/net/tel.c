@@ -7,9 +7,8 @@
 #ifdef RP6502_RIA_W
 
 #include "net/mdm.h"
+#include "net/net.h"
 #include "net/tel.h"
-#include <lwip/tcp.h>
-#include <lwip/dns.h>
 #include <string.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_TEL)
@@ -19,258 +18,371 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+// Telnet protocol constants
+#define TEL_IAC 255
+#define TEL_DONT 254
+#define TEL_DO 253
+#define TEL_WONT 252
+#define TEL_WILL 251
+#define TEL_SB 250
+#define TEL_SE 240
+#define TEL_NOP 241
+
+// Telnet option codes
+#define TEL_OPT_BINARY 0
+#define TEL_OPT_ECHO 1
+#define TEL_OPT_SGA 3
+#define TEL_OPT_TTYPE 24
+
+// Subnegotiation commands
+#define TEL_TTYPE_IS 0
+#define TEL_TTYPE_SEND 1
+
+// Bitmask positions for tracked options
+#define TEL_BIT_BINARY 0x01
+#define TEL_BIT_ECHO 0x02
+#define TEL_BIT_SGA 0x04
+#define TEL_BIT_TTYPE 0x08
+
 typedef enum
 {
-    tel_state_closed,
-    tel_state_dns_lookup,
-    tel_state_connecting,
-    tel_state_connected,
-    tel_state_closing,
-} tel_state_t;
+    tel_rx_data,
+    tel_rx_iac,
+    tel_rx_will,
+    tel_rx_wont,
+    tel_rx_do,
+    tel_rx_dont,
+    tel_rx_sb,
+    tel_rx_sb_iac,
+} tel_rx_state_t;
 
 typedef struct
 {
-    tel_state_t state;
-    struct tcp_pcb *pcb;
-    uint16_t port;
-    struct pbuf *pbufs[PBUF_POOL_SIZE];
-    uint8_t pbuf_head;
-    uint8_t pbuf_tail;
-    uint16_t pbuf_pos;
+    tel_rx_state_t rx_state;
+    uint8_t sb_buf[48];
+    uint8_t sb_len;
+    uint8_t opts_we_will;
+    uint8_t opts_we_do;
+    bool last_rx_was_cr;
 } tel_conn_t;
 
 static tel_conn_t tel_conns[MDM_MAX_CONNECTIONS];
 
-static_assert(MDM_MAX_CONNECTIONS < MEMP_NUM_TCP_PCB);
-
-static int tel_desc(tel_conn_t *tc)
+static uint8_t tel_opt_bit(uint8_t opt)
 {
-    return (int)(tc - tel_conns);
-}
-
-static void tel_drain(tel_conn_t *tc)
-{
-    while (tc->pbuf_head != tc->pbuf_tail)
+    switch (opt)
     {
-        pbuf_free(tc->pbufs[tc->pbuf_tail]);
-        tc->pbuf_tail = (tc->pbuf_tail + 1) % PBUF_POOL_SIZE;
+    case TEL_OPT_BINARY:
+        return TEL_BIT_BINARY;
+    case TEL_OPT_ECHO:
+        return TEL_BIT_ECHO;
+    case TEL_OPT_SGA:
+        return TEL_BIT_SGA;
+    case TEL_OPT_TTYPE:
+        return TEL_BIT_TTYPE;
+    default:
+        return 0;
     }
-    tc->pbuf_pos = 0;
 }
 
-void tel_close(int desc)
+static void tel_send_cmd(int desc, uint8_t cmd, uint8_t opt)
 {
-    tel_conn_t *tc = &tel_conns[desc];
-    tel_state_t state = tc->state;
-    tc->state = tel_state_closed;
-    if (state == tel_state_connected || state == tel_state_closing)
-        tel_drain(tc);
-    if (state == tel_state_closed)
+    char buf[3] = {TEL_IAC, cmd, opt};
+    net_tx(desc, buf, 3);
+}
+
+static void tel_handle_sb(int desc, tel_conn_t *tc)
+{
+    if (tc->sb_len < 1)
         return;
-    mdm_set_conn(desc);
-    switch (state)
+    if (tc->sb_buf[0] == TEL_OPT_TTYPE &&
+        tc->sb_len >= 2 && tc->sb_buf[1] == TEL_TTYPE_SEND)
     {
-    case tel_state_dns_lookup:
-    case tel_state_connecting:
-        mdm_dial_failed();
-        break;
-    case tel_state_connected:
-        mdm_carrier_lost();
+        const char *ttype = mdm_settings->tty_type;
+        size_t ttype_len = strlen(ttype);
+        // IAC SB TTYPE IS <type> IAC SE
+        char buf[48];
+        size_t pos = 0;
+        buf[pos++] = TEL_IAC;
+        buf[pos++] = TEL_SB;
+        buf[pos++] = TEL_OPT_TTYPE;
+        buf[pos++] = TEL_TTYPE_IS;
+        if (ttype_len > sizeof(buf) - pos - 2)
+            ttype_len = sizeof(buf) - pos - 2;
+        memcpy(&buf[pos], ttype, ttype_len);
+        pos += ttype_len;
+        buf[pos++] = TEL_IAC;
+        buf[pos++] = TEL_SE;
+        net_tx(desc, buf, pos);
+        DBG("NET TEL sent TTYPE IS %s\n", ttype);
+    }
+}
+
+static void tel_handle_will(int desc, tel_conn_t *tc, uint8_t opt)
+{
+    uint8_t bit = tel_opt_bit(opt);
+    switch (opt)
+    {
+    case TEL_OPT_ECHO:
+    case TEL_OPT_SGA:
+    case TEL_OPT_BINARY:
+        if (!(tc->opts_we_do & bit))
+        {
+            tc->opts_we_do |= bit;
+            tel_send_cmd(desc, TEL_DO, opt);
+            DBG("NET TEL sent DO %d\n", opt);
+        }
         break;
     default:
+        tel_send_cmd(desc, TEL_DONT, opt);
+        DBG("NET TEL sent DONT %d\n", opt);
         break;
     }
-    if (tc->pcb)
-        switch (state)
+}
+
+static void tel_handle_wont(int desc, tel_conn_t *tc, uint8_t opt)
+{
+    (void)desc;
+    uint8_t bit = tel_opt_bit(opt);
+    tc->opts_we_do &= ~bit;
+}
+
+static void tel_handle_do(int desc, tel_conn_t *tc, uint8_t opt)
+{
+    uint8_t bit = tel_opt_bit(opt);
+    switch (opt)
+    {
+    case TEL_OPT_BINARY:
+    case TEL_OPT_SGA:
+    case TEL_OPT_TTYPE:
+        if (!(tc->opts_we_will & bit))
         {
-        case tel_state_connecting:
-            DBG("NET TEL tcp_abort\n");
-            tcp_abort(tc->pcb);
-            tc->pcb = NULL;
-            return;
-        case tel_state_connected:
-        case tel_state_closing:
+            tc->opts_we_will |= bit;
+            tel_send_cmd(desc, TEL_WILL, opt);
+            DBG("NET TEL sent WILL %d\n", opt);
+        }
+        break;
+    default:
+        tel_send_cmd(desc, TEL_WONT, opt);
+        DBG("NET TEL sent WONT %d\n", opt);
+        break;
+    }
+}
+
+static void tel_handle_dont(int desc, tel_conn_t *tc, uint8_t opt)
+{
+    (void)desc;
+    uint8_t bit = tel_opt_bit(opt);
+    tc->opts_we_will &= ~bit;
+}
+
+static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
+                                char *buf, uint16_t *out, uint16_t len)
+{
+    switch (tc->rx_state)
+    {
+    case tel_rx_data:
+        if (byte == TEL_IAC)
         {
-            DBG("NET TEL tcp_close\n");
-            err_t err = tcp_close(tc->pcb);
-            if (err != ERR_OK)
-            {
-                DBG("NET TEL tcp_close failed\n");
-                tcp_abort(tc->pcb);
-            }
-            tc->pcb = NULL;
+            tc->rx_state = tel_rx_iac;
             return;
         }
-        case tel_state_closed:
-        case tel_state_dns_lookup:
-            break;
+        // Strip NUL after CR in real telnet mode
+        if (mdm_settings->net_mode == 1 && tc->last_rx_was_cr && byte == 0)
+        {
+            tc->last_rx_was_cr = false;
+            return;
         }
+        tc->last_rx_was_cr = (byte == '\r');
+        if (*out < len)
+            buf[(*out)++] = byte;
+        return;
+
+    case tel_rx_iac:
+        switch (byte)
+        {
+        case TEL_IAC:
+            // Escaped 0xFF - literal data byte
+            tc->rx_state = tel_rx_data;
+            if (*out < len)
+                buf[(*out)++] = (char)0xFF;
+            return;
+        case TEL_WILL:
+            tc->rx_state = tel_rx_will;
+            return;
+        case TEL_WONT:
+            tc->rx_state = tel_rx_wont;
+            return;
+        case TEL_DO:
+            tc->rx_state = tel_rx_do;
+            return;
+        case TEL_DONT:
+            tc->rx_state = tel_rx_dont;
+            return;
+        case TEL_SB:
+            tc->rx_state = tel_rx_sb;
+            tc->sb_len = 0;
+            return;
+        default:
+            // NOP or other command - ignore
+            tc->rx_state = tel_rx_data;
+            return;
+        }
+
+    case tel_rx_will:
+        tel_handle_will(desc, tc, byte);
+        tc->rx_state = tel_rx_data;
+        return;
+
+    case tel_rx_wont:
+        tel_handle_wont(desc, tc, byte);
+        tc->rx_state = tel_rx_data;
+        return;
+
+    case tel_rx_do:
+        tel_handle_do(desc, tc, byte);
+        tc->rx_state = tel_rx_data;
+        return;
+
+    case tel_rx_dont:
+        tel_handle_dont(desc, tc, byte);
+        tc->rx_state = tel_rx_data;
+        return;
+
+    case tel_rx_sb:
+        if (byte == TEL_IAC)
+        {
+            tc->rx_state = tel_rx_sb_iac;
+            return;
+        }
+        if (tc->sb_len < sizeof(tc->sb_buf))
+            tc->sb_buf[tc->sb_len++] = byte;
+        return;
+
+    case tel_rx_sb_iac:
+        if (byte == TEL_SE)
+        {
+            tel_handle_sb(desc, tc);
+            tc->rx_state = tel_rx_data;
+            return;
+        }
+        if (byte == TEL_IAC)
+        {
+            // Escaped 0xFF within subnegotiation
+            if (tc->sb_len < sizeof(tc->sb_buf))
+                tc->sb_buf[tc->sb_len++] = 0xFF;
+            tc->rx_state = tel_rx_sb;
+            return;
+        }
+        // Malformed - treat as end of subneg
+        tc->rx_state = tel_rx_data;
+        return;
+    }
 }
 
 uint16_t tel_rx(int desc, char *buf, uint16_t len)
 {
+    if (mdm_settings->net_mode == 0)
+        return net_rx(desc, buf, len);
+
     tel_conn_t *tc = &tel_conns[desc];
-    uint16_t total = 0;
-    while (total < len && tc->pbuf_head != tc->pbuf_tail)
+    uint16_t out = 0;
+    while (out < len)
     {
-        struct pbuf *p = tc->pbufs[tc->pbuf_tail];
-        uint16_t avail = p->len - tc->pbuf_pos;
-        uint16_t copy = (len - total < avail) ? (len - total) : avail;
-        memcpy(buf + total, (char *)p->payload + tc->pbuf_pos, copy);
-        total += copy;
-        tc->pbuf_pos += copy;
-        if (tc->pbuf_pos >= p->len)
-        {
-            if (p->next)
-            {
-                tc->pbufs[tc->pbuf_tail] = p->next;
-                pbuf_ref(p->next);
-            }
-            else
-            {
-                tc->pbuf_tail = (tc->pbuf_tail + 1) % PBUF_POOL_SIZE;
-            }
-            pbuf_free(p);
-            tc->pbuf_pos = 0;
-        }
+        char byte;
+        if (net_rx(desc, &byte, 1) == 0)
+            break;
+        tel_process_rx_byte(desc, tc, (uint8_t)byte, buf, &out, len);
     }
-    if (total && tc->pcb)
-        tcp_recved(tc->pcb, total);
-    if (tc->pbuf_head == tc->pbuf_tail && tc->state == tel_state_closing)
-        tel_close(desc);
-    return total;
+    return out;
 }
 
 uint16_t tel_tx(int desc, const char *buf, uint16_t len)
 {
-    tel_conn_t *tc = &tel_conns[desc];
-    if (!tc->pcb)
-        return 0;
-    if (tc->state == tel_state_connected)
+    if (mdm_settings->net_mode == 0)
+        return net_tx(desc, buf, len);
+
+    char out[128];
+    uint16_t consumed = 0;
+    uint16_t out_pos = 0;
+
+    while (consumed < len)
     {
-        u16_t space = tcp_sndbuf(tc->pcb);
-        if (space == 0)
-            return 0;
-        if (len > space)
-            len = space;
-        err_t err = tcp_write(tc->pcb, buf, len, TCP_WRITE_FLAG_COPY);
-        if (err == ERR_OK)
+        uint8_t byte = buf[consumed];
+        uint16_t needed = 1;
+        if (byte == (uint8_t)TEL_IAC)
+            needed = 2;
+        else if (mdm_settings->net_mode == 1 && byte == '\r')
+            needed = 2;
+
+        if (out_pos + needed > sizeof(out))
+            break;
+
+        out[out_pos++] = byte;
+        if (byte == (uint8_t)TEL_IAC)
+            out[out_pos++] = (char)TEL_IAC;
+        else if (mdm_settings->net_mode == 1 && byte == '\r')
+            out[out_pos++] = 0;
+        consumed++;
+    }
+
+    if (out_pos > 0)
+    {
+        uint16_t sent = net_tx(desc, out, out_pos);
+        if (sent < out_pos)
         {
-            tcp_output(tc->pcb);
-            return len;
+            // Walk back to find how many source bytes were fully sent
+            uint16_t adj = 0;
+            uint16_t out_walk = 0;
+            while (out_walk < sent && adj < consumed)
+            {
+                out_walk++;
+                uint8_t b = buf[adj];
+                if (b == (uint8_t)TEL_IAC ||
+                    (mdm_settings->net_mode == 1 && b == '\r'))
+                    out_walk++;
+                adj++;
+            }
+            consumed = adj;
         }
-        if (err == ERR_CONN)
-            tel_close(desc);
     }
-    return 0;
-}
-
-static err_t tel_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
-{
-    tel_conn_t *tc = (tel_conn_t *)arg;
-    int desc = tel_desc(tc);
-    (void)tpcb;
-    (void)err;
-    assert(err == ERR_OK);
-    if (!p)
-    {
-        tc->state = tel_state_closing;
-        mdm_set_conn(desc);
-        mdm_carrier_lost();
-        if (tc->pbuf_head == tc->pbuf_tail)
-            tel_close(desc);
-        return ERR_OK;
-    }
-    if (tc->state == tel_state_connected)
-    {
-        uint8_t next = (tc->pbuf_head + 1) % PBUF_POOL_SIZE;
-        if (next == tc->pbuf_tail)
-            return ERR_MEM;
-        tc->pbufs[tc->pbuf_head] = p;
-        tc->pbuf_head = next;
-        return ERR_OK;
-    }
-    pbuf_free(p);
-    return ERR_OK;
-}
-
-static err_t tel_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
-{
-    tel_conn_t *tc = (tel_conn_t *)arg;
-    (void)tpcb;
-    (void)err;
-    assert(err == ERR_OK);
-    DBG("NET TEL TCP Connected %d\n", err);
-    tc->state = tel_state_connected;
-    mdm_set_conn(tel_desc(tc));
-    mdm_connect();
-    return ERR_OK;
-}
-
-static void tel_err(void *arg, err_t err)
-{
-    tel_conn_t *tc = (tel_conn_t *)arg;
-    (void)err;
-    DBG("NET TEL tcp_err %d\n", err);
-    tc->pcb = NULL; // PCB already freed by lwip
-    tel_close(tel_desc(tc));
-}
-
-static void tel_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
-{
-    tel_conn_t *tc = (tel_conn_t *)arg;
-    (void)name;
-    if (tc->state != tel_state_dns_lookup)
-        return;
-    if (!ipaddr)
-    {
-        DBG("NET TEL DNS did not resolve\n");
-        tel_close(tel_desc(tc));
-        return;
-    }
-    tc->pcb = tcp_new_ip_type(IP_GET_TYPE(ipaddr));
-    if (!tc->pcb)
-    {
-        DBG("NET TEL tcp_new_ip_type failed\n");
-        tel_close(tel_desc(tc));
-        return;
-    }
-    DBG("NET TEL connecting\n");
-    tc->state = tel_state_connecting;
-    tcp_arg(tc->pcb, tc);
-    tcp_nagle_disable(tc->pcb);
-    tcp_err(tc->pcb, tel_err);
-    tcp_recv(tc->pcb, tel_recv);
-    err_t err = tcp_connect(tc->pcb, ipaddr, tc->port, tel_connected);
-    if (err != ERR_OK)
-    {
-        DBG("NET TEL tcp_connect failed %d\n", err);
-        tel_close(tel_desc(tc));
-    }
+    return consumed;
 }
 
 bool tel_open(int desc, const char *hostname, uint16_t port)
 {
+    return net_open(desc, hostname, port);
+}
+
+static void tel_reset(int desc)
+{
+    memset(&tel_conns[desc], 0, sizeof(tel_conn_t));
+}
+
+void tel_close(int desc)
+{
+    net_close(desc);
+    tel_reset(desc);
+}
+
+void tel_on_connect(int desc)
+{
+    if (mdm_settings->net_mode == 0)
+        return;
+
     tel_conn_t *tc = &tel_conns[desc];
-    assert(tc->state == tel_state_closed);
-    ip_addr_t ipaddr;
-    tc->port = port;
-    err_t err = dns_gethostbyname(hostname, &ipaddr, tel_dns_found, tc);
-    if (err == ERR_INPROGRESS)
-    {
-        DBG("NET TEL DNS looking up\n");
-        tc->state = tel_state_dns_lookup;
-        return true;
-    }
-    if (err == ERR_OK)
-    {
-        DBG("NET TEL DNS resolved locally\n");
-        tc->state = tel_state_dns_lookup;
-        tel_dns_found(hostname, &ipaddr, tc);
-        return tc->state == tel_state_connecting;
-    }
-    DBG("NET TEL dns_gethostbyname (%d)\n", err);
-    return false;
+    tc->opts_we_will = TEL_BIT_BINARY | TEL_BIT_SGA | TEL_BIT_TTYPE;
+    tc->opts_we_do = TEL_BIT_BINARY | TEL_BIT_SGA;
+
+    char buf[] = {
+        TEL_IAC, TEL_WILL, TEL_OPT_BINARY,
+        TEL_IAC, TEL_DO, TEL_OPT_BINARY,
+        TEL_IAC, TEL_WILL, TEL_OPT_SGA,
+        TEL_IAC, TEL_DO, TEL_OPT_SGA,
+        TEL_IAC, TEL_WILL, TEL_OPT_TTYPE,
+    };
+    net_tx(desc, buf, sizeof(buf));
+    DBG("NET TEL sent initial negotiation\n");
 }
 
 #endif /* RP6502_RIA_W */

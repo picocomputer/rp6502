@@ -267,6 +267,8 @@ void mdm_factory_settings(mdm_settings_t *settings)
     settings->cr_char = '\r';  // S3=13
     settings->lf_char = '\n';  // S4=10
     settings->bs_char = '\b';  // S5=8
+    settings->net_mode = 1;    // \N1 (real telnet)
+    strcpy(settings->tty_type, "ANSI");
 }
 
 const char *mdm_read_phonebook_entry(unsigned index)
@@ -367,6 +369,8 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                "S3=%u\n"
                                "S4=%u\n"
                                "S5=%u\n"
+                               "N=%u\n"
+                               "T=%s\n"
                                "",
                                settings->echo,
                                settings->quiet,
@@ -376,7 +380,9 @@ bool mdm_write_settings(const mdm_settings_t *settings)
                                settings->esc_char,
                                settings->cr_char,
                                settings->lf_char,
-                               settings->bs_char);
+                               settings->bs_char,
+                               settings->net_mode,
+                               settings->tty_type);
         if (lfsresult < 0)
             DBG("?Unable to write %s contents (%d)\n", settings_file, lfsresult);
     }
@@ -461,6 +467,17 @@ bool mdm_read_settings(mdm_settings_t *settings)
                 break;
             }
             break;
+        case 'N':
+            if (str[0] == '=')
+                settings->net_mode = atoi(str + 1);
+            break;
+        case 'T':
+            if (str[0] == '=')
+            {
+                strncpy(settings->tty_type, str + 1, sizeof(settings->tty_type) - 1);
+                settings->tty_type[sizeof(settings->tty_type) - 1] = 0;
+            }
+            break;
         default:
             break;
         }
@@ -514,6 +531,7 @@ bool mdm_connect(void)
             mdm_set_response_fn(mdm_response_code, 1); // CONNECT
         mdm_conn->state = mdm_state_connected;
         mdm_conn->in_command_mode = false;
+        tel_on_connect(mdm_desc());
         return true;
     }
     return false;
