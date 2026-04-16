@@ -108,7 +108,10 @@ typedef struct
     uint8_t opts_we_do;
     uint8_t opts_pending_will;
     uint8_t opts_pending_do;
+    uint8_t opts_sent_will;
+    uint8_t opts_sent_do;
     bool last_rx_was_cr;
+    bool tx_cr_pending;
     bool telnet_mode;
     bool is_server;
     bool tx_escape_pending;
@@ -200,8 +203,16 @@ static void tel_handle_will(int desc, tel_conn_t *tc, uint8_t opt)
     case TEL_OPT_ECHO:
     case TEL_OPT_SGA:
     case TEL_OPT_BINARY:
-        if (!(tc->opts_we_do & bit))
+        if (tc->opts_sent_do & bit)
         {
+            // Confirmation of our DO request
+            tc->opts_sent_do &= ~bit;
+            tc->opts_we_do |= bit;
+            DBG("NET TEL confirmed DO %d\n", opt);
+        }
+        else if (!(tc->opts_we_do & bit))
+        {
+            // Remote initiated
             tc->opts_we_do |= bit;
             if (tel_send_cmd(desc, TEL_DO, opt))
                 DBG("NET TEL sent DO %d\n", opt);
@@ -218,9 +229,19 @@ static void tel_handle_will(int desc, tel_conn_t *tc, uint8_t opt)
 
 static void tel_handle_wont(int desc, tel_conn_t *tc, uint8_t opt)
 {
-    (void)desc;
     uint8_t bit = tel_opt_bit(opt);
-    tc->opts_we_do &= ~bit;
+    if (tc->opts_sent_do & bit)
+    {
+        // Our DO request was refused
+        tc->opts_sent_do &= ~bit;
+    }
+    else if (tc->opts_we_do & bit)
+    {
+        // Remote is disabling, acknowledge
+        tc->opts_we_do &= ~bit;
+        tel_send_cmd(desc, TEL_DONT, opt);
+        DBG("NET TEL sent DONT %d\n", opt);
+    }
 }
 
 static void tel_handle_do(int desc, tel_conn_t *tc, uint8_t opt)
@@ -232,8 +253,16 @@ static void tel_handle_do(int desc, tel_conn_t *tc, uint8_t opt)
     case TEL_OPT_SGA:
     case TEL_OPT_TTYPE:
     case TEL_OPT_ECHO:
-        if (!(tc->opts_we_will & bit))
+        if (tc->opts_sent_will & bit)
         {
+            // Confirmation of our WILL request
+            tc->opts_sent_will &= ~bit;
+            tc->opts_we_will |= bit;
+            DBG("NET TEL confirmed WILL %d\n", opt);
+        }
+        else if (!(tc->opts_we_will & bit))
+        {
+            // Remote initiated
             tc->opts_we_will |= bit;
             if (tel_send_cmd(desc, TEL_WILL, opt))
                 DBG("NET TEL sent WILL %d\n", opt);
@@ -250,9 +279,19 @@ static void tel_handle_do(int desc, tel_conn_t *tc, uint8_t opt)
 
 static void tel_handle_dont(int desc, tel_conn_t *tc, uint8_t opt)
 {
-    (void)desc;
     uint8_t bit = tel_opt_bit(opt);
-    tc->opts_we_will &= ~bit;
+    if (tc->opts_sent_will & bit)
+    {
+        // Our WILL request was refused
+        tc->opts_sent_will &= ~bit;
+    }
+    else if (tc->opts_we_will & bit)
+    {
+        // Remote is disabling, acknowledge
+        tc->opts_we_will &= ~bit;
+        tel_send_cmd(desc, TEL_WONT, opt);
+        DBG("NET TEL sent WONT %d\n", opt);
+    }
 }
 
 static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
@@ -266,8 +305,9 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             tc->rx_state = tel_rx_iac;
             return;
         }
-        // Strip NUL after CR in telnet mode
-        if (tc->telnet_mode && tc->last_rx_was_cr && byte == 0)
+        // Strip NUL after CR in NVT mode (binary mode sends raw)
+        if (tc->telnet_mode && !(tc->opts_we_do & TEL_BIT_BINARY) &&
+            tc->last_rx_was_cr && byte == 0)
         {
             tc->last_rx_was_cr = false;
             return;
@@ -390,6 +430,18 @@ uint16_t tel_rx(int desc, char *buf, uint16_t len)
     return out;
 }
 
+// Compute the wire size of a source byte during NVT TX encoding.
+// For CR in NVT mode, caller passes the next source byte (or -1 at end
+// of buffer) so we can distinguish CR-LF (1 byte) from bare CR-NUL (2).
+static uint16_t tel_tx_step(uint8_t byte, bool binary_tx, int next)
+{
+    if (byte == (uint8_t)TEL_IAC)
+        return 2;
+    if (byte == '\r' && !binary_tx && next >= 0 && next != '\n')
+        return 2; // bare CR -> CR NUL
+    return 1; // deferred CR (next==-1) is 1; NUL sent on next call
+}
+
 uint16_t tel_tx(int desc, const char *buf, uint16_t len)
 {
     tel_conn_t *tc = &tel_conns[desc];
@@ -405,6 +457,23 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
         tc->tx_escape_pending = false;
     }
 
+    // Handle deferred CR-NUL from previous call
+    if (tc->tx_cr_pending)
+    {
+        tc->tx_cr_pending = false;
+        if (len == 0 || buf[0] != '\n')
+        {
+            // Bare CR — send the deferred NUL
+            char nul = 0;
+            if (net_tx(desc, &nul, 1) != 1)
+            {
+                tc->tx_cr_pending = true;
+                return 0;
+            }
+        }
+    }
+
+    bool binary_tx = tc->opts_we_will & TEL_BIT_BINARY;
     char out[128];
     uint16_t consumed = 0;
     uint16_t out_pos = 0;
@@ -412,11 +481,8 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
     while (consumed < len)
     {
         uint8_t byte = buf[consumed];
-        uint16_t needed = 1;
-        if (byte == (uint8_t)TEL_IAC)
-            needed = 2;
-        else if (byte == '\r')
-            needed = 2;
+        int next = (consumed + 1 < len) ? (uint8_t)buf[consumed + 1] : -1;
+        uint16_t needed = tel_tx_step(byte, binary_tx, next);
 
         if (out_pos + needed > sizeof(out))
             break;
@@ -424,8 +490,13 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
         out[out_pos++] = byte;
         if (byte == (uint8_t)TEL_IAC)
             out[out_pos++] = (char)TEL_IAC;
-        else if (byte == '\r')
-            out[out_pos++] = 0;
+        else if (byte == '\r' && !binary_tx)
+        {
+            if (next == -1)
+                tc->tx_cr_pending = true; // defer until next call
+            else if (next != '\n')
+                out[out_pos++] = 0; // bare CR -> CR NUL
+        }
         consumed++;
     }
 
@@ -439,10 +510,8 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
             uint16_t out_walk = 0;
             while (adj < consumed)
             {
-                uint8_t b = buf[adj];
-                uint16_t step = 1;
-                if (b == (uint8_t)TEL_IAC || b == '\r')
-                    step = 2;
+                int nx = (adj + 1 < len) ? (uint8_t)buf[adj + 1] : -1;
+                uint16_t step = tel_tx_step(buf[adj], binary_tx, nx);
                 if (out_walk + step > sent)
                     break;
                 out_walk += step;
@@ -455,6 +524,9 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
                 tc->tx_escape_byte = out[sent];
                 adj++;
             }
+            // Roll back deferred CR if it wasn't actually sent
+            if (tc->tx_cr_pending && adj < consumed)
+                tc->tx_cr_pending = false;
             consumed = adj;
         }
     }
@@ -487,10 +559,10 @@ void tel_negotiate(int desc)
 
     tc->is_server = false;
     tc->ttype = mdm_settings->tty_type;
-    tc->opts_we_will = TEL_BIT_BINARY | TEL_BIT_SGA | TEL_BIT_TTYPE;
-    tc->opts_we_do = TEL_BIT_BINARY | TEL_BIT_SGA;
-    tc->opts_pending_will = tc->opts_we_will;
-    tc->opts_pending_do = tc->opts_we_do;
+    tc->opts_sent_will = TEL_BIT_BINARY | TEL_BIT_SGA | TEL_BIT_TTYPE;
+    tc->opts_sent_do = TEL_BIT_BINARY | TEL_BIT_SGA;
+    tc->opts_pending_will = tc->opts_sent_will;
+    tc->opts_pending_do = tc->opts_sent_do;
     tel_flush_pending(desc, tc);
     DBG("NET TEL sent initial negotiation\n");
 }
@@ -501,10 +573,10 @@ static void tel_negotiate_server(int desc)
     tc->telnet_mode = true;
     tc->is_server = true;
     tc->ttype = NULL;
-    tc->opts_we_will = TEL_BIT_ECHO | TEL_BIT_SGA;
-    tc->opts_we_do = TEL_BIT_SGA;
-    tc->opts_pending_will = tc->opts_we_will;
-    tc->opts_pending_do = tc->opts_we_do;
+    tc->opts_sent_will = TEL_BIT_ECHO | TEL_BIT_SGA;
+    tc->opts_sent_do = TEL_BIT_SGA;
+    tc->opts_pending_will = tc->opts_sent_will;
+    tc->opts_pending_do = tc->opts_sent_do;
     tel_flush_pending(desc, tc);
     DBG("NET TEL server negotiation sent\n");
 }
@@ -724,13 +796,25 @@ static void tel_handle_auth(uint8_t ch)
 
 static void tel_drain_rx(void)
 {
-    char raw[32];
-    uint16_t n = net_rx(SYS_TEL_DESC, raw, sizeof(raw));
+    // Limit read to ring buffer free space so we never drop data.
+    // Decoded bytes <= raw bytes, so this guarantees room.
+    size_t limit = TEL_RX_BUF_SIZE;
+    if (tel_state == tel_state_connected)
+    {
+        size_t used = (tel_rx_head - tel_rx_tail + TEL_RX_BUF_SIZE)
+                      % TEL_RX_BUF_SIZE;
+        limit = TEL_RX_BUF_SIZE - 1 - used;
+        if (limit == 0)
+            return;
+    }
+
+    char raw[TEL_RX_BUF_SIZE];
+    uint16_t n = net_rx(SYS_TEL_DESC, raw, limit);
     if (n == 0)
         return;
 
     tel_conn_t *tc = &tel_conns[SYS_TEL_DESC];
-    char decoded[32];
+    char decoded[TEL_RX_BUF_SIZE];
     uint16_t decoded_len = 0;
 
     for (uint16_t i = 0; i < n; i++)
@@ -748,11 +832,8 @@ static void tel_drain_rx(void)
         }
         else if (tel_state == tel_state_connected)
         {
-            if (((tel_rx_head + 1) % TEL_RX_BUF_SIZE) != tel_rx_tail)
-            {
-                tel_rx_head = (tel_rx_head + 1) % TEL_RX_BUF_SIZE;
-                tel_rx_buf[tel_rx_head] = ch;
-            }
+            tel_rx_head = (tel_rx_head + 1) % TEL_RX_BUF_SIZE;
+            tel_rx_buf[tel_rx_head] = ch;
         }
     }
 }
@@ -775,7 +856,7 @@ static void tel_drain_tx(void)
         len = tel_tx_head - start + 1;
     else
         len = TEL_TX_BUF_SIZE - start;
-    uint16_t sent = net_tx(SYS_TEL_DESC, &tel_tx_buf[start], len);
+    uint16_t sent = tel_tx(SYS_TEL_DESC, &tel_tx_buf[start], len);
     tel_tx_tail = (tel_tx_tail + sent) % TEL_TX_BUF_SIZE;
 }
 

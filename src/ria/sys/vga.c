@@ -43,8 +43,7 @@ static enum {
 
 static bool vga_needs_reset = true;
 static uint8_t vga_display_type;
-static volatile bool vga_vsync_received;
-static absolute_time_t vga_vsync_timer;
+static volatile uint32_t vga_vsync_deadline;
 static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
 
@@ -79,14 +78,13 @@ static inline void vga_backchannel_irq_disable(void)
                                 pis_sm2_rx_fifo_not_empty, false);
 }
 
-static inline void __attribute__((always_inline))
-vga_backchannel_command(uint8_t byte)
+static inline void vga_backchannel_command(uint8_t byte)
 {
     uint8_t scalar = byte & 0xF;
     switch (byte & 0xF0)
     {
     case 0x80:
-        vga_vsync_received = true;
+        vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
         if (scalar < (vga_vsync_frame & 0xF))
             vga_vsync_frame = (vga_vsync_frame & 0xF0) + 0x10;
         vga_vsync_frame = (vga_vsync_frame & 0xF0) | scalar;
@@ -165,7 +163,6 @@ static void vga_connect(void)
                 {
                     if (vga_version_message_length > 0)
                     {
-                        vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
                         vga_state = VGA_CONNECTED;
                         break;
                     }
@@ -179,15 +176,14 @@ static void vga_connect(void)
         }
         if (absolute_time_diff_us(get_absolute_time(), vga_version_timer) < 0)
         {
-            vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
             vga_state = VGA_NO_VERSION;
             break;
         }
     }
 
     // Enable backchannel IRQ now that version string phase is complete
-    vga_vsync_received = false;
     vga_backchannel_irq_enable();
+    vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
 }
 
 void vga_init(void)
@@ -223,14 +219,8 @@ void vga_init(void)
 
 void vga_task(void)
 {
-    if (vga_vsync_received)
-    {
-        vga_vsync_received = false;
-        vga_vsync_timer = make_timeout_time_ms(VGA_VSYNC_WATCHDOG_MS);
-    }
-
     if ((vga_state == VGA_CONNECTED || vga_state == VGA_NO_VERSION) &&
-        absolute_time_diff_us(get_absolute_time(), vga_vsync_timer) < 0)
+        (int32_t)(time_us_32() - vga_vsync_deadline) >= 0)
     {
         vga_backchannel_irq_disable();
         vga_pix_backchannel_disable();
