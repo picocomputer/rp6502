@@ -11,6 +11,45 @@
 static absolute_time_t break_timer;
 static bool is_breaking = false;
 static uint8_t read_buf[COM_IN_BUF_SIZE];
+static bool cdc_port_open = false;
+
+bool cdc_is_open(void)
+{
+    return cdc_port_open;
+}
+
+static void cdc_mark_closed(void)
+{
+    cdc_port_open = false;
+    tud_cdc_write_clear();
+}
+
+void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
+{
+    (void)itf;
+    (void)rts;
+    if (dtr)
+        cdc_port_open = true;
+    else
+        cdc_mark_closed();
+}
+
+void tud_umount_cb(void)
+{
+    cdc_mark_closed();
+}
+
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    (void)remote_wakeup_en;
+    cdc_mark_closed();
+}
+
+void tud_cdc_tx_complete_cb(uint8_t itf)
+{
+    (void)itf;
+    cdc_port_open = true;
+}
 
 static void send_break_ms(uint16_t duration_ms)
 {
@@ -48,13 +87,20 @@ void cdc_task(void)
         com_set_uart_break(false);
     }
 
-    if (!tud_cdc_connected() || !tud_cdc_write_available())
+    // Always drain CDC RX so keyboard input isn't lost when TX FIFO is full
+    if (tud_cdc_available())
     {
-        // flush to null
-        while (!com_out_empty())
-            com_out_read();
+        size_t bufsize = com_in_free();
+        if (bufsize > 0)
+        {
+            size_t data_len = tud_cdc_read(read_buf, bufsize);
+            for (size_t i = 0; i < data_len; i++)
+                com_in_write(read_buf[i]);
+        }
     }
-    else
+
+    // TX: write com_out to CDC, or discard if no one is listening
+    if (tud_cdc_connected() && tud_cdc_write_available())
     {
         if (!com_out_empty())
         {
@@ -62,15 +108,11 @@ void cdc_task(void)
                 com_out_read();
             tud_cdc_write_flush();
         }
-        if (tud_cdc_available())
-        {
-            size_t bufsize = com_in_free();
-            if (bufsize > 0)
-            {
-                size_t data_len = tud_cdc_read(read_buf, bufsize);
-                for (size_t i = 0; i < data_len; i++)
-                    com_in_write(read_buf[i]);
-            }
-        }
+    }
+    else
+    {
+        while (!com_out_empty())
+            com_out_read();
+        cdc_mark_closed();
     }
 }

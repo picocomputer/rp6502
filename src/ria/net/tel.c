@@ -770,16 +770,17 @@ static void tel_handle_auth(uint8_t ch)
     }
     else if (ch == '\r' || ch == '\n')
     {
+        //TODO use str.c
         tel_auth_buf[tel_auth_len] = 0;
         if (strcmp(tel_auth_buf, tel_key) == 0)
         {
-            tel_tx(SYS_TEL_DESC, "\r\nConnected.\r\n", 14);
+            tel_tx(SYS_TEL_DESC, "\r\nConnected\r\n", 13);
             tel_state = tel_state_connected;
             DBG("NET TEL console authenticated\n");
         }
         else
         {
-            tel_tx(SYS_TEL_DESC, "\r\nAccess denied.\r\n", 18);
+            tel_tx(SYS_TEL_DESC, "\r\n?Access denied\r\n", 18);
             DBG("NET TEL console auth failed\n");
             tel_state = tel_state_listening;
             tel_close(SYS_TEL_DESC);

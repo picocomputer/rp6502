@@ -39,7 +39,7 @@ bool com_in_empty(void)
 void com_in_write_ansi_CPR(int row, int col)
 {
     // If USB terminal connected, let it respond instead of us
-    if (!tud_cdc_connected() && com_in_empty())
+    if (!cdc_is_open() && com_in_empty())
     {
         int n = snprintf(com_in_buf, COM_IN_BUF_SIZE, "\33[%u;%uR", row, col);
         if (n < 0 || n >= COM_IN_BUF_SIZE)
