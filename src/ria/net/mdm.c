@@ -39,7 +39,6 @@ void mdm_listen_update(void) {}
 #include "net/wfi.h"
 #include "str/str.h"
 #include "sys/lfs.h"
-#include "sys/rem.h"
 #include <pico/time.h>
 #include <stdlib.h>
 
@@ -748,7 +747,7 @@ void mdm_task()
         if (mdm_conn->active_listen_port == 0 &&
             mdm_settings->listen_port > 0 && wfi_ready())
         {
-            if (mdm_settings->listen_port == rem_get_port())
+            if (mdm_settings->listen_port == tel_get_port())
                 mdm_settings->listen_port = 0;
             else if (tel_listen(mdm_settings->listen_port, mdm_net_on_accept))
             {
@@ -921,7 +920,7 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
     else
         mdm_factory_settings(mdm_settings);
     if (mdm_settings->listen_port > 0 &&
-        mdm_settings->listen_port == rem_get_port())
+        mdm_settings->listen_port == tel_get_port())
     {
         mdm_settings->listen_port = 0;
         DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", desc);

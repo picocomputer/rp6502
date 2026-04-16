@@ -10,7 +10,7 @@
 #include "net/wfi.h"
 #include "str/str.h"
 #include "sys/cfg.h"
-#include "sys/rem.h"
+#include "net/tel.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
@@ -641,7 +641,7 @@ static bool cmd_backslash_l(const char **s)
     int num = cmd_parse_num(s);
     if (num >= 0 && num <= 65535)
     {
-        if (num > 0 && (uint16_t)num == rem_get_port())
+        if (num > 0 && (uint16_t)num == tel_get_port())
             return false;
         mdm_settings->listen_port = num;
         mdm_listen_update();

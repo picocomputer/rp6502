@@ -10,7 +10,7 @@
 #include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
-#include "sys/rem.h"
+#include "net/tel.h"
 #include "sys/vga.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
@@ -86,12 +86,12 @@ static void com_uart_task(void)
 static void com_tx_fanout(void)
 {
     while (com_tx_head != com_tx_tail &&
-           com_uart_writable() && rem_tx_writable())
+           com_uart_writable() && tel_tx_writable())
     {
         com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
         char ch = com_tx_buf[com_tx_tail];
         com_uart_write(ch);
-        rem_tx_write(ch);
+        tel_tx_write(ch);
     }
 }
 
@@ -125,7 +125,7 @@ static int com_rx_merge(char *buf, int length)
             in_keyboard = true;
             return i;
         }
-        i = rem_rx(buf, length);
+        i = tel_read(buf, length);
         if (i != PICO_ERROR_NO_DATA)
         {
             in_keyboard = true;
@@ -155,7 +155,7 @@ static void com_stdio_out_chars(const char *buf, int len)
         {
             com_tx_fanout();
             com_uart_task();
-            rem_pump();
+            tel_pump();
         }
         char ch = *buf++;
         com_tx_head = (com_tx_head + 1) % COM_TX_BUF_SIZE;
@@ -169,10 +169,10 @@ static void com_stdio_out_flush(void)
     {
         com_tx_fanout();
         com_uart_task();
-        rem_pump();
+        tel_pump();
     }
     com_uart_flush();
-    rem_flush();
+    tel_flush();
 }
 
 static int com_stdio_in_chars(char *buf, int length)
