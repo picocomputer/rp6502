@@ -12,8 +12,6 @@
 #include <lwip/dns.h>
 #include <string.h>
 
-#define DEBUG_RIA_NET_NET
-
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NET)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
