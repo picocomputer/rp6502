@@ -42,6 +42,7 @@ bool tel_set_key(const char *key)
 
 #else
 
+#include "main.h"
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/net.h"
@@ -68,6 +69,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define TEL_SB 250
 #define TEL_SE 240
 #define TEL_NOP 241
+#define TEL_BRK 243
 
 // Telnet option codes
 #define TEL_OPT_BINARY 0
@@ -299,6 +301,11 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
         case TEL_SB:
             tc->rx_state = tel_rx_sb;
             tc->sb_len = 0;
+            return;
+        case TEL_BRK:
+            if (tc->is_server)
+                main_break();
+            tc->rx_state = tel_rx_data;
             return;
         default:
             // NOP or other command - ignore
