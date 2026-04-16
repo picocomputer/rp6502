@@ -12,10 +12,7 @@
 #include <lwip/dns.h>
 #include <string.h>
 
-_Static_assert(MEMP_NUM_TCP_PCB >= NET_MAX_CONNECTIONS,
-    "MEMP_NUM_TCP_PCB must be >= NET_MAX_CONNECTIONS");
-_Static_assert(MEMP_NUM_TCP_PCB_LISTEN >= NET_MAX_LISTENERS,
-    "MEMP_NUM_TCP_PCB_LISTEN must be >= NET_MAX_LISTENERS");
+#define DEBUG_RIA_NET_NET
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_NET)
 #include <stdio.h>
@@ -23,6 +20,11 @@ _Static_assert(MEMP_NUM_TCP_PCB_LISTEN >= NET_MAX_LISTENERS,
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+_Static_assert(MEMP_NUM_TCP_PCB >= NET_MAX_CONNECTIONS,
+               "MEMP_NUM_TCP_PCB must be >= NET_MAX_CONNECTIONS");
+_Static_assert(MEMP_NUM_TCP_PCB_LISTEN >= NET_MAX_LISTENERS,
+               "MEMP_NUM_TCP_PCB_LISTEN must be >= NET_MAX_LISTENERS");
 
 typedef enum
 {
