@@ -23,7 +23,7 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len);
 bool tel_open(int desc, const char *hostname, uint16_t port,
               void (*on_close)(int));
 void tel_close(int desc);
-void tel_on_connect(int desc);
+void tel_negotiate(int desc);
 bool tel_listen(uint16_t port, net_accept_fn on_accept);
 void tel_listen_close(uint16_t port);
 bool tel_accept(int desc, uint16_t port, void (*on_close)(int));

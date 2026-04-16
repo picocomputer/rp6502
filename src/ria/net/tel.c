@@ -109,6 +109,8 @@ typedef struct
     bool last_rx_was_cr;
     bool telnet_mode;
     bool is_server;
+    bool tx_escape_pending;
+    uint8_t tx_escape_byte;
     const char *ttype;
 } tel_conn_t;
 
@@ -387,6 +389,15 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
     if (!tc->telnet_mode)
         return net_tx(desc, buf, len);
 
+    // Flush the second byte of a split escape sequence
+    if (tc->tx_escape_pending)
+    {
+        char b = tc->tx_escape_byte;
+        if (net_tx(desc, &b, 1) != 1)
+            return 0;
+        tc->tx_escape_pending = false;
+    }
+
     char out[128];
     uint16_t consumed = 0;
     uint16_t out_pos = 0;
@@ -397,7 +408,7 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
         uint16_t needed = 1;
         if (byte == (uint8_t)TEL_IAC)
             needed = 2;
-        else if (tc->telnet_mode && byte == '\r')
+        else if (byte == '\r')
             needed = 2;
 
         if (out_pos + needed > sizeof(out))
@@ -406,7 +417,7 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
         out[out_pos++] = byte;
         if (byte == (uint8_t)TEL_IAC)
             out[out_pos++] = (char)TEL_IAC;
-        else if (tc->telnet_mode && byte == '\r')
+        else if (byte == '\r')
             out[out_pos++] = 0;
         consumed++;
     }
@@ -419,13 +430,22 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
             // Walk back to find how many source bytes were fully sent
             uint16_t adj = 0;
             uint16_t out_walk = 0;
-            while (out_walk < sent && adj < consumed)
+            while (adj < consumed)
             {
-                out_walk++;
                 uint8_t b = buf[adj];
-                if (b == (uint8_t)TEL_IAC ||
-                    (tc->telnet_mode && b == '\r'))
-                    out_walk++;
+                uint16_t step = 1;
+                if (b == (uint8_t)TEL_IAC || b == '\r')
+                    step = 2;
+                if (out_walk + step > sent)
+                    break;
+                out_walk += step;
+                adj++;
+            }
+            // Stash second byte if an escape pair was split
+            if (out_walk < sent)
+            {
+                tc->tx_escape_pending = true;
+                tc->tx_escape_byte = out[sent];
                 adj++;
             }
             consumed = adj;
@@ -451,7 +471,7 @@ void tel_close(int desc)
     tel_reset(desc);
 }
 
-void tel_on_connect(int desc)
+void tel_negotiate(int desc)
 {
     tel_conn_t *tc = &tel_conns[desc];
     tc->telnet_mode = (mdm_settings->net_mode != 0);
@@ -468,7 +488,7 @@ void tel_on_connect(int desc)
     DBG("NET TEL sent initial negotiation\n");
 }
 
-static void tel_init_server(int desc)
+static void tel_negotiate_server(int desc)
 {
     tel_conn_t *tc = &tel_conns[desc];
     tc->telnet_mode = true;
@@ -497,7 +517,7 @@ bool tel_accept(int desc, uint16_t port, void (*on_close)(int))
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
         return false;
-    tel_on_connect(desc);
+    tel_negotiate(desc);
     return true;
 }
 
@@ -604,18 +624,6 @@ const char *tel_get_key(void)
     return tel_key;
 }
 
-// -- Helpers --
-
-static void tel_send(const char *buf, uint16_t len)
-{
-    net_tx(SYS_TEL_DESC, buf, len);
-}
-
-static void tel_send_str(const char *str)
-{
-    tel_send(str, strlen(str));
-}
-
 // -- Connection management --
 
 static void tel_on_disconnect(int desc)
@@ -639,8 +647,8 @@ static bool tel_on_accept(uint16_t port)
     if (!net_accept(SYS_TEL_DESC, port, tel_on_disconnect))
         return false;
 
-    tel_init_server(SYS_TEL_DESC);
-    tel_send_str("\r\nPasskey: ");
+    tel_negotiate_server(SYS_TEL_DESC);
+    tel_tx(SYS_TEL_DESC, "\r\nPasskey: ", 11);
 
     tel_auth_len = 0;
     tel_tx_head = tel_tx_tail = 0;
@@ -653,16 +661,13 @@ static bool tel_on_accept(uint16_t port)
 static void tel_shutdown(void)
 {
     if (tel_state == tel_state_auth || tel_state == tel_state_connected)
-    {
-        tel_state = tel_state_idle;
         tel_close(SYS_TEL_DESC);
-    }
-    if (tel_state == tel_state_listening)
+    if (tel_state >= tel_state_listening)
     {
         net_listen_close(tel_active_port);
         tel_active_port = 0;
-        tel_state = tel_state_idle;
     }
+    tel_state = tel_state_idle;
     tel_tx_head = tel_tx_tail = 0;
     tel_rx_head = tel_rx_tail = 0;
 }
@@ -674,14 +679,14 @@ static bool tel_should_listen(void)
 
 // -- Auth --
 
-static void tel_auth_process(uint8_t ch)
+static void tel_handle_auth(uint8_t ch)
 {
     if (ch == '\b' || ch == 127)
     {
         if (tel_auth_len > 0)
         {
             tel_auth_len--;
-            tel_send_str("\b \b");
+            tel_tx(SYS_TEL_DESC, "\b \b", 3);
         }
     }
     else if (ch == '\r' || ch == '\n')
@@ -689,13 +694,13 @@ static void tel_auth_process(uint8_t ch)
         tel_auth_buf[tel_auth_len] = 0;
         if (strcmp(tel_auth_buf, tel_key) == 0)
         {
-            tel_send_str("\r\nConnected.\r\n");
+            tel_tx(SYS_TEL_DESC, "\r\nConnected.\r\n", 14);
             tel_state = tel_state_connected;
             DBG("NET TEL console authenticated\n");
         }
         else
         {
-            tel_send_str("\r\nAccess denied.\r\n");
+            tel_tx(SYS_TEL_DESC, "\r\nAccess denied.\r\n", 18);
             DBG("NET TEL console auth failed\n");
             tel_state = tel_state_listening;
             tel_close(SYS_TEL_DESC);
@@ -704,7 +709,7 @@ static void tel_auth_process(uint8_t ch)
     else if (ch >= 32 && tel_auth_len < TEL_KEY_SIZE - 1)
     {
         tel_auth_buf[tel_auth_len++] = ch;
-        tel_send_str("*");
+        tel_tx(SYS_TEL_DESC, "*", 1);
     }
 }
 
@@ -730,7 +735,7 @@ static void tel_drain_rx(void)
         uint8_t ch = (uint8_t)decoded[i];
         if (tel_state == tel_state_auth)
         {
-            tel_auth_process(ch);
+            tel_handle_auth(ch);
             if (tel_state != tel_state_auth)
                 return;
         }

@@ -567,7 +567,7 @@ bool mdm_connect(void)
             mdm_set_response_fn(mdm_response_code, 1); // CONNECT
         mdm_conn->state = mdm_state_connected;
         mdm_conn->in_command_mode = false;
-        tel_on_connect(mdm_desc());
+        tel_negotiate(mdm_desc());
         return true;
     }
     return false;
