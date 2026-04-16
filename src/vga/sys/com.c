@@ -10,6 +10,7 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>
+#include <string.h>
 #include <assert.h>
 
 size_t com_in_head;
@@ -19,6 +20,13 @@ char com_in_buf[COM_IN_BUF_SIZE];
 size_t com_out_head;
 size_t com_out_tail;
 char com_out_buf[COM_OUT_BUF_SIZE];
+
+static bool com_term_reply_suppressed;
+
+void com_suppress_term_reply(bool suppress)
+{
+    com_term_reply_suppressed = suppress;
+}
 
 static_assert((COM_IN_BUF_SIZE & (COM_IN_BUF_SIZE - 1)) == 0,
               "COM_IN_BUF_SIZE must be a power of 2");
@@ -35,18 +43,41 @@ bool com_in_empty(void)
     return com_in_head == com_in_tail;
 }
 
+// If USB terminal connected, let it respond instead of us.
+// Also requires the input buffer to be empty so we can install the
+// reply at offset 0 by setting head/tail directly.
+static void com_in_write_reply(const char *s, size_t n)
+{
+    if (com_term_reply_suppressed || cdc_is_open() ||
+        !com_in_empty() || n >= COM_IN_BUF_SIZE)
+        return;
+    memcpy(com_in_buf, s, n);
+    com_in_tail = COM_IN_BUF_SIZE - 1;
+    com_in_head = n - 1;
+}
+
 // Reports the cursor position
 void com_in_write_ansi_CPR(int row, int col)
 {
-    // If USB terminal connected, let it respond instead of us
-    if (!cdc_is_open() && com_in_empty())
-    {
-        int n = snprintf(com_in_buf, COM_IN_BUF_SIZE, "\33[%u;%uR", row, col);
-        if (n < 0 || n >= COM_IN_BUF_SIZE)
-            return;
-        com_in_tail = COM_IN_BUF_SIZE - 1;
-        com_in_head = n - 1;
-    }
+    char buf[COM_IN_BUF_SIZE];
+    int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", row, col);
+    if (n < 0 || n >= (int)sizeof(buf))
+        return;
+    com_in_write_reply(buf, n);
+}
+
+// Primary device attributes: identify as VT102 (ANSI/ECMA-48)
+void com_in_write_ansi_DA(void)
+{
+    static const char da[] = "\33[?6c";
+    com_in_write_reply(da, sizeof(da) - 1);
+}
+
+// DSR status: terminal ok
+void com_in_write_ansi_DSR_ok(void)
+{
+    static const char ok[] = "\33[0n";
+    com_in_write_reply(ok, sizeof(ok) - 1);
 }
 
 void com_in_write(char ch)

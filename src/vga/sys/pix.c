@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "vga.pio.h"
+#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -52,6 +53,9 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         return true;
     case 0x01: // CODE_PAGE
         font_set_code_page(word);
+        return true;
+    case 0x02: // SUPPRESS_TERM_REPLY
+        com_suppress_term_reply(word != 0);
         return true;
     case 0x03: // UART_TX
         putchar_raw(word);

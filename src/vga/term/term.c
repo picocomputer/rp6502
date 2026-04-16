@@ -429,23 +429,42 @@ static void term_out_RCP(term_state_t *term)
     term_set_cursor_position(term, term->save_x, term->save_y);
 }
 
+// Only the term currently being rendered should reply to host queries
+static bool term_is_visible(term_state_t *term)
+{
+    int16_t height = vga_canvas_height();
+    return (height == 180 || height == 240)
+               ? term->width == 40
+               : term->width == 80;
+}
+
 // Device Status Report
 static void term_out_DSR(term_state_t *term)
 {
-    if (term->csi_param[0] == 6)
+    if (!term_is_visible(term))
+        return;
+    switch (term->csi_param[0])
     {
-        int16_t height = vga_canvas_height();
-        if ((height == 180 || height == 240)
-                ? term->width == 40
-                : term->width == 80)
-        {
-            int x = term->x;
-            int y = term->y;
-            if (x == term->width)
-                x--;
-            com_in_write_ansi_CPR(y + 1, x + 1);
-        }
+    case 5:
+        com_in_write_ansi_DSR_ok();
+        break;
+    case 6:
+    {
+        int x = term->x;
+        int y = term->y;
+        if (x == term->width)
+            x--;
+        com_in_write_ansi_CPR(y + 1, x + 1);
+        break;
     }
+    }
+}
+
+// Primary Device Attributes
+static void term_out_DA(term_state_t *term)
+{
+    if (term_is_visible(term))
+        com_in_write_ansi_DA();
 }
 
 static void term_out_HT(term_state_t *term)
@@ -842,6 +861,9 @@ static void term_out_CSI(term_state_t *term, char ch)
     case 'K':
         term_out_EL(term);
         break;
+    case 'c':
+        term_out_DA(term);
+        break;
     }
 }
 
@@ -852,6 +874,7 @@ static void term_out_CSI_question(term_state_t *term, char ch)
     case 'h': // DECSET
         switch (term->csi_param[0])
         {
+        case 12: // AT&T 610
         case 25: // DECTCEM
             term->cursor_enabled = true;
             break;
@@ -860,6 +883,7 @@ static void term_out_CSI_question(term_state_t *term, char ch)
     case 'l': // DECRST
         switch (term->csi_param[0])
         {
+        case 12: // AT&T 610
         case 25: // DECTCEM
             term->cursor_enabled = false;
             break;
