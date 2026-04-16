@@ -63,6 +63,8 @@ typedef struct
     uint8_t sb_len;
     uint8_t opts_we_will;
     uint8_t opts_we_do;
+    uint8_t opts_pending_will;
+    uint8_t opts_pending_do;
     bool last_rx_was_cr;
 } tel_conn_t;
 
@@ -85,10 +87,34 @@ static uint8_t tel_opt_bit(uint8_t opt)
     }
 }
 
-static void tel_send_cmd(int desc, uint8_t cmd, uint8_t opt)
+static bool tel_send_cmd(int desc, uint8_t cmd, uint8_t opt)
 {
     char buf[3] = {TEL_IAC, cmd, opt};
-    net_tx(desc, buf, 3);
+    return net_tx(desc, buf, 3) == 3;
+}
+
+static const uint8_t tel_tracked_opts[] = {
+    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE};
+
+static void tel_flush_pending(int desc, tel_conn_t *tc)
+{
+    for (unsigned i = 0; i < sizeof(tel_tracked_opts); i++)
+    {
+        uint8_t opt = tel_tracked_opts[i];
+        uint8_t bit = tel_opt_bit(opt);
+        if ((tc->opts_pending_do & bit) &&
+            tel_send_cmd(desc, TEL_DO, opt))
+        {
+            tc->opts_pending_do &= ~bit;
+            DBG("NET TEL sent pending DO %d\n", opt);
+        }
+        if ((tc->opts_pending_will & bit) &&
+            tel_send_cmd(desc, TEL_WILL, opt))
+        {
+            tc->opts_pending_will &= ~bit;
+            DBG("NET TEL sent pending WILL %d\n", opt);
+        }
+    }
 }
 
 static void tel_handle_sb(int desc, tel_conn_t *tc)
@@ -129,8 +155,10 @@ static void tel_handle_will(int desc, tel_conn_t *tc, uint8_t opt)
         if (!(tc->opts_we_do & bit))
         {
             tc->opts_we_do |= bit;
-            tel_send_cmd(desc, TEL_DO, opt);
-            DBG("NET TEL sent DO %d\n", opt);
+            if (tel_send_cmd(desc, TEL_DO, opt))
+                DBG("NET TEL sent DO %d\n", opt);
+            else
+                tc->opts_pending_do |= bit;
         }
         break;
     default:
@@ -158,8 +186,10 @@ static void tel_handle_do(int desc, tel_conn_t *tc, uint8_t opt)
         if (!(tc->opts_we_will & bit))
         {
             tc->opts_we_will |= bit;
-            tel_send_cmd(desc, TEL_WILL, opt);
-            DBG("NET TEL sent WILL %d\n", opt);
+            if (tel_send_cmd(desc, TEL_WILL, opt))
+                DBG("NET TEL sent WILL %d\n", opt);
+            else
+                tc->opts_pending_will |= bit;
         }
         break;
     default:
@@ -286,13 +316,20 @@ uint16_t tel_rx(int desc, char *buf, uint16_t len)
         return net_rx(desc, buf, len);
 
     tel_conn_t *tc = &tel_conns[desc];
+    if (tc->opts_pending_do || tc->opts_pending_will)
+        tel_flush_pending(desc, tc);
     uint16_t out = 0;
     while (out < len)
     {
-        char byte;
-        if (net_rx(desc, &byte, 1) == 0)
+        char raw[64];
+        uint16_t want = len - out;
+        if (want > sizeof(raw))
+            want = sizeof(raw);
+        uint16_t n = net_rx(desc, raw, want);
+        if (n == 0)
             break;
-        tel_process_rx_byte(desc, tc, (uint8_t)byte, buf, &out, len);
+        for (uint16_t i = 0; i < n; i++)
+            tel_process_rx_byte(desc, tc, (uint8_t)raw[i], buf, &out, len);
     }
     return out;
 }
@@ -374,25 +411,9 @@ void tel_on_connect(int desc)
     tel_conn_t *tc = &tel_conns[desc];
     tc->opts_we_will = TEL_BIT_BINARY | TEL_BIT_SGA | TEL_BIT_TTYPE;
     tc->opts_we_do = TEL_BIT_BINARY | TEL_BIT_SGA;
-
-    char buf[] = {
-        TEL_IAC,
-        TEL_WILL,
-        TEL_OPT_BINARY,
-        TEL_IAC,
-        TEL_DO,
-        TEL_OPT_BINARY,
-        TEL_IAC,
-        TEL_WILL,
-        TEL_OPT_SGA,
-        TEL_IAC,
-        TEL_DO,
-        TEL_OPT_SGA,
-        TEL_IAC,
-        TEL_WILL,
-        TEL_OPT_TTYPE,
-    };
-    net_tx(desc, buf, sizeof(buf));
+    tc->opts_pending_will = tc->opts_we_will;
+    tc->opts_pending_do = tc->opts_we_do;
+    tel_flush_pending(desc, tc);
     DBG("NET TEL sent initial negotiation\n");
 }
 
