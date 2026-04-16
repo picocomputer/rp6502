@@ -225,7 +225,9 @@ bool wfi_ready(void)
 bool wfi_connecting(void)
 {
     return wfi_state == wfi_state_connect ||
-           wfi_state == wfi_state_connecting;
+           wfi_state == wfi_state_connecting ||
+           (wfi_state == wfi_state_connect_failed &&
+            wfi_retry_initial_retry_count < WFI_RETRY_INITIAL_RETRIES);
 }
 
 void wfi_load_ssid(const char *str)
