@@ -87,7 +87,7 @@ bool pix_api_xreg(void)
     case pix_api_running:
         break;
     case pix_api_waiting:
-        if (absolute_time_diff_us(get_absolute_time(), pix_api_state_timer) < 0)
+        if (time_reached(pix_api_state_timer))
         {
             pix_api_state = pix_api_running;
             pix_send_count = 0;

@@ -764,8 +764,7 @@ DSTATUS disk_status(BYTE pdrv)
     }
     // Test for removed media if we haven't used the drive in a while.
     if (msc_vol[vol].removable &&
-        absolute_time_diff_us(msc_vol[vol].last_ok, get_absolute_time()) >=
-            MSC_DISK_STATUS_TIMEOUT_MS * 1000)
+        time_reached(delayed_by_ms(msc_vol[vol].last_ok, MSC_DISK_STATUS_TIMEOUT_MS)))
     {
         DBG_VOL(vol, "disk_status, issuing TUR\n");
         if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED)

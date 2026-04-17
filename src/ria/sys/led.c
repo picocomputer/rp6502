@@ -44,7 +44,7 @@ void led_init(void)
 
 void led_task(void)
 {
-    if (led_blinking && absolute_time_diff_us(get_absolute_time(), led_blink_timer) < 0)
+    if (led_blinking && time_reached(led_blink_timer))
     {
         led_state = !led_state;
         led_set(led_state);

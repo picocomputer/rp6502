@@ -124,8 +124,7 @@ void ria_task(void)
     // check on watchdog unless we explicitly ended or errored
     if (ria_active() && action_result == RIA_ACTION_RESULT_NONE)
     {
-        absolute_time_t now = get_absolute_time();
-        if (absolute_time_diff_us(now, action_watchdog_timer) < 0)
+        if (time_reached(action_watchdog_timer))
         {
             action_result = RIA_ACTION_RESULT_TIMEOUT;
             main_stop();

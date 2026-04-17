@@ -516,7 +516,7 @@ void rln_task(void)
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
         rln_line_rx(ch);
     }
-    if (rln_timeout_ms && absolute_time_diff_us(get_absolute_time(), rln_timer) < 0)
+    if (rln_timeout_ms && time_reached(rln_timer))
     {
         rln_complete(true);
     }

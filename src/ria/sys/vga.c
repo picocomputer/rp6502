@@ -174,7 +174,7 @@ static void vga_connect(void)
                 }
             }
         }
-        if (absolute_time_diff_us(get_absolute_time(), vga_version_timer) < 0)
+        if (time_reached(vga_version_timer))
         {
             vga_state = VGA_NO_VERSION;
             break;

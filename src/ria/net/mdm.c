@@ -233,8 +233,8 @@ static int mdm_tx_command_mode(char ch)
 
 static void mdm_tx_escape_observer(char ch)
 {
-    bool last_char_guarded = absolute_time_diff_us(mdm_conn->escape_last_char, get_absolute_time()) >
-                             MDM_ESCAPE_GUARD_TIME_US;
+    bool last_char_guarded = time_reached(delayed_by_us(mdm_conn->escape_last_char,
+                                                        MDM_ESCAPE_GUARD_TIME_US));
     if (mdm_conn->escape_count && last_char_guarded)
         mdm_conn->escape_count = 0;
     if (mdm_settings->esc_char < 128 && (mdm_conn->escape_count || last_char_guarded))
@@ -763,7 +763,7 @@ void mdm_task()
                 mdm_conn->state = mdm_state_on_hook;
                 mdm_conn->ring_count = 0;
             }
-            else if (absolute_time_diff_us(mdm_conn->ring_timer, get_absolute_time()) > 0 &&
+            else if (time_reached(mdm_conn->ring_timer) &&
                      mdm_conn->response_state < 0)
             {
                 mdm_conn->ring_count++;
@@ -800,7 +800,7 @@ void mdm_task()
             }
         }
         if (mdm_conn->escape_count == MDM_ESCAPE_COUNT &&
-            absolute_time_diff_us(get_absolute_time(), mdm_conn->escape_guard) < 0)
+            time_reached(mdm_conn->escape_guard))
         {
             mdm_conn->in_command_mode = true;
             mdm_conn->cmd_buf_len = 0;

@@ -79,8 +79,7 @@ void mem_task(void)
             cc(false);
         }
     }
-    if (mem_callback &&
-        absolute_time_diff_us(get_absolute_time(), mem_timer) < 0)
+    if (mem_callback && time_reached(mem_timer))
     {
         mem_read_callback_t cc = mem_callback;
         mem_callback = NULL;

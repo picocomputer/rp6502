@@ -307,11 +307,6 @@ static const uint8_t *nfc_parse_response(uint8_t cmd, size_t *resp_len)
     return &f[7];
 }
 
-static bool nfc_timed_out(void)
-{
-    return absolute_time_diff_us(get_absolute_time(), nfc_timeout) < 0;
-}
-
 static void nfc_close_device(void)
 {
     if (nfc_desc >= 0)
@@ -541,7 +536,7 @@ void nfc_task(void)
 
     case NFC_WAIT_DEVICE:
     {
-        if (!nfc_timed_out())
+        if (!time_reached(nfc_timeout))
             break;
         nfc_desc = vcp_nfc_open();
         if (nfc_desc >= 0)
@@ -584,7 +579,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_SCAN_PROBE_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_goto(NFC_SCAN_CLOSE, 0);
         break;
 
@@ -602,7 +597,7 @@ void nfc_task(void)
             bel_add(&bel_nfc_success_2);
             nfc_start_tx(NFC_SAM_TX);
         }
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_goto(NFC_SCAN_CLOSE, 0);
         break;
     }
@@ -632,7 +627,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_SAM_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_recover();
         break;
 
@@ -643,13 +638,13 @@ void nfc_task(void)
         const uint8_t *resp = nfc_parse_response(PN532_CMD_SAMCONFIGURATION, &resp_len);
         if (resp)
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_recover();
         break;
     }
 
     case NFC_IDLE:
-        if (nfc_timed_out())
+        if (time_reached(nfc_timeout))
             nfc_start_tx(NFC_POLL_TX);
         break;
 
@@ -672,7 +667,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_POLL_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_recover();
         break;
 
@@ -695,7 +690,7 @@ void nfc_task(void)
             else
                 nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         }
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         break;
     }
@@ -719,7 +714,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_CC_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_start_tx(NFC_READ_TX);
         break;
 
@@ -738,7 +733,7 @@ void nfc_task(void)
             }
             nfc_start_tx(NFC_READ_TX);
         }
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_start_tx(NFC_READ_TX);
         break;
     }
@@ -765,7 +760,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_READ_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
         {
             bel_add(&bel_nfc_fail);
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
@@ -826,7 +821,7 @@ void nfc_task(void)
                 nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
             }
         }
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
         {
             bel_add(&bel_nfc_fail);
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
@@ -835,7 +830,7 @@ void nfc_task(void)
     }
 
     case NFC_CARD_PRESENT:
-        if (nfc_timed_out())
+        if (time_reached(nfc_timeout))
         {
             if (nfc_write_armed && !nfc_write_failed)
             {
@@ -876,7 +871,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_DETECT_REMOVAL_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_recover();
         break;
 
@@ -892,7 +887,7 @@ void nfc_task(void)
             else
                 nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         }
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_goto(NFC_IDLE, NFC_POLL_INTERVAL_MS);
         break;
     }
@@ -930,7 +925,7 @@ void nfc_task(void)
         nfc_recv();
         if (nfc_check_ack())
             nfc_goto(NFC_TAG_WRITE_RX, NFC_RESPONSE_TIMEOUT_MS);
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_write_fail();
         break;
 
@@ -959,7 +954,7 @@ void nfc_task(void)
             else
                 nfc_write_fail();
         }
-        else if (nfc_timed_out())
+        else if (time_reached(nfc_timeout))
             nfc_write_fail();
         break;
     }

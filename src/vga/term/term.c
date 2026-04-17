@@ -1012,16 +1012,15 @@ void term_init(void)
 
 static void term_blink_cursor(term_state_t *term)
 {
-    absolute_time_t now = get_absolute_time();
-    if (absolute_time_diff_us(now, term->timer) < 0)
+    if (time_reached(term->timer))
     {
         term_cursor_set_inv(term, !term->cursor_is_inv);
         // 0.3ms drift to avoid blinking cursor tearing
         if (term->x == term->width)
             // fast blink when off right side
-            term->timer = delayed_by_us(now, 249700);
+            term->timer = delayed_by_us(get_absolute_time(), 249700);
         else
-            term->timer = delayed_by_us(now, 499700);
+            term->timer = delayed_by_us(get_absolute_time(), 499700);
     }
 }
 

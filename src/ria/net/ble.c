@@ -461,8 +461,7 @@ void ble_task(void)
         return;
     }
 
-    if (ble_hid_leds_at &&
-        absolute_time_diff_us(get_absolute_time(), ble_hid_leds_at) < 0)
+    if (ble_hid_leds_at && time_reached(ble_hid_leds_at))
     {
         ble_hid_leds_at = 0;
         for (uint8_t i = 0; i < ble_count_kbd; i++)
@@ -473,8 +472,7 @@ void ble_task(void)
                 ble_hid_leds_at = make_timeout_time_ms(100);
     }
 
-    if (ble_scan_restarts_at &&
-        absolute_time_diff_us(get_absolute_time(), ble_scan_restarts_at) < 0)
+    if (ble_scan_restarts_at && time_reached(ble_scan_restarts_at))
     {
         ble_scan_restarts_at = 0;
         if (ble_connecting_handle != HCI_CON_HANDLE_INVALID)

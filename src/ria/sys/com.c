@@ -127,7 +127,7 @@ static int com_rx_merge(char *buf, int length)
 
     // Expire UART/TEL source once idle for 1ms
     if ((source == SRC_UART || source == SRC_TEL) &&
-        absolute_time_diff_us(get_absolute_time(), idle_timer) < 0)
+        time_reached(idle_timer))
         source = SRC_NONE;
 
     if (source == SRC_KBD || source == SRC_NONE)

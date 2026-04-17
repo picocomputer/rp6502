@@ -584,7 +584,7 @@ void kbd_init(void)
 
 void kbd_task(void)
 {
-    if (kbd_repeat_keycode && absolute_time_diff_us(get_absolute_time(), kbd_repeat_timer) < 0)
+    if (kbd_repeat_keycode && time_reached(kbd_repeat_timer))
     {
         if (KBD_KEY_BIT_VAL(kbd_keys, kbd_repeat_keycode) &&
             KBD_MODIFIER(kbd_keys) == kbd_repeat_modifier)

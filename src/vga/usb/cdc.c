@@ -81,7 +81,7 @@ void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms)
 
 void cdc_task(void)
 {
-    if (is_breaking && absolute_time_diff_us(get_absolute_time(), break_timer) < 0)
+    if (is_breaking && time_reached(break_timer))
     {
         is_breaking = false;
         com_set_uart_break(false);

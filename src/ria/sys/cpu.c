@@ -75,8 +75,7 @@ void cpu_task(void)
         if (cpu_run_requested)
         {
             // Enforce minimum RESB time
-            absolute_time_t now = get_absolute_time();
-            if (absolute_time_diff_us(now, cpu_resb_timer) < 0)
+            if (time_reached(cpu_resb_timer))
                 gpio_put(CPU_RESB_PIN, true);
         }
         else if (cpu_phi2_khz_run != cpu_phi2_khz_set)

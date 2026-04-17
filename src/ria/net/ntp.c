@@ -183,7 +183,7 @@ void ntp_task(void)
         ntp_state = ntp_state_request_wait;
         break;
     case ntp_state_dns_wait:
-        if (absolute_time_diff_us(get_absolute_time(), ntp_timeout_timer) < 0)
+        if (time_reached(ntp_timeout_timer))
         {
             DBG("NET NTP DNS timeout\n");
             ntp_retry();
@@ -191,7 +191,7 @@ void ntp_task(void)
         }
         break;
     case ntp_state_request_wait:
-        if (absolute_time_diff_us(get_absolute_time(), ntp_timeout_timer) < 0)
+        if (time_reached(ntp_timeout_timer))
         {
             DBG("NET NTP request timeout\n");
             ntp_retry();
@@ -204,7 +204,7 @@ void ntp_task(void)
     case ntp_state_dns_fail:
     case ntp_state_request_timeout:
     case ntp_state_set_time_fail:
-        if (absolute_time_diff_us(get_absolute_time(), ntp_retry_timer) < 0)
+        if (time_reached(ntp_retry_timer))
             ntp_state = ntp_state_init;
         break;
     }
