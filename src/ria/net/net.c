@@ -42,10 +42,23 @@ typedef struct
     uint8_t pbuf_head;
     uint8_t pbuf_tail;
     uint16_t pbuf_pos;
+    uint16_t dns_gen;
     void (*on_close)(int);
 } net_conn_t;
 
 static net_conn_t net_conns[NET_MAX_CONNECTIONS];
+
+// Per-descriptor context passed as the DNS callback arg. lwIP has no cancel
+// API, so a resolution can complete after the caller has moved on to a new
+// connection on the same descriptor. The gen snapshot lets the callback tell
+// "this lookup is mine" from "this lookup is stale".
+typedef struct
+{
+    net_conn_t *nc;
+    uint16_t gen;
+} net_dns_ctx_t;
+
+static net_dns_ctx_t net_dns_ctxs[NET_MAX_CONNECTIONS];
 
 typedef struct
 {
@@ -73,6 +86,29 @@ static void net_drain(net_conn_t *nc)
     nc->pbuf_pos = 0;
 }
 
+// Detach all callbacks from pcb and close or abort it. Returns true if
+// tcp_abort was invoked (either directly for an unconnected pcb, or as a
+// fallback after tcp_close refused). Callers inside a tcp callback must
+// translate a true return into ERR_ABRT.
+static bool net_pcb_teardown(struct tcp_pcb *pcb, bool connected)
+{
+    tcp_arg(pcb, NULL);
+    tcp_err(pcb, NULL);
+    tcp_recv(pcb, NULL);
+    if (!connected)
+    {
+        DBG("NET tcp_abort\n");
+        tcp_abort(pcb);
+        return true;
+    }
+    DBG("NET tcp_close\n");
+    if (tcp_close(pcb) == ERR_OK)
+        return false;
+    DBG("NET tcp_close failed\n");
+    tcp_abort(pcb);
+    return true;
+}
+
 void net_close(int desc)
 {
     net_conn_t *nc = &net_conns[desc];
@@ -86,29 +122,17 @@ void net_close(int desc)
         nc->on_close(desc);
     if (nc->pcb)
     {
-        tcp_arg(nc->pcb, NULL);
-        tcp_err(nc->pcb, NULL);
-        tcp_recv(nc->pcb, NULL);
         switch (state)
         {
         case net_state_connecting:
-            DBG("NET tcp_abort\n");
-            tcp_abort(nc->pcb);
+            net_pcb_teardown(nc->pcb, false);
             nc->pcb = NULL;
             return;
         case net_state_connected:
         case net_state_closing:
-        {
-            DBG("NET tcp_close\n");
-            err_t err = tcp_close(nc->pcb);
-            if (err != ERR_OK)
-            {
-                DBG("NET tcp_close failed\n");
-                tcp_abort(nc->pcb);
-            }
+            net_pcb_teardown(nc->pcb, true);
             nc->pcb = NULL;
             return;
-        }
         case net_state_closed:
         case net_state_dns_lookup:
             break;
@@ -168,8 +192,12 @@ uint16_t net_tx(int desc, const char *buf, uint16_t len)
             tcp_output(nc->pcb);
             return len;
         }
-        if (err == ERR_CONN)
-            net_close(desc);
+        if (err == ERR_MEM)
+            return 0;
+        // ERR_CONN/ERR_CLSD/ERR_ABRT/ERR_RST and any unclassified err_t:
+        // treat as terminal. Retrying an unknown error can spin.
+        DBG("NET tcp_write err %d, closing\n", err);
+        net_close(desc);
     }
     return 0;
 }
@@ -186,8 +214,10 @@ bool net_tx_all(int desc, const char *buf, uint16_t len)
     err_t err = tcp_write(nc->pcb, buf, len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
     {
-        if (err == ERR_CONN)
-            net_close(desc);
+        if (err == ERR_MEM)
+            return false;
+        DBG("NET tcp_write err %d, closing\n", err);
+        net_close(desc);
         return false;
     }
     tcp_output(nc->pcb);
@@ -198,17 +228,35 @@ static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err
 {
     net_conn_t *nc = (net_conn_t *)arg;
     int desc = net_desc(nc);
-    (void)tpcb;
-    (void)err;
-    assert(err == ERR_OK);
+    // Docs promise err == ERR_OK today but reserve the right to change that.
+    // Treat any non-OK as a terminal condition: free pbuf (contract: we own
+    // it once we return ERR_OK) and tear down inline.
+    if (err != ERR_OK)
+    {
+        DBG("NET net_recv err %d\n", err);
+        if (p)
+            pbuf_free(p);
+        nc->state = net_state_closed;
+        net_drain(nc);
+        if (nc->on_close)
+            nc->on_close(desc);
+        nc->pcb = NULL;
+        return net_pcb_teardown(tpcb, false) ? ERR_ABRT : ERR_OK;
+    }
     if (!p)
     {
         nc->state = net_state_closing;
         if (nc->on_close)
             nc->on_close(desc);
-        if (nc->pbuf_head == nc->pbuf_tail)
-            net_close(desc);
-        return ERR_OK;
+        // on_close may have called net_close, which would have already torn
+        // down tpcb. Detect that and bail.
+        if (nc->state != net_state_closing || nc->pcb != tpcb)
+            return ERR_OK;
+        if (nc->pbuf_head != nc->pbuf_tail)
+            return ERR_OK; // defer close until net_rx drains the ring
+        nc->pcb = NULL;
+        nc->state = net_state_closed;
+        return net_pcb_teardown(tpcb, true) ? ERR_ABRT : ERR_OK;
     }
     if (nc->state == net_state_connected)
     {
@@ -228,8 +276,15 @@ static err_t net_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     net_conn_t *nc = (net_conn_t *)arg;
     int desc = net_desc(nc);
     (void)tpcb;
-    (void)err;
-    assert(err == ERR_OK);
+    // Docs annotate err as "always ERR_OK currently ;-) @todo!" — connect
+    // failures currently arrive via the err callback. Future-proof: if err
+    // ever carries a real error, close cleanly instead of asserting.
+    if (err != ERR_OK)
+    {
+        DBG("NET net_connected err %d\n", err);
+        net_close(desc);
+        return ERR_OK;
+    }
     DBG("NET TCP Connected %d\n", err);
     nc->state = net_state_connected;
     if (desc < NET_MDM_DESCS)
@@ -251,10 +306,15 @@ static void net_err(void *arg, err_t err)
 
 static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
-    net_conn_t *nc = (net_conn_t *)arg;
+    net_dns_ctx_t *ctx = (net_dns_ctx_t *)arg;
+    net_conn_t *nc = ctx->nc;
     (void)name;
-    if (nc->state != net_state_dns_lookup)
+    // Drop stale callbacks from a previous net_open on this descriptor.
+    if (ctx->gen != nc->dns_gen || nc->state != net_state_dns_lookup)
+    {
+        DBG("NET DNS stale callback dropped\n");
         return;
+    }
     if (!ipaddr)
     {
         DBG("NET DNS did not resolve\n");
@@ -290,7 +350,10 @@ bool net_open(int desc, const char *hostname, uint16_t port,
     nc->on_close = on_close;
     ip_addr_t ipaddr;
     nc->port = port;
-    err_t err = dns_gethostbyname(hostname, &ipaddr, net_dns_found, nc);
+    net_dns_ctx_t *ctx = &net_dns_ctxs[desc];
+    ctx->nc = nc;
+    ctx->gen = ++nc->dns_gen;
+    err_t err = dns_gethostbyname(hostname, &ipaddr, net_dns_found, ctx);
     if (err == ERR_INPROGRESS)
     {
         DBG("NET DNS looking up\n");
@@ -301,10 +364,11 @@ bool net_open(int desc, const char *hostname, uint16_t port,
     {
         DBG("NET DNS resolved locally\n");
         nc->state = net_state_dns_lookup;
-        net_dns_found(hostname, &ipaddr, nc);
+        net_dns_found(hostname, &ipaddr, ctx);
         return nc->state == net_state_connecting;
     }
     DBG("NET dns_gethostbyname (%d)\n", err);
+    nc->port = 0;
     return false;
 }
 
@@ -314,6 +378,18 @@ static net_listener_t *net_find_listener(uint16_t port)
         if (net_listeners[i].ref_count > 0 && net_listeners[i].port == port)
             return &net_listeners[i];
     return NULL;
+}
+
+// Fires if the pending pcb is aborted by lwIP (e.g. remote RST) before the
+// user calls net_accept. lwIP has already freed the pcb, so we just drop our
+// dangling pointer.
+static void net_pending_err(void *arg, err_t err)
+{
+    net_listener_t *nl = (net_listener_t *)arg;
+    (void)err;
+    DBG("NET pending pcb err %d\n", err);
+    if (nl)
+        nl->pending_pcb = NULL;
 }
 
 static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
@@ -326,11 +402,17 @@ static err_t net_accept_cb(void *arg, struct tcp_pcb *newpcb, err_t err)
         return ERR_ABRT;
     }
     nl->pending_pcb = newpcb;
+    // Register a safety err callback so a RST arriving before net_accept
+    // doesn't leave us with a dangling pending_pcb.
+    tcp_arg(newpcb, nl);
+    tcp_err(newpcb, net_pending_err);
     bool handled = nl->on_accept ? nl->on_accept(nl->port) : false;
     if (!handled)
     {
         if (nl->pending_pcb)
         {
+            tcp_arg(nl->pending_pcb, NULL);
+            tcp_err(nl->pending_pcb, NULL);
             tcp_abort(nl->pending_pcb);
             nl->pending_pcb = NULL;
         }
@@ -369,14 +451,16 @@ bool net_listen(uint16_t port, net_accept_fn on_accept)
     if (err != ERR_OK)
     {
         DBG("NET tcp_bind port %u failed %d\n", port, err);
-        tcp_close(pcb);
+        if (tcp_close(pcb) != ERR_OK)
+            tcp_abort(pcb);
         return false;
     }
     struct tcp_pcb *listen_pcb = tcp_listen_with_backlog(pcb, 1);
     if (!listen_pcb)
     {
         DBG("NET tcp_listen failed\n");
-        tcp_close(pcb);
+        if (tcp_close(pcb) != ERR_OK)
+            tcp_abort(pcb);
         return false;
     }
     nl->port = port;
@@ -399,10 +483,13 @@ void net_listen_close(uint16_t port)
     {
         if (nl->pending_pcb)
         {
+            tcp_arg(nl->pending_pcb, NULL);
+            tcp_err(nl->pending_pcb, NULL);
             tcp_abort(nl->pending_pcb);
             nl->pending_pcb = NULL;
         }
-        tcp_close(nl->listen_pcb);
+        if (tcp_close(nl->listen_pcb) != ERR_OK)
+            tcp_abort(nl->listen_pcb);
         nl->listen_pcb = NULL;
         nl->port = 0;
         DBG("NET listener closed on port %u\n", port);
@@ -419,6 +506,7 @@ bool net_accept(int desc, uint16_t port, void (*on_close)(int))
     nl->pending_pcb = NULL;
     nc->state = net_state_connected;
     nc->on_close = on_close;
+    // Re-arm callbacks from the listener's safety wiring onto this conn.
     tcp_arg(nc->pcb, nc);
     tcp_nagle_disable(nc->pcb);
     tcp_err(nc->pcb, net_err);
@@ -437,6 +525,8 @@ void net_reject(uint16_t port)
     net_listener_t *nl = net_find_listener(port);
     if (nl && nl->pending_pcb)
     {
+        tcp_arg(nl->pending_pcb, NULL);
+        tcp_err(nl->pending_pcb, NULL);
         tcp_abort(nl->pending_pcb);
         nl->pending_pcb = NULL;
     }
