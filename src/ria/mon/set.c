@@ -252,12 +252,9 @@ static int set_key_response(char *buf, size_t buf_size, int state)
 static int set_port_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    char suffix[24];
-    if (tel_get_port() > 0 && tel_get_key()[0])
-        suffix[0] = 0;
-    else
-        snprintf(suffix, sizeof(suffix), " (%s)", STR_DISABLED);
-    snprintf(buf, buf_size, STR_SET_PORT_RESPONSE, tel_get_port(), suffix);
+    bool en = tel_get_port() > 0 && tel_get_key()[0];
+    snprintf(buf, buf_size, STR_SET_PORT_RESPONSE,
+             tel_get_port(), en ? STR_ENABLED : STR_DISABLED);
     return -1;
 }
 
