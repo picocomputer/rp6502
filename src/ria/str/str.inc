@@ -123,6 +123,11 @@ X(STR_SET_PORT_RESPONSE, "PORT: %u\n")
 X(STR_SET_KEY_RESPONSE, "KEY : %s\n")
 X(STR_SET_BLE_RESPONSE, "BLE : %d (%s%s%s)\n")
 
+// Telnet console
+X(STR_TEL_PASSKEY, "\r\nPasskey: ")
+X(STR_TEL_CONNECTED, "\r\nConnected\r\n")
+X(STR_TEL_ACCESS_DENIED, "\r\n?Access denied\r\n")
+
 // Virtual modem
 X(STR_MDM_RESPONSE_0, "OK")
 X(STR_MDM_RESPONSE_1, "CONNECT")

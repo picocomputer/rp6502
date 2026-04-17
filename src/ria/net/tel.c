@@ -48,7 +48,9 @@ bool tel_set_key(const char *key)
 #include "net/net.h"
 #include "net/tel.h"
 #include "net/wfi.h"
+#include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/pix.h"
 #include <pico/stdlib.h>
 #include <stdlib.h>
 #include <string.h>
@@ -439,7 +441,7 @@ static uint16_t tel_tx_step(uint8_t byte, bool binary_tx, int next)
         return 2;
     if (byte == '\r' && !binary_tx && next >= 0 && next != '\n')
         return 2; // bare CR -> CR NUL
-    return 1; // deferred CR (next==-1) is 1; NUL sent on next call
+    return 1;     // deferred CR (next==-1) is 1; NUL sent on next call
 }
 
 uint16_t tel_tx(int desc, const char *buf, uint16_t len)
@@ -705,12 +707,21 @@ const char *tel_get_key(void)
 
 // -- Connection management --
 
+// Tell the VGA term to suppress/resume local replies (CPR/DA/DSR)
+// while the telnet console owns the input stream.
+static void tel_console_active(bool active)
+{
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, active ? 1 : 0);
+}
+
 static void tel_on_disconnect(int desc)
 {
     (void)desc;
     if (tel_state == tel_state_auth || tel_state == tel_state_connected)
     {
         DBG("NET TEL console disconnected\n");
+        if (tel_state == tel_state_connected)
+            tel_console_active(false);
         tel_state = tel_state_listening;
         tel_tx_head = tel_tx_tail = 0;
         tel_rx_head = tel_rx_tail = 0;
@@ -727,7 +738,7 @@ static bool tel_on_accept(uint16_t port)
         return false;
 
     tel_negotiate_server(SYS_TEL_DESC);
-    tel_tx(SYS_TEL_DESC, "\r\nPasskey: ", 11);
+    tel_tx(SYS_TEL_DESC, STR_TEL_PASSKEY, STR_TEL_PASSKEY_LEN);
 
     tel_auth_len = 0;
     tel_tx_head = tel_tx_tail = 0;
@@ -740,7 +751,11 @@ static bool tel_on_accept(uint16_t port)
 static void tel_shutdown(void)
 {
     if (tel_state == tel_state_auth || tel_state == tel_state_connected)
+    {
+        if (tel_state == tel_state_connected)
+            tel_console_active(false);
         tel_close(SYS_TEL_DESC);
+    }
     if (tel_state >= tel_state_listening)
     {
         net_listen_close(tel_active_port);
@@ -770,17 +785,17 @@ static void tel_handle_auth(uint8_t ch)
     }
     else if (ch == '\r' || ch == '\n')
     {
-        //TODO use str.c
         tel_auth_buf[tel_auth_len] = 0;
         if (strcmp(tel_auth_buf, tel_key) == 0)
         {
-            tel_tx(SYS_TEL_DESC, "\r\nConnected\r\n", 13);
+            tel_tx(SYS_TEL_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             tel_state = tel_state_connected;
+            tel_console_active(true);
             DBG("NET TEL console authenticated\n");
         }
         else
         {
-            tel_tx(SYS_TEL_DESC, "\r\n?Access denied\r\n", 18);
+            tel_tx(SYS_TEL_DESC, STR_TEL_ACCESS_DENIED, STR_TEL_ACCESS_DENIED_LEN);
             DBG("NET TEL console auth failed\n");
             tel_state = tel_state_listening;
             tel_close(SYS_TEL_DESC);
@@ -802,8 +817,7 @@ static void tel_drain_rx(void)
     size_t limit = TEL_RX_BUF_SIZE;
     if (tel_state == tel_state_connected)
     {
-        size_t used = (tel_rx_head - tel_rx_tail + TEL_RX_BUF_SIZE)
-                      % TEL_RX_BUF_SIZE;
+        size_t used = (tel_rx_head - tel_rx_tail + TEL_RX_BUF_SIZE) % TEL_RX_BUF_SIZE;
         limit = TEL_RX_BUF_SIZE - 1 - used;
         if (limit == 0)
             return;
