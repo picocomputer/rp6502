@@ -99,12 +99,12 @@ void cpu_stop(void)
     cpu_run_requested = false;
     __dmb();
     gpio_put(CPU_RESB_PIN, false);
-    cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
+    cpu_resb_timer = make_timeout_time_us(cpu_get_reset_us());
 }
 
 void cpu_reclock(void)
 {
-    cpu_resb_timer = delayed_by_us(get_absolute_time(), cpu_get_reset_us());
+    cpu_resb_timer = make_timeout_time_us(cpu_get_reset_us());
 }
 
 bool cpu_active(void)

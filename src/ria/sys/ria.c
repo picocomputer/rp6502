@@ -64,9 +64,8 @@ void ria_run(void)
     action_result = RIA_ACTION_RESULT_NONE;
     saved_reset_vec = REGSW(0xFFFC);
     REGSW(0xFFFC) = 0xFFF0;
-    action_watchdog_timer = delayed_by_us(get_absolute_time(),
-                                          cpu_get_reset_us() +
-                                              RIA_WATCHDOG_MS * 1000);
+    action_watchdog_timer = make_timeout_time_us(cpu_get_reset_us() +
+                                                 RIA_WATCHDOG_MS * 1000);
     switch (action_state)
     {
     case action_state_write:

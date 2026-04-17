@@ -1018,9 +1018,9 @@ static void term_blink_cursor(term_state_t *term)
         // 0.3ms drift to avoid blinking cursor tearing
         if (term->x == term->width)
             // fast blink when off right side
-            term->timer = delayed_by_us(get_absolute_time(), 249700);
+            term->timer = make_timeout_time_us(249700);
         else
-            term->timer = delayed_by_us(get_absolute_time(), 499700);
+            term->timer = make_timeout_time_us(499700);
     }
 }
 
