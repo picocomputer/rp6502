@@ -174,6 +174,26 @@ uint16_t net_tx(int desc, const char *buf, uint16_t len)
     return 0;
 }
 
+// All-or-nothing send. Use when partial writes would corrupt a framed message
+// (IAC triples, subnegotiation). Returns true if the whole buffer was queued.
+bool net_tx_all(int desc, const char *buf, uint16_t len)
+{
+    net_conn_t *nc = &net_conns[desc];
+    if (!nc->pcb || nc->state != net_state_connected)
+        return false;
+    if (tcp_sndbuf(nc->pcb) < len)
+        return false;
+    err_t err = tcp_write(nc->pcb, buf, len, TCP_WRITE_FLAG_COPY);
+    if (err != ERR_OK)
+    {
+        if (err == ERR_CONN)
+            net_close(desc);
+        return false;
+    }
+    tcp_output(nc->pcb);
+    return true;
+}
+
 static err_t net_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err)
 {
     net_conn_t *nc = (net_conn_t *)arg;

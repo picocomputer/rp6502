@@ -83,11 +83,28 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define TEL_TTYPE_IS 0
 #define TEL_TTYPE_SEND 1
 
-// Bitmask positions for tracked options
-#define TEL_BIT_BINARY 0x01
-#define TEL_BIT_ECHO 0x02
-#define TEL_BIT_SGA 0x04
-#define TEL_BIT_TTYPE 0x08
+// Tracked options — indexed into us[]/him[] state arrays.
+enum
+{
+    TEL_IDX_BINARY,
+    TEL_IDX_ECHO,
+    TEL_IDX_SGA,
+    TEL_IDX_TTYPE,
+    TEL_OPT_COUNT,
+};
+static const uint8_t tel_opt_codes[TEL_OPT_COUNT] = {
+    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE};
+
+// RFC 1143 Q-method per-option states.
+typedef enum
+{
+    tel_q_no,
+    tel_q_yes,
+    tel_q_wantno,
+    tel_q_wantno_op,
+    tel_q_wantyes,
+    tel_q_wantyes_op,
+} tel_q_t;
 
 typedef enum
 {
@@ -106,12 +123,13 @@ typedef struct
     tel_rx_state_t rx_state;
     uint8_t sb_buf[48];
     uint8_t sb_len;
-    uint8_t opts_we_will;
-    uint8_t opts_we_do;
-    uint8_t opts_pending_will;
-    uint8_t opts_pending_do;
-    uint8_t opts_sent_will;
-    uint8_t opts_sent_do;
+    uint8_t us[TEL_OPT_COUNT];  // our side (WILL/WONT)
+    uint8_t him[TEL_OPT_COUNT]; // remote side (DO/DONT)
+    // Retry bitmaps — one bit per option, at most one of the four set per opt.
+    uint8_t pending_will;
+    uint8_t pending_wont;
+    uint8_t pending_do;
+    uint8_t pending_dont;
     bool last_rx_was_cr;
     bool tx_cr_pending;
     bool telnet_mode;
@@ -123,50 +141,201 @@ typedef struct
 
 static tel_conn_t tel_conns[NET_MAX_CONNECTIONS];
 
-static uint8_t tel_opt_bit(uint8_t opt)
+static int tel_opt_idx(uint8_t code)
 {
-    switch (opt)
+    for (int i = 0; i < TEL_OPT_COUNT; i++)
+        if (tel_opt_codes[i] == code)
+            return i;
+    return -1;
+}
+
+// Policy: which options we accept when the peer asks us to enable.
+static bool tel_accept_us(const tel_conn_t *tc, int idx)
+{
+    if (idx == TEL_IDX_ECHO)
+        return tc->is_server; // terminal must not echo; only server echoes
+    return idx == TEL_IDX_BINARY || idx == TEL_IDX_SGA || idx == TEL_IDX_TTYPE;
+}
+
+// Policy: which options we accept when the peer offers to enable.
+static bool tel_accept_him(const tel_conn_t *tc, int idx)
+{
+    (void)tc;
+    // Peer TTYPE is never offered via WILL (peer sends WILL TTYPE only in
+    // response to our DO TTYPE). Accept the rest.
+    return idx == TEL_IDX_BINARY || idx == TEL_IDX_ECHO || idx == TEL_IDX_SGA;
+}
+
+static bool tel_raw_send(int desc, uint8_t cmd, uint8_t opt)
+{
+    char buf[3] = {(char)TEL_IAC, (char)cmd, (char)opt};
+    return net_tx_all(desc, buf, 3);
+}
+
+// Atomic IAC triple send. Clears any earlier pending command for this option,
+// then sets the appropriate pending bit on failure.
+static void tel_q_send(int desc, tel_conn_t *tc, uint8_t cmd, int idx)
+{
+    uint8_t bit = (uint8_t)(1u << idx);
+    tc->pending_will &= ~bit;
+    tc->pending_wont &= ~bit;
+    tc->pending_do &= ~bit;
+    tc->pending_dont &= ~bit;
+    if (tel_raw_send(desc, cmd, tel_opt_codes[idx]))
+        return;
+    switch (cmd)
     {
-    case TEL_OPT_BINARY:
-        return TEL_BIT_BINARY;
-    case TEL_OPT_ECHO:
-        return TEL_BIT_ECHO;
-    case TEL_OPT_SGA:
-        return TEL_BIT_SGA;
-    case TEL_OPT_TTYPE:
-        return TEL_BIT_TTYPE;
-    default:
-        return 0;
+    case TEL_WILL:
+        tc->pending_will |= bit;
+        break;
+    case TEL_WONT:
+        tc->pending_wont |= bit;
+        break;
+    case TEL_DO:
+        tc->pending_do |= bit;
+        break;
+    case TEL_DONT:
+        tc->pending_dont |= bit;
+        break;
     }
 }
 
-static bool tel_send_cmd(int desc, uint8_t cmd, uint8_t opt)
+// Retry any commands whose previous atomic send failed.
+static void tel_q_flush(int desc, tel_conn_t *tc)
 {
-    char buf[3] = {TEL_IAC, cmd, opt};
-    return net_tx(desc, buf, 3) == 3;
+    uint8_t any = tc->pending_will | tc->pending_wont |
+                  tc->pending_do | tc->pending_dont;
+    if (!any)
+        return;
+    for (int i = 0; i < TEL_OPT_COUNT; i++)
+    {
+        uint8_t bit = (uint8_t)(1u << i);
+        if (tc->pending_will & bit)
+            tel_q_send(desc, tc, TEL_WILL, i);
+        else if (tc->pending_wont & bit)
+            tel_q_send(desc, tc, TEL_WONT, i);
+        else if (tc->pending_do & bit)
+            tel_q_send(desc, tc, TEL_DO, i);
+        else if (tc->pending_dont & bit)
+            tel_q_send(desc, tc, TEL_DONT, i);
+    }
 }
 
-static const uint8_t tel_tracked_opts[] = {
-    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE};
-
-static void tel_flush_pending(int desc, tel_conn_t *tc)
+// RFC 1143: peer sent WILL opt — drives our view of him[].
+static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
 {
-    for (unsigned i = 0; i < sizeof(tel_tracked_opts); i++)
+    switch (tc->him[idx])
     {
-        uint8_t opt = tel_tracked_opts[i];
-        uint8_t bit = tel_opt_bit(opt);
-        if ((tc->opts_pending_do & bit) &&
-            tel_send_cmd(desc, TEL_DO, opt))
+    case tel_q_no:
+        if (tel_accept_him(tc, idx))
         {
-            tc->opts_pending_do &= ~bit;
-            DBG("NET TEL sent pending DO %d\n", opt);
+            tc->him[idx] = tel_q_yes;
+            tel_q_send(desc, tc, TEL_DO, idx);
         }
-        if ((tc->opts_pending_will & bit) &&
-            tel_send_cmd(desc, TEL_WILL, opt))
+        else
         {
-            tc->opts_pending_will &= ~bit;
-            DBG("NET TEL sent pending WILL %d\n", opt);
+            tel_q_send(desc, tc, TEL_DONT, idx);
         }
+        break;
+    case tel_q_yes:
+        break;
+    case tel_q_wantno:
+        tc->him[idx] = tel_q_no; // error: DONT answered by WILL
+        break;
+    case tel_q_wantno_op:
+        tc->him[idx] = tel_q_yes; // error: DONT answered by WILL
+        break;
+    case tel_q_wantyes:
+        tc->him[idx] = tel_q_yes;
+        break;
+    case tel_q_wantyes_op:
+        tc->him[idx] = tel_q_wantno;
+        tel_q_send(desc, tc, TEL_DONT, idx);
+        break;
+    }
+}
+
+// RFC 1143: peer sent WONT opt.
+static void tel_q_recv_wont(int desc, tel_conn_t *tc, int idx)
+{
+    switch (tc->him[idx])
+    {
+    case tel_q_no:
+        break;
+    case tel_q_yes:
+        tc->him[idx] = tel_q_no;
+        tel_q_send(desc, tc, TEL_DONT, idx);
+        break;
+    case tel_q_wantno:
+        tc->him[idx] = tel_q_no;
+        break;
+    case tel_q_wantno_op:
+        tc->him[idx] = tel_q_wantyes;
+        tel_q_send(desc, tc, TEL_DO, idx);
+        break;
+    case tel_q_wantyes:
+    case tel_q_wantyes_op:
+        tc->him[idx] = tel_q_no;
+        break;
+    }
+}
+
+// RFC 1143: peer sent DO opt — drives us[].
+static void tel_q_recv_do(int desc, tel_conn_t *tc, int idx)
+{
+    switch (tc->us[idx])
+    {
+    case tel_q_no:
+        if (tel_accept_us(tc, idx))
+        {
+            tc->us[idx] = tel_q_yes;
+            tel_q_send(desc, tc, TEL_WILL, idx);
+        }
+        else
+        {
+            tel_q_send(desc, tc, TEL_WONT, idx);
+        }
+        break;
+    case tel_q_yes:
+        break;
+    case tel_q_wantno:
+        tc->us[idx] = tel_q_no; // error: WONT answered by DO
+        break;
+    case tel_q_wantno_op:
+        tc->us[idx] = tel_q_yes; // error
+        break;
+    case tel_q_wantyes:
+        tc->us[idx] = tel_q_yes;
+        break;
+    case tel_q_wantyes_op:
+        tc->us[idx] = tel_q_wantno;
+        tel_q_send(desc, tc, TEL_WONT, idx);
+        break;
+    }
+}
+
+// RFC 1143: peer sent DONT opt.
+static void tel_q_recv_dont(int desc, tel_conn_t *tc, int idx)
+{
+    switch (tc->us[idx])
+    {
+    case tel_q_no:
+        break;
+    case tel_q_yes:
+        tc->us[idx] = tel_q_no;
+        tel_q_send(desc, tc, TEL_WONT, idx);
+        break;
+    case tel_q_wantno:
+        tc->us[idx] = tel_q_no;
+        break;
+    case tel_q_wantno_op:
+        tc->us[idx] = tel_q_wantyes;
+        tel_q_send(desc, tc, TEL_WILL, idx);
+        break;
+    case tel_q_wantyes:
+    case tel_q_wantyes_op:
+        tc->us[idx] = tel_q_no;
+        break;
     }
 }
 
@@ -192,107 +361,39 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
         pos += ttype_len;
         buf[pos++] = TEL_IAC;
         buf[pos++] = TEL_SE;
-        net_tx(desc, buf, pos);
-        DBG("NET TEL sent TTYPE IS %s\n", tc->ttype);
+        // Atomic: on failure the peer can resend TTYPE SEND.
+        if (net_tx_all(desc, buf, pos))
+            DBG("NET TEL sent TTYPE IS %s\n", tc->ttype);
     }
 }
 
-static void tel_handle_will(int desc, tel_conn_t *tc, uint8_t opt)
+// Dispatch one received negotiation byte. idx<0 for unknown options: respond
+// with DONT/WONT without tracking state (peer can resend if lost).
+static void tel_dispatch_neg(int desc, tel_conn_t *tc, uint8_t cmd, uint8_t opt)
 {
-    uint8_t bit = tel_opt_bit(opt);
-    switch (opt)
+    int idx = tel_opt_idx(opt);
+    if (idx < 0)
     {
-    case TEL_OPT_ECHO:
-    case TEL_OPT_SGA:
-    case TEL_OPT_BINARY:
-        if (tc->opts_sent_do & bit)
-        {
-            // Confirmation of our DO request
-            tc->opts_sent_do &= ~bit;
-            tc->opts_we_do |= bit;
-            DBG("NET TEL confirmed DO %d\n", opt);
-        }
-        else if (!(tc->opts_we_do & bit))
-        {
-            // Remote initiated
-            tc->opts_we_do |= bit;
-            if (tel_send_cmd(desc, TEL_DO, opt))
-                DBG("NET TEL sent DO %d\n", opt);
-            else
-                tc->opts_pending_do |= bit;
-        }
+        if (cmd == TEL_WILL)
+            tel_raw_send(desc, TEL_DONT, opt);
+        else if (cmd == TEL_DO)
+            tel_raw_send(desc, TEL_WONT, opt);
+        return;
+    }
+    switch (cmd)
+    {
+    case TEL_WILL:
+        tel_q_recv_will(desc, tc, idx);
         break;
-    default:
-        tel_send_cmd(desc, TEL_DONT, opt);
-        DBG("NET TEL sent DONT %d\n", opt);
+    case TEL_WONT:
+        tel_q_recv_wont(desc, tc, idx);
         break;
-    }
-}
-
-static void tel_handle_wont(int desc, tel_conn_t *tc, uint8_t opt)
-{
-    uint8_t bit = tel_opt_bit(opt);
-    if (tc->opts_sent_do & bit)
-    {
-        // Our DO request was refused
-        tc->opts_sent_do &= ~bit;
-    }
-    else if (tc->opts_we_do & bit)
-    {
-        // Remote is disabling, acknowledge
-        tc->opts_we_do &= ~bit;
-        tel_send_cmd(desc, TEL_DONT, opt);
-        DBG("NET TEL sent DONT %d\n", opt);
-    }
-}
-
-static void tel_handle_do(int desc, tel_conn_t *tc, uint8_t opt)
-{
-    uint8_t bit = tel_opt_bit(opt);
-    switch (opt)
-    {
-    case TEL_OPT_BINARY:
-    case TEL_OPT_SGA:
-    case TEL_OPT_TTYPE:
-    case TEL_OPT_ECHO:
-        if (tc->opts_sent_will & bit)
-        {
-            // Confirmation of our WILL request
-            tc->opts_sent_will &= ~bit;
-            tc->opts_we_will |= bit;
-            DBG("NET TEL confirmed WILL %d\n", opt);
-        }
-        else if (!(tc->opts_we_will & bit))
-        {
-            // Remote initiated
-            tc->opts_we_will |= bit;
-            if (tel_send_cmd(desc, TEL_WILL, opt))
-                DBG("NET TEL sent WILL %d\n", opt);
-            else
-                tc->opts_pending_will |= bit;
-        }
+    case TEL_DO:
+        tel_q_recv_do(desc, tc, idx);
         break;
-    default:
-        tel_send_cmd(desc, TEL_WONT, opt);
-        DBG("NET TEL sent WONT %d\n", opt);
+    case TEL_DONT:
+        tel_q_recv_dont(desc, tc, idx);
         break;
-    }
-}
-
-static void tel_handle_dont(int desc, tel_conn_t *tc, uint8_t opt)
-{
-    uint8_t bit = tel_opt_bit(opt);
-    if (tc->opts_sent_will & bit)
-    {
-        // Our WILL request was refused
-        tc->opts_sent_will &= ~bit;
-    }
-    else if (tc->opts_we_will & bit)
-    {
-        // Remote is disabling, acknowledge
-        tc->opts_we_will &= ~bit;
-        tel_send_cmd(desc, TEL_WONT, opt);
-        DBG("NET TEL sent WONT %d\n", opt);
     }
 }
 
@@ -308,7 +409,7 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             return;
         }
         // Strip NUL after CR in NVT mode (binary mode sends raw)
-        if (tc->telnet_mode && !(tc->opts_we_do & TEL_BIT_BINARY) &&
+        if (tc->telnet_mode && tc->him[TEL_IDX_BINARY] != tel_q_yes &&
             tc->last_rx_was_cr && byte == 0)
         {
             tc->last_rx_was_cr = false;
@@ -356,22 +457,22 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
         }
 
     case tel_rx_will:
-        tel_handle_will(desc, tc, byte);
+        tel_dispatch_neg(desc, tc, TEL_WILL, byte);
         tc->rx_state = tel_rx_data;
         return;
 
     case tel_rx_wont:
-        tel_handle_wont(desc, tc, byte);
+        tel_dispatch_neg(desc, tc, TEL_WONT, byte);
         tc->rx_state = tel_rx_data;
         return;
 
     case tel_rx_do:
-        tel_handle_do(desc, tc, byte);
+        tel_dispatch_neg(desc, tc, TEL_DO, byte);
         tc->rx_state = tel_rx_data;
         return;
 
     case tel_rx_dont:
-        tel_handle_dont(desc, tc, byte);
+        tel_dispatch_neg(desc, tc, TEL_DONT, byte);
         tc->rx_state = tel_rx_data;
         return;
 
@@ -408,28 +509,35 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
 
 // -- Telnet protocol API --
 
-uint16_t tel_rx(int desc, char *buf, uint16_t len)
+// Decode up to `cap` bytes from the wire into `out`, driving the IAC state
+// machine. Shared by tel_rx and the console-server drain path. Also opportunistic-
+// ally retries any failed-to-send negotiation commands.
+static uint16_t tel_decode(int desc, char *out, uint16_t cap)
 {
     tel_conn_t *tc = &tel_conns[desc];
-    if (!tc->telnet_mode)
-        return net_rx(desc, buf, len);
-
-    if (tc->opts_pending_do || tc->opts_pending_will)
-        tel_flush_pending(desc, tc);
-    uint16_t out = 0;
-    while (out < len)
+    tel_q_flush(desc, tc);
+    uint16_t out_pos = 0;
+    while (out_pos < cap)
     {
         char raw[64];
-        uint16_t want = len - out;
+        uint16_t want = cap - out_pos;
         if (want > sizeof(raw))
             want = sizeof(raw);
         uint16_t n = net_rx(desc, raw, want);
         if (n == 0)
             break;
         for (uint16_t i = 0; i < n; i++)
-            tel_process_rx_byte(desc, tc, (uint8_t)raw[i], buf, &out, len);
+            tel_process_rx_byte(desc, tc, (uint8_t)raw[i], out, &out_pos, cap);
     }
-    return out;
+    return out_pos;
+}
+
+uint16_t tel_rx(int desc, char *buf, uint16_t len)
+{
+    tel_conn_t *tc = &tel_conns[desc];
+    if (!tc->telnet_mode)
+        return net_rx(desc, buf, len);
+    return tel_decode(desc, buf, len);
 }
 
 // Compute the wire size of a source byte during NVT TX encoding.
@@ -449,6 +557,8 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
     tel_conn_t *tc = &tel_conns[desc];
     if (!tc->telnet_mode)
         return net_tx(desc, buf, len);
+
+    tel_q_flush(desc, tc);
 
     // Flush the second byte of a split escape sequence
     if (tc->tx_escape_pending)
@@ -475,7 +585,7 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
         }
     }
 
-    bool binary_tx = tc->opts_we_will & TEL_BIT_BINARY;
+    bool binary_tx = tc->us[TEL_IDX_BINARY] == tel_q_yes;
     char out[128];
     uint16_t consumed = 0;
     uint16_t out_pos = 0;
@@ -552,6 +662,26 @@ void tel_close(int desc)
     tel_reset(desc);
 }
 
+// Local-initiated: ask to enable our side of this option.
+static void tel_q_ask_us_enable(int desc, tel_conn_t *tc, int idx)
+{
+    if (tc->us[idx] == tel_q_no)
+    {
+        tc->us[idx] = tel_q_wantyes;
+        tel_q_send(desc, tc, TEL_WILL, idx);
+    }
+}
+
+// Local-initiated: ask to enable peer side of this option.
+static void tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
+{
+    if (tc->him[idx] == tel_q_no)
+    {
+        tc->him[idx] = tel_q_wantyes;
+        tel_q_send(desc, tc, TEL_DO, idx);
+    }
+}
+
 void tel_negotiate(int desc)
 {
     tel_conn_t *tc = &tel_conns[desc];
@@ -561,11 +691,13 @@ void tel_negotiate(int desc)
 
     tc->is_server = false;
     tc->ttype = mdm_settings->tty_type;
-    tc->opts_sent_will = TEL_BIT_BINARY | TEL_BIT_SGA | TEL_BIT_TTYPE;
-    tc->opts_sent_do = TEL_BIT_BINARY | TEL_BIT_SGA;
-    tc->opts_pending_will = tc->opts_sent_will;
-    tc->opts_pending_do = tc->opts_sent_do;
-    tel_flush_pending(desc, tc);
+    // Order matches the pre-refactor code: DO then WILL per option. Some
+    // peers (Synchronet) key initial behavior off the sequence.
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_BINARY); // DO BINARY
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_BINARY);  // WILL BINARY
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);    // DO SGA
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);     // WILL SGA
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_TTYPE);   // WILL TTYPE
     DBG("NET TEL sent initial negotiation\n");
 }
 
@@ -575,11 +707,9 @@ static void tel_negotiate_server(int desc)
     tc->telnet_mode = true;
     tc->is_server = true;
     tc->ttype = NULL;
-    tc->opts_sent_will = TEL_BIT_ECHO | TEL_BIT_SGA;
-    tc->opts_sent_do = TEL_BIT_SGA;
-    tc->opts_pending_will = tc->opts_sent_will;
-    tc->opts_pending_do = tc->opts_sent_do;
-    tel_flush_pending(desc, tc);
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA); // DO SGA
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO); // WILL ECHO
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);  // WILL SGA
     DBG("NET TEL server negotiation sent\n");
 }
 
@@ -595,6 +725,8 @@ void tel_listen_close(uint16_t port)
 
 bool tel_accept(int desc, uint16_t port, void (*on_close)(int))
 {
+    // Modem-emulator role: the retro machine is always the terminal, even
+    // when answering a call. Use client-side negotiation.
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
         return false;
@@ -801,7 +933,7 @@ static void tel_handle_auth(uint8_t ch)
             tel_close(SYS_TEL_DESC);
         }
     }
-    else if (ch >= 32 && tel_auth_len < TEL_KEY_SIZE - 1)
+    else if (ch >= 32 && ch < 127 && tel_auth_len < TEL_KEY_SIZE - 1)
     {
         tel_auth_buf[tel_auth_len++] = ch;
         tel_tx(SYS_TEL_DESC, "*", 1);
@@ -823,18 +955,8 @@ static void tel_drain_rx(void)
             return;
     }
 
-    char raw[TEL_RX_BUF_SIZE];
-    uint16_t n = net_rx(SYS_TEL_DESC, raw, limit);
-    if (n == 0)
-        return;
-
-    tel_conn_t *tc = &tel_conns[SYS_TEL_DESC];
     char decoded[TEL_RX_BUF_SIZE];
-    uint16_t decoded_len = 0;
-
-    for (uint16_t i = 0; i < n; i++)
-        tel_process_rx_byte(SYS_TEL_DESC, tc, (uint8_t)raw[i],
-                            decoded, &decoded_len, sizeof(decoded));
+    uint16_t decoded_len = tel_decode(SYS_TEL_DESC, decoded, limit);
 
     for (uint16_t i = 0; i < decoded_len; i++)
     {
