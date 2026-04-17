@@ -848,7 +848,6 @@ static void tel_console_active(bool active)
 
 static void tel_on_disconnect(int desc)
 {
-    (void)desc;
     if (tel_state == tel_state_auth || tel_state == tel_state_connected)
     {
         DBG("NET TEL console disconnected\n");
@@ -858,6 +857,7 @@ static void tel_on_disconnect(int desc)
         tel_tx_head = tel_tx_tail = 0;
         tel_rx_head = tel_rx_tail = 0;
     }
+    net_close(desc);
 }
 
 static bool tel_on_accept(uint16_t port)
@@ -883,11 +883,7 @@ static bool tel_on_accept(uint16_t port)
 static void tel_shutdown(void)
 {
     if (tel_state == tel_state_auth || tel_state == tel_state_connected)
-    {
-        if (tel_state == tel_state_connected)
-            tel_console_active(false);
         tel_close(SYS_TEL_DESC);
-    }
     if (tel_state >= tel_state_listening)
     {
         net_listen_close(tel_active_port);
@@ -1039,6 +1035,7 @@ int tel_read(char *buf, int length)
 void tel_init(void)
 {
     tel_state = tel_state_idle;
+    tel_console_active(false);
 }
 
 void tel_task(void)
@@ -1062,10 +1059,11 @@ void tel_task(void)
             tel_shutdown();
         break;
     case tel_state_auth:
-        tel_drain_rx();
-        break;
     case tel_state_connected:
-        tel_drain_rx();
+        if (!tel_should_listen() || tel_active_port != tel_port)
+            tel_shutdown();
+        else
+            tel_drain_rx();
         break;
     }
 }
