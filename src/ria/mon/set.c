@@ -240,24 +240,6 @@ static void set_ble(const char *args)
         mon_add_response_fn(set_ble_response);
 }
 
-static int set_port_response(char *buf, size_t buf_size, int state)
-{
-    (void)state;
-    snprintf(buf, buf_size, STR_SET_PORT_RESPONSE, tel_get_port());
-    return -1;
-}
-
-static void set_port(const char *args)
-{
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
-                  !str_parse_end(args) ||
-                  !tel_set_port(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
-    else
-        mon_add_response_fn(set_port_response);
-}
-
 static int set_key_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
@@ -265,6 +247,31 @@ static int set_key_response(char *buf, size_t buf_size, int state)
     snprintf(buf, buf_size, STR_SET_KEY_RESPONSE,
              strlen(key) ? STR_PARENS_SET : STR_PARENS_NONE);
     return -1;
+}
+
+static int set_port_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    char suffix[24];
+    if (tel_get_port() > 0 && tel_get_key()[0])
+        suffix[0] = 0;
+    else
+        snprintf(suffix, sizeof(suffix), " (%s)", STR_DISABLED);
+    snprintf(buf, buf_size, STR_SET_PORT_RESPONSE, tel_get_port(), suffix);
+    return -1;
+}
+
+static void set_port(const char *args)
+{
+    if (!*args)
+        return mon_add_response_fn(set_port_response);
+    uint32_t val;
+    if (!str_parse_uint32(&args, &val) ||
+        !str_parse_end(args) ||
+        !tel_set_port(val))
+        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_fn(set_port_response);
+    mon_add_response_fn(set_key_response);
 }
 
 static void set_key(const char *args)
@@ -405,8 +412,8 @@ void set_mon_set(const char *args)
     mon_add_response_fn(set_rfcc_response);
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
-    mon_add_response_fn(set_ble_response);
     mon_add_response_fn(set_port_response);
     mon_add_response_fn(set_key_response);
+    mon_add_response_fn(set_ble_response);
 #endif
 }

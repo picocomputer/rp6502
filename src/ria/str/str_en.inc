@@ -332,8 +332,9 @@ X(STR_HELP_SET_BLE,
   "and disconnects all devices.\n")
 
 X(STR_HELP_SET_PORT,
-  "SET PORT sets the TCP port for remote console access via telnet. Setting 0\n"
-  "disables the telnet console. Both PORT and KEY must be set to enable.\n")
+  "SET PORT sets the TCP port for remote console access via telnet. The standard\n"
+  "telnet port is 23. Setting 0 disables the telnet console. Both PORT and KEY\n"
+  "must be set to enable.\n")
 
 X(STR_HELP_SET_KEY,
   "SET KEY sets the passkey for remote console access. Use \"-\" to clear.\n"
