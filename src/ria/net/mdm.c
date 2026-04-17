@@ -802,10 +802,13 @@ void mdm_task()
         if (mdm_conn->escape_count == MDM_ESCAPE_COUNT &&
             time_reached(mdm_conn->escape_guard))
         {
-            mdm_conn->in_command_mode = true;
-            mdm_conn->cmd_buf_len = 0;
             mdm_conn->escape_count = 0;
-            mdm_set_response_fn(mdm_response_code, 0); // OK
+            if (!mdm_conn->in_command_mode)
+            {
+                mdm_conn->in_command_mode = true;
+                mdm_conn->cmd_buf_len = 0;
+                mdm_set_response_fn(mdm_response_code, 0); // OK
+            }
         }
     }
 }
