@@ -110,38 +110,65 @@ volatile uint8_t com_rx_buf[COM_RX_BUF_SIZE];
 volatile size_t com_rx_head;
 volatile size_t com_rx_tail;
 
-// Multiplex input sources with 1ms UART pause priority
+// Sticky multiplex: current source holds the lock until idle for 1ms.
+// Keyboard is the exception, releasing immediately when empty.
 static int com_rx_merge(char *buf, int length)
 {
-    static bool in_keyboard = false;
-    static const int COM_UART_PAUSE_US = 1000;
-    static absolute_time_t uart_timer;
+    static const int COM_IDLE_US = 1000;
+    enum source
+    {
+        SRC_NONE,
+        SRC_KBD,
+        SRC_UART,
+        SRC_TEL
+    };
+    static enum source source = SRC_NONE;
+    static absolute_time_t idle_timer;
 
-    if (in_keyboard || absolute_time_diff_us(get_absolute_time(), uart_timer) < 0)
+    // Expire UART/TEL source once idle for 1ms
+    if ((source == SRC_UART || source == SRC_TEL) &&
+        absolute_time_diff_us(get_absolute_time(), idle_timer) < 0)
+        source = SRC_NONE;
+
+    if (source == SRC_KBD || source == SRC_NONE)
     {
         int i = kbd_stdio_in_chars(buf, length);
         if (i != PICO_ERROR_NO_DATA)
         {
-            in_keyboard = true;
+            source = SRC_KBD;
             return i;
         }
-        i = tel_read(buf, length);
-        if (i != PICO_ERROR_NO_DATA)
-        {
-            in_keyboard = true;
-            return i;
-        }
-        in_keyboard = false;
+        if (source == SRC_KBD)
+            source = SRC_NONE;
     }
 
-    // Read UART
-    int count = 0;
-    while (uart_is_readable(COM_UART) && count < length)
-        buf[count++] = (uint8_t)uart_get_hw(COM_UART)->dr;
-    if (count)
-        uart_timer = make_timeout_time_us(COM_UART_PAUSE_US);
+    if (source == SRC_UART || source == SRC_NONE)
+    {
+        int count = 0;
+        while (uart_is_readable(COM_UART) && count < length)
+            buf[count++] = (uint8_t)uart_get_hw(COM_UART)->dr;
+        if (count)
+        {
+            source = SRC_UART;
+            idle_timer = make_timeout_time_us(COM_IDLE_US);
+            return count;
+        }
+        if (source == SRC_UART)
+            return PICO_ERROR_NO_DATA;
+    }
 
-    return count ? count : PICO_ERROR_NO_DATA;
+    if (source == SRC_TEL || source == SRC_NONE)
+    {
+        int i = tel_read(buf, length);
+        if (i != PICO_ERROR_NO_DATA)
+        {
+            source = SRC_TEL;
+            idle_timer = make_timeout_time_us(COM_IDLE_US);
+            return i;
+        }
+    }
+
+    return PICO_ERROR_NO_DATA;
 }
 
 /* stdio driver
