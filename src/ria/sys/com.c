@@ -14,6 +14,7 @@
 #include "sys/vga.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
+#include <hardware/sync.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_COM)
 #include <stdio.h>
@@ -24,12 +25,18 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static bool com_bel_enabled = true;
 
-/* TX — fan-out input buffer (public, written by core1 act_loop)
+/* TX — fan-out input buffers (drained by com_tx_fanout into UART + TEL).
+ * com_tx_buf holds core-0 output (stdio, std_tty_write).
+ * com_act_tx_buf holds core-1 act_loop output (6502 writes to 0xFFE1).
  */
 
 volatile uint8_t com_tx_buf[COM_TX_BUF_SIZE];
 volatile size_t com_tx_head;
 volatile size_t com_tx_tail;
+
+volatile uint8_t com_act_tx_buf[COM_ACT_TX_BUF_SIZE];
+volatile size_t com_act_tx_head;
+volatile size_t com_act_tx_tail;
 
 /* TX — UART output buffer (internal)
  */
@@ -46,8 +53,9 @@ static bool com_uart_writable(void)
 
 static void com_uart_write(char ch)
 {
-    com_uart_head = (com_uart_head + 1) % COM_UART_BUF_SIZE;
-    com_uart_buf[com_uart_head] = ch;
+    size_t next = (com_uart_head + 1) % COM_UART_BUF_SIZE;
+    com_uart_buf[next] = (uint8_t)ch;
+    com_uart_head = next;
 }
 
 static void com_uart_task(void)
@@ -59,12 +67,13 @@ static void com_uart_task(void)
                uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS &&
                pix_ready())
         {
-            com_uart_tail = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-            char ch = com_uart_buf[com_uart_tail];
+            size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
+            char ch = com_uart_buf[next];
             uart_putc_raw(COM_UART, ch);
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
             if (ch == '\a' && com_bel_enabled)
                 bel_add(&bel_teletype);
+            com_uart_tail = next;
         }
     }
     else
@@ -73,25 +82,48 @@ static void com_uart_task(void)
         while (com_uart_head != com_uart_tail &&
                !(uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
         {
-            com_uart_tail = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-            char ch = com_uart_buf[com_uart_tail];
+            size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
+            char ch = com_uart_buf[next];
             uart_putc_raw(COM_UART, ch);
             if (ch == '\a' && com_bel_enabled)
                 bel_add(&bel_teletype);
+            com_uart_tail = next;
         }
     }
 }
 
-// Fan out com_tx_buf into UART and REM buffers
+// Fan out both TX rings into UART and REM buffers. One char per source
+// per pass so the core-0 and core-1 streams interleave instead of one
+// starving the other. __dmb() on the act_loop side pairs with the DMB
+// in com_act_write() so we never read a slot whose store hasn't landed.
 static void com_tx_fanout(void)
 {
-    while (com_tx_head != com_tx_tail &&
-           com_uart_writable() && tel_tx_writable())
+    while (com_uart_writable() && tel_tx_writable())
     {
-        com_tx_tail = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
-        char ch = com_tx_buf[com_tx_tail];
-        com_uart_write(ch);
-        tel_tx_write(ch);
+        bool work = false;
+        if (com_tx_head != com_tx_tail)
+        {
+            size_t next = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
+            char ch = com_tx_buf[next];
+            com_uart_write(ch);
+            tel_tx_write(ch);
+            com_tx_tail = next;
+            work = true;
+            if (!com_uart_writable() || !tel_tx_writable())
+                break;
+        }
+        if (com_act_tx_head != com_act_tx_tail)
+        {
+            size_t next = (com_act_tx_tail + 1) % COM_ACT_TX_BUF_SIZE;
+            char ch = com_act_tx_buf[next];
+            com_uart_write(ch);
+            tel_tx_write(ch);
+            __dmb();
+            com_act_tx_tail = next;
+            work = true;
+        }
+        if (!work)
+            break;
     }
 }
 
@@ -103,12 +135,29 @@ static void com_uart_flush(void)
         tight_loop_contents();
 }
 
-/* RX — merged input buffer (public, read by core1 act_loop)
+/* RX — merged input buffer (core-0 internal) plus the single-char
+ * cross-core handoff slot com_rx_char. com_task drains com_rx_merge
+ * into com_rx_buf, then refills com_rx_char from the ring when empty.
+ * act_loop reads com_rx_char to serve 6502 0xFFE2 reads; the stdio
+ * path steals from it when the monitor is the active consumer.
  */
 
-volatile uint8_t com_rx_buf[COM_RX_BUF_SIZE];
-volatile size_t com_rx_head;
-volatile size_t com_rx_tail;
+#define COM_RX_BUF_SIZE 32
+static size_t com_rx_head;
+static size_t com_rx_tail;
+static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
+
+volatile int com_rx_char = -1;
+
+static int com_rx_buf_getchar(void)
+{
+    if (com_rx_head == com_rx_tail)
+        return -1;
+    size_t next = (com_rx_tail + 1) % COM_RX_BUF_SIZE;
+    int ch = com_rx_buf[next];
+    com_rx_tail = next;
+    return ch;
+}
 
 // Sticky multiplex: current source holds the lock until idle for 1ms.
 // Keyboard is the exception, releasing immediately when empty.
@@ -184,9 +233,7 @@ static void com_stdio_out_chars(const char *buf, int len)
             com_uart_task();
             tel_pump();
         }
-        char ch = *buf++;
-        com_tx_head = (com_tx_head + 1) % COM_TX_BUF_SIZE;
-        com_tx_buf[com_tx_head] = ch;
+        com_write(*buf++);
     }
 }
 
@@ -214,9 +261,21 @@ static int com_stdio_in_chars(char *buf, int length)
         REGS(0xFFE0) = 0;
     }
 
-    // Take from the circular buffer
-    while (count < length && com_readable())
-        buf[count++] = com_read();
+    // Steal the cross-core handoff slot if the 6502 hasn't consumed it
+    if (count < length && com_rx_char >= 0)
+    {
+        buf[count++] = com_rx_char;
+        com_rx_char = -1;
+    }
+
+    // Drain the core-0 ring
+    while (count < length)
+    {
+        int ch = com_rx_buf_getchar();
+        if (ch < 0)
+            break;
+        buf[count++] = ch;
+    }
 
     // Pick up new chars
     int x = com_rx_merge(&buf[count], length - count);
@@ -260,16 +319,31 @@ void com_task(void)
     // TX: fan out com_tx_buf into UART and REM buffers
     com_tx_fanout();
 
+    // RX: refill the cross-core handoff slot from the ring. __dmb()
+    // publishes the slot value before act_loop on core 1 can observe it.
+    if (com_rx_char < 0)
+    {
+        int ch = com_rx_buf_getchar();
+        if (ch >= 0)
+        {
+            __dmb();
+            com_rx_char = ch;
+        }
+    }
+
     // RX: merge sources into com_rx_buf.
     // UART doesn't detect breaks when FIFO is full
     // so we keep it drained and discard overruns like the UART would.
     char ch;
     while (com_rx_merge(&ch, 1) == 1)
-        if (((com_rx_head + 1) % COM_RX_BUF_SIZE) != com_rx_tail)
+    {
+        size_t next = (com_rx_head + 1) % COM_RX_BUF_SIZE;
+        if (next != com_rx_tail)
         {
-            com_rx_head = (com_rx_head + 1) % COM_RX_BUF_SIZE;
-            com_rx_buf[com_rx_head] = ch;
+            com_rx_buf[next] = (uint8_t)ch;
+            com_rx_head = next;
         }
+    }
 
     // Detect UART breaks.
     static uint32_t break_detect = 0;

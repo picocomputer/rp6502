@@ -345,10 +345,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     RIA_ADDR0 += RIA_STEP0;
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
-                    if (com_readable())
+                {
+                    int ch = com_rx_char;
+                    if (ch >= 0)
                     {
-                        REGS(0xFFE2) = com_read();
+                        REGS(0xFFE2) = (uint8_t)ch;
                         REGS(0xFFE0) |= 0b01000000;
+                        com_rx_char = -1;
                     }
                     else
                     {
@@ -356,25 +359,35 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         REGS(0xFFE2) = 0;
                     }
                     break;
+                }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    if (com_writable())
-                        com_write(data);
-                    if (com_writable())
+                    if (com_act_writable())
+                        com_act_write(data);
+                    if (com_act_writable())
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
                     break;
                 case CASE_READ(0xFFE0): // UART Tx/Rx flow control
-                    if (!(REGS(0xFFE0) & 0b01000000) && com_readable())
+                {
+                    uint8_t flags = REGS(0xFFE0);
+                    if (!(flags & 0b01000000))
                     {
-                        REGS(0xFFE2) = com_read();
-                        REGS(0xFFE0) |= 0b01000000;
+                        int ch = com_rx_char;
+                        if (ch >= 0)
+                        {
+                            REGS(0xFFE2) = (uint8_t)ch;
+                            flags |= 0b01000000;
+                            com_rx_char = -1;
+                        }
                     }
-                    if (com_writable())
-                        REGS(0xFFE0) |= 0b10000000;
+                    if (com_act_writable())
+                        flags |= 0b10000000;
                     else
-                        REGS(0xFFE0) &= ~0b10000000;
+                        flags &= ~0b10000000;
+                    REGS(0xFFE0) = flags;
                     break;
+                }
                 }
             }
         }
