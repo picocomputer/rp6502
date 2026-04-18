@@ -276,6 +276,8 @@ static bool cmd_load_factory(const char **s)
 static int cmd_view_config_response(char *buf, size_t buf_size, int state)
 {
     mdm_settings_t nvr_settings;
+    if (!mdm_settings_persistent() && state >= 6 && state <= 10)
+        state = 11;
     switch (state)
     {
     case 0:

@@ -13,8 +13,8 @@
 
 // Configuration files on littlefs
 X(STR_CFG_FILENAME, "CONFIG.SYS")
-X(STR_MDM_PHONEBOOK, "PHONE0.SYS")
-X(STR_MDM_PHONE_TMP, "PHONE0.TMP")
+X(STR_MDM_PHONEBOOK, "PHONE%d.SYS")
+X(STR_MDM_PHONE_TMP, "PHONE%d.TMP")
 X(STR_MDM_SETTINGS, "MODEM%d.SYS")
 
 // https://www.ntppool.org/

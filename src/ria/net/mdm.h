@@ -57,6 +57,7 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 
 extern mdm_settings_t *mdm_settings;
 void mdm_set_conn(int desc);
+bool mdm_settings_persistent(void);
 int mdm_response_code(char *buf, size_t buf_size, int state);
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
 void mdm_factory_settings(mdm_settings_t *settings);
