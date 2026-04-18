@@ -233,11 +233,19 @@ static int mdm_tx_command_mode(char ch)
 
 static void mdm_tx_escape_observer(char ch)
 {
+    // S2 disabled: clear any stale count so re-enabling doesn't fire on a
+    // partial old sequence.
+    if (mdm_settings->esc_char >= 128)
+    {
+        mdm_conn->escape_count = 0;
+        mdm_conn->escape_last_char = get_absolute_time();
+        return;
+    }
     bool last_char_guarded = time_reached(delayed_by_us(mdm_conn->escape_last_char,
                                                         MDM_ESCAPE_GUARD_TIME_US));
     if (mdm_conn->escape_count && last_char_guarded)
         mdm_conn->escape_count = 0;
-    if (mdm_settings->esc_char < 128 && (mdm_conn->escape_count || last_char_guarded))
+    if (mdm_conn->escape_count || last_char_guarded)
     {
         if (ch != mdm_settings->esc_char)
             mdm_conn->escape_count = 0;
@@ -558,8 +566,15 @@ bool mdm_dial(const char *s)
 
 bool mdm_connect(void)
 {
-    if (mdm_conn->state == mdm_state_dialing ||
-        mdm_conn->state == mdm_state_connected)
+    // ATO on an already-established connection: just re-enter data mode.
+    // No CONNECT response — otherwise a later async tcp_connect completion
+    // would emit a second CONNECT.
+    if (mdm_conn->state == mdm_state_connected)
+    {
+        mdm_conn->in_command_mode = false;
+        return true;
+    }
+    if (mdm_conn->state == mdm_state_dialing)
     {
         if (mdm_settings->progress > 0)
             mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
@@ -591,17 +606,6 @@ bool mdm_hangup(void)
         return true;
     }
     return false;
-}
-
-void mdm_dial_failed(void)
-{
-    if (mdm_conn->state == mdm_state_dialing)
-    {
-        DBG("NET MDM dial failed (async)\n");
-        mdm_conn->state = mdm_state_on_hook;
-        mdm_conn->in_command_mode = true;
-        mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
-    }
 }
 
 void mdm_carrier_lost(void)
@@ -669,7 +673,7 @@ static void mdm_net_on_close(int desc)
 
 static bool mdm_net_on_accept(uint16_t port)
 {
-    bool any_rang = false;
+    // Only one modem takes the call; the rest stay on-hook.
     for (int i = 0; i < NET_MDM_DESCS; i++)
     {
         if (!mdm_conns[i].is_open)
@@ -680,9 +684,9 @@ static bool mdm_net_on_accept(uint16_t port)
             continue;
         mdm_set_conn(i);
         mdm_ring();
-        any_rang = true;
+        return true;
     }
-    return any_rang;
+    return false;
 }
 
 void mdm_listen_update(void)
@@ -761,7 +765,9 @@ void mdm_task()
             {
                 // Call gone (answered elsewhere or remote hung up)
                 mdm_conn->state = mdm_state_on_hook;
+                mdm_conn->in_command_mode = true;
                 mdm_conn->ring_count = 0;
+                mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
             }
             else if (time_reached(mdm_conn->ring_timer) &&
                      mdm_conn->response_state < 0)

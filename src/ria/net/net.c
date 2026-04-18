@@ -48,17 +48,41 @@ typedef struct
 
 static net_conn_t net_conns[NET_MAX_CONNECTIONS];
 
-// Per-descriptor context passed as the DNS callback arg. lwIP has no cancel
-// API, so a resolution can complete after the caller has moved on to a new
-// connection on the same descriptor. The gen snapshot lets the callback tell
-// "this lookup is mine" from "this lookup is stale".
+// Per-lookup context passed as the DNS callback arg. lwIP has no cancel API,
+// so a resolution can complete after the caller has moved on to a new
+// connection on the same descriptor. The ctx must be immutable for the
+// callback's lifetime, so we allocate one from a pool per lookup and free it
+// when the callback fires. The gen snapshot then lets a stale callback tell
+// "this lookup is mine" from "descriptor was reused".
+#define NET_DNS_CTX_POOL (NET_MAX_CONNECTIONS * 2)
 typedef struct
 {
     net_conn_t *nc;
     uint16_t gen;
+    bool in_use;
 } net_dns_ctx_t;
 
-static net_dns_ctx_t net_dns_ctxs[NET_MAX_CONNECTIONS];
+static net_dns_ctx_t net_dns_ctxs[NET_DNS_CTX_POOL];
+
+static net_dns_ctx_t *net_dns_ctx_alloc(net_conn_t *nc, uint16_t gen)
+{
+    for (int i = 0; i < NET_DNS_CTX_POOL; i++)
+    {
+        if (!net_dns_ctxs[i].in_use)
+        {
+            net_dns_ctxs[i].nc = nc;
+            net_dns_ctxs[i].gen = gen;
+            net_dns_ctxs[i].in_use = true;
+            return &net_dns_ctxs[i];
+        }
+    }
+    return NULL;
+}
+
+static void net_dns_ctx_free(net_dns_ctx_t *ctx)
+{
+    ctx->in_use = false;
+}
 
 typedef struct
 {
@@ -308,9 +332,13 @@ static void net_dns_found(const char *name, const ip_addr_t *ipaddr, void *arg)
 {
     net_dns_ctx_t *ctx = (net_dns_ctx_t *)arg;
     net_conn_t *nc = ctx->nc;
+    uint16_t gen = ctx->gen;
     (void)name;
+    // ctx is one-shot; free before doing anything else so a recursive
+    // close / new open can reuse the slot safely.
+    net_dns_ctx_free(ctx);
     // Drop stale callbacks from a previous net_open on this descriptor.
-    if (ctx->gen != nc->dns_gen || nc->state != net_state_dns_lookup)
+    if (gen != nc->dns_gen || nc->state != net_state_dns_lookup)
     {
         DBG("NET DNS stale callback dropped\n");
         return;
@@ -350,9 +378,13 @@ bool net_open(int desc, const char *hostname, uint16_t port,
     nc->on_close = on_close;
     ip_addr_t ipaddr;
     nc->port = port;
-    net_dns_ctx_t *ctx = &net_dns_ctxs[desc];
-    ctx->nc = nc;
-    ctx->gen = ++nc->dns_gen;
+    net_dns_ctx_t *ctx = net_dns_ctx_alloc(nc, ++nc->dns_gen);
+    if (!ctx)
+    {
+        DBG("NET DNS ctx pool exhausted\n");
+        nc->port = 0;
+        return false;
+    }
     err_t err = dns_gethostbyname(hostname, &ipaddr, net_dns_found, ctx);
     if (err == ERR_INPROGRESS)
     {
@@ -368,6 +400,7 @@ bool net_open(int desc, const char *hostname, uint16_t port,
         return nc->state == net_state_connecting;
     }
     DBG("NET dns_gethostbyname (%d)\n", err);
+    net_dns_ctx_free(ctx);
     nc->port = 0;
     return false;
 }
