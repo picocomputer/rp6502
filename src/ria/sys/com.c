@@ -305,7 +305,8 @@ void com_init(void)
     // If we leave garbage then there is a chance for
     // no startup message because break clears it or
     // VGA detection will fail to detect.
-    busy_wait_ms(5); // 2 fails, 3 works, 5 for safety
+    // TODO similar delay in vga_connect
+    busy_wait_ms(10); // 2 fails, 3 works, 10 for safety
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
