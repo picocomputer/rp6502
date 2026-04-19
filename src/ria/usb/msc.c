@@ -119,7 +119,7 @@ typedef struct
     uint8_t sense_ascq;
     bool write_prot;
     bool unmap_supported;
-    bool sync_cache_supressed;
+    bool sync_cache_suppressed;
     bool lbpme;
     absolute_time_t last_ok;
 } msc_vol_t;
@@ -279,7 +279,7 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 void tuh_msc_pump(void) { main_task(); }
 
 // Initialize a CBW for a volume's LUN.
-// Signature and tag are stamped by tuh_msc_scsi_submit().
+// Signature and tag are stamped by the tinyusb_rp6502 host layer.
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
                                 uint32_t total_bytes, uint8_t dir,
                                 uint8_t cmd_len, const void *cmd)
@@ -563,8 +563,8 @@ static msc_status_t msc_scsi_write10(uint8_t vol,
 
 // Read device capacity.
 // CBI: READ FORMAT CAPACITIES (UFI mandatory command).
-// BOT: tries READ CAPACITY(16) first (also captures LBPME for TRIM gating);
-//      falls back to READ CAPACITY(10) for older SBC-2 devices.
+// BOT: READ CAPACITY(16) on SPC-3+ (needed for >2TB and LBPME);
+//      READ CAPACITY(10) on SPC-2 devices (mandatory SBC command).
 // Returns true on success, populating block_count and block_size.
 static bool msc_read_capacity(uint8_t vol)
 {
@@ -585,51 +585,53 @@ static bool msc_read_capacity(uint8_t vol)
             return false;
         msc_vol[vol].block_count = blocks;
         msc_vol[vol].block_size = bsize;
-    }
-    else
-    {
-        // BOT: try READ CAPACITY(16) on SPC-3+ devices (INQUIRY version >= 0x05).
-        scsi_read_capacity16_resp_t cap16 = {0};
-        if (msc_vol[vol].spc_version >= 0x05 &&
-            msc_scsi_read_capacity16(vol, &cap16) == MSC_STATUS_PASSED)
-        {
-            uint64_t last_lba64 = ((uint64_t)tu_ntohl(cap16.last_lba_hi) << 32) |
-                                  (uint64_t)tu_ntohl(cap16.last_lba_lo);
-            uint32_t bsize16 = tu_ntohl(cap16.block_size);
-            if (bsize16 == 0 || (bsize16 & (bsize16 - 1)) != 0 || bsize16 > 4096)
-                return false;
-#if !FF_LBA64
-            if (last_lba64 > UINT32_MAX)
-                return false; // >2TB not supported without FF_LBA64
-#endif
-            msc_vol[vol].block_count = last_lba64 + 1;
-            msc_vol[vol].block_size = bsize16;
-            msc_vol[vol].lbpme = (cap16.lbpme_byte >> 7) & 1;
-            DBG_VOL(vol, "READ CAPACITY(16): %llu blocks, %lu bytes/block, LBPME=%d\n",
-                    (unsigned long long)msc_vol[vol].block_count,
-                    (unsigned long)bsize16, msc_vol[vol].lbpme);
-            return true;
-        }
-        // BOT: READ CAPACITY(10) — mandatory SBC command, works on all devices.
-        scsi_read_capacity10_resp_t cap10 = {0};
-        if (msc_scsi_read_capacity10(vol, &cap10) != MSC_STATUS_PASSED)
-            return false;
-        uint32_t last_lba = tu_ntohl(cap10.last_lba);
-        if (last_lba == 0xFFFFFFFF)
-            return false; // >2TB sentinel without FF_LBA64 (or RC(16) already failed)
-        uint32_t bsize = tu_ntohl(cap10.block_size);
-        if (bsize == 0 || (bsize & (bsize - 1)) != 0 || bsize > 4096)
-            return false;
-        msc_vol[vol].block_count = last_lba + 1;
-        msc_vol[vol].block_size = bsize;
+        return true;
     }
 
+    if (msc_vol[vol].spc_version >= 0x05)
+    {
+        // BOT SPC-3+: READ CAPACITY(16) — required for >2TB and LBPME.
+        scsi_read_capacity16_resp_t cap16 = {0};
+        if (msc_scsi_read_capacity16(vol, &cap16) != MSC_STATUS_PASSED)
+            return false;
+        uint64_t last_lba64 = ((uint64_t)tu_ntohl(cap16.last_lba_hi) << 32) |
+                              (uint64_t)tu_ntohl(cap16.last_lba_lo);
+        uint32_t bsize16 = tu_ntohl(cap16.block_size);
+        if (bsize16 == 0 || (bsize16 & (bsize16 - 1)) != 0 || bsize16 > 4096)
+            return false;
+#if !FF_LBA64
+        if (last_lba64 > UINT32_MAX)
+            return false; // >2TB not supported without FF_LBA64
+#endif
+        msc_vol[vol].block_count = last_lba64 + 1;
+        msc_vol[vol].block_size = bsize16;
+        msc_vol[vol].lbpme = (cap16.lbpme_byte >> 7) & 1;
+        DBG_VOL(vol, "READ CAPACITY(16): %llu blocks, %lu bytes/block, LBPME=%d\n",
+                (unsigned long long)msc_vol[vol].block_count,
+                (unsigned long)bsize16, msc_vol[vol].lbpme);
+        return true;
+    }
+
+    // BOT SPC-2: READ CAPACITY(10) — mandatory SBC command.
+    scsi_read_capacity10_resp_t cap10 = {0};
+    if (msc_scsi_read_capacity10(vol, &cap10) != MSC_STATUS_PASSED)
+        return false;
+    uint32_t last_lba = tu_ntohl(cap10.last_lba);
+    if (last_lba == 0xFFFFFFFF)
+        return false; // >2TB sentinel; device should have advertised SPC-3+
+    uint32_t bsize = tu_ntohl(cap10.block_size);
+    if (bsize == 0 || (bsize & (bsize - 1)) != 0 || bsize > 4096)
+        return false;
+    msc_vol[vol].block_count = last_lba + 1;
+    msc_vol[vol].block_size = bsize;
     return true;
 }
 
 // Determine write protection via MODE SENSE.
 // CBI: MODE SENSE(10) (UFI mandatory command, opcode 0x5A).
 // BOT: MODE SENSE(6) (SBC mandatory command, opcode 0x1A).
+// Requests only the mode parameter header (all pages 0x3F, DBD=1) —
+// write_protected lives in the header regardless of which pages follow.
 // Non-fatal: defaults to not protected on failure.
 static void msc_sense_write_protect(uint8_t vol)
 {
@@ -715,20 +717,7 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             TCHAR volstr[6];
             msc_vol_path(volstr, vol);
             f_unmount(volstr);
-            msc_vol[vol].status = msc_volume_free;
-            msc_vol[vol].dev_addr = 0;
-            msc_vol[vol].lun = 0;
-            msc_vol[vol].block_count = 0;
-            msc_vol[vol].block_size = 0;
-            msc_vol[vol].sense_key = 0;
-            msc_vol[vol].sense_asc = 0;
-            msc_vol[vol].sense_ascq = 0;
-            msc_vol[vol].write_prot = false;
-            msc_vol[vol].unmap_supported = false;
-            msc_vol[vol].sync_cache_supressed = false;
-            msc_vol[vol].lbpme = false;
-            msc_vol[vol].removable = false;
-            msc_vol[vol].spc_version = 0;
+            memset(&msc_vol[vol], 0, sizeof(msc_vol[vol]));
             DBG_VOL(vol, "unmounted (dev_addr %d)\n", dev_addr);
         }
     }
@@ -772,6 +761,9 @@ DSTATUS disk_status(BYTE pdrv)
             uint8_t asc = msc_vol[vol].sense_asc;
             if (asc == 0x3A || asc == 0x28) // MEDIUM NOT PRESENT or MAY HAVE CHANGED
             {
+                // Clear media state only. Device-level traits (removable,
+                // spc_version) are preserved so disk_initialize skips the
+                // re-INQUIRY on media re-insertion.
                 msc_vol[vol].status = msc_volume_ejected;
                 msc_vol[vol].block_count = 0;
                 msc_vol[vol].block_size = 0;
@@ -813,7 +805,7 @@ DSTATUS disk_initialize(BYTE pdrv)
             tur_count++;
             tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
         } while (!tur_ok && !time_reached(tur_deadline) &&
-                 // Only one retry for media sense. Need for TEAC floppy.
+                 // Only one retry for media sense. Needed for TEAC floppy.
                  ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) ||
                   // Normal UA clearing per the specs.
                   (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)));
@@ -932,13 +924,13 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
             return RES_OK;
         if (tuh_msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
             return RES_OK;
-        if (msc_vol[vol].sync_cache_supressed)
+        if (msc_vol[vol].sync_cache_suppressed)
             return RES_OK;
         msc_status_t status = msc_scsi_sync_cache10(vol);
         if (status == MSC_STATUS_FAILED &&
             msc_vol[vol].sense_key == SCSI_SENSE_ILLEGAL_REQUEST)
         {
-            msc_vol[vol].sync_cache_supressed = true;
+            msc_vol[vol].sync_cache_suppressed = true;
             return RES_OK;
         }
         return msc_status_to_dresult(vol, status);
@@ -954,6 +946,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         *((WORD *)buff) = (WORD)msc_vol[vol].block_size;
         return RES_OK;
     case GET_BLOCK_SIZE:
+        // 1 = erase block size unknown; FatFs treats as single-sector alignment.
         *((DWORD *)buff) = 1;
         return RES_OK;
     case CTRL_TRIM:
@@ -991,7 +984,7 @@ int msc_status_count(void)
 
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
-static void msc_inquiry_rtrims(uint8_t *s, size_t l)
+static void msc_inquiry_rtrim(uint8_t *s, size_t l)
 {
     while (l--)
     {
@@ -1024,17 +1017,17 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         {
             // Floppy-era media (under 5 MB): raw/1024/1000
             // Everything else: pure decimal raw/1000/1000
-            const char *xb;
+            const char *unit;
             double size;
             uint64_t raw = (uint64_t)msc_vol[vol].block_count *
                            (uint64_t)msc_vol[vol].block_size;
             if (raw < 5000000ULL)
             {
-                xb = "KB";
+                unit = "KB";
                 size = raw / 1024.0;
                 if (size >= 1000)
                 {
-                    xb = "MB";
+                    unit = "MB";
                     size /= 1000;
                 }
                 // no %g, strip zeros manually
@@ -1045,32 +1038,32 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                     *p-- = '\0';
                 if (*p == '.')
                     *p = '\0';
-                snprintf(sizebuf, sizeof(sizebuf), "%s %s", num, xb);
+                snprintf(sizebuf, sizeof(sizebuf), "%s %s", num, unit);
             }
             else
             {
-                xb = "MB";
+                unit = "MB";
                 size = raw / 1e6;
                 if (size >= 1000)
                 {
-                    xb = "GB";
+                    unit = "GB";
                     size /= 1000;
                 }
                 if (size >= 1000)
                 {
-                    xb = "TB";
+                    unit = "TB";
                     size /= 1000;
                 }
-                snprintf(sizebuf, sizeof(sizebuf), "%.1f %s", size, xb);
+                snprintf(sizebuf, sizeof(sizebuf), "%.1f %s", size, unit);
             }
         }
         scsi_inquiry_resp_t inq;
-        msc_status_t csw = msc_scsi_inquiry(vol, &inq);
-        if (csw == MSC_STATUS_PASSED)
+        msc_status_t status = msc_scsi_inquiry(vol, &inq);
+        if (status == MSC_STATUS_PASSED)
         {
-            msc_inquiry_rtrims(inq.vendor_id, 8);
-            msc_inquiry_rtrims(inq.product_id, 16);
-            msc_inquiry_rtrims(inq.product_rev, 4);
+            msc_inquiry_rtrim(inq.vendor_id, 8);
+            msc_inquiry_rtrim(inq.product_id, 16);
+            msc_inquiry_rtrim(inq.product_rev, 4);
             snprintf(buf, buf_size, STR_STATUS_MSC,
                      VolumeStr[vol],
                      sizebuf,
@@ -1107,6 +1100,8 @@ bool msc_std_handles(const char *path)
 
 int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
+    // Low two bits of the public `flags` mirror FA_READ/FA_WRITE on purpose
+    // so `flags & RDWR` passes straight through to f_open().
     static_assert(FA_READ == 0x01);
     static_assert(FA_WRITE == 0x02);
     const uint8_t RDWR = 0x03;
