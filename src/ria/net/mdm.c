@@ -30,7 +30,11 @@ uint16_t mdm_conns_listen_port(int desc)
     (void)desc;
     return 0;
 }
-void mdm_listen_update(void) {}
+bool mdm_set_listen_port(uint16_t port)
+{
+    (void)port;
+    return false;
+}
 #else
 
 #include "net/cmd.h"
@@ -191,7 +195,7 @@ static int mdm_tx_command_mode(char ch)
             mdm_conn->parse_str = &mdm_conn->cmd_buf[2];
         }
     }
-    else if (!(mdm_settings->bs_char & 0x80) && ch == mdm_settings->bs_char)
+    else if (ch == 127 || (!(mdm_settings->bs_char & 0x80) && ch == mdm_settings->bs_char))
     {
         if (mdm_settings->echo)
         {
@@ -703,7 +707,7 @@ static bool mdm_net_on_accept(uint16_t port)
     return false;
 }
 
-void mdm_listen_update(void)
+static void mdm_listen_update(void)
 {
     uint16_t active = mdm_conn->active_listen_port;
     uint16_t wanted = mdm_settings->listen_port;
@@ -735,6 +739,15 @@ void mdm_listen_update(void)
         mdm_conn->active_listen_port = wanted;
         DBG("NET MDM %d listening on port %u\n", mdm_desc(), wanted);
     }
+}
+
+bool mdm_set_listen_port(uint16_t port)
+{
+    if (port > 0 && port == tel_get_port())
+        return false;
+    mdm_settings->listen_port = port;
+    mdm_listen_update();
+    return true;
 }
 
 void mdm_init(void)

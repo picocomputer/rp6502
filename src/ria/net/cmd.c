@@ -9,8 +9,6 @@
 #include "net/mdm.h"
 #include "net/wfi.h"
 #include "str/str.h"
-#include "sys/cfg.h"
-#include "net/tel.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
@@ -49,6 +47,7 @@ static bool cmd_dial(const char **s)
     {
         *s += 2;
         int num = cmd_parse_num(s);
+        // Hayes: bare ATDS= means entry 0.
         if (num < 0)
             num = 0;
         if (num >= MDM_PHONEBOOK_ENTRIES || (*s)[0])
@@ -79,7 +78,7 @@ static bool cmd_echo(const char **s)
 }
 
 // F1
-static bool cmd_online_echo(const char **s)
+static bool cmd_duplex(const char **s)
 {
     // F0 support was dropped in Hayes V.series.
     // F1 succeeds for compatibility.
@@ -92,7 +91,7 @@ static bool cmd_online_echo(const char **s)
 }
 
 // H, H0
-static bool cmd_hook(const char **s)
+static bool cmd_hangup(const char **s)
 {
     switch (cmd_parse_num(s))
     {
@@ -167,6 +166,7 @@ static int cmd_s_query_response(char *buf, size_t buf_size, int state)
 static bool cmd_s_pointer(const char **s)
 {
     int num = cmd_parse_num(s);
+    // Hayes: bare ATS selects S0.
     if (num < 0)
         num = 0;
     switch (num)
@@ -196,6 +196,7 @@ static bool cmd_s_query(const char **s)
 static bool cmd_s_set(const char **s)
 {
     int num = cmd_parse_num(s);
+    // Hayes: bare ATS= writes 0.
     if (num < 0)
         num = 0;
     switch (mdm_settings->s_pointer)
@@ -275,7 +276,7 @@ static bool cmd_load_factory(const char **s)
 // &V
 static int cmd_view_config_response(char *buf, size_t buf_size, int state)
 {
-    mdm_settings_t nvr_settings;
+    mdm_settings_t stored_settings;
     if (!mdm_settings_persistent() && state >= 6 && state <= 10)
         state = 11;
     switch (state)
@@ -306,24 +307,24 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "\r\nSTORED PROFILE:\r\n");
         break;
     case 4:
-        mdm_read_settings(&nvr_settings);
+        mdm_read_settings(&stored_settings);
         snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u \\T=%s\r\n",
-                 nvr_settings.echo,
-                 nvr_settings.quiet,
-                 nvr_settings.verbose,
-                 nvr_settings.progress,
-                 nvr_settings.listen_port,
-                 nvr_settings.net_mode,
-                 nvr_settings.tty_type);
+                 stored_settings.echo,
+                 stored_settings.quiet,
+                 stored_settings.verbose,
+                 stored_settings.progress,
+                 stored_settings.listen_port,
+                 stored_settings.net_mode,
+                 stored_settings.tty_type);
         break;
     case 5:
-        mdm_read_settings(&nvr_settings);
+        mdm_read_settings(&stored_settings);
         snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
-                 nvr_settings.auto_answer,
-                 nvr_settings.esc_char,
-                 nvr_settings.cr_char,
-                 nvr_settings.lf_char,
-                 nvr_settings.bs_char);
+                 stored_settings.auto_answer,
+                 stored_settings.esc_char,
+                 stored_settings.cr_char,
+                 stored_settings.lf_char,
+                 stored_settings.bs_char);
         break;
     case 6:
         snprintf(buf, buf_size, "\r\nTELEPHONE NUMBERS:\r\n");
@@ -358,7 +359,7 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
     case 15:
         snprintf(buf, buf_size, "+PASS=%s\r\n",
                  strlen(wfi_get_pass()) ? STR_PARENS_SET : STR_PARENS_NONE);
-        __attribute__((fallthrough));
+        break;
     default:
         return -1;
     }
@@ -392,17 +393,25 @@ static bool cmd_save_nvram(const char **s)
 // &Z
 static bool cmd_save_phonebook(const char **s)
 {
-    int num = 0;
-    // supports hayes-ism AT&Z5551212
-    if ((*s)[0] == 0 || (*s)[0] == '=' || (*s)[1] == '=')
+    if ((*s)[0] == 0)
+        return false;
+    unsigned num = 0;
+    // Look for a digits-only prefix terminated by '=' (the slot+eq form).
+    // Fall through to the hayes-ism AT&Z5551212 (bare number into slot 0)
+    // when no such prefix is present.
+    const char *p = *s;
+    while (*p >= '0' && *p <= '9')
+        p++;
+    if (*p == '=' && p > *s)
     {
-        num = cmd_parse_num(s);
-        if (num == -1)
-            num = 0;
-        if (num >= MDM_PHONEBOOK_ENTRIES)
+        int parsed = cmd_parse_num(s);
+        if (parsed >= MDM_PHONEBOOK_ENTRIES)
             return false;
-        if ((*s)[0] != '=')
-            return false;
+        num = (unsigned)parsed;
+        ++*s;
+    }
+    else if ((*s)[0] == '=')
+    {
         ++*s;
     }
     bool result = mdm_write_phonebook_entry(*s, num);
@@ -472,9 +481,11 @@ static bool cmd_plus_rfcc(const char **s)
     switch (toupper(ch))
     {
     case '=':
+    {
         bool result = cyw_set_rf_country_code(*s);
         *s += strlen(*s);
         return result;
+    }
     case '?':
         mdm_set_response_fn(cmd_plus_rfcc_response, 0);
         return true;
@@ -499,9 +510,11 @@ static bool cmd_plus_ssid(const char **s)
     switch (toupper(ch))
     {
     case '=':
+    {
         bool result = wfi_set_ssid(*s);
         *s += strlen(*s);
         return result;
+    }
     case '?':
         mdm_set_response_fn(cmd_plus_ssid_response, 0);
         return true;
@@ -526,9 +539,11 @@ static bool cmd_plus_pass(const char **s)
     switch (toupper(ch))
     {
     case '=':
+    {
         bool result = wfi_set_pass(*s);
         *s += strlen(*s);
         return result;
+    }
     case '?':
         mdm_set_response_fn(cmd_plus_pass_response, 0);
         return true;
@@ -538,26 +553,26 @@ static bool cmd_plus_pass(const char **s)
 }
 
 // +
-static bool cmd_parse_modern(const char **s)
+static bool cmd_parse_plus(const char **s)
 {
-    if (!strncasecmp(*s, STR_RFCC, 4))
+    if (!strncasecmp(*s, STR_RFCC, STR_RFCC_LEN))
     {
-        (*s) += 4;
+        *s += STR_RFCC_LEN;
         return cmd_plus_rfcc(s);
     }
-    if (!strncasecmp(*s, STR_RF, 2))
+    if (!strncasecmp(*s, STR_RF, STR_RF_LEN))
     {
-        (*s) += 2;
+        *s += STR_RF_LEN;
         return cmd_plus_rf(s);
     }
-    if (!strncasecmp(*s, STR_SSID, 4))
+    if (!strncasecmp(*s, STR_SSID, STR_SSID_LEN))
     {
-        (*s) += 4;
+        *s += STR_SSID_LEN;
         return cmd_plus_ssid(s);
     }
-    if (!strncasecmp(*s, STR_PASS, 4))
+    if (!strncasecmp(*s, STR_PASS, STR_PASS_LEN))
     {
-        (*s) += 4;
+        *s += STR_PASS_LEN;
         return cmd_plus_pass(s);
     }
     return false;
@@ -642,13 +657,7 @@ static bool cmd_backslash_l(const char **s)
     }
     int num = cmd_parse_num(s);
     if (num >= 0 && num <= 65535)
-    {
-        if (num > 0 && (uint16_t)num == tel_get_port())
-            return false;
-        mdm_settings->listen_port = num;
-        mdm_listen_update();
-        return true;
-    }
+        return mdm_set_listen_port((uint16_t)num);
     return false;
 }
 
@@ -684,9 +693,9 @@ bool cmd_parse(const char **s)
     case 'E':
         return cmd_echo(s);
     case 'F':
-        return cmd_online_echo(s);
+        return cmd_duplex(s);
     case 'H':
-        return cmd_hook(s);
+        return cmd_hangup(s);
     case 'O':
         return cmd_online(s);
     case 'Q':
@@ -706,7 +715,7 @@ bool cmd_parse(const char **s)
     case '&':
         return cmd_parse_amp(s);
     case '+':
-        return cmd_parse_modern(s);
+        return cmd_parse_plus(s);
     case '\\':
         return cmd_parse_backslash(s);
     }

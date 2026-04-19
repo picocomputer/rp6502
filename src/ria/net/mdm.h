@@ -72,7 +72,7 @@ void mdm_carrier_lost(void);
 void mdm_ring(void);
 bool mdm_answer(void);
 uint8_t mdm_get_ring_count(void);
-void mdm_listen_update(void);
+bool mdm_set_listen_port(uint16_t port);
 bool mdm_conns_is_open(int desc);
 uint16_t mdm_conns_listen_port(int desc);
 
