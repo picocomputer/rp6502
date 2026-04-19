@@ -192,16 +192,15 @@ TU_ATTR_ALWAYS_INLINE static inline void epx_ctrl_prepare(uint8_t transfer_type)
   usbh_dpram->epx_ctrl = EPX_CTRL_DEFAULT | ((uint32_t)transfer_type << EP_CTRL_BUFFER_TYPE_LSB);
 }
 
-// Save buffer context for EPX preemption (called after STOP_TRANS).
 // Undo PID toggle and buffer accounting for buffers NOT completed on the wire.
 // A buffer completed on wire means: controller reached STATUS phase (ACK received).
 //   OUT completed: FULL cleared to 0 in STATUS phase (was 1 when armed)
 //   IN  completed: FULL set to 1 in STATUS phase (was 0 when armed)
-// So undo when: AVAIL=1 (never started), or (OUT: FULL=1) or (IN: FULL=0)
-static void __tusb_irq_path_func(epx_save_context)(hw_endpoint_t *ep) {
-  const uint32_t buf_ctrl = usbh_dpram->epx_buf_ctrl;
-  const bool     is_out   = (tu_edpt_dir(ep->ep_addr) == TUSB_DIR_OUT);
-  const bool     is_double = (usbh_dpram->epx_ctrl & EP_CTRL_DOUBLE_BUFFERED_BITS);
+// So undo when: AVAIL=1 (never started), or (OUT: FULL=1) or (IN: FULL=0).
+// Caller passes the captured buf_ctrl (read BEFORE clearing epx_buf_ctrl).
+static void __tusb_irq_path_func(epx_rollback_pid)(hw_endpoint_t *ep, uint32_t buf_ctrl) {
+  const bool is_out   = (tu_edpt_dir(ep->ep_addr) == TUSB_DIR_OUT);
+  const bool is_double = (usbh_dpram->epx_ctrl & EP_CTRL_DOUBLE_BUFFERED_BITS);
 
   for (uint b = 0; b <= (is_double ? 1u : 0u); b++) {
     const uint16_t bc16 = (uint16_t)(buf_ctrl >> (b * 16u));
@@ -217,7 +216,11 @@ static void __tusb_irq_path_func(epx_save_context)(hw_endpoint_t *ep) {
       }
     }
   }
+}
 
+// Save buffer context for EPX preemption (called after STOP_TRANS).
+static void __tusb_irq_path_func(epx_save_context)(hw_endpoint_t *ep) {
+  epx_rollback_pid(ep, usbh_dpram->epx_buf_ctrl);
   usbh_dpram->epx_buf_ctrl = 0;
   ep->state = EPSTATE_PENDING;
 }
@@ -403,9 +406,13 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
     while (usb_hw->sie_ctrl & USB_SIE_CTRL_STOP_TRANS_BITS) tight_loop_contents();
 
     usb_hw_clear->buf_status = 0x3u;    // prevent spurious EPX BUFF_STATUS
+    const uint32_t rx_bc     = usbh_dpram->epx_buf_ctrl;
     usbh_dpram->epx_buf_ctrl = 0;
 
     if (epx->state == EPSTATE_ACTIVE) {
+      // Device didn't respond: no ACK on the wire, so device's PID did not toggle.
+      // Undo the pre-arm toggle from bufctrl_prepare16 so the retry matches.
+      epx_rollback_pid(epx, rx_bc);
       xfer_complete_isr(epx, XFER_RESULT_FAILED, false);
     }
 
@@ -449,10 +456,14 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
     while (usb_hw->sie_ctrl & USB_SIE_CTRL_STOP_TRANS_BITS) tight_loop_contents();
 
     usb_hw_clear->buf_status = 0x3u;
+    const uint32_t ds_bc     = usbh_dpram->epx_buf_ctrl;
     TU_LOG(1, "  Data Seq Error: [0] = 0x%04x  [1] = 0x%04x\r\n",
-           tu_u32_low16(usbh_dpram->epx_buf_ctrl), tu_u32_high16(usbh_dpram->epx_buf_ctrl));
+           tu_u32_low16(ds_bc), tu_u32_high16(ds_bc));
     usbh_dpram->epx_buf_ctrl = 0;
     if (epx->state == EPSTATE_ACTIVE) {
+      // PID mismatch was not ACKed on the wire, so device's PID did not toggle.
+      // Undo the pre-arm toggle from bufctrl_prepare16 so the retry matches.
+      epx_rollback_pid(epx, ds_bc);
       xfer_complete_isr(epx, XFER_RESULT_FAILED, false);
     }
     // Defer to next SOF — same SIE settling issue as RX_TIMEOUT.
@@ -627,6 +638,14 @@ void hcd_device_close(uint8_t rhport, uint8_t dev_addr) {
 
   rp2usb_critical_enter();
 
+  // If the current EPX endpoint belongs to the closing device, the SIE may
+  // still be polling a device that is about to vanish. Stop it and clear
+  // buf_ctrl so the next EPX user starts from a clean slate.
+  if (epx->dev_addr == dev_addr && epx->interrupt_num == 0) {
+    sie_stop_xfer();
+    usbh_dpram->epx_buf_ctrl = 0;
+  }
+
   for (size_t i = 0; i < TU_ARRAY_SIZE(ep_pool); i++) {
     hw_endpoint_t *ep = &ep_pool[i];
     if (ep->dev_addr == dev_addr && ep->max_packet_size > 0) {
@@ -763,6 +782,9 @@ bool hcd_edpt_close(uint8_t rhport, uint8_t daddr, uint8_t ep_addr) {
   } else {
     // Non-interrupt (bulk/iso) endpoint using shared EPX
     if (epx == ep) {
+      if (ep->state == EPSTATE_ACTIVE) {
+        sie_stop_xfer();
+      }
       usbh_dpram->epx_buf_ctrl = 0;
     }
   }
