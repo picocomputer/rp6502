@@ -750,7 +750,7 @@ bool tel_has_pending(uint16_t port)
 
 // Settings
 #define TEL_KEY_SIZE 33
-static uint16_t tel_port;
+static uint16_t tel_port = 23;
 static char tel_key[TEL_KEY_SIZE];
 
 // State machine
