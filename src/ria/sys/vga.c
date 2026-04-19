@@ -29,8 +29,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define VGA_BACKCHANNEL_ACK_MS 2
 // How long to wait before aborting version string
 #define VGA_VERSION_WATCHDOG_MS 2
-// Abandon backchannel after two missed vsync messages (~2/60sec)
-#define VGA_VSYNC_WATCHDOG_MS 35
+// Abandon backchannel after two missed vsync messages
+// with 10ms added for UART drain and safety margin
+// when changing canvas or timing.
+#define VGA_VSYNC_WATCHDOG_MS 44
 
 static enum {
     VGA_NOT_FOUND,       // Possibly normal, RP6502-VGA is optional
@@ -139,6 +141,9 @@ static void vga_connect(void)
 
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
+    // Drain bytes the PIO sampled off the pin while it was driven by UART TX
+    while (!pio_sm_is_rx_fifo_empty(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM))
+        (void)pio_sm_get(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM);
     vga_pix_backchannel_enable();
 
     // Wait for version

@@ -235,9 +235,10 @@ static void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
     }
     if (vga_vsync_fired)
         return;
-    int16_t highest = vga_highest_scanline > 0
+    int16_t view_height = vga_view_current->height;
+    int16_t highest = vga_highest_scanline > 0 && vga_highest_scanline <= view_height
                           ? vga_highest_scanline
-                          : vga_view_current->height;
+                          : view_height;
     if (scanline + 1 >= highest)
     {
         ria_vsync();
