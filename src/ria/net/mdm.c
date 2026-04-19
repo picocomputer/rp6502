@@ -82,7 +82,7 @@ typedef struct
     size_t response_buf_tail;
     int (*response_fn)(char *, size_t, int);
     int response_state;
-    bool is_parsing;
+    bool parse_active;
     const char *parse_str;
     bool parse_result;
     uint16_t dial_port;
@@ -92,14 +92,12 @@ typedef struct
     uint8_t ring_count;
     absolute_time_t ring_timer;
     uint16_t active_listen_port;
+    bool is_answering;
 } mdm_conn_t;
 
 static mdm_conn_t mdm_conns[NET_MDM_DESCS];
 static mdm_conn_t *mdm_conn;
 mdm_settings_t *mdm_settings;
-
-static void mdm_net_on_close(int desc);
-static bool mdm_net_on_accept(uint16_t port);
 
 static char mdm_phone_buf[MDM_AT_COMMAND_LEN + 1];
 
@@ -132,14 +130,6 @@ static inline bool mdm_response_buf_empty(void)
 static inline bool mdm_response_buf_full(void)
 {
     return ((mdm_conn->response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE) == mdm_conn->response_buf_tail;
-}
-
-static inline size_t mdm_response_buf_count(void)
-{
-    if (mdm_conn->response_buf_head >= mdm_conn->response_buf_tail)
-        return mdm_conn->response_buf_head - mdm_conn->response_buf_tail;
-    else
-        return MDM_RESPONSE_BUF_SIZE - mdm_conn->response_buf_tail + mdm_conn->response_buf_head;
 }
 
 void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state)
@@ -188,7 +178,7 @@ static int mdm_tx_command_mode(char ch)
 {
     if (mdm_conn->response_state >= 0)
         return 0;
-    if (ch == '\r' || (!(mdm_settings->cr_char & 0x80) && ch == mdm_settings->cr_char))
+    if (!(mdm_settings->cr_char & 0x80) && ch == mdm_settings->cr_char)
     {
         if (mdm_settings->echo)
             mdm_response_append_cr_lf();
@@ -196,12 +186,12 @@ static int mdm_tx_command_mode(char ch)
         mdm_conn->cmd_buf_len = 0;
         if (mdm_cmd_buf_is_at_command())
         {
-            mdm_conn->is_parsing = true;
+            mdm_conn->parse_active = true;
             mdm_conn->parse_result = true;
             mdm_conn->parse_str = &mdm_conn->cmd_buf[2];
         }
     }
-    else if (ch == 127 || (!(mdm_settings->bs_char & 0x80) && ch == mdm_settings->bs_char))
+    else if (!(mdm_settings->bs_char & 0x80) && ch == mdm_settings->bs_char)
     {
         if (mdm_settings->echo)
         {
@@ -216,20 +206,14 @@ static int mdm_tx_command_mode(char ch)
     {
         if (mdm_settings->echo)
             mdm_response_append(ch);
-        if (ch == '/' && mdm_conn->cmd_buf_len == 1)
+        if (ch == '/' && mdm_conn->cmd_buf_len == 1 && mdm_cmd_buf_is_at_command())
         {
             if (mdm_settings->echo || (!mdm_settings->quiet && mdm_settings->verbose))
                 mdm_response_append_cr_lf();
             mdm_conn->cmd_buf_len = 0;
-            mdm_conn->is_parsing = true;
-            if (mdm_cmd_buf_is_at_command())
-            {
-
-                mdm_conn->parse_result = true;
-                mdm_conn->parse_str = &mdm_conn->cmd_buf[2];
-            }
-            else
-                mdm_conn->parse_result = false; // immediate error
+            mdm_conn->parse_active = true;
+            mdm_conn->parse_result = true;
+            mdm_conn->parse_str = &mdm_conn->cmd_buf[2];
             return 1;
         }
         if (mdm_conn->cmd_buf_len < MDM_AT_COMMAND_LEN)
@@ -262,9 +246,9 @@ static void mdm_tx_escape_observer(char ch)
     mdm_conn->escape_last_char = get_absolute_time();
 }
 
-int mdm_response_code(char *buf, size_t buf_size, int state)
+int mdm_response_code(char *buf, size_t buf_size, int code)
 {
-    assert(state >= 0 && (unsigned)state < sizeof(MDM_RESPONSES) / sizeof(char *));
+    assert(code >= 0 && (unsigned)code < sizeof(MDM_RESPONSES) / sizeof(char *));
     // X register result code availability bitmasks.
     // X0: 0-4, X1: 0-5, X2: 0-6, X3: 0-5 & 7, X4: 0-7.
     // Code 8 (NO ANSWER) is always available (@ dial modifier).
@@ -281,23 +265,22 @@ int mdm_response_code(char *buf, size_t buf_size, int state)
     bool suppress = false;
     if (mdm_settings->quiet == 1)
         suppress = true;
-    // TODO quiet == 2 is different when answering
-    else if (mdm_settings->quiet == 2 && state == 2)
+    else if (mdm_settings->quiet == 2 && mdm_conn->is_answering)
         suppress = true;
-    else if (!(x_mask[x] & (1u << state)))
+    else if (!(x_mask[x] & (1u << code)))
         suppress = true;
     if (suppress)
         buf[0] = 0;
     else if (mdm_settings->verbose)
-        snprintf(buf, buf_size, "\r\n%s\r\n", MDM_RESPONSES[state]);
+        snprintf(buf, buf_size, "\r\n%s\r\n", MDM_RESPONSES[code]);
     else
-        snprintf(buf, buf_size, "%d\r", state);
+        snprintf(buf, buf_size, "%d\r", code);
     return -1;
 }
 
 void mdm_factory_settings(mdm_settings_t *settings)
 {
-    settings->s_pointer = 0;   // S0 (not saved)
+    settings->s_pointer = 0;   // selected S-register; transient
     settings->echo = 1;        // E1
     settings->quiet = 0;       // Q0
     settings->verbose = 1;     // V1
@@ -401,13 +384,10 @@ bool mdm_write_settings(const mdm_settings_t *settings)
     lfs_file_t lfs_file;
     LFS_FILE_CONFIG(lfs_file_config);
     int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, settings_file,
-                                     LFS_O_RDWR | LFS_O_CREAT,
+                                     LFS_O_RDWR | LFS_O_CREAT | LFS_O_TRUNC,
                                      &lfs_file_config);
     if (lfsresult < 0)
         DBG("?Unable to lfs_file_opencfg %s for writing (%d)\n", settings_file, lfsresult);
-    if (lfsresult >= 0)
-        if ((lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0)) < 0)
-            DBG("?Unable to lfs_file_truncate %s (%d)\n", settings_file, lfsresult);
     if (lfsresult >= 0)
     {
         lfsresult = lfs_printf(&lfs_volume, &lfs_file,
@@ -492,6 +472,7 @@ bool mdm_read_settings(mdm_settings_t *settings)
             settings->progress = atoi(str);
             break;
         case 'S':
+        {
             uint8_t s_register = atoi(str);
             while (*str >= '0' && *str <= '9')
                 str++;
@@ -520,6 +501,7 @@ bool mdm_read_settings(mdm_settings_t *settings)
                 break;
             }
             break;
+        }
         case 'L':
             if (str[0] == '=')
                 settings->listen_port = atoi(str + 1);
@@ -573,7 +555,8 @@ bool mdm_dial(const char *s)
         port_str++;
         port = atoi(port_str);
     }
-    mdm_conn->is_parsing = false;
+    mdm_conn->parse_active = false;
+    mdm_conn->is_answering = false;
     strcpy(mdm_conn->cmd_buf, buf);
     mdm_conn->dial_port = port;
     mdm_conn->state = mdm_state_wait;
@@ -669,12 +652,20 @@ void mdm_ring(void)
     mdm_conn->state = mdm_state_ringing;
     mdm_conn->ring_count = 0;
     mdm_conn->ring_timer = get_absolute_time();
+    mdm_conn->is_answering = false;
+}
+
+static void mdm_net_on_close(int desc)
+{
+    mdm_set_conn(desc);
+    mdm_carrier_lost();
 }
 
 bool mdm_answer(void)
 {
     if (mdm_conn->state != mdm_state_ringing)
         return false;
+    mdm_conn->is_answering = true;
     if (!tel_accept(mdm_desc(), mdm_settings->listen_port, mdm_net_on_close))
     {
         // Call gone — answered elsewhere or remote hung up
@@ -694,12 +685,6 @@ bool mdm_answer(void)
     return true;
 }
 
-static void mdm_net_on_close(int desc)
-{
-    mdm_set_conn(desc);
-    mdm_carrier_lost();
-}
-
 static bool mdm_net_on_accept(uint16_t port)
 {
     // Only one modem takes the call; the rest stay on-hook.
@@ -709,7 +694,7 @@ static bool mdm_net_on_accept(uint16_t port)
             continue;
         if (mdm_conns[i].settings.listen_port != port)
             continue;
-        if (!net_is_closed(i))
+        if (mdm_conns[i].state != mdm_state_on_hook)
             continue;
         mdm_set_conn(i);
         mdm_ring();
@@ -720,28 +705,35 @@ static bool mdm_net_on_accept(uint16_t port)
 
 void mdm_listen_update(void)
 {
-    uint16_t old_port = mdm_conn->active_listen_port;
-    uint16_t new_port = mdm_settings->listen_port;
-    if (old_port == new_port)
+    uint16_t active = mdm_conn->active_listen_port;
+    uint16_t wanted = mdm_settings->listen_port;
+    if (active == wanted)
         return;
-    if (old_port > 0)
+    if (active > 0)
     {
         if (mdm_conn->state == mdm_state_ringing)
         {
-            tel_reject(old_port);
+            tel_reject(active);
             mdm_conn->state = mdm_state_on_hook;
             mdm_conn->ring_count = 0;
         }
-        tel_listen_close(old_port);
+        tel_listen_close(active);
         mdm_conn->active_listen_port = 0;
     }
-    if (new_port > 0 && wfi_ready())
+    if (wanted == 0)
+        return;
+    if (wanted == tel_get_port())
     {
-        if (tel_listen(new_port, mdm_net_on_accept))
-        {
-            mdm_conn->active_listen_port = new_port;
-            DBG("NET MDM %d listening on port %u\n", mdm_desc(), new_port);
-        }
+        DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", mdm_desc());
+        mdm_settings->listen_port = 0;
+        return;
+    }
+    if (!wfi_ready())
+        return;
+    if (tel_listen(wanted, mdm_net_on_accept))
+    {
+        mdm_conn->active_listen_port = wanted;
+        DBG("NET MDM %d listening on port %u\n", mdm_desc(), wanted);
     }
 }
 
@@ -757,18 +749,18 @@ void mdm_task()
         if (!mdm_conns[i].is_open)
             continue;
         mdm_set_conn(i);
-        if (mdm_conn->is_parsing)
+        if (mdm_conn->parse_active)
         {
             if (mdm_conn->response_state >= 0)
                 continue;
             if (!mdm_conn->parse_result)
             {
-                mdm_conn->is_parsing = false;
+                mdm_conn->parse_active = false;
                 mdm_set_response_fn(mdm_response_code, 4); // ERROR
             }
             else if (*mdm_conn->parse_str == 0)
             {
-                mdm_conn->is_parsing = false;
+                mdm_conn->parse_active = false;
                 if (mdm_conn->in_command_mode)
                     mdm_set_response_fn(mdm_response_code, 0); // OK
             }
@@ -777,17 +769,7 @@ void mdm_task()
                 mdm_conn->parse_result = cmd_parse(&mdm_conn->parse_str);
             }
         }
-        if (mdm_conn->active_listen_port == 0 &&
-            mdm_settings->listen_port > 0 && wfi_ready())
-        {
-            if (mdm_settings->listen_port == tel_get_port())
-                mdm_settings->listen_port = 0;
-            else if (tel_listen(mdm_settings->listen_port, mdm_net_on_accept))
-            {
-                mdm_conn->active_listen_port = mdm_settings->listen_port;
-                DBG("NET MDM %d listening on port %u\n", i, mdm_settings->listen_port);
-            }
-        }
+        mdm_listen_update();
         if (mdm_conn->state == mdm_state_ringing)
         {
             if (!tel_has_pending(mdm_settings->listen_port))
@@ -841,13 +823,8 @@ void mdm_task()
             if (!mdm_conn->in_command_mode)
             {
                 mdm_conn->cmd_buf_len = 0;
-                if (mdm_conn->state == mdm_state_disconnecting)
-                    mdm_finalize_carrier_lost();
-                else
-                {
-                    mdm_conn->in_command_mode = true;
-                    mdm_set_response_fn(mdm_response_code, 0); // OK
-                }
+                mdm_conn->in_command_mode = true;
+                mdm_set_response_fn(mdm_response_code, 0); // OK
             }
         }
     }
@@ -871,9 +848,10 @@ static void mdm_conn_stop(mdm_conn_t *conn)
     conn->parse_result = true;
     conn->state = mdm_state_on_hook;
     conn->in_command_mode = true;
-    conn->is_parsing = false;
+    conn->parse_active = false;
     conn->escape_count = 0;
     conn->ring_count = 0;
+    conn->is_answering = false;
 }
 
 void mdm_stop(void)
@@ -882,6 +860,8 @@ void mdm_stop(void)
         mdm_conn_stop(&mdm_conns[i]);
 }
 
+// Treats response_buf linearly from 0..head. Callers must ensure tail == 0
+// (the mdm_std_read refill path resets tail before invoking this).
 static void mdm_translate_newlines(void)
 {
     size_t out = 0;
@@ -962,26 +942,13 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
         mdm_read_settings(mdm_settings);
     else
         mdm_factory_settings(mdm_settings);
-    if (mdm_settings->listen_port > 0 &&
-        mdm_settings->listen_port == tel_get_port())
-    {
-        mdm_settings->listen_port = 0;
-        DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", desc);
-    }
     mdm_conn->is_open = true;
-    if (mdm_settings->listen_port > 0 && wfi_ready())
-    {
-        if (tel_listen(mdm_settings->listen_port, mdm_net_on_accept))
-        {
-            mdm_conn->active_listen_port = mdm_settings->listen_port;
-            DBG("NET MDM %d listening on port %u\n", desc, mdm_settings->listen_port);
-        }
-    }
+    mdm_listen_update();
     // Optionally process filename as AT command
     // after NVRAM read. e.g. AT0:&F
     if (filename[0])
     {
-        mdm_conn->is_parsing = true;
+        mdm_conn->parse_active = true;
         mdm_conn->parse_result = true;
         snprintf(mdm_conn->cmd_buf, sizeof(mdm_conn->cmd_buf), "%s", filename);
         mdm_conn->parse_str = mdm_conn->cmd_buf;
@@ -1053,7 +1020,7 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         return STD_ERROR;
     }
     mdm_set_conn(desc);
-    if (mdm_conn->is_parsing)
+    if (mdm_conn->parse_active)
     {
         *bytes_written = 0;
         return STD_OK;
@@ -1070,9 +1037,15 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         *bytes_written = pos;
         return STD_OK;
     }
-    uint16_t bw = count;
-    if (mdm_conn->state == mdm_state_connected)
-        bw = tel_tx(mdm_desc(), buf, bw);
+    if (mdm_conn->state != mdm_state_connected)
+    {
+        // DTE flow control: no transport (dial in progress, carrier draining).
+        // Mirrors a real modem holding CTS low.
+        *bytes_written = 0;
+        return STD_OK;
+    }
+    uint16_t bw = count > UINT16_MAX ? UINT16_MAX : (uint16_t)count;
+    bw = tel_tx(mdm_desc(), buf, bw);
     for (uint16_t i = 0; i < bw; i++)
         mdm_tx_escape_observer(buf[i]);
     *bytes_written = bw;
