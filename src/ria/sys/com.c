@@ -297,16 +297,14 @@ static stdio_driver_t com_stdio_driver = {
 
 void com_init(void)
 {
+    gpio_pull_up(COM_UART_TX_PIN);
+    gpio_pull_up(COM_UART_RX_PIN);
     gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     stdio_set_driver_enabled(&com_stdio_driver, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
-    // Wait for the UART to settle then purge everything.
-    // If we leave garbage then there is a chance for
-    // no startup message because break clears it or
-    // VGA detection will fail to detect.
-    // TODO similar delay in vga_connect
-    busy_wait_ms(10); // 2 fails, 3 works, 10 for safety
+    // Wait for the UART to settle after VGA startup then purge everything.
+    busy_wait_ms(25);
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);

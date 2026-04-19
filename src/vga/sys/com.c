@@ -122,6 +122,8 @@ static void com_out_chars(const char *buf, int length)
 
 void com_init(void)
 {
+    gpio_pull_up(COM_UART_TX_PIN);
+    gpio_pull_up(COM_UART_RX_PIN);
     gpio_set_function(COM_UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(COM_UART_RX_PIN, GPIO_FUNC_UART);
     uart_init(COM_UART_INTERFACE, COM_UART_BAUDRATE);
