@@ -198,6 +198,7 @@ void fil_mon_ls(const char *args)
     mon_add_response_fatfs(fresult);
     if (FR_OK != fresult)
         return;
+    mon_add_response_fn(fil_chdir_response);
     mon_add_response_fn(fil_dir_entry_response);
 }
 
