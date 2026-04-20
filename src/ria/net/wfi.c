@@ -33,7 +33,7 @@ typedef enum
 } wfi_state_t;
 static wfi_state_t wfi_state;
 
-static int wfi_retry_initial_retry_count;
+static int wfi_retry_count;
 static absolute_time_t wfi_retry_timer;
 static char wfi_ssid[WFI_SSID_SIZE];
 static char wfi_pass[WFI_PASS_SIZE];
@@ -59,18 +59,17 @@ void wfi_shutdown(void)
     case wfi_state_off:
         break;
     }
-    wfi_retry_initial_retry_count = 0;
+    wfi_retry_count = 0;
 }
 
-static int wfi_retry_connect(void)
+static void wfi_retry_connect(void)
 {
-    int secs = wfi_retry_initial_retry_count < WFI_RETRY_INITIAL_RETRIES
+    int secs = wfi_retry_count < WFI_RETRY_INITIAL_RETRIES
                    ? WFI_RETRY_INITIAL_SECS
                    : WFI_RETRY_SECS;
     wfi_state = wfi_state_connect_failed;
     wfi_retry_timer = make_timeout_time_ms(secs * 1000);
     cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-    return secs;
 }
 
 void wfi_task(void)
@@ -80,32 +79,23 @@ void wfi_task(void)
     case wfi_state_off:
         if (!cyw_get_rf_enable() || !wfi_ssid[0])
             break;
-        cyw43_arch_enable_sta_mode(); // cyw43_wifi_set_up
+        cyw43_arch_enable_sta_mode();
         wfi_state = wfi_state_connect;
         break;
     case wfi_state_connect:
         DBG("NET WFI connecting\n");
         // Power management may be buggy, turn it off
         if (cyw43_wifi_pm(&cyw43_state, CYW43_DEFAULT_PM & ~0xf))
-        {
-            int secs = wfi_retry_connect();
-            (void)secs;
-            DBG("NET WFI cyw43_wifi_pm failed, retry %ds\n", secs);
-        }
+            wfi_retry_connect();
         else if (cyw43_arch_wifi_connect_async(
                      wfi_ssid, wfi_get_pass(),
                      strlen(wfi_get_pass()) ? CYW43_AUTH_WPA2_AES_PSK : CYW43_AUTH_OPEN))
-        {
-            int secs = wfi_retry_connect();
-            (void)secs;
-            DBG("NET WFI cyw43_arch_wifi_connect_async failed, retry %ds\n", secs);
-        }
+            wfi_retry_connect();
         else
             wfi_state = wfi_state_connecting;
         break;
     case wfi_state_connecting:
-        int link_status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
-        switch (link_status)
+        switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_DOWN:
         case CYW43_LINK_JOIN:
@@ -113,37 +103,35 @@ void wfi_task(void)
             break;
         case CYW43_LINK_UP:
             DBG("NET WFI connected\n");
-            wfi_retry_initial_retry_count = 0;
+            wfi_retry_count = 0;
             wfi_state = wfi_state_connected;
             break;
         case CYW43_LINK_FAIL:
         case CYW43_LINK_NONET:
         case CYW43_LINK_BADAUTH:
-            int secs = wfi_retry_connect();
-            (void)secs;
-            DBG("NET WFI connect failed (%d), retry %ds\n", link_status, secs);
+            DBG("NET WFI connect failed\n");
+            wfi_retry_connect();
             break;
         }
         break;
     case wfi_state_connect_failed:
         if (time_reached(wfi_retry_timer))
         {
-            wfi_retry_initial_retry_count++;
+            wfi_retry_count++;
             wfi_state = wfi_state_connect;
         }
         break;
     case wfi_state_connected:
         if (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) != CYW43_LINK_UP)
         {
-            int secs = wfi_retry_connect();
-            (void)secs;
-            DBG("NET WFI connection lost, retry %ds\n", secs);
+            DBG("NET WFI connection lost\n");
+            wfi_retry_connect();
         }
         break;
     }
 }
 
-static const char *wifi_status_message(void)
+static const char *wfi_status_message(void)
 {
     switch (wfi_state)
     {
@@ -189,7 +177,7 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
     {
     case 0:
     {
-        snprintf(buf, buf_size, STR_STATUS_WIFI, wifi_status_message());
+        snprintf(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
     }
     break;
     case 1:
@@ -227,7 +215,7 @@ bool wfi_connecting(void)
     return wfi_state == wfi_state_connect ||
            wfi_state == wfi_state_connecting ||
            (wfi_state == wfi_state_connect_failed &&
-            wfi_retry_initial_retry_count < WFI_RETRY_INITIAL_RETRIES);
+            wfi_retry_count < WFI_RETRY_INITIAL_RETRIES);
 }
 
 void wfi_load_ssid(const char *str)
