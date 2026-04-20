@@ -70,7 +70,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define TEL_WILL 251
 #define TEL_SB 250
 #define TEL_SE 240
-#define TEL_NOP 241
 #define TEL_BRK 243
 
 // Telnet option codes
@@ -351,16 +350,16 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
         // IAC SB TTYPE IS <type> IAC SE
         char buf[48];
         size_t pos = 0;
-        buf[pos++] = TEL_IAC;
-        buf[pos++] = TEL_SB;
-        buf[pos++] = TEL_OPT_TTYPE;
-        buf[pos++] = TEL_TTYPE_IS;
+        buf[pos++] = (char)TEL_IAC;
+        buf[pos++] = (char)TEL_SB;
+        buf[pos++] = (char)TEL_OPT_TTYPE;
+        buf[pos++] = (char)TEL_TTYPE_IS;
         if (ttype_len > sizeof(buf) - pos - 2)
             ttype_len = sizeof(buf) - pos - 2;
         memcpy(&buf[pos], tc->ttype, ttype_len);
         pos += ttype_len;
-        buf[pos++] = TEL_IAC;
-        buf[pos++] = TEL_SE;
+        buf[pos++] = (char)TEL_IAC;
+        buf[pos++] = (char)TEL_SE;
         // Atomic: on failure the peer can resend TTYPE SEND.
         if (net_tx_all(desc, buf, pos))
             DBG("NET TEL sent TTYPE IS %s\n", tc->ttype);
@@ -398,7 +397,7 @@ static void tel_dispatch_neg(int desc, tel_conn_t *tc, uint8_t cmd, uint8_t opt)
 }
 
 static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
-                                char *buf, uint16_t *out, uint16_t len)
+                                char *buf, uint16_t *out_pos, uint16_t cap)
 {
     switch (tc->rx_state)
     {
@@ -416,8 +415,8 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             return;
         }
         tc->last_rx_was_cr = (byte == '\r');
-        if (*out < len)
-            buf[(*out)++] = byte;
+        if (*out_pos < cap)
+            buf[(*out_pos)++] = byte;
         return;
 
     case tel_rx_iac:
@@ -426,8 +425,8 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
         case TEL_IAC:
             // Escaped 0xFF - literal data byte
             tc->rx_state = tel_rx_data;
-            if (*out < len)
-                buf[(*out)++] = (char)0xFF;
+            if (*out_pos < cap)
+                buf[(*out_pos)++] = (char)0xFF;
             return;
         case TEL_WILL:
             tc->rx_state = tel_rx_will;
@@ -501,7 +500,7 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             tc->rx_state = tel_rx_sb;
             return;
         }
-        // Malformed - treat as end of subneg
+        // Malformed IAC inside SB — abandon subneg
         tc->rx_state = tel_rx_data;
         return;
     }
@@ -549,7 +548,9 @@ static uint16_t tel_tx_step(uint8_t byte, bool binary_tx, int next)
         return 2;
     if (byte == '\r' && !binary_tx && next >= 0 && next != '\n')
         return 2; // bare CR -> CR NUL
-    return 1;     // deferred CR (next==-1) is 1; NUL sent on next call
+    // next==-1 (end of buffer) counts as 1: a companion NUL, if needed,
+    // is accounted for against the next call's first byte.
+    return 1;
 }
 
 uint16_t tel_tx(int desc, const char *buf, uint16_t len)
@@ -780,6 +781,25 @@ static char tel_rx_buf[TEL_RX_BUF_SIZE];
 static size_t tel_rx_head;
 static size_t tel_rx_tail;
 
+static void tel_rings_clear(void)
+{
+    tel_tx_head = tel_tx_tail = 0;
+    tel_rx_head = tel_rx_tail = 0;
+}
+
+static void tel_shutdown(void)
+{
+    if (tel_state == tel_state_auth || tel_state == tel_state_connected)
+        tel_close(SYS_TEL_DESC);
+    if (tel_state >= tel_state_listening)
+    {
+        net_listen_close(tel_active_port);
+        tel_active_port = 0;
+    }
+    tel_state = tel_state_idle;
+    tel_rings_clear();
+}
+
 // -- Settings --
 
 void tel_load_port(const char *str)
@@ -796,8 +816,6 @@ void tel_load_key(const char *str)
         tel_key[n] = 0;
     }
 }
-
-static void tel_shutdown(void);
 
 bool tel_set_port(uint32_t port)
 {
@@ -854,8 +872,7 @@ static void tel_on_disconnect(int desc)
         if (tel_state == tel_state_connected)
             tel_console_active(false);
         tel_state = tel_state_listening;
-        tel_tx_head = tel_tx_tail = 0;
-        tel_rx_head = tel_rx_tail = 0;
+        tel_rings_clear();
     }
     net_close(desc);
 }
@@ -873,25 +890,10 @@ static bool tel_on_accept(uint16_t port)
     tel_tx(SYS_TEL_DESC, STR_TEL_PASSKEY, STR_TEL_PASSKEY_LEN);
 
     tel_auth_len = 0;
-    tel_tx_head = tel_tx_tail = 0;
-    tel_rx_head = tel_rx_tail = 0;
+    tel_rings_clear();
     tel_state = tel_state_auth;
     DBG("NET TEL console accepted, awaiting auth\n");
     return true;
-}
-
-static void tel_shutdown(void)
-{
-    if (tel_state == tel_state_auth || tel_state == tel_state_connected)
-        tel_close(SYS_TEL_DESC);
-    if (tel_state >= tel_state_listening)
-    {
-        net_listen_close(tel_active_port);
-        tel_active_port = 0;
-    }
-    tel_state = tel_state_idle;
-    tel_tx_head = tel_tx_tail = 0;
-    tel_rx_head = tel_rx_tail = 0;
 }
 
 static bool tel_should_listen(void)
