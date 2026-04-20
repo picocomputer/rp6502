@@ -43,6 +43,7 @@ bool mdm_set_listen_port(uint16_t port)
 #include "net/tel.h"
 #include "net/wfi.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/lfs.h"
 #include <pico/time.h>
 #include <stdlib.h>
@@ -726,7 +727,7 @@ static void mdm_listen_update(void)
     }
     if (wanted == 0)
         return;
-    if (wanted == tel_get_port())
+    if (wanted == com_tel_get_port())
     {
         DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", mdm_desc());
         mdm_settings->listen_port = 0;
@@ -743,7 +744,7 @@ static void mdm_listen_update(void)
 
 bool mdm_set_listen_port(uint16_t port)
 {
-    if (port > 0 && port == tel_get_port())
+    if (port > 0 && port == com_tel_get_port())
         return false;
     mdm_settings->listen_port = port;
     mdm_listen_update();

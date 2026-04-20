@@ -13,9 +13,9 @@
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
-#include "net/tel.h"
 #include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/com.h"
 #include "sys/cpu.h"
 #include "sys/vga.h"
 #include "usb/nfc.h"
@@ -243,7 +243,7 @@ static void set_ble(const char *args)
 static int set_key_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *key = tel_get_key();
+    const char *key = com_tel_get_key();
     snprintf(buf, buf_size, STR_SET_KEY_RESPONSE,
              strlen(key) ? STR_PARENS_SET : STR_PARENS_NONE);
     return -1;
@@ -252,9 +252,9 @@ static int set_key_response(char *buf, size_t buf_size, int state)
 static int set_port_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    bool en = tel_get_port() > 0 && tel_get_key()[0];
+    bool en = com_tel_get_port() > 0 && com_tel_get_key()[0];
     snprintf(buf, buf_size, STR_SET_PORT_RESPONSE,
-             tel_get_port(), en ? STR_ENABLED : STR_DISABLED);
+             com_tel_get_port(), en ? STR_ENABLED : STR_DISABLED);
     return -1;
 }
 
@@ -265,7 +265,7 @@ static void set_port(const char *args)
     uint32_t val;
     if (!str_parse_uint32(&args, &val) ||
         !str_parse_end(args) ||
-        !tel_set_port(val))
+        !com_tel_set_port(val))
         return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     mon_add_response_fn(set_port_response);
     mon_add_response_fn(set_key_response);
@@ -278,10 +278,10 @@ static void set_key(const char *args)
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
     if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        tel_set_key("");
+        com_tel_set_key("");
     else
     {
-        if (!tok || !str_parse_end(scan) || !tel_set_key(tok))
+        if (!tok || !str_parse_end(scan) || !com_tel_set_key(tok))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_port_response);

@@ -33,8 +33,13 @@ void com_stop(void);
 bool com_get_bel(void);
 void com_set_bel(bool value);
 
-/* TX — console output
- */
+// Telnet console server settings
+void com_tel_load_port(const char *str);
+void com_tel_load_key(const char *str);
+bool com_tel_set_port(uint32_t port);
+bool com_tel_set_key(const char *key);
+uint16_t com_tel_get_port(void);
+const char *com_tel_get_key(void);
 
 // com_tx_buf is the core-0-only TX ring. Producers (stdio, std_tty_write)
 // and consumer (com_tx_fanout) all run on the core-0 main loop, so the
@@ -90,18 +95,8 @@ static inline void com_act_write(char ch)
     com_act_tx_head = next;
 }
 
-/* RX — console input
- */
-
 // com_rx_char is the cross-core single-char handoff slot.
 // -1 => empty, else 0..255.
-// Producer: com_task on core 0 publishes a non-negative value when the
-// slot is empty (ordered with __dmb()).
-// Consumers: act_loop on core 1 (primary, serves 6502 0xFFE2 reads) or
-// com_stdio_in_chars on core 0 (steal path when monitor is active).
-// The application is responsible for not mixing readers between the
-// monitor and the 6502; under that invariant the dual-consumer clear
-// path cannot race.
 extern volatile int com_rx_char;
 
 #endif /* _RIA_SYS_COM_H_ */

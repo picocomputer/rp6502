@@ -12,9 +12,9 @@
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
-#include "net/tel.h"
 #include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/com.h"
 #include "sys/cpu.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
@@ -107,8 +107,8 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                wfi_get_ssid(),
                                wfi_get_pass(),
                                ble_get_enabled(),
-                               tel_get_port(),
-                               tel_get_key(),
+                               com_tel_get_port(),
+                               com_tel_get_key(),
 #endif /* RP6502_RIA_W */
                                opt_str);
     }
@@ -185,10 +185,10 @@ static void cfg_load_with_boot_opt(bool boot_only)
             ble_load_enabled(str);
             break;
         case 'O':
-            tel_load_port(str);
+            com_tel_load_port(str);
             break;
         case 'A':
-            tel_load_key(str);
+            com_tel_load_key(str);
             break;
 #endif /* RP6502_RIA_W */
         default:

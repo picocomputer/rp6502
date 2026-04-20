@@ -26,7 +26,6 @@
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/ntp.h"
-#include "net/tel.h"
 #include "net/wfi.h"
 #include "str/rln.h"
 #include "sys/com.h"
@@ -80,7 +79,6 @@ static void init(void)
     rom_init();
     clk_init();
     mdm_init();
-    tel_init();
     rln_init();
 
     // USB near end for boot enum timing
@@ -110,7 +108,6 @@ void main_task(void)
     ble_task();
     led_task();
     mdm_task();
-    tel_task();
     ram_task();
 }
 
