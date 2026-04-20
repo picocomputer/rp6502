@@ -62,7 +62,7 @@ static bool com_bel_enabled = true;
 
 #ifndef RP6502_RIA_W
 
-static bool com_tel_tx_writable(void) { return false; }
+static bool com_tel_tx_writable(void) { return true; }
 static void com_tel_tx_write(char) {}
 static int com_tel_read(char *, int) { return PICO_ERROR_NO_DATA; }
 static void com_tel_pump(void) {}
@@ -334,14 +334,6 @@ uint16_t com_tel_get_port(void)
 const char *com_tel_get_key(void)
 {
     return com_tel_key;
-}
-
-static void com_tel_init(void)
-{
-    // State starts idle; no PIX message needed — com_init runs before
-    // pix_init, and VGA defaults to not suppressing local replies. State
-    // transitions below drive PIX.
-    com_tel_state = com_tel_state_idle;
 }
 
 static void com_tel_task(void)
