@@ -52,17 +52,14 @@ static uint16_t ble_kbd_cids[MAX_NR_HIDS_CLIENTS];
 static btstack_packet_callback_registration_t hci_event_callback_registration;
 static btstack_packet_callback_registration_t sm_event_callback_registration;
 
-// Enough storage for MAX_NR_HIDS_CLIENTS HID descriptors
-// Since we only negotiate one connection at a time and only
-// need the descriptor once, this could be hacked smaller.
+// Storage for MAX_NR_HIDS_CLIENTS HID descriptors.
 static uint8_t hid_descriptor_storage[3 * 1024];
 
-// Only one connection sequence at a time. ble_connecting_handle tracks
-// the LE handle from connection complete through HIDS service setup.
-// ble_scan_restarts_at schedules the next scan/whitelist attempt and
-// doubles as a timeout for the in-progress connection.
+// ble_connecting_handle tracks the LE handle from connection complete
+// through HIDS service setup. ble_retry_at fires the next scan or
+// whitelist attempt and also times out the in-progress connection.
 #define BLE_CONNECT_TIMEOUT_MS (20 * 1000)
-static absolute_time_t ble_scan_restarts_at;
+static absolute_time_t ble_retry_at;
 static hci_con_handle_t ble_connecting_handle;
 
 static const uint8_t __in_flash("ble_att_profile_data") ble_att_profile_data[] = {
@@ -105,7 +102,7 @@ static void ble_connect_with_whitelist(void)
         else
         {
             DBG("BLE: Whitelist connect busy, will retry\n");
-            ble_scan_restarts_at = make_timeout_time_ms(1000);
+            ble_retry_at = make_timeout_time_ms(1000);
         }
     }
 }
@@ -113,23 +110,7 @@ static void ble_connect_with_whitelist(void)
 static inline void ble_restart_reconnection(void)
 {
     ble_connecting_handle = HCI_CON_HANDLE_INVALID;
-    ble_scan_restarts_at = get_absolute_time();
-}
-
-static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
-
-// Start HIDS GATT discovery after encryption is established.
-// On failure, abandon this connection and try the next device.
-static void ble_start_hids_client(hci_con_handle_t con_handle)
-{
-    uint8_t status = hids_client_connect(con_handle, ble_hids_client_handler,
-                                         HID_PROTOCOL_MODE_REPORT, NULL);
-    if (status != ERROR_CODE_SUCCESS)
-    {
-        DBG("BLE: HIDS connect failed: 0x%02x\n", status);
-        gap_disconnect(con_handle);
-        ble_restart_reconnection();
-    }
+    ble_retry_at = get_absolute_time();
 }
 
 void ble_set_hid_leds(uint8_t leds)
@@ -163,8 +144,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         {
             hci_con_handle_t failed_handle = ble_connecting_handle;
             ble_restart_reconnection();
-            if (failed_handle != HCI_CON_HANDLE_INVALID)
-                gap_disconnect(failed_handle);
+            gap_disconnect(failed_handle);
             DBG("BLE: HID service connection failed - Status: 0x%02x, CID: 0x%04x\n", status, cid);
             break;
         }
@@ -174,8 +154,7 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
         uint16_t descriptor_len = hids_client_descriptor_storage_get_descriptor_len(cid, 0);
         if (kbd_mount(slot, descriptor, descriptor_len, 0, 0))
         {
-            if (ble_count_kbd < MAX_NR_HIDS_CLIENTS)
-                ble_kbd_cids[ble_count_kbd++] = cid;
+            ble_kbd_cids[ble_count_kbd++] = cid;
             ble_hid_leds_at = get_absolute_time();
         }
         if (mou_mount(slot, descriptor, descriptor_len))
@@ -222,6 +201,20 @@ static void ble_hids_client_handler(uint8_t packet_type, uint16_t channel, uint8
     }
 }
 
+// Start HIDS GATT discovery after encryption is established.
+// On failure, abandon this connection and try the next device.
+static void ble_start_hids_client(hci_con_handle_t con_handle)
+{
+    uint8_t status = hids_client_connect(con_handle, ble_hids_client_handler,
+                                         HID_PROTOCOL_MODE_REPORT, NULL);
+    if (status != ERROR_CODE_SUCCESS)
+    {
+        DBG("BLE: HIDS connect failed: 0x%02x\n", status);
+        gap_disconnect(con_handle);
+        ble_restart_reconnection();
+    }
+}
+
 static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     UNUSED(channel);
@@ -245,7 +238,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
     case GAP_EVENT_ADVERTISING_REPORT:
     {
         // Only process advertisements during pairing mode
-        if (!ble_pairing || ble_scan_restarts_at)
+        if (!ble_pairing || ble_retry_at)
             break;
 
         bd_addr_t event_addr;
@@ -265,7 +258,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
         {
             DBG("BLE: Found HID %s, connecting...\n", bd_addr_to_str(event_addr));
             gap_stop_scan();
-            ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
+            ble_retry_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
         }
         else
         {
@@ -291,7 +284,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
             }
             hci_con_handle_t con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
             ble_connecting_handle = con_handle;
-            ble_scan_restarts_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
+            ble_retry_at = make_timeout_time_ms(BLE_CONNECT_TIMEOUT_MS);
             sm_request_pairing(con_handle);
             DBG("BLE: LE Connected 0x%04x, requesting encryption\n", con_handle);
             break;
@@ -406,14 +399,6 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
 
 static void ble_init_stack(void)
 {
-    // Globals
-    ble_scan_restarts_at = 0;
-    ble_connecting_handle = HCI_CON_HANDLE_INVALID;
-    ble_count_kbd = 0;
-    ble_count_mou = 0;
-    ble_count_pad = 0;
-    ble_hid_leds_at = 0;
-
     // Initialize L2CAP
     l2cap_init();
 
@@ -456,7 +441,7 @@ void ble_task(void)
         {
             ble_init_stack();
             ble_state = BLE_RUNNING;
-            ble_scan_restarts_at = make_timeout_time_ms(100);
+            ble_retry_at = make_timeout_time_ms(100);
         }
         return;
     }
@@ -465,16 +450,19 @@ void ble_task(void)
     {
         ble_hid_leds_at = 0;
         for (uint8_t i = 0; i < ble_count_kbd; i++)
-            if (hids_client_send_write_report(ble_kbd_cids[i], 0,
-                                              HID_REPORT_TYPE_OUTPUT, &ble_hid_leds,
-                                              sizeof(ble_hid_leds)) ==
-                ERROR_CODE_COMMAND_DISALLOWED) // Retry only this error
+        {
+            uint8_t rc = hids_client_send_write_report(ble_kbd_cids[i], 0,
+                                                       HID_REPORT_TYPE_OUTPUT,
+                                                       &ble_hid_leds,
+                                                       sizeof(ble_hid_leds));
+            if (rc == ERROR_CODE_COMMAND_DISALLOWED)
                 ble_hid_leds_at = make_timeout_time_ms(100);
+        }
     }
 
-    if (ble_scan_restarts_at && time_reached(ble_scan_restarts_at))
+    if (ble_retry_at && time_reached(ble_retry_at))
     {
-        ble_scan_restarts_at = 0;
+        ble_retry_at = 0;
         if (ble_connecting_handle != HCI_CON_HANDLE_INVALID)
         {
             gap_disconnect(ble_connecting_handle);
@@ -498,14 +486,14 @@ static void ble_set_config(uint8_t ble)
     case 1:
         ble_pairing = false;
         led_blink(false);
-        ble_scan_restarts_at = get_absolute_time();
+        ble_retry_at = get_absolute_time();
         break;
     case 2:
         if (cyw_get_rf_enable())
         {
             ble_pairing = true;
             led_blink(true);
-            ble_scan_restarts_at = get_absolute_time();
+            ble_retry_at = get_absolute_time();
         }
         break;
     case 86:
@@ -532,7 +520,7 @@ void ble_shutdown(void)
     ble_pairing = false;
     led_blink(false);
     ble_connecting_handle = HCI_CON_HANDLE_INVALID;
-    ble_scan_restarts_at = 0;
+    ble_retry_at = 0;
     ble_hid_leds_at = 0;
     if (ble_state == BLE_RUNNING)
     {
@@ -553,7 +541,7 @@ void ble_shutdown(void)
         sm_deinit();
         l2cap_deinit();
         btstack_memory_deinit();
-        btstack_crypto_deinit(); // OMG! This was so hard to find.
+        btstack_crypto_deinit();
     }
     ble_state = BLE_OFF;
 }
@@ -591,6 +579,7 @@ bool ble_set_enabled(uint8_t ble)
 {
     if (ble > 2 && ble != 86)
         return false;
+    // Dispatch before normalizing so case 86 sees the raw value.
     ble_set_config(ble);
     if (ble == 86)
         ble = 0;
