@@ -22,7 +22,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define FIL_TIMEOUT_MS 200
+#define FIL_TIMEOUT_MS 250
 
 static enum {
     FIL_IDLE,
