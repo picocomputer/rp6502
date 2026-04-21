@@ -30,6 +30,6 @@ bool mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len);
 bool mou_umount(int slot);
 
 // Process HID report.
-void mou_report(int slot, void const *report, size_t size);
+void mou_report(int slot, uint8_t const *report, size_t size);
 
 #endif /* _RIA_HID_MOU_H_ */

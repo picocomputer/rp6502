@@ -38,7 +38,7 @@ static uint16_t mou_xram;
 typedef struct
 {
     bool valid;
-    int slot;          // HID protocol drivers use slots assigned in hid.h
+    int slot;          // HID slot
     uint8_t report_id; // If non zero, the first report byte must match and will be skipped
     uint16_t button_offsets[8];
     bool x_relative;   // Will be true for mice
@@ -55,7 +55,7 @@ typedef struct
 
 static mou_connection_t mou_connections[MOU_MAX_MICE];
 
-static mou_connection_t *find_connection_by_slot(int slot)
+static mou_connection_t *mou_get_connection_by_slot(int slot)
 {
     for (int i = 0; i < MOU_MAX_MICE; ++i)
     {
@@ -94,10 +94,8 @@ static bool __in_flash("mou_parse") mou_parse_field(const hid_field_t *field, vo
         field->report_id != conn->report_id)
         return true;
 
-    bool get_report_id = false;
     if (field->usage_page == 0x01) // Generic Desktop
     {
-        get_report_id = true;
         switch (field->usage)
         {
         case 0x30: // X axis
@@ -117,44 +115,47 @@ static bool __in_flash("mou_parse") mou_parse_field(const hid_field_t *field, vo
             conn->pan_offset = field->bit_pos;
             conn->pan_size = field->size;
             break;
+        default:
+            return true;
         }
+        if (conn->report_id == 0 && field->report_id != 0xFFFF)
+            conn->report_id = field->report_id;
     }
     else if (field->usage_page == 0x0C) // Consumer
     {
         if (field->usage == 0x238) // AC Pan
         {
-            get_report_id = true;
             conn->pan_offset = field->bit_pos;
             conn->pan_size = field->size;
+            if (conn->report_id == 0 && field->report_id != 0xFFFF)
+                conn->report_id = field->report_id;
         }
     }
     else if (field->usage_page == 0x09) // Button page
     {
-        get_report_id = true;
         if (field->usage >= 1 && field->usage <= 8)
             conn->button_offsets[field->usage - 1] = field->bit_pos;
+        if (conn->report_id == 0 && field->report_id != 0xFFFF)
+            conn->report_id = field->report_id;
     }
-
-    if (get_report_id && conn->report_id == 0 && field->report_id != 0xFFFF)
-        conn->report_id = field->report_id;
 
     return true;
 }
 
-bool __in_flash("ac") mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
 {
-    int desc_idx = -1;
+    int conn_num = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
         if (!mou_connections[i].valid)
         {
-            desc_idx = i;
+            conn_num = i;
             break;
         }
-    if (desc_idx < 0)
+    if (conn_num < 0)
         return false;
 
     // Process raw HID descriptor into mou_connection_t
-    mou_connection_t *conn = &mou_connections[desc_idx];
+    mou_connection_t *conn = &mou_connections[conn_num];
     memset(conn, 0, sizeof(mou_connection_t));
     for (int i = 0; i < 8; i++)
         conn->button_offsets[i] = 0xFFFF;
@@ -174,23 +175,30 @@ bool __in_flash("ac") mou_mount(int slot, uint8_t const *desc_data, uint16_t des
     return conn->valid;
 }
 
-bool __in_flash("mou_umount") mou_umount(int slot)
+bool mou_umount(int slot)
 {
-    mou_connection_t *conn = find_connection_by_slot(slot);
+    mou_connection_t *conn = mou_get_connection_by_slot(slot);
     if (conn == NULL)
         return false;
     DBG("mou_umount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
     conn->valid = false;
+    uint8_t merged = 0;
+    for (int i = 0; i < MOU_MAX_MICE; ++i)
+        if (mou_connections[i].valid)
+            merged |= mou_connections[i].buttons;
+    mou_state.buttons = merged;
+    if (mou_xram != 0xFFFF)
+        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
     return true;
 }
 
-void mou_report(int slot, void const *data, size_t size)
+void mou_report(int slot, uint8_t const *data, size_t size)
 {
-    mou_connection_t *conn = find_connection_by_slot(slot);
+    mou_connection_t *conn = mou_get_connection_by_slot(slot);
     if (conn == NULL)
         return;
 
-    const uint8_t *report_data = (const uint8_t *)data;
+    const uint8_t *report_data = data;
     uint16_t report_data_len = size;
 
     if (conn->report_id != 0)
@@ -214,7 +222,7 @@ void mou_report(int slot, void const *data, size_t size)
                 buttons |= (1 << i);
         }
     }
-    conn->buttons = buttons; // store per-connection
+    conn->buttons = buttons;
     uint8_t merged = 0;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
         if (mou_connections[i].valid)
@@ -222,9 +230,8 @@ void mou_report(int slot, void const *data, size_t size)
     mou_state.buttons = merged;
 
     // Extract movement data
-    if (conn->x_size > 0)
-        mou_x += hid_extract_signed(report_data, report_data_len,
-                                    conn->x_offset, conn->x_size);
+    mou_x += hid_extract_signed(report_data, report_data_len,
+                                conn->x_offset, conn->x_size);
     mou_state.x = mou_x >> 1;
     if (conn->y_size > 0)
         mou_y += hid_extract_signed(report_data, report_data_len,
