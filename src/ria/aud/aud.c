@@ -25,14 +25,10 @@ static irq_handler_t aud_irq_fn;
 
 void aud_init(void)
 {
-    pwm_config config;
-
-    config = pwm_get_default_config();
+    pwm_config config = pwm_get_default_config();
     pwm_config_set_wrap(&config, ((1u << AUD_PWM_BITS) - 1));
     pwm_init(AUD_L_SLICE, &config, true);
     pwm_init(AUD_R_SLICE, &config, true);
-
-    config = pwm_get_default_config();
     pwm_init(AUD_IRQ_SLICE, &config, true);
 
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, AUD_PWM_CENTER);
@@ -47,8 +43,9 @@ void aud_init(void)
     gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
     gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
 
+    // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
-        aud_sine_table[i] = cos(M_PI * 2.0 / 256 * i) * -127;
+        aud_sine_table[i] = lround(cos(M_PI * 2.0 / 256 * i) * -127);
 
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
     bel_setup();
@@ -70,7 +67,7 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
         aud_irq_fn = irq_fn;
         pwm_clear_irq(AUD_IRQ_SLICE);
         irq_set_exclusive_handler(PWM_IRQ_WRAP_0, irq_fn);
-        pwm_set_wrap(AUD_IRQ_SLICE, CPU_RP2350_KHZ / (rate / 1000.f) - 1);
+        pwm_set_wrap(AUD_IRQ_SLICE, (CPU_RP2350_KHZ * 1000u) / rate - 1);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
         irq_set_enabled(PWM_IRQ_WRAP_0, true);
     }
