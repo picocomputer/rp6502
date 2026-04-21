@@ -10,7 +10,7 @@
 #include "mon/mon.h"
 #include "str/str.h"
 #include "sys/cfg.h"
-#include "sys/pix.h"
+#include "sys/vga.h"
 #include <fatfs/ff.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_OEM)
@@ -46,7 +46,7 @@ static void oem_request_code_page(uint16_t cp)
 #endif
     if (old_code_page != oem_code_page_run)
     {
-        pix_send_blocking(PIX_DEVICE_VGA, 0xFu, 0x01u, oem_code_page_run);
+        vga_set_code_page(oem_code_page_run);
         kbd_rebuild_code_page_cache();
     }
 }

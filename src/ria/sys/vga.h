@@ -41,4 +41,8 @@ bool vga_set_display_type(uint8_t display_type);
 uint8_t vga_get_display_type(void);
 const char *vga_get_display_type_verbose(void);
 
+// VGA-bound protocol state pushed from other subsystems
+void vga_set_tel_console_active(bool active);
+void vga_set_code_page(uint16_t cp);
+
 #endif /* _RIA_SYS_VGA_H_ */

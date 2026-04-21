@@ -58,6 +58,16 @@ static inline void vga_pix_backchannel_disable(void)
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 0);
 }
 
+void vga_set_tel_console_active(bool active)
+{
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, active ? 1 : 0);
+}
+
+void vga_set_code_page(uint16_t cp)
+{
+    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x01, cp);
+}
+
 static inline void vga_pix_backchannel_enable(void)
 {
     pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x04, 1);
@@ -192,6 +202,7 @@ void vga_init(void)
 {
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();
+    vga_set_tel_console_active(false);
 
     // Program a UART Rx in PIO
     pio_sm_set_consecutive_pindirs(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_SM,

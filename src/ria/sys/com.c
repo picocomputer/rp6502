@@ -104,13 +104,6 @@ static void com_tel_rings_clear(void)
     com_tel_rx_head = com_tel_rx_tail = 0;
 }
 
-// Tell the VGA term to suppress/resume local replies (CPR/DA/DSR)
-// while the telnet console owns the input stream.
-static void com_tel_console_active(bool active)
-{
-    pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x02, active ? 1 : 0);
-}
-
 static bool com_tel_tx_writable(void)
 {
     return ((com_tel_tx_head + 1) % COM_TEL_TX_BUF_SIZE) != com_tel_tx_tail;
@@ -184,7 +177,7 @@ static void com_tel_handle_auth(uint8_t ch)
         {
             tel_tx(SYS_TEL_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_tel_state = com_tel_state_connected;
-            com_tel_console_active(true);
+            vga_set_tel_console_active(true);
             DBG("NET TEL console authenticated\n");
         }
         else
@@ -259,7 +252,7 @@ static void com_tel_on_disconnect(int desc)
     {
         DBG("NET TEL console disconnected\n");
         if (com_tel_state == com_tel_state_connected)
-            com_tel_console_active(false);
+            vga_set_tel_console_active(false);
         com_tel_state = com_tel_state_listening;
         com_tel_rings_clear();
     }
