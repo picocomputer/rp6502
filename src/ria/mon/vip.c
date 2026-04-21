@@ -11,7 +11,6 @@
 #include <string.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_VIP)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -70,33 +69,31 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
     /* Other  */                                 \
     X(47, "Jesse Warford")
 
-#define X(suffix, name)                       \
+#define X(n, name)                            \
     static const char __in_flash("vip_names") \
-        VIP_NAME_##suffix[] = name;
+        VIP_NAME_##n[] = name;
 VIP_LIST
 #undef X
-
-static uint32_t vip_rand_seed = 0;
 
 int vip_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    (void)buf_size;
-#define X(suffix, name) \
-    VIP_NAME_##suffix,
+#define X(n, name) \
+    VIP_NAME_##n,
     const char *vips[] = {VIP_LIST};
 #undef X
-    const unsigned VIP_COUNT = sizeof(vips) / sizeof(char *);
+    const unsigned vip_count = sizeof(vips) / sizeof(char *);
+    static uint32_t vip_rand_seed = 0;
     while (!vip_rand_seed)
         vip_rand_seed = get_rand_32();
     uint32_t rng_state = vip_rand_seed;
-    for (unsigned i = 0; i < VIP_COUNT; i++)
+    for (unsigned i = 0; i < vip_count; i++)
     {
         rng_state ^= rng_state << 13;
         rng_state ^= rng_state >> 17;
         rng_state ^= rng_state << 5;
-        unsigned swap = (VIP_COUNT * (rng_state & 0xFFFF)) >> 16;
+        unsigned swap = (vip_count * (rng_state & 0xFFFF)) >> 16;
         const char *tmp = vips[i];
         vips[i] = vips[swap];
         vips[swap] = tmp;
@@ -104,11 +101,9 @@ int vip_response(char *buf, size_t buf_size, int state)
     int row_prefix_len = STR_HELP_ABOUT_VIP_LEN;
     int row = 0;
     if (state == row)
-    {
-        sprintf(buf, STR_HELP_ABOUT_VIP);
-    }
+        snprintf(buf, buf_size, "%s", STR_HELP_ABOUT_VIP);
     int col = row_prefix_len;
-    for (unsigned i = 0; i < VIP_COUNT - 1; i++)
+    for (unsigned i = 0; i < vip_count; i++)
     {
         if (i)
         {
@@ -129,7 +124,7 @@ int vip_response(char *buf, size_t buf_size, int state)
             {
                 for (int sp = 0; sp < row_prefix_len; sp++)
                     buf[sp] = ' ';
-                sprintf(buf + row_prefix_len, "%s", vips[i]);
+                snprintf(buf + row_prefix_len, buf_size - row_prefix_len, "%s", vips[i]);
             }
             col = row_prefix_len + len;
         }
@@ -142,7 +137,7 @@ int vip_response(char *buf, size_t buf_size, int state)
                 col += 1;
             }
             if (state == row)
-                sprintf(buf + col, "%s", vips[i]);
+                snprintf(buf + col, buf_size - col, "%s", vips[i]);
             col += len;
         }
     }
