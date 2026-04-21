@@ -307,11 +307,13 @@ bool com_tel_set_port(uint32_t port)
 
 bool com_tel_set_key(const char *key)
 {
-    if (strlen(key) >= COM_TEL_KEY_SIZE)
+    size_t n = strlen(key);
+    if (n >= COM_TEL_KEY_SIZE)
         return false;
     if (strcmp(com_tel_key, key))
     {
-        strncpy(com_tel_key, key, COM_TEL_KEY_SIZE);
+        memcpy(com_tel_key, key, n);
+        com_tel_key[n] = 0;
         if (com_tel_key[0] == 0)
             com_tel_shutdown();
         cfg_save();
@@ -416,9 +418,10 @@ static void com_uart_flush(void)
 }
 
 // One char per source per pass so the core-0 and core-1 streams interleave
-// instead of one starving the other. __dmb() on the act_loop side pairs
-// with the DMB in com_act_write() so we never read a slot whose store
-// hasn't landed.
+// instead of one starving the other. The consumer-side __dmb() below pairs
+// with the producer DMB in com_act_write(): it finishes reading the slot
+// before publishing the tail advance so the producer can't overwrite an
+// in-flight read.
 static void com_tx_fanout(void)
 {
     while (com_uart_writable() && com_tel_tx_writable())
@@ -465,14 +468,14 @@ static int com_rx_buf_getchar(void)
 static int com_rx_merge(char *buf, int length)
 {
     static const int COM_IDLE_US = 1000;
-    enum source
+    enum com_rx_src
     {
         SRC_NONE,
         SRC_KBD,
         SRC_UART,
         SRC_TEL
     };
-    static enum source source = SRC_NONE;
+    static enum com_rx_src source = SRC_NONE;
     static absolute_time_t idle_timer;
 
     // Expire UART/TEL source once idle for 1ms
@@ -619,8 +622,9 @@ void com_task(void)
     // TX: fan out com_tx_buf into UART and TEL buffers
     com_tx_fanout();
 
-    // RX: refill the cross-core handoff slot from the ring. __dmb()
-    // publishes the slot value before act_loop on core 1 can observe it.
+    // RX: refill the cross-core handoff slot from the ring. com_rx_char is
+    // a single volatile int so the publish is atomic; the __dmb() is a
+    // defensive fence.
     if (com_rx_char < 0)
     {
         int ch = com_rx_buf_getchar();
