@@ -12,7 +12,6 @@
 #include "sys/mem.h"
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
-#include <math.h>
 #include <string.h>
 #include <emu8950/emu8950.h>
 
@@ -27,7 +26,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define OPL_SAMPLE_RATE 49716
 
 static OPL *opl_emu8950;
-static uint16_t opl_xaddr;
 static int16_t opl_sample;
 
 static void
@@ -67,10 +65,7 @@ static void
 bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
-    {
-        opl_xaddr = 0xFFFF;
         return word == 0xFFFF;
-    }
     // Would be nice to not malloc but initializeTables() is static
     if (!opl_emu8950)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);
@@ -80,7 +75,6 @@ bool opl_xreg(uint16_t word)
         return false;
     }
     OPL_reset(opl_emu8950);
-    opl_xaddr = word;
     xram_queue_page = word >> 8;
     memset(&xram[word], 0, 256);
     xram_queue_tail = xram_queue_head;
