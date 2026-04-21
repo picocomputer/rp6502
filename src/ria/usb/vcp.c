@@ -24,7 +24,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
 // VCP (Virtual Communications Port) is a better umbrella term.
 
-__in_flash("vcp_string") const char vcp_string[] = "VCP";
+__in_flash("vcp_string") static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);
 
 #define VCP_DESC_STRING_BUF_SIZE 64
@@ -75,16 +75,21 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
     return vcp_cdc_acm_name;
 }
 
+// UTF-16 char count in a string descriptor, clamped to our buffer capacity.
+static uint16_t vcp_desc_string_ulen(const tusb_desc_string_t *desc)
+{
+    if (desc->bDescriptorType != TUSB_DESC_STRING || desc->bLength < 2)
+        return 0;
+    uint16_t ulen = (desc->bLength - 2) / 2;
+    if (ulen > VCP_DESC_STRING_MAX_CHAR_LEN)
+        ulen = VCP_DESC_STRING_MAX_CHAR_LEN;
+    return ulen;
+}
+
 // Convert USB string descriptor to OEM for display.
 static void vcp_desc_string_to_oem(const tusb_desc_string_t *desc, char *dest, size_t dest_size)
 {
-    uint16_t ulen = 0;
-    if (desc->bDescriptorType == TUSB_DESC_STRING && desc->bLength >= 2)
-    {
-        ulen = (desc->bLength - 2) / 2;
-        if (ulen > VCP_DESC_STRING_MAX_CHAR_LEN)
-            ulen = VCP_DESC_STRING_MAX_CHAR_LEN;
-    }
+    uint16_t ulen = vcp_desc_string_ulen(desc);
     uint16_t cp = oem_get_code_page_run();
     size_t pos = 0;
     for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
@@ -98,13 +103,7 @@ static void vcp_desc_string_to_oem(const tusb_desc_string_t *desc, char *dest, s
 // Convert USB string descriptor to ASCII for hashing.
 static void vcp_desc_string_to_ascii(const tusb_desc_string_t *desc, char *dest, size_t dest_size)
 {
-    uint16_t ulen = 0;
-    if (desc->bDescriptorType == TUSB_DESC_STRING && desc->bLength >= 2)
-    {
-        ulen = (desc->bLength - 2) / 2;
-        if (ulen > VCP_DESC_STRING_MAX_CHAR_LEN)
-            ulen = VCP_DESC_STRING_MAX_CHAR_LEN;
-    }
+    uint16_t ulen = vcp_desc_string_ulen(desc);
     size_t pos = 0;
     for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
     {
@@ -142,15 +141,11 @@ int vcp_status_response(char *buf, size_t buf_size, int state)
             (const tusb_desc_string_t *)dev->product_desc_string,
             product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
-        snprintf(buf, buf_size, STR_STATUS_CDC, comname,
-                 vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
-                 product);
-        if (state == vcp_nfc_device_idx)
-        {
-            size_t len = strlen(buf);
-            if (len > 0 && buf[len - 1] == '\n')
-                snprintf(buf + len - 1, buf_size - (len - 1), " (NFC)\n");
-        }
+        int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
+                         vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
+                         product);
+        if (state == vcp_nfc_device_idx && n >= 1 && n < (int)buf_size && buf[n - 1] == '\n')
+            snprintf(buf + n - 1, buf_size - (n - 1), " (NFC)\n");
     }
     return state + 1;
 }
@@ -166,6 +161,20 @@ bool vcp_std_handles(const char *name)
     return true;
 }
 
+// Set baudrate, line format, and assert DTR/RTS. Returns true on success.
+static bool vcp_configure_and_connect(uint8_t idx, uint32_t baudrate,
+                                      uint8_t data_bits, uint8_t parity,
+                                      uint8_t stop_bits)
+{
+    if (!tuh_cdc_set_baudrate(idx, baudrate, NULL, 0))
+        return false;
+    if (!tuh_cdc_set_data_format(idx, stop_bits, parity, data_bits, NULL, 0))
+        return false;
+    if (!tuh_cdc_connect(idx, NULL, 0))
+        return false;
+    return true;
+}
+
 int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
 {
     (void)flags;
@@ -174,27 +183,32 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    uint8_t desc = name[3] - '0';
-    if (desc >= CFG_TUH_CDC)
+    uint8_t idx = name[3] - '0';
+    if (idx >= CFG_TUH_CDC)
     {
         *err = API_ENODEV;
         return -1;
     }
-    if ((int)desc == vcp_nfc_device_idx)
+    if ((int)idx == vcp_nfc_device_idx)
     {
         *err = API_EBUSY;
         return -1;
     }
-    if (!vcp_mounts[desc].mounted || vcp_mounts[desc].opened)
+    if (!vcp_mounts[idx].mounted)
     {
-        *err = vcp_mounts[desc].opened ? API_EBUSY : API_ENODEV;
+        *err = API_ENODEV;
+        return -1;
+    }
+    if (vcp_mounts[idx].opened)
+    {
+        *err = API_EBUSY;
         return -1;
     }
 
     uint32_t baudrate = 115200;
     uint8_t data_bits = 8;
-    uint8_t parity = 0;
-    uint8_t stop_bits = 0;
+    uint8_t parity = CDC_LINE_CODING_PARITY_NONE;
+    uint8_t stop_bits = CDC_LINE_CODING_STOP_BITS_1;
     if (name[5] != '\0')
     {
         const char *params = &name[5];
@@ -221,25 +235,30 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
                 return -1;
             }
             data_bits = *params - '0';
+            if (data_bits < 5 || data_bits > 8)
+            {
+                *err = API_EINVAL;
+                return -1;
+            }
             // Parity
             params++;
             char p = toupper((unsigned char)*params);
             switch (p)
             {
             case 'N':
-                parity = 0;
+                parity = CDC_LINE_CODING_PARITY_NONE;
                 break;
             case 'O':
-                parity = 1;
+                parity = CDC_LINE_CODING_PARITY_ODD;
                 break;
             case 'E':
-                parity = 2;
+                parity = CDC_LINE_CODING_PARITY_EVEN;
                 break;
             case 'M':
-                parity = 3;
+                parity = CDC_LINE_CODING_PARITY_MARK;
                 break;
             case 'S':
-                parity = 4;
+                parity = CDC_LINE_CODING_PARITY_SPACE;
                 break;
             default:
                 *err = API_EINVAL;
@@ -251,18 +270,18 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
             {
                 if (params[1] == '.' && params[2] == '5')
                 {
-                    stop_bits = 1; // 1.5 stop bits
+                    stop_bits = CDC_LINE_CODING_STOP_BITS_1_5;
                     params += 3;
                 }
                 else
                 {
-                    stop_bits = 0; // 1 stop bit
+                    stop_bits = CDC_LINE_CODING_STOP_BITS_1;
                     params++;
                 }
             }
             else if (*params == '2')
             {
-                stop_bits = 2; // 2 stop bits
+                stop_bits = CDC_LINE_CODING_STOP_BITS_2;
                 params++;
             }
             else
@@ -280,30 +299,16 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         }
     }
 
-    // Configure baud rate and line format before connecting
-    if (!tuh_cdc_set_baudrate(desc, baudrate, NULL, 0))
-    {
-        *err = API_EIO;
-        return -1;
-    }
-    if (!tuh_cdc_set_data_format(desc, stop_bits, parity, data_bits, NULL, 0))
+    if (!vcp_configure_and_connect(idx, baudrate, data_bits, parity, stop_bits))
     {
         *err = API_EIO;
         return -1;
     }
 
-    // Connect asserts DTR and RTS
-    if (!tuh_cdc_connect(desc, NULL, 0))
-    {
-        *err = API_EIO;
-        return -1;
-    }
-
-    DBG("VCP%d: open %lu,%d%c%s\n", desc, (unsigned long)baudrate, data_bits,
-        "NOEMS"[parity], stop_bits == 0 ? "1" : stop_bits == 1 ? "1.5"
-                                                               : "2");
-    vcp_mounts[desc].opened = true;
-    return desc;
+    DBG("VCP%d: open %lu,%d%c%s\n", idx, (unsigned long)baudrate, data_bits,
+        "NOEMS"[parity], CDC_LINE_CODING_STOP_BITS_TEXT(stop_bits));
+    vcp_mounts[idx].opened = true;
+    return idx;
 }
 
 int vcp_std_close(int desc, api_errno *err)
@@ -364,14 +369,12 @@ static void vcp_hash_dev(uint8_t idx, char *hash)
     n += strlen(hash + n);
     if (n < VCP_NFC_HASH_SIZE - 1)
         hash[n++] = ':';
-    hash[n] = '\0';
     vcp_desc_string_to_ascii(
         (const tusb_desc_string_t *)vcp_mounts[idx].product_desc_string,
         hash + n, VCP_NFC_HASH_SIZE - n);
     n += strlen(hash + n);
     if (n < VCP_NFC_HASH_SIZE - 1)
         hash[n++] = ':';
-    hash[n] = '\0';
     vcp_desc_string_to_ascii(
         (const tusb_desc_string_t *)vcp_mounts[idx].serial_desc_string,
         hash + n, VCP_NFC_HASH_SIZE - n);
@@ -389,43 +392,32 @@ static void vcp_check_nfc_hash(uint8_t idx)
         vcp_nfc_device_idx = idx;
 }
 
-static void vcp_serial_string_done_cb(tuh_xfer_t *xfer)
+static void vcp_serial_string_cb(tuh_xfer_t *xfer)
 {
     uint8_t idx = (uint8_t)xfer->user_data;
-    if (idx < CFG_TUH_CDC)
-        vcp_check_nfc_hash(idx);
+    vcp_check_nfc_hash(idx);
 }
 
-static void vcp_fetch_serial_string_cb(tuh_xfer_t *xfer)
+static void vcp_vendor_string_cb(tuh_xfer_t *xfer)
 {
     uint8_t idx = (uint8_t)xfer->user_data;
-    if (idx >= CFG_TUH_CDC)
-        return;
     if (xfer->result != XFER_RESULT_SUCCESS ||
         !tuh_descriptor_get_serial_string(vcp_mounts[idx].daddr, 0x0409,
                                           vcp_mounts[idx].serial_desc_string,
                                           sizeof(vcp_mounts[idx].serial_desc_string),
-                                          vcp_serial_string_done_cb, xfer->user_data))
+                                          vcp_serial_string_cb, xfer->user_data))
         vcp_check_nfc_hash(idx);
 }
 
-static void vcp_fetch_vendor_string_cb(tuh_xfer_t *xfer)
+static void vcp_product_string_cb(tuh_xfer_t *xfer)
 {
     uint8_t idx = (uint8_t)xfer->user_data;
-    if (idx >= CFG_TUH_CDC)
-        return;
     if (xfer->result != XFER_RESULT_SUCCESS ||
         !tuh_descriptor_get_manufacturer_string(vcp_mounts[idx].daddr, 0x0409,
                                                 vcp_mounts[idx].vendor_desc_string,
                                                 sizeof(vcp_mounts[idx].vendor_desc_string),
-                                                vcp_fetch_serial_string_cb, xfer->user_data))
-    {
-        if (!tuh_descriptor_get_serial_string(vcp_mounts[idx].daddr, 0x0409,
-                                              vcp_mounts[idx].serial_desc_string,
-                                              sizeof(vcp_mounts[idx].serial_desc_string),
-                                              vcp_serial_string_done_cb, xfer->user_data))
-            vcp_check_nfc_hash(idx);
-    }
+                                                vcp_vendor_string_cb, xfer->user_data))
+        vcp_check_nfc_hash(idx);
 }
 
 void tuh_cdc_mount_cb(uint8_t idx)
@@ -445,10 +437,11 @@ void tuh_cdc_mount_cb(uint8_t idx)
 
     DBG("VCP%d: mount %04X:%04X dev_addr=%d\n", idx, vid, pid, daddr);
 
-    tuh_descriptor_get_product_string(daddr, 0x0409,
-                                      dev->product_desc_string,
-                                      sizeof(dev->product_desc_string),
-                                      vcp_fetch_vendor_string_cb, (uintptr_t)idx);
+    if (!tuh_descriptor_get_product_string(daddr, 0x0409,
+                                           dev->product_desc_string,
+                                           sizeof(dev->product_desc_string),
+                                           vcp_product_string_cb, (uintptr_t)idx))
+        vcp_check_nfc_hash(idx);
 }
 
 void tuh_cdc_umount_cb(uint8_t idx)
@@ -500,11 +493,9 @@ int vcp_nfc_open(void)
     if (vcp_nfc_device_idx < 0)
         return -1;
     uint8_t idx = (uint8_t)vcp_nfc_device_idx;
-    if (!tuh_cdc_set_baudrate(idx, 115200, NULL, 0))
-        return -1;
-    if (!tuh_cdc_set_data_format(idx, 0, 0, 8, NULL, 0))
-        return -1;
-    if (!tuh_cdc_connect(idx, NULL, 0))
+    if (!vcp_configure_and_connect(idx, 115200, 8,
+                                   CDC_LINE_CODING_PARITY_NONE,
+                                   CDC_LINE_CODING_STOP_BITS_1))
         return -1;
     DBG("VCP%d: nfc open\n", idx);
     vcp_mounts[idx].opened = true;
