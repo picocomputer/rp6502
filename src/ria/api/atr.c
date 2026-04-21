@@ -52,7 +52,7 @@ bool atr_api_get(void)
     case ATR_LAUNCHER:
         return api_return_axsreg(pro_get_launcher());
     case ATR_EXIT_CODE:
-        return api_return_axsreg(pro_get_exit_code());
+        return api_return_axsreg((uint16_t)pro_get_exit_code());
     default:
         return api_return_errno(API_EINVAL);
     }
@@ -61,29 +61,41 @@ bool atr_api_get(void)
 // int ria_set_attr(uint32_t attr, uint8_t attr_id);
 bool atr_api_set(void)
 {
-    uint8_t attr_id = API_A;
     uint32_t value;
     if (!api_pop_uint32_end(&value))
         return api_return_errno(API_EINVAL);
-    switch (attr_id)
+    if (value > 0x7FFFFFFF)
+        return api_return_errno(API_EINVAL);
+    switch (API_A)
     {
     case ATR_ERRNO_OPT:
-        api_set_errno_opt((uint8_t)value);
+        if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
+            return api_return_errno(API_EINVAL);
         break;
     case ATR_PHI2_KHZ:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
         cpu_set_phi2_khz_run((uint16_t)value);
         break;
     case ATR_CODE_PAGE:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
         oem_set_code_page_run((uint16_t)value);
         break;
     case ATR_RLN_LENGTH:
+        if (value > UINT8_MAX)
+            return api_return_errno(API_EINVAL);
         rln_set_max_length((uint8_t)value);
         break;
     case ATR_BEL:
-        com_set_bel((bool)!!(uint8_t)value);
+        if (value > 1)
+            return api_return_errno(API_EINVAL);
+        com_set_bel(value);
         break;
     case ATR_LAUNCHER:
-        pro_set_launcher((bool)!!(uint8_t)value);
+        if (value > 1)
+            return api_return_errno(API_EINVAL);
+        pro_set_launcher(value);
         break;
     case ATR_LRAND:     // Read only
     case ATR_EXIT_CODE: // Read only
@@ -94,8 +106,8 @@ bool atr_api_set(void)
 }
 
 /*
- * Deprecated API functions - moved here from their original modules.
- * These are the old API op codes that are now accessible via attributes.
+ * Legacy single-purpose handlers (opcodes 0x02-0x06).
+ * Still dispatched from main.c; also reachable via the unified attribute API.
  */
 
 // int phi2(void) - set/get CPU clock
