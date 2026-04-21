@@ -22,7 +22,7 @@ static uint32_t pix_send_count;
 static absolute_time_t pix_api_state_timer;
 
 // This may be modified in an IRQ from vga.c
-static volatile enum state {
+static volatile enum {
     pix_api_running,
     pix_api_waiting,
     pix_api_ack,
@@ -53,7 +53,7 @@ void pix_init(void)
     pio_sm_exec_wait_blocking(PIX_PIO, PIX_SM, pio_encode_mov(pio_x, pio_osr));
     pio_sm_set_enabled(PIX_PIO, PIX_SM, true);
 
-    // Queue a couple sync frames for safety
+    // Queue two IDLE messages so the PIX bus re-syncs after init
     pix_send(PIX_DEVICE_IDLE, 0, 0, 0);
     pix_send(PIX_DEVICE_IDLE, 0, 0, 0);
 }
@@ -121,6 +121,7 @@ bool pix_api_xreg(void)
                 return api_return_errno(API_EINVAL);
             }
             pix_send(pix_device, pix_channel, pix_addr + pix_send_count, data);
+            // VGA channel 0 regs 0 (canvas) and 1 (mode) require an ACK.
             if (pix_device == PIX_DEVICE_VGA && pix_channel == 0 &&
                 pix_addr + pix_send_count <= 1)
             {
