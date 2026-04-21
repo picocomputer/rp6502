@@ -44,8 +44,8 @@ void dir_stop(void)
 
 static bool dir_push_filinfo(FILINFO *fno)
 {
-    // Ensure 6502 struct never changes and
-    // always looks like FSIZE_t = 32-bits.
+    // Push fields in reverse so they land in forward
+    // order in the 6502-visible struct.
     bool ok = true;
     for (int i = FF_LFN_BUF; i >= 0; i--)
         ok &= api_push_char(&fno->fname[i]);
@@ -188,6 +188,8 @@ bool dir_api_rewinddir(void)
     if (des >= DIR_MAX_OPEN)
         return api_return_errno(API_EINVAL);
     DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
     FRESULT fresult = f_rewinddir(dir);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
@@ -295,7 +297,6 @@ bool dir_api_getcwd(void)
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
     uint16_t result_len = strlen((char *)xstack);
-    // relocate
     xstack_ptr = XSTACK_SIZE;
     for (uint16_t i = result_len; i;)
         xstack[--xstack_ptr] = xstack[--i];
@@ -313,7 +314,7 @@ bool dir_api_setlabel(void)
     return api_return_ax(0);
 }
 
-// int f_getlabel(const char* path, char* label)
+// int f_getlabel(const char* path, char* label, unsigned long* vsn)
 bool dir_api_getlabel(void)
 {
     const int label_size = 23;
@@ -326,9 +327,6 @@ bool dir_api_getlabel(void)
         return api_return_fresult(fresult);
     size_t label_len, ret_len;
     label_len = ret_len = strlen(label);
-    // This should never happen.
-    if (label_len > 11)
-        return api_return_errno(API_ERANGE);
     while (label_len)
         if (!api_push_char(&label[--label_len]))
             return api_return_errno(API_ENOMEM);
@@ -349,7 +347,7 @@ bool dir_api_getfree(void)
     uint64_t fre = (uint64_t)fre_clust * fs->csize;
     uint32_t tot_sect = tot > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot;
     uint32_t fre_sect = fre > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fre;
-    api_push_uint32(&tot_sect);
-    api_push_uint32(&fre_sect);
+    if (!api_push_uint32(&tot_sect) || !api_push_uint32(&fre_sect))
+        return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
