@@ -132,7 +132,6 @@ static void
         int8_t pan = (int8_t)channels[i].pan_gate / 2;
         if (pan != -64)
         {
-
             sample_l += ((int32_t)sample * (63 - pan)) >> 7;
             sample_r += ((int32_t)sample * (63 + pan)) >> 7;
         }
@@ -141,9 +140,9 @@ static void
     int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
     sample_l <<= (AUD_PWM_BITS - 8);
     sample_r <<= (AUD_PWM_BITS - 8);
-    int16_t bel = bel_sample(PSG_RATE);
-    sample_l += bel;
-    sample_r += bel;
+    int16_t bel_mix = bel_sample(PSG_RATE);
+    sample_l += bel_mix;
+    sample_r += bel_mix;
     if (sample_l < min_val)
         sample_l = min_val;
     if (sample_l > max_val)
@@ -157,7 +156,6 @@ static void
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        // Sample the raw waveform
         uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * channels[i].freq / 3 / PSG_RATE;
         psg_channel_state[i].phase += phase_inc;
         uint32_t phase = psg_channel_state[i].phase >> 24;
@@ -278,9 +276,6 @@ bool psg_xreg(uint16_t word)
     {
         psg_channel_state[i].noise1 = 0x67452301;
         psg_channel_state[i].noise2 = 0xEFCDAB89;
-    }
-    for (unsigned i = 0; i < PSG_CHANNELS; i++)
-    {
         psg_channel_state[i].vol = 0;
         psg_channel_state[i].adsr = release;
     }
