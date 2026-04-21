@@ -4,6 +4,7 @@
  *
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
  * Copyright (c) 2021 Ha Thach (tinyusb.org) for Double Buffered
+ * Copyright (c) 2026 Rumbledethumps
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal

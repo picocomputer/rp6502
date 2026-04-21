@@ -121,7 +121,7 @@ static const char *__in_flash("clk_tzinfo_tz")
 
 #define CLK_TZINFO_COUNT (sizeof(clk_tzinfo_name) / sizeof(*clk_tzinfo_name))
 
-static uint64_t clk_clock_start;
+static uint64_t clk_start_us;
 static int clk_tzinfo_index;
 
 // Eliminates 26KB of Unicode/JIS tables brought in by tzset().
@@ -129,6 +129,43 @@ static int clk_tzinfo_index;
 int __wrap_iswspace(wint_t c)
 {
     return c == ' ' || (c >= '\t' && c <= '\r');
+}
+
+void clk_init(void)
+{
+    // Noon UTC keeps localtime on day 0 for any TZ offset.
+    const struct timespec ts = {43200, 0};
+    aon_timer_start(&ts);
+    // cfg_init ran first; apply any tz it loaded now that aon_timer is up.
+    if (clk_tzinfo_index >= 0)
+    {
+        setenv(STR_TZ, clk_tzinfo_tz[clk_tzinfo_index], 1);
+        tzset();
+    }
+}
+
+void clk_run(void)
+{
+    clk_start_us = time_us_64();
+}
+
+int clk_status_response(char *buf, size_t buf_size, int state)
+{
+    (void)state;
+    struct timespec ts;
+    if (!aon_timer_get_time(&ts))
+    {
+        snprintf(buf, buf_size, STR_STATUS_TIME, STR_INTERNAL_ERROR);
+    }
+    else
+    {
+        char time_str[80];
+        struct tm tminfo;
+        localtime_r(&ts.tv_sec, &tminfo);
+        strftime(time_str, sizeof(time_str), STR_STRFTIME, &tminfo);
+        snprintf(buf, buf_size, STR_STATUS_TIME, time_str);
+    }
+    return -1;
 }
 
 int clk_tzdata_response(char *buf, size_t buf_size, int state)
@@ -159,43 +196,6 @@ int clk_tzdata_response(char *buf, size_t buf_size, int state)
     *buf++ = '\n';
     *buf = 0;
     return state + 1;
-}
-
-void clk_init(void)
-{
-    // starting at noon avoids time zone wraparound
-    const struct timespec ts = {43200, 0};
-    aon_timer_start(&ts);
-    // Default or finish loading
-    if (clk_tzinfo_index >= 0)
-    {
-        setenv(STR_TZ, clk_tzinfo_tz[clk_tzinfo_index], 1);
-        tzset();
-    }
-}
-
-void clk_run(void)
-{
-    clk_clock_start = time_us_64();
-}
-
-int clk_status_response(char *buf, size_t buf_size, int state)
-{
-    (void)state;
-    struct timespec ts;
-    if (!aon_timer_get_time(&ts))
-    {
-        snprintf(buf, buf_size, STR_STATUS_TIME, STR_INTERNAL_ERROR);
-    }
-    else
-    {
-        char tbuf[80];
-        struct tm tminfo;
-        localtime_r(&ts.tv_sec, &tminfo);
-        strftime(tbuf, sizeof(tbuf), STR_STRFTIME, &tminfo);
-        snprintf(buf, buf_size, STR_STATUS_TIME, tbuf);
-    }
-    return -1;
 }
 
 void clk_load_time_zone(const char *str)
@@ -272,98 +272,87 @@ bool clk_api_tzset(void)
         char tzname[5];
         char dstname[5];
     } tz;
+    static_assert(15 == sizeof(tz));
     tz.daylight = _daylight;
     tz.timezone = _timezone;
     strncpy(tz.tzname, tzname[0], 4);
     tz.tzname[4] = '\0';
     strncpy(tz.dstname, tzname[1], 4);
     tz.dstname[4] = '\0';
-    for (size_t i = sizeof(tz); i;)
-        if (!api_push_uint8(&(((uint8_t *)&tz)[--i])))
-            return api_return_errno(API_EINVAL);
+    if (!api_push_n(&tz, sizeof(tz)))
+        return api_return_errno(API_EINVAL);
     return api_return_ax(0);
-    static_assert(15 == sizeof(tz));
 }
 
 bool clk_api_tzquery(void)
 {
-    uint32_t requested_time = API_AXSREG;
+    uint32_t epoch_sec = API_AXSREG;
     struct timespec ts;
-    ts.tv_sec = requested_time;
+    ts.tv_sec = epoch_sec;
     ts.tv_nsec = 0;
+    // mktime(localtime(t)) - mktime(gmtime(t) with local DST) yields the
+    // UTC offset in seconds east of UTC.
     struct tm local_tm = *localtime(&ts.tv_sec);
     struct tm gm_tm = *gmtime(&ts.tv_sec);
     gm_tm.tm_isdst = local_tm.tm_isdst;
     time_t local_sec = mktime(&local_tm);
     time_t gm_sec = mktime(&gm_tm);
     uint8_t isdst = local_tm.tm_isdst;
-    api_push_uint8(&isdst);
-    int32_t seconds = difftime(local_sec, gm_sec);
+    if (!api_push_uint8(&isdst))
+        return api_return_errno(API_EINVAL);
+    int32_t seconds = (int32_t)(local_sec - gm_sec);
     return api_return_axsreg(seconds);
 }
 
 bool clk_api_clock(void)
 {
-    return api_return_axsreg((time_us_64() - clk_clock_start) / 10000);
+    return api_return_axsreg((time_us_64() - clk_start_us) / 10000);
 }
 
 bool clk_api_get_res(void)
 {
-    uint8_t clock_id = API_A;
-    if (clock_id == CLK_ID_REALTIME)
-    {
-        struct timespec ts;
-        aon_timer_get_resolution(&ts);
-        int32_t nsec = ts.tv_nsec;
-        uint32_t sec = ts.tv_sec;
-        if (!api_push_int32(&nsec) ||
-            !api_push_uint32(&sec))
-            return api_return_errno(API_EINVAL);
-        return api_return_ax(0);
-    }
-    else
+    if (API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
+    struct timespec ts;
+    aon_timer_get_resolution(&ts);
+    int32_t nsec = ts.tv_nsec;
+    uint32_t sec = ts.tv_sec;
+    if (!api_push_int32(&nsec) ||
+        !api_push_uint32(&sec))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
 }
 
 bool clk_api_get_time(void)
 {
-    uint8_t clock_id = API_A;
-    if (clock_id == CLK_ID_REALTIME)
-    {
-        struct timespec ts;
-        if (!aon_timer_get_time(&ts))
-            return api_return_errno(API_EIO);
-        int32_t nsec = ts.tv_nsec;
-        uint32_t sec = ts.tv_sec;
-        if (!api_push_int32(&nsec) ||
-            !api_push_uint32(&sec))
-            return api_return_errno(API_EINVAL);
-        return api_return_ax(0);
-    }
-    else
+    if (API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
+    struct timespec ts;
+    if (!aon_timer_get_time(&ts))
+        return api_return_errno(API_EIO);
+    int32_t nsec = ts.tv_nsec;
+    uint32_t sec = ts.tv_sec;
+    if (!api_push_int32(&nsec) ||
+        !api_push_uint32(&sec))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
 }
 
 bool clk_api_set_time(void)
 {
-    uint8_t clock_id = API_A;
-    if (clock_id == CLK_ID_REALTIME)
-    {
-        uint32_t rawtime_sec;
-        int32_t rawtime_nsec;
-        if (!api_pop_uint32(&rawtime_sec) ||
-            !api_pop_int32_end(&rawtime_nsec))
-            return api_return_errno(API_EINVAL);
-        if (rawtime_nsec < 0 || rawtime_nsec > 999999999)
-            return api_return_errno(API_EINVAL);
-        struct timespec ts;
-        ts.tv_sec = rawtime_sec;
-        ts.tv_nsec = rawtime_nsec;
-        if (!aon_timer_set_time(&ts))
-            return api_return_errno(API_ERANGE);
-        else
-            return api_return_ax(0);
-    }
-    else
+    if (API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
+    uint32_t rawtime_sec;
+    int32_t rawtime_nsec;
+    if (!api_pop_uint32(&rawtime_sec) ||
+        !api_pop_int32_end(&rawtime_nsec))
+        return api_return_errno(API_EINVAL);
+    if (rawtime_nsec < 0 || rawtime_nsec > 999999999)
+        return api_return_errno(API_EINVAL);
+    struct timespec ts;
+    ts.tv_sec = rawtime_sec;
+    ts.tv_nsec = rawtime_nsec;
+    if (!aon_timer_set_time(&ts))
+        return api_return_errno(API_ERANGE);
+    return api_return_ax(0);
 }
