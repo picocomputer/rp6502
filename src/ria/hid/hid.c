@@ -79,9 +79,8 @@ uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_m
     else
         value = (int32_t)raw_value;
 
-    // Handle reversal
     if (reversed)
-        value = -value - 1;
+        value = max + min - value;
 
     // Clamp bad input
     if (value < min)
@@ -89,12 +88,11 @@ uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_m
     if (value > max)
         value = max;
 
-    // Compute discrete values and short circuit divide by zero
+    // Guard against overflow wrap when range spans the full int32 space
     int32_t discrete_values = max - min + 1;
     if (!discrete_values)
         return 0;
 
-    // Final math
     return ((value - min) * 256 / discrete_values);
 }
 
@@ -116,6 +114,7 @@ void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t
 
     // Local state (cleared after each Main item)
     uint16_t usages[32];
+    const uint8_t max_usages = sizeof(usages) / sizeof(usages[0]);
     uint8_t usage_count = 0;
     uint16_t usage_min = 0;
     uint16_t usage_max = 0;
@@ -172,7 +171,7 @@ void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t
             switch (tag)
             {
             case 0: // Usage
-                if (usage_count < sizeof(usages) / sizeof(usages[0]))
+                if (usage_count < max_usages)
                     usages[usage_count++] = val;
                 break;
             case 1: // Usage Minimum
@@ -191,7 +190,7 @@ void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t
                 // Expand usage range into usage list
                 if (have_usage_range && usage_count == 0)
                     for (uint16_t u = usage_min;
-                         u <= usage_max && usage_count < sizeof(usages) / sizeof(usages[0]);
+                         u <= usage_max && usage_count < max_usages;
                          u++)
                         usages[usage_count++] = u;
 
