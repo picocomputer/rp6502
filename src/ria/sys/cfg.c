@@ -63,10 +63,14 @@ static void cfg_save_with_boot_opt(const char *opt_str)
     if (!opt_str)
     {
         opt_str = (char *)mbuf;
-        // Fetch the boot string, ignore the rest
+        mbuf[0] = 0;
+        // Preserve the existing boot line across rewrite
         while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
+        {
             if (mbuf[0] != '+')
                 break;
+            mbuf[0] = 0;
+        }
         lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
         mon_add_response_lfs(lfsresult);
     }
