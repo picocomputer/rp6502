@@ -56,7 +56,7 @@ void cpu_main(void)
 
 void cpu_init(void)
 {
-    // Setting default
+    // Apply default only if config load did not set one.
     if (!cpu_phi2_khz_run)
     {
         cpu_change_phi2_khz(CPU_PHI2_DEFAULT);
@@ -119,7 +119,7 @@ uint32_t cpu_get_reset_us(void)
 #endif
     // If provided, use RP6502_RESB_US unless PHI2
     // speed needs longer for 2 clock cycles.
-    // One extra microsecond to get ceil.
+    // Always round up one microsecond for safety margin.
     uint32_t reset_us = 2000 / cpu_phi2_khz_run + 1;
     if (!RP6502_RESB_US)
         return reset_us;
