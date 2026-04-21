@@ -33,9 +33,9 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Response limit must accomodate SET and STATUS commands
-#define MON_RESPONSE_FN_COUNT 16
 #define MON_RESPONSE_BUF_SIZE 128
+// Enough slots for the longest response chain (status/set).
+#define MON_RESPONSE_FN_COUNT 16
 static char mon_response_buf[MON_RESPONSE_BUF_SIZE];
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
@@ -97,19 +97,19 @@ static mon_function mon_command_lookup(const char **buf)
     const char *tok = str_parse_string(buf);
     if (!tok)
         return NULL;
-    bool is_maybe_addr = false;
-    bool is_not_addr = false;
+    bool is_addr = true;
     for (const char *p = tok; *p; p++)
     {
         uint8_t ch = *p;
-        if (isxdigit(ch) || ch == '-' || ch == ':')
-            is_maybe_addr = true;
-        else
-            is_not_addr = true;
+        if (!isxdigit(ch) && ch != '-' && ch != ':')
+        {
+            is_addr = false;
+            break;
+        }
     }
-    // cd for chdir, 00cd for r/w address
+    // "cd" is the chdir command, not a hex address.
     if (!strcasecmp(tok, STR_CD))
-        is_not_addr = true;
+        is_addr = false;
     // 0:-7: and MSC0:-MSC7:
     if (fil_drive_exists(cmd))
     {
@@ -117,7 +117,7 @@ static mon_function mon_command_lookup(const char **buf)
         return fil_mon_chdrive;
     }
     // address command
-    if (is_maybe_addr && !is_not_addr)
+    if (is_addr)
     {
         *buf = cmd;
         return ram_mon_address;
@@ -166,7 +166,6 @@ static int mon_str_response(char *buf, size_t buf_size, int state)
         if (!c)
             return -1;
         state++;
-        buf_size--;
     }
     buf[i] = 0;
     return state;
@@ -215,7 +214,7 @@ static int mon_lfs_response(char *buf, size_t buf_size, int state)
         return state;
     const char *err_str = mon_lfs_lookup(state);
     if (err_str != NULL)
-        snprintf(buf, buf_size, err_str);
+        snprintf(buf, buf_size, "%s", err_str);
     else
         snprintf(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
     return -1;
@@ -274,7 +273,7 @@ static int mon_fatfs_response(char *buf, size_t buf_size, int state)
         return state;
     const char *err_str = mon_fatfs_lookup(state);
     if (err_str != NULL)
-        snprintf(buf, buf_size, err_str);
+        snprintf(buf, buf_size, "%s", err_str);
     else
         snprintf(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
     return -1;
@@ -366,8 +365,6 @@ static void mon_more(void)
     if (mon_needs_break)
     {
         mon_needs_newline = false;
-        if (mon_more_state == MON_MORE_START)
-            return;
         mon_more_state = MON_MORE_END;
     }
     switch (mon_more_state)
