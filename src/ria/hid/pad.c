@@ -541,69 +541,71 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     memset(report, 0, sizeof(pad_xram_t));
 
     // Add feature bits to dpad
-    pad_connection_t *gamepad = &pad_connections[player];
-    if (gamepad->valid)
+    pad_connection_t *conn = &pad_connections[player];
+    if (conn->valid)
+    {
         report->dpad |= 0x80;
-    if (gamepad->sony)
-        report->dpad |= 0x40;
+        if (conn->sony)
+            report->dpad |= 0x40;
+    }
 
     // A blank report was requested
     if (report_len == 0)
         return;
 
     // Extract analog sticks
-    if (gamepad->x_size > 0)
+    if (conn->x_size > 0)
     {
-        uint32_t raw_x = hid_extract_bits(data, report_len, gamepad->x_offset, gamepad->x_size);
-        report->lx = hid_scale_analog_signed(raw_x, gamepad->x_size, gamepad->x_min, gamepad->x_max);
+        uint32_t raw_x = hid_extract_bits(data, report_len, conn->x_offset, conn->x_size);
+        report->lx = hid_scale_analog_signed(raw_x, conn->x_size, conn->x_min, conn->x_max);
     }
-    if (gamepad->y_size > 0)
+    if (conn->y_size > 0)
     {
-        uint32_t raw_y = hid_extract_bits(data, report_len, gamepad->y_offset, gamepad->y_size);
-        report->ly = hid_scale_analog_signed(raw_y, gamepad->y_size, gamepad->y_min, gamepad->y_max);
+        uint32_t raw_y = hid_extract_bits(data, report_len, conn->y_offset, conn->y_size);
+        report->ly = hid_scale_analog_signed(raw_y, conn->y_size, conn->y_min, conn->y_max);
     }
-    if (gamepad->z_size > 0)
+    if (conn->z_size > 0)
     {
-        uint32_t raw_z = hid_extract_bits(data, report_len, gamepad->z_offset, gamepad->z_size);
-        report->rx = hid_scale_analog_signed(raw_z, gamepad->z_size, gamepad->z_min, gamepad->z_max);
+        uint32_t raw_z = hid_extract_bits(data, report_len, conn->z_offset, conn->z_size);
+        report->rx = hid_scale_analog_signed(raw_z, conn->z_size, conn->z_min, conn->z_max);
     }
-    if (gamepad->rz_size > 0)
+    if (conn->rz_size > 0)
     {
-        uint32_t raw_rz = hid_extract_bits(data, report_len, gamepad->rz_offset, gamepad->rz_size);
-        report->ry = hid_scale_analog_signed(raw_rz, gamepad->rz_size, gamepad->rz_min, gamepad->rz_max);
+        uint32_t raw_rz = hid_extract_bits(data, report_len, conn->rz_offset, conn->rz_size);
+        report->ry = hid_scale_analog_signed(raw_rz, conn->rz_size, conn->rz_min, conn->rz_max);
     }
 
     // Extract triggers
-    if (gamepad->rx_size > 0)
+    if (conn->rx_size > 0)
     {
-        uint32_t raw_rx = hid_extract_bits(data, report_len, gamepad->rx_offset, gamepad->rx_size);
-        report->lt = hid_scale_analog(raw_rx, gamepad->rx_size, gamepad->rx_min, gamepad->rx_max);
+        uint32_t raw_rx = hid_extract_bits(data, report_len, conn->rx_offset, conn->rx_size);
+        report->lt = hid_scale_analog(raw_rx, conn->rx_size, conn->rx_min, conn->rx_max);
     }
-    if (gamepad->ry_size > 0)
+    if (conn->ry_size > 0)
     {
-        uint32_t raw_ry = hid_extract_bits(data, report_len, gamepad->ry_offset, gamepad->ry_size);
-        report->rt = hid_scale_analog(raw_ry, gamepad->ry_size, gamepad->ry_min, gamepad->ry_max);
+        uint32_t raw_ry = hid_extract_bits(data, report_len, conn->ry_offset, conn->ry_size);
+        report->rt = hid_scale_analog(raw_ry, conn->ry_size, conn->ry_min, conn->ry_max);
     }
 
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
     {
-        if (gamepad->button_offsets[i] == 0xFFFF)
+        if (conn->button_offsets[i] == 0xFFFF)
             continue;
-        if (hid_extract_bits(data, report_len, gamepad->button_offsets[i], 1))
+        if (hid_extract_bits(data, report_len, conn->button_offsets[i], 1))
             buttons |= (1UL << i);
     }
     report->button0 = buttons & 0xFF;
     report->button1 = (buttons & 0xFF00) >> 8;
 
     // Extract D-pad/hat
-    if (gamepad->hat_size == 4 && gamepad->hat_max - gamepad->hat_min == 7)
+    if (conn->hat_size == 4 && conn->hat_max - conn->hat_min == 7)
     {
         // Convert HID hat format to individual direction bits
         static const uint8_t hat_to_pad[] = {1, 9, 8, 10, 2, 6, 4, 5};
-        uint32_t raw_hat = hid_extract_bits(data, report_len, gamepad->hat_offset, gamepad->hat_size);
-        unsigned index = raw_hat - gamepad->hat_min;
+        uint32_t raw_hat = hid_extract_bits(data, report_len, conn->hat_offset, conn->hat_size);
+        unsigned index = raw_hat - conn->hat_min;
         if (index < 8)
             report->dpad |= hat_to_pad[index];
     }
@@ -625,7 +627,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
         report->rt = 255;
 
     // Inject Xbox One home button
-    if (gamepad->home_pressed)
+    if (conn->home_pressed)
         report->button1 |= (1 << (PAD_HOME_BUTTON - 8));
 
     // If L2/R2 analog movement, ensure button press
@@ -669,37 +671,45 @@ bool pad_xreg(uint16_t word)
 bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
                                        uint16_t vendor_id, uint16_t product_id)
 {
-    pad_connection_t *gamepad = NULL;
+    pad_connection_t *conn = NULL;
     int player;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
     {
         if (!pad_connections[i].valid)
         {
-            gamepad = &pad_connections[i];
+            conn = &pad_connections[i];
             player = i;
             break;
         }
     }
-    if (!gamepad)
+    if (!conn)
     {
         DBG("pad_mount: No available descriptor slots, max players reached\n");
         return false;
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    pad_distill_descriptor(gamepad, desc_data, desc_len, vendor_id, product_id);
-    if (gamepad->valid)
+    pad_distill_descriptor(conn, desc_data, desc_len, vendor_id, product_id);
+    if (conn->valid)
     {
-        gamepad->slot = slot;
+        conn->slot = slot;
         pad_reset_xram(player);
         return true;
     }
     return false;
 }
 
+// Useful for gamepads that indicate player number.
+int pad_get_player_num(int slot)
+{
+    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+        if (pad_connections[i].slot == slot && pad_connections[i].valid)
+            return i;
+    return -1;
+}
+
 bool pad_umount(int slot)
 {
-    // Find the descriptor by dev_addr and slot
     int player = pad_get_player_num(slot);
     if (player < 0)
         return false;
@@ -752,21 +762,12 @@ void pad_home_button(int slot, bool pressed)
     // Update the home button bit in xram
     if (pad_xram != 0xFFFF)
     {
-        uint8_t *button1 = &xram[pad_xram + player * (sizeof(pad_xram_t)) + 3];
+        uint8_t *button1 = &xram[pad_xram + player * sizeof(pad_xram_t) + offsetof(pad_xram_t, button1)];
         if (pressed)
             *button1 |= (1 << (PAD_HOME_BUTTON - 8));
         else
             *button1 &= ~(1 << (PAD_HOME_BUTTON - 8));
     }
-}
-
-// Useful for gamepads that indicate player number.
-int pad_get_player_num(int slot)
-{
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-        if (pad_connections[i].slot == slot && pad_connections[i].valid)
-            return i;
-    return -1;
 }
 
 // Build LED output report for player indicator on Sony controllers.
@@ -777,12 +778,11 @@ _Static_assert(PAD_LED_REPORT_MAX >= 31, "PAD_LED_REPORT_MAX too small for DS4")
 bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
                           uint8_t *report_id, uint16_t *report_len)
 {
-    int pnum = pad_get_player_num(slot);
-    if (pnum < 0)
+    int player = pad_get_player_num(slot);
+    if (player < 0)
         return false;
 
-    pad_connection_t *conn = &pad_connections[pnum];
-    int ci = pnum & 0x03;
+    pad_connection_t *conn = &pad_connections[player];
 
     // Player indicator colors: Blue, Red, Green, Pink
     static const uint8_t player_colors[][3] = {
@@ -800,12 +800,12 @@ bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
         // Player LED patterns: P1=center, P2=inner pair, P3=three, P4=four
         static const uint8_t ds5_player_leds[] = {0x04, 0x0A, 0x15, 0x1B};
         memset(buf, 0, 47);
-        buf[1] = 0x14;                  // valid_flag1: player LEDs (0x10) + lightbar (0x04)
-        buf[38] = 0x02;                 // valid_flag2: lightbar setup
-        buf[43] = ds5_player_leds[ci];  // player LED pattern
-        buf[44] = player_colors[ci][0]; // R
-        buf[45] = player_colors[ci][1]; // G
-        buf[46] = player_colors[ci][2]; // B
+        buf[1] = 0x14;                      // valid_flag1: player LEDs (0x10) + lightbar (0x04)
+        buf[38] = 0x02;                     // valid_flag2: lightbar setup
+        buf[43] = ds5_player_leds[player];  // player LED pattern
+        buf[44] = player_colors[player][0]; // R
+        buf[45] = player_colors[player][1]; // G
+        buf[46] = player_colors[player][2]; // B
         *report_id = 2;
         *report_len = 47;
         return true;
@@ -814,10 +814,10 @@ bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
     {
         // DualShock 4: lightbar color for player indication
         memset(buf, 0, 31);
-        buf[0] = 0xFF;                 // enable all features
-        buf[5] = player_colors[ci][0]; // R
-        buf[6] = player_colors[ci][1]; // G
-        buf[7] = player_colors[ci][2]; // B
+        buf[0] = 0xFF;                     // enable all features
+        buf[5] = player_colors[player][0]; // R
+        buf[6] = player_colors[player][1]; // G
+        buf[7] = player_colors[player][2]; // B
         *report_id = 5;
         *report_len = 31;
         return true;
