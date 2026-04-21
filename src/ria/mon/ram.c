@@ -26,13 +26,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define RAM_TIMEOUT_MS 200
 
 static enum {
-    SYS_IDLE,
-    SYS_READ,
-    SYS_WRITE,
-    SYS_VERIFY,
-    SYS_BINARY,
-    SYS_XRAM,
-} cmd_state;
+    RAM_IDLE,
+    RAM_READ,
+    RAM_WRITE,
+    RAM_VERIFY,
+    RAM_BINARY,
+    RAM_XRAM,
+} ram_state;
 
 static uint32_t ram_rw_addr;
 static uint32_t ram_rw_end;
@@ -40,10 +40,11 @@ static uint32_t ram_rw_size;
 static uint32_t ram_rw_crc;
 static uint32_t ram_intel_hex_base;
 
+static bool ram_start_read_chunk(void);
+
 static int ram_print_response(char *buf, size_t buf_size, int state)
 {
     (void)buf_size;
-    (void)state;
     assert(mbuf_len <= 16);
     if (state < 0)
         return state;
@@ -76,42 +77,48 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     *buf++ = '\n';
     *buf = '\0';
     ram_rw_addr += mbuf_len;
-    if (ram_rw_addr <= ram_rw_end)
-    {
-        mbuf_len = ram_rw_end - ram_rw_addr + 1;
-        if (mbuf_len > 16)
-            mbuf_len = 16;
-        if (ram_rw_addr < 0x10000)
-        {
-            ria_read_buf(ram_rw_addr);
-            cmd_state = SYS_READ;
-        }
-        else
-            mon_add_response_fn(ram_print_response);
-    }
-    return -1;
+    if (ram_rw_addr > ram_rw_end)
+        return -1;
+    if (ram_start_read_chunk())
+        return -1;
+    return 0;
 }
 
-static void cmd_ria_read(void)
+// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
+// read and returns true (caller should wait). For XRAM, returns false (data
+// is already resident; caller can print without a fetch).
+static bool ram_start_read_chunk(void)
 {
-    cmd_state = SYS_IDLE;
+    mbuf_len = ram_rw_end - ram_rw_addr + 1;
+    if (mbuf_len > 16)
+        mbuf_len = 16;
+    if (ram_rw_addr >= 0x10000)
+        return false;
+    ria_read_buf(ram_rw_addr);
+    ram_state = RAM_READ;
+    return true;
+}
+
+static void ram_ria_read(void)
+{
+    ram_state = RAM_IDLE;
     if (ria_handle_error())
         return;
     mon_add_response_fn(ram_print_response);
 }
 
-static void cmd_ria_write(void)
+static void ram_ria_write(void)
 {
-    cmd_state = SYS_IDLE;
+    ram_state = RAM_IDLE;
     if (ria_handle_error())
         return;
-    cmd_state = SYS_VERIFY;
+    ram_state = RAM_VERIFY;
     ria_verify_buf(ram_rw_addr);
 }
 
-static void cmd_ria_verify(void)
+static void ram_ria_verify(void)
 {
-    cmd_state = SYS_IDLE;
+    ram_state = RAM_IDLE;
     ria_handle_error();
 }
 
@@ -130,7 +137,7 @@ static void ram_begin_write(void)
         return;
     }
     ria_write_buf(ram_rw_addr);
-    cmd_state = SYS_WRITE;
+    ram_state = RAM_WRITE;
 }
 
 static void ram_intel_hex(const char *args)
@@ -208,7 +215,7 @@ static void ram_intel_hex(const char *args)
     }
 }
 
-// Commands that start with a hex address. Read or write memory.
+// Hex-address commands and Intel HEX records. Read or write memory.
 void ram_mon_address(const char *args)
 {
     if (*args == ':')
@@ -261,15 +268,7 @@ void ram_mon_address(const char *args)
     }
     if (!args[i])
     {
-        mbuf_len = ram_rw_end - ram_rw_addr + 1;
-        if (mbuf_len > 16)
-            mbuf_len = 16;
-        if (ram_rw_addr < 0x10000)
-        {
-            ria_read_buf(ram_rw_addr);
-            cmd_state = SYS_READ;
-        }
-        else
+        if (!ram_start_read_chunk())
             mon_add_response_fn(ram_print_response);
         return;
     }
@@ -311,9 +310,9 @@ void ram_mon_address(const char *args)
     ram_begin_write();
 }
 
-static void sys_com_rx_mbuf(bool timeout)
+static void ram_rx_mbuf(bool timeout)
 {
-    cmd_state = SYS_IDLE;
+    ram_state = RAM_IDLE;
     if (timeout)
     {
         mon_add_response_str(STR_ERR_RX_TIMEOUT);
@@ -326,18 +325,18 @@ static void sys_com_rx_mbuf(bool timeout)
     }
     if (ram_rw_addr >= 0x10000)
     {
-        cmd_state = SYS_XRAM;
+        ram_state = RAM_XRAM;
         for (size_t i = 0; i < ram_rw_size; i++)
             xram[ram_rw_addr + i - 0x10000] = mbuf[i];
     }
     else
     {
-        cmd_state = SYS_WRITE;
+        ram_state = RAM_WRITE;
         ria_write_buf(ram_rw_addr);
     }
 }
 
-static void cmd_xram()
+static void ram_xram(void)
 {
     while (ram_rw_size)
     {
@@ -346,7 +345,7 @@ static void cmd_xram()
         uint32_t addr = ram_rw_addr + --ram_rw_size - 0x10000;
         PIX_SEND_XRAM(addr, xram[addr]);
     }
-    cmd_state = SYS_IDLE;
+    ram_state = RAM_IDLE;
 }
 
 void ram_mon_binary(const char *args)
@@ -368,8 +367,8 @@ void ram_mon_binary(const char *args)
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
-        mem_read_mbuf(RAM_TIMEOUT_MS, sys_com_rx_mbuf, ram_rw_size);
-        cmd_state = SYS_BINARY;
+        mem_read_mbuf(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
+        ram_state = RAM_BINARY;
         return;
     }
     mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -379,33 +378,33 @@ void ram_task(void)
 {
     if (main_active())
         return;
-    switch (cmd_state)
+    switch (ram_state)
     {
-    case SYS_IDLE:
-    case SYS_BINARY:
+    case RAM_IDLE:
+    case RAM_BINARY:
         break;
-    case SYS_READ:
-        cmd_ria_read();
+    case RAM_READ:
+        ram_ria_read();
         break;
-    case SYS_WRITE:
-        cmd_ria_write();
+    case RAM_WRITE:
+        ram_ria_write();
         break;
-    case SYS_VERIFY:
-        cmd_ria_verify();
+    case RAM_VERIFY:
+        ram_ria_verify();
         break;
-    case SYS_XRAM:
-        cmd_xram();
+    case RAM_XRAM:
+        ram_xram();
         break;
     }
 }
 
 bool ram_active(void)
 {
-    return cmd_state != SYS_IDLE;
+    return ram_state != RAM_IDLE;
 }
 
 void ram_break(void)
 {
     ram_intel_hex_base = 0;
-    cmd_state = SYS_IDLE;
+    ram_state = RAM_IDLE;
 }
