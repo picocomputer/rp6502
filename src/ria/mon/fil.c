@@ -13,10 +13,8 @@
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_FIL)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -49,28 +47,27 @@ bool fil_drive_exists(const char *args)
     return result != FR_INVALID_DRIVE;
 }
 
-static int fil_chdir_response(char *buf, size_t buf_size, int state)
+static int fil_cwd_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    (void)buf_size;
     FRESULT result;
     char *cwd = (char *)mbuf;
     result = f_getcwd(cwd, MBUF_SIZE);
     mon_add_response_fatfs(result);
     if (result != FR_OK)
         return -1;
-    const int width = 79;
-    int len = strlen(cwd);
-    if (len < state * width)
+    size_t width = buf_size - 2;
+    size_t total = strlen(cwd);
+    if (total < (size_t)state * width)
         return -1;
-    cwd += state * width;
-    snprintf(buf, width + 1, cwd);
-    buf += (len = strlen(buf));
-    if (len)
+    cwd += (size_t)state * width;
+    snprintf(buf, width + 1, "%s", cwd);
+    size_t written = strlen(buf);
+    if (written)
     {
-        *buf++ = '\n';
-        *buf = 0;
+        buf[written] = '\n';
+        buf[written + 1] = '\0';
     }
     return state + 1;
 }
@@ -81,7 +78,7 @@ void fil_mon_chdir(const char *args)
     DIR dir;
     if (!*args)
     {
-        mon_add_response_fn(fil_chdir_response);
+        mon_add_response_fn(fil_cwd_response);
         return;
     }
     const char *path = str_parse_string(&args);
@@ -118,13 +115,14 @@ void fil_mon_mkdir(const char *args)
 
 void fil_mon_chdrive(const char *args)
 {
-    FRESULT result = FR_INVALID_DRIVE;
-    DIR dir;
     const char *tok = str_parse_string(&args);
-    if (tok && str_parse_end(args))
+    if (!tok || !str_parse_end(args))
     {
-        result = f_opendir(&dir, tok);
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
     }
+    DIR dir;
+    FRESULT result = f_opendir(&dir, tok);
     mon_add_response_fatfs(result);
     if (result == FR_OK)
     {
@@ -198,13 +196,13 @@ void fil_mon_ls(const char *args)
     mon_add_response_fatfs(fresult);
     if (FR_OK != fresult)
         return;
-    mon_add_response_fn(fil_chdir_response);
+    mon_add_response_fn(fil_cwd_response);
     mon_add_response_fn(fil_dir_entry_response);
 }
 
-static void fil_command_dispatch(bool timeout, const char *buf);
+static void fil_upload_dispatch(bool timeout, const char *buf);
 
-static void fil_com_rx_mbuf(bool timeout)
+static void fil_upload_rx_mbuf(bool timeout)
 {
     FRESULT result = FR_OK;
     if (timeout)
@@ -234,13 +232,13 @@ static void fil_com_rx_mbuf(bool timeout)
     {
         fil_state = FIL_COMMAND;
         putchar('}');
-        rln_read_line_timeout(fil_command_dispatch, FIL_TIMEOUT_MS);
+        rln_read_line_timeout(fil_upload_dispatch, FIL_TIMEOUT_MS);
     }
     else
         fil_state = FIL_IDLE;
 }
 
-static void fil_command_dispatch(bool timeout, const char *buf)
+static void fil_upload_dispatch(bool timeout, const char *buf)
 {
     if (timeout)
     {
@@ -249,16 +247,21 @@ static void fil_command_dispatch(bool timeout, const char *buf)
         fil_state = FIL_IDLE;
         return;
     }
-    const char *args = buf;
-    const char *scan = args;
+    const char *scan = buf;
     const char *tok = str_parse_string(&scan);
-    if (!tok && !str_parse_end(scan))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
-    if (!tok || (!strcasecmp(tok, STR_END) && str_parse_end(scan)))
+    if (!tok)
+    {
+        if (!str_parse_end(scan))
+            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        fil_state = FIL_IDLE;
+        return;
+    }
+    if (!strcasecmp(tok, STR_END) && str_parse_end(scan))
     {
         fil_state = FIL_IDLE;
         return;
     }
+    const char *args = buf;
     if (str_parse_uint32(&args, &fil_rx_size) &&
         str_parse_uint32(&args, &fil_rx_crc) &&
         str_parse_end(args))
@@ -269,7 +272,7 @@ static void fil_command_dispatch(bool timeout, const char *buf)
             mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
             return;
         }
-        mem_read_mbuf(FIL_TIMEOUT_MS, fil_com_rx_mbuf, fil_rx_size);
+        mem_read_mbuf(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
     mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
@@ -295,7 +298,7 @@ void fil_mon_upload(const char *args)
     }
     fil_state = FIL_COMMAND;
     putchar('}');
-    rln_read_line_timeout(fil_command_dispatch, FIL_TIMEOUT_MS);
+    rln_read_line_timeout(fil_upload_dispatch, FIL_TIMEOUT_MS);
 }
 
 void fil_mon_unlink(const char *args)
