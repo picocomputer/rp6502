@@ -169,9 +169,9 @@ static void set_rfcc(const char *args)
 static int set_ssid_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    const char *cc = wfi_get_ssid();
+    const char *ssid = wfi_get_ssid();
     snprintf(buf, buf_size, STR_SET_SSID_RESPONSE,
-             strlen(cc) ? cc : STR_PARENS_NONE);
+             strlen(ssid) ? ssid : STR_PARENS_NONE);
     return -1;
 }
 
@@ -370,9 +370,9 @@ __in_flash("set_attributes") static struct
     {STR_RFCC, set_rfcc},
     {STR_SSID, set_ssid},
     {STR_PASS, set_pass},
-    {STR_BLE, set_ble},
     {STR_PORT, set_port},
     {STR_KEY, set_key},
+    {STR_BLE, set_ble},
 #endif
 };
 static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
