@@ -4,17 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "hid/kbd.h"
 #include "api/clk.h"
+#include "hid/kbd.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
 #include "mon/vip.h"
 #include "net/cyw.h"
 #include "str/str.h"
-#include "sys/cpu.h"
-#include "sys/lfs.h"
-#include <ctype.h>
+#include <pico.h>
+#include <string.h>
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HLP)
 #include <stdio.h>
@@ -61,7 +60,7 @@ __in_flash("hlp_commands") static struct
     {STR_UNLINK, STR_HELP_UNLINK, NULL},
     {STR_BINARY, STR_HELP_BINARY, NULL},
 };
-static const size_t COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
+static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
 
 __in_flash("hlp_settings") static struct
 {
@@ -86,7 +85,7 @@ __in_flash("hlp_settings") static struct
     {STR_KEY, STR_HELP_SET_KEY, NULL},
 #endif
 };
-static const size_t SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
+static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
 static void help_response_lookup(const char *args, const char **cp, mon_response_fn *fnp)
 {
@@ -105,7 +104,7 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
                 *cp = STR_HELP_SET;
             return;
         }
-        for (size_t i = 0; i < SETTINGS_COUNT; i++)
+        for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
             if (!strcasecmp(attr, HLP_SETTINGS[i].cmd))
             {
                 *cp = HLP_SETTINGS[i].text;
@@ -115,7 +114,7 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
         return;
     }
     // Help for commands and a couple special words.
-    for (size_t i = 1; i < COMMANDS_COUNT; i++)
+    for (size_t i = 0; i < HLP_COMMANDS_COUNT; i++)
         if (!strcasecmp(word, HLP_COMMANDS[i].cmd))
         {
             *cp = HLP_COMMANDS[i].text;
@@ -148,5 +147,5 @@ bool hlp_topic_exists(const char *buf)
     const char *c;
     mon_response_fn fn;
     help_response_lookup(buf, &c, &fn);
-    return c != NULL || fn != NULL;
+    return c != NULL;
 }
