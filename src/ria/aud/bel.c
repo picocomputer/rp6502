@@ -110,9 +110,9 @@ static struct
     volatile bool active;
 } bel_state;
 
-// Teletype bell: retrigger-capable
+// Teletype bell: restrike-capable
 __in_flash("bel_presets") const ria_bel_t bel_teletype = {
-    .freq = 1760,         // A6
+    .freq = 1760,
     .duty = 215,          // hint of grit
     .vol_attack = 0x51,   // attack to -5vol in 8ms
     .vol_decay = 0x60,    // decay to -6vol in 6ms
@@ -197,10 +197,10 @@ __time_critical_func(bel_sample)(uint32_t rate)
 
     // Advance elapsed time and check timing events
     bel_state.elapsed_samples++;
-    uint32_t elapsed_ms_val = (uint32_t)bel_state.elapsed_samples * 1000 / rate;
+    uint32_t elapsed_ms = (uint32_t)bel_state.elapsed_samples * 1000 / rate;
 
-    // Check restrike: if restrike_ms > 0 and time elapsed and next sound also has restrike_ms > 0
-    if (snd->restrike_ms > 0 && elapsed_ms_val >= snd->restrike_ms)
+    // Restrike when current and next both request it
+    if (snd->restrike_ms > 0 && elapsed_ms >= snd->restrike_ms)
     {
         uint8_t next = (bel_queue_tail + 1) % BEL_QUEUE_SIZE;
         if (next != bel_queue_head)
@@ -220,14 +220,14 @@ __time_critical_func(bel_sample)(uint32_t rate)
     }
 
     // Check release_ms
-    if (snd->release_ms > 0 && elapsed_ms_val >= snd->release_ms &&
+    if (snd->release_ms > 0 && elapsed_ms >= snd->release_ms &&
         bel_state.adsr != release)
     {
         bel_state.adsr = release;
     }
 
     // Check end_ms: advance to next sound
-    if (snd->end_ms > 0 && elapsed_ms_val >= snd->end_ms)
+    if (snd->end_ms > 0 && elapsed_ms >= snd->end_ms)
     {
         uint8_t next = (bel_queue_tail + 1) % BEL_QUEUE_SIZE;
         if (next != bel_queue_head)
@@ -244,7 +244,6 @@ __time_critical_func(bel_sample)(uint32_t rate)
             // No more sounds — consume the last entry so the slot is free
             bel_queue_tail = next;
             bel_state.active = false;
-            bel_state.vol = 0;
             return 0;
         }
     }
