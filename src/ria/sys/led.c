@@ -46,15 +46,14 @@ void led_task(void)
 {
     if (led_blinking && time_reached(led_blink_timer))
     {
-        led_state = !led_state;
-        led_set(led_state);
+        led_set(!led_state);
         led_blink_timer = make_timeout_time_ms(LED_BLINK_TIME_MS);
     }
 }
 
-void led_blink(bool on)
+void led_blink(bool enable)
 {
-    if (!on)
+    if (!enable)
         led_set(true);
-    led_blinking = on;
+    led_blinking = enable;
 }

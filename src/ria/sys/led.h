@@ -20,7 +20,7 @@
 void led_init(void);
 void led_task(void);
 
-// Make it blink
-void led_blink(bool on);
+// Enable blinking
+void led_blink(bool enable);
 
 #endif /* _RIA_SYS_LED_H_ */
