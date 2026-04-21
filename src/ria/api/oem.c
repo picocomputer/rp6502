@@ -22,7 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // Only the code page specified by RP6502_CODE_PAGE is installed to flash.
 // To include all code pages, set RP6502_CODE_PAGE to 0 (CMakeLists.txt).
-// This is the default for when RP6502_CODE_PAGE == 0.
+// When RP6502_CODE_PAGE == 0, this is the default code page.
 #define OEM_DEFAULT_CODE_PAGE 437
 
 static uint16_t oem_code_page_set;
