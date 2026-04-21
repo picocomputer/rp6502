@@ -197,9 +197,7 @@ static inline bool api_return_axsreg(uint32_t val)
 // Failure returns -1 and sets errno
 static inline bool api_return_errno(api_errno errnum)
 {
-    uint16_t platform_errno = api_platform_errno(errnum);
-    if (platform_errno)
-        API_ERRNO = platform_errno;
+    API_ERRNO = api_platform_errno(errnum);
     xstack_ptr = XSTACK_SIZE;
     return api_return_axsreg(-1);
 }
@@ -207,11 +205,7 @@ static inline bool api_return_errno(api_errno errnum)
 // Failure returns -1 and sets errno from FatFS FRESULT
 static inline bool api_return_fresult(unsigned fresult)
 {
-    uint16_t platform_errno = api_platform_errno(api_errno_from_fatfs(fresult));
-    if (platform_errno)
-        API_ERRNO = platform_errno;
-    xstack_ptr = XSTACK_SIZE;
-    return api_return_axsreg(-1);
+    return api_return_errno(api_errno_from_fatfs(fresult));
 }
 
 #endif /* _RIA_API_API_H_ */

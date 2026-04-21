@@ -100,15 +100,17 @@ void api_task(void)
 void api_run(void)
 {
     api_errno_opt = API_ERRNO_OPT_NULL;
-    // All registers reset to a known state
-    for (int i = 0; i < 16; i++)
-        if (i != 3) // Skip VSYNC
-            REGS(i) = 0;
-    *(int8_t *)&REGS(0xFFE5) = 1; // STEP0
-    REGS(0xFFE4) = xram[0];       // RW0
-    *(int8_t *)&REGS(0xFFE9) = 1; // STEP1
-    REGS(0xFFE8) = xram[0];       // RW1
-    api_return_errno(0);
+    // Clear the fastcall/RW register window (0xFFE0..0xFFEF),
+    // leaving the VSYNC frame counter alone — owned by vga.
+    for (int addr = 0xFFE0; addr <= 0xFFEF; addr++)
+        if (addr != 0xFFE3)
+            REGS(addr) = 0;
+    xstack_ptr = XSTACK_SIZE;
+    REGS(0xFFE5) = 1; // STEP0
+    REGS(0xFFE9) = 1; // STEP1
+    API_ERRNO = 0xFFFF;
+    api_set_axsreg(-1);
+    api_set_regs_released();
 }
 
 void api_stop(void)
@@ -250,11 +252,11 @@ bool api_pop_uint8_end(uint8_t *data)
 {
     switch (xstack_ptr)
     {
-    case XSTACK_SIZE - 0:
+    case XSTACK_SIZE:
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data, &xstack[xstack_ptr], sizeof(uint8_t));
+        *data = xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     default:
@@ -266,12 +268,11 @@ bool api_pop_uint16_end(uint16_t *data)
 {
     switch (xstack_ptr)
     {
-    case XSTACK_SIZE - 0:
+    case XSTACK_SIZE:
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        *data = 0;
-        memcpy(data, &xstack[xstack_ptr], 1);
+        *data = xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
@@ -287,12 +288,11 @@ bool api_pop_uint32_end(uint32_t *data)
 {
     switch (xstack_ptr)
     {
-    case XSTACK_SIZE - 0:
+    case XSTACK_SIZE:
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        *data = 0;
-        memcpy(data, &xstack[xstack_ptr], 1);
+        *data = xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
@@ -318,11 +318,11 @@ bool api_pop_int8_end(int8_t *data)
 {
     switch (xstack_ptr)
     {
-    case XSTACK_SIZE - 0:
+    case XSTACK_SIZE:
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        memcpy((void *)data, &xstack[xstack_ptr], sizeof(int8_t));
+        *data = (int8_t)xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     default:
@@ -334,11 +334,11 @@ bool api_pop_int16_end(int16_t *data)
 {
     switch (xstack_ptr)
     {
-    case XSTACK_SIZE - 0:
+    case XSTACK_SIZE:
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        *data = (int16_t)(int8_t)xstack[xstack_ptr];
+        *data = (int8_t)xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
@@ -354,24 +354,25 @@ bool api_pop_int32_end(int32_t *data)
 {
     switch (xstack_ptr)
     {
-    case XSTACK_SIZE - 0:
+    case XSTACK_SIZE:
         *data = 0;
         return true;
     case XSTACK_SIZE - 1:
-        *data = (int32_t)(int8_t)xstack[xstack_ptr];
+        *data = (int8_t)xstack[xstack_ptr];
         xstack_ptr = XSTACK_SIZE;
         return true;
     case XSTACK_SIZE - 2:
     {
         int16_t tmp;
         memcpy(&tmp, &xstack[xstack_ptr], 2);
-        *data = (int32_t)tmp;
+        *data = tmp;
         xstack_ptr = XSTACK_SIZE;
         return true;
     }
     case XSTACK_SIZE - 3:
         *data = 0;
         memcpy(data, &xstack[xstack_ptr], 3);
+        // Sign-extend the 24-bit value.
         *data = (*data ^ 0x00800000) - 0x00800000;
         xstack_ptr = XSTACK_SIZE;
         return true;
