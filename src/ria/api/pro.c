@@ -13,7 +13,6 @@
 #include "str/str.h"
 #include "usb/nfc.h"
 #include <fatfs/ff.h>
-#include <assert.h>
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PRO)
@@ -30,9 +29,9 @@ static char pro_launcher[256];
 
 static int16_t pro_exit_code;
 
-// A zero terminated list of uint16 which points
-// to zero terminated strings within pro_argv.
-// Maintans no space between pointers and chars.
+// Layout: offset[0], offset[1], ..., offset[n-1], {0,0}, str[0], str[1], ..., str[n-1].
+// Each offset is a little-endian uint16 into pro_argv pointing at its string.
+// The {0,0} pair terminates the offset table; strings follow immediately, packed with no padding.
 static uint8_t pro_argv[XSTACK_SIZE];
 
 void pro_run(void)
@@ -52,7 +51,8 @@ void pro_stop(void)
     pro_exit_code = API_AX;
     if (rom_active())
     {
-        // pro_api_exec or pro_nfc launching
+        // A new ROM load is already in flight (pro_api_exec or pro_nfc);
+        // skip the launcher re-exec so we don't clobber it.
         pro_running[0] = '\0';
         return;
     }
@@ -86,13 +86,23 @@ void pro_argv_clear(void)
     pro_argv[0] = pro_argv[1] = 0;
 }
 
+static uint16_t pro_argv_offset_read(uint16_t i)
+{
+    return pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
+}
+
+static void pro_argv_offset_write(uint16_t i, uint16_t offset)
+{
+    pro_argv[i * 2] = offset & 0xFF;
+    pro_argv[i * 2 + 1] = offset >> 8;
+}
+
 static uint16_t pro_argv_size(void)
 {
     uint16_t count = pro_argv_count();
     if (count == 0)
         return 2;
-    uint16_t last = (count - 1) * 2;
-    uint16_t offset = pro_argv[last] | ((uint16_t)pro_argv[last + 1] << 8);
+    uint16_t offset = pro_argv_offset_read(count - 1);
     return offset + (uint16_t)strlen((const char *)&pro_argv[offset]) + 1;
 }
 
@@ -104,8 +114,7 @@ static bool pro_argv_validate(void)
         return false;
     for (uint16_t i = 0; i < count; i++)
     {
-        uint16_t offset = pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
-        if (offset != pos)
+        if (pro_argv_offset_read(i) != pos)
             return false;
         while (pos < XSTACK_SIZE && pro_argv[pos] != 0)
             pos++;
@@ -127,17 +136,10 @@ bool pro_argv_append(const char *str)
         return false;
     memmove(&pro_argv[old_strings_start + 2], &pro_argv[old_strings_start], strings_len);
     for (uint16_t i = 0; i < count; i++)
-    {
-        uint16_t offset = pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
-        offset += 2;
-        pro_argv[i * 2] = offset & 0xFF;
-        pro_argv[i * 2 + 1] = offset >> 8;
-    }
+        pro_argv_offset_write(i, pro_argv_offset_read(i) + 2);
     uint16_t new_offset = old_strings_start + 2 + strings_len;
-    pro_argv[count * 2] = new_offset & 0xFF;
-    pro_argv[count * 2 + 1] = new_offset >> 8;
-    pro_argv[(count + 1) * 2] = 0;
-    pro_argv[(count + 1) * 2 + 1] = 0;
+    pro_argv_offset_write(count, new_offset);
+    pro_argv_offset_write(count + 1, 0);
     memcpy(&pro_argv[new_offset], str, new_str_len);
     return true;
 }
@@ -146,8 +148,7 @@ const char *pro_argv_index(uint16_t idx)
 {
     if (idx >= pro_argv_count())
         return NULL;
-    uint16_t offset = pro_argv[idx * 2] | ((uint16_t)pro_argv[idx * 2 + 1] << 8);
-    return (const char *)&pro_argv[offset];
+    return (const char *)&pro_argv[pro_argv_offset_read(idx)];
 }
 
 bool pro_argv_replace(uint16_t idx, const char *str)
@@ -155,7 +156,7 @@ bool pro_argv_replace(uint16_t idx, const char *str)
     uint16_t count = pro_argv_count();
     if (idx >= count)
         return false;
-    uint16_t old_offset = pro_argv[idx * 2] | ((uint16_t)pro_argv[idx * 2 + 1] << 8);
+    uint16_t old_offset = pro_argv_offset_read(idx);
     uint16_t old_len = (uint16_t)strlen((const char *)&pro_argv[old_offset]) + 1;
     uint16_t new_len = (uint16_t)strlen(str) + 1;
     uint16_t old_size = pro_argv_size();
@@ -169,15 +170,14 @@ bool pro_argv_replace(uint16_t idx, const char *str)
                 tail_len);
         for (uint16_t i = 0; i < count; i++)
         {
-            uint16_t offset = pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
+            uint16_t offset = pro_argv_offset_read(i);
             if (offset >= old_offset + old_len)
             {
                 if (new_len > old_len)
                     offset += new_len - old_len;
                 else
                     offset -= old_len - new_len;
-                pro_argv[i * 2] = offset & 0xFF;
-                pro_argv[i * 2 + 1] = offset >> 8;
+                pro_argv_offset_write(i, offset);
             }
         }
     }
@@ -205,14 +205,13 @@ bool pro_api_exec(void)
         pro_argv_clear();
         return api_return_errno(API_EINVAL);
     }
-    // If we get this far, always stop.
-    // Problems in rom.c will log to the console
+    // Committed to the exec; rom.c surfaces any load errors on the console.
     main_stop();
     rom_exec();
     return api_return_ax(0);
 }
 
-bool pro_get_launcher(void)
+bool pro_has_launcher(void)
 {
     return pro_launcher[0] != '\0';
 }
@@ -334,7 +333,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         unsigned char c = (unsigned char)*p;
         if (c == '\\' || c == '"')
             printf("\\%c", c);
-        else if (c < 32 || c > 126)
+        else if (c < 32 || c >= 127)
             printf("\\%03o", c);
         else
             putchar(c);
@@ -349,7 +348,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         for (const char *p = args; *p; p++)
         {
             unsigned char c = (unsigned char)*p;
-            putchar(c < 32 || c > 127 ? '?' : c);
+            putchar(c < 32 || c >= 127 ? '?' : c);
         }
     }
     putchar('\n');

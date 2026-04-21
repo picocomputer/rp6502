@@ -50,7 +50,7 @@ bool atr_api_get(void)
     case ATR_BEL:
         return api_return_axsreg(com_get_bel());
     case ATR_LAUNCHER:
-        return api_return_axsreg(pro_get_launcher());
+        return api_return_axsreg(pro_has_launcher());
     case ATR_EXIT_CODE:
         return api_return_axsreg((uint16_t)pro_get_exit_code());
     default:
