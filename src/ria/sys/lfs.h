@@ -33,6 +33,7 @@ extern lfs_t lfs_volume;
 void lfs_init(void);
 
 // Test if file position is at the end of the file.
+// Returns 1 at EOF, 0 if not, or -1 on error.
 int lfs_eof(lfs_t *lfs, lfs_file_t *file);
 
 // Print formatted characters to the file.

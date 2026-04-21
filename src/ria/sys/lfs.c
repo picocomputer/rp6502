@@ -15,15 +15,8 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// 1MB for ROM storage
+// 1MB LFS volume on the tail of flash
 #define LFS_DISK_BLOCKS 256
-
-static int lfs_read(const struct lfs_config *c, lfs_block_t block,
-                    lfs_off_t off, void *buffer, lfs_size_t size);
-static int lfs_prog(const struct lfs_config *c, lfs_block_t block,
-                    lfs_off_t off, const void *buffer, lfs_size_t size);
-static int lfs_erase(const struct lfs_config *c, lfs_block_t block);
-static int lfs_sync(const struct lfs_config *c);
 
 static_assert(!(LFS_DISK_BLOCKS % 8));
 #define LFS_LOOKAHEAD_SIZE (LFS_DISK_BLOCKS / 8)
@@ -33,6 +26,43 @@ lfs_t lfs_volume;
 static char lfs_read_buffer[FLASH_PAGE_SIZE];
 static char lfs_prog_buffer[FLASH_PAGE_SIZE];
 static char lfs_lookahead_buffer[LFS_LOOKAHEAD_SIZE];
+
+static inline uint32_t lfs_flash_offs(lfs_block_t block)
+{
+    return (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) + (block * FLASH_SECTOR_SIZE);
+}
+
+static int lfs_read(const struct lfs_config *c, lfs_block_t block,
+                    lfs_off_t off, void *buffer, lfs_size_t size)
+{
+    (void)(c);
+    memcpy(buffer,
+           (const uint8_t *)XIP_NOCACHE_NOALLOC_BASE + lfs_flash_offs(block) + off,
+           size);
+    return LFS_ERR_OK;
+}
+
+static int __no_inline_not_in_flash_func(lfs_prog)(const struct lfs_config *c, lfs_block_t block,
+                                                   lfs_off_t off, const void *buffer, lfs_size_t size)
+{
+    (void)(c);
+    flash_range_program(lfs_flash_offs(block) + off, buffer, size);
+    return LFS_ERR_OK;
+}
+
+static int __no_inline_not_in_flash_func(lfs_erase)(const struct lfs_config *c, lfs_block_t block)
+{
+    (void)(c);
+    flash_range_erase(lfs_flash_offs(block), FLASH_SECTOR_SIZE);
+    return LFS_ERR_OK;
+}
+
+static int lfs_sync(const struct lfs_config *c)
+{
+    (void)(c);
+    return LFS_ERR_OK;
+}
+
 static const struct lfs_config cfg = {
     .read = lfs_read,
     .prog = lfs_prog,
@@ -50,50 +80,10 @@ static const struct lfs_config cfg = {
     .lookahead_buffer = lfs_lookahead_buffer,
 };
 
-static int lfs_read(const struct lfs_config *c, lfs_block_t block,
-                    lfs_off_t off, void *buffer, lfs_size_t size)
-{
-    (void)(c);
-    memcpy(buffer,
-           (const uint8_t *)XIP_NOCACHE_NOALLOC_BASE +
-               (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
-               (block * FLASH_SECTOR_SIZE) +
-               off,
-           size);
-    return LFS_ERR_OK;
-}
-
-static int __no_inline_not_in_flash_func(lfs_prog)(const struct lfs_config *c, lfs_block_t block,
-                                                   lfs_off_t off, const void *buffer, lfs_size_t size)
-{
-    (void)(c);
-    uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
-                          (block * FLASH_SECTOR_SIZE) +
-                          off;
-    flash_range_program(flash_offs, buffer, size);
-    return LFS_ERR_OK;
-}
-
-static int __no_inline_not_in_flash_func(lfs_erase)(const struct lfs_config *c, lfs_block_t block)
-{
-    (void)(c);
-    uint32_t flash_offs = (PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE) +
-                          (block * FLASH_SECTOR_SIZE);
-    flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    return LFS_ERR_OK;
-}
-
-static int lfs_sync(const struct lfs_config *c)
-{
-    (void)(c);
-    return LFS_ERR_OK;
-}
-
 void lfs_init(void)
 {
     // Check we're not overlapping the LFS region in flash
     extern char __flash_binary_end;
-    (void)__flash_binary_end;
     assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE));
     // mount the filesystem
     int err = lfs_mount(&lfs_volume, &cfg);
@@ -123,15 +113,17 @@ struct lfs_printf_ctx
 {
     lfs_t *lfs;
     lfs_file_t *file;
-    int result;
+    int error;
 };
 
 static void lfs_printf_cb(char character, void *arg)
 {
     struct lfs_printf_ctx *ctx = arg;
-    if (ctx->result < 0)
+    if (ctx->error < 0)
         return;
-    ctx->result = lfs_file_write(ctx->lfs, ctx->file, &character, 1);
+    lfs_ssize_t r = lfs_file_write(ctx->lfs, ctx->file, &character, 1);
+    if (r < 0)
+        ctx->error = r;
 }
 
 // Returns number of characters written or a lfs_error.
@@ -142,17 +134,18 @@ int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...)
     struct lfs_printf_ctx ctx = {
         .lfs = lfs,
         .file = file,
-        .result = 0};
+        .error = 0};
     // vfctprintf is Marco Paland's "Tiny printf" from the Pi Pico SDK
     int result = vfctprintf(lfs_printf_cb, &ctx, format, va);
-    if (ctx.result < 0)
-        return ctx.result;
+    va_end(va);
+    if (ctx.error < 0)
+        return ctx.error;
     return result;
 }
 
 char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file)
 {
-    size_t len = 0;
+    size_t len;
     for (len = 0; len < n - 1; len++)
     {
         lfs_ssize_t result = lfs_file_read(lfs, file, &str[len], 1);
