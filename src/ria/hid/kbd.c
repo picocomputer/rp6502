@@ -84,7 +84,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define KBD_KEY_BIT_SET(data, keycode) (data[keycode >> 5] |= 1 << (keycode & 31))
 #define KBD_KEY_BIT_VAL(data, keycode) (data[keycode >> 5] & (1 << (keycode & 31)))
 
-// Direct access to modifier byte of a kbd_connection_t.keys
+// Direct access to the modifier byte of kbd_keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
 #define X(suffix, name, desc)                                          \
@@ -158,7 +158,7 @@ static void kbd_queue_str(const char *str)
 {
     // All or nothing
     size_t len = strlen(str);
-    size_t used = (kbd_key_queue_head - kbd_key_queue_tail) % KBD_KEY_QUEUE_SIZE;
+    size_t used = (KBD_KEY_QUEUE_SIZE + kbd_key_queue_head - kbd_key_queue_tail) % KBD_KEY_QUEUE_SIZE;
     if (len > KBD_KEY_QUEUE_SIZE - 1 - used)
         return;
     while (*str)
@@ -210,6 +210,17 @@ static void kbd_queue_char_char(char ch0, char ch1)
     }
 }
 
+static char kbd_ctrl_promote(char ch, uint8_t keycode)
+{
+    if (ch >= '`' && ch <= '~')
+        return ch - 96;
+    if (ch >= '@' && ch <= '_')
+        return ch - 64;
+    if (keycode == HID_KEY_BACKSPACE)
+        return '\b';
+    return 0;
+}
+
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
     bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
@@ -225,7 +236,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // When not in numlock, and not shifted, remap num pad
     if (keycode >= HID_KEY_KEYPAD_1 &&
         keycode <= HID_KEY_KEYPAD_DECIMAL &&
-        (!is_numlock || (key_shift && is_numlock)))
+        (!is_numlock || key_shift))
     {
         if (is_numlock)
             key_shift = false;
@@ -287,45 +298,27 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Shift and caps lock logic
     DWORD const(*keys)[5] = kbd_layout_keys[kbd_layout_index];
     bool use_caps_lock = keycode < 128 ? keys[keycode][4] : false;
-    bool is_shifted = (key_shift && !is_capslock) ||
-                      (key_shift && !use_caps_lock) ||
-                      (!key_shift && is_capslock && use_caps_lock);
+    bool is_shifted = key_shift ^ (is_capslock && use_caps_lock);
     // Find plain typed or AltGr character
+    uint16_t code_page = oem_get_code_page_run();
     char ch = 0;
-    if (keycode < 128 && !((modifier & (KEYBOARD_MODIFIER_LEFTALT |
-                                        KEYBOARD_MODIFIER_LEFTGUI |
-                                        KEYBOARD_MODIFIER_RIGHTGUI))))
+    if (keycode < 128 && !(modifier & (KEYBOARD_MODIFIER_LEFTALT |
+                                       KEYBOARD_MODIFIER_LEFTGUI |
+                                       KEYBOARD_MODIFIER_RIGHTGUI)))
     {
-        if (modifier & KEYBOARD_MODIFIER_RIGHTALT)
-        {
-            if (is_shifted)
-                ch = ff_uni2oem(keys[keycode][3], oem_get_code_page_run());
-            else
-                ch = ff_uni2oem(keys[keycode][2], oem_get_code_page_run());
-        }
-        else
-        {
-            if (is_shifted)
-                ch = ff_uni2oem(keys[keycode][1], oem_get_code_page_run());
-            else
-                ch = ff_uni2oem(keys[keycode][0], oem_get_code_page_run());
-        }
+        int col = ((modifier & KEYBOARD_MODIFIER_RIGHTALT) ? 2 : 0) |
+                  (is_shifted ? 1 : 0);
+        ch = ff_uni2oem(keys[keycode][col], code_page);
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
-        if (is_shifted)
-            ch = ff_uni2oem(keys[keycode][1], oem_get_code_page_run());
-        else
-            ch = ff_uni2oem(keys[keycode][0], oem_get_code_page_run());
+        ch = ff_uni2oem(keys[keycode][is_shifted ? 1 : 0], code_page);
         if (key_ctrl)
         {
-            if (ch >= '`' && ch <= '~')
-                ch -= 96;
-            else if (ch >= '@' && ch <= '_')
-                ch -= 64;
-            else if (keycode == HID_KEY_BACKSPACE)
-                ch = '\b';
+            char c = kbd_ctrl_promote(ch, keycode);
+            if (c)
+                ch = c;
         }
         if (ch)
         {
@@ -335,16 +328,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     // Promote ctrl characters
     if (key_ctrl)
-    {
-        if (ch >= '`' && ch <= '~')
-            ch -= 96;
-        else if (ch >= '@' && ch <= '_')
-            ch -= 64;
-        else if (keycode == HID_KEY_BACKSPACE)
-            ch = '\b';
-        else
-            ch = 0;
-    }
+        ch = kbd_ctrl_promote(ch, keycode);
     // Process a regularly typed key
     if (ch)
     {
@@ -604,9 +588,6 @@ void kbd_stop(void)
 
 int kbd_layouts_response(char *buf, size_t buf_size, int state)
 {
-    (void)buf;
-    (void)buf_size;
-    (void)state;
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     if (state < 0 || state >= layouts_count)
         return -1;
@@ -713,7 +694,7 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
 
     hid_descriptor_parse(desc_data, desc_len, kbd_parse_field, conn);
     if (conn->valid && usb_boot_enumerating())
-        for (int i = 0; i < (int)(sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0])); i++)
+        for (size_t i = 0; i < sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0]); i++)
             if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
                 kbd_numlock_off_at_boot[i].pid == product_id)
             {
@@ -757,7 +738,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
 
     // Swap in a new keys bit array
     uint32_t old_keys[8];
-    memcpy(&old_keys, conn->keys, sizeof(conn->keys));
+    memcpy(old_keys, conn->keys, sizeof(conn->keys));
     memset(conn->keys, 0, sizeof(conn->keys));
 
     // Extract from keycode array
@@ -769,7 +750,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
         if (keycode == 1)
         {
             // ignore reports when in phantom/overflow condition
-            memcpy(conn->keys, &old_keys, sizeof(conn->keys));
+            memcpy(conn->keys, old_keys, sizeof(conn->keys));
             return;
         }
         KBD_KEY_BIT_SET(conn->keys, keycode);
@@ -807,7 +788,8 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
         if (!key_alt)
         {
             kbd_alt_mode = false;
-            kbd_queue_char(kbd_alt_code);
+            if (kbd_alt_code)
+                kbd_queue_char(kbd_alt_code);
         }
     }
 
@@ -851,16 +833,9 @@ int kbd_stdio_in_chars(char *buf, int length)
 
 void kbd_load_layout(const char *str)
 {
-    char kb[KBD_LAYOUT_MAX_NAME_SIZE];
-    size_t n = strlen(str);
-    if (n < sizeof(kb))
-    {
-        memcpy(kb, str, n);
-        kb[n] = 0;
-        kbd_layout_index = kbd_sanitize_layout(kb);
-        kbd_layout_loaded = true;
-        kbd_rebuild_code_page_cache();
-    }
+    kbd_layout_index = kbd_sanitize_layout(str);
+    kbd_layout_loaded = true;
+    kbd_rebuild_code_page_cache();
 }
 
 bool kbd_set_layout(const char *kb)
