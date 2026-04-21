@@ -67,7 +67,7 @@ typedef struct
 static std_fd_t std_fd_pool[STD_FD_MAX];
 
 // Active operation state.
-static std_fd_t *std_fd;
+static std_fd_t *std_fd_active;
 static char *std_buf;
 static uint16_t std_size;
 static uint16_t std_pos;
@@ -102,7 +102,7 @@ static std_rw_result std_stdin_read(int desc, char *buf, uint32_t count, uint32_
 {
     (void)desc;
     (void)err;
-    if (!(std_rln_needs_nl || std_rln_pos < std_rln_len))
+    if (!std_rln_needs_nl && std_rln_pos >= std_rln_len)
     {
         if (!std_rln_active)
         {
@@ -221,37 +221,31 @@ bool std_api_close(void)
         return api_return_errno(API_EBADF);
     std_fd_t *f = &std_fd_pool[fd];
     api_errno err = API_EIO;
-    if (f->close(f->desc, &err) < 0)
-    {
-        f->is_open = false;
-        return api_return_errno(err);
-    }
     f->is_open = false;
+    if (f->close(f->desc, &err) < 0)
+        return api_return_errno(err);
     return api_return_ax(0);
 }
 
 bool std_api_read_xstack(void)
 {
-    if (std_fd)
+    if (std_fd_active)
     {
         uint32_t bytes_read;
         api_errno err = API_EIO;
-        std_rw_result result = std_fd->read(std_fd->desc,
-                                            &std_buf[std_pos], std_size - std_pos,
-                                            &bytes_read, &err);
+        std_rw_result result = std_fd_active->read(std_fd_active->desc,
+                                                   &std_buf[std_pos], std_size - std_pos,
+                                                   &bytes_read, &err);
         std_pos += bytes_read;
         if (result == STD_PENDING)
             return api_working();
-        std_fd = NULL;
+        std_fd_active = NULL;
         if (result == STD_ERROR)
             return api_return_errno(err);
         // relocate buffer to top of xstack
-        xstack_ptr = XSTACK_SIZE;
-        if (std_pos == std_size)
-            xstack_ptr -= std_size;
-        else
-            for (uint16_t i = std_pos; i;)
-                xstack[--xstack_ptr] = (uint8_t)std_buf[--i];
+        xstack_ptr = XSTACK_SIZE - std_pos;
+        if (std_pos != std_size)
+            memmove(&xstack[xstack_ptr], std_buf, std_pos);
         return api_return_ax(std_pos);
     }
     if (!api_pop_uint16_end(&std_size) || std_size > XSTACK_SIZE)
@@ -261,7 +255,7 @@ bool std_api_read_xstack(void)
         return api_return_errno(API_EBADF);
     if (!fd->read)
         return api_return_errno(API_ENOSYS);
-    std_fd = fd;
+    std_fd_active = fd;
     std_buf = (char *)&xstack[XSTACK_SIZE - std_size];
     std_pos = 0;
     return api_working();
@@ -269,7 +263,7 @@ bool std_api_read_xstack(void)
 
 bool std_api_read_xram(void)
 {
-    if (std_fd)
+    if (std_fd_active)
     {
         if (std_pos < std_size)
         {
@@ -280,9 +274,9 @@ bool std_api_read_xram(void)
                 chunk = 2048;
             uint32_t bytes_read;
             api_errno err = API_EIO;
-            std_rw_result result = std_fd->read(std_fd->desc,
-                                                &std_buf[std_pos], chunk,
-                                                &bytes_read, &err);
+            std_rw_result result = std_fd_active->read(std_fd_active->desc,
+                                                       &std_buf[std_pos], chunk,
+                                                       &bytes_read, &err);
             std_pos += bytes_read;
             std_xram_len += bytes_read;
             if (result == STD_PENDING)
@@ -290,10 +284,11 @@ bool std_api_read_xram(void)
             if (result == STD_ERROR)
             {
                 std_xram_len = 0;
-                std_fd = NULL;
+                std_fd_active = NULL;
                 return api_return_errno(err);
             }
-            // STD_OK: short read means no more data available
+            // Short read signals EOF for xram transfers (not applied to
+            // read_xstack, which returns whatever the driver handed back).
             if (bytes_read < chunk)
                 std_size = std_pos;
             return api_working();
@@ -301,7 +296,7 @@ bool std_api_read_xram(void)
         // All reads done — wait for PIX drain to complete
         if (std_xram_len > 0)
             return api_working();
-        std_fd = NULL;
+        std_fd_active = NULL;
         return api_return_ax(std_pos);
     }
     uint16_t xram_addr;
@@ -317,7 +312,7 @@ bool std_api_read_xram(void)
     if (xram_addr + std_size > 0x10000)
         std_size = 0x10000 - xram_addr;
     std_buf = (char *)&xram[xram_addr];
-    std_fd = fd;
+    std_fd_active = fd;
     std_pos = 0;
     std_xram_addr = xram_addr;
     std_xram_len = 0;
@@ -326,16 +321,16 @@ bool std_api_read_xram(void)
 
 bool std_api_write_xstack(void)
 {
-    if (std_fd)
+    if (std_fd_active)
     {
         uint32_t bytes_written;
         api_errno err = API_EIO;
-        std_rw_result result = std_fd->write(std_fd->desc, &std_buf[std_pos],
-                                             std_size - std_pos, &bytes_written, &err);
+        std_rw_result result = std_fd_active->write(std_fd_active->desc, &std_buf[std_pos],
+                                                    std_size - std_pos, &bytes_written, &err);
         std_pos += bytes_written;
         if (result == STD_PENDING)
             return api_working();
-        std_fd = NULL;
+        std_fd_active = NULL;
         if (result == STD_ERROR)
             return api_return_errno(err);
         return api_return_ax(std_pos);
@@ -345,7 +340,7 @@ bool std_api_write_xstack(void)
         return api_return_errno(API_EBADF);
     if (!fd->write)
         return api_return_errno(API_ENOSYS);
-    std_fd = fd;
+    std_fd_active = fd;
     std_size = XSTACK_SIZE - xstack_ptr;
     std_buf = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
@@ -355,16 +350,16 @@ bool std_api_write_xstack(void)
 
 bool std_api_write_xram(void)
 {
-    if (std_fd)
+    if (std_fd_active)
     {
         uint32_t bytes_written;
         api_errno err = API_EIO;
-        std_rw_result result = std_fd->write(std_fd->desc, &std_buf[std_pos],
-                                             std_size - std_pos, &bytes_written, &err);
+        std_rw_result result = std_fd_active->write(std_fd_active->desc, &std_buf[std_pos],
+                                                    std_size - std_pos, &bytes_written, &err);
         std_pos += bytes_written;
         if (result == STD_PENDING)
             return api_working();
-        std_fd = NULL;
+        std_fd_active = NULL;
         if (result == STD_ERROR)
             return api_return_errno(err);
         return api_return_ax(std_pos);
@@ -380,9 +375,11 @@ bool std_api_write_xram(void)
     if (std_size > 0x7FFF)
         std_size = 0x7FFF;
     std_buf = (char *)&xram[xram_addr];
+    // Writes must fit exactly; overrunning xram is a caller bug.
+    // (Reads clamp instead, matching POSIX read-up-to-N semantics.)
     if (std_buf + std_size > (char *)xram + 0x10000)
         return api_return_errno(API_EINVAL);
-    std_fd = fd;
+    std_fd_active = fd;
     std_pos = 0;
     return api_working();
 }
@@ -398,6 +395,15 @@ bool std_api_syncfs(void)
     if (fd->sync(fd->desc, &err) < 0)
         return api_return_errno(err);
     return api_return_ax(0);
+}
+
+static bool std_lseek_common(std_fd_t *fd, int8_t whence, int32_t ofs)
+{
+    int32_t pos;
+    api_errno err = API_EIO;
+    if (fd->lseek(fd->desc, whence, ofs, &pos, &err) < 0)
+        return api_return_errno(err);
+    return api_return_axsreg(pos);
 }
 
 bool std_api_lseek_cc65(void)
@@ -422,13 +428,7 @@ bool std_api_lseek_cc65(void)
         whence = SEEK_END;
     else
         return api_return_errno(API_EINVAL);
-    int32_t pos;
-    api_errno err = API_EIO;
-    if (fd->lseek(fd->desc, whence, ofs, &pos, &err) < 0)
-        return api_return_errno(err);
-    if (pos < 0)
-        return api_return_errno(API_EIO);
-    return api_return_axsreg(pos);
+    return std_lseek_common(fd, whence, ofs);
 }
 
 bool std_api_lseek_llvm(void)
@@ -444,13 +444,7 @@ bool std_api_lseek_llvm(void)
         return api_return_errno(API_ENOSYS);
     if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
         return api_return_errno(API_EINVAL);
-    int32_t pos;
-    api_errno err = API_EIO;
-    if (fd->lseek(fd->desc, whence, ofs, &pos, &err) < 0)
-        return api_return_errno(err);
-    if (pos < 0)
-        return api_return_errno(API_EIO);
-    return api_return_axsreg(pos);
+    return std_lseek_common(fd, whence, ofs);
 }
 
 void std_task(void)
@@ -481,7 +475,7 @@ void std_init(void)
 
 void std_stop(void)
 {
-    std_fd = NULL;
+    std_fd_active = NULL;
     std_rln_active = false;
     std_rln_needs_nl = false;
     std_rln_pos = 0;
