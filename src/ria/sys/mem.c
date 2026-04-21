@@ -17,30 +17,10 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// this struct of 4KB segments is because
-// a single 64KB array crashes my debugger
-static struct
-{
-    uint8_t _0[0x1000];
-    uint8_t _1[0x1000];
-    uint8_t _2[0x1000];
-    uint8_t _3[0x1000];
-    uint8_t _4[0x1000];
-    uint8_t _5[0x1000];
-    uint8_t _6[0x1000];
-    uint8_t _7[0x1000];
-    uint8_t _8[0x1000];
-    uint8_t _9[0x1000];
-    uint8_t _A[0x1000];
-    uint8_t _B[0x1000];
-    uint8_t _C[0x1000];
-    uint8_t _D[0x1000];
-    uint8_t _E[0x1000];
-    uint8_t _F[0x1000];
-} xram_blocks;
-_Static_assert(sizeof(xram_blocks) == 0x10000, "xram must be 64KB");
-uint8_t *const __uninitialized_ram(xram) __attribute__((aligned(4))) =
-    (uint8_t *)&xram_blocks;
+// 4KB segments because a single 64KB array crashes my debugger
+static uint8_t __uninitialized_ram(xram_blocks)[16][0x1000]
+    __attribute__((aligned(4)));
+uint8_t *const xram = (uint8_t *)xram_blocks;
 
 volatile uint8_t xram_queue_page;
 volatile uint8_t xram_queue_head;
@@ -63,8 +43,6 @@ static size_t mem_size;
 
 void mem_task(void)
 {
-    if (!mem_callback)
-        return;
     while (mem_callback)
     {
         int ch = stdio_getchar_timeout_us(0);
@@ -74,16 +52,16 @@ void mem_task(void)
         mbuf[mbuf_len] = ch;
         if (++mbuf_len == mem_size)
         {
-            mem_read_callback_t cc = mem_callback;
+            mem_read_callback_t callback = mem_callback;
             mem_callback = NULL;
-            cc(false);
+            callback(false);
         }
     }
     if (mem_callback && time_reached(mem_timer))
     {
-        mem_read_callback_t cc = mem_callback;
+        mem_read_callback_t callback = mem_callback;
         mem_callback = NULL;
-        cc(true);
+        callback(true);
     }
 }
 
@@ -96,7 +74,7 @@ void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t siz
 {
     assert(!mem_callback);
     assert(timeout_ms);
-    assert(size && size <= MBUF_SIZE);
+    assert(size > 0 && size <= MBUF_SIZE);
     mem_size = size;
     mbuf_len = 0;
     mem_timeout_ms = timeout_ms;
