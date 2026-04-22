@@ -15,10 +15,6 @@
 #include <stdbool.h>
 
 // 64KB Extended RAM
-#ifdef NDEBUG
-extern volatile const uint8_t xram[0x10000];
-#else
 extern volatile uint8_t *const xram;
-#endif
 
 #endif /* _VGA_SYS_MEM_H_ */
