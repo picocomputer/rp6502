@@ -11,16 +11,18 @@
 static absolute_time_t break_timer;
 static bool is_breaking = false;
 static uint8_t read_buf[COM_IN_BUF_SIZE];
-static bool cdc_port_open = false;
+static bool cdc_ready = false;
 
-bool cdc_is_open(void)
+bool cdc_is_ready(void)
 {
-    return cdc_port_open;
+    return cdc_ready;
 }
 
-static void cdc_mark_closed(void)
+static void cdc_mark_not_ready(void)
 {
-    cdc_port_open = false;
+    cdc_ready = false;
+    while (!com_out_empty())
+        com_out_read();
     tud_cdc_write_clear();
 }
 
@@ -29,54 +31,46 @@ void tud_cdc_line_state_cb(uint8_t itf, bool dtr, bool rts)
     (void)itf;
     (void)rts;
     if (dtr)
-        cdc_port_open = true;
+        cdc_ready = true;
     else
-        cdc_mark_closed();
+        cdc_mark_not_ready();
 }
 
 void tud_umount_cb(void)
 {
-    cdc_mark_closed();
+    cdc_mark_not_ready();
 }
 
 void tud_suspend_cb(bool remote_wakeup_en)
 {
     (void)remote_wakeup_en;
-    cdc_mark_closed();
+    cdc_mark_not_ready();
 }
 
+// Successful TX is evidence the host is reading; treat as ready even if
+// DTR never asserted. cdc_is_ready() callers rely on this to avoid
+// duplicating ANSI replies that the host terminal will generate itself.
 void tud_cdc_tx_complete_cb(uint8_t itf)
 {
     (void)itf;
-    cdc_port_open = true;
-}
-
-static void send_break_ms(uint16_t duration_ms)
-{
-    break_timer = make_timeout_time_ms(duration_ms);
-    is_breaking = true;
-    com_set_uart_break(true);
+    cdc_ready = true;
 }
 
 void tud_cdc_send_break_cb(uint8_t itf, uint16_t duration_ms)
 {
     (void)itf;
-    if (duration_ms == 0x0000)
+    if (duration_ms == 0)
     {
         is_breaking = false;
         com_set_uart_break(false);
+        return;
     }
-    else if (duration_ms == 0xFFFF)
-    {
-        // Indefinite break — hold until 0x0000 is received
-        break_timer = at_the_end_of_time;
-        is_breaking = true;
-        com_set_uart_break(true);
-    }
-    else
-    {
-        send_break_ms(duration_ms);
-    }
+    // 0xFFFF means hold indefinitely until a 0 is received.
+    break_timer = (duration_ms == 0xFFFF)
+                      ? at_the_end_of_time
+                      : make_timeout_time_ms(duration_ms);
+    is_breaking = true;
+    com_set_uart_break(true);
 }
 
 void cdc_task(void)
@@ -87,7 +81,8 @@ void cdc_task(void)
         com_set_uart_break(false);
     }
 
-    // Always drain CDC RX so keyboard input isn't lost when TX FIFO is full
+    // Drain USB RX independently of TX so host input isn't stalled
+    // by a blocked UART TX path.
     if (tud_cdc_available())
     {
         size_t bufsize = com_in_free();
@@ -99,20 +94,18 @@ void cdc_task(void)
         }
     }
 
-    // TX: write com_out to CDC, or discard if no one is listening
-    if (tud_cdc_connected() && tud_cdc_write_available())
+    // TX stall recovery: disconnected, or both FIFOs full with no forward
+    // progress. Mark not ready (which purges com_out) to unblock com_out_chars().
+    if (!tud_cdc_connected() ||
+        (!tud_cdc_write_available() && com_out_full()))
     {
-        if (!com_out_empty())
-        {
-            while (!com_out_empty() && tud_cdc_write_char(com_out_peek()))
-                com_out_read();
-            tud_cdc_write_flush();
-        }
+        cdc_mark_not_ready();
+        return;
     }
-    else
+    if (tud_cdc_write_available())
     {
-        while (!com_out_empty())
+        while (!com_out_empty() && tud_cdc_write_char(com_out_peek()))
             com_out_read();
-        cdc_mark_closed();
+        tud_cdc_write_flush();
     }
 }

@@ -16,7 +16,7 @@
 
 void cdc_task(void);
 
-// True when a host terminal is open and actively communicating
-bool cdc_is_open(void);
+// True when a host terminal is ready and actively communicating
+bool cdc_is_ready(void);
 
 #endif /* _VGA_USB_CDC_H_ */

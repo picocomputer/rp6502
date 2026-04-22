@@ -23,9 +23,9 @@
 // IN buffering adds to the 32-byte UART FIFO.
 // This doesn't need to be large.
 #define COM_IN_BUF_SIZE 16
-// OUT Buffer is a multiple of USB BULK_PACKET_SIZE.
-// 1x will cause data loss on forwarded usb ports.
-#define COM_OUT_BUF_SIZE (2 * 64)
+// OUT buffer is generous to prevent data loss on
+// forwarded USB ports (usbipd). 32=bad 64=ok 128=safe
+#define COM_OUT_BUF_SIZE 128
 
 /* Main events
  */
@@ -53,6 +53,7 @@ void com_in_write_ansi_DSR_ok(void);
 // OUT is sunk to term
 // OUT is sunk by USB CDC
 bool com_out_empty(void);
+bool com_out_full(void);
 char com_out_peek(void);
 char com_out_read(void);
 

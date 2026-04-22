@@ -47,7 +47,7 @@ void com_in_write(char ch)
 // contiguously before any later input.
 static void com_in_write_reply(const char *s, size_t n)
 {
-    if (com_term_reply_suppressed || cdc_is_open() ||
+    if (com_term_reply_suppressed || cdc_is_ready() ||
         !com_in_empty() || n >= COM_IN_BUF_SIZE)
         return;
     for (size_t i = 0; i < n; i++)
@@ -81,6 +81,11 @@ void com_in_write_ansi_DSR_ok(void)
 bool com_out_empty(void)
 {
     return com_out_head == com_out_tail;
+}
+
+bool com_out_full(void)
+{
+    return (com_out_head + 1) % COM_OUT_BUF_SIZE == com_out_tail;
 }
 
 char com_out_peek(void)
