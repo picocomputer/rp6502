@@ -184,7 +184,6 @@ void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 // PIX XREG writes to the RIA device will dispatch here.
 bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
 {
-    (void)addr;
     switch (chan * 256 + addr)
     {
     // Channel 0 for human interface devices.
@@ -322,7 +321,7 @@ void main_stop(void)
     cpu_stop(); // Pull down RESB
     if (main_state == starting)
         main_state = stopped;
-    if (main_state != stopped)
+    else if (main_state != stopped)
         main_state = stopping;
 }
 
@@ -345,12 +344,7 @@ int main(void)
         main_task();
         task();
         if (is_breaking)
-        {
-            if (main_state == starting)
-                main_state = stopped;
-            if (main_state == running)
-                main_state = stopping;
-        }
+            main_stop();
         if (main_state == starting)
         {
             run();
