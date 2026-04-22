@@ -3,7 +3,7 @@
 add_executable(rp6502_vga)
 target_compile_definitions(rp6502_vga PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 pico_add_extra_outputs(rp6502_vga)
-pico_set_program_name(rp6502_vga "RP6502 VGA")
+pico_set_program_name(rp6502_vga "RP6502-VGA")
 pico_set_binary_type(rp6502_vga copy_to_ram)
 
 set_target_properties(rp6502_vga PROPERTIES
@@ -18,11 +18,6 @@ target_compile_options(rp6502_vga PRIVATE
 
 target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
-)
-
-target_compile_definitions(rp6502_vga PRIVATE
-    PICO_RP2040_USB_DEVICE_ENUMERATION_FIX=1
-    PICO_RP2040_USB_DEVICE_UFRAME_FIX=1
 )
 
 target_sources(rp6502_vga PRIVATE
