@@ -14,8 +14,8 @@
 #include "str/str.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/usb.h"
 #include "usb/msc.h"
+#include "usb/usb.h"
 #include "usb/vcp.h"
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
@@ -56,21 +56,21 @@ void sys_init(void)
 
 void sys_mon_reboot(const char *args)
 {
-    (void)(args);
+    (void)args;
     stdio_flush();
     watchdog_reboot(0, 0, 0);
 }
 
 void sys_mon_reset(const char *args)
 {
-    (void)(args);
+    (void)args;
     pro_argv_clear();
     main_run();
 }
 
 void sys_mon_status(const char *args)
 {
-    (void)(args);
+    (void)args;
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
     mon_add_response_fn(vga_status_response);
