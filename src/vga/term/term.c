@@ -76,6 +76,8 @@ typedef struct term_state
     bool cursor_is_inv;
     uint16_t fg_color;
     uint16_t bg_color;
+    uint16_t cursor_fg_color;
+    uint16_t cursor_bg_color;
     uint8_t fg_color_index;
     uint8_t bg_color_index;
     term_data_t *mem;
@@ -212,6 +214,8 @@ static void term_out_RIS(term_state_t *term)
     term->bg_color_index = TERM_BG_COLOR_INDEX;
     term->fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bg_color = color_256[TERM_BG_COLOR_INDEX];
+    term->cursor_fg_color = color_256[TERM_BG_COLOR_INDEX];
+    term->cursor_bg_color = color_256[TERM_FG_COLOR_INDEX];
     term->bold = false;
     term->blink = false;
     term->cursor_enabled = true;
@@ -285,6 +289,9 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
     }
 }
 
+// Self-inverse swap: while lit, cursor_fg/bg_color hold the saved cell colors;
+// while unlit, they hold the configured cursor colors. Callers must force unlit
+// before touching cell state or cursor colors (com_out_chars already does this).
 static void term_cursor_set_inv(term_state_t *term, bool inv)
 {
     if (!term->cursor_enabled && inv)
@@ -294,9 +301,12 @@ static void term_cursor_set_inv(term_state_t *term, bool inv)
     term_data_t *term_ptr = term->ptr;
     if (term->x == term->width)
         term_ptr--;
-    uint16_t swap = term_ptr->fg_color;
-    term_ptr->fg_color = term_ptr->bg_color;
-    term_ptr->bg_color = swap;
+    uint16_t tmp = term_ptr->fg_color;
+    term_ptr->fg_color = term->cursor_fg_color;
+    term->cursor_fg_color = tmp;
+    tmp = term_ptr->bg_color;
+    term_ptr->bg_color = term->cursor_bg_color;
+    term->cursor_bg_color = tmp;
     term->cursor_is_inv = inv;
 }
 
@@ -899,6 +909,29 @@ static void term_out_CSI(term_state_t *term, char ch)
     }
 }
 
+static void term_out_CSI_question_SGR(term_state_t *term)
+{
+    for (uint8_t idx = 0; idx < term->csi_param_count; idx++)
+    {
+        uint16_t param = term->csi_param[idx];
+        switch (param)
+        {
+        case 38:
+            sgr_color(term, idx, &term->cursor_fg_color);
+            return;
+        case 48:
+            sgr_color(term, idx, &term->cursor_bg_color);
+            return;
+        case 39:
+            term->cursor_fg_color = color_256[TERM_BG_COLOR_INDEX];
+            break;
+        case 49:
+            term->cursor_bg_color = color_256[TERM_FG_COLOR_INDEX];
+            break;
+        }
+    }
+}
+
 static void term_out_CSI_question(term_state_t *term, char ch)
 {
     switch (ch)
@@ -920,6 +953,9 @@ static void term_out_CSI_question(term_state_t *term, char ch)
             term->cursor_enabled = false;
             break;
         }
+        break;
+    case 'm':
+        term_out_CSI_question_SGR(term);
         break;
     }
 }
