@@ -83,7 +83,7 @@ bool main_prog(uint16_t *xregs)
     }
 }
 
-int main()
+int main(void)
 {
     init();
     while (1)
