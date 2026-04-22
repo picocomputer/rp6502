@@ -216,6 +216,7 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
     uint16_t colors[2] = {palette[0], palette[1]};
     int16_t col = -config->x_pos_px;
+    int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
@@ -223,8 +224,8 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         uint8_t glyph = font[data->glyph_code];
         int16_t start = col & 7;
         int16_t part = 8 - start;
-        if (part > config->width_chars * 8 - col)
-            part = config->width_chars * 8 - col;
+        if (part > width_px - col)
+            part = width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
@@ -272,6 +273,7 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     for (int i = 0; i < 16; i++)
         pal[i] = palette[i];
     int16_t col = -config->x_pos_px;
+    int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
@@ -282,8 +284,8 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
             pal[data->bg_fg_index & 0xF]};
         int16_t start = col & 7;
         int16_t part = 8 - start;
-        if (part > config->width_chars * 8 - col)
-            part = config->width_chars * 8 - col;
+        if (part > width_px - col)
+            part = width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
@@ -333,6 +335,7 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
     for (int i = 0; i < 16; i++)
         pal[i] = palette[i];
     int16_t col = -config->x_pos_px;
+    int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
@@ -343,8 +346,8 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
             pal[data->fg_bg_index >> 4]};
         int16_t start = col & 7;
         int16_t part = 8 - start;
-        if (part > config->width_chars * 8 - col)
-            part = config->width_chars * 8 - col;
+        if (part > width_px - col)
+            part = width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
@@ -394,6 +397,7 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
     for (int i = 0; i < 256; i++)
         pal[i] = palette[i];
     int16_t col = -config->x_pos_px;
+    int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
@@ -404,8 +408,8 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
             pal[data->fg_index]};
         int16_t start = col & 7;
         int16_t part = 8 - start;
-        if (part > config->width_chars * 8 - col)
-            part = config->width_chars * 8 - col;
+        if (part > width_px - col)
+            part = width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
@@ -451,6 +455,7 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         return false;
     volatile const uint8_t *font = mode1_get_font(config, font_height) + 256 * row;
     int16_t col = -config->x_pos_px;
+    int16_t width_px = config->width_chars * 8;
     while (width)
     {
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
@@ -459,8 +464,8 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         uint16_t colors[2] = {data->bg_color, data->fg_color};
         int16_t start = col & 7;
         int16_t part = 8 - start;
-        if (part > config->width_chars * 8 - col)
-            part = config->width_chars * 8 - col;
+        if (part > width_px - col)
+            part = width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
