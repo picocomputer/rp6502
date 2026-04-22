@@ -1109,7 +1109,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     pio_set_sm_mask_enabled(video_pio, sm_mask, false);
 
     // Update mode state
-    const scanvideo_timing_t *timing = mode->default_timing;
     video_mode = *mode;
     v_content_start = mode->y_offset;
     v_content_end = mode->y_offset +
