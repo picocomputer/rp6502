@@ -65,10 +65,6 @@ static const uint scanline_dma_ch[SCANVIDEO_PLANE_COUNT] = {
 // Convenience macro for PIO program offset constants
 #define PIO_OFFSET(x) composable_offset_##x
 
-static void composable_adapt_for_mode(const scanvideo_view_t *mode,
-                                      uint16_t *modifiable_instructions);
-static pio_sm_config composable_configure_pio(pio_hw_t *pio, uint sm, uint offset);
-
 #define PIO_WAIT_IRQ4 pio_encode_wait_irq(1, false, 4)
 static uint8_t video_htiming_load_offset;
 static uint8_t video_program_load_offset;
@@ -116,7 +112,7 @@ static full_scanline_buffer_t scanline_buffers[SCANVIDEO_SCANLINE_BUFFER_COUNT];
 
 static uint32_t scanline_data[SCANVIDEO_PLANE_COUNT][SCANVIDEO_SCANLINE_BUFFER_COUNT][SCANVIDEO_MAX_SCANLINE_BUFFER_WORDS];
 
-// This state is sensitive as it it accessed by either core, and multiple IRQ handlers which may be re-entrant
+// This state is sensitive as it is accessed by either core, and multiple IRQ handlers which may be re-entrant
 // Nothing in here should be touched except when protected by the appropriate spin lock.
 static struct
 {
@@ -163,7 +159,7 @@ static uint32_t _missing_scanline_overlay[] = {
     COMPOSABLE_EOL_SKIP_ALIGN,
 };
 
-// Missing scanline: blue debug color on base plane, empty overlays
+// Missing scanline: debug color (blue by default) on base plane, empty overlays
 #ifndef SCANVIDEO_MISSING_SCANLINE_COLOR
 #define SCANVIDEO_MISSING_SCANLINE_COLOR SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 255)
 #endif
@@ -194,7 +190,6 @@ static volatile int32_t display_scanline_pos;
 static int32_t v_content_start;
 static int32_t v_content_end;
 static volatile bool generation_allowed;
-static volatile uint32_t core_generating[2];
 
 static uint __no_inline_not_in_flash_func(default_scanvideo_scanline_repeat_count_fn)(uint32_t scanline_id)
 {
@@ -589,9 +584,7 @@ static void __not_in_flash_func(prepare_for_vblank_scanline_irqs_enabled)(void)
 
         if (scanvideo_scanline_number(shared_state.scanline.next_scanline_id) != 0)
         {
-            shared_state.scanline.next_scanline_id =
-                (scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u;
-            shared_state.scanline.y_repeat_target = _scanline_repeat_count_fn(shared_state.scanline.next_scanline_id) * video_mode.y_scale;
+            set_next_scanline_id((scanvideo_frame_number(shared_state.scanline.next_scanline_id) + 1u) << 16u);
         }
 
         signal = true;
@@ -708,21 +701,56 @@ void __isr __not_in_flash_func(isr_dma_0)()
     scanline_dma_complete_irqs_enabled();
 }
 
-static inline bool is_scanline_sm(int sm)
+static void composable_adapt_for_mode(const scanvideo_view_t *mode,
+                                      uint16_t *modifiable_instructions)
 {
-    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        if ((uint)sm == scanline_sm[i])
-            return true;
-    return false;
+    int delay0 = 2 * mode->x_scale - 2;
+    int delay1 = delay0 + 1;
+    assert(delay0 <= 31);
+    assert(delay1 <= 31);
+
+    modifiable_instructions[PIO_OFFSET(delay_a_1)] |= (unsigned)delay1 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_b_1)] |= (unsigned)delay1 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_c_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_d_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_e_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_f_1)] |= (unsigned)delay1 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_g_0)] |= (unsigned)delay0 << 8u;
+    modifiable_instructions[PIO_OFFSET(delay_h_0)] |= (unsigned)delay0 << 8u;
+}
+
+static void scanvideo_default_configure_pio(pio_hw_t *pio, uint sm, uint offset, pio_sm_config *config, bool overlay)
+{
+    (void)offset;
+    pio_sm_set_consecutive_pindirs(pio, sm, SCANVIDEO_COLOR_PIN_BASE, SCANVIDEO_COLOR_PIN_COUNT, true);
+    sm_config_set_out_pins(config, SCANVIDEO_COLOR_PIN_BASE, SCANVIDEO_COLOR_PIN_COUNT);
+    sm_config_set_out_shift(config, true, true, 32); // autopull
+    sm_config_set_fifo_join(config, PIO_FIFO_JOIN_TX);
+    if (overlay)
+    {
+        sm_config_set_out_special(config, 1, 1, SCANVIDEO_ALPHA_PIN);
+    }
+    else
+    {
+        sm_config_set_out_special(config, 1, 0, 0);
+    }
+}
+
+static pio_sm_config composable_configure_pio(pio_hw_t *pio, uint sm, uint offset)
+{
+    pio_sm_config config = composable_program_get_default_config(offset);
+    scanvideo_default_configure_pio(pio, sm, offset, &config, sm != SCANVIDEO_SCANLINE_SM0);
+    return config;
 }
 
 static void setup_sm(int sm, uint offset)
 {
-    pio_sm_config config = is_scanline_sm(sm) ? composable_configure_pio(video_pio, sm, offset) : video_htiming_program_get_default_config(offset);
+    bool is_scanline_sm = (sm != SCANVIDEO_TIMING_SM);
+    pio_sm_config config = is_scanline_sm ? composable_configure_pio(video_pio, sm, offset) : video_htiming_program_get_default_config(offset);
 
     sm_config_set_clkdiv_int_frac(&config, video_clock_down_times_2 / 2, (video_clock_down_times_2 & 1u) << 7u);
 
-    if (!is_scanline_sm(sm))
+    if (!is_scanline_sm)
     {
         sm_config_set_out_shift(&config, true, true, 32);
         const uint BASE = SCANVIDEO_SYNC_PIN_BASE;
@@ -763,7 +791,6 @@ scanvideo_scanline_buffer_t *__not_in_flash_func(scanvideo_begin_scanline_genera
         }
 
         fsb->core.scanline_id = shared_state.scanline.last_scanline_id = scanline_id;
-        core_generating[get_core_num()] = scanline_id + 1;
         if (scanvideo_scanline_number(scanline_id) >= video_mode.height - 1)
             generation_allowed = false;
         spin_unlock(shared_state.scanline.lock, save);
@@ -779,7 +806,6 @@ void __not_in_flash_func(scanvideo_end_scanline_generation)(
     uint32_t save = spin_lock_blocking(shared_state.scanline.lock);
     list_insert_ascending(&shared_state.scanline.generated_ascending_scanline_id_list,
                           &shared_state.scanline.generated_ascending_scanline_id_list_tail, fsb);
-    core_generating[get_core_num()] = 0;
     spin_unlock(shared_state.scanline.lock, save);
 }
 
@@ -860,7 +886,6 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
     const scanvideo_timing_t *timing = mode->default_timing;
 
     video_mode = *mode;
-    video_mode.default_timing = timing;
     init_shared_state();
 
     active_scanline_number = 0;
@@ -1007,48 +1032,6 @@ static bool scanvideo_setup(const scanvideo_view_t *mode)
     return true;
 }
 
-static void composable_adapt_for_mode(const scanvideo_view_t *mode,
-                                      uint16_t *modifiable_instructions)
-{
-    int delay0 = 2 * mode->x_scale - 2;
-    int delay1 = delay0 + 1;
-    assert(delay0 <= 31);
-    assert(delay1 <= 31);
-
-    modifiable_instructions[PIO_OFFSET(delay_a_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_b_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_c_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_d_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_e_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_f_1)] |= (unsigned)delay1 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_g_0)] |= (unsigned)delay0 << 8u;
-    modifiable_instructions[PIO_OFFSET(delay_h_0)] |= (unsigned)delay0 << 8u;
-}
-
-static void scanvideo_default_configure_pio(pio_hw_t *pio, uint sm, uint offset, pio_sm_config *config, bool overlay)
-{
-    (void)offset;
-    pio_sm_set_consecutive_pindirs(pio, sm, SCANVIDEO_COLOR_PIN_BASE, SCANVIDEO_COLOR_PIN_COUNT, true);
-    sm_config_set_out_pins(config, SCANVIDEO_COLOR_PIN_BASE, SCANVIDEO_COLOR_PIN_COUNT);
-    sm_config_set_out_shift(config, true, true, 32); // autopull
-    sm_config_set_fifo_join(config, PIO_FIFO_JOIN_TX);
-    if (overlay)
-    {
-        sm_config_set_out_special(config, 1, 1, SCANVIDEO_ALPHA_PIN);
-    }
-    else
-    {
-        sm_config_set_out_special(config, 1, 0, 0);
-    }
-}
-
-static pio_sm_config composable_configure_pio(pio_hw_t *pio, uint sm, uint offset)
-{
-    pio_sm_config config = composable_program_get_default_config(offset);
-    scanvideo_default_configure_pio(pio, sm, offset, &config, sm != SCANVIDEO_SCANLINE_SM0);
-    return config;
-}
-
 static void scanvideo_timing_enable(bool enable)
 {
     if (enable != video_timing_enabled)
@@ -1060,12 +1043,12 @@ static void scanvideo_timing_enable(bool enable)
         uint32_t sm_mask = 1u << SCANVIDEO_TIMING_SM;
         for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
             sm_mask |= 1u << scanline_sm[i];
-        pio_claim_sm_mask(video_pio, sm_mask);
         pio_set_sm_mask_enabled(video_pio, sm_mask, false);
         pio_clkdiv_restart_sm_mask(video_pio, sm_mask);
 
         if (enable)
         {
+            pio_claim_sm_mask(video_pio, sm_mask);
             uint jmp = video_program_load_offset + pio_encode_jmp(PIO_OFFSET(entry_point));
             for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
                 pio_sm_exec(video_pio, scanline_sm[i], jmp);
@@ -1090,11 +1073,6 @@ static void scanvideo_teardown(void)
     // Clear PIO instruction memory
     pio_clear_instruction_memory(video_pio);
 
-    // scanvideo_timing_enable calls pio_claim_sm_mask internally,
-    // so we must unclaim first, then again after to fully release.
-    for (int sm = 0; sm < 4; sm++)
-        if (pio_sm_is_claimed(video_pio, sm))
-            pio_sm_unclaim(video_pio, sm);
     scanvideo_timing_enable(false);
     for (int sm = 0; sm < 4; sm++)
         if (pio_sm_is_claimed(video_pio, sm))
@@ -1133,7 +1111,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     // Update mode state
     const scanvideo_timing_t *timing = mode->default_timing;
     video_mode = *mode;
-    video_mode.default_timing = timing;
     v_content_start = mode->y_offset;
     v_content_end = mode->y_offset +
                     (uint32_t)mode->height * mode->y_scale;
@@ -1160,8 +1137,6 @@ void scanvideo_set_mode(const scanvideo_view_t *mode)
     init_static_scanline_buffers();
 
     // Reset file-scope state not covered by shared_state memset
-    core_generating[0] = 0;
-    core_generating[1] = 0;
     scanvideo_set_scanline_repeat_fn(NULL);
 
     // Force remaining scanlines to blank until vblank resets to 0
