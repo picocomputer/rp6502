@@ -39,11 +39,11 @@
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
-tusb_desc_device_t const desc_device =
+static tusb_desc_device_t const desc_device =
     {
         .bLength = sizeof(tusb_desc_device_t),
         .bDescriptorType = TUSB_DESC_DEVICE,
-        .bcdUSB = 0x0110,        // // USB Specification version 1.1
+        .bcdUSB = 0x0110,        // USB Specification version 1.1
         .bDeviceClass = 0x00,    // Each interface specifies its own
         .bDeviceSubClass = 0x00, // Each interface specifies its own
         .bDeviceProtocol = 0x00,
@@ -78,13 +78,11 @@ enum
 #define CDC_NOTIFICATION_EP_NUM 0x81
 #define CDC_DATA_OUT_EP_NUM 0x02
 #define CDC_DATA_IN_EP_NUM 0x83
-#define PROBE_OUT_EP_NUM 0x04
-#define PROBE_IN_EP_NUM 0x85
 
 #define CONFIG_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN)
 
-uint8_t const desc_configuration[] = {
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
+static uint8_t const desc_configuration[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0, 500),
 
     // Interface 0 + 1
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COM, 0, CDC_NOTIFICATION_EP_NUM, 64, CDC_DATA_OUT_EP_NUM, CDC_DATA_IN_EP_NUM, 64)
@@ -96,7 +94,7 @@ uint8_t const desc_configuration[] = {
 // Descriptor contents must exist long enough for transfer to complete
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 {
-    (void)index; // for multiple configurations
+    (void)index;
     return desc_configuration;
 }
 
@@ -105,15 +103,15 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 //--------------------------------------------------------------------+
 
 // array of pointer to string descriptors
-char const *string_desc_arr[] =
+static char const *string_desc_arr[] =
     {
-        (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
+        (const char[]){0x09, 0x04}, // 0: supported language is English (0x0409)
         "Raspberry Pi",             // 1: Manufacturer
         "RP6502 Console",           // 2: Product
         serno,                      // 3: Serial, uses flash unique ID
 };
 
-static uint16_t _desc_str[32];
+static uint16_t desc_str[32];
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
@@ -125,14 +123,14 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 
     if (index == 0)
     {
-        memcpy(&_desc_str[1], string_desc_arr[0], 2);
+        memcpy(&desc_str[1], string_desc_arr[0], 2);
         chr_count = 1;
     }
     else
     {
         // Convert ASCII string into UTF-16
 
-        if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
+        if (index >= TU_ARRAY_SIZE(string_desc_arr))
             return NULL;
 
         const char *str = string_desc_arr[index];
@@ -144,12 +142,12 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 
         for (uint8_t i = 0; i < chr_count; i++)
         {
-            _desc_str[1 + i] = str[i];
+            desc_str[1 + i] = str[i];
         }
     }
 
     // first byte is length (including header), second byte is string type
-    _desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
+    desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
 
-    return _desc_str;
+    return desc_str;
 }
