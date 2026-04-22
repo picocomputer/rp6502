@@ -31,7 +31,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define RIA_ACTION_RESULT_FINISHED (-2)
 #define RIA_ACTION_RESULT_TIMEOUT (-3)
 
-static enum state {
+static enum action_state {
     action_state_idle = 0,
     action_state_read,
     action_state_write,
@@ -53,7 +53,6 @@ void ria_trigger_irq(void)
 
 uint32_t ria_buf_crc32(void)
 {
-    // use littlefs library
     return ~lfs_crc(~0, mbuf, mbuf_len);
 }
 
@@ -166,8 +165,7 @@ void ria_read_buf(uint16_t addr)
         else
             mbuf[len] = 0;
     while (len && (addr + len > 0xFF00))
-        if (addr + --len <= 0xFFFF)
-            mbuf[len] = 0;
+        mbuf[--len] = 0;
     if (!len)
         return;
     rw_addr = addr;
@@ -201,7 +199,7 @@ void ria_write_buf(uint16_t addr)
 {
     assert(!cpu_active());
     action_result = RIA_ACTION_RESULT_NONE;
-    // avoid forbidden area
+    // avoid forbidden areas
     uint16_t len = mbuf_len;
     while (len && (addr + len > 0xFFFA))
         if (addr + --len <= 0xFFFF)
@@ -518,8 +516,8 @@ static void ria_act_pio_init(void)
     sm_config_set_in_pins(&config, RIA_PIN_BASE);
     sm_config_set_in_shift(&config, true, true, 32);
     pio_sm_init(RIA_ACT_PIO, RIA_ACT_SM, offset, &config);
-    // Only every fourth register (0, 4, 8, ...) is watched for
-    // read access. This is an additional read address to be watched.
+    // The CS/RWB PIO triggers read events only on offsets where
+    // (addr & 0x1F) % 4 == 0. Register one extra watched read offset.
     pio_sm_put(RIA_ACT_PIO, RIA_ACT_SM, 0xFFE2 & 0x1F); // UART Rx
     pio_sm_set_enabled(RIA_ACT_PIO, RIA_ACT_SM, true);
     multicore_launch_core1(act_loop);

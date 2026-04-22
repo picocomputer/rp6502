@@ -34,8 +34,8 @@
 
 void ria_init(void);
 void ria_task(void);
-void ria_run();
-void ria_stop();
+void ria_run(void);
+void ria_stop(void);
 void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 // Trigger IRQ when enabled
@@ -51,12 +51,12 @@ void ria_write_buf(uint16_t addr);
 void ria_verify_buf(uint16_t addr);
 
 // The RIA is active when it's performing an mbuf action.
-bool ria_active();
+bool ria_active(void);
 
 // Prints a "?" error and returns true if last mbuf action failed.
-bool ria_handle_error();
+bool ria_handle_error(void);
 
 // Compute CRC32 of mbuf to match zlib.
-uint32_t ria_buf_crc32();
+uint32_t ria_buf_crc32(void);
 
 #endif /* _RIA_SYS_RIA_H_ */
