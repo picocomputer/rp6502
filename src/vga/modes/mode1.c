@@ -142,9 +142,10 @@ mode1_fill_cols(mode1_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 }
 
 static inline __attribute__((always_inline)) void
-mode1_emit_head(uint16_t **rgb, uint8_t glyph, const uint16_t *colors, int16_t part)
+mode1_emit_head(uint16_t **rgb, uint8_t glyph, const uint16_t *colors, int16_t start, int16_t count)
 {
-    switch (part)
+    glyph >>= 8 - start - count;
+    switch (count)
     {
     case 8:
         *(*rgb)++ = colors[(glyph & 0x80) >> 7];
@@ -175,20 +176,30 @@ mode1_emit_head(uint16_t **rgb, uint8_t glyph, const uint16_t *colors, int16_t p
 static inline __attribute__((always_inline)) void
 mode1_emit_tail(uint16_t **rgb, uint8_t glyph, const uint16_t *colors, int16_t fill_cols)
 {
-    if (fill_cols >= 1)
-        *(*rgb)++ = colors[(glyph & 0x80) >> 7];
-    if (fill_cols >= 2)
+    glyph >>= 8 - fill_cols;
+    switch (fill_cols)
+    {
+    case 7:
         *(*rgb)++ = colors[(glyph & 0x40) >> 6];
-    if (fill_cols >= 3)
+        __attribute__((fallthrough));
+    case 6:
         *(*rgb)++ = colors[(glyph & 0x20) >> 5];
-    if (fill_cols >= 4)
+        __attribute__((fallthrough));
+    case 5:
         *(*rgb)++ = colors[(glyph & 0x10) >> 4];
-    if (fill_cols >= 5)
+        __attribute__((fallthrough));
+    case 4:
         *(*rgb)++ = colors[(glyph & 0x08) >> 3];
-    if (fill_cols >= 6)
+        __attribute__((fallthrough));
+    case 3:
         *(*rgb)++ = colors[(glyph & 0x04) >> 2];
-    if (fill_cols >= 7)
+        __attribute__((fallthrough));
+    case 2:
         *(*rgb)++ = colors[(glyph & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = colors[glyph & 0x01];
+    }
 }
 
 static inline __attribute__((always_inline)) bool
@@ -210,14 +221,15 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         int16_t fill_cols = mode1_fill_cols(config, &rgb, &col, &width);
         volatile const mode1_1bpp_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_chars * 8 - col)
             part = config->width_chars * 8 - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode1_emit_head(&rgb, glyph, colors, part);
+        mode1_emit_head(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
@@ -268,14 +280,15 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         uint16_t colors[2] = {
             pal[data->bg_fg_index >> 4],
             pal[data->bg_fg_index & 0xF]};
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_chars * 8 - col)
             part = config->width_chars * 8 - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode1_emit_head(&rgb, glyph, colors, part);
+        mode1_emit_head(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
@@ -328,14 +341,15 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
         uint16_t colors[2] = {
             pal[data->fg_bg_index & 0xF],
             pal[data->fg_bg_index >> 4]};
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_chars * 8 - col)
             part = config->width_chars * 8 - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode1_emit_head(&rgb, glyph, colors, part);
+        mode1_emit_head(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
@@ -388,14 +402,15 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         uint16_t colors[2] = {
             pal[data->bg_index],
             pal[data->fg_index]};
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_chars * 8 - col)
             part = config->width_chars * 8 - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode1_emit_head(&rgb, glyph, colors, part);
+        mode1_emit_head(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)
@@ -442,14 +457,15 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
         volatile const mode1_16bpp_data_t *data = &row_data[col / 8];
         uint8_t glyph = font[data->glyph_code];
         uint16_t colors[2] = {data->bg_color, data->fg_color};
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_chars * 8 - col)
             part = config->width_chars * 8 - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode1_emit_head(&rgb, glyph, colors, part);
+        mode1_emit_head(&rgb, glyph, colors, start, part);
         glyph = font[(++data)->glyph_code];
         col += fill_cols;
         while (fill_cols > 7)

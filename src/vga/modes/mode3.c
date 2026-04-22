@@ -95,9 +95,10 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 }
 
 static inline __attribute__((always_inline)) void
-mode3_emit_head_1bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+mode3_emit_head_1bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t start, int16_t count)
 {
-    switch (part)
+    byte >>= 8 - start - count;
+    switch (count)
     {
     case 8:
         *(*rgb)++ = palette[(byte & 0x80) >> 7];
@@ -128,26 +129,37 @@ mode3_emit_head_1bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *pale
 static inline __attribute__((always_inline)) void
 mode3_emit_tail_1bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
 {
-    if (fill_cols >= 1)
-        *(*rgb)++ = palette[(byte & 0x80) >> 7];
-    if (fill_cols >= 2)
+    byte >>= 8 - fill_cols;
+    switch (fill_cols)
+    {
+    case 7:
         *(*rgb)++ = palette[(byte & 0x40) >> 6];
-    if (fill_cols >= 3)
+        __attribute__((fallthrough));
+    case 6:
         *(*rgb)++ = palette[(byte & 0x20) >> 5];
-    if (fill_cols >= 4)
+        __attribute__((fallthrough));
+    case 5:
         *(*rgb)++ = palette[(byte & 0x10) >> 4];
-    if (fill_cols >= 5)
+        __attribute__((fallthrough));
+    case 4:
         *(*rgb)++ = palette[(byte & 0x08) >> 3];
-    if (fill_cols >= 6)
+        __attribute__((fallthrough));
+    case 3:
         *(*rgb)++ = palette[(byte & 0x04) >> 2];
-    if (fill_cols >= 7)
+        __attribute__((fallthrough));
+    case 2:
         *(*rgb)++ = palette[(byte & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[byte & 0x01];
+    }
 }
 
 static inline __attribute__((always_inline)) void
-mode3_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+mode3_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t start, int16_t count)
 {
-    switch (part)
+    byte <<= 8 - start - count;
+    switch (count)
     {
     case 8:
         *(*rgb)++ = palette[byte & 0x01];
@@ -178,26 +190,37 @@ mode3_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16
 static inline __attribute__((always_inline)) void
 mode3_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
 {
-    if (fill_cols >= 1)
-        *(*rgb)++ = palette[byte & 0x01];
-    if (fill_cols >= 2)
+    byte <<= 8 - fill_cols;
+    switch (fill_cols)
+    {
+    case 7:
         *(*rgb)++ = palette[(byte & 0x02) >> 1];
-    if (fill_cols >= 3)
+        __attribute__((fallthrough));
+    case 6:
         *(*rgb)++ = palette[(byte & 0x04) >> 2];
-    if (fill_cols >= 4)
+        __attribute__((fallthrough));
+    case 5:
         *(*rgb)++ = palette[(byte & 0x08) >> 3];
-    if (fill_cols >= 5)
+        __attribute__((fallthrough));
+    case 4:
         *(*rgb)++ = palette[(byte & 0x10) >> 4];
-    if (fill_cols >= 6)
+        __attribute__((fallthrough));
+    case 3:
         *(*rgb)++ = palette[(byte & 0x20) >> 5];
-    if (fill_cols >= 7)
+        __attribute__((fallthrough));
+    case 2:
         *(*rgb)++ = palette[(byte & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[(byte & 0x80) >> 7];
+    }
 }
 
 static inline __attribute__((always_inline)) void
-mode3_emit_head_2bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+mode3_emit_head_2bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t start, int16_t count)
 {
-    switch (part)
+    byte >>= 2 * (4 - start - count);
+    switch (count)
     {
     case 4:
         *(*rgb)++ = palette[(byte & 0xC0) >> 6];
@@ -216,18 +239,25 @@ mode3_emit_head_2bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *pale
 static inline __attribute__((always_inline)) void
 mode3_emit_tail_2bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
 {
-    if (fill_cols >= 1)
-        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
-    if (fill_cols >= 2)
+    byte >>= 2 * (4 - fill_cols);
+    switch (fill_cols)
+    {
+    case 3:
         *(*rgb)++ = palette[(byte & 0x30) >> 4];
-    if (fill_cols >= 3)
+        __attribute__((fallthrough));
+    case 2:
         *(*rgb)++ = palette[(byte & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[byte & 0x03];
+    }
 }
 
 static inline __attribute__((always_inline)) void
-mode3_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+mode3_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t start, int16_t count)
 {
-    switch (part)
+    byte <<= 2 * (4 - start - count);
+    switch (count)
     {
     case 4:
         *(*rgb)++ = palette[byte & 0x03];
@@ -246,12 +276,18 @@ mode3_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16
 static inline __attribute__((always_inline)) void
 mode3_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
 {
-    if (fill_cols >= 1)
-        *(*rgb)++ = palette[byte & 0x03];
-    if (fill_cols >= 2)
+    byte <<= 2 * (4 - fill_cols);
+    switch (fill_cols)
+    {
+    case 3:
         *(*rgb)++ = palette[(byte & 0x0C) >> 2];
-    if (fill_cols >= 3)
+        __attribute__((fallthrough));
+    case 2:
         *(*rgb)++ = palette[(byte & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
+    }
 }
 
 static bool
@@ -267,14 +303,15 @@ mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 8];
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_px - col)
             part = config->width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_1bpp(&rgb, *data++, palette, part);
+        mode3_emit_head_1bpp(&rgb, *data++, palette, start, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
@@ -300,14 +337,15 @@ mode3_render_1bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 8];
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > config->width_px - col)
             part = config->width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_1bpp_reverse(&rgb, *data++, palette, part);
+        mode3_emit_head_1bpp_reverse(&rgb, *data++, palette, start, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
@@ -333,14 +371,15 @@ mode3_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 4];
-        int16_t part = 4 - (col & 3);
+        int16_t start = col & 3;
+        int16_t part = 4 - start;
         if (part > config->width_px - col)
             part = config->width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_2bpp(&rgb, *data++, palette, part);
+        mode3_emit_head_2bpp(&rgb, *data++, palette, start, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -368,14 +407,15 @@ mode3_render_2bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
     {
         int16_t fill_cols = mode3_fill_cols(config, &rgb, &col, &width);
         volatile const uint8_t *data = &row_data[col / 4];
-        int16_t part = 4 - (col & 3);
+        int16_t start = col & 3;
+        int16_t part = 4 - start;
         if (part > config->width_px - col)
             part = config->width_px - col;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_2bpp_reverse(&rgb, *data++, palette, part);
+        mode3_emit_head_2bpp_reverse(&rgb, *data++, palette, start, part);
         col += fill_cols;
         while (fill_cols > 3)
         {

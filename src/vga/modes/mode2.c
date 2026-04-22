@@ -110,6 +110,58 @@ mode2_get_tile_row_addr(mode2_config_t *config, int16_t bpp, int16_t tile_size,
     return (uint32_t)config->xram_tile_ptr + mem_size * tile_id + row_size * row;
 }
 
+static inline __attribute__((always_inline)) void
+mode2_emit_head_1bpp(uint16_t **rgb, uint8_t bits, volatile const uint16_t *palette, int16_t start, int16_t count)
+{
+    bits >>= 8 - start - count;
+    switch (count)
+    {
+    case 8:
+        *(*rgb)++ = palette[(bits & 0x80) >> 7];
+        __attribute__((fallthrough));
+    case 7:
+        *(*rgb)++ = palette[(bits & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = palette[(bits & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = palette[(bits & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = palette[(bits & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = palette[(bits & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = palette[(bits & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[bits & 0x01];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+mode2_emit_head_2bpp(uint16_t **rgb, uint8_t bits, volatile const uint16_t *palette, int16_t start, int16_t count)
+{
+    bits >>= 2 * (4 - start - count);
+    switch (count)
+    {
+    case 4:
+        *(*rgb)++ = palette[(bits & 0xC0) >> 6];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = palette[(bits & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = palette[(bits & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[bits & 0x03];
+    }
+}
+
 static inline __attribute__((always_inline)) bool
 mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
@@ -128,16 +180,28 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         uint16_t index;
         uint32_t tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
         uint8_t bits = xram[tile_mem + index];
-        int16_t part = 8 - (col & 7);
+        int16_t start = col & 7;
+        int16_t part = 8 - start;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        switch (part)
+        mode2_emit_head_1bpp(&rgb, bits, palette, start, part);
+        tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+        bits = xram[tile_mem + index];
+        while (fill_cols > 7)
         {
-        case 8:
-            *rgb++ = palette[(bits & 0x80) >> 7];
-            __attribute__((fallthrough));
+            modes_render_1bpp(rgb, bits, palette[0], palette[1]);
+            rgb += 8;
+            fill_cols -= 8;
+            col += 8;
+            tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
+        }
+        col += fill_cols;
+        bits >>= 8 - fill_cols;
+        switch (fill_cols)
+        {
         case 7:
             *rgb++ = palette[(bits & 0x40) >> 6];
             __attribute__((fallthrough));
@@ -158,33 +222,7 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             __attribute__((fallthrough));
         case 1:
             *rgb++ = palette[bits & 0x01];
-            tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
-            bits = xram[tile_mem + index];
         }
-        while (fill_cols > 7)
-        {
-            modes_render_1bpp(rgb, bits, palette[0], palette[1]);
-            rgb += 8;
-            fill_cols -= 8;
-            col += 8;
-            tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
-            bits = xram[tile_mem + index];
-        }
-        col += fill_cols;
-        if (fill_cols >= 1)
-            *rgb++ = palette[(bits & 0x80) >> 7];
-        if (fill_cols >= 2)
-            *rgb++ = palette[(bits & 0x40) >> 6];
-        if (fill_cols >= 3)
-            *rgb++ = palette[(bits & 0x20) >> 5];
-        if (fill_cols >= 4)
-            *rgb++ = palette[(bits & 0x10) >> 4];
-        if (fill_cols >= 5)
-            *rgb++ = palette[(bits & 0x08) >> 3];
-        if (fill_cols >= 6)
-            *rgb++ = palette[(bits & 0x04) >> 2];
-        if (fill_cols >= 7)
-            *rgb++ = palette[(bits & 0x02) >> 1];
     }
     return true;
 }
@@ -219,28 +257,16 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         uint16_t index;
         uint32_t tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
         uint8_t bits = xram[tile_mem + index];
-        int16_t part = 4 - (col & 3);
+        int16_t start = col & 3;
+        int16_t part = 4 - start;
         if (part > fill_cols)
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        switch (part)
-        {
-        case 4:
-            *rgb++ = palette[(bits & 0xC0) >> 6];
-            __attribute__((fallthrough));
-        case 3:
-            *rgb++ = palette[(bits & 0x30) >> 4];
-            __attribute__((fallthrough));
-        case 2:
-            *rgb++ = palette[(bits & 0x0C) >> 2];
-            __attribute__((fallthrough));
-        case 1:
-            *rgb++ = palette[bits & 0x03];
-            if (++index == tile_size / 4)
-                tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
-            bits = xram[tile_mem + index];
-        }
+        mode2_emit_head_2bpp(&rgb, bits, palette, start, part);
+        if (++index == tile_size / 4)
+            tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+        bits = xram[tile_mem + index];
         while (fill_cols > 3)
         {
             *rgb++ = palette[(bits & 0xC0) >> 6];
@@ -254,12 +280,18 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             bits = xram[tile_mem + index];
         }
         col += fill_cols;
-        if (fill_cols >= 1)
-            *rgb++ = palette[(bits & 0xC0) >> 6];
-        if (fill_cols >= 2)
+        bits >>= 2 * (4 - fill_cols);
+        switch (fill_cols)
+        {
+        case 3:
             *rgb++ = palette[(bits & 0x30) >> 4];
-        if (fill_cols >= 3)
+            __attribute__((fallthrough));
+        case 2:
             *rgb++ = palette[(bits & 0x0C) >> 2];
+            __attribute__((fallthrough));
+        case 1:
+            *rgb++ = palette[bits & 0x03];
+        }
     }
     return true;
 }
