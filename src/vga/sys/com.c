@@ -10,16 +10,14 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>
-#include <string.h>
-#include <assert.h>
 
-size_t com_in_head;
-size_t com_in_tail;
-char com_in_buf[COM_IN_BUF_SIZE];
+static size_t com_in_head;
+static size_t com_in_tail;
+static char com_in_buf[COM_IN_BUF_SIZE];
 
-size_t com_out_head;
-size_t com_out_tail;
-char com_out_buf[COM_OUT_BUF_SIZE];
+static size_t com_out_head;
+static size_t com_out_tail;
+static char com_out_buf[COM_OUT_BUF_SIZE];
 
 static bool com_term_reply_suppressed;
 
@@ -28,14 +26,9 @@ void com_suppress_term_reply(bool suppress)
     com_term_reply_suppressed = suppress;
 }
 
-static_assert((COM_IN_BUF_SIZE & (COM_IN_BUF_SIZE - 1)) == 0,
-              "COM_IN_BUF_SIZE must be a power of 2");
-static_assert((COM_OUT_BUF_SIZE & (COM_OUT_BUF_SIZE - 1)) == 0,
-              "COM_OUT_BUF_SIZE must be a power of 2");
-
 size_t com_in_free(void)
 {
-    return ((com_in_tail + 0) - (com_in_head + 1)) & (COM_IN_BUF_SIZE - 1);
+    return (com_in_tail + COM_IN_BUF_SIZE - com_in_head - 1) % COM_IN_BUF_SIZE;
 }
 
 bool com_in_empty(void)
@@ -43,21 +36,26 @@ bool com_in_empty(void)
     return com_in_head == com_in_tail;
 }
 
+void com_in_write(char ch)
+{
+    com_in_head = (com_in_head + 1) % COM_IN_BUF_SIZE;
+    com_in_buf[com_in_head] = ch;
+}
+
 // If USB terminal connected, let it respond instead of us.
-// Also requires the input buffer to be empty so we can install the
-// reply at offset 0 by setting head/tail directly.
+// Also requires the input buffer to be empty so the reply ships
+// contiguously before any later input.
 static void com_in_write_reply(const char *s, size_t n)
 {
     if (com_term_reply_suppressed || cdc_is_open() ||
         !com_in_empty() || n >= COM_IN_BUF_SIZE)
         return;
-    memcpy(com_in_buf, s, n);
-    com_in_tail = COM_IN_BUF_SIZE - 1;
-    com_in_head = n - 1;
+    for (size_t i = 0; i < n; i++)
+        com_in_write(s[i]);
 }
 
 // Reports the cursor position
-void com_in_write_ansi_CPR(int row, int col)
+void com_in_write_ansi_CPR(unsigned row, unsigned col)
 {
     char buf[COM_IN_BUF_SIZE];
     int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", row, col);
@@ -80,12 +78,6 @@ void com_in_write_ansi_DSR_ok(void)
     com_in_write_reply(ok, sizeof(ok) - 1);
 }
 
-void com_in_write(char ch)
-{
-    com_in_head = (com_in_head + 1) % COM_IN_BUF_SIZE;
-    com_in_buf[com_in_head] = ch;
-}
-
 bool com_out_empty(void)
 {
     return com_out_head == com_out_tail;
@@ -106,17 +98,16 @@ static void com_out_chars(const char *buf, int length)
 {
     while (length)
     {
-        while (length && ((com_out_head + 1) % COM_OUT_BUF_SIZE) != com_out_tail)
-        {
-            com_out_head = (com_out_head + 1) % COM_OUT_BUF_SIZE;
-            com_out_buf[com_out_head] = *buf++;
-            length--;
-        }
-        if (((com_out_head + 1) % COM_OUT_BUF_SIZE) == com_out_tail)
+        size_t next = (com_out_head + 1) % COM_OUT_BUF_SIZE;
+        if (next == com_out_tail)
         {
             cdc_task();
             tud_task();
+            continue;
         }
+        com_out_head = next;
+        com_out_buf[com_out_head] = *buf++;
+        length--;
     }
 }
 

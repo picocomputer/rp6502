@@ -474,8 +474,8 @@ static void term_out_DSR(term_state_t *term)
         break;
     case 6:
     {
-        int x = term->x;
-        int y = term->y;
+        unsigned x = term->x;
+        unsigned y = term->y;
         if (x == term->width)
             x--;
         com_in_write_ansi_CPR(y + 1, x + 1);
