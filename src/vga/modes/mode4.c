@@ -408,15 +408,21 @@ bool mode4_prog(uint16_t *xregs)
     switch (attributes)
     {
     case 0:
+    {
         render_fn = mode4_render_sprite;
-        if (config_ptr > 0x10000 - sizeof(mode4_sprite_t) * length)
+        const uint32_t region_size = (uint32_t)sizeof(mode4_sprite_t) * length;
+        if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
             return false;
         break;
+    }
     case 1:
+    {
         render_fn = mode4_render_asprite;
-        if (config_ptr > 0x10000 - sizeof(mode4_asprite_t) * length)
+        const uint32_t region_size = (uint32_t)sizeof(mode4_asprite_t) * length;
+        if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
             return false;
         break;
+    }
     default:
         return false;
     }

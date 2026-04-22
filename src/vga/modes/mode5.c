@@ -248,18 +248,6 @@ mode5_render_2bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16
     mode5_render(scanline, width, rgb, config_ptr, length, 512, 2);
 }
 
-static void
-mode5_render_4bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
-{
-    mode5_render(scanline, width, rgb, config_ptr, length, 512, 4);
-}
-
-static void
-mode5_render_8bpp_512x512(int16_t scanline, int16_t width, uint16_t *rgb, uint16_t config_ptr, uint16_t length)
-{
-    mode5_render(scanline, width, rgb, config_ptr, length, 512, 8);
-}
-
 bool mode5_prog(uint16_t *xregs)
 {
     const uint16_t attributes = xregs[2];
@@ -272,7 +260,8 @@ bool mode5_prog(uint16_t *xregs)
     if (config_ptr & 1)
         return false;
 
-    if (config_ptr > 0x10000 - sizeof(mode5_sprite_t) * length)
+    const uint32_t region_size = (uint32_t)sizeof(mode5_sprite_t) * length;
+    if (region_size > 0x10000 || config_ptr > 0x10000 - region_size)
         return false;
 
     void (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t, uint16_t);
@@ -355,12 +344,6 @@ bool mode5_prog(uint16_t *xregs)
         break;
     case 49:
         render_fn = mode5_render_2bpp_512x512;
-        break;
-    case 50:
-        render_fn = mode5_render_4bpp_512x512;
-        break;
-    case 51:
-        render_fn = mode5_render_8bpp_512x512;
         break;
     default:
         return false;
