@@ -198,7 +198,7 @@ static void vga_scanvideo_switch(void)
     while (vga_rendering[0] || vga_rendering[1])
         tight_loop_contents();
 
-    // Set system clock for the new video mode (must happen before remode)
+    // Set system clock for the new video mode; must run before scanvideo_set_mode()
     uint32_t clk = vga_view_selected->default_timing->clock_freq;
     if (clk == 25200000)
         clk = 25200000 * 8; // 201.6 MHz
@@ -224,7 +224,8 @@ static void vga_scanvideo_switch(void)
     mutex_exit(&vga_scanline_mutex);
 }
 
-// Called from scanvideo with contiguous scanline progress
+// Fires ria_vsync once per frame at the highest scanline touched by any program,
+// with a scanline-0 fallback if that threshold was never reached.
 static void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
 {
     if (scanline == 0)
@@ -260,14 +261,13 @@ static void vga_render_scanline(void)
     vga_rendering[get_core_num()] = true;
     mutex_exit(&vga_scanline_mutex);
 
-    // Scanline ready, do it.
     const uint16_t width = vga_view_current->width;
     const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
-    uint32_t *const data[3] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
-    bool filled[3] = {false, false, false};
+    uint32_t *const data[SCANVIDEO_PLANE_COUNT] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
+    bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
     uint32_t *foreground = NULL;
     vga_prog_t prog = vga_prog[scanline_id];
-    for (int8_t i = 0; i < 3; i++)
+    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         if (prog.fill_fn[i])
         {
@@ -293,7 +293,7 @@ static void vga_render_scanline(void)
                               prog.sprite_length[i]);
         }
     }
-    for (int8_t i = 0; i < 3; i++)
+    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         uint16_t data_used;
         if (filled[i])
@@ -408,7 +408,7 @@ static void vga_render_loop(void)
 
 void vga_init(void)
 {
-    // safety check for compiler alignment
+    // xram must be 64K-aligned for 6502 address wrap
     assert(!((uintptr_t)xram & 0xFFFF));
 
     mutex_init(&vga_scanline_mutex);
