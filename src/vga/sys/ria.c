@@ -51,29 +51,28 @@ void ria_pre_reclock(void)
     // Wait for empty FIFO
     while (pio_sm_get_tx_fifo_level(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM))
         tight_loop_contents();
-    // Wait for shift register too
-    float clock = (float)clock_get_hz(clk_sys);
-    busy_wait_us_32(clock / RIA_BACKCHAN_BAUDRATE / clock * 10 * 1000000);
+    // Wait for shift register too (10 bits at BAUDRATE)
+    busy_wait_us_32(10 * 1000000 / RIA_BACKCHAN_BAUDRATE);
 }
 
 void ria_post_reclock(void)
 {
     float div = (float)clock_get_hz(clk_sys) / (8 * RIA_BACKCHAN_BAUDRATE);
-    pio_sm_set_clkdiv_int_frac(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, div, 0);
+    pio_sm_set_clkdiv(RIA_BACKCHAN_PIO, RIA_BACKCHAN_SM, div);
 }
 
 void ria_backchan(uint16_t word)
 {
     switch (word)
     {
-    case 0: // disable
+    case 0: // detach backchannel (restore UART function on pin)
         gpio_set_function(RIA_BACKCHAN_PIN, GPIO_FUNC_UART);
         break;
-    case 1: // enable
+    case 1: // attach backchannel (PIO drives pin) and queue version string
         pio_gpio_init(RIA_BACKCHAN_PIO, RIA_BACKCHAN_PIN);
         version_pos = sys_version();
         break;
-    case 2: // request
+    case 2: // reply to identification request
         uart_write_blocking(COM_UART_INTERFACE, (uint8_t *)"VGA1", 4);
         break;
     }

@@ -7,7 +7,7 @@
 #ifndef _VGA_SYS_RIA_H_
 #define _VGA_SYS_RIA_H_
 
-/* Sends real-time and status info the the RIA
+/* Sends real-time and status info to the RIA
  * over the rx line reversed into the backchannel.
  */
 
