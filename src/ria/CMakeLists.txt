@@ -32,7 +32,7 @@ set_target_properties(${RIA_TARGET} PROPERTIES
 
 # Avoid 26KB of unicode and jis we don't need
 target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
-    -Wl,--wrap=iswspace 
+    -Wl,--wrap=iswspace
     -Wl,-u,__wrap_iswspace
 )
 
