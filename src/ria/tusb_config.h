@@ -32,20 +32,19 @@
 
 #define CFG_TUH_ENUMERATION_BUFSIZE (1024)
 
-// One root hub and four more
 #define CFG_TUH_HUB (5)
-// Limited by free eps, want more
 #define CFG_TUH_HID (8)
-// Enabled, usb/msc driver defines quantity
+// Boolean enable; volume count lives in usb/msc.c
 #define CFG_TUH_MSC (1)
-// CDC host (serial adapters), enable all drivers
+// Max simultaneous CDC devices
 #define CFG_TUH_CDC (4)
+// Enable all serial-adapter drivers
 #define CFG_TUH_CDC_FTDI (1)
 #define CFG_TUH_CDC_CP210X (1)
 #define CFG_TUH_CDC_CH34X (1)
 #define CFG_TUH_CDC_PL2303 (1)
 
-// Limited by free eps, want more
+// Devices; limited by free endpoints
 #define CFG_TUH_DEVICE_MAX (16)
 
 #endif
