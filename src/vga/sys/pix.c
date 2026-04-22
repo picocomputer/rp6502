@@ -23,19 +23,19 @@ static bool pix_ch0_xreg(uint8_t addr, uint16_t word)
 {
     if (addr < PIX_CH0_XREGS_MAX)
         xregs[addr] = word;
-    if (addr == 0) // CANVAS
-        // vga.c handles ack/nak internally
-        vga_xreg_canvas(xregs);
-    if (addr == 1) // MODE
+    switch (addr)
     {
+    case 0: // CANVAS
+        // vga_xreg_canvas sends ack/nak
+        vga_xreg_canvas(xregs);
+        memset(xregs, 0, sizeof(xregs));
+        return true;
+    case 1: // MODE
         if (main_prog(xregs))
             ria_ack();
         else
             ria_nak();
-    }
-    if (addr == 0 || addr == 1)
-    {
-        memset(&xregs, 0, sizeof(xregs));
+        memset(xregs, 0, sizeof(xregs));
         return true;
     }
     return false;
@@ -49,14 +49,14 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
-        memset(&xregs, 0, sizeof(xregs));
+        memset(xregs, 0, sizeof(xregs));
         return true;
     case 0x01: // CODE_PAGE
         font_set_code_page(word);
         return true;
     case 0x02: // SUPPRESS_TERM_REPLY
         com_suppress_term_reply(word != 0);
-        return true;
+        return false;
     case 0x03: // UART_TX
         putchar_raw(word);
         return false;
@@ -65,6 +65,22 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         return false;
     }
     return false;
+}
+
+static void pix_rx_sm_init(uint sm, uint offset, uint32_t channel_id)
+{
+    pio_sm_config config = pix_rx_program_get_default_config(offset);
+    sm_config_set_in_pins(&config, 0);
+    sm_config_set_in_shift(&config, false, false, 0);
+    sm_config_set_out_shift(&config, true, false, 4);
+    pio_sm_init(PIX_PIO, sm, offset, &config);
+    pio_sm_put(PIX_PIO, sm, channel_id);
+    pio_sm_exec_wait_blocking(PIX_PIO, sm, pio_encode_pull(false, true));
+    pio_sm_exec_wait_blocking(PIX_PIO, sm, pio_encode_mov(pio_x, pio_osr));
+    pio_sm_exec_wait_blocking(PIX_PIO, sm, pio_encode_out(pio_null, 32));
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+    pio_sm_init(PIX_PIO, sm, offset, &config);
+    pio_sm_set_enabled(PIX_PIO, sm, true);
 }
 
 void pix_init(void)
@@ -83,34 +99,8 @@ void pix_init(void)
 
     // Two state machines, one program
     uint offset = pio_add_program(PIX_PIO, &pix_rx_program);
-
-    // PIO to receive VGA registers
-    pio_sm_config regs_config = pix_rx_program_get_default_config(offset);
-    sm_config_set_in_pins(&regs_config, 0);
-    sm_config_set_in_shift(&regs_config, false, false, 0);
-    sm_config_set_out_shift(&regs_config, true, false, 4);
-    pio_sm_init(PIX_PIO, PIX_REGS_SM, offset, &regs_config);
-    pio_sm_put(PIX_PIO, PIX_REGS_SM, 0x1); // channel 1
-    pio_sm_exec_wait_blocking(PIX_PIO, PIX_REGS_SM, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(PIX_PIO, PIX_REGS_SM, pio_encode_mov(pio_x, pio_osr));
-    pio_sm_exec_wait_blocking(PIX_PIO, PIX_REGS_SM, pio_encode_out(pio_null, 32));
-    sm_config_set_fifo_join(&regs_config, PIO_FIFO_JOIN_RX);
-    pio_sm_init(PIX_PIO, PIX_REGS_SM, offset, &regs_config);
-    pio_sm_set_enabled(PIX_PIO, PIX_REGS_SM, true);
-
-    // PIO to receive XRAM
-    pio_sm_config xram_config = pix_rx_program_get_default_config(offset);
-    sm_config_set_in_pins(&xram_config, 0);
-    sm_config_set_in_shift(&xram_config, false, false, 0);
-    sm_config_set_out_shift(&xram_config, true, false, 4);
-    pio_sm_init(PIX_PIO, PIX_XRAM_SM, offset, &xram_config);
-    pio_sm_put(PIX_PIO, PIX_XRAM_SM, 0x0); // channel 0
-    pio_sm_exec_wait_blocking(PIX_PIO, PIX_XRAM_SM, pio_encode_pull(false, true));
-    pio_sm_exec_wait_blocking(PIX_PIO, PIX_XRAM_SM, pio_encode_mov(pio_x, pio_osr));
-    pio_sm_exec_wait_blocking(PIX_PIO, PIX_XRAM_SM, pio_encode_out(pio_null, 32));
-    sm_config_set_fifo_join(&xram_config, PIO_FIFO_JOIN_RX);
-    pio_sm_init(PIX_PIO, PIX_XRAM_SM, offset, &regs_config);
-    pio_sm_set_enabled(PIX_PIO, PIX_XRAM_SM, true);
+    pix_rx_sm_init(PIX_REGS_SM, offset, 0x1); // channel 1
+    pix_rx_sm_init(PIX_XRAM_SM, offset, 0x0); // channel 0
 
     // Need all channels now to configure chaining
     int copy_chan = dma_claim_unused_channel(true);
