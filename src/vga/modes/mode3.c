@@ -94,202 +94,6 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static inline __attribute__((always_inline)) void
-mode3_emit_head_1bpp(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t start, int16_t count)
-{
-    byte >>= 8 - start - count;
-    switch (count)
-    {
-    case 8:
-        *(*rgb)++ = palette[(byte & 0x80) >> 7];
-        __attribute__((fallthrough));
-    case 7:
-        *(*rgb)++ = palette[(byte & 0x40) >> 6];
-        __attribute__((fallthrough));
-    case 6:
-        *(*rgb)++ = palette[(byte & 0x20) >> 5];
-        __attribute__((fallthrough));
-    case 5:
-        *(*rgb)++ = palette[(byte & 0x10) >> 4];
-        __attribute__((fallthrough));
-    case 4:
-        *(*rgb)++ = palette[(byte & 0x08) >> 3];
-        __attribute__((fallthrough));
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x04) >> 2];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x02) >> 1];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[byte & 0x01];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_tail_1bpp(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t fill_cols)
-{
-    byte >>= 8 - fill_cols;
-    switch (fill_cols)
-    {
-    case 7:
-        *(*rgb)++ = palette[(byte & 0x40) >> 6];
-        __attribute__((fallthrough));
-    case 6:
-        *(*rgb)++ = palette[(byte & 0x20) >> 5];
-        __attribute__((fallthrough));
-    case 5:
-        *(*rgb)++ = palette[(byte & 0x10) >> 4];
-        __attribute__((fallthrough));
-    case 4:
-        *(*rgb)++ = palette[(byte & 0x08) >> 3];
-        __attribute__((fallthrough));
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x04) >> 2];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x02) >> 1];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[byte & 0x01];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t start, int16_t count)
-{
-    byte <<= 8 - start - count;
-    switch (count)
-    {
-    case 8:
-        *(*rgb)++ = palette[byte & 0x01];
-        __attribute__((fallthrough));
-    case 7:
-        *(*rgb)++ = palette[(byte & 0x02) >> 1];
-        __attribute__((fallthrough));
-    case 6:
-        *(*rgb)++ = palette[(byte & 0x04) >> 2];
-        __attribute__((fallthrough));
-    case 5:
-        *(*rgb)++ = palette[(byte & 0x08) >> 3];
-        __attribute__((fallthrough));
-    case 4:
-        *(*rgb)++ = palette[(byte & 0x10) >> 4];
-        __attribute__((fallthrough));
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x20) >> 5];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x40) >> 6];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[(byte & 0x80) >> 7];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t fill_cols)
-{
-    byte <<= 8 - fill_cols;
-    switch (fill_cols)
-    {
-    case 7:
-        *(*rgb)++ = palette[(byte & 0x02) >> 1];
-        __attribute__((fallthrough));
-    case 6:
-        *(*rgb)++ = palette[(byte & 0x04) >> 2];
-        __attribute__((fallthrough));
-    case 5:
-        *(*rgb)++ = palette[(byte & 0x08) >> 3];
-        __attribute__((fallthrough));
-    case 4:
-        *(*rgb)++ = palette[(byte & 0x10) >> 4];
-        __attribute__((fallthrough));
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x20) >> 5];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x40) >> 6];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[(byte & 0x80) >> 7];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_head_2bpp(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t start, int16_t count)
-{
-    byte >>= 2 * (4 - start - count);
-    switch (count)
-    {
-    case 4:
-        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
-        __attribute__((fallthrough));
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x30) >> 4];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[byte & 0x03];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_tail_2bpp(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t fill_cols)
-{
-    byte >>= 2 * (4 - fill_cols);
-    switch (fill_cols)
-    {
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x30) >> 4];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[byte & 0x03];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t start, int16_t count)
-{
-    byte <<= 2 * (4 - start - count);
-    switch (count)
-    {
-    case 4:
-        *(*rgb)++ = palette[byte & 0x03];
-        __attribute__((fallthrough));
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x30) >> 4];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
-    }
-}
-
-static inline __attribute__((always_inline)) void
-mode3_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t byte, const uint16_t *palette, int16_t fill_cols)
-{
-    byte <<= 2 * (4 - fill_cols);
-    switch (fill_cols)
-    {
-    case 3:
-        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
-        __attribute__((fallthrough));
-    case 2:
-        *(*rgb)++ = palette[(byte & 0x30) >> 4];
-        __attribute__((fallthrough));
-    case 1:
-        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
-    }
-}
-
 static bool
 mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
@@ -313,7 +117,7 @@ mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_1bpp(&rgb, *data++, pal, start, part);
+        modes_emit_head_1bpp(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
@@ -321,7 +125,7 @@ mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             rgb += 8;
             fill_cols -= 8;
         }
-        mode3_emit_tail_1bpp(&rgb, *data, pal, fill_cols);
+        modes_emit_tail_1bpp(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
@@ -349,7 +153,7 @@ mode3_render_1bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_1bpp_reverse(&rgb, *data++, pal, start, part);
+        modes_emit_head_1bpp_reverse(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
@@ -357,7 +161,7 @@ mode3_render_1bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
             rgb += 8;
             fill_cols -= 8;
         }
-        mode3_emit_tail_1bpp_reverse(&rgb, *data, pal, fill_cols);
+        modes_emit_tail_1bpp_reverse(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
@@ -385,7 +189,7 @@ mode3_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_2bpp(&rgb, *data++, pal, start, part);
+        modes_emit_head_2bpp(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -395,7 +199,7 @@ mode3_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
             *rgb++ = pal[*data++ & 0x03];
             fill_cols -= 4;
         }
-        mode3_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
+        modes_emit_tail_2bpp(&rgb, *data, pal, fill_cols);
     }
     return true;
 }
@@ -423,7 +227,7 @@ mode3_render_2bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        mode3_emit_head_2bpp_reverse(&rgb, *data++, pal, start, part);
+        modes_emit_head_2bpp_reverse(&rgb, *data++, pal, start, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -433,7 +237,7 @@ mode3_render_2bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
             *rgb++ = pal[(*data++ & 0xC0) >> 6];
             fill_cols -= 4;
         }
-        mode3_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
+        modes_emit_tail_2bpp_reverse(&rgb, *data, pal, fill_cols);
     }
     return true;
 }

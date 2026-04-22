@@ -7,7 +7,7 @@
 #ifndef _VGA_MODES_MODES_H_
 #define _VGA_MODES_MODES_H_
 
-// Common utils for all modes
+// Shared helpers for 1bpp/2bpp scanline renderers
 
 #include <stddef.h>
 #include <stdint.h>
@@ -416,6 +416,202 @@ modes_render_1bpp_reverse(uint16_t *buf, uint8_t bits, uint16_t bg, uint16_t fg)
         buf[5] = fg;
         buf[4] = fg;
         break;
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_head_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+{
+    bits >>= 8 - start - count;
+    switch (count)
+    {
+    case 8:
+        *(*rgb)++ = pal[(bits & 0x80) >> 7];
+        __attribute__((fallthrough));
+    case 7:
+        *(*rgb)++ = pal[(bits & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = pal[(bits & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = pal[(bits & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = pal[(bits & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[bits & 0x01];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_tail_1bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+{
+    bits >>= 8 - fill_cols;
+    switch (fill_cols)
+    {
+    case 7:
+        *(*rgb)++ = pal[(bits & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = pal[(bits & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = pal[(bits & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = pal[(bits & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[bits & 0x01];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+{
+    bits <<= 8 - start - count;
+    switch (count)
+    {
+    case 8:
+        *(*rgb)++ = pal[bits & 0x01];
+        __attribute__((fallthrough));
+    case 7:
+        *(*rgb)++ = pal[(bits & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = pal[(bits & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = pal[(bits & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = pal[(bits & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[(bits & 0x80) >> 7];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+{
+    bits <<= 8 - fill_cols;
+    switch (fill_cols)
+    {
+    case 7:
+        *(*rgb)++ = pal[(bits & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = pal[(bits & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = pal[(bits & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = pal[(bits & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[(bits & 0x80) >> 7];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_head_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+{
+    bits >>= 2 * (4 - start - count);
+    switch (count)
+    {
+    case 4:
+        *(*rgb)++ = pal[(bits & 0xC0) >> 6];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[bits & 0x03];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_tail_2bpp(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+{
+    bits >>= 2 * (4 - fill_cols);
+    switch (fill_cols)
+    {
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[bits & 0x03];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t start, int16_t count)
+{
+    bits <<= 2 * (4 - start - count);
+    switch (count)
+    {
+    case 4:
+        *(*rgb)++ = pal[bits & 0x03];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[(bits & 0xC0) >> 6];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+modes_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t bits, const uint16_t *pal, int16_t fill_cols)
+{
+    bits <<= 2 * (4 - fill_cols);
+    switch (fill_cols)
+    {
+    case 3:
+        *(*rgb)++ = pal[(bits & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = pal[(bits & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = pal[(bits & 0xC0) >> 6];
     }
 }
 
