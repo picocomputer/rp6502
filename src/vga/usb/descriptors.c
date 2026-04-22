@@ -2,6 +2,8 @@
  * The MIT License (MIT)
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org)
+ * Copyright (c) 2021 Federico Zuccardi Merli
+ * Copyright (c) 2026 Rumbledethumps
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +26,11 @@
  */
 
 #include <tusb.h>
-#include "usb/usb.h"
+#include <pico/unique_id.h>
+
+//--------------------------------------------------------------------+
+// Device Descriptor
+//--------------------------------------------------------------------+
 
 /* A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
  * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
@@ -36,9 +42,6 @@
 #define USB_PID (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | \
                  _PID_MAP(MIDI, 3) | _PID_MAP(VENDOR, 4))
 
-//--------------------------------------------------------------------+
-// Device Descriptors
-//--------------------------------------------------------------------+
 static tusb_desc_device_t const desc_device =
     {
         .bLength = sizeof(tusb_desc_device_t),
@@ -70,9 +73,9 @@ uint8_t const *tud_descriptor_device_cb(void)
 
 enum
 {
-    ITF_NUM_CDC_COM,
-    ITF_NUM_CDC_DATA,
-    ITF_NUM_TOTAL
+    ITF_NUM_CDC_COM,  // Interface 0
+    ITF_NUM_CDC_DATA, // Interface 1
+    ITF_NUM_TOTAL     // Compute total
 };
 
 #define CDC_NOTIFICATION_EP_NUM 0x81
@@ -83,11 +86,7 @@ enum
 
 static uint8_t const desc_configuration[] = {
     TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, CONFIG_TOTAL_LEN, 0, 500),
-
-    // Interface 0 + 1
-    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COM, 0, CDC_NOTIFICATION_EP_NUM, 64, CDC_DATA_OUT_EP_NUM, CDC_DATA_IN_EP_NUM, 64)
-
-};
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_COM, 0, CDC_NOTIFICATION_EP_NUM, 64, CDC_DATA_OUT_EP_NUM, CDC_DATA_IN_EP_NUM, 64)};
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
 // Application return pointer to descriptor
@@ -99,19 +98,23 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
 }
 
 //--------------------------------------------------------------------+
-// String Descriptors
+// String Descriptor
 //--------------------------------------------------------------------+
 
-// array of pointer to string descriptors
-static char const *string_desc_arr[] =
-    {
-        (const char[]){0x09, 0x04}, // 0: supported language is English (0x0409)
-        "Raspberry Pi",             // 1: Manufacturer
-        "RP6502 Console",           // 2: Product
-        serno,                      // 3: Serial, uses flash unique ID
-};
+#define DESC_STR(...) \
+    {(TUSB_DESC_STRING << 8) | (sizeof((uint16_t[]){__VA_ARGS__}) + 2), __VA_ARGS__}
 
-static uint16_t desc_str[32];
+static const uint16_t desc_str_lang[] = DESC_STR(0x0409);
+static const uint16_t desc_str_manuf[] = DESC_STR('R', 'a', 's', 'p', 'b', 'e', 'r', 'r', 'y', ' ', 'P', 'i');
+static const uint16_t desc_str_prod[] = DESC_STR('R', 'P', '6', '5', '0', '2', ' ', 'C', 'o', 'n', 's', 'o', 'l', 'e');
+static uint16_t desc_str_serno[1 + PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2];
+
+static const uint16_t *const desc_str_table[] = {
+    desc_str_lang,
+    desc_str_manuf,
+    desc_str_prod,
+    desc_str_serno,
+};
 
 // Invoked when received GET STRING DESCRIPTOR request
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
@@ -119,35 +122,26 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
 {
     (void)langid;
 
-    uint8_t chr_count;
+    if (index >= TU_ARRAY_SIZE(desc_str_table))
+        return NULL;
 
-    if (index == 0)
+    if (index == 3 && desc_str_serno[0] == 0)
     {
-        memcpy(&desc_str[1], string_desc_arr[0], 2);
-        chr_count = 1;
-    }
-    else
-    {
-        // Convert ASCII string into UTF-16
-
-        if (index >= TU_ARRAY_SIZE(string_desc_arr))
-            return NULL;
-
-        const char *str = string_desc_arr[index];
-
-        // Cap at max char
-        chr_count = strlen(str);
-        if (chr_count > 31)
-            chr_count = 31;
-
-        for (uint8_t i = 0; i < chr_count; i++)
+        /* Init once */
+        pico_unique_board_id_t uID;
+        pico_get_unique_board_id(&uID);
+        for (int i = 0; i < PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2; i++)
         {
-            desc_str[1 + i] = str[i];
+            /* Byte index inside the uid array */
+            int bi = i / 2;
+            /* Use high nibble first to keep memory order (just cosmetics) */
+            uint8_t nibble = (uID.id[bi] >> 4) & 0x0F;
+            uID.id[bi] <<= 4;
+            /* Binary to hex digit */
+            desc_str_serno[1 + i] = nibble < 10 ? nibble + '0' : nibble + 'A' - 10;
         }
+        desc_str_serno[0] = (TUSB_DESC_STRING << 8) | sizeof(desc_str_serno);
     }
 
-    // first byte is length (including header), second byte is string type
-    desc_str[0] = (TUSB_DESC_STRING << 8) | (2 * chr_count + 2);
-
-    return desc_str;
+    return desc_str_table[index];
 }

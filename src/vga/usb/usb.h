@@ -20,9 +20,4 @@
 void usb_init(void);
 void usb_task(void);
 
-/* Exported serial number for USB descriptor
- */
-
-extern char serno[];
-
 #endif /* _VGA_USB_USB_H_ */
