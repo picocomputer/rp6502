@@ -20,7 +20,6 @@
 #define ENABLE_LE_SECURE_CONNECTIONS
 // Enable GATT and HID over GATT
 #define ENABLE_GATT_CLIENT
-#define ENABLE_ATT_CLIENT
 #define ENABLE_HIDS_CLIENT
 #define MAX_NR_GATT_CLIENTS 8
 #define MAX_NR_HIDS_CLIENTS 8
@@ -30,8 +29,10 @@
 #endif
 
 // BTstack configuration. buffers, sizes, ...
+// HCI_OUTGOING_PRE_BUFFER_SIZE and HCI_ACL_CHUNK_SIZE_ALIGNMENT are required
+// by pico_btstack_hci_transport_cyw43 (4-byte header, multiple-of-4 alignment).
 #define HCI_OUTGOING_PRE_BUFFER_SIZE 4
-#define HCI_ACL_PAYLOAD_SIZE (1691 + 4)
+#define HCI_ACL_PAYLOAD_SIZE (1691 + HCI_OUTGOING_PRE_BUFFER_SIZE)
 #define HCI_ACL_CHUNK_SIZE_ALIGNMENT 4
 
 #define MAX_NR_BTSTACK_LINK_KEY_DB_MEMORY_ENTRIES 4
@@ -41,17 +42,14 @@
 
 #define MAX_NR_CONTROLLER_ACL_BUFFERS 6
 
-// Link Key DB optimized for device pairing
+// NVM storage for bonded devices
 #define NVM_NUM_DEVICE_DB_ENTRIES 16
 #define NVM_NUM_LINK_KEYS 16
 
 // Expanded ATT DB for BLE GATT services
 #define MAX_ATT_DB_SIZE 1024
 
-// BTstack HAL configuration
 #define HAVE_EMBEDDED_TIME_MS
-
-// map btstack_assert onto Pico SDK assert()
 #define HAVE_ASSERT
 
 #endif // _PICO_BTSTACK_BTSTACK_CONFIG_H
