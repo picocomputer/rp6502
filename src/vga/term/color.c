@@ -7,11 +7,11 @@
 #include "term/color.h"
 #include "scanvideo/scanvideo.h"
 
-// Black and white palette for 1bpp
+// ANSI black/white pair for 1bpp (index 0 transparent, index 1 opaque).
 
 const uint16_t color_2[2] = {
     SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),                              // 0  ANSI Black
-    SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(192, 192, 192), // 1  ANSI White
+    SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(229, 229, 229), // 1  ANSI White
 };
 
 // This is the ANSI color palette, not the web safe palette.
