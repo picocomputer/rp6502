@@ -92,17 +92,19 @@ static inline void vga_backchannel_irq_disable(void)
 
 static inline void vga_backchannel_command(uint8_t byte)
 {
-    uint8_t scalar = byte & 0xF;
     switch (byte & 0xF0)
     {
     case 0x80:
+    {
+        uint8_t frame = byte & 0xF;
         vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
-        if (scalar < (vga_vsync_frame & 0xF))
-            vga_vsync_frame = (vga_vsync_frame & 0xF0) + 0x10;
-        vga_vsync_frame = (vga_vsync_frame & 0xF0) | scalar;
+        if (frame < (vga_vsync_frame & 0xF))
+            vga_vsync_frame += 0x10;
+        vga_vsync_frame = (vga_vsync_frame & 0xF0) | frame;
         REGS(0xFFE3) = vga_vsync_frame;
         ria_trigger_irq();
         break;
+    }
     case 0x90:
         pix_ack();
         break;
@@ -147,7 +149,10 @@ static void vga_connect(void)
     while (vga_state == VGA_TESTING)
         mem_task();
     if (vga_state == VGA_NOT_FOUND)
-        return vga_pix_backchannel_disable();
+    {
+        vga_pix_backchannel_disable();
+        return;
+    }
 
     // Turn on the backchannel
     pio_gpio_init(VGA_BACKCHANNEL_PIO, VGA_BACKCHANNEL_PIN);
@@ -223,7 +228,7 @@ void vga_init(void)
     irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
     irq_set_enabled(PIO1_IRQ_0, true);
 
-    // Disable backchannel again, for safety.
+    // Re-send in case the first disable was lost
     vga_pix_backchannel_disable();
 
     // Connect and establish backchannel
@@ -289,8 +294,8 @@ int vga_status_response(char *buf, size_t buf_size, int state)
     const char *msg = STR_VGA_SEARCHING;
     switch (vga_state)
     {
-    case VGA_FOUND:
     case VGA_TESTING:
+    case VGA_FOUND:
         break;
     case VGA_CONNECTED:
         msg = vga_version_message;
