@@ -1,5 +1,5 @@
-#ifndef _LWIPOPTS_H
-#define _LWIPOPTS_H
+#ifndef _LWIPOPTS_H_
+#define _LWIPOPTS_H_
 
 // see https://www.nongnu.org/lwip/2_1_x/group__lwip__opts.html for details
 
@@ -79,4 +79,4 @@
 #define SLIP_DEBUG LWIP_DBG_OFF
 #define DHCP_DEBUG LWIP_DBG_OFF
 
-#endif /* _LWIPOPTS_H */
+#endif /* _LWIPOPTS_H_ */
