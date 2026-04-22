@@ -94,11 +94,169 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
     return fill_cols;
 }
 
-static bool
-mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+static inline __attribute__((always_inline)) void
+mode3_emit_head_1bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
+    switch (part)
+    {
+    case 8:
+        *(*rgb)++ = palette[(byte & 0x80) >> 7];
+        __attribute__((fallthrough));
+    case 7:
+        *(*rgb)++ = palette[(byte & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = palette[(byte & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = palette[(byte & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = palette[(byte & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = palette[(byte & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = palette[(byte & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[byte & 0x01];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_tail_1bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
+{
+    if (fill_cols >= 1)
+        *(*rgb)++ = palette[(byte & 0x80) >> 7];
+    if (fill_cols >= 2)
+        *(*rgb)++ = palette[(byte & 0x40) >> 6];
+    if (fill_cols >= 3)
+        *(*rgb)++ = palette[(byte & 0x20) >> 5];
+    if (fill_cols >= 4)
+        *(*rgb)++ = palette[(byte & 0x10) >> 4];
+    if (fill_cols >= 5)
+        *(*rgb)++ = palette[(byte & 0x08) >> 3];
+    if (fill_cols >= 6)
+        *(*rgb)++ = palette[(byte & 0x04) >> 2];
+    if (fill_cols >= 7)
+        *(*rgb)++ = palette[(byte & 0x02) >> 1];
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_head_1bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+{
+    switch (part)
+    {
+    case 8:
+        *(*rgb)++ = palette[byte & 0x01];
+        __attribute__((fallthrough));
+    case 7:
+        *(*rgb)++ = palette[(byte & 0x02) >> 1];
+        __attribute__((fallthrough));
+    case 6:
+        *(*rgb)++ = palette[(byte & 0x04) >> 2];
+        __attribute__((fallthrough));
+    case 5:
+        *(*rgb)++ = palette[(byte & 0x08) >> 3];
+        __attribute__((fallthrough));
+    case 4:
+        *(*rgb)++ = palette[(byte & 0x10) >> 4];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = palette[(byte & 0x20) >> 5];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = palette[(byte & 0x40) >> 6];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[(byte & 0x80) >> 7];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_tail_1bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
+{
+    if (fill_cols >= 1)
+        *(*rgb)++ = palette[byte & 0x01];
+    if (fill_cols >= 2)
+        *(*rgb)++ = palette[(byte & 0x02) >> 1];
+    if (fill_cols >= 3)
+        *(*rgb)++ = palette[(byte & 0x04) >> 2];
+    if (fill_cols >= 4)
+        *(*rgb)++ = palette[(byte & 0x08) >> 3];
+    if (fill_cols >= 5)
+        *(*rgb)++ = palette[(byte & 0x10) >> 4];
+    if (fill_cols >= 6)
+        *(*rgb)++ = palette[(byte & 0x20) >> 5];
+    if (fill_cols >= 7)
+        *(*rgb)++ = palette[(byte & 0x40) >> 6];
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_head_2bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+{
+    switch (part)
+    {
+    case 4:
+        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = palette[(byte & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[byte & 0x03];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_tail_2bpp(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
+{
+    if (fill_cols >= 1)
+        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
+    if (fill_cols >= 2)
+        *(*rgb)++ = palette[(byte & 0x30) >> 4];
+    if (fill_cols >= 3)
+        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_head_2bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t part)
+{
+    switch (part)
+    {
+    case 4:
+        *(*rgb)++ = palette[byte & 0x03];
+        __attribute__((fallthrough));
+    case 3:
+        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
+        __attribute__((fallthrough));
+    case 2:
+        *(*rgb)++ = palette[(byte & 0x30) >> 4];
+        __attribute__((fallthrough));
+    case 1:
+        *(*rgb)++ = palette[(byte & 0xC0) >> 6];
+    }
+}
+
+static inline __attribute__((always_inline)) void
+mode3_emit_tail_2bpp_reverse(uint16_t **rgb, uint8_t byte, volatile const uint16_t *palette, int16_t fill_cols)
+{
+    if (fill_cols >= 1)
+        *(*rgb)++ = palette[byte & 0x03];
+    if (fill_cols >= 2)
+        *(*rgb)++ = palette[(byte & 0x0C) >> 2];
+    if (fill_cols >= 3)
+        *(*rgb)++ = palette[(byte & 0x30) >> 4];
+}
+
+static bool
+mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+{
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
     if (!row_data)
@@ -116,32 +274,7 @@ mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        switch (part)
-        {
-        case 8:
-            *rgb++ = palette[(*data & 0x80) >> 7];
-            __attribute__((fallthrough));
-        case 7:
-            *rgb++ = palette[(*data & 0x40) >> 6];
-            __attribute__((fallthrough));
-        case 6:
-            *rgb++ = palette[(*data & 0x20) >> 5];
-            __attribute__((fallthrough));
-        case 5:
-            *rgb++ = palette[(*data & 0x10) >> 4];
-            __attribute__((fallthrough));
-        case 4:
-            *rgb++ = palette[(*data & 0x08) >> 3];
-            __attribute__((fallthrough));
-        case 3:
-            *rgb++ = palette[(*data & 0x04) >> 2];
-            __attribute__((fallthrough));
-        case 2:
-            *rgb++ = palette[(*data & 0x02) >> 1];
-            __attribute__((fallthrough));
-        case 1:
-            *rgb++ = palette[*data++ & 0x01];
-        }
+        mode3_emit_head_1bpp(&rgb, *data++, palette, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
@@ -149,29 +282,14 @@ mode3_render_1bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             rgb += 8;
             fill_cols -= 8;
         }
-        if (fill_cols >= 1)
-            *rgb++ = palette[(*data & 0x80) >> 7];
-        if (fill_cols >= 2)
-            *rgb++ = palette[(*data & 0x40) >> 6];
-        if (fill_cols >= 3)
-            *rgb++ = palette[(*data & 0x20) >> 5];
-        if (fill_cols >= 4)
-            *rgb++ = palette[(*data & 0x10) >> 4];
-        if (fill_cols >= 5)
-            *rgb++ = palette[(*data & 0x08) >> 3];
-        if (fill_cols >= 6)
-            *rgb++ = palette[(*data & 0x04) >> 2];
-        if (fill_cols >= 7)
-            *rgb++ = palette[(*data & 0x02) >> 1];
+        mode3_emit_tail_1bpp(&rgb, *data, palette, fill_cols);
     }
     return true;
 }
 
 static bool
-mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_1bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
     if (!row_data)
@@ -189,32 +307,7 @@ mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        switch (part)
-        {
-        case 8:
-            *rgb++ = palette[*data & 0x01];
-            __attribute__((fallthrough));
-        case 7:
-            *rgb++ = palette[(*data & 0x02) >> 1];
-            __attribute__((fallthrough));
-        case 6:
-            *rgb++ = palette[(*data & 0x04) >> 2];
-            __attribute__((fallthrough));
-        case 5:
-            *rgb++ = palette[(*data & 0x08) >> 3];
-            __attribute__((fallthrough));
-        case 4:
-            *rgb++ = palette[(*data & 0x10) >> 4];
-            __attribute__((fallthrough));
-        case 3:
-            *rgb++ = palette[(*data & 0x20) >> 5];
-            __attribute__((fallthrough));
-        case 2:
-            *rgb++ = palette[(*data & 0x40) >> 6];
-            __attribute__((fallthrough));
-        case 1:
-            *rgb++ = palette[(*data++ & 0x80) >> 7];
-        }
+        mode3_emit_head_1bpp_reverse(&rgb, *data++, palette, part);
         col += fill_cols;
         while (fill_cols > 7)
         {
@@ -222,29 +315,14 @@ mode3_render_1bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             rgb += 8;
             fill_cols -= 8;
         }
-        if (fill_cols >= 1)
-            *rgb++ = palette[*data & 0x01];
-        if (fill_cols >= 2)
-            *rgb++ = palette[(*data & 0x02) >> 1];
-        if (fill_cols >= 3)
-            *rgb++ = palette[(*data & 0x04) >> 2];
-        if (fill_cols >= 4)
-            *rgb++ = palette[(*data & 0x08) >> 3];
-        if (fill_cols >= 5)
-            *rgb++ = palette[(*data & 0x10) >> 4];
-        if (fill_cols >= 6)
-            *rgb++ = palette[(*data & 0x20) >> 5];
-        if (fill_cols >= 7)
-            *rgb++ = palette[(*data & 0x40) >> 6];
+        mode3_emit_tail_1bpp_reverse(&rgb, *data, palette, fill_cols);
     }
     return true;
 }
 
 static bool
-mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
     if (!row_data)
@@ -262,20 +340,7 @@ mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        switch (part)
-        {
-        case 4:
-            *rgb++ = palette[(*data & 0xC0) >> 6];
-            __attribute__((fallthrough));
-        case 3:
-            *rgb++ = palette[(*data & 0x30) >> 4];
-            __attribute__((fallthrough));
-        case 2:
-            *rgb++ = palette[(*data & 0x0C) >> 2];
-            __attribute__((fallthrough));
-        case 1:
-            *rgb++ = palette[*data++ & 0x03];
-        }
+        mode3_emit_head_2bpp(&rgb, *data++, palette, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -285,21 +350,14 @@ mode3_render_2bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             *rgb++ = palette[*data++ & 0x03];
             fill_cols -= 4;
         }
-        if (fill_cols >= 1)
-            *rgb++ = palette[(*data & 0xC0) >> 6];
-        if (fill_cols >= 2)
-            *rgb++ = palette[(*data & 0x30) >> 4];
-        if (fill_cols >= 3)
-            *rgb++ = palette[(*data & 0x0C) >> 2];
+        mode3_emit_tail_2bpp(&rgb, *data, palette, fill_cols);
     }
     return true;
 }
 
 static bool
-mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_2bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
     if (!row_data)
@@ -317,20 +375,7 @@ mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             part = fill_cols;
         fill_cols -= part;
         col += part;
-        switch (part)
-        {
-        case 4:
-            *rgb++ = palette[*data & 0x03];
-            __attribute__((fallthrough));
-        case 3:
-            *rgb++ = palette[(*data & 0x0C) >> 2];
-            __attribute__((fallthrough));
-        case 2:
-            *rgb++ = palette[(*data & 0x30) >> 4];
-            __attribute__((fallthrough));
-        case 1:
-            *rgb++ = palette[(*data++ & 0xC0) >> 6];
-        }
+        mode3_emit_head_2bpp_reverse(&rgb, *data++, palette, part);
         col += fill_cols;
         while (fill_cols > 3)
         {
@@ -340,21 +385,14 @@ mode3_render_2bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
             *rgb++ = palette[(*data++ & 0xC0) >> 6];
             fill_cols -= 4;
         }
-        if (fill_cols >= 1)
-            *rgb++ = palette[*data & 0x03];
-        if (fill_cols >= 2)
-            *rgb++ = palette[(*data & 0x0C) >> 2];
-        if (fill_cols >= 3)
-            *rgb++ = palette[(*data & 0x30) >> 4];
+        mode3_emit_tail_2bpp_reverse(&rgb, *data, palette, fill_cols);
     }
     return true;
 }
 
 static bool
-mode3_render_4bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
@@ -385,10 +423,8 @@ mode3_render_4bpp_0r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
 }
 
 static bool
-mode3_render_4bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_4bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
@@ -421,8 +457,6 @@ mode3_render_4bpp_1r(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t
 static bool
 mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 8);
     if (!row_data)
@@ -443,8 +477,6 @@ mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 static bool
 mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
-    if (config_ptr > 0x10000 - sizeof(mode3_config_t))
-        return false;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint16_t *row_data = (uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
     if (!row_data || (uint32_t)row_data & 1)
@@ -477,13 +509,13 @@ bool mode3_prog(uint16_t *xregs)
     switch (attributes)
     {
     case 0:
-        render_fn = mode3_render_1bpp_0r;
+        render_fn = mode3_render_1bpp;
         break;
     case 1:
-        render_fn = mode3_render_2bpp_0r;
+        render_fn = mode3_render_2bpp;
         break;
     case 2:
-        render_fn = mode3_render_4bpp_0r;
+        render_fn = mode3_render_4bpp;
         break;
     case 3:
         render_fn = mode3_render_8bpp;
@@ -492,13 +524,13 @@ bool mode3_prog(uint16_t *xregs)
         render_fn = mode3_render_16bpp;
         break;
     case 8:
-        render_fn = mode3_render_1bpp_1r;
+        render_fn = mode3_render_1bpp_reverse;
         break;
     case 9:
-        render_fn = mode3_render_2bpp_1r;
+        render_fn = mode3_render_2bpp_reverse;
         break;
     case 10:
-        render_fn = mode3_render_4bpp_1r;
+        render_fn = mode3_render_4bpp_reverse;
         break;
     default:
         return false;
