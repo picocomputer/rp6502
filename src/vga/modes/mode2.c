@@ -28,10 +28,10 @@ typedef struct
 } mode2_config_t;
 
 static volatile const uint8_t *
-mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_size, int16_t font_height, int16_t *row)
+mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, int16_t tile_size, int16_t *row)
 {
     *row = scanline_id - config->y_pos_px;
-    const int16_t height = config->height_tiles * font_height;
+    const int16_t height = config->height_tiles * tile_size;
     if (config->y_wrap)
     {
         if (*row < 0)
@@ -41,12 +41,12 @@ mode2_scanline_to_data(int16_t scanline_id, mode2_config_t *config, size_t cell_
     }
     if (*row < 0 || *row >= height || config->width_tiles < 1 || height < 1)
         return NULL;
-    const int32_t sizeof_row = (int32_t)config->width_tiles * cell_size;
-    const int32_t sizeof_bitmap = (int32_t)config->height_tiles * sizeof_row;
-    if (sizeof_bitmap > 0x10000 - config->xram_data_ptr)
+    const uint32_t sizeof_row = (uint32_t)config->width_tiles;
+    const uint32_t sizeof_bitmap = (uint32_t)config->height_tiles * sizeof_row;
+    if (sizeof_bitmap > (uint32_t)(0x10000 - config->xram_data_ptr))
         return NULL;
-    volatile const uint8_t *rv = &xram[config->xram_data_ptr + *row / font_height * sizeof_row];
-    *row &= font_height - 1;
+    volatile const uint8_t *rv = &xram[config->xram_data_ptr + *row / tile_size * sizeof_row];
+    *row &= tile_size - 1;
     return rv;
 }
 
@@ -99,10 +99,10 @@ mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 }
 
 static inline __attribute__((always_inline)) uint32_t
-mode2_get_glyph_tile_mem(mode2_config_t *config, int16_t bpp, int16_t tile_size,
-                         int16_t col, int16_t row, volatile const uint8_t *row_data, uint16_t *index)
+mode2_get_tile_row_addr(mode2_config_t *config, int16_t bpp, int16_t tile_size,
+                        int16_t col, int16_t row, volatile const uint8_t *row_data, uint16_t *index)
 {
-    uint32_t row_size = (tile_size == 8) ? bpp : 2 * bpp;
+    uint32_t row_size = tile_size * bpp / 8;
     uint32_t mem_size = row_size * tile_size;
     uint8_t tile_id = row_data[col / tile_size];
     uint8_t pixels_per_byte = 8 / bpp;
@@ -113,12 +113,10 @@ mode2_get_glyph_tile_mem(mode2_config_t *config, int16_t bpp, int16_t tile_size,
 static inline __attribute__((always_inline)) bool
 mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
-    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
-        return false;
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     volatile const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
+        mode2_scanline_to_data(scanline_id, config, tile_size, &row);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode2_get_palette(config, 1);
@@ -128,8 +126,8 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
         uint16_t index;
-        uint32_t tile_mem = mode2_get_glyph_tile_mem(config, 1, tile_size, col, row, row_data, &index);
-        uint8_t glyph = xram[tile_mem + index];
+        uint32_t tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+        uint8_t bits = xram[tile_mem + index];
         int16_t part = 8 - (col & 7);
         if (part > fill_cols)
             part = fill_cols;
@@ -138,55 +136,55 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         switch (part)
         {
         case 8:
-            *rgb++ = palette[(glyph & 0x80) >> 7];
+            *rgb++ = palette[(bits & 0x80) >> 7];
             __attribute__((fallthrough));
         case 7:
-            *rgb++ = palette[(glyph & 0x40) >> 6];
+            *rgb++ = palette[(bits & 0x40) >> 6];
             __attribute__((fallthrough));
         case 6:
-            *rgb++ = palette[(glyph & 0x20) >> 5];
+            *rgb++ = palette[(bits & 0x20) >> 5];
             __attribute__((fallthrough));
         case 5:
-            *rgb++ = palette[(glyph & 0x10) >> 4];
+            *rgb++ = palette[(bits & 0x10) >> 4];
             __attribute__((fallthrough));
         case 4:
-            *rgb++ = palette[(glyph & 0x08) >> 3];
+            *rgb++ = palette[(bits & 0x08) >> 3];
             __attribute__((fallthrough));
         case 3:
-            *rgb++ = palette[(glyph & 0x04) >> 2];
+            *rgb++ = palette[(bits & 0x04) >> 2];
             __attribute__((fallthrough));
         case 2:
-            *rgb++ = palette[(glyph & 0x02) >> 1];
+            *rgb++ = palette[(bits & 0x02) >> 1];
             __attribute__((fallthrough));
         case 1:
-            *rgb++ = palette[glyph & 0x01];
-            tile_mem = mode2_get_glyph_tile_mem(config, 1, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+            *rgb++ = palette[bits & 0x01];
+            tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
         while (fill_cols > 7)
         {
-            modes_render_1bpp(rgb, glyph, palette[0], palette[1]);
+            modes_render_1bpp(rgb, bits, palette[0], palette[1]);
             rgb += 8;
             fill_cols -= 8;
             col += 8;
-            tile_mem = mode2_get_glyph_tile_mem(config, 1, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+            tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
         col += fill_cols;
         if (fill_cols >= 1)
-            *rgb++ = palette[(glyph & 0x80) >> 7];
+            *rgb++ = palette[(bits & 0x80) >> 7];
         if (fill_cols >= 2)
-            *rgb++ = palette[(glyph & 0x40) >> 6];
+            *rgb++ = palette[(bits & 0x40) >> 6];
         if (fill_cols >= 3)
-            *rgb++ = palette[(glyph & 0x20) >> 5];
+            *rgb++ = palette[(bits & 0x20) >> 5];
         if (fill_cols >= 4)
-            *rgb++ = palette[(glyph & 0x10) >> 4];
+            *rgb++ = palette[(bits & 0x10) >> 4];
         if (fill_cols >= 5)
-            *rgb++ = palette[(glyph & 0x08) >> 3];
+            *rgb++ = palette[(bits & 0x08) >> 3];
         if (fill_cols >= 6)
-            *rgb++ = palette[(glyph & 0x04) >> 2];
+            *rgb++ = palette[(bits & 0x04) >> 2];
         if (fill_cols >= 7)
-            *rgb++ = palette[(glyph & 0x02) >> 1];
+            *rgb++ = palette[(bits & 0x02) >> 1];
     }
     return true;
 }
@@ -206,12 +204,10 @@ mode2_render_1bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
 static inline __attribute__((always_inline)) bool
 mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
-    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
-        return false;
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     volatile const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
+        mode2_scanline_to_data(scanline_id, config, tile_size, &row);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode2_get_palette(config, 2);
@@ -221,8 +217,8 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
         uint16_t index;
-        uint32_t tile_mem = mode2_get_glyph_tile_mem(config, 2, tile_size, col, row, row_data, &index);
-        uint8_t glyph = xram[tile_mem + index];
+        uint32_t tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+        uint8_t bits = xram[tile_mem + index];
         int16_t part = 4 - (col & 3);
         if (part > fill_cols)
             part = fill_cols;
@@ -231,39 +227,39 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
         switch (part)
         {
         case 4:
-            *rgb++ = palette[(glyph & 0xC0) >> 6];
+            *rgb++ = palette[(bits & 0xC0) >> 6];
             __attribute__((fallthrough));
         case 3:
-            *rgb++ = palette[(glyph & 0x30) >> 4];
+            *rgb++ = palette[(bits & 0x30) >> 4];
             __attribute__((fallthrough));
         case 2:
-            *rgb++ = palette[(glyph & 0x0C) >> 2];
+            *rgb++ = palette[(bits & 0x0C) >> 2];
             __attribute__((fallthrough));
         case 1:
-            *rgb++ = palette[glyph & 0x03];
+            *rgb++ = palette[bits & 0x03];
             if (++index == tile_size / 4)
-                tile_mem = mode2_get_glyph_tile_mem(config, 2, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+                tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
         while (fill_cols > 3)
         {
-            *rgb++ = palette[(glyph & 0xC0) >> 6];
-            *rgb++ = palette[(glyph & 0x30) >> 4];
-            *rgb++ = palette[(glyph & 0x0C) >> 2];
-            *rgb++ = palette[glyph & 0x03];
+            *rgb++ = palette[(bits & 0xC0) >> 6];
+            *rgb++ = palette[(bits & 0x30) >> 4];
+            *rgb++ = palette[(bits & 0x0C) >> 2];
+            *rgb++ = palette[bits & 0x03];
             fill_cols -= 4;
             col += 4;
             if (++index == tile_size / 4)
-                tile_mem = mode2_get_glyph_tile_mem(config, 2, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+                tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
         col += fill_cols;
         if (fill_cols >= 1)
-            *rgb++ = palette[(glyph & 0xC0) >> 6];
+            *rgb++ = palette[(bits & 0xC0) >> 6];
         if (fill_cols >= 2)
-            *rgb++ = palette[(glyph & 0x30) >> 4];
+            *rgb++ = palette[(bits & 0x30) >> 4];
         if (fill_cols >= 3)
-            *rgb++ = palette[(glyph & 0x0C) >> 2];
+            *rgb++ = palette[(bits & 0x0C) >> 2];
     }
     return true;
 }
@@ -283,12 +279,10 @@ mode2_render_2bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
 static inline __attribute__((always_inline)) bool
 mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
-    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
-        return false;
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     volatile const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
+        mode2_scanline_to_data(scanline_id, config, tile_size, &row);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode2_get_palette(config, 4);
@@ -298,30 +292,30 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
         uint16_t index;
-        uint32_t tile_mem = mode2_get_glyph_tile_mem(config, 4, tile_size, col, row, row_data, &index);
-        uint8_t glyph = xram[tile_mem + index];
+        uint32_t tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
+        uint8_t bits = xram[tile_mem + index];
         if (col & 1)
         {
-            *rgb++ = palette[glyph & 0xF];
+            *rgb++ = palette[bits & 0xF];
             col++;
             fill_cols--;
             if (++index == tile_size / 2)
-                tile_mem = mode2_get_glyph_tile_mem(config, 4, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+                tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
         while (fill_cols > 1)
         {
-            *rgb++ = palette[glyph >> 4];
-            *rgb++ = palette[glyph & 0xF];
+            *rgb++ = palette[bits >> 4];
+            *rgb++ = palette[bits & 0xF];
             fill_cols -= 2;
             col += 2;
             if (++index == tile_size / 2)
-                tile_mem = mode2_get_glyph_tile_mem(config, 4, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+                tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
         col += fill_cols;
         if (fill_cols == 1)
-            *rgb++ = palette[glyph >> 4];
+            *rgb++ = palette[bits >> 4];
     }
     return true;
 }
@@ -341,12 +335,10 @@ mode2_render_4bpp_16x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint1
 static inline __attribute__((always_inline)) bool
 mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr, int16_t tile_size)
 {
-    if (config_ptr > 0x10000 - sizeof(mode2_config_t))
-        return false;
     mode2_config_t *config = (void *)&xram[config_ptr];
     int16_t row;
     volatile const uint8_t *row_data =
-        mode2_scanline_to_data(scanline_id, config, sizeof(uint8_t), tile_size, &row);
+        mode2_scanline_to_data(scanline_id, config, tile_size, &row);
     if (!row_data)
         return false;
     volatile const uint16_t *palette = mode2_get_palette(config, 8);
@@ -356,16 +348,16 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
     {
         int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
         uint16_t index;
-        uint32_t tile_mem = mode2_get_glyph_tile_mem(config, 8, tile_size, col, row, row_data, &index);
-        uint8_t glyph = xram[tile_mem + index];
+        uint32_t tile_mem = mode2_get_tile_row_addr(config, 8, tile_size, col, row, row_data, &index);
+        uint8_t bits = xram[tile_mem + index];
         while (fill_cols > 0)
         {
-            *rgb++ = palette[glyph];
+            *rgb++ = palette[bits];
             fill_cols -= 1;
             col += 1;
-            if (++index == tile_size / 1)
-                tile_mem = mode2_get_glyph_tile_mem(config, 8, tile_size, col, row, row_data, &index);
-            glyph = xram[tile_mem + index];
+            if (++index == tile_size)
+                tile_mem = mode2_get_tile_row_addr(config, 8, tile_size, col, row, row_data, &index);
+            bits = xram[tile_mem + index];
         }
     }
     return true;
