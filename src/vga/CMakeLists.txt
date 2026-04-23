@@ -20,6 +20,10 @@ target_include_directories(rp6502_vga PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
 )
 
+target_compile_definitions(rp6502_vga PRIVATE 
+    PICO_FLASH_ASSUME_CORE1_SAFE=1
+)
+
 target_sources(rp6502_vga PRIVATE
     main.c
     modes/mode1.c
@@ -49,6 +53,7 @@ target_link_libraries(rp6502_vga PRIVATE
     pico_unique_id
     hardware_pio
     hardware_dma
+    hardware_flash
     hardware_interp
     tinyusb_device
 )

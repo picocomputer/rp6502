@@ -14,6 +14,7 @@
 #include "sys/led.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/sys.h"
 #include "sys/vga.h"
 #include "term/font.h"
 #include "term/term.h"
@@ -47,6 +48,8 @@ static void task(void)
     usb_task();
     com_task();
     pix_task();
+    com_task();
+    sys_task();
     com_task();
 }
 

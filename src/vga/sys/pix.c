@@ -10,10 +10,12 @@
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
+#include "sys/sys.h"
 #include "sys/vga.h"
 #include "term/font.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
+#include <hardware/watchdog.h>
 #include <string.h>
 
 #define PIX_CH0_XREGS_MAX 8
@@ -63,6 +65,14 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
     case 0x04: // BACKCHAN
         ria_backchan(word);
         return false;
+    case 0x05: // FLASH_SECTOR
+        sys_flash_request(word);
+        return true;
+    case 0x06: // REBOOT_OR_LOCKUP
+        if (word == 0)
+            watchdog_reboot(0, 0, 0);
+        for (;;)
+            tight_loop_contents();
     }
     return false;
 }

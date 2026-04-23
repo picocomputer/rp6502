@@ -34,6 +34,11 @@ bool pix_api_xreg(void);
 void pix_ack(void);
 void pix_nak(void);
 
+// External access to PIX VGA response. Used by uf2 flash tool.
+void pix_wait_begin(uint32_t timeout_ms);
+// 1=ack, -1=nak, -2=timeout, 0=still waiting. Resets state on terminal.
+int pix_wait_poll(void);
+
 // Well known PIX devices. 2-6 are for user expansion.
 // RIA device 0 is virtual, not on the physical PIX bus.
 

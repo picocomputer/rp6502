@@ -12,6 +12,8 @@
 #include "mon/uf2.h"
 #include "str/str.h"
 #include "sys/mem.h"
+#include "sys/pix.h"
+#include "sys/vga.h"
 #include <boot/uf2.h>
 #include <fatfs/ff.h>
 #include <hardware/flash.h>
@@ -24,7 +26,8 @@
 #include <stdio.h>
 #include <string.h>
 
-// #define DEBUG_RIA_MON_UF2
+#define DEBUG_RIA_MON_UF2
+// #define DEBUG_RIA_MON_UF2_SIMULATE_FAILURE 10
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_UF2)
 #define DBG(...) printf(__VA_ARGS__)
@@ -34,12 +37,19 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define UF2_MAP_TABLE_MAX 10 // matches picotool's arbitrary cap
 #define UF2_NAME_READ_MAX 32
+#define UF2_VGA_SECTOR_BLOCKS 16 // 16 * 256B payload = FLASH_SECTOR_SIZE
+// RP2350 4K erase ~40ms + 16 page programs ~11ms; allow 5x margin.
+#define UF2_VGA_FLASH_ACK_TIMEOUT_MS 500
 
 static enum {
     UF2_IDLE,
     UF2_WRITE,
     UF2_REBOOT,
     UF2_FAILED,
+    UF2_VGA_STREAM,   // read next UF2 block, push its payload into VGA xram
+    UF2_VGA_WAIT_ACK, // sent $1:F:05; polling pix_wait_poll()
+    UF2_VGA_SUCCESS,  // send $1:F:06 word=0 then watchdog_reboot RIA
+    UF2_VGA_LOCKUP,   // send $1:F:06 word=1 then spin RIA forever
 } uf2_state;
 
 static FIL uf2_fil;
@@ -48,6 +58,10 @@ static uint32_t uf2_block_idx;
 static uint32_t uf2_first_target;
 static int uf2_last_percent;
 static FSIZE_t uf2_main_start;
+// UF2-relative sector index (0 = first sector of main firmware) for the
+// sector we most recently asked VGA to burn. Used to match against
+// DEBUG_RIA_MON_UF2_SIMULATE_FAILURE in the ack handler.
+static uint32_t uf2_vga_last_rel_sector;
 
 static struct
 {
@@ -377,7 +391,14 @@ static void uf2_do_write(void)
     }
     struct uf2_block *b = (struct uf2_block *)mbuf;
     uint32_t flash_offs = b->target_addr - XIP_BASE;
-    bool erase_sector = (uf2_block_idx % 16) == 0;
+    bool erase_sector = (uf2_block_idx % UF2_VGA_SECTOR_BLOCKS) == 0;
+#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+    bool simulate = erase_sector &&
+                    (uf2_block_idx / UF2_VGA_SECTOR_BLOCKS) ==
+                        DEBUG_RIA_MON_UF2_SIMULATE_FAILURE;
+    if (simulate)
+        b->data[0] ^= 0xFF;
+#endif
     if (erase_sector)
     {
         DBG("UF2 erase+prog sector @0x%08lX (block %lu/%lu)\n",
@@ -386,6 +407,15 @@ static void uf2_do_write(void)
         flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
     }
     flash_range_program(flash_offs, b->data, FLASH_PAGE_SIZE);
+
+#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+    if (simulate)
+    {
+        putchar('\n');
+        uf2_state = UF2_FAILED;
+        return;
+    }
+#endif
 
     uf2_block_idx++;
 
@@ -403,6 +433,101 @@ static void uf2_do_write(void)
     }
 }
 
+// Stream one UF2 block's 256B payload into VGA xram, accumulating toward
+// a full 4KB sector. When the 16th block lands (or the image ends), fire
+// $1:F:05 and wait for VGA's ack/nak.
+static void uf2_do_vga_stream_block(void)
+{
+    UINT br;
+    FRESULT fr = f_read(&uf2_fil, mbuf, 512, &br);
+    if (fr != FR_OK || br != 512 || !uf2_check_block(uf2_block_idx))
+    {
+        DBG("UF2 VGA read/validate failed at block %lu (fr=%d br=%u)\n",
+            (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
+        uf2_state = UF2_VGA_LOCKUP;
+        return;
+    }
+    struct uf2_block *b = (struct uf2_block *)mbuf;
+    uint32_t in_sector = uf2_block_idx % UF2_VGA_SECTOR_BLOCKS;
+    uint32_t rel_sector = uf2_block_idx / UF2_VGA_SECTOR_BLOCKS;
+
+#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+    if (in_sector == 0 && rel_sector == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+        b->data[0] ^= 0xFF;
+#endif
+
+    uint16_t xram_base = (uint16_t)(in_sector * FLASH_PAGE_SIZE);
+    for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
+        pix_send_blocking(PIX_DEVICE_XRAM, 0, b->data[i], xram_base + i);
+
+    uf2_block_idx++;
+
+    bool sector_done = (uf2_block_idx % UF2_VGA_SECTOR_BLOCKS) == 0;
+    bool image_done = (uf2_block_idx >= uf2_num_blocks);
+
+    if (image_done && !sector_done)
+    {
+        // Pad remainder of the last sector with 0xFF (erased flash state).
+        uint16_t pad_start = (uint16_t)((uf2_block_idx % UF2_VGA_SECTOR_BLOCKS) *
+                                        FLASH_PAGE_SIZE);
+        for (uint32_t i = pad_start; i < FLASH_SECTOR_SIZE; i++)
+            pix_send_blocking(PIX_DEVICE_XRAM, 0, 0xFF, (uint16_t)i);
+        sector_done = true;
+    }
+
+    int pct = (int)((uint64_t)uf2_block_idx * 100 / uf2_num_blocks);
+    if (pct != uf2_last_percent)
+    {
+        uf2_last_percent = pct;
+        printf(STR_UF2_FLASHING, pct);
+    }
+
+    if (sector_done)
+    {
+        // All 16 blocks of a sector share the same flash sector, so
+        // deriving from the block we just streamed is safe.
+        uint32_t abs_sector = (b->target_addr - XIP_BASE) / FLASH_SECTOR_SIZE;
+        uf2_vga_last_rel_sector = rel_sector;
+        DBG("UF2 VGA flash cmd: rel=%lu abs=%lu\n",
+            (unsigned long)rel_sector, (unsigned long)abs_sector);
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x05, (uint16_t)abs_sector);
+        pix_wait_begin(UF2_VGA_FLASH_ACK_TIMEOUT_MS);
+        uf2_state = UF2_VGA_WAIT_ACK;
+    }
+}
+
+static void uf2_do_vga_wait(void)
+{
+    switch (pix_wait_poll())
+    {
+    case 0:
+        return;
+    case 1:
+#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+        if (uf2_vga_last_rel_sector == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+        {
+            uf2_state = UF2_VGA_LOCKUP;
+            return;
+        }
+#endif
+        if (uf2_block_idx >= uf2_num_blocks)
+        {
+            putchar('\n');
+            uf2_state = UF2_VGA_SUCCESS;
+        }
+        else
+        {
+            uf2_state = UF2_VGA_STREAM;
+        }
+        return;
+    default:
+        DBG("UF2 VGA flash failed at rel_sector %lu\n",
+            (unsigned long)uf2_vga_last_rel_sector);
+        uf2_state = UF2_VGA_LOCKUP;
+        return;
+    }
+}
+
 void uf2_task(void)
 {
     switch (uf2_state)
@@ -415,10 +540,31 @@ void uf2_task(void)
     case UF2_REBOOT:
         stdio_flush();
         watchdog_reboot(0, 0, 0);
+        break;
     case UF2_FAILED:
         printf(STR_UF2_FLASH_FAILED);
         stdio_flush();
         reset_usb_boot(0, 0);
+        break;
+    case UF2_VGA_STREAM:
+        uf2_do_vga_stream_block();
+        break;
+    case UF2_VGA_WAIT_ACK:
+        uf2_do_vga_wait();
+        break;
+    case UF2_VGA_SUCCESS:
+        stdio_flush();
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x06, 0);
+        // Let the PIX FIFO drain and VGA begin its reboot before we go.
+        busy_wait_ms(50);
+        watchdog_reboot(0, 0, 0);
+        break;
+    case UF2_VGA_LOCKUP:
+        printf(STR_UF2_FLASH_FAILED);
+        stdio_flush();
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x06, 1);
+        for (;;)
+            tight_loop_contents();
     }
 }
 
@@ -512,9 +658,26 @@ void uf2_mon_flash(const char *args)
 
     if (!strcmp(name, STR_UF2_PROG_NAME_VGA))
     {
-        DBG("UF2 VGA target, stubbed\n");
-        uf2_close();
-        printf("?TODO\n");
+        if (!vga_connected())
+        {
+            uf2_close();
+            mon_add_response_str(STR_ERR_VGA_NOT_CONNECTED);
+            return;
+        }
+        printf(STR_UF2_START_MESSAGE);
+        fr = f_lseek(&uf2_fil, uf2_main_start);
+        if (fr != FR_OK)
+        {
+            DBG("UF2 VGA rewind f_lseek failed fr=%d\n", (int)fr);
+            uf2_close();
+            mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+            return;
+        }
+        uf2_block_idx = 0;
+        uf2_last_percent = -1;
+        DBG("UF2 entering VGA stream phase, %lu blocks from offset %lu\n",
+            (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
+        uf2_state = UF2_VGA_STREAM;
         return;
     }
 

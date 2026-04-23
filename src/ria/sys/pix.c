@@ -7,6 +7,7 @@
 #include "main.h"
 #include "api/api.h"
 #include "sys/pix.h"
+#include "sys/vga.h"
 #include "ria.pio.h"
 #include <pico/time.h>
 #include <string.h>
@@ -74,6 +75,34 @@ void pix_nak(void)
 {
     if (pix_api_state == pix_api_waiting)
         pix_api_state = pix_api_nak;
+}
+
+void pix_wait_begin(uint32_t timeout_ms)
+{
+    pix_api_state = pix_api_waiting;
+    pix_api_state_timer = make_timeout_time_ms(timeout_ms);
+}
+
+int pix_wait_poll(void)
+{
+    switch (pix_api_state)
+    {
+    case pix_api_ack:
+        pix_api_state = pix_api_running;
+        return 1;
+    case pix_api_nak:
+        pix_api_state = pix_api_running;
+        return -1;
+    case pix_api_waiting:
+        if (time_reached(pix_api_state_timer))
+        {
+            pix_api_state = pix_api_running;
+            return -2;
+        }
+        return 0;
+    default:
+        return -1;
+    }
 }
 
 bool pix_api_xreg(void)
@@ -148,6 +177,13 @@ bool pix_api_xreg(void)
     {
         pix_send_count = 0;
         return api_return_errno(API_EINVAL);
+    }
+
+    // VGA control channel ($F) is RIA-private while VGA is connected.
+    if (pix_device == PIX_DEVICE_VGA && pix_channel == 0xF && vga_connected())
+    {
+        pix_send_count = 0;
+        return api_return_errno(API_EACCES);
     }
 
     // Local PIX device $0
