@@ -42,6 +42,22 @@
 #include "usb/usb.h"
 #include "usb/nfc.h"
 #include "usb/xin.h"
+#include <pico/time.h>
+#include <stdio.h>
+
+#ifndef NDEBUG
+#define TIME_TASK(fn)                                                  \
+    do                                                                 \
+    {                                                                  \
+        absolute_time_t _t0 = get_absolute_time();                     \
+        fn();                                                          \
+        int64_t _us = absolute_time_diff_us(_t0, get_absolute_time()); \
+        if (_us > 10000)                                               \
+            printf("SLOW " #fn " %lldus\n", (long long)_us);           \
+    } while (0)
+#else
+#define TIME_TASK(fn) fn()
+#endif
 
 /**************************************/
 /* All device drivers register below. */
@@ -96,7 +112,7 @@ static void init(void)
 // Calling FatFs in here will summon a dragon.
 void main_task(void)
 {
-    usb_task();
+    TIME_TASK(usb_task);
     std_task();
     cpu_task();
     ria_task();
