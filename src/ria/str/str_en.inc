@@ -130,6 +130,9 @@ X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d installed ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d installed ROMs:\n")
 
+// UF2 flash start
+X(STR_UF2_START_MESSAGE, "If flashing fails, recover via USB using the BOOTSEL button.\n")
+
 X(STR_HELP_HELP,
   "Commands:\n"
   "HELP (command|rom)  - This help or expanded help for command or rom.\n"
@@ -146,6 +149,7 @@ X(STR_HELP_HELP,
   "REMOVE rom          - Remove ROM from RIA.\n"
   "REBOOT              - Reboot the RIA. Will load selected boot ROM.\n"
   "RESET               - Start 6502 at current reset vector ($FFFC).\n"
+  "FLASH file          - Flash UF2 file to update RIA or VGA firmware.\n"
   "MKDIR dir           - Make a new directory.\n"
   "UNLINK file|dir     - Delete a file or empty directory.\n"
   "UPLOAD file         - Write file. Binary chunks follow.\n"
@@ -236,6 +240,11 @@ X(STR_HELP_REBOOT,
 X(STR_HELP_RESET,
   "RESET will start the 6502 by bringing RESB high. This monitor will be\n"
   "suspended until the 6502 stops with a UART break, CTRL-ALT-DEL, or exit().\n")
+
+X(STR_HELP_FLASH,
+  "FLASH reads a UF2 file from a USB drive and flashes it to the RIA or VGA.\n"
+  "If flashing fails, recover via USB using the standard BOOTSEL method (hold\n"
+  "BOOTSEL while connecting USB to a computer then copy file).\n")
 
 X(STR_HELP_UPLOAD,
   "UPLOAD is used to send a file from another system to the local filesystem.\n"

@@ -4,6 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+// References:
+// https://github.com/microsoft/uf2
+// https://github.com/raspberrypi/picotool
+
 #include "mon/mon.h"
 #include "mon/uf2.h"
 #include "str/str.h"
@@ -27,12 +31,12 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+#define UF2_MAP_TABLE_MAX 10 // matches picotool's arbitrary cap
+#define UF2_NAME_READ_MAX 32
+
 #define UF2_PROG_NAME_RIA "RP6502-RIA"
 #define UF2_PROG_NAME_RIA_W "RP6502-RIA-W"
 #define UF2_PROG_NAME_VGA "RP6502-VGA"
-
-#define UF2_MAP_TABLE_MAX 10 // matches picotool's arbitrary cap
-#define UF2_NAME_READ_MAX 32
 
 static enum {
     UF2_IDLE,
@@ -394,17 +398,17 @@ static void uf2_do_write(void)
     uf2_block_idx++;
 
     int pct = (int)((uint64_t)uf2_block_idx * 100 / uf2_num_blocks);
-    if (pct != uf2_last_percent && pct < 100)
+    if (pct != uf2_last_percent)
     {
         uf2_last_percent = pct;
         printf("\rFlashing: %d%%", pct);
-        stdio_flush();
+        stdio_flush(); // TODO needed?
     }
 
     if (uf2_block_idx >= uf2_num_blocks)
     {
-        printf("\rFlashing: 100%%\n");
-        stdio_flush();
+        putchar('\n');
+        stdio_flush(); // TODO needed?
         uf2_state = UF2_REBOOT;
     }
 }
@@ -427,8 +431,11 @@ void uf2_task(void)
         while (1)
             tight_loop_contents();
     case UF2_FAILED:
-        printf("\n?Flash failed, recover with BOOTSEL\n");
+        // Keep this message local: flash is inconsistent after a mid-write
+        // failure, so XIP reads of str_en's __in_flash strings are unsafe.
+        printf("\n?Flashing UF2 failed\n");
         stdio_flush();
+        // TODO look into SDK for a power down
         while (1)
             tight_loop_contents();
     }
@@ -539,8 +546,7 @@ void uf2_mon_flash(const char *args)
         return;
     }
 
-    printf("A Pi Pico cannot be bricked. If flashing fails, recover via USB\n"
-           "using the standard BOOTSEL method.\n");
+    printf(STR_UF2_START_MESSAGE);
     stdio_flush();
 
     fr = f_lseek(&uf2_fil, uf2_main_start);
