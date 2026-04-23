@@ -45,8 +45,7 @@ void sys_task(void)
     const uint8_t *src = (const uint8_t *)xram;
 
     flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    for (uint32_t i = 0; i < FLASH_SECTOR_SIZE; i += FLASH_PAGE_SIZE)
-        flash_range_program(flash_offs + i, src + i, FLASH_PAGE_SIZE);
+    flash_range_program(flash_offs, src, FLASH_SECTOR_SIZE);
 
     if (memcmp((const void *)(XIP_BASE + flash_offs), src, FLASH_SECTOR_SIZE) == 0)
         ria_ack();
