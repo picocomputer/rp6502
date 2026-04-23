@@ -11,6 +11,7 @@
 #include "mon/ram.h"
 #include "mon/rom.h"
 #include "mon/set.h"
+#include "mon/uf2.h"
 #include "net/cyw.h"
 #include "str/rln.h"
 #include "str/str.h"
@@ -80,6 +81,7 @@ __in_flash("mon_commands") static struct
     {STR_REMOVE, rom_mon_remove},
     {STR_REBOOT, sys_mon_reboot},
     {STR_RESET, sys_mon_reset},
+    {STR_FLASH, uf2_mon_flash},
     {STR_UPLOAD, fil_mon_upload},
     {STR_UNLINK, fil_mon_unlink},
     {STR_BINARY, ram_mon_binary},
@@ -474,6 +476,7 @@ void mon_task(void)
     if (ram_active() ||
         rom_active() ||
         fil_active() ||
+        uf2_active() ||
         usb_boot_enumerating())
         return;
     // The monitor has control

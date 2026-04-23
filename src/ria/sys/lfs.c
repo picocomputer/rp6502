@@ -84,6 +84,7 @@ void lfs_init(void)
 {
     // Check we're not overlapping the LFS region in flash
     extern char __flash_binary_end;
+    (void)__flash_binary_end;
     assert(((uintptr_t)&__flash_binary_end - XIP_BASE <= PICO_FLASH_SIZE_BYTES - LFS_DISK_SIZE));
     // mount the filesystem
     int err = lfs_mount(&lfs_volume, &cfg);

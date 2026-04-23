@@ -79,6 +79,7 @@ target_sources(${RIA_TARGET} PRIVATE
     mon/ram.c
     mon/rom.c
     mon/set.c
+    mon/uf2.c
     mon/vip.c
     net/ble.c
     net/cmd.c
@@ -124,6 +125,7 @@ target_link_libraries(${RIA_TARGET} PRIVATE
     hardware_dma
     hardware_pwm
     hardware_flash
+    boot_uf2_headers
     tinyusb_host
     pico_btstack_ble
     cmsis_core

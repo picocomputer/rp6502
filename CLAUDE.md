@@ -5,3 +5,6 @@ We have a submodule with overrides:
 * src/tinyusb_rp6502/hcd_rp2040.c
 * src/tinyusb_rp6502/rp2040_usb.c
 * src/tinyusb_rp6502/msc_host.c
+
+Before every Bash call, ask: can Grep, Glob, or Read do this? If yes, use
+those. Bash is reserved for things that must be shell.

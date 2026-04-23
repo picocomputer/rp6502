@@ -38,6 +38,7 @@ X(STR_ERR_ROM_ARGV_OVERFLOW, "?ROM argv overflow\n")
 X(STR_ERR_ROM_ARGV_INVALID, "?ROM argument invalid\n")
 X(STR_ERR_ROM_NAME_INVALID, "?ROM name invalid\n")
 X(STR_ERR_ROM_DATA_INVALID, "?ROM data invalid\n")
+X(STR_ERR_INVALID_UF2_FILE, "?Invalid UF2 file\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?IO error\n")                     // -5

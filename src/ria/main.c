@@ -22,6 +22,7 @@
 #include "mon/mon.h"
 #include "mon/ram.h"
 #include "mon/rom.h"
+#include "mon/uf2.h"
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/mdm.h"
@@ -119,6 +120,7 @@ static void task(void)
     rln_task();
     fil_task();
     rom_task();
+    uf2_task();
     nfc_task(); // must be last for exec
     api_task(); // must be last for exec
 }
