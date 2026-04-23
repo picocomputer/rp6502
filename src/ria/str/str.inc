@@ -20,6 +20,10 @@ X(STR_MDM_SETTINGS, "MODEM%d.SYS")
 // https://www.ntppool.org/
 X(STR_NTP_SERVER, "pool.ntp.org")
 
+// UF2 program name identifiers
+X(STR_UF2_PROG_NAME_RIA, PICO_PROGRAM_NAME)
+X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
+
 // VGA driver
 X(STR_VGA_DISPLAY_TYPE_0, "640x480")
 X(STR_VGA_DISPLAY_TYPE_1, "640x480 | 1280x720")

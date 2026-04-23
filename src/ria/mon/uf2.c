@@ -34,10 +34,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define UF2_MAP_TABLE_MAX 10 // matches picotool's arbitrary cap
 #define UF2_NAME_READ_MAX 32
 
-#define UF2_PROG_NAME_RIA "RP6502-RIA"
-#define UF2_PROG_NAME_RIA_W "RP6502-RIA-W"
-#define UF2_PROG_NAME_VGA "RP6502-VGA"
-
 static enum {
     UF2_IDLE,
     UF2_WRITE,
@@ -529,7 +525,7 @@ void uf2_mon_flash(const char *args)
         return;
     }
 
-    if (!strcmp(name, UF2_PROG_NAME_VGA))
+    if (!strcmp(name, STR_UF2_PROG_NAME_VGA))
     {
         DBG("UF2 VGA target, stubbed\n");
         uf2_close();
@@ -537,10 +533,10 @@ void uf2_mon_flash(const char *args)
         return;
     }
 
-    if (strcmp(name, UF2_PROG_NAME_RIA) &&
-        strcmp(name, UF2_PROG_NAME_RIA_W))
+    if (strcmp(name, STR_UF2_PROG_NAME_RIA))
     {
-        DBG("UF2 unrecognized program_name \"%s\"\n", name);
+        DBG("UF2 program_name \"%s\" does not match \"%s\"\n",
+            name, STR_UF2_PROG_NAME_RIA);
         uf2_close();
         mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
         return;
