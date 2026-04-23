@@ -18,12 +18,14 @@
 #include <hardware/watchdog.h>
 #include <pico/binary_info/defs.h>
 #include <pico/binary_info/structure.h>
+#include <pico/bootrom.h>
 #include <pico/stdio.h>
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
-// #define DEBUG_RIA_MON_UF2
+// TODO need STR_ strings in RAM
+//  #define DEBUG_RIA_MON_UF2
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_UF2)
 #define DBG(...) printf(__VA_ARGS__)
@@ -46,7 +48,7 @@ static uint32_t uf2_num_blocks;
 static uint32_t uf2_block_idx;
 static uint32_t uf2_first_target;
 static int uf2_last_percent;
-static FSIZE_t uf2_main_start; // file offset of main firmware's block 0
+static FSIZE_t uf2_main_start;
 
 static struct
 {
@@ -363,14 +365,6 @@ static bool uf2_check_block(uint32_t block_no)
     return true;
 }
 
-static void __no_inline_not_in_flash_func(uf2_write_page)(
-    uint32_t flash_offs, const uint8_t *data, bool erase_sector)
-{
-    if (erase_sector)
-        flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    flash_range_program(flash_offs, data, FLASH_PAGE_SIZE);
-}
-
 static void uf2_do_write(void)
 {
     UINT br;
@@ -386,10 +380,13 @@ static void uf2_do_write(void)
     uint32_t flash_offs = b->target_addr - XIP_BASE;
     bool erase_sector = (uf2_block_idx % 16) == 0;
     if (erase_sector)
+    {
         DBG("UF2 erase+prog sector @0x%08lX (block %lu/%lu)\n",
             (unsigned long)flash_offs, (unsigned long)uf2_block_idx,
             (unsigned long)uf2_num_blocks);
-    uf2_write_page(flash_offs, b->data, erase_sector);
+        flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
+    }
+    flash_range_program(flash_offs, b->data, FLASH_PAGE_SIZE);
 
     uf2_block_idx++;
 
@@ -398,20 +395,15 @@ static void uf2_do_write(void)
     {
         uf2_last_percent = pct;
         printf("\rFlashing: %d%%", pct);
-        stdio_flush(); // TODO needed?
     }
 
     if (uf2_block_idx >= uf2_num_blocks)
     {
         putchar('\n');
-        stdio_flush(); // TODO needed?
         uf2_state = UF2_REBOOT;
     }
 }
 
-// uf2_task uses direct printf+stdio_flush for its \r-repainted progress line
-// and advisory/error messages; the line-oriented mon_response pipeline can't
-// express a \r-updated counter. This is the only subsystem that does so.
 void uf2_task(void)
 {
     switch (uf2_state)
@@ -424,16 +416,10 @@ void uf2_task(void)
     case UF2_REBOOT:
         stdio_flush();
         watchdog_reboot(0, 0, 0);
-        while (1)
-            tight_loop_contents();
     case UF2_FAILED:
-        // Keep this message local: flash is inconsistent after a mid-write
-        // failure, so XIP reads of str_en's __in_flash strings are unsafe.
         printf("\n?Flashing UF2 failed\n");
         stdio_flush();
-        // TODO look into SDK for a power down
-        while (1)
-            tight_loop_contents();
+        reset_usb_boot(0, 0);
     }
 }
 
@@ -543,7 +529,6 @@ void uf2_mon_flash(const char *args)
     }
 
     printf(STR_UF2_START_MESSAGE);
-    stdio_flush();
 
     fr = f_lseek(&uf2_fil, uf2_main_start);
     if (fr != FR_OK)

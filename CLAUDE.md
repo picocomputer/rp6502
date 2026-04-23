@@ -8,3 +8,6 @@ We have a submodule with overrides:
 
 Before every Bash call, ask: can Grep, Glob, or Read do this? If yes, use
 those. Bash is reserved for things that must be shell.
+
+Never search the root of the filesystem. Everything you need will be in
+the user home directory.
