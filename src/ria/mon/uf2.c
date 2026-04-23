@@ -26,9 +26,6 @@
 #include <stdio.h>
 #include <string.h>
 
-// #define DEBUG_RIA_MON_UF2
-// #define DEBUG_RIA_MON_UF2_SIMULATE_FAILURE 0
-
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_UF2)
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -63,12 +60,11 @@ static FSIZE_t uf2_main_start;
 // RIA path: page accumulator progress.
 static uint32_t uf2_cur_page;   // last page flash offset in accumulator; -1u invalid
 static uint32_t uf2_cur_sector; // last erased sector index; -1u invalid
-// VGA path: sector index most recently sent to VGA for flashing, plus the
-// resume flag/count used when a sector-transition deferral interrupts a
-// block mid-processing and the simulate-failure index runs off sector count.
+// VGA path: sector index most recently sent to VGA for flashing, and the
+// resume flag used when a sector-transition deferral interrupts a block
+// mid-processing.
 static uint32_t uf2_vga_last_sector;
 static bool uf2_vga_has_deferred_block;
-static uint32_t uf2_vga_sector_count;
 
 static struct
 {
@@ -492,9 +488,17 @@ static void uf2_do_write(void)
     struct uf2_block *b = (struct uf2_block *)UF2_RIA_BLOCK_BUF;
     uint32_t flash_addr = b->target_addr - XIP_BASE;
 #ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-    if (uf2_block_idx == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+    // Corrupt sector 0 so the flash is demonstrably broken after reboot —
+    // lets us exercise the full failure-UX path end to end, including
+    // what happens after a manual power-cycle on a half-written image.
+    if (uf2_block_idx == 0)
     {
-        putchar('\n');
+        for (uint32_t i = 0; i < uf2_payload_size; i++)
+            b->data[i] ^= 0xFF;
+        uf2_ria_write(flash_addr, b->data, uf2_payload_size);
+        uf2_ria_flush();
+        uf2_block_idx++;
+        uf2_progress();
         uf2_state = UF2_FAILED;
         return;
     }
@@ -569,16 +573,14 @@ static void uf2_do_vga_stream_block(void)
         for (uint32_t i = 0; i < FLASH_SECTOR_SIZE; i++)
             pix_send_blocking(PIX_DEVICE_XRAM, 0, 0xFF, (uint16_t)i);
         uf2_cur_sector = sector;
-        uf2_vga_sector_count++;
     }
 
 #ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-    // Corrupt every byte in every block of the target sector so the
-    // resulting flash is demonstrably broken — lets us exercise the full
-    // failure-UX path end to end, including what the VGA looks like after
-    // a manual power-cycle on a half-written image.
-    if (uf2_vga_sector_count > 0 &&
-        (uf2_vga_sector_count - 1) == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+    // Corrupt every byte in every block of sector 0 so the resulting
+    // flash is demonstrably broken — lets us exercise the full
+    // failure-UX path end to end, including what the VGA looks like
+    // after a manual power-cycle on a half-written image.
+    if (sector == 0)
     {
         for (uint32_t i = 0; i < uf2_payload_size; i++)
             b->data[i] ^= 0xFF;
@@ -612,10 +614,9 @@ static void uf2_do_vga_wait(void)
         return;
     case 1:
 #ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-        // Belt-and-suspenders: if VGA unexpectedly ack'd on the
-        // simulate-fail sector, force lockup.
-        if (uf2_vga_sector_count > 0 &&
-            (uf2_vga_sector_count - 1) == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+        // Belt-and-suspenders: if VGA unexpectedly ack'd sector 0 after
+        // the payload was corrupted, force lockup.
+        if (uf2_vga_last_sector == 0)
         {
             uf2_state = UF2_VGA_LOCKUP;
             return;
@@ -775,7 +776,6 @@ void uf2_mon_flash(const char *args)
             mon_add_response_str(STR_ERR_VGA_NOT_CONNECTED);
             return;
         }
-        printf(STR_UF2_START_MESSAGE);
         fr = f_lseek(&uf2_fil, uf2_main_start);
         if (fr != FR_OK)
         {
@@ -788,7 +788,6 @@ void uf2_mon_flash(const char *args)
         uf2_last_percent = -1;
         uf2_cur_sector = (uint32_t)-1;
         uf2_vga_has_deferred_block = false;
-        uf2_vga_sector_count = 0;
         DBG("UF2 entering VGA stream phase, %lu blocks from offset %lu\n",
             (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
         uf2_state = UF2_VGA_STREAM;
@@ -803,8 +802,6 @@ void uf2_mon_flash(const char *args)
         mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
         return;
     }
-
-    printf(STR_UF2_START_MESSAGE);
 
     fr = f_lseek(&uf2_fil, uf2_main_start);
     if (fr != FR_OK)
