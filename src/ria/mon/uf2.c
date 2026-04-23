@@ -26,8 +26,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DEBUG_RIA_MON_UF2
-// #define DEBUG_RIA_MON_UF2_SIMULATE_FAILURE 10
+// #define DEBUG_RIA_MON_UF2
+// #define DEBUG_RIA_MON_UF2_SIMULATE_FAILURE 0
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_UF2)
 #define DBG(...) printf(__VA_ARGS__)
@@ -35,10 +35,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define UF2_MAP_TABLE_MAX 10 // matches picotool's arbitrary cap
+#define UF2_MAP_TABLE_MAX 10 // small arbitrary cap; picotool also uses one
 #define UF2_NAME_READ_MAX 32
-#define UF2_VGA_SECTOR_BLOCKS 16 // 16 * 256B payload = FLASH_SECTOR_SIZE
-// RP2350 4K erase ~40ms + 16 page programs ~11ms; allow 5x margin.
+// Fault-detection ceiling. Typical SPI NOR: 4K erase ~45ms + 16x page
+// program ~8ms = ~55ms. Worst-case datasheet: erase up to 400ms + programs
+// up to 48ms. Success path returns as soon as the ack lands.
 #define UF2_VGA_FLASH_ACK_TIMEOUT_MS 500
 
 static enum {
@@ -56,12 +57,18 @@ static FIL uf2_fil;
 static uint32_t uf2_num_blocks;
 static uint32_t uf2_block_idx;
 static uint32_t uf2_first_target;
+static uint16_t uf2_payload_size;
 static int uf2_last_percent;
 static FSIZE_t uf2_main_start;
-// UF2-relative sector index (0 = first sector of main firmware) for the
-// sector we most recently asked VGA to burn. Used to match against
-// DEBUG_RIA_MON_UF2_SIMULATE_FAILURE in the ack handler.
-static uint32_t uf2_vga_last_rel_sector;
+// RIA path: page accumulator progress.
+static uint32_t uf2_cur_page;   // last page flash offset in accumulator; -1u invalid
+static uint32_t uf2_cur_sector; // last erased sector index; -1u invalid
+// VGA path: sector index most recently sent to VGA for flashing, plus the
+// resume flag/count used when a sector-transition deferral interrupts a
+// block mid-processing and the simulate-failure index runs off sector count.
+static uint32_t uf2_vga_last_sector;
+static bool uf2_vga_has_deferred_block;
+static uint32_t uf2_vga_sector_count;
 
 static struct
 {
@@ -118,14 +125,18 @@ static bool uf2_is_abs_block(void)
 }
 
 // Stored flash address -> UF2 file offset (absolute; includes uf2_main_start).
+// Assumes the main firmware region is a contiguous run of blocks starting at
+// uf2_first_target with stride uf2_payload_size. If future tooling emits
+// non-contiguous main firmware, name lookups through this helper can miss;
+// the write path does not depend on this helper.
 static int32_t uf2_addr_to_file_off(uint32_t stored_addr, uint32_t needed)
 {
     if (stored_addr < uf2_first_target)
         return -1;
     uint32_t image_offset = stored_addr - uf2_first_target;
-    uint32_t block_no = image_offset / 256;
-    uint32_t in_payload = image_offset % 256;
-    if (in_payload + needed > 256)
+    uint32_t block_no = image_offset / uf2_payload_size;
+    uint32_t in_payload = image_offset % uf2_payload_size;
+    if (in_payload + needed > uf2_payload_size)
         return -1;
     if (block_no >= uf2_num_blocks)
         return -1;
@@ -162,23 +173,29 @@ static bool uf2_read_at(int32_t file_off, uint32_t n)
 
 // Locate and extract the program_name from binary_info. Clobbers mbuf.
 // On success, NUL-terminated string is at mbuf[0..]. Mirrors picotool's
-// find_binary_info() / id_and_string path (see picotool main.cpp:2456).
-// Picotool scans the first 256 uint32 words (1024 B) on RP2350; we match
-// that by assembling the payloads of the first up to 4 main-firmware UF2
-// blocks into mbuf.
+// find_binary_info() / id_and_string path.
+// Picotool scans the first 1024 B of the main image on RP2350; we match
+// that by assembling the payloads of the first main-firmware UF2 blocks
+// that together cover at least 1024 B (capped at MBUF_SIZE and num_blocks).
 static const char *uf2_find_program_name(void)
 {
-    uint32_t want_blocks = uf2_num_blocks < 4 ? uf2_num_blocks : 4;
+    uint32_t want_blocks = MBUF_SIZE / uf2_payload_size;
+    if (want_blocks == 0)
+        want_blocks = 1;
+    if (want_blocks > uf2_num_blocks)
+        want_blocks = uf2_num_blocks;
     for (uint32_t i = 0; i < want_blocks; i++)
     {
         FSIZE_t off = uf2_main_start + (FSIZE_t)(i * 512 + 32);
         if (f_lseek(&uf2_fil, off) != FR_OK)
             return NULL;
         UINT br;
-        if (f_read(&uf2_fil, mbuf + i * 256, 256, &br) != FR_OK || br != 256)
+        if (f_read(&uf2_fil, mbuf + i * uf2_payload_size,
+                   uf2_payload_size, &br) != FR_OK ||
+            br != uf2_payload_size)
             return NULL;
     }
-    uint32_t scan_words = want_blocks * 256 / 4;
+    uint32_t scan_words = want_blocks * uf2_payload_size / 4;
 
     const uint32_t *payload = (const uint32_t *)mbuf;
     int found = -1;
@@ -204,7 +221,7 @@ static const char *uf2_find_program_name(void)
     if (found < 0)
     {
         DBG("UF2 binary_info marker not found in first %lu bytes\n",
-            (unsigned long)(want_blocks * 256));
+            (unsigned long)(want_blocks * uf2_payload_size));
         return NULL;
     }
     DBG("UF2 binary_info marker at image offset %lu\n",
@@ -295,11 +312,13 @@ static const char *uf2_find_program_name(void)
     return NULL;
 }
 
-// Validate a UF2 block header already in mbuf. Captures num_blocks and
-// first_target when block_no==0.
-static bool uf2_check_block(uint32_t block_no)
+// Validate a UF2 block header already in mbuf (or at any address). The
+// pointer argument lets callers validate blocks read into scratch areas
+// other than mbuf (e.g. the write-phase page accumulator layout). Captures
+// num_blocks, first_target, and payload_size when block_no==0.
+static bool uf2_check_block_at(const void *blk, uint32_t block_no)
 {
-    struct uf2_block *b = (struct uf2_block *)mbuf;
+    const struct uf2_block *b = (const struct uf2_block *)blk;
     if (b->magic_start0 != UF2_MAGIC_START0)
     {
         DBG("UF2 block %lu bad magic_start0=0x%08lX\n",
@@ -339,12 +358,6 @@ static bool uf2_check_block(uint32_t block_no)
             (unsigned long)ABSOLUTE_FAMILY_ID);
         return false;
     }
-    if (b->payload_size != 256)
-    {
-        DBG("UF2 block %lu payload_size=%lu (want 256)\n",
-            (unsigned long)block_no, (unsigned long)b->payload_size);
-        return false;
-    }
     if (b->block_no != block_no)
     {
         DBG("UF2 block_no=%lu expected %lu\n",
@@ -353,10 +366,18 @@ static bool uf2_check_block(uint32_t block_no)
     }
     if (block_no == 0)
     {
+        if (b->payload_size < 1 || b->payload_size > 476)
+        {
+            DBG("UF2 block 0 payload_size=%lu out of spec range 1..476\n",
+                (unsigned long)b->payload_size);
+            return false;
+        }
         uf2_num_blocks = b->num_blocks;
         uf2_first_target = b->target_addr;
-        DBG("UF2 block 0 OK: num_blocks=%lu first_target=0x%08lX\n",
-            (unsigned long)uf2_num_blocks, (unsigned long)uf2_first_target);
+        uf2_payload_size = (uint16_t)b->payload_size;
+        DBG("UF2 block 0 OK: num_blocks=%lu first_target=0x%08lX payload_size=%u\n",
+            (unsigned long)uf2_num_blocks, (unsigned long)uf2_first_target,
+            (unsigned)uf2_payload_size);
     }
     else
     {
@@ -367,130 +388,217 @@ static bool uf2_check_block(uint32_t block_no)
                 (unsigned long)uf2_num_blocks);
             return false;
         }
-        if (b->target_addr != uf2_first_target + block_no * 256)
+        if (b->payload_size != uf2_payload_size)
         {
-            DBG("UF2 block %lu target_addr=0x%08lX expected 0x%08lX\n",
-                (unsigned long)block_no, (unsigned long)b->target_addr,
-                (unsigned long)(uf2_first_target + block_no * 256));
+            DBG("UF2 block %lu payload_size=%lu expected %u\n",
+                (unsigned long)block_no, (unsigned long)b->payload_size,
+                (unsigned)uf2_payload_size);
             return false;
         }
     }
     return true;
 }
 
+static inline bool uf2_check_block(uint32_t block_no)
+{
+    return uf2_check_block_at(mbuf, block_no);
+}
+
+// Emit a progress line when the percent ticks.
+static void uf2_progress(void)
+{
+    int pct = (int)((uint64_t)uf2_block_idx * 100 / uf2_num_blocks);
+    if (pct != uf2_last_percent)
+    {
+        uf2_last_percent = pct;
+        printf(STR_UF2_FLASHING, pct);
+    }
+}
+
+// mbuf layout during RIA write phase:
+//   [0..FLASH_PAGE_SIZE)                 — page accumulator (persisted)
+//   [FLASH_PAGE_SIZE .. FLASH_PAGE_SIZE+512) — 512-B block read
+// (MBUF_SIZE == 1024 B; these are disjoint. See src/ria/sys/mem.h.)
+#define UF2_RIA_PAGE_BUF (mbuf)
+#define UF2_RIA_BLOCK_BUF (mbuf + FLASH_PAGE_SIZE)
+
+// Stream n bytes of src to flash_addr through the page accumulator. Erases
+// each new sector on first visit; programs each page when the write pointer
+// moves out of it. Returns false if the incoming address would revisit an
+// already-programmed sector (not supported — would require re-erasing a
+// sector we've already burned into).
+static bool uf2_ria_write(uint32_t flash_addr, const uint8_t *src, uint32_t n)
+{
+    while (n)
+    {
+        uint32_t page = flash_addr & ~(FLASH_PAGE_SIZE - 1);
+        uint32_t off = flash_addr & (FLASH_PAGE_SIZE - 1);
+        if (page != uf2_cur_page)
+        {
+            if (uf2_cur_page != (uint32_t)-1)
+                flash_range_program(uf2_cur_page, UF2_RIA_PAGE_BUF, FLASH_PAGE_SIZE);
+            uint32_t sec = page / FLASH_SECTOR_SIZE;
+            if (sec != uf2_cur_sector)
+            {
+                if (uf2_cur_sector != (uint32_t)-1 && sec <= uf2_cur_sector)
+                {
+                    DBG("UF2 sector revisit rejected: cur=%lu new=%lu\n",
+                        (unsigned long)uf2_cur_sector, (unsigned long)sec);
+                    return false;
+                }
+                DBG("UF2 erase sector @0x%08lX (block %lu/%lu)\n",
+                    (unsigned long)(sec * FLASH_SECTOR_SIZE),
+                    (unsigned long)uf2_block_idx,
+                    (unsigned long)uf2_num_blocks);
+                flash_range_erase(sec * FLASH_SECTOR_SIZE, FLASH_SECTOR_SIZE);
+                uf2_cur_sector = sec;
+            }
+            memset(UF2_RIA_PAGE_BUF, 0xFF, FLASH_PAGE_SIZE);
+            uf2_cur_page = page;
+        }
+        uint32_t chunk = FLASH_PAGE_SIZE - off;
+        if (chunk > n)
+            chunk = n;
+        memcpy(UF2_RIA_PAGE_BUF + off, src, chunk);
+        src += chunk;
+        flash_addr += chunk;
+        n -= chunk;
+    }
+    return true;
+}
+
+// Program the in-flight page. Called at end of image.
+static void uf2_ria_flush(void)
+{
+    if (uf2_cur_page != (uint32_t)-1)
+    {
+        flash_range_program(uf2_cur_page, UF2_RIA_PAGE_BUF, FLASH_PAGE_SIZE);
+        uf2_cur_page = (uint32_t)-1;
+    }
+}
+
 static void uf2_do_write(void)
 {
     UINT br;
-    FRESULT fr = f_read(&uf2_fil, mbuf, 512, &br);
-    if (fr != FR_OK || br != 512 || !uf2_check_block(uf2_block_idx))
+    FRESULT fr = f_read(&uf2_fil, UF2_RIA_BLOCK_BUF, 512, &br);
+    if (fr != FR_OK || br != 512 ||
+        !uf2_check_block_at(UF2_RIA_BLOCK_BUF, uf2_block_idx))
     {
         DBG("UF2 write-phase read/validate failed at block %lu (fr=%d br=%u)\n",
             (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
         uf2_state = UF2_FAILED;
         return;
     }
-    struct uf2_block *b = (struct uf2_block *)mbuf;
-    uint32_t flash_offs = b->target_addr - XIP_BASE;
-    bool erase_sector = (uf2_block_idx % UF2_VGA_SECTOR_BLOCKS) == 0;
+    struct uf2_block *b = (struct uf2_block *)UF2_RIA_BLOCK_BUF;
+    uint32_t flash_addr = b->target_addr - XIP_BASE;
 #ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-    bool simulate = erase_sector &&
-                    (uf2_block_idx / UF2_VGA_SECTOR_BLOCKS) ==
-                        DEBUG_RIA_MON_UF2_SIMULATE_FAILURE;
-    if (simulate)
-        b->data[0] ^= 0xFF;
-#endif
-    if (erase_sector)
-    {
-        DBG("UF2 erase+prog sector @0x%08lX (block %lu/%lu)\n",
-            (unsigned long)flash_offs, (unsigned long)uf2_block_idx,
-            (unsigned long)uf2_num_blocks);
-        flash_range_erase(flash_offs, FLASH_SECTOR_SIZE);
-    }
-    flash_range_program(flash_offs, b->data, FLASH_PAGE_SIZE);
-
-#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-    if (simulate)
+    if (uf2_block_idx == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
     {
         putchar('\n');
         uf2_state = UF2_FAILED;
         return;
     }
 #endif
+    if (!uf2_ria_write(flash_addr, b->data, uf2_payload_size))
+    {
+        uf2_state = UF2_FAILED;
+        return;
+    }
 
     uf2_block_idx++;
-
-    int pct = (int)((uint64_t)uf2_block_idx * 100 / uf2_num_blocks);
-    if (pct != uf2_last_percent)
-    {
-        uf2_last_percent = pct;
-        printf(STR_UF2_FLASHING, pct);
-    }
+    uf2_progress();
 
     if (uf2_block_idx >= uf2_num_blocks)
     {
+        uf2_ria_flush();
         putchar('\n');
         uf2_state = UF2_REBOOT;
     }
 }
 
-// Stream one UF2 block's 256B payload into VGA xram, accumulating toward
-// a full 4KB sector. When the 16th block lands (or the image ends), fire
-// $1:F:05 and wait for VGA's ack/nak.
+// Stream one UF2 block's payload into VGA xram, using xram as a 4 KB sector
+// accumulator. A sector transition (next block targets a different sector,
+// or image ends) triggers a $1:F:05 to VGA and a wait for ack/nak. When a
+// transition happens mid-stream, the just-read block is deferred: it is
+// stored in mbuf and processed after the ack returns.
 static void uf2_do_vga_stream_block(void)
 {
-    UINT br;
-    FRESULT fr = f_read(&uf2_fil, mbuf, 512, &br);
-    if (fr != FR_OK || br != 512 || !uf2_check_block(uf2_block_idx))
+    if (!uf2_vga_has_deferred_block)
     {
-        DBG("UF2 VGA read/validate failed at block %lu (fr=%d br=%u)\n",
-            (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
+        UINT br;
+        FRESULT fr = f_read(&uf2_fil, mbuf, 512, &br);
+        if (fr != FR_OK || br != 512 || !uf2_check_block(uf2_block_idx))
+        {
+            DBG("UF2 VGA read/validate failed at block %lu (fr=%d br=%u)\n",
+                (unsigned long)uf2_block_idx, (int)fr, (unsigned)br);
+            uf2_state = UF2_VGA_LOCKUP;
+            return;
+        }
+    }
+    struct uf2_block *b = (struct uf2_block *)mbuf;
+    uint32_t flash_addr = b->target_addr - XIP_BASE;
+    uint32_t sector = flash_addr / FLASH_SECTOR_SIZE;
+    uint32_t off_in_sector = flash_addr % FLASH_SECTOR_SIZE;
+
+    if (off_in_sector + uf2_payload_size > FLASH_SECTOR_SIZE)
+    {
+        DBG("UF2 VGA block %lu straddles sector boundary — unsupported layout\n",
+            (unsigned long)uf2_block_idx);
         uf2_state = UF2_VGA_LOCKUP;
         return;
     }
-    struct uf2_block *b = (struct uf2_block *)mbuf;
-    uint32_t in_sector = uf2_block_idx % UF2_VGA_SECTOR_BLOCKS;
-    uint32_t rel_sector = uf2_block_idx / UF2_VGA_SECTOR_BLOCKS;
+
+    // Sector transition: flush the in-flight sector first, defer this block.
+    if (uf2_cur_sector != (uint32_t)-1 && sector != uf2_cur_sector)
+    {
+        DBG("UF2 VGA flush sector %lu (about to start %lu)\n",
+            (unsigned long)uf2_cur_sector, (unsigned long)sector);
+        uf2_vga_last_sector = uf2_cur_sector;
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x05, (uint16_t)uf2_cur_sector);
+        uf2_cur_sector = (uint32_t)-1;
+        uf2_vga_has_deferred_block = true;
+        pix_wait_begin(UF2_VGA_FLASH_ACK_TIMEOUT_MS);
+        uf2_state = UF2_VGA_WAIT_ACK;
+        return;
+    }
+    uf2_vga_has_deferred_block = false;
+
+    // New sector: pre-fill xram with 0xFF so gaps read as erased flash.
+    if (sector != uf2_cur_sector)
+    {
+        for (uint32_t i = 0; i < FLASH_SECTOR_SIZE; i++)
+            pix_send_blocking(PIX_DEVICE_XRAM, 0, 0xFF, (uint16_t)i);
+        uf2_cur_sector = sector;
+        uf2_vga_sector_count++;
+    }
 
 #ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-    if (in_sector == 0 && rel_sector == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
-        b->data[0] ^= 0xFF;
+    // Corrupt every byte in every block of the target sector so the
+    // resulting flash is demonstrably broken — lets us exercise the full
+    // failure-UX path end to end, including what the VGA looks like after
+    // a manual power-cycle on a half-written image.
+    if (uf2_vga_sector_count > 0 &&
+        (uf2_vga_sector_count - 1) == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+    {
+        for (uint32_t i = 0; i < uf2_payload_size; i++)
+            b->data[i] ^= 0xFF;
+    }
 #endif
 
-    uint16_t xram_base = (uint16_t)(in_sector * FLASH_PAGE_SIZE);
-    for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++)
-        pix_send_blocking(PIX_DEVICE_XRAM, 0, b->data[i], xram_base + i);
+    for (uint32_t i = 0; i < uf2_payload_size; i++)
+        pix_send_blocking(PIX_DEVICE_XRAM, 0, b->data[i],
+                          (uint16_t)(off_in_sector + i));
 
     uf2_block_idx++;
+    uf2_progress();
 
-    bool sector_done = (uf2_block_idx % UF2_VGA_SECTOR_BLOCKS) == 0;
-    bool image_done = (uf2_block_idx >= uf2_num_blocks);
-
-    if (image_done && !sector_done)
+    // End of image: flush the in-flight sector.
+    if (uf2_block_idx >= uf2_num_blocks)
     {
-        // Pad remainder of the last sector with 0xFF (erased flash state).
-        uint16_t pad_start = (uint16_t)((uf2_block_idx % UF2_VGA_SECTOR_BLOCKS) *
-                                        FLASH_PAGE_SIZE);
-        for (uint32_t i = pad_start; i < FLASH_SECTOR_SIZE; i++)
-            pix_send_blocking(PIX_DEVICE_XRAM, 0, 0xFF, (uint16_t)i);
-        sector_done = true;
-    }
-
-    int pct = (int)((uint64_t)uf2_block_idx * 100 / uf2_num_blocks);
-    if (pct != uf2_last_percent)
-    {
-        uf2_last_percent = pct;
-        printf(STR_UF2_FLASHING, pct);
-    }
-
-    if (sector_done)
-    {
-        // All 16 blocks of a sector share the same flash sector, so
-        // deriving from the block we just streamed is safe.
-        uint32_t abs_sector = (b->target_addr - XIP_BASE) / FLASH_SECTOR_SIZE;
-        uf2_vga_last_rel_sector = rel_sector;
-        DBG("UF2 VGA flash cmd: rel=%lu abs=%lu\n",
-            (unsigned long)rel_sector, (unsigned long)abs_sector);
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x05, (uint16_t)abs_sector);
+        DBG("UF2 VGA final flush sector %lu\n", (unsigned long)uf2_cur_sector);
+        uf2_vga_last_sector = uf2_cur_sector;
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x05, (uint16_t)uf2_cur_sector);
+        uf2_cur_sector = (uint32_t)-1;
         pix_wait_begin(UF2_VGA_FLASH_ACK_TIMEOUT_MS);
         uf2_state = UF2_VGA_WAIT_ACK;
     }
@@ -504,7 +612,10 @@ static void uf2_do_vga_wait(void)
         return;
     case 1:
 #ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
-        if (uf2_vga_last_rel_sector == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
+        // Belt-and-suspenders: if VGA unexpectedly ack'd on the
+        // simulate-fail sector, force lockup.
+        if (uf2_vga_sector_count > 0 &&
+            (uf2_vga_sector_count - 1) == DEBUG_RIA_MON_UF2_SIMULATE_FAILURE)
         {
             uf2_state = UF2_VGA_LOCKUP;
             return;
@@ -521,8 +632,8 @@ static void uf2_do_vga_wait(void)
         }
         return;
     default:
-        DBG("UF2 VGA flash failed at rel_sector %lu\n",
-            (unsigned long)uf2_vga_last_rel_sector);
+        DBG("UF2 VGA flash failed at sector %lu\n",
+            (unsigned long)uf2_vga_last_sector);
         uf2_state = UF2_VGA_LOCKUP;
         return;
     }
@@ -675,6 +786,9 @@ void uf2_mon_flash(const char *args)
         }
         uf2_block_idx = 0;
         uf2_last_percent = -1;
+        uf2_cur_sector = (uint32_t)-1;
+        uf2_vga_has_deferred_block = false;
+        uf2_vga_sector_count = 0;
         DBG("UF2 entering VGA stream phase, %lu blocks from offset %lu\n",
             (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
         uf2_state = UF2_VGA_STREAM;
@@ -702,6 +816,8 @@ void uf2_mon_flash(const char *args)
     }
     uf2_block_idx = 0;
     uf2_last_percent = -1;
+    uf2_cur_page = (uint32_t)-1;
+    uf2_cur_sector = (uint32_t)-1;
     DBG("UF2 entering write phase, %lu blocks from offset %lu\n",
         (unsigned long)uf2_num_blocks, (unsigned long)uf2_main_start);
     uf2_state = UF2_WRITE;
