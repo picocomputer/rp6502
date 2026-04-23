@@ -10,6 +10,9 @@
 #if !defined(X)
 #define X(name, value) extern const char name[];
 #endif
+#if !defined(XR)
+#define XR(name, value) X(name, value)
+#endif
 
 // Configuration files on littlefs
 X(STR_CFG_FILENAME, "CONFIG.SYS")

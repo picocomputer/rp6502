@@ -9,6 +9,9 @@
 #if !defined(X)
 #define X(name, value) extern const char name[];
 #endif
+#if !defined(XR)
+#define XR(name, value) X(name, value)
+#endif
 
 // Time format
 X(STR_STRFTIME, "%c %z %Z")
@@ -130,8 +133,10 @@ X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d installed ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d installed ROMs:\n")
 
-// UF2 flash start
+// UF2 progress messages, some must remain in RAM
 X(STR_UF2_START_MESSAGE, "If flashing fails, recover via USB using the BOOTSEL button.\n")
+XR(STR_UF2_FLASHING, "\rFlashing: %d%%")
+XR(STR_UF2_FLASH_FAILED, "\n?Flashing UF2 failed\n")
 
 X(STR_HELP_HELP,
   "Commands:\n"

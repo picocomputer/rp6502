@@ -24,8 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-// TODO need STR_ strings in RAM
-//  #define DEBUG_RIA_MON_UF2
+// #define DEBUG_RIA_MON_UF2
 
 #if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_UF2)
 #define DBG(...) printf(__VA_ARGS__)
@@ -394,7 +393,7 @@ static void uf2_do_write(void)
     if (pct != uf2_last_percent)
     {
         uf2_last_percent = pct;
-        printf("\rFlashing: %d%%", pct);
+        printf(STR_UF2_FLASHING, pct);
     }
 
     if (uf2_block_idx >= uf2_num_blocks)
@@ -417,7 +416,7 @@ void uf2_task(void)
         stdio_flush();
         watchdog_reboot(0, 0, 0);
     case UF2_FAILED:
-        printf("\n?Flashing UF2 failed\n");
+        printf(STR_UF2_FLASH_FAILED);
         stdio_flush();
         reset_usb_boot(0, 0);
     }

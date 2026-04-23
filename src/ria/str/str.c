@@ -23,12 +23,15 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
 #define STR_RP6502_CODE_PAGE __XSTRING(RP6502_CODE_PAGE)
 
-// Put string literals into flash.
+// Put string literals into flash, or RAM with XR().
 #define X(name, value) \
     const char __in_flash(__XSTRING(name)) name[] = value;
+#define XR(name, value) \
+    const char __not_in_flash(__XSTRING(name)) name[] = value;
 #include "str.inc"
 #include RP6502_LOCALE
 #undef X
+#undef XR
 
 // Shared output buffer for str_parse_string and str_abs_path.
 static char str_buf[256];

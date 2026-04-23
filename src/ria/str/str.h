@@ -50,12 +50,14 @@ bool str_parse_uint32(const char **args, uint32_t *result);
 // Ensure there are no more arguments (only spaces to the null terminator).
 bool str_parse_end(const char *args);
 
-// String literal are in flash.
+// String literals are in flash, or in RAM via XR().
 #define X(name, value) \
     extern const char name[];
+#define XR(name, value) X(name, value)
 #include "str.inc"
 #include RP6502_LOCALE
 #undef X
+#undef XR
 
 // Provide length of non-localized string literals.
 #define X(name, value)                 \
@@ -63,7 +65,9 @@ bool str_parse_end(const char *args);
     {                                  \
         name##_LEN = sizeof(value) - 1 \
     };
+#define XR(name, value) X(name, value)
 #include "str.inc"
 #undef X
+#undef XR
 
 #endif /* _RIA_STR_STR_H_ */
