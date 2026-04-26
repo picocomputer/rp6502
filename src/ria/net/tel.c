@@ -10,6 +10,7 @@
 #include "net/mdm.h"
 #include "net/net.h"
 #include "net/tel.h"
+#include "sys/com.h"
 #include <pico/stdlib.h>
 #include <string.h>
 
@@ -29,6 +30,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define TEL_SB 250
 #define TEL_SE 240
 #define TEL_BRK 243
+#define TEL_IP 244
 
 // Telnet option codes
 #define TEL_OPT_BINARY 0
@@ -405,6 +407,11 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
         case TEL_BRK:
             if (tc->is_server)
                 main_break();
+            tc->rx_state = tel_rx_data;
+            return;
+        case TEL_IP:
+            if (tc->is_server)
+                com_set_sigint();
             tc->rx_state = tel_rx_data;
             return;
         default:
