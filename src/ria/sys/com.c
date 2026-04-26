@@ -97,7 +97,7 @@ static volatile size_t com_tel_tx_tail;
 #define COM_TEL_RX_BUF_SIZE 32
 // After this many milliseconds with a full ring and no consume,
 // com_tel_drain_rx drops bytes instead of backpressuring the TCP peer.
-#define COM_TEL_RX_OVERFLOW_MS 100
+#define COM_TEL_RX_OVERFLOW_MS 200
 static char com_tel_rx_buf[COM_TEL_RX_BUF_SIZE];
 static size_t com_tel_rx_head;
 static size_t com_tel_rx_tail;
@@ -669,18 +669,30 @@ void com_task(void)
         }
     }
 
-    // RX: merge sources into com_rx_buf.
-    // UART doesn't detect breaks when FIFO is full
-    // so we keep it drained and discard overruns like the UART would.
+    // RX: merge sources into com_rx_buf. Stop when com_rx_buf is full
+    // so TEL and KBD bytes stay in their upstream rings (lwIP TCP
+    // backpressure + com_tel_drain_rx for TEL, kbd_key_queue for KBD).
+    // UART has no software-side upstream and needs its hardware FIFO
+    // drained for reliable break detection, so when we stop merging
+    // we still pull and discard UART bytes (still scanning for SIGINT).
     char ch;
-    while (com_rx_merge(&ch, 1) == 1)
+    while (1)
     {
         size_t next = (com_rx_head + 1) % COM_RX_BUF_SIZE;
-        if (next != com_rx_tail)
+        if (next == com_rx_tail)
         {
-            com_rx_buf[next] = (uint8_t)ch;
-            com_rx_head = next;
+            while (uart_is_readable(COM_UART))
+            {
+                uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
+                if (c == 0x03)
+                    com_sigint = true;
+            }
+            break;
         }
+        if (com_rx_merge(&ch, 1) != 1)
+            break;
+        com_rx_buf[next] = (uint8_t)ch;
+        com_rx_head = next;
     }
 
     // Detect UART breaks.
