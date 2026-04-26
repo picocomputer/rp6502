@@ -210,7 +210,8 @@ void ria_write_buf(uint16_t addr)
         return;
     rw_addr = addr;
     rw_end = len;
-    rw_pos = 0;
+    // First write doesn't always write because ???
+    rw_pos = -1; // force a second write
     action_state = action_state_write;
     main_run();
 }
@@ -247,7 +248,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                             action_result = RIA_ACTION_RESULT_FINISHED;
                             main_stop();
                         }
-                        else if (++rw_pos < rw_end)
+                        else if (++rw_pos > 0 && rw_pos < rw_end)
                         {
                             REGS(0xFFF1) = mbuf[rw_pos];
                             REGSW(0xFFF3) += 1;
