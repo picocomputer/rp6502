@@ -129,8 +129,12 @@ static int com_tel_read(char *buf, int length)
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
         buf[count++] = com_tel_rx_buf[com_tel_rx_tail];
     }
-    com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
-    return count ? count : PICO_ERROR_NO_DATA;
+    if (count)
+    {
+        com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
+        return count;
+    }
+    return PICO_ERROR_NO_DATA;
 }
 
 static void com_tel_drain_tx(void)
@@ -206,10 +210,10 @@ static void com_tel_drain_rx(void)
 {
     // Default: limit read to ring buffer free space so decoded bytes
     // always fit (decoded <= raw). If the ring has been full and the
-    // consumer has been idle ≥100 ms, switch to drop-mode: drain a
-    // full scratch buffer from tel_rx and discard, but still scan
-    // discarded bytes for Ctrl-C so a SIGINT during overflow is not
-    // lost.
+    // consumer has been idle for COM_TEL_RX_OVERFLOW_MS, switch to
+    // drop-mode: drain a full scratch buffer from tel_rx and discard,
+    // but still scan discarded bytes for Ctrl-C so a SIGINT during
+    // overflow is not lost.
     uint16_t limit = COM_TEL_RX_BUF_SIZE;
     bool drop_mode = false;
     if (com_tel_state == com_tel_state_connected)
@@ -399,35 +403,27 @@ static void com_uart_write(char ch)
 
 static void com_uart_task(void)
 {
-    if (vga_connected())
+    // VGA: pace one byte per TX-empty so the PIX mirror stays in sync.
+    // No VGA: keep the TX FIFO topped up.
+    bool vga = vga_connected();
+    while (com_uart_head != com_uart_tail)
     {
-        // Use TXFE (empty) to pace VGA PIX sends
-        while (com_uart_head != com_uart_tail &&
-               uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS &&
-               pix_ready())
+        uint32_t fr = uart_get_hw(COM_UART)->fr;
+        if (vga)
         {
-            size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-            char ch = com_uart_buf[next];
-            uart_putc_raw(COM_UART, ch);
+            if (!(fr & UART_UARTFR_TXFE_BITS) || !pix_ready())
+                break;
+        }
+        else if (fr & UART_UARTFR_TXFF_BITS)
+            break;
+        size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
+        char ch = com_uart_buf[next];
+        uart_putc_raw(COM_UART, ch);
+        if (vga)
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
-            if (ch == '\a' && com_bel_enabled)
-                bel_add(&bel_teletype);
-            com_uart_tail = next;
-        }
-    }
-    else
-    {
-        // Fill UART TX FIFO
-        while (com_uart_head != com_uart_tail &&
-               !(uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
-        {
-            size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-            char ch = com_uart_buf[next];
-            uart_putc_raw(COM_UART, ch);
-            if (ch == '\a' && com_bel_enabled)
-                bel_add(&bel_teletype);
-            com_uart_tail = next;
-        }
+        if (ch == '\a' && com_bel_enabled)
+            bel_add(&bel_teletype);
+        com_uart_tail = next;
     }
 }
 
