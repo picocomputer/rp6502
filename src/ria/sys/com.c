@@ -129,8 +129,6 @@ static int com_tel_read(char *buf, int length)
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
         buf[count++] = com_tel_rx_buf[com_tel_rx_tail];
     }
-    if (count)
-        com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
     return count ? count : PICO_ERROR_NO_DATA;
 }
 
@@ -224,7 +222,13 @@ static void com_tel_drain_rx(void)
             drop_mode = true;
         }
         else
+        {
+            // Anchor the drop deadline to the last moment the ring
+            // had room, so we only start dropping after the buffer
+            // has been full for COM_TEL_RX_OVERFLOW_MS.
+            com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
             limit = (uint16_t)free;
+        }
     }
 
     char decoded[COM_TEL_RX_BUF_SIZE];
@@ -642,6 +646,11 @@ void com_stop(void)
 {
     com_rx_char = -1;
     com_rx_head = com_rx_tail = 0;
+}
+
+void com_run(void)
+{
+    com_sigint = false;
 }
 
 void com_task(void)
