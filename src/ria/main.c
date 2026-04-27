@@ -313,6 +313,10 @@ bool main_api(uint8_t operation)
         return dir_api_getlabel();
     case 0x2E:
         return dir_api_getfree();
+    case 0x30:
+        return rln_api_lastkey();
+    case 0x31:
+        return rln_api_peekpoke();
     }
     return api_return_errno(API_ENOSYS);
 }

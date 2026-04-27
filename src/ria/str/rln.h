@@ -39,4 +39,8 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms);
 void rln_set_max_length(uint8_t v);
 uint8_t rln_get_max_length(void);
 
+// 6502 API entry points.
+bool rln_api_lastkey(void);
+bool rln_api_peekpoke(void);
+
 #endif /* _RIA_STR_RLN_H_ */
