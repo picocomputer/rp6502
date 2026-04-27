@@ -49,25 +49,13 @@ static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
 static int mon_console_rows_known = -1;
-static int mon_console_cols_known = -1;
 static bool mon_cpr_query_sent;
-static enum {
-    MON_CPR_C0,
-    MON_CPR_ESC,
-    MON_CPR_CSI,
-} mon_cpr_state;
-static int mon_cpr_row;
-static int mon_cpr_col;
-static int mon_cpr_param;
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
     MON_MORE_FLUSH,
     MON_MORE_END,
-    MON_MORE_C0,
-    MON_MORE_ESC,
-    MON_MORE_CSI,
-    MON_MORE_SS3,
+    MON_MORE_WAIT,
 } mon_more_state;
 
 typedef void (*mon_function)(const char *);
@@ -333,9 +321,6 @@ static void mon_next_response(void)
 static void mon_break_response(void)
 {
     mon_needs_break = false;
-    mon_cpr_query_sent = false;
-    mon_console_rows_known = -1;
-    mon_console_cols_known = -1;
     mon_response_pos = -1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
     {
@@ -376,42 +361,75 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
-static void mon_cpr_rx(int ch)
+// Returns true while more bytes of an escape sequence are expected,
+// or when a CPR reply has been silently consumed.
+static bool mon_cpr_rx(int ch)
 {
+    static enum {
+        MON_CPR_C0,
+        MON_CPR_ESC,
+        MON_CPR_CSI,
+        MON_CPR_SS3,
+    } state;
+    static int row;
+    static int col;
+    static int param;
     if (ch == '\33')
     {
-        mon_cpr_state = MON_CPR_ESC;
-        mon_cpr_row = mon_cpr_col = 0;
-        mon_cpr_param = 0;
-        return;
+        state = MON_CPR_ESC;
+        row = col = 0;
+        param = 0;
+        return true;
     }
-    switch (mon_cpr_state)
+    if (ch == '\30' || ch == '\32')
+    {
+        state = MON_CPR_C0;
+        return true;
+    }
+    switch (state)
     {
     case MON_CPR_ESC:
-        mon_cpr_state = (ch == '[') ? MON_CPR_CSI : MON_CPR_C0;
-        break;
+        if (ch == '[')
+        {
+            state = MON_CPR_CSI;
+            return true;
+        }
+        if (ch == 'O')
+        {
+            state = MON_CPR_SS3;
+            return true;
+        }
+        state = MON_CPR_C0;
+        return false;
     case MON_CPR_CSI:
         if (isdigit(ch))
         {
-            if (mon_cpr_param == 0)
-                mon_cpr_row = mon_cpr_row * 10 + (ch - '0');
+            if (param == 0)
+                row = row * 10 + (ch - '0');
             else
-                mon_cpr_col = mon_cpr_col * 10 + (ch - '0');
+                col = col * 10 + (ch - '0');
+            return true;
         }
-        else if (ch == ';')
-            mon_cpr_param = 1;
-        else
+        if (ch == ';')
         {
-            if (ch == 'R' && mon_cpr_row > 0 && mon_cpr_col > 0)
-            {
-                mon_console_rows_known = mon_cpr_row;
-                mon_console_cols_known = mon_cpr_col;
-            }
-            mon_cpr_state = MON_CPR_C0;
+            param = 1;
+            return true;
         }
-        break;
+        if (ch >= 0x20 && ch <= 0x3F)
+            return true;
+        state = MON_CPR_C0;
+        if (ch == 'R')
+        {
+            if (row > 0 && col > 0)
+                mon_console_rows_known = row;
+            return true;
+        }
+        return false;
+    case MON_CPR_SS3:
+        state = MON_CPR_C0;
+        return false;
     default:
-        break;
+        return false;
     }
 }
 
@@ -432,7 +450,7 @@ static void mon_more(void)
     {
         int ch = stdio_getchar_timeout_us(0);
         if (ch == PICO_ERROR_TIMEOUT)
-            mon_more_state = MON_MORE_C0;
+            mon_more_state = MON_MORE_WAIT;
         else
             mon_cpr_rx(ch);
         break;
@@ -442,39 +460,18 @@ static void mon_more(void)
         mon_response_line = 0;
         mon_more_state = MON_MORE_OFF;
         break;
-    default:
+    default: // MON_MORE_WAIT
+    {
         int ch = stdio_getchar_timeout_us(0);
-        if (ch != PICO_ERROR_TIMEOUT)
-            mon_cpr_rx(ch);
-        if (ch == '\30')
-            mon_more_state = MON_MORE_C0;
-        else if (ch != PICO_ERROR_TIMEOUT)
-            switch (mon_more_state)
-            {
-            default: // MON_MORE_C0
-                if (ch == '\33')
-                    mon_more_state = MON_MORE_ESC;
-                else
-                    mon_more_state = MON_MORE_END;
-                if (ch == 3 || ch == 'q' || ch == 'Q')
-                    mon_needs_break = true;
-                break;
-            case MON_MORE_ESC:
-                if (ch == '[')
-                    mon_more_state = MON_MORE_CSI;
-                else if (ch == 'O')
-                    mon_more_state = MON_MORE_SS3;
-                else
-                    mon_more_state = MON_MORE_END;
-                break;
-            case MON_MORE_CSI:
-                if (ch < 0x20 || ch > 0x3F)
-                    mon_more_state = MON_MORE_END;
-                break;
-            case MON_MORE_SS3:
-                mon_more_state = MON_MORE_END;
-                break;
-            }
+        if (ch == PICO_ERROR_TIMEOUT)
+            return;
+        if (mon_cpr_rx(ch))
+            return;
+        if (ch == 3 || ch == 'q' || ch == 'Q')
+            mon_needs_break = true;
+        mon_more_state = MON_MORE_END;
+        break;
+    }
     }
 }
 
@@ -551,15 +548,10 @@ void mon_task(void)
         uf2_active() ||
         usb_boot_enumerating())
         return;
-    if (mon_response_state[0] < 0 && mon_cpr_query_sent)
-    {
-        mon_cpr_query_sent = false;
-        mon_console_rows_known = -1;
-        mon_console_cols_known = -1;
-    }
     // The monitor has control
     if (mon_needs_prompt)
     {
+        mon_cpr_query_sent = false;
         if (mon_needs_newline)
             mon_add_response_str(STR_MON_PROMPT_NEWLINE);
         else
