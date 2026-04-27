@@ -48,6 +48,17 @@ static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
+static int mon_console_rows_known = -1;
+static int mon_console_cols_known = -1;
+static bool mon_cpr_query_sent;
+static enum {
+    MON_CPR_C0,
+    MON_CPR_ESC,
+    MON_CPR_CSI,
+} mon_cpr_state;
+static int mon_cpr_row;
+static int mon_cpr_col;
+static int mon_cpr_param;
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -322,6 +333,9 @@ static void mon_next_response(void)
 static void mon_break_response(void)
 {
     mon_needs_break = false;
+    mon_cpr_query_sent = false;
+    mon_console_rows_known = -1;
+    mon_console_cols_known = -1;
     mon_response_pos = -1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
     {
@@ -362,6 +376,45 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
+static void mon_cpr_rx(int ch)
+{
+    if (ch == '\33')
+    {
+        mon_cpr_state = MON_CPR_ESC;
+        mon_cpr_row = mon_cpr_col = 0;
+        mon_cpr_param = 0;
+        return;
+    }
+    switch (mon_cpr_state)
+    {
+    case MON_CPR_ESC:
+        mon_cpr_state = (ch == '[') ? MON_CPR_CSI : MON_CPR_C0;
+        break;
+    case MON_CPR_CSI:
+        if (isdigit(ch))
+        {
+            if (mon_cpr_param == 0)
+                mon_cpr_row = mon_cpr_row * 10 + (ch - '0');
+            else
+                mon_cpr_col = mon_cpr_col * 10 + (ch - '0');
+        }
+        else if (ch == ';')
+            mon_cpr_param = 1;
+        else
+        {
+            if (ch == 'R' && mon_cpr_row > 0 && mon_cpr_col > 0)
+            {
+                mon_console_rows_known = mon_cpr_row;
+                mon_console_cols_known = mon_cpr_col;
+            }
+            mon_cpr_state = MON_CPR_C0;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 static void mon_more(void)
 {
     if (mon_needs_break)
@@ -376,9 +429,14 @@ static void mon_more(void)
         mon_more_state = MON_MORE_FLUSH;
         break;
     case MON_MORE_FLUSH:
-        if (PICO_ERROR_TIMEOUT == stdio_getchar_timeout_us(0))
+    {
+        int ch = stdio_getchar_timeout_us(0);
+        if (ch == PICO_ERROR_TIMEOUT)
             mon_more_state = MON_MORE_C0;
+        else
+            mon_cpr_rx(ch);
         break;
+    }
     case MON_MORE_END:
         printf(STR_MON_MORE_ERASE);
         mon_response_line = 0;
@@ -386,6 +444,8 @@ static void mon_more(void)
         break;
     default:
         int ch = stdio_getchar_timeout_us(0);
+        if (ch != PICO_ERROR_TIMEOUT)
+            mon_cpr_rx(ch);
         if (ch == '\30')
             mon_more_state = MON_MORE_C0;
         else if (ch != PICO_ERROR_TIMEOUT)
@@ -420,6 +480,8 @@ static void mon_more(void)
 
 static int mon_guess_console_rows(void)
 {
+    if (mon_console_rows_known > 0)
+        return mon_console_rows_known;
     int rows = 24; // VT100 safe
     if (vga_connected())
     {
@@ -443,6 +505,9 @@ void mon_task(void)
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
+        int rx;
+        while ((rx = stdio_getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)
+            mon_cpr_rx(rx);
         int rows_max = mon_guess_console_rows() - 1;
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
@@ -464,6 +529,13 @@ void mon_task(void)
     // Request the next response buffer
     if (mon_response_pos == -1 && mon_response_state[0] >= 0)
     {
+        if (!mon_cpr_query_sent &&
+            mon_console_rows_known < 0 &&
+            mon_response_state[1] >= 0)
+        {
+            printf("\33[s\33[999;999H\33[6n\33[u");
+            mon_cpr_query_sent = true;
+        }
         mon_response_pos = 0;
         mon_response_buf[0] = 0;
         mon_response_state[0] = (mon_response_fn_list[0])(
@@ -479,6 +551,12 @@ void mon_task(void)
         uf2_active() ||
         usb_boot_enumerating())
         return;
+    if (mon_response_state[0] < 0 && mon_cpr_query_sent)
+    {
+        mon_cpr_query_sent = false;
+        mon_console_rows_known = -1;
+        mon_console_cols_known = -1;
+    }
     // The monitor has control
     if (mon_needs_prompt)
     {
