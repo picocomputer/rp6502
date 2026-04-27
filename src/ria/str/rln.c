@@ -58,6 +58,7 @@ static rln_ansi_t rln_typed_ansi;
 static bool rln_enable_history;
 static uint8_t rln_max_length;
 static uint32_t rln_timeout_ms;
+static uint8_t rln_caps;
 
 // Lastkey capture (typed stream only)
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
@@ -330,6 +331,15 @@ static void rln_line_insert(char ch)
 {
     if (ch < 32 || rln_buflen >= rln_max_length)
         return;
+    if (rln_caps == 1 && islower((unsigned char)ch))
+        ch = toupper((unsigned char)ch);
+    else if (rln_caps == 2)
+    {
+        if (islower((unsigned char)ch))
+            ch = toupper((unsigned char)ch);
+        else if (isupper((unsigned char)ch))
+            ch = tolower((unsigned char)ch);
+    }
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
         rln_buf[i] = rln_buf[i - 1];
     rln_buflen++;
@@ -615,6 +625,9 @@ void rln_break(void)
 
 void rln_set_max_length(uint8_t v) { rln_max_length = v; }
 uint8_t rln_get_max_length(void) { return rln_max_length; }
+
+void rln_set_caps(uint8_t v) { rln_caps = v; }
+uint8_t rln_get_caps(void) { return rln_caps; }
 
 /* Readline magic: lastkey + peekpoke
  */

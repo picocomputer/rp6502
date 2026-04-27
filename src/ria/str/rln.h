@@ -39,6 +39,10 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms);
 void rln_set_max_length(uint8_t v);
 uint8_t rln_get_max_length(void);
 
+// Caps mode: 0=normal, 1=all caps, 2=invert
+void rln_set_caps(uint8_t v);
+uint8_t rln_get_caps(void);
+
 // 6502 API entry points.
 bool rln_api_lastkey(void);
 bool rln_api_peek(void);
