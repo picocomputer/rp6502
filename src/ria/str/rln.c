@@ -602,6 +602,7 @@ void rln_init(void)
     rln_callback = NULL;
     rln_enable_history = true;
     rln_max_length = 255;
+    rln_caps = 0;
 }
 
 void rln_run(void)
