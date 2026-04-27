@@ -635,8 +635,23 @@ bool rln_api_lastkey(void)
     return api_return_ax(len);
 }
 
-// int ria_readline_peekpoke(char *peek, const char *poke);
-bool rln_api_peekpoke(void)
+// int ria_readline_peek(char *peek);
+bool rln_api_peek(void)
+{
+    if (!rln_callback)
+        return api_return_ax(0);
+    rln_buf[rln_buflen] = 0;
+    char zero = 0;
+    if (!api_push_char(&zero))
+        return api_return_errno(API_EINVAL);
+    for (int i = rln_buflen - 1; i >= 0; i--)
+        if (!api_push_char(&rln_buf[i]))
+            return api_return_errno(API_EINVAL);
+    return api_return_ax(rln_bufpos);
+}
+
+// int ria_readline_poke(const char *poke);
+bool rln_api_poke(void)
 {
     const char *poke = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
@@ -650,12 +665,5 @@ bool rln_api_peekpoke(void)
         if (ch == '\r')
             break;
     }
-    rln_buf[rln_buflen] = 0;
-    char zero = 0;
-    if (!api_push_char(&zero))
-        return api_return_errno(API_EINVAL);
-    for (int i = rln_buflen - 1; i >= 0; i--)
-        if (!api_push_char(&rln_buf[i]))
-            return api_return_errno(API_EINVAL);
     return api_return_ax(rln_bufpos);
 }

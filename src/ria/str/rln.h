@@ -41,6 +41,7 @@ uint8_t rln_get_max_length(void);
 
 // 6502 API entry points.
 bool rln_api_lastkey(void);
-bool rln_api_peekpoke(void);
+bool rln_api_peek(void);
+bool rln_api_poke(void);
 
 #endif /* _RIA_STR_RLN_H_ */

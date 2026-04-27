@@ -316,7 +316,9 @@ bool main_api(uint8_t operation)
     case 0x30:
         return rln_api_lastkey();
     case 0x31:
-        return rln_api_peekpoke();
+        return rln_api_peek();
+    case 0x32:
+        return rln_api_poke();
     }
     return api_return_errno(API_ENOSYS);
 }
