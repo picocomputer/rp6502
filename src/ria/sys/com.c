@@ -65,7 +65,7 @@ static volatile bool com_sigint;
 
 static bool com_tel_tx_writable(void) { return true; }
 static void com_tel_tx_write(char) {}
-static int com_tel_read(char *, int) { return PICO_ERROR_NO_DATA; }
+static size_t com_tel_read(char *, size_t) { return 0; }
 static void com_tel_pump(void) {}
 static void com_tel_flush(void) {}
 static void com_tel_task(void) {}
@@ -121,20 +121,17 @@ static void com_tel_tx_write(char ch)
     com_tel_tx_buf[com_tel_tx_head] = ch;
 }
 
-static int com_tel_read(char *buf, int length)
+static size_t com_tel_read(char *buf, size_t length)
 {
-    int count = 0;
+    size_t count = 0;
     while (count < length && com_tel_rx_head != com_tel_rx_tail)
     {
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
         buf[count++] = com_tel_rx_buf[com_tel_rx_tail];
     }
     if (count)
-    {
         com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
-        return count;
-    }
-    return PICO_ERROR_NO_DATA;
+    return count;
 }
 
 static void com_tel_drain_tx(void)
@@ -389,6 +386,21 @@ static void com_tel_task(void)
 
 #endif
 
+static size_t com_uart_read(char *buf, size_t length)
+{
+    size_t count = 0;
+    while (count < length && uart_is_readable(COM_UART))
+    {
+        uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
+        if (c == 0x03)
+            com_sigint = true;
+        if (buf)
+            buf[count] = (char)c;
+        count++;
+    }
+    return count;
+}
+
 static bool com_uart_writable(void)
 {
     return (((com_uart_head + 1) % COM_UART_BUF_SIZE) != com_uart_tail);
@@ -483,7 +495,7 @@ static int com_rx_buf_getchar(void)
 
 // Sticky multiplex: current source holds the lock until idle for 1ms.
 // Keyboard is the exception, releasing immediately when empty.
-static int com_rx_merge(char *buf, int length)
+static size_t com_rx_merge(char *buf, size_t length)
 {
     static const int COM_IDLE_US = 1000;
     enum com_rx_src
@@ -503,8 +515,8 @@ static int com_rx_merge(char *buf, int length)
 
     if (source == SRC_KBD || source == SRC_NONE)
     {
-        int i = kbd_stdio_in_chars(buf, length);
-        if (i != PICO_ERROR_NO_DATA)
+        size_t i = kbd_stdio_in_chars(buf, length);
+        if (i)
         {
             source = SRC_KBD;
             return i;
@@ -515,30 +527,19 @@ static int com_rx_merge(char *buf, int length)
 
     if (source == SRC_UART || source == SRC_NONE)
     {
-        int count = 0;
-        while (uart_is_readable(COM_UART) && count < length)
-        {
-            uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
-            // Latch upstream of com_rx_buf so a Ctrl-C still latches
-            // even when the byte is later dropped by ring overflow.
-            if (c == 0x03)
-                com_sigint = true;
-            buf[count++] = c;
-        }
-        if (count)
+        size_t i = com_uart_read(buf, length);
+        if (i)
         {
             source = SRC_UART;
             idle_timer = make_timeout_time_us(COM_IDLE_US);
-            return count;
+            return i;
         }
-        if (source == SRC_UART)
-            return PICO_ERROR_NO_DATA;
     }
 
     if (source == SRC_TEL || source == SRC_NONE)
     {
-        int i = com_tel_read(buf, length);
-        if (i != PICO_ERROR_NO_DATA)
+        size_t i = com_tel_read(buf, length);
+        if (i)
         {
             source = SRC_TEL;
             idle_timer = make_timeout_time_us(COM_IDLE_US);
@@ -546,7 +547,7 @@ static int com_rx_merge(char *buf, int length)
         }
     }
 
-    return PICO_ERROR_NO_DATA;
+    return 0;
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
@@ -604,9 +605,7 @@ static int com_stdio_in_chars(char *buf, int length)
     }
 
     // Pick up new chars
-    int x = com_rx_merge(&buf[count], length - count);
-    if (x != PICO_ERROR_NO_DATA)
-        count += x;
+    count += com_rx_merge(&buf[count], length - count);
 
     return count ? count : PICO_ERROR_NO_DATA;
 }
@@ -677,15 +676,10 @@ void com_task(void)
         size_t next = (com_rx_head + 1) % COM_RX_BUF_SIZE;
         if (next == com_rx_tail)
         {
-            while (uart_is_readable(COM_UART))
-            {
-                uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
-                if (c == 0x03)
-                    com_sigint = true;
-            }
+            com_uart_read(NULL, SIZE_MAX);
             break;
         }
-        if (com_rx_merge(&ch, 1) != 1)
+        if (!com_rx_merge(&ch, 1))
             break;
         com_rx_buf[next] = (uint8_t)ch;
         com_rx_head = next;
