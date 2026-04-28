@@ -29,10 +29,10 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-/* Shared state — TX tee sources, UART ring, merged RX ring, BEL flag.
- * com_tx_core0_buf holds core-0 output (stdio, std_tty_write);
- * com_tx_core1_buf holds core-1 act_loop output (6502 writes to 0xFFE1).
- * Both are drained by com_tx_fanout into UART + telnet (when W).
+/* Two TX producers feed com_tx_fanout: stdio / std_tty_write on core 0
+ * write to com_tx_core0_buf; act_loop on core 1 (6502 writes to 0xFFE1)
+ * writes to com_tx_core1_buf. Only the rings declared in com.h cross
+ * cores; everything else in this file is core-0 main-loop only.
  */
 
 volatile uint8_t com_tx_core0_buf[COM_TX_CORE0_BUF_SIZE];
@@ -44,9 +44,9 @@ volatile size_t com_tx_core1_head;
 volatile size_t com_tx_core1_tail;
 
 #define COM_UART_BUF_SIZE 32
-static volatile size_t com_uart_tail;
-static volatile size_t com_uart_head;
-static volatile uint8_t com_uart_buf[COM_UART_BUF_SIZE];
+static size_t com_uart_tail;
+static size_t com_uart_head;
+static uint8_t com_uart_buf[COM_UART_BUF_SIZE];
 
 // com_task drains multiplexed sources into com_rx_buf, then refills
 // com_rx_char from the ring when empty. act_loop on core 1 reads
@@ -154,6 +154,9 @@ static void com_tel_drain_tx(void)
     com_tel_tx_tail = (com_tel_tx_tail + sent) % COM_TEL_TX_BUF_SIZE;
 }
 
+// Drives lwIP via cyw_task(), which can synchronously fire
+// com_tel_on_accept/on_disconnect callbacks and mutate com_tel_state +
+// the rings. Callers must re-check state after return.
 static void com_tel_pump(void)
 {
     com_tel_drain_tx();
@@ -357,29 +360,29 @@ const char *com_tel_get_key(void)
 static void com_tel_task(void)
 {
     com_tel_drain_tx();
+
+    if (com_tel_state != com_tel_state_idle &&
+        (!com_tel_should_listen() || com_tel_active_port != com_tel_port))
+    {
+        com_tel_shutdown();
+        return;
+    }
+
     switch (com_tel_state)
     {
     case com_tel_state_idle:
-        if (com_tel_should_listen())
+        if (com_tel_should_listen() && tel_listen(com_tel_port, com_tel_on_accept))
         {
-            if (tel_listen(com_tel_port, com_tel_on_accept))
-            {
-                com_tel_active_port = com_tel_port;
-                com_tel_state = com_tel_state_listening;
-                DBG("NET TEL console listening on port %u\n", com_tel_port);
-            }
+            com_tel_active_port = com_tel_port;
+            com_tel_state = com_tel_state_listening;
+            DBG("NET TEL console listening on port %u\n", com_tel_port);
         }
-        break;
-    case com_tel_state_listening:
-        if (!com_tel_should_listen() || com_tel_active_port != com_tel_port)
-            com_tel_shutdown();
         break;
     case com_tel_state_auth:
     case com_tel_state_connected:
-        if (!com_tel_should_listen() || com_tel_active_port != com_tel_port)
-            com_tel_shutdown();
-        else
-            com_tel_drain_rx();
+        com_tel_drain_rx();
+        break;
+    case com_tel_state_listening:
         break;
     }
 }
@@ -652,8 +655,8 @@ void com_task(void)
     com_tx_fanout();
 
     // RX: refill the cross-core handoff slot from the ring. com_rx_char is
-    // a single volatile int so the publish is atomic; the __dmb() is a
-    // defensive fence.
+    // a single volatile int so the store is atomic; __dmb() is the release
+    // fence pairing with act_loop's load on core 1 in ria.c.
     if (com_rx_char < 0)
     {
         int ch = com_rx_buf_getchar();
