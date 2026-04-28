@@ -527,7 +527,6 @@ void mon_task(void)
     if (mon_response_pos == -1 && mon_response_state[0] >= 0)
     {
         if (!mon_cpr_query_sent &&
-            mon_console_rows_known < 0 &&
             mon_response_state[1] >= 0)
         {
             printf("\33[s\33[999;999H\33[6n\33[u");
