@@ -330,8 +330,8 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Promote ctrl characters
     if (key_ctrl)
         ch = kbd_ctrl_promote(ch, keycode);
-    // Ctrl-C is a non-repeating SIGINT
-    if (initial_press && ch == 0x03)
+    // Latch a SIGINT even if com not draining
+    if (ch == 0x03)
         com_set_sigint();
     // Process a regularly typed key
     if (ch)
