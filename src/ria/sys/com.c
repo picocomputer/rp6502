@@ -30,18 +30,18 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 /* Shared state — TX tee sources, UART ring, merged RX ring, BEL flag.
- * com_tx_buf holds core-0 output (stdio, std_tty_write); com_act_tx_buf
- * holds core-1 act_loop output (6502 writes to 0xFFE1). Both are drained
- * by com_tx_fanout into UART + telnet (when W).
+ * com_tx_core0_buf holds core-0 output (stdio, std_tty_write);
+ * com_tx_core1_buf holds core-1 act_loop output (6502 writes to 0xFFE1).
+ * Both are drained by com_tx_fanout into UART + telnet (when W).
  */
 
-volatile uint8_t com_tx_buf[COM_TX_BUF_SIZE];
-volatile size_t com_tx_head;
-volatile size_t com_tx_tail;
+volatile uint8_t com_tx_core0_buf[COM_TX_CORE0_BUF_SIZE];
+volatile size_t com_tx_core0_head;
+volatile size_t com_tx_core0_tail;
 
-volatile uint8_t com_act_tx_buf[COM_ACT_TX_BUF_SIZE];
-volatile size_t com_act_tx_head;
-volatile size_t com_act_tx_tail;
+volatile uint8_t com_tx_core1_buf[COM_TX_CORE1_BUF_SIZE];
+volatile size_t com_tx_core1_head;
+volatile size_t com_tx_core1_tail;
 
 #define COM_UART_BUF_SIZE 32
 static volatile size_t com_uart_tail;
@@ -449,7 +449,7 @@ static void com_uart_flush(void)
 
 // One char per source per pass so the core-0 and core-1 streams interleave
 // instead of one starving the other. The consumer-side __dmb() below pairs
-// with the producer DMB in com_act_write(): it finishes reading the slot
+// with the producer DMB in com_tx_core1_write(): it finishes reading the slot
 // before publishing the tail advance so the producer can't overwrite an
 // in-flight read.
 static void com_tx_fanout(void)
@@ -457,25 +457,25 @@ static void com_tx_fanout(void)
     while (com_uart_writable() && com_tel_tx_writable())
     {
         bool work = false;
-        if (com_tx_head != com_tx_tail)
+        if (com_tx_core0_head != com_tx_core0_tail)
         {
-            size_t next = (com_tx_tail + 1) % COM_TX_BUF_SIZE;
-            char ch = com_tx_buf[next];
+            size_t next = (com_tx_core0_tail + 1) % COM_TX_CORE0_BUF_SIZE;
+            char ch = com_tx_core0_buf[next];
             com_uart_write(ch);
             com_tel_tx_write(ch);
-            com_tx_tail = next;
+            com_tx_core0_tail = next;
             work = true;
             if (!com_uart_writable() || !com_tel_tx_writable())
                 break;
         }
-        if (com_act_tx_head != com_act_tx_tail)
+        if (com_tx_core1_head != com_tx_core1_tail)
         {
-            size_t next = (com_act_tx_tail + 1) % COM_ACT_TX_BUF_SIZE;
-            char ch = com_act_tx_buf[next];
+            size_t next = (com_tx_core1_tail + 1) % COM_TX_CORE1_BUF_SIZE;
+            char ch = com_tx_core1_buf[next];
             com_uart_write(ch);
             com_tel_tx_write(ch);
             __dmb();
-            com_act_tx_tail = next;
+            com_tx_core1_tail = next;
             work = true;
         }
         if (!work)
@@ -566,7 +566,7 @@ static void com_stdio_out_chars(const char *buf, int len)
 
 static void com_stdio_out_flush(void)
 {
-    while (com_tx_head != com_tx_tail)
+    while (com_tx_core0_head != com_tx_core0_tail)
     {
         com_tx_fanout();
         com_uart_task();
@@ -648,7 +648,7 @@ void com_task(void)
     // TX: drain UART buffer to hardware
     com_uart_task();
 
-    // TX: fan out com_tx_buf into UART and TEL buffers
+    // TX: fan out com_tx_core0_buf into UART and TEL buffers
     com_tx_fanout();
 
     // RX: refill the cross-core handoff slot from the ring. com_rx_char is
