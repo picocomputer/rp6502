@@ -28,10 +28,15 @@
 void com_init(void);
 void com_task(void);
 void com_stop(void);
+void com_run(void);
 
 // The '\a' BEL alert
 bool com_get_bel(void);
 void com_set_bel(bool value);
+
+// SIGINT detection
+bool com_get_sigint(void);
+void com_set_sigint(void);
 
 // Telnet console server settings
 void com_tel_load_port(const char *str);

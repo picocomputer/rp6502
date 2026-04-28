@@ -59,6 +59,7 @@ static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
 volatile int com_rx_char = -1;
 
 static bool com_bel_enabled = true;
+static volatile bool com_sigint;
 
 #ifndef RP6502_RIA_W
 
@@ -94,14 +95,19 @@ static volatile size_t com_tel_tx_head;
 static volatile size_t com_tel_tx_tail;
 
 #define COM_TEL_RX_BUF_SIZE 32
+// After this many milliseconds with a full ring and no consume,
+// com_tel_drain_rx drops bytes instead of backpressuring the TCP peer.
+#define COM_TEL_RX_OVERFLOW_MS 500
 static char com_tel_rx_buf[COM_TEL_RX_BUF_SIZE];
 static size_t com_tel_rx_head;
 static size_t com_tel_rx_tail;
+static absolute_time_t com_tel_rx_drop_after;
 
 static void com_tel_rings_clear(void)
 {
     com_tel_tx_head = com_tel_tx_tail = 0;
     com_tel_rx_head = com_tel_rx_tail = 0;
+    com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
 }
 
 static bool com_tel_tx_writable(void)
@@ -123,7 +129,12 @@ static int com_tel_read(char *buf, int length)
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
         buf[count++] = com_tel_rx_buf[com_tel_rx_tail];
     }
-    return count ? count : PICO_ERROR_NO_DATA;
+    if (count)
+    {
+        com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
+        return count;
+    }
+    return PICO_ERROR_NO_DATA;
 }
 
 static void com_tel_drain_tx(void)
@@ -197,15 +208,26 @@ static void com_tel_handle_auth(uint8_t ch)
 
 static void com_tel_drain_rx(void)
 {
-    // Limit read to ring buffer free space so we never drop data.
-    // Decoded bytes <= raw bytes, so this guarantees room.
+    // Default: limit read to ring buffer free space so decoded bytes
+    // always fit (decoded <= raw). If the ring has been full and the
+    // consumer has been idle for COM_TEL_RX_OVERFLOW_MS, switch to
+    // drop-mode: drain a full scratch buffer from tel_rx and discard,
+    // but still scan discarded bytes for Ctrl-C so a SIGINT during
+    // overflow is not lost.
     uint16_t limit = COM_TEL_RX_BUF_SIZE;
+    bool drop_mode = false;
     if (com_tel_state == com_tel_state_connected)
     {
         size_t used = (com_tel_rx_head - com_tel_rx_tail + COM_TEL_RX_BUF_SIZE) % COM_TEL_RX_BUF_SIZE;
-        limit = COM_TEL_RX_BUF_SIZE - 1 - used;
-        if (limit == 0)
-            return;
+        size_t free = COM_TEL_RX_BUF_SIZE - 1 - used;
+        if (free == 0)
+        {
+            if (!time_reached(com_tel_rx_drop_after))
+                return;
+            drop_mode = true;
+        }
+        else
+            limit = (uint16_t)free;
     }
 
     char decoded[COM_TEL_RX_BUF_SIZE];
@@ -222,6 +244,10 @@ static void com_tel_drain_rx(void)
         }
         else if (com_tel_state == com_tel_state_connected)
         {
+            if (ch == 0x03)
+                com_sigint = true;
+            if (drop_mode)
+                continue;
             com_tel_rx_head = (com_tel_rx_head + 1) % COM_TEL_RX_BUF_SIZE;
             com_tel_rx_buf[com_tel_rx_head] = ch;
         }
@@ -377,35 +403,27 @@ static void com_uart_write(char ch)
 
 static void com_uart_task(void)
 {
-    if (vga_connected())
+    // VGA: pace one byte per TX-empty so the PIX mirror stays in sync.
+    // No VGA: keep the TX FIFO topped up.
+    bool vga = vga_connected();
+    while (com_uart_head != com_uart_tail)
     {
-        // Use TXFE (empty) to pace VGA PIX sends
-        while (com_uart_head != com_uart_tail &&
-               uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFE_BITS &&
-               pix_ready())
+        uint32_t fr = uart_get_hw(COM_UART)->fr;
+        if (vga)
         {
-            size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-            char ch = com_uart_buf[next];
-            uart_putc_raw(COM_UART, ch);
+            if (!(fr & UART_UARTFR_TXFE_BITS) || !pix_ready())
+                break;
+        }
+        else if (fr & UART_UARTFR_TXFF_BITS)
+            break;
+        size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
+        char ch = com_uart_buf[next];
+        uart_putc_raw(COM_UART, ch);
+        if (vga)
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
-            if (ch == '\a' && com_bel_enabled)
-                bel_add(&bel_teletype);
-            com_uart_tail = next;
-        }
-    }
-    else
-    {
-        // Fill UART TX FIFO
-        while (com_uart_head != com_uart_tail &&
-               !(uart_get_hw(COM_UART)->fr & UART_UARTFR_TXFF_BITS))
-        {
-            size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-            char ch = com_uart_buf[next];
-            uart_putc_raw(COM_UART, ch);
-            if (ch == '\a' && com_bel_enabled)
-                bel_add(&bel_teletype);
-            com_uart_tail = next;
-        }
+        if (ch == '\a' && com_bel_enabled)
+            bel_add(&bel_teletype);
+        com_uart_tail = next;
     }
 }
 
@@ -499,7 +517,14 @@ static int com_rx_merge(char *buf, int length)
     {
         int count = 0;
         while (uart_is_readable(COM_UART) && count < length)
-            buf[count++] = (uint8_t)uart_get_hw(COM_UART)->dr;
+        {
+            uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
+            // Latch upstream of com_rx_buf so a Ctrl-C still latches
+            // even when the byte is later dropped by ring overflow.
+            if (c == 0x03)
+                com_sigint = true;
+            buf[count++] = c;
+        }
         if (count)
         {
             source = SRC_UART;
@@ -614,6 +639,11 @@ void com_stop(void)
     com_rx_head = com_rx_tail = 0;
 }
 
+void com_run(void)
+{
+    com_sigint = false;
+}
+
 void com_task(void)
 {
     // TX: drain UART buffer to hardware
@@ -635,18 +665,30 @@ void com_task(void)
         }
     }
 
-    // RX: merge sources into com_rx_buf.
-    // UART doesn't detect breaks when FIFO is full
-    // so we keep it drained and discard overruns like the UART would.
+    // RX: merge sources into com_rx_buf. Stop when com_rx_buf is full
+    // so TEL and KBD bytes stay in their upstream rings (lwIP TCP
+    // backpressure + com_tel_drain_rx for TEL, kbd_key_queue for KBD).
+    // UART has no software-side upstream and needs its hardware FIFO
+    // drained for reliable break detection, so when we stop merging
+    // we still pull and discard UART bytes (still scanning for SIGINT).
     char ch;
-    while (com_rx_merge(&ch, 1) == 1)
+    while (1)
     {
         size_t next = (com_rx_head + 1) % COM_RX_BUF_SIZE;
-        if (next != com_rx_tail)
+        if (next == com_rx_tail)
         {
-            com_rx_buf[next] = (uint8_t)ch;
-            com_rx_head = next;
+            while (uart_is_readable(COM_UART))
+            {
+                uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
+                if (c == 0x03)
+                    com_sigint = true;
+            }
+            break;
         }
+        if (com_rx_merge(&ch, 1) != 1)
+            break;
+        com_rx_buf[next] = (uint8_t)ch;
+        com_rx_head = next;
     }
 
     // Detect UART breaks.
@@ -669,4 +711,16 @@ bool com_get_bel(void)
 void com_set_bel(bool value)
 {
     com_bel_enabled = value;
+}
+
+bool com_get_sigint(void)
+{
+    bool val = com_sigint;
+    com_sigint = false;
+    return val;
+}
+
+void com_set_sigint(void)
+{
+    com_sigint = true;
 }

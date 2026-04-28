@@ -150,6 +150,7 @@ static void run(void)
     vga_run();
     api_run();
     clk_run();
+    com_run();
     ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
 }
@@ -312,6 +313,12 @@ bool main_api(uint8_t operation)
         return dir_api_getlabel();
     case 0x2E:
         return dir_api_getfree();
+    case 0x30:
+        return rln_api_lastkey();
+    case 0x31:
+        return rln_api_peek();
+    case 0x32:
+        return rln_api_poke();
     }
     return api_return_errno(API_ENOSYS);
 }

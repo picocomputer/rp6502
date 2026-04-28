@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "api/api.h"
 #include "str/rln.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
@@ -31,6 +32,14 @@ typedef enum
 #define RLN_BUF_SIZE 256
 #define RLN_HISTORY_SIZE 8
 #define RLN_CSI_PARAM_MAX_LEN 16
+#define RLN_LASTKEY_MAX 32
+
+typedef struct
+{
+    rln_ansi_state_t state;
+    uint16_t csi_param[RLN_CSI_PARAM_MAX_LEN];
+    uint8_t csi_param_count;
+} rln_ansi_t;
 
 // History storage
 // history[0] is the current input being edited.
@@ -45,12 +54,18 @@ static rln_read_callback_t rln_callback;
 static absolute_time_t rln_timer;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
-static rln_ansi_state_t rln_ansi_state;
-static uint16_t rln_csi_param[RLN_CSI_PARAM_MAX_LEN];
-static uint8_t rln_csi_param_count;
+static rln_ansi_t rln_typed_ansi;
 static bool rln_enable_history;
 static uint8_t rln_max_length;
 static uint32_t rln_timeout_ms;
+static uint8_t rln_caps;
+
+// Lastkey capture (typed stream only)
+static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
+static uint8_t rln_lastkey_len;
+static uint8_t rln_keyseq_accum[RLN_LASTKEY_MAX];
+static uint8_t rln_keyseq_accum_len;
+static bool rln_keyseq_overflow;
 
 static void rln_complete(bool rln_timed_out)
 {
@@ -153,12 +168,12 @@ static void rln_line_forward_word(void)
         printf("\33[%dC", count);
 }
 
-static void rln_line_forward(void)
+static void rln_line_forward(rln_ansi_t *a)
 {
-    uint16_t count = rln_csi_param[0];
+    uint16_t count = a->csi_param[0];
     if (count < 1)
         count = 1;
-    if (rln_csi_param_count > 1 && rln_csi_param[1] != 1)
+    if (a->csi_param_count > 1 && a->csi_param[1] != 1)
         return rln_line_forward_word();
     if (count > rln_buflen - rln_bufpos)
         count = rln_buflen - rln_bufpos;
@@ -168,11 +183,11 @@ static void rln_line_forward(void)
     printf("\33[%dC", count);
 }
 
-static void rln_line_forward_1(void)
+static void rln_line_forward_1(rln_ansi_t *a)
 {
-    rln_csi_param_count = 1;
-    rln_csi_param[0] = 1;
-    rln_line_forward();
+    a->csi_param_count = 1;
+    a->csi_param[0] = 1;
+    rln_line_forward(a);
 }
 
 static void rln_line_backward_word(void)
@@ -192,12 +207,12 @@ static void rln_line_backward_word(void)
         printf("\33[%dD", count);
 }
 
-static void rln_line_backward(void)
+static void rln_line_backward(rln_ansi_t *a)
 {
-    uint16_t count = rln_csi_param[0];
+    uint16_t count = a->csi_param[0];
     if (count < 1)
         count = 1;
-    if (rln_csi_param_count > 1 && rln_csi_param[1] != 1)
+    if (a->csi_param_count > 1 && a->csi_param[1] != 1)
         return rln_line_backward_word();
     if (count > rln_bufpos)
         count = rln_bufpos;
@@ -207,11 +222,11 @@ static void rln_line_backward(void)
     printf("\33[%dD", count);
 }
 
-static void rln_line_backward_1(void)
+static void rln_line_backward_1(rln_ansi_t *a)
 {
-    rln_csi_param_count = 1;
-    rln_csi_param[0] = 1;
-    rln_line_backward();
+    a->csi_param_count = 1;
+    a->csi_param[0] = 1;
+    rln_line_backward(a);
 }
 
 static void rln_line_delete(void)
@@ -222,6 +237,23 @@ static void rln_line_delete(void)
     rln_buflen--;
     for (size_t i = rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
+}
+
+static void rln_line_delete_n(rln_ansi_t *a)
+{
+    uint16_t count = a->csi_param[0];
+    if (count < 1)
+        count = 1;
+    if (rln_bufpos == rln_buflen)
+        return;
+    if (count > rln_buflen - rln_bufpos)
+        count = rln_buflen - rln_bufpos;
+    if (!count)
+        return;
+    printf("\33[%dP", count);
+    for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
+        rln_buf[i] = rln_buf[i + count];
+    rln_buflen -= count;
 }
 
 static void rln_line_backspace(void)
@@ -299,6 +331,15 @@ static void rln_line_insert(char ch)
 {
     if (ch < 32 || rln_buflen >= rln_max_length)
         return;
+    if (rln_caps == 1 && islower((unsigned char)ch))
+        ch = toupper((unsigned char)ch);
+    else if (rln_caps == 2)
+    {
+        if (islower((unsigned char)ch))
+            ch = toupper((unsigned char)ch);
+        else if (isupper((unsigned char)ch))
+            ch = tolower((unsigned char)ch);
+    }
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
         rln_buf[i] = rln_buf[i - 1];
     rln_buflen++;
@@ -310,7 +351,7 @@ static void rln_line_insert(char ch)
         printf("\33[%dD", rln_buflen - rln_bufpos);
 }
 
-static void rln_line_state_C0(char ch)
+static void rln_line_state_C0(rln_ansi_t *a, char ch)
 {
     if (ch == '\r')
     {
@@ -320,19 +361,19 @@ static void rln_line_state_C0(char ch)
         rln_complete(false);
     }
     else if (ch == '\33')
-        rln_ansi_state = ansi_state_Fe;
+        a->state = ansi_state_Fe;
     else if (ch == '\b' || ch == 127)
         rln_line_backspace();
     else if (ch == 1) // ctrl-a
         rln_line_home();
     else if (ch == 2) // ctrl-b
-        rln_line_backward_1();
+        rln_line_backward_1(a);
     else if (ch == 4) // ctrl-d
         rln_line_delete();
     else if (ch == 5) // ctrl-e
         rln_line_end();
     else if (ch == 6) // ctrl-f
-        rln_line_forward_1();
+        rln_line_forward_1(a);
     else if (ch == 11) // ctrl-k
         rln_line_kill_to_end();
     else if (ch == 14) // ctrl-n
@@ -347,107 +388,109 @@ static void rln_line_state_C0(char ch)
         rln_line_insert(ch);
 }
 
-static void rln_line_state_Fe(char ch)
+static void rln_line_state_Fe(rln_ansi_t *a, char ch)
 {
     if (ch == '[')
     {
-        rln_ansi_state = ansi_state_CSI;
-        rln_csi_param_count = 0;
-        rln_csi_param[0] = 0;
+        a->state = ansi_state_CSI;
+        a->csi_param_count = 0;
+        a->csi_param[0] = 0;
     }
     else if (ch == 'b' || ch == 2)
     {
-        rln_ansi_state = ansi_state_C0;
+        a->state = ansi_state_C0;
         rln_line_backward_word();
     }
     else if (ch == 'f' || ch == 6)
     {
-        rln_ansi_state = ansi_state_C0;
+        a->state = ansi_state_C0;
         rln_line_forward_word();
     }
     else if (ch == 'N')
-        rln_ansi_state = ansi_state_SS2;
+        a->state = ansi_state_SS2;
     else if (ch == 'O')
-        rln_ansi_state = ansi_state_SS3;
+        a->state = ansi_state_SS3;
     else if (ch == 'd')
     {
-        rln_ansi_state = ansi_state_C0;
+        a->state = ansi_state_C0;
         rln_line_forward_kill_word();
     }
     else
     {
-        rln_ansi_state = ansi_state_C0;
+        a->state = ansi_state_C0;
         if (ch == 127 || ch == '\b')
             rln_line_backward_kill_word();
     }
 }
 
-static void rln_line_state_SS2(char ch)
+static void rln_line_state_SS2(rln_ansi_t *a, char ch)
 {
     (void)ch;
-    rln_ansi_state = ansi_state_C0;
+    a->state = ansi_state_C0;
 }
 
-static void rln_line_state_SS3(char ch)
+static void rln_line_state_SS3(rln_ansi_t *a, char ch)
 {
-    rln_ansi_state = ansi_state_C0;
+    a->state = ansi_state_C0;
     if (ch == 'F')
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
 }
 
-static void rln_line_state_CSI(char ch)
+static void rln_line_state_CSI(rln_ansi_t *a, char ch)
 {
     // Silently discard overflow parameters but still count to + 1.
     if (isdigit(ch))
     {
-        if (rln_csi_param_count < RLN_CSI_PARAM_MAX_LEN)
+        if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
         {
-            rln_csi_param[rln_csi_param_count] *= 10;
-            rln_csi_param[rln_csi_param_count] += ch - '0';
+            a->csi_param[a->csi_param_count] *= 10;
+            a->csi_param[a->csi_param_count] += ch - '0';
         }
         return;
     }
     if (ch == ';' || ch == ':')
     {
-        if (++rln_csi_param_count < RLN_CSI_PARAM_MAX_LEN)
-            rln_csi_param[rln_csi_param_count] = 0;
+        if (++a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
+            a->csi_param[a->csi_param_count] = 0;
         else
-            rln_csi_param_count = RLN_CSI_PARAM_MAX_LEN;
+            a->csi_param_count = RLN_CSI_PARAM_MAX_LEN;
         return;
     }
     if (ch == '<' || ch == '=' || ch == '>' || ch == '?')
     {
-        rln_ansi_state = ansi_state_CSI_private;
+        a->state = ansi_state_CSI_private;
         return;
     }
-    if (rln_ansi_state == ansi_state_CSI_private)
+    if (a->state == ansi_state_CSI_private)
     {
-        rln_ansi_state = ansi_state_C0;
+        a->state = ansi_state_C0;
         return;
     }
-    rln_ansi_state = ansi_state_C0;
-    if (++rln_csi_param_count > RLN_CSI_PARAM_MAX_LEN)
-        rln_csi_param_count = RLN_CSI_PARAM_MAX_LEN;
+    a->state = ansi_state_C0;
+    if (++a->csi_param_count > RLN_CSI_PARAM_MAX_LEN)
+        a->csi_param_count = RLN_CSI_PARAM_MAX_LEN;
     if (ch == 'A')
         rln_line_up();
     else if (ch == 'B')
         rln_line_down();
     else if (ch == 'C')
-        rln_line_forward();
+        rln_line_forward(a);
     else if (ch == 'D')
-        rln_line_backward();
+        rln_line_backward(a);
     else if (ch == 'F')
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
+    else if (ch == 'P')
+        rln_line_delete_n(a);
     else if (ch == 'b' || ch == 2)
         rln_line_backward_word();
     else if (ch == 'f' || ch == 6)
         rln_line_forward_word();
     else if (ch == '~')
-        switch (rln_csi_param[0])
+        switch (a->csi_param[0])
         {
         case 1:
         case 7:
@@ -460,40 +503,72 @@ static void rln_line_state_CSI(char ch)
         }
 }
 
-static void rln_line_rx(uint8_t ch)
+static void rln_line_rx(rln_ansi_t *a, uint8_t ch)
 {
     if (ch == '\30')
-        rln_ansi_state = ansi_state_C0;
+        a->state = ansi_state_C0;
     else
-        switch (rln_ansi_state)
+        switch (a->state)
         {
         case ansi_state_C0:
-            rln_line_state_C0(ch);
+            rln_line_state_C0(a, ch);
             break;
         case ansi_state_Fe:
-            rln_line_state_Fe(ch);
+            rln_line_state_Fe(a, ch);
             break;
         case ansi_state_SS2:
-            rln_line_state_SS2(ch);
+            rln_line_state_SS2(a, ch);
             break;
         case ansi_state_SS3:
-            rln_line_state_SS3(ch);
+            rln_line_state_SS3(a, ch);
             break;
         case ansi_state_CSI:
         case ansi_state_CSI_private:
-            rln_line_state_CSI(ch);
+            rln_line_state_CSI(a, ch);
             break;
         }
+}
+
+static void rln_line_rx_typed(uint8_t ch)
+{
+    rln_ansi_state_t prev_state = rln_typed_ansi.state;
+    if (prev_state == ansi_state_C0)
+    {
+        rln_keyseq_accum[0] = ch;
+        rln_keyseq_accum_len = 1;
+        rln_keyseq_overflow = false;
+    }
+    else if (rln_keyseq_accum_len < RLN_LASTKEY_MAX)
+        rln_keyseq_accum[rln_keyseq_accum_len++] = ch;
+    else
+        rln_keyseq_overflow = true;
+
+    rln_line_rx(&rln_typed_ansi, ch);
+
+    if (rln_typed_ansi.state == ansi_state_C0)
+    {
+        if (!rln_keyseq_overflow)
+        {
+            memcpy(rln_lastkey_buf, rln_keyseq_accum, rln_keyseq_accum_len);
+            rln_lastkey_len = rln_keyseq_accum_len;
+        }
+        rln_keyseq_overflow = false;
+    }
 }
 
 void rln_read_line(rln_read_callback_t callback)
 {
     rln_buflen = 0;
     rln_bufpos = 0;
-    rln_ansi_state = ansi_state_C0;
+    rln_typed_ansi.state = ansi_state_C0;
+    rln_typed_ansi.csi_param_count = 0;
+    rln_typed_ansi.csi_param[0] = 0;
     rln_callback = callback;
     rln_history_pos = 0;
     rln_buf[0] = 0;
+    rln_lastkey_len = 0;
+    rln_keyseq_accum_len = 0;
+    rln_keyseq_overflow = false;
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -514,7 +589,7 @@ void rln_task(void)
         if (ch == PICO_ERROR_TIMEOUT)
             break;
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
-        rln_line_rx(ch);
+        rln_line_rx_typed(ch);
     }
     if (rln_timeout_ms && time_reached(rln_timer))
     {
@@ -527,6 +602,7 @@ void rln_init(void)
     rln_callback = NULL;
     rln_enable_history = true;
     rln_max_length = 255;
+    rln_caps = 0;
 }
 
 void rln_run(void)
@@ -550,3 +626,58 @@ void rln_break(void)
 
 void rln_set_max_length(uint8_t v) { rln_max_length = v; }
 uint8_t rln_get_max_length(void) { return rln_max_length; }
+
+void rln_set_caps(uint8_t v) { rln_caps = v; }
+uint8_t rln_get_caps(void) { return rln_caps; }
+
+/* Readline magic: lastkey + peekpoke
+ */
+
+// int ria_readline_lastkey(char *key);
+bool rln_api_lastkey(void)
+{
+    uint8_t len = 0;
+    if (rln_callback && rln_lastkey_len)
+    {
+        len = rln_lastkey_len;
+        // Push in reverse so the 6502 pops bytes in the order received.
+        for (int i = len - 1; i >= 0; i--)
+            if (!api_push_uint8(&rln_lastkey_buf[i]))
+                return api_return_errno(API_EINVAL);
+        rln_lastkey_len = 0;
+    }
+    return api_return_ax(len);
+}
+
+// int ria_readline_peek(char *peek);
+bool rln_api_peek(void)
+{
+    if (!rln_callback)
+        return api_return_ax(0);
+    rln_buf[rln_buflen] = 0;
+    char zero = 0;
+    if (!api_push_char(&zero))
+        return api_return_errno(API_EINVAL);
+    for (int i = rln_buflen - 1; i >= 0; i--)
+        if (!api_push_char(&rln_buf[i]))
+            return api_return_errno(API_EINVAL);
+    return api_return_ax(rln_bufpos);
+}
+
+// int ria_readline_poke(const char *poke);
+bool rln_api_poke(void)
+{
+    const char *poke = (char *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    if (!rln_callback)
+        return api_return_ax(0);
+    rln_ansi_t a = {.state = ansi_state_C0};
+    for (const char *p = poke; *p; p++)
+    {
+        char ch = *p;
+        rln_line_rx(&a, (uint8_t)ch);
+        if (ch == '\r')
+            break;
+    }
+    return api_return_ax(rln_bufpos);
+}

@@ -529,8 +529,9 @@ static int rom_help_response(char *buf, size_t buf_size, int state)
             state = 1;
         }
         // Stream one line from the help asset
-        if (rom_ftell() < rom_end_pos && rom_gets())
+        if (rom_ftell() < rom_end_pos)
         {
+            rom_gets();
             snprintf(buf, buf_size, "%s\n", (char *)mbuf);
             return state;
         }
