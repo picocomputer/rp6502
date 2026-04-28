@@ -67,7 +67,6 @@ static bool com_tel_tx_writable(void) { return true; }
 static void com_tel_tx_write(char) {}
 static size_t com_tel_read(char *, size_t) { return 0; }
 static void com_tel_pump(void) {}
-static void com_tel_flush(void) {}
 static void com_tel_task(void) {}
 
 #else
@@ -154,21 +153,15 @@ static void com_tel_drain_tx(void)
     com_tel_tx_tail = (com_tel_tx_tail + sent) % COM_TEL_TX_BUF_SIZE;
 }
 
-// Drives lwIP via cyw_task(), which can synchronously fire
-// com_tel_on_accept/on_disconnect callbacks and mutate com_tel_state +
-// the rings. Callers must re-check state after return.
+// Only drives lwIP via cyw_task() when the ring is full and the upstream
+// would otherwise stall — cyw_task synchronously fires
+// com_tel_on_accept/on_disconnect callbacks and mutates com_tel_state +
+// the rings, so callers must re-check state after return.
 static void com_tel_pump(void)
 {
     com_tel_drain_tx();
-    if (com_tel_tx_head != com_tel_tx_tail)
+    if (!com_tel_tx_writable())
         cyw_task();
-}
-
-static void com_tel_flush(void)
-{
-    while (com_tel_state == com_tel_state_connected &&
-           com_tel_tx_head != com_tel_tx_tail)
-        com_tel_pump();
 }
 
 static void com_tel_handle_auth(uint8_t ch)
@@ -576,7 +569,6 @@ static void com_stdio_out_flush(void)
         com_tel_pump();
     }
     com_uart_flush();
-    com_tel_flush();
 }
 
 static int com_stdio_in_chars(char *buf, int length)
