@@ -360,9 +360,9 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    if (com_act_writable())
-                        com_act_write(data);
-                    if (com_act_writable())
+                    if (com_tx_core1_writable())
+                        com_tx_core1_write(data);
+                    if (com_tx_core1_writable())
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
@@ -380,7 +380,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                             com_rx_char = -1;
                         }
                     }
-                    if (com_act_writable())
+                    if (com_tx_core1_writable())
                         flags |= 0b10000000;
                     else
                         flags &= ~0b10000000;

@@ -14,6 +14,7 @@
 #include "net/ble.h"
 #include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/com.h"
 #include "usb/usb.h"
 #include <class/hid/hid.h>
 #include <fatfs/ff.h>
@@ -329,6 +330,9 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Promote ctrl characters
     if (key_ctrl)
         ch = kbd_ctrl_promote(ch, keycode);
+    // Latch a SIGINT even if com not draining
+    if (ch == 0x03)
+        com_set_sigint();
     // Process a regularly typed key
     if (ch)
     {
@@ -820,15 +824,15 @@ bool kbd_xreg(uint16_t word)
     return true;
 }
 
-int kbd_stdio_in_chars(char *buf, int length)
+size_t kbd_stdio_in_chars(char *buf, size_t length)
 {
-    int i = 0;
+    size_t i = 0;
     while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
     {
         kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
         buf[i++] = kbd_key_queue[kbd_key_queue_tail];
     }
-    return i ? i : PICO_ERROR_NO_DATA;
+    return i;
 }
 
 void kbd_load_layout(const char *str)

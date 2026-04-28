@@ -68,8 +68,8 @@ void kbd_report(int slot, uint8_t const *data, size_t size);
 // Set the extended register value.
 bool kbd_xreg(uint16_t word);
 
-// Handler for stdio_driver_t
-int kbd_stdio_in_chars(char *buf, int length);
+// Drain the keyboard queue into buf
+size_t kbd_stdio_in_chars(char *buf, size_t length);
 
 // Configuration setting KB
 void kbd_load_layout(const char *str);
