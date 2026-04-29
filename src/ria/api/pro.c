@@ -270,8 +270,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         strncpy(work, abs, sizeof(work) - 1);
         work[sizeof(work) - 1] = '\0';
         DBG("pro_nfc argv[0] %s\n", work);
-        FILINFO finfo;
-        if (f_stat(work, &finfo) != FR_OK)
+        if (f_stat(work, NULL) != FR_OK)
             goto fail;
     }
     else
@@ -288,8 +287,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         for (int drive = 0; drive <= 9; drive++)
         {
             work[3] = (char)('0' + drive);
-            FILINFO finfo;
-            if (f_stat(work, &finfo) == FR_OK)
+            if (f_stat(work, NULL) == FR_OK)
             {
                 found = true;
                 break;
@@ -306,6 +304,10 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         DBG("pro_nfc argv[0] %s\n", work);
     }
 
+    // Splice the on-disk basename so argv[0] preserves case.
+    if (!str_correct_basename(work, sizeof(work)))
+        goto fail;
+
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
@@ -313,7 +315,10 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     main_stop();
 
     // Change to the directory containing the ROM before loading
-    char *slash = strrchr(work, '/');
+    char *slash = NULL;
+    for (char *p = work; *p; p++)
+        if (str_is_sep(*p))
+            slash = p;
     if (slash && slash > work)
     {
         // For root ("DRV:/file"), keep the slash; otherwise strip it

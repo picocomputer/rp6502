@@ -83,6 +83,11 @@ __in_flash("mon_commands") static struct
     {STR_FLASH, uf2_mon_flash},
     {STR_UPLOAD, fil_mon_upload},
     {STR_UNLINK, fil_mon_unlink},
+    {STR_RM, fil_mon_unlink},
+    {STR_COPY, fil_mon_copy},
+    {STR_CP, fil_mon_copy},
+    {STR_MOVE, fil_mon_move},
+    {STR_MV, fil_mon_move},
     {STR_BINARY, ram_mon_binary},
 };
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;

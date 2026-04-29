@@ -10,6 +10,7 @@
 #include "str/str.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
+#include <assert.h>
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +32,40 @@ static uint32_t fil_rx_size;
 static uint32_t fil_rx_crc;
 static DIR fil_fatfs_dir;
 static FIL fil_fatfs_fil;
+
+// COPY and MOVE put two paths in xstack.
+static_assert(2 * (FF_LFN_BUF + 1) <= XSTACK_SIZE);
+
+static FRESULT fil_resolve_dst(const char *src, const char *dst,
+                               char *out, size_t out_sz)
+{
+    // Use f_opendir rather than f_stat to detect the directory case;
+    // f_stat returns FR_INVALID_NAME for "." and "..".
+    DIR dir;
+    if (f_opendir(&dir, dst) == FR_OK)
+    {
+        f_closedir(&dir);
+        // Use src's on-disk basename so case is preserved.
+        FILINFO fno;
+        FRESULT fr = str_lookup_basename(src, &fno);
+        if (fr != FR_OK)
+            return fr;
+        // Skip the joiner if dst already ends in a separator.
+        size_t dst_len = strlen(dst);
+        const char *sep = (dst_len > 0 && str_is_sep(dst[dst_len - 1])) ? "" : "/";
+        int n = snprintf(out, out_sz, "%s%s%s", dst, sep, fno.fname);
+        if (n < 0 || (size_t)n >= out_sz)
+            return FR_INVALID_NAME;
+        return FR_OK;
+    }
+    // dst doesn't resolve to a directory; pass it through. The caller's
+    // f_open / f_rename will report any real error.
+    size_t len = strlen(dst);
+    if (len + 1 > out_sz)
+        return FR_INVALID_NAME;
+    memcpy(out, dst, len + 1);
+    return FR_OK;
+}
 
 bool fil_drive_exists(const char *args)
 {
@@ -311,6 +346,87 @@ void fil_mon_unlink(const char *args)
     }
     FRESULT result = f_unlink(path);
     mon_add_response_fatfs(result);
+}
+
+void fil_mon_copy(const char *args)
+{
+    char *src_path = (char *)&xstack[0];
+    char *dst_path = (char *)&xstack[FF_LFN_BUF + 1];
+    const char *src_raw = str_parse_string(&args);
+    if (src_raw)
+    {
+        strncpy(src_path, src_raw, FF_LFN_BUF + 1);
+        src_path[FF_LFN_BUF] = '\0';
+    }
+    const char *dst = str_parse_string(&args);
+    if (!src_raw || !dst || !str_parse_end(args))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT fr = fil_resolve_dst(src_path, dst, dst_path, FF_LFN_BUF + 1);
+    if (fr != FR_OK)
+    {
+        mon_add_response_fatfs(fr);
+        return;
+    }
+    fr = f_open(&fil_fatfs_fil, src_path, FA_READ);
+    if (fr != FR_OK)
+    {
+        mon_add_response_fatfs(fr);
+        return;
+    }
+    FIL dst_fil;
+    fr = f_open(&dst_fil, dst_path, FA_CREATE_NEW | FA_WRITE);
+    if (fr != FR_OK)
+    {
+        f_close(&fil_fatfs_fil);
+        mon_add_response_fatfs(fr);
+        return;
+    }
+    UINT br, bw;
+    for (;;)
+    {
+        fr = f_read(&fil_fatfs_fil, mbuf, MBUF_SIZE, &br);
+        if (fr != FR_OK || br == 0)
+            break;
+        fr = f_write(&dst_fil, mbuf, br, &bw);
+        if (fr != FR_OK)
+            break;
+        if (bw < br)
+        {
+            fr = FR_DISK_ERR;
+            break;
+        }
+    }
+    f_close(&fil_fatfs_fil);
+    f_close(&dst_fil);
+    mon_add_response_fatfs(fr);
+}
+
+void fil_mon_move(const char *args)
+{
+    char *src_path = (char *)&xstack[0];
+    char *dst_path = (char *)&xstack[FF_LFN_BUF + 1];
+    const char *src_raw = str_parse_string(&args);
+    if (src_raw)
+    {
+        strncpy(src_path, src_raw, FF_LFN_BUF + 1);
+        src_path[FF_LFN_BUF] = '\0';
+    }
+    const char *dst = str_parse_string(&args);
+    if (!src_raw || !dst || !str_parse_end(args))
+    {
+        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return;
+    }
+    FRESULT fr = fil_resolve_dst(src_path, dst, dst_path, FF_LFN_BUF + 1);
+    if (fr != FR_OK)
+    {
+        mon_add_response_fatfs(fr);
+        return;
+    }
+    mon_add_response_fatfs(f_rename(src_path, dst_path));
 }
 
 void fil_task(void)

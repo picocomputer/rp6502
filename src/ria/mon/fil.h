@@ -36,5 +36,7 @@ void fil_mon_chdrive(const char *args);
 void fil_mon_ls(const char *args);
 void fil_mon_upload(const char *args);
 void fil_mon_unlink(const char *args);
+void fil_mon_copy(const char *args);
+void fil_mon_move(const char *args);
 
 #endif /* _RIA_MON_FIL_H_ */

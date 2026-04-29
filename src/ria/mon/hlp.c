@@ -59,6 +59,8 @@ __in_flash("hlp_commands") static struct
     {STR_FLASH, STR_HELP_FLASH, NULL},
     {STR_UPLOAD, STR_HELP_UPLOAD, NULL},
     {STR_UNLINK, STR_HELP_UNLINK, NULL},
+    {STR_COPY, STR_HELP_COPY, NULL},
+    {STR_MOVE, STR_HELP_MOVE, NULL},
     {STR_BINARY, STR_HELP_BINARY, NULL},
 };
 static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;

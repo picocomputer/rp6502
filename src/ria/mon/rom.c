@@ -421,10 +421,20 @@ void rom_exec(void)
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     const char *filepath = str_abs_path(argv0);
-    if (!filepath || !pro_argv_replace(0, filepath))
+    if (!filepath)
+        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    char path[256];
+    size_t flen = strlen(filepath);
+    if (flen >= sizeof path)
+        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    memcpy(path, filepath, flen + 1);
+    // Skip case correction for installed ROMs (live in flash, not on disk).
+    if (*argv0 != ':' && !str_correct_basename(path, sizeof path))
+        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    if (!pro_argv_replace(0, path))
         return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     rom_close();
-    if (!rom_open(filepath))
+    if (!rom_open(path))
         return;
     rom_state = ROM_LOADING;
 }

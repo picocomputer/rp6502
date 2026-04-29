@@ -51,7 +51,7 @@ const char *str_abs_path(const char *path)
             str_buf[i] = (char)toupper((unsigned char)path[i]);
         str_buf[drive_len - 1] = ':';
         segs_src = colon + 1;
-        if (*segs_src == '/')
+        if (str_is_sep(*segs_src))
             segs_src++;
     }
     else
@@ -63,14 +63,14 @@ const char *str_abs_path(const char *path)
             return NULL;
         drive_len = (size_t)(colon - str_buf) + 1;
         segs_src = path;
-        if (*segs_src == '/')
+        if (str_is_sep(*segs_src))
             segs_src++;
     }
 
     // For relative paths start at the end of the CWD already in str_buf.
     // For absolute paths start fresh after the drive prefix.
     size_t out;
-    if (!strchr(path, ':') && path[0] != '/')
+    if (!strchr(path, ':') && !str_is_sep(path[0]))
     {
         out = strlen(str_buf);
         while (out > drive_len && str_buf[out - 1] == '/')
@@ -85,8 +85,12 @@ const char *str_abs_path(const char *path)
     const char *seg = segs_src;
     while (*seg)
     {
-        const char *next = strchr(seg, '/');
-        size_t slen = next ? (size_t)(next - seg) : strlen(seg);
+        const char *next = seg;
+        while (*next && !str_is_sep(*next))
+            next++;
+        size_t slen = (size_t)(next - seg);
+        if (!*next)
+            next = NULL;
         if (slen == 0 || (slen == 1 && seg[0] == '.'))
         {
             // skip empty segment or "."
@@ -121,6 +125,122 @@ const char *str_abs_path(const char *path)
         str_buf[out++] = '/';
     str_buf[out] = '\0';
     return str_buf;
+}
+
+// Case-insensitive compare matching FatFs's name lookup: convert each
+// OEM byte to Unicode via the configured code page, then upper-case via
+// ff_wtoupper. strcasecmp would only handle ASCII.
+static bool str_lfn_eq(const char *a, const char *b)
+{
+    for (;;)
+    {
+        WCHAR ua = ff_oem2uni((unsigned char)*a, FF_CODE_PAGE);
+        WCHAR ub = ff_oem2uni((unsigned char)*b, FF_CODE_PAGE);
+        if (ff_wtoupper(ua) != ff_wtoupper(ub))
+            return false;
+        if (!*a)
+            return true;
+        a++;
+        b++;
+    }
+}
+
+bool str_correct_basename(char *path, size_t path_size)
+{
+    FILINFO fno;
+    if (str_lookup_basename(path, &fno) != FR_OK)
+        return true; // lookup failed; leave the input case unchanged
+
+    // Find where the basename starts (after the last separator or drive
+    // colon), ignoring any trailing separators on path.
+    size_t end = strlen(path);
+    while (end > 0 && str_is_sep(path[end - 1]))
+        end--;
+
+    size_t name_start = 0;
+    const char *colon = strchr(path, ':');
+    if (colon && (size_t)(colon - path) < end)
+        name_start = (size_t)(colon - path) + 1;
+    for (size_t i = name_start; i < end; i++)
+        if (str_is_sep(path[i]))
+            name_start = i + 1;
+
+    size_t fname_len = strlen(fno.fname);
+    if (name_start + fname_len + 1 > path_size)
+        return false;
+    memcpy(path + name_start, fno.fname, fname_len + 1);
+    return true;
+}
+
+FRESULT str_lookup_basename(const char *path, FILINFO *fno)
+{
+    // Trim trailing separators so "folder/" is treated like "folder".
+    size_t end = strlen(path);
+    while (end > 0 && str_is_sep(path[end - 1]))
+        end--;
+    if (end == 0)
+        return FR_INVALID_NAME;
+
+    // Find basename. ':' caps the drive prefix; treat the byte after it
+    // as the start of the path so "X:foo" splits as parent "X:" + name "foo".
+    size_t name_start = 0;
+    const char *colon = strchr(path, ':');
+    if (colon)
+        name_start = (size_t)(colon - path) + 1;
+    for (size_t i = name_start; i < end; i++)
+        if (str_is_sep(path[i]))
+            name_start = i + 1;
+
+    size_t name_len = end - name_start;
+    if (name_len == 0 || name_len > FF_LFN_BUF)
+        return FR_INVALID_NAME;
+
+    char name[FF_LFN_BUF + 1];
+    memcpy(name, path + name_start, name_len);
+    name[name_len] = '\0';
+
+    // Build parent. Drop a trailing '/' or '\' unless we'd be left with
+    // a bare drive prefix ("X:") or the root separator alone ("/"), in
+    // which case f_opendir needs the separator kept.
+    char parent[FF_LFN_BUF + 1];
+    if (name_start == 0)
+    {
+        parent[0] = '.';
+        parent[1] = '\0';
+    }
+    else
+    {
+        size_t parent_len = name_start;
+        if (parent_len > 1 && str_is_sep(path[parent_len - 1]) &&
+            path[parent_len - 2] != ':')
+            parent_len--;
+        if (parent_len >= sizeof parent)
+            return FR_INVALID_NAME;
+        memcpy(parent, path, parent_len);
+        parent[parent_len] = '\0';
+    }
+
+    DIR dir;
+    FRESULT fr = f_opendir(&dir, parent);
+    if (fr != FR_OK)
+        return fr;
+    for (;;)
+    {
+        fr = f_readdir(&dir, fno);
+        if (fr != FR_OK || !fno->fname[0])
+        {
+            if (fr == FR_OK)
+                fr = FR_NO_FILE;
+            break;
+        }
+        if (str_lfn_eq(fno->fname, name))
+        {
+            fr = FR_OK;
+            break;
+        }
+    }
+    f_closedir(&dir);
+    return fr;
 }
 
 int str_xdigit_to_int(char ch)

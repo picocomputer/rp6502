@@ -157,6 +157,8 @@ X(STR_HELP_HELP,
   "FLASH file          - Flash UF2 file to update RIA or VGA firmware.\n"
   "MKDIR dir           - Make a new directory.\n"
   "UNLINK file|dir     - Delete a file or empty directory.\n"
+  "COPY src dst        - Copy a file.\n"
+  "MOVE src dst        - Move or rename a file or directory.\n"
   "UPLOAD file         - Write file. Binary chunks follow.\n"
   "BINARY addr len crc - Write memory. Binary data follows.\n"
   "0000 (00 00 ...)    - Read or write memory.\n")
@@ -273,6 +275,13 @@ X(STR_HELP_UNLINK,
   "UNLINK removes a file. Its intended use is for scripting on another system\n"
   "connected to the monitor. For example, you might want to delete save data\n"
   "as part of automated testing.\n")
+
+X(STR_HELP_COPY,
+  "COPY duplicates a file. The destination can be a new filename or a directory.\n")
+
+X(STR_HELP_MOVE,
+  "MOVE renames a file or directory or relocates it on the same drive. The\n"
+  "destination can be a new name or a directory.\n")
 
 X(STR_HELP_BINARY,
   "BINARY is the fastest way to get code or data from your build system to the\n"

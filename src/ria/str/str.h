@@ -19,15 +19,31 @@
  * miscellaneous string functions.
  */
 
+#include <fatfs/ff.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+// True if c is a path separator. FatFs accepts both '/' and '\'.
+#define str_is_sep(c) ((c) == '/' || (c) == '\\')
 
 // Converts a FatFS path to a fully-qualified absolute path,
 // resolving the CWD for relative paths.
 // Returns a pointer to static storage valid until the next str_* call.
 // Returns NULL if the path exceeds 255 characters or CWD lookup fails.
 const char *str_abs_path(const char *path);
+
+// Look up the on-disk filename for path (case-insensitive). On success
+// fno->fname holds the name as stored on disk. f_stat returns the input
+// case for LFN files; this iterates the parent via f_readdir to recover
+// the real case.
+FRESULT str_lookup_basename(const char *path, FILINFO *fno);
+
+// Replace path's basename in place with the case stored on disk.
+// Returns false only if the corrected path wouldn't fit in path_size
+// (caller should treat as fatal). Returns true on success or when the
+// lookup gracefully fails (path left unchanged).
+bool str_correct_basename(char *path, size_t path_size);
 
 // Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
