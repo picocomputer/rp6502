@@ -145,7 +145,7 @@ X(STR_HELP_HELP,
   "STATUS              - Show status of system and connected devices.\n"
   "SET (attr) (value)  - Change or show settings.\n"
   "LS (dir|drive)      - List contents of directory.\n"
-  "CD (dir)            - Change or show current directory.\n"
+  "DIR (dir)           - Change or show current directory.\n"
   "(MSC)0:             - MSC0:-MSC9: Change current storage device.\n"
   "LOAD file           - Load ROM file. Start if contains reset vector.\n"
   "INFO file           - Show help text, if any, contained in ROM file.\n"
