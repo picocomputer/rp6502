@@ -8,12 +8,6 @@
 #ifndef _RIA_STR_STR_H_
 #define _RIA_STR_STR_H_
 
-// CONTRIBUTE: Duplicate one of the existing locale files then select your
-// new RP6502_LOCALE in CMakeLists.txt. Localization may not be practical
-// because only 7-bit ASCII is allowed. Or undecorated characters might
-// feel more authentic. I don't know but it was easy to add as part of
-// consolidating strings in flash.
-
 /*
  * String constants in flash and
  * miscellaneous string functions.
@@ -23,6 +17,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/cdefs.h>
 
 // True if c is a path separator. FatFs accepts both '/' and '\'.
 #define str_is_sep(c) ((c) == '/' || (c) == '\\')
@@ -70,8 +65,8 @@ bool str_parse_end(const char *args);
 #define X(name, value) \
     extern const char name[];
 #define XR(name, value) X(name, value)
-#include "str.inc"
-#include RP6502_LOCALE
+#include "str.def"
+#include "str_locale.def"
 #undef X
 #undef XR
 
@@ -82,7 +77,7 @@ bool str_parse_end(const char *args);
         name##_LEN = sizeof(value) - 1 \
     };
 #define XR(name, value) X(name, value)
-#include "str.inc"
+#include "str.def"
 #undef X
 #undef XR
 

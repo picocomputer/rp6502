@@ -6,13 +6,6 @@
 
 /* English */
 
-#if !defined(X)
-#define X(name, value) extern const char name[];
-#endif
-#if !defined(XR)
-#define XR(name, value) X(name, value)
-#endif
-
 // Time format
 X(STR_STRFTIME, "%c %z %Z")
 

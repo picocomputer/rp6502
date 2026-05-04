@@ -28,8 +28,8 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
     const char __in_flash(__XSTRING(name)) name[] = value;
 #define XR(name, value) \
     const char __not_in_flash(__XSTRING(name)) name[] = value;
-#include "str.inc"
-#include RP6502_LOCALE
+#include "str.def"
+#include "str_locale.def"
 #undef X
 #undef XR
 
