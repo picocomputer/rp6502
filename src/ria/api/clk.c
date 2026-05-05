@@ -24,10 +24,9 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#ifdef __INTELLISENSE__
-#undef __in_flash
-#define __in_flash(x)
-#define X(name, value) extern const char name[];
+// Editor-standalone parse fallback for X-macro
+#ifndef X
+#define X(suffix, name, tz) extern const char CLK_TZINFO_NAME_##suffix[];
 #endif
 
 #define CLK_ID_REALTIME 0

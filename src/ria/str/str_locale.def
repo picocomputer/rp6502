@@ -11,10 +11,11 @@
  * with no mapping render as ASCII 0x7F (a filled-box glyph).
  */
 
-// Intellisense and tools hack for X macros
-#ifdef __INTELLISENSE__
-#define RP6502_LOCALE en
+// Editor-standalone parse fallback for X-macro
+#ifndef X
 #define X(name, value) extern const char name[];
+#endif
+#ifndef XR
 #define XR(name, value) X(name, value)
 #endif
 
