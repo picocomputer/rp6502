@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "rp6502_version.h"
 #include "main.h"
 #include "api/clk.h"
 #include "api/pro.h"
@@ -31,12 +32,7 @@ __in_flash("SYS_NAME") static const char SYS_NAME[] =
     RP6502_NAME "\n";
 
 __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
-    "RIA "
-#if RP6502_VERSION_EMPTY
-    __DATE__ " " __TIME__
-#else
-    "Version " RP6502_VERSION
-#endif
+    "RIA " RP6502_VERSION
 #ifdef RP6502_RIA_W
     " W"
 #endif

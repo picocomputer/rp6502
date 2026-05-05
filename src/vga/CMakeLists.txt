@@ -47,6 +47,10 @@ target_sources(rp6502_vga PRIVATE
     usb/usb.c
 )
 
+rp6502_use_version_header(rp6502_vga
+    sys/sys.c
+)
+
 target_link_libraries(rp6502_vga PRIVATE
     pico_stdlib
     pico_multicore
@@ -75,16 +79,3 @@ set_source_files_properties(
 target_sources(rp6502_vga PRIVATE
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
 )
-
-# If no version set, set a define for C preprocessor and touch
-# the file that provides a dev timestamp for the version.
-get_target_property(RP6502_VGA_COMPILE_DEFINITIONS rp6502_vga COMPILE_DEFINITIONS)
-if(RP6502_VGA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
-    set_property(TARGET rp6502_vga
-        APPEND PROPERTY COMPILE_DEFINITIONS
-        RP6502_VERSION_EMPTY=1
-    )
-    add_custom_command(TARGET rp6502_vga PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/sys/sys.c
-    )
-endif()

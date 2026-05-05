@@ -108,6 +108,10 @@ target_sources(${RIA_TARGET} PRIVATE
     usb/xin.c
 )
 
+rp6502_use_version_header(${RIA_TARGET}
+    sys/sys.c
+)
+
 target_sources(${RIA_TARGET} PRIVATE
     ${PROJECT_SOURCE_DIR}/src/emu8950/emu8950.c
     ${PROJECT_SOURCE_DIR}/src/fatfs/ff.c
@@ -150,16 +154,3 @@ target_sources(${RIA_TARGET} PRIVATE
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/msc_host.c
     net/ble_tlv.c
 )
-
-# If no version set, set a define for C preprocessor and touch
-# the file that provides a dev timestamp for the version.
-get_target_property(RP6502_RIA_COMPILE_DEFINITIONS ${RIA_TARGET} COMPILE_DEFINITIONS)
-if(RP6502_RIA_COMPILE_DEFINITIONS MATCHES "RP6502_VERSION=\"\"")
-    set_property(TARGET ${RIA_TARGET}
-        APPEND PROPERTY COMPILE_DEFINITIONS
-        RP6502_VERSION_EMPTY=1
-    )
-    add_custom_command(TARGET ${RIA_TARGET} PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_DIR}/sys/sys.c
-    )
-endif()
