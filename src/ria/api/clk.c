@@ -24,11 +24,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Editor-standalone parse fallback for X-macro
-#ifndef X
-#define X(suffix, name, tz) extern const char CLK_TZINFO_NAME_##suffix[];
-#endif
-
 #define CLK_ID_REALTIME 0
 
 #define CLK_TZINFO                                                         \
