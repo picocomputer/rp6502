@@ -5,20 +5,16 @@
  */
 
 /* TRANSLATORS: copy str_en.def to str_<your-locale>.def, translate the
- * string values inside, and set RP6502_LOCALE=<your-locale> in
- * CMakeLists.txt. Only 7-bit ASCII is supported -- accents and
- * non-Latin scripts must be approximated, or undecorated characters
- * may feel more authentic.
+ * string values inside (UTF-8 is supported; use precomposed/NFC forms),
+ * and set RP6502_LOCALE=<your-locale> in CMakeLists.txt. At output time
+ * each codepoint is converted to the active OEM code page; codepoints
+ * with no mapping render as ASCII 0x7F (a filled-box glyph).
  */
 
 // Intellisense and tools hack for X macros
-#ifndef RP6502_LOCALE
+#ifdef __INTELLISENSE__
 #define RP6502_LOCALE en
-#endif
-#ifndef X
 #define X(name, value) extern const char name[];
-#endif
-#ifndef XR
 #define XR(name, value) X(name, value)
 #endif
 

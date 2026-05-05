@@ -120,8 +120,8 @@ static int set_rf_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     uint8_t en = cyw_get_rf_enable();
-    snprintf(buf, buf_size, STR_SET_RF_RESPONSE,
-             en, en ? STR_ON : STR_OFF);
+    snprintf_utf8(buf, buf_size, STR_SET_RF_RESPONSE,
+                  en, en ? STR_ON : STR_OFF);
     return -1;
 }
 
@@ -144,8 +144,8 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
                  cc, " ", cyw_get_rf_country_code_verbose());
     else
-        snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                 "", "", STR_WORLDWIDE);
+        snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
+                      "", "", STR_WORLDWIDE);
     return -1;
 }
 
@@ -170,8 +170,8 @@ static int set_ssid_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *ssid = wfi_get_ssid();
-    snprintf(buf, buf_size, STR_SET_SSID_RESPONSE,
-             strlen(ssid) ? ssid : STR_PARENS_NONE);
+    snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
+                  strlen(ssid) ? ssid : STR_PARENS_NONE);
     return -1;
 }
 
@@ -179,8 +179,8 @@ static int set_pass_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *pass = wfi_get_pass();
-    snprintf(buf, buf_size, STR_SET_PASS_RESPONSE,
-             strlen(pass) ? STR_PARENS_SET : STR_PARENS_NONE);
+    snprintf_utf8(buf, buf_size, STR_SET_PASS_RESPONSE,
+                  strlen(pass) ? STR_PARENS_SET : STR_PARENS_NONE);
     return -1;
 }
 
@@ -222,10 +222,10 @@ static int set_ble_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     uint8_t en = ble_get_enabled();
-    snprintf(buf, buf_size, STR_SET_BLE_RESPONSE,
-             en, en ? STR_ENABLED : STR_DISABLED,
-             ble_is_pairing() ? STR_BLE_PAIRING : "",
-             cyw_get_rf_enable() ? "" : STR_BLE_NO_RF);
+    snprintf_utf8(buf, buf_size, STR_SET_BLE_RESPONSE,
+                  en, en ? STR_ENABLED : STR_DISABLED,
+                  ble_is_pairing() ? STR_BLE_PAIRING : "",
+                  cyw_get_rf_enable() ? "" : STR_BLE_NO_RF);
     return -1;
 }
 
@@ -244,8 +244,8 @@ static int set_key_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *key = com_tel_get_key();
-    snprintf(buf, buf_size, STR_SET_KEY_RESPONSE,
-             strlen(key) ? STR_PARENS_SET : STR_PARENS_NONE);
+    snprintf_utf8(buf, buf_size, STR_SET_KEY_RESPONSE,
+                  strlen(key) ? STR_PARENS_SET : STR_PARENS_NONE);
     return -1;
 }
 
@@ -253,8 +253,8 @@ static int set_port_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     bool en = com_tel_get_port() > 0 && com_tel_get_key()[0];
-    snprintf(buf, buf_size, STR_SET_PORT_RESPONSE,
-             com_tel_get_port(), en ? STR_ENABLED : STR_DISABLED);
+    snprintf_utf8(buf, buf_size, STR_SET_PORT_RESPONSE,
+                  com_tel_get_port(), en ? STR_ENABLED : STR_DISABLED);
     return -1;
 }
 
@@ -294,8 +294,8 @@ static int set_nfc_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     uint8_t en = nfc_get_enabled();
-    snprintf(buf, buf_size, STR_SET_NFC_RESPONSE,
-             en, en ? STR_ENABLED : STR_DISABLED);
+    snprintf_utf8(buf, buf_size, STR_SET_NFC_RESPONSE,
+                  en, en ? STR_ENABLED : STR_DISABLED);
     return -1;
 }
 

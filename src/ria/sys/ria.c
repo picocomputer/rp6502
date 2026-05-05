@@ -132,7 +132,7 @@ void ria_task(void)
 
 static int ria_verify_error_response(char *buf, size_t buf_size, int state)
 {
-    snprintf(buf, buf_size, STR_ERR_RIA_VERIFY, state);
+    snprintf_utf8(buf, buf_size, STR_ERR_RIA_VERIFY, state);
     return -1;
 }
 

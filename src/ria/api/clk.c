@@ -27,6 +27,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #ifdef __INTELLISENSE__
 #undef __in_flash
 #define __in_flash(x)
+#define X(name, value) extern const char name[];
 #endif
 
 #define CLK_ID_REALTIME 0
@@ -155,7 +156,7 @@ int clk_status_response(char *buf, size_t buf_size, int state)
     struct timespec ts;
     if (!aon_timer_get_time(&ts))
     {
-        snprintf(buf, buf_size, STR_STATUS_TIME, STR_INTERNAL_ERROR);
+        snprintf_utf8(buf, buf_size, STR_STATUS_TIME, STR_INTERNAL_ERROR);
     }
     else
     {

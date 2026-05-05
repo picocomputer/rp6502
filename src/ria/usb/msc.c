@@ -1064,19 +1064,19 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             msc_inquiry_rtrim(inq.vendor_id, 8);
             msc_inquiry_rtrim(inq.product_id, 16);
             msc_inquiry_rtrim(inq.product_rev, 4);
-            snprintf(buf, buf_size, STR_STATUS_MSC,
-                     VolumeStr[vol],
-                     sizebuf,
-                     inq.vendor_id,
-                     inq.product_id,
-                     inq.product_rev);
+            snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+                          VolumeStr[vol],
+                          sizebuf,
+                          inq.vendor_id,
+                          inq.product_id,
+                          inq.product_rev);
         }
         else
         {
-            snprintf(buf, buf_size, STR_STATUS_MSC,
-                     VolumeStr[vol],
-                     sizebuf,
-                     STR_PARENS_NONE, STR_PARENS_NONE, "");
+            snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+                          VolumeStr[vol],
+                          sizebuf,
+                          STR_PARENS_NONE, STR_PARENS_NONE, "");
         }
     }
     return state + 1;

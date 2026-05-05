@@ -762,14 +762,14 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
     {
         if (count)
         {
-            snprintf(buf, buf_size,
-                     count == 1 ? STR_ROM_INSTALLED_SINGULAR
-                                : STR_ROM_INSTALLED_PLURAL,
-                     count);
+            snprintf_utf8(buf, buf_size,
+                          count == 1 ? STR_ROM_INSTALLED_SINGULAR
+                                     : STR_ROM_INSTALLED_PLURAL,
+                          count);
         }
         else
         {
-            snprintf(buf, buf_size, STR_ROM_INSTALLED_NONE);
+            snprintf_utf8(buf, buf_size, STR_ROM_INSTALLED_NONE);
             state = -2;
         }
     }
