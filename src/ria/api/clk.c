@@ -163,7 +163,7 @@ int clk_status_response(char *buf, size_t buf_size, int state)
         struct tm tminfo;
         localtime_r(&ts.tv_sec, &tminfo);
         strftime(time_str, sizeof(time_str), STR_STRFTIME, &tminfo);
-        snprintf(buf, buf_size, STR_STATUS_TIME, time_str);
+        snprintf_utf8(buf, buf_size, STR_STATUS_TIME, time_str);
     }
     return -1;
 }

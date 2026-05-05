@@ -141,8 +141,8 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state)
     (void)state;
     const char *cc = cyw_get_rf_country_code();
     if (strlen(cc))
-        snprintf(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                 cc, " ", cyw_get_rf_country_code_verbose());
+        snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
+                      cc, " ", cyw_get_rf_country_code_verbose());
     else
         snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
                       "", "", STR_WORLDWIDE);
