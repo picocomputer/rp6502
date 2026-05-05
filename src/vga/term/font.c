@@ -3580,7 +3580,7 @@ void font_set_code_page(uint16_t cp)
 #endif
         (void)FONT8_CP720;
         (void)FONT16_CP720;
-#if RP6502_CODE_PAGE == 720 || RP6502_CODE_PAGE == 0
+#if RP6502_CODE_PAGE == 720 || defined(NDEBUG)
     case 720:
         font8hi = FONT8_CP720;
         font16hi = FONT16_CP720;
