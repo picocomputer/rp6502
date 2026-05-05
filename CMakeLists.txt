@@ -44,7 +44,9 @@ set(IPO_PRINTF_LINK_OPTIONS
 
 # Project definitions for both RIA and VIA.
 # Please change name for hardware forks.
-# For release, set version string and set code page to 0.
+# RP6502_CODE_PAGE selects the runtime default code page. Debug builds compile
+# only that page (faster flashing); release builds compile every page so the
+# user can switch at runtime via "set cp".
 set(RP6502_PROJECT_DEFINITIONS
     RP6502_NAME="Picocomputer 6502"
     RP6502_VERSION=""

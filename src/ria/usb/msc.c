@@ -52,7 +52,11 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 
 // Validate essential settings from ffconf.h
 static_assert(sizeof(TCHAR) == sizeof(char));
+#ifdef NDEBUG
+static_assert(FF_CODE_PAGE == 0);
+#else
 static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
+#endif
 static_assert(FF_FS_EXFAT == RP6502_EXFAT);
 static_assert(FF_LBA64 == RP6502_EXFAT);
 static_assert(FF_USE_STRFUNC == 1);

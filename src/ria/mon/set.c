@@ -76,7 +76,7 @@ static void set_boot(const char *args)
 static int set_code_page_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-#if (RP6502_CODE_PAGE)
+#ifndef NDEBUG
     snprintf(buf, buf_size, STR_SET_CODE_PAGE_DEV_RESPONSE, RP6502_CODE_PAGE);
 #else
     snprintf(buf, buf_size, STR_SET_CODE_PAGE_RESPONSE, oem_get_code_page());
