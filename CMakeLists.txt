@@ -57,24 +57,50 @@ if(NOT _new STREQUAL _old)
 endif()
 ]])
 
-# Regenerate rp6502_version.h whenever any of `tgt`'s objects change (except
-# `src`'s own .o, which would self-cycle). OUTPUT is a stamp file, hdr is a
-# BYPRODUCT — the BYPRODUCT designation keeps hdr out of cmake's
-# cmake_object_order_depends node so OBJECT_DEPENDS on `src` doesn't cycle
-# back through main.c.o etc. Script writes hdr only when content changes,
-# so a no-op rebuild stays a no-op.
+# Regenerate rp6502_version.h whenever any of `tgt`'s objects change.
+# hdr is a BYPRODUCT to keep it out of cmake_object_order_depends so
+# OBJECT_DEPENDS on `src` doesn't cycle back through the other objects.
 function(rp6502_use_version_header tgt src)
     set(hdr ${CMAKE_CURRENT_BINARY_DIR}/rp6502_version.h)
     set(stamp ${CMAKE_CURRENT_BINARY_DIR}/rp6502_version.stamp)
     target_include_directories(${tgt} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-    string(REPLACE "." "\\." _esc "${src}")
+    set(_deps ${CMAKE_CURRENT_SOURCE_DIR}/${src})
+    set(_impl)
+    if(CMAKE_GENERATOR MATCHES "Make")
+        # IMPLICIT_DEPENDS' C scanner uses the directory's include dirs,
+        # not the target's — mirror them so #include "ria.h" etc. resolve.
+        get_target_property(_inc_dirs ${tgt} INCLUDE_DIRECTORIES)
+        if(_inc_dirs)
+            include_directories(${_inc_dirs})
+        endif()
+        get_target_property(_srcs ${tgt} SOURCES)
+        foreach(_s IN LISTS _srcs)
+            if(NOT IS_ABSOLUTE ${_s})
+                set(_s ${CMAKE_CURRENT_SOURCE_DIR}/${_s})
+            endif()
+            if(NOT _s STREQUAL ${CMAKE_CURRENT_SOURCE_DIR}/${src})
+                list(APPEND _deps ${_s})
+                list(APPEND _impl C ${_s})
+            endif()
+        endforeach()
+        if(_impl)
+            set(_impl IMPLICIT_DEPENDS ${_impl})
+        endif()
+    elseif(CMAKE_GENERATOR MATCHES "Ninja")
+        string(REPLACE "." "\\." _esc "${src}")
+        list(APPEND _deps $<FILTER:$<TARGET_OBJECTS:${tgt}>,EXCLUDE,${_esc}\\.o$>)
+    else()
+        message(FATAL_ERROR
+            "rp6502_use_version_header: unsupported CMake generator "
+            "'${CMAKE_GENERATOR}'. Use 'Ninja' or 'Unix Makefiles'.")
+    endif()
+
     add_custom_command(
         OUTPUT ${stamp}
         BYPRODUCTS ${hdr}
-        DEPENDS
-            ${CMAKE_CURRENT_SOURCE_DIR}/${src}
-            $<FILTER:$<TARGET_OBJECTS:${tgt}>,EXCLUDE,${_esc}\\.o$>
+        DEPENDS ${_deps}
+        ${_impl}
         COMMAND ${CMAKE_COMMAND}
             -DOUTPUT=${hdr}
             "-DVERSION=${RP6502_VERSION_VALUE}"
