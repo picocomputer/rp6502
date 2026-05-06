@@ -4,7 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* English */
+// English
+
+// Suppress bogus VS Code IntelliSense errors
+#ifdef __INTELLISENSE__
+#define X(name, value) extern const char name[];
+#define XR(name, value) X(name, value)
+#endif
+
+// OEM Code Page for this locale
+#define OEM_CODE_PAGE 437
 
 // Time format
 X(STR_STRFTIME, "%c %z %Z")
@@ -127,7 +136,7 @@ X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d installed ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d installed ROMs:\n")
 
-// UF2 progress messages, some must remain in RAM
+// UF2 progress messages, must be in RAM
 XR(STR_UF2_FLASHING, "\rFlashing: %d%%")
 XR(STR_UF2_FLASH_FAILED, "\n?Flashing UF2 failed, recover via BOOTSEL\n")
 
@@ -171,9 +180,9 @@ X(STR_HELP_SET,
   "SET RFCC (cc|-)     - Set country code for RF devices. \"-\" for worldwide.\n"
   "SET SSID (ssid|-)   - Set SSID for WiFi. \"-\" for none.\n"
   "SET PASS (pass|-)   - Set password for WiFi. \"-\" for none.\n"
-  "SET BLE (0|1|2|86)  - Disable or enable Bluetooth LE. 2 enables pairing.\n"
   "SET PORT (port)     - Set TCP port for remote console telnet access.\n"
   "SET KEY (key|-)     - Set passkey for remote console access. \"-\" for none.\n"
+  "SET BLE (0|1|2|86)  - Disable or enable Bluetooth LE. 2 enables pairing.\n"
 #endif
   "")
 
@@ -310,8 +319,8 @@ X(STR_HELP_SET_KB,
 X(STR_HELP_SET_CP,
   "SET CP selects the system OEM code page. The following is supported: 437, 720,\n"
   "737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
-#if RP6502_CODE_PAGE
-  "This is a development build. Only " STR_RP6502_CODE_PAGE " is available.\n"
+#ifndef NDEBUG
+  "This is a development build. Only " STR_OEM_CODE_PAGE " is available.\n"
 #endif
   "")
 

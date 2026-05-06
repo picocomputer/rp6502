@@ -7,8 +7,8 @@
 /* These do not get localized and must use only ASCII. */
 /* This is a contract with monitor tools like rp6502.py. */
 
-// Editor-standalone parse fallback for X-macro
-#ifndef X
+// Suppress bogus VS Code IntelliSense errors
+#ifdef __INTELLISENSE__
 #define X(name, value) extern const char name[];
 #endif
 

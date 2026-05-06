@@ -13,7 +13,6 @@
  * miscellaneous string functions.
  */
 
-#include <fatfs/ff.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -30,10 +29,11 @@
 const char *str_abs_path(const char *path);
 
 // Look up the on-disk filename for path (case-insensitive). On success
-// fno->fname holds the name as stored on disk. f_stat returns the input
-// case for LFN files; this iterates the parent via f_readdir to recover
-// the real case.
-FRESULT str_lookup_basename(const char *path, FILINFO *fno);
+// writes the on-disk basename (NUL-terminated) to out and returns true.
+// f_stat returns the input case for LFN files; this iterates the parent
+// via f_readdir to recover the real case. out_size must be at least
+// FF_LFN_BUF + 1 bytes (256) to fit any FatFs LFN.
+bool str_lookup_basename(const char *path, char *out, size_t out_size);
 
 // Replace path's basename in place with the case stored on disk.
 // Returns false only if the corrected path wouldn't fit in path_size

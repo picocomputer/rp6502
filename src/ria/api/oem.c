@@ -20,7 +20,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// RP6502_CODE_PAGE is the runtime default code page. Debug builds install
+// OEM_CODE_PAGE is the runtime default code page. Debug builds install
 // only that page to flash and lock the runtime to it. Release builds (NDEBUG)
 // install every code page so the user can switch at runtime.
 
@@ -32,15 +32,15 @@ static void oem_request_code_page(uint16_t cp)
     uint16_t old_code_page = oem_code_page_run;
 #ifndef NDEBUG
     (void)cp;
-    oem_code_page_run = RP6502_CODE_PAGE;
+    oem_code_page_run = OEM_CODE_PAGE;
 #else
     if (f_setcp(cp) == FR_OK)
         oem_code_page_run = cp;
     else if (oem_code_page_run == 0)
     {
-        if (f_setcp(RP6502_CODE_PAGE) != FR_OK)
+        if (f_setcp(OEM_CODE_PAGE) != FR_OK)
             mon_add_response_str(STR_ERR_INTERNAL_ERROR);
-        oem_code_page_run = RP6502_CODE_PAGE;
+        oem_code_page_run = OEM_CODE_PAGE;
     }
 #endif
     if (old_code_page != oem_code_page_run)
@@ -54,7 +54,7 @@ void oem_init(void)
 {
     if (!oem_code_page_run)
     {
-        oem_request_code_page(RP6502_CODE_PAGE);
+        oem_request_code_page(OEM_CODE_PAGE);
         oem_code_page_set = oem_code_page_run;
     }
 }

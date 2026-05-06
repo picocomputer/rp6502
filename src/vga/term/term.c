@@ -1300,6 +1300,8 @@ term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_p
 
 void term_RIS(void)
 {
+    term_cursor_set_inv(&term_40, false);
+    term_cursor_set_inv(&term_80, false);
     term_out_RIS(&term_40);
     term_out_RIS(&term_80);
 }

@@ -3558,8 +3558,6 @@ void font_init(void)
             memset(&font8[row * 256 + 128], 0, 128);
         }
     }
-    // This helps when developing with a debug probe
-    font_set_code_page(RP6502_CODE_PAGE);
 }
 
 void font_set_code_page(uint16_t cp)
@@ -3570,142 +3568,74 @@ void font_set_code_page(uint16_t cp)
 
     switch (cp)
     {
-        (void)FONT8_CP437;
-        (void)FONT16_CP437;
-#if RP6502_CODE_PAGE == 437 || defined(NDEBUG)
     case 437:
         font8hi = FONT8_CP437;
         font16hi = FONT16_CP437;
         break;
-#endif
-        (void)FONT8_CP720;
-        (void)FONT16_CP720;
-#if RP6502_CODE_PAGE == 720 || defined(NDEBUG)
     case 720:
         font8hi = FONT8_CP720;
         font16hi = FONT16_CP720;
         break;
-#endif
-        (void)FONT8_CP737;
-        (void)FONT16_CP737;
-#if RP6502_CODE_PAGE == 737 || defined(NDEBUG)
     case 737:
         font8hi = FONT8_CP737;
         font16hi = FONT16_CP737;
         break;
-#endif
-        (void)FONT8_CP771;
-        (void)FONT16_CP771;
-#if RP6502_CODE_PAGE == 771 || defined(NDEBUG)
     case 771:
         font8hi = FONT8_CP771;
         font16hi = FONT16_CP771;
         break;
-#endif
-        (void)FONT8_CP775;
-        (void)FONT16_CP775;
-#if RP6502_CODE_PAGE == 775 || defined(NDEBUG)
     case 775:
         font8hi = FONT8_CP775;
         font16hi = FONT16_CP775;
         break;
-#endif
-        (void)FONT8_CP850;
-        (void)FONT16_CP850;
-#if RP6502_CODE_PAGE == 850 || defined(NDEBUG)
     case 850:
         font8hi = FONT8_CP850;
         font16hi = FONT16_CP850;
         break;
-#endif
-        (void)FONT8_CP852;
-        (void)FONT16_CP852;
-#if RP6502_CODE_PAGE == 852 || defined(NDEBUG)
     case 852:
         font8hi = FONT8_CP852;
         font16hi = FONT16_CP852;
         break;
-#endif
-        (void)FONT8_CP855;
-        (void)FONT16_CP855;
-#if RP6502_CODE_PAGE == 855 || defined(NDEBUG)
     case 855:
         font8hi = FONT8_CP855;
         font16hi = FONT16_CP855;
         break;
-#endif
-        (void)FONT8_CP857;
-        (void)FONT16_CP857;
-#if RP6502_CODE_PAGE == 857 || defined(NDEBUG)
     case 857:
         font8hi = FONT8_CP857;
         font16hi = FONT16_CP857;
         break;
-#endif
-        (void)FONT8_CP860;
-        (void)FONT16_CP860;
-#if RP6502_CODE_PAGE == 860 || defined(NDEBUG)
     case 860:
         font8hi = FONT8_CP860;
         font16hi = FONT16_CP860;
         break;
-#endif
-        (void)FONT8_CP861;
-        (void)FONT16_CP861;
-#if RP6502_CODE_PAGE == 861 || defined(NDEBUG)
     case 861:
         font8hi = FONT8_CP861;
         font16hi = FONT16_CP861;
         break;
-#endif
-        (void)FONT8_CP862;
-        (void)FONT16_CP862;
-#if RP6502_CODE_PAGE == 862 || defined(NDEBUG)
     case 862:
         font8hi = FONT8_CP862;
         font16hi = FONT16_CP862;
         break;
-#endif
-        (void)FONT8_CP863;
-        (void)FONT16_CP863;
-#if RP6502_CODE_PAGE == 863 || defined(NDEBUG)
     case 863:
         font8hi = FONT8_CP863;
         font16hi = FONT16_CP863;
         break;
-#endif
-        (void)FONT8_CP864;
-        (void)FONT16_CP864;
-#if RP6502_CODE_PAGE == 864 || defined(NDEBUG)
     case 864:
         font8hi = FONT8_CP864;
         font16hi = FONT16_CP864;
         break;
-#endif
-        (void)FONT8_CP865;
-        (void)FONT16_CP865;
-#if RP6502_CODE_PAGE == 865 || defined(NDEBUG)
     case 865:
         font8hi = FONT8_CP865;
         font16hi = FONT16_CP865;
         break;
-#endif
-        (void)FONT8_CP866;
-        (void)FONT16_CP866;
-#if RP6502_CODE_PAGE == 866 || defined(NDEBUG)
     case 866:
         font8hi = FONT8_CP866;
         font16hi = FONT16_CP866;
         break;
-#endif
-        (void)FONT8_CP869;
-        (void)FONT16_CP869;
-#if RP6502_CODE_PAGE == 869 || defined(NDEBUG)
     case 869:
         font8hi = FONT8_CP869;
         font16hi = FONT16_CP869;
         break;
-#endif
     default:
         cp = 0;
         break;

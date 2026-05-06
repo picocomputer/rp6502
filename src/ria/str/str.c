@@ -24,7 +24,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
-#define STR_RP6502_CODE_PAGE __XSTRING(RP6502_CODE_PAGE)
+#define STR_OEM_CODE_PAGE __XSTRING(OEM_CODE_PAGE)
 
 // Put string literals into flash, or RAM with XR().
 #define X(name, value) \
@@ -150,8 +150,8 @@ static bool str_lfn_eq(const char *a, const char *b)
 
 bool str_correct_basename(char *path, size_t path_size)
 {
-    FILINFO fno;
-    if (str_lookup_basename(path, &fno) != FR_OK)
+    char fname[FF_LFN_BUF + 1];
+    if (!str_lookup_basename(path, fname, sizeof fname))
         return true; // lookup failed; leave the input case unchanged
 
     // Find where the basename starts (after the last separator or drive
@@ -168,21 +168,24 @@ bool str_correct_basename(char *path, size_t path_size)
         if (str_is_sep(path[i]))
             name_start = i + 1;
 
-    size_t fname_len = strlen(fno.fname);
+    size_t fname_len = strlen(fname);
     if (name_start + fname_len + 1 > path_size)
         return false;
-    memcpy(path + name_start, fno.fname, fname_len + 1);
+    memcpy(path + name_start, fname, fname_len + 1);
     return true;
 }
 
-FRESULT str_lookup_basename(const char *path, FILINFO *fno)
+bool str_lookup_basename(const char *path, char *out, size_t out_size)
 {
+    if (out_size)
+        out[0] = '\0';
+
     // Trim trailing separators so "folder/" is treated like "folder".
     size_t end = strlen(path);
     while (end > 0 && str_is_sep(path[end - 1]))
         end--;
     if (end == 0)
-        return FR_INVALID_NAME;
+        return false;
 
     // Find basename. ':' caps the drive prefix; treat the byte after it
     // as the start of the path so "X:foo" splits as parent "X:" + name "foo".
@@ -196,7 +199,7 @@ FRESULT str_lookup_basename(const char *path, FILINFO *fno)
 
     size_t name_len = end - name_start;
     if (name_len == 0 || name_len > FF_LFN_BUF)
-        return FR_INVALID_NAME;
+        return false;
 
     char name[FF_LFN_BUF + 1];
     memcpy(name, path + name_start, name_len);
@@ -218,32 +221,33 @@ FRESULT str_lookup_basename(const char *path, FILINFO *fno)
             path[parent_len - 2] != ':')
             parent_len--;
         if (parent_len >= sizeof parent)
-            return FR_INVALID_NAME;
+            return false;
         memcpy(parent, path, parent_len);
         parent[parent_len] = '\0';
     }
 
     DIR dir;
-    FRESULT fr = f_opendir(&dir, parent);
-    if (fr != FR_OK)
-        return fr;
+    if (f_opendir(&dir, parent) != FR_OK)
+        return false;
+    bool found = false;
+    FILINFO fno;
     for (;;)
     {
-        fr = f_readdir(&dir, fno);
-        if (fr != FR_OK || !fno->fname[0])
-        {
-            if (fr == FR_OK)
-                fr = FR_NO_FILE;
+        if (f_readdir(&dir, &fno) != FR_OK || !fno.fname[0])
             break;
-        }
-        if (str_lfn_eq(fno->fname, name))
+        if (str_lfn_eq(fno.fname, name))
         {
-            fr = FR_OK;
+            size_t flen = strlen(fno.fname);
+            if (flen + 1 <= out_size)
+            {
+                memcpy(out, fno.fname, flen + 1);
+                found = true;
+            }
             break;
         }
     }
     f_closedir(&dir);
-    return fr;
+    return found;
 }
 
 int str_xdigit_to_int(char ch)
@@ -456,10 +460,26 @@ unsigned char str_utf8_to_oem(const char **p)
     }
     uint32_t cp;
     int extra;
-    if ((b0 & 0xE0) == 0xC0) { cp = b0 & 0x1F; extra = 1; }
-    else if ((b0 & 0xF0) == 0xE0) { cp = b0 & 0x0F; extra = 2; }
-    else if ((b0 & 0xF8) == 0xF0) { cp = b0 & 0x07; extra = 3; }
-    else { *p = (const char *)(s + 1); return 0x7F; }
+    if ((b0 & 0xE0) == 0xC0)
+    {
+        cp = b0 & 0x1F;
+        extra = 1;
+    }
+    else if ((b0 & 0xF0) == 0xE0)
+    {
+        cp = b0 & 0x0F;
+        extra = 2;
+    }
+    else if ((b0 & 0xF8) == 0xF0)
+    {
+        cp = b0 & 0x07;
+        extra = 3;
+    }
+    else
+    {
+        *p = (const char *)(s + 1);
+        return 0x7F;
+    }
     for (int i = 1; i <= extra; i++)
     {
         unsigned char bi = s[i];
@@ -482,11 +502,11 @@ unsigned char str_utf8_to_oem(const char **p)
 // codepoint. Buffer fields are unused by the putchar variant.
 typedef struct
 {
-    uint32_t accum;          // partial codepoint
-    uint8_t continuation;    // continuation bytes still expected
+    uint32_t accum;       // partial codepoint
+    uint8_t continuation; // continuation bytes still expected
     char *dst;
-    size_t dst_size;         // total dst capacity (incl. NUL)
-    size_t bytes_written;    // OEM bytes written or would-be-written
+    size_t dst_size;      // total dst capacity (incl. NUL)
+    size_t bytes_written; // OEM bytes written or would-be-written
 } utf8_state;
 
 static unsigned char utf8_codepoint_to_oem(uint32_t cp)
@@ -504,24 +524,55 @@ static void utf8_emit_buf(utf8_state *st, unsigned char oem)
     st->bytes_written++;
 }
 
-#define UTF8_FEED(st, b, EMIT)                                                \
-    do {                                                                      \
-        unsigned char _b = (unsigned char)(b);                                \
-        if (_b < 0x80) {                                                      \
-            if ((st)->continuation) { EMIT(0x7F); (st)->continuation = 0; }   \
-            EMIT(_b);                                                         \
-        } else if ((_b & 0xC0) == 0x80) {                                     \
-            if (!(st)->continuation) { EMIT(0x7F); break; }                   \
-            (st)->accum = ((st)->accum << 6) | (_b & 0x3F);                   \
-            if (--(st)->continuation == 0)                                    \
-                EMIT(utf8_codepoint_to_oem((st)->accum));                     \
-        } else {                                                              \
-            if ((st)->continuation) EMIT(0x7F);                               \
-            if      ((_b & 0xE0) == 0xC0) { (st)->accum = _b & 0x1F; (st)->continuation = 1; } \
-            else if ((_b & 0xF0) == 0xE0) { (st)->accum = _b & 0x0F; (st)->continuation = 2; } \
-            else if ((_b & 0xF8) == 0xF0) { (st)->accum = _b & 0x07; (st)->continuation = 3; } \
-            else { EMIT(0x7F); (st)->continuation = 0; }                      \
-        }                                                                     \
+#define UTF8_FEED(st, b, EMIT)                              \
+    do                                                      \
+    {                                                       \
+        unsigned char _b = (unsigned char)(b);              \
+        if (_b < 0x80)                                      \
+        {                                                   \
+            if ((st)->continuation)                         \
+            {                                               \
+                EMIT(0x7F);                                 \
+                (st)->continuation = 0;                     \
+            }                                               \
+            EMIT(_b);                                       \
+        }                                                   \
+        else if ((_b & 0xC0) == 0x80)                       \
+        {                                                   \
+            if (!(st)->continuation)                        \
+            {                                               \
+                EMIT(0x7F);                                 \
+                break;                                      \
+            }                                               \
+            (st)->accum = ((st)->accum << 6) | (_b & 0x3F); \
+            if (--(st)->continuation == 0)                  \
+                EMIT(utf8_codepoint_to_oem((st)->accum));   \
+        }                                                   \
+        else                                                \
+        {                                                   \
+            if ((st)->continuation)                         \
+                EMIT(0x7F);                                 \
+            if ((_b & 0xE0) == 0xC0)                        \
+            {                                               \
+                (st)->accum = _b & 0x1F;                    \
+                (st)->continuation = 1;                     \
+            }                                               \
+            else if ((_b & 0xF0) == 0xE0)                   \
+            {                                               \
+                (st)->accum = _b & 0x0F;                    \
+                (st)->continuation = 2;                     \
+            }                                               \
+            else if ((_b & 0xF8) == 0xF0)                   \
+            {                                               \
+                (st)->accum = _b & 0x07;                    \
+                (st)->continuation = 3;                     \
+            }                                               \
+            else                                            \
+            {                                               \
+                EMIT(0x7F);                                 \
+                (st)->continuation = 0;                     \
+            }                                               \
+        }                                                   \
     } while (0)
 
 static void cb_putchar(char c, void *arg)

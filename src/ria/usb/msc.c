@@ -55,7 +55,7 @@ static_assert(sizeof(TCHAR) == sizeof(char));
 #ifdef NDEBUG
 static_assert(FF_CODE_PAGE == 0);
 #else
-static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
+static_assert(FF_CODE_PAGE == OEM_CODE_PAGE);
 #endif
 static_assert(FF_FS_EXFAT == RP6502_EXFAT);
 static_assert(FF_LBA64 == RP6502_EXFAT);

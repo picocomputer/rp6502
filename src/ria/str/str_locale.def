@@ -6,20 +6,13 @@
 
 /* TRANSLATORS: copy str_en.def to str_<your-locale>.def, translate the
  * string values inside, and set RP6502_LOCALE=<your-locale> in
- * CMakeLists.txt. Only 7-bit ASCII is supported -- accents and
- * non-Latin scripts must be approximated, or undecorated characters
- * may feel more authentic.
+ * CMakeLists.txt. Update the #define OEM_CODE_PAGE at the top of
+ * the new file to the appropriate default code page for the locale.
  */
 
-// Intellisense and tools hack for X macros
-#ifndef RP6502_LOCALE
+// Suppress bogus VS Code IntelliSense errors
+#ifdef __INTELLISENSE__
 #define RP6502_LOCALE en
-#endif
-#ifndef X
-#define X(name, value) extern const char name[];
-#endif
-#ifndef XR
-#define XR(name, value) X(name, value)
 #endif
 
 // Dispatch to CMakeLists.txt RP6502_LOCALE=<your-locale>
