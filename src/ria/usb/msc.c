@@ -297,74 +297,88 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
 }
 
 // Core SCSI helper with autosense.
+// Transparently retries on UNIT ATTENTION.
 static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                      const void *data, uint32_t timeout_ms)
 {
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
     uint8_t dev_addr = msc_vol[vol].dev_addr;
-    msc_status_t status = tuh_msc_scsi_sync(dev_addr, cbw, data, timeout_ms);
-    if (status == MSC_STATUS_TIMED_OUT)
-        return status;
-    if (status == MSC_STATUS_PHASE_ERROR)
+    msc_status_t status = MSC_STATUS_FAILED;
+    for (int attempt = 0; attempt < 3; attempt++)
     {
-        msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-        msc_vol[vol].sense_asc = 0;
-        msc_vol[vol].sense_ascq = 0;
-        return status;
-    }
-    if (status == MSC_STATUS_PASSED &&
-        tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_CBI_NO_INTERRUPT)
-    {
-        msc_vol[vol].last_ok = get_absolute_time();
-        return status;
-    }
-    scsi_sense_fixed_resp_t sense_resp;
-    memset(&sense_resp, 0, sizeof(sense_resp));
-    scsi_request_sense_t const sense_cmd = {
-        .cmd_code = SCSI_CMD_REQUEST_SENSE,
-        .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
-    msc_cbw_t sense_cbw;
-    msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
-                 sizeof(sense_cmd), &sense_cmd);
-    int64_t remaining_ms = absolute_time_diff_us(get_absolute_time(), deadline) / 1000;
-    uint32_t sense_timeout = remaining_ms > MSC_SCSI_OP_TIMEOUT_MS
-                                 ? (uint32_t)remaining_ms
-                                 : MSC_SCSI_OP_TIMEOUT_MS;
-    msc_status_t sense_status = tuh_msc_scsi_sync(
-        dev_addr, &sense_cbw, &sense_resp, sense_timeout);
-    bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
-                            (sense_status != MSC_STATUS_TIMED_OUT &&
-                             sense_resp.response_code != 0);
-    if (sense_data_valid && sense_resp.response_code)
-    {
-        msc_vol[vol].sense_key = sense_resp.sense_key;
-        msc_vol[vol].sense_asc = sense_resp.add_sense_code;
-        msc_vol[vol].sense_ascq = sense_resp.add_sense_qualifier;
-    }
-    else
-    {
-        msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-        msc_vol[vol].sense_asc = 0;
-        msc_vol[vol].sense_ascq = 0;
-    }
-    if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
-    {
-        // CB: sense data is the only outcome indicator (no transport status).
-        // CBI: sense data overrides the interrupt status to handle recovered errors.
-        if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
+        int64_t remaining_ms = absolute_time_diff_us(get_absolute_time(), deadline) / 1000;
+        uint32_t attempt_timeout = remaining_ms > MSC_SCSI_OP_TIMEOUT_MS
+                                       ? (uint32_t)remaining_ms
+                                       : MSC_SCSI_OP_TIMEOUT_MS;
+        status = tuh_msc_scsi_sync(dev_addr, cbw, data, attempt_timeout);
+        if (status == MSC_STATUS_TIMED_OUT)
+            return status;
+        if (status == MSC_STATUS_PHASE_ERROR)
         {
-            status = MSC_STATUS_TIMED_OUT;
+            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+            msc_vol[vol].sense_asc = 0;
+            msc_vol[vol].sense_ascq = 0;
+            return status;
         }
-        else if (msc_vol[vol].sense_key == SCSI_SENSE_NONE ||
-                 msc_vol[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
+        if (status == MSC_STATUS_PASSED &&
+            tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_CBI_NO_INTERRUPT)
         {
-            status = MSC_STATUS_PASSED;
             msc_vol[vol].last_ok = get_absolute_time();
+            return status;
+        }
+        scsi_sense_fixed_resp_t sense_resp;
+        memset(&sense_resp, 0, sizeof(sense_resp));
+        scsi_request_sense_t const sense_cmd = {
+            .cmd_code = SCSI_CMD_REQUEST_SENSE,
+            .alloc_length = sizeof(scsi_sense_fixed_resp_t)};
+        msc_cbw_t sense_cbw;
+        msc_cbw_init(&sense_cbw, vol, sizeof(scsi_sense_fixed_resp_t), TUSB_DIR_IN_MASK,
+                     sizeof(sense_cmd), &sense_cmd);
+        remaining_ms = absolute_time_diff_us(get_absolute_time(), deadline) / 1000;
+        uint32_t sense_timeout = remaining_ms > MSC_SCSI_OP_TIMEOUT_MS
+                                     ? (uint32_t)remaining_ms
+                                     : MSC_SCSI_OP_TIMEOUT_MS;
+        msc_status_t sense_status = tuh_msc_scsi_sync(
+            dev_addr, &sense_cbw, &sense_resp, sense_timeout);
+        bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
+                                (sense_status != MSC_STATUS_TIMED_OUT &&
+                                 sense_resp.response_code != 0);
+        if (sense_data_valid && sense_resp.response_code)
+        {
+            msc_vol[vol].sense_key = sense_resp.sense_key;
+            msc_vol[vol].sense_asc = sense_resp.add_sense_code;
+            msc_vol[vol].sense_ascq = sense_resp.add_sense_qualifier;
         }
         else
         {
-            status = MSC_STATUS_FAILED;
+            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
+            msc_vol[vol].sense_asc = 0;
+            msc_vol[vol].sense_ascq = 0;
         }
+        if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
+        {
+            // CB: sense data is the only outcome indicator (no transport status).
+            // CBI: sense data overrides the interrupt status to handle recovered errors.
+            if (!sense_data_valid || sense_status == MSC_STATUS_TIMED_OUT)
+            {
+                status = MSC_STATUS_TIMED_OUT;
+            }
+            else if (msc_vol[vol].sense_key == SCSI_SENSE_NONE ||
+                     msc_vol[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
+            {
+                status = MSC_STATUS_PASSED;
+                msc_vol[vol].last_ok = get_absolute_time();
+            }
+            else
+            {
+                status = MSC_STATUS_FAILED;
+            }
+        }
+        if (status == MSC_STATUS_FAILED &&
+            msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+            !time_reached(deadline))
+            continue;
+        return status;
     }
     return status;
 }
@@ -801,18 +815,9 @@ DSTATUS disk_initialize(BYTE pdrv)
         }
 
         // ---- TUR ----
-        absolute_time_t tur_deadline = make_timeout_time_ms(MSC_SCSI_RW_TIMEOUT_MS);
-        int tur_count = 0;
-        bool tur_ok;
-        do
-        {
-            tur_count++;
+        bool tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
+        if (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY)
             tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
-        } while (!tur_ok && !time_reached(tur_deadline) &&
-                 // Only one retry for media sense. Needed for TEAC floppy.
-                 ((tur_count == 1 && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY) ||
-                  // Normal UA clearing per the specs.
-                  (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION)));
         if (!tur_ok)
         {
             if (msc_vol[vol].removable)
