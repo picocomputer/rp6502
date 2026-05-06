@@ -8,21 +8,17 @@
 #ifndef _RIA_STR_STR_H_
 #define _RIA_STR_STR_H_
 
-// CONTRIBUTE: Duplicate one of the existing locale files then select your
-// new RP6502_LOCALE in CMakeLists.txt. Localization may not be practical
-// because only 7-bit ASCII is allowed. Or undecorated characters might
-// feel more authentic. I don't know but it was easy to add as part of
-// consolidating strings in flash.
-
 /*
  * String constants in flash and
  * miscellaneous string functions.
  */
 
 #include <fatfs/ff.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/cdefs.h>
 
 // True if c is a path separator. FatFs accepts both '/' and '\'.
 #define str_is_sep(c) ((c) == '/' || (c) == '\\')
@@ -66,12 +62,29 @@ bool str_parse_uint32(const char **args, uint32_t *result);
 // Ensure there are no more arguments (only spaces to the null terminator).
 bool str_parse_end(const char *args);
 
+// Decode one UTF-8 codepoint at *p, advance *p by 1-4 bytes, and return
+// the OEM byte for the active code page. Returns 0x7F when the codepoint
+// has no mapping or the UTF-8 is malformed (the lead byte is consumed).
+// Returns 0 at end of string without advancing.
+unsigned char str_utf8_to_oem(const char **p);
+
+// printf where utf8_fmt and any %s args are treated as UTF-8.
+// Output bytes are UTF-8 -> OEM-converted (active code page) via putchar.
+__printflike(1, 2) int printf_utf8(const char *utf8_fmt, ...);
+int vprintf_utf8(const char *utf8_fmt, va_list va);
+
+// snprintf with the same UTF-8 -> OEM treatment; result is OEM bytes in dst.
+__printflike(3, 4) int snprintf_utf8(char *dst, size_t dst_size,
+                                     const char *utf8_fmt, ...);
+int vsnprintf_utf8(char *dst, size_t dst_size,
+                   const char *utf8_fmt, va_list va);
+
 // String literals are in flash, or in RAM via XR().
 #define X(name, value) \
     extern const char name[];
 #define XR(name, value) X(name, value)
-#include "str.inc"
-#include RP6502_LOCALE
+#include "str.def"
+#include "str_locale.def"
 #undef X
 #undef XR
 
@@ -82,7 +95,7 @@ bool str_parse_end(const char *args);
         name##_LEN = sizeof(value) - 1 \
     };
 #define XR(name, value) X(name, value)
-#include "str.inc"
+#include "str.def"
 #undef X
 #undef XR
 

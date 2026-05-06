@@ -177,7 +177,7 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
     {
     case 0:
     {
-        snprintf(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
+        snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
     }
     break;
     case 1:

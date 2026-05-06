@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "rp6502_version.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
 #include "sys/sys.h"
@@ -13,13 +14,7 @@
 #include <string.h>
 
 __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
-    "VGA "
-#if RP6502_VERSION_EMPTY
-    __DATE__ " " __TIME__
-#else
-    "Version " RP6502_VERSION
-#endif
-    ;
+    "VGA " RP6502_VERSION;
 
 __in_flash("sys_version") const char *sys_version(void)
 {

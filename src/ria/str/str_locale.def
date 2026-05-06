@@ -1,0 +1,30 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+/* TRANSLATORS: copy str_en.def to str_<your-locale>.def, translate the
+ * string values inside, and set RP6502_LOCALE=<your-locale> in
+ * CMakeLists.txt. Only 7-bit ASCII is supported -- accents and
+ * non-Latin scripts must be approximated, or undecorated characters
+ * may feel more authentic.
+ */
+
+// Intellisense and tools hack for X macros
+#ifndef RP6502_LOCALE
+#define RP6502_LOCALE en
+#endif
+#ifndef X
+#define X(name, value) extern const char name[];
+#endif
+#ifndef XR
+#define XR(name, value) X(name, value)
+#endif
+
+// Dispatch to CMakeLists.txt RP6502_LOCALE=<your-locale>
+#define STR_LOCALE_FILE_(loc) __XSTRING(str_##loc.def)
+#define STR_LOCALE_FILE(loc) STR_LOCALE_FILE_(loc)
+#include STR_LOCALE_FILE(RP6502_LOCALE)
+#undef STR_LOCALE_FILE
+#undef STR_LOCALE_FILE_

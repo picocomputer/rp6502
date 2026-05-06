@@ -163,18 +163,15 @@ static int mon_str_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    size_t i = 0;
     const char *str = mon_response_str[0];
-    for (; i + 1 < buf_size; i++)
-    {
-        char c = str[state];
-        buf[i] = c;
-        if (!c)
-            return -1;
-        state++;
-    }
+    const char *p = str + state;
+    size_t i = 0;
+    while (i + 1 < buf_size && *p)
+        buf[i++] = (char)str_utf8_to_oem(&p);
     buf[i] = 0;
-    return state;
+    if (!*p)
+        return -1;
+    return (int)(p - str);
 }
 
 static const char *mon_lfs_lookup(int result)
@@ -220,9 +217,9 @@ static int mon_lfs_response(char *buf, size_t buf_size, int state)
         return state;
     const char *err_str = mon_lfs_lookup(state);
     if (err_str != NULL)
-        snprintf(buf, buf_size, "%s", err_str);
+        snprintf_utf8(buf, buf_size, "%s", err_str);
     else
-        snprintf(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
+        snprintf_utf8(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
     return -1;
 }
 
@@ -279,9 +276,9 @@ static int mon_fatfs_response(char *buf, size_t buf_size, int state)
         return state;
     const char *err_str = mon_fatfs_lookup(state);
     if (err_str != NULL)
-        snprintf(buf, buf_size, "%s", err_str);
+        snprintf_utf8(buf, buf_size, "%s", err_str);
     else
-        snprintf(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
+        snprintf_utf8(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
     return -1;
 }
 
@@ -448,7 +445,7 @@ static void mon_more(void)
     switch (mon_more_state)
     {
     case MON_MORE_START:
-        printf(STR_MON_MORE_SHOW);
+        printf_utf8(STR_MON_MORE_SHOW);
         mon_more_state = MON_MORE_FLUSH;
         break;
     case MON_MORE_FLUSH:
@@ -461,7 +458,7 @@ static void mon_more(void)
         break;
     }
     case MON_MORE_END:
-        printf(STR_MON_MORE_ERASE);
+        printf_utf8(STR_MON_MORE_ERASE);
         mon_response_line = 0;
         mon_more_state = MON_MORE_OFF;
         break;

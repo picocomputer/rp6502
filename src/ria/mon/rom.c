@@ -278,6 +278,8 @@ static void rom_loading(void)
 }
 
 // Copy, uppercase, and validate an installed ROM name. len=0 means no length cap.
+// ASCII letters only (digits allowed after the first char); rejects any byte >= 0x80
+// so installed names are always portable across code pages.
 static bool rom_copy_install_name(char *dst, const char *src, size_t len)
 {
     size_t i;
@@ -285,9 +287,12 @@ static bool rom_copy_install_name(char *dst, const char *src, size_t len)
     {
         if (i >= LFS_NAME_MAX)
             return false;
-        if (!isalpha((unsigned char)src[i]) && !(i && isdigit((unsigned char)src[i])))
+        unsigned char c = (unsigned char)src[i];
+        if (c >= 0x80)
             return false;
-        dst[i] = (char)toupper((unsigned char)src[i]);
+        if (!isalpha(c) && !(i && isdigit(c)))
+            return false;
+        dst[i] = (char)toupper(c);
     }
     dst[i] = 0;
     return i > 0;
@@ -762,14 +767,14 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
     {
         if (count)
         {
-            snprintf(buf, buf_size,
-                     count == 1 ? STR_ROM_INSTALLED_SINGULAR
-                                : STR_ROM_INSTALLED_PLURAL,
-                     count);
+            snprintf_utf8(buf, buf_size,
+                          count == 1 ? STR_ROM_INSTALLED_SINGULAR
+                                     : STR_ROM_INSTALLED_PLURAL,
+                          count);
         }
         else
         {
-            snprintf(buf, buf_size, STR_ROM_INSTALLED_NONE);
+            snprintf_utf8(buf, buf_size, STR_ROM_INSTALLED_NONE);
             state = -2;
         }
     }

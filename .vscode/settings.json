@@ -5,7 +5,7 @@
         "src/tinyusb": true,
     },
     "files.associations": {
-        "*.inc": "c"
+        "*.def": "c"
     },
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {

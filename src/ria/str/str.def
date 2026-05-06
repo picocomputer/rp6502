@@ -4,14 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* These do not get localized because they are */
-/* part of the API guarantee for the monitor.  */
+/* These do not get localized and must use only ASCII. */
+/* This is a contract with monitor tools like rp6502.py. */
 
-#if !defined(X)
+// Editor-standalone parse fallback for X-macro
+#ifndef X
 #define X(name, value) extern const char name[];
-#endif
-#if !defined(XR)
-#define XR(name, value) X(name, value)
 #endif
 
 // Configuration files on littlefs

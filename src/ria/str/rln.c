@@ -329,7 +329,7 @@ static void rln_line_kill_to_start(void)
 
 static void rln_line_insert(char ch)
 {
-    if (ch < 32 || rln_buflen >= rln_max_length)
+    if ((unsigned char)ch < 32 || rln_buflen >= rln_max_length)
         return;
     if (rln_caps == 1 && islower((unsigned char)ch))
         ch = toupper((unsigned char)ch);
