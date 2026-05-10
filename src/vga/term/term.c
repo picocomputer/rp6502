@@ -65,13 +65,18 @@ typedef struct term_state
     uint8_t y;
     uint8_t save_x;
     uint8_t save_y;
+    bool save_origin_mode;
     bool line_wrap;
+    bool origin_mode;
     bool wrapped[TERM_MAX_HEIGHT];
     bool dirty[TERM_MAX_HEIGHT];
     bool all_clean;
     uint16_t erase_fg_color[TERM_MAX_HEIGHT];
     uint16_t erase_bg_color[TERM_MAX_HEIGHT];
+    uint8_t row_idx[TERM_MAX_HEIGHT];
     uint8_t y_offset;
+    uint8_t margin_top;
+    uint8_t margin_bot;
     bool bold;
     bool blink;
     bool cursor_enabled;
@@ -96,15 +101,17 @@ static term_state_t term_40;
 static term_state_t term_80;
 static int16_t term_scanline_begin;
 
-// You must move ptr when moving x and y. A row is contiguous,
-// but moving up or down rows may wraparound the mem buffer.
-// So call this any time you change rows.
-static void term_constrain_ptr(term_state_t *term)
+// Translate a logical row (0..height-1) into the start of its physical
+// cell row. Reads y_offset and row_idx[] without locking; the renderer
+// on Core 1 uses the same path. Worst case is one frame of visual tear
+// while a region scroll is mid-update — same severity as today's
+// y_offset++ race. No memory barrier required.
+static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 {
-    if (term->ptr < term->mem)
-        term->ptr += term->width * TERM_MAX_HEIGHT;
-    if (term->ptr >= term->mem + term->width * TERM_MAX_HEIGHT)
-        term->ptr -= term->width * TERM_MAX_HEIGHT;
+    uint8_t slot = term->y_offset + y;
+    if (slot >= TERM_MAX_HEIGHT)
+        slot -= TERM_MAX_HEIGHT;
+    return term->mem + (uint32_t)term->row_idx[slot] * term->width;
 }
 
 // Make sure you call this any time you change rows.
@@ -114,9 +121,7 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     if (!term->dirty[y])
         return;
     term->dirty[y] = false;
-    term_data_t *row = &term->mem[(term->y_offset + y) * term->width];
-    if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
-        row -= term->width * TERM_MAX_HEIGHT;
+    term_data_t *row = term_row_ptr(term, y);
     uint16_t erase_fg_color = term->erase_fg_color[y];
     uint16_t erase_bg_color = term->erase_bg_color[y];
     for (size_t i = 0; i < term->width; i++)
@@ -136,17 +141,13 @@ static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
         x--;
         x_off_screen = true;
     }
-    int32_t col_dist = (int32_t)x - term->x;
-    int32_t row_dist = (int32_t)y - term->y;
     term->x = x;
     term->y = y;
-    term->ptr += col_dist;
-    term->ptr += row_dist * term->width;
-    term_constrain_ptr(term);
+    term->ptr = term_row_ptr(term, y) + x;
     term_clean_line(term, y);
     if (x_off_screen)
     {
-        // ptr may go out of bounds here, this is correct
+        // ptr parks one column past row end; matches "pending wrap" state.
         term->x++;
         term->ptr++;
     }
@@ -206,7 +207,11 @@ static void term_out_FF(term_state_t *term)
     term->x = 0;
     term->y = 0;
     term->y_offset = 0;
-    term->ptr = term->mem;
+    // Rotation is meaningless after a full clear; restore identity so any
+    // permutation left by a prior DECSTBM scroll doesn't outlive the wipe.
+    for (uint8_t i = 0; i < TERM_MAX_HEIGHT; i++)
+        term->row_idx[i] = i;
+    term->ptr = term_row_ptr(term, 0);
     term_clean_line(term, 0);
 }
 
@@ -225,6 +230,10 @@ static void term_out_RIS(term_state_t *term)
     term->cursor_enabled = true;
     term->save_x = 0;
     term->save_y = 0;
+    term->save_origin_mode = false;
+    term->origin_mode = false;
+    term->margin_top = 0;
+    term->margin_bot = term->height - 1;
     term->x = 0;
     term_out_FF(term);
 }
@@ -244,7 +253,7 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
     assert(height >= 1 && height <= TERM_MAX_HEIGHT);
     while (height != term->height)
     {
-        int row;
+        uint8_t logical_row;
         if (height > term->height)
         {
             term->height++;
@@ -266,7 +275,7 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
             // any stale dirty/wrap from a previous shrink can't resurface.
             term->wrapped[term->height - 1] = false;
             term->dirty[term->height - 1] = false;
-            row = term->y_offset + term->height - 1;
+            logical_row = term->height - 1;
         }
         else
         {
@@ -279,11 +288,9 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
                 term_shift_meta_up(term, term->height);
                 continue;
             }
-            row = term->y_offset + term->height;
+            logical_row = term->height;
         }
-        if (row >= TERM_MAX_HEIGHT)
-            row -= TERM_MAX_HEIGHT;
-        term_data_t *data = term->mem + row * term->width;
+        term_data_t *data = term_row_ptr(term, logical_row);
         for (size_t i = 0; i < term->width; i++)
         {
             data[i].font_code = ' ';
@@ -291,6 +298,9 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
             data[i].bg_color = color_256[TERM_BG_COLOR_INDEX];
         }
     }
+    // DECSTBM region is meaningless across a height change.
+    term->margin_top = 0;
+    term->margin_bot = term->height - 1;
 }
 
 // Self-inverse swap of one slot: while lit, cursor_bg_color holds the saved
@@ -472,11 +482,13 @@ static void term_out_SCP(term_state_t *term)
 {
     term->save_x = term->x;
     term->save_y = term->y;
+    term->save_origin_mode = term->origin_mode;
 }
 
 // Restore cursor position
 static void term_out_RCP(term_state_t *term)
 {
+    term->origin_mode = term->save_origin_mode;
     term_set_cursor_position(term, term->save_x, term->save_y);
 }
 
@@ -505,6 +517,8 @@ static void term_out_DSR(term_state_t *term)
         unsigned y = term->y;
         if (x == term->width)
             x--;
+        if (term->origin_mode)
+            y -= term->margin_top;
         com_in_write_ansi_CPR(y + 1, x + 1);
         break;
     }
@@ -532,8 +546,6 @@ static void term_out_HT(term_state_t *term)
 
 static void term_out_LF(term_state_t *term, bool wrapping)
 {
-    term->ptr += term->width;
-    term_constrain_ptr(term);
     if (wrapping)
         term->wrapped[term->y] = true;
     else if (term->y < term->height - 1 && term->wrapped[term->y])
@@ -541,23 +553,149 @@ static void term_out_LF(term_state_t *term, bool wrapping)
         ++term->y;
         return term_out_LF(term, false);
     }
-    if (++term->y == term->height)
+
+    if (term->y < term->margin_bot)
     {
-        --term->y;
-        term_data_t *line_ptr = term->ptr - term->x;
-        for (size_t x = 0; x < term->width; x++)
-        {
-            line_ptr[x].font_code = ' ';
-            line_ptr[x].fg_color = term->fg_color;
-            line_ptr[x].bg_color = term->bg_color;
-        }
-        if (++term->y_offset == TERM_MAX_HEIGHT)
-            term->y_offset = 0;
-        term_shift_meta_up(term, term->height - 1);
-        term->wrapped[term->height - 1] = false;
-        term->dirty[term->height - 1] = false;
+        // Above the region's bottom: simply move down.
+        ++term->y;
     }
+    else if (term->y > term->margin_bot)
+    {
+        // Below the region: walk down but never scroll; pin at last row.
+        if (term->y < term->height - 1)
+            ++term->y;
+    }
+    else
+    {
+        bool full_screen = (term->margin_top == 0 &&
+                            term->margin_bot == term->height - 1);
+        if (full_screen)
+        {
+            // Fast path: rotate the viewport via y_offset.
+            if (++term->y_offset == TERM_MAX_HEIGHT)
+                term->y_offset = 0;
+            term_shift_meta_up(term, term->height - 1);
+            term->wrapped[term->height - 1] = false;
+            term->dirty[term->height - 1] = false;
+            term_data_t *line_ptr = term_row_ptr(term, term->y);
+            for (size_t x = 0; x < term->width; x++)
+            {
+                line_ptr[x].font_code = ' ';
+                line_ptr[x].fg_color = term->fg_color;
+                line_ptr[x].bg_color = term->bg_color;
+            }
+        }
+        else
+        {
+            // Region scroll: rotate row_idx[] entries within the region.
+            uint8_t top_slot = term->y_offset + term->margin_top;
+            if (top_slot >= TERM_MAX_HEIGHT)
+                top_slot -= TERM_MAX_HEIGHT;
+            uint8_t saved = term->row_idx[top_slot];
+            for (uint8_t i = term->margin_top; i < term->margin_bot; i++)
+            {
+                uint8_t cur = term->y_offset + i;
+                if (cur >= TERM_MAX_HEIGHT)
+                    cur -= TERM_MAX_HEIGHT;
+                uint8_t nxt = term->y_offset + i + 1;
+                if (nxt >= TERM_MAX_HEIGHT)
+                    nxt -= TERM_MAX_HEIGHT;
+                term->row_idx[cur] = term->row_idx[nxt];
+            }
+            uint8_t bot_slot = term->y_offset + term->margin_bot;
+            if (bot_slot >= TERM_MAX_HEIGHT)
+                bot_slot -= TERM_MAX_HEIGHT;
+            term->row_idx[bot_slot] = saved;
+
+            // Shift logical-row metadata within [margin_top, margin_bot].
+            for (uint8_t i = term->margin_top; i < term->margin_bot; i++)
+            {
+                term->wrapped[i] = term->wrapped[i + 1];
+                term->dirty[i] = term->dirty[i + 1];
+                term->erase_fg_color[i] = term->erase_fg_color[i + 1];
+                term->erase_bg_color[i] = term->erase_bg_color[i + 1];
+            }
+            term->wrapped[term->margin_bot] = false;
+            term->dirty[term->margin_bot] = false;
+
+            term_data_t *line_ptr = term_row_ptr(term, term->margin_bot);
+            for (size_t x = 0; x < term->width; x++)
+            {
+                line_ptr[x].font_code = ' ';
+                line_ptr[x].fg_color = term->fg_color;
+                line_ptr[x].bg_color = term->bg_color;
+            }
+        }
+    }
+    term->ptr = term_row_ptr(term, term->y) + term->x;
     term_clean_line(term, term->y);
+}
+
+// Reverse Index (ESC M) — dual of LF. Above margin_top: cursor moves up,
+// no scroll. At margin_top: scrolls the region (or whole screen) down by
+// one row. Below margin_top inside the region: just moves up.
+static void term_out_RI(term_state_t *term)
+{
+    if (term->y != term->margin_top)
+    {
+        if (term->y > 0)
+            --term->y;
+        term->ptr = term_row_ptr(term, term->y) + term->x;
+        term_clean_line(term, term->y);
+        return;
+    }
+
+    bool full_screen = (term->margin_top == 0 &&
+                        term->margin_bot == term->height - 1);
+    if (full_screen)
+    {
+        if (term->y_offset == 0)
+            term->y_offset = TERM_MAX_HEIGHT - 1;
+        else
+            --term->y_offset;
+        term_shift_meta_down(term, term->height - 1);
+        term->wrapped[0] = false;
+        term->dirty[0] = false;
+    }
+    else
+    {
+        uint8_t bot_slot = term->y_offset + term->margin_bot;
+        if (bot_slot >= TERM_MAX_HEIGHT)
+            bot_slot -= TERM_MAX_HEIGHT;
+        uint8_t saved = term->row_idx[bot_slot];
+        for (uint8_t i = term->margin_bot; i > term->margin_top; i--)
+        {
+            uint8_t cur = term->y_offset + i;
+            if (cur >= TERM_MAX_HEIGHT)
+                cur -= TERM_MAX_HEIGHT;
+            uint8_t prv = term->y_offset + i - 1;
+            if (prv >= TERM_MAX_HEIGHT)
+                prv -= TERM_MAX_HEIGHT;
+            term->row_idx[cur] = term->row_idx[prv];
+        }
+        uint8_t top_slot = term->y_offset + term->margin_top;
+        if (top_slot >= TERM_MAX_HEIGHT)
+            top_slot -= TERM_MAX_HEIGHT;
+        term->row_idx[top_slot] = saved;
+
+        for (uint8_t i = term->margin_bot; i > term->margin_top; i--)
+        {
+            term->wrapped[i] = term->wrapped[i - 1];
+            term->dirty[i] = term->dirty[i - 1];
+            term->erase_fg_color[i] = term->erase_fg_color[i - 1];
+            term->erase_bg_color[i] = term->erase_bg_color[i - 1];
+        }
+        term->wrapped[term->margin_top] = false;
+        term->dirty[term->margin_top] = false;
+    }
+    term_data_t *line_ptr = term_row_ptr(term, term->margin_top);
+    for (size_t x = 0; x < term->width; x++)
+    {
+        line_ptr[x].font_code = ' ';
+        line_ptr[x].fg_color = term->fg_color;
+        line_ptr[x].bg_color = term->bg_color;
+    }
+    term->ptr = term_row_ptr(term, term->y) + term->x;
 }
 
 static void term_out_CR(term_state_t *term)
@@ -594,13 +732,13 @@ static void term_out_CUU(term_state_t *term)
     uint16_t rows = term->csi_param[0];
     if (rows < 1)
         rows = 1;
+    // Soft fence: cursor already inside the region cannot cross margin_top.
+    uint8_t floor = (term->y >= term->margin_top) ? term->margin_top : 0;
     uint16_t y = term->y;
-    while (rows && y > 0)
+    while (rows && y > floor)
         --rows, --y;
-    uint32_t row_dist = term->y - y;
     term->y = y;
-    term->ptr -= row_dist * term->width;
-    term_constrain_ptr(term);
+    term->ptr = term_row_ptr(term, y) + term->x;
     term_clean_line(term, y);
 }
 
@@ -610,13 +748,14 @@ static void term_out_CUD(term_state_t *term)
     uint16_t rows = term->csi_param[0];
     if (rows < 1)
         rows = 1;
+    // Soft fence: cursor already inside the region cannot cross margin_bot.
+    uint8_t ceil = (term->y <= term->margin_bot) ? term->margin_bot
+                                                 : (uint8_t)(term->height - 1);
     uint16_t y = term->y;
-    while (rows && y < term->height - 1)
+    while (rows && y < ceil)
         --rows, ++y;
-    uint32_t row_dist = y - term->y;
     term->y = y;
-    term->ptr += row_dist * term->width;
-    term_constrain_ptr(term);
+    term->ptr = term_row_ptr(term, y) + term->x;
     term_clean_line(term, y);
 }
 
@@ -658,11 +797,9 @@ static void term_out_CUB(term_state_t *term)
         if (term->y && term->wrapped[term->y - 1])
         {
             term->csi_param[0] = cols - term->x;
-            term->ptr += term->width - term->x;
-            term->x += term->width - term->x;
             term->y--;
-            term->ptr -= term->width;
-            term_constrain_ptr(term);
+            term->x = term->width;
+            term->ptr = term_row_ptr(term, term->y) + term->x;
             return term_out_CUB(term);
         }
         else
@@ -684,40 +821,74 @@ static void term_out_DCH(term_state_t *term)
     if (chars > max_chars)
         chars = max_chars;
 
-    term_data_t *tp_max = term->mem + term->width * TERM_MAX_HEIGHT;
-    term_data_t *tp_dst = term->ptr;
-    term_data_t *tp_src = &term->ptr[chars];
-    if (tp_src >= tp_max)
-        tp_src -= term->width * TERM_MAX_HEIGHT;
+    // Walk logically: physical rows are not adjacent after a DECSTBM scroll,
+    // so refresh row pointers at every row boundary instead of stepping a
+    // single ptr through memory.
+    uint8_t y_dst = term->y;
+    uint8_t x_dst = term->x;
+    term_data_t *row_dst = term_row_ptr(term, y_dst);
+    uint8_t y_src = term->y;
+    uint16_t x_src_raw = (uint16_t)term->x + chars;
+    while (x_src_raw >= term->width)
+    {
+        x_src_raw -= term->width;
+        y_src++;
+    }
+    uint8_t x_src = (uint8_t)x_src_raw;
+    term_data_t *row_src = term_row_ptr(term, y_src);
+
     for (unsigned i = 0; i < max_chars - chars; i++)
     {
-        tp_dst[0] = tp_src[0];
-        if (++tp_dst >= tp_max)
-            tp_dst -= term->width * TERM_MAX_HEIGHT;
-        if (++tp_src >= tp_max)
-            tp_src -= term->width * TERM_MAX_HEIGHT;
+        row_dst[x_dst] = row_src[x_src];
+        if (++x_dst == term->width)
+        {
+            x_dst = 0;
+            y_dst++;
+            row_dst = term_row_ptr(term, y_dst);
+        }
+        if (++x_src == term->width)
+        {
+            x_src = 0;
+            y_src++;
+            row_src = term_row_ptr(term, y_src);
+        }
     }
     for (unsigned i = max_chars - chars; i < max_chars; i++)
     {
-        tp_dst->font_code = ' ';
-        tp_dst->fg_color = term->fg_color;
-        tp_dst->bg_color = term->bg_color;
-        if (++tp_dst >= tp_max)
-            tp_dst -= term->width * TERM_MAX_HEIGHT;
+        row_dst[x_dst].font_code = ' ';
+        row_dst[x_dst].fg_color = term->fg_color;
+        row_dst[x_dst].bg_color = term->bg_color;
+        if (++x_dst == term->width)
+        {
+            x_dst = 0;
+            y_dst++;
+            row_dst = term_row_ptr(term, y_dst);
+        }
     }
 
     // Scan back from the end of the logical line to find the real content
     // length, then retire any wrap-chain rows the content no longer reaches.
     unsigned content_len = max_chars;
-    term_data_t *cell = term->ptr + max_chars;
-    if (cell >= tp_max)
-        cell -= term->width * TERM_MAX_HEIGHT;
+    uint8_t y_scan = term->y;
+    uint16_t x_scan_raw = (uint16_t)term->x + max_chars;
+    while (x_scan_raw >= term->width)
+    {
+        x_scan_raw -= term->width;
+        y_scan++;
+    }
+    uint8_t x_scan = (uint8_t)x_scan_raw;
+    term_data_t *row_scan = term_row_ptr(term, y_scan);
     while (content_len > 0)
     {
-        if (cell == term->mem)
-            cell = tp_max;
-        cell--;
-        if (cell->font_code != ' ')
+        if (x_scan == 0)
+        {
+            y_scan--;
+            x_scan = term->width - 1;
+            row_scan = term_row_ptr(term, y_scan);
+        }
+        else
+            x_scan--;
+        if (row_scan[x_scan].font_code != ' ')
             break;
         content_len--;
     }
@@ -735,6 +906,31 @@ static void term_out_DCH(term_state_t *term)
     }
 }
 
+// Set Top and Bottom Margins (CSI Pt ; Pb r)
+static void term_out_DECSTBM(term_state_t *term)
+{
+    uint16_t top = term->csi_param[0];
+    uint16_t bot = (term->csi_param_count >= 2) ? term->csi_param[1] : 0;
+    if (top < 1)
+        top = 1;
+    if (bot < 1)
+        bot = term->height;
+    if (top > term->height)
+        top = term->height;
+    if (bot > term->height)
+        bot = term->height;
+    if (top >= bot)
+        return; // invalid region: ignore (VT100)
+
+    term->margin_top = (uint8_t)(top - 1);
+    term->margin_bot = (uint8_t)(bot - 1);
+    // Cursor homes after DECSTBM; origin-relative if DECOM is set.
+    if (term->origin_mode)
+        term_set_cursor_position(term, 0, term->margin_top);
+    else
+        term_set_cursor_position(term, 0, 0);
+}
+
 // Cursor Position
 static void term_out_CUP(term_state_t *term)
 {
@@ -742,14 +938,23 @@ static void term_out_CUP(term_state_t *term)
     uint16_t row = term->csi_param[0];
     if (row < 1)
         row = 1;
-    if (row > term->height)
-        row = term->height;
 
     uint16_t col = term->csi_param[1];
     if (col < 1 || term->csi_param_count < 2)
         col = 1;
     if (col > term->width)
         col = term->width;
+
+    if (term->origin_mode)
+    {
+        // Row is relative to margin_top; clamp inside the region.
+        uint8_t region_h = term->margin_bot - term->margin_top + 1;
+        if (row > region_h)
+            row = region_h;
+        row += term->margin_top;
+    }
+    else if (row > term->height)
+        row = term->height;
 
     term_set_cursor_position(term, --col, --row);
 }
@@ -762,9 +967,7 @@ static void term_out_EL(term_state_t *term)
     case 0: // to the end of the line
     case 1: // to beginning of the line
     {
-        term_data_t *row = &term->mem[(term->y_offset + term->y) * term->width];
-        if (row >= term->mem + term->width * TERM_MAX_HEIGHT)
-            row -= term->width * TERM_MAX_HEIGHT;
+        term_data_t *row = term_row_ptr(term, term->y);
         uint16_t erase_fg_color = term->fg_color;
         uint16_t erase_bg_color = term->bg_color;
         uint8_t x, end;
@@ -863,6 +1066,11 @@ static void term_out_state_Fe(term_state_t *term, char ch)
         term->ansi_state = ansi_state_SS3;
     else if (ch == 'c')
         term_out_RIS(term);
+    else if (ch == 'M')
+    {
+        term_out_RI(term);
+        term->ansi_state = ansi_state_C0;
+    }
     else
         term->ansi_state = ansi_state_C0;
 }
@@ -922,6 +1130,9 @@ static void term_out_CSI(term_state_t *term, char ch)
     case 'c':
         term_out_DA(term);
         break;
+    case 'r':
+        term_out_DECSTBM(term);
+        break;
     }
 }
 
@@ -932,6 +1143,10 @@ static void term_out_CSI_question(term_state_t *term, char ch)
     case 'h': // DECSET
         switch (term->csi_param[0])
         {
+        case 6: // DECOM
+            term->origin_mode = true;
+            term_set_cursor_position(term, 0, term->margin_top);
+            break;
         case 12: // AT&T 610
         case 25: // DECTCEM
             term->cursor_enabled = true;
@@ -941,6 +1156,10 @@ static void term_out_CSI_question(term_state_t *term, char ch)
     case 'l': // DECRST
         switch (term->csi_param[0])
         {
+        case 6: // DECOM
+            term->origin_mode = false;
+            term_set_cursor_position(term, 0, 0);
+            break;
         case 12: // AT&T 610
         case 25: // DECTCEM
             term->cursor_enabled = false;
@@ -1253,10 +1472,7 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
     const uint8_t *font_line = &font8[(scanline_id & 7) * 256];
-    int mem_y = scanline_id / 8 + term_40.y_offset;
-    if (mem_y >= TERM_MAX_HEIGHT)
-        mem_y -= TERM_MAX_HEIGHT;
-    term_data_t *term_ptr = term_40.mem + 40 * mem_y;
+    term_data_t *term_ptr = term_row_ptr(&term_40, scanline_id / 8);
     for (int i = 0; i < 40; i++, term_ptr++)
     {
         uint8_t bits = font_line[term_ptr->font_code];
@@ -1273,10 +1489,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
     const uint8_t *font_line = &font16[(scanline_id & 15) * 256];
-    int mem_y = scanline_id / 16 + term_80.y_offset;
-    if (mem_y >= TERM_MAX_HEIGHT)
-        mem_y -= TERM_MAX_HEIGHT;
-    term_data_t *term_ptr = term_80.mem + 80 * mem_y;
+    term_data_t *term_ptr = term_row_ptr(&term_80, scanline_id / 16);
     for (int i = 0; i < 80; i++, term_ptr++)
     {
         uint8_t bits = font_line[term_ptr->font_code];
