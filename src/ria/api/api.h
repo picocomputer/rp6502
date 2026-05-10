@@ -138,16 +138,25 @@ static inline bool api_push_int8(const int8_t *data) { return api_push_n(data, s
 static inline bool api_push_int16(const int16_t *data) { return api_push_n(data, sizeof(int16_t)); }
 static inline bool api_push_int32(const int32_t *data) { return api_push_n(data, sizeof(int32_t)); }
 
-// Return works by manipulating 10 bytes of registers.
-// FFF0 EA      NOP
+// Return works by manipulating 9 bytes of registers.
 // FFF1 80 FE   BRA -2
 // FFF3 A9 FF   LDA #$FF
 // FFF5 A2 FF   LDX #$FF
 // FFF7 60      RTS
 // FFF8 FF FF   .SREG $FF $FF
 
-static inline void api_set_regs_blocked() { *(uint32_t *)&regs[0x10] = 0xA9FE80EA; }
-static inline void api_set_regs_released() { *(uint32_t *)&regs[0x10] = 0xA90080EA; }
+static inline void api_set_regs_blocked()
+{
+    // BRA opcode + offset lands atomically.
+    *(uint16_t *)&regs[0x11] = 0xFE80;
+}
+
+static inline void api_set_regs_released()
+{
+    // finish writing the last two bytes
+    regs[0x13] = 0xA9;
+    regs[0x12] = 0;
+}
 
 /* Sets the return value along with the LDX and RTS.
  */

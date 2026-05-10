@@ -11,6 +11,7 @@
 #include "net/net.h"
 #include "net/tel.h"
 #include "sys/com.h"
+#include "sys/ria.h"
 #include <pico/stdlib.h>
 #include <string.h>
 
@@ -411,7 +412,7 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             return;
         case TEL_IP:
             if (tc->is_server)
-                com_set_sigint();
+                ria_trigger_sigint();
             tc->rx_state = tel_rx_data;
             return;
         default:

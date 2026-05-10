@@ -43,12 +43,44 @@ static int32_t saved_reset_vec = -1;
 static uint16_t rw_addr;
 static volatile int16_t rw_pos;
 static volatile int16_t rw_end;
-static volatile uint8_t irq_enabled;
 
-void ria_trigger_irq(void)
+#define RIA_IRQ_VSYNC 0x80
+#define RIA_IRQ_SIGINT 0x40
+
+static volatile uint8_t irq_enabled;    // bit7=vsync, bit6=sigint mask
+static volatile uint8_t vsync_pending;  // 0 or RIA_IRQ_VSYNC; owner: core0 IRQ
+static volatile uint8_t sigint_pending; // 0 or RIA_IRQ_SIGINT; owner: core0 task
+
+void ria_trigger_vsync(void)
 {
-    if (irq_enabled & 0x01)
-        gpio_put(CPU_IRQB_PIN, false);
+    if (!ria_active())
+    {
+        vsync_pending = RIA_IRQ_VSYNC;
+        __dmb();
+        REGS(0xFFF0) = vsync_pending | sigint_pending;
+        if (irq_enabled & RIA_IRQ_VSYNC)
+            gpio_put(CPU_IRQB_PIN, false);
+    }
+}
+
+void ria_trigger_sigint(void)
+{
+    if (!ria_active())
+    {
+        sigint_pending = RIA_IRQ_SIGINT;
+        __dmb();
+        REGS(0xFFF0) = vsync_pending | sigint_pending;
+        if (irq_enabled & RIA_IRQ_SIGINT)
+            gpio_put(CPU_IRQB_PIN, false);
+    }
+}
+
+bool ria_get_sigint(void)
+{
+    if (!sigint_pending)
+        return false;
+    sigint_pending = 0;
+    return true;
 }
 
 uint32_t ria_buf_crc32(void)
@@ -58,6 +90,10 @@ uint32_t ria_buf_crc32(void)
 
 void ria_run(void)
 {
+    irq_enabled = 0;
+    vsync_pending = 0;
+    sigint_pending = 0;
+    REGS(0xFFF0) = 0;
     if (action_state == action_state_idle)
         return;
     action_result = RIA_ACTION_RESULT_NONE;
@@ -102,7 +138,7 @@ void ria_run(void)
 
 void ria_stop(void)
 {
-    irq_enabled = false;
+    irq_enabled = 0;
     gpio_put(CPU_IRQB_PIN, true);
     action_state = action_state_idle;
     if (saved_reset_vec >= 0)
@@ -127,6 +163,15 @@ void ria_task(void)
             action_result = RIA_ACTION_RESULT_TIMEOUT;
             main_stop();
         }
+    }
+
+    // Resync REGS(0xFFF0) and /IRQ with the pending flags. Heals any
+    // benign cross-core race between core0 triggers and core1's clear.
+    if (!ria_active())
+    {
+        uint8_t live = vsync_pending | sigint_pending;
+        REGS(0xFFF0) = live;
+        gpio_put(CPU_IRQB_PIN, (live & irq_enabled) == 0);
     }
 }
 
@@ -281,11 +326,20 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         }
                     }
                     break;
-                case CASE_WRITE(0xFFF0): // IRQ Enable
+                case CASE_WRITE(0xFFF0): // IRQ enable mask
                     irq_enabled = data;
                     __attribute__((fallthrough));
-                case CASE_READ(0xFFF0): // IRQ ACK
-                    gpio_put(CPU_IRQB_PIN, true);
+                case CASE_READ(0xFFF0): // IRQ event read + selective clear
+                    if (action_state == action_state_idle)
+                    {
+                        if (data & RIA_IRQ_VSYNC)
+                            vsync_pending = 0;
+                        if (data & RIA_IRQ_SIGINT)
+                            sigint_pending = 0;
+                        uint8_t live = vsync_pending | sigint_pending;
+                        REGS(0xFFF0) = live;
+                        gpio_put(CPU_IRQB_PIN, (live & irq_enabled) == 0);
+                    }
                     break;
                 case CASE_WRITE(0xFFEF): // OS function call
                     API_OP = data;       // get ahead of DMA

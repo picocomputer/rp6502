@@ -12,6 +12,7 @@
 #include "str/rln.h"
 #include "sys/com.h"
 #include "sys/cpu.h"
+#include "sys/ria.h"
 #include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,7 +57,7 @@ bool atr_api_get(void)
     case ATR_EXIT_CODE:
         return api_return_axsreg((uint16_t)pro_get_exit_code());
     case ATR_SIGINT:
-        return api_return_axsreg(com_get_sigint());
+        return api_return_axsreg(ria_get_sigint());
     case ATR_RLN_CAPS:
         return api_return_axsreg(rln_get_caps());
     default:

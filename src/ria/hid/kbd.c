@@ -15,6 +15,7 @@
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
+#include "sys/ria.h"
 #include "usb/usb.h"
 #include <class/hid/hid.h>
 #include <fatfs/ff.h>
@@ -332,7 +333,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         ch = kbd_ctrl_promote(ch, keycode);
     // Latch a SIGINT even if com not draining
     if (ch == 0x03)
-        com_set_sigint();
+        ria_trigger_sigint();
     // Process a regularly typed key
     if (ch)
     {

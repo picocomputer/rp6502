@@ -10,6 +10,7 @@
 #include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
+#include "sys/ria.h"
 #include "net/tel.h"
 #include "sys/vga.h"
 #include "net/cyw.h"
@@ -59,7 +60,6 @@ static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
 volatile int com_rx_char = -1;
 
 static bool com_bel_enabled = true;
-static volatile bool com_sigint;
 
 #ifndef RP6502_RIA_W
 
@@ -238,7 +238,7 @@ static void com_tel_drain_rx(void)
         else if (com_tel_state == com_tel_state_connected)
         {
             if (ch == 0x03)
-                com_sigint = true;
+                ria_trigger_sigint();
             if (drop_mode)
                 continue;
             com_tel_rx_head = (com_tel_rx_head + 1) % COM_TEL_RX_BUF_SIZE;
@@ -389,7 +389,7 @@ static size_t com_uart_read(char *buf, size_t length)
     {
         uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
         if (c == 0x03)
-            com_sigint = true;
+            ria_trigger_sigint();
         if (buf)
             buf[count] = (char)c;
         count++;
@@ -633,11 +633,6 @@ void com_stop(void)
     com_rx_head = com_rx_tail = 0;
 }
 
-void com_run(void)
-{
-    com_sigint = false;
-}
-
 void com_task(void)
 {
     // TX: drain UART buffer to hardware
@@ -700,16 +695,4 @@ bool com_get_bel(void)
 void com_set_bel(bool value)
 {
     com_bel_enabled = value;
-}
-
-bool com_get_sigint(void)
-{
-    bool val = com_sigint;
-    com_sigint = false;
-    return val;
-}
-
-void com_set_sigint(void)
-{
-    com_sigint = true;
 }

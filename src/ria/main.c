@@ -150,7 +150,6 @@ static void run(void)
     vga_run();
     api_run();
     clk_run();
-    com_run();
     ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
 }

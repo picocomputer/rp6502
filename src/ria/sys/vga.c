@@ -102,7 +102,7 @@ static inline void vga_backchannel_command(uint8_t byte)
             vga_vsync_frame += 0x10;
         vga_vsync_frame = (vga_vsync_frame & 0xF0) | frame;
         REGS(0xFFE3) = vga_vsync_frame;
-        ria_trigger_irq();
+        ria_trigger_vsync();
         break;
     }
     case 0x90:
