@@ -511,15 +511,17 @@ void mon_task(void)
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
         {
-            if (mon_response_line >= rows_max)
-            {
-                mon_more_state = MON_MORE_START;
-                break;
-            }
             putchar(c);
             mon_response_pos++;
             if (c == '\n')
+            {
                 mon_response_line++;
+                if (mon_response_line >= rows_max)
+                {
+                    mon_more_state = MON_MORE_START;
+                    break;
+                }
+            }
         }
         if (!c)
             mon_response_pos = -1;

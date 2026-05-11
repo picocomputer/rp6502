@@ -62,6 +62,25 @@
 #define ATTR_REVERSE (1u << 6) // SGR 7: emit-time fg/bg swap
 #define ATTR_CONCEAL (1u << 7) // SGR 8: emit-time fg = bg
 
+// Global ATTR_BLINK pulse half-period (one half-cycle, on then off).
+// Slightly off 333ms to avoid frame-tear sync with display refresh.
+#define TERM_BLINK_PHASE_US 332700
+
+// Cursor blink half-period: normal cell vs "stuck at right edge"
+// (off-screen deferred-wrap state blinks at 2x rate so it's still noticeable).
+// 0.3ms drift to avoid blinking cursor tearing.
+#define TERM_CURSOR_BLINK_US 499700
+#define TERM_CURSOR_BLINK_FAST_US 249700
+
+// After each batch of printable input, the cursor is forced unlit and the
+// next blink tick is armed this far out. Produces a brief dark gap that
+// re-lights to the appropriate steady/blink state when it fires.
+#define TERM_CURSOR_INPUT_GAP_US 2500
+
+// Idle wakeup interval for a steady-style cursor: nothing to do until input
+// arrives, but we still want a non-pathological re-check cadence.
+#define TERM_CURSOR_STEADY_IDLE_MS 60000
+
 typedef enum
 {
     ansi_state_C0,
@@ -146,12 +165,10 @@ typedef struct term_state
     uint8_t save_y;
     bool save_origin_mode;
     bool cursor_enabled;
-    bool cursor_is_inv;
+    volatile bool cursor_lit; // Core 0 writes, Core 1 renderer reads. Single-byte → race-free.
     uint16_t default_fg_color;
     uint16_t default_bg_color;
-    uint16_t cursor_bg_color;     // configured cursor block color (OSC 12)
-    uint16_t cursor_saved_fg;     // cell.fg at lit-on; only valid while cursor_is_inv
-    uint16_t cursor_saved_bg;     // cell.bg at lit-on; only valid while cursor_is_inv
+    uint16_t cursor_bg_color; // configured cursor block color (OSC 12)
     term_data_t *ptr;
     absolute_time_t timer;
     ansi_state_t ansi_state;
@@ -495,7 +512,7 @@ static void term_state_init(term_state_t *term, uint8_t width,
     term->cur = &term->screen->cs;
     term->alt_active = false;
     term->cursor_save_valid = false;
-    term->cursor_is_inv = false;
+    term->cursor_lit = false;
     term_out_RIS(term);
 }
 
@@ -552,38 +569,6 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
     // DECSTBM region is meaningless across a height change.
     term->screen->margin_top = 0;
     term->screen->margin_bot = term->height - 1;
-}
-
-// Lit: the cell's fg/bg are saved into cursor_saved_fg/bg, the cell's bg
-// becomes the configured cursor block color (cursor_bg_color), and the
-// cell's fg becomes the saved bg -- so the glyph renders in its original
-// background color against the cursor block (the standard reverse-video
-// cursor). Unlit: restore the saved fg/bg. Callers must force unlit
-// before any code path touches the cell at the cursor position (otherwise
-// the unlit restore would clobber fresh cell state); com_out_chars
-// already does this for the input-processing path.
-static void term_cursor_set_inv(term_state_t *term, bool inv)
-{
-    if (!term->cursor_enabled && inv)
-        return;
-    if (inv == term->cursor_is_inv)
-        return;
-    term_data_t *term_ptr = term->ptr;
-    if (term->cur->x == term->width)
-        term_ptr--;
-    if (inv)
-    {
-        term->cursor_saved_fg = term_ptr->fg_color;
-        term->cursor_saved_bg = term_ptr->bg_color;
-        term_ptr->fg_color = term->cursor_saved_bg;
-        term_ptr->bg_color = term->cursor_bg_color;
-    }
-    else
-    {
-        term_ptr->fg_color = term->cursor_saved_fg;
-        term_ptr->bg_color = term->cursor_saved_bg;
-    }
-    term->cursor_is_inv = inv;
 }
 
 // Parse the param tail of SGR 38 / 48 / 58 starting at idx. Writes the
@@ -1041,8 +1026,11 @@ static void term_enter_alt(term_state_t *term, bool save_cursor, bool clear_on_e
         return;
     if (save_cursor)
         term_save_cursor_state(term);
-    else
-        term->bufs[1].cs = term->bufs[0].cs; /* cursor follows for ?47/?1047 */
+    /* Seed alt's cs from primary unconditionally. ?47/?1047 need this so the
+     * cursor follows across the swap; ?1049 needs it so the clear-on-entry
+     * uses primary's SGR rather than alt's never-initialized (zero =
+     * black/black) cs, which otherwise paints the cleared screen invisibly. */
+    term->bufs[1].cs = term->bufs[0].cs;
     term_set_screen(term, 1);
     if (clear_on_entry)
     {
@@ -2480,14 +2468,16 @@ static void com_out_chars(const char *buf, int length)
 {
     if (length)
     {
-        term_cursor_set_inv(&term_40, false);
-        term_cursor_set_inv(&term_80, false);
+        // Brief dark gap while typing -- next blink tick re-lights to the
+        // appropriate steady/blink state.
+        term_40.cursor_lit = false;
+        term_80.cursor_lit = false;
         for (int i = 0; i < length; i++)
         {
             term_out_char(&term_40, buf[i]);
             term_out_char(&term_80, buf[i]);
         }
-        term_40.timer = term_80.timer = make_timeout_time_us(2500);
+        term_40.timer = term_80.timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
     }
 }
 
@@ -2501,7 +2491,7 @@ void term_init(void)
     term_state_init(&term_40, 40, term40_pri_mem, term40_alt_mem);
     term_state_init(&term_80, 80, term80_pri_mem, term80_alt_mem);
     term_blink_phase = 0;
-    term_blink_phase_timer = make_timeout_time_us(332700);
+    term_blink_phase_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = com_out_chars,
@@ -2510,18 +2500,34 @@ void term_init(void)
     stdio_set_driver_enabled(&term_stdio, true);
 }
 
+// Drives cursor_lit based on cursor_style. Steady styles (2/4/6) re-light
+// after the input-cooldown gap and park for a long idle interval; blinking
+// styles (0/1/3/5) toggle on the usual cadence. Disabled cursors are forced
+// unlit so the renderer never overlays them.
 static void term_blink_cursor(term_state_t *term)
 {
-    if (time_reached(term->timer))
+    if (!term->cursor_enabled)
     {
-        term_cursor_set_inv(term, !term->cursor_is_inv);
-        // 0.3ms drift to avoid blinking cursor tearing
-        if (term->cur->x == term->width)
-            // fast blink when off right side
-            term->timer = make_timeout_time_us(249700);
-        else
-            term->timer = make_timeout_time_us(499700);
+        term->cursor_lit = false;
+        return;
     }
+    if (!time_reached(term->timer))
+        return;
+    bool steady = (term->cursor_style == 2 ||
+                   term->cursor_style == 4 ||
+                   term->cursor_style == 6);
+    if (steady)
+    {
+        term->cursor_lit = true;
+        term->timer = make_timeout_time_ms(TERM_CURSOR_STEADY_IDLE_MS);
+        return;
+    }
+    term->cursor_lit = !term->cursor_lit;
+    // Fast blink when off right side (deferred-wrap state).
+    if (term->cur->x == term->width)
+        term->timer = make_timeout_time_us(TERM_CURSOR_BLINK_FAST_US);
+    else
+        term->timer = make_timeout_time_us(TERM_CURSOR_BLINK_US);
 }
 
 static void term_blink_phase_task(void)
@@ -2529,7 +2535,7 @@ static void term_blink_phase_task(void)
     if (time_reached(term_blink_phase_timer))
     {
         term_blink_phase = term_blink_phase ? 0u : ATTR_BLINK;
-        term_blink_phase_timer = make_timeout_time_us(332700);
+        term_blink_phase_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
     }
 }
 
@@ -2564,7 +2570,9 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
                   ((scanrow == 7 || scanrow == 5) ? ATTR_DBL_UL : 0) |
                   (scanrow == 4 ? ATTR_STRIKE : 0) |
                   (scanrow == 0 ? ATTR_OVERLINE : 0));
-    term_data_t *term_ptr = term_row_ptr(&term_40, scanline_id / 8);
+    const uint8_t row_idx = (uint8_t)(scanline_id / 8);
+    term_data_t *term_ptr = term_row_ptr(&term_40, row_idx);
+    uint16_t *const rgb_line = rgb;
     for (int i = 0; i < 40; i++, term_ptr++)
     {
         uint8_t attr = term_ptr->attributes;
@@ -2582,6 +2590,41 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
         }
         modes_render_1bpp(rgb, bits, bg, fg);
         rgb += 8;
+    }
+    // Cursor overlay: at most one cell per scanline. Patches the rendered
+    // pixels in place; cursor wins over ATTR_BLINK on its cell.
+    if (term_40.cursor_enabled && term_40.cursor_lit &&
+        row_idx == term_40.cur->y)
+    {
+        uint8_t cx = term_40.cur->x;
+        if (cx >= term_40.width)
+            cx = (uint8_t)(term_40.width - 1);
+        uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
+        const uint16_t cursor_color = term_40.cursor_bg_color;
+        switch (term_40.cursor_style)
+        {
+        case 3:
+        case 4: // underline: solid strip at scanrow 7 only
+            if (scanrow == 7)
+                modes_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
+            break;
+        case 5:
+        case 6: // bar: 1px at left edge on 8x8
+            crgb[0] = cursor_color;
+            break;
+        default:
+        { // 0/1/2 -- block: invert cell with cursor color
+            term_data_t *cp = term_row_ptr(&term_40, row_idx) + cx;
+            uint8_t cattr = cp->attributes;
+            uint8_t cbits = font_line[cp->font_code];
+            if (cattr & ATTR_DEC)
+                cbits = font_line_dec[(uint8_t)(cp->font_code - 0x60)];
+            if (cattr & line_mask)
+                cbits = 0xFF;
+            modes_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
+            break;
+        }
+        }
     }
     return true;
 }
@@ -2604,7 +2647,9 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
                   ((scanrow == 15 || scanrow == 13) ? ATTR_DBL_UL : 0) |
                   (scanrow == 8 ? ATTR_STRIKE : 0) |
                   (scanrow == 0 ? ATTR_OVERLINE : 0));
-    term_data_t *term_ptr = term_row_ptr(&term_80, scanline_id / 16);
+    const uint8_t row_idx = (uint8_t)(scanline_id / 16);
+    term_data_t *term_ptr = term_row_ptr(&term_80, row_idx);
+    uint16_t *const rgb_line = rgb;
     for (int i = 0; i < 80; i++, term_ptr++)
     {
         uint8_t attr = term_ptr->attributes;
@@ -2623,6 +2668,42 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
         modes_render_1bpp(rgb, bits, bg, fg);
         rgb += 8;
     }
+    // Cursor overlay: at most one cell per scanline. Underline strip is the
+    // bottom 2 rows on 8x16; bar is 2px wide for proportionality.
+    if (term_80.cursor_enabled && term_80.cursor_lit &&
+        row_idx == term_80.cur->y)
+    {
+        uint8_t cx = term_80.cur->x;
+        if (cx >= term_80.width)
+            cx = (uint8_t)(term_80.width - 1);
+        uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
+        const uint16_t cursor_color = term_80.cursor_bg_color;
+        switch (term_80.cursor_style)
+        {
+        case 3:
+        case 4: // underline: solid strip at scanrows 14-15
+            if (scanrow == 14 || scanrow == 15)
+                modes_render_1bpp(crgb, 0xFF, cursor_color, cursor_color);
+            break;
+        case 5:
+        case 6: // bar: 2px at left edge on 8x16
+            crgb[0] = cursor_color;
+            crgb[1] = cursor_color;
+            break;
+        default:
+        { // 0/1/2 -- block: invert cell with cursor color
+            term_data_t *cp = term_row_ptr(&term_80, row_idx) + cx;
+            uint8_t cattr = cp->attributes;
+            uint8_t cbits = font_line[cp->font_code];
+            if (cattr & ATTR_DEC)
+                cbits = font_line_dec[(uint8_t)(cp->font_code - 0x60)];
+            if (cattr & line_mask)
+                cbits = 0xFF;
+            modes_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
+            break;
+        }
+        }
+    }
     return true;
 }
 
@@ -2638,8 +2719,6 @@ term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_p
 
 void term_RIS(void)
 {
-    term_cursor_set_inv(&term_40, false);
-    term_cursor_set_inv(&term_80, false);
     term_out_RIS(&term_40);
     term_out_RIS(&term_80);
 }
