@@ -91,13 +91,19 @@ typedef struct
 // Cursor + SGR + DECSC-saved mode state. Per-screen (lives inside
 // screen_buf_t), and also reused as the storage type for DECSC and ?1049
 // snapshots so the field list is defined once.
+// fg_color_index sentinel: fg was set via SGR 38 (256-color or RGB) and
+// the recompute path should pull from user_fg_color instead of color_256[].
+#define FG_COLOR_INDEX_EXTENDED 0xFF
+
 typedef struct
 {
     uint8_t x, y;
     uint8_t sgr_attr;
     uint8_t fg_color_index, bg_color_index;
     uint16_t fg_color, bg_color;
+    uint16_t user_fg_color;   // base color from SGR 38, used when fg_color_index == FG_COLOR_INDEX_EXTENDED
     bool bold;
+    bool faint;
     bool origin_mode;
     bool line_wrap;
     uint8_t g0_charset, g1_charset;
@@ -339,9 +345,11 @@ static void term_reset_sgr_and_modes(term_state_t *term)
 {
     term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
     term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
+    term->cur->user_fg_color = 0;
     term->cur->fg_color = term->default_fg_color;
     term->cur->bg_color = term->default_bg_color;
     term->cur->bold = false;
+    term->cur->faint = false;
     term->cur->sgr_attr = 0;
     term->cur->origin_mode = false;
     term->cur->line_wrap = true;
@@ -361,10 +369,48 @@ static void term_reset_sgr_and_modes(term_state_t *term)
     term->decsc_valid = false;
 }
 
+// Eager clear of the given screen buffer at the supplied erase colors.
+// Used on ?1049 entry so the renderer never shows stale alt content, on
+// ?1047 exit to wipe the alt buffer before swap-back, and on RIS to wipe
+// both buffers regardless of which is currently active. Resets y_offset
+// and row_idx so the visible logical rows map straight to the freshly
+// blanked physical rows.
+static void term_clear_buf(screen_buf_t *buf, uint8_t width, uint8_t height,
+                           uint16_t fg, uint16_t bg, uint8_t attr)
+{
+    buf->y_offset = 0;
+    for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
+        buf->row_idx[y] = y;
+    for (uint8_t y = 0; y < height; y++)
+    {
+        term_data_t *row = buf->mem + (uint32_t)y * width;
+        for (uint8_t x = 0; x < width; x++)
+        {
+            row[x].font_code = ' ';
+            row[x].fg_color = fg;
+            row[x].bg_color = bg;
+            row[x].attributes = attr;
+        }
+        buf->wrapped[y] = false;
+        buf->dirty[y] = false;
+        buf->erase_fg_color[y] = fg;
+        buf->erase_bg_color[y] = bg;
+        buf->erase_attr[y] = attr;
+    }
+    for (uint8_t y = height; y < TERM_MAX_HEIGHT; y++)
+    {
+        buf->wrapped[y] = false;
+        buf->dirty[y] = false;
+    }
+    buf->all_clean = true;
+}
+
 static void term_out_RIS(term_state_t *term)
 {
     /* RIS drops alt mode and returns to primary. The cursor-save snapshot
-     * is invalidated -- a hard reset shouldn't leave the alt save around. */
+     * is invalidated -- a hard reset shouldn't leave the alt save around.
+     * The alt buffer's cell contents are also wiped so a later ?47 (swap-
+     * only, no clear) can't surface pre-RIS content. */
     term->screen = &term->bufs[0];
     term->cur = &term->screen->cs;
     term->alt_active = false;
@@ -377,7 +423,10 @@ static void term_out_RIS(term_state_t *term)
     term->csi_intermediate = 0;
     term_reset_sgr_and_modes(term);
     term_reset_tab_stops(term);
-    term_out_FF(term); /* also resets x = y = 0 */
+    term_clear_buf(&term->bufs[1], term->width, term->height,
+                   color_256[TERM_FG_COLOR_INDEX],
+                   color_256[TERM_BG_COLOR_INDEX], 0);
+    term_out_FF(term); /* also resets x = y = 0 on primary */
 }
 
 static void term_state_init(term_state_t *term, uint8_t width,
@@ -470,44 +519,56 @@ static void term_cursor_set_inv(term_state_t *term, bool inv)
     term->cursor_is_inv = inv;
 }
 
-static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
+// Parse the param tail of SGR 38 / 48 / 58 starting at idx. Writes the
+// resulting color through `color` (caller may pass a discard slot for 58)
+// and returns the number of *extra* params consumed beyond the introducer
+// itself. The caller then does `idx += returned; continue;` so the for-
+// loop's own idx++ advances past the introducer byte.
+//   ;5;N         -> 2 extras (5, N)
+//   ;2;r;g;b     -> 4 extras
+//   :2::r:g:b    -> 5 extras (ITU/ISO 8613-6: empty colorspace slot)
+//   ;1           -> 1 extra (transparent flag)
+// 0 means nothing matched; caller treats the introducer as a no-op and
+// breaks out of its own case to advance by one.
+static uint8_t sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
 {
     if (idx + 2 < term->csi_param_count &&
         term->csi_param[idx + 1] == 5)
     {
-        // e.g. ESC[38;5;255m - Indexed color
         uint16_t color_idx = term->csi_param[idx + 2];
         if (color_idx < 256)
             *color = color_256[color_idx];
+        return 2;
     }
-    else if (idx + 4 < term->csi_param_count &&
-             term->csi_separator[idx] == ';' &&
-             term->csi_param[idx + 1] == 2)
+    if (idx + 4 < term->csi_param_count &&
+        term->csi_separator[idx] == ';' &&
+        term->csi_param[idx + 1] == 2)
     {
-        // e.g. ESC[38;2;255;255;255m - RGB color
         *color = SCANVIDEO_ALPHA_MASK |
                  SCANVIDEO_PIXEL_FROM_RGB8(
                      term->csi_param[idx + 2],
                      term->csi_param[idx + 3],
                      term->csi_param[idx + 4]);
+        return 4;
     }
-    else if (idx + 5 < term->csi_param_count &&
-             term->csi_separator[idx] == ':' &&
-             term->csi_param[idx + 1] == 2)
+    if (idx + 5 < term->csi_param_count &&
+        term->csi_separator[idx] == ':' &&
+        term->csi_param[idx + 1] == 2)
     {
-        // e.g. ESC[38:2::255:255:255:::m - RGB color (ITU)
         *color = SCANVIDEO_ALPHA_MASK |
                  SCANVIDEO_PIXEL_FROM_RGB8(
                      term->csi_param[idx + 3],
                      term->csi_param[idx + 4],
                      term->csi_param[idx + 5]);
+        return 5;
     }
-    else if (idx + 1 < term->csi_param_count &&
-             term->csi_param[idx + 1] == 1)
+    if (idx + 1 < term->csi_param_count &&
+        term->csi_param[idx + 1] == 1)
     {
-        // e.g. ESC[38;1m - transparent
         *color = *color & ~SCANVIDEO_ALPHA_MASK;
+        return 1;
     }
+    return 0;
 }
 
 // Recompute bg_color from bg_color_index, default bg, and the current
@@ -527,6 +588,36 @@ static void term_update_bg_color(term_state_t *term)
         term->cur->bg_color = color_256[idx];
 }
 
+// Recompute fg_color from fg_color_index, bold, faint, and the OSC-10
+// default-override. Single source of truth for SGR-time fg changes:
+//   - fg_color_index == FG_COLOR_INDEX_EXTENDED -> use user_fg_color (set
+//     by SGR 38;5 / 38;2); bold is a color no-op for extended fg.
+//   - bold && fg_color_index in 0..7 -> swap to the bright-palette slot
+//     (the bold-bright trick).
+//   - fg_color_index == TERM_FG_COLOR_INDEX with an OSC 10 override -> use
+//     the override (override wins over bold-bright).
+//   - otherwise -> color_256[fg_color_index]. SGR 90-97 stores the bright
+//     slot index (8..15) directly so the lookup yields a bright color even
+//     without bold; this also means SGR 22 leaves bright colors alone.
+// Then if faint, halve each RGB channel (RGB555 layout, alpha at bit 15).
+static void term_recompute_fg(term_state_t *term)
+{
+    uint16_t base;
+    uint8_t idx = term->cur->fg_color_index;
+    if (idx == FG_COLOR_INDEX_EXTENDED)
+        base = term->cur->user_fg_color;
+    else if (term->cur->bold && idx < 8)
+        base = color_256[idx + 8];
+    else if (idx == TERM_FG_COLOR_INDEX &&
+             term->default_fg_color != color_256[TERM_FG_COLOR_INDEX])
+        base = term->default_fg_color;
+    else
+        base = color_256[idx];
+    if (term->cur->faint)
+        base = (uint16_t)(((base >> 1) & 0x3DEFu) | (base & SCANVIDEO_ALPHA_MASK));
+    term->cur->fg_color = base;
+}
+
 static void term_out_SGR(term_state_t *term)
 {
     for (uint8_t idx = 0; idx < term->csi_param_count; idx++)
@@ -536,21 +627,21 @@ static void term_out_SGR(term_state_t *term)
         {
         case 0: // reset
             term->cur->bold = false;
+            term->cur->faint = false;
             term->cur->sgr_attr = 0;
             term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
             term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
-            term->cur->fg_color = term->default_fg_color;
-            term->cur->bg_color = term->default_bg_color;
+            term_recompute_fg(term);
+            term_update_bg_color(term);
             break;
         case 1: // bold intensity
             term->cur->bold = true;
-            term->cur->fg_color = color_256[term->cur->fg_color_index + 8];
+            term_recompute_fg(term);
             break;
-        case 2: // faint -- no dim palette; treat as not-bold so colors aren't
-                // accidentally brightened. The plain ATTR_FAINT bit isn't
-                // stored because we have no dedicated render path.
-            term->cur->bold = false;
-            term->cur->fg_color = color_256[term->cur->fg_color_index];
+        case 2: // faint -- halve channel brightness at SGR time.
+                // Stored as cursor state; renderer is untouched.
+            term->cur->faint = true;
+            term_recompute_fg(term);
             break;
         case 3: // italic -- no italic font available; accept silently
             break;
@@ -575,9 +666,10 @@ static void term_out_SGR(term_state_t *term)
         case 21: // double underline (per Linux console)
             term->cur->sgr_attr |= ATTR_DBL_UL;
             break;
-        case 22: // normal intensity
+        case 22: // normal intensity -- cancels both bold and faint
             term->cur->bold = false;
-            term->cur->fg_color = color_256[term->cur->fg_color_index];
+            term->cur->faint = false;
+            term_recompute_fg(term);
             break;
         case 23: // italic off (no-op; italic accepted but never rendered)
             break;
@@ -604,75 +696,64 @@ static void term_out_SGR(term_state_t *term)
         case 55: // overline off
             term->cur->sgr_attr &= (uint8_t)~ATTR_OVERLINE;
             break;
-        case 30: // foreground color
-        case 31:
-        case 32:
-        case 33:
-        case 34:
-        case 35:
-        case 36:
-        case 37:
-            term->cur->fg_color_index = param - 30;
-            if (!term->cur->bold)
-                term->cur->fg_color = color_256[term->cur->fg_color_index];
-            else
-                term->cur->fg_color = color_256[term->cur->fg_color_index + 8];
+        case 30: case 31: case 32: case 33: // foreground color
+        case 34: case 35: case 36: case 37:
+            term->cur->fg_color_index = (uint8_t)(param - 30);
+            term_recompute_fg(term);
             break;
         case 38:
-            sgr_color(term, idx, &term->cur->fg_color);
-            return;
+        {
+            uint16_t parsed = term->cur->fg_color;
+            uint8_t consumed = sgr_color(term, idx, &parsed);
+            if (consumed)
+            {
+                term->cur->fg_color_index = FG_COLOR_INDEX_EXTENDED;
+                term->cur->user_fg_color = parsed;
+                term_recompute_fg(term);
+                idx += consumed;
+            }
+            break;
+        }
         case 39:
             term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
-            // When OSC 10 has overridden the default, the override wins and
-            // bypasses the bold-bright trick. Without an override, preserve
-            // the historical bold-bright-on-default behavior.
-            if (term->default_fg_color != color_256[TERM_FG_COLOR_INDEX])
-                term->cur->fg_color = term->default_fg_color;
-            else if (!term->cur->bold)
-                term->cur->fg_color = color_256[TERM_FG_COLOR_INDEX];
-            else
-                term->cur->fg_color = color_256[TERM_FG_COLOR_INDEX + 8];
+            term_recompute_fg(term);
             break;
-        case 40: // background color
-        case 41:
-        case 42:
-        case 43:
-        case 44:
-        case 45:
-        case 46:
-        case 47:
-            term->cur->bg_color_index = param - 40;
+        case 40: case 41: case 42: case 43: // background color
+        case 44: case 45: case 46: case 47:
+            term->cur->bg_color_index = (uint8_t)(param - 40);
             term_update_bg_color(term);
             break;
         case 48:
-            sgr_color(term, idx, &term->cur->bg_color);
-            return;
+        {
+            uint8_t consumed = sgr_color(term, idx, &term->cur->bg_color);
+            if (consumed)
+                idx += consumed;
+            break;
+        }
         case 49:
             term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
             term_update_bg_color(term);
             break;
-        case 58: // Underline not supported, but eat colors
-            return;
-        case 90: // bright foreground color
-        case 91:
-        case 92:
-        case 93:
-        case 94:
-        case 95:
-        case 96:
-        case 97:
-            term->cur->fg_color_index = param - 90;
-            term->cur->fg_color = color_256[term->cur->fg_color_index + 8];
+        case 58:
+        {
+            // Underline color not rendered, but the params must be
+            // skipped so the rest of the SGR sequence still applies.
+            uint16_t discard = 0;
+            uint8_t consumed = sgr_color(term, idx, &discard);
+            if (consumed)
+                idx += consumed;
             break;
-        case 100: // bright background color
-        case 101:
-        case 102:
-        case 103:
-        case 104:
-        case 105:
-        case 106:
-        case 107:
-            term->cur->bg_color_index = param - 100;
+        }
+        case 90: case 91: case 92: case 93: // bright foreground color
+        case 94: case 95: case 96: case 97:
+            // Store the bright-palette slot directly (8..15) so SGR 22
+            // leaves bright colors alone -- xterm behavior.
+            term->cur->fg_color_index = (uint8_t)(param - 90 + 8);
+            term_recompute_fg(term);
+            break;
+        case 100: case 101: case 102: case 103: // bright background color
+        case 104: case 105: case 106: case 107:
+            term->cur->bg_color_index = (uint8_t)(param - 100);
             term->cur->bg_color = color_256[term->cur->bg_color_index + 8];
             break;
         }
@@ -829,42 +910,15 @@ static void term_restore_cursor_state(term_state_t *term)
     term_set_cursor_position(term, x, y);
 }
 
-// Eager clear of the currently active buffer at current SGR. Used on
-// ?1049 entry so the renderer never shows stale alt-buffer content. Resets
-// y_offset and row_idx so the visible logical rows map straight to the
-// freshly blanked physical rows. Also used on ?1047 exit to wipe the alt
-// buffer's content before the swap-back.
+// Clear the currently active screen at the current SGR. Used on ?1049
+// entry and ?1047 exit. Delegates to term_clear_buf (defined earlier so
+// RIS can also call it directly without a forward declaration).
 static void term_clear_screen(term_state_t *term)
 {
     uint16_t fg, bg;
     uint8_t attr;
-    uint8_t y, x;
     term_emit_attrs(term, &fg, &bg, &attr);
-    term->screen->y_offset = 0;
-    for (y = 0; y < TERM_MAX_HEIGHT; y++)
-        term->screen->row_idx[y] = y;
-    for (y = 0; y < term->height; y++)
-    {
-        term_data_t *row = term->screen->mem + (uint32_t)y * term->width;
-        for (x = 0; x < term->width; x++)
-        {
-            row[x].font_code = ' ';
-            row[x].fg_color = fg;
-            row[x].bg_color = bg;
-            row[x].attributes = attr;
-        }
-        term->screen->wrapped[y] = false;
-        term->screen->dirty[y] = false;
-        term->screen->erase_fg_color[y] = fg;
-        term->screen->erase_bg_color[y] = bg;
-        term->screen->erase_attr[y] = attr;
-    }
-    for (y = term->height; y < TERM_MAX_HEIGHT; y++)
-    {
-        term->screen->wrapped[y] = false;
-        term->screen->dirty[y] = false;
-    }
-    term->screen->all_clean = true;
+    term_clear_buf(term->screen, term->width, term->height, fg, bg, attr);
 }
 
 // Swap to the buffer at idx (0 = primary, 1 = alt). Both screen and cur
@@ -885,7 +939,7 @@ static inline void term_set_screen(term_state_t *term, uint8_t idx)
 //   before switching so writes continue from the same position.
 static void term_enter_alt(term_state_t *term, bool save_cursor, bool clear_on_entry)
 {
-    if (term->alt_active || term->bufs[1].mem == NULL)
+    if (term->alt_active)
         return;
     if (save_cursor)
         term_save_cursor_state(term);
@@ -2194,7 +2248,7 @@ static void term_out_OSC(term_state_t *term)
         {
             term->default_fg_color = packed;
             if (term->cur->fg_color_index == TERM_FG_COLOR_INDEX)
-                term->cur->fg_color = packed;
+                term_recompute_fg(term);
         }
         break;
     case 11:
@@ -2214,8 +2268,7 @@ static void term_out_OSC(term_state_t *term)
         {
             term->default_fg_color = color_256[TERM_FG_COLOR_INDEX];
             if (term->cur->fg_color_index == TERM_FG_COLOR_INDEX)
-                term->cur->fg_color = term->cur->bold ? color_256[TERM_FG_COLOR_INDEX + 8]
-                                            : color_256[TERM_FG_COLOR_INDEX];
+                term_recompute_fg(term);
         }
         break;
     case 111:
