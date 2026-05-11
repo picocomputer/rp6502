@@ -554,9 +554,9 @@ void mon_task(void)
     {
         mon_cpr_query_sent = false;
         if (mon_needs_newline)
-            mon_add_response_str(STR_MON_PROMPT_NEWLINE);
+            mon_add_response_str("\n]");
         else
-            mon_add_response_str(STR_MON_PROMPT);
+            mon_add_response_str("]");
         mon_needs_prompt = false;
         mon_needs_newline = false;
         mon_response_line = 0;

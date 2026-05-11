@@ -41,10 +41,11 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 void sys_init(void)
 {
 #ifdef NDEBUG
-    mon_add_response_str(STR_SYS_FULL_TERM_RESET);
+    mon_add_response_str(STR_TERM_HARD_RESET);
 #else
-    mon_add_response_str(STR_SYS_TERM_RESET);
+    mon_add_response_str(STR_TERM_SOFT_RESET);
 #endif
+    mon_add_response_str("\n");
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
     mon_add_response_fn(vga_boot_response);

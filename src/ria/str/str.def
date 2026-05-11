@@ -47,16 +47,8 @@ X(STR_STATUS_USB, "USB : %d %s, %d %s, %d %s, %d %s, %d %s, %d %s\n")
 X(STR_STATUS_MSC, "%s: %s %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: %s %s\n")
 
-//TODO consolidate these resets and ensure soft reset is always sent 
-//     when ROM stops even with NFC load or argv launch. RIS only gets sent on reboot in release mode.
-
-// ANSI to reset the terminal at boot. Extra \33[2J for minicom.
-X(STR_SYS_TERM_RESET, "\30\33[?1049l\33[!p\33[3g\33]110\7\33]111\7\33]112\7\n");
-X(STR_SYS_FULL_TERM_RESET, "\30\33c\33[2J\n");
-
-// Monitor prompts
-X(STR_MON_PROMPT_NEWLINE, "\30\33[?1049l\33[!p\33[3g\33]110\7\33]111\7\33]112\7\n]")
-X(STR_MON_PROMPT, "\30\33[?1049l\33[!p\33[3g\33]110\7\33]111\7\33]112\7]")
+X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
+X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[0m\33(B\33[?7h\33[?25h\33[3g")
 
 // Monitor keywords
 X(STR_POSIX, "POSIX")
