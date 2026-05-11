@@ -386,7 +386,7 @@ static void term_reset_tab_stops(term_state_t *term)
 {
     for (size_t i = 0; i < TERM_TAB_BITMAP_BYTES; i++)
         term->tab_stops[i] = 0;
-    for (uint8_t col = 0; col < term->width; col += 8)
+    for (uint8_t col = 8; col < term->width; col += 8)
         term->tab_stops[col >> 3] |= 1u << (col & 7);
 }
 
