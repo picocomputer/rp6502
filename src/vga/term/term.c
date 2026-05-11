@@ -153,6 +153,7 @@ typedef struct term_state
     uint8_t csi_intermediate; // ' ' or '!' captured during CSI parse
     bool app_cursor_keys;     // DECCKM ?1 (storage only; input layer reads it)
     bool bracketed_paste;     // ?2004 (storage only)
+    bool ice_colors;          // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
     uint8_t cursor_style;     // DECSCUSR Ps (store-and-ignore)
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
     uint8_t last_printed;     // for REP (\033[b); 0 = no eligible char
@@ -190,6 +191,9 @@ static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 // the current SGR state. Applies emit-time REVERSE/CONCEAL toggles; render
 // bits (UL/STRIKE/OVERLINE/DBL_UL/BLINK) flow through unchanged. ATTR_DEC
 // is the caller's responsibility -- only set for DEC-charset glyph cells.
+// In ice_colors mode (DECSET ?33) the ATTR_BLINK bit is suppressed at the
+// cell level -- the bright bg is already baked into bg_color and we don't
+// want the renderer to also pulse the cell.
 static inline void term_emit_attrs(const term_state_t *term,
                                    uint16_t *fg, uint16_t *bg, uint8_t *attr)
 {
@@ -205,7 +209,10 @@ static inline void term_emit_attrs(const term_state_t *term,
         f = b;
     *fg = f;
     *bg = b;
-    *attr = (uint8_t)(term->cur->sgr_attr & (ATTR_RENDER_MASK & ~ATTR_DEC));
+    uint8_t cell_mask = ATTR_RENDER_MASK & ~ATTR_DEC;
+    if (term->ice_colors)
+        cell_mask &= (uint8_t)~ATTR_BLINK;
+    *attr = (uint8_t)(term->cur->sgr_attr & cell_mask);
 }
 
 // Make sure you call this any time you change rows.
@@ -325,6 +332,35 @@ static void term_reset_tab_stops(term_state_t *term)
         term->tab_stops[col >> 3] |= 1u << (col & 7);
 }
 
+// Reset SGR + mode state that both RIS (hard) and DECSTR (soft) reset.
+// Does NOT touch: screen contents, tab stops, default colors, alt-screen
+// state, ansi parser state, or the cursor's on-screen position.
+static void term_reset_sgr_and_modes(term_state_t *term)
+{
+    term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
+    term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
+    term->cur->fg_color = term->default_fg_color;
+    term->cur->bg_color = term->default_bg_color;
+    term->cur->bold = false;
+    term->cur->sgr_attr = 0;
+    term->cur->origin_mode = false;
+    term->cur->line_wrap = true;
+    term->cur->g0_charset = 0;
+    term->cur->g1_charset = 0;
+    term->cur->gl_is_g1 = false;
+    term->cursor_enabled = true;
+    term->save_x = 0;
+    term->save_y = 0;
+    term->save_origin_mode = false;
+    term->screen->margin_top = 0;
+    term->screen->margin_bot = (uint8_t)(term->height - 1);
+    term->app_cursor_keys = false;
+    term->bracketed_paste = false;
+    term->ice_colors = false;
+    term->cursor_style = 0;
+    term->decsc_valid = false;
+}
+
 static void term_out_RIS(term_state_t *term)
 {
     /* RIS drops alt mode and returns to primary. The cursor-save snapshot
@@ -333,37 +369,15 @@ static void term_out_RIS(term_state_t *term)
     term->cur = &term->screen->cs;
     term->alt_active = false;
     term->cursor_save_valid = false;
-
     term->ansi_state = ansi_state_C0;
-    term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
-    term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
     term->default_fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->default_bg_color = color_256[TERM_BG_COLOR_INDEX];
-    term->cur->fg_color = color_256[TERM_FG_COLOR_INDEX];
-    term->cur->bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->cursor_bg_color = color_256[TERM_FG_COLOR_INDEX];
-    term->cur->bold = false;
-    term->cursor_enabled = true;
-    term->save_x = 0;
-    term->save_y = 0;
-    term->save_origin_mode = false;
-    term->cur->origin_mode = false;
-    term->cur->line_wrap = true;
-    term->screen->margin_top = 0;
-    term->screen->margin_bot = term->height - 1;
-    term->cur->x = 0;
-    term->cur->sgr_attr = 0;
-    term->app_cursor_keys = false;
-    term->bracketed_paste = false;
-    term->cursor_style = 0;
     term->last_printed = 0;
     term->csi_intermediate = 0;
-    term->cur->g0_charset = 0;
-    term->cur->g1_charset = 0;
-    term->cur->gl_is_g1 = false;
-    term->decsc_valid = false;
+    term_reset_sgr_and_modes(term);
     term_reset_tab_stops(term);
-    term_out_FF(term);
+    term_out_FF(term); /* also resets x = y = 0 */
 }
 
 static void term_state_init(term_state_t *term, uint8_t width,
@@ -496,6 +510,23 @@ static void sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     }
 }
 
+// Recompute bg_color from bg_color_index, default bg, and the current
+// blink+ice_colors state. In ice_colors mode (DECSET ?33), SGR 5/6 means
+// "shift bg to its bright palette entry" instead of pulsing the cell -- the
+// IBM-VGA hack the BBS scene relies on. ice_colors off (default): bg uses
+// the plain palette entry and ATTR_BLINK drives the renderer's blink pulse.
+static void term_update_bg_color(term_state_t *term)
+{
+    uint8_t idx = term->cur->bg_color_index;
+    if (term->ice_colors && (term->cur->sgr_attr & ATTR_BLINK))
+        term->cur->bg_color = color_256[idx + 8];
+    else if (idx == TERM_BG_COLOR_INDEX &&
+             term->default_bg_color != color_256[TERM_BG_COLOR_INDEX])
+        term->cur->bg_color = term->default_bg_color;
+    else
+        term->cur->bg_color = color_256[idx];
+}
+
 static void term_out_SGR(term_state_t *term)
 {
     for (uint8_t idx = 0; idx < term->csi_param_count; idx++)
@@ -529,6 +560,8 @@ static void term_out_SGR(term_state_t *term)
         case 5: // slow blink
         case 6: // rapid blink (aliased; we run one phase rate)
             term->cur->sgr_attr |= ATTR_BLINK;
+            if (term->ice_colors)
+                term_update_bg_color(term);
             break;
         case 7: // reverse
             term->cur->sgr_attr |= ATTR_REVERSE;
@@ -553,6 +586,8 @@ static void term_out_SGR(term_state_t *term)
             break;
         case 25: // not blink
             term->cur->sgr_attr &= (uint8_t)~ATTR_BLINK;
+            if (term->ice_colors)
+                term_update_bg_color(term);
             break;
         case 27: // reverse off
             term->cur->sgr_attr &= (uint8_t)~ATTR_REVERSE;
@@ -607,17 +642,14 @@ static void term_out_SGR(term_state_t *term)
         case 46:
         case 47:
             term->cur->bg_color_index = param - 40;
-            term->cur->bg_color = color_256[term->cur->bg_color_index];
+            term_update_bg_color(term);
             break;
         case 48:
             sgr_color(term, idx, &term->cur->bg_color);
             return;
         case 49:
             term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
-            if (term->default_bg_color != color_256[TERM_BG_COLOR_INDEX])
-                term->cur->bg_color = term->default_bg_color;
-            else
-                term->cur->bg_color = color_256[TERM_BG_COLOR_INDEX];
+            term_update_bg_color(term);
             break;
         case 58: // Underline not supported, but eat colors
             return;
@@ -1521,27 +1553,7 @@ static void term_out_SD(term_state_t *term)
 // tab stops, and screen contents (per VT220 spec).
 static void term_out_DECSTR(term_state_t *term)
 {
-    term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
-    term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
-    term->cur->fg_color = term->default_fg_color;
-    term->cur->bg_color = term->default_bg_color;
-    term->cur->bold = false;
-    term->cur->sgr_attr = 0;
-    term->cursor_enabled = true;
-    term->save_x = 0;
-    term->save_y = 0;
-    term->save_origin_mode = false;
-    term->cur->origin_mode = false;
-    term->cur->line_wrap = true;
-    term->screen->margin_top = 0;
-    term->screen->margin_bot = (uint8_t)(term->height - 1);
-    term->app_cursor_keys = false;
-    term->bracketed_paste = false;
-    term->cursor_style = 0;
-    term->cur->g0_charset = 0;
-    term->cur->g1_charset = 0;
-    term->cur->gl_is_g1 = false;
-    term->decsc_valid = false;
+    term_reset_sgr_and_modes(term);
     term_set_cursor_position(term, 0, 0);
 }
 
@@ -2009,6 +2021,13 @@ static void term_out_CSI_question(term_state_t *term, char ch)
             case 25: // DECTCEM
                 term->cursor_enabled = true;
                 break;
+            case 33: /* iCE colors -- SGR 5/6 becomes the IBM-VGA bright-bg hack */
+                if (!term->ice_colors)
+                {
+                    term->ice_colors = true;
+                    term_update_bg_color(term);
+                }
+                break;
             case 47:   /* legacy alt screen: swap only */
                 term_enter_alt(term, false, false);
                 break;
@@ -2042,6 +2061,13 @@ static void term_out_CSI_question(term_state_t *term, char ch)
             case 12: // AT&T 610
             case 25: // DECTCEM
                 term->cursor_enabled = false;
+                break;
+            case 33: /* iCE colors off -- SGR 5/6 returns to real blink */
+                if (term->ice_colors)
+                {
+                    term->ice_colors = false;
+                    term_update_bg_color(term);
+                }
                 break;
             case 47:
                 term_leave_alt(term, false, false);
