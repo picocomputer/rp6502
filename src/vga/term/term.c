@@ -48,19 +48,19 @@
 #define TERM_BG_COLOR_INDEX 0
 
 // Cell `attributes` byte: render-time flags.
-#define ATTR_UNDERLINE  (1u << 0)  // SGR 4
-#define ATTR_STRIKE     (1u << 1)  // SGR 9
-#define ATTR_OVERLINE   (1u << 2)  // SGR 53
-#define ATTR_DBL_UL     (1u << 3)  // SGR 21
-#define ATTR_BLINK      (1u << 4)  // SGR 5 / 6 (proper, phase-driven)
-#define ATTR_DEC        (1u << 5)  // cell renders from DEC graphics buffer
+#define ATTR_UNDERLINE (1u << 0) // SGR 4
+#define ATTR_STRIKE (1u << 1)    // SGR 9
+#define ATTR_OVERLINE (1u << 2)  // SGR 53
+#define ATTR_DBL_UL (1u << 3)    // SGR 21
+#define ATTR_BLINK (1u << 4)     // SGR 5 / 6 (proper, phase-driven)
+#define ATTR_DEC (1u << 5)       // cell renders from DEC graphics buffer
 #define ATTR_RENDER_MASK (ATTR_UNDERLINE | ATTR_STRIKE | ATTR_OVERLINE | \
                           ATTR_DBL_UL | ATTR_BLINK | ATTR_DEC)
 
 // SGR-state-only bits (not stored per-cell). Held in term->cur->sgr_attr alongside
 // the render bits above; applied at glyph-emit time rather than render time.
-#define ATTR_REVERSE    (1u << 6)  // SGR 7: emit-time fg/bg swap
-#define ATTR_CONCEAL    (1u << 7)  // SGR 8: emit-time fg = bg
+#define ATTR_REVERSE (1u << 6) // SGR 7: emit-time fg/bg swap
+#define ATTR_CONCEAL (1u << 7) // SGR 8: emit-time fg = bg
 
 typedef enum
 {
@@ -75,9 +75,9 @@ typedef enum
     ansi_state_CSI_question,
     ansi_state_OSC,
     ansi_state_OSC_esc,
-    ansi_state_Fe_hash,      // after ESC #
-    ansi_state_Fe_paren_G0,  // after ESC ( (designate G0)
-    ansi_state_Fe_paren_G1,  // after ESC ) (designate G1)
+    ansi_state_Fe_hash,     // after ESC #
+    ansi_state_Fe_paren_G0, // after ESC ( (designate G0)
+    ansi_state_Fe_paren_G1, // after ESC ) (designate G1)
 } ansi_state_t;
 
 typedef struct
@@ -101,7 +101,7 @@ typedef struct
     uint8_t sgr_attr;
     uint8_t fg_color_index, bg_color_index;
     uint16_t fg_color, bg_color;
-    uint16_t user_fg_color;   // base color from SGR 38, used when fg_color_index == FG_COLOR_INDEX_EXTENDED
+    uint16_t user_fg_color; // base color from SGR 38, used when fg_color_index == FG_COLOR_INDEX_EXTENDED
     bool bold;
     bool faint;
     bool origin_mode;
@@ -135,10 +135,10 @@ typedef struct term_state
     uint8_t height;
     /* Per-screen state. cur is &screen->cs, swapped with screen on alt
      * enter/exit. All cursor + SGR access goes through cur. */
-    screen_buf_t bufs[2];   /* [0] = primary, [1] = alt */
-    screen_buf_t *screen;   /* active buffer */
-    cursor_state_t *cur;    /* = &screen->cs */
-    bool alt_active;        /* true when screen == &bufs[1] */
+    screen_buf_t bufs[2];       /* [0] = primary, [1] = alt */
+    screen_buf_t *screen;       /* active buffer */
+    cursor_state_t *cur;        /* = &screen->cs */
+    bool alt_active;            /* true when screen == &bufs[1] */
     cursor_state_t cursor_save; /* ?1049 snapshot */
     bool cursor_save_valid;
     /* SCO-style save (CSI s / u) -- separate from DECSC and ?1049. */
@@ -156,14 +156,13 @@ typedef struct term_state
     uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
     char csi_separator[TERM_CSI_PARAM_MAX_LEN];
     uint8_t csi_param_count;
-    uint8_t csi_intermediate; // ' ' or '!' captured during CSI parse
-    bool app_cursor_keys;     // DECCKM ?1 (storage only; input layer reads it)
-    bool bracketed_paste;     // ?2004 (storage only)
-    bool ice_colors;          // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
-    uint8_t cursor_style;     // DECSCUSR Ps (store-and-ignore)
+    uint8_t csi_intermediate;                 // ' ' or '!' captured during CSI parse
+    bool app_cursor_keys;                     // DECCKM ?1 (storage only; input layer reads it)
+    bool bracketed_paste;                     // ?2004 (storage only)
+    bool ice_colors;                          // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
+    uint8_t cursor_style;                     // DECSCUSR Ps (store-and-ignore)
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
-    uint8_t last_printed;     // for REP (\033[b); 0 = no eligible char
-    cursor_state_t decsc;     // DECSC snapshot (ESC 7 / ESC 8)
+    cursor_state_t decsc;                     // DECSC snapshot (ESC 7 / ESC 8)
     bool decsc_valid;
 } term_state_t;
 
@@ -419,7 +418,6 @@ static void term_out_RIS(term_state_t *term)
     term->default_fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->default_bg_color = color_256[TERM_BG_COLOR_INDEX];
     term->cursor_bg_color = color_256[TERM_FG_COLOR_INDEX];
-    term->last_printed = 0;
     term->csi_intermediate = 0;
     term_reset_sgr_and_modes(term);
     term_reset_tab_stops(term);
@@ -696,8 +694,14 @@ static void term_out_SGR(term_state_t *term)
         case 55: // overline off
             term->cur->sgr_attr &= (uint8_t)~ATTR_OVERLINE;
             break;
-        case 30: case 31: case 32: case 33: // foreground color
-        case 34: case 35: case 36: case 37:
+        case 30:
+        case 31:
+        case 32:
+        case 33: // foreground color
+        case 34:
+        case 35:
+        case 36:
+        case 37:
             term->cur->fg_color_index = (uint8_t)(param - 30);
             term_recompute_fg(term);
             break;
@@ -718,8 +722,14 @@ static void term_out_SGR(term_state_t *term)
             term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
             term_recompute_fg(term);
             break;
-        case 40: case 41: case 42: case 43: // background color
-        case 44: case 45: case 46: case 47:
+        case 40:
+        case 41:
+        case 42:
+        case 43: // background color
+        case 44:
+        case 45:
+        case 46:
+        case 47:
             term->cur->bg_color_index = (uint8_t)(param - 40);
             term_update_bg_color(term);
             break;
@@ -744,15 +754,27 @@ static void term_out_SGR(term_state_t *term)
                 idx += consumed;
             break;
         }
-        case 90: case 91: case 92: case 93: // bright foreground color
-        case 94: case 95: case 96: case 97:
+        case 90:
+        case 91:
+        case 92:
+        case 93: // bright foreground color
+        case 94:
+        case 95:
+        case 96:
+        case 97:
             // Store the bright-palette slot directly (8..15) so SGR 22
             // leaves bright colors alone -- xterm behavior.
             term->cur->fg_color_index = (uint8_t)(param - 90 + 8);
             term_recompute_fg(term);
             break;
-        case 100: case 101: case 102: case 103: // bright background color
-        case 104: case 105: case 106: case 107:
+        case 100:
+        case 101:
+        case 102:
+        case 103: // bright background color
+        case 104:
+        case 105:
+        case 106:
+        case 107:
             term->cur->bg_color_index = (uint8_t)(param - 100);
             term->cur->bg_color = color_256[term->cur->bg_color_index + 8];
             break;
@@ -1245,24 +1267,6 @@ static void term_out_glyph(term_state_t *term, char ch)
     term->ptr->bg_color = bg;
     term->ptr->attributes = attr;
     term->ptr++;
-    term->last_printed = byte;
-}
-
-// Repeat last printed character Pn times (CSI Pn b -- REP).
-static void term_out_REP(term_state_t *term)
-{
-    if (term->last_printed == 0)
-        return;
-    uint16_t n = term->csi_param[0];
-    if (n < 1)
-        n = 1;
-    // Bound at one screen's worth; pathologically large Pn shouldn't hang
-    // the parser. Real apps emit small counts.
-    if (n > (uint16_t)(term->width * term->height))
-        n = (uint16_t)(term->width * term->height);
-    char ch = (char)term->last_printed;
-    for (uint16_t i = 0; i < n; i++)
-        term_out_glyph(term, ch);
 }
 
 // Cursor up
@@ -1289,7 +1293,7 @@ static void term_out_CUD(term_state_t *term)
         rows = 1;
     // Soft fence: cursor already inside the region cannot cross margin_bot.
     uint8_t ceil = (term->cur->y <= term->screen->margin_bot) ? term->screen->margin_bot
-                                                 : (uint8_t)(term->height - 1);
+                                                              : (uint8_t)(term->height - 1);
     uint16_t y = term->cur->y;
     while (rows && y < ceil)
         --rows, ++y;
@@ -1789,12 +1793,6 @@ static void term_out_ED(term_state_t *term)
 
 static void term_out_state_C0(term_state_t *term, char ch)
 {
-    // Any text-flow C0 control breaks the REP chain. ESC starts a control
-    // sequence which keeps the chain intact (xterm-compatible). NUL and BEL
-    // are no-ops and don't disturb it either.
-    if (ch == '\b' || ch == '\t' || ch == '\n' || ch == '\f' ||
-        ch == '\r' || ch == '\16' || ch == '\17')
-        term->last_printed = 0;
     switch (ch)
     {
     case '\0': // NUL
@@ -2003,9 +2001,6 @@ static void term_out_CSI(term_state_t *term, char ch)
     case 'X':
         term_out_ECH(term);
         break;
-    case 'b':
-        term_out_REP(term);
-        break;
     case 'H':
     case 'f': // HVP -- alias of CUP
         term_out_CUP(term);
@@ -2082,7 +2077,7 @@ static void term_out_CSI_question(term_state_t *term, char ch)
                     term_update_bg_color(term);
                 }
                 break;
-            case 47:   /* legacy alt screen: swap only */
+            case 47: /* legacy alt screen: swap only */
                 term_enter_alt(term, false, false);
                 break;
             case 1047: /* alt screen, no cursor save, clear-on-exit */
