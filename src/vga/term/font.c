@@ -17,6 +17,8 @@
 
 uint8_t __uninitialized_ram(font8)[2048];
 uint8_t __uninitialized_ram(font16)[4096];
+uint8_t __uninitialized_ram(font_dec_8)[8 * 32];
+uint8_t __uninitialized_ram(font_dec_16)[16 * 32];
 
 static const __in_flash("font_ascii_8") uint8_t FONT8_ASCII[] = {
     0x00, 0x7e, 0x7e, 0x6c, 0x10, 0x38, 0x10, 0x00, 0xff, 0x00, 0xff, 0x0f, 0x3c, 0x3f, 0x7f, 0x18,
@@ -3546,6 +3548,84 @@ static const __in_flash("font_cp869_16") uint8_t FONT16_CP869[] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+// DEC Special Graphics -> CP437 mapping. Sentinel DEC_MAP_BLANK leaves the
+// slot zeroed (no glyph available); DEC_MAP_ASCII marks codes sourced from
+// the ASCII low-half ROM rather than the CP437 high half. Indexed by
+// (dec_code - 0x60); 0x1F entries for codes 0x60..0x7E.
+#define DEC_MAP_BLANK 0xFFFFu
+#define DEC_MAP_ASCII 0x10000u
+static const uint32_t dec_glyph_map[0x1F] = {
+    /* 0x60 ` */ DEC_MAP_ASCII | 0x04u, // diamond
+    /* 0x61 a */ 0xB1u,                 // checkerboard
+    /* 0x62 b */ DEC_MAP_BLANK,         // HT visual
+    /* 0x63 c */ DEC_MAP_BLANK,         // FF visual
+    /* 0x64 d */ DEC_MAP_BLANK,         // CR visual
+    /* 0x65 e */ DEC_MAP_BLANK,         // LF visual
+    /* 0x66 f */ 0xF8u,                 // degree
+    /* 0x67 g */ 0xF1u,                 // plus-minus
+    /* 0x68 h */ DEC_MAP_BLANK,         // NL visual
+    /* 0x69 i */ DEC_MAP_BLANK,         // VT visual
+    /* 0x6A j */ 0xD9u,                 // box: bottom-right
+    /* 0x6B k */ 0xBFu,                 // box: top-right
+    /* 0x6C l */ 0xDAu,                 // box: top-left
+    /* 0x6D m */ 0xC0u,                 // box: bottom-left
+    /* 0x6E n */ 0xC5u,                 // box: crossing
+    /* 0x6F o */ DEC_MAP_BLANK,         // scan line 1
+    /* 0x70 p */ DEC_MAP_BLANK,         // scan line 3
+    /* 0x71 q */ 0xC4u,                 // horizontal line
+    /* 0x72 r */ DEC_MAP_BLANK,         // scan line 7
+    /* 0x73 s */ DEC_MAP_BLANK,         // scan line 9
+    /* 0x74 t */ 0xC3u,                 // tee right
+    /* 0x75 u */ 0xB4u,                 // tee left
+    /* 0x76 v */ 0xC1u,                 // tee up
+    /* 0x77 w */ 0xC2u,                 // tee down
+    /* 0x78 x */ 0xB3u,                 // vertical line
+    /* 0x79 y */ 0xF3u,                 // less or equal (approx)
+    /* 0x7A z */ 0xF2u,                 // greater or equal (approx)
+    /* 0x7B { */ 0xE3u,                 // pi
+    /* 0x7C | */ DEC_MAP_BLANK,         // not equal (no good CP437)
+    /* 0x7D } */ 0x9Cu,                 // pound sterling
+    /* 0x7E ~ */ 0xFAu,                 // centered dot
+};
+
+static void font_build_dec_graphics(void)
+{
+    // Lay out font_dec_8 / font_dec_16 in the same row-major form as
+    // font8/font16 (one row of all glyphs at a time) so the renderer's
+    // scanline lookup matches the existing pattern.
+    for (int row = 0; row < 16; row++)
+    {
+        for (int idx = 0; idx < 0x1F; idx++)
+        {
+            uint32_t m = dec_glyph_map[idx];
+            uint8_t v16 = 0;
+            uint8_t v8 = 0;
+            if (m == DEC_MAP_BLANK)
+            {
+                // leave zero
+            }
+            else if (m & DEC_MAP_ASCII)
+            {
+                uint8_t ch = (uint8_t)(m & 0xFFu);
+                v16 = FONT16_ASCII[row * 128 + ch];
+                if (row < 8)
+                    v8 = FONT8_ASCII[row * 128 + ch];
+            }
+            else
+            {
+                // CP437 high half: 0x80..0xFF stored at [row * 128 + (ch - 0x80)].
+                uint8_t ch = (uint8_t)(m & 0xFFu);
+                v16 = FONT16_CP437[row * 128 + (ch - 0x80)];
+                if (row < 8)
+                    v8 = FONT8_CP437[row * 128 + (ch - 0x80)];
+            }
+            font_dec_16[row * 32 + idx] = v16;
+            if (row < 8)
+                font_dec_8[row * 32 + idx] = v8;
+        }
+    }
+}
+
 void font_init(void)
 {
     for (int row = 0; row < 16; row++)
@@ -3558,6 +3638,8 @@ void font_init(void)
             memset(&font8[row * 256 + 128], 0, 128);
         }
     }
+    font_build_dec_graphics();
+    font_set_code_page(437);
 }
 
 void font_set_code_page(uint16_t cp)
