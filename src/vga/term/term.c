@@ -149,7 +149,9 @@ typedef struct term_state
     bool cursor_is_inv;
     uint16_t default_fg_color;
     uint16_t default_bg_color;
-    uint16_t cursor_bg_color;
+    uint16_t cursor_bg_color;     // configured cursor block color (OSC 12)
+    uint16_t cursor_saved_fg;     // cell.fg at lit-on; only valid while cursor_is_inv
+    uint16_t cursor_saved_bg;     // cell.bg at lit-on; only valid while cursor_is_inv
     term_data_t *ptr;
     absolute_time_t timer;
     ansi_state_t ansi_state;
@@ -297,7 +299,11 @@ static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heigh
 }
 
 // Clean at most one row per tick: prefer the active buffer; only touch
-// the inactive one if the active is already clean.
+// the inactive one if the active is already clean. Invariant: cur->y is
+// never dirty on the active buffer (every code path that marks a row
+// dirty either avoids cur->y or follows up with term_clean_line on it),
+// so the cursor cell is never affected by this task and no unlit dance
+// is needed.
 static void term_clean_task(term_state_t *term)
 {
     if (term_clean_one_dirty(term->screen, term->width, term->height))
@@ -552,11 +558,14 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
     term->screen->margin_bot = term->height - 1;
 }
 
-// Self-inverse swap of one slot: while lit, cursor_bg_color holds the saved
-// cell bg; while unlit, it holds the configured cursor color. The cell's fg
-// is left untouched, so a glyph under the cursor renders in its own fg on
-// the cursor block. Callers must force unlit before touching cell state or
-// cursor_bg_color (com_out_chars already does this).
+// Lit: the cell's fg/bg are saved into cursor_saved_fg/bg, the cell's bg
+// becomes the configured cursor block color (cursor_bg_color), and the
+// cell's fg becomes the saved bg -- so the glyph renders in its original
+// background color against the cursor block (the standard reverse-video
+// cursor). Unlit: restore the saved fg/bg. Callers must force unlit
+// before any code path touches the cell at the cursor position (otherwise
+// the unlit restore would clobber fresh cell state); com_out_chars
+// already does this for the input-processing path.
 static void term_cursor_set_inv(term_state_t *term, bool inv)
 {
     if (!term->cursor_enabled && inv)
@@ -566,9 +575,18 @@ static void term_cursor_set_inv(term_state_t *term, bool inv)
     term_data_t *term_ptr = term->ptr;
     if (term->cur->x == term->width)
         term_ptr--;
-    uint16_t tmp = term_ptr->bg_color;
-    term_ptr->bg_color = term->cursor_bg_color;
-    term->cursor_bg_color = tmp;
+    if (inv)
+    {
+        term->cursor_saved_fg = term_ptr->fg_color;
+        term->cursor_saved_bg = term_ptr->bg_color;
+        term_ptr->fg_color = term->cursor_saved_bg;
+        term_ptr->bg_color = term->cursor_bg_color;
+    }
+    else
+    {
+        term_ptr->fg_color = term->cursor_saved_fg;
+        term_ptr->bg_color = term->cursor_saved_bg;
+    }
     term->cursor_is_inv = inv;
 }
 
@@ -1030,7 +1048,9 @@ static void term_enter_alt(term_state_t *term, bool save_cursor, bool clear_on_e
     }
     else
     {
-        term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
+        // Route through term_set_cursor_position so the destination row is
+        // cleaned (alt buffer may have lazy-dirty rows after RIS).
+        term_set_cursor_position(term, term->cur->x, term->cur->y);
     }
 }
 
@@ -1049,7 +1069,7 @@ static void term_leave_alt(term_state_t *term, bool restore_cursor, bool clear_o
     if (restore_cursor && term->cursor_save_valid)
         term_restore_cursor_state(term);
     else
-        term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
+        term_set_cursor_position(term, term->cur->x, term->cur->y);
 }
 
 // Scroll the inclusive region [top, bot] up by n rows in a single pass.
@@ -1644,6 +1664,7 @@ static void term_out_SU(term_state_t *term)
     if (n < 1)
         n = 1;
     term_region_scroll_up(term, term->screen->margin_top, term->screen->margin_bot, (uint8_t)n);
+    term_clean_line(term, term->cur->y);
 }
 
 // Scroll Down Pn rows within the current scroll region. Cursor unchanged.
@@ -1653,6 +1674,7 @@ static void term_out_SD(term_state_t *term)
     if (n < 1)
         n = 1;
     term_region_scroll_down(term, term->screen->margin_top, term->screen->margin_bot, (uint8_t)n);
+    term_clean_line(term, term->cur->y);
 }
 
 // Soft terminal reset (CSI ! p -- DECSTR). Resets SGR/cursor/origin/wrap/
