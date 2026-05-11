@@ -2365,7 +2365,7 @@ void term_init(void)
     term_state_init(&term_40, 40, term40_pri_mem, term40_alt_mem);
     term_state_init(&term_80, 80, term80_pri_mem, term80_alt_mem);
     term_blink_phase = 0;
-    term_blink_phase_timer = make_timeout_time_us(250700);
+    term_blink_phase_timer = make_timeout_time_us(332700);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = com_out_chars,
@@ -2390,16 +2390,10 @@ static void term_blink_cursor(term_state_t *term)
 
 static void term_blink_phase_task(void)
 {
-    // 250 ms half-period: matches the IBM CGA/VGA text-mode blink rate
-    // (~1.9 Hz, 16 frames at 60 Hz) that Linux carried forward. Faster
-    // than the cursor's 500 ms half-period so blinking text is clearly
-    // distinct. The 700 us drift is offset from the cursor's 300 us drift
-    // so the two blink signals don't beat together and the toggle never
-    // consistently lands at the same scanline of a 60 Hz frame.
     if (time_reached(term_blink_phase_timer))
     {
         term_blink_phase = term_blink_phase ? 0u : ATTR_BLINK;
-        term_blink_phase_timer = make_timeout_time_us(249300);
+        term_blink_phase_timer = make_timeout_time_us(332700);
     }
 }
 
