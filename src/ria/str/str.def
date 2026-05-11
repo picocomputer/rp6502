@@ -48,7 +48,7 @@ X(STR_STATUS_MSC, "%s: %s %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: %s %s\n")
 
 //TODO consolidate these resets and ensure soft reset is always sent 
-//     when ROM stops even with NFC load. RIS only gets sent on reboot in release mode.
+//     when ROM stops even with NFC load or argv launch. RIS only gets sent on reboot in release mode.
 
 // ANSI to reset the terminal at boot. Extra \33[2J for minicom.
 X(STR_SYS_TERM_RESET, "\30\33[?1049l\33[!p\33[3g\33]110\7\33]111\7\33]112\7\n");
