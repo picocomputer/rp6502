@@ -261,18 +261,49 @@ static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
     }
 }
 
+// Clean one dirty row in `buf`. Returns true if a row was cleaned this
+// call, false if the buffer was already fully clean. Operates on an
+// explicit buffer so the task path can drain the inactive (alt) buffer
+// too -- otherwise the lazy mark on RIS would leave alt dirty until ?47
+// swaps it in.
+static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t height)
+{
+    if (buf->all_clean)
+        return false;
+    for (size_t i = 0; i < height; i++)
+    {
+        if (buf->dirty[i])
+        {
+            buf->dirty[i] = false;
+            uint8_t slot = (uint8_t)(buf->y_offset + i);
+            if (slot >= TERM_MAX_HEIGHT)
+                slot -= TERM_MAX_HEIGHT;
+            term_data_t *row = buf->mem + (uint32_t)buf->row_idx[slot] * width;
+            uint16_t fg = buf->erase_fg_color[i];
+            uint16_t bg = buf->erase_bg_color[i];
+            uint8_t attr = buf->erase_attr[i];
+            for (size_t x = 0; x < width; x++)
+            {
+                row[x].font_code = ' ';
+                row[x].fg_color = fg;
+                row[x].bg_color = bg;
+                row[x].attributes = attr;
+            }
+            return true;
+        }
+    }
+    buf->all_clean = true;
+    return false;
+}
+
+// Clean at most one row per tick: prefer the active buffer; only touch
+// the inactive one if the active is already clean.
 static void term_clean_task(term_state_t *term)
 {
-    // Clean only one line per task
-    if (term->screen->all_clean)
+    if (term_clean_one_dirty(term->screen, term->width, term->height))
         return;
-    for (size_t i = 0; i < term->height; i++)
-        if (term->screen->dirty[i])
-        {
-            term_clean_line(term, i);
-            return;
-        }
-    term->screen->all_clean = true;
+    screen_buf_t *other = &term->bufs[term->alt_active ? 0 : 1];
+    term_clean_one_dirty(other, term->width, term->height);
 }
 
 static void term_shift_meta_up(term_state_t *term, uint8_t count)
@@ -404,6 +435,30 @@ static void term_clear_buf(screen_buf_t *buf, uint8_t width, uint8_t height,
     buf->all_clean = true;
 }
 
+// Lazy variant of term_clear_buf: marks every visible row dirty with the
+// given erase colors without touching cell memory. term_clean_task drains
+// both buffers per tick, so the cells get filled in the background regardless
+// of which buffer is active. Used on RIS so the alt clear doesn't block the
+// parser for ~200 us per ESC c.
+static void term_mark_buf_erased(screen_buf_t *buf, uint8_t height,
+                                 uint16_t fg, uint16_t bg, uint8_t attr)
+{
+    buf->y_offset = 0;
+    for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
+    {
+        buf->row_idx[y] = y;
+        buf->wrapped[y] = false;
+        buf->dirty[y] = (y < height);
+    }
+    for (uint8_t y = 0; y < height; y++)
+    {
+        buf->erase_fg_color[y] = fg;
+        buf->erase_bg_color[y] = bg;
+        buf->erase_attr[y] = attr;
+    }
+    buf->all_clean = false;
+}
+
 static void term_out_RIS(term_state_t *term)
 {
     /* RIS drops alt mode and returns to primary. The cursor-save snapshot
@@ -421,9 +476,9 @@ static void term_out_RIS(term_state_t *term)
     term->csi_intermediate = 0;
     term_reset_sgr_and_modes(term);
     term_reset_tab_stops(term);
-    term_clear_buf(&term->bufs[1], term->width, term->height,
-                   color_256[TERM_FG_COLOR_INDEX],
-                   color_256[TERM_BG_COLOR_INDEX], 0);
+    term_mark_buf_erased(&term->bufs[1], term->height,
+                         color_256[TERM_FG_COLOR_INDEX],
+                         color_256[TERM_BG_COLOR_INDEX], 0);
     term_out_FF(term); /* also resets x = y = 0 on primary */
 }
 
@@ -997,138 +1052,136 @@ static void term_leave_alt(term_state_t *term, bool restore_cursor, bool clear_o
         term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
 }
 
-// Scroll the inclusive region [top, bot] up by one row.
-// Content moves up; the bottom row is exposed and blanked with current SGR.
-// Caller is responsible for cursor positioning. Pure row_idx + metadata
-// rotation; the only cell-data write is the single blanked row.
-static void term_region_scroll_up_once(term_state_t *term, uint8_t top, uint8_t bot)
-{
-    if (top > bot)
-        return;
-
-    if (top < bot)
-    {
-        // Rotate row_idx entries within the region.
-        uint8_t top_slot = term->screen->y_offset + top;
-        if (top_slot >= TERM_MAX_HEIGHT)
-            top_slot -= TERM_MAX_HEIGHT;
-        uint8_t saved = term->screen->row_idx[top_slot];
-        for (uint8_t i = top; i < bot; i++)
-        {
-            uint8_t cur = term->screen->y_offset + i;
-            if (cur >= TERM_MAX_HEIGHT)
-                cur -= TERM_MAX_HEIGHT;
-            uint8_t nxt = term->screen->y_offset + i + 1;
-            if (nxt >= TERM_MAX_HEIGHT)
-                nxt -= TERM_MAX_HEIGHT;
-            term->screen->row_idx[cur] = term->screen->row_idx[nxt];
-        }
-        uint8_t bot_slot = term->screen->y_offset + bot;
-        if (bot_slot >= TERM_MAX_HEIGHT)
-            bot_slot -= TERM_MAX_HEIGHT;
-        term->screen->row_idx[bot_slot] = saved;
-
-        // Shift logical-row metadata within the region.
-        for (uint8_t i = top; i < bot; i++)
-        {
-            term->screen->wrapped[i] = term->screen->wrapped[i + 1];
-            term->screen->dirty[i] = term->screen->dirty[i + 1];
-            term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i + 1];
-            term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i + 1];
-            term->screen->erase_attr[i] = term->screen->erase_attr[i + 1];
-        }
-    }
-    term->screen->wrapped[bot] = false;
-    term->screen->dirty[bot] = false;
-
-    uint16_t fg, bg;
-    uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    term_data_t *line_ptr = term_row_ptr(term, bot);
-    for (size_t x = 0; x < term->width; x++)
-    {
-        line_ptr[x].font_code = ' ';
-        line_ptr[x].fg_color = fg;
-        line_ptr[x].bg_color = bg;
-        line_ptr[x].attributes = attr;
-    }
-}
-
-// Scroll the inclusive region [top, bot] down by one row.
-// Content moves down; the top row is exposed and blanked with current SGR.
-static void term_region_scroll_down_once(term_state_t *term, uint8_t top, uint8_t bot)
-{
-    if (top > bot)
-        return;
-
-    if (top < bot)
-    {
-        uint8_t bot_slot = term->screen->y_offset + bot;
-        if (bot_slot >= TERM_MAX_HEIGHT)
-            bot_slot -= TERM_MAX_HEIGHT;
-        uint8_t saved = term->screen->row_idx[bot_slot];
-        for (uint8_t i = bot; i > top; i--)
-        {
-            uint8_t cur = term->screen->y_offset + i;
-            if (cur >= TERM_MAX_HEIGHT)
-                cur -= TERM_MAX_HEIGHT;
-            uint8_t prv = term->screen->y_offset + i - 1;
-            if (prv >= TERM_MAX_HEIGHT)
-                prv -= TERM_MAX_HEIGHT;
-            term->screen->row_idx[cur] = term->screen->row_idx[prv];
-        }
-        uint8_t top_slot = term->screen->y_offset + top;
-        if (top_slot >= TERM_MAX_HEIGHT)
-            top_slot -= TERM_MAX_HEIGHT;
-        term->screen->row_idx[top_slot] = saved;
-
-        for (uint8_t i = bot; i > top; i--)
-        {
-            term->screen->wrapped[i] = term->screen->wrapped[i - 1];
-            term->screen->dirty[i] = term->screen->dirty[i - 1];
-            term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i - 1];
-            term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i - 1];
-            term->screen->erase_attr[i] = term->screen->erase_attr[i - 1];
-        }
-    }
-    term->screen->wrapped[top] = false;
-    term->screen->dirty[top] = false;
-
-    uint16_t fg, bg;
-    uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    term_data_t *line_ptr = term_row_ptr(term, top);
-    for (size_t x = 0; x < term->width; x++)
-    {
-        line_ptr[x].font_code = ' ';
-        line_ptr[x].fg_color = fg;
-        line_ptr[x].bg_color = bg;
-        line_ptr[x].attributes = attr;
-    }
-}
-
+// Scroll the inclusive region [top, bot] up by n rows in a single pass.
+// Content moves up; the n newly-exposed rows at the bottom are marked
+// dirty with current SGR erase colors. Cell writes are deferred to
+// term_clean_task. Caller is responsible for cursor positioning. If the
+// caller needs the cursor's row blanked synchronously (LF/RI), it should
+// follow up with term_clean_line(term, cur->y).
 static void term_region_scroll_up(term_state_t *term, uint8_t top,
                                   uint8_t bot, uint8_t n)
 {
-    if (top > bot)
+    if (top > bot || n == 0)
         return;
     uint8_t region_h = (uint8_t)(bot - top + 1);
     if (n > region_h)
         n = region_h;
-    for (uint8_t k = 0; k < n; k++)
-        term_region_scroll_up_once(term, top, bot);
+
+    // Rotate row_idx within the region by n: save the top n slots, shift
+    // the rest down by n, place the saved n at the bottom of the region.
+    uint8_t saved[TERM_MAX_HEIGHT];
+    for (uint8_t i = 0; i < n; i++)
+    {
+        uint8_t slot = (uint8_t)(term->screen->y_offset + top + i);
+        if (slot >= TERM_MAX_HEIGHT)
+            slot -= TERM_MAX_HEIGHT;
+        saved[i] = term->screen->row_idx[slot];
+    }
+    for (uint8_t i = top; (uint8_t)(i + n) <= bot; i++)
+    {
+        uint8_t dst = (uint8_t)(term->screen->y_offset + i);
+        if (dst >= TERM_MAX_HEIGHT)
+            dst -= TERM_MAX_HEIGHT;
+        uint8_t src = (uint8_t)(term->screen->y_offset + i + n);
+        if (src >= TERM_MAX_HEIGHT)
+            src -= TERM_MAX_HEIGHT;
+        term->screen->row_idx[dst] = term->screen->row_idx[src];
+    }
+    for (uint8_t i = 0; i < n; i++)
+    {
+        uint8_t slot = (uint8_t)(term->screen->y_offset + (bot - n + 1) + i);
+        if (slot >= TERM_MAX_HEIGHT)
+            slot -= TERM_MAX_HEIGHT;
+        term->screen->row_idx[slot] = saved[i];
+    }
+
+    // Shift the five logical-row metadata arrays down by n.
+    for (uint8_t i = top; (uint8_t)(i + n) <= bot; i++)
+    {
+        term->screen->wrapped[i] = term->screen->wrapped[i + n];
+        term->screen->dirty[i] = term->screen->dirty[i + n];
+        term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i + n];
+        term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i + n];
+        term->screen->erase_attr[i] = term->screen->erase_attr[i + n];
+    }
+
+    // Mark the n newly-exposed rows at the bottom dirty (lazy clear).
+    uint16_t fg, bg;
+    uint8_t attr;
+    term_emit_attrs(term, &fg, &bg, &attr);
+    for (uint8_t i = (uint8_t)(bot - n + 1); i <= bot; i++)
+    {
+        term->screen->wrapped[i] = false;
+        term->screen->dirty[i] = true;
+        term->screen->erase_fg_color[i] = fg;
+        term->screen->erase_bg_color[i] = bg;
+        term->screen->erase_attr[i] = attr;
+    }
+    term->screen->all_clean = false;
 }
 
+// Symmetric to term_region_scroll_up: shifts content down by n rows; the
+// n newly-exposed rows at the top are marked dirty (lazy clear).
 static void term_region_scroll_down(term_state_t *term, uint8_t top,
                                     uint8_t bot, uint8_t n)
 {
-    if (top > bot)
+    if (top > bot || n == 0)
         return;
     uint8_t region_h = (uint8_t)(bot - top + 1);
     if (n > region_h)
         n = region_h;
-    for (uint8_t k = 0; k < n; k++)
-        term_region_scroll_down_once(term, top, bot);
+
+    // Rotate row_idx within the region by n: save the bottom n slots,
+    // shift the rest up by n, place the saved n at the top of the region.
+    uint8_t saved[TERM_MAX_HEIGHT];
+    for (uint8_t i = 0; i < n; i++)
+    {
+        uint8_t slot = (uint8_t)(term->screen->y_offset + (bot - n + 1) + i);
+        if (slot >= TERM_MAX_HEIGHT)
+            slot -= TERM_MAX_HEIGHT;
+        saved[i] = term->screen->row_idx[slot];
+    }
+    for (int i = (int)bot; i - (int)n >= (int)top; i--)
+    {
+        uint8_t dst = (uint8_t)(term->screen->y_offset + i);
+        if (dst >= TERM_MAX_HEIGHT)
+            dst -= TERM_MAX_HEIGHT;
+        uint8_t src = (uint8_t)(term->screen->y_offset + i - n);
+        if (src >= TERM_MAX_HEIGHT)
+            src -= TERM_MAX_HEIGHT;
+        term->screen->row_idx[dst] = term->screen->row_idx[src];
+    }
+    for (uint8_t i = 0; i < n; i++)
+    {
+        uint8_t slot = (uint8_t)(term->screen->y_offset + top + i);
+        if (slot >= TERM_MAX_HEIGHT)
+            slot -= TERM_MAX_HEIGHT;
+        term->screen->row_idx[slot] = saved[i];
+    }
+
+    // Shift the five logical-row metadata arrays up by n.
+    for (int i = (int)bot; i - (int)n >= (int)top; i--)
+    {
+        term->screen->wrapped[i] = term->screen->wrapped[i - n];
+        term->screen->dirty[i] = term->screen->dirty[i - n];
+        term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i - n];
+        term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i - n];
+        term->screen->erase_attr[i] = term->screen->erase_attr[i - n];
+    }
+
+    // Mark the n newly-exposed rows at the top dirty (lazy clear).
+    uint16_t fg, bg;
+    uint8_t attr;
+    term_emit_attrs(term, &fg, &bg, &attr);
+    for (uint8_t i = top; i < (uint8_t)(top + n); i++)
+    {
+        term->screen->wrapped[i] = false;
+        term->screen->dirty[i] = true;
+        term->screen->erase_fg_color[i] = fg;
+        term->screen->erase_bg_color[i] = bg;
+        term->screen->erase_attr[i] = attr;
+    }
+    term->screen->all_clean = false;
 }
 
 static void term_out_LF(term_state_t *term, bool wrapping)
@@ -1158,27 +1211,26 @@ static void term_out_LF(term_state_t *term, bool wrapping)
                             term->screen->margin_bot == term->height - 1);
         if (full_screen)
         {
-            // Fast path: rotate the viewport via y_offset.
+            // Fast path: rotate the viewport via y_offset, mark the new
+            // bottom row dirty. The term_clean_line below cleans it before
+            // any glyph lands.
             if (++term->screen->y_offset == TERM_MAX_HEIGHT)
                 term->screen->y_offset = 0;
             term_shift_meta_up(term, term->height - 1);
-            term->screen->wrapped[term->height - 1] = false;
-            term->screen->dirty[term->height - 1] = false;
             uint16_t fg, bg;
             uint8_t attr;
             term_emit_attrs(term, &fg, &bg, &attr);
-            term_data_t *line_ptr = term_row_ptr(term, term->cur->y);
-            for (size_t x = 0; x < term->width; x++)
-            {
-                line_ptr[x].font_code = ' ';
-                line_ptr[x].fg_color = fg;
-                line_ptr[x].bg_color = bg;
-                line_ptr[x].attributes = attr;
-            }
+            uint8_t y = (uint8_t)(term->height - 1);
+            term->screen->wrapped[y] = false;
+            term->screen->dirty[y] = true;
+            term->screen->erase_fg_color[y] = fg;
+            term->screen->erase_bg_color[y] = bg;
+            term->screen->erase_attr[y] = attr;
+            term->screen->all_clean = false;
         }
         else
         {
-            term_region_scroll_up_once(term, term->screen->margin_top, term->screen->margin_bot);
+            term_region_scroll_up(term, term->screen->margin_top, term->screen->margin_bot, 1);
         }
     }
     term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
@@ -1208,25 +1260,22 @@ static void term_out_RI(term_state_t *term)
         else
             --term->screen->y_offset;
         term_shift_meta_down(term, term->height - 1);
-        term->screen->wrapped[0] = false;
-        term->screen->dirty[0] = false;
         uint16_t fg, bg;
         uint8_t attr;
         term_emit_attrs(term, &fg, &bg, &attr);
-        term_data_t *line_ptr = term_row_ptr(term, term->screen->margin_top);
-        for (size_t x = 0; x < term->width; x++)
-        {
-            line_ptr[x].font_code = ' ';
-            line_ptr[x].fg_color = fg;
-            line_ptr[x].bg_color = bg;
-            line_ptr[x].attributes = attr;
-        }
+        term->screen->wrapped[0] = false;
+        term->screen->dirty[0] = true;
+        term->screen->erase_fg_color[0] = fg;
+        term->screen->erase_bg_color[0] = bg;
+        term->screen->erase_attr[0] = attr;
+        term->screen->all_clean = false;
     }
     else
     {
-        term_region_scroll_down_once(term, term->screen->margin_top, term->screen->margin_bot);
+        term_region_scroll_down(term, term->screen->margin_top, term->screen->margin_bot, 1);
     }
     term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
+    term_clean_line(term, term->cur->y);
 }
 
 static void term_out_CR(term_state_t *term)
