@@ -159,8 +159,6 @@ typedef struct term_state
     char csi_separator[TERM_CSI_PARAM_MAX_LEN];
     uint8_t csi_param_count;
     uint8_t csi_intermediate;                 // ' ' or '!' captured during CSI parse
-    bool app_cursor_keys;                     // DECCKM ?1 (storage only; input layer reads it)
-    bool bracketed_paste;                     // ?2004 (storage only)
     bool ice_colors;                          // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
     uint8_t cursor_style;                     // DECSCUSR Ps (store-and-ignore)
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
@@ -398,8 +396,6 @@ static void term_reset_sgr_and_modes(term_state_t *term)
     term->save_origin_mode = false;
     term->screen->margin_top = 0;
     term->screen->margin_bot = (uint8_t)(term->height - 1);
-    term->app_cursor_keys = false;
-    term->bracketed_paste = false;
     term->ice_colors = false;
     term->cursor_style = 0;
     term->decsc_valid = false;
@@ -2134,9 +2130,6 @@ static void term_out_CSI_question(term_state_t *term, char ch)
         {
             switch (term->csi_param[i])
             {
-            case 1: // DECCKM (application cursor keys)
-                term->app_cursor_keys = true;
-                break;
             case 6: // DECOM
                 term->cur->origin_mode = true;
                 term_set_cursor_position(term, 0, term->screen->margin_top);
@@ -2164,9 +2157,6 @@ static void term_out_CSI_question(term_state_t *term, char ch)
             case 1049: /* alt screen with save + clear (the modern app default) */
                 term_enter_alt(term, true, true);
                 break;
-            case 2004: // bracketed paste
-                term->bracketed_paste = true;
-                break;
             }
         }
         break;
@@ -2175,9 +2165,6 @@ static void term_out_CSI_question(term_state_t *term, char ch)
         {
             switch (term->csi_param[i])
             {
-            case 1: // DECCKM
-                term->app_cursor_keys = false;
-                break;
             case 6: // DECOM
                 term->cur->origin_mode = false;
                 term_set_cursor_position(term, 0, 0);
@@ -2204,9 +2191,6 @@ static void term_out_CSI_question(term_state_t *term, char ch)
                 break;
             case 1049:
                 term_leave_alt(term, true, false);
-                break;
-            case 2004:
-                term->bracketed_paste = false;
                 break;
             }
         }
