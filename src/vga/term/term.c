@@ -54,13 +54,12 @@
 #define ATTR_DBL_UL (1u << 3)    // SGR 21
 #define ATTR_BLINK (1u << 4)     // SGR 5 / 6 (proper, phase-driven)
 #define ATTR_DEC (1u << 5)       // cell renders from DEC graphics buffer
+#define ATTR_ITALIC (1u << 6)    // SGR 3 (ASCII-only, 8x16 mode only)
 #define ATTR_RENDER_MASK (ATTR_UNDERLINE | ATTR_STRIKE | ATTR_OVERLINE | \
-                          ATTR_DBL_UL | ATTR_BLINK | ATTR_DEC)
+                          ATTR_DBL_UL | ATTR_BLINK | ATTR_DEC | ATTR_ITALIC)
 
-// SGR-state-only bits (not stored per-cell). Held in term->cur->sgr_attr alongside
-// the render bits above; applied at glyph-emit time rather than render time.
-#define ATTR_REVERSE (1u << 6) // SGR 7: emit-time fg/bg swap
-#define ATTR_CONCEAL (1u << 7) // SGR 8: emit-time fg = bg
+// SGR-state-only flags (not stored per-cell): emit-time fg/bg transforms.
+// Held in cursor_state_t alongside bold/faint, not in sgr_attr.
 
 // Global ATTR_BLINK pulse half-period (one half-cycle, on then off).
 // Slightly off 333ms to avoid frame-tear sync with display refresh.
@@ -123,6 +122,8 @@ typedef struct
     uint16_t user_fg_color; // base color from SGR 38, used when fg_color_index == FG_COLOR_INDEX_EXTENDED
     bool bold;
     bool faint;
+    bool reverse; // SGR 7: emit-time fg/bg swap
+    bool conceal; // SGR 8: emit-time fg = bg
     bool origin_mode;
     bool line_wrap;
     uint8_t g0_charset, g1_charset;
@@ -221,13 +222,13 @@ static inline void term_emit_attrs(const term_state_t *term,
 {
     uint16_t f = term->cur->fg_color;
     uint16_t b = term->cur->bg_color;
-    if (term->cur->sgr_attr & ATTR_REVERSE)
+    if (term->cur->reverse)
     {
         uint16_t t = f;
         f = b;
         b = t;
     }
-    if (term->cur->sgr_attr & ATTR_CONCEAL)
+    if (term->cur->conceal)
         f = b;
     *fg = f;
     *bg = b;
@@ -687,6 +688,8 @@ static void term_out_SGR(term_state_t *term)
         case 0: // reset
             term->cur->bold = false;
             term->cur->faint = false;
+            term->cur->reverse = false;
+            term->cur->conceal = false;
             term->cur->sgr_attr = 0;
             term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
             term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
@@ -702,7 +705,8 @@ static void term_out_SGR(term_state_t *term)
             term->cur->faint = true;
             term_recompute_fg(term);
             break;
-        case 3: // italic -- no italic font available; accept silently
+        case 3: // italic (renders only in 8x16 mode; 8x8 has no italic font)
+            term->cur->sgr_attr |= ATTR_ITALIC;
             break;
         case 4: // underline
             term->cur->sgr_attr |= ATTR_UNDERLINE;
@@ -714,10 +718,10 @@ static void term_out_SGR(term_state_t *term)
                 term_update_bg_color(term);
             break;
         case 7: // reverse
-            term->cur->sgr_attr |= ATTR_REVERSE;
+            term->cur->reverse = true;
             break;
         case 8: // conceal
-            term->cur->sgr_attr |= ATTR_CONCEAL;
+            term->cur->conceal = true;
             break;
         case 9: // strikethrough
             term->cur->sgr_attr |= ATTR_STRIKE;
@@ -730,7 +734,8 @@ static void term_out_SGR(term_state_t *term)
             term->cur->faint = false;
             term_recompute_fg(term);
             break;
-        case 23: // italic off (no-op; italic accepted but never rendered)
+        case 23: // italic off
+            term->cur->sgr_attr &= (uint8_t)~ATTR_ITALIC;
             break;
         case 24: // underline off
             term->cur->sgr_attr &= (uint8_t)~(ATTR_UNDERLINE | ATTR_DBL_UL);
@@ -741,10 +746,10 @@ static void term_out_SGR(term_state_t *term)
                 term_update_bg_color(term);
             break;
         case 27: // reverse off
-            term->cur->sgr_attr &= (uint8_t)~ATTR_REVERSE;
+            term->cur->reverse = false;
             break;
         case 28: // conceal off
-            term->cur->sgr_attr &= (uint8_t)~ATTR_CONCEAL;
+            term->cur->conceal = false;
             break;
         case 29: // strikethrough off
             term->cur->sgr_attr &= (uint8_t)~ATTR_STRIKE;
@@ -2636,6 +2641,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     const uint8_t scanrow = (uint8_t)(scanline_id & 15);
     const uint8_t *font_line = &font16[scanrow * 256];
     const uint8_t *font_line_dec = &font_dec_16[scanrow * 32];
+    const uint8_t *italic_line = &italic16[scanrow * 128];
     // 8x16 cell layout:
     //   row 0      = overline
     //   row 8      = strikethrough (middle)
@@ -2660,6 +2666,8 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
         {
             if (attr & ATTR_DEC)
                 bits = font_line_dec[(uint8_t)(term_ptr->font_code - 0x60)];
+            else if ((attr & ATTR_ITALIC) && term_ptr->font_code < 0x80)
+                bits = italic_line[term_ptr->font_code];
             if (attr & blink_mask)
                 fg = bg;
             if (attr & line_mask)
@@ -2697,6 +2705,8 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & ATTR_DEC)
                 cbits = font_line_dec[(uint8_t)(cp->font_code - 0x60)];
+            else if ((cattr & ATTR_ITALIC) && cp->font_code < 0x80)
+                cbits = italic_line[cp->font_code];
             if (cattr & line_mask)
                 cbits = 0xFF;
             modes_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);

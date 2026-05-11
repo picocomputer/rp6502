@@ -15,6 +15,7 @@ extern uint8_t font8[2048];
 extern uint8_t font16[4096];
 extern uint8_t font_dec_8[8 * 32];
 extern uint8_t font_dec_16[16 * 32];
+extern uint8_t italic16[16 * 128];
 
 /* Main events
  */
