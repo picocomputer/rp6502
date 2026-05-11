@@ -48,7 +48,7 @@ X(STR_STATUS_MSC, "%s: %s %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: %s %s\n")
 
 X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
-X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[0m\33(B\33[?7h\33[?25h\33[3g")
+X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h\33[3g")
 
 // Monitor keywords
 X(STR_POSIX, "POSIX")
