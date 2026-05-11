@@ -975,6 +975,8 @@ static void term_out_EL(term_state_t *term)
         {
             x = term->x;
             end = term->width - 1;
+            // Erasing from cursor to end severs the wrap chain.
+            term->wrapped[term->y] = false;
         }
         else
         {
@@ -1013,9 +1015,10 @@ static void term_out_ED(term_state_t *term)
         term_out_EL(term);
         break;
     case 2: // full screen
-    case 3: // xterm
         term_mark_rows_erase(term, 0, term->height);
         term_clean_line(term, term->y);
+        break;
+    case 3: // xterm: erase scrollback. We have none, so no-op.
         break;
     }
 }
@@ -1141,29 +1144,35 @@ static void term_out_CSI_question(term_state_t *term, char ch)
     switch (ch)
     {
     case 'h': // DECSET
-        switch (term->csi_param[0])
+        for (uint8_t i = 0; i < term->csi_param_count; i++)
         {
-        case 6: // DECOM
-            term->origin_mode = true;
-            term_set_cursor_position(term, 0, term->margin_top);
-            break;
-        case 12: // AT&T 610
-        case 25: // DECTCEM
-            term->cursor_enabled = true;
-            break;
+            switch (term->csi_param[i])
+            {
+            case 6: // DECOM
+                term->origin_mode = true;
+                term_set_cursor_position(term, 0, term->margin_top);
+                break;
+            case 12: // AT&T 610
+            case 25: // DECTCEM
+                term->cursor_enabled = true;
+                break;
+            }
         }
         break;
     case 'l': // DECRST
-        switch (term->csi_param[0])
+        for (uint8_t i = 0; i < term->csi_param_count; i++)
         {
-        case 6: // DECOM
-            term->origin_mode = false;
-            term_set_cursor_position(term, 0, 0);
-            break;
-        case 12: // AT&T 610
-        case 25: // DECTCEM
-            term->cursor_enabled = false;
-            break;
+            switch (term->csi_param[i])
+            {
+            case 6: // DECOM
+                term->origin_mode = false;
+                term_set_cursor_position(term, 0, 0);
+                break;
+            case 12: // AT&T 610
+            case 25: // DECTCEM
+                term->cursor_enabled = false;
+                break;
+            }
         }
         break;
     }
@@ -1171,6 +1180,14 @@ static void term_out_CSI_question(term_state_t *term, char ch)
 
 static void term_out_state_CSI(term_state_t *term, char ch)
 {
+    // ESC mid-CSI aborts the current sequence and starts a new one;
+    // otherwise it would be consumed as a phantom final byte and the
+    // next char would be misparsed as text.
+    if (ch == '\33')
+    {
+        term->ansi_state = ansi_state_Fe;
+        return;
+    }
     // Drop digits past max, but keep counting params so the terminator still dispatches.
     if (ch >= '0' && ch <= '9')
     {
@@ -1382,8 +1399,14 @@ static void term_out_state_OSC_esc(term_state_t *term, char ch)
 
 static void term_out_char(term_state_t *term, char ch)
 {
-    if (ch == '\30')
+    if (ch == '\30' || ch == '\32')
+    {
+        // CAN and SUB both abort any in-progress escape sequence; SUB
+        // additionally prints a substitute glyph, CAN is silent.
         term->ansi_state = ansi_state_C0;
+        if (ch == '\32')
+            term_out_glyph(term, '?');
+    }
     else
         switch (term->ansi_state)
         {
