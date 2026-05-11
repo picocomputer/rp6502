@@ -670,7 +670,8 @@ static void term_update_bg_color(term_state_t *term)
 //   - otherwise -> color_256[fg_color_index]. SGR 90-97 stores the bright
 //     slot index (8..15) directly so the lookup yields a bright color even
 //     without bold; this also means SGR 22 leaves bright colors alone.
-// Then if faint, halve each RGB channel (RGB555 layout, alpha at bit 15).
+// Then if faint, halve each RGB channel via the scanvideo channel macros so
+// the operation stays correct regardless of pixel-layout changes.
 static void term_recompute_fg(term_state_t *term)
 {
     uint16_t base;
@@ -685,7 +686,13 @@ static void term_recompute_fg(term_state_t *term)
     else
         base = color_256[idx];
     if (term->cur->faint)
-        base = (uint16_t)(((base >> 1) & 0x3DEFu) | (base & SCANVIDEO_ALPHA_MASK));
+    {
+        uint16_t r = SCANVIDEO_R5_FROM_PIXEL(base) >> 1;
+        uint16_t g = SCANVIDEO_G5_FROM_PIXEL(base) >> 1;
+        uint16_t b = SCANVIDEO_B5_FROM_PIXEL(base) >> 1;
+        base = SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) |
+               (base & SCANVIDEO_ALPHA_MASK);
+    }
     term->cur->fg_color = base;
 }
 
