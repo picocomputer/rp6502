@@ -511,15 +511,17 @@ void mon_task(void)
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
         {
-            if (mon_response_line >= rows_max)
-            {
-                mon_more_state = MON_MORE_START;
-                break;
-            }
             putchar(c);
             mon_response_pos++;
             if (c == '\n')
+            {
                 mon_response_line++;
+                if (mon_response_line >= rows_max)
+                {
+                    mon_more_state = MON_MORE_START;
+                    break;
+                }
+            }
         }
         if (!c)
             mon_response_pos = -1;
@@ -554,9 +556,9 @@ void mon_task(void)
     {
         mon_cpr_query_sent = false;
         if (mon_needs_newline)
-            mon_add_response_str(STR_MON_PROMPT_NEWLINE);
+            mon_add_response_str("\n]");
         else
-            mon_add_response_str(STR_MON_PROMPT);
+            mon_add_response_str("]");
         mon_needs_prompt = false;
         mon_needs_newline = false;
         mon_response_line = 0;
