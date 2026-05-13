@@ -566,13 +566,14 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
     {
         // Park the cursor cleanly after the last char, then close out
         // the line: newline + (on VT220+ peers only) restore the
-        // blinking-block resting cursor — minicom would render the
-        // sequence as garbage. We don't touch DECAWM; the user's
-        // terminal stays in whatever wrap mode they configured.
+        // host-default cursor shape — minicom and other VT102 peers
+        // would render the sequence as garbage so we skip it there.
+        // We don't touch DECAWM; the user's terminal stays in whatever
+        // wrap mode they configured.
         rln_sync_cursor_to(rln_buflen);
         printf("\r\n");
         if (rln_decscusr_ok)
-            printf("\33[1 q");
+            printf("\33[0 q");
         rln_buf[rln_buflen] = 0;
         rln_history_add();
         rln_complete(false);
@@ -1002,7 +1003,6 @@ void rln_read_line(rln_read_callback_t callback)
 
     rln_phase = rln_phase_prompt_cpr;
     rln_term_width = 0;
-    rln_term_height = 0;
     rln_prompt_col = 1;
     rln_cur_idx = 0;
     rln_decscusr_ok = false;
@@ -1060,13 +1060,14 @@ void rln_task(void)
 // else (Ctrl-C, program stop) tears us down. We never touched DECAWM,
 // so nothing to restore there. Cursor visibility is universally safe;
 // DECSCUSR only on peers that claimed VT220+.
+// TODO make this
 static void rln_cleanup_if_active(void)
 {
     if (rln_callback)
     {
         printf("\33[?25h");
         if (rln_decscusr_ok)
-            printf("\33[1 q");
+            printf("\33[0 q");
     }
 }
 
@@ -1079,7 +1080,6 @@ void rln_init(void)
     rln_caps = 0;
     rln_phase = rln_phase_edit;
     rln_term_width = 0;
-    rln_term_height = 0;
     rln_overwrite = false;
 }
 
