@@ -122,8 +122,9 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 // moves we use LF (\n): CUD doesn't scroll, so if the prompt has been
 // pushed to the bottom of the screen, "down one row" via CUD silently
 // no-ops and renders end up clobbering the same row. LF scrolls as
-// needed. \r resets the column reliably (incl. clearing the
-// pending-wrap state when cursor was parked at the right edge).
+// needed. \r resets the column reliably; if the cursor is in
+// pending-wrap (xenl) after a boundary write, \r consumes that state
+// cleanly.
 static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
 {
     if (tr > fr)
@@ -193,13 +194,13 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
-        // Erase from cursor to end of display BEFORE writing — if the
-        // last char ends up at col W (boundary fill), the cursor sits
-        // at x=W-1 afterwards, and emitting \33[J there would erase
-        // the just-written cell on every spec-conformant terminal
-        // (minicom, Linux telnet, etc.). Doing the erase first wipes
-        // any stale content and lets the writes paint over the cleared
-        // cells without later interference.
+        // Erase from cursor to end of display BEFORE writing. The
+        // erase has to fire BEFORE the writes because the cursor may
+        // end at col W (a boundary fill), and \33[J from there would
+        // erase the just-written cell on every spec-conformant
+        // terminal (minicom, Linux telnet, etc.). Doing it first
+        // wipes any stale content and lets the writes paint over the
+        // cleared cells without later interference.
         printf("\33[J");
         uint8_t r;
         uint16_t c;
@@ -208,20 +209,23 @@ static void rln_render_from(uint8_t start)
         {
             if (c > rln_term_width)
             {
-                // Carry from a previous char that filled col W — only
-                // emit the wrap if there's another char to draw.
-                printf("\r\n");
+                // The previous putchar filled col W. We trust xenl:
+                // the terminal is now in pending-wrap and the NEXT
+                // putchar will wrap to (r+1, 1) on its own. Just
+                // update our local tracking — no \r\n needed, and
+                // emitting one here would double-advance on a
+                // non-xenl terminal anyway.
                 r++;
                 c = 1;
             }
             putchar(rln_buf[i]);
             c++;
         }
-        // After putchar at the rightmost column with DECAWM off, every
-        // terminal we target clamps the cursor at col W (no pending-
-        // wrap parking). So when the loop's local `c` overshoots W,
-        // the physical cursor is at col W — exactly the screen position
-        // of buf_to_screen(buflen-1).
+        // After putchar at col W, the cursor sits in pending-wrap at
+        // (r, W) — exactly the screen position of buf_to_screen
+        // (buflen-1). Setting cur_idx to buflen-1 keeps the model in
+        // sync; subsequent relative moves (CUB/CUF/CUU/LF) consume
+        // the pending state cleanly.
         if (c > rln_term_width && rln_buflen)
         {
             c = rln_term_width;
@@ -243,7 +247,7 @@ static void rln_replace_buf_from_history(void)
     rln_render_from(0);
 }
 
-static void rln_history_up(void)
+static void rln_line_up(void)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
@@ -256,7 +260,7 @@ static void rln_history_up(void)
     rln_replace_buf_from_history();
 }
 
-static void rln_history_down(void)
+static void rln_line_down(void)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
@@ -267,58 +271,6 @@ static void rln_history_down(void)
     rln_history_pos--;
     memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
     rln_replace_buf_from_history();
-}
-
-// Up arrow / Ctrl-P: move cursor up one screen row (same column) if the
-// input has earlier rows above the cursor; otherwise fall through to
-// history navigation. Down arrow / Ctrl-N is symmetric. In fallback
-// mode (rln_term_width == 0) there's no row concept so we always go to
-// history.
-static void rln_line_up(void)
-{
-    if (rln_term_width)
-    {
-        uint8_t r;
-        uint16_t c;
-        rln_buf_to_screen(rln_bufpos, &r, &c);
-        if (r > 0)
-        {
-            int32_t target = (int32_t)(r - 1) * (int32_t)rln_term_width +
-                             (int32_t)c - (int32_t)rln_prompt_col;
-            if (target < 0)
-                target = 0;
-            if (target > rln_buflen)
-                target = rln_buflen;
-            rln_bufpos = (uint8_t)target;
-            rln_sync_cursor_to(rln_bufpos);
-            return;
-        }
-    }
-    rln_history_up();
-}
-
-static void rln_line_down(void)
-{
-    if (rln_term_width)
-    {
-        uint8_t r_cur, r_max;
-        uint16_t c, c_max;
-        rln_buf_to_screen(rln_bufpos, &r_cur, &c);
-        rln_buf_to_screen(rln_buflen, &r_max, &c_max);
-        if (r_cur < r_max)
-        {
-            int32_t target = (int32_t)(r_cur + 1) * (int32_t)rln_term_width +
-                             (int32_t)c - (int32_t)rln_prompt_col;
-            if (target < 0)
-                target = 0;
-            if (target > rln_buflen)
-                target = rln_buflen;
-            rln_bufpos = (uint8_t)target;
-            rln_sync_cursor_to(rln_bufpos);
-            return;
-        }
-    }
-    rln_history_down();
 }
 
 static void rln_history_add(void)
@@ -613,11 +565,12 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
     if (ch == '\r')
     {
         // Park the cursor cleanly after the last char, then close out
-        // the line: restore wrap, restore a blinking-block resting
-        // cursor (only on VT220+ peers — minicom would render the
-        // sequence as garbage), newline.
+        // the line: newline + (on VT220+ peers only) restore the
+        // blinking-block resting cursor — minicom would render the
+        // sequence as garbage. We don't touch DECAWM; the user's
+        // terminal stays in whatever wrap mode they configured.
         rln_sync_cursor_to(rln_buflen);
-        printf("\r\n\33[?7h");
+        printf("\r\n");
         if (rln_decscusr_ok)
             printf("\33[1 q");
         rln_buf[rln_buflen] = 0;
@@ -860,18 +813,19 @@ static void rln_enter_edit(void)
 
 static void rln_handshake_fallback(void)
 {
-    // Handshake deadline expired. If we only missed the DA reply, keep
-    // the multi-line geometry we did learn from the CPR replies and just
-    // default DECSCUSR off. If we missed a CPR too, drop into the
-    // single-virtual-line model (legacy behavior) where row math is
-    // bypassed by rln_term_width == 0.
+    // Handshake deadline expired. The init burst already RCP'd the
+    // cursor back to the prompt and re-showed it, so we don't need
+    // to fix cursor placement here. If we only missed the DA reply,
+    // keep the multi-line geometry we learned from the CPR replies
+    // and default DECSCUSR off. If we missed a CPR too, drop into
+    // the single-virtual-line model (legacy behavior) where row math
+    // is bypassed by rln_term_width == 0.
     if (rln_phase == rln_phase_da_query)
     {
         rln_decscusr_ok = false;
         rln_enter_edit();
         return;
     }
-    printf("\33[?7h\33[?25h");
     rln_term_width = 0;
     rln_term_height = 0;
     rln_prompt_col = 1;
@@ -893,13 +847,9 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
         rln_term_width = p2;
         if (rln_term_width < rln_prompt_col)
             rln_term_width = rln_prompt_col; // sanity floor
-        // Snap back to the prompt position via RCP — no absolute
-        // vertical positioning, so we don't have to trust prompt_row
-        // through any scroll that may have happened during the burst.
-        // Restore cursor visibility now; the DA query may take a few
-        // bytes more but we don't want to keep the cursor hidden while
-        // we wait.
-        printf("\33[u\33[?25h");
+        // RCP + cursor-show ran from the init burst, so by the time
+        // this CPR lands the cursor is already back at the prompt
+        // and visible. Just flip phase and wait for the DA reply.
         rln_phase = rln_phase_da_query;
     }
 }
@@ -1061,13 +1011,19 @@ void rln_read_line(rln_read_callback_t callback)
     rln_typeahead_len = 0;
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
-    // Fire the whole handshake in one burst so the cursor doesn't visibly
-    // park at the bottom-right corner: hide cursor, autowrap off, save
-    // the prompt position (for the return trip via RCP), ask CPR for
-    // prompt column, clamp to bottom-right, ask CPR for terminal
-    // height + width, then Primary DA to learn whether the peer is
-    // VT220+ (and therefore safe for DECSCUSR).
-    printf("\33[?25l\33[?7l\33[s\33[6n\33[999;999H\33[6n\33[c");
+    // Fire the whole handshake in one burst so the cursor doesn't
+    // visibly park at the bottom-right corner: hide cursor, save the
+    // prompt position, ask CPR for the prompt column, clamp to
+    // bottom-right, ask CPR for terminal height + width, RCP back to
+    // the prompt, re-show the cursor, then Primary DA to learn
+    // whether the peer is VT220+ (DECSCUSR-safe). RCP runs from the
+    // burst rather than the CPR-reply path so the cursor returns to
+    // the prompt even when the terminal doesn't respond to CPR
+    // (pipes, dumb relays); the deadline fallback inherits the right
+    // cursor placement for free. We do not touch DECAWM; the user's
+    // terminal stays in its native wrap mode and we trust the
+    // pending-wrap (xenl) model on margin writes.
+    printf("\33[?25l\33[s\33[6n\33[999;999H\33[6n\33[u\33[?25h\33[c");
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -1100,14 +1056,15 @@ void rln_task(void)
         rln_complete(true);
 }
 
-// Restore terminal state if a read was in progress when something else
-// (Ctrl-C, program stop) tears us down. DECAWM and cursor visibility
-// are universally safe; DECSCUSR only on peers that claimed VT220+.
+// Restore terminal state if a read was in progress when something
+// else (Ctrl-C, program stop) tears us down. We never touched DECAWM,
+// so nothing to restore there. Cursor visibility is universally safe;
+// DECSCUSR only on peers that claimed VT220+.
 static void rln_cleanup_if_active(void)
 {
     if (rln_callback)
     {
-        printf("\33[?7h\33[?25h");
+        printf("\33[?25h");
         if (rln_decscusr_ok)
             printf("\33[1 q");
     }
