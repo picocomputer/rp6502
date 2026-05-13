@@ -1304,6 +1304,11 @@ static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->cur->x == term->width)
     {
+        // Pending-wrap state (DECAWM on). Only reachable with wrap on
+        // now — the clamp below keeps cur->x <= width - 1 when wrap is
+        // off — but the rollback path stays as a safety belt in case
+        // a saved/restored cursor lands in the parked state with wrap
+        // off.
         if (term->cur->line_wrap)
         {
             term_out_CR(term);
@@ -1326,12 +1331,18 @@ static void term_out_glyph(term_state_t *term, char ch)
     uint8_t byte = (uint8_t)ch;
     if (active_set == 1 && byte >= 0x60 && byte <= 0x7E)
         attr |= ATTR_DEC;
-    term->cur->x++;
     term->ptr->font_code = byte;
     term->ptr->fg_color = fg;
     term->ptr->bg_color = bg;
     term->ptr->attributes = attr;
-    term->ptr++;
+    // Advance unless DECAWM is off and we just wrote at the last visible
+    // column — other terminals clamp here instead of parking at col W+1,
+    // and the pending-wrap state is only meaningful with wrap on.
+    if (term->cur->line_wrap || term->cur->x < (uint16_t)(term->width - 1))
+    {
+        term->cur->x++;
+        term->ptr++;
+    }
 }
 
 // Cursor up

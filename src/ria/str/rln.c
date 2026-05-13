@@ -29,10 +29,22 @@ typedef enum
     ansi_state_CSI_private,
 } rln_ansi_state_t;
 
+typedef enum
+{
+    rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
+    rln_phase_width_cpr,  // waiting for second CPR (terminal height + width)
+    rln_phase_da_query,   // waiting for Primary DA (decide DECSCUSR support)
+    rln_phase_edit,       // normal editing
+} rln_phase_t;
+
 #define RLN_BUF_SIZE 256
 #define RLN_HISTORY_SIZE 8
 #define RLN_CSI_PARAM_MAX_LEN 16
 #define RLN_LASTKEY_MAX 32
+#define RLN_TYPEAHEAD_MAX 32
+#define RLN_CPR_SEQ_MAX 12
+#define RLN_HANDSHAKE_MS 500
+#define RLN_MAX_ROWS 8
 
 typedef struct
 {
@@ -60,6 +72,28 @@ static uint8_t rln_max_length;
 static uint32_t rln_timeout_ms;
 static uint8_t rln_caps;
 
+// Cross-terminal display state
+static rln_phase_t rln_phase;
+static absolute_time_t rln_handshake_deadline;
+static uint8_t rln_prompt_col;   // 1-based
+static uint16_t rln_term_width;  // 0 = fallback (single virtual line)
+static uint16_t rln_term_height; // 0 in fallback; exposed for mon.c
+static uint8_t rln_cur_idx;      // buffer index whose screen position the cursor is at
+static bool rln_overwrite;       // persisted across rln_read_line calls
+static bool rln_decscusr_ok;     // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
+
+// CPR mini-parser state (active only during handshake phases)
+static uint8_t rln_cpr_state;
+static uint16_t rln_cpr_p1;
+static uint16_t rln_cpr_p2;
+static uint8_t rln_cpr_seq[RLN_CPR_SEQ_MAX];
+static uint8_t rln_cpr_seq_len;
+
+// Typeahead ring: bytes received during the CPR handshake that weren't part
+// of a CPR reply. Drained through the normal parser once phase = edit.
+static uint8_t rln_typeahead[RLN_TYPEAHEAD_MAX];
+static uint8_t rln_typeahead_len;
+
 // Lastkey capture (typed stream only)
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
@@ -75,17 +109,138 @@ static void rln_complete(bool rln_timed_out)
     cc(rln_timed_out, rln_buf);
 }
 
-static void rln_line_redraw(void)
+/* ----- Screen position math (multi-line mode) ----- */
+
+static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 {
-    if (rln_bufpos)
-        printf("\33[%dD", rln_bufpos);
-    if (rln_buflen)
-        printf("\33[%dP", rln_buflen);
-    size_t len = strlen(rln_buf);
-    for (size_t i = 0; i < len; i++)
-        putchar(rln_buf[i]);
-    rln_bufpos = len;
-    rln_buflen = len;
+    uint32_t logical = (uint32_t)(rln_prompt_col - 1) + i;
+    *row = (uint8_t)(logical / rln_term_width);
+    *col = (uint16_t)(logical % rln_term_width) + 1;
+}
+
+// Emit relative cursor moves from (fr,fc) to (tr,tc). For downward
+// moves we use LF (\n): CUD doesn't scroll, so if the prompt has been
+// pushed to the bottom of the screen, "down one row" via CUD silently
+// no-ops and renders end up clobbering the same row. LF scrolls as
+// needed. \r resets the column reliably (incl. clearing the
+// pending-wrap state when cursor was parked at the right edge).
+static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
+{
+    if (tr > fr)
+    {
+        for (uint8_t i = 0, n = (uint8_t)(tr - fr); i < n; i++)
+            putchar('\n');
+        printf("\r");
+        if (tc > 1)
+            printf("\33[%uC", tc - 1);
+    }
+    else if (tr < fr)
+    {
+        printf("\33[%uA\r", fr - tr);
+        if (tc > 1)
+            printf("\33[%uC", tc - 1);
+    }
+    else if (tc != fc)
+    {
+        if (tc > fc)
+            printf("\33[%uC", tc - fc);
+        else
+            printf("\33[%uD", fc - tc);
+    }
+}
+
+// Move the visible cursor so that it sits at the screen position
+// corresponding to buffer index `target`. No-op outside edit phase.
+static void rln_sync_cursor_to(uint8_t target)
+{
+    if (rln_phase != rln_phase_edit)
+    {
+        rln_cur_idx = target;
+        return;
+    }
+    if (rln_term_width == 0)
+    {
+        int delta = (int)target - (int)rln_cur_idx;
+        if (delta > 0)
+            printf("\33[%dC", delta);
+        else if (delta < 0)
+            printf("\33[%dD", -delta);
+    }
+    else
+    {
+        uint8_t fr, tr;
+        uint16_t fc, tc;
+        rln_buf_to_screen(rln_cur_idx, &fr, &fc);
+        rln_buf_to_screen(target, &tr, &tc);
+        rln_emit_move(fr, fc, tr, tc);
+    }
+    rln_cur_idx = target;
+}
+
+// Redraw the buffer from `start` onward, then place the cursor at
+// rln_bufpos. Clears stale trailing content via \33[J or \33[K.
+static void rln_render_from(uint8_t start)
+{
+    if (rln_phase != rln_phase_edit)
+        return;
+    rln_sync_cursor_to(start);
+    if (rln_term_width == 0)
+    {
+        printf("\33[K");
+        for (uint8_t i = start; i < rln_buflen; i++)
+            putchar(rln_buf[i]);
+        rln_cur_idx = rln_buflen;
+    }
+    else
+    {
+        // Erase from cursor to end of display BEFORE writing — if the
+        // last char ends up at col W (boundary fill), the cursor sits
+        // at x=W-1 afterwards, and emitting \33[J there would erase
+        // the just-written cell on every spec-conformant terminal
+        // (minicom, Linux telnet, etc.). Doing the erase first wipes
+        // any stale content and lets the writes paint over the cleared
+        // cells without later interference.
+        printf("\33[J");
+        uint8_t r;
+        uint16_t c;
+        rln_buf_to_screen(start, &r, &c);
+        for (uint8_t i = start; i < rln_buflen; i++)
+        {
+            if (c > rln_term_width)
+            {
+                // Carry from a previous char that filled col W — only
+                // emit the wrap if there's another char to draw.
+                printf("\r\n");
+                r++;
+                c = 1;
+            }
+            putchar(rln_buf[i]);
+            c++;
+        }
+        // After putchar at the rightmost column with DECAWM off, every
+        // terminal we target clamps the cursor at col W (no pending-
+        // wrap parking). So when the loop's local `c` overshoots W,
+        // the physical cursor is at col W — exactly the screen position
+        // of buf_to_screen(buflen-1).
+        if (c > rln_term_width && rln_buflen)
+        {
+            c = rln_term_width;
+            rln_cur_idx = (uint8_t)(rln_buflen - 1);
+        }
+        else
+            rln_cur_idx = rln_buflen;
+    }
+    rln_sync_cursor_to(rln_bufpos);
+}
+
+/* ----- History ----- */
+
+static void rln_replace_buf_from_history(void)
+{
+    // Buffer just got swapped from history; cursor goes to end.
+    rln_buflen = (uint8_t)strnlen(rln_buf, RLN_BUF_SIZE - 1);
+    rln_bufpos = rln_buflen;
+    rln_render_from(0);
 }
 
 static void rln_line_up(void)
@@ -98,7 +253,7 @@ static void rln_line_up(void)
     memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
     rln_history_pos++;
     memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
-    rln_line_redraw();
+    rln_replace_buf_from_history();
 }
 
 static void rln_line_down(void)
@@ -111,7 +266,7 @@ static void rln_line_down(void)
     memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
     rln_history_pos--;
     memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
-    rln_line_redraw();
+    rln_replace_buf_from_history();
 }
 
 static void rln_history_add(void)
@@ -123,7 +278,6 @@ static void rln_history_add(void)
     rln_buf[rln_buflen] = 0;
     if (rln_history_count > 0 && strcmp(rln_history[1], rln_buf) == 0)
         return;
-    // Shift history up, oldest entry dropped if full
     for (int i = RLN_HISTORY_SIZE - 1; i > 1; i--)
         memcpy(rln_history[i], rln_history[i - 1], RLN_BUF_SIZE);
     memcpy(rln_history[1], rln_buf, rln_buflen + 1);
@@ -132,18 +286,18 @@ static void rln_history_add(void)
         rln_history_count++;
 }
 
+/* ----- Movement helpers ----- */
+
 static void rln_line_home(void)
 {
-    if (rln_bufpos)
-        printf("\33[%dD", rln_bufpos);
     rln_bufpos = 0;
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 static void rln_line_end(void)
 {
-    if (rln_bufpos != rln_buflen)
-        printf("\33[%dC", rln_buflen - rln_bufpos);
     rln_bufpos = rln_buflen;
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 static bool rln_is_word_delimiter(char ch)
@@ -153,19 +307,17 @@ static bool rln_is_word_delimiter(char ch)
 
 static void rln_line_forward_word(void)
 {
-    int count = 0;
-    if (rln_bufpos < rln_buflen)
-        while (true)
-        {
-            count++;
-            if (++rln_bufpos >= rln_buflen)
-                break;
-            if (rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
-                !rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
-                break;
-        }
-    if (count)
-        printf("\33[%dC", count);
+    if (rln_bufpos >= rln_buflen)
+        return;
+    while (true)
+    {
+        if (++rln_bufpos >= rln_buflen)
+            break;
+        if (rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
+            !rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
+            break;
+    }
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 static void rln_line_forward(rln_ansi_t *a)
@@ -180,7 +332,7 @@ static void rln_line_forward(rln_ansi_t *a)
     if (!count)
         return;
     rln_bufpos += count;
-    printf("\33[%dC", count);
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 static void rln_line_forward_1(rln_ansi_t *a)
@@ -192,19 +344,17 @@ static void rln_line_forward_1(rln_ansi_t *a)
 
 static void rln_line_backward_word(void)
 {
-    int count = 0;
-    if (rln_bufpos)
-        while (true)
-        {
-            count++;
-            if (!--rln_bufpos)
-                break;
-            if (!rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
-                rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
-                break;
-        }
-    if (count)
-        printf("\33[%dD", count);
+    if (!rln_bufpos)
+        return;
+    while (true)
+    {
+        if (!--rln_bufpos)
+            break;
+        if (!rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
+            rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
+            break;
+    }
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 static void rln_line_backward(rln_ansi_t *a)
@@ -219,7 +369,7 @@ static void rln_line_backward(rln_ansi_t *a)
     if (!count)
         return;
     rln_bufpos -= count;
-    printf("\33[%dD", count);
+    rln_sync_cursor_to(rln_bufpos);
 }
 
 static void rln_line_backward_1(rln_ansi_t *a)
@@ -229,14 +379,16 @@ static void rln_line_backward_1(rln_ansi_t *a)
     rln_line_backward(a);
 }
 
+/* ----- Buffer mutations ----- */
+
 static void rln_line_delete(void)
 {
     if (!rln_buflen || rln_bufpos == rln_buflen)
         return;
-    printf("\33[P");
     rln_buflen--;
     for (size_t i = rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
+    rln_render_from(rln_bufpos);
 }
 
 static void rln_line_delete_n(rln_ansi_t *a)
@@ -250,20 +402,21 @@ static void rln_line_delete_n(rln_ansi_t *a)
         count = rln_buflen - rln_bufpos;
     if (!count)
         return;
-    printf("\33[%dP", count);
     for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + count];
     rln_buflen -= count;
+    rln_render_from(rln_bufpos);
 }
 
 static void rln_line_backspace(void)
 {
     if (!rln_bufpos)
         return;
-    printf("\b\33[P");
+    rln_bufpos--;
     rln_buflen--;
-    for (size_t i = --rln_bufpos; i < rln_buflen; i++)
+    for (size_t i = rln_bufpos; i < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + 1];
+    rln_render_from(rln_bufpos);
 }
 
 static void rln_line_backward_kill_word(void)
@@ -283,7 +436,7 @@ static void rln_line_backward_kill_word(void)
     for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + count];
     rln_buflen -= count;
-    printf("\33[%dD\33[%dP", count, count);
+    rln_render_from(rln_bufpos);
 }
 
 static void rln_line_forward_kill_word(void)
@@ -304,7 +457,7 @@ static void rln_line_forward_kill_word(void)
     for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
         rln_buf[i] = rln_buf[i + count];
     rln_buflen -= count;
-    printf("\33[%dP", count);
+    rln_render_from(rln_bufpos);
 }
 
 static void rln_line_kill_to_end(void)
@@ -312,7 +465,7 @@ static void rln_line_kill_to_end(void)
     if (rln_bufpos == rln_buflen)
         return;
     rln_buflen = rln_bufpos;
-    printf("\33[K");
+    rln_render_from(rln_bufpos);
 }
 
 static void rln_line_kill_to_start(void)
@@ -324,12 +477,32 @@ static void rln_line_kill_to_start(void)
         rln_buf[i] = rln_buf[i + count];
     rln_buflen -= count;
     rln_bufpos = 0;
-    printf("\33[%dD\33[%dP", count, count);
+    rln_render_from(0);
+}
+
+// Effective max chars we can hold, given current screen geometry. In
+// multi-line mode we cap at RLN_MAX_ROWS visible rows.
+static uint8_t rln_effective_max(void)
+{
+    uint8_t cap = rln_max_length;
+    if (rln_term_width)
+    {
+        uint16_t avail = (uint16_t)RLN_MAX_ROWS * rln_term_width;
+        if (avail > (uint16_t)(rln_prompt_col - 1))
+            avail -= (uint16_t)(rln_prompt_col - 1);
+        else
+            avail = 0;
+        if (avail > 255)
+            avail = 255;
+        if (cap > avail)
+            cap = (uint8_t)avail;
+    }
+    return cap;
 }
 
 static void rln_line_insert(char ch)
 {
-    if ((unsigned char)ch < 32 || rln_buflen >= rln_max_length)
+    if ((unsigned char)ch < 32)
         return;
     if (rln_caps == 1 && islower((unsigned char)ch))
         ch = toupper((unsigned char)ch);
@@ -340,22 +513,61 @@ static void rln_line_insert(char ch)
         else if (isupper((unsigned char)ch))
             ch = tolower((unsigned char)ch);
     }
+    if (rln_overwrite && rln_bufpos < rln_buflen)
+    {
+        rln_buf[rln_bufpos] = ch;
+        rln_bufpos++;
+        rln_render_from(rln_bufpos - 1);
+        return;
+    }
+    if (rln_buflen >= rln_effective_max())
+        return;
     for (size_t i = rln_buflen; i > rln_bufpos; i--)
         rln_buf[i] = rln_buf[i - 1];
     rln_buflen++;
     rln_buf[rln_bufpos] = ch;
-    for (size_t i = rln_bufpos; i < rln_buflen; i++)
-        putchar(rln_buf[i]);
     rln_bufpos++;
-    if (rln_buflen - rln_bufpos)
-        printf("\33[%dD", rln_buflen - rln_bufpos);
+    rln_render_from(rln_bufpos - 1);
 }
+
+/* ----- Mode toggling ----- */
+
+// DECSCUSR (CSI Ps SP q) is only emitted when the peer has identified
+// itself as VT220+ via Primary DA. VT102 emulators (minicom, Linux
+// console) mis-parse the intermediate space and leak the tail as
+// literal characters, so on those terminals we silently keep the
+// internal mode without any visual indicator.
+static void rln_emit_mode_cursor(void)
+{
+    if (!rln_decscusr_ok)
+        return;
+    if (rln_overwrite)
+        printf("\33[1 q");
+    else
+        printf("\33[5 q");
+}
+
+static void rln_toggle_overwrite(void)
+{
+    rln_overwrite = !rln_overwrite;
+    if (rln_phase == rln_phase_edit)
+        rln_emit_mode_cursor();
+}
+
+/* ----- ANSI parser ----- */
 
 static void rln_line_state_C0(rln_ansi_t *a, char ch)
 {
     if (ch == '\r')
     {
-        printf("\n");
+        // Park the cursor cleanly after the last char, then close out
+        // the line: restore wrap, restore a blinking-block resting
+        // cursor (only on VT220+ peers — minicom would render the
+        // sequence as garbage), newline.
+        rln_sync_cursor_to(rln_buflen);
+        printf("\r\n\33[?7h");
+        if (rln_decscusr_ok)
+            printf("\33[1 q");
         rln_buf[rln_buflen] = 0;
         rln_history_add();
         rln_complete(false);
@@ -440,7 +652,6 @@ static void rln_line_state_SS3(rln_ansi_t *a, char ch)
 
 static void rln_line_state_CSI(rln_ansi_t *a, char ch)
 {
-    // Silently discard overflow parameters but still count to + 1.
     if (isdigit(ch))
     {
         if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
@@ -495,6 +706,8 @@ static void rln_line_state_CSI(rln_ansi_t *a, char ch)
         case 1:
         case 7:
             return rln_line_home();
+        case 2:
+            return rln_toggle_overwrite();
         case 4:
         case 8:
             return rln_line_end();
@@ -556,6 +769,205 @@ static void rln_line_rx_typed(uint8_t ch)
     }
 }
 
+/* ----- CPR handshake (mini-parser + phase transitions) ----- */
+
+static void rln_typeahead_push(uint8_t b)
+{
+    if (rln_typeahead_len < RLN_TYPEAHEAD_MAX)
+        rln_typeahead[rln_typeahead_len++] = b;
+    // overflow silently dropped — handshake window is short
+}
+
+static void rln_cpr_release_seq(void)
+{
+    for (uint8_t i = 0; i < rln_cpr_seq_len; i++)
+        rln_typeahead_push(rln_cpr_seq[i]);
+    rln_cpr_seq_len = 0;
+    rln_cpr_state = 0;
+}
+
+static void rln_typeahead_drain(void)
+{
+    uint8_t len = rln_typeahead_len;
+    rln_typeahead_len = 0;
+    for (uint8_t i = 0; i < len; i++)
+        rln_line_rx_typed(rln_typeahead[i]);
+}
+
+static void rln_enter_edit(void)
+{
+    rln_phase = rln_phase_edit;
+    rln_emit_mode_cursor();
+    rln_cur_idx = 0;
+    if (rln_buflen)
+        rln_render_from(0);
+    else
+        rln_sync_cursor_to(rln_bufpos);
+    rln_typeahead_drain();
+}
+
+static void rln_handshake_fallback(void)
+{
+    // Handshake deadline expired. If we only missed the DA reply, keep
+    // the multi-line geometry we did learn from the CPR replies and just
+    // default DECSCUSR off. If we missed a CPR too, drop into the
+    // single-virtual-line model (legacy behavior) where row math is
+    // bypassed by rln_term_width == 0.
+    if (rln_phase == rln_phase_da_query)
+    {
+        rln_decscusr_ok = false;
+        rln_enter_edit();
+        return;
+    }
+    printf("\33[?7h\33[?25h");
+    rln_term_width = 0;
+    rln_term_height = 0;
+    rln_prompt_col = 1;
+    rln_enter_edit();
+}
+
+// Dispatch a parsed CPR (\33[<p1>;<p2>R). Row is in p1, col in p2.
+static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
+{
+    if (rln_phase == rln_phase_prompt_cpr)
+    {
+        (void)p1; // prompt_row no longer needed — RCP handles the return
+        rln_prompt_col = (p2 < 1) ? 1 : (p2 > 255 ? 255 : (uint8_t)p2);
+        rln_phase = rln_phase_width_cpr;
+    }
+    else if (rln_phase == rln_phase_width_cpr)
+    {
+        rln_term_height = p1;
+        rln_term_width = p2;
+        if (rln_term_width < rln_prompt_col)
+            rln_term_width = rln_prompt_col; // sanity floor
+        // Snap back to the prompt position via RCP — no absolute
+        // vertical positioning, so we don't have to trust prompt_row
+        // through any scroll that may have happened during the burst.
+        // Restore cursor visibility now; the DA query may take a few
+        // bytes more but we don't want to keep the cursor hidden while
+        // we wait.
+        printf("\33[u\33[?25h");
+        rln_phase = rln_phase_da_query;
+    }
+}
+
+// Dispatch a parsed Primary DA reply (\33[?<p1>;...c). Only the
+// leading model-class param matters: >= 62 means "VT220+", which is the
+// floor we trust for DECSCUSR (CSI Ps SP q) being parsed cleanly. VT102
+// emulators like minicom mis-parse the intermediate space and leak the
+// tail as literal text.
+static void rln_da_dispatch(uint16_t p1)
+{
+    if (rln_phase != rln_phase_da_query)
+        return;
+    rln_decscusr_ok = (p1 >= 62);
+    rln_enter_edit();
+}
+
+// Feed one byte through the handshake mini-parser. Recognized shapes
+// during prompt_cpr / width_cpr / da_query:
+//   CPR:  \33 [ <digits> ; <digits> R
+//   DA:   \33 [ ? <digits> ( ; <digits> )* c
+// Bytes that don't match a candidate go to the typeahead ring so they
+// can replay through the normal parser when phase = edit.
+static void rln_cpr_feed(uint8_t b)
+{
+    // Buffer for potential release-on-mismatch. Overflow → mismatch.
+    if (rln_cpr_seq_len >= RLN_CPR_SEQ_MAX)
+    {
+        rln_cpr_release_seq();
+        rln_typeahead_push(b);
+        return;
+    }
+    rln_cpr_seq[rln_cpr_seq_len++] = b;
+
+    switch (rln_cpr_state)
+    {
+    case 0: // idle
+        if (b == '\33')
+            rln_cpr_state = 1;
+        else
+        {
+            rln_cpr_seq_len = 0;
+            rln_typeahead_push(b);
+        }
+        break;
+    case 1: // saw ESC
+        if (b == '[')
+        {
+            rln_cpr_state = 2;
+            rln_cpr_p1 = 0;
+        }
+        else
+            rln_cpr_release_seq();
+        break;
+    case 2: // saw CSI; classify CPR vs DA
+        if (b == '?')
+        {
+            rln_cpr_state = 4; // DA: accumulating first param
+            rln_cpr_p1 = 0;
+        }
+        else if (isdigit(b))
+        {
+            rln_cpr_state = 3; // CPR: accumulating p1
+            rln_cpr_p1 = b - '0';
+        }
+        else
+            rln_cpr_release_seq();
+        break;
+    case 3: // CPR p1
+        if (isdigit(b))
+            rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
+        else if (b == ';')
+        {
+            rln_cpr_state = 5; // CPR p2
+            rln_cpr_p2 = 0;
+        }
+        else
+            rln_cpr_release_seq();
+        break;
+    case 4: // DA first param (after ?)
+        if (isdigit(b))
+            rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
+        else if (b == 'c')
+        {
+            rln_cpr_seq_len = 0;
+            rln_cpr_state = 0;
+            rln_da_dispatch(rln_cpr_p1);
+        }
+        else if (b == ';')
+            rln_cpr_state = 6; // skip remaining DA params
+        else
+            rln_cpr_release_seq();
+        break;
+    case 5: // CPR p2
+        if (isdigit(b))
+            rln_cpr_p2 = rln_cpr_p2 * 10 + (b - '0');
+        else if (b == 'R')
+        {
+            rln_cpr_seq_len = 0;
+            rln_cpr_state = 0;
+            rln_cpr_dispatch(rln_cpr_p1, rln_cpr_p2);
+        }
+        else
+            rln_cpr_release_seq();
+        break;
+    case 6: // DA tail (consume digits / ; until final c)
+        if (b == 'c')
+        {
+            rln_cpr_seq_len = 0;
+            rln_cpr_state = 0;
+            rln_da_dispatch(rln_cpr_p1);
+        }
+        else if (!isdigit(b) && b != ';')
+            rln_cpr_release_seq();
+        break;
+    }
+}
+
+/* ----- Top-level task / lifecycle ----- */
+
 void rln_read_line(rln_read_callback_t callback)
 {
     rln_buflen = 0;
@@ -569,6 +981,25 @@ void rln_read_line(rln_read_callback_t callback)
     rln_lastkey_len = 0;
     rln_keyseq_accum_len = 0;
     rln_keyseq_overflow = false;
+
+    rln_phase = rln_phase_prompt_cpr;
+    rln_term_width = 0;
+    rln_term_height = 0;
+    rln_prompt_col = 1;
+    rln_cur_idx = 0;
+    rln_decscusr_ok = false;
+    rln_cpr_state = 0;
+    rln_cpr_seq_len = 0;
+    rln_typeahead_len = 0;
+    rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
+
+    // Fire the whole handshake in one burst so the cursor doesn't visibly
+    // park at the bottom-right corner: hide cursor, autowrap off, save
+    // the prompt position (for the return trip via RCP), ask CPR for
+    // prompt column, clamp to bottom-right, ask CPR for terminal
+    // height + width, then Primary DA to learn whether the peer is
+    // VT220+ (and therefore safe for DECSCUSR).
+    printf("\33[?25l\33[?7l\33[s\33[6n\33[999;999H\33[6n\33[c");
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -589,24 +1020,47 @@ void rln_task(void)
         if (ch == PICO_ERROR_TIMEOUT)
             break;
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
-        rln_line_rx_typed(ch);
+        if (rln_phase == rln_phase_edit)
+            rln_line_rx_typed((uint8_t)ch);
+        else
+            rln_cpr_feed((uint8_t)ch);
     }
+    if (rln_phase != rln_phase_edit && rln_callback &&
+        time_reached(rln_handshake_deadline))
+        rln_handshake_fallback();
     if (rln_timeout_ms && time_reached(rln_timer))
-    {
         rln_complete(true);
+}
+
+// Restore terminal state if a read was in progress when something else
+// (Ctrl-C, program stop) tears us down. DECAWM and cursor visibility
+// are universally safe; DECSCUSR only on peers that claimed VT220+.
+static void rln_cleanup_if_active(void)
+{
+    if (rln_callback)
+    {
+        printf("\33[?7h\33[?25h");
+        if (rln_decscusr_ok)
+            printf("\33[1 q");
     }
 }
 
 void rln_init(void)
 {
+    rln_cleanup_if_active();
     rln_callback = NULL;
     rln_enable_history = true;
     rln_max_length = 255;
     rln_caps = 0;
+    rln_phase = rln_phase_edit;
+    rln_term_width = 0;
+    rln_term_height = 0;
+    rln_overwrite = false;
 }
 
 void rln_run(void)
 {
+    rln_cleanup_if_active();
     rln_callback = NULL;
     rln_enable_history = false;
     rln_max_length = 254; // 1 for newline
@@ -629,6 +1083,9 @@ uint8_t rln_get_max_length(void) { return rln_max_length; }
 
 void rln_set_caps(uint8_t v) { rln_caps = v; }
 uint8_t rln_get_caps(void) { return rln_caps; }
+
+// Captured during the handshake; 0 if unknown / fallback.
+uint16_t rln_get_term_height(void) { return rln_term_height; }
 
 /* Readline magic: lastkey + peekpoke
  */

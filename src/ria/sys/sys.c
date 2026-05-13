@@ -43,6 +43,9 @@ void sys_init(void)
 #ifdef NDEBUG
     mon_add_response_str(STR_TERM_HARD_RESET);
 #else
+    // We can't soft reset cursor when ROMs stop because minicom
+    // will print the q, but one at startup is fine for debug.
+    mon_add_response_str("\30\33[0 q");
     mon_add_response_str(STR_TERM_SOFT_RESET);
 #endif
     mon_add_response_str("\n");

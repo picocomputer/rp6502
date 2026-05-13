@@ -64,10 +64,12 @@ void com_in_write_ansi_CPR(unsigned row, unsigned col)
     com_in_write_reply(buf, n);
 }
 
-// Primary device attributes: identify as VT102 (ANSI/ECMA-48)
+// Primary device attributes.
 void com_in_write_ansi_DA(void)
 {
-    static const char da[] = "\33[?6c";
+    // Identify as VT220-class.
+    // Feature bit 22 = ANSI color.
+    static const char da[] = "\33[?62;22c";
     com_in_write_reply(da, sizeof(da) - 1);
 }
 

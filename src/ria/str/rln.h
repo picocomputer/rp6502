@@ -43,6 +43,10 @@ uint8_t rln_get_max_length(void);
 void rln_set_caps(uint8_t v);
 uint8_t rln_get_caps(void);
 
+// Terminal height as captured during the last handshake; 0 if unknown
+// (no CPR reply / fallback mode).
+uint16_t rln_get_term_height(void);
+
 // 6502 API entry points.
 bool rln_api_lastkey(void);
 bool rln_api_peek(void);
