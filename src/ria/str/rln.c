@@ -848,10 +848,12 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 }
 
 // Dispatch a parsed Primary DA reply (\33[?<p1>;...c). Only the
-// leading model-class param matters: >= 62 means "VT220+", which is the
-// floor we trust for DECSCUSR (CSI Ps SP q) being parsed cleanly. VT102
-// emulators like minicom mis-parse the intermediate space and leak the
-// tail as literal text.
+// leading service-class param matters: the 6x series (61 = VT level 1,
+// 62 = VT220, 63 = VT320, ...) is the modern reply format and parses
+// the DECSCUSR intermediate space (CSI Ps SP q) cleanly. Bare-1
+// reporters (minicom, vscode/xterm.js) are old-style VT100 replies
+// and mis-parse the space, leaking the tail as literal text.
+// Field data: minicom 1, vscode 1, Windows Terminal 61, our term.c 61.
 static void rln_da_dispatch(uint16_t p1)
 {
     if (rln_phase != rln_phase_da_query)

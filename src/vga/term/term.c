@@ -1694,8 +1694,7 @@ static void term_out_DECSTR(term_state_t *term)
 }
 
 // Set cursor style (CSI Ps SP q -- DECSCUSR). 0 = host default, 1/2 = block,
-// 3/4 = underline, 5/6 = bar. Stored but the software-rendered block-invert
-// cursor doesn't yet honor the shape.
+// 3/4 = underline, 5/6 = bar.
 static void term_out_DECSCUSR(term_state_t *term)
 {
     uint16_t ps = term->csi_param[0];

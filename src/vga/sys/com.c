@@ -67,9 +67,11 @@ void com_in_write_ansi_CPR(unsigned row, unsigned col)
 // Primary device attributes.
 void com_in_write_ansi_DA(void)
 {
-    // Identify as VT220-class.
-    // Feature bit 22 = ANSI color.
-    static const char da[] = "\33[?62;22c";
+    // Service class 61 = VT level 1 (VT100-compatible). We parse the
+    // DECSCUSR intermediate cleanly but don't implement the VT220-only
+    // set (DECUDK, NRCS, 7/8-bit C1, selective erase), so claiming 62
+    // would over-advertise. Feature bit 22 = ANSI color.
+    static const char da[] = "\33[?61;22c";
     com_in_write_reply(da, sizeof(da) - 1);
 }
 
