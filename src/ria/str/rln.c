@@ -34,8 +34,9 @@ typedef enum
 typedef enum
 {
     rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
-    rln_phase_width_cpr,  // waiting for second CPR (terminal height + width)
-    rln_phase_da_query,   // waiting for Primary DA (decide DECSCUSR support)
+    rln_phase_width_cpr,  // waiting for second CPR (height + width); also
+                          // absorbs the DA2 reply for DECSCUSR detection,
+                          // which the burst order guarantees arrives first
     rln_phase_edit,       // normal editing
 } rln_phase_t;
 
@@ -810,20 +811,12 @@ static void rln_handshake_fallback(void)
 {
     // Handshake deadline expired. The init burst already RCP'd the
     // cursor back to the prompt and re-showed it, so we don't need
-    // to fix cursor placement here. If we only missed the DA1 reply,
-    // keep the multi-line geometry we learned from the CPR replies
-    // and whatever DA2 told us about DECSCUSR (preserve hard-won
-    // knowledge — DA1 missing usually means a flaky link, not
-    // a dishonest DA2). If we missed a CPR too, drop into the
-    // single-virtual-line model (legacy behavior) where row math is
-    // bypassed by rln_term_width == 0.
-    if (rln_phase == rln_phase_da_query)
-    {
-        rln_enter_edit();
-        return;
-    }
-    rln_term_height = 0; // more back to defaults
-    rln_term_width = 0;  // infinite line mode
+    // to fix cursor placement here. We never got both CPRs (CPR2
+    // would have advanced us straight to edit), so drop into the
+    // single-virtual-line model (row math bypassed by term_width==0)
+    // and preserve whatever DA2 told us about DECSCUSR.
+    rln_term_height = 0;
+    rln_term_width = 0;
     rln_enter_edit();
 }
 
@@ -841,91 +834,44 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
         rln_term_width = p2;
         if (rln_term_width < rln_prompt_col)
             rln_term_width = rln_prompt_col; // sanity floor
-        // RCP + cursor-show ran from the init burst, so by the time
-        // this CPR lands the cursor is already back at the prompt
-        // and visible. Just flip phase and wait for the DA reply.
-        rln_phase = rln_phase_da_query;
+        // RCP + cursor-show ran from the init burst, so the cursor
+        // is already back at the prompt and visible. CPR2 is the
+        // last reply we wait on — burst order guarantees any DA2
+        // reply landed before this, so rln_decscusr_ok is final.
+        // Drop straight into edit; the cursor-shape emit in
+        // rln_enter_edit honors the now-final decscusr_ok.
+        rln_enter_edit();
     }
-}
-
-// Dispatch a parsed Primary DA reply (\33[?<p1>;...c). The leading
-// service-class param mostly matters: the 6x series (61 = VT level 1,
-// 62 = VT220, 63 = VT320, ...) is the modern reply format and parses
-// the DECSCUSR intermediate space (CSI Ps SP q) cleanly. Bare-1
-// reporters are ambiguous (minicom: broken, vscode/xterm.js: works),
-// so we OR-merge with any DA2 hint that already landed — a DA2 reply
-// means the peer is modern enough for DECSCUSR even if its DA1 stamps
-// as VT100. DA1 is the burst's fence; it always replies, so reaching
-// here means the handshake's reply phase is complete.
-// Field data: minicom 1, vscode 1, Windows Terminal 61, our term.c 61.
-static void rln_da_dispatch(uint16_t p1)
-{
-    if (rln_phase != rln_phase_da_query)
-        return;
-    if (p1 >= 61)
-        rln_decscusr_ok = true;
-    // else: leave rln_decscusr_ok alone — DA2 may have already set it.
-    rln_enter_edit();
 }
 
 // Dispatch a parsed Secondary DA reply (\33[><...>c). The fact that
 // a reply arrived at all is the signal — minicom and similarly broken
 // peers ignore DA2 (and leak its `c` as literal text, scrubbed by the
-// burst's DECRC+EL). Param values are discarded.
+// burst's DECRC+EL). Param values are discarded. The burst orders
+// DA2 before CPR2, so this fires while we're still in width_cpr.
 static void rln_da2_dispatch(void)
 {
-    if (rln_phase != rln_phase_width_cpr && rln_phase != rln_phase_da_query)
+    if (rln_phase != rln_phase_width_cpr)
         return;
     rln_decscusr_ok = true;
-    // Phase advancement is owned by the CPR2 / DA1 dispatchers.
 }
 
 // Feed one byte through the handshake mini-parser. Recognized shapes
-// during prompt_cpr / width_cpr / da_query:
+// during prompt_cpr / width_cpr:
 //   CPR:  \33 [ <digits> ; <digits> R
-//   DA1:  \33 [ ? <digits> ( ; <digits> )* c   (Primary Device Attributes)
 //   DA2:  \33 [ > <digits> ( ; <digits> )* c   (Secondary Device Attributes)
 // Bytes that don't match a CPR candidate go to the typeahead ring so
-// they can replay through the normal parser when phase = edit. DA1/DA2
+// they can replay through the normal parser when phase = edit. DA2
 // candidates do NOT use the release-on-mismatch buffer once entered
-// (states 4/6 for DA1, 7/8 for DA2) — xterm-class DA replies run 35+
-// bytes long and would otherwise overflow the 12-byte seq buffer,
-// lose the final `c`, and time the handshake out. DA replies never
-// originate from user input, so it's safe to consume them silently.
+// (state 7) — xterm-class DA replies run 35+ bytes long and would
+// otherwise overflow the 12-byte seq buffer, lose the final `c`, and
+// time the handshake out. DA replies never originate from user input,
+// so it's safe to consume them silently.
 static void rln_cpr_feed(uint8_t b)
 {
-    // DA1-recognition states: process inline, no buffering, no length
-    // cap. Cannot conflict with typed input because the `?` private
-    // marker only appears in server replies on a typed-input wire.
-    if (rln_cpr_state == 4)
-    {
-        if (isdigit(b))
-            rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
-        else if (b == 'c')
-        {
-            rln_cpr_state = 0;
-            rln_da_dispatch(rln_cpr_p1);
-        }
-        else if (b == ';')
-            rln_cpr_state = 6;
-        else
-            rln_cpr_state = 0; // unexpected — drop without releasing
-        return;
-    }
-    if (rln_cpr_state == 6)
-    {
-        if (b == 'c')
-        {
-            rln_cpr_state = 0;
-            rln_da_dispatch(rln_cpr_p1);
-        }
-        else if (!isdigit(b) && b != ';')
-            rln_cpr_state = 0;
-        return;
-    }
-    // DA2-recognition states: same shape as DA1, dispatched differently.
-    // The `>` private marker is unique to server replies, same exclusivity
-    // argument as `?` for DA1.
+    // DA2-recognition state: process inline, no buffering, no length
+    // cap. The `>` private marker is unique to server replies, so it
+    // cannot conflict with typed input.
     if (rln_cpr_state == 7)
     {
         if (isdigit(b) || b == ';')
@@ -971,16 +917,8 @@ static void rln_cpr_feed(uint8_t b)
         else
             rln_cpr_release_seq();
         break;
-    case 2: // saw CSI; classify CPR vs DA1 vs DA2
-        if (b == '?')
-        {
-            // Discard the buffered `\33[?` — we're committed to DA1
-            // mode and no longer need release-on-mismatch.
-            rln_cpr_seq_len = 0;
-            rln_cpr_state = 4;
-            rln_cpr_p1 = 0;
-        }
-        else if (b == '>')
+    case 2: // saw CSI; classify CPR vs DA2
+        if (b == '>')
         {
             // Discard the buffered `\33[>` — committed to DA2.
             rln_cpr_seq_len = 0;
@@ -1050,24 +988,25 @@ void rln_read_line(rln_read_callback_t callback)
     //   ?25l    hide cursor
     //   s       DECSC saves prompt position
     //   6n      CPR1 (prompt column)
-    //   >c      DA2 (Secondary DA) — disambiguator for bare-1 DA1
-    //           reporters; minicom mis-parses this and leaks the
-    //           `c` as literal text at the prompt column...
+    //   >c      DA2 — DECSCUSR-support probe; minicom mis-parses
+    //           this and leaks the `c` as literal text at the
+    //           prompt column...
     //   u       DECRC snaps cursor back to prompt column...
     //   K       ...and EL erases the leaked `c` (no-op on conforming
     //           peers; the line past the prompt char is empty)
     //   999;999H go to bottom-right
-    //   6n      CPR2 (terminal height + width)
+    //   6n      CPR2 (terminal height + width) — also the fence:
+    //           burst order guarantees DA2's reply lands before this,
+    //           so CPR2 marks "all knowable, transition to edit."
     //   u       DECRC back to prompt
     //   ?25h    show cursor
-    //   c       DA1 — the universal fence; its reply bounds the wait
     // RCP runs from the burst rather than the CPR-reply path so the
     // cursor returns to the prompt even when the terminal doesn't
     // respond to CPR (pipes, dumb relays); the deadline fallback
     // inherits the right cursor placement for free. We do not touch
     // DECAWM; the user's terminal stays in its native wrap mode and
     // we trust the pending-wrap (xenl) model on margin writes.
-    printf("\33[?25l\33[s\33[6n\33[>c\33[u\33[K\33[999;999H\33[6n\33[u\33[?25h\33[c");
+    printf("\33[?25l\33[s\33[6n\33[>c\33[u\33[K\33[999;999H\33[6n\33[u\33[?25h");
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
