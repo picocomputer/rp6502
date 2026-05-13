@@ -1074,6 +1074,7 @@ void rln_task(void)
 // so nothing to restore there. Cursor visibility is universally safe;
 // DECSCUSR only on peers that claimed VT220+.
 // TODO make this fire off the newline instead of mon.c.
+// TODO move the cursor reset to rom_run.
 static void rln_cleanup_if_active(void)
 {
     if (rln_callback)
