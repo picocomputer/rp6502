@@ -864,7 +864,7 @@ static void rln_da_dispatch(uint16_t p1)
 {
     if (rln_phase != rln_phase_da_query)
         return;
-    rln_decscusr_ok = (p1 >= 62);
+    rln_decscusr_ok = (p1 >= 61);
     rln_enter_edit();
 }
 
@@ -1047,7 +1047,20 @@ void rln_task(void)
         if (rln_phase == rln_phase_edit)
             rln_line_rx_typed((uint8_t)ch);
         else
+        {
             rln_cpr_feed((uint8_t)ch);
+            // CR during the handshake means a complete line is
+            // already in the typeahead. There's nothing more useful
+            // to learn from any pending CPR/DA replies (and on a
+            // non-responsive script they're never coming), so don't
+            // sit on the 500 ms deadline — fall back immediately.
+            // That synchronously drains the typeahead, completes the
+            // line, fires the callback (which may arm mem_read_mbuf
+            // for a binary upload), and nulls rln_callback so this
+            // while loop exits on the next iteration check.
+            if (ch == '\r')
+                rln_handshake_fallback();
+        }
     }
     if (rln_phase != rln_phase_edit && rln_callback &&
         time_reached(rln_handshake_deadline))
@@ -1060,7 +1073,7 @@ void rln_task(void)
 // else (Ctrl-C, program stop) tears us down. We never touched DECAWM,
 // so nothing to restore there. Cursor visibility is universally safe;
 // DECSCUSR only on peers that claimed VT220+.
-// TODO make this
+// TODO make this fire off the newline instead of mon.c.
 static void rln_cleanup_if_active(void)
 {
     if (rln_callback)
