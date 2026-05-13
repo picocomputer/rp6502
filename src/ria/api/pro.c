@@ -10,6 +10,7 @@
 #include "main.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "usb/nfc.h"
 #include <fatfs/ff.h>
@@ -311,7 +312,8 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    mon_stop(); // reset input // TODO why needed? main_stop calls this.
+    rln_stop();
+    mon_stop();
     main_stop();
 
     // Change to the directory containing the ROM before loading
@@ -330,7 +332,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         *term = saved;
     }
 
-    printf("\nNFC ");
+    printf("NFC ");
     putchar('"');
     for (const char *p = work; *p; p++)
     {

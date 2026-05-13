@@ -564,16 +564,8 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
 {
     if (ch == '\r')
     {
-        // Park the cursor cleanly after the last char, then close out
-        // the line: newline + (on VT220+ peers only) restore the
-        // host-default cursor shape — minicom and other VT102 peers
-        // would render the sequence as garbage so we skip it there.
-        // We don't touch DECAWM; the user's terminal stays in whatever
-        // wrap mode they configured.
         rln_sync_cursor_to(rln_buflen);
-        printf("\r\n");
-        if (rln_decscusr_ok)
-            printf("\33[0 q");
+        printf("\n");
         rln_buf[rln_buflen] = 0;
         rln_history_add();
         rln_complete(false);
@@ -1069,28 +1061,26 @@ void rln_task(void)
         rln_complete(true);
 }
 
-// Restore terminal state if a read was in progress when something
-// else (Ctrl-C, program stop) tears us down. We never touched DECAWM,
-// so nothing to restore there. Cursor visibility is universally safe;
-// DECSCUSR only on peers that claimed VT220+.
-// TODO move the gated cursor reset to rom_run
-// TODO add a gated cursor to rln_overwrite in rom_stop.
+// Visually close an in-progress line the same way a CR would, minus
+// the callback dispatch and history insert: park the cursor at end of
+// buffer so \r\n lands cleanly, then advance to a fresh line. The
+// sync is a no-op outside edit phase (e.g. mid-handshake), but \r\n
+// still moves the cursor down from wherever the handshake parked it.
+// DECAWM is never touched here; the terminal stays in its native
+// wrap mode.
 static void rln_cleanup_if_active(void)
 {
-    if (rln_callback)
-    {
-        printf("\33[?25h");
-        if (rln_decscusr_ok)
-            printf("\33[0 q");
-    }
+    if (!rln_callback)
+        return;
+    rln_sync_cursor_to(rln_buflen);
+    printf("\n");
 }
 
 void rln_init(void)
 {
-    rln_cleanup_if_active();
     rln_callback = NULL;
     rln_enable_history = true;
-    rln_max_length = 255;
+    rln_max_length = 255; // fits in 2^8 with nul
     rln_caps = 0;
     rln_phase = rln_phase_edit;
     rln_term_width = 0;
@@ -1102,16 +1092,22 @@ void rln_run(void)
     rln_cleanup_if_active();
     rln_callback = NULL;
     rln_enable_history = false;
-    rln_max_length = 254; // 1 for newline
+    rln_max_length = 254; // reserve 1 for the stdin newline
+    if (rln_decscusr_ok)
+        printf("\33[0 q");
 }
 
 void rln_stop(void)
 {
+    // NFC launch also calls this
+    rln_cleanup_if_active();
     rln_init();
+    rln_emit_mode_cursor();
 }
 
 void rln_break(void)
 {
+    rln_cleanup_if_active();
     rln_init();
 }
 

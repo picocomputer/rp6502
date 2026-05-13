@@ -480,6 +480,11 @@ void mon_task(void)
 
 void mon_stop(void)
 {
+    // NFC launch also calls this
+    if (mon_more_state) {
+        mon_needs_break = true;
+        mon_more();
+    }
     mon_needs_prompt = true;
     mon_needs_read_line = true;
 }
