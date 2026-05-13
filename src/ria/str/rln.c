@@ -1032,18 +1032,8 @@ void rln_task(void)
         else
         {
             rln_cpr_feed((uint8_t)ch);
-            // Two fast-paths out of the handshake when waiting for
-            // replies no longer makes sense:
-            //  1. CR — a complete line is already in the typeahead.
-            //  2. Typeahead saturated — a fast paste / scripted
-            //     prompt has filled the ring; the next push would
-            //     drop a byte. Bail now so subsequent bytes flow
-            //     straight into rln_line_rx_typed with zero loss.
-            // Either path synchronously drains the typeahead,
-            // completes any pending line, fires the callback (which
-            // may arm mem_read_mbuf for a binary upload), and nulls
-            // rln_callback so this while loop exits on the next
-            // iteration check.
+            // Provide instant relief for scripting tools
+            // which do not respond to ANSI sequences.
             if (ch == '\r' || rln_typeahead_len >= RLN_TYPEAHEAD_MAX)
             {
                 rln_term_width = 0; // infinite line mode
