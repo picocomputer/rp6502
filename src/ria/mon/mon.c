@@ -48,12 +48,9 @@ static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
-static int mon_console_rows_known = -1;
-static bool mon_cpr_query_sent;
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
-    MON_MORE_FLUSH,
     MON_MORE_END,
     MON_MORE_WAIT,
 } mon_more_state;
@@ -363,78 +360,6 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
-// Returns true while more bytes of an escape sequence are expected,
-// or when a CPR reply has been silently consumed.
-static bool mon_cpr_rx(int ch)
-{
-    static enum {
-        MON_CPR_C0,
-        MON_CPR_ESC,
-        MON_CPR_CSI,
-        MON_CPR_SS3,
-    } state;
-    static int row;
-    static int col;
-    static int param;
-    if (ch == '\33')
-    {
-        state = MON_CPR_ESC;
-        row = col = 0;
-        param = 0;
-        return true;
-    }
-    if (ch == '\30' || ch == '\32')
-    {
-        state = MON_CPR_C0;
-        return true;
-    }
-    switch (state)
-    {
-    case MON_CPR_ESC:
-        if (ch == '[')
-        {
-            state = MON_CPR_CSI;
-            return true;
-        }
-        if (ch == 'O')
-        {
-            state = MON_CPR_SS3;
-            return true;
-        }
-        state = MON_CPR_C0;
-        return false;
-    case MON_CPR_CSI:
-        if (isdigit(ch))
-        {
-            if (param == 0)
-                row = row * 10 + (ch - '0');
-            else
-                col = col * 10 + (ch - '0');
-            return true;
-        }
-        if (ch == ';')
-        {
-            param = 1;
-            return true;
-        }
-        if (ch >= 0x20 && ch <= 0x3F)
-            return true;
-        state = MON_CPR_C0;
-        if (ch == 'R')
-        {
-            if (row > 0 && col > 0)
-                mon_console_rows_known = row;
-            return true;
-        }
-        return false;
-    case MON_CPR_SS3:
-        state = MON_CPR_C0;
-        return false;
-    default:
-        return false;
-    }
-}
-
 static void mon_more(void)
 {
     if (mon_needs_break)
@@ -446,17 +371,8 @@ static void mon_more(void)
     {
     case MON_MORE_START:
         printf_utf8(STR_MON_MORE_SHOW);
-        mon_more_state = MON_MORE_FLUSH;
+        mon_more_state = MON_MORE_WAIT;
         break;
-    case MON_MORE_FLUSH:
-    {
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == PICO_ERROR_TIMEOUT)
-            mon_more_state = MON_MORE_WAIT;
-        else
-            mon_cpr_rx(ch);
-        break;
-    }
     case MON_MORE_END:
         printf_utf8(STR_MON_MORE_ERASE);
         mon_response_line = 0;
@@ -466,8 +382,6 @@ static void mon_more(void)
     {
         int ch = stdio_getchar_timeout_us(0);
         if (ch == PICO_ERROR_TIMEOUT)
-            return;
-        if (mon_cpr_rx(ch))
             return;
         if (ch == 3 || ch == 'q' || ch == 'Q')
             mon_needs_break = true;
@@ -479,8 +393,9 @@ static void mon_more(void)
 
 static int mon_guess_console_rows(void)
 {
-    if (mon_console_rows_known > 0)
-        return mon_console_rows_known;
+    uint16_t known = rln_get_term_height();
+    if (known > 0)
+        return known;
     int rows = 24; // VT100 safe
     if (vga_connected())
     {
@@ -504,9 +419,6 @@ void mon_task(void)
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
-        int rx;
-        while ((rx = stdio_getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)
-            mon_cpr_rx(rx);
         int rows_max = mon_guess_console_rows() - 1;
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
@@ -530,12 +442,6 @@ void mon_task(void)
     // Request the next response buffer
     if (mon_response_pos == -1 && mon_response_state[0] >= 0)
     {
-        if (!mon_cpr_query_sent &&
-            mon_response_state[1] >= 0)
-        {
-            printf("\33[s\33[999;999H\33[6n\33[u");
-            mon_cpr_query_sent = true;
-        }
         mon_response_pos = 0;
         mon_response_buf[0] = 0;
         mon_response_state[0] = (mon_response_fn_list[0])(
@@ -554,7 +460,6 @@ void mon_task(void)
     // The monitor has control
     if (mon_needs_prompt)
     {
-        mon_cpr_query_sent = false;
         if (mon_needs_newline)
             mon_add_response_str("\n]");
         else

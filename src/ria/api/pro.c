@@ -311,7 +311,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    mon_stop(); // reset input
+    mon_stop(); // reset input // TODO why needed? main_stop calls this.
     main_stop();
 
     // Change to the directory containing the ROM before loading

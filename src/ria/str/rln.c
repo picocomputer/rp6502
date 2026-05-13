@@ -827,9 +827,8 @@ static void rln_handshake_fallback(void)
         rln_enter_edit();
         return;
     }
-    rln_term_width = 0;
-    rln_term_height = 0;
-    rln_prompt_col = 1;
+    rln_term_height = 0; // more back to defaults
+    rln_term_width = 0;  // infinite line mode
     rln_enter_edit();
 }
 
@@ -838,7 +837,6 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 {
     if (rln_phase == rln_phase_prompt_cpr)
     {
-        (void)p1; // prompt_row no longer needed — RCP handles the return
         rln_prompt_col = (p2 < 1) ? 1 : (p2 > 255 ? 255 : (uint8_t)p2);
         rln_phase = rln_phase_width_cpr;
     }
@@ -1003,7 +1001,6 @@ void rln_read_line(rln_read_callback_t callback)
 
     rln_phase = rln_phase_prompt_cpr;
     rln_term_width = 0;
-    rln_prompt_col = 1;
     rln_cur_idx = 0;
     rln_decscusr_ok = false;
     rln_cpr_state = 0;
@@ -1059,7 +1056,10 @@ void rln_task(void)
             // for a binary upload), and nulls rln_callback so this
             // while loop exits on the next iteration check.
             if (ch == '\r')
-                rln_handshake_fallback();
+            {
+                rln_term_width = 0; // infinite line mode
+                rln_enter_edit();
+            }
         }
     }
     if (rln_phase != rln_phase_edit && rln_callback &&
@@ -1073,8 +1073,8 @@ void rln_task(void)
 // else (Ctrl-C, program stop) tears us down. We never touched DECAWM,
 // so nothing to restore there. Cursor visibility is universally safe;
 // DECSCUSR only on peers that claimed VT220+.
-// TODO make this fire off the newline instead of mon.c.
-// TODO move the cursor reset to rom_run.
+// TODO move the gated cursor reset to rom_run
+// TODO add a gated cursor to rln_overwrite in rom_stop.
 static void rln_cleanup_if_active(void)
 {
     if (rln_callback)
