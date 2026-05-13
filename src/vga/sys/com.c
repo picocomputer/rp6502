@@ -75,6 +75,18 @@ void com_in_write_ansi_DA(void)
     com_in_write_reply(da, sizeof(da) - 1);
 }
 
+// Secondary device attributes. Replied even though we don't strictly
+// need to (DA1 already advertises class 61); presence of any DA2
+// reply is what rln uses to disambiguate "modern emulator" from
+// minicom-class breakage, so we answer for spec correctness and
+// future probes.
+void com_in_write_ansi_DA2(void)
+{
+    // Terminal type 0 (generic VT100-class), firmware 1, ROM 0.
+    static const char da2[] = "\33[>0;1;0c";
+    com_in_write_reply(da2, sizeof(da2) - 1);
+}
+
 // DSR status: terminal ok
 void com_in_write_ansi_DSR_ok(void)
 {

@@ -903,6 +903,16 @@ static void term_out_DA(term_state_t *term)
         com_in_write_ansi_DA();
 }
 
+// Secondary Device Attributes (CSI > c). Replies with a generic
+// VT100-class identifier; rln uses the presence of any DA2 reply to
+// distinguish modern terminals from minicom-class (broken on CSI > c
+// parsing) reporters that share a bare-1 Primary DA.
+static void term_out_DA2(term_state_t *term)
+{
+    if (term_is_visible(term))
+        com_in_write_ansi_DA2();
+}
+
 static inline bool term_tab_is_set(const term_state_t *term, uint8_t col)
 {
     if (col >= TERM_MAX_WIDTH)
@@ -2262,14 +2272,21 @@ static void term_out_state_CSI(term_state_t *term, char ch)
     case ansi_state_CSI:
         term_out_CSI(term, ch);
         break;
+    case ansi_state_CSI_greater:
+        // CSI > <Ps> c is Secondary DA. We answer with a generic
+        // identifier so rln (and any future fingerprinter) can tell
+        // us apart from minicom-class peers that drop the sequence.
+        // Any other CSI > final byte is silently consumed.
+        if (ch == 'c')
+            term_out_DA2(term);
+        break;
     case ansi_state_CSI_less:
     case ansi_state_CSI_equal:
-    case ansi_state_CSI_greater:
         // Private CSI parameter bytes; recognize the sequence so digits
-        // don't misparse, then discard. This covers CSI > c (secondary DA)
-        // and CSI = c (tertiary DA) -- we deliberately don't reply, since
-        // there's no well-defined secondary-DA response for the Linux
-        // console subset, and apps that probe accept silence.
+        // don't misparse, then discard. CSI = c (tertiary DA / DECRPTUI)
+        // needs a DCS-framed reply that nothing here actually wants;
+        // CSI < c isn't a standard query — silence is the right answer
+        // for both.
         break;
     case ansi_state_CSI_question:
         term_out_CSI_question(term, ch);
