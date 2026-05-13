@@ -243,7 +243,7 @@ static void rln_replace_buf_from_history(void)
     rln_render_from(0);
 }
 
-static void rln_line_up(void)
+static void rln_history_up(void)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
@@ -256,7 +256,7 @@ static void rln_line_up(void)
     rln_replace_buf_from_history();
 }
 
-static void rln_line_down(void)
+static void rln_history_down(void)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
@@ -267,6 +267,58 @@ static void rln_line_down(void)
     rln_history_pos--;
     memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
     rln_replace_buf_from_history();
+}
+
+// Up arrow / Ctrl-P: move cursor up one screen row (same column) if the
+// input has earlier rows above the cursor; otherwise fall through to
+// history navigation. Down arrow / Ctrl-N is symmetric. In fallback
+// mode (rln_term_width == 0) there's no row concept so we always go to
+// history.
+static void rln_line_up(void)
+{
+    if (rln_term_width)
+    {
+        uint8_t r;
+        uint16_t c;
+        rln_buf_to_screen(rln_bufpos, &r, &c);
+        if (r > 0)
+        {
+            int32_t target = (int32_t)(r - 1) * (int32_t)rln_term_width +
+                             (int32_t)c - (int32_t)rln_prompt_col;
+            if (target < 0)
+                target = 0;
+            if (target > rln_buflen)
+                target = rln_buflen;
+            rln_bufpos = (uint8_t)target;
+            rln_sync_cursor_to(rln_bufpos);
+            return;
+        }
+    }
+    rln_history_up();
+}
+
+static void rln_line_down(void)
+{
+    if (rln_term_width)
+    {
+        uint8_t r_cur, r_max;
+        uint16_t c, c_max;
+        rln_buf_to_screen(rln_bufpos, &r_cur, &c);
+        rln_buf_to_screen(rln_buflen, &r_max, &c_max);
+        if (r_cur < r_max)
+        {
+            int32_t target = (int32_t)(r_cur + 1) * (int32_t)rln_term_width +
+                             (int32_t)c - (int32_t)rln_prompt_col;
+            if (target < 0)
+                target = 0;
+            if (target > rln_buflen)
+                target = rln_buflen;
+            rln_bufpos = (uint8_t)target;
+            rln_sync_cursor_to(rln_bufpos);
+            return;
+        }
+    }
+    rln_history_down();
 }
 
 static void rln_history_add(void)
