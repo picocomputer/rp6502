@@ -1072,7 +1072,7 @@ void rln_run(void)
 void rln_stop(void)
 {
     // Don't spam resets during RIA memory transfers
-    if (!ria_active())
+    if (!ria_active()) // TODO mon.c
         printf(STR_TERM_SOFT_RESET);
     // NFC launch also calls this
     if (rln_callback)
@@ -1086,7 +1086,7 @@ void rln_break(void)
     // rln_cleanup_if_active();
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
-    printf("\n");
+    printf("\n"); // TODO mon.c
     rln_init();
 }
 
