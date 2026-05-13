@@ -6,7 +6,9 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "sys/ria.h"
 #include "str/rln.h"
+#include "str/str.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -1061,21 +1063,6 @@ void rln_task(void)
         rln_complete(true);
 }
 
-// Visually close an in-progress line the same way a CR would, minus
-// the callback dispatch and history insert: park the cursor at end of
-// buffer so \r\n lands cleanly, then advance to a fresh line. The
-// sync is a no-op outside edit phase (e.g. mid-handshake), but \r\n
-// still moves the cursor down from wherever the handshake parked it.
-// DECAWM is never touched here; the terminal stays in its native
-// wrap mode.
-static void rln_cleanup_if_active(void)
-{
-    if (!rln_callback)
-        return;
-    rln_sync_cursor_to(rln_buflen);
-    printf("\n");
-}
-
 void rln_init(void)
 {
     rln_callback = NULL;
@@ -1089,8 +1076,8 @@ void rln_init(void)
 
 void rln_run(void)
 {
-    rln_cleanup_if_active();
-    rln_callback = NULL;
+    // rln_cleanup_if_active();
+    // rln_callback = NULL;
     rln_enable_history = false;
     rln_max_length = 254; // reserve 1 for the stdin newline
     if (rln_decscusr_ok)
@@ -1099,15 +1086,22 @@ void rln_run(void)
 
 void rln_stop(void)
 {
+    // Don't spam resets during RIA memory transfers
+    if (!ria_active())
+        printf(STR_TERM_SOFT_RESET);
     // NFC launch also calls this
-    rln_cleanup_if_active();
+    if (rln_callback)
+        rln_sync_cursor_to(rln_buflen);
     rln_init();
     rln_emit_mode_cursor();
 }
 
 void rln_break(void)
 {
-    rln_cleanup_if_active();
+    // rln_cleanup_if_active();
+    if (rln_callback)
+        rln_sync_cursor_to(rln_buflen);
+    printf("\n");
     rln_init();
 }
 

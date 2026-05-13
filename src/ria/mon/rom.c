@@ -681,7 +681,6 @@ void rom_stop(void)
     if (rom_state == ROM_RUNNING)
     {
         rom_state = ROM_IDLE;
-        printf(STR_TERM_SOFT_RESET);
     }
 }
 

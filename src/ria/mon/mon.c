@@ -44,7 +44,6 @@ static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
 static int mon_response_line;
 static int mon_response_pos = -1;
-static bool mon_needs_newline = true;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
@@ -363,10 +362,7 @@ void mon_add_response_fatfs(int fresult)
 static void mon_more(void)
 {
     if (mon_needs_break)
-    {
-        mon_needs_newline = false;
         mon_more_state = MON_MORE_END;
-    }
     switch (mon_more_state)
     {
     case MON_MORE_START:
@@ -460,12 +456,8 @@ void mon_task(void)
     // The monitor has control
     if (mon_needs_prompt)
     {
-        if (mon_needs_newline)
-            mon_add_response_str("\n]");
-        else
-            mon_add_response_str("]");
+        mon_add_response_str("]");
         mon_needs_prompt = false;
-        mon_needs_newline = false;
         mon_response_line = 0;
         return;
     }
@@ -491,7 +483,6 @@ void mon_stop(void)
 
 void mon_break(void)
 {
-    mon_needs_newline = true;
     mon_needs_break = true;
     mon_stop();
 }

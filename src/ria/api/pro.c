@@ -332,7 +332,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         *term = saved;
     }
 
-    printf("NFC ");
+    printf("\nNFC ");
     putchar('"');
     for (const char *p = work; *p; p++)
     {
