@@ -869,11 +869,48 @@ static void rln_da_dispatch(uint16_t p1)
 // during prompt_cpr / width_cpr / da_query:
 //   CPR:  \33 [ <digits> ; <digits> R
 //   DA:   \33 [ ? <digits> ( ; <digits> )* c
-// Bytes that don't match a candidate go to the typeahead ring so they
-// can replay through the normal parser when phase = edit.
+// Bytes that don't match a CPR candidate go to the typeahead ring so
+// they can replay through the normal parser when phase = edit. DA
+// candidates do NOT use the release-on-mismatch buffer once entered
+// (state 4/6) — xterm-class DA replies run 35+ bytes long and would
+// otherwise overflow the 12-byte seq buffer, lose the final `c`, and
+// time the handshake out. DA replies never originate from user input,
+// so it's safe to consume them silently.
 static void rln_cpr_feed(uint8_t b)
 {
-    // Buffer for potential release-on-mismatch. Overflow → mismatch.
+    // DA-recognition states: process inline, no buffering, no length
+    // cap. Cannot conflict with typed input because the `?` private
+    // marker only appears in server replies on a typed-input wire.
+    if (rln_cpr_state == 4)
+    {
+        if (isdigit(b))
+            rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
+        else if (b == 'c')
+        {
+            rln_cpr_state = 0;
+            rln_da_dispatch(rln_cpr_p1);
+        }
+        else if (b == ';')
+            rln_cpr_state = 6;
+        else
+            rln_cpr_state = 0; // unexpected — drop without releasing
+        return;
+    }
+    if (rln_cpr_state == 6)
+    {
+        if (b == 'c')
+        {
+            rln_cpr_state = 0;
+            rln_da_dispatch(rln_cpr_p1);
+        }
+        else if (!isdigit(b) && b != ';')
+            rln_cpr_state = 0;
+        return;
+    }
+
+    // States 0-3 / 5: CPR candidate (or pre-classification). Buffer
+    // bytes so a mismatch can release them into typeahead — necessary
+    // because typed input like `\33[A` (arrow up) shares the prefix.
     if (rln_cpr_seq_len >= RLN_CPR_SEQ_MAX)
     {
         rln_cpr_release_seq();
@@ -905,12 +942,15 @@ static void rln_cpr_feed(uint8_t b)
     case 2: // saw CSI; classify CPR vs DA
         if (b == '?')
         {
-            rln_cpr_state = 4; // DA: accumulating first param
+            // Discard the buffered `\33[?` — we're committed to DA
+            // mode and no longer need release-on-mismatch.
+            rln_cpr_seq_len = 0;
+            rln_cpr_state = 4;
             rln_cpr_p1 = 0;
         }
         else if (isdigit(b))
         {
-            rln_cpr_state = 3; // CPR: accumulating p1
+            rln_cpr_state = 3;
             rln_cpr_p1 = b - '0';
         }
         else
@@ -921,23 +961,9 @@ static void rln_cpr_feed(uint8_t b)
             rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
         else if (b == ';')
         {
-            rln_cpr_state = 5; // CPR p2
+            rln_cpr_state = 5;
             rln_cpr_p2 = 0;
         }
-        else
-            rln_cpr_release_seq();
-        break;
-    case 4: // DA first param (after ?)
-        if (isdigit(b))
-            rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
-        else if (b == 'c')
-        {
-            rln_cpr_seq_len = 0;
-            rln_cpr_state = 0;
-            rln_da_dispatch(rln_cpr_p1);
-        }
-        else if (b == ';')
-            rln_cpr_state = 6; // skip remaining DA params
         else
             rln_cpr_release_seq();
         break;
@@ -951,16 +977,6 @@ static void rln_cpr_feed(uint8_t b)
             rln_cpr_dispatch(rln_cpr_p1, rln_cpr_p2);
         }
         else
-            rln_cpr_release_seq();
-        break;
-    case 6: // DA tail (consume digits / ; until final c)
-        if (b == 'c')
-        {
-            rln_cpr_seq_len = 0;
-            rln_cpr_state = 0;
-            rln_da_dispatch(rln_cpr_p1);
-        }
-        else if (!isdigit(b) && b != ';')
             rln_cpr_release_seq();
         break;
     }
