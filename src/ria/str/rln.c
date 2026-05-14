@@ -125,9 +125,9 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 // moves we use LF (\n): CUD doesn't scroll, so if the prompt has been
 // pushed to the bottom of the screen, "down one row" via CUD silently
 // no-ops and renders end up clobbering the same row. LF scrolls as
-// needed. \r resets the column reliably; if the cursor is in
-// pending-wrap (xenl) after a boundary write, \r consumes that state
-// cleanly.
+// needed. Forced wrap in rln_render_from leaves the cursor at
+// deterministic positions — there is no xenl pending-wrap state to
+// consume — so \r and \n are unambiguous.
 static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
 {
     if (tr > fr)
@@ -197,45 +197,30 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
-        // Erase from cursor to end of display BEFORE writing. The
-        // erase has to fire BEFORE the writes because the cursor may
-        // end at col W (a boundary fill), and \33[J from there would
-        // erase the just-written cell on every spec-conformant
-        // terminal (minicom, Linux telnet, etc.). Doing it first
-        // wipes any stale content and lets the writes paint over the
-        // cleared cells without later interference.
+        // Erase from cursor to end of display before writing. \33[J
+        // from a cell we're about to write would clobber the new
+        // content on conforming terminals; clearing first wipes
+        // stale tail and lets the writes paint cleanly.
         printf("\33[J");
         uint8_t r;
         uint16_t c;
         rln_buf_to_screen(start, &r, &c);
         for (uint8_t i = start; i < rln_buflen; i++)
         {
-            if (c > rln_term_width)
+            putchar(rln_buf[i]);
+            if (c == rln_term_width)
             {
-                // The previous putchar filled col W. We trust xenl:
-                // the terminal is now in pending-wrap and the NEXT
-                // putchar will wrap to (r+1, 1) on its own. Just
-                // update our local tracking — no \r\n needed, and
-                // emitting one here would double-advance on a
-                // non-xenl terminal anyway.
+                // Force the wrap explicitly so a wider shadow
+                // terminal (different width than the queried one)
+                // breaks at the same logical column we do.
+                printf("\r\n");
                 r++;
                 c = 1;
             }
-            putchar(rln_buf[i]);
-            c++;
+            else
+                c++;
         }
-        // After putchar at col W, the cursor sits in pending-wrap at
-        // (r, W) — exactly the screen position of buf_to_screen
-        // (buflen-1). Setting cur_idx to buflen-1 keeps the model in
-        // sync; subsequent relative moves (CUB/CUF/CUU/LF) consume
-        // the pending state cleanly.
-        if (c > rln_term_width && rln_buflen)
-        {
-            c = rln_term_width;
-            rln_cur_idx = (uint8_t)(rln_buflen - 1);
-        }
-        else
-            rln_cur_idx = rln_buflen;
+        rln_cur_idx = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
 }
@@ -774,6 +759,14 @@ static void rln_line_rx_typed(uint8_t ch)
 
 static void rln_typeahead_push(uint8_t b)
 {
+    if (rln_phase == rln_phase_edit)
+    {
+        // Sniffer is always-on, so non-CPR bytes that arrive in
+        // edit phase need to flow straight to the typed parser
+        // instead of buffering for a drain that already happened.
+        rln_line_rx_typed(b);
+        return;
+    }
     if (rln_typeahead_len < RLN_TYPEAHEAD_MAX)
         rln_typeahead[rln_typeahead_len++] = b;
     // overflow silently dropped — handshake window is short
@@ -821,39 +814,53 @@ static void rln_handshake_fallback(void)
 }
 
 // Dispatch a parsed CPR (\33[<p1>;<p2>R). Row is in p1, col in p2.
+// Content-based routing classifies replies across multiple terminals:
+//   - First reply ever: prompt CPR.
+//   - Next reply with col > prompt_col: size CPR (drives transition).
+//   - Later replies whose col differs from prompt_col: clamp width down.
+//   - Anything else (incl. CPR2 echoing prompt_col when the terminal
+//     ignored \33[999;999H): discard, let the deadline fall through
+//     to single-line fallback rather than wrap at the prompt column.
 static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 {
-    if (rln_phase == rln_phase_prompt_cpr)
+    if (rln_prompt_col == 0)
     {
         rln_prompt_col = (p2 < 1) ? 1 : (p2 > 255 ? 255 : (uint8_t)p2);
         rln_phase = rln_phase_width_cpr;
     }
-    else if (rln_phase == rln_phase_width_cpr)
+    else if (rln_term_height == 0)
     {
+        if (p2 <= rln_prompt_col)
+            return; // bogus size; keep waiting for a useful CPR
         rln_term_height = p1;
         rln_term_width = p2;
-        if (rln_term_width < rln_prompt_col)
-            rln_term_width = rln_prompt_col; // sanity floor
-        // RCP + cursor-show ran from the init burst, so the cursor
-        // is already back at the prompt and visible. CPR2 is the
-        // last reply we wait on — burst order guarantees any DA2
-        // reply landed before this, so rln_decscusr_ok is final.
-        // Drop straight into edit; the cursor-shape emit in
-        // rln_enter_edit honors the now-final decscusr_ok.
         rln_enter_edit();
+    }
+    else if (p2 != rln_prompt_col &&
+             p2 > rln_prompt_col && p2 < rln_term_width)
+    {
+        // Late size CPR from a narrower shadow terminal. Clamp the
+        // working width down and re-flow the visible buffer so the
+        // wraps land at the same logical column on every display.
+        rln_term_width = p2;
+        if (rln_phase == rln_phase_edit)
+            rln_render_from(0);
     }
 }
 
 // Dispatch a parsed Secondary DA reply (\33[><...>c). The fact that
 // a reply arrived at all is the signal — minicom and similarly broken
 // peers ignore DA2 (and leak its `c` as literal text, scrubbed by the
-// burst's DECRC+EL). Param values are discarded. The burst orders
-// DA2 before CPR2, so this fires while we're still in width_cpr.
+// burst's DECRC+EL). Param values are discarded. A late DA2 arriving
+// in edit phase still flips the bit and emits the cursor shape so the
+// user sees the correct insert/overwrite indicator going forward.
 static void rln_da2_dispatch(void)
 {
-    if (rln_phase != rln_phase_width_cpr)
+    if (rln_decscusr_ok)
         return;
     rln_decscusr_ok = true;
+    if (rln_phase == rln_phase_edit)
+        rln_emit_mode_cursor();
 }
 
 // Feed one byte through the handshake mini-parser. Recognized shapes
@@ -975,6 +982,11 @@ void rln_read_line(rln_read_callback_t callback)
     rln_keyseq_overflow = false;
 
     rln_phase = rln_phase_prompt_cpr;
+    // Sentinels for the content-based CPR heuristic: 0 means
+    // "not pinned yet". Must be cleared every call or replies
+    // from the next handshake get misclassified.
+    rln_prompt_col = 0;
+    rln_term_height = 0;
     rln_term_width = 0;
     rln_cur_idx = 0;
     rln_decscusr_ok = false;
@@ -1027,18 +1039,18 @@ void rln_task(void)
         if (ch == PICO_ERROR_TIMEOUT)
             break;
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
-        if (rln_phase == rln_phase_edit)
-            rln_line_rx_typed((uint8_t)ch);
-        else
+        // Sniffer always runs; CPR/DA replies are absorbed even
+        // mid-edit. Non-matching bytes are released by the parser to
+        // either typeahead (handshake) or rln_line_rx_typed (edit)
+        // via rln_typeahead_push's phase dispatch.
+        rln_cpr_feed((uint8_t)ch);
+        // Provide instant relief during handshake for scripting
+        // tools which do not respond to ANSI sequences.
+        if (rln_phase != rln_phase_edit &&
+            (ch == '\r' || rln_typeahead_len >= RLN_TYPEAHEAD_MAX))
         {
-            rln_cpr_feed((uint8_t)ch);
-            // Provide instant relief for scripting tools
-            // which do not respond to ANSI sequences.
-            if (ch == '\r' || rln_typeahead_len >= RLN_TYPEAHEAD_MAX)
-            {
-                rln_term_width = 0; // infinite line mode
-                rln_enter_edit();
-            }
+            rln_term_width = 0; // infinite line mode
+            rln_enter_edit();
         }
     }
     if (rln_phase != rln_phase_edit && rln_callback &&
