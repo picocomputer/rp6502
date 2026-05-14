@@ -570,6 +570,55 @@ static uint8_t rln_effective_max(void)
     return cap;
 }
 
+// ICH (CSI Ps @): insert Ps blank chars at the cursor, shifting the tail
+// right. Cursor stays at its current position. Symmetric with DCH.
+static void rln_line_insert_n(rln_ansi_t *a)
+{
+    uint16_t count = a->csi_param[0];
+    if (count < 1)
+        count = 1;
+    uint8_t cap = rln_effective_max();
+    uint8_t avail = (cap > rln_buflen) ? (uint8_t)(cap - rln_buflen) : 0;
+    if (count > avail)
+        count = avail;
+    if (!count)
+        return;
+    memmove(rln_buf + rln_bufpos + count, rln_buf + rln_bufpos,
+            (size_t)(rln_buflen - rln_bufpos));
+    memset(rln_buf + rln_bufpos, ' ', count);
+    rln_buflen += (uint8_t)count;
+    rln_emit_insert(rln_bufpos, (uint8_t)count);
+}
+
+// ECH (CSI Ps X): erase Ps chars at the cursor by replacing them with
+// spaces. Cursor stays put, buflen unchanged, no shift. Stops at buflen.
+static void rln_line_erase_n(rln_ansi_t *a)
+{
+    uint16_t count = a->csi_param[0];
+    if (count < 1)
+        count = 1;
+    uint16_t end = (uint16_t)rln_bufpos + count;
+    if (end > rln_buflen)
+        end = rln_buflen;
+    if (end <= rln_bufpos)
+        return;
+    uint8_t at = rln_bufpos;
+    uint8_t span = (uint8_t)(end - at);
+    memset(rln_buf + at, ' ', span);
+    if (rln_phase != rln_phase_edit)
+        return;
+    if (!rln_input_no_wrap())
+    {
+        rln_render_from(at);
+        return;
+    }
+    rln_sync_cursor_to(at);
+    for (uint8_t i = 0; i < span; i++)
+        putchar(' ');
+    rln_cur_idx = (uint8_t)(at + span);
+    rln_sync_cursor_to(rln_bufpos);
+}
+
 static void rln_line_insert(char ch)
 {
     if ((unsigned char)ch < 32)
@@ -779,6 +828,10 @@ static void rln_line_state_CSI(rln_ansi_t *a, char ch)
         rln_line_home();
     else if (ch == 'P')
         rln_line_delete_n(a);
+    else if (ch == '@')
+        rln_line_insert_n(a);
+    else if (ch == 'X')
+        rln_line_erase_n(a);
     else if (ch == 'b' || ch == 2)
         rln_line_backward_word();
     else if (ch == 'f' || ch == 6)
