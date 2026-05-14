@@ -165,7 +165,7 @@ typedef struct term_state
     volatile bool cursor_lit; // Core 0 writes, Core 1 renderer reads. Single-byte → race-free.
     uint16_t default_fg_color;
     uint16_t default_bg_color;
-    uint16_t cursor_bg_color; // configured cursor block color (OSC 12)
+    uint16_t cursor_color; // OSC 12
     term_data_t *ptr;
     absolute_time_t timer;
     ansi_state_t ansi_state;
@@ -234,6 +234,21 @@ static inline void term_emit_attrs(const term_state_t *term,
     *attr = (uint8_t)(term->cur->sgr_attr & cell_mask);
 }
 
+// Paint [start, end) of `row` with space glyphs at the given fg/bg/attr.
+// Used by every clear/erase/insert path; keep this the only place that
+// touches all four cell fields together.
+static inline void fill_cells(term_data_t *row, unsigned start, unsigned end,
+                              uint16_t fg, uint16_t bg, uint8_t attr)
+{
+    for (unsigned i = start; i < end; i++)
+    {
+        row[i].font_code = ' ';
+        row[i].fg_color = fg;
+        row[i].bg_color = bg;
+        row[i].attributes = attr;
+    }
+}
+
 // Make sure you call this any time you change rows.
 // It will process any pending screen clears on the row.
 static void term_clean_line(term_state_t *term, uint8_t y)
@@ -241,17 +256,10 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     if (!term->screen->dirty[y])
         return;
     term->screen->dirty[y] = false;
-    term_data_t *row = term_row_ptr(term, y);
-    uint16_t erase_fg_color = term->screen->erase_fg_color[y];
-    uint16_t erase_bg_color = term->screen->erase_bg_color[y];
-    uint8_t erase_attr = term->screen->erase_attr[y];
-    for (size_t i = 0; i < term->width; i++)
-    {
-        row[i].font_code = ' ';
-        row[i].fg_color = erase_fg_color;
-        row[i].bg_color = erase_bg_color;
-        row[i].attributes = erase_attr;
-    }
+    fill_cells(term_row_ptr(term, y), 0, term->width,
+               term->screen->erase_fg_color[y],
+               term->screen->erase_bg_color[y],
+               term->screen->erase_attr[y]);
 }
 
 // Set a new cursor position, 0-indexed
@@ -293,16 +301,10 @@ static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heigh
             if (slot >= TERM_MAX_HEIGHT)
                 slot -= TERM_MAX_HEIGHT;
             term_data_t *row = buf->mem + (uint32_t)buf->row_idx[slot] * width;
-            uint16_t fg = buf->erase_fg_color[i];
-            uint16_t bg = buf->erase_bg_color[i];
-            uint8_t attr = buf->erase_attr[i];
-            for (size_t x = 0; x < width; x++)
-            {
-                row[x].font_code = ' ';
-                row[x].fg_color = fg;
-                row[x].bg_color = bg;
-                row[x].attributes = attr;
-            }
+            fill_cells(row, 0, width,
+                       buf->erase_fg_color[i],
+                       buf->erase_bg_color[i],
+                       buf->erase_attr[i]);
             return true;
         }
     }
@@ -426,14 +428,7 @@ static void term_clear_buf(screen_buf_t *buf, uint8_t width, uint8_t height,
         buf->row_idx[y] = y;
     for (uint8_t y = 0; y < height; y++)
     {
-        term_data_t *row = buf->mem + (uint32_t)y * width;
-        for (uint8_t x = 0; x < width; x++)
-        {
-            row[x].font_code = ' ';
-            row[x].fg_color = fg;
-            row[x].bg_color = bg;
-            row[x].attributes = attr;
-        }
+        fill_cells(buf->mem + (uint32_t)y * width, 0, width, fg, bg, attr);
         buf->dirty[y] = false;
         buf->erase_fg_color[y] = fg;
         buf->erase_bg_color[y] = bg;
@@ -482,7 +477,7 @@ static void term_out_RIS(term_state_t *term)
     term->ansi_state = ansi_state_C0;
     term->default_fg_color = color_256[TERM_FG_COLOR_INDEX];
     term->default_bg_color = color_256[TERM_BG_COLOR_INDEX];
-    term->cursor_bg_color = color_256[TERM_FG_COLOR_INDEX];
+    term->cursor_color = color_256[TERM_FG_COLOR_INDEX];
     term->csi_intermediate = 0;
     term_reset_sgr_and_modes(term);
     term_reset_tab_stops(term);
@@ -547,17 +542,16 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
             }
             logical_row = term->height;
         }
-        term_data_t *data = term_row_ptr(term, logical_row);
-        for (size_t i = 0; i < term->width; i++)
-        {
-            data[i].font_code = ' ';
-            data[i].fg_color = color_256[TERM_FG_COLOR_INDEX];
-            data[i].bg_color = color_256[TERM_BG_COLOR_INDEX];
-        }
+        fill_cells(term_row_ptr(term, logical_row), 0, term->width,
+                   term->default_fg_color, term->default_bg_color, 0);
     }
-    // DECSTBM region is meaningless across a height change.
-    term->screen->margin_top = 0;
-    term->screen->margin_bot = term->height - 1;
+    // DECSTBM region is meaningless across a height change. Reset both
+    // buffers; the inactive one would otherwise carry stale margins that
+    // could exceed the new height on a later swap.
+    term->bufs[0].margin_top = 0;
+    term->bufs[0].margin_bot = (uint8_t)(term->height - 1);
+    term->bufs[1].margin_top = 0;
+    term->bufs[1].margin_bot = (uint8_t)(term->height - 1);
 }
 
 // Parse the param tail of SGR 38 / 48 / 58 starting at idx. Writes the
@@ -937,7 +931,7 @@ static void term_out_CBT(term_state_t *term)
     while (n-- > 0 && term->cur->x > 0)
     {
         uint8_t target = 0;
-        for (int col = (int)term->cur->x - 1; col > 0; col--)
+        for (int col = (int)term->cur->x - 1; col >= 0; col--)
         {
             if (term_tab_is_set(term, (uint8_t)col))
             {
@@ -1404,13 +1398,7 @@ static void term_out_DCH(term_state_t *term)
     uint16_t dch_fg, dch_bg;
     uint8_t dch_attr;
     term_emit_attrs(term, &dch_fg, &dch_bg, &dch_attr);
-    for (unsigned i = tail; i < term->width; i++)
-    {
-        row[i].font_code = ' ';
-        row[i].fg_color = dch_fg;
-        row[i].bg_color = dch_bg;
-        row[i].attributes = dch_attr;
-    }
+    fill_cells(row, tail, term->width, dch_fg, dch_bg, dch_attr);
 }
 
 // Insert Pn blank characters at the cursor on the current row; cells past
@@ -1431,13 +1419,7 @@ static void term_out_ICH(term_state_t *term)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
-    for (unsigned i = term->cur->x; i < (unsigned)term->cur->x + chars; i++)
-    {
-        row[i].font_code = ' ';
-        row[i].fg_color = fg;
-        row[i].bg_color = bg;
-        row[i].attributes = attr;
-    }
+    fill_cells(row, term->cur->x, term->cur->x + chars, fg, bg, attr);
 }
 
 // Insert Pn lines at the cursor. Only valid inside [margin_top, margin_bot];
@@ -1479,14 +1461,8 @@ static void term_out_ECH(term_state_t *term)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
-    term_data_t *row = term_row_ptr(term, term->cur->y);
-    for (uint16_t i = 0; i < n; i++)
-    {
-        row[term->cur->x + i].font_code = ' ';
-        row[term->cur->x + i].fg_color = fg;
-        row[term->cur->x + i].bg_color = bg;
-        row[term->cur->x + i].attributes = attr;
-    }
+    fill_cells(term_row_ptr(term, term->cur->y),
+               term->cur->x, term->cur->x + n, fg, bg, attr);
 }
 
 // Scroll Up Pn rows within the current scroll region. Cursor unchanged.
@@ -1496,6 +1472,9 @@ static void term_out_SU(term_state_t *term)
     if (n < 1)
         n = 1;
     term_region_scroll_up(term, term->screen->margin_top, term->screen->margin_bot, (uint8_t)n);
+    // row_idx[] rotated within the region; refresh ptr so subsequent
+    // writes via term->ptr land on the new physical row for cur->y.
+    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
     term_clean_line(term, term->cur->y);
 }
 
@@ -1506,6 +1485,7 @@ static void term_out_SD(term_state_t *term)
     if (n < 1)
         n = 1;
     term_region_scroll_down(term, term->screen->margin_top, term->screen->margin_bot, (uint8_t)n);
+    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
     term_clean_line(term, term->cur->y);
 }
 
@@ -1637,25 +1617,19 @@ static void term_out_EL(term_state_t *term)
     case 0: // to the end of the line
     case 1: // to beginning of the line
     {
-        term_data_t *row = term_row_ptr(term, term->cur->y);
-        uint8_t x, end;
+        unsigned x, end;
         if (!term->csi_param[0])
         {
             x = term->cur->x;
-            end = term->width - 1;
+            end = term->width;
         }
         else
         {
             x = 0;
-            end = term->cur->x;
+            end = (unsigned)term->cur->x + 1;
         }
-        for (; x <= end; x++)
-        {
-            row[x].font_code = ' ';
-            row[x].fg_color = erase_fg;
-            row[x].bg_color = erase_bg;
-            row[x].attributes = erase_a;
-        }
+        fill_cells(term_row_ptr(term, term->cur->y), x, end,
+                   erase_fg, erase_bg, erase_a);
         break;
     }
     case 2: // full line
@@ -1698,8 +1672,12 @@ static void term_out_state_C0(term_state_t *term, char ch)
     case '\a': // BEL
         break;
     case '\b': // BS
-        term->csi_param[0] = 1;
-        return term_out_CUB(term);
+        if (term->cur->x > 0)
+        {
+            term->cur->x--;
+            term->ptr--;
+        }
+        break;
     case '\t': // HT
         return term_out_HT(term);
     case '\n': // LF
@@ -2150,7 +2128,7 @@ static void term_out_OSC(term_state_t *term)
         break;
     case 12:
         if (spec_ok)
-            term->cursor_bg_color = packed;
+            term->cursor_color = packed;
         break;
     case 110:
         if (empty)
@@ -2170,7 +2148,7 @@ static void term_out_OSC(term_state_t *term)
         break;
     case 112:
         if (empty)
-            term->cursor_bg_color = color_256[TERM_FG_COLOR_INDEX];
+            term->cursor_color = color_256[TERM_FG_COLOR_INDEX];
         break;
     }
 }
@@ -2444,7 +2422,7 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
         if (cx >= term_40.width)
             cx = (uint8_t)(term_40.width - 1);
         uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
-        const uint16_t cursor_color = term_40.cursor_bg_color;
+        const uint16_t cursor_color = term_40.cursor_color;
         switch (term_40.cursor_style)
         {
         case 3:
@@ -2524,7 +2502,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
         if (cx >= term_80.width)
             cx = (uint8_t)(term_80.width - 1);
         uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
-        const uint16_t cursor_color = term_80.cursor_bg_color;
+        const uint16_t cursor_color = term_80.cursor_color;
         switch (term_80.cursor_style)
         {
         case 3:

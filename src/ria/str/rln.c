@@ -216,7 +216,7 @@ static void rln_render_from(uint8_t start)
                 // Forced wrap so a shadow terminal of a different
                 // width still breaks at the same logical column,
                 // plus clear the new row before populating it.
-                printf("\r\n\33[K");
+                printf("\n\33[K");
                 r++;
                 c = 1;
             }
