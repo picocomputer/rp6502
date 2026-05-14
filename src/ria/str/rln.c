@@ -34,9 +34,11 @@ typedef enum
 typedef enum
 {
     rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
-    rln_phase_width_cpr,  // waiting for second CPR (height + width); also
-                          // absorbs the DA2 reply for DECSCUSR detection,
-                          // which the burst order guarantees arrives first
+    rln_phase_width_cpr,  // waiting for second CPR (height + width); the
+                          // burst order guarantees DA2's reply lands first,
+                          // but DA2 is absorbed by the always-on CPR sniffer
+                          // regardless of phase, so this phase just gates
+                          // the CPR-driven transition to edit
     rln_phase_edit,       // normal editing
 } rln_phase_t;
 
@@ -243,6 +245,55 @@ static void rln_render_from(uint8_t start)
     rln_sync_cursor_to(rln_bufpos);
 }
 
+/* ----- ICH/DCH emit helpers ----- */
+
+// Emit the screen update for an insertion of `count` chars at buffer
+// position `at`. The buffer must already contain the new chars at
+// rln_buf[at..at+count-1]. Leaves cursor at rln_bufpos.
+//
+// Single-line mode (term_width == 0) uses ICH (CSI Ps @) so the
+// terminal shifts the tail itself; only the new chars travel the
+// wire. Multi-line mode falls back to a tail rewrite because a
+// faithful per-row ICH ripple has to track each row's boundary
+// character and resolve xenl at row width — the rewrite is simpler
+// and the size difference is bounded by RLN_MAX_ROWS.
+static void rln_emit_insert(uint8_t at, uint8_t count)
+{
+    if (rln_phase != rln_phase_edit || !count)
+        return;
+    if (rln_term_width)
+    {
+        rln_render_from(at);
+        return;
+    }
+    rln_sync_cursor_to(at);
+    printf("\33[%u@", count);
+    for (uint8_t i = 0; i < count; i++)
+        putchar(rln_buf[at + i]);
+    rln_cur_idx = (uint8_t)(at + count);
+    rln_sync_cursor_to(rln_bufpos);
+}
+
+// Emit the screen update for a deletion of `count` chars starting at
+// buffer position `at`. The buffer must already reflect the deletion.
+// Leaves cursor at rln_bufpos.
+//
+// Single-line uses DCH (CSI Ps P). Multi-line falls back to
+// rln_render_from for the same reason as rln_emit_insert.
+static void rln_emit_delete(uint8_t at, uint8_t count)
+{
+    if (rln_phase != rln_phase_edit || !count)
+        return;
+    if (rln_term_width)
+    {
+        rln_render_from(at);
+        return;
+    }
+    rln_sync_cursor_to(at);
+    printf("\33[%uP", count);
+    rln_sync_cursor_to(rln_bufpos);
+}
+
 /* ----- History ----- */
 
 static void rln_replace_buf_from_history(void)
@@ -253,28 +304,17 @@ static void rln_replace_buf_from_history(void)
     rln_render_from(0);
 }
 
-static void rln_line_up(void)
+static void rln_history_step(int dir)
 {
     if (!rln_enable_history || rln_timeout_ms)
         return;
-    if (rln_history_pos >= rln_history_count)
+    if (dir > 0 && rln_history_pos >= rln_history_count)
+        return;
+    if (dir < 0 && !rln_history_pos)
         return;
     rln_buf[rln_buflen] = 0;
     memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
-    rln_history_pos++;
-    memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
-    rln_replace_buf_from_history();
-}
-
-static void rln_line_down(void)
-{
-    if (!rln_enable_history || rln_timeout_ms)
-        return;
-    if (rln_history_pos <= 0)
-        return;
-    rln_buf[rln_buflen] = 0;
-    memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
-    rln_history_pos--;
+    rln_history_pos += dir;
     memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
     rln_replace_buf_from_history();
 }
@@ -288,8 +328,7 @@ static void rln_history_add(void)
     rln_buf[rln_buflen] = 0;
     if (rln_history_count > 0 && strcmp(rln_history[1], rln_buf) == 0)
         return;
-    for (int i = RLN_HISTORY_SIZE - 1; i > 1; i--)
-        memcpy(rln_history[i], rln_history[i - 1], RLN_BUF_SIZE);
+    memmove(rln_history[2], rln_history[1], (size_t)(RLN_HISTORY_SIZE - 2) * RLN_BUF_SIZE);
     memcpy(rln_history[1], rln_buf, rln_buflen + 1);
     rln_history[0][0] = 0;
     if (rln_history_count < RLN_HISTORY_SIZE - 1)
@@ -315,90 +354,120 @@ static bool rln_is_word_delimiter(char ch)
     return ch == ' ' || ch == '/' || ch == '\\' || ch == '.' || ch == ':' || ch == '=';
 }
 
+// Scan from rln_bufpos to the next word boundary in the given direction.
+// dir > 0: end of current/next word; dir < 0: start of current/previous
+// word. Returns the new buffer index (clamped to [0, rln_buflen]); equals
+// rln_bufpos when already at the boundary.
+static uint8_t rln_scan_word(int dir)
+{
+    uint8_t pos = rln_bufpos;
+    if (dir > 0)
+    {
+        while (pos < rln_buflen)
+        {
+            pos++;
+            if (pos >= rln_buflen)
+                break;
+            if (rln_is_word_delimiter(rln_buf[pos]) &&
+                !rln_is_word_delimiter(rln_buf[pos - 1]))
+                break;
+        }
+    }
+    else
+    {
+        while (pos)
+        {
+            pos--;
+            if (!pos)
+                break;
+            if (!rln_is_word_delimiter(rln_buf[pos]) &&
+                rln_is_word_delimiter(rln_buf[pos - 1]))
+                break;
+        }
+    }
+    return pos;
+}
+
 static void rln_line_forward_word(void)
 {
-    if (rln_bufpos >= rln_buflen)
+    uint8_t to = rln_scan_word(1);
+    if (to == rln_bufpos)
         return;
-    while (true)
-    {
-        if (++rln_bufpos >= rln_buflen)
-            break;
-        if (rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
-            !rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
-            break;
-    }
+    rln_bufpos = to;
     rln_sync_cursor_to(rln_bufpos);
-}
-
-static void rln_line_forward(rln_ansi_t *a)
-{
-    uint16_t count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
-    if (a->csi_param_count > 1 && a->csi_param[1] != 1)
-        return rln_line_forward_word();
-    if (count > rln_buflen - rln_bufpos)
-        count = rln_buflen - rln_bufpos;
-    if (!count)
-        return;
-    rln_bufpos += count;
-    rln_sync_cursor_to(rln_bufpos);
-}
-
-static void rln_line_forward_1(rln_ansi_t *a)
-{
-    a->csi_param_count = 1;
-    a->csi_param[0] = 1;
-    rln_line_forward(a);
 }
 
 static void rln_line_backward_word(void)
 {
-    if (!rln_bufpos)
+    uint8_t to = rln_scan_word(-1);
+    if (to == rln_bufpos)
         return;
-    while (true)
-    {
-        if (!--rln_bufpos)
-            break;
-        if (!rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
-            rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
-            break;
-    }
+    rln_bufpos = to;
     rln_sync_cursor_to(rln_bufpos);
+}
+
+static void rln_step(int delta)
+{
+    uint8_t prev = rln_bufpos;
+    if (delta > 0)
+    {
+        uint16_t room = (uint16_t)(rln_buflen - rln_bufpos);
+        if ((uint16_t)delta > room)
+            delta = (int)room;
+        rln_bufpos += (uint8_t)delta;
+    }
+    else if (delta < 0)
+    {
+        uint16_t mag = (uint16_t)(-delta);
+        if (mag > rln_bufpos)
+            mag = rln_bufpos;
+        rln_bufpos -= (uint8_t)mag;
+    }
+    if (rln_bufpos != prev)
+        rln_sync_cursor_to(rln_bufpos);
+}
+
+static void rln_line_forward(rln_ansi_t *a)
+{
+    if (a->csi_param_count > 1 && a->csi_param[1] != 1)
+        return rln_line_forward_word();
+    int count = a->csi_param[0];
+    if (count < 1)
+        count = 1;
+    rln_step(count);
 }
 
 static void rln_line_backward(rln_ansi_t *a)
 {
-    uint16_t count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
     if (a->csi_param_count > 1 && a->csi_param[1] != 1)
         return rln_line_backward_word();
-    if (count > rln_bufpos)
-        count = rln_bufpos;
-    if (!count)
-        return;
-    rln_bufpos -= count;
-    rln_sync_cursor_to(rln_bufpos);
-}
-
-static void rln_line_backward_1(rln_ansi_t *a)
-{
-    a->csi_param_count = 1;
-    a->csi_param[0] = 1;
-    rln_line_backward(a);
+    int count = a->csi_param[0];
+    if (count < 1)
+        count = 1;
+    rln_step(-count);
 }
 
 /* ----- Buffer mutations ----- */
 
+// Excise rln_buf[start..end) and leave the cursor at start. Caller must
+// pass start <= rln_buflen; end is clamped down to rln_buflen so callers
+// can pass an unclamped target.
+static void rln_delete_range(uint8_t start, uint8_t end)
+{
+    if (end > rln_buflen)
+        end = rln_buflen;
+    if (start >= end)
+        return;
+    uint8_t count = (uint8_t)(end - start);
+    memmove(rln_buf + start, rln_buf + end, (size_t)(rln_buflen - end));
+    rln_buflen -= count;
+    rln_bufpos = start;
+    rln_emit_delete(start, count);
+}
+
 static void rln_line_delete(void)
 {
-    if (!rln_buflen || rln_bufpos == rln_buflen)
-        return;
-    rln_buflen--;
-    for (size_t i = rln_bufpos; i < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + 1];
-    rln_render_from(rln_bufpos);
+    rln_delete_range(rln_bufpos, rln_bufpos + 1);
 }
 
 static void rln_line_delete_n(rln_ansi_t *a)
@@ -406,88 +475,36 @@ static void rln_line_delete_n(rln_ansi_t *a)
     uint16_t count = a->csi_param[0];
     if (count < 1)
         count = 1;
-    if (rln_bufpos == rln_buflen)
-        return;
-    if (count > rln_buflen - rln_bufpos)
-        count = rln_buflen - rln_bufpos;
-    if (!count)
-        return;
-    for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + count];
-    rln_buflen -= count;
-    rln_render_from(rln_bufpos);
+    uint16_t end = (uint16_t)rln_bufpos + count;
+    if (end > 255)
+        end = 255;
+    rln_delete_range(rln_bufpos, (uint8_t)end);
 }
 
 static void rln_line_backspace(void)
 {
-    if (!rln_bufpos)
-        return;
-    rln_bufpos--;
-    rln_buflen--;
-    for (size_t i = rln_bufpos; i < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + 1];
-    rln_render_from(rln_bufpos);
+    if (rln_bufpos)
+        rln_delete_range(rln_bufpos - 1, rln_bufpos);
 }
 
 static void rln_line_backward_kill_word(void)
 {
-    if (!rln_bufpos)
-        return;
-    uint8_t orig_pos = rln_bufpos;
-    while (true)
-    {
-        if (!--rln_bufpos)
-            break;
-        if (!rln_is_word_delimiter(rln_buf[rln_bufpos]) &&
-            rln_is_word_delimiter(rln_buf[rln_bufpos - 1]))
-            break;
-    }
-    int count = orig_pos - rln_bufpos;
-    for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + count];
-    rln_buflen -= count;
-    rln_render_from(rln_bufpos);
+    rln_delete_range(rln_scan_word(-1), rln_bufpos);
 }
 
 static void rln_line_forward_kill_word(void)
 {
-    if (rln_bufpos >= rln_buflen)
-        return;
-    uint8_t pos = rln_bufpos;
-    int count = 0;
-    while (true)
-    {
-        count++;
-        if (++pos >= rln_buflen)
-            break;
-        if (rln_is_word_delimiter(rln_buf[pos]) &&
-            !rln_is_word_delimiter(rln_buf[pos - 1]))
-            break;
-    }
-    for (size_t i = rln_bufpos; i + count < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + count];
-    rln_buflen -= count;
-    rln_render_from(rln_bufpos);
+    rln_delete_range(rln_bufpos, rln_scan_word(1));
 }
 
 static void rln_line_kill_to_end(void)
 {
-    if (rln_bufpos == rln_buflen)
-        return;
-    rln_buflen = rln_bufpos;
-    rln_render_from(rln_bufpos);
+    rln_delete_range(rln_bufpos, rln_buflen);
 }
 
 static void rln_line_kill_to_start(void)
 {
-    if (!rln_bufpos)
-        return;
-    int count = rln_bufpos;
-    for (size_t i = 0; i + count < rln_buflen; i++)
-        rln_buf[i] = rln_buf[i + count];
-    rln_buflen -= count;
-    rln_bufpos = 0;
-    rln_render_from(0);
+    rln_delete_range(0, rln_bufpos);
 }
 
 // Effective max chars we can hold, given current screen geometry. In
@@ -525,19 +542,39 @@ static void rln_line_insert(char ch)
     }
     if (rln_overwrite && rln_bufpos < rln_buflen)
     {
+        // Overwrite replaces one char in place; nothing past the
+        // cursor moves, so we just sync the cursor, write the char,
+        // and resolve xenl if we landed at the right margin.
         rln_buf[rln_bufpos] = ch;
-        rln_bufpos++;
-        rln_render_from(rln_bufpos - 1);
+        if (rln_phase == rln_phase_edit)
+        {
+            rln_sync_cursor_to(rln_bufpos);
+            bool at_row_end = false;
+            if (rln_term_width)
+            {
+                uint8_t r;
+                uint16_t c;
+                rln_buf_to_screen(rln_bufpos, &r, &c);
+                at_row_end = (c == rln_term_width);
+            }
+            putchar(ch);
+            rln_bufpos++;
+            rln_cur_idx = rln_bufpos;
+            if (at_row_end)
+                printf("\n");
+        }
+        else
+            rln_bufpos++;
         return;
     }
     if (rln_buflen >= rln_effective_max())
         return;
-    for (size_t i = rln_buflen; i > rln_bufpos; i--)
-        rln_buf[i] = rln_buf[i - 1];
+    memmove(rln_buf + rln_bufpos + 1, rln_buf + rln_bufpos, (size_t)(rln_buflen - rln_bufpos));
     rln_buflen++;
     rln_buf[rln_bufpos] = ch;
+    uint8_t at = rln_bufpos;
     rln_bufpos++;
-    rln_render_from(rln_bufpos - 1);
+    rln_emit_insert(at, 1);
 }
 
 /* ----- Mode toggling ----- */
@@ -583,19 +620,19 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
     else if (ch == 1) // ctrl-a
         rln_line_home();
     else if (ch == 2) // ctrl-b
-        rln_line_backward_1(a);
+        rln_step(-1);
     else if (ch == 4) // ctrl-d
         rln_line_delete();
     else if (ch == 5) // ctrl-e
         rln_line_end();
     else if (ch == 6) // ctrl-f
-        rln_line_forward_1(a);
+        rln_step(1);
     else if (ch == 11) // ctrl-k
         rln_line_kill_to_end();
     else if (ch == 14) // ctrl-n
-        rln_line_down();
+        rln_history_step(-1);
     else if (ch == 16) // ctrl-p
-        rln_line_up();
+        rln_history_step(1);
     else if (ch == 21) // ctrl-u
         rln_line_kill_to_start();
     else if (ch == 23) // ctrl-w
@@ -684,12 +721,11 @@ static void rln_line_state_CSI(rln_ansi_t *a, char ch)
         return;
     }
     a->state = ansi_state_C0;
-    if (++a->csi_param_count > RLN_CSI_PARAM_MAX_LEN)
-        a->csi_param_count = RLN_CSI_PARAM_MAX_LEN;
+    a->csi_param_count++;
     if (ch == 'A')
-        rln_line_up();
+        rln_history_step(1);
     else if (ch == 'B')
-        rln_line_down();
+        rln_history_step(-1);
     else if (ch == 'C')
         rln_line_forward(a);
     else if (ch == 'D')
@@ -843,7 +879,7 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 {
     if (rln_prompt_col == 0)
     {
-        rln_prompt_col = (p2 < 1) ? 1 : (p2 > 255 ? 255 : (uint8_t)p2);
+        rln_prompt_col = p2 ? (p2 > 255 ? 255 : (uint8_t)p2) : 1;
         rln_phase = rln_phase_width_cpr;
     }
     else if (rln_term_height == 0)
@@ -854,8 +890,7 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
         rln_term_width = p2;
         rln_enter_edit();
     }
-    else if (p2 != rln_prompt_col &&
-             p2 > rln_prompt_col && p2 < rln_term_width)
+    else if (p2 > rln_prompt_col && p2 < rln_term_width)
     {
         // Late size CPR from a narrower shadow terminal. Clamp the
         // working width down and re-flow the visible buffer so the
@@ -987,6 +1022,7 @@ static void rln_cpr_feed(uint8_t b)
 
 void rln_read_line(rln_read_callback_t callback)
 {
+    rln_timeout_ms = 0;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_typed_ansi.state = ansi_state_C0;
@@ -1043,9 +1079,9 @@ void rln_read_line(rln_read_callback_t callback)
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
+    rln_read_line(callback);
     rln_timeout_ms = timeout_ms;
     rln_timer = make_timeout_time_ms(rln_timeout_ms);
-    rln_read_line(callback);
 }
 
 void rln_task(void)
@@ -1112,7 +1148,6 @@ void rln_stop(void)
 
 void rln_break(void)
 {
-    // rln_cleanup_if_active();
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
     printf("\n");
