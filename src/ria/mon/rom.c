@@ -12,6 +12,7 @@
 #include "mon/mon.h"
 #include "mon/rom.h"
 #include "net/cyw.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
@@ -688,7 +689,7 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    const uint32_t WIDTH = 79; // some terms wrap at 80
+    const uint32_t WIDTH = rln_get_term_width();
     uint32_t count = 0;
     int line = 1;
     uint32_t col = 0;

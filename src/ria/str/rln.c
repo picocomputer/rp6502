@@ -7,6 +7,7 @@
 #include "main.h"
 #include "api/api.h"
 #include "sys/ria.h"
+#include "sys/vga.h"
 #include "str/rln.h"
 #include "str/str.h"
 #include <pico/stdlib.h>
@@ -1162,8 +1163,29 @@ uint8_t rln_get_max_length(void) { return rln_max_length; }
 void rln_set_caps(uint8_t v) { rln_caps = v; }
 uint8_t rln_get_caps(void) { return rln_caps; }
 
-// Captured during the handshake; 0 if unknown / fallback.
-uint16_t rln_get_term_height(void) { return rln_term_height; }
+uint16_t rln_get_term_width(void)
+{
+    uint16_t cap = 80;
+    if (vga_connected())
+    {
+        vga_canvas_t c = vga_get_canvas();
+        if (c == vga_canvas_320_240 || c == vga_canvas_320_180)
+            cap = 40;
+    }
+    if (rln_term_width == 0)
+        return cap;
+    return rln_term_width > cap ? cap : rln_term_width;
+}
+
+uint16_t rln_get_term_height(void)
+{
+    uint16_t cap = 0;
+    if (vga_connected())
+        cap = (vga_get_display_type() == 2) ? 32 : 30;
+    if (rln_term_height > 0)
+        return (cap && rln_term_height > cap) ? cap : rln_term_height;
+    return cap ? cap : 24;
+}
 
 /* Readline magic: lastkey + peekpoke
  */

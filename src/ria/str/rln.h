@@ -43,8 +43,13 @@ uint8_t rln_get_max_length(void);
 void rln_set_caps(uint8_t v);
 uint8_t rln_get_caps(void);
 
-// Terminal height as captured during the last handshake; 0 if unknown
-// (no CPR reply / fallback mode).
+// Terminal width: captured CPR width clamped to a canvas-aware ceiling.
+// Returns 80 by default; 40 when a 320-wide VGA canvas is selected.
+uint16_t rln_get_term_width(void);
+
+// Terminal height: captured CPR height clamped to VGA's row capacity when
+// VGA is connected (30, or 32 in display mode 2). Falls back to 24 when
+// CPR didn't reply and no VGA is connected. Always returns >= 1.
 uint16_t rln_get_term_height(void);
 
 // 6502 API entry points.

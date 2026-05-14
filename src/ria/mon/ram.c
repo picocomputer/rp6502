@@ -42,38 +42,49 @@ static uint32_t ram_intel_hex_base;
 
 static bool ram_start_read_chunk(void);
 
+// 16 bytes + ASCII fits in 75 cols (XRAM worst case). Below 75, drop to 8 bytes.
+static size_t ram_chunk_size(void)
+{
+    return rln_get_term_width() >= 75 ? 16 : 8;
+}
+
 static int ram_print_response(char *buf, size_t buf_size, int state)
 {
     (void)buf_size;
-    assert(mbuf_len <= 16);
     if (state < 0)
         return state;
+    size_t chunk = ram_chunk_size();
+    bool with_ascii = rln_get_term_width() >= 42;
+    assert(mbuf_len <= chunk);
     sprintf(buf, "%04lX ", ram_rw_addr);
     buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
     {
-        if (i == 8)
+        if (i == 8 && chunk == 16)
             *buf++ = ' ';
         uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
         sprintf(buf, " %02X", c);
         buf += 3;
     }
-    size_t spaces = (16 - mbuf_len) * 3;
-    if (mbuf_len <= 8)
-        ++spaces;
-    for (size_t s = 0; s < spaces; s++)
-        *buf++ = ' ';
-    *buf++ = ' ';
-    *buf++ = ' ';
-    *buf++ = '|';
-    for (size_t i = 0; i < mbuf_len; i++)
+    if (with_ascii)
     {
-        uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
-        if (c < 32 || c >= 127)
-            c = '.';
-        *buf++ = c;
+        size_t spaces = (chunk - mbuf_len) * 3;
+        if (chunk == 16 && mbuf_len <= 8)
+            ++spaces;
+        for (size_t s = 0; s < spaces; s++)
+            *buf++ = ' ';
+        *buf++ = ' ';
+        *buf++ = ' ';
+        *buf++ = '|';
+        for (size_t i = 0; i < mbuf_len; i++)
+        {
+            uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
+            if (c < 32 || c >= 127)
+                c = '.';
+            *buf++ = c;
+        }
+        *buf++ = '|';
     }
-    *buf++ = '|';
     *buf++ = '\n';
     *buf = '\0';
     ram_rw_addr += mbuf_len;
@@ -89,9 +100,10 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
 // is already resident; caller can print without a fetch).
 static bool ram_start_read_chunk(void)
 {
+    size_t chunk = ram_chunk_size();
     mbuf_len = ram_rw_end - ram_rw_addr + 1;
-    if (mbuf_len > 16)
-        mbuf_len = 16;
+    if (mbuf_len > chunk)
+        mbuf_len = chunk;
     if (ram_rw_addr >= 0x10000)
         return false;
     ria_read_buf(ram_rw_addr);

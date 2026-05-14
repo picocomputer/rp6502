@@ -45,6 +45,7 @@ static enum {
 
 static bool vga_needs_reset = true;
 static uint8_t vga_display_type;
+static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
 static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
@@ -250,6 +251,9 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
+        // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
+        // which resets canvas to vga_console. Mirror that here.
+        vga_canvas_current = vga_canvas_console;
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_display_type);
     }
 }
@@ -273,6 +277,28 @@ void vga_stop(void)
 void vga_break(void)
 {
     vga_needs_reset = true;
+}
+
+vga_canvas_t vga_get_canvas(void)
+{
+    return vga_canvas_current;
+}
+
+void vga_set_canvas(uint16_t canvas_word)
+{
+    switch (canvas_word)
+    {
+    case vga_canvas_console:
+    case vga_canvas_320_240:
+    case vga_canvas_320_180:
+    case vga_canvas_640_480:
+    case vga_canvas_640_360:
+        vga_canvas_current = (vga_canvas_t)canvas_word;
+        break;
+    default:
+        // VGA side naks unknown canvas values and does nothing
+        break;
+    }
 }
 
 bool vga_connected(void)

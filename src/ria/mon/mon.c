@@ -18,7 +18,6 @@
 #include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/sys.h"
-#include "sys/vga.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
@@ -43,6 +42,8 @@ static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
 static int mon_response_line;
+static int mon_response_col;
+static bool mon_response_width_aware;
 static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
@@ -320,6 +321,8 @@ static void mon_break_response(void)
 {
     mon_needs_break = false;
     mon_response_pos = -1;
+    mon_response_col = 0;
+    mon_response_width_aware = false;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
     {
         if (mon_response_state[i] >= 0)
@@ -387,22 +390,6 @@ static void mon_more(void)
     }
 }
 
-static int mon_guess_console_rows(void)
-{
-    uint16_t known = rln_get_term_height();
-    if (known > 0)
-        return known;
-    int rows = 24; // VT100 safe
-    if (vga_connected())
-    {
-        if (vga_get_display_type() == 2)
-            rows = 32;
-        else
-            rows = 30;
-    }
-    return rows;
-}
-
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
@@ -415,20 +402,51 @@ void mon_task(void)
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
-        int rows_max = mon_guess_console_rows() - 1;
+        int rows_max = rln_get_term_height() - 1;
+        int width = rln_get_term_width();
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
         {
-            putchar(c);
-            mon_response_pos++;
-            if (c == '\n')
+            // Width-aware newline injection. Suppressed once any producer in
+            // this command chain has emitted a non-plain-ASCII byte (ESC,
+            // UTF-8 continuation, etc.) — such producers manage their own
+            // width and our column counter would be wrong from there on.
+            if (!mon_response_width_aware && c != '\n' && c != '\r' &&
+                mon_response_col >= width)
             {
+                putchar('\n');
+                mon_response_col = 0;
                 mon_response_line++;
                 if (mon_response_line >= rows_max)
                 {
                     mon_more_state = MON_MORE_START;
                     break;
                 }
+                continue; // re-loop without advancing pos
+            }
+            putchar(c);
+            mon_response_pos++;
+            if (c == '\n')
+            {
+                mon_response_line++;
+                mon_response_col = 0;
+                if (mon_response_line >= rows_max)
+                {
+                    mon_more_state = MON_MORE_START;
+                    break;
+                }
+            }
+            else if (c == '\r')
+            {
+                mon_response_col = 0;
+            }
+            else if ((unsigned char)c < 0x20 || (unsigned char)c > 0x7E)
+            {
+                mon_response_width_aware = true;
+            }
+            else
+            {
+                mon_response_col++;
             }
         }
         if (!c)
@@ -459,12 +477,16 @@ void mon_task(void)
         mon_add_response_str("]");
         mon_needs_prompt = false;
         mon_response_line = 0;
+        mon_response_col = 0;
+        mon_response_width_aware = false;
         return;
     }
     if (mon_needs_read_line)
     {
         mon_needs_read_line = false;
         mon_response_line = 0;
+        mon_response_col = 0;
+        mon_response_width_aware = false;
         rln_read_line(mon_enter);
         return;
     }

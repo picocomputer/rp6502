@@ -189,13 +189,17 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
     }
     if (fno.fattrib & (AM_HID | AM_SYS))
         return 0;
+    // 7-char fixed prefix (" <DIR> ", "%6.0f ", or "%5.1f%c ") before the name.
+    int name_max = (int)rln_get_term_width() - 7;
+    if (name_max > (int)buf_size - 9)
+        name_max = (int)buf_size - 9;
     if (fno.fattrib & AM_DIR)
-        snprintf(buf, buf_size, " <DIR> %.72s\n", fno.fname);
+        snprintf(buf, buf_size, " <DIR> %.*s\n", name_max, fno.fname);
     else
     {
         double size = fno.fsize;
         if (size <= 999999)
-            snprintf(buf, buf_size, "%6.0f %.72s\n", size, fno.fname);
+            snprintf(buf, buf_size, "%6.0f %.*s\n", size, name_max, fno.fname);
         else
         {
             size /= 1024;
@@ -206,14 +210,14 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
                 size /= 1024, c = 'G';
             if (size >= 1000)
                 size /= 1024, c = 'T';
-            snprintf(buf, buf_size, "%5.1f%c %.72s\n", size, c, fno.fname);
+            snprintf(buf, buf_size, "%5.1f%c %.*s\n", size, c, name_max, fno.fname);
         }
     }
-    if (strlen(fno.fname) > 72)
+    if (strlen(fno.fname) > (size_t)name_max)
     {
-        buf[76] = '.';
-        buf[77] = '.';
-        buf[78] = '.';
+        buf[7 + name_max - 3] = '.';
+        buf[7 + name_max - 2] = '.';
+        buf[7 + name_max - 1] = '.';
     }
     return 0;
 }
