@@ -54,9 +54,13 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     if (state < 0)
         return state;
     size_t chunk = ram_chunk_size();
-    bool with_ascii = rln_get_term_width() >= 41;
+    int width = rln_get_term_width();
+    bool with_ascii = width >= 40;
+    // 40-col display: collapse the addr-trailing space and the gutter's
+    // second space so 8+ASCII XRAM fits in exactly 40 cols.
+    bool compact = with_ascii && width < 41;
     assert(mbuf_len <= chunk);
-    sprintf(buf, "%04lX ", ram_rw_addr);
+    sprintf(buf, compact ? "%04lX" : "%04lX ", ram_rw_addr);
     buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
     {
@@ -69,12 +73,14 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     if (with_ascii)
     {
         // Pad to chunk_size's alignment level (8 bytes → 24-char hex field,
-        // 16 bytes → 49-char field with mid-split). Gutter is always 2 spaces.
+        // 16 bytes → 49-char field with mid-split). Gutter is 2 spaces, or
+        // 1 space in compact mode.
         size_t hex_width = mbuf_len * 3 + (mbuf_len > 8 ? 1 : 0);
         size_t target = (chunk == 16) ? 49 : 24;
         for (size_t s = hex_width; s < target; s++)
             *buf++ = ' ';
-        *buf++ = ' ';
+        if (!compact)
+            *buf++ = ' ';
         *buf++ = ' ';
         *buf++ = '|';
         for (size_t i = 0; i < mbuf_len; i++)

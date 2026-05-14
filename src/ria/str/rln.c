@@ -898,16 +898,16 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
     }
     else if (p2 > rln_prompt_col)
     {
-        // Late size CPR from a narrower/shorter shadow terminal.
-        // Track the running minimum for both axes so wrap math and
-        // "more" paging stay correct on the smallest viewer.
+        // Late size CPR. Either the first one to arrive after typeahead-
+        // relief preempted CPR2 (rln_term_width == 0), or a narrower/
+        // shorter shadow terminal. Track the running minimum for both axes.
         bool width_changed = false;
-        if (p2 < rln_term_width)
+        if (rln_term_width == 0 || p2 < rln_term_width)
         {
             rln_term_width = p2;
             width_changed = true;
         }
-        if (p1 < rln_term_height)
+        if (rln_term_height == 0 || p1 < rln_term_height)
             rln_term_height = p1;
         if (width_changed && rln_phase == rln_phase_edit)
             rln_render_from(0);
@@ -1117,8 +1117,10 @@ void rln_task(void)
         if (rln_phase != rln_phase_edit &&
             (ch == '\r' || rln_typeahead_len >= RLN_TYPEAHEAD_MAX))
         {
-            // Force single-line fallback: no prompt column, no wrap math.
-            rln_prompt_col = 0;
+            // Skip the rest of the CPR handshake. Leave rln_prompt_col as
+            // CPR1 left it — if CPR1 arrived we still get multi-line math
+            // at the default 80; if not, prompt_col stays 0 and the
+            // single-line fallback gates in cursor math kick in.
             rln_term_width = 0;
             rln_enter_edit();
         }
@@ -1137,7 +1139,6 @@ void rln_init(void)
     rln_max_length = 255; // fits in 2^8 with nul
     rln_caps = 0;
     rln_phase = rln_phase_edit;
-    rln_term_width = 0;
     rln_overwrite = false;
 }
 
