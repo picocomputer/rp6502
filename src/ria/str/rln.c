@@ -47,7 +47,7 @@ typedef enum
 #define RLN_TYPEAHEAD_MAX 32
 #define RLN_CPR_SEQ_MAX 12
 #define RLN_HANDSHAKE_MS 500
-#define RLN_MAX_ROWS 8
+#define RLN_MAX_ROWS 10
 
 typedef struct
 {
@@ -84,6 +84,7 @@ static uint16_t rln_term_height; // 0 in fallback; exposed for mon.c
 static uint8_t rln_cur_idx;      // buffer index whose screen position the cursor is at
 static bool rln_overwrite;       // persisted across rln_read_line calls
 static bool rln_decscusr_ok;     // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
+static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
 
 // CPR mini-parser state (active only during handshake phases)
 static uint8_t rln_cpr_state;
@@ -182,7 +183,8 @@ static void rln_sync_cursor_to(uint8_t target)
 }
 
 // Redraw the buffer from `start` onward, then place the cursor at
-// rln_bufpos. Clears stale trailing content via \33[J or \33[K.
+// rln_bufpos. Stale content is wiped per-row with \33[K — never
+// \33[J, which would erase rows below that rln does not own.
 static void rln_render_from(uint8_t start)
 {
     if (rln_phase != rln_phase_edit)
@@ -197,29 +199,45 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
-        // Erase from cursor to end of display before writing. \33[J
-        // from a cell we're about to write would clobber the new
-        // content on conforming terminals; clearing first wipes
-        // stale tail and lets the writes paint cleanly.
-        printf("\33[J");
+        // Clear the start row from the cursor onward, then write
+        // chars. Each forced wrap clears the new row before writing
+        // into it, so the only rows we ever touch are rln's own.
         uint8_t r;
         uint16_t c;
         rln_buf_to_screen(start, &r, &c);
+        printf("\33[K");
         for (uint8_t i = start; i < rln_buflen; i++)
         {
             putchar(rln_buf[i]);
             if (c == rln_term_width)
             {
-                // Force the wrap explicitly so a wider shadow
-                // terminal (different width than the queried one)
-                // breaks at the same logical column we do.
-                printf("\r\n");
+                // Forced wrap so a shadow terminal of a different
+                // width still breaks at the same logical column,
+                // plus clear the new row before populating it.
+                printf("\r\n\33[K");
                 r++;
                 c = 1;
             }
             else
                 c++;
         }
+        // Walk down through any rows a previous (longer) render
+        // owned past the new end and clear each one. Then return
+        // the cursor to the new end position so cur_idx stays in
+        // sync with the screen.
+        uint8_t r_end = r;
+        while (r < rln_rendered_max_row)
+        {
+            printf("\n\r\33[K");
+            r++;
+        }
+        if (r > r_end)
+        {
+            printf("\33[%uA\r", r - r_end);
+            if (c > 1)
+                printf("\33[%uC", c - 1);
+        }
+        rln_rendered_max_row = r_end;
         rln_cur_idx = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
@@ -989,6 +1007,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_term_height = 0;
     rln_term_width = 0;
     rln_cur_idx = 0;
+    rln_rendered_max_row = 0;
     rln_decscusr_ok = false;
     rln_cpr_state = 0;
     rln_cpr_seq_len = 0;
