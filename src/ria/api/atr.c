@@ -34,6 +34,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define ATR_EXIT_CODE 0x07
 #define ATR_SIGINT 0x08
 #define ATR_RLN_CAPS 0x09
+#define ATR_RLN_WIDTH 0x0A
+#define ATR_RLN_HEIGHT 0x0B
 
 // long ria_get_attr(uint8_t attr_id);
 bool atr_api_get(void)
@@ -60,6 +62,10 @@ bool atr_api_get(void)
         return api_return_axsreg(ria_get_sigint());
     case ATR_RLN_CAPS:
         return api_return_axsreg(rln_get_caps());
+    case ATR_RLN_WIDTH:
+        return api_return_axsreg(rln_get_term_width());
+    case ATR_RLN_HEIGHT:
+        return api_return_axsreg(rln_get_term_height());
     default:
         return api_return_errno(API_EINVAL);
     }
@@ -108,6 +114,16 @@ bool atr_api_set(void)
         if (value > 2)
             return api_return_errno(API_EINVAL);
         rln_set_caps((uint8_t)value);
+        break;
+    case ATR_RLN_WIDTH:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
+        rln_set_term_width((uint16_t)value);
+        break;
+    case ATR_RLN_HEIGHT:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
+        rln_set_term_height((uint16_t)value);
         break;
     case ATR_LRAND:     // Read only
     case ATR_EXIT_CODE: // Read only

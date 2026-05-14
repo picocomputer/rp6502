@@ -47,9 +47,8 @@ typedef enum
 #define RLN_HISTORY_SIZE 8
 #define RLN_CSI_PARAM_MAX_LEN 16
 #define RLN_LASTKEY_MAX 32
-#define RLN_TYPEAHEAD_MAX 32
 #define RLN_CPR_SEQ_MAX 12
-#define RLN_HANDSHAKE_MS 500
+#define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
 
 typedef struct
@@ -81,13 +80,16 @@ static uint8_t rln_caps;
 // Cross-terminal display state
 static rln_phase_t rln_phase;
 static absolute_time_t rln_handshake_deadline;
-static uint8_t rln_prompt_col;   // 1-based
-static uint16_t rln_term_width;  // 0 if no CPR
-static uint16_t rln_term_height; // 0 if no CPR
-static uint8_t rln_cur_idx;      // buffer index whose screen position the cursor is at
-static bool rln_overwrite;       // persisted across rln_read_line calls
-static bool rln_decscusr_ok;     // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
+static uint16_t rln_prompt_col;      // 1-based
+static uint16_t rln_term_width;      // 0 if no CPR
+static uint16_t rln_term_height;     // 0 if no CPR
+static uint16_t rln_width_override;  // 0 = auto-detect
+static uint16_t rln_height_override; // 0 = auto-detect
+static uint8_t rln_cur_idx;          // buffer index whose screen position the cursor is at
+static bool rln_overwrite;           // persisted across rln_read_line calls
+static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
 static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
+static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 
 // CPR mini-parser state (active only during handshake phases)
 static uint8_t rln_cpr_state;
@@ -98,8 +100,10 @@ static uint8_t rln_cpr_seq_len;
 
 // Typeahead ring: bytes received during the CPR handshake that weren't part
 // of a CPR reply. Drained through the normal parser once phase = edit.
-static uint8_t rln_typeahead[RLN_TYPEAHEAD_MAX];
-static uint8_t rln_typeahead_len;
+// Sized to RLN_BUF_SIZE so a full input line worth of piped bytes fits
+// without truncation during instant relief.
+static uint8_t rln_typeahead[RLN_BUF_SIZE];
+static uint16_t rln_typeahead_len;
 
 // Lastkey capture (typed stream only)
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
@@ -117,6 +121,22 @@ static void rln_complete(bool rln_timed_out)
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
+
+// True when rln must not emit EL, ICH, or DCH. Two cases:
+//   1. Geometry untrusted (prompt_col == 0). No row math possible, and
+//      callers may be inside a form whose adjacent data we mustn't clobber.
+//   2. Geometry known and the configured max_length fits on the prompt
+//      row, so the input cannot wrap. Same form-data concern applies.
+// Wrap mode (returns false) is only when prompt_col is known AND the
+// input genuinely can wrap to a second row — the multi-row regime where
+// per-row EL and ICH/DCH are appropriate and necessary.
+static bool rln_input_no_wrap(void)
+{
+    if (!rln_prompt_col)
+        return true;
+    uint16_t w = rln_get_term_width();
+    return (uint16_t)(rln_prompt_col - 1) + rln_max_length <= w;
+}
 
 static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 {
@@ -189,19 +209,29 @@ static void rln_sync_cursor_to(uint8_t target)
 }
 
 // Redraw the buffer from `start` onward, then place the cursor at
-// rln_bufpos. Stale content is wiped per-row with \33[K — never
-// \33[J, which would erase rows below that rln does not own.
+// rln_bufpos. Two paths:
+//   - No-wrap: plain writes with space-fill erase. No EL, no ICH, no DCH —
+//     these would clobber adjacent form data on the same row.
+//   - Wrap: per-row \33[K and forced wraps. Never \33[J, which would
+//     erase rows below that rln does not own.
 static void rln_render_from(uint8_t start)
 {
     if (rln_phase != rln_phase_edit)
         return;
     rln_sync_cursor_to(start);
-    if (rln_prompt_col == 0)
+    if (rln_input_no_wrap())
     {
-        printf("\33[K");
         for (uint8_t i = start; i < rln_buflen; i++)
             putchar(rln_buf[i]);
         rln_cur_idx = rln_buflen;
+        if (rln_rendered_end > rln_buflen)
+        {
+            uint8_t spaces = (uint8_t)(rln_rendered_end - rln_buflen);
+            for (uint8_t i = 0; i < spaces; i++)
+                putchar(' ');
+            printf("\33[%uD", spaces);
+        }
+        rln_rendered_end = rln_buflen;
     }
     else
     {
@@ -246,6 +276,7 @@ static void rln_render_from(uint8_t start)
         }
         rln_rendered_max_row = r_end;
         rln_cur_idx = rln_buflen;
+        rln_rendered_end = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
 }
@@ -256,26 +287,25 @@ static void rln_render_from(uint8_t start)
 // position `at`. The buffer must already contain the new chars at
 // rln_buf[at..at+count-1]. Leaves cursor at rln_bufpos.
 //
-// Single-line mode (term_width == 0) uses ICH (CSI Ps @) so the
-// terminal shifts the tail itself; only the new chars travel the
-// wire. Multi-line mode falls back to a tail rewrite because a
-// faithful per-row ICH ripple has to track each row's boundary
-// character and resolve xenl at row width — the rewrite is simpler
-// and the size difference is bounded by RLN_MAX_ROWS.
+// No-wrap mode rewrites the tail in place; ICH would shift form data
+// to the right of the input. Wrap mode falls back to rln_render_from,
+// since a faithful per-row ICH ripple would have to track each row's
+// boundary character and resolve xenl at row width — the rewrite is
+// simpler and bounded by RLN_MAX_ROWS.
 static void rln_emit_insert(uint8_t at, uint8_t count)
 {
     if (rln_phase != rln_phase_edit || !count)
         return;
-    if (rln_prompt_col)
+    if (!rln_input_no_wrap())
     {
         rln_render_from(at);
         return;
     }
     rln_sync_cursor_to(at);
-    printf("\33[%u@", count);
-    for (uint8_t i = 0; i < count; i++)
-        putchar(rln_buf[at + i]);
-    rln_cur_idx = (uint8_t)(at + count);
+    for (uint8_t i = at; i < rln_buflen; i++)
+        putchar(rln_buf[i]);
+    rln_cur_idx = rln_buflen;
+    rln_rendered_end = rln_buflen;
     rln_sync_cursor_to(rln_bufpos);
 }
 
@@ -283,19 +313,26 @@ static void rln_emit_insert(uint8_t at, uint8_t count)
 // buffer position `at`. The buffer must already reflect the deletion.
 // Leaves cursor at rln_bufpos.
 //
-// Single-line uses DCH (CSI Ps P). Multi-line falls back to
+// No-wrap mode rewrites the tail and space-fills the gap; DCH would
+// pull form data to the right of the input. Wrap mode falls back to
 // rln_render_from for the same reason as rln_emit_insert.
 static void rln_emit_delete(uint8_t at, uint8_t count)
 {
     if (rln_phase != rln_phase_edit || !count)
         return;
-    if (rln_prompt_col)
+    if (!rln_input_no_wrap())
     {
         rln_render_from(at);
         return;
     }
     rln_sync_cursor_to(at);
-    printf("\33[%uP", count);
+    for (uint8_t i = at; i < rln_buflen; i++)
+        putchar(rln_buf[i]);
+    for (uint8_t i = 0; i < count; i++)
+        putchar(' ');
+    printf("\33[%uD", count);
+    rln_cur_idx = rln_buflen;
+    rln_rendered_end = rln_buflen;
     rln_sync_cursor_to(rln_bufpos);
 }
 
@@ -556,7 +593,7 @@ static void rln_line_insert(char ch)
         {
             rln_sync_cursor_to(rln_bufpos);
             bool at_row_end = false;
-            if (rln_prompt_col)
+            if (!rln_input_no_wrap())
             {
                 uint8_t r;
                 uint16_t c;
@@ -827,7 +864,7 @@ static void rln_typeahead_push(uint8_t b)
         rln_line_rx_typed(b);
         return;
     }
-    if (rln_typeahead_len < RLN_TYPEAHEAD_MAX)
+    if (rln_typeahead_len < RLN_BUF_SIZE)
         rln_typeahead[rln_typeahead_len++] = b;
     // overflow silently dropped — handshake window is short
 }
@@ -883,10 +920,19 @@ static void rln_handshake_fallback(void)
 //     to single-line fallback rather than wrap at the prompt column.
 static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 {
+    bool both_overrides = rln_width_override && rln_height_override;
     if (rln_prompt_col == 0)
     {
-        rln_prompt_col = p2 ? (p2 > 255 ? 255 : (uint8_t)p2) : 1;
-        rln_phase = rln_phase_width_cpr;
+        rln_prompt_col = p2 ? p2 : 1;
+        if (both_overrides)
+            rln_enter_edit();
+        else
+            rln_phase = rln_phase_width_cpr;
+    }
+    else if (both_overrides)
+    {
+        // Discard everything after CPR1 when geometry is fully pinned.
+        return;
     }
     else if (rln_term_height == 0)
     {
@@ -1057,36 +1103,45 @@ void rln_read_line(rln_read_callback_t callback)
     rln_term_width = 0;
     rln_cur_idx = 0;
     rln_rendered_max_row = 0;
+    rln_rendered_end = 0;
     rln_decscusr_ok = false;
     rln_cpr_state = 0;
     rln_cpr_seq_len = 0;
     rln_typeahead_len = 0;
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
-    // Fire the whole handshake in one burst so the cursor doesn't
-    // visibly park at the bottom-right corner. Sequence:
+    // Build the handshake burst piecewise. Common framing:
     //   ?25l    hide cursor
     //   s       DECSC saves prompt position
-    //   6n      CPR1 (prompt column)
+    //   6n      CPR1 (prompt column) — always sent
+    // Optional DA2 probe (skipped when max_length == 0 so we don't
+    // touch a column rln doesn't own):
     //   >c      DA2 — DECSCUSR-support probe; minicom mis-parses
     //           this and leaks the `c` as literal text at the
-    //           prompt column...
-    //   u       DECRC snaps cursor back to prompt column...
-    //   K       ...and EL erases the leaked `c` (no-op on conforming
-    //           peers; the line past the prompt char is empty)
+    //           prompt column
+    //   u       DECRC snaps cursor back to prompt column
+    //   ' \b'   write a space at the prompt column to overwrite any
+    //           leaked `c`, then BS back. Replaces the old `\33[K`
+    //           which would have clobbered form data on the same row.
+    // Optional geometry probe (skipped only when BOTH overrides are
+    // set — partial overrides still take CPR2 for the other axis):
     //   999;999H go to bottom-right
-    //   6n      CPR2 (terminal height + width) — also the fence:
-    //           burst order guarantees DA2's reply lands before this,
-    //           so CPR2 marks "all knowable, transition to edit."
-    //   u       DECRC back to prompt
-    //   ?25h    show cursor
+    //   6n       CPR2 (terminal height + width)
+    //   u        DECRC back to prompt
+    // Always tail:
+    //   ?25h     show cursor
     // RCP runs from the burst rather than the CPR-reply path so the
     // cursor returns to the prompt even when the terminal doesn't
     // respond to CPR (pipes, dumb relays); the deadline fallback
     // inherits the right cursor placement for free. We do not touch
     // DECAWM; the user's terminal stays in its native wrap mode and
     // we trust the pending-wrap (xenl) model on margin writes.
-    printf("\33[?25l\33[s\33[6n\33[>c\33[u\33[K\33[999;999H\33[6n\33[u\33[?25h");
+    printf("\33[?25l\33[s\33[6n");
+    if (rln_max_length > 0)
+        printf("\33[>c\33[u \b");
+    if (!(rln_width_override && rln_height_override))
+        printf("\33[999;999H\33[6n\33[u");
+    printf("\33[?25h");
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -1115,13 +1170,16 @@ void rln_task(void)
         // Provide instant relief during handshake for scripting
         // tools which do not respond to ANSI sequences.
         if (rln_phase != rln_phase_edit &&
-            (ch == '\r' || rln_typeahead_len >= RLN_TYPEAHEAD_MAX))
+            (ch == '\r' || rln_typeahead_len >= RLN_BUF_SIZE))
         {
-            // Skip the rest of the CPR handshake. Leave rln_prompt_col as
-            // CPR1 left it — if CPR1 arrived we still get multi-line math
-            // at the default 80; if not, prompt_col stays 0 and the
-            // single-line fallback gates in cursor math kick in.
-            rln_term_width = 0;
+            // Skip the rest of the CPR handshake. We never confirmed
+            // geometry for this session, so drop prompt_col to force
+            // no-wrap rendering (no row math at unverified widths).
+            // rln_term_width is left as-is — a value captured by a
+            // previous successful handshake is still useful for callers
+            // that query rln_get_term_width(); it's only zeroed on a
+            // real handshake timeout in rln_handshake_fallback().
+            rln_prompt_col = 0;
             rln_enter_edit();
         }
     }
@@ -1140,6 +1198,8 @@ void rln_init(void)
     rln_caps = 0;
     rln_phase = rln_phase_edit;
     rln_overwrite = false;
+    rln_width_override = 0;
+    rln_height_override = 0;
 }
 
 void rln_run(void)
@@ -1180,30 +1240,31 @@ uint8_t rln_get_caps(void) { return rln_caps; }
 
 uint16_t rln_get_term_width(void)
 {
-    // VGA connected: width is the canvas column count. The peer terminal's
-    // CPR-reported width is irrelevant — we render to VGA, not to it.
+    if (rln_width_override)
+        return rln_width_override;
+    if (rln_term_width > 0)
+        return rln_term_width;
     if (vga_connected())
     {
         vga_canvas_t c = vga_get_canvas();
         return (c == vga_canvas_320_240 || c == vga_canvas_320_180) ? 40 : 80;
     }
-    // No VGA: start at 80, narrow as smaller CPR widths come in (the dispatch
-    // path keeps rln_term_width at the running minimum during one edit
-    // session). Widths > 80 clamp down to 80 unconditionally.
-    if (rln_term_width == 0 || rln_term_width >= 80)
-        return 80;
-    return rln_term_width;
+    return 80;
 }
 
 uint16_t rln_get_term_height(void)
 {
-    uint16_t cap = 0;
-    if (vga_connected())
-        cap = (vga_get_display_type() == 2) ? 32 : 30;
+    if (rln_height_override)
+        return rln_height_override;
     if (rln_term_height > 0)
-        return (cap && rln_term_height > cap) ? cap : rln_term_height;
-    return cap ? cap : 24;
+        return rln_term_height;
+    if (vga_connected())
+        return (vga_get_display_type() == 2) ? 32 : 30;
+    return 24;
 }
+
+void rln_set_term_width(uint16_t v) { rln_width_override = v; }
+void rln_set_term_height(uint16_t v) { rln_height_override = v; }
 
 /* Readline magic: lastkey + peekpoke
  */

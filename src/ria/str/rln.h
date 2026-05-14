@@ -43,6 +43,11 @@ uint8_t rln_get_max_length(void);
 void rln_set_caps(uint8_t v);
 uint8_t rln_get_caps(void);
 
+// Terminal geometry overrides. Setting non-zero pins the value and skips
+// the CPR2 handshake when both axes are pinned. 0 = auto-detect.
+void rln_set_term_width(uint16_t v);
+void rln_set_term_height(uint16_t v);
+
 // Terminal width: captured CPR width clamped to a canvas-aware ceiling.
 // Returns 80 by default; 40 when a 320-wide VGA canvas is selected.
 uint16_t rln_get_term_width(void);
