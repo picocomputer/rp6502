@@ -42,10 +42,10 @@ static uint32_t ram_intel_hex_base;
 
 static bool ram_start_read_chunk(void);
 
-// 16 bytes + ASCII fits in 75 cols (XRAM worst case). Below 75, drop to 8 bytes.
+// 16 bytes + ASCII fits in 74 cols (XRAM worst case). Below 74, drop to 8 bytes.
 static size_t ram_chunk_size(void)
 {
-    return rln_get_term_width() >= 75 ? 16 : 8;
+    return rln_get_term_width() >= 74 ? 16 : 8;
 }
 
 static int ram_print_response(char *buf, size_t buf_size, int state)
@@ -54,13 +54,13 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     if (state < 0)
         return state;
     size_t chunk = ram_chunk_size();
-    bool with_ascii = rln_get_term_width() >= 42;
+    bool with_ascii = rln_get_term_width() >= 41;
     assert(mbuf_len <= chunk);
     sprintf(buf, "%04lX ", ram_rw_addr);
     buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
     {
-        if (i == 8 && chunk == 16)
+        if (i == 8)
             *buf++ = ' ';
         uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
         sprintf(buf, " %02X", c);
@@ -68,10 +68,11 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     }
     if (with_ascii)
     {
-        size_t spaces = (chunk - mbuf_len) * 3;
-        if (chunk == 16 && mbuf_len <= 8)
-            ++spaces;
-        for (size_t s = 0; s < spaces; s++)
+        // Pad to chunk_size's alignment level (8 bytes → 24-char hex field,
+        // 16 bytes → 49-char field with mid-split). Gutter is always 2 spaces.
+        size_t hex_width = mbuf_len * 3 + (mbuf_len > 8 ? 1 : 0);
+        size_t target = (chunk == 16) ? 49 : 24;
+        for (size_t s = hex_width; s < target; s++)
             *buf++ = ' ';
         *buf++ = ' ';
         *buf++ = ' ';
@@ -259,7 +260,7 @@ void ram_mon_address(const char *args)
     }
     if (!second_selected)
     {
-        ram_rw_end = ram_rw_addr + 15;
+        ram_rw_end = ram_rw_addr + ram_chunk_size() - 1;
         if (ram_rw_end >= 0x20000)
             ram_rw_end = 0x1FFFF;
     }

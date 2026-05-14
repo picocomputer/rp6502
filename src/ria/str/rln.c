@@ -82,8 +82,8 @@ static uint8_t rln_caps;
 static rln_phase_t rln_phase;
 static absolute_time_t rln_handshake_deadline;
 static uint8_t rln_prompt_col;   // 1-based
-static uint16_t rln_term_width;  // 0 = fallback (single virtual line)
-static uint16_t rln_term_height; // 0 in fallback; exposed for mon.c
+static uint16_t rln_term_width;  // 0 if no CPR
+static uint16_t rln_term_height; // 0 if no CPR
 static uint8_t rln_cur_idx;      // buffer index whose screen position the cursor is at
 static bool rln_overwrite;       // persisted across rln_read_line calls
 static bool rln_decscusr_ok;     // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
@@ -120,9 +120,10 @@ static void rln_complete(bool rln_timed_out)
 
 static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 {
+    uint16_t w = rln_get_term_width();
     uint32_t logical = (uint32_t)(rln_prompt_col - 1) + i;
-    *row = (uint8_t)(logical / rln_term_width);
-    *col = (uint16_t)(logical % rln_term_width) + 1;
+    *row = (uint8_t)(logical / w);
+    *col = (uint16_t)(logical % w) + 1;
 }
 
 // Emit relative cursor moves from (fr,fc) to (tr,tc). For downward
@@ -166,7 +167,9 @@ static void rln_sync_cursor_to(uint8_t target)
         rln_cur_idx = target;
         return;
     }
-    if (rln_term_width == 0)
+    // No prompt column captured (CPR1 didn't reply) → can't do row math.
+    // Fall back to plain horizontal cursor moves and let the terminal wrap.
+    if (rln_prompt_col == 0)
     {
         int delta = (int)target - (int)rln_cur_idx;
         if (delta > 0)
@@ -193,7 +196,7 @@ static void rln_render_from(uint8_t start)
     if (rln_phase != rln_phase_edit)
         return;
     rln_sync_cursor_to(start);
-    if (rln_term_width == 0)
+    if (rln_prompt_col == 0)
     {
         printf("\33[K");
         for (uint8_t i = start; i < rln_buflen; i++)
@@ -205,6 +208,7 @@ static void rln_render_from(uint8_t start)
         // Clear the start row from the cursor onward, then write
         // chars. Each forced wrap clears the new row before writing
         // into it, so the only rows we ever touch are rln's own.
+        uint16_t w = rln_get_term_width();
         uint8_t r;
         uint16_t c;
         rln_buf_to_screen(start, &r, &c);
@@ -212,7 +216,7 @@ static void rln_render_from(uint8_t start)
         for (uint8_t i = start; i < rln_buflen; i++)
         {
             putchar(rln_buf[i]);
-            if (c == rln_term_width)
+            if (c == w)
             {
                 // Forced wrap so a shadow terminal of a different
                 // width still breaks at the same logical column,
@@ -262,7 +266,7 @@ static void rln_emit_insert(uint8_t at, uint8_t count)
 {
     if (rln_phase != rln_phase_edit || !count)
         return;
-    if (rln_term_width)
+    if (rln_prompt_col)
     {
         rln_render_from(at);
         return;
@@ -285,7 +289,7 @@ static void rln_emit_delete(uint8_t at, uint8_t count)
 {
     if (rln_phase != rln_phase_edit || !count)
         return;
-    if (rln_term_width)
+    if (rln_prompt_col)
     {
         rln_render_from(at);
         return;
@@ -513,9 +517,10 @@ static void rln_line_kill_to_start(void)
 static uint8_t rln_effective_max(void)
 {
     uint8_t cap = rln_max_length;
-    if (rln_term_width)
+    if (rln_prompt_col)
     {
-        uint16_t avail = (uint16_t)RLN_MAX_ROWS * rln_term_width;
+        uint16_t w = rln_get_term_width();
+        uint16_t avail = (uint16_t)RLN_MAX_ROWS * w;
         if (avail > (uint16_t)(rln_prompt_col - 1))
             avail -= (uint16_t)(rln_prompt_col - 1);
         else
@@ -551,12 +556,12 @@ static void rln_line_insert(char ch)
         {
             rln_sync_cursor_to(rln_bufpos);
             bool at_row_end = false;
-            if (rln_term_width)
+            if (rln_prompt_col)
             {
                 uint8_t r;
                 uint16_t c;
                 rln_buf_to_screen(rln_bufpos, &r, &c);
-                at_row_end = (c == rln_term_width);
+                at_row_end = (c == rln_get_term_width());
             }
             putchar(ch);
             rln_bufpos++;
@@ -891,13 +896,20 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
         rln_term_width = p2;
         rln_enter_edit();
     }
-    else if (p2 > rln_prompt_col && p2 < rln_term_width)
+    else if (p2 > rln_prompt_col)
     {
-        // Late size CPR from a narrower shadow terminal. Clamp the
-        // working width down and re-flow the visible buffer so the
-        // wraps land at the same logical column on every display.
-        rln_term_width = p2;
-        if (rln_phase == rln_phase_edit)
+        // Late size CPR from a narrower/shorter shadow terminal.
+        // Track the running minimum for both axes so wrap math and
+        // "more" paging stay correct on the smallest viewer.
+        bool width_changed = false;
+        if (p2 < rln_term_width)
+        {
+            rln_term_width = p2;
+            width_changed = true;
+        }
+        if (p1 < rln_term_height)
+            rln_term_height = p1;
+        if (width_changed && rln_phase == rln_phase_edit)
             rln_render_from(0);
     }
 }
@@ -1105,7 +1117,9 @@ void rln_task(void)
         if (rln_phase != rln_phase_edit &&
             (ch == '\r' || rln_typeahead_len >= RLN_TYPEAHEAD_MAX))
         {
-            rln_term_width = 0; // infinite line mode
+            // Force single-line fallback: no prompt column, no wrap math.
+            rln_prompt_col = 0;
+            rln_term_width = 0;
             rln_enter_edit();
         }
     }
@@ -1165,16 +1179,19 @@ uint8_t rln_get_caps(void) { return rln_caps; }
 
 uint16_t rln_get_term_width(void)
 {
-    uint16_t cap = 80;
+    // VGA connected: width is the canvas column count. The peer terminal's
+    // CPR-reported width is irrelevant — we render to VGA, not to it.
     if (vga_connected())
     {
         vga_canvas_t c = vga_get_canvas();
-        if (c == vga_canvas_320_240 || c == vga_canvas_320_180)
-            cap = 40;
+        return (c == vga_canvas_320_240 || c == vga_canvas_320_180) ? 40 : 80;
     }
-    if (rln_term_width == 0)
-        return cap;
-    return rln_term_width > cap ? cap : rln_term_width;
+    // No VGA: start at 80, narrow as smaller CPR widths come in (the dispatch
+    // path keeps rln_term_width at the running minimum during one edit
+    // session). Widths > 80 clamp down to 80 unconditionally.
+    if (rln_term_width == 0 || rln_term_width >= 80)
+        return 80;
+    return rln_term_width;
 }
 
 uint16_t rln_get_term_height(void)
