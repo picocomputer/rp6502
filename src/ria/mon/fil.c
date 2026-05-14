@@ -218,7 +218,7 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
     return 0;
 }
 
-void fil_mon_ls(const char *args)
+void fil_mon_dir(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!str_parse_end(args))

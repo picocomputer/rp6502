@@ -33,7 +33,7 @@ bool fil_drive_exists(const char *args);
 void fil_mon_chdir(const char *args);
 void fil_mon_mkdir(const char *args);
 void fil_mon_chdrive(const char *args);
-void fil_mon_ls(const char *args);
+void fil_mon_dir(const char *args);
 void fil_mon_upload(const char *args);
 void fil_mon_unlink(const char *args);
 void fil_mon_copy(const char *args);
