@@ -17,6 +17,7 @@
 #include "str/str.h"
 #include "sys/com.h"
 #include "sys/mem.h"
+#include "sys/ria.h"
 #include "sys/sys.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
@@ -487,8 +488,17 @@ void mon_task(void)
         mon_response_line = 0;
         mon_response_col = 0;
         mon_response_width_aware = false;
+        ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         rln_read_line(mon_enter);
         return;
+    }
+    if (ria_get_sigint())
+    {
+        mon_needs_prompt = true;
+        mon_needs_read_line = true;
+        rln_poke("\x03");
+        while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
+            tight_loop_contents();
     }
 }
 

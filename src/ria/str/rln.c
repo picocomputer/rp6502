@@ -1353,20 +1353,82 @@ bool rln_api_peek(void)
     return api_return_ax(rln_bufpos);
 }
 
+// Any C0 control byte (0x00-0x1F) in the poked stream finishes the
+// input. As a visual badge, controls other than CR (\r) and LF (\n)
+// echo as caret notation (^@..^_); the echo is not inserted into the
+// buffer. The marker is positioned through rln_sync_cursor_to so it
+// respects multi-row wrap; rln_cur_idx is bumped past it so the
+// completion's sync-to-rln_buflen lands correctly. When rln_max_length
+// < 2 readline has no room for the marker, so the echo is skipped.
+// Completion mirrors the CR branch in rln_line_state_C0; only CR
+// adds the typed line to history.
+//
+// Control handling lives here (poke-side) and not in rln_line_rx, so
+// typed control bytes that somehow reach the rln input pipeline still
+// go through the existing typed-input dispatch.
+uint8_t rln_poke(const char *str)
+{
+    if (!rln_callback)
+        return 0;
+    rln_ansi_t a = {.state = ansi_state_C0};
+    for (const char *p = str; *p; p++)
+    {
+        uint8_t ch = (uint8_t)*p;
+        if (ch < 32)
+        {
+            if (ch != '\r' && ch != '\n' && rln_max_length >= 2)
+            {
+                uint8_t target = rln_bufpos;
+                if (target > (uint8_t)(rln_max_length - 2))
+                    target = (uint8_t)(rln_max_length - 2);
+                rln_sync_cursor_to(target);
+                char marker[2] = {'^', (char)('@' + ch)};
+                if (rln_input_no_wrap())
+                {
+                    putchar(marker[0]);
+                    putchar(marker[1]);
+                }
+                else
+                {
+                    uint16_t w = rln_get_term_width();
+                    uint8_t r;
+                    uint16_t c;
+                    rln_buf_to_screen(target, &r, &c);
+                    (void)r;
+                    for (int i = 0; i < 2; i++)
+                    {
+                        putchar(marker[i]);
+                        if (c == w)
+                        {
+                            // Forced wrap mirrors rln_render_from. No
+                            // \33[K — that would erase typed content on
+                            // the new row that the marker doesn't own.
+                            printf("\n");
+                            c = 1;
+                        }
+                        else
+                            c++;
+                    }
+                }
+                rln_cur_idx = (uint8_t)(target + 2);
+            }
+            rln_sync_cursor_to(rln_buflen);
+            printf("\n");
+            rln_buf[rln_buflen] = 0;
+            if (ch == '\r')
+                rln_history_add();
+            rln_complete(false);
+            break;
+        }
+        rln_line_rx(&a, ch);
+    }
+    return rln_bufpos;
+}
+
 // int ria_readline_poke(const char *poke);
 bool rln_api_poke(void)
 {
     const char *poke = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    if (!rln_callback)
-        return api_return_ax(0);
-    rln_ansi_t a = {.state = ansi_state_C0};
-    for (const char *p = poke; *p; p++)
-    {
-        char ch = *p;
-        rln_line_rx(&a, (uint8_t)ch);
-        if (ch == '\r')
-            break;
-    }
-    return api_return_ax(rln_bufpos);
+    return api_return_ax(rln_poke(poke));
 }

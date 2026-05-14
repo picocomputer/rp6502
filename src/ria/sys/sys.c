@@ -52,6 +52,7 @@ void sys_init(void)
     mon_add_response_str(SYS_NAME);
     mon_add_response_str(SYS_VERSION);
     mon_add_response_fn(vga_boot_response);
+    mon_add_response_str("\n");
 }
 
 void sys_mon_reboot(const char *args)

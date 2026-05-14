@@ -57,6 +57,12 @@ uint16_t rln_get_term_width(void);
 // CPR didn't reply and no VGA is connected. Always returns >= 1.
 uint16_t rln_get_term_height(void);
 
+// Inject a sequence of input bytes into the active readline. CR ends
+// the line normally; CTRL-C (0x03) finishes the line with a "^C" echo
+// (when readline owns the room) without inserting either char. No-op
+// when no readline is active. Returns rln_bufpos.
+uint8_t rln_poke(const char *str);
+
 // 6502 API entry points.
 bool rln_api_lastkey(void);
 bool rln_api_peek(void);
