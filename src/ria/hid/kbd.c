@@ -607,7 +607,7 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state)
             maxlen = thislen;
     }
     snprintf(buf, buf_size,
-             "  %*s - %s\n",
+             "  %*s - \a%s\n",
              maxlen, kbd_layout_names[state],
              kbd_layout_descriptions[state]);
     return state + 1;

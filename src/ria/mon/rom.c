@@ -689,16 +689,16 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    const uint32_t WIDTH = rln_get_term_width();
-    uint32_t count = 0;
-    int line = 1;
-    uint32_t col = 0;
     lfs_dir_t lfs_dir;
     struct lfs_info lfs_info;
     int lfsresult = lfs_dir_open(&lfs_volume, &lfs_dir, "/");
     mon_add_response_lfs(lfsresult);
     if (lfsresult < 0)
         return -1;
+    unsigned count = 0;
+    unsigned valid_idx = 0;
+    char found_name[LFS_NAME_MAX + 1] = {0};
+    bool found = false;
     while (true)
     {
         lfsresult = lfs_dir_read(&lfs_volume, &lfs_dir, &lfs_info);
@@ -718,55 +718,29 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
             if (!(i && isdigit(ch)) && !isupper(ch))
                 is_ok = false;
         }
-        if (is_ok && state)
+        if (!is_ok)
+            continue;
+        if (state == 0)
         {
-            if (count)
-            {
-                if (state == line)
-                    buf[col] = ',';
-                col += 1;
-            }
-            if (col + len > WIDTH - 2)
-            {
-                if (state == line)
-                {
-                    buf[col] = '\n';
-                    buf[++col] = 0;
-                }
-                line += 1;
-                if (state == line)
-                    snprintf(buf, buf_size, "%s", lfs_info.name);
-                col = len;
-            }
-            else
-            {
-                if (col)
-                {
-                    if (state == line)
-                        buf[col] = ' ';
-                    col += 1;
-                }
-                if (state == line)
-                    snprintf(buf + col, buf_size - col, "%s", lfs_info.name);
-                col += len;
-            }
-        }
-        if (is_ok)
             count++;
-    }
-    if (state == line)
-    {
-        if (count)
-            buf[col++] = '.';
-        buf[col] = '\n';
-        buf[++col] = 0;
-        state = -2;
+        }
+        else if (valid_idx == (unsigned)(state - 1))
+        {
+            size_t n = len;
+            if (n > sizeof(found_name) - 1)
+                n = sizeof(found_name) - 1;
+            memcpy(found_name, lfs_info.name, n);
+            found_name[n] = 0;
+            found = true;
+            break;
+        }
+        valid_idx++;
     }
     lfsresult = lfs_dir_close(&lfs_volume, &lfs_dir);
     mon_add_response_lfs(lfsresult);
     if (lfsresult < 0)
         count = 0;
-    if (!state)
+    if (state == 0)
     {
         if (count)
         {
@@ -774,14 +748,21 @@ int rom_installed_response(char *buf, size_t buf_size, int state)
                           count == 1 ? STR_ROM_INSTALLED_SINGULAR
                                      : STR_ROM_INSTALLED_PLURAL,
                           count);
+            return 1;
         }
-        else
-        {
-            snprintf_utf8(buf, buf_size, STR_ROM_INSTALLED_NONE);
-            state = -2;
-        }
+        snprintf_utf8(buf, buf_size, STR_ROM_INSTALLED_NONE);
+        return -1;
     }
-    return state + 1;
+    if (found)
+    {
+        if (state == 1)
+            snprintf(buf, buf_size, "%s", found_name);
+        else
+            snprintf(buf, buf_size, ", %s", found_name);
+        return state + 1;
+    }
+    snprintf(buf, buf_size, ".\n");
+    return -1;
 }
 
 bool rom_set_boot(const char *args)

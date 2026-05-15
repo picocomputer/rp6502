@@ -9,6 +9,7 @@
 
 #include "api/api.h"
 #include "api/clk.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include <hardware/timer.h>
@@ -167,30 +168,43 @@ int clk_tzdata_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    const char fmt[] = "   %-22s";
-    unsigned rows = (CLK_TZINFO_COUNT + 2) / 3;
-    unsigned el = state;
-    for (int i = 0; i < 3; i++)
+    size_t cell = 0;
+    for (unsigned i = 0; i < CLK_TZINFO_COUNT; i++)
     {
-        int n = snprintf(buf, buf_size, fmt, clk_tzinfo_name[el]);
+        size_t len = strlen(clk_tzinfo_name[i]);
+        if (len > cell)
+            cell = len;
+    }
+    unsigned w = rln_get_term_width();
+    if (w > buf_size - 2)
+        w = buf_size - 2;
+    unsigned cols = (w >= cell + 4) ? (w - 2) / (cell + 2) : 1;
+    if (cols < 1)
+        cols = 1;
+    unsigned rows = (CLK_TZINFO_COUNT + cols - 1) / cols;
+    if ((unsigned)state >= rows)
+        return -1;
+    unsigned spread = (w - cols * cell) / (cols + 1);
+    int n = snprintf(buf, buf_size, "%*s", (int)spread, "");
+    if (n > 0 && (size_t)n < buf_size)
+    {
+        buf += n;
+        buf_size -= n;
+    }
+    unsigned el = state;
+    for (unsigned i = 0; i < cols && el < CLK_TZINFO_COUNT; i++)
+    {
+        n = snprintf(buf, buf_size, "%-*s%*s",
+                     (int)cell, clk_tzinfo_name[el], (int)spread, "");
         if (n > 0 && (size_t)n < buf_size)
         {
             buf += n;
             buf_size -= n;
         }
-        if (i < 2)
-            el += rows;
-        else
-            el += 1;
-        if (el >= CLK_TZINFO_COUNT)
-        {
-            state = -2;
-            break;
-        }
+        el += rows;
     }
-    *buf++ = '\n';
-    *buf = 0;
-    return state + 1;
+    snprintf(buf, buf_size, "\n");
+    return ((unsigned)state + 1 < rows) ? state + 1 : -1;
 }
 
 void clk_load_time_zone(const char *str)
