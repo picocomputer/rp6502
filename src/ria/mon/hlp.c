@@ -9,7 +9,6 @@
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
-#include "mon/vip.h"
 #include "net/cyw.h"
 #include "str/str.h"
 #include <pico.h>
@@ -30,8 +29,8 @@ __in_flash("hlp_commands") static struct
 } const HLP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
-    {STR_ABOUT, STR_HELP_ABOUT, vip_response},
-    {STR_CREDITS, STR_HELP_ABOUT, vip_response},
+    {STR_ABOUT, STR_HELP_ABOUT, NULL},
+    {STR_CREDITS, STR_HELP_ABOUT, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
     {STR_0, STR_HELP_SYSTEM, NULL},
     {STR_0000, STR_HELP_SYSTEM, NULL},

@@ -37,6 +37,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MON_RESPONSE_BUF_SIZE 128
 // Enough slots for the longest response chain (status/set).
 #define MON_RESPONSE_FN_COUNT 16
+// Minimum column budget remaining after the indent for wrap-with-indent
+// to engage. If the BEL marker lands too close to the right edge the
+// indent is suppressed and wrapped lines fall back to column 0.
+#define MON_RESPONSE_INDENT_MIN_WRAP 20
 // Double-buffer the response stream: one is being drained while the other
 // stages the producer's next fill, so a word that crosses the fill
 // boundary can be looked ahead without copying or shrinking the buffer
@@ -52,6 +56,8 @@ static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
 static int mon_response_line;
 static int mon_response_col;
+static int mon_response_indent;
+static int mon_response_indent_pending;
 static bool mon_response_width_aware;
 static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
@@ -331,6 +337,8 @@ static void mon_break_response(void)
     mon_needs_break = false;
     mon_response_pos = -1;
     mon_response_col = 0;
+    mon_response_indent = 0;
+    mon_response_indent_pending = 0;
     mon_response_width_aware = false;
     mon_response_next_loaded = false;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
@@ -439,6 +447,30 @@ void mon_task(void)
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
         {
+            // Emit one queued indent space per iteration after a
+            // paginator-injected wrap, so wrapped continuation lines
+            // resume at the column marked by the producer's BEL.
+            if (mon_response_indent_pending > 0)
+            {
+                putchar(' ');
+                mon_response_indent_pending--;
+                mon_response_col++;
+                continue;
+            }
+            // BEL marks the indent column for subsequent wraps; consume
+            // it silently and don't advance the column. Must run before
+            // the < 0x20 width-aware branch below so BEL doesn't flip
+            // mon_response_width_aware off and disable wrapping. Indent
+            // is suppressed if too few columns remain past it.
+            if (c == '\a')
+            {
+                mon_response_indent =
+                    (width - mon_response_col >= MON_RESPONSE_INDENT_MIN_WRAP)
+                        ? mon_response_col
+                        : 0;
+                mon_response_pos++;
+                continue;
+            }
             // Word wrap on space: peek the next word's length. The
             // lookahead spans into the staged buffer when the word crosses
             // the fill boundary, so the wrap decision is made on the full
@@ -471,6 +503,7 @@ void mon_task(void)
                     putchar('\n');
                     mon_response_pos++; // drop the space
                     mon_response_col = 0;
+                    mon_response_indent_pending = mon_response_indent;
                     mon_response_line++;
                     if (mon_response_line >= rows_max)
                     {
@@ -491,6 +524,7 @@ void mon_task(void)
             {
                 putchar('\n');
                 mon_response_col = 0;
+                mon_response_indent_pending = mon_response_indent;
                 mon_response_line++;
                 if (mon_response_line >= rows_max)
                 {
@@ -505,6 +539,7 @@ void mon_task(void)
             {
                 mon_response_line++;
                 mon_response_col = 0;
+                mon_response_indent = 0;
                 if (mon_response_line >= rows_max)
                 {
                     mon_more_state = MON_MORE_START;
@@ -568,7 +603,8 @@ void mon_task(void)
 void mon_stop(void)
 {
     // NFC launch also calls this
-    if (mon_more_state) {
+    if (mon_more_state)
+    {
         mon_needs_break = true;
         mon_more();
     }
