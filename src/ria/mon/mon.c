@@ -68,6 +68,8 @@ static enum {
     MON_MORE_START,
     MON_MORE_END,
     MON_MORE_WAIT,
+    MON_MORE_WAIT_ESC,
+    MON_MORE_WAIT_CSI,
 } mon_more_state;
 
 typedef void (*mon_function)(const char *);
@@ -395,14 +397,39 @@ static void mon_more(void)
         mon_response_line = 0;
         mon_more_state = MON_MORE_OFF;
         break;
-    default: // MON_MORE_WAIT
+    default: // MON_MORE_WAIT, MON_MORE_WAIT_ESC, MON_MORE_WAIT_CSI
     {
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == PICO_ERROR_TIMEOUT)
-            return;
-        if (ch == 3 || ch == 'q' || ch == 'Q')
-            mon_needs_break = true;
-        mon_more_state = MON_MORE_END;
+        // Non-blocking byte-driven drain: any keypress advances past
+        // --more--, but ESC-prefixed sequences (arrow keys, F-keys,
+        // Alt+key, anything kbd.c emits via vt100/vt220) are consumed
+        // whole so their tail doesn't leak into the next prompt.
+        int ch;
+        while ((ch = stdio_getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)
+        {
+            if (mon_more_state == MON_MORE_WAIT)
+            {
+                if (ch == 3 || ch == 'q' || ch == 'Q')
+                    mon_needs_break = true;
+                if (ch == '\33')
+                    mon_more_state = MON_MORE_WAIT_ESC;
+                else
+                    mon_more_state = MON_MORE_END;
+            }
+            else if (mon_more_state == MON_MORE_WAIT_ESC)
+            {
+                if (ch == '[' || ch == 'O')
+                    mon_more_state = MON_MORE_WAIT_CSI;
+                else
+                    mon_more_state = MON_MORE_END;
+            }
+            else // MON_MORE_WAIT_CSI
+            {
+                if (ch >= 0x40 && ch <= 0x7E)
+                    mon_more_state = MON_MORE_END;
+            }
+            if (mon_more_state == MON_MORE_END)
+                return;
+        }
         break;
     }
     }
