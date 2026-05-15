@@ -7,7 +7,7 @@
 #ifndef _RIA_SYS_COM_H_
 #define _RIA_SYS_COM_H_
 
-/* Console I/O multiplexer and UART driver.
+/* COnsole Manifold and UART driver.
  * TX fan-out to UART and REM (telnet).
  * RX merge from UART, keyboard, and remote.
  */

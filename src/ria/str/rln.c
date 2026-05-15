@@ -22,6 +22,15 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+/* Important rules for compatibility with console manifold:
+** The goal of these rules is 1) secondary console terminals display perfectly
+** if they are wider than the primary 2) use rln_max_length to fill out forms.
+** No absolute Y cursor movement or pushing off the right edge.
+** We can not depend on line wrapping, but we can depend on pending wrap.
+** We own only rln_max_length cells from the start of input so no ICH DCH
+** unless rln owns the entire line.
+*/
+
 typedef enum
 {
     ansi_state_C0,

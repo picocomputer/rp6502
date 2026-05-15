@@ -7,7 +7,7 @@
 #ifndef _VGA_SYS_COM_H_
 #define _VGA_SYS_COM_H_
 
-/* Communications switchboard
+/* COnsole Manifold
  */
 
 #include <stddef.h>
