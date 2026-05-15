@@ -37,7 +37,15 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define MON_RESPONSE_BUF_SIZE 128
 // Enough slots for the longest response chain (status/set).
 #define MON_RESPONSE_FN_COUNT 16
-static char mon_response_buf[MON_RESPONSE_BUF_SIZE];
+// Double-buffer the response stream: one is being drained while the other
+// stages the producer's next fill, so a word that crosses the fill
+// boundary can be looked ahead without copying or shrinking the buffer
+// the producer sees.
+static char mon_response_buf_a[MON_RESPONSE_BUF_SIZE];
+static char mon_response_buf_b[MON_RESPONSE_BUF_SIZE];
+static char *mon_response_buf = mon_response_buf_a;
+static char *mon_response_next = mon_response_buf_b;
+static bool mon_response_next_loaded;
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
@@ -324,6 +332,7 @@ static void mon_break_response(void)
     mon_response_pos = -1;
     mon_response_col = 0;
     mon_response_width_aware = false;
+    mon_response_next_loaded = false;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
     {
         if (mon_response_state[i] >= 0)
@@ -400,6 +409,28 @@ void mon_task(void)
         return mon_more();
     if (mon_needs_break)
         return mon_break_response();
+    // If cur is exhausted and next is loaded, swap pointers — free, do
+    // it inline so streaming can resume in the same tick.
+    if (mon_response_pos == -1 && mon_response_next_loaded)
+    {
+        char *tmp = mon_response_buf;
+        mon_response_buf = mon_response_next;
+        mon_response_next = tmp;
+        mon_response_pos = 0;
+        mon_response_next_loaded = false;
+    }
+    // Prime the staged buffer whenever empty so the streaming lookahead
+    // can span the fill boundary. One producer call per tick.
+    if (!mon_response_next_loaded && mon_response_state[0] >= 0)
+    {
+        mon_response_next[0] = 0;
+        mon_response_state[0] = (mon_response_fn_list[0])(
+            mon_response_next, MON_RESPONSE_BUF_SIZE, mon_response_state[0]);
+        mon_response_next_loaded = (mon_response_next[0] != 0);
+        if (mon_response_state[0] < 0)
+            mon_next_response();
+        return;
+    }
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
@@ -408,10 +439,53 @@ void mon_task(void)
         char c;
         while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
         {
+            // Word wrap on space: peek the next word's length. The
+            // lookahead spans into the staged buffer when the word crosses
+            // the fill boundary, so the wrap decision is made on the full
+            // word without copying anything.
+            if (!mon_response_width_aware && c == ' ')
+            {
+                int n = mon_response_pos + 1;
+                while (mon_response_buf[n] && mon_response_buf[n] != ' ' &&
+                       mon_response_buf[n] != '\n' && mon_response_buf[n] != '\r')
+                    n++;
+                int next_word_len = n - mon_response_pos - 1;
+                bool word_complete = mon_response_buf[n] != 0;
+                if (!word_complete && mon_response_next_loaded)
+                {
+                    int m = 0;
+                    while (mon_response_next[m] && mon_response_next[m] != ' ' &&
+                           mon_response_next[m] != '\n' && mon_response_next[m] != '\r')
+                        m++;
+                    next_word_len += m;
+                    word_complete = mon_response_next[m] != 0 ||
+                                    mon_response_state[0] < 0;
+                }
+                else if (!word_complete)
+                {
+                    word_complete = (mon_response_state[0] < 0);
+                }
+                if (!word_complete ||
+                    mon_response_col + 1 + next_word_len > width)
+                {
+                    putchar('\n');
+                    mon_response_pos++; // drop the space
+                    mon_response_col = 0;
+                    mon_response_line++;
+                    if (mon_response_line >= rows_max)
+                    {
+                        mon_more_state = MON_MORE_START;
+                        break;
+                    }
+                    continue;
+                }
+            }
             // Width-aware newline injection. Suppressed once any producer in
             // this command chain has emitted a non-plain-ASCII byte (ESC,
             // UTF-8 continuation, etc.) — such producers manage their own
             // width and our column counter would be wrong from there on.
+            // Also catches words longer than the line that the word-wrap
+            // branch above could not break.
             if (!mon_response_width_aware && c != '\n' && c != '\r' &&
                 mon_response_col >= width)
             {
@@ -452,17 +526,6 @@ void mon_task(void)
         }
         if (!c)
             mon_response_pos = -1;
-        return;
-    }
-    // Request the next response buffer
-    if (mon_response_pos == -1 && mon_response_state[0] >= 0)
-    {
-        mon_response_pos = 0;
-        mon_response_buf[0] = 0;
-        mon_response_state[0] = (mon_response_fn_list[0])(
-            mon_response_buf, MON_RESPONSE_BUF_SIZE, mon_response_state[0]);
-        if (mon_response_state[0] < 0)
-            mon_next_response();
         return;
     }
     // ram/rom can run the 6502 multiple times
