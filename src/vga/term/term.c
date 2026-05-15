@@ -862,8 +862,11 @@ static void term_out_DSR(term_state_t *term)
     switch (term->csi_param[0])
     {
     case 5:
-        com_in_write_ansi_DSR_ok();
+    {
+        static const char ok[] = "\33[0n";
+        com_in_write_reply(ok, sizeof(ok) - 1);
         break;
+    }
     case 6:
     {
         unsigned x = term->cur->x;
@@ -872,27 +875,42 @@ static void term_out_DSR(term_state_t *term)
             x--;
         if (term->cur->origin_mode)
             y -= term->screen->margin_top;
-        com_in_write_ansi_CPR(y + 1, x + 1);
+        char buf[COM_IN_BUF_SIZE];
+        int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", y + 1, x + 1);
+        if (n < 0 || n >= (int)sizeof(buf))
+            break;
+        com_in_write_reply(buf, n);
         break;
     }
     }
 }
 
-// Primary Device Attributes
+// Primary Device Attributes. Service class 61 = VT level 1
+// (VT100-compatible). We parse the DECSCUSR intermediate cleanly but
+// don't implement the VT220-only set (DECUDK, NRCS, 7/8-bit C1,
+// selective erase), so claiming 62 would over-advertise. Feature
+// bit 22 = ANSI color.
 static void term_out_DA(term_state_t *term)
 {
     if (term_is_visible(term))
-        com_in_write_ansi_DA();
+    {
+        static const char da[] = "\33[?61;22c";
+        com_in_write_reply(da, sizeof(da) - 1);
+    }
 }
 
 // Secondary Device Attributes (CSI > c). Replies with a generic
 // VT100-class identifier; rln uses the presence of any DA2 reply to
 // distinguish modern terminals from minicom-class (broken on CSI > c
-// parsing) reporters that share a bare-1 Primary DA.
+// parsing) reporters that share a bare-1 Primary DA. Terminal type
+// 0 (generic VT100-class), firmware 1, ROM 0.
 static void term_out_DA2(term_state_t *term)
 {
     if (term_is_visible(term))
-        com_in_write_ansi_DA2();
+    {
+        static const char da2[] = "\33[>0;1;0c";
+        com_in_write_reply(da2, sizeof(da2) - 1);
+    }
 }
 
 static inline bool term_tab_is_set(const term_state_t *term, uint8_t col)
