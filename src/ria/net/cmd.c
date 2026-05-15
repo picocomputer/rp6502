@@ -354,7 +354,12 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         break;
     }
     case 14:
+#if RP6502_CREATOR
+        snprintf_utf8(buf, buf_size, "+SSID=%s\r\n",
+                      strlen(wfi_get_ssid()) ? STR_PARENS_SET : STR_PARENS_NONE);
+#else
         snprintf(buf, buf_size, "+SSID=%s\r\n", wfi_get_ssid());
+#endif
         break;
     case 15:
         snprintf_utf8(buf, buf_size, "+PASS=%s\r\n",
@@ -498,7 +503,12 @@ static bool cmd_plus_rfcc(const char **s)
 static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
+#if RP6502_CREATOR
+    snprintf_utf8(buf, buf_size, "%s\r\n",
+                  strlen(wfi_get_ssid()) ? STR_PARENS_SET : STR_PARENS_NONE);
+#else
     snprintf(buf, buf_size, "%s\r\n", wfi_get_ssid());
+#endif
     return -1;
 }
 

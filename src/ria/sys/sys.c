@@ -35,6 +35,13 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
     "RIA " RP6502_VERSION
 #ifdef RP6502_RIA_W
     " W"
+#if RP6502_CREATOR
+    "+"
+#endif
+#else
+#if RP6502_CREATOR
+    " +"
+#endif
 #endif
     "\n";
 

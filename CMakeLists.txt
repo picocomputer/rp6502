@@ -6,11 +6,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Project definitions for both RIA and VIA.
 # Please change name for hardware forks.
+# Creator flag hides MAC and SSID.
 set(RP6502_PROJECT_DEFINITIONS
     RP6502_NAME="Picocomputer 6502"
     RP6502_VERSION=""
     RP6502_LOCALE=en
     RP6502_EXFAT=0
+    RP6502_CREATOR=0
 )
 
 # Project subdirectories.

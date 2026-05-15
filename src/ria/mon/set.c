@@ -170,8 +170,13 @@ static int set_ssid_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     const char *ssid = wfi_get_ssid();
+#if RP6502_CREATOR
+    snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
+                  strlen(ssid) ? STR_PARENS_SET : STR_PARENS_NONE);
+#else
     snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
                   strlen(ssid) ? ssid : STR_PARENS_NONE);
+#endif
     return -1;
 }
 
