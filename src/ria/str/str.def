@@ -8,7 +8,7 @@
 /* This is a contract with monitor tools like rp6502.py. */
 
 // Suppress bogus VS Code IntelliSense errors
-#ifdef __INTELLISENSE__
+#if defined(__INTELLISENSE__) && !defined(X)
 #define X(name, value) extern const char name[];
 #endif
 

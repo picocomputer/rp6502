@@ -91,7 +91,12 @@ static int fil_cwd_response(char *buf, size_t buf_size, int state)
     mon_add_response_fatfs(result);
     if (result != FR_OK)
         return -1;
-    size_t width = buf_size - 2;
+    // Split the path at the visible terminal width so long cwds wrap
+    // cleanly on a 40-col display instead of overflowing past the edge.
+    // The +2 budget covers the trailing newline and null terminator.
+    size_t width = rln_get_term_width();
+    if (width > buf_size - 2)
+        width = buf_size - 2;
     size_t total = strlen(cwd);
     if (total < (size_t)state * width)
         return -1;

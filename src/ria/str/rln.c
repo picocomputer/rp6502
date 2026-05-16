@@ -43,10 +43,20 @@ typedef enum
 
 typedef enum
 {
+    rln_cpr_st_idle,
+    rln_cpr_st_esc,
+    rln_cpr_st_csi,
+    rln_cpr_st_p1,
+    rln_cpr_st_p2,
+    rln_cpr_st_da2,
+} rln_cpr_state_t;
+
+typedef enum
+{
     rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
-    rln_phase_width_cpr,  // waiting for second CPR (height + width); the
-                          // burst order guarantees DA2's reply lands first,
-                          // but DA2 is absorbed by the always-on CPR sniffer
+    rln_phase_width_cpr,  // waiting for second CPR (height + width). DA2
+                          // is sent between CPR1 and CPR2 in the burst, and
+                          // is absorbed by the always-on CPR sniffer
                           // regardless of phase, so this phase just gates
                           // the CPR-driven transition to edit
     rln_phase_edit,       // normal editing
@@ -57,6 +67,11 @@ typedef enum
 #define RLN_CSI_PARAM_MAX_LEN 16
 #define RLN_LASTKEY_MAX 32
 #define RLN_CPR_SEQ_MAX 12
+
+// rln_caps modes — public ABI is uint8_t, so the values are wire values.
+#define RLN_CAPS_OFF 0
+#define RLN_CAPS_UPPER 1
+#define RLN_CAPS_SWAP 2
 #define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
 
@@ -67,9 +82,10 @@ typedef struct
     uint8_t csi_param_count;
 } rln_ansi_t;
 
-// History storage
-// history[0] is the current input being edited.
-// history[1..RLN_HISTORY_SIZE-1] hold previous entries.
+// History storage. The live edit buffer is rln_buf; history[0] is a
+// scratch slot used to stash the user's unsubmitted line while they
+// navigate older entries. history[1..RLN_HISTORY_SIZE-1] hold previous
+// entries, newest at [1].
 static char rln_history[RLN_HISTORY_SIZE][RLN_BUF_SIZE];
 static uint8_t rln_history_count;
 static uint8_t rln_history_pos;
@@ -101,7 +117,7 @@ static uint8_t rln_rendered_max_row; // highest row index rln has written to in 
 static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 
 // CPR mini-parser state (active only during handshake phases)
-static uint8_t rln_cpr_state;
+static rln_cpr_state_t rln_cpr_state;
 static uint16_t rln_cpr_p1;
 static uint16_t rln_cpr_p2;
 static uint8_t rln_cpr_seq[RLN_CPR_SEQ_MAX];
@@ -144,7 +160,7 @@ static bool rln_input_no_wrap(void)
     if (!rln_prompt_col)
         return true;
     uint16_t w = rln_get_term_width();
-    return (uint16_t)(rln_prompt_col - 1) + rln_max_length <= w;
+    return rln_prompt_col - 1 + rln_max_length <= w;
 }
 
 static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
@@ -355,6 +371,7 @@ static void rln_replace_buf_from_history(void)
     rln_render_from(0);
 }
 
+// dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
     if (!rln_enable_history || rln_timeout_ms)
@@ -614,27 +631,18 @@ static void rln_line_erase_n(rln_ansi_t *a)
     uint8_t at = rln_bufpos;
     uint8_t span = (uint8_t)(end - at);
     memset(rln_buf + at, ' ', span);
-    if (rln_phase != rln_phase_edit)
-        return;
-    if (!rln_input_no_wrap())
-    {
-        rln_render_from(at);
-        return;
-    }
-    rln_sync_cursor_to(at);
-    for (uint8_t i = 0; i < span; i++)
-        putchar(' ');
-    rln_cur_idx = (uint8_t)(at + span);
-    rln_sync_cursor_to(rln_bufpos);
+    // Tail length unchanged; rln_emit_insert's redraw path is exactly
+    // what we need — sync to `at`, rewrite the tail, restore cursor.
+    rln_emit_insert(at, span);
 }
 
 static void rln_line_insert(char ch)
 {
     if ((unsigned char)ch < 32)
         return;
-    if (rln_caps == 1 && islower((unsigned char)ch))
+    if (rln_caps == RLN_CAPS_UPPER && islower((unsigned char)ch))
         ch = toupper((unsigned char)ch);
-    else if (rln_caps == 2)
+    else if (rln_caps == RLN_CAPS_SWAP)
     {
         if (islower((unsigned char)ch))
             ch = toupper((unsigned char)ch);
@@ -681,7 +689,7 @@ static void rln_line_insert(char ch)
 /* ----- Mode toggling ----- */
 
 // DECSCUSR (CSI Ps SP q) is only emitted when the peer has identified
-// itself as VT220+ via Primary DA. VT102 emulators (minicom, Linux
+// itself as VT220+ via Secondary DA. VT102 emulators (minicom, Linux
 // console) mis-parse the intermediate space and leak the tail as
 // literal characters, so on those terminals we silently keep the
 // internal mode without any visual indicator.
@@ -936,7 +944,7 @@ static void rln_cpr_release_seq(void)
     for (uint8_t i = 0; i < rln_cpr_seq_len; i++)
         rln_typeahead_push(rln_cpr_seq[i]);
     rln_cpr_seq_len = 0;
-    rln_cpr_state = 0;
+    rln_cpr_state = rln_cpr_st_idle;
 }
 
 static void rln_typeahead_drain(void)
@@ -1044,7 +1052,7 @@ static void rln_da2_dispatch(void)
 // Bytes that don't match a CPR candidate go to the typeahead ring so
 // they can replay through the normal parser when phase = edit. DA2
 // candidates do NOT use the release-on-mismatch buffer once entered
-// (state 7) — xterm-class DA replies run 35+ bytes long and would
+// (rln_cpr_st_da2) — xterm-class DA replies run 35+ bytes long and would
 // otherwise overflow the 12-byte seq buffer, lose the final `c`, and
 // time the handshake out. DA replies never originate from user input,
 // so it's safe to consume them silently.
@@ -1053,23 +1061,23 @@ static void rln_cpr_feed(uint8_t b)
     // DA2-recognition state: process inline, no buffering, no length
     // cap. The `>` private marker is unique to server replies, so it
     // cannot conflict with typed input.
-    if (rln_cpr_state == 7)
+    if (rln_cpr_state == rln_cpr_st_da2)
     {
         if (isdigit(b) || b == ';')
             ; // params discarded — presence of reply is the signal
         else if (b == 'c')
         {
-            rln_cpr_state = 0;
+            rln_cpr_state = rln_cpr_st_idle;
             rln_da2_dispatch();
         }
         else
-            rln_cpr_state = 0;
+            rln_cpr_state = rln_cpr_st_idle;
         return;
     }
 
-    // States 0-3 / 5: CPR candidate (or pre-classification). Buffer
-    // bytes so a mismatch can release them into typeahead — necessary
-    // because typed input like `\33[A` (arrow up) shares the prefix.
+    // CPR candidate (or pre-classification). Buffer bytes so a mismatch
+    // can release them into typeahead — necessary because typed input
+    // like `\33[A` (arrow up) shares the prefix.
     if (rln_cpr_seq_len >= RLN_CPR_SEQ_MAX)
     {
         rln_cpr_release_seq();
@@ -1080,61 +1088,64 @@ static void rln_cpr_feed(uint8_t b)
 
     switch (rln_cpr_state)
     {
-    case 0: // idle
+    case rln_cpr_st_idle:
         if (b == '\33')
-            rln_cpr_state = 1;
+            rln_cpr_state = rln_cpr_st_esc;
         else
         {
             rln_cpr_seq_len = 0;
             rln_typeahead_push(b);
         }
         break;
-    case 1: // saw ESC
+    case rln_cpr_st_esc:
         if (b == '[')
         {
-            rln_cpr_state = 2;
+            rln_cpr_state = rln_cpr_st_csi;
             rln_cpr_p1 = 0;
         }
         else
             rln_cpr_release_seq();
         break;
-    case 2: // saw CSI; classify CPR vs DA2
+    case rln_cpr_st_csi: // classify CPR vs DA2
         if (b == '>')
         {
             // Discard the buffered `\33[>` — committed to DA2.
             rln_cpr_seq_len = 0;
-            rln_cpr_state = 7;
+            rln_cpr_state = rln_cpr_st_da2;
         }
         else if (isdigit(b))
         {
-            rln_cpr_state = 3;
+            rln_cpr_state = rln_cpr_st_p1;
             rln_cpr_p1 = b - '0';
         }
         else
             rln_cpr_release_seq();
         break;
-    case 3: // CPR p1
+    case rln_cpr_st_p1:
         if (isdigit(b))
             rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
         else if (b == ';')
         {
-            rln_cpr_state = 5;
+            rln_cpr_state = rln_cpr_st_p2;
             rln_cpr_p2 = 0;
         }
         else
             rln_cpr_release_seq();
         break;
-    case 5: // CPR p2
+    case rln_cpr_st_p2:
         if (isdigit(b))
             rln_cpr_p2 = rln_cpr_p2 * 10 + (b - '0');
         else if (b == 'R')
         {
             rln_cpr_seq_len = 0;
-            rln_cpr_state = 0;
+            rln_cpr_state = rln_cpr_st_idle;
             rln_cpr_dispatch(rln_cpr_p1, rln_cpr_p2);
         }
         else
             rln_cpr_release_seq();
+        break;
+    case rln_cpr_st_da2:
+        // handled above
         break;
     }
 }
@@ -1183,8 +1194,8 @@ void rln_read_line(rln_read_callback_t callback)
     //           prompt column
     //   u       DECRC snaps cursor back to prompt column
     //   ' \b'   write a space at the prompt column to overwrite any
-    //           leaked `c`, then BS back. Replaces the old `\33[K`
-    //           which would have clobbered form data on the same row.
+    //           leaked `c`, then BS back. EL would be shorter but would
+    //           clobber form data on the same row past the prompt.
     // Optional geometry probe (skipped only when BOTH overrides are
     // set — partial overrides still take CPR2 for the other axis):
     //   999;999H go to bottom-right
@@ -1257,7 +1268,7 @@ void rln_init(void)
     rln_callback = NULL;
     rln_enable_history = true;
     rln_max_length = 255; // fits in 2^8 with nul
-    rln_caps = 0;
+    rln_caps = RLN_CAPS_OFF;
     rln_phase = rln_phase_edit;
     rln_overwrite = false;
     rln_width_override = 0;
@@ -1400,10 +1411,7 @@ uint8_t rln_poke(const char *str)
                 else
                 {
                     uint16_t w = rln_get_term_width();
-                    uint8_t r;
-                    uint16_t c;
-                    rln_buf_to_screen(target, &r, &c);
-                    (void)r;
+                    uint16_t c = (uint16_t)((rln_prompt_col - 1 + target) % w) + 1;
                     for (int i = 0; i < 2; i++)
                     {
                         putchar(marker[i]);

@@ -40,12 +40,26 @@ static uint32_t ram_rw_size;
 static uint32_t ram_rw_crc;
 static uint32_t ram_intel_hex_base;
 
-static bool ram_start_read_chunk(void);
-
 // 16 bytes + ASCII fits in 74 cols (XRAM worst case). Below 74, drop to 8 bytes.
 static size_t ram_chunk_size(void)
 {
     return rln_get_term_width() >= 74 ? 16 : 8;
+}
+
+// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
+// read and returns true; the state machine drives the next step. For XRAM,
+// returns false (data is already resident; caller can print without a fetch).
+static bool ram_start_read_chunk(void)
+{
+    size_t chunk = ram_chunk_size();
+    mbuf_len = ram_rw_end - ram_rw_addr + 1;
+    if (mbuf_len > chunk)
+        mbuf_len = chunk;
+    if (ram_rw_addr >= 0x10000)
+        return false;
+    ria_read_buf(ram_rw_addr);
+    ram_state = RAM_READ;
+    return true;
 }
 
 static int ram_print_response(char *buf, size_t buf_size, int state)
@@ -57,7 +71,7 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     int width = rln_get_term_width();
     bool with_ascii = width >= 40;
     // 40-col display: collapse the addr-trailing space and the gutter's
-    // second space so 8+ASCII XRAM fits in exactly 40 cols.
+    // second space so 8 bytes + ASCII fits in exactly 40 cols.
     bool compact = with_ascii && width < 41;
     assert(mbuf_len <= chunk);
     sprintf(buf, compact ? "%04lX" : "%04lX ", ram_rw_addr);
@@ -100,22 +114,6 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     if (ram_start_read_chunk())
         return -1;
     return 0;
-}
-
-// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
-// read and returns true (caller should wait). For XRAM, returns false (data
-// is already resident; caller can print without a fetch).
-static bool ram_start_read_chunk(void)
-{
-    size_t chunk = ram_chunk_size();
-    mbuf_len = ram_rw_end - ram_rw_addr + 1;
-    if (mbuf_len > chunk)
-        mbuf_len = chunk;
-    if (ram_rw_addr >= 0x10000)
-        return false;
-    ria_read_buf(ram_rw_addr);
-    ram_state = RAM_READ;
-    return true;
 }
 
 static void ram_ria_read(void)
@@ -204,6 +202,11 @@ static void ram_intel_hex(const char *args)
     {
     case 0: // Data
         ram_rw_addr += ram_intel_hex_base;
+        if (ram_rw_addr + mbuf_len > 0x20000)
+        {
+            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return;
+        }
         ram_begin_write();
         break;
     case 1: // End of file
@@ -221,8 +224,10 @@ static void ram_intel_hex(const char *args)
     case 5: // Start linear address
         if (icount == 4)
         {
-            mbuf[0] = mbuf[2];
-            mbuf[1] = mbuf[3];
+            // Start address is big-endian in the record; the 6502 reset
+            // vector at $FFFC/$FFFD is little-endian.
+            mbuf[0] = mbuf[3];
+            mbuf[1] = mbuf[2];
             ram_rw_addr = 0xFFFC;
             mbuf_len = 2;
             ram_begin_write();
@@ -257,7 +262,7 @@ void ram_mon_address(const char *args)
                 ram_rw_end = ram_rw_end * 16 + str_xdigit_to_int(ch);
             }
         }
-        else if (ch == '-' && second_selected == true)
+        else if (ch == '-' && second_selected)
             break;
         else if (ch == '-')
             second_selected = true;
@@ -274,12 +279,12 @@ void ram_mon_address(const char *args)
     {
         ram_rw_end = 0x1FFFF;
     }
-    if (args[i] == ':')
-        i++;
     for (; args[i] == ' '; i++)
         ;
     if (args[i] == ':')
         i++;
+    for (; args[i] == ' '; i++)
+        ;
     if (ram_rw_addr > 0x1FFFF || ram_rw_end > 0x1FFFF || ram_rw_addr > ram_rw_end)
     {
         mon_add_response_str(STR_ERR_INVALID_ARGUMENT);

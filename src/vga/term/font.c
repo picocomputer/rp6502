@@ -3682,10 +3682,11 @@ static const __in_flash("font_cp869_16") uint8_t FONT16_CP869[] = {
 // DEC Special Graphics -> CP437 mapping. Sentinel DEC_MAP_BLANK leaves the
 // slot zeroed (no glyph available); DEC_MAP_ASCII marks codes sourced from
 // the ASCII low-half ROM rather than the CP437 high half. Indexed by
-// (dec_code - 0x60); 0x1F entries for codes 0x60..0x7E.
+// (dec_code - 0x5F); 0x20 entries for codes 0x5F..0x7E.
 #define DEC_MAP_BLANK 0xFFFFu
 #define DEC_MAP_ASCII 0x10000u
-static const uint32_t dec_glyph_map[0x1F] = {
+static const uint32_t dec_glyph_map[0x20] = {
+    /* 0x5F _ */ DEC_MAP_BLANK,         // blank
     /* 0x60 ` */ DEC_MAP_ASCII | 0x04u, // diamond
     /* 0x61 a */ 0xB1u,                 // checkerboard
     /* 0x62 b */ DEC_MAP_BLANK,         // HT visual
@@ -3726,7 +3727,7 @@ static void font_build_dec_graphics(void)
     // scanline lookup matches the existing pattern.
     for (int row = 0; row < 16; row++)
     {
-        for (int idx = 0; idx < 0x1F; idx++)
+        for (int idx = 0; idx < 0x20; idx++)
         {
             uint32_t m = dec_glyph_map[idx];
             uint8_t v16 = 0;

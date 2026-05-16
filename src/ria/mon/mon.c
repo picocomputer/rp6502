@@ -47,7 +47,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // the producer sees.
 static char mon_response_buf_a[MON_RESPONSE_BUF_SIZE];
 static char mon_response_buf_b[MON_RESPONSE_BUF_SIZE];
-static char *mon_response_buf = mon_response_buf_a;
+static char *mon_response_cur = mon_response_buf_a;
 static char *mon_response_next = mon_response_buf_b;
 static bool mon_response_next_loaded;
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
@@ -72,11 +72,11 @@ static enum {
     MON_MORE_WAIT_CSI,
 } mon_more_state;
 
-typedef void (*mon_function)(const char *);
+typedef void (*mon_command_fn)(const char *);
 __in_flash("mon_commands") static struct
 {
     const char *const cmd;
-    mon_function func;
+    mon_command_fn func;
 } const MON_COMMANDS[] = {
     {STR_HELP, hlp_mon_help},
     {STR_H, hlp_mon_help},
@@ -107,7 +107,7 @@ __in_flash("mon_commands") static struct
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
 // Returns NULL if not found. Advances buf to start of args.
-static mon_function mon_command_lookup(const char **buf)
+static mon_command_fn mon_command_lookup(const char **buf)
 {
     while (**buf == ' ')
         (*buf)++;
@@ -163,9 +163,12 @@ static void mon_enter(bool timeout, const char *buf)
     mon_needs_read_line = true;
     const char *args = buf;
     stdio_flush();
-    mon_function func = mon_command_lookup(&args);
+    mon_command_fn func = mon_command_lookup(&args);
     if (func)
-        return func(args);
+    {
+        func(args);
+        return;
+    }
     if (rom_load_installed(buf))
         return;
     // Suppress error for empty lines
@@ -225,18 +228,6 @@ static const char *mon_lfs_lookup(int result)
     }
 }
 
-static int mon_lfs_response(char *buf, size_t buf_size, int state)
-{
-    if (state < 0)
-        return state;
-    const char *err_str = mon_lfs_lookup(state);
-    if (err_str != NULL)
-        snprintf_utf8(buf, buf_size, "%s", err_str);
-    else
-        snprintf_utf8(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
-    return -1;
-}
-
 static const char *mon_fatfs_lookup(int fresult)
 {
     switch (fresult)
@@ -284,16 +275,27 @@ static const char *mon_fatfs_lookup(int fresult)
     }
 }
 
-static int mon_fatfs_response(char *buf, size_t buf_size, int state)
+static int mon_err_response(char *buf, size_t buf_size, int state,
+                            const char *(*lookup)(int))
 {
     if (state < 0)
         return state;
-    const char *err_str = mon_fatfs_lookup(state);
+    const char *err_str = lookup(state);
     if (err_str != NULL)
         snprintf_utf8(buf, buf_size, "%s", err_str);
     else
         snprintf_utf8(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
     return -1;
+}
+
+static int mon_lfs_response(char *buf, size_t buf_size, int state)
+{
+    return mon_err_response(buf, buf_size, state, mon_lfs_lookup);
+}
+
+static int mon_fatfs_response(char *buf, size_t buf_size, int state)
+{
+    return mon_err_response(buf, buf_size, state, mon_fatfs_lookup);
 }
 
 static void mon_append_response(mon_response_fn fn, const char *str, int state)
@@ -304,6 +306,8 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     {
         if (!mon_response_fn_list[i])
         {
+            // Suppress consecutive duplicates — no value in showing the same
+            // string twice in a row.
             if (i > 0 && fn == mon_response_fn_list[i - 1] && str == mon_response_str[i - 1])
                 return;
             mon_response_fn_list[i] = fn;
@@ -343,15 +347,12 @@ static void mon_break_response(void)
     mon_response_indent_pending = 0;
     mon_response_width_aware = false;
     mon_response_next_loaded = false;
-    for (int i = 0; i < MON_RESPONSE_FN_COUNT; i++)
+    for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
-        if (mon_response_state[i] >= 0)
-        {
-            mon_response_fn_list[i](mon_response_buf, MON_RESPONSE_BUF_SIZE, -1);
-            mon_response_fn_list[i] = NULL;
-            mon_response_str[i] = NULL;
-            mon_response_state[i] = -1;
-        }
+        mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1);
+        mon_response_fn_list[i] = NULL;
+        mon_response_str[i] = NULL;
+        mon_response_state[i] = -1;
     }
 }
 
@@ -385,7 +386,16 @@ void mon_add_response_fatfs(int fresult)
 static void mon_more(void)
 {
     if (mon_needs_break)
+    {
+        // Don't erase a prompt we haven't drawn yet; just go to OFF.
+        if (mon_more_state == MON_MORE_START)
+        {
+            mon_response_line = 0;
+            mon_more_state = MON_MORE_OFF;
+            return;
+        }
         mon_more_state = MON_MORE_END;
+    }
     switch (mon_more_state)
     {
     case MON_MORE_START:
@@ -441,15 +451,21 @@ void mon_task(void)
     if (main_active())
         return;
     if (mon_more_state)
-        return mon_more();
+    {
+        mon_more();
+        return;
+    }
     if (mon_needs_break)
-        return mon_break_response();
-    // If cur is exhausted and next is loaded, swap pointers — free, do
-    // it inline so streaming can resume in the same tick.
+    {
+        mon_break_response();
+        return;
+    }
+    // If cur is exhausted and next is loaded, swap pointers — no copy,
+    // so streaming can resume in the same tick.
     if (mon_response_pos == -1 && mon_response_next_loaded)
     {
-        char *tmp = mon_response_buf;
-        mon_response_buf = mon_response_next;
+        char *tmp = mon_response_cur;
+        mon_response_cur = mon_response_next;
         mon_response_next = tmp;
         mon_response_pos = 0;
         mon_response_next_loaded = false;
@@ -472,7 +488,7 @@ void mon_task(void)
         int rows_max = rln_get_term_height() - 1;
         int width = rln_get_term_width();
         char c;
-        while ((c = mon_response_buf[mon_response_pos]) && com_putchar_ready())
+        while ((c = mon_response_cur[mon_response_pos]) && com_putchar_ready())
         {
             // Emit one queued indent space per iteration after a
             // paginator-injected wrap, so wrapped continuation lines
@@ -505,11 +521,11 @@ void mon_task(void)
             if (!mon_response_width_aware && c == ' ')
             {
                 int n = mon_response_pos + 1;
-                while (mon_response_buf[n] && mon_response_buf[n] != ' ' &&
-                       mon_response_buf[n] != '\n' && mon_response_buf[n] != '\r')
+                while (mon_response_cur[n] && mon_response_cur[n] != ' ' &&
+                       mon_response_cur[n] != '\n' && mon_response_cur[n] != '\r')
                     n++;
                 int next_word_len = n - mon_response_pos - 1;
-                bool word_complete = mon_response_buf[n] != 0;
+                bool word_complete = mon_response_cur[n] != 0;
                 if (!word_complete && mon_response_next_loaded)
                 {
                     int m = 0;
@@ -545,7 +561,8 @@ void mon_task(void)
             // UTF-8 continuation, etc.) — such producers manage their own
             // width and our column counter would be wrong from there on.
             // Also catches words longer than the line that the word-wrap
-            // branch above could not break.
+            // branch above could not break. Assumes producers don't emit
+            // raw control bytes (\b, \t, \f) before flipping width_aware.
             if (!mon_response_width_aware && c != '\n' && c != '\r' &&
                 mon_response_col >= width)
             {
@@ -590,7 +607,7 @@ void mon_task(void)
             mon_response_pos = -1;
         return;
     }
-    // ram/rom can run the 6502 multiple times
+    // Wait for any active subsystem before issuing the next prompt.
     if (ram_active() ||
         rom_active() ||
         fil_active() ||
@@ -629,7 +646,7 @@ void mon_task(void)
 
 void mon_stop(void)
 {
-    // NFC launch also calls this
+    // Graceful return to a fresh prompt; dismisses --more-- if shown.
     if (mon_more_state)
     {
         mon_needs_break = true;

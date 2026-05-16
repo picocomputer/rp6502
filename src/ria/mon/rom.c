@@ -42,8 +42,8 @@ static enum {
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
-static bool rom_FFFC;
-static bool rom_FFFD;
+static bool rom_has_reset_lo;
+static bool rom_has_reset_hi;
 static bool lfs_file_open;
 static lfs_file_t lfs_file;
 LFS_FILE_CONFIG(lfs_file_config, static);
@@ -94,22 +94,18 @@ static uint32_t rom_ftell(void)
 
 static void rom_close(void)
 {
-    bool closed = false;
     if (lfs_file_open)
     {
         lfs_file_close(&lfs_volume, &lfs_file);
         lfs_file_open = false;
-        closed = true;
     }
     if (fat_fil.obj.fs)
     {
         f_close(&fat_fil);
         fat_fil.obj.fs = NULL;
-        closed = true;
     }
-    if (closed)
-        for (int i = 0; i < ROM_ASSET_MAX; i++)
-            rom_assets[i].is_open = false;
+    for (int i = 0; i < ROM_ASSET_MAX; i++)
+        rom_assets[i].is_open = false;
 }
 
 static bool rom_fseek_to(uint32_t pos)
@@ -146,11 +142,11 @@ static bool rom_open(const char *path)
     {
         // New format: parse null-asset header "#>len crc"
         const char *p = (const char *)mbuf + 2;
-        uint32_t chunks_len, chunks_crc;
+        uint32_t chunks_len, unused_image_crc;
         if (!str_parse_uint32(&p, &chunks_len) ||
-            !str_parse_uint32(&p, &chunks_crc))
+            !str_parse_uint32(&p, &unused_image_crc))
             goto invalid;
-        (void)chunks_crc; // per-chunk CRCs are verified; whole-image CRC is reserved
+        (void)unused_image_crc;
         rom_end_pos = rom_ftell() + chunks_len;
         rom_assets_start = after_shebang;
     }
@@ -162,15 +158,15 @@ static bool rom_open(const char *path)
         if (!rom_fseek_to(after_shebang))
             goto invalid;
     }
-    rom_FFFC = false;
-    rom_FFFD = false;
+    rom_has_reset_lo = false;
+    rom_has_reset_hi = false;
     return true;
 invalid:
     mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
     return false;
 }
 
-static bool rom_done(void)
+static bool rom_at_eof(void)
 {
     if (rom_end_pos)
         return rom_ftell() >= rom_end_pos;
@@ -234,9 +230,9 @@ static bool rom_next_chunk(void)
             return false;
         }
         if (rom_addr <= 0xFFFC && rom_addr + rom_len > 0xFFFC)
-            rom_FFFC = true;
+            rom_has_reset_lo = true;
         if (rom_addr <= 0xFFFD && rom_addr + rom_len > 0xFFFD)
-            rom_FFFD = true;
+            rom_has_reset_hi = true;
         return rom_read(rom_len, rom_crc);
     }
     mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
@@ -245,9 +241,9 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
-    if (rom_done())
+    if (rom_at_eof())
     {
-        if (rom_FFFC && rom_FFFD)
+        if (rom_has_reset_lo && rom_has_reset_hi)
         {
             if (usb_boot_enumerating())
                 return;
@@ -279,6 +275,7 @@ static void rom_loading(void)
 }
 
 // Copy, uppercase, and validate an installed ROM name. len=0 means no length cap.
+// Pass dst=NULL to validate without copying.
 // ASCII letters only (digits allowed after the first char); rejects any byte >= 0x80
 // so installed names are always portable across code pages.
 static bool rom_copy_install_name(char *dst, const char *src, size_t len)
@@ -293,9 +290,11 @@ static bool rom_copy_install_name(char *dst, const char *src, size_t len)
             return false;
         if (!isalpha(c) && !(i && isdigit(c)))
             return false;
-        dst[i] = (char)toupper(c);
+        if (dst)
+            dst[i] = (char)toupper(c);
     }
-    dst[i] = 0;
+    if (dst)
+        dst[i] = 0;
     return i > 0;
 }
 
@@ -347,10 +346,10 @@ void rom_mon_install(const char *args)
     tok = str_parse_string(&args_start);
     if (!rom_open(tok))
         return;
-    while (!rom_done())
+    while (!rom_at_eof())
         if (!rom_next_chunk())
             return;
-    if (!rom_FFFC || !rom_FFFD)
+    if (!rom_has_reset_lo || !rom_has_reset_hi)
     {
         mon_add_response_str(STR_ERR_ROM_DATA_INVALID);
         return;
@@ -419,11 +418,7 @@ void rom_exec(void)
     assert(argv0);
     if (*argv0 == ':')
     {
-        const char *lfs_name = argv0 + 1;
-        if (*lfs_name == '/')
-            lfs_name++;
-        char tmp[LFS_NAME_MAX + 1];
-        if (!rom_copy_install_name(tmp, lfs_name, 0))
+        if (!rom_copy_install_name(NULL, argv0 + 1, 0))
             return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
     }
     const char *filepath = str_abs_path(argv0);
@@ -605,7 +600,7 @@ void rom_mon_help(const char *args)
     mon_add_response_str(STR_ERR_NO_HELP_FOUND);
 }
 
-static bool rom_action_is_finished(void)
+static bool rom_action_can_proceed(void)
 {
     if (ria_active())
         return false;
@@ -617,7 +612,7 @@ static bool rom_action_is_finished(void)
     return true;
 }
 
-static bool rom_xram_writing(void)
+static bool rom_xram_done(void)
 {
     while (rom_len && pix_ready())
     {
@@ -625,7 +620,7 @@ static bool rom_xram_writing(void)
         xram[addr] = mbuf[rom_len];
         PIX_SEND_XRAM(addr, xram[addr]);
     }
-    return !!rom_len;
+    return !rom_len;
 }
 
 void rom_init(void)
@@ -640,7 +635,6 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
-        // Don't log close errors; would be misleading or redundant.
         rom_close();
         break;
     case ROM_HELPING:
@@ -650,18 +644,18 @@ void rom_task(void)
         rom_loading();
         break;
     case ROM_XRAM_WRITING:
-        if (!rom_xram_writing())
+        if (rom_xram_done())
             rom_state = ROM_LOADING;
         break;
     case ROM_RIA_WRITING:
-        if (rom_action_is_finished())
+        if (rom_action_can_proceed())
         {
             rom_state = ROM_RIA_VERIFYING;
             ria_verify_buf(rom_addr);
         }
         break;
     case ROM_RIA_VERIFYING:
-        if (rom_action_is_finished())
+        if (rom_action_can_proceed())
             rom_state = ROM_LOADING;
         break;
     }
@@ -832,8 +826,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
 int rom_std_close(int desc, api_errno *err)
 {
     (void)err;
-    if (desc >= 0 && desc < ROM_ASSET_MAX)
-        rom_assets[desc].is_open = false;
+    rom_assets[desc].is_open = false;
     return 0;
 }
 
