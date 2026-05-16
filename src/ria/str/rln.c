@@ -1394,7 +1394,9 @@ uint8_t rln_poke(const char *str)
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
-        if (ch < 32)
+        // ESC starts an ANSI escape sequence; feed it to the parser so the
+        // bytes that follow are absorbed instead of treated as input text.
+        if (ch < 32 && ch != '\33')
         {
             if (ch != '\r' && ch != '\n' && rln_max_length >= 2)
             {
