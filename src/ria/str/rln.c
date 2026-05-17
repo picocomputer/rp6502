@@ -9,7 +9,6 @@
 #include "str/rln.h"
 #include "str/str.h"
 #include "sys/com.h"
-#include "sys/ria.h"
 #include "sys/vga.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
@@ -1286,8 +1285,6 @@ void rln_run(void)
 
 void rln_stop(void)
 {
-    if (!ria_active())
-        com_reset_terminal();
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
     rln_init();
