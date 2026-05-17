@@ -12,18 +12,22 @@
 #define X(name, value) extern const char name[];
 #endif
 
+// UF2 program name identifiers
+X(STR_UF2_PROG_NAME_RIA, PICO_PROGRAM_NAME)
+X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
+
+// ANSI reset commands
+X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
+X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h\33[3g")
+
+// https://www.ntppool.org/
+X(STR_NTP_SERVER, "pool.ntp.org")
+
 // Configuration files on littlefs
 X(STR_CFG_FILENAME, "CONFIG.SYS")
 X(STR_MDM_PHONEBOOK, "PHONE%d.SYS")
 X(STR_MDM_PHONE_TMP, "PHONE%d.TMP")
 X(STR_MDM_SETTINGS, "MODEM%d.SYS")
-
-// https://www.ntppool.org/
-X(STR_NTP_SERVER, "pool.ntp.org")
-
-// UF2 program name identifiers
-X(STR_UF2_PROG_NAME_RIA, PICO_PROGRAM_NAME)
-X(STR_UF2_PROG_NAME_VGA, "RP6502-VGA")
 
 // VGA driver
 X(STR_VGA_DISPLAY_TYPE_0, "640x480")
@@ -46,9 +50,6 @@ X(STR_STATUS_BLE_SIMPLE, "BLE : %s\n")
 X(STR_STATUS_USB, "USB : %d %s, %d %s, %d %s, %d %s, %d %s, %d %s\n")
 X(STR_STATUS_MSC, "%s: %s %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: %s %s\n")
-
-X(STR_TERM_HARD_RESET, "\30\33c\33[2J") // Extra \33[2J for minicom.
-X(STR_TERM_SOFT_RESET, "\30\33[?47l\33[?33l\33[0m\33(B\33[?7h\33[?25h\33[3g")
 
 // Monitor keywords
 X(STR_POSIX, "POSIX")
