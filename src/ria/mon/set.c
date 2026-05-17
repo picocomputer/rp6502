@@ -41,7 +41,7 @@ static void set_phi2(const char *args)
     if (*args && (!str_parse_uint32(&args, &val) ||
                   !str_parse_end(args) ||
                   !cpu_set_phi2_khz(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_phi2_response);
 }
@@ -67,7 +67,7 @@ static void set_boot(const char *args)
         else
         {
             if (!rom_set_boot(args))
-                return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+                return mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         }
     }
     mon_add_response_fn(set_boot_response);
@@ -90,7 +90,7 @@ static void set_code_page(const char *args)
     if (*args && (!str_parse_uint32(&args, &val) ||
                   !str_parse_end(args) ||
                   !oem_set_code_page(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_code_page_response);
 }
@@ -109,7 +109,7 @@ static void set_vga(const char *args)
     if (*args && (!str_parse_uint32(&args, &val) ||
                   !str_parse_end(args) ||
                   !vga_set_display_type(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_vga_response);
 }
@@ -131,7 +131,7 @@ static void set_rf(const char *args)
     if (*args && (!str_parse_uint32(&args, &val) ||
                   !str_parse_end(args) ||
                   !cyw_set_rf_enable(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_rf_response);
 }
@@ -160,7 +160,7 @@ static void set_rfcc(const char *args)
         else
         {
             if (!tok || !str_parse_end(scan) || !cyw_set_rf_country_code(tok))
-                return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+                return mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         }
     }
     mon_add_response_fn(set_rfcc_response);
@@ -200,7 +200,7 @@ static void set_ssid(const char *args)
     else
     {
         if (!tok || !str_parse_end(scan) || !wfi_set_ssid(tok))
-            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
@@ -217,7 +217,7 @@ static void set_pass(const char *args)
     else
     {
         if (!tok || !str_parse_end(scan) || !wfi_set_pass(tok))
-            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_ssid_response);
     mon_add_response_fn(set_pass_response);
@@ -240,7 +240,7 @@ static void set_ble(const char *args)
     if (*args && (!str_parse_uint32(&args, &val) ||
                   !str_parse_end(args) ||
                   !ble_set_enabled(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_ble_response);
 }
@@ -271,7 +271,7 @@ static void set_port(const char *args)
     if (!str_parse_uint32(&args, &val) ||
         !str_parse_end(args) ||
         !com_tel_set_port(val))
-        return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        return mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     mon_add_response_fn(set_port_response);
     mon_add_response_fn(set_key_response);
 }
@@ -287,7 +287,7 @@ static void set_key(const char *args)
     else
     {
         if (!tok || !str_parse_end(scan) || !com_tel_set_key(tok))
-            return mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            return mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     }
     mon_add_response_fn(set_port_response);
     mon_add_response_fn(set_key_response);
@@ -310,7 +310,7 @@ static void set_nfc(const char *args)
     if (*args && (!str_parse_uint32(&args, &val) ||
                   !str_parse_end(args) ||
                   !nfc_set_enabled(val)))
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     else
         mon_add_response_fn(set_nfc_response);
 }
@@ -329,7 +329,7 @@ static void set_time_zone(const char *args)
         const char *tok = str_parse_string(&args);
         if (!tok || !str_parse_end(args) || !clk_set_time_zone(tok))
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -350,7 +350,7 @@ static void set_kbd_layout(const char *args)
         const char *tok = str_parse_string(&args);
         if (!tok || !str_parse_end(args) || !kbd_set_layout(tok))
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
     }
@@ -398,7 +398,7 @@ void set_mon_set(const char *args)
                 }
             }
         }
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     // No args, show everything

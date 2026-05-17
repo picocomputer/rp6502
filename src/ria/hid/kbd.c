@@ -652,7 +652,7 @@ overflow_error:
     kbd_cached_dead2 = (void *)&kbd_deadkey_cache[0];
     kbd_cached_dead3 = (void *)&kbd_deadkey_cache[0];
     kbd_deadkey_cache[0] = 0;
-    mon_add_response_str(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
+    mon_add_response_utf8(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
 }
 
 static bool __in_flash("kbd_parse") kbd_parse_field(const hid_field_t *field, void *context)

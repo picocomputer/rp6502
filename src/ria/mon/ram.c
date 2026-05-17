@@ -165,7 +165,7 @@ static void ram_intel_hex(const char *args)
         len--;
     if (len < 10 || len % 2)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     uint8_t ichecksum = 0;
@@ -178,7 +178,7 @@ static void ram_intel_hex(const char *args)
         if (!isxdigit((unsigned char)args[i]) ||
             !isxdigit((unsigned char)args[i + 1]))
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         uint8_t val = str_xdigit_to_int(args[i]) * 16 +
@@ -195,7 +195,7 @@ static void ram_intel_hex(const char *args)
     }
     if (icount != --mbuf_len || ichecksum)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     switch (itype)
@@ -204,7 +204,7 @@ static void ram_intel_hex(const char *args)
         ram_rw_addr += ram_intel_hex_base;
         if (ram_rw_addr + mbuf_len > 0x20000)
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         ram_begin_write();
@@ -234,7 +234,7 @@ static void ram_intel_hex(const char *args)
         }
         break;
     default:
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         break;
     }
 }
@@ -287,7 +287,7 @@ void ram_mon_address(const char *args)
         ;
     if (ram_rw_addr > 0x1FFFF || ram_rw_end > 0x1FFFF || ram_rw_addr > ram_rw_end)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     if (!args[i])
@@ -298,7 +298,7 @@ void ram_mon_address(const char *args)
     }
     if (second_selected)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     uint32_t data = 0x80000000;
@@ -312,7 +312,7 @@ void ram_mon_address(const char *args)
             data = data * 16 + str_xdigit_to_int(ch);
         else if (ch != ' ')
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         if (ch == ' ' || !args[i + 1])
@@ -324,7 +324,7 @@ void ram_mon_address(const char *args)
             }
             else
             {
-                mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+                mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
                 return;
             }
             for (; args[i + 1] == ' '; i++)
@@ -339,12 +339,12 @@ static void ram_rx_mbuf(bool timeout)
     ram_state = RAM_IDLE;
     if (timeout)
     {
-        mon_add_response_str(STR_ERR_RX_TIMEOUT);
+        mon_add_response_utf8(STR_ERR_RX_TIMEOUT);
         return;
     }
     if (ria_buf_crc32() != ram_rw_crc)
     {
-        mon_add_response_str(STR_ERR_CRC);
+        mon_add_response_utf8(STR_ERR_CRC);
         return;
     }
     if (ram_rw_addr >= 0x10000)
@@ -381,21 +381,21 @@ void ram_mon_binary(const char *args)
     {
         if (ram_rw_addr > 0x1FFFF)
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         if (!ram_rw_size || ram_rw_size > MBUF_SIZE ||
             (ram_rw_addr < 0x10000 && ram_rw_addr + ram_rw_size > 0x10000) ||
             ram_rw_addr + ram_rw_size > 0x20000)
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         mem_read_mbuf(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }
-    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
 }
 
 void ram_task(void)

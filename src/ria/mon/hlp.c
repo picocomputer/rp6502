@@ -129,7 +129,7 @@ void hlp_mon_help(const char *args)
 {
     if (!*args)
     {
-        mon_add_response_str(STR_HELP_HELP);
+        mon_add_response_utf8(STR_HELP_HELP);
         mon_add_response_fn(rom_installed_response);
         return;
     }
@@ -137,7 +137,7 @@ void hlp_mon_help(const char *args)
     mon_response_fn fn;
     help_response_lookup(args, &c, &fn);
     if (c != NULL)
-        mon_add_response_str(c);
+        mon_add_response_utf8(c);
     if (fn != NULL)
         mon_add_response_fn(fn);
     if (c == NULL && fn == NULL)

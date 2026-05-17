@@ -71,7 +71,7 @@ bool opl_xreg(uint16_t word)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);
     if (!opl_emu8950)
     {
-        mon_add_response_str(STR_ERR_INTERNAL_ERROR);
+        mon_add_response_utf8(STR_ERR_INTERNAL_ERROR);
         return false;
     }
     OPL_reset(opl_emu8950);

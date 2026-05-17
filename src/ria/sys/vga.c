@@ -245,7 +245,7 @@ void vga_task(void)
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_CONNECTION_LOST;
-        mon_add_response_str(STR_ERR_VGA_CONNECTION_LOST);
+        mon_add_response_utf8(STR_ERR_VGA_CONNECTION_LOST);
     }
 
     if (vga_needs_reset)

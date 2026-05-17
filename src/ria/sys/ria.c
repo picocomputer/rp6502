@@ -189,7 +189,7 @@ bool ria_handle_error(void)
     case RIA_ACTION_RESULT_FINISHED: // OK, explicitly ended
         return false;
     case RIA_ACTION_RESULT_TIMEOUT:
-        mon_add_response_str(STR_ERR_RIA_TIMEOUT);
+        mon_add_response_utf8(STR_ERR_RIA_TIMEOUT);
         break;
     default:
         mon_add_response_fn_state(ria_verify_error_response, action_result);

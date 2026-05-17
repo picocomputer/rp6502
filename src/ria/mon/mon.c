@@ -174,10 +174,10 @@ static void mon_enter(bool timeout, const char *buf)
         return;
     // Suppress error for empty lines
     if (!str_parse_end(buf))
-        mon_add_response_str(STR_ERR_UNKNOWN_COMMAND);
+        mon_add_response_utf8(STR_ERR_UNKNOWN_COMMAND);
 }
 
-static int mon_str_response(char *buf, size_t buf_size, int state)
+static int mon_utf8_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
@@ -320,7 +320,7 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     i--;
     if (mon_response_str[i] == STR_ERR_MONITOR_RESPONSE_OVERFLOW)
         return;
-    mon_response_fn_list[i] = mon_str_response;
+    mon_response_fn_list[i] = mon_utf8_response;
     mon_response_str[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
     mon_response_state[i] = 0;
 }
@@ -368,9 +368,9 @@ void mon_add_response_fn_state(mon_response_fn fn, int state)
     mon_append_response(fn, NULL, state);
 }
 
-void mon_add_response_str(const char *str)
+void mon_add_response_utf8(const char *utf8)
 {
-    mon_append_response(mon_str_response, str, 0);
+    mon_append_response(mon_utf8_response, utf8, 0);
 }
 
 void mon_add_response_lfs(int result)

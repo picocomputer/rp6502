@@ -163,7 +163,7 @@ void cyw_init(void)
             cyw_country_abbr[cyw_country][1],
             0);
     if (cyw43_arch_init_with_country(country))
-        mon_add_response_str(STR_ERR_CYW_FAILED_TO_INIT);
+        mon_add_response_utf8(STR_ERR_CYW_FAILED_TO_INIT);
     else
     {
         cyw_led_status = cyw_led_requested;
