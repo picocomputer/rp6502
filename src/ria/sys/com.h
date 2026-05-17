@@ -29,6 +29,11 @@ void com_init(void);
 void com_task(void);
 void com_stop(void);
 
+// Drops any pending core-1 TX bytes (in-flight 6502 stdout) and emits
+// STR_TERM_SOFT_RESET. Single function so the order is enforced and the
+// reset sequence isn't garbled by trailing program output in com_tx_fanout.
+void com_reset_terminal(void);
+
 // The '\a' BEL alert
 bool com_get_bel(void);
 void com_set_bel(bool value);

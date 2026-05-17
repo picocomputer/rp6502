@@ -161,7 +161,7 @@ void ria_task(void)
         if (time_reached(action_watchdog_timer))
         {
             action_result = RIA_ACTION_RESULT_TIMEOUT;
-            main_stop();
+            main_stop(false);
         }
     }
 
@@ -291,7 +291,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            main_stop(false);
                         }
                         else if (++rw_pos > 0 && rw_pos < rw_end)
                         {
@@ -308,7 +308,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (++rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            main_stop(false);
                         }
                     }
                     break;
@@ -322,7 +322,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         {
                             if (action_result < 0)
                                 action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            main_stop(false);
                         }
                     }
                     break;
@@ -351,7 +351,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         api_return_ax(0);
                     }
                     else if (data == 0xFF) // exit()
-                        main_stop();
+                        main_stop(true);
                     break;
                 case CASE_WRITE(0xFFEC): // xstack
                     if (xstack_ptr)

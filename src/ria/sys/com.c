@@ -22,9 +22,9 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <hardware/sync.h>
+#include <stdio.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_COM)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -631,6 +631,15 @@ void com_stop(void)
 {
     com_rx_char = -1;
     com_rx_head = com_rx_tail = 0;
+}
+
+void com_reset_terminal(void)
+{
+    // Drop in-flight 6502 stdout so the reset sequence isn't garbled by
+    // interleaving in com_tx_fanout.
+    com_tx_core1_tail = com_tx_core1_head;
+    __dmb();
+    printf(STR_TERM_SOFT_RESET);
 }
 
 void com_task(void)
