@@ -579,8 +579,8 @@ static int com_stdio_in_chars(char *buf, int length)
     if (count < length && REGS(0xFFE0) & 0b01000000)
     {
         buf[count++] = REGS(0xFFE2);
-        REGS(0xFFE2) = 0;
         REGS(0xFFE0) = 0;
+        REGS(0xFFE2) = 0;
     }
 
     // Steal the cross-core handoff slot if the 6502 hasn't consumed it
@@ -629,10 +629,31 @@ void com_init(void)
 
 void com_stop(void)
 {
-    com_rx_char = -1;
-    com_rx_head = com_rx_tail = 0;
     if (!ria_active())
         printf(STR_TERM_SOFT_RESET);
+}
+
+void com_break(void)
+{
+    com_uart_read(NULL, SIZE_MAX);
+
+    char scratch[16];
+    while (kbd_stdio_in_chars(scratch, sizeof scratch))
+        ;
+
+#ifdef RP6502_RIA_W
+    if (com_tel_state == com_tel_state_connected)
+        while (tel_rx(SYS_TEL_DESC, scratch, sizeof scratch))
+            ;
+    com_tel_rx_head = com_tel_rx_tail = 0;
+    com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
+#endif
+
+    REGS(0xFFE0) = 0;
+    REGS(0xFFE2) = 0;
+
+    com_rx_char = -1;
+    com_rx_head = com_rx_tail = 0;
 }
 
 void com_task(void)

@@ -455,6 +455,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 // partial break
                 rln_break();
                 mon_break();
+                com_break();
                 main_stop();
                 return;
             }

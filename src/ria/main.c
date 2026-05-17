@@ -189,6 +189,7 @@ static void break_(void) // break is keyword
     mem_break();
     rln_break();
     pro_break();
+    com_break();
 }
 
 // Triggered once after init then after every PHI2 change.
