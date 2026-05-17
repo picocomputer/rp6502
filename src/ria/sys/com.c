@@ -621,7 +621,7 @@ void com_init(void)
     stdio_set_driver_enabled(&com_stdio_driver, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
     // Wait for the UART to settle after VGA startup then purge everything.
-    busy_wait_ms(25);
+    busy_wait_ms(30);
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);

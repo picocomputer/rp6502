@@ -54,7 +54,7 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-static int mon_response_line;
+static int mon_more_rows_left = 23;
 static int mon_response_col;
 static int mon_response_indent;
 static int mon_response_indent_pending;
@@ -347,6 +347,7 @@ static void mon_break_response(void)
     mon_response_indent_pending = 0;
     mon_response_width_aware = false;
     mon_response_next_loaded = false;
+    mon_more_rows_left = rln_get_term_height() - 1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
         mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1);
@@ -390,7 +391,7 @@ static void mon_more(void)
         // Don't erase a prompt we haven't drawn yet; just go to OFF.
         if (mon_more_state == MON_MORE_START)
         {
-            mon_response_line = 0;
+            mon_more_rows_left = rln_get_term_height() - 1;
             mon_more_state = MON_MORE_OFF;
             return;
         }
@@ -404,7 +405,7 @@ static void mon_more(void)
         break;
     case MON_MORE_END:
         printf_utf8(STR_MON_MORE_ERASE);
-        mon_response_line = 0;
+        mon_more_rows_left = rln_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
     default: // MON_MORE_WAIT, MON_MORE_WAIT_ESC, MON_MORE_WAIT_CSI
@@ -485,11 +486,33 @@ void mon_task(void)
     // Flush the current response buffer
     if (mon_response_pos >= 0)
     {
-        int rows_max = rln_get_term_height() - 1;
         int width = rln_get_term_width();
         char c;
         while ((c = mon_response_cur[mon_response_pos]) && com_putchar_ready())
         {
+            // BEL marks the indent column for subsequent wraps; consume
+            // it silently and don't advance the column. Must run before
+            // the --more-- check (so BEL never pauses) and before the
+            // < 0x20 width-aware branch below (so BEL doesn't flip
+            // mon_response_width_aware off and disable wrapping). The
+            // indent_pending guard preserves indent emission ordering.
+            if (mon_response_indent_pending == 0 && c == '\a')
+            {
+                mon_response_indent =
+                    (width - mon_response_col >= MON_RESPONSE_INDENT_MIN_WRAP)
+                        ? mon_response_col
+                        : 0;
+                mon_response_pos++;
+                continue;
+            }
+            // Any remaining path emits a printable byte or a newline. If
+            // we have no row left for it, pause first; we resume here
+            // when --more-- is dismissed.
+            if (mon_more_rows_left <= 0)
+            {
+                mon_more_state = MON_MORE_START;
+                break;
+            }
             // Emit one queued indent space per iteration after a
             // paginator-injected wrap, so wrapped continuation lines
             // resume at the column marked by the producer's BEL.
@@ -498,20 +521,6 @@ void mon_task(void)
                 putchar(' ');
                 mon_response_indent_pending--;
                 mon_response_col++;
-                continue;
-            }
-            // BEL marks the indent column for subsequent wraps; consume
-            // it silently and don't advance the column. Must run before
-            // the < 0x20 width-aware branch below so BEL doesn't flip
-            // mon_response_width_aware off and disable wrapping. Indent
-            // is suppressed if too few columns remain past it.
-            if (c == '\a')
-            {
-                mon_response_indent =
-                    (width - mon_response_col >= MON_RESPONSE_INDENT_MIN_WRAP)
-                        ? mon_response_col
-                        : 0;
-                mon_response_pos++;
                 continue;
             }
             // Word wrap on space: peek the next word's length. The
@@ -547,12 +556,7 @@ void mon_task(void)
                     mon_response_pos++; // drop the space
                     mon_response_col = 0;
                     mon_response_indent_pending = mon_response_indent;
-                    mon_response_line++;
-                    if (mon_response_line >= rows_max)
-                    {
-                        mon_more_state = MON_MORE_START;
-                        break;
-                    }
+                    mon_more_rows_left--;
                     continue;
                 }
             }
@@ -569,26 +573,16 @@ void mon_task(void)
                 putchar('\n');
                 mon_response_col = 0;
                 mon_response_indent_pending = mon_response_indent;
-                mon_response_line++;
-                if (mon_response_line >= rows_max)
-                {
-                    mon_more_state = MON_MORE_START;
-                    break;
-                }
+                mon_more_rows_left--;
                 continue; // re-loop without advancing pos
             }
             putchar(c);
             mon_response_pos++;
             if (c == '\n')
             {
-                mon_response_line++;
                 mon_response_col = 0;
                 mon_response_indent = 0;
-                if (mon_response_line >= rows_max)
-                {
-                    mon_more_state = MON_MORE_START;
-                    break;
-                }
+                mon_more_rows_left--;
             }
             else if (c == '\r')
             {
@@ -617,17 +611,14 @@ void mon_task(void)
     // The monitor has control
     if (mon_needs_prompt)
     {
-        mon_add_response_str("]");
+        printf("]");
         mon_needs_prompt = false;
-        mon_response_line = 0;
-        mon_response_col = 0;
-        mon_response_width_aware = false;
         return;
     }
     if (mon_needs_read_line)
     {
         mon_needs_read_line = false;
-        mon_response_line = 0;
+        mon_more_rows_left = rln_get_term_height() - 1;
         mon_response_col = 0;
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
