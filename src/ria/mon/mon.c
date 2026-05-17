@@ -159,6 +159,7 @@ static void mon_enter(bool timeout, const char *buf)
     assert(!timeout);
     if (mon_needs_read_line) // cancelled
         return;
+    mon_more_rows_left = rln_get_term_height() - 1;
     mon_needs_prompt = true;
     mon_needs_read_line = true;
     const char *args = buf;
@@ -391,7 +392,6 @@ static void mon_more(void)
         // Don't erase a prompt we haven't drawn yet; just go to OFF.
         if (mon_more_state == MON_MORE_START)
         {
-            mon_more_rows_left = rln_get_term_height() - 1;
             mon_more_state = MON_MORE_OFF;
             return;
         }
@@ -421,7 +421,9 @@ static void mon_more(void)
             {
                 if (ch == 3 || ch == 'q' || ch == 'Q')
                     mon_needs_break = true;
-                if (ch == '\33')
+                if (ch == '\n')
+                    ; /* no-op */
+                else if (ch == '\33')
                     mon_more_state = MON_MORE_WAIT_ESC;
                 else
                     mon_more_state = MON_MORE_END;
@@ -618,7 +620,6 @@ void mon_task(void)
     if (mon_needs_read_line)
     {
         mon_needs_read_line = false;
-        mon_more_rows_left = rln_get_term_height() - 1;
         mon_response_col = 0;
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
