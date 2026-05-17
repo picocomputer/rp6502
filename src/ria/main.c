@@ -340,11 +340,9 @@ void main_run(void)
         main_state = starting;
 }
 
-void main_stop(bool reset_term)
+void main_stop(void)
 {
     cpu_stop(); // Pull down RESB
-    if (reset_term && main_state != stopped && main_state != stopping)
-        com_reset_terminal();
     if (main_state == starting)
         main_state = stopped;
     else if (main_state != stopped)
@@ -370,7 +368,7 @@ int main(void)
         main_task();
         task();
         if (is_breaking)
-            main_stop(true);
+            main_stop();
         if (main_state == starting)
         {
             run();

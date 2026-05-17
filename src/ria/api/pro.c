@@ -209,7 +209,7 @@ bool pro_api_exec(void)
         return api_return_errno(API_EINVAL);
     }
     // Committed to the exec; rom.c surfaces any load errors on the console.
-    main_stop(true);
+    main_stop();
     rom_exec();
     return api_return_ax(0);
 }
@@ -311,7 +311,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     bel_add(&bel_nfc_success_2);
     rln_stop();
     mon_stop();
-    main_stop(true);
+    main_stop();
 
     // Change to the directory containing the ROM before loading
     char *slash = NULL;

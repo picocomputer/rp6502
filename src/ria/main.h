@@ -31,7 +31,7 @@ void main_run(void);
 // Pass reset_term=true when the user is returning to the monitor prompt
 // (exit, watchdog, break, alt-f4) so the terminal soft-reset is emitted;
 // pass false for transient stops between RIA transfers during a load.
-void main_stop(bool reset_term);
+void main_stop(void);
 
 // Request to "break the system".
 // A break is triggered by CTRL-ALT-DEL or UART breaks.
