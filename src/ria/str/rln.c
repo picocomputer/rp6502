@@ -130,12 +130,17 @@ static uint8_t rln_cpr_seq_len;
 static uint8_t rln_typeahead[RLN_BUF_SIZE];
 static uint16_t rln_typeahead_len;
 
-// Lastkey capture (typed stream only)
+// Lastkey capture (typed stream only). rln_action_taken is the live
+// "this sequence mutated state" flag, OR'd across the bytes of a
+// multi-byte sequence; rln_lastkey_consumed is its committed mirror,
+// frozen alongside rln_lastkey_buf when the parser returns to C0.
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static uint8_t rln_keyseq_accum[RLN_LASTKEY_MAX];
 static uint8_t rln_keyseq_accum_len;
 static bool rln_keyseq_overflow;
+static bool rln_action_taken;
+static bool rln_lastkey_consumed;
 
 static void rln_complete(bool rln_timed_out)
 {
@@ -384,6 +389,7 @@ static void rln_history_step(int dir)
     memcpy(rln_history[rln_history_pos], rln_buf, rln_buflen + 1);
     rln_history_pos += dir;
     memcpy(rln_buf, rln_history[rln_history_pos], RLN_BUF_SIZE);
+    rln_action_taken = true;
     rln_replace_buf_from_history();
 }
 
@@ -407,12 +413,16 @@ static void rln_history_add(void)
 
 static void rln_line_home(void)
 {
+    if (rln_bufpos)
+        rln_action_taken = true;
     rln_bufpos = 0;
     rln_sync_cursor_to(rln_bufpos);
 }
 
 static void rln_line_end(void)
 {
+    if (rln_bufpos != rln_buflen)
+        rln_action_taken = true;
     rln_bufpos = rln_buflen;
     rln_sync_cursor_to(rln_bufpos);
 }
@@ -462,6 +472,7 @@ static void rln_line_forward_word(void)
     if (to == rln_bufpos)
         return;
     rln_bufpos = to;
+    rln_action_taken = true;
     rln_sync_cursor_to(rln_bufpos);
 }
 
@@ -471,6 +482,7 @@ static void rln_line_backward_word(void)
     if (to == rln_bufpos)
         return;
     rln_bufpos = to;
+    rln_action_taken = true;
     rln_sync_cursor_to(rln_bufpos);
 }
 
@@ -492,7 +504,10 @@ static void rln_step(int delta)
         rln_bufpos -= (uint8_t)mag;
     }
     if (rln_bufpos != prev)
+    {
+        rln_action_taken = true;
         rln_sync_cursor_to(rln_bufpos);
+    }
 }
 
 static void rln_line_forward(rln_ansi_t *a)
@@ -530,6 +545,7 @@ static void rln_delete_range(uint8_t start, uint8_t end)
     memmove(rln_buf + start, rln_buf + end, (size_t)(rln_buflen - end));
     rln_buflen -= count;
     rln_bufpos = start;
+    rln_action_taken = true;
     rln_emit_delete(start, count);
 }
 
@@ -613,6 +629,7 @@ static void rln_line_insert_n(rln_ansi_t *a)
             (size_t)(rln_buflen - rln_bufpos));
     memset(rln_buf + rln_bufpos, ' ', count);
     rln_buflen += (uint8_t)count;
+    rln_action_taken = true;
     rln_emit_insert(rln_bufpos, (uint8_t)count);
 }
 
@@ -631,6 +648,7 @@ static void rln_line_erase_n(rln_ansi_t *a)
     uint8_t at = rln_bufpos;
     uint8_t span = (uint8_t)(end - at);
     memset(rln_buf + at, ' ', span);
+    rln_action_taken = true;
     // Tail length unchanged; rln_emit_insert's redraw path is exactly
     // what we need — sync to `at`, rewrite the tail, restore cursor.
     rln_emit_insert(at, span);
@@ -655,6 +673,7 @@ static void rln_line_insert(char ch)
         // cursor moves, so we just sync the cursor, write the char,
         // and resolve xenl if we landed at the right margin.
         rln_buf[rln_bufpos] = ch;
+        rln_action_taken = true;
         if (rln_phase == rln_phase_edit)
         {
             rln_sync_cursor_to(rln_bufpos);
@@ -683,6 +702,7 @@ static void rln_line_insert(char ch)
     rln_buf[rln_bufpos] = ch;
     uint8_t at = rln_bufpos;
     rln_bufpos++;
+    rln_action_taken = true;
     rln_emit_insert(at, 1);
 }
 
@@ -706,6 +726,7 @@ static void rln_emit_mode_cursor(void)
 static void rln_toggle_overwrite(void)
 {
     rln_overwrite = !rln_overwrite;
+    rln_action_taken = true;
     if (rln_phase == rln_phase_edit)
         rln_emit_mode_cursor();
 }
@@ -716,6 +737,7 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
 {
     if (ch == '\r')
     {
+        rln_action_taken = true;
         rln_sync_cursor_to(rln_buflen);
         printf("\n");
         rln_buf[rln_buflen] = 0;
@@ -903,6 +925,7 @@ static void rln_line_rx_typed(uint8_t ch)
         rln_keyseq_accum[0] = ch;
         rln_keyseq_accum_len = 1;
         rln_keyseq_overflow = false;
+        rln_action_taken = false;
     }
     else if (rln_keyseq_accum_len < RLN_LASTKEY_MAX)
         rln_keyseq_accum[rln_keyseq_accum_len++] = ch;
@@ -917,6 +940,7 @@ static void rln_line_rx_typed(uint8_t ch)
         {
             memcpy(rln_lastkey_buf, rln_keyseq_accum, rln_keyseq_accum_len);
             rln_lastkey_len = rln_keyseq_accum_len;
+            rln_lastkey_consumed = rln_action_taken;
         }
         rln_keyseq_overflow = false;
     }
@@ -1166,6 +1190,8 @@ void rln_read_line(rln_read_callback_t callback)
     rln_lastkey_len = 0;
     rln_keyseq_accum_len = 0;
     rln_keyseq_overflow = false;
+    rln_action_taken = false;
+    rln_lastkey_consumed = false;
 
     rln_phase = rln_phase_prompt_cpr;
     // Sentinels for the content-based CPR heuristic: 0 means
@@ -1338,19 +1364,27 @@ void rln_set_term_height(uint16_t v) { rln_height_override = v; }
 /* Readline magic: lastkey + peekpoke
  */
 
-// int ria_readline_lastkey(char *key);
+// int ria_readline_lastkey(char *key, uint8_t *consumed);
+// xstack reply shape: consumed byte pushed first (pops last), then key
+// bytes pushed in reverse so they pop in the order received. The consumed
+// byte is always pushed — even when no key is buffered — so the 6502 stub
+// can pop it unconditionally.
 bool rln_api_lastkey(void)
 {
     uint8_t len = 0;
+    uint8_t consumed = 0;
     if (rln_callback && rln_lastkey_len)
     {
         len = rln_lastkey_len;
-        // Push in reverse so the 6502 pops bytes in the order received.
-        for (int i = len - 1; i >= 0; i--)
-            if (!api_push_uint8(&rln_lastkey_buf[i]))
-                return api_return_errno(API_EINVAL);
+        consumed = rln_lastkey_consumed ? 1 : 0;
         rln_lastkey_len = 0;
+        rln_lastkey_consumed = false;
     }
+    for (int i = len - 1; i >= 0; i--)
+        if (!api_push_uint8(&rln_lastkey_buf[i]))
+            return api_return_errno(API_EINVAL);
+    if (len && !api_push_uint8(&consumed))
+        return api_return_errno(API_EINVAL);
     return api_return_ax(len);
 }
 
@@ -1386,6 +1420,9 @@ uint8_t rln_poke(const char *str)
 {
     if (!rln_callback)
         return 0;
+    // Mutation primitives set rln_action_taken; poked input isn't typed,
+    // so save and restore to keep an in-flight typed-sequence flag clean.
+    bool saved_action = rln_action_taken;
     rln_ansi_t a = {.state = ansi_state_C0};
     for (const char *p = str; *p; p++)
     {
@@ -1437,6 +1474,7 @@ uint8_t rln_poke(const char *str)
         }
         rln_line_rx(&a, ch);
     }
+    rln_action_taken = saved_action;
     return rln_bufpos;
 }
 
