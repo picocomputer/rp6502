@@ -14,6 +14,7 @@
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>
+#include <string.h>
 
 // Implements the Linux console subset of ECMA-48 / VT102 with
 // xterm-color (256-color, truecolor, OSC 10/11/12) extensions.
@@ -279,7 +280,18 @@ static void term_clean_line(term_state_t *term, uint8_t y)
                term->screen->erase_attr[y]);
 }
 
-// Set a new cursor position, 0-indexed
+// Refresh term->ptr to track cur->{x,y} after row_idx[] or y_offset has
+// moved, and clean the cursor's row so a follow-up glyph write lands on
+// fresh memory. Tail of every routine that scrolls or moves rows.
+static inline void term_refresh_cursor_ptr(term_state_t *term)
+{
+    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
+    term_clean_line(term, term->cur->y);
+}
+
+// Set a new cursor position, 0-indexed. x == term->width is legal and
+// places the cursor in the deferred-wrap parked state (one past row end);
+// CUP / RCP / DECRC / wrap-on glyph emit all route through here.
 static void term_set_cursor_position(term_state_t *term, uint16_t x, uint16_t y)
 {
     bool x_off_screen = false;
@@ -378,7 +390,9 @@ static void term_mark_rows_erase(term_state_t *term, uint8_t from, uint8_t to)
     term->screen->all_clean = false;
 }
 
-static void term_out_FF(term_state_t *term)
+// Full screen clear + home cursor. Backs the C0 \f mapping; also used by
+// RIS. The name reflects the work done, not the dispatch source.
+static void term_full_clear(term_state_t *term)
 {
     term_mark_rows_erase(term, 0, term->height);
     term->cur->x = 0;
@@ -394,8 +408,7 @@ static void term_out_FF(term_state_t *term)
 
 static void term_reset_tab_stops(term_state_t *term)
 {
-    for (size_t i = 0; i < TERM_TAB_BITMAP_BYTES; i++)
-        term->tab_stops[i] = 0;
+    memset(term->tab_stops, 0, sizeof(term->tab_stops));
     for (uint8_t col = 8; col < term->width; col += 8)
         term->tab_stops[col >> 3] |= 1u << (col & 7);
 }
@@ -480,7 +493,7 @@ static void term_out_RIS(term_state_t *term)
     term_mark_buf_erased(&term->bufs[1], term->height,
                          color_256[TERM_FG_COLOR_INDEX],
                          color_256[TERM_BG_COLOR_INDEX], 0);
-    term_out_FF(term); /* also resets x = y = 0 on primary */
+    term_full_clear(term); /* also resets x = y = 0 on primary */
 }
 
 static void term_state_init(term_state_t *term, uint8_t width,
@@ -997,8 +1010,7 @@ static void term_out_TBC(term_state_t *term)
     uint16_t ps = term->csi_param[0];
     if (ps == 3)
     {
-        for (size_t i = 0; i < TERM_TAB_BITMAP_BYTES; i++)
-            term->tab_stops[i] = 0;
+        memset(term->tab_stops, 0, sizeof(term->tab_stops));
     }
     else if (ps == 0)
     {
@@ -1132,7 +1144,8 @@ static void term_region_scroll_up(term_state_t *term, uint8_t top,
     for (uint8_t i = 0; i < n; i++)
         term->screen->row_idx[term_buf_slot(y_off, (uint8_t)(bot - n + 1 + i))] = saved[i];
 
-    // Shift the four logical-row metadata arrays down by n.
+    // Content moved up by n, so each row inherits the metadata of the
+    // row n positions below it.
     for (uint8_t i = top; (uint8_t)(i + n) <= bot; i++)
     {
         term->screen->dirty[i] = term->screen->dirty[i + n];
@@ -1171,7 +1184,8 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
     for (uint8_t i = 0; i < n; i++)
         term->screen->row_idx[term_buf_slot(y_off, (uint8_t)(top + i))] = saved[i];
 
-    // Shift the four logical-row metadata arrays up by n.
+    // Content moved down by n, so each row inherits the metadata of the
+    // row n positions above it.
     for (int i = (int)bot; i - (int)n >= (int)top; i--)
     {
         term->screen->dirty[i] = term->screen->dirty[i - n];
@@ -1216,8 +1230,7 @@ static void term_out_LF(term_state_t *term)
             term_region_scroll_up(term, term->screen->margin_top, term->screen->margin_bot, 1);
         }
     }
-    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
-    term_clean_line(term, term->cur->y);
+    term_refresh_cursor_ptr(term);
 }
 
 // Reverse Index (ESC M) — dual of LF. Above margin_top: cursor moves up,
@@ -1229,8 +1242,7 @@ static void term_out_RI(term_state_t *term)
     {
         if (term->cur->y > 0)
             --term->cur->y;
-        term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
-        term_clean_line(term, term->cur->y);
+        term_refresh_cursor_ptr(term);
         return;
     }
 
@@ -1249,8 +1261,7 @@ static void term_out_RI(term_state_t *term)
     {
         term_region_scroll_down(term, term->screen->margin_top, term->screen->margin_bot, 1);
     }
-    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
-    term_clean_line(term, term->cur->y);
+    term_refresh_cursor_ptr(term);
 }
 
 static void term_out_CR(term_state_t *term)
@@ -1263,21 +1274,10 @@ static void term_out_glyph(term_state_t *term, char ch)
 {
     if (term->cur->x == term->width)
     {
-        // Pending-wrap state (DECAWM on). Only reachable with wrap on
-        // now — the clamp below keeps cur->x <= width - 1 when wrap is
-        // off — but the rollback path stays as a safety belt in case
-        // a saved/restored cursor lands in the parked state with wrap
-        // off.
-        if (term->cur->line_wrap)
-        {
-            term_out_CR(term);
-            term_out_LF(term);
-        }
-        else
-        {
-            --term->ptr;
-            --term->cur->x;
-        }
+        // Pending-wrap state. Only reachable with DECAWM on: the clamp at
+        // the end of this function keeps cur->x <= width-1 when wrap is off.
+        term_out_CR(term);
+        term_out_LF(term);
     }
     uint16_t fg, bg;
     uint8_t attr;
@@ -1316,8 +1316,7 @@ static void term_out_CUU(term_state_t *term)
     while (rows && y > floor)
         --rows, --y;
     term->cur->y = y;
-    term->ptr = term_row_ptr(term, y) + term->cur->x;
-    term_clean_line(term, y);
+    term_refresh_cursor_ptr(term);
 }
 
 // Cursor down
@@ -1333,8 +1332,7 @@ static void term_out_CUD(term_state_t *term)
     while (rows && y < ceil)
         --rows, ++y;
     term->cur->y = y;
-    term->ptr = term_row_ptr(term, y) + term->cur->x;
-    term_clean_line(term, y);
+    term_refresh_cursor_ptr(term);
 }
 
 // Cursor forward
@@ -1376,10 +1374,10 @@ static void term_out_DCH(term_state_t *term)
     for (unsigned i = term->cur->x; i < tail; i++)
         row[i] = row[i + chars];
 
-    uint16_t dch_fg, dch_bg;
-    uint8_t dch_attr;
-    term_emit_attrs(term, &dch_fg, &dch_bg, &dch_attr);
-    fill_cells(row, tail, term->width, dch_fg, dch_bg, dch_attr);
+    uint16_t fg, bg;
+    uint8_t attr;
+    term_emit_attrs(term, &fg, &bg, &attr);
+    fill_cells(row, tail, term->width, fg, bg, attr);
 }
 
 // Insert Pn blank characters at the cursor on the current row; cells past
@@ -1455,8 +1453,7 @@ static void term_out_SU(term_state_t *term)
     term_region_scroll_up(term, term->screen->margin_top, term->screen->margin_bot, (uint8_t)n);
     // row_idx[] rotated within the region; refresh ptr so subsequent
     // writes via term->ptr land on the new physical row for cur->y.
-    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
-    term_clean_line(term, term->cur->y);
+    term_refresh_cursor_ptr(term);
 }
 
 // Scroll Down Pn rows within the current scroll region. Cursor unchanged.
@@ -1466,8 +1463,7 @@ static void term_out_SD(term_state_t *term)
     if (n < 1)
         n = 1;
     term_region_scroll_down(term, term->screen->margin_top, term->screen->margin_bot, (uint8_t)n);
-    term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
-    term_clean_line(term, term->cur->y);
+    term_refresh_cursor_ptr(term);
 }
 
 // Soft terminal reset (CSI ! p -- DECSTR). Resets SGR/cursor/origin/wrap/
@@ -1514,6 +1510,25 @@ static void term_out_DECSTBM(term_state_t *term)
         term_set_cursor_position(term, 0, 0);
 }
 
+// Translate a 1-indexed row from a CSI parameter into an absolute logical
+// row, honoring DECOM. In origin mode the row is clamped inside the scroll
+// region; otherwise clamped to [1, height]. Returns the absolute row in
+// the same 1-indexed convention -- caller subtracts 1 when handing off
+// to term_set_cursor_position.
+static uint16_t term_resolve_origin_row(term_state_t *term, uint16_t row)
+{
+    if (term->cur->origin_mode)
+    {
+        uint8_t region_h = (uint8_t)(term->screen->margin_bot - term->screen->margin_top + 1);
+        if (row > region_h)
+            row = region_h;
+        row += term->screen->margin_top;
+    }
+    else if (row > term->height)
+        row = term->height;
+    return row;
+}
+
 // Cursor Position
 static void term_out_CUP(term_state_t *term)
 {
@@ -1528,16 +1543,7 @@ static void term_out_CUP(term_state_t *term)
     if (col > term->width)
         col = term->width;
 
-    if (term->cur->origin_mode)
-    {
-        // Row is relative to margin_top; clamp inside the region.
-        uint8_t region_h = term->screen->margin_bot - term->screen->margin_top + 1;
-        if (row > region_h)
-            row = region_h;
-        row += term->screen->margin_top;
-    }
-    else if (row > term->height)
-        row = term->height;
+    row = term_resolve_origin_row(term, row);
 
     term_set_cursor_position(term, --col, --row);
 }
@@ -1561,15 +1567,7 @@ static void term_out_VPA(term_state_t *term)
     uint16_t row = term->csi_param[0];
     if (row < 1)
         row = 1;
-    if (term->cur->origin_mode)
-    {
-        uint8_t region_h = (uint8_t)(term->screen->margin_bot - term->screen->margin_top + 1);
-        if (row > region_h)
-            row = region_h;
-        row += term->screen->margin_top;
-    }
-    else if (row > term->height)
-        row = term->height;
+    row = term_resolve_origin_row(term, row);
     term_set_cursor_position(term, term->cur->x, (uint16_t)(row - 1));
 }
 
@@ -1607,7 +1605,10 @@ static void term_out_EL(term_state_t *term)
         else
         {
             x = 0;
-            end = (unsigned)term->cur->x + 1;
+            // cur->x can equal width in the parked deferred-wrap state;
+            // clamp so end stays inside the row.
+            end = (term->cur->x < term->width) ? (unsigned)term->cur->x + 1
+                                               : term->width;
         }
         fill_cells(term_row_ptr(term, term->cur->y), x, end,
                    erase_fg, erase_bg, erase_a);
@@ -1623,7 +1624,10 @@ static void term_out_EL(term_state_t *term)
     }
 }
 
-// Erase Display
+// Erase Display. ED 0/1/2 share the same parameter encoding as EL, so the
+// cases below pass through to term_out_EL without rewriting csi_param[0] --
+// ED 0 -> EL 0 (cursor to EOL), ED 1 -> EL 1 (SOL to cursor). The non-
+// cursor rows are lazy-erased via term_mark_rows_erase.
 static void term_out_ED(term_state_t *term)
 {
     switch (term->csi_param[0])
@@ -1664,7 +1668,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
     case '\n': // LF
         return term_out_LF(term);
     case '\f': // FF
-        return term_out_FF(term);
+        return term_full_clear(term);
     case '\r': // CR
         return term_out_CR(term);
     case '\16': // SO (Shift Out): activate G1
@@ -1756,11 +1760,6 @@ static void term_out_state_Fe(term_state_t *term, char ch)
         term->ansi_state = ansi_state_C0;
 }
 
-// ESC # c -- DEC private intermediate. DECALN (ESC # 8) is the only thing
-// it carries, and that's a vttest-only full-screen 'E' fill we deliberately
-// don't implement -- the 2400-cell write isn't worth supporting a sequence
-// no real app emits. The state still exists so the byte after ESC # is
-// swallowed instead of printing as a glyph.
 static void term_out_state_Fe_hash(term_state_t *term, char ch)
 {
     (void)ch;
@@ -2008,8 +2007,6 @@ static void term_out_state_CSI(term_state_t *term, char ch)
             term->csi_separator[term->csi_param_count] = ch;
         if (++term->csi_param_count < TERM_CSI_PARAM_MAX_LEN)
             term->csi_param[term->csi_param_count] = 0;
-        else
-            term->csi_param_count = TERM_CSI_PARAM_MAX_LEN;
         return;
     }
     switch (ch)
