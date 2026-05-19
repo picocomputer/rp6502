@@ -476,21 +476,20 @@ static void com_uart_drain_rx(void)
 
 static size_t com_uart_read(char *buf, size_t length)
 {
-    if (length && com_rx_char_src == COM_SOURCE_UART)
+    size_t count = 0;
+    if (count < length && com_rx_char_src == COM_SOURCE_UART)
     {
         int ch = com_rx_char;
         if (ch >= 0)
         {
-            buf[0] = (char)ch;
+            buf[count++] = (char)ch;
             com_rx_char = -1;
-            return 1;
         }
     }
     // Always pump the hw FIFO into the software ring first so callers
     // that bypass com_task (e.g. vga_connect's blocking loop running
     // only mem_task) still see fresh bytes. Idempotent.
     com_uart_drain_rx();
-    size_t count = 0;
     while (count < length && com_uart_rx_head != com_uart_rx_tail)
     {
         com_uart_rx_tail = (com_uart_rx_tail + 1) % COM_UART_RX_BUF_SIZE;
@@ -505,17 +504,19 @@ static size_t com_uart_read(char *buf, size_t length)
 // the 1 ms grain.
 static size_t com_kbd_read(char *buf, size_t length)
 {
-    if (length && com_rx_char_src == COM_SOURCE_KBD)
+    size_t count = 0;
+    if (count < length && com_rx_char_src == COM_SOURCE_KBD)
     {
         int ch = com_rx_char;
         if (ch >= 0)
         {
-            buf[0] = (char)ch;
+            buf[count++] = (char)ch;
             com_rx_char = -1;
-            return 1;
         }
     }
-    return kbd_stdio_in_chars(buf, length);
+    if (count < length)
+        count += kbd_stdio_in_chars(&buf[count], length - count);
+    return count;
 }
 
 static bool com_uart_tx_writable(void)
