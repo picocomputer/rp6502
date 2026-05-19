@@ -347,7 +347,7 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
             n = sizeof(name) - 1;
         memcpy(name, &tc->sb_buf[2], n);
         name[n] = 0;
-        com_tel_remote_ttype(name);
+        com_tel_on_remote_ttype(name);
     }
 }
 
