@@ -116,8 +116,9 @@ static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 // Per-source parser instances. Each tracks its own stream so a partial
 // CSI sequence on one source can't be sliced by interleaved bytes from
 // the other.
-static rln_ansi_t rln_local_ansi;
-static rln_ansi_t rln_tel_ansi;
+static rln_ansi_t rln_ansi_local;
+static rln_ansi_t rln_ansi_tel;
+static rln_ansi_t rln_ansi_poke;
 
 // False = drop CPR matches arriving on the telnet stream instead of
 // dispatching them as geometry. Set by com.c at auth-success based on
@@ -1056,8 +1057,9 @@ static void rln_enter_edit(void)
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in order:
     // local first (matches today's bias of kbd/UART ahead of telnet).
-    rln_ansi_drain_deferred(&rln_local_ansi, /*drop_cpr=*/false);
-    rln_ansi_drain_deferred(&rln_tel_ansi, !rln_tel_console);
+    rln_ansi_drain_deferred(&rln_ansi_local, /*drop_cpr=*/false);
+    rln_ansi_drain_deferred(&rln_ansi_tel, !rln_tel_console);
+    rln_ansi_drain_deferred(&rln_ansi_poke, /*drop_cpr=*/true);
 }
 
 static void rln_handshake_fallback(void)
@@ -1163,8 +1165,9 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_max_row = 0;
     rln_rendered_end = 0;
     rln_decscusr_ok = false;
-    memset(&rln_local_ansi, 0, sizeof rln_local_ansi);
-    memset(&rln_tel_ansi, 0, sizeof rln_tel_ansi);
+    memset(&rln_ansi_local, 0, sizeof rln_ansi_local);
+    memset(&rln_ansi_tel, 0, sizeof rln_ansi_tel);
+    memset(&rln_ansi_poke, 0, sizeof rln_ansi_poke);
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
@@ -1224,12 +1227,12 @@ void rln_task(void)
         if (com_tel_read(&ch, 1))
         {
             rln_timer = make_timeout_time_ms(rln_timeout_ms);
-            rln_ansi_feed(&rln_tel_ansi, (uint8_t)ch, !rln_tel_console);
+            rln_ansi_feed(&rln_ansi_tel, (uint8_t)ch, !rln_tel_console);
         }
         else if (com_local_read(&ch, 1))
         {
             rln_timer = make_timeout_time_ms(rln_timeout_ms);
-            rln_ansi_feed(&rln_local_ansi, (uint8_t)ch, /*drop_cpr=*/false);
+            rln_ansi_feed(&rln_ansi_local, (uint8_t)ch, /*drop_cpr=*/false);
         }
         else
             break;
@@ -1237,8 +1240,8 @@ void rln_task(void)
         // tools which do not respond to ANSI sequences.
         if (rln_phase != rln_phase_edit &&
             (ch == '\r' ||
-             rln_local_ansi.buf_len >= RLN_BUF_SIZE ||
-             rln_tel_ansi.buf_len >= RLN_BUF_SIZE))
+             rln_ansi_local.buf_len >= RLN_BUF_SIZE ||
+             rln_ansi_tel.buf_len >= RLN_BUF_SIZE))
         {
             // Skip the rest of the CPR handshake. We never confirmed
             // geometry for this session, so drop prompt_col to force
@@ -1305,7 +1308,7 @@ uint8_t rln_get_caps(void) { return rln_caps; }
 void rln_set_tel_console(bool active)
 {
     rln_tel_console = active;
-    memset(&rln_tel_ansi, 0, sizeof rln_tel_ansi);
+    memset(&rln_ansi_tel, 0, sizeof rln_ansi_tel);
 }
 
 uint16_t rln_get_term_width(void)
@@ -1391,50 +1394,15 @@ bool rln_api_peek(void)
 // Control handling lives here (poke-side) and not in rln_line_rx, so
 // typed control bytes that somehow reach the rln input pipeline still
 // go through the existing typed-input dispatch.
-// Poke-specific feed: advance + immediate dispatch, no defer, no
-// lastkey publish, no CPR/DA2 recognition. Poked bytes are scripted
-// input from the 6502, not user keystrokes, so they must always
-// dispatch (regardless of handshake/edit phase) and must not pin
-// geometry from an accidental ESC[r;cR shape.
-static void rln_ansi_poke_feed(rln_ansi_t *a, uint8_t b)
-{
-    if (b == '\30')
-    {
-        a->state = ansi_state_C0;
-        return;
-    }
-    rln_ansi_state_t entry_state = a->state;
-    rln_ansi_advance(a, b);
-    if (a->state != ansi_state_C0)
-        return;
-    switch (entry_state)
-    {
-    case ansi_state_C0:
-        rln_dispatch_C0_immediate(a, b);
-        break;
-    case ansi_state_Fe:
-        rln_dispatch_Fe(a, b);
-        break;
-    case ansi_state_SS3:
-        rln_dispatch_SS3(a, b);
-        break;
-    case ansi_state_CSI:
-        rln_dispatch_CSI(a, b);
-        break;
-    default:
-        break;
-    }
-}
-
 uint8_t rln_poke(const char *str)
 {
     if (!rln_callback)
         return 0;
-    // Mutation primitives set rln_action_taken; poked input isn't typed,
-    // so save and restore to keep an in-flight typed-sequence flag clean.
-    bool saved_action = rln_action_taken;
-    rln_ansi_t a;
-    memset(&a, 0, sizeof a);
+    rln_ansi_poke.state = ansi_state_C0;
+    rln_ansi_poke.csi_param_count = 0;
+    rln_ansi_poke.csi_param[0] = 0;
+    rln_ansi_poke.csi_private = 0;
+    rln_ansi_poke.inflight_len = 0;
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
@@ -1483,9 +1451,8 @@ uint8_t rln_poke(const char *str)
             rln_complete(false);
             break;
         }
-        rln_ansi_poke_feed(&a, ch);
+        rln_ansi_feed(&rln_ansi_poke, (uint8_t)ch, /*drop_cpr=*/true);
     }
-    rln_action_taken = saved_action;
     return rln_bufpos;
 }
 
