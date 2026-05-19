@@ -16,9 +16,11 @@
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <hardware/sync.h>
@@ -49,15 +51,33 @@ static size_t com_uart_tail;
 static size_t com_uart_head;
 static uint8_t com_uart_buf[COM_UART_BUF_SIZE];
 
-// com_task drains multiplexed sources into com_rx_buf, then refills
-// com_rx_char from the ring when empty. act_loop on core 1 reads
-// com_rx_char to serve 6502 0xFFE2 reads; the stdio path steals from it
-// when the monitor is the active consumer.
-#define COM_RX_BUF_SIZE 32
-static size_t com_rx_head;
-static size_t com_rx_tail;
-static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
+// UART RX software ring. com_task drains the hw FIFO into this ring
+// every tick (so SIGINT scans and break detection keep working even
+// when nobody is reading). Consumers pull via com_uart_read. Sized
+// to absorb bursts that span several main-loop ticks at 115200 baud.
+#define COM_UART_RX_BUF_SIZE 64
+static size_t com_uart_rx_head;
+static size_t com_uart_rx_tail;
+static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
+
+// com_rx_char is the core-0 → core-1 single-byte handoff slot. act_loop
+// on core 1 reads it to serve 6502 0xFFE2 reads; com_task refills it
+// from the merge picker (one byte per tick when empty). The stdio path
+// steals from it when stdio is the active consumer. Per-source readers
+// (com_local_read / com_tel_read) also steal it when the recorded
+// source matches, so a byte the merge picker pulled isn't stranded
+// here when rln is the active consumer.
 volatile int com_rx_char = -1;
+
+typedef enum
+{
+    COM_RX_SRC_LOCAL,
+    COM_RX_SRC_TEL,
+} com_rx_src_t;
+
+// Valid only while com_rx_char >= 0. Written and read on core 0 only,
+// alongside com_rx_char's updates; act_loop on core 1 never reads it.
+static com_rx_src_t com_rx_char_src;
 
 static bool com_bel_enabled = true;
 
@@ -65,9 +85,10 @@ static bool com_bel_enabled = true;
 
 static bool com_tel_tx_writable(void) { return true; }
 static void com_tel_tx_write(char) {}
-static size_t com_tel_read(char *, size_t) { return 0; }
+size_t com_tel_read(char *, size_t) { return 0; }
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
+void com_tel_remote_ttype(const char *) {}
 
 #else
 
@@ -120,9 +141,18 @@ static void com_tel_tx_write(char ch)
     com_tel_tx_buf[com_tel_tx_head] = ch;
 }
 
-static size_t com_tel_read(char *buf, size_t length)
+size_t com_tel_read(char *buf, size_t length)
 {
     size_t count = 0;
+    if (count < length && com_rx_char_src == COM_RX_SRC_TEL)
+    {
+        int ch = com_rx_char;
+        if (ch >= 0)
+        {
+            buf[count++] = (char)ch;
+            com_rx_char = -1;
+        }
+    }
     while (count < length && com_tel_rx_head != com_tel_rx_tail)
     {
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
@@ -131,6 +161,27 @@ static size_t com_tel_read(char *buf, size_t length)
     if (count)
         com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
     return count;
+}
+
+// Latched per-connection. Cleared in com_tel_on_disconnect; updated by
+// com_tel_remote_ttype when the client reports its terminal type.
+static bool com_tel_remote_is_rp6502;
+
+static bool com_tel_ttype_is_rp6502(const char *name)
+{
+    static const char *const list[] = {
+        "RP6502",
+    };
+    for (size_t i = 0; i < sizeof(list) / sizeof(list[0]); i++)
+        if (strcasecmp(name, list[i]) == 0)
+            return true;
+    return false;
+}
+
+void com_tel_remote_ttype(const char *name)
+{
+    com_tel_remote_is_rp6502 = com_tel_ttype_is_rp6502(name);
+    DBG("NET TEL remote TTYPE=%s rp6502=%d\n", name, com_tel_remote_is_rp6502);
 }
 
 static void com_tel_drain_tx(void)
@@ -181,8 +232,17 @@ static void com_tel_handle_auth(uint8_t ch)
         {
             tel_tx(SYS_TEL_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_tel_state = com_tel_state_connected;
-            vga_set_tel_console_active(true);
-            DBG("NET TEL console authenticated\n");
+            if (!com_tel_remote_is_rp6502)
+            {
+                vga_set_tel_console_active(true);
+                rln_set_tel_console(true);
+                DBG("NET TEL console authenticated\n");
+            }
+            else
+            {
+                rln_set_tel_console(false);
+                DBG("NET TEL console authenticated (suppressed: rp6502 client)\n");
+            }
         }
         else
         {
@@ -275,6 +335,7 @@ static void com_tel_on_disconnect(int desc)
         com_tel_state = com_tel_state_listening;
         com_tel_rings_clear();
     }
+    com_tel_remote_is_rp6502 = false;
     tel_close(desc);
 }
 
@@ -382,19 +443,81 @@ static void com_tel_task(void)
 
 #endif
 
-static size_t com_uart_read(char *buf, size_t length)
+// Drain the UART hw FIFO into the software ring. Scans for SIGINT
+// inline so Ctrl-C is honoured even when the ring is full and the
+// byte gets dropped. Called unconditionally from com_task each tick.
+static void com_uart_drain_hw(void)
 {
-    size_t count = 0;
-    while (count < length && uart_is_readable(COM_UART))
+    while (uart_is_readable(COM_UART))
     {
         uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
         if (c == 0x03)
             ria_trigger_sigint();
+        size_t next = (com_uart_rx_head + 1) % COM_UART_RX_BUF_SIZE;
+        if (next == com_uart_rx_tail)
+            continue;
+        com_uart_rx_buf[next] = c;
+        com_uart_rx_head = next;
+    }
+}
+
+static size_t com_uart_read(char *buf, size_t length)
+{
+    // Always pump the hw FIFO into the software ring first so callers
+    // that bypass com_task (e.g. vga_connect's blocking loop running
+    // only mem_task) still see fresh bytes. Idempotent.
+    com_uart_drain_hw();
+    size_t count = 0;
+    while (count < length && com_uart_rx_head != com_uart_rx_tail)
+    {
+        com_uart_rx_tail = (com_uart_rx_tail + 1) % COM_UART_RX_BUF_SIZE;
         if (buf)
-            buf[count] = (char)c;
+            buf[count] = (char)com_uart_rx_buf[com_uart_rx_tail];
         count++;
     }
     return count;
+}
+
+// Combined local source: keyboard plus UART. Internal sticky dwell —
+// once UART is the active sub-source, it holds the lock until idle
+// for 1 ms so a keystroke can't slice a UART burst. Keyboard releases
+// immediately when empty (no hold), matching the legacy three-way
+// picker's behaviour. The outer com_rx_merge holds against telnet
+// at the same 1 ms grain.
+size_t com_local_read(char *buf, size_t length)
+{
+    static const int COM_IDLE_US = 1000;
+    static bool uart_holding;
+    static absolute_time_t uart_idle_timer;
+
+    if (length && com_rx_char_src == COM_RX_SRC_LOCAL)
+    {
+        int ch = com_rx_char;
+        if (ch >= 0)
+        {
+            buf[0] = (char)ch;
+            com_rx_char = -1;
+            return 1;
+        }
+    }
+
+    if (uart_holding && time_reached(uart_idle_timer))
+        uart_holding = false;
+
+    if (!uart_holding)
+    {
+        size_t i = kbd_stdio_in_chars(buf, length);
+        if (i)
+            return i;
+    }
+    size_t i = com_uart_read(buf, length);
+    if (i)
+    {
+        uart_holding = true;
+        uart_idle_timer = make_timeout_time_us(COM_IDLE_US);
+        return i;
+    }
+    return 0;
 }
 
 static bool com_uart_writable(void)
@@ -479,66 +602,50 @@ static void com_tx_fanout(void)
     }
 }
 
-static int com_rx_buf_getchar(void)
-{
-    if (com_rx_head == com_rx_tail)
-        return -1;
-    size_t next = (com_rx_tail + 1) % COM_RX_BUF_SIZE;
-    int ch = com_rx_buf[next];
-    com_rx_tail = next;
-    return ch;
-}
-
-// Sticky multiplex: current source holds the lock until idle for 1ms.
-// Keyboard is the exception, releasing immediately when empty.
-static size_t com_rx_merge(char *buf, size_t length)
+// Sticky two-source multiplex: local (kbd+uart) vs telnet. Whichever
+// fires first holds the lock until idle for 1ms, so a keyboard tap
+// can't slice a telnet paste in half and vice versa. Used by stdin
+// and by com_task's com_rx_char refill — rln calls the per-source
+// readers directly, bypassing the merge. *src_out, when non-NULL,
+// reports which source produced the returned bytes so com_task can
+// tag com_rx_char for later steal by the matching per-source reader.
+static size_t com_rx_merge(char *buf, size_t length, com_rx_src_t *src_out)
 {
     static const int COM_IDLE_US = 1000;
-    enum com_rx_src
+    enum com_rx_picker
     {
-        SRC_NONE,
-        SRC_KBD,
-        SRC_UART,
-        SRC_TEL
+        PICK_NONE,
+        PICK_LOCAL,
+        PICK_TEL,
     };
-    static enum com_rx_src source = SRC_NONE;
+    static enum com_rx_picker source = PICK_NONE;
     static absolute_time_t idle_timer;
 
-    // Expire UART/TEL source once idle for 1ms
-    if ((source == SRC_UART || source == SRC_TEL) &&
-        time_reached(idle_timer))
-        source = SRC_NONE;
+    if (source != PICK_NONE && time_reached(idle_timer))
+        source = PICK_NONE;
 
-    if (source == SRC_KBD || source == SRC_NONE)
+    if (source == PICK_LOCAL || source == PICK_NONE)
     {
-        size_t i = kbd_stdio_in_chars(buf, length);
+        size_t i = com_local_read(buf, length);
         if (i)
         {
-            source = SRC_KBD;
-            return i;
-        }
-        if (source == SRC_KBD)
-            source = SRC_NONE;
-    }
-
-    if (source == SRC_UART || source == SRC_NONE)
-    {
-        size_t i = com_uart_read(buf, length);
-        if (i)
-        {
-            source = SRC_UART;
+            source = PICK_LOCAL;
             idle_timer = make_timeout_time_us(COM_IDLE_US);
+            if (src_out)
+                *src_out = COM_RX_SRC_LOCAL;
             return i;
         }
     }
 
-    if (source == SRC_TEL || source == SRC_NONE)
+    if (source == PICK_TEL || source == PICK_NONE)
     {
         size_t i = com_tel_read(buf, length);
         if (i)
         {
-            source = SRC_TEL;
+            source = PICK_TEL;
             idle_timer = make_timeout_time_us(COM_IDLE_US);
+            if (src_out)
+                *src_out = COM_RX_SRC_TEL;
             return i;
         }
     }
@@ -590,17 +697,9 @@ static int com_stdio_in_chars(char *buf, int length)
         com_rx_char = -1;
     }
 
-    // Drain the core-0 ring
-    while (count < length)
-    {
-        int ch = com_rx_buf_getchar();
-        if (ch < 0)
-            break;
-        buf[count++] = ch;
-    }
-
-    // Pick up new chars
-    count += com_rx_merge(&buf[count], length - count);
+    // Pick up new chars via the sticky merge picker. stdio sees a
+    // flat byte stream — the source tag is irrelevant here.
+    count += com_rx_merge(&buf[count], length - count, NULL);
 
     return count ? count : PICO_ERROR_NO_DATA;
 }
@@ -635,7 +734,10 @@ void com_stop(void)
 
 void com_break(void)
 {
-    com_uart_read(NULL, SIZE_MAX);
+    // Drain hw FIFO first so any in-flight bytes land in the ring,
+    // then clear the ring.
+    com_uart_drain_hw();
+    com_uart_rx_head = com_uart_rx_tail = 0;
 
     char scratch[16];
     while (kbd_stdio_in_chars(scratch, sizeof scratch))
@@ -653,7 +755,6 @@ void com_break(void)
     REGS(0xFFE2) = 0;
 
     com_rx_char = -1;
-    com_rx_head = com_rx_tail = 0;
 }
 
 void com_task(void)
@@ -664,38 +765,31 @@ void com_task(void)
     // TX: fan out com_tx_core0_buf into UART and TEL buffers
     com_tx_fanout();
 
-    // RX: refill the cross-core handoff slot from the ring. com_rx_char is
-    // a single volatile int so the store is atomic; __dmb() is the release
-    // fence pairing with act_loop's load on core 1 in ria.c.
+    // RX: always pump the UART hw FIFO into its software ring, so
+    // bursts can back up without overflowing the tiny hw FIFO and so
+    // SIGINT scans / break detection run every tick regardless of
+    // whether anything downstream is consuming. kbd and telnet have
+    // their own upstream rings (kbd_key_queue and com_tel_rx_buf)
+    // so they don't need a pump here.
+    com_uart_drain_hw();
+
+    // RX: refill the cross-core handoff slot. com_rx_char is a single
+    // volatile int so the store is atomic; __dmb() is the release fence
+    // pairing with act_loop's load on core 1 in ria.c. One byte per
+    // tick — bounded enough that a tight rln drain on the per-source
+    // readers still wins most of the upstream bytes. Record the source
+    // so the matching per-source reader can claim the byte if rln
+    // (rather than the 6502) is the eventual consumer.
     if (com_rx_char < 0)
     {
-        int ch = com_rx_buf_getchar();
-        if (ch >= 0)
+        char ch;
+        com_rx_src_t src;
+        if (com_rx_merge(&ch, 1, &src))
         {
+            com_rx_char_src = src;
             __dmb();
-            com_rx_char = ch;
+            com_rx_char = (uint8_t)ch;
         }
-    }
-
-    // RX: merge sources into com_rx_buf. Stop when com_rx_buf is full
-    // so TEL and KBD bytes stay in their upstream rings (lwIP TCP
-    // backpressure + com_tel_drain_rx for TEL, kbd_key_queue for KBD).
-    // UART has no software-side upstream and needs its hardware FIFO
-    // drained for reliable break detection, so when we stop merging
-    // we still pull and discard UART bytes (still scanning for SIGINT).
-    char ch;
-    while (1)
-    {
-        size_t next = (com_rx_head + 1) % COM_RX_BUF_SIZE;
-        if (next == com_rx_tail)
-        {
-            com_uart_read(NULL, SIZE_MAX);
-            break;
-        }
-        if (!com_rx_merge(&ch, 1))
-            break;
-        com_rx_buf[next] = (uint8_t)ch;
-        com_rx_head = next;
     }
 
     // Detect UART breaks.

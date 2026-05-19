@@ -132,6 +132,14 @@ static bool tel_raw_send(int desc, uint8_t cmd, uint8_t opt)
     return net_tx_all(desc, buf, 3);
 }
 
+// IAC SB TTYPE SEND IAC SE — server queries the peer's terminal type.
+static void tel_send_ttype_send(int desc)
+{
+    char buf[6] = {(char)TEL_IAC, (char)TEL_SB, (char)TEL_OPT_TTYPE,
+                   (char)TEL_TTYPE_SEND, (char)TEL_IAC, (char)TEL_SE};
+    net_tx_all(desc, buf, sizeof buf);
+}
+
 // Atomic IAC triple send. Clears any earlier pending command for this option,
 // then sets the appropriate pending bit on failure.
 static void tel_q_send(int desc, tel_conn_t *tc, uint8_t cmd, int idx)
@@ -191,6 +199,8 @@ static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
         {
             tc->him[idx] = tel_q_yes;
             tel_q_send(desc, tc, TEL_DO, idx);
+            if (idx == TEL_IDX_TTYPE && tc->is_server)
+                tel_send_ttype_send(desc);
         }
         else
         {
@@ -207,6 +217,8 @@ static void tel_q_recv_will(int desc, tel_conn_t *tc, int idx)
         break;
     case tel_q_wantyes:
         tc->him[idx] = tel_q_yes;
+        if (idx == TEL_IDX_TTYPE && tc->is_server)
+            tel_send_ttype_send(desc);
         break;
     case tel_q_wantyes_op:
         tc->him[idx] = tel_q_wantno;
@@ -324,6 +336,18 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
         // Atomic: on failure the peer can resend TTYPE SEND.
         if (net_tx_all(desc, buf, pos))
             DBG("NET TEL sent TTYPE IS %s\n", tc->ttype);
+    }
+    if (tc->is_server &&
+        tc->sb_buf[0] == TEL_OPT_TTYPE &&
+        tc->sb_len >= 2 && tc->sb_buf[1] == TEL_TTYPE_IS)
+    {
+        char name[40];
+        size_t n = tc->sb_len - 2;
+        if (n >= sizeof(name))
+            n = sizeof(name) - 1;
+        memcpy(name, &tc->sb_buf[2], n);
+        name[n] = 0;
+        com_tel_remote_ttype(name);
     }
 }
 
@@ -674,9 +698,10 @@ static void tel_negotiate_server(int desc)
     tc->telnet_mode = true;
     tc->is_server = true;
     tc->ttype = NULL;
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA); // DO SGA
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO); // WILL ECHO
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);  // WILL SGA
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);   // DO SGA
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO);   // WILL ECHO
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);    // WILL SGA
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_TTYPE); // DO TTYPE (then SB SEND on WILL)
     DBG("NET TEL server negotiation sent\n");
 }
 

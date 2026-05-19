@@ -43,16 +43,6 @@ typedef enum
 
 typedef enum
 {
-    rln_cpr_st_idle,
-    rln_cpr_st_esc,
-    rln_cpr_st_csi,
-    rln_cpr_st_p1,
-    rln_cpr_st_p2,
-    rln_cpr_st_da2,
-} rln_cpr_state_t;
-
-typedef enum
-{
     rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
     rln_phase_width_cpr,  // waiting for second CPR (height + width). DA2
                           // is sent between CPR1 and CPR2 in the burst, and
@@ -66,7 +56,6 @@ typedef enum
 #define RLN_HISTORY_SIZE 8
 #define RLN_CSI_PARAM_MAX_LEN 16
 #define RLN_LASTKEY_MAX 32
-#define RLN_CPR_SEQ_MAX 12
 
 // rln_caps modes — public ABI is uint8_t, so the values are wire values.
 #define RLN_CAPS_OFF 0
@@ -75,11 +64,20 @@ typedef enum
 #define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
 
+// Unified CSI parser. One instance per RX source so a partial sequence
+// on one stream can't be sliced by bytes from the other. The buf[]
+// field doubles as in-flight cache (tail = the bytes of the currently
+// in-progress sequence) and deferred-typed buffer (head = completed
+// typed sequences whose dispatch is waiting for edit phase).
 typedef struct
 {
     rln_ansi_state_t state;
     uint16_t csi_param[RLN_CSI_PARAM_MAX_LEN];
     uint8_t csi_param_count;
+    uint8_t csi_private; // 0, or one of '<' '=' '>' '?'
+    uint8_t buf[RLN_BUF_SIZE];
+    uint16_t buf_len;
+    uint16_t inflight_len;
 } rln_ansi_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -96,7 +94,6 @@ static rln_read_callback_t rln_callback;
 static absolute_time_t rln_timer;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
-static rln_ansi_t rln_typed_ansi;
 static bool rln_enable_history;
 static uint8_t rln_max_length;
 static uint32_t rln_timeout_ms;
@@ -116,29 +113,23 @@ static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe
 static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
 static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 
-// CPR mini-parser state (active only during handshake phases)
-static rln_cpr_state_t rln_cpr_state;
-static uint16_t rln_cpr_p1;
-static uint16_t rln_cpr_p2;
-static uint8_t rln_cpr_seq[RLN_CPR_SEQ_MAX];
-static uint8_t rln_cpr_seq_len;
+// Per-source parser instances. Each tracks its own stream so a partial
+// CSI sequence on one source can't be sliced by interleaved bytes from
+// the other.
+static rln_ansi_t rln_local_ansi;
+static rln_ansi_t rln_tel_ansi;
 
-// Typeahead ring: bytes received during the CPR handshake that weren't part
-// of a CPR reply. Drained through the normal parser once phase = edit.
-// Sized to RLN_BUF_SIZE so a full input line worth of piped bytes fits
-// without truncation during instant relief.
-static uint8_t rln_typeahead[RLN_BUF_SIZE];
-static uint16_t rln_typeahead_len;
+// False = drop CPR matches arriving on the telnet stream instead of
+// dispatching them as geometry. Set by com.c at auth-success based on
+// the client's reported TTYPE (dumb clients get false).
+static bool rln_tel_console = true;
 
-// Lastkey capture (typed stream only). rln_action_taken is the live
-// "this sequence mutated state" flag, OR'd across the bytes of a
-// multi-byte sequence; rln_lastkey_consumed is its committed mirror,
-// frozen alongside rln_lastkey_buf when the parser returns to C0.
+// Lastkey capture for the 6502 API. rln_action_taken is the live
+// "this dispatch mutated state" flag, sampled at lastkey publish time.
+// Only typed dispatches populate these; CPR/DA/DA2 protocol replies
+// don't touch lastkey.
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
-static uint8_t rln_keyseq_accum[RLN_LASTKEY_MAX];
-static uint8_t rln_keyseq_accum_len;
-static bool rln_keyseq_overflow;
 static bool rln_action_taken;
 static bool rln_lastkey_consumed;
 
@@ -731,10 +722,88 @@ static void rln_toggle_overwrite(void)
         rln_emit_mode_cursor();
 }
 
-/* ----- ANSI parser ----- */
+/* ----- ANSI parser -----
+ *
+ * Two-step model: advance + dispatch.
+ *
+ *   rln_ansi_advance() updates parser state and accumulates CSI params
+ *   without invoking any action. When state returns to C0, the
+ *   sequence is complete and rln_ansi_dispatch_or_defer() classifies
+ *   it as CPR / DA2 / typed and either dispatches immediately
+ *   (CPR/DA2 always; typed during edit phase) or leaves the bytes in
+ *   buf[] for later replay (typed during handshake phase).
+ */
 
-static void rln_line_state_C0(rln_ansi_t *a, char ch)
+static void rln_cpr_dispatch(uint16_t p1, uint16_t p2);
+static void rln_da2_dispatch(void);
+static void rln_enter_edit(void);
+
+static void rln_ansi_advance(rln_ansi_t *a, uint8_t ch)
 {
+    switch (a->state)
+    {
+    case ansi_state_C0:
+        if (ch == '\33')
+            a->state = ansi_state_Fe;
+        // else: stay in C0; dispatch decides what to do with it
+        return;
+    case ansi_state_Fe:
+        if (ch == '[')
+        {
+            a->state = ansi_state_CSI;
+            a->csi_param_count = 0;
+            a->csi_param[0] = 0;
+            a->csi_private = 0;
+        }
+        else if (ch == 'N')
+            a->state = ansi_state_SS2;
+        else if (ch == 'O')
+            a->state = ansi_state_SS3;
+        else
+            a->state = ansi_state_C0;
+        return;
+    case ansi_state_SS2:
+        a->state = ansi_state_C0;
+        return;
+    case ansi_state_SS3:
+        a->state = ansi_state_C0;
+        return;
+    case ansi_state_CSI:
+    case ansi_state_CSI_private:
+        if (isdigit(ch))
+        {
+            if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
+            {
+                a->csi_param[a->csi_param_count] *= 10;
+                a->csi_param[a->csi_param_count] += ch - '0';
+            }
+            return;
+        }
+        if (ch == ';' || ch == ':')
+        {
+            if (++a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
+                a->csi_param[a->csi_param_count] = 0;
+            else
+                a->csi_param_count = RLN_CSI_PARAM_MAX_LEN;
+            return;
+        }
+        if (ch == '<' || ch == '=' || ch == '>' || ch == '?')
+        {
+            a->state = ansi_state_CSI_private;
+            a->csi_private = ch;
+            return;
+        }
+        // terminator
+        a->state = ansi_state_C0;
+        if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
+            a->csi_param_count++;
+        return;
+    }
+}
+
+static void rln_dispatch_C0_immediate(rln_ansi_t *a, uint8_t ch)
+{
+    (void)a;
     if (ch == '\r')
     {
         rln_action_taken = true;
@@ -744,8 +813,6 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
         rln_history_add();
         rln_complete(false);
     }
-    else if (ch == '\33')
-        a->state = ansi_state_Fe;
     else if (ch == '\b' || ch == 127)
         rln_line_backspace();
     else if (ch == 1) // ctrl-a
@@ -772,87 +839,30 @@ static void rln_line_state_C0(rln_ansi_t *a, char ch)
         rln_line_insert(ch);
 }
 
-static void rln_line_state_Fe(rln_ansi_t *a, char ch)
+static void rln_dispatch_Fe(rln_ansi_t *a, uint8_t ch)
 {
-    if (ch == '[')
-    {
-        a->state = ansi_state_CSI;
-        a->csi_param_count = 0;
-        a->csi_param[0] = 0;
-    }
-    else if (ch == 'b' || ch == 2)
-    {
-        a->state = ansi_state_C0;
+    (void)a;
+    if (ch == 'b' || ch == 2)
         rln_line_backward_word();
-    }
     else if (ch == 'f' || ch == 6)
-    {
-        a->state = ansi_state_C0;
         rln_line_forward_word();
-    }
-    else if (ch == 'N')
-        a->state = ansi_state_SS2;
-    else if (ch == 'O')
-        a->state = ansi_state_SS3;
     else if (ch == 'd')
-    {
-        a->state = ansi_state_C0;
         rln_line_forward_kill_word();
-    }
-    else
-    {
-        a->state = ansi_state_C0;
-        if (ch == 127 || ch == '\b')
-            rln_line_backward_kill_word();
-    }
+    else if (ch == 127 || ch == '\b')
+        rln_line_backward_kill_word();
 }
 
-static void rln_line_state_SS2(rln_ansi_t *a, char ch)
+static void rln_dispatch_SS3(rln_ansi_t *a, uint8_t ch)
 {
-    (void)ch;
-    a->state = ansi_state_C0;
-}
-
-static void rln_line_state_SS3(rln_ansi_t *a, char ch)
-{
-    a->state = ansi_state_C0;
+    (void)a;
     if (ch == 'F')
         rln_line_end();
     else if (ch == 'H')
         rln_line_home();
 }
 
-static void rln_line_state_CSI(rln_ansi_t *a, char ch)
+static void rln_dispatch_CSI(rln_ansi_t *a, uint8_t ch)
 {
-    if (isdigit(ch))
-    {
-        if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
-        {
-            a->csi_param[a->csi_param_count] *= 10;
-            a->csi_param[a->csi_param_count] += ch - '0';
-        }
-        return;
-    }
-    if (ch == ';' || ch == ':')
-    {
-        if (++a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
-            a->csi_param[a->csi_param_count] = 0;
-        else
-            a->csi_param_count = RLN_CSI_PARAM_MAX_LEN;
-        return;
-    }
-    if (ch == '<' || ch == '=' || ch == '>' || ch == '?')
-    {
-        a->state = ansi_state_CSI_private;
-        return;
-    }
-    if (a->state == ansi_state_CSI_private)
-    {
-        a->state = ansi_state_C0;
-        return;
-    }
-    a->state = ansi_state_C0;
-    a->csi_param_count++;
     if (ch == 'A')
         rln_history_step(1);
     else if (ch == 'B')
@@ -880,104 +890,160 @@ static void rln_line_state_CSI(rln_ansi_t *a, char ch)
         {
         case 1:
         case 7:
-            return rln_line_home();
+            rln_line_home();
+            break;
         case 2:
-            return rln_toggle_overwrite();
+            rln_toggle_overwrite();
+            break;
         case 4:
         case 8:
-            return rln_line_end();
+            rln_line_end();
+            break;
         case 3:
-            return rln_line_delete();
-        }
-}
-
-static void rln_line_rx(rln_ansi_t *a, uint8_t ch)
-{
-    if (ch == '\30')
-        a->state = ansi_state_C0;
-    else
-        switch (a->state)
-        {
-        case ansi_state_C0:
-            rln_line_state_C0(a, ch);
-            break;
-        case ansi_state_Fe:
-            rln_line_state_Fe(a, ch);
-            break;
-        case ansi_state_SS2:
-            rln_line_state_SS2(a, ch);
-            break;
-        case ansi_state_SS3:
-            rln_line_state_SS3(a, ch);
-            break;
-        case ansi_state_CSI:
-        case ansi_state_CSI_private:
-            rln_line_state_CSI(a, ch);
+            rln_line_delete();
             break;
         }
 }
 
-static void rln_line_rx_typed(uint8_t ch)
+// Trim the in-flight tail off buf[] (e.g. after dispatching a sequence
+// or after CAN). Leaves deferred head bytes intact.
+static void rln_ansi_trim_inflight(rln_ansi_t *a)
 {
-    rln_ansi_state_t prev_state = rln_typed_ansi.state;
-    if (prev_state == ansi_state_C0)
-    {
-        rln_keyseq_accum[0] = ch;
-        rln_keyseq_accum_len = 1;
-        rln_keyseq_overflow = false;
-        rln_action_taken = false;
-    }
-    else if (rln_keyseq_accum_len < RLN_LASTKEY_MAX)
-        rln_keyseq_accum[rln_keyseq_accum_len++] = ch;
-    else
-        rln_keyseq_overflow = true;
-
-    rln_line_rx(&rln_typed_ansi, ch);
-
-    if (rln_typed_ansi.state == ansi_state_C0)
-    {
-        if (!rln_keyseq_overflow)
-        {
-            memcpy(rln_lastkey_buf, rln_keyseq_accum, rln_keyseq_accum_len);
-            rln_lastkey_len = rln_keyseq_accum_len;
-            rln_lastkey_consumed = rln_action_taken;
-        }
-        rln_keyseq_overflow = false;
-    }
+    a->buf_len -= a->inflight_len;
+    a->inflight_len = 0;
 }
 
-/* ----- CPR handshake (mini-parser + phase transitions) ----- */
-
-static void rln_typeahead_push(uint8_t b)
+// Snapshot the in-flight tail into rln_lastkey_buf. Called only from
+// typed-action dispatch during edit phase.
+static void rln_publish_lastkey(rln_ansi_t *a)
 {
-    if (rln_phase == rln_phase_edit)
+    uint8_t n = a->inflight_len > RLN_LASTKEY_MAX
+                    ? RLN_LASTKEY_MAX
+                    : (uint8_t)a->inflight_len;
+    memcpy(rln_lastkey_buf, &a->buf[a->buf_len - a->inflight_len], n);
+    rln_lastkey_len = n;
+    rln_lastkey_consumed = rln_action_taken;
+}
+
+// Classify the just-completed sequence and dispatch or defer.
+// entry_state is the parser's state BEFORE this byte was advanced;
+// term is this byte (the terminator).
+static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
+                                       uint8_t term,
+                                       rln_ansi_state_t entry_state,
+                                       bool drop_cpr)
+{
+    // CPR: ESC [ p1 ; p2 R, no private marker, exactly 2 params.
+    if (entry_state == ansi_state_CSI &&
+        term == 'R' &&
+        a->csi_private == 0 &&
+        a->csi_param_count == 2)
     {
-        // Sniffer is always-on, so non-CPR bytes that arrive in
-        // edit phase need to flow straight to the typed parser
-        // instead of buffering for a drain that already happened.
-        rln_line_rx_typed(b);
+        if (!drop_cpr)
+            rln_cpr_dispatch(a->csi_param[0], a->csi_param[1]);
+        rln_ansi_trim_inflight(a);
         return;
     }
-    if (rln_typeahead_len < RLN_BUF_SIZE)
-        rln_typeahead[rln_typeahead_len++] = b;
-    // overflow silently dropped — handshake window is short
+    // DA2: ESC [ > ... c. Param count and values are irrelevant.
+    if (entry_state == ansi_state_CSI_private &&
+        a->csi_private == '>' &&
+        term == 'c')
+    {
+        rln_da2_dispatch();
+        rln_ansi_trim_inflight(a);
+        return;
+    }
+    // CSI_private with any other terminator: silent no-op (today's
+    // behaviour). Trim and continue.
+    if (entry_state == ansi_state_CSI_private)
+    {
+        rln_ansi_trim_inflight(a);
+        return;
+    }
+    // SS2: no-op (today's behaviour).
+    if (entry_state == ansi_state_SS2)
+    {
+        rln_ansi_trim_inflight(a);
+        return;
+    }
+    // Typed action — dispatch in edit phase, defer in handshake.
+    if (rln_phase != rln_phase_edit)
+    {
+        // Defer: leave bytes in buf head, just reset inflight so the
+        // next byte starts a fresh sequence.
+        a->inflight_len = 0;
+        return;
+    }
+    rln_action_taken = false;
+    switch (entry_state)
+    {
+    case ansi_state_C0:
+        rln_dispatch_C0_immediate(a, term);
+        break;
+    case ansi_state_Fe:
+        rln_dispatch_Fe(a, term);
+        break;
+    case ansi_state_SS3:
+        rln_dispatch_SS3(a, term);
+        break;
+    case ansi_state_CSI:
+        rln_dispatch_CSI(a, term);
+        break;
+    default:
+        break;
+    }
+    rln_publish_lastkey(a);
+    rln_ansi_trim_inflight(a);
 }
 
-static void rln_cpr_release_seq(void)
+// Feed one byte through a per-source parser. drop_cpr=true on the
+// telnet parser when the client is dumb so CPR matches are consumed
+// silently instead of pinning geometry to junk values.
+static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
 {
-    for (uint8_t i = 0; i < rln_cpr_seq_len; i++)
-        rln_typeahead_push(rln_cpr_seq[i]);
-    rln_cpr_seq_len = 0;
-    rln_cpr_state = rln_cpr_st_idle;
+    // CAN aborts any in-progress sequence with no dispatch.
+    if (b == '\30')
+    {
+        rln_ansi_trim_inflight(a);
+        a->state = ansi_state_C0;
+        return;
+    }
+    // Append to in-flight cache. On overflow drop the byte — instant
+    // relief in rln_task will trigger from the buf_len == cap check.
+    if (a->buf_len >= sizeof a->buf)
+        return;
+    a->buf[a->buf_len++] = b;
+    a->inflight_len++;
+
+    rln_ansi_state_t entry_state = a->state;
+    rln_ansi_advance(a, b);
+    if (a->state == ansi_state_C0)
+        rln_ansi_dispatch_or_defer(a, b, entry_state, drop_cpr);
 }
 
-static void rln_typeahead_drain(void)
+// Drain the deferred head region through the same parser. Called from
+// rln_enter_edit. Re-feeds every byte currently in buf[]: protocol
+// replies were trimmed at dispatch time during handshake, so what's
+// left is typed bytes + any in-flight tail. Replaying preserves any
+// in-flight state.
+static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
 {
-    uint8_t len = rln_typeahead_len;
-    rln_typeahead_len = 0;
-    for (uint8_t i = 0; i < len; i++)
-        rln_line_rx_typed(rln_typeahead[i]);
+    if (a->buf_len == 0)
+        return;
+    uint8_t temp[RLN_BUF_SIZE];
+    uint16_t total = a->buf_len;
+    memcpy(temp, a->buf, total);
+    a->state = ansi_state_C0;
+    a->csi_param_count = 0;
+    a->csi_param[0] = 0;
+    a->csi_private = 0;
+    a->buf_len = 0;
+    a->inflight_len = 0;
+    for (uint16_t i = 0; i < total; i++)
+        rln_ansi_feed(a, temp[i], drop_cpr);
 }
+
+/* ----- Phase transitions ----- */
 
 static void rln_enter_edit(void)
 {
@@ -988,7 +1054,10 @@ static void rln_enter_edit(void)
         rln_render_from(0);
     else
         rln_sync_cursor_to(rln_bufpos);
-    rln_typeahead_drain();
+    // Drain each parser's deferred bytes through itself, in order:
+    // local first (matches today's bias of kbd/UART ahead of telnet).
+    rln_ansi_drain_deferred(&rln_local_ansi, /*drop_cpr=*/false);
+    rln_ansi_drain_deferred(&rln_tel_ansi, !rln_tel_console);
 }
 
 static void rln_handshake_fallback(void)
@@ -1069,111 +1138,6 @@ static void rln_da2_dispatch(void)
         rln_emit_mode_cursor();
 }
 
-// Feed one byte through the handshake mini-parser. Recognized shapes
-// during prompt_cpr / width_cpr:
-//   CPR:  \33 [ <digits> ; <digits> R
-//   DA2:  \33 [ > <digits> ( ; <digits> )* c   (Secondary Device Attributes)
-// Bytes that don't match a CPR candidate go to the typeahead ring so
-// they can replay through the normal parser when phase = edit. DA2
-// candidates do NOT use the release-on-mismatch buffer once entered
-// (rln_cpr_st_da2) — xterm-class DA replies run 35+ bytes long and would
-// otherwise overflow the 12-byte seq buffer, lose the final `c`, and
-// time the handshake out. DA replies never originate from user input,
-// so it's safe to consume them silently.
-static void rln_cpr_feed(uint8_t b)
-{
-    // DA2-recognition state: process inline, no buffering, no length
-    // cap. The `>` private marker is unique to server replies, so it
-    // cannot conflict with typed input.
-    if (rln_cpr_state == rln_cpr_st_da2)
-    {
-        if (isdigit(b) || b == ';')
-            ; // params discarded — presence of reply is the signal
-        else if (b == 'c')
-        {
-            rln_cpr_state = rln_cpr_st_idle;
-            rln_da2_dispatch();
-        }
-        else
-            rln_cpr_state = rln_cpr_st_idle;
-        return;
-    }
-
-    // CPR candidate (or pre-classification). Buffer bytes so a mismatch
-    // can release them into typeahead — necessary because typed input
-    // like `\33[A` (arrow up) shares the prefix.
-    if (rln_cpr_seq_len >= RLN_CPR_SEQ_MAX)
-    {
-        rln_cpr_release_seq();
-        rln_typeahead_push(b);
-        return;
-    }
-    rln_cpr_seq[rln_cpr_seq_len++] = b;
-
-    switch (rln_cpr_state)
-    {
-    case rln_cpr_st_idle:
-        if (b == '\33')
-            rln_cpr_state = rln_cpr_st_esc;
-        else
-        {
-            rln_cpr_seq_len = 0;
-            rln_typeahead_push(b);
-        }
-        break;
-    case rln_cpr_st_esc:
-        if (b == '[')
-        {
-            rln_cpr_state = rln_cpr_st_csi;
-            rln_cpr_p1 = 0;
-        }
-        else
-            rln_cpr_release_seq();
-        break;
-    case rln_cpr_st_csi: // classify CPR vs DA2
-        if (b == '>')
-        {
-            // Discard the buffered `\33[>` — committed to DA2.
-            rln_cpr_seq_len = 0;
-            rln_cpr_state = rln_cpr_st_da2;
-        }
-        else if (isdigit(b))
-        {
-            rln_cpr_state = rln_cpr_st_p1;
-            rln_cpr_p1 = b - '0';
-        }
-        else
-            rln_cpr_release_seq();
-        break;
-    case rln_cpr_st_p1:
-        if (isdigit(b))
-            rln_cpr_p1 = rln_cpr_p1 * 10 + (b - '0');
-        else if (b == ';')
-        {
-            rln_cpr_state = rln_cpr_st_p2;
-            rln_cpr_p2 = 0;
-        }
-        else
-            rln_cpr_release_seq();
-        break;
-    case rln_cpr_st_p2:
-        if (isdigit(b))
-            rln_cpr_p2 = rln_cpr_p2 * 10 + (b - '0');
-        else if (b == 'R')
-        {
-            rln_cpr_seq_len = 0;
-            rln_cpr_state = rln_cpr_st_idle;
-            rln_cpr_dispatch(rln_cpr_p1, rln_cpr_p2);
-        }
-        else
-            rln_cpr_release_seq();
-        break;
-    case rln_cpr_st_da2:
-        // handled above
-        break;
-    }
-}
-
 /* ----- Top-level task / lifecycle ----- */
 
 void rln_read_line(rln_read_callback_t callback)
@@ -1181,15 +1145,10 @@ void rln_read_line(rln_read_callback_t callback)
     rln_timeout_ms = 0;
     rln_buflen = 0;
     rln_bufpos = 0;
-    rln_typed_ansi.state = ansi_state_C0;
-    rln_typed_ansi.csi_param_count = 0;
-    rln_typed_ansi.csi_param[0] = 0;
     rln_callback = callback;
     rln_history_pos = 0;
     rln_buf[0] = 0;
     rln_lastkey_len = 0;
-    rln_keyseq_accum_len = 0;
-    rln_keyseq_overflow = false;
     rln_action_taken = false;
     rln_lastkey_consumed = false;
 
@@ -1204,9 +1163,8 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_max_row = 0;
     rln_rendered_end = 0;
     rln_decscusr_ok = false;
-    rln_cpr_state = 0;
-    rln_cpr_seq_len = 0;
-    rln_typeahead_len = 0;
+    memset(&rln_local_ansi, 0, sizeof rln_local_ansi);
+    memset(&rln_tel_ansi, 0, sizeof rln_tel_ansi);
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
@@ -1255,21 +1213,32 @@ void rln_task(void)
 {
     if (!rln_callback)
         return;
+    // Drain the two RX sources separately through their own per-source
+    // parser instances so an in-flight sequence on one source can't be
+    // sliced by interleaved bytes from the other. Source identity is
+    // implicit in which com_*_read function we picked — no merge, no
+    // tags needed.
     while (rln_callback)
     {
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == PICO_ERROR_TIMEOUT)
+        char ch;
+        if (com_tel_read(&ch, 1))
+        {
+            rln_timer = make_timeout_time_ms(rln_timeout_ms);
+            rln_ansi_feed(&rln_tel_ansi, (uint8_t)ch, !rln_tel_console);
+        }
+        else if (com_local_read(&ch, 1))
+        {
+            rln_timer = make_timeout_time_ms(rln_timeout_ms);
+            rln_ansi_feed(&rln_local_ansi, (uint8_t)ch, /*drop_cpr=*/false);
+        }
+        else
             break;
-        rln_timer = make_timeout_time_ms(rln_timeout_ms);
-        // Sniffer always runs; CPR/DA replies are absorbed even
-        // mid-edit. Non-matching bytes are released by the parser to
-        // either typeahead (handshake) or rln_line_rx_typed (edit)
-        // via rln_typeahead_push's phase dispatch.
-        rln_cpr_feed((uint8_t)ch);
         // Provide instant relief during handshake for scripting
         // tools which do not respond to ANSI sequences.
         if (rln_phase != rln_phase_edit &&
-            (ch == '\r' || rln_typeahead_len >= RLN_BUF_SIZE))
+            (ch == '\r' ||
+             rln_local_ansi.buf_len >= RLN_BUF_SIZE ||
+             rln_tel_ansi.buf_len >= RLN_BUF_SIZE))
         {
             // Skip the rest of the CPR handshake. We never confirmed
             // geometry for this session, so drop prompt_col to force
@@ -1332,6 +1301,12 @@ uint8_t rln_get_max_length(void) { return rln_max_length; }
 
 void rln_set_caps(uint8_t v) { rln_caps = v; }
 uint8_t rln_get_caps(void) { return rln_caps; }
+
+void rln_set_tel_console(bool active)
+{
+    rln_tel_console = active;
+    memset(&rln_tel_ansi, 0, sizeof rln_tel_ansi);
+}
 
 uint16_t rln_get_term_width(void)
 {
@@ -1416,6 +1391,41 @@ bool rln_api_peek(void)
 // Control handling lives here (poke-side) and not in rln_line_rx, so
 // typed control bytes that somehow reach the rln input pipeline still
 // go through the existing typed-input dispatch.
+// Poke-specific feed: advance + immediate dispatch, no defer, no
+// lastkey publish, no CPR/DA2 recognition. Poked bytes are scripted
+// input from the 6502, not user keystrokes, so they must always
+// dispatch (regardless of handshake/edit phase) and must not pin
+// geometry from an accidental ESC[r;cR shape.
+static void rln_ansi_poke_feed(rln_ansi_t *a, uint8_t b)
+{
+    if (b == '\30')
+    {
+        a->state = ansi_state_C0;
+        return;
+    }
+    rln_ansi_state_t entry_state = a->state;
+    rln_ansi_advance(a, b);
+    if (a->state != ansi_state_C0)
+        return;
+    switch (entry_state)
+    {
+    case ansi_state_C0:
+        rln_dispatch_C0_immediate(a, b);
+        break;
+    case ansi_state_Fe:
+        rln_dispatch_Fe(a, b);
+        break;
+    case ansi_state_SS3:
+        rln_dispatch_SS3(a, b);
+        break;
+    case ansi_state_CSI:
+        rln_dispatch_CSI(a, b);
+        break;
+    default:
+        break;
+    }
+}
+
 uint8_t rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -1423,7 +1433,8 @@ uint8_t rln_poke(const char *str)
     // Mutation primitives set rln_action_taken; poked input isn't typed,
     // so save and restore to keep an in-flight typed-sequence flag clean.
     bool saved_action = rln_action_taken;
-    rln_ansi_t a = {.state = ansi_state_C0};
+    rln_ansi_t a;
+    memset(&a, 0, sizeof a);
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
@@ -1472,7 +1483,7 @@ uint8_t rln_poke(const char *str)
             rln_complete(false);
             break;
         }
-        rln_line_rx(&a, ch);
+        rln_ansi_poke_feed(&a, ch);
     }
     rln_action_taken = saved_action;
     return rln_bufpos;

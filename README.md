@@ -56,5 +56,5 @@ PS> usbipd attach --wsl --busid 7-4
 
 VSCode Serial Monitor doesn't yet send breaks or let you slow down a paste. Minicom is still useful.
 ```
-$ minicom -c on -b 115200 -o -D /dev/ttyACM0
+$ minicom -w -c on -R cp437 -b 115200 -o -D /dev/ttyACM0
 ```

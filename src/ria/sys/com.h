@@ -42,6 +42,17 @@ bool com_tel_set_key(const char *key);
 uint16_t com_tel_get_port(void);
 const char *com_tel_get_key(void);
 
+// Notification from tel.c when a telnet client reports its terminal
+// type via SB TTYPE IS. com.c uses the name to decide whether the
+// client is interactive.
+void com_tel_remote_ttype(const char *name);
+
+// Per-source RX drains. rln calls these directly so each source's
+// bytes route to its own parser without intermediate merging. The
+// source is implicit in which function the caller picked.
+size_t com_local_read(char *buf, size_t length);
+size_t com_tel_read(char *buf, size_t length);
+
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
 // std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main
 // loop, so the SPSC protocol is serialized naturally; no lock, no __dmb()
