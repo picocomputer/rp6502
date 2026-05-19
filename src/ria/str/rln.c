@@ -64,11 +64,12 @@ typedef enum
 #define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
 
-// Unified CSI parser. One instance per RX source so a partial sequence
-// on one stream can't be sliced by bytes from the other. The buf[]
-// field doubles as in-flight cache (tail = the bytes of the currently
-// in-progress sequence) and deferred-typed buffer (head = completed
-// typed sequences whose dispatch is waiting for edit phase).
+// Unified CSI parser. One instance per input stream (local RX, telnet
+// RX, 6502 poke) so a partial sequence on one stream can't be sliced
+// by bytes from another. The buf[] field doubles as in-flight cache
+// (tail = the bytes of the currently in-progress sequence) and
+// deferred-typed buffer (head = completed typed sequences whose
+// dispatch is waiting for edit phase).
 typedef struct
 {
     rln_ansi_state_t state;
@@ -108,27 +109,29 @@ static uint16_t rln_term_height;     // 0 if no CPR
 static uint16_t rln_width_override;  // 0 = auto-detect
 static uint16_t rln_height_override; // 0 = auto-detect
 static uint8_t rln_cur_idx;          // buffer index whose screen position the cursor is at
-static bool rln_overwrite;           // persisted across rln_read_line calls
+static bool rln_overwrite;           // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
 static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
 static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
 static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 
-// Per-source parser instances. Each tracks its own stream so a partial
-// CSI sequence on one source can't be sliced by interleaved bytes from
-// the other.
+// One parser instance per input stream. local and tel are fed from
+// rln_task as bytes arrive on their respective RX sources; poke is
+// fed synchronously from rln_poke (6502 API). Each tracks its own
+// stream so a partial CSI sequence on one source can't be sliced by
+// interleaved bytes from another.
 static rln_ansi_t rln_ansi_local;
 static rln_ansi_t rln_ansi_tel;
 static rln_ansi_t rln_ansi_poke;
 
 // False = drop CPR matches arriving on the telnet stream instead of
 // dispatching them as geometry. Set by com.c at auth-success based on
-// the client's reported TTYPE (dumb clients get false).
+// the client's reported TTYPE (script clients get false).
 static bool rln_tel_console = true;
 
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
-// Only typed dispatches populate these; CPR/DA/DA2 protocol replies
-// don't touch lastkey.
+// Typed and poked dispatches both populate these; CPR/DA/DA2 protocol
+// replies don't touch lastkey.
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
@@ -399,6 +402,19 @@ static void rln_history_add(void)
     rln_history[0][0] = 0;
     if (rln_history_count < RLN_HISTORY_SIZE - 1)
         rln_history_count++;
+}
+
+// Park the cursor past the input, emit a newline, nul-terminate the
+// buffer, optionally push to history, and complete. Used by both the
+// typed CR dispatch and rln_poke's control-byte completion path.
+static void rln_finish_line(bool add_to_history)
+{
+    rln_sync_cursor_to(rln_buflen);
+    printf("\n");
+    rln_buf[rln_buflen] = 0;
+    if (add_to_history)
+        rln_history_add();
+    rln_complete(false);
 }
 
 /* ----- Movement helpers ----- */
@@ -737,7 +753,6 @@ static void rln_toggle_overwrite(void)
 
 static void rln_cpr_dispatch(uint16_t p1, uint16_t p2);
 static void rln_da2_dispatch(void);
-static void rln_enter_edit(void);
 
 static void rln_ansi_advance(rln_ansi_t *a, uint8_t ch)
 {
@@ -802,17 +817,13 @@ static void rln_ansi_advance(rln_ansi_t *a, uint8_t ch)
     }
 }
 
-static void rln_dispatch_C0_immediate(rln_ansi_t *a, uint8_t ch)
+static void rln_dispatch_C0(rln_ansi_t *a, uint8_t ch)
 {
     (void)a;
     if (ch == '\r')
     {
         rln_action_taken = true;
-        rln_sync_cursor_to(rln_buflen);
-        printf("\n");
-        rln_buf[rln_buflen] = 0;
-        rln_history_add();
-        rln_complete(false);
+        rln_finish_line(true);
     }
     else if (ch == '\b' || ch == 127)
         rln_line_backspace();
@@ -979,7 +990,7 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
     switch (entry_state)
     {
     case ansi_state_C0:
-        rln_dispatch_C0_immediate(a, term);
+        rln_dispatch_C0(a, term);
         break;
     case ansi_state_Fe:
         rln_dispatch_Fe(a, term);
@@ -997,9 +1008,10 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
     rln_ansi_trim_inflight(a);
 }
 
-// Feed one byte through a per-source parser. drop_cpr=true on the
+// Feed one byte through a per-stream parser. drop_cpr=true on the
 // telnet parser when the client is dumb so CPR matches are consumed
-// silently instead of pinning geometry to junk values.
+// silently instead of pinning geometry to junk values; also true on
+// the poke parser so accidentally-poked CPR shapes can't pin geometry.
 static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
 {
     // CAN aborts any in-progress sequence with no dispatch.
@@ -1056,7 +1068,8 @@ static void rln_enter_edit(void)
     else
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in order:
-    // local first (matches today's bias of kbd/UART ahead of telnet).
+    // local before tel matches today's bias of kbd/UART ahead of
+    // telnet; poke last so scripted input lands after any typeahead.
     rln_ansi_drain_deferred(&rln_ansi_local, /*drop_cpr=*/false);
     rln_ansi_drain_deferred(&rln_ansi_tel, !rln_tel_console);
     rln_ansi_drain_deferred(&rln_ansi_poke, /*drop_cpr=*/true);
@@ -1383,17 +1396,7 @@ bool rln_api_peek(void)
 
 // Any C0 control byte (0x00-0x1F) in the poked stream finishes the
 // input. As a visual badge, controls other than CR (\r) and LF (\n)
-// echo as caret notation (^@..^_); the echo is not inserted into the
-// buffer. The marker is positioned through rln_sync_cursor_to so it
-// respects multi-row wrap; rln_cur_idx is bumped past it so the
-// completion's sync-to-rln_buflen lands correctly. When rln_max_length
-// < 2 readline has no room for the marker, so the echo is skipped.
-// Completion mirrors the CR branch in rln_line_state_C0; only CR
-// adds the typed line to history.
-//
-// Control handling lives here (poke-side) and not in rln_line_rx, so
-// typed control bytes that somehow reach the rln input pipeline still
-// go through the existing typed-input dispatch.
+// echo as caret notation (^@..^_); only CR adds the typed line to history.
 uint8_t rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -1406,8 +1409,6 @@ uint8_t rln_poke(const char *str)
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
-        // ESC starts an ANSI escape sequence; feed it to the parser so the
-        // bytes that follow are absorbed instead of treated as input text.
         if (ch < 32 && ch != '\33')
         {
             if (ch != '\r' && ch != '\n' && rln_max_length >= 2)
@@ -1431,9 +1432,6 @@ uint8_t rln_poke(const char *str)
                         putchar(marker[i]);
                         if (c == w)
                         {
-                            // Forced wrap mirrors rln_render_from. No
-                            // \33[K — that would erase typed content on
-                            // the new row that the marker doesn't own.
                             printf("\n");
                             c = 1;
                         }
@@ -1443,12 +1441,7 @@ uint8_t rln_poke(const char *str)
                 }
                 rln_cur_idx = (uint8_t)(target + 2);
             }
-            rln_sync_cursor_to(rln_buflen);
-            printf("\n");
-            rln_buf[rln_buflen] = 0;
-            if (ch == '\r')
-                rln_history_add();
-            rln_complete(false);
+            rln_finish_line(ch == '\r');
             break;
         }
         rln_ansi_feed(&rln_ansi_poke, (uint8_t)ch, /*drop_cpr=*/true);
