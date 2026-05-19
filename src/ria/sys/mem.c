@@ -5,7 +5,7 @@
  */
 
 #include "sys/mem.h"
-#include "str/rln.h"
+#include "sys/com.h"
 #include <pico.h>
 #include <pico/time.h>
 #include <assert.h>
@@ -43,19 +43,21 @@ static size_t mem_size;
 
 void mem_task(void)
 {
-    // Hold rln's identified script source alive for the entire
-    // duration of this binary read. The last refresh as mem_callback
-    // clears leaves the timer with a full 100 ms tail, which is the
-    // window rln_task observes when it next runs.
-    if (mem_callback)
-        rln_script_refresh();
+    // Lock the input source for the duration of this binary read. When
+    // rln armed a script hold on instant relief, com_getchar already
+    // reports that source and com_getchar_source extends the deadline.
+    // When the read was started interactively with no hold yet, the
+    // first byte to arrive identifies the source and we arm a hold on
+    // it from then on, so peer terminals can't slice the binary stream.
     while (mem_callback)
     {
-        char buf;
-        if (!rln_script_io(&buf, 1))
+        com_source_t src;
+        int c = com_getchar(&src);
+        com_getchar_source(src);
+        if (c < 0)
             break;
         mem_timer = make_timeout_time_ms(mem_timeout_ms);
-        mbuf[mbuf_len] = (uint8_t)buf;
+        mbuf[mbuf_len] = (uint8_t)c;
         if (++mbuf_len == mem_size)
         {
             mem_read_callback_t callback = mem_callback;

@@ -70,11 +70,6 @@ typedef enum
 #define RLN_CAPS_SWAP 2
 #define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
-// After instant relief identifies a script source during handshake,
-// silently drain bytes from the other sources for this many ms so
-// late CPR/DA2 replies from any responsive terminal don't leak into
-// edit phase as typed input.
-#define RLN_SCRIPT_DRAIN_MS 100
 
 // Unified CSI parser. One instance per input stream (local RX, telnet
 // RX, 6502 poke) so a partial sequence on one stream can't be sliced
@@ -135,22 +130,6 @@ static rln_ansi_t rln_ansi_kbd;
 static rln_ansi_t rln_ansi_uart;
 static rln_ansi_t rln_ansi_tel;
 static rln_ansi_t rln_ansi_poke;
-
-// Script-drain window state. When instant relief fires we identify
-// the active source as a non-ANSI script (it produced a CR or
-// overflowed without responding to the handshake). For the next
-// RLN_SCRIPT_DRAIN_MS we read only from that source and silently
-// discard bytes from the others, absorbing any late CPR/DA2 replies
-// that arrive from a responsive shadow terminal.
-typedef enum
-{
-    rln_src_none,
-    rln_src_kbd,
-    rln_src_uart,
-    rln_src_tel,
-} rln_src_t;
-static rln_src_t rln_script_src;
-static absolute_time_t rln_script_drain_until;
 
 // False = drop CPR matches arriving on the telnet stream instead of
 // dispatching them as geometry. Set by com.c at auth-success based on
@@ -1271,52 +1250,44 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
     rln_timer = make_timeout_time_ms(rln_timeout_ms);
 }
 
-static size_t rln_pick(char *buf, size_t length, rln_src_t *src_out);
-
 void rln_task(void)
 {
     if (!rln_callback)
         return;
-    // Exit the script-drain window once its deadline passes; from
-    // then on all sources are read normally again.
-    if (rln_script_src != rln_src_none && time_reached(rln_script_drain_until))
-        rln_script_src = rln_src_none;
-    // Pick a byte from whichever source the rln_pick policy selects:
-    // when a script source is held it restricts to that one (and
-    // drains the others to /dev/null inside rln_pick); otherwise it
-    // walks tel → uart → kbd in priority order. The returned source
-    // identity drives parser selection and instant-relief tagging.
-    // drop_cpr=true on kbd because a local keyboard never legitimately
-    // produces protocol replies.
+    // Pull bytes via com_getchar, which respects any active script
+    // hold (held source delivers; others drain to /dev/null) and
+    // otherwise walks its sticky kbd/UART/telnet multiplex. The
+    // reported source identity drives parser selection and instant-
+    // relief tagging. drop_cpr=true on kbd because a local keyboard
+    // never legitimately produces protocol replies.
     while (rln_callback)
     {
-        char ch;
-        rln_src_t this_src;
-        if (!rln_pick(&ch, 1, &this_src))
+        com_source_t this_src;
+        int c = com_getchar(&this_src);
+        if (c < 0)
             break;
+        char ch = (char)c;
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
         switch (this_src)
         {
-        case rln_src_tel:
+        case COM_SOURCE_TEL:
             rln_ansi_feed(&rln_ansi_tel, (uint8_t)ch, !rln_tel_console);
             break;
-        case rln_src_uart:
+        case COM_SOURCE_UART:
             rln_ansi_feed(&rln_ansi_uart, (uint8_t)ch, /*drop_cpr=*/false);
             break;
-        case rln_src_kbd:
+        case COM_SOURCE_KBD:
             rln_ansi_feed(&rln_ansi_kbd, (uint8_t)ch, /*drop_cpr=*/true);
             break;
-        case rln_src_none:
+        case COM_SOURCE_NONE:
             break;
         }
         // Provide instant relief during handshake for scripting tools
         // that do not respond to ANSI sequences. The triggering source
-        // is identified as a script — record it and arm the drain
-        // window so any late CPR/DA2 from other sources is swallowed
-        // by rln_script_io next iteration instead of landing in edit
-        // phase as typed input. Only fires pre-edit; once it sets
-        // rln_script_src and enters edit phase, subsequent iterations
-        // skip this check.
+        // is identified as a script — arm the com-level hold so any
+        // late CPR/DA2 from other sources is swallowed before reaching
+        // edit phase. Only fires pre-edit; once we enter edit phase
+        // subsequent iterations skip this check.
         if (rln_phase != rln_phase_edit &&
             (ch == '\r' ||
              rln_ansi_kbd.buf_len >= RLN_BUF_SIZE ||
@@ -1330,8 +1301,7 @@ void rln_task(void)
             // previous successful handshake is still useful for callers
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
-            rln_script_src = this_src;
-            rln_script_drain_until = make_timeout_time_ms(RLN_SCRIPT_DRAIN_MS);
+            com_getchar_source(this_src);
             rln_prompt_col = 0;
             rln_enter_edit();
         }
@@ -1341,65 +1311,6 @@ void rln_task(void)
         rln_handshake_fallback();
     if (rln_timeout_ms && time_reached(rln_timer))
         rln_complete(true);
-}
-
-// Pick a byte from the active sources. In script mode (rln_script_src
-// is set), reads only from that source and drains the other two to
-// /dev/null. Otherwise walks tel → uart → kbd in priority order.
-// *src_out (when non-NULL) reports the source picked, or rln_src_none
-// when nothing was read.
-static size_t rln_pick(char *buf, size_t length, rln_src_t *src_out)
-{
-    rln_src_t picked = rln_src_none;
-    size_t count = 0;
-    if (rln_script_src != rln_src_none)
-    {
-        picked = rln_script_src;
-        switch (picked)
-        {
-        case rln_src_kbd:
-            count = com_kbd_read(buf, length);
-            break;
-        case rln_src_uart:
-            count = com_uart_read(buf, length);
-            break;
-        case rln_src_tel:
-            count = com_tel_read(buf, length);
-            break;
-        case rln_src_none:
-            break;
-        }
-        char tmp[16];
-        if (picked != rln_src_tel)
-            while (com_tel_read(tmp, sizeof tmp))
-                ;
-        if (picked != rln_src_uart)
-            while (com_uart_read(tmp, sizeof tmp))
-                ;
-        if (picked != rln_src_kbd)
-            while (com_kbd_read(tmp, sizeof tmp))
-                ;
-    }
-    else if ((count = com_tel_read(buf, length)))
-        picked = rln_src_tel;
-    else if ((count = com_uart_read(buf, length)))
-        picked = rln_src_uart;
-    else if ((count = com_kbd_read(buf, length)))
-        picked = rln_src_kbd;
-    if (src_out)
-        *src_out = picked;
-    return count;
-}
-
-size_t rln_script_io(char *buf, size_t length)
-{
-    return rln_pick(buf, length, NULL);
-}
-
-void rln_script_refresh(void)
-{
-    if (rln_script_src != rln_src_none)
-        rln_script_drain_until = make_timeout_time_ms(RLN_SCRIPT_DRAIN_MS);
 }
 
 void rln_init(void)
@@ -1412,7 +1323,6 @@ void rln_init(void)
     rln_overwrite = false;
     rln_width_override = 0;
     rln_height_override = 0;
-    rln_script_src = rln_src_none;
 }
 
 void rln_run(void)

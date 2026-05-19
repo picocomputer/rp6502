@@ -47,12 +47,26 @@ const char *com_tel_get_key(void);
 // client is interactive.
 void com_tel_on_remote_ttype(const char *name);
 
-// Per-source RX drains. rln calls these directly so each source's
-// bytes route to its own parser without intermediate merging. The
-// source is implicit in which function the caller picked.
-size_t com_kbd_read(char *buf, size_t length);
-size_t com_uart_read(char *buf, size_t length);
-size_t com_tel_read(char *buf, size_t length);
+typedef enum
+{
+    COM_SOURCE_NONE,
+    COM_SOURCE_KBD,
+    COM_SOURCE_UART,
+    COM_SOURCE_TEL,
+} com_source_t;
+
+// Non-blocking 1-byte read across the active sources. Returns the
+// byte (0..255) or PICO_ERROR_TIMEOUT when no data is available.
+// *src is always written:
+//   - hold armed       -> held source (whether or not a byte arrived)
+//   - no hold, byte    -> the source that delivered
+//   - no hold, no byte -> COM_SOURCE_NONE
+int com_getchar(com_source_t *src);
+
+// Arm or refresh a 100 ms hold pinning all com_getchar reads to src;
+// while the hold is active, bytes from the other sources are drained
+// to /dev/null. No-op when src == COM_SOURCE_NONE.
+void com_getchar_source(com_source_t src);
 
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
 // std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main

@@ -69,16 +69,9 @@ static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
 // stranded here when rln is the active consumer.
 volatile int com_rx_char = -1;
 
-typedef enum
-{
-    COM_RX_SRC_KBD,
-    COM_RX_SRC_UART,
-    COM_RX_SRC_TEL,
-} com_rx_src_t;
-
 // Valid only while com_rx_char >= 0. Written and read on core 0 only,
 // alongside com_rx_char's updates; act_loop on core 1 never reads it.
-static com_rx_src_t com_rx_char_src;
+static com_source_t com_rx_char_src;
 
 static bool com_bel_enabled = true;
 
@@ -88,11 +81,19 @@ static bool com_bel_enabled = true;
 // sources (kbd, UART, telnet).
 #define COM_RX_IDLE_US 1000
 
+// Script-source hold window. While armed, com_getchar reads only from
+// com_held_src and drains the other sources to /dev/null. Armed and
+// refreshed by com_getchar_source; auto-refreshed by com_getchar on
+// each successful read; auto-cleared on expiry or via com_break.
+#define COM_HOLD_MS 100
+static com_source_t com_held_src;
+static absolute_time_t com_held_until;
+
 #ifndef RP6502_RIA_W
 
 static bool com_tel_tx_writable(void) { return true; }
 static void com_tel_tx_write(char ch) { (void)ch; }
-size_t com_tel_read(char *buf, size_t length) { (void)buf; (void)length; return 0; }
+static size_t com_tel_read(char *buf, size_t length) { (void)buf; (void)length; return 0; }
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
 void com_tel_on_remote_ttype(const char *name) { (void)name; }
@@ -153,10 +154,10 @@ static void com_tel_tx_write(char ch)
     com_tel_tx_buf[com_tel_tx_head] = ch;
 }
 
-size_t com_tel_read(char *buf, size_t length)
+static size_t com_tel_read(char *buf, size_t length)
 {
     size_t count = 0;
-    if (count < length && com_rx_char_src == COM_RX_SRC_TEL)
+    if (count < length && com_rx_char_src == COM_SOURCE_TEL)
     {
         int ch = com_rx_char;
         if (ch >= 0)
@@ -473,9 +474,9 @@ static void com_uart_drain_rx(void)
     }
 }
 
-size_t com_uart_read(char *buf, size_t length)
+static size_t com_uart_read(char *buf, size_t length)
 {
-    if (length && com_rx_char_src == COM_RX_SRC_UART)
+    if (length && com_rx_char_src == COM_SOURCE_UART)
     {
         int ch = com_rx_char;
         if (ch >= 0)
@@ -502,9 +503,9 @@ size_t com_uart_read(char *buf, size_t length)
 // tagged KBD, then reads from kbd_stdio_in_chars. No internal sticky
 // dwell — the outer com_rx_pick holds against the other sources at
 // the 1 ms grain.
-size_t com_kbd_read(char *buf, size_t length)
+static size_t com_kbd_read(char *buf, size_t length)
 {
-    if (length && com_rx_char_src == COM_RX_SRC_KBD)
+    if (length && com_rx_char_src == COM_SOURCE_KBD)
     {
         int ch = com_rx_char;
         if (ch >= 0)
@@ -602,11 +603,10 @@ static void com_tx_fanout(void)
 // Sticky three-source multiplex: keyboard, UART, telnet. Whichever
 // fires first holds the lock until idle for 1ms, so a single tap on
 // one source can't slice a paste on another. Used by stdin and by
-// com_task's com_rx_char refill — rln calls the per-source readers
-// directly, bypassing the merge. *src_out, when non-NULL, reports
+// com_task's com_rx_char refill. *src_out, when non-NULL, reports
 // which source produced the returned bytes so com_task can tag
 // com_rx_char for later steal by the matching per-source reader.
-static size_t com_rx_pick(char *buf, size_t length, com_rx_src_t *src_out)
+static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
     enum com_rx_picker
     {
@@ -629,12 +629,11 @@ static size_t com_rx_pick(char *buf, size_t length, com_rx_src_t *src_out)
             source = PICK_KBD;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
-                *src_out = COM_RX_SRC_KBD;
+                *src_out = COM_SOURCE_KBD;
             return i;
         }
         // Kbd doesn't hold the lock when empty.
-        if (source == PICK_KBD)
-            source = PICK_NONE;
+        source = PICK_NONE;
     }
 
     if (source == PICK_UART || source == PICK_NONE)
@@ -645,7 +644,7 @@ static size_t com_rx_pick(char *buf, size_t length, com_rx_src_t *src_out)
             source = PICK_UART;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
-                *src_out = COM_RX_SRC_UART;
+                *src_out = COM_SOURCE_UART;
             return i;
         }
     }
@@ -658,12 +657,73 @@ static size_t com_rx_pick(char *buf, size_t length, com_rx_src_t *src_out)
             source = PICK_TEL;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
-                *src_out = COM_RX_SRC_TEL;
+                *src_out = COM_SOURCE_TEL;
             return i;
         }
     }
 
     return 0;
+}
+
+// Hold-aware single-byte reader. When a hold is armed, only the held
+// source can deliver; com_task drains the others to /dev/null on its
+// own cadence so their upstream rings can't overflow. Each successful
+// read from the held source bumps the deadline another COM_HOLD_MS
+// into the future, so a streaming consumer (e.g. mem_task during a
+// binary upload) keeps the hold alive simply by reading. The hold
+// auto-expires once nothing matches it for COM_HOLD_MS.
+int com_getchar(com_source_t *src)
+{
+    if (com_held_src != COM_SOURCE_NONE && time_reached(com_held_until))
+        com_held_src = COM_SOURCE_NONE;
+
+    if (com_held_src != COM_SOURCE_NONE)
+    {
+        char ch;
+        size_t n = 0;
+        switch (com_held_src)
+        {
+        case COM_SOURCE_KBD:
+            n = com_kbd_read(&ch, 1);
+            break;
+        case COM_SOURCE_UART:
+            n = com_uart_read(&ch, 1);
+            break;
+        case COM_SOURCE_TEL:
+            n = com_tel_read(&ch, 1);
+            break;
+        case COM_SOURCE_NONE:
+            break;
+        }
+        if (src)
+            *src = com_held_src;
+        if (n)
+        {
+            com_held_until = make_timeout_time_ms(COM_HOLD_MS);
+            return (unsigned char)ch;
+        }
+        return PICO_ERROR_TIMEOUT;
+    }
+
+    char ch;
+    com_source_t picked;
+    if (com_rx_pick(&ch, 1, &picked))
+    {
+        if (src)
+            *src = picked;
+        return (unsigned char)ch;
+    }
+    if (src)
+        *src = COM_SOURCE_NONE;
+    return PICO_ERROR_TIMEOUT;
+}
+
+void com_getchar_source(com_source_t src)
+{
+    if (src == COM_SOURCE_NONE)
+        return;
+    com_held_src = src;
+    com_held_until = make_timeout_time_ms(COM_HOLD_MS);
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
@@ -763,6 +823,7 @@ void com_break(void)
     REGS(0xFFE2) = 0;
 
     com_rx_char = -1;
+    com_held_src = COM_SOURCE_NONE;
 }
 
 void com_task(void)
@@ -791,7 +852,7 @@ void com_task(void)
     if (com_rx_char < 0)
     {
         char ch;
-        com_rx_src_t src;
+        com_source_t src;
         if (com_rx_pick(&ch, 1, &src))
         {
             com_rx_char_src = src;
@@ -810,6 +871,23 @@ void com_task(void)
     break_detect = current_break;
 
     com_tel_task();
+
+    // While a script hold is active, drain the non-held sources every
+    // tick so their upstream rings can't overflow with bytes nobody is
+    // going to read. The hold itself auto-expires inside com_getchar.
+    if (com_held_src != COM_SOURCE_NONE)
+    {
+        char tmp[16];
+        if (com_held_src != COM_SOURCE_TEL)
+            while (com_tel_read(tmp, sizeof tmp))
+                ;
+        if (com_held_src != COM_SOURCE_UART)
+            while (com_uart_read(tmp, sizeof tmp))
+                ;
+        if (com_held_src != COM_SOURCE_KBD)
+            while (com_kbd_read(tmp, sizeof tmp))
+                ;
+    }
 }
 
 bool com_get_bel(void)
