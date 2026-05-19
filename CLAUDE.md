@@ -14,3 +14,11 @@ separate tool calls instead of shell operators.
 
 Never search the root of the filesystem. Everything you need will be in
 the user home directory.
+
+To build, run `cmake --build build` from the project root. That builds
+every target in one shot. Do not hunt for individual ninja target names
+(rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+
+Never delete debug macros (DBG, DEBUG_*, etc.) on "currently unused"
+grounds. They are scaffolding kept for future bring-up. If a review
+notices one isn't called today, leave it; do not propose removing it.

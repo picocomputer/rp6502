@@ -22,13 +22,20 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-/* Important rules for compatibility with console manifold:
-** The goal of these rules is 1) secondary console terminals display perfectly
-** if they are wider than the primary 2) use rln_max_length to fill out forms.
-** No absolute Y cursor movement or pushing off the right edge.
-** We can not depend on line wrapping, but we can depend on pending wrap.
-** We own only rln_max_length cells from the start of input so no ICH DCH
-** unless rln owns the entire line.
+/* Console manifold compatibility rules.
+**
+** rln drives a "manifold" of terminals: primary UART + optional telnet
+** shadow + optional VGA. Design goals: (1) secondary terminals wider
+** than the primary still render correctly; (2) callers can place rln
+** inside a wider form by setting rln_max_length to reserve only the
+** cells rln is allowed to own.
+**
+** Runtime invariants (the handshake in rln_read_line is exempt — it
+** uses \33[999;999H inside a DECSC/DECRC bracket to elicit CPR2):
+**   - No absolute Y cursor movement; no writes past rln_max_length.
+**   - Can't depend on auto-wrap; pending-wrap (xenl) is OK to rely on.
+**   - rln owns only rln_max_length cells from the start of input, so
+**     no ICH/DCH unless rln owns the entire visible input region.
 */
 
 typedef enum
@@ -474,19 +481,9 @@ static uint8_t rln_scan_word(int dir)
     return pos;
 }
 
-static void rln_line_forward_word(void)
+static void rln_line_word(int dir)
 {
-    uint8_t to = rln_scan_word(1);
-    if (to == rln_bufpos)
-        return;
-    rln_bufpos = to;
-    rln_action_taken = true;
-    rln_sync_cursor_to(rln_bufpos);
-}
-
-static void rln_line_backward_word(void)
-{
-    uint8_t to = rln_scan_word(-1);
+    uint8_t to = rln_scan_word(dir);
     if (to == rln_bufpos)
         return;
     rln_bufpos = to;
@@ -521,7 +518,7 @@ static void rln_step(int delta)
 static void rln_line_forward(rln_ansi_t *a)
 {
     if (a->csi_param_count > 1 && a->csi_param[1] != 1)
-        return rln_line_forward_word();
+        return rln_line_word(1);
     int count = a->csi_param[0];
     if (count < 1)
         count = 1;
@@ -531,7 +528,7 @@ static void rln_line_forward(rln_ansi_t *a)
 static void rln_line_backward(rln_ansi_t *a)
 {
     if (a->csi_param_count > 1 && a->csi_param[1] != 1)
-        return rln_line_backward_word();
+        return rln_line_word(-1);
     int count = a->csi_param[0];
     if (count < 1)
         count = 1;
@@ -751,8 +748,10 @@ static void rln_toggle_overwrite(void)
  *   buf[] for later replay (typed during handshake phase).
  */
 
+// Forward decl needed to break the call cycle: rln_cpr_dispatch ->
+// rln_enter_edit -> rln_ansi_drain_deferred -> rln_ansi_feed ->
+// rln_ansi_dispatch_or_defer -> rln_cpr_dispatch.
 static void rln_cpr_dispatch(uint16_t p1, uint16_t p2);
-static void rln_da2_dispatch(void);
 
 static void rln_ansi_advance(rln_ansi_t *a, uint8_t ch)
 {
@@ -855,9 +854,9 @@ static void rln_dispatch_Fe(rln_ansi_t *a, uint8_t ch)
 {
     (void)a;
     if (ch == 'b' || ch == 2)
-        rln_line_backward_word();
+        rln_line_word(-1);
     else if (ch == 'f' || ch == 6)
-        rln_line_forward_word();
+        rln_line_word(1);
     else if (ch == 'd')
         rln_line_forward_kill_word();
     else if (ch == 127 || ch == '\b')
@@ -894,9 +893,9 @@ static void rln_dispatch_CSI(rln_ansi_t *a, uint8_t ch)
     else if (ch == 'X')
         rln_line_erase_n(a);
     else if (ch == 'b' || ch == 2)
-        rln_line_backward_word();
+        rln_line_word(-1);
     else if (ch == 'f' || ch == 6)
-        rln_line_forward_word();
+        rln_line_word(1);
     else if (ch == '~')
         switch (a->csi_param[0])
         {
@@ -935,6 +934,22 @@ static void rln_publish_lastkey(rln_ansi_t *a)
     memcpy(rln_lastkey_buf, &a->buf[a->buf_len - a->inflight_len], n);
     rln_lastkey_len = n;
     rln_lastkey_consumed = rln_action_taken;
+}
+
+// Dispatch a parsed Secondary DA reply (\33[><...>c). The fact that
+// a reply arrived at all is the signal — minicom and similarly broken
+// peers ignore DA2 (and leak its `c` as literal text, scrubbed by the
+// burst's DECRC + space + BS). Param values are discarded. A late DA2
+// arriving in edit phase still flips the bit and emits the cursor
+// shape so the user sees the correct insert/overwrite indicator going
+// forward.
+static void rln_da2_dispatch(void)
+{
+    if (rln_decscusr_ok)
+        return;
+    rln_decscusr_ok = true;
+    if (rln_phase == rln_phase_edit)
+        rln_emit_mode_cursor();
 }
 
 // Classify the just-completed sequence and dispatch or defer.
@@ -1081,8 +1096,9 @@ static void rln_handshake_fallback(void)
     // cursor back to the prompt and re-showed it, so we don't need
     // to fix cursor placement here. We never got both CPRs (CPR2
     // would have advanced us straight to edit), so drop into the
-    // single-virtual-line model (row math bypassed by term_width==0)
+    // single-virtual-line model (row math bypassed by prompt_col==0)
     // and preserve whatever DA2 told us about DECSCUSR.
+    rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
     rln_enter_edit();
@@ -1136,21 +1152,6 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
         if (width_changed && rln_phase == rln_phase_edit)
             rln_render_from(0);
     }
-}
-
-// Dispatch a parsed Secondary DA reply (\33[><...>c). The fact that
-// a reply arrived at all is the signal — minicom and similarly broken
-// peers ignore DA2 (and leak its `c` as literal text, scrubbed by the
-// burst's DECRC+EL). Param values are discarded. A late DA2 arriving
-// in edit phase still flips the bit and emits the cursor shape so the
-// user sees the correct insert/overwrite indicator going forward.
-static void rln_da2_dispatch(void)
-{
-    if (rln_decscusr_ok)
-        return;
-    rln_decscusr_ok = true;
-    if (rln_phase == rln_phase_edit)
-        rln_emit_mode_cursor();
 }
 
 /* ----- Top-level task / lifecycle ----- */
@@ -1426,7 +1427,10 @@ uint8_t rln_poke(const char *str)
                 else
                 {
                     uint16_t w = rln_get_term_width();
-                    uint16_t c = (uint16_t)((rln_prompt_col - 1 + target) % w) + 1;
+                    uint8_t r;
+                    uint16_t c;
+                    rln_buf_to_screen(target, &r, &c);
+                    (void)r;
                     for (int i = 0; i < 2; i++)
                     {
                         putchar(marker[i]);
