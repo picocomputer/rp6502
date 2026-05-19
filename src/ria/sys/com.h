@@ -50,7 +50,8 @@ void com_tel_on_remote_ttype(const char *name);
 // Per-source RX drains. rln calls these directly so each source's
 // bytes route to its own parser without intermediate merging. The
 // source is implicit in which function the caller picked.
-size_t com_local_read(char *buf, size_t length);
+size_t com_kbd_read(char *buf, size_t length);
+size_t com_uart_read(char *buf, size_t length);
 size_t com_tel_read(char *buf, size_t length);
 
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,

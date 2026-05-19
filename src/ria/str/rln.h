@@ -77,4 +77,18 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
+// Read up to length bytes from the identified script source (kbd,
+// uart, or tel — whichever triggered instant relief in rln_task)
+// and drain the other sources to /dev/null. Returns bytes read, or
+// 0 when no script source is active — callers should fall back to
+// generic stdio in that case.
+size_t rln_script_io(char *buf, size_t length);
+
+// Refresh the script-drain timer so a fresh 100 ms window starts
+// from this moment. No-op when no script source is active. Foreign
+// readers (e.g. mem_task during a binary upload) call this every
+// tick while they hold the channel, so the source isn't cleared
+// out from under them by rln_task's auto-expiry on the tail.
+void rln_script_refresh(void);
+
 #endif /* _RIA_STR_RLN_H_ */

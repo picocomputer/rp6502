@@ -5,9 +5,9 @@
  */
 
 #include "sys/mem.h"
+#include "str/rln.h"
 #include <pico.h>
 #include <pico/time.h>
-#include <pico/stdio.h>
 #include <assert.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
@@ -43,18 +43,25 @@ static size_t mem_size;
 
 void mem_task(void)
 {
+    // Hold rln's identified script source alive for the entire
+    // duration of this binary read. The last refresh as mem_callback
+    // clears leaves the timer with a full 100 ms tail, which is the
+    // window rln_task observes when it next runs.
+    if (mem_callback)
+        rln_script_refresh();
     while (mem_callback)
     {
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == PICO_ERROR_TIMEOUT)
+        char buf;
+        if (!rln_script_io(&buf, 1))
             break;
         mem_timer = make_timeout_time_ms(mem_timeout_ms);
-        mbuf[mbuf_len] = ch;
+        mbuf[mbuf_len] = (uint8_t)buf;
         if (++mbuf_len == mem_size)
         {
             mem_read_callback_t callback = mem_callback;
             mem_callback = NULL;
             callback(false);
+            return;
         }
     }
     if (mem_callback && time_reached(mem_timer))

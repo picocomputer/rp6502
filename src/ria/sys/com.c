@@ -64,14 +64,15 @@ static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
 // on core 1 reads it to serve 6502 0xFFE2 reads; com_task refills it
 // from the merge picker (one byte per tick when empty). The stdio path
 // steals from it when stdio is the active consumer. Per-source readers
-// (com_local_read / com_tel_read) also steal it when the recorded
-// source matches, so a byte the merge picker pulled isn't stranded
-// here when rln is the active consumer.
+// (com_kbd_read / com_uart_read / com_tel_read) also steal it when the
+// recorded source matches, so a byte the merge picker pulled isn't
+// stranded here when rln is the active consumer.
 volatile int com_rx_char = -1;
 
 typedef enum
 {
-    COM_RX_SRC_LOCAL,
+    COM_RX_SRC_KBD,
+    COM_RX_SRC_UART,
     COM_RX_SRC_TEL,
 } com_rx_src_t;
 
@@ -82,9 +83,9 @@ static com_rx_src_t com_rx_char_src;
 static bool com_bel_enabled = true;
 
 // Sticky-picker dwell window: once an RX source fires it locks out the
-// alternate for this many microseconds, so a single keystroke can't
-// slice a paste in half. Used by com_local_read (kbd vs UART) and
-// com_rx_pick (local vs TEL).
+// other sources for this many microseconds, so a single keystroke can't
+// slice a paste in half. Used by com_rx_pick across the three real
+// sources (kbd, UART, telnet).
 #define COM_RX_IDLE_US 1000
 
 #ifndef RP6502_RIA_W
@@ -472,8 +473,18 @@ static void com_uart_drain_rx(void)
     }
 }
 
-static size_t com_uart_read(char *buf, size_t length)
+size_t com_uart_read(char *buf, size_t length)
 {
+    if (length && com_rx_char_src == COM_RX_SRC_UART)
+    {
+        int ch = com_rx_char;
+        if (ch >= 0)
+        {
+            buf[0] = (char)ch;
+            com_rx_char = -1;
+            return 1;
+        }
+    }
     // Always pump the hw FIFO into the software ring first so callers
     // that bypass com_task (e.g. vga_connect's blocking loop running
     // only mem_task) still see fresh bytes. Idempotent.
@@ -487,18 +498,13 @@ static size_t com_uart_read(char *buf, size_t length)
     return count;
 }
 
-// Combined local source: keyboard plus UART. Internal sticky dwell —
-// once UART is the active sub-source, it holds the lock until idle
-// for 1 ms so a keystroke can't slice a UART burst. Keyboard releases
-// immediately when empty (no hold), matching the legacy three-way
-// picker's behaviour. The outer com_rx_pick holds against telnet
-// at the same 1 ms grain.
-size_t com_local_read(char *buf, size_t length)
+// Local keyboard input. Steals the cross-core handoff slot if it was
+// tagged KBD, then reads from kbd_stdio_in_chars. No internal sticky
+// dwell — the outer com_rx_pick holds against the other sources at
+// the 1 ms grain.
+size_t com_kbd_read(char *buf, size_t length)
 {
-    static bool uart_holding;
-    static absolute_time_t uart_idle_timer;
-
-    if (length && com_rx_char_src == COM_RX_SRC_LOCAL)
+    if (length && com_rx_char_src == COM_RX_SRC_KBD)
     {
         int ch = com_rx_char;
         if (ch >= 0)
@@ -508,24 +514,7 @@ size_t com_local_read(char *buf, size_t length)
             return 1;
         }
     }
-
-    if (uart_holding && time_reached(uart_idle_timer))
-        uart_holding = false;
-
-    if (!uart_holding)
-    {
-        size_t i = kbd_stdio_in_chars(buf, length);
-        if (i)
-            return i;
-    }
-    size_t i = com_uart_read(buf, length);
-    if (i)
-    {
-        uart_holding = true;
-        uart_idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
-        return i;
-    }
-    return 0;
+    return kbd_stdio_in_chars(buf, length);
 }
 
 static bool com_uart_tx_writable(void)
@@ -610,19 +599,20 @@ static void com_tx_fanout(void)
     }
 }
 
-// Sticky two-source multiplex: local (kbd+uart) vs telnet. Whichever
-// fires first holds the lock until idle for 1ms, so a keyboard tap
-// can't slice a telnet paste in half and vice versa. Used by stdin
-// and by com_task's com_rx_char refill — rln calls the per-source
-// readers directly, bypassing the merge. *src_out, when non-NULL,
-// reports which source produced the returned bytes so com_task can
-// tag com_rx_char for later steal by the matching per-source reader.
+// Sticky three-source multiplex: keyboard, UART, telnet. Whichever
+// fires first holds the lock until idle for 1ms, so a single tap on
+// one source can't slice a paste on another. Used by stdin and by
+// com_task's com_rx_char refill — rln calls the per-source readers
+// directly, bypassing the merge. *src_out, when non-NULL, reports
+// which source produced the returned bytes so com_task can tag
+// com_rx_char for later steal by the matching per-source reader.
 static size_t com_rx_pick(char *buf, size_t length, com_rx_src_t *src_out)
 {
     enum com_rx_picker
     {
         PICK_NONE,
-        PICK_LOCAL,
+        PICK_KBD,
+        PICK_UART,
         PICK_TEL,
     };
     static enum com_rx_picker source = PICK_NONE;
@@ -631,15 +621,31 @@ static size_t com_rx_pick(char *buf, size_t length, com_rx_src_t *src_out)
     if (source != PICK_NONE && time_reached(idle_timer))
         source = PICK_NONE;
 
-    if (source == PICK_LOCAL || source == PICK_NONE)
+    if (source == PICK_KBD || source == PICK_NONE)
     {
-        size_t i = com_local_read(buf, length);
+        size_t i = com_kbd_read(buf, length);
         if (i)
         {
-            source = PICK_LOCAL;
+            source = PICK_KBD;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
-                *src_out = COM_RX_SRC_LOCAL;
+                *src_out = COM_RX_SRC_KBD;
+            return i;
+        }
+        // Kbd doesn't hold the lock when empty.
+        if (source == PICK_KBD)
+            source = PICK_NONE;
+    }
+
+    if (source == PICK_UART || source == PICK_NONE)
+    {
+        size_t i = com_uart_read(buf, length);
+        if (i)
+        {
+            source = PICK_UART;
+            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
+            if (src_out)
+                *src_out = COM_RX_SRC_UART;
             return i;
         }
     }
@@ -697,15 +703,11 @@ static int com_stdio_in_chars(char *buf, int length)
         REGS(0xFFE2) = 0;
     }
 
-    // Steal the cross-core handoff slot if the 6502 hasn't consumed it
-    if (count < length && com_rx_char >= 0)
-    {
-        buf[count++] = com_rx_char;
-        com_rx_char = -1;
-    }
-
     // Pick up new chars via the sticky merge picker. stdio sees a
-    // flat byte stream — the source tag is irrelevant here.
+    // flat byte stream — the source tag is irrelevant here. The
+    // per-source readers inside com_rx_pick steal com_rx_char when
+    // tagged for their source, so any byte sitting in the handoff
+    // slot is delivered here without a separate drain.
     count += com_rx_pick(&buf[count], length - count, NULL);
 
     return count ? count : PICO_ERROR_NO_DATA;

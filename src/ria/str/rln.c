@@ -70,6 +70,11 @@ typedef enum
 #define RLN_CAPS_SWAP 2
 #define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
+// After instant relief identifies a script source during handshake,
+// silently drain bytes from the other sources for this many ms so
+// late CPR/DA2 replies from any responsive terminal don't leak into
+// edit phase as typed input.
+#define RLN_SCRIPT_DRAIN_MS 100
 
 // Unified CSI parser. One instance per input stream (local RX, telnet
 // RX, 6502 poke) so a partial sequence on one stream can't be sliced
@@ -121,14 +126,31 @@ static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe
 static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
 static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 
-// One parser instance per input stream. local and tel are fed from
-// rln_task as bytes arrive on their respective RX sources; poke is
-// fed synchronously from rln_poke (6502 API). Each tracks its own
-// stream so a partial CSI sequence on one source can't be sliced by
-// interleaved bytes from another.
-static rln_ansi_t rln_ansi_local;
+// One parser instance per input stream. kbd, uart, and tel are fed
+// from rln_task as bytes arrive on their respective RX sources; poke
+// is fed synchronously from rln_poke (6502 API). Each tracks its
+// own stream so a partial CSI sequence on one source can't be sliced
+// by interleaved bytes from another.
+static rln_ansi_t rln_ansi_kbd;
+static rln_ansi_t rln_ansi_uart;
 static rln_ansi_t rln_ansi_tel;
 static rln_ansi_t rln_ansi_poke;
+
+// Script-drain window state. When instant relief fires we identify
+// the active source as a non-ANSI script (it produced a CR or
+// overflowed without responding to the handshake). For the next
+// RLN_SCRIPT_DRAIN_MS we read only from that source and silently
+// discard bytes from the others, absorbing any late CPR/DA2 replies
+// that arrive from a responsive shadow terminal.
+typedef enum
+{
+    rln_src_none,
+    rln_src_kbd,
+    rln_src_uart,
+    rln_src_tel,
+} rln_src_t;
+static rln_src_t rln_script_src;
+static absolute_time_t rln_script_drain_until;
 
 // False = drop CPR matches arriving on the telnet stream instead of
 // dispatching them as geometry. Set by com.c at auth-success based on
@@ -147,6 +169,8 @@ static bool rln_lastkey_consumed;
 static void rln_complete(bool rln_timed_out)
 {
     rln_read_callback_t cc = rln_callback;
+    if (!cc)
+        return;
     rln_timeout_ms = 0;
     rln_callback = NULL;
     cc(rln_timed_out, rln_buf);
@@ -1053,11 +1077,15 @@ static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
 // rln_enter_edit. Re-feeds every byte currently in buf[]: protocol
 // replies were trimmed at dispatch time during handshake, so what's
 // left is typed bytes + any in-flight tail. Replaying preserves any
-// in-flight state.
+// in-flight state. Snapshots rln_callback at entry so that a CR in
+// temp[] which completes the line (and may even synchronously start
+// a new one) doesn't replay further stale bytes against the next
+// line's freshly memset state.
 static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
 {
     if (a->buf_len == 0)
         return;
+    rln_read_callback_t cb_at_start = rln_callback;
     uint8_t temp[RLN_BUF_SIZE];
     uint16_t total = a->buf_len;
     memcpy(temp, a->buf, total);
@@ -1068,7 +1096,11 @@ static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
     a->buf_len = 0;
     a->inflight_len = 0;
     for (uint16_t i = 0; i < total; i++)
+    {
         rln_ansi_feed(a, temp[i], drop_cpr);
+        if (rln_callback != cb_at_start)
+            return;
+    }
 }
 
 /* ----- Phase transitions ----- */
@@ -1083,10 +1115,22 @@ static void rln_enter_edit(void)
     else
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in order:
-    // local before tel matches today's bias of kbd/UART ahead of
-    // telnet; poke last so scripted input lands after any typeahead.
-    rln_ansi_drain_deferred(&rln_ansi_local, /*drop_cpr=*/false);
+    // kbd (local human) → uart (local terminal) → tel (remote) →
+    // poke (scripted input). drop_cpr=true on kbd because the local
+    // keyboard never legitimately produces protocol replies; same
+    // rationale as poke. Abort the cascade if a dispatched CR mid-
+    // drain completes the line — any later drains would replay
+    // stale bytes into the next line's parsers.
+    rln_read_callback_t cb_at_start = rln_callback;
+    rln_ansi_drain_deferred(&rln_ansi_kbd, /*drop_cpr=*/true);
+    if (rln_callback != cb_at_start)
+        return;
+    rln_ansi_drain_deferred(&rln_ansi_uart, /*drop_cpr=*/false);
+    if (rln_callback != cb_at_start)
+        return;
     rln_ansi_drain_deferred(&rln_ansi_tel, !rln_tel_console);
+    if (rln_callback != cb_at_start)
+        return;
     rln_ansi_drain_deferred(&rln_ansi_poke, /*drop_cpr=*/true);
 }
 
@@ -1179,7 +1223,8 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_max_row = 0;
     rln_rendered_end = 0;
     rln_decscusr_ok = false;
-    memset(&rln_ansi_local, 0, sizeof rln_ansi_local);
+    memset(&rln_ansi_kbd, 0, sizeof rln_ansi_kbd);
+    memset(&rln_ansi_uart, 0, sizeof rln_ansi_uart);
     memset(&rln_ansi_tel, 0, sizeof rln_ansi_tel);
     memset(&rln_ansi_poke, 0, sizeof rln_ansi_poke);
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
@@ -1226,35 +1271,56 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
     rln_timer = make_timeout_time_ms(rln_timeout_ms);
 }
 
+static size_t rln_pick(char *buf, size_t length, rln_src_t *src_out);
+
 void rln_task(void)
 {
     if (!rln_callback)
         return;
-    // Drain the two RX sources separately through their own per-source
-    // parser instances so an in-flight sequence on one source can't be
-    // sliced by interleaved bytes from the other. Source identity is
-    // implicit in which com_*_read function we picked — no merge, no
-    // tags needed.
+    // Exit the script-drain window once its deadline passes; from
+    // then on all sources are read normally again.
+    if (rln_script_src != rln_src_none && time_reached(rln_script_drain_until))
+        rln_script_src = rln_src_none;
+    // Pick a byte from whichever source the rln_pick policy selects:
+    // when a script source is held it restricts to that one (and
+    // drains the others to /dev/null inside rln_pick); otherwise it
+    // walks tel → uart → kbd in priority order. The returned source
+    // identity drives parser selection and instant-relief tagging.
+    // drop_cpr=true on kbd because a local keyboard never legitimately
+    // produces protocol replies.
     while (rln_callback)
     {
         char ch;
-        if (com_tel_read(&ch, 1))
-        {
-            rln_timer = make_timeout_time_ms(rln_timeout_ms);
-            rln_ansi_feed(&rln_ansi_tel, (uint8_t)ch, !rln_tel_console);
-        }
-        else if (com_local_read(&ch, 1))
-        {
-            rln_timer = make_timeout_time_ms(rln_timeout_ms);
-            rln_ansi_feed(&rln_ansi_local, (uint8_t)ch, /*drop_cpr=*/false);
-        }
-        else
+        rln_src_t this_src;
+        if (!rln_pick(&ch, 1, &this_src))
             break;
-        // Provide instant relief during handshake for scripting
-        // tools which do not respond to ANSI sequences.
+        rln_timer = make_timeout_time_ms(rln_timeout_ms);
+        switch (this_src)
+        {
+        case rln_src_tel:
+            rln_ansi_feed(&rln_ansi_tel, (uint8_t)ch, !rln_tel_console);
+            break;
+        case rln_src_uart:
+            rln_ansi_feed(&rln_ansi_uart, (uint8_t)ch, /*drop_cpr=*/false);
+            break;
+        case rln_src_kbd:
+            rln_ansi_feed(&rln_ansi_kbd, (uint8_t)ch, /*drop_cpr=*/true);
+            break;
+        case rln_src_none:
+            break;
+        }
+        // Provide instant relief during handshake for scripting tools
+        // that do not respond to ANSI sequences. The triggering source
+        // is identified as a script — record it and arm the drain
+        // window so any late CPR/DA2 from other sources is swallowed
+        // by rln_script_io next iteration instead of landing in edit
+        // phase as typed input. Only fires pre-edit; once it sets
+        // rln_script_src and enters edit phase, subsequent iterations
+        // skip this check.
         if (rln_phase != rln_phase_edit &&
             (ch == '\r' ||
-             rln_ansi_local.buf_len >= RLN_BUF_SIZE ||
+             rln_ansi_kbd.buf_len >= RLN_BUF_SIZE ||
+             rln_ansi_uart.buf_len >= RLN_BUF_SIZE ||
              rln_ansi_tel.buf_len >= RLN_BUF_SIZE))
         {
             // Skip the rest of the CPR handshake. We never confirmed
@@ -1264,6 +1330,8 @@ void rln_task(void)
             // previous successful handshake is still useful for callers
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
+            rln_script_src = this_src;
+            rln_script_drain_until = make_timeout_time_ms(RLN_SCRIPT_DRAIN_MS);
             rln_prompt_col = 0;
             rln_enter_edit();
         }
@@ -1273,6 +1341,65 @@ void rln_task(void)
         rln_handshake_fallback();
     if (rln_timeout_ms && time_reached(rln_timer))
         rln_complete(true);
+}
+
+// Pick a byte from the active sources. In script mode (rln_script_src
+// is set), reads only from that source and drains the other two to
+// /dev/null. Otherwise walks tel → uart → kbd in priority order.
+// *src_out (when non-NULL) reports the source picked, or rln_src_none
+// when nothing was read.
+static size_t rln_pick(char *buf, size_t length, rln_src_t *src_out)
+{
+    rln_src_t picked = rln_src_none;
+    size_t count = 0;
+    if (rln_script_src != rln_src_none)
+    {
+        picked = rln_script_src;
+        switch (picked)
+        {
+        case rln_src_kbd:
+            count = com_kbd_read(buf, length);
+            break;
+        case rln_src_uart:
+            count = com_uart_read(buf, length);
+            break;
+        case rln_src_tel:
+            count = com_tel_read(buf, length);
+            break;
+        case rln_src_none:
+            break;
+        }
+        char tmp[16];
+        if (picked != rln_src_tel)
+            while (com_tel_read(tmp, sizeof tmp))
+                ;
+        if (picked != rln_src_uart)
+            while (com_uart_read(tmp, sizeof tmp))
+                ;
+        if (picked != rln_src_kbd)
+            while (com_kbd_read(tmp, sizeof tmp))
+                ;
+    }
+    else if ((count = com_tel_read(buf, length)))
+        picked = rln_src_tel;
+    else if ((count = com_uart_read(buf, length)))
+        picked = rln_src_uart;
+    else if ((count = com_kbd_read(buf, length)))
+        picked = rln_src_kbd;
+    if (src_out)
+        *src_out = picked;
+    return count;
+}
+
+size_t rln_script_io(char *buf, size_t length)
+{
+    return rln_pick(buf, length, NULL);
+}
+
+void rln_script_refresh(void)
+{
+    if (rln_script_src != rln_src_none)
+        rln_script_drain_until = make_timeout_time_ms(RLN_SCRIPT_DRAIN_MS);
 }
 
 void rln_init(void)
@@ -1285,6 +1412,7 @@ void rln_init(void)
     rln_overwrite = false;
     rln_width_override = 0;
     rln_height_override = 0;
+    rln_script_src = rln_src_none;
 }
 
 void rln_run(void)
@@ -1396,21 +1524,19 @@ bool rln_api_peek(void)
 }
 
 // Any C0 control byte (0x00-0x1F) in the poked stream finishes the
-// input. As a visual badge, controls other than CR (\r) and LF (\n)
-// echo as caret notation (^@..^_); only CR adds the typed line to history.
+// input, except for ESC (\33) which starts a CSI sequence and CAN
+// (\30) which the parser uses to abort an in-flight sequence and
+// reset state. As a visual badge, controls other than CR (\r) and
+// LF (\n) echo as caret notation (^@..^_); only CR adds the typed
+// line to history. Callers wanting a fresh parser can prepend \30.
 uint8_t rln_poke(const char *str)
 {
     if (!rln_callback)
         return 0;
-    rln_ansi_poke.state = ansi_state_C0;
-    rln_ansi_poke.csi_param_count = 0;
-    rln_ansi_poke.csi_param[0] = 0;
-    rln_ansi_poke.csi_private = 0;
-    rln_ansi_poke.inflight_len = 0;
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
-        if (ch < 32 && ch != '\33')
+        if (ch < 32 && ch != '\33' && ch != '\30')
         {
             if (ch != '\r' && ch != '\n' && rln_max_length >= 2)
             {
