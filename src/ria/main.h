@@ -28,9 +28,6 @@ void main_run(void);
 
 // Request to "stop the 6502".
 // It will safely do nothing if the 6502 is already stopped.
-// Pass reset_term=true when the user is returning to the monitor prompt
-// (exit, watchdog, break, alt-f4) so the terminal soft-reset is emitted;
-// pass false for transient stops between RIA transfers during a load.
 void main_stop(void);
 
 // Request to "break the system".

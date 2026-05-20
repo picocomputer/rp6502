@@ -159,7 +159,7 @@ static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
-    rln_stop(); // must be before ria
+    rln_stop();
     com_stop();
     api_stop();
     ria_stop();

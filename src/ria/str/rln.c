@@ -9,6 +9,7 @@
 #include "str/rln.h"
 #include "str/str.h"
 #include "sys/com.h"
+#include "sys/ria.h"
 #include "sys/vga.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
@@ -1335,7 +1336,7 @@ void rln_run(void)
 {
     rln_enable_history = false;
     rln_max_length = 254; // reserve 1 for the stdin newline
-    if (rln_decscusr_ok)
+    if (rln_decscusr_ok && !ria_active())
         printf("\33[0 q");
 }
 
@@ -1344,7 +1345,8 @@ void rln_stop(void)
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
     rln_init();
-    rln_emit_mode_cursor();
+    if (!ria_active())
+        rln_emit_mode_cursor();
 }
 
 void rln_break(void)
@@ -1400,7 +1402,7 @@ void rln_set_term_height(uint16_t v) { rln_height_override = v; }
 /* Readline magic: lastkey + peekpoke
  */
 
-// int ria_readline_lastkey(char *key, uint8_t *action);
+// int ria_readline_lastkey(char *key, unsigned char *action);
 // xstack reply shape (only when at least one key byte is buffered): key
 // bytes pushed in reverse so they pop in receive order, then the action
 // byte last so it pops first. When no key is buffered nothing is pushed
@@ -1424,19 +1426,18 @@ bool rln_api_lastkey(void)
     return api_return_ax(len);
 }
 
-// int ria_readline_peek(char *peek);
+// int ria_readline_peek(char *peek, unsigned char *pos);
 bool rln_api_peek(void)
 {
     if (!rln_callback)
         return api_return_ax(0);
     rln_buf[rln_buflen] = 0;
-    char zero = 0;
-    if (!api_push_char(&zero))
-        return api_return_errno(API_EINVAL);
     for (int i = rln_buflen - 1; i >= 0; i--)
         if (!api_push_char(&rln_buf[i]))
             return api_return_errno(API_EINVAL);
-    return api_return_ax(rln_bufpos);
+    if (!api_push_uint8(&rln_bufpos))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(rln_buflen);
 }
 
 // Any C0 control byte (0x00-0x1F) in the poked stream finishes the
@@ -1445,10 +1446,10 @@ bool rln_api_peek(void)
 // reset state. As a visual badge, controls other than CR (\r) and
 // LF (\n) echo as caret notation (^@..^_); only CR adds the typed
 // line to history. Callers wanting a fresh parser can prepend \30.
-uint8_t rln_poke(const char *str)
+void rln_poke(const char *str)
 {
     if (!rln_callback)
-        return 0;
+        return;
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
@@ -1489,7 +1490,6 @@ uint8_t rln_poke(const char *str)
         }
         rln_ansi_feed(&rln_ansi_poke, (uint8_t)ch, /*drop_cpr=*/true);
     }
-    return rln_bufpos;
 }
 
 // int ria_readline_poke(const char *poke);
@@ -1497,5 +1497,6 @@ bool rln_api_poke(void)
 {
     const char *poke = (char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    return api_return_ax(rln_poke(poke));
+    rln_poke(poke);
+    return api_return_ax(0);
 }

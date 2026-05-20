@@ -45,10 +45,7 @@ uint8_t rln_get_caps(void);
 
 // Whether telnet-sourced CPR replies should pin geometry. com.c sets
 // this at auth-success: true for interactive clients (default), false
-// for clients whose TTYPE marks them as non-interactive (DUMB,
-// UNKNOWN, NETWORK, PRINTER). When false, telnet-sourced CPR matches
-// are consumed but discarded so dumb-client junk can't lock geometry
-// to meaningless row/col values.
+// for clients whose TTYPE marks them as non-interactive.
 void rln_set_tel_console(bool active);
 
 // Terminal geometry overrides. Setting non-zero pins the value and skips
@@ -69,8 +66,8 @@ uint16_t rln_get_term_height(void);
 // Inject a sequence of input bytes into the active readline. CR ends
 // the line normally; CTRL-C (0x03) finishes the line with a "^C" echo
 // (when readline owns the room) without inserting either char. No-op
-// when no readline is active. Returns rln_bufpos.
-uint8_t rln_poke(const char *str);
+// when no readline is active.
+void rln_poke(const char *str);
 
 // 6502 API entry points.
 bool rln_api_lastkey(void);
