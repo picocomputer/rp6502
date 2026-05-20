@@ -159,8 +159,8 @@ static void stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop(); // Must be before ria
-    com_stop();
     rln_stop();
+    com_stop();
     api_stop();
     ria_stop();
     pix_stop();
@@ -189,6 +189,7 @@ static void break_(void) // break is keyword
     mem_break();
     rln_break();
     pro_break();
+    com_break();
 }
 
 // Triggered once after init then after every PHI2 change.

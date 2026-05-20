@@ -9,11 +9,15 @@
 #include <tusb.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
-#include <stdio.h>
 
 static size_t com_in_head;
 static size_t com_in_tail;
 static char com_in_buf[COM_IN_BUF_SIZE];
+
+// Pending term reply, drained into com_in by com_task at a clean
+// stream boundary so we never splice into an in-flight CDC sequence.
+static char com_in_reply_buf[COM_IN_BUF_SIZE - 1];
+static size_t com_in_reply_len;
 
 static size_t com_out_head;
 static size_t com_out_tail;
@@ -42,40 +46,19 @@ void com_in_write(char ch)
     com_in_buf[com_in_head] = ch;
 }
 
-// If USB terminal connected, let it respond instead of us.
-// Also requires the input buffer to be empty so the reply ships
-// contiguously before any later input.
-static void com_in_write_reply(const char *s, size_t n)
+// Queue a term-sourced reply for delivery to RIA via com_in.
+// Held in a pending slot so com_task can promote the whole reply
+// atomically when com_in is empty, avoiding splicing into an
+// in-flight CDC byte stream. If a USB terminal is connected it
+// will answer the host's queries itself, so we defer to it.
+void com_in_write_reply(const char *s, size_t n)
 {
-    if (com_term_reply_suppressed || cdc_is_ready() ||
-        !com_in_empty() || n >= COM_IN_BUF_SIZE)
+    if (com_term_reply_suppressed || cdc_is_ready())
+        return;
+    if (n > sizeof(com_in_reply_buf) - com_in_reply_len)
         return;
     for (size_t i = 0; i < n; i++)
-        com_in_write(s[i]);
-}
-
-// Reports the cursor position
-void com_in_write_ansi_CPR(unsigned row, unsigned col)
-{
-    char buf[COM_IN_BUF_SIZE];
-    int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", row, col);
-    if (n < 0 || n >= (int)sizeof(buf))
-        return;
-    com_in_write_reply(buf, n);
-}
-
-// Primary device attributes: identify as VT102 (ANSI/ECMA-48)
-void com_in_write_ansi_DA(void)
-{
-    static const char da[] = "\33[?6c";
-    com_in_write_reply(da, sizeof(da) - 1);
-}
-
-// DSR status: terminal ok
-void com_in_write_ansi_DSR_ok(void)
-{
-    static const char ok[] = "\33[0n";
-    com_in_write_reply(ok, sizeof(ok) - 1);
+        com_in_reply_buf[com_in_reply_len++] = s[i];
 }
 
 bool com_out_empty(void)
@@ -151,6 +134,14 @@ void com_set_uart_break(bool en)
 
 void com_task(void)
 {
+    // Promote any pending term reply at a clean boundary.
+    if (com_in_reply_len && com_in_empty())
+    {
+        for (size_t i = 0; i < com_in_reply_len; i++)
+            com_in_write(com_in_reply_buf[i]);
+        com_in_reply_len = 0;
+    }
+
     // IN is sunk here to UART
     while (!com_in_empty() && uart_is_writable(COM_UART_INTERFACE))
     {

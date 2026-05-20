@@ -183,7 +183,16 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
     case 1:
     {
         uint8_t mac[6];
+#if RP6502_CREATOR
+        mac[0] = 0xBA;
+        mac[1] = 0xDC;
+        mac[2] = 0x0F;
+        mac[3] = 0xFE;
+        mac[4] = 0xEB;
+        mac[5] = 0xAD;
+#else
         cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
+#endif
         snprintf(buf, buf_size, STR_STATUS_MAC,
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }

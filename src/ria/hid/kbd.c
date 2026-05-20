@@ -12,6 +12,7 @@
 #include "hid/hid.h"
 #include "mon/mon.h"
 #include "net/ble.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
@@ -451,7 +452,10 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 kbd_alt_mode = false;
                 kbd_dead_key0 = kbd_dead_key1 = 0;
                 api_set_ax(0xFFFF);
+                // partial break
+                rln_break();
                 mon_break();
+                com_break();
                 main_stop();
                 return;
             }
@@ -604,7 +608,7 @@ int kbd_layouts_response(char *buf, size_t buf_size, int state)
             maxlen = thislen;
     }
     snprintf(buf, buf_size,
-             "  %*s - %s\n",
+             "  %*s - \a%s\n",
              maxlen, kbd_layout_names[state],
              kbd_layout_descriptions[state]);
     return state + 1;
@@ -648,7 +652,7 @@ overflow_error:
     kbd_cached_dead2 = (void *)&kbd_deadkey_cache[0];
     kbd_cached_dead3 = (void *)&kbd_deadkey_cache[0];
     kbd_deadkey_cache[0] = 0;
-    mon_add_response_str(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
+    mon_add_response_utf8(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
 }
 
 static bool __in_flash("kbd_parse") kbd_parse_field(const hid_field_t *field, void *context)

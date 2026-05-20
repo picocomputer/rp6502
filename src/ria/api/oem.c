@@ -39,7 +39,7 @@ static void oem_request_code_page(uint16_t cp)
     else if (oem_code_page_run == 0)
     {
         if (f_setcp(OEM_CODE_PAGE) != FR_OK)
-            mon_add_response_str(STR_ERR_INTERNAL_ERROR);
+            mon_add_response_utf8(STR_ERR_INTERNAL_ERROR);
         oem_code_page_run = OEM_CODE_PAGE;
     }
 #endif

@@ -5,9 +5,9 @@
  */
 
 #include "sys/mem.h"
+#include "sys/com.h"
 #include <pico.h>
 #include <pico/time.h>
-#include <pico/stdio.h>
 #include <assert.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
@@ -37,27 +37,38 @@ uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
 size_t mbuf_len;
 
 static mem_read_callback_t mem_callback;
-static absolute_time_t mem_timer;
+static absolute_time_t mem_deadline;
 static uint32_t mem_timeout_ms;
-static size_t mem_size;
+static size_t mem_read_size;
 
 void mem_task(void)
 {
+    // Pin the binary read to one input source via com.c's hold (see
+    // com_getchar_source in com.h). Two cases:
+    //   - A hold is already armed (e.g. rln pinned the source during
+    //     its handshake). com_getchar reads only from that source and
+    //     reports it; we re-arm to extend the deadline past COM_HOLD_MS.
+    //   - No hold yet (interactive start). The first byte identifies
+    //     the source and we arm the hold then, so peer terminals can't
+    //     slice the binary stream.
     while (mem_callback)
     {
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == PICO_ERROR_TIMEOUT)
+        com_source_t src;
+        int c = com_getchar(&src);
+        com_getchar_source(src);
+        if (c < 0)
             break;
-        mem_timer = make_timeout_time_ms(mem_timeout_ms);
-        mbuf[mbuf_len] = ch;
-        if (++mbuf_len == mem_size)
+        mem_deadline = make_timeout_time_ms(mem_timeout_ms);
+        mbuf[mbuf_len] = (uint8_t)c;
+        if (++mbuf_len == mem_read_size)
         {
             mem_read_callback_t callback = mem_callback;
             mem_callback = NULL;
             callback(false);
+            return;
         }
     }
-    if (mem_callback && time_reached(mem_timer))
+    if (mem_callback && time_reached(mem_deadline))
     {
         mem_read_callback_t callback = mem_callback;
         mem_callback = NULL;
@@ -75,9 +86,9 @@ void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t siz
     assert(!mem_callback);
     assert(timeout_ms);
     assert(size > 0 && size <= MBUF_SIZE);
-    mem_size = size;
+    mem_read_size = size;
     mbuf_len = 0;
     mem_timeout_ms = timeout_ms;
-    mem_timer = make_timeout_time_ms(mem_timeout_ms);
+    mem_deadline = make_timeout_time_ms(mem_timeout_ms);
     mem_callback = callback;
 }

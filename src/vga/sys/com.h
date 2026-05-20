@@ -7,7 +7,7 @@
 #ifndef _VGA_SYS_COM_H_
 #define _VGA_SYS_COM_H_
 
-/* Communications switchboard
+/* COnsole Manifold
  */
 
 #include <stddef.h>
@@ -43,10 +43,8 @@ void com_set_uart_break(bool en);
 size_t com_in_free(void);
 bool com_in_empty(void);
 void com_in_write(char ch);
+void com_in_write_reply(const char *s, size_t n);
 void com_suppress_term_reply(bool suppress);
-void com_in_write_ansi_CPR(unsigned row, unsigned col);
-void com_in_write_ansi_DA(void);
-void com_in_write_ansi_DSR_ok(void);
 
 // OUT is sourced here from UART
 // OUT is sourced from PIX $F:03

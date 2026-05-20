@@ -35,6 +35,13 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
     "RIA " RP6502_VERSION
 #ifdef RP6502_RIA_W
     " W"
+#if RP6502_CREATOR
+    "+"
+#endif
+#else
+#if RP6502_CREATOR
+    " +"
+#endif
 #endif
     "\n";
 
@@ -43,12 +50,16 @@ void sys_init(void)
 #ifdef NDEBUG
     mon_add_response_str(STR_TERM_HARD_RESET);
 #else
-    mon_add_response_str(STR_TERM_SOFT_RESET);
+    // We can't soft reset cursor when ROMs stop because minicom
+    // will print the q, but one at startup is fine for debug.
+    mon_add_response_utf8("\30\33[0 q");
+    mon_add_response_utf8(STR_TERM_SOFT_RESET);
 #endif
-    mon_add_response_str("\n");
-    mon_add_response_str(SYS_NAME);
-    mon_add_response_str(SYS_VERSION);
+    mon_add_response_utf8("\n");
+    mon_add_response_utf8(SYS_NAME);
+    mon_add_response_utf8(SYS_VERSION);
     mon_add_response_fn(vga_boot_response);
+    mon_add_response_utf8("\n");
 }
 
 void sys_mon_reboot(const char *args)
@@ -68,8 +79,8 @@ void sys_mon_reset(const char *args)
 void sys_mon_status(const char *args)
 {
     (void)args;
-    mon_add_response_str(SYS_NAME);
-    mon_add_response_str(SYS_VERSION);
+    mon_add_response_utf8(SYS_NAME);
+    mon_add_response_utf8(SYS_VERSION);
     mon_add_response_fn(vga_status_response);
     mon_add_response_fn(wfi_status_response);
     mon_add_response_fn(ntp_status_response);

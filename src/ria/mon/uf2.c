@@ -690,7 +690,7 @@ void uf2_mon_flash(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     DBG("UF2 FLASH \"%s\"\n", path);
@@ -714,13 +714,13 @@ void uf2_mon_flash(const char *args)
         {
             DBG("UF2 no main-firmware block found before EOF\n");
             uf2_close();
-            mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+            mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
             return;
         }
         if (f_lseek(&uf2_fil, uf2_main_start) != FR_OK)
         {
             uf2_close();
-            mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+            mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
             return;
         }
         UINT br;
@@ -730,7 +730,7 @@ void uf2_mon_flash(const char *args)
             DBG("UF2 read at offset %lu failed (fr=%d br=%u)\n",
                 (unsigned long)uf2_main_start, (int)fr, (unsigned)br);
             uf2_close();
-            mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+            mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
             return;
         }
         if (!uf2_is_abs_block())
@@ -746,7 +746,7 @@ void uf2_mon_flash(const char *args)
     {
         DBG("UF2 main block 0 validate failed\n");
         uf2_close();
-        mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+        mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
         return;
     }
 
@@ -756,7 +756,7 @@ void uf2_mon_flash(const char *args)
         DBG("UF2 truncated: f_size=%lu need at least %lu\n",
             (unsigned long)fsize, (unsigned long)main_end);
         uf2_close();
-        mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+        mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
         return;
     }
 
@@ -764,7 +764,7 @@ void uf2_mon_flash(const char *args)
     if (!name)
     {
         uf2_close();
-        mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+        mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
         return;
     }
 
@@ -773,7 +773,7 @@ void uf2_mon_flash(const char *args)
         if (!vga_connected())
         {
             uf2_close();
-            mon_add_response_str(STR_ERR_VGA_NOT_CONNECTED);
+            mon_add_response_utf8(STR_ERR_VGA_NOT_CONNECTED);
             return;
         }
         fr = f_lseek(&uf2_fil, uf2_main_start);
@@ -781,7 +781,7 @@ void uf2_mon_flash(const char *args)
         {
             DBG("UF2 VGA rewind f_lseek failed fr=%d\n", (int)fr);
             uf2_close();
-            mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+            mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
             return;
         }
         uf2_block_idx = 0;
@@ -799,7 +799,7 @@ void uf2_mon_flash(const char *args)
         DBG("UF2 program_name \"%s\" does not match \"%s\"\n",
             name, STR_UF2_PROG_NAME_RIA);
         uf2_close();
-        mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+        mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
         return;
     }
 
@@ -808,7 +808,7 @@ void uf2_mon_flash(const char *args)
     {
         DBG("UF2 rewind f_lseek failed fr=%d\n", (int)fr);
         uf2_close();
-        mon_add_response_str(STR_ERR_INVALID_UF2_FILE);
+        mon_add_response_utf8(STR_ERR_INVALID_UF2_FILE);
         return;
     }
     uf2_block_idx = 0;

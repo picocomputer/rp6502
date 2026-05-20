@@ -91,7 +91,12 @@ static int fil_cwd_response(char *buf, size_t buf_size, int state)
     mon_add_response_fatfs(result);
     if (result != FR_OK)
         return -1;
-    size_t width = buf_size - 2;
+    // Split the path at the visible terminal width so long cwds wrap
+    // cleanly on a 40-col display instead of overflowing past the edge.
+    // The +2 budget covers the trailing newline and null terminator.
+    size_t width = rln_get_term_width();
+    if (width > buf_size - 2)
+        width = buf_size - 2;
     size_t total = strlen(cwd);
     if (total < (size_t)state * width)
         return -1;
@@ -118,7 +123,7 @@ void fil_mon_chdir(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     result = f_opendir(&dir, path);
@@ -140,7 +145,7 @@ void fil_mon_mkdir(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT result = f_mkdir(path);
@@ -152,7 +157,7 @@ void fil_mon_chdrive(const char *args)
     const char *tok = str_parse_string(&args);
     if (!tok || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     DIR dir;
@@ -189,13 +194,17 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
     }
     if (fno.fattrib & (AM_HID | AM_SYS))
         return 0;
+    // 7-char fixed prefix (" <DIR> ", "%6.0f ", or "%5.1f%c ") before the name.
+    int name_max = (int)rln_get_term_width() - 7;
+    if (name_max > (int)buf_size - 9)
+        name_max = (int)buf_size - 9;
     if (fno.fattrib & AM_DIR)
-        snprintf(buf, buf_size, " <DIR> %.72s\n", fno.fname);
+        snprintf(buf, buf_size, " <DIR> %.*s\n", name_max, fno.fname);
     else
     {
         double size = fno.fsize;
         if (size <= 999999)
-            snprintf(buf, buf_size, "%6.0f %.72s\n", size, fno.fname);
+            snprintf(buf, buf_size, "%6.0f %.*s\n", size, name_max, fno.fname);
         else
         {
             size /= 1024;
@@ -206,24 +215,24 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
                 size /= 1024, c = 'G';
             if (size >= 1000)
                 size /= 1024, c = 'T';
-            snprintf(buf, buf_size, "%5.1f%c %.72s\n", size, c, fno.fname);
+            snprintf(buf, buf_size, "%5.1f%c %.*s\n", size, c, name_max, fno.fname);
         }
     }
-    if (strlen(fno.fname) > 72)
+    if (strlen(fno.fname) > (size_t)name_max)
     {
-        buf[76] = '.';
-        buf[77] = '.';
-        buf[78] = '.';
+        buf[7 + name_max - 3] = '.';
+        buf[7 + name_max - 2] = '.';
+        buf[7 + name_max - 1] = '.';
     }
     return 0;
 }
 
-void fil_mon_ls(const char *args)
+void fil_mon_dir(const char *args)
 {
     const char *path = str_parse_string(&args);
     if (!str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT fresult = f_opendir(&fil_fatfs_dir, path ? path : ".");
@@ -242,12 +251,12 @@ static void fil_upload_rx_mbuf(bool timeout)
     if (timeout)
     {
         result = FR_INT_ERR;
-        mon_add_response_str(STR_ERR_RX_TIMEOUT);
+        mon_add_response_utf8(STR_ERR_RX_TIMEOUT);
     }
     else if (ria_buf_crc32() != fil_rx_crc)
     {
         result = FR_INT_ERR;
-        mon_add_response_str(STR_ERR_CRC);
+        mon_add_response_utf8(STR_ERR_CRC);
     }
     // This will leave the file unchanged until
     // the first chunk is received successfully.
@@ -277,7 +286,7 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
     if (timeout)
     {
         puts("");
-        mon_add_response_str(STR_ERR_RX_TIMEOUT);
+        mon_add_response_utf8(STR_ERR_RX_TIMEOUT);
         fil_state = FIL_IDLE;
         return;
     }
@@ -286,7 +295,7 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
     if (!tok)
     {
         if (!str_parse_end(scan))
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         fil_state = FIL_IDLE;
         return;
     }
@@ -303,13 +312,13 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
         if (!fil_rx_size || fil_rx_size > MBUF_SIZE)
         {
             fil_state = FIL_IDLE;
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         mem_read_mbuf(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
-    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
     fil_state = FIL_IDLE;
     return;
 }
@@ -319,7 +328,7 @@ void fil_mon_upload(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT result = f_open(&fil_fatfs_fil, path, FA_READ | FA_WRITE);
@@ -340,7 +349,7 @@ void fil_mon_unlink(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT result = f_unlink(path);
@@ -360,7 +369,7 @@ void fil_mon_copy(const char *args)
     const char *dst = str_parse_string(&args);
     if (!src_raw || !dst || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT fr = fil_resolve_dst(src_path, dst, dst_path, FF_LFN_BUF + 1);
@@ -416,7 +425,7 @@ void fil_mon_move(const char *args)
     const char *dst = str_parse_string(&args);
     if (!src_raw || !dst || !str_parse_end(args))
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     FRESULT fr = fil_resolve_dst(src_path, dst, dst_path, FF_LFN_BUF + 1);

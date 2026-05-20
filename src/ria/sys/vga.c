@@ -26,9 +26,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // How long to wait for ACK to backchannel enable request
-#define VGA_BACKCHANNEL_ACK_MS 2
+#define VGA_BACKCHANNEL_ACK_MS 3
 // How long to wait before aborting version string
-#define VGA_VERSION_WATCHDOG_MS 2
+#define VGA_VERSION_WATCHDOG_MS 3
 // Abandon backchannel after two missed vsync messages
 // with 10ms added for UART drain and safety margin
 // when changing canvas or timing.
@@ -45,6 +45,7 @@ static enum {
 
 static bool vga_needs_reset = true;
 static uint8_t vga_display_type;
+static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
 static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
@@ -244,12 +245,15 @@ void vga_task(void)
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_CONNECTION_LOST;
-        mon_add_response_str(STR_ERR_VGA_CONNECTION_LOST);
+        mon_add_response_utf8(STR_ERR_VGA_CONNECTION_LOST);
     }
 
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
+        // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
+        // which resets canvas to vga_console. Mirror that here.
+        vga_canvas_current = vga_canvas_console;
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_display_type);
     }
 }
@@ -273,6 +277,28 @@ void vga_stop(void)
 void vga_break(void)
 {
     vga_needs_reset = true;
+}
+
+vga_canvas_t vga_get_canvas(void)
+{
+    return vga_canvas_current;
+}
+
+void vga_set_canvas(uint16_t canvas_word)
+{
+    switch (canvas_word)
+    {
+    case vga_canvas_console:
+    case vga_canvas_320_240:
+    case vga_canvas_320_180:
+    case vga_canvas_640_480:
+    case vga_canvas_640_360:
+        vga_canvas_current = (vga_canvas_t)canvas_word;
+        break;
+    default:
+        // VGA side naks unknown canvas values and does nothing
+        break;
+    }
 }
 
 bool vga_connected(void)

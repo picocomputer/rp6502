@@ -40,15 +40,41 @@ static uint32_t ram_rw_size;
 static uint32_t ram_rw_crc;
 static uint32_t ram_intel_hex_base;
 
-static bool ram_start_read_chunk(void);
+// 16 bytes + ASCII fits in 74 cols (XRAM worst case). Below 74, drop to 8 bytes.
+static size_t ram_chunk_size(void)
+{
+    return rln_get_term_width() >= 74 ? 16 : 8;
+}
+
+// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
+// read and returns true; the state machine drives the next step. For XRAM,
+// returns false (data is already resident; caller can print without a fetch).
+static bool ram_start_read_chunk(void)
+{
+    size_t chunk = ram_chunk_size();
+    mbuf_len = ram_rw_end - ram_rw_addr + 1;
+    if (mbuf_len > chunk)
+        mbuf_len = chunk;
+    if (ram_rw_addr >= 0x10000)
+        return false;
+    ria_read_buf(ram_rw_addr);
+    ram_state = RAM_READ;
+    return true;
+}
 
 static int ram_print_response(char *buf, size_t buf_size, int state)
 {
     (void)buf_size;
-    assert(mbuf_len <= 16);
     if (state < 0)
         return state;
-    sprintf(buf, "%04lX ", ram_rw_addr);
+    size_t chunk = ram_chunk_size();
+    int width = rln_get_term_width();
+    bool with_ascii = width >= 40;
+    // 40-col display: collapse the addr-trailing space and the gutter's
+    // second space so 8 bytes + ASCII fits in exactly 40 cols.
+    bool compact = with_ascii && width < 41;
+    assert(mbuf_len <= chunk);
+    sprintf(buf, compact ? "%04lX" : "%04lX ", ram_rw_addr);
     buf += strlen(buf);
     for (size_t i = 0; i < mbuf_len; i++)
     {
@@ -58,22 +84,28 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
         sprintf(buf, " %02X", c);
         buf += 3;
     }
-    size_t spaces = (16 - mbuf_len) * 3;
-    if (mbuf_len <= 8)
-        ++spaces;
-    for (size_t s = 0; s < spaces; s++)
-        *buf++ = ' ';
-    *buf++ = ' ';
-    *buf++ = ' ';
-    *buf++ = '|';
-    for (size_t i = 0; i < mbuf_len; i++)
+    if (with_ascii)
     {
-        uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
-        if (c < 32 || c >= 127)
-            c = '.';
-        *buf++ = c;
+        // Pad to chunk_size's alignment level (8 bytes → 24-char hex field,
+        // 16 bytes → 49-char field with mid-split). Gutter is 2 spaces, or
+        // 1 space in compact mode.
+        size_t hex_width = mbuf_len * 3 + (mbuf_len > 8 ? 1 : 0);
+        size_t target = (chunk == 16) ? 49 : 24;
+        for (size_t s = hex_width; s < target; s++)
+            *buf++ = ' ';
+        if (!compact)
+            *buf++ = ' ';
+        *buf++ = ' ';
+        *buf++ = '|';
+        for (size_t i = 0; i < mbuf_len; i++)
+        {
+            uint8_t c = ram_rw_addr + i < 0x10000 ? mbuf[i] : xram[ram_rw_addr + i - 0x10000];
+            if (c < 32 || c >= 127)
+                c = '.';
+            *buf++ = c;
+        }
+        *buf++ = '|';
     }
-    *buf++ = '|';
     *buf++ = '\n';
     *buf = '\0';
     ram_rw_addr += mbuf_len;
@@ -82,21 +114,6 @@ static int ram_print_response(char *buf, size_t buf_size, int state)
     if (ram_start_read_chunk())
         return -1;
     return 0;
-}
-
-// Sets mbuf_len for the next chunk. For RIA-bus addresses, kicks off a RIA
-// read and returns true (caller should wait). For XRAM, returns false (data
-// is already resident; caller can print without a fetch).
-static bool ram_start_read_chunk(void)
-{
-    mbuf_len = ram_rw_end - ram_rw_addr + 1;
-    if (mbuf_len > 16)
-        mbuf_len = 16;
-    if (ram_rw_addr >= 0x10000)
-        return false;
-    ria_read_buf(ram_rw_addr);
-    ram_state = RAM_READ;
-    return true;
 }
 
 static void ram_ria_read(void)
@@ -148,7 +165,7 @@ static void ram_intel_hex(const char *args)
         len--;
     if (len < 10 || len % 2)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     uint8_t ichecksum = 0;
@@ -161,7 +178,7 @@ static void ram_intel_hex(const char *args)
         if (!isxdigit((unsigned char)args[i]) ||
             !isxdigit((unsigned char)args[i + 1]))
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         uint8_t val = str_xdigit_to_int(args[i]) * 16 +
@@ -178,13 +195,18 @@ static void ram_intel_hex(const char *args)
     }
     if (icount != --mbuf_len || ichecksum)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     switch (itype)
     {
     case 0: // Data
         ram_rw_addr += ram_intel_hex_base;
+        if (ram_rw_addr + mbuf_len > 0x20000)
+        {
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+            return;
+        }
         ram_begin_write();
         break;
     case 1: // End of file
@@ -202,15 +224,17 @@ static void ram_intel_hex(const char *args)
     case 5: // Start linear address
         if (icount == 4)
         {
-            mbuf[0] = mbuf[2];
-            mbuf[1] = mbuf[3];
+            // Start address is big-endian in the record; the 6502 reset
+            // vector at $FFFC/$FFFD is little-endian.
+            mbuf[0] = mbuf[3];
+            mbuf[1] = mbuf[2];
             ram_rw_addr = 0xFFFC;
             mbuf_len = 2;
             ram_begin_write();
         }
         break;
     default:
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         break;
     }
 }
@@ -238,7 +262,7 @@ void ram_mon_address(const char *args)
                 ram_rw_end = ram_rw_end * 16 + str_xdigit_to_int(ch);
             }
         }
-        else if (ch == '-' && second_selected == true)
+        else if (ch == '-' && second_selected)
             break;
         else if (ch == '-')
             second_selected = true;
@@ -247,7 +271,7 @@ void ram_mon_address(const char *args)
     }
     if (!second_selected)
     {
-        ram_rw_end = ram_rw_addr + 15;
+        ram_rw_end = ram_rw_addr + ram_chunk_size() - 1;
         if (ram_rw_end >= 0x20000)
             ram_rw_end = 0x1FFFF;
     }
@@ -255,15 +279,15 @@ void ram_mon_address(const char *args)
     {
         ram_rw_end = 0x1FFFF;
     }
-    if (args[i] == ':')
-        i++;
     for (; args[i] == ' '; i++)
         ;
     if (args[i] == ':')
         i++;
+    for (; args[i] == ' '; i++)
+        ;
     if (ram_rw_addr > 0x1FFFF || ram_rw_end > 0x1FFFF || ram_rw_addr > ram_rw_end)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     if (!args[i])
@@ -274,7 +298,7 @@ void ram_mon_address(const char *args)
     }
     if (second_selected)
     {
-        mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
     uint32_t data = 0x80000000;
@@ -288,7 +312,7 @@ void ram_mon_address(const char *args)
             data = data * 16 + str_xdigit_to_int(ch);
         else if (ch != ' ')
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         if (ch == ' ' || !args[i + 1])
@@ -300,7 +324,7 @@ void ram_mon_address(const char *args)
             }
             else
             {
-                mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+                mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
                 return;
             }
             for (; args[i + 1] == ' '; i++)
@@ -315,12 +339,12 @@ static void ram_rx_mbuf(bool timeout)
     ram_state = RAM_IDLE;
     if (timeout)
     {
-        mon_add_response_str(STR_ERR_RX_TIMEOUT);
+        mon_add_response_utf8(STR_ERR_RX_TIMEOUT);
         return;
     }
     if (ria_buf_crc32() != ram_rw_crc)
     {
-        mon_add_response_str(STR_ERR_CRC);
+        mon_add_response_utf8(STR_ERR_CRC);
         return;
     }
     if (ram_rw_addr >= 0x10000)
@@ -357,21 +381,21 @@ void ram_mon_binary(const char *args)
     {
         if (ram_rw_addr > 0x1FFFF)
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         if (!ram_rw_size || ram_rw_size > MBUF_SIZE ||
             (ram_rw_addr < 0x10000 && ram_rw_addr + ram_rw_size > 0x10000) ||
             ram_rw_addr + ram_rw_size > 0x20000)
         {
-            mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
             return;
         }
         mem_read_mbuf(RAM_TIMEOUT_MS, ram_rx_mbuf, ram_rw_size);
         ram_state = RAM_BINARY;
         return;
     }
-    mon_add_response_str(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
 }
 
 void ram_task(void)

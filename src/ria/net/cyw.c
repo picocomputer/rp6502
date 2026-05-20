@@ -14,6 +14,7 @@ void cyw_task(void) {}
 #include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -162,7 +163,7 @@ void cyw_init(void)
             cyw_country_abbr[cyw_country][1],
             0);
     if (cyw43_arch_init_with_country(country))
-        mon_add_response_str(STR_ERR_CYW_FAILED_TO_INIT);
+        mon_add_response_utf8(STR_ERR_CYW_FAILED_TO_INIT);
     else
     {
         cyw_led_status = cyw_led_requested;
@@ -236,23 +237,45 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0)
         return state;
-    const char fmt[] = "  %2s - %-19s";
-    unsigned rows = (CYW_COUNTRY_COUNT + 2) / 3;
-    unsigned el = state;
-    for (int i = 0; i < 3; i++)
+    size_t name_max = 0;
+    for (unsigned i = 0; i < CYW_COUNTRY_COUNT; i++)
     {
-        if (el < CYW_COUNTRY_COUNT)
+        size_t len = strlen(cyw_country_name[i]);
+        if (len > name_max)
+            name_max = len;
+    }
+    size_t cell = 2 + 3 + name_max;
+    unsigned w = rln_get_term_width();
+    if (w > buf_size - 2)
+        w = buf_size - 2;
+    unsigned cols = (w >= cell + 4) ? (w - 2) / (cell + 2) : 1;
+    if (cols < 1)
+        cols = 1;
+    unsigned rows = (CYW_COUNTRY_COUNT + cols - 1) / cols;
+    if ((unsigned)state >= rows)
+        return -1;
+    unsigned spread = (w - cols * cell) / (cols + 1);
+    int n = snprintf(buf, buf_size, "%*s", (int)spread, "");
+    if (n > 0 && (size_t)n < buf_size)
+    {
+        buf += n;
+        buf_size -= n;
+    }
+    unsigned el = state;
+    for (unsigned i = 0; i < cols && el < CYW_COUNTRY_COUNT; i++)
+    {
+        n = snprintf(buf, buf_size, "%2s - %-*s%*s",
+                     cyw_country_abbr[el], (int)name_max, cyw_country_name[el],
+                     (int)spread, "");
+        if (n > 0 && (size_t)n < buf_size)
         {
-            snprintf(buf, buf_size, fmt, cyw_country_abbr[el], cyw_country_name[el]);
-            size_t n = strlen(buf);
             buf += n;
             buf_size -= n;
         }
         el += rows;
     }
-    *buf++ = '\n';
-    *buf = 0;
-    return (unsigned)(state + 1) < rows ? state + 1 : -1;
+    snprintf(buf, buf_size, "\n");
+    return ((unsigned)state + 1 < rows) ? state + 1 : -1;
 }
 
 #endif /* RP6502_RIA_W */

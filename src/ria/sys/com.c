@@ -16,15 +16,17 @@
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <hardware/sync.h>
+#include <stdio.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_COM)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -44,30 +46,75 @@ volatile uint8_t com_tx_core1_buf[COM_TX_CORE1_BUF_SIZE];
 volatile size_t com_tx_core1_head;
 volatile size_t com_tx_core1_tail;
 
-#define COM_UART_BUF_SIZE 32
-static size_t com_uart_tail;
-static size_t com_uart_head;
-static uint8_t com_uart_buf[COM_UART_BUF_SIZE];
+#define COM_UART_TX_BUF_SIZE 32
+static size_t com_uart_tx_tail;
+static size_t com_uart_tx_head;
+static uint8_t com_uart_tx_buf[COM_UART_TX_BUF_SIZE];
 
-// com_task drains multiplexed sources into com_rx_buf, then refills
-// com_rx_char from the ring when empty. act_loop on core 1 reads
-// com_rx_char to serve 6502 0xFFE2 reads; the stdio path steals from it
-// when the monitor is the active consumer.
-#define COM_RX_BUF_SIZE 32
-static size_t com_rx_head;
-static size_t com_rx_tail;
-static uint8_t com_rx_buf[COM_RX_BUF_SIZE];
+// UART RX software ring. com_task drains the hw FIFO into this ring
+// every tick (so SIGINT scans and break detection keep working even
+// when nobody is reading). Consumers pull via com_uart_read. Sized
+// to absorb bursts that span several main-loop ticks at 115200 baud.
+#define COM_UART_RX_BUF_SIZE 64
+static size_t com_uart_rx_head;
+static size_t com_uart_rx_tail;
+static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
+
+// com_rx_char is the core-0 → core-1 single-byte handoff slot. act_loop
+// on core 1 reads it to serve 6502 0xFFE2 reads; com_task refills it
+// from the merge picker (one byte per tick when empty). The stdio path
+// recovers from it when stdio is the active consumer. Per-source readers
+// (com_kbd_read / com_uart_read / com_tel_read) also recover it when the
+// recorded source matches, so a byte the merge picker pulled isn't
+// stranded here when rln is the active consumer.
 volatile int com_rx_char = -1;
 
+// Valid only while com_rx_char >= 0. Written and read on core 0 only,
+// alongside com_rx_char's updates; act_loop on core 1 never reads it.
+static com_source_t com_rx_char_src;
+
+// Single-byte recover from the cross-core handoff slot. Per-source readers
+// call this so a byte the merge picker pulled isn't stranded in
+// com_rx_char when rln (rather than the 6502) is the eventual consumer.
+static size_t com_recover_rx_char(char *buf, size_t length, com_source_t src)
+{
+    if (length && com_rx_char_src == src)
+    {
+        int ch = com_rx_char;
+        if (ch >= 0)
+        {
+            buf[0] = (char)ch;
+            com_rx_char = -1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static bool com_bel_enabled = true;
+
+// Sticky-picker dwell window: once an RX source fires it locks out the
+// other sources for this many microseconds, so a single keystroke can't
+// slice a paste in half. Used by com_rx_pick across the three real
+// sources (kbd, UART, telnet).
+#define COM_RX_IDLE_US 1000
+
+// Script-source hold window. While armed, com_getchar reads only from
+// com_held_src and drains the other sources to /dev/null. Armed and
+// refreshed by com_getchar_source; auto-refreshed by com_getchar on
+// each successful read; auto-cleared on expiry or via com_break.
+#define COM_HOLD_MS 100
+static com_source_t com_held_src;
+static absolute_time_t com_held_until;
 
 #ifndef RP6502_RIA_W
 
 static bool com_tel_tx_writable(void) { return true; }
-static void com_tel_tx_write(char) {}
-static size_t com_tel_read(char *, size_t) { return 0; }
+static void com_tel_tx_write(char ch) { (void)ch; }
+static size_t com_tel_read(char *buf, size_t length) { (void)buf; (void)length; return 0; }
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
+void com_tel_on_remote_ttype(const char *name) { (void)name; }
 
 #else
 
@@ -77,12 +124,12 @@ static char com_tel_key[COM_TEL_KEY_SIZE];
 
 typedef enum
 {
-    com_tel_state_idle,
-    com_tel_state_listening,
-    com_tel_state_auth,
-    com_tel_state_connected,
+    COM_TEL_STATE_IDLE,
+    COM_TEL_STATE_LISTENING,
+    COM_TEL_STATE_AUTH,
+    COM_TEL_STATE_CONNECTED,
 } com_tel_state_t;
-static com_tel_state_t com_tel_state = com_tel_state_idle;
+static com_tel_state_t com_tel_state = COM_TEL_STATE_IDLE;
 static uint16_t com_tel_active_port;
 
 static char com_tel_auth_buf[COM_TEL_KEY_SIZE];
@@ -102,11 +149,16 @@ static size_t com_tel_rx_head;
 static size_t com_tel_rx_tail;
 static absolute_time_t com_tel_rx_drop_after;
 
-static void com_tel_rings_clear(void)
+static void com_tel_clear_rx(void)
 {
-    com_tel_tx_head = com_tel_tx_tail = 0;
     com_tel_rx_head = com_tel_rx_tail = 0;
     com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
+}
+
+static void com_tel_clear_rings(void)
+{
+    com_tel_tx_head = com_tel_tx_tail = 0;
+    com_tel_clear_rx();
 }
 
 static bool com_tel_tx_writable(void)
@@ -122,7 +174,7 @@ static void com_tel_tx_write(char ch)
 
 static size_t com_tel_read(char *buf, size_t length)
 {
-    size_t count = 0;
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_TEL);
     while (count < length && com_tel_rx_head != com_tel_rx_tail)
     {
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
@@ -133,9 +185,30 @@ static size_t com_tel_read(char *buf, size_t length)
     return count;
 }
 
+// Latched per-connection. Cleared in com_tel_on_disconnect; updated by
+// com_tel_on_remote_ttype when the client reports its terminal type.
+static bool com_tel_remote_is_script;
+
+static bool com_tel_ttype_is_script(const char *name)
+{
+    static const char *const list[] = {
+        "RP6502",
+    };
+    for (size_t i = 0; i < sizeof(list) / sizeof(list[0]); i++)
+        if (strcasecmp(name, list[i]) == 0)
+            return true;
+    return false;
+}
+
+void com_tel_on_remote_ttype(const char *name)
+{
+    com_tel_remote_is_script = com_tel_ttype_is_script(name);
+    DBG("NET TEL remote TTYPE=%s script=%d\n", name, com_tel_remote_is_script);
+}
+
 static void com_tel_drain_tx(void)
 {
-    if (com_tel_state != com_tel_state_connected)
+    if (com_tel_state != COM_TEL_STATE_CONNECTED)
     {
         // Discard — nobody to send to
         com_tel_tx_tail = com_tel_tx_head;
@@ -180,15 +253,24 @@ static void com_tel_handle_auth(uint8_t ch)
         if (strcmp(com_tel_auth_buf, com_tel_key) == 0)
         {
             tel_tx(SYS_TEL_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
-            com_tel_state = com_tel_state_connected;
-            vga_set_tel_console_active(true);
-            DBG("NET TEL console authenticated\n");
+            com_tel_state = COM_TEL_STATE_CONNECTED;
+            if (!com_tel_remote_is_script)
+            {
+                vga_set_tel_console_active(true);
+                rln_set_tel_console(true);
+                DBG("NET TEL console authenticated\n");
+            }
+            else
+            {
+                rln_set_tel_console(false);
+                DBG("NET TEL console authenticated (suppressed: script client)\n");
+            }
         }
         else
         {
             tel_tx(SYS_TEL_DESC, STR_TEL_ACCESS_DENIED, STR_TEL_ACCESS_DENIED_LEN);
             DBG("NET TEL console auth failed\n");
-            com_tel_state = com_tel_state_listening;
+            com_tel_state = COM_TEL_STATE_LISTENING;
             tel_close(SYS_TEL_DESC);
         }
     }
@@ -209,7 +291,7 @@ static void com_tel_drain_rx(void)
     // overflow is not lost.
     uint16_t limit = COM_TEL_RX_BUF_SIZE;
     bool drop_mode = false;
-    if (com_tel_state == com_tel_state_connected)
+    if (com_tel_state == COM_TEL_STATE_CONNECTED)
     {
         size_t used = (com_tel_rx_head - com_tel_rx_tail + COM_TEL_RX_BUF_SIZE) % COM_TEL_RX_BUF_SIZE;
         size_t free = COM_TEL_RX_BUF_SIZE - 1 - used;
@@ -229,13 +311,13 @@ static void com_tel_drain_rx(void)
     for (uint16_t i = 0; i < decoded_len; i++)
     {
         uint8_t ch = (uint8_t)decoded[i];
-        if (com_tel_state == com_tel_state_auth)
+        if (com_tel_state == COM_TEL_STATE_AUTH)
         {
             com_tel_handle_auth(ch);
-            if (com_tel_state != com_tel_state_auth)
+            if (com_tel_state != COM_TEL_STATE_AUTH)
                 return;
         }
-        else if (com_tel_state == com_tel_state_connected)
+        else if (com_tel_state == COM_TEL_STATE_CONNECTED)
         {
             if (ch == 0x03)
                 ria_trigger_sigint();
@@ -254,33 +336,34 @@ static bool com_tel_should_listen(void)
 
 static void com_tel_shutdown(void)
 {
-    if (com_tel_state == com_tel_state_auth || com_tel_state == com_tel_state_connected)
+    if (com_tel_state == COM_TEL_STATE_AUTH || com_tel_state == COM_TEL_STATE_CONNECTED)
         tel_close(SYS_TEL_DESC);
-    if (com_tel_state >= com_tel_state_listening)
+    if (com_tel_state != COM_TEL_STATE_IDLE)
     {
         tel_listen_close(com_tel_active_port);
         com_tel_active_port = 0;
     }
-    com_tel_state = com_tel_state_idle;
-    com_tel_rings_clear();
+    com_tel_state = COM_TEL_STATE_IDLE;
+    com_tel_clear_rings();
 }
 
 static void com_tel_on_disconnect(int desc)
 {
-    if (com_tel_state == com_tel_state_auth || com_tel_state == com_tel_state_connected)
+    if (com_tel_state == COM_TEL_STATE_AUTH || com_tel_state == COM_TEL_STATE_CONNECTED)
     {
         DBG("NET TEL console disconnected\n");
-        if (com_tel_state == com_tel_state_connected)
+        if (com_tel_state == COM_TEL_STATE_CONNECTED)
             vga_set_tel_console_active(false);
-        com_tel_state = com_tel_state_listening;
-        com_tel_rings_clear();
+        com_tel_state = COM_TEL_STATE_LISTENING;
+        com_tel_clear_rings();
     }
+    com_tel_remote_is_script = false;
     tel_close(desc);
 }
 
 static bool com_tel_on_accept(uint16_t port)
 {
-    if (com_tel_state != com_tel_state_listening)
+    if (com_tel_state != COM_TEL_STATE_LISTENING)
         return false;
 
     if (!tel_accept_server(SYS_TEL_DESC, port, com_tel_on_disconnect))
@@ -289,8 +372,8 @@ static bool com_tel_on_accept(uint16_t port)
     tel_tx(SYS_TEL_DESC, STR_TEL_PASSKEY, STR_TEL_PASSKEY_LEN);
 
     com_tel_auth_len = 0;
-    com_tel_rings_clear();
-    com_tel_state = com_tel_state_auth;
+    com_tel_clear_rings();
+    com_tel_state = COM_TEL_STATE_AUTH;
     DBG("NET TEL console accepted, awaiting auth\n");
     return true;
 }
@@ -354,7 +437,7 @@ static void com_tel_task(void)
 {
     com_tel_drain_tx();
 
-    if (com_tel_state != com_tel_state_idle &&
+    if (com_tel_state != COM_TEL_STATE_IDLE &&
         (!com_tel_should_listen() || com_tel_active_port != com_tel_port))
     {
         com_tel_shutdown();
@@ -363,58 +446,88 @@ static void com_tel_task(void)
 
     switch (com_tel_state)
     {
-    case com_tel_state_idle:
+    case COM_TEL_STATE_IDLE:
         if (com_tel_should_listen() && tel_listen(com_tel_port, com_tel_on_accept))
         {
             com_tel_active_port = com_tel_port;
-            com_tel_state = com_tel_state_listening;
+            com_tel_state = COM_TEL_STATE_LISTENING;
             DBG("NET TEL console listening on port %u\n", com_tel_port);
         }
         break;
-    case com_tel_state_auth:
-    case com_tel_state_connected:
+    case COM_TEL_STATE_AUTH:
+    case COM_TEL_STATE_CONNECTED:
         com_tel_drain_rx();
         break;
-    case com_tel_state_listening:
+    case COM_TEL_STATE_LISTENING:
         break;
     }
 }
 
 #endif
 
-static size_t com_uart_read(char *buf, size_t length)
+// Drain the UART hw FIFO into the software ring. Scans for SIGINT
+// inline so Ctrl-C is honoured even when the ring is full and the
+// byte gets dropped. Called unconditionally from com_task each tick.
+static void com_uart_drain_rx(void)
 {
-    size_t count = 0;
-    while (count < length && uart_is_readable(COM_UART))
+    while (uart_is_readable(COM_UART))
     {
         uint8_t c = (uint8_t)uart_get_hw(COM_UART)->dr;
         if (c == 0x03)
             ria_trigger_sigint();
-        if (buf)
-            buf[count] = (char)c;
-        count++;
+        size_t next = (com_uart_rx_head + 1) % COM_UART_RX_BUF_SIZE;
+        if (next == com_uart_rx_tail)
+            continue;
+        com_uart_rx_buf[next] = c;
+        com_uart_rx_head = next;
+    }
+}
+
+static size_t com_uart_read(char *buf, size_t length)
+{
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_UART);
+    // Always pump the hw FIFO into the software ring so callers that
+    // bypass com_task (e.g. vga_connect's blocking loop running only
+    // mem_task) still see fresh bytes. Idempotent.
+    com_uart_drain_rx();
+    while (count < length && com_uart_rx_head != com_uart_rx_tail)
+    {
+        com_uart_rx_tail = (com_uart_rx_tail + 1) % COM_UART_RX_BUF_SIZE;
+        buf[count++] = (char)com_uart_rx_buf[com_uart_rx_tail];
     }
     return count;
 }
 
-static bool com_uart_writable(void)
+// Local keyboard input. Steals the cross-core handoff slot if it was
+// tagged KBD, then reads from kbd_stdio_in_chars. No internal sticky
+// dwell — the outer com_rx_pick holds against the other sources at
+// the 1 ms grain.
+static size_t com_kbd_read(char *buf, size_t length)
 {
-    return (((com_uart_head + 1) % COM_UART_BUF_SIZE) != com_uart_tail);
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_KBD);
+    if (count < length)
+        count += kbd_stdio_in_chars(&buf[count], length - count);
+    return count;
 }
 
-static void com_uart_write(char ch)
+static bool com_uart_tx_writable(void)
 {
-    size_t next = (com_uart_head + 1) % COM_UART_BUF_SIZE;
-    com_uart_buf[next] = (uint8_t)ch;
-    com_uart_head = next;
+    return (((com_uart_tx_head + 1) % COM_UART_TX_BUF_SIZE) != com_uart_tx_tail);
 }
 
-static void com_uart_task(void)
+static void com_uart_tx_write(char ch)
+{
+    size_t next = (com_uart_tx_head + 1) % COM_UART_TX_BUF_SIZE;
+    com_uart_tx_buf[next] = (uint8_t)ch;
+    com_uart_tx_head = next;
+}
+
+static void com_uart_drain_tx(void)
 {
     // VGA: pace one byte per TX-empty so the PIX mirror stays in sync.
     // No VGA: keep the TX FIFO topped up.
     bool vga = vga_connected();
-    while (com_uart_head != com_uart_tail)
+    while (com_uart_tx_head != com_uart_tx_tail)
     {
         uint32_t fr = uart_get_hw(COM_UART)->fr;
         if (vga)
@@ -424,21 +537,21 @@ static void com_uart_task(void)
         }
         else if (fr & UART_UARTFR_TXFF_BITS)
             break;
-        size_t next = (com_uart_tail + 1) % COM_UART_BUF_SIZE;
-        char ch = com_uart_buf[next];
+        size_t next = (com_uart_tx_tail + 1) % COM_UART_TX_BUF_SIZE;
+        char ch = com_uart_tx_buf[next];
         uart_putc_raw(COM_UART, ch);
         if (vga)
             pix_send(PIX_DEVICE_VGA, 0xF, 0x03, ch);
         if (ch == '\a' && com_bel_enabled)
             bel_add(&bel_teletype);
-        com_uart_tail = next;
+        com_uart_tx_tail = next;
     }
 }
 
 static void com_uart_flush(void)
 {
-    while (com_uart_head != com_uart_tail)
-        com_uart_task();
+    while (com_uart_tx_head != com_uart_tx_tail)
+        com_uart_drain_tx();
     while (uart_get_hw(COM_UART)->fr & UART_UARTFR_BUSY_BITS)
         tight_loop_contents();
 }
@@ -450,25 +563,25 @@ static void com_uart_flush(void)
 // in-flight read.
 static void com_tx_fanout(void)
 {
-    while (com_uart_writable() && com_tel_tx_writable())
+    while (com_uart_tx_writable() && com_tel_tx_writable())
     {
         bool work = false;
         if (com_tx_core0_head != com_tx_core0_tail)
         {
             size_t next = (com_tx_core0_tail + 1) % COM_TX_CORE0_BUF_SIZE;
             char ch = com_tx_core0_buf[next];
-            com_uart_write(ch);
+            com_uart_tx_write(ch);
             com_tel_tx_write(ch);
             com_tx_core0_tail = next;
             work = true;
-            if (!com_uart_writable() || !com_tel_tx_writable())
+            if (!com_uart_tx_writable() || !com_tel_tx_writable())
                 break;
         }
         if (com_tx_core1_head != com_tx_core1_tail)
         {
             size_t next = (com_tx_core1_tail + 1) % COM_TX_CORE1_BUF_SIZE;
             char ch = com_tx_core1_buf[next];
-            com_uart_write(ch);
+            com_uart_tx_write(ch);
             com_tel_tx_write(ch);
             __dmb();
             com_tx_core1_tail = next;
@@ -479,71 +592,123 @@ static void com_tx_fanout(void)
     }
 }
 
-static int com_rx_buf_getchar(void)
+// Sticky three-source multiplex: keyboard, UART, telnet. Whichever
+// fires first holds the lock until idle for 1ms, so a single tap on
+// one source can't slice a paste on another. Used by stdin and by
+// com_task's com_rx_char refill. *src_out, when non-NULL, reports
+// which source produced the returned bytes so com_task can tag
+// com_rx_char for later recovery by the matching per-source reader.
+static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
-    if (com_rx_head == com_rx_tail)
-        return -1;
-    size_t next = (com_rx_tail + 1) % COM_RX_BUF_SIZE;
-    int ch = com_rx_buf[next];
-    com_rx_tail = next;
-    return ch;
-}
-
-// Sticky multiplex: current source holds the lock until idle for 1ms.
-// Keyboard is the exception, releasing immediately when empty.
-static size_t com_rx_merge(char *buf, size_t length)
-{
-    static const int COM_IDLE_US = 1000;
-    enum com_rx_src
-    {
-        SRC_NONE,
-        SRC_KBD,
-        SRC_UART,
-        SRC_TEL
-    };
-    static enum com_rx_src source = SRC_NONE;
+    static com_source_t source = COM_SOURCE_NONE;
     static absolute_time_t idle_timer;
 
-    // Expire UART/TEL source once idle for 1ms
-    if ((source == SRC_UART || source == SRC_TEL) &&
-        time_reached(idle_timer))
-        source = SRC_NONE;
+    if (source != COM_SOURCE_NONE && time_reached(idle_timer))
+        source = COM_SOURCE_NONE;
 
-    if (source == SRC_KBD || source == SRC_NONE)
+    if (source == COM_SOURCE_KBD || source == COM_SOURCE_NONE)
     {
-        size_t i = kbd_stdio_in_chars(buf, length);
+        size_t i = com_kbd_read(buf, length);
         if (i)
         {
-            source = SRC_KBD;
+            source = COM_SOURCE_KBD;
+            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
+            if (src_out)
+                *src_out = COM_SOURCE_KBD;
             return i;
         }
-        if (source == SRC_KBD)
-            source = SRC_NONE;
+        // Kbd doesn't hold the lock when empty.
+        source = COM_SOURCE_NONE;
     }
 
-    if (source == SRC_UART || source == SRC_NONE)
+    if (source == COM_SOURCE_UART || source == COM_SOURCE_NONE)
     {
         size_t i = com_uart_read(buf, length);
         if (i)
         {
-            source = SRC_UART;
-            idle_timer = make_timeout_time_us(COM_IDLE_US);
+            source = COM_SOURCE_UART;
+            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
+            if (src_out)
+                *src_out = COM_SOURCE_UART;
             return i;
         }
     }
 
-    if (source == SRC_TEL || source == SRC_NONE)
+    if (source == COM_SOURCE_TEL || source == COM_SOURCE_NONE)
     {
         size_t i = com_tel_read(buf, length);
         if (i)
         {
-            source = SRC_TEL;
-            idle_timer = make_timeout_time_us(COM_IDLE_US);
+            source = COM_SOURCE_TEL;
+            idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
+            if (src_out)
+                *src_out = COM_SOURCE_TEL;
             return i;
         }
     }
 
     return 0;
+}
+
+// Hold-aware single-byte reader. When a hold is armed, only the held
+// source can deliver; com_task drains the others to /dev/null on its
+// own cadence so their upstream rings can't overflow. Each successful
+// read from the held source bumps the deadline another COM_HOLD_MS
+// into the future, so a streaming consumer (e.g. mem_task during a
+// binary upload) keeps the hold alive simply by reading. The hold
+// auto-expires once nothing matches it for COM_HOLD_MS.
+int com_getchar(com_source_t *src)
+{
+    if (com_held_src != COM_SOURCE_NONE && time_reached(com_held_until))
+        com_held_src = COM_SOURCE_NONE;
+
+    if (com_held_src != COM_SOURCE_NONE)
+    {
+        char ch;
+        size_t n = 0;
+        switch (com_held_src)
+        {
+        case COM_SOURCE_KBD:
+            n = com_kbd_read(&ch, 1);
+            break;
+        case COM_SOURCE_UART:
+            n = com_uart_read(&ch, 1);
+            break;
+        case COM_SOURCE_TEL:
+            n = com_tel_read(&ch, 1);
+            break;
+        case COM_SOURCE_NONE:
+            break;
+        }
+        if (src)
+            *src = com_held_src;
+        if (n)
+        {
+            com_held_until = make_timeout_time_ms(COM_HOLD_MS);
+            return (unsigned char)ch;
+        }
+        return PICO_ERROR_TIMEOUT;
+    }
+
+    char ch;
+    com_source_t picked;
+    if (com_rx_pick(&ch, 1, &picked))
+    {
+        if (src)
+            *src = picked;
+        return (unsigned char)ch;
+    }
+    if (src)
+        *src = COM_SOURCE_NONE;
+    return PICO_ERROR_TIMEOUT;
+}
+
+void com_getchar_source(com_source_t src)
+{
+    if (src == COM_SOURCE_NONE)
+        return;
+    com_held_src = src;
+    com_held_until = make_timeout_time_ms(COM_HOLD_MS);
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
@@ -553,7 +718,7 @@ static void com_stdio_out_chars(const char *buf, int len)
         while (!com_writable())
         {
             com_tx_fanout();
-            com_uart_task();
+            com_uart_drain_tx();
             com_tel_pump();
         }
         com_write(*buf++);
@@ -565,7 +730,7 @@ static void com_stdio_out_flush(void)
     while (com_tx_core0_head != com_tx_core0_tail)
     {
         com_tx_fanout();
-        com_uart_task();
+        com_uart_drain_tx();
         com_tel_pump();
     }
     com_uart_flush();
@@ -579,28 +744,16 @@ static int com_stdio_in_chars(char *buf, int length)
     if (count < length && REGS(0xFFE0) & 0b01000000)
     {
         buf[count++] = REGS(0xFFE2);
-        REGS(0xFFE2) = 0;
         REGS(0xFFE0) = 0;
+        REGS(0xFFE2) = 0;
     }
 
-    // Steal the cross-core handoff slot if the 6502 hasn't consumed it
-    if (count < length && com_rx_char >= 0)
-    {
-        buf[count++] = com_rx_char;
-        com_rx_char = -1;
-    }
-
-    // Drain the core-0 ring
-    while (count < length)
-    {
-        int ch = com_rx_buf_getchar();
-        if (ch < 0)
-            break;
-        buf[count++] = ch;
-    }
-
-    // Pick up new chars
-    count += com_rx_merge(&buf[count], length - count);
+    // Pick up new chars via the sticky merge picker. stdio sees a
+    // flat byte stream — the source tag is irrelevant here. The
+    // per-source readers inside com_rx_pick recover com_rx_char when
+    // tagged for their source, so any byte sitting in the handoff
+    // slot is delivered here without a separate drain.
+    count += com_rx_pick(&buf[count], length - count, NULL);
 
     return count ? count : PICO_ERROR_NO_DATA;
 }
@@ -621,7 +774,7 @@ void com_init(void)
     stdio_set_driver_enabled(&com_stdio_driver, true);
     uart_init(COM_UART, COM_UART_BAUD_RATE);
     // Wait for the UART to settle after VGA startup then purge everything.
-    busy_wait_ms(25);
+    busy_wait_ms(30);
     while (stdio_getchar_timeout_us(0) != PICO_ERROR_TIMEOUT)
         tight_loop_contents();
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
@@ -629,50 +782,70 @@ void com_init(void)
 
 void com_stop(void)
 {
+    if (!ria_active())
+        printf(STR_TERM_SOFT_RESET);
+}
+
+void com_break(void)
+{
+    // Drain hw FIFO first so any in-flight bytes land in the ring,
+    // then clear the ring.
+    com_uart_drain_rx();
+    com_uart_rx_head = com_uart_rx_tail = 0;
+
+    char scratch[16];
+    while (kbd_stdio_in_chars(scratch, sizeof scratch))
+        ;
+
+#ifdef RP6502_RIA_W
+    if (com_tel_state == COM_TEL_STATE_CONNECTED)
+        while (tel_rx(SYS_TEL_DESC, scratch, sizeof scratch))
+            ;
+    com_tel_clear_rx();
+#endif
+
+    REGS(0xFFE0) = 0;
+    REGS(0xFFE2) = 0;
+
     com_rx_char = -1;
-    com_rx_head = com_rx_tail = 0;
+    com_held_src = COM_SOURCE_NONE;
 }
 
 void com_task(void)
 {
     // TX: drain UART buffer to hardware
-    com_uart_task();
+    com_uart_drain_tx();
 
     // TX: fan out com_tx_core0_buf into UART and TEL buffers
     com_tx_fanout();
 
-    // RX: refill the cross-core handoff slot from the ring. com_rx_char is
-    // a single volatile int so the store is atomic; __dmb() is the release
-    // fence pairing with act_loop's load on core 1 in ria.c.
+    // RX: always pump the UART hw FIFO into its software ring, so
+    // bursts can back up without overflowing the tiny hw FIFO and so
+    // SIGINT scans / break detection run every tick regardless of
+    // whether anything downstream is consuming. kbd and telnet have
+    // their own upstream rings (kbd_key_queue and com_tel_rx_buf)
+    // so they don't need a pump here.
+    com_uart_drain_rx();
+
+    // RX: refill the cross-core handoff slot. com_rx_char is a single
+    // volatile int; act_loop on core 1 only ever observes -1 or 0..255
+    // and never reads com_rx_char_src. The __dmb() here is a core-0
+    // compiler barrier (memory clobber) pinning the non-volatile
+    // com_rx_char_src write ahead of the volatile com_rx_char write,
+    // so a per-source reader on core 0 can't see a fresh char tagged
+    // with a stale src. One byte per tick — bounded enough that a
+    // tight rln drain on the per-source readers still wins most of
+    // the upstream bytes.
     if (com_rx_char < 0)
     {
-        int ch = com_rx_buf_getchar();
-        if (ch >= 0)
+        char ch;
+        com_source_t src;
+        if (com_rx_pick(&ch, 1, &src))
         {
+            com_rx_char_src = src;
             __dmb();
-            com_rx_char = ch;
+            com_rx_char = (uint8_t)ch;
         }
-    }
-
-    // RX: merge sources into com_rx_buf. Stop when com_rx_buf is full
-    // so TEL and KBD bytes stay in their upstream rings (lwIP TCP
-    // backpressure + com_tel_drain_rx for TEL, kbd_key_queue for KBD).
-    // UART has no software-side upstream and needs its hardware FIFO
-    // drained for reliable break detection, so when we stop merging
-    // we still pull and discard UART bytes (still scanning for SIGINT).
-    char ch;
-    while (1)
-    {
-        size_t next = (com_rx_head + 1) % COM_RX_BUF_SIZE;
-        if (next == com_rx_tail)
-        {
-            com_uart_read(NULL, SIZE_MAX);
-            break;
-        }
-        if (!com_rx_merge(&ch, 1))
-            break;
-        com_rx_buf[next] = (uint8_t)ch;
-        com_rx_head = next;
     }
 
     // Detect UART breaks.
@@ -685,6 +858,23 @@ void com_task(void)
     break_detect = current_break;
 
     com_tel_task();
+
+    // While a script hold is active, drain the non-held sources every
+    // tick so their upstream rings can't overflow with bytes nobody is
+    // going to read. The hold itself auto-expires inside com_getchar.
+    if (com_held_src != COM_SOURCE_NONE)
+    {
+        char tmp[16];
+        if (com_held_src != COM_SOURCE_TEL)
+            while (com_tel_read(tmp, sizeof tmp))
+                ;
+        if (com_held_src != COM_SOURCE_UART)
+            while (com_uart_read(tmp, sizeof tmp))
+                ;
+        if (com_held_src != COM_SOURCE_KBD)
+            while (com_kbd_read(tmp, sizeof tmp))
+                ;
+    }
 }
 
 bool com_get_bel(void)

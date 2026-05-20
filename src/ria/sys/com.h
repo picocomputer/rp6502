@@ -7,7 +7,7 @@
 #ifndef _RIA_SYS_COM_H_
 #define _RIA_SYS_COM_H_
 
-/* Console I/O multiplexer and UART driver.
+/* COnsole Manifold and UART driver.
  * TX fan-out to UART and REM (telnet).
  * RX merge from UART, keyboard, and remote.
  */
@@ -28,6 +28,7 @@
 void com_init(void);
 void com_task(void);
 void com_stop(void);
+void com_break(void);
 
 // The '\a' BEL alert
 bool com_get_bel(void);
@@ -40,6 +41,32 @@ bool com_tel_set_port(uint32_t port);
 bool com_tel_set_key(const char *key);
 uint16_t com_tel_get_port(void);
 const char *com_tel_get_key(void);
+
+// Notification from tel.c when a telnet client reports its terminal
+// type via SB TTYPE IS. com.c uses the name to decide whether the
+// client is interactive.
+void com_tel_on_remote_ttype(const char *name);
+
+typedef enum
+{
+    COM_SOURCE_NONE,
+    COM_SOURCE_KBD,
+    COM_SOURCE_UART,
+    COM_SOURCE_TEL,
+} com_source_t;
+
+// Non-blocking 1-byte read across the active sources. Returns the
+// byte (0..255) or PICO_ERROR_TIMEOUT when no data is available.
+// *src is always written:
+//   - hold armed       -> held source (whether or not a byte arrived)
+//   - no hold, byte    -> the source that delivered
+//   - no hold, no byte -> COM_SOURCE_NONE
+int com_getchar(com_source_t *src);
+
+// Arm or refresh a 100 ms hold pinning all com_getchar reads to src;
+// while the hold is active, bytes from the other sources are drained
+// to /dev/null. No-op when src == COM_SOURCE_NONE.
+void com_getchar_source(com_source_t src);
 
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
 // std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main

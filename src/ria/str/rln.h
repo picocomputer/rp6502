@@ -43,6 +43,32 @@ uint8_t rln_get_max_length(void);
 void rln_set_caps(uint8_t v);
 uint8_t rln_get_caps(void);
 
+// Whether telnet-sourced CPR replies should pin geometry. com.c sets
+// this at auth-success: true for interactive clients (default), false
+// for clients whose TTYPE marks them as non-interactive.
+void rln_set_tel_console(bool active);
+
+// Terminal geometry overrides. Setting non-zero pins the value and skips
+// the CPR2 handshake when both axes are pinned. 0 = auto-detect.
+void rln_set_term_width(uint16_t v);
+void rln_set_term_height(uint16_t v);
+
+// Terminal width. Priority: rln_set_term_width override if set, then
+// the most recent CPR-reported width, then a VGA-aware fallback (40
+// for 320-wide canvases, 80 otherwise) when VGA is connected, then 80.
+uint16_t rln_get_term_width(void);
+
+// Terminal height. Priority: rln_set_term_height override if set, then
+// the most recent CPR-reported height, then a VGA-aware fallback (32
+// in display mode 2, 30 otherwise) when VGA is connected, then 24.
+uint16_t rln_get_term_height(void);
+
+// Inject a sequence of input bytes into the active readline. CR ends
+// the line normally; CTRL-C (0x03) finishes the line with a "^C" echo
+// (when readline owns the room) without inserting either char. Poked
+// bytes are dispatched in overwrite mode.
+void rln_poke(const char *str);
+
 // 6502 API entry points.
 bool rln_api_lastkey(void);
 bool rln_api_peek(void);
