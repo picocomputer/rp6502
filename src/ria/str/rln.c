@@ -1117,7 +1117,13 @@ static void rln_enter_edit(void)
     rln_ansi_drain_deferred(&rln_ansi_tel, !rln_tel_console);
     if (rln_callback != cb_at_start)
         return;
+    bool prev_overwrite = rln_overwrite;
+    rln_overwrite = true;
     rln_ansi_drain_deferred(&rln_ansi_poke, /*drop_cpr=*/true);
+    bool need_reemit = (rln_overwrite != prev_overwrite);
+    rln_overwrite = prev_overwrite;
+    if (need_reemit)
+        rln_emit_mode_cursor();
 }
 
 static void rln_handshake_fallback(void)
@@ -1444,12 +1450,15 @@ bool rln_api_peek(void)
 // input, except for ESC (\33) which starts a CSI sequence and CAN
 // (\30) which the parser uses to abort an in-flight sequence and
 // reset state. As a visual badge, controls other than CR (\r) and
-// LF (\n) echo as caret notation (^@..^_); only CR adds the typed
-// line to history. Callers wanting a fresh parser can prepend \30.
+// LF (\n) echo as caret notation (^@..^_).
 void rln_poke(const char *str)
 {
     if (!rln_callback)
         return;
+    bool sync = (rln_phase == rln_phase_edit);
+    bool prev_overwrite = rln_overwrite;
+    if (sync)
+        rln_overwrite = true;
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
@@ -1489,6 +1498,13 @@ void rln_poke(const char *str)
             break;
         }
         rln_ansi_feed(&rln_ansi_poke, (uint8_t)ch, /*drop_cpr=*/true);
+    }
+    if (sync)
+    {
+        bool need_reemit = (rln_overwrite != prev_overwrite);
+        rln_overwrite = prev_overwrite;
+        if (need_reemit)
+            rln_emit_mode_cursor();
     }
 }
 
