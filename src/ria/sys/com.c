@@ -63,8 +63,8 @@ static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
 // com_rx_char is the core-0 → core-1 single-byte handoff slot. act_loop
 // on core 1 reads it to serve 6502 0xFFE2 reads; com_task refills it
 // from the merge picker (one byte per tick when empty). The stdio path
-// steals from it when stdio is the active consumer. Per-source readers
-// (com_kbd_read / com_uart_read / com_tel_read) also steal it when the
+// recovers from it when stdio is the active consumer. Per-source readers
+// (com_kbd_read / com_uart_read / com_tel_read) also recover it when the
 // recorded source matches, so a byte the merge picker pulled isn't
 // stranded here when rln is the active consumer.
 volatile int com_rx_char = -1;
@@ -72,6 +72,24 @@ volatile int com_rx_char = -1;
 // Valid only while com_rx_char >= 0. Written and read on core 0 only,
 // alongside com_rx_char's updates; act_loop on core 1 never reads it.
 static com_source_t com_rx_char_src;
+
+// Single-byte recover from the cross-core handoff slot. Per-source readers
+// call this so a byte the merge picker pulled isn't stranded in
+// com_rx_char when rln (rather than the 6502) is the eventual consumer.
+static size_t com_recover_rx_char(char *buf, size_t length, com_source_t src)
+{
+    if (length && com_rx_char_src == src)
+    {
+        int ch = com_rx_char;
+        if (ch >= 0)
+        {
+            buf[0] = (char)ch;
+            com_rx_char = -1;
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static bool com_bel_enabled = true;
 
@@ -156,16 +174,7 @@ static void com_tel_tx_write(char ch)
 
 static size_t com_tel_read(char *buf, size_t length)
 {
-    size_t count = 0;
-    if (count < length && com_rx_char_src == COM_SOURCE_TEL)
-    {
-        int ch = com_rx_char;
-        if (ch >= 0)
-        {
-            buf[count++] = (char)ch;
-            com_rx_char = -1;
-        }
-    }
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_TEL);
     while (count < length && com_tel_rx_head != com_tel_rx_tail)
     {
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
@@ -329,7 +338,7 @@ static void com_tel_shutdown(void)
 {
     if (com_tel_state == COM_TEL_STATE_AUTH || com_tel_state == COM_TEL_STATE_CONNECTED)
         tel_close(SYS_TEL_DESC);
-    if (com_tel_state >= COM_TEL_STATE_LISTENING)
+    if (com_tel_state != COM_TEL_STATE_IDLE)
     {
         tel_listen_close(com_tel_active_port);
         com_tel_active_port = 0;
@@ -476,19 +485,10 @@ static void com_uart_drain_rx(void)
 
 static size_t com_uart_read(char *buf, size_t length)
 {
-    size_t count = 0;
-    if (count < length && com_rx_char_src == COM_SOURCE_UART)
-    {
-        int ch = com_rx_char;
-        if (ch >= 0)
-        {
-            buf[count++] = (char)ch;
-            com_rx_char = -1;
-        }
-    }
-    // Always pump the hw FIFO into the software ring first so callers
-    // that bypass com_task (e.g. vga_connect's blocking loop running
-    // only mem_task) still see fresh bytes. Idempotent.
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_UART);
+    // Always pump the hw FIFO into the software ring so callers that
+    // bypass com_task (e.g. vga_connect's blocking loop running only
+    // mem_task) still see fresh bytes. Idempotent.
     com_uart_drain_rx();
     while (count < length && com_uart_rx_head != com_uart_rx_tail)
     {
@@ -504,16 +504,7 @@ static size_t com_uart_read(char *buf, size_t length)
 // the 1 ms grain.
 static size_t com_kbd_read(char *buf, size_t length)
 {
-    size_t count = 0;
-    if (count < length && com_rx_char_src == COM_SOURCE_KBD)
-    {
-        int ch = com_rx_char;
-        if (ch >= 0)
-        {
-            buf[count++] = (char)ch;
-            com_rx_char = -1;
-        }
-    }
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_KBD);
     if (count < length)
         count += kbd_stdio_in_chars(&buf[count], length - count);
     return count;
@@ -606,43 +597,36 @@ static void com_tx_fanout(void)
 // one source can't slice a paste on another. Used by stdin and by
 // com_task's com_rx_char refill. *src_out, when non-NULL, reports
 // which source produced the returned bytes so com_task can tag
-// com_rx_char for later steal by the matching per-source reader.
+// com_rx_char for later recovery by the matching per-source reader.
 static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
-    enum com_rx_picker
-    {
-        PICK_NONE,
-        PICK_KBD,
-        PICK_UART,
-        PICK_TEL,
-    };
-    static enum com_rx_picker source = PICK_NONE;
+    static com_source_t source = COM_SOURCE_NONE;
     static absolute_time_t idle_timer;
 
-    if (source != PICK_NONE && time_reached(idle_timer))
-        source = PICK_NONE;
+    if (source != COM_SOURCE_NONE && time_reached(idle_timer))
+        source = COM_SOURCE_NONE;
 
-    if (source == PICK_KBD || source == PICK_NONE)
+    if (source == COM_SOURCE_KBD || source == COM_SOURCE_NONE)
     {
         size_t i = com_kbd_read(buf, length);
         if (i)
         {
-            source = PICK_KBD;
+            source = COM_SOURCE_KBD;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
                 *src_out = COM_SOURCE_KBD;
             return i;
         }
         // Kbd doesn't hold the lock when empty.
-        source = PICK_NONE;
+        source = COM_SOURCE_NONE;
     }
 
-    if (source == PICK_UART || source == PICK_NONE)
+    if (source == COM_SOURCE_UART || source == COM_SOURCE_NONE)
     {
         size_t i = com_uart_read(buf, length);
         if (i)
         {
-            source = PICK_UART;
+            source = COM_SOURCE_UART;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
                 *src_out = COM_SOURCE_UART;
@@ -650,12 +634,12 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
         }
     }
 
-    if (source == PICK_TEL || source == PICK_NONE)
+    if (source == COM_SOURCE_TEL || source == COM_SOURCE_NONE)
     {
         size_t i = com_tel_read(buf, length);
         if (i)
         {
-            source = PICK_TEL;
+            source = COM_SOURCE_TEL;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
                 *src_out = COM_SOURCE_TEL;
@@ -766,7 +750,7 @@ static int com_stdio_in_chars(char *buf, int length)
 
     // Pick up new chars via the sticky merge picker. stdio sees a
     // flat byte stream — the source tag is irrelevant here. The
-    // per-source readers inside com_rx_pick steal com_rx_char when
+    // per-source readers inside com_rx_pick recover com_rx_char when
     // tagged for their source, so any byte sitting in the handoff
     // slot is delivered here without a separate drain.
     count += com_rx_pick(&buf[count], length - count, NULL);
@@ -844,12 +828,14 @@ void com_task(void)
     com_uart_drain_rx();
 
     // RX: refill the cross-core handoff slot. com_rx_char is a single
-    // volatile int so the store is atomic; __dmb() is the release fence
-    // pairing with act_loop's load on core 1 in ria.c. One byte per
-    // tick — bounded enough that a tight rln drain on the per-source
-    // readers still wins most of the upstream bytes. Record the source
-    // so the matching per-source reader can claim the byte if rln
-    // (rather than the 6502) is the eventual consumer.
+    // volatile int; act_loop on core 1 only ever observes -1 or 0..255
+    // and never reads com_rx_char_src. The __dmb() here is a core-0
+    // compiler barrier (memory clobber) pinning the non-volatile
+    // com_rx_char_src write ahead of the volatile com_rx_char write,
+    // so a per-source reader on core 0 can't see a fresh char tagged
+    // with a stale src. One byte per tick — bounded enough that a
+    // tight rln drain on the per-source readers still wins most of
+    // the upstream bytes.
     if (com_rx_char < 0)
     {
         char ch;

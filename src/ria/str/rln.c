@@ -143,7 +143,7 @@ static bool rln_tel_console = true;
 static uint8_t rln_lastkey_buf[RLN_LASTKEY_MAX];
 static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
-static bool rln_lastkey_consumed;
+static bool rln_lastkey_action;
 
 static void rln_complete(bool rln_timed_out)
 {
@@ -568,8 +568,8 @@ static void rln_line_delete_n(rln_ansi_t *a)
     if (count < 1)
         count = 1;
     uint16_t end = (uint16_t)rln_bufpos + count;
-    if (end > 255)
-        end = 255;
+    if (end > UINT8_MAX)
+        end = UINT8_MAX;
     rln_delete_range(rln_bufpos, (uint8_t)end);
 }
 
@@ -792,8 +792,8 @@ static void rln_ansi_advance(rln_ansi_t *a, uint8_t ch)
         {
             if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
             {
-                a->csi_param[a->csi_param_count] *= 10;
-                a->csi_param[a->csi_param_count] += ch - '0';
+                uint32_t v = (uint32_t)a->csi_param[a->csi_param_count] * 10 + (ch - '0');
+                a->csi_param[a->csi_param_count] = v > UINT16_MAX ? UINT16_MAX : (uint16_t)v;
             }
             return;
         }
@@ -856,6 +856,9 @@ static void rln_dispatch_C0(rln_ansi_t *a, uint8_t ch)
 static void rln_dispatch_Fe(rln_ansi_t *a, uint8_t ch)
 {
     (void)a;
+    // ESC-b / ESC-f are meta-b / meta-f (alt-b/alt-f on xterm-style
+    // terminals); 0x02 / 0x06 are the ctrl-B / ctrl-F variants some
+    // older meta-prefix terminals send for the same binding.
     if (ch == 'b' || ch == 2)
         rln_line_word(-1);
     else if (ch == 'f' || ch == 6)
@@ -900,6 +903,9 @@ static void rln_dispatch_CSI(rln_ansi_t *a, uint8_t ch)
     else if (ch == 'f' || ch == 6)
         rln_line_word(1);
     else if (ch == '~')
+        // Function-key codes split across terminfo lineages: 1/4 = VT220-era
+        // Find/Select repurposed as Home/End; 7/8 = rxvt/Linux console; 2/3
+        // = Insert/Delete (universal). Keep both Home/End forms.
         switch (a->csi_param[0])
         {
         case 1:
@@ -936,7 +942,7 @@ static void rln_publish_lastkey(rln_ansi_t *a)
                     : (uint8_t)a->inflight_len;
     memcpy(rln_lastkey_buf, &a->buf[a->buf_len - a->inflight_len], n);
     rln_lastkey_len = n;
-    rln_lastkey_consumed = rln_action_taken;
+    rln_lastkey_action = rln_action_taken;
 }
 
 // Dispatch a parsed Secondary DA reply (\33[><...>c). The fact that
@@ -1189,7 +1195,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_buf[0] = 0;
     rln_lastkey_len = 0;
     rln_action_taken = false;
-    rln_lastkey_consumed = false;
+    rln_lastkey_action = false;
 
     rln_phase = rln_phase_prompt_cpr;
     // Sentinels for the content-based CPR heuristic: 0 means
@@ -1394,26 +1400,26 @@ void rln_set_term_height(uint16_t v) { rln_height_override = v; }
 /* Readline magic: lastkey + peekpoke
  */
 
-// int ria_readline_lastkey(char *key, uint8_t *consumed);
-// xstack reply shape: consumed byte pushed first (pops last), then key
-// bytes pushed in reverse so they pop in the order received. The consumed
-// byte is always pushed — even when no key is buffered — so the 6502 stub
-// can pop it unconditionally.
+// int ria_readline_lastkey(char *key, uint8_t *action);
+// xstack reply shape (only when at least one key byte is buffered): key
+// bytes pushed in reverse so they pop in receive order, then the action
+// byte last so it pops first. When no key is buffered nothing is pushed
+// and the AX return is 0; the 6502 stub keys off AX before popping.
 bool rln_api_lastkey(void)
 {
     uint8_t len = 0;
-    uint8_t consumed = 0;
+    uint8_t action = 0;
     if (rln_callback && rln_lastkey_len)
     {
         len = rln_lastkey_len;
-        consumed = rln_lastkey_consumed ? 1 : 0;
+        action = rln_lastkey_action ? 1 : 0;
         rln_lastkey_len = 0;
-        rln_lastkey_consumed = false;
+        rln_lastkey_action = false;
     }
     for (int i = len - 1; i >= 0; i--)
         if (!api_push_uint8(&rln_lastkey_buf[i]))
             return api_return_errno(API_EINVAL);
-    if (len && !api_push_uint8(&consumed))
+    if (len && !api_push_uint8(&action))
         return api_return_errno(API_EINVAL);
     return api_return_ax(len);
 }
@@ -1463,10 +1469,7 @@ uint8_t rln_poke(const char *str)
                 else
                 {
                     uint16_t w = rln_get_term_width();
-                    uint8_t r;
-                    uint16_t c;
-                    rln_buf_to_screen(target, &r, &c);
-                    (void)r;
+                    uint16_t c = (uint16_t)((rln_prompt_col - 1 + target) % w) + 1;
                     for (int i = 0; i < 2; i++)
                     {
                         putchar(marker[i]);
