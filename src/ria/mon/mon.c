@@ -163,7 +163,7 @@ static void mon_enter(bool timeout, const char *buf)
     mon_needs_prompt = true;
     mon_needs_read_line = true;
     const char *args = buf;
-    stdio_flush();
+    stdio_flush(); // is this still needed??
     mon_command_fn func = mon_command_lookup(&args);
     if (func)
     {

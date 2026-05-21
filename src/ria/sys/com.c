@@ -111,7 +111,12 @@ static absolute_time_t com_held_until;
 
 static bool com_tel_tx_writable(void) { return true; }
 static void com_tel_tx_write(char ch) { (void)ch; }
-static size_t com_tel_read(char *buf, size_t length) { (void)buf; (void)length; return 0; }
+static size_t com_tel_read(char *buf, size_t length)
+{
+    (void)buf;
+    (void)length;
+    return 0;
+}
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
 void com_tel_on_remote_ttype(const char *name) { (void)name; }
@@ -719,6 +724,7 @@ static void com_stdio_out_chars(const char *buf, int len)
         {
             com_tx_fanout();
             com_uart_drain_tx();
+            com_uart_drain_rx();
             com_tel_pump();
         }
         com_write(*buf++);
@@ -731,6 +737,7 @@ static void com_stdio_out_flush(void)
     {
         com_tx_fanout();
         com_uart_drain_tx();
+        com_uart_drain_rx();
         com_tel_pump();
     }
     com_uart_flush();
