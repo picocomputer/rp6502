@@ -69,14 +69,12 @@
 #define TERM_CURSOR_BLINK_US 499700
 #define TERM_CURSOR_BLINK_FAST_US 249700
 
-// After each batch of printable input, the cursor is forced unlit and the
-// next blink tick is armed this far out. Produces a brief dark gap that
-// re-lights to the appropriate steady/blink state when it fires.
-#define TERM_CURSOR_INPUT_GAP_US 2500
-
-// Idle wakeup interval for a steady-style cursor: nothing to do until input
-// arrives, but we still want a non-pathological re-check cadence.
-#define TERM_CURSOR_STEADY_IDLE_MS 60000
+// Whenever a received char actually moves the cursor's logical position,
+// the cursor is forced unlit and its next blink tick is armed this far
+// out. Pure SGR/OSC/mode-set sequences (no cursor motion) leave the
+// blink schedule untouched. The gap re-lights to the appropriate
+// steady/blink state when it fires.
+#define TERM_CURSOR_INPUT_GAP_US 5000
 
 typedef enum
 {
@@ -170,12 +168,14 @@ typedef struct term_state
     uint8_t save_y;
     bool save_origin_mode;
     bool cursor_enabled;
-    volatile bool cursor_lit; // Core 0 writes, Core 1 renderer reads. Single-byte → race-free.
+    absolute_time_t cursor_timer;
+    volatile bool cursor_lit;
+    absolute_time_t cell_blink_timer;
+    volatile uint8_t cell_blink_phase;
     uint16_t default_fg_color;
     uint16_t default_bg_color;
     uint16_t cursor_color; // OSC 12
     term_data_t *ptr;
-    absolute_time_t timer;
     ansi_state_t ansi_state;
     uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
     char csi_separator[TERM_CSI_PARAM_MAX_LEN];
@@ -191,15 +191,6 @@ typedef struct term_state
 static term_state_t term_40;
 static term_state_t term_80;
 static int16_t term_scanline_begin;
-
-// Global blink phase shared by both terminals. Value is masked directly
-// against a cell's `attributes` byte by the renderer: 0 means the blink
-// half-cycle is visible (no-op), ATTR_BLINK means the off half-cycle (the
-// cell's foreground is suppressed -- fg = bg). Toggled from Core 0 in
-// term_task; read by Core 1 in the renderer. A torn read is impossible
-// (single byte) and a one-scanline visual tear at the flip is invisible.
-static volatile uint8_t term_blink_phase;
-static absolute_time_t term_blink_phase_timer;
 
 // Add `offset` to `y_offset` and wrap into [0, TERM_MAX_HEIGHT). Used to
 // translate a logical row into a physical row_idx[] slot. Inputs are
@@ -508,6 +499,8 @@ static void term_state_init(term_state_t *term, uint8_t width,
     term->alt_active = false;
     term->cursor_save_valid = false;
     term->cursor_lit = false;
+    term->cell_blink_phase = 0;
+    term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
     term_out_RIS(term);
 }
 
@@ -2266,18 +2259,25 @@ static void term_out_char(term_state_t *term, char ch)
 
 static void com_out_chars(const char *buf, int length)
 {
-    if (length)
+    // Snapshot the cursor position before each char; only chars whose
+    // processing actually shifts (cur->x, cur->y) trip the input gap.
+    // Per-term so a canvas swap leaves both blink schedules consistent.
+    for (int i = 0; i < length; i++)
     {
-        // Brief dark gap while typing -- next blink tick re-lights to the
-        // appropriate steady/blink state.
-        term_40.cursor_lit = false;
-        term_80.cursor_lit = false;
-        for (int i = 0; i < length; i++)
+        uint8_t px_40 = term_40.cur->x, py_40 = term_40.cur->y;
+        uint8_t px_80 = term_80.cur->x, py_80 = term_80.cur->y;
+        term_out_char(&term_40, buf[i]);
+        term_out_char(&term_80, buf[i]);
+        if (term_40.cur->x != px_40 || term_40.cur->y != py_40)
         {
-            term_out_char(&term_40, buf[i]);
-            term_out_char(&term_80, buf[i]);
+            term_40.cursor_lit = false;
+            term_40.cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
         }
-        term_40.timer = term_80.timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
+        if (term_80.cur->x != px_80 || term_80.cur->y != py_80)
+        {
+            term_80.cursor_lit = false;
+            term_80.cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
+        }
     }
 }
 
@@ -2290,8 +2290,6 @@ void term_init(void)
     static term_data_t term80_alt_mem[80 * TERM_MAX_HEIGHT];
     term_state_init(&term_40, 40, term40_pri_mem, term40_alt_mem);
     term_state_init(&term_80, 80, term80_pri_mem, term80_alt_mem);
-    term_blink_phase = 0;
-    term_blink_phase_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = com_out_chars,
@@ -2300,10 +2298,11 @@ void term_init(void)
     stdio_set_driver_enabled(&term_stdio, true);
 }
 
-// Drives cursor_lit based on cursor_style. Steady styles (2/4/6) re-light
-// after the input-cooldown gap and park for a long idle interval; blinking
-// styles (0/1/3/5) toggle on the usual cadence. Disabled cursors are forced
-// unlit so the renderer never overlays them.
+// Cursor blink timing only — toggles cursor_lit on the configured cadence
+// (fast in deferred-wrap state, normal otherwise) and forces unlit when
+// the cursor is disabled. Steady-vs-blink handling lives in the renderers,
+// which ignore cursor_lit when cursor_style is steady; this keeps the
+// timing path style-agnostic.
 static void term_blink_cursor(term_state_t *term)
 {
     if (!term->cursor_enabled)
@@ -2311,31 +2310,26 @@ static void term_blink_cursor(term_state_t *term)
         term->cursor_lit = false;
         return;
     }
-    if (!time_reached(term->timer))
+    if (!time_reached(term->cursor_timer))
         return;
-    bool steady = (term->cursor_style == 2 ||
-                   term->cursor_style == 4 ||
-                   term->cursor_style == 6);
-    if (steady)
-    {
-        term->cursor_lit = true;
-        term->timer = make_timeout_time_ms(TERM_CURSOR_STEADY_IDLE_MS);
-        return;
-    }
     term->cursor_lit = !term->cursor_lit;
-    // Fast blink when off right side (deferred-wrap state).
     if (term->cur->x == term->width)
-        term->timer = make_timeout_time_us(TERM_CURSOR_BLINK_FAST_US);
+        term->cursor_timer = make_timeout_time_us(TERM_CURSOR_BLINK_FAST_US);
     else
-        term->timer = make_timeout_time_us(TERM_CURSOR_BLINK_US);
+        term->cursor_timer = make_timeout_time_us(TERM_CURSOR_BLINK_US);
 }
 
-static void term_blink_phase_task(void)
+// SGR-5/6 cell blink half-phase, per-term. The renderer ANDs the cell's
+// `attributes` byte against this mask: 0 = visible half-cycle (no-op);
+// ATTR_BLINK = off half-cycle (fg suppressed to bg). Toggled from Core 0
+// here; read by Core 1 in the renderer hot path. Per-term so the cursor
+// timer and cell blink timer share an owner instead of crossing a global.
+static void term_cell_blink_phase_task(term_state_t *term)
 {
-    if (time_reached(term_blink_phase_timer))
+    if (time_reached(term->cell_blink_timer))
     {
-        term_blink_phase = term_blink_phase ? 0u : ATTR_BLINK;
-        term_blink_phase_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
+        term->cell_blink_phase = term->cell_blink_phase ? 0u : ATTR_BLINK;
+        term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
     }
 }
 
@@ -2343,7 +2337,8 @@ void term_task(void)
 {
     term_blink_cursor(&term_40);
     term_blink_cursor(&term_80);
-    term_blink_phase_task();
+    term_cell_blink_phase_task(&term_40);
+    term_cell_blink_phase_task(&term_80);
     term_clean_task(&term_40);
     term_clean_task(&term_80);
 }
@@ -2363,8 +2358,8 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     //   row 4     = strikethrough (middle)
     //   row 5,7   = double underline
     //   row 7     = underline
-    // blink_mask is the global phase byte (0 or ATTR_BLINK).
-    const uint8_t blink_mask = term_blink_phase;
+    // blink_mask is term_40's cell-blink half-phase byte (0 or ATTR_BLINK).
+    const uint8_t blink_mask = term_40.cell_blink_phase;
     const uint8_t line_mask =
         (uint8_t)((scanrow == 7 ? ATTR_UNDERLINE : 0) |
                   ((scanrow == 7 || scanrow == 5) ? ATTR_DBL_UL : 0) |
@@ -2392,16 +2387,27 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
         rgb += 8;
     }
     // Cursor overlay: at most one cell per scanline. Patches the rendered
-    // pixels in place; cursor wins over ATTR_BLINK on its cell.
-    if (term_40.cursor_enabled && term_40.cursor_lit &&
-        row_idx == term_40.cur->y)
+    // pixels in place; cursor wins over ATTR_BLINK on its cell. Steady
+    // styles (2/4/6) draw regardless of cursor_lit -- blink_cursor only
+    // owns the timing, the style decides whether the off half is visible.
+    if (row_idx == term_40.cur->y &&
+        term_40.cursor_enabled &&
+        (term_40.cursor_lit ||
+         term_40.cursor_style == 2 ||
+         term_40.cursor_style == 4 ||
+         term_40.cursor_style == 6))
     {
         uint8_t cx = term_40.cur->x;
-        if (cx >= term_40.width)
+        // Wrap-pending: cursor is parked past the rightmost cell. Always
+        // render the full block here regardless of cursor_style — an
+        // underline strip or 1px bar at width-1 is too easy to miss for
+        // a state the fast blink already flags as "different."
+        bool wrap_pending = (cx >= term_40.width);
+        if (wrap_pending)
             cx = (uint8_t)(term_40.width - 1);
         uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
         const uint16_t cursor_color = term_40.cursor_color;
-        switch (term_40.cursor_style)
+        switch (wrap_pending ? 1u : term_40.cursor_style)
         {
         case 3:
         case 4: // underline: solid strip at scanrow 7 only
@@ -2442,7 +2448,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     //   row 8      = strikethrough (middle)
     //   row 13,15  = double underline
     //   row 15     = underline
-    const uint8_t blink_mask = term_blink_phase;
+    const uint8_t blink_mask = term_80.cell_blink_phase;
     const uint8_t line_mask =
         (uint8_t)((scanrow == 15 ? ATTR_UNDERLINE : 0) |
                   ((scanrow == 15 || scanrow == 13) ? ATTR_DBL_UL : 0) |
@@ -2472,16 +2478,27 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
         rgb += 8;
     }
     // Cursor overlay: at most one cell per scanline. Underline strip is the
-    // bottom 2 rows on 8x16; bar is 2px wide for proportionality.
-    if (term_80.cursor_enabled && term_80.cursor_lit &&
-        row_idx == term_80.cur->y)
+    // bottom 2 rows on 8x16; bar is 2px wide for proportionality. Steady
+    // styles (2/4/6) draw regardless of cursor_lit -- blink_cursor only
+    // owns the timing, the style decides whether the off half is visible.
+    if (row_idx == term_80.cur->y &&
+        term_80.cursor_enabled &&
+        (term_80.cursor_lit ||
+         term_80.cursor_style == 2 ||
+         term_80.cursor_style == 4 ||
+         term_80.cursor_style == 6))
     {
         uint8_t cx = term_80.cur->x;
-        if (cx >= term_80.width)
+        // Wrap-pending: cursor is parked past the rightmost cell. Always
+        // render the full block here regardless of cursor_style — an
+        // underline strip or 2px bar at width-1 is too easy to miss for
+        // a state the fast blink already flags as "different."
+        bool wrap_pending = (cx >= term_80.width);
+        if (wrap_pending)
             cx = (uint8_t)(term_80.width - 1);
         uint16_t *crgb = rgb_line + (uint32_t)cx * 8;
         const uint16_t cursor_color = term_80.cursor_color;
-        switch (term_80.cursor_style)
+        switch (wrap_pending ? 1u : term_80.cursor_style)
         {
         case 3:
         case 4: // underline: solid strip at scanrows 14-15
