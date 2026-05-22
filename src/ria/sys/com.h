@@ -49,10 +49,11 @@ void com_tel_on_remote_ttype(const char *name);
 
 typedef enum
 {
-    COM_SOURCE_NONE,
     COM_SOURCE_KBD,
     COM_SOURCE_UART,
     COM_SOURCE_TEL,
+    COM_SOURCE_COUNT,
+    COM_SOURCE_NONE = COM_SOURCE_COUNT,
 } com_source_t;
 
 // Non-blocking 1-byte read. *src is in/out:

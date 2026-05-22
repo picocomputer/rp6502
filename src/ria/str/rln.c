@@ -75,7 +75,7 @@ typedef enum
 // the callback off until no byte has arrived on any source for this
 // many ms — gives the in-flight sequence time to land on its own
 // parser and be absorbed instead of leaking into the next read.
-#define RLN_COMPLETE_QUIET_MS 100
+#define RLN_COMPLETE_QUIET_MS 250
 
 // Unified CSI parser. One instance per input stream (local RX, telnet
 // RX, 6502 poke) so a partial sequence on one stream can't be sliced
@@ -92,6 +92,11 @@ typedef struct
     uint8_t buf[RLN_BUF_SIZE];
     uint16_t buf_len;
     uint16_t inflight_len;
+    // Snapshot at defer entry: was this parser mid-sequence? Cleared
+    // back to false in rln_task once the parser returns to C0, which
+    // lets the deferred completion fire early when every mid-stream
+    // source has settled.
+    bool defer_mid;
 } rln_ansi_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -118,13 +123,11 @@ static uint8_t rln_caps;
 // waits for RLN_COMPLETE_QUIET_MS of byte silence on the sources that
 // were mid-stream at defer entry. Other sources are not read at all
 // during the defer window — their bytes stay in com's per-source FIFO
-// and arrive at the next rln_read_line as a fresh stream.
+// and arrive at the next rln_read_line as a fresh stream. The "was
+// mid-stream at defer entry" snapshot lives in rln_ansi[].defer_mid.
 static bool rln_complete_deferred;
 static bool rln_complete_deferred_timeout;
 static absolute_time_t rln_complete_deferred_deadline;
-static bool rln_complete_mid_kbd;
-static bool rln_complete_mid_uart;
-static bool rln_complete_mid_tel;
 
 // Script-source identification. Set by instant relief or any other
 // handshake-bail-out path that recognized a scripting peer. The
@@ -147,20 +150,29 @@ static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe
 static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
 static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 
-// One parser instance per input stream. kbd, uart, and tel are fed
-// from rln_task as bytes arrive on their respective RX sources; poke
-// is fed synchronously from rln_poke (6502 API). Each tracks its
-// own stream so a partial CSI sequence on one source can't be sliced
-// by interleaved bytes from another.
-static rln_ansi_t rln_ansi_kbd;
-static rln_ansi_t rln_ansi_uart;
-static rln_ansi_t rln_ansi_tel;
+// One parser instance per com input source (kbd, uart, tel), indexed by
+// com_source_t. Each tracks its own stream so a partial CSI sequence on
+// one source can't be sliced by interleaved bytes from another. The
+// rln_ansi_poke instance is kept separate because it is fed synchronously
+// from rln_poke (the 6502 API), not via com_getchar, and has its own
+// drop-cpr rule and overwrite-mode handshake.
+static rln_ansi_t rln_ansi[COM_SOURCE_COUNT];
 static rln_ansi_t rln_ansi_poke;
 
 // False = drop CPR matches arriving on the telnet stream instead of
 // dispatching them as geometry. Set by com.c at auth-success based on
 // the client's reported TTYPE (script clients get false).
 static bool rln_tel_console = true;
+
+// Per-source rule for whether CPR replies arriving on this stream should
+// be dropped instead of dispatched as geometry. kbd never produces real
+// terminal protocol replies (a local keyboard isn't a terminal); tel
+// drops CPRs only when com.c flagged the peer as a non-interactive
+// script client; uart trusts its peer.
+static bool rln_ansi_drop_cpr(com_source_t s)
+{
+    return s == COM_SOURCE_KBD || (s == COM_SOURCE_TEL && !rln_tel_console);
+}
 
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
@@ -185,9 +197,10 @@ static bool rln_lastkey_action;
 // rln_read_line memsets it and there is no com FIFO to leak from.
 static bool rln_any_inflight(void)
 {
-    return rln_ansi_kbd.state != ansi_state_C0 ||
-           rln_ansi_uart.state != ansi_state_C0 ||
-           rln_ansi_tel.state != ansi_state_C0;
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        if (rln_ansi[s].state != ansi_state_C0)
+            return true;
+    return false;
 }
 
 // Immediate completion: invoke the user callback and clear all
@@ -220,8 +233,6 @@ static void rln_complete_now(bool rln_timed_out)
 // rln_read_line memsets the parsers.
 static void rln_complete(bool rln_timed_out)
 {
-    if (!rln_callback)
-        return;
     if (rln_complete_deferred)
         return;
     if (!rln_any_inflight())
@@ -240,9 +251,8 @@ static void rln_complete(bool rln_timed_out)
     // byte — sitting in its parser's buf with inflight_len == 1 but
     // state already back to C0 — doesn't get flagged and have its
     // post-CR bytes drained-and-absorbed by the defer loop's gate.
-    rln_complete_mid_kbd = rln_ansi_kbd.state != ansi_state_C0;
-    rln_complete_mid_uart = rln_ansi_uart.state != ansi_state_C0;
-    rln_complete_mid_tel = rln_ansi_tel.state != ansi_state_C0;
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        rln_ansi[s].defer_mid = rln_ansi[s].state != ansi_state_C0;
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
@@ -1209,23 +1219,20 @@ static void rln_enter_edit(void)
         rln_render_from(0);
     else
         rln_sync_cursor_to(rln_bufpos);
-    // Drain each parser's deferred bytes through itself, in order:
-    // kbd (local human) → uart (local terminal) → tel (remote) →
+    // Drain each parser's deferred bytes through itself, in com_source_t
+    // order: kbd (local human) → uart (local terminal) → tel (remote) →
     // poke (scripted input). drop_cpr=true on kbd because the local
     // keyboard never legitimately produces protocol replies; same
     // rationale as poke. Abort the cascade if a dispatched CR mid-
     // drain completes the line — any later drains would replay
     // stale bytes into the next line's parsers.
     rln_read_callback_t cb_at_start = rln_callback;
-    rln_ansi_drain_deferred(&rln_ansi_kbd, /*drop_cpr=*/true);
-    if (rln_callback != cb_at_start || rln_complete_deferred)
-        return;
-    rln_ansi_drain_deferred(&rln_ansi_uart, /*drop_cpr=*/false);
-    if (rln_callback != cb_at_start || rln_complete_deferred)
-        return;
-    rln_ansi_drain_deferred(&rln_ansi_tel, !rln_tel_console);
-    if (rln_callback != cb_at_start || rln_complete_deferred)
-        return;
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    {
+        rln_ansi_drain_deferred(&rln_ansi[s], rln_ansi_drop_cpr(s));
+        if (rln_callback != cb_at_start || rln_complete_deferred)
+            return;
+    }
     bool prev_overwrite = rln_overwrite;
     rln_overwrite = true;
     rln_ansi_drain_deferred(&rln_ansi_poke, /*drop_cpr=*/true);
@@ -1332,9 +1339,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_max_row = 0;
     rln_rendered_end = 0;
     rln_decscusr_ok = false;
-    memset(&rln_ansi_kbd, 0, sizeof rln_ansi_kbd);
-    memset(&rln_ansi_uart, 0, sizeof rln_ansi_uart);
-    memset(&rln_ansi_tel, 0, sizeof rln_ansi_tel);
+    memset(rln_ansi, 0, sizeof rln_ansi);
     memset(&rln_ansi_poke, 0, sizeof rln_ansi_poke);
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
@@ -1392,24 +1397,19 @@ void rln_task(void)
     while (rln_callback)
     {
         com_source_t this_src = COM_SOURCE_NONE;
-        int c;
+        int c = -1;
         if (rln_complete_deferred)
         {
-            c = -1;
-            if (rln_complete_mid_kbd)
+            // Walk only the sources that were mid-ESC at defer entry;
+            // bytes on clean sources stay in com's per-source FIFO.
+            for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             {
-                this_src = COM_SOURCE_KBD;
+                if (!rln_ansi[s].defer_mid)
+                    continue;
+                this_src = s;
                 c = com_getchar(&this_src);
-            }
-            if (c < 0 && rln_complete_mid_uart)
-            {
-                this_src = COM_SOURCE_UART;
-                c = com_getchar(&this_src);
-            }
-            if (c < 0 && rln_complete_mid_tel)
-            {
-                this_src = COM_SOURCE_TEL;
-                c = com_getchar(&this_src);
+                if (c >= 0)
+                    break;
             }
         }
         else
@@ -1420,25 +1420,11 @@ void rln_task(void)
             break;
         char ch = (char)c;
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
-        switch (this_src)
+        if (this_src != COM_SOURCE_NONE)
         {
-        case COM_SOURCE_TEL:
-            rln_ansi_feed(&rln_ansi_tel, (uint8_t)ch, !rln_tel_console);
-            if (rln_complete_deferred && rln_ansi_tel.state == ansi_state_C0)
-                rln_complete_mid_tel = false;
-            break;
-        case COM_SOURCE_UART:
-            rln_ansi_feed(&rln_ansi_uart, (uint8_t)ch, /*drop_cpr=*/false);
-            if (rln_complete_deferred && rln_ansi_uart.state == ansi_state_C0)
-                rln_complete_mid_uart = false;
-            break;
-        case COM_SOURCE_KBD:
-            rln_ansi_feed(&rln_ansi_kbd, (uint8_t)ch, /*drop_cpr=*/true);
-            if (rln_complete_deferred && rln_ansi_kbd.state == ansi_state_C0)
-                rln_complete_mid_kbd = false;
-            break;
-        case COM_SOURCE_NONE:
-            break;
+            rln_ansi_feed(&rln_ansi[this_src], (uint8_t)ch, rln_ansi_drop_cpr(this_src));
+            if (rln_complete_deferred && rln_ansi[this_src].state == ansi_state_C0)
+                rln_ansi[this_src].defer_mid = false;
         }
         // Every byte we got here came from a mid-stream source (during
         // defer) or normal operation — push the quiet window out so
@@ -1454,11 +1440,11 @@ void rln_task(void)
         // sources (including uart's mid-CPR tail) before defer can
         // absorb them. Only fires pre-edit; once we enter edit phase
         // subsequent iterations skip this check.
-        if (rln_phase != rln_phase_edit &&
-            (ch == '\r' ||
-             rln_ansi_kbd.buf_len >= RLN_BUF_SIZE ||
-             rln_ansi_uart.buf_len >= RLN_BUF_SIZE ||
-             rln_ansi_tel.buf_len >= RLN_BUF_SIZE))
+        bool any_overflow = false;
+        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+            if (rln_ansi[s].buf_len >= RLN_BUF_SIZE)
+                any_overflow = true;
+        if (rln_phase != rln_phase_edit && (ch == '\r' || any_overflow))
         {
             // Skip the rest of the CPR handshake. We never confirmed
             // geometry for this session, so drop prompt_col to force
@@ -1484,9 +1470,10 @@ void rln_task(void)
     // The deadline remains the fallback for sequences that never land.
     if (rln_complete_deferred)
     {
-        bool all_done = !rln_complete_mid_kbd &&
-                        !rln_complete_mid_uart &&
-                        !rln_complete_mid_tel;
+        bool all_done = true;
+        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+            if (rln_ansi[s].defer_mid)
+                all_done = false;
         if (all_done || time_reached(rln_complete_deferred_deadline))
             rln_complete_now(rln_complete_deferred_timeout);
     }
@@ -1527,14 +1514,8 @@ void rln_stop(void)
 
 void rln_break(void)
 {
-    // Defer-in-progress means rln_finish_line already printed the
-    // submit newline; emitting another would leave a blank line. The
-    // defer is abandoned silently by the rln_init reset below — the
-    // user callback won't fire, matching hard-cancel semantics.
-    // bool already_newlined = rln_complete_deferred;
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
-    // if (!already_newlined)
     printf("\n");
     rln_init();
 }
@@ -1550,7 +1531,9 @@ uint8_t rln_get_caps(void) { return rln_caps; }
 void rln_set_tel_console(bool active)
 {
     rln_tel_console = active;
-    memset(&rln_ansi_tel, 0, sizeof rln_ansi_tel);
+    // Reset the TEL parser only — the kbd / uart streams are unaffected
+    // by a peer auth handshake.
+    memset(&rln_ansi[COM_SOURCE_TEL], 0, sizeof rln_ansi[COM_SOURCE_TEL]);
 }
 
 uint16_t rln_get_term_width(void)
@@ -1622,6 +1605,38 @@ bool rln_api_peek(void)
     return api_return_ax(rln_buflen);
 }
 
+// Emit a "^X" caret-notation marker for the C0 byte `ch` at buffer
+// position `target`, then advance rln_cur_idx past it. Caller must have
+// already called rln_sync_cursor_to(target). In wrap mode we track the
+// physical column and emit \n on margin overflow so the marker doesn't
+// stretch outside the line's visible row.
+static void rln_poke_emit_caret(uint8_t target, char ch)
+{
+    char marker[2] = {'^', (char)('@' + ch)};
+    if (rln_input_no_wrap())
+    {
+        putchar(marker[0]);
+        putchar(marker[1]);
+    }
+    else
+    {
+        uint16_t w = rln_get_term_width();
+        uint16_t c = (uint16_t)((rln_prompt_col - 1 + target) % w) + 1;
+        for (int i = 0; i < 2; i++)
+        {
+            putchar(marker[i]);
+            if (c == w)
+            {
+                printf("\n");
+                c = 1;
+            }
+            else
+                c++;
+        }
+    }
+    rln_cur_idx = (uint8_t)(target + 2);
+}
+
 // Any C0 control byte (0x00-0x1F) in the poked stream finishes the
 // input, except for ESC (\33) which starts a CSI sequence and CAN
 // (\30) which the parser uses to abort an in-flight sequence and
@@ -1651,29 +1666,7 @@ void rln_poke(const char *str)
                 if (target > (uint8_t)(rln_max_length - 2))
                     target = (uint8_t)(rln_max_length - 2);
                 rln_sync_cursor_to(target);
-                char marker[2] = {'^', (char)('@' + ch)};
-                if (rln_input_no_wrap())
-                {
-                    putchar(marker[0]);
-                    putchar(marker[1]);
-                }
-                else
-                {
-                    uint16_t w = rln_get_term_width();
-                    uint16_t c = (uint16_t)((rln_prompt_col - 1 + target) % w) + 1;
-                    for (int i = 0; i < 2; i++)
-                    {
-                        putchar(marker[i]);
-                        if (c == w)
-                        {
-                            printf("\n");
-                            c = 1;
-                        }
-                        else
-                            c++;
-                    }
-                }
-                rln_cur_idx = (uint8_t)(target + 2);
+                rln_poke_emit_caret(target, (char)ch);
             }
             rln_finish_line(ch == '\r');
             break;

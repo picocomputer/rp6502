@@ -339,17 +339,31 @@ static bool com_tel_should_listen(void)
     return com_tel_port > 0 && com_tel_key[0] != 0 && wfi_ready();
 }
 
-static void com_tel_shutdown(void)
+// Unified teardown for both full shutdown (target=IDLE, closes the
+// listen socket and the session pcb via SYS_TEL_DESC) and peer-driven
+// disconnect (target=LISTENING, keeps the listener armed; the session
+// pcb close is done by the caller with its own desc). Both targets
+// clear the rings and assign the new state.
+static void com_tel_teardown(com_tel_state_t target)
 {
-    if (com_tel_state == COM_TEL_STATE_AUTH || com_tel_state == COM_TEL_STATE_CONNECTED)
+    bool was_session = (com_tel_state == COM_TEL_STATE_AUTH || com_tel_state == COM_TEL_STATE_CONNECTED);
+    bool was_connected = (com_tel_state == COM_TEL_STATE_CONNECTED);
+    if (was_session && target == COM_TEL_STATE_IDLE)
         tel_close(SYS_TEL_DESC);
-    if (com_tel_state != COM_TEL_STATE_IDLE)
+    if (was_connected && target == COM_TEL_STATE_LISTENING)
+        vga_set_tel_console_active(false);
+    if (target == COM_TEL_STATE_IDLE && com_tel_state != COM_TEL_STATE_IDLE)
     {
         tel_listen_close(com_tel_active_port);
         com_tel_active_port = 0;
     }
-    com_tel_state = COM_TEL_STATE_IDLE;
+    com_tel_state = target;
     com_tel_clear_rings();
+}
+
+static void com_tel_shutdown(void)
+{
+    com_tel_teardown(COM_TEL_STATE_IDLE);
 }
 
 static void com_tel_on_disconnect(int desc)
@@ -357,10 +371,7 @@ static void com_tel_on_disconnect(int desc)
     if (com_tel_state == COM_TEL_STATE_AUTH || com_tel_state == COM_TEL_STATE_CONNECTED)
     {
         DBG("NET TEL console disconnected\n");
-        if (com_tel_state == COM_TEL_STATE_CONNECTED)
-            vga_set_tel_console_active(false);
-        com_tel_state = COM_TEL_STATE_LISTENING;
-        com_tel_clear_rings();
+        com_tel_teardown(COM_TEL_STATE_LISTENING);
     }
     com_tel_remote_is_script = false;
     tel_close(desc);
@@ -513,6 +524,32 @@ static size_t com_kbd_read(char *buf, size_t length)
     if (count < length)
         count += kbd_stdio_in_chars(&buf[count], length - count);
     return count;
+}
+
+// Dispatch a read to the per-source reader. COM_SOURCE_NONE returns 0.
+static size_t com_read_source(com_source_t src, char *buf, size_t length)
+{
+    switch (src)
+    {
+    case COM_SOURCE_KBD:
+        return com_kbd_read(buf, length);
+    case COM_SOURCE_UART:
+        return com_uart_read(buf, length);
+    case COM_SOURCE_TEL:
+        return com_tel_read(buf, length);
+    case COM_SOURCE_NONE:
+        break;
+    }
+    return 0;
+}
+
+// Drain a single source completely to /dev/null. Used by com_task while
+// a script hold is active so non-held sources can't overflow upstream.
+static void com_drain_source(com_source_t src)
+{
+    char tmp[16];
+    while (com_read_source(src, tmp, sizeof tmp))
+        ;
 }
 
 static bool com_uart_tx_writable(void)
@@ -670,24 +707,8 @@ int com_getchar(com_source_t *src)
 {
     if (src && *src != COM_SOURCE_NONE)
     {
-        com_source_t want = *src;
         char ch;
-        size_t n = 0;
-        switch (want)
-        {
-        case COM_SOURCE_KBD:
-            n = com_kbd_read(&ch, 1);
-            break;
-        case COM_SOURCE_UART:
-            n = com_uart_read(&ch, 1);
-            break;
-        case COM_SOURCE_TEL:
-            n = com_tel_read(&ch, 1);
-            break;
-        case COM_SOURCE_NONE:
-            break;
-        }
-        if (n)
+        if (com_read_source(*src, &ch, 1))
             return (unsigned char)ch;
         *src = COM_SOURCE_NONE;
         return PICO_ERROR_TIMEOUT;
@@ -699,21 +720,7 @@ int com_getchar(com_source_t *src)
     if (com_held_src != COM_SOURCE_NONE)
     {
         char ch;
-        size_t n = 0;
-        switch (com_held_src)
-        {
-        case COM_SOURCE_KBD:
-            n = com_kbd_read(&ch, 1);
-            break;
-        case COM_SOURCE_UART:
-            n = com_uart_read(&ch, 1);
-            break;
-        case COM_SOURCE_TEL:
-            n = com_tel_read(&ch, 1);
-            break;
-        case COM_SOURCE_NONE:
-            break;
-        }
+        size_t n = com_read_source(com_held_src, &ch, 1);
         if (src)
             *src = com_held_src;
         if (n)
@@ -745,17 +752,23 @@ void com_getchar_source(com_source_t src)
     com_held_until = make_timeout_time_ms(COM_HOLD_MS);
 }
 
+// One round of TX fanout + UART RX/TX pump + telnet pump. Used by the
+// stdio blocking loops so RX drain keeps up while stdout is busy; not
+// re-entrant from inside com_task (which calls the same primitives).
+static void com_stdio_pump(void)
+{
+    com_tx_fanout();
+    com_uart_drain_tx();
+    com_uart_drain_rx();
+    com_tel_pump();
+}
+
 static void com_stdio_out_chars(const char *buf, int len)
 {
     while (len--)
     {
         while (!com_writable())
-        {
-            com_tx_fanout();
-            com_uart_drain_tx();
-            com_uart_drain_rx();
-            com_tel_pump();
-        }
+            com_stdio_pump();
         com_write(*buf++);
     }
 }
@@ -763,12 +776,7 @@ static void com_stdio_out_chars(const char *buf, int len)
 static void com_stdio_out_flush(void)
 {
     while (com_tx_core0_head != com_tx_core0_tail)
-    {
-        com_tx_fanout();
-        com_uart_drain_tx();
-        com_uart_drain_rx();
-        com_tel_pump();
-    }
+        com_stdio_pump();
     com_uart_flush();
 }
 
@@ -899,18 +907,9 @@ void com_task(void)
     // tick so their upstream rings can't overflow with bytes nobody is
     // going to read. The hold itself auto-expires inside com_getchar.
     if (com_held_src != COM_SOURCE_NONE)
-    {
-        char tmp[16];
-        if (com_held_src != COM_SOURCE_TEL)
-            while (com_tel_read(tmp, sizeof tmp))
-                ;
-        if (com_held_src != COM_SOURCE_UART)
-            while (com_uart_read(tmp, sizeof tmp))
-                ;
-        if (com_held_src != COM_SOURCE_KBD)
-            while (com_kbd_read(tmp, sizeof tmp))
-                ;
-    }
+        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+            if (s != com_held_src)
+                com_drain_source(s);
 }
 
 bool com_get_bel(void)
