@@ -662,8 +662,37 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 // into the future, so a streaming consumer (e.g. mem_task during a
 // binary upload) keeps the hold alive simply by reading. The hold
 // auto-expires once nothing matches it for COM_HOLD_MS.
+//
+// Explicit single-source pull (*src set on entry) bypasses the hold
+// entirely — used by rln to finish off in-flight ESC tails during a
+// deferred completion without consuming bytes from clean sources.
 int com_getchar(com_source_t *src)
 {
+    if (src && *src != COM_SOURCE_NONE)
+    {
+        com_source_t want = *src;
+        char ch;
+        size_t n = 0;
+        switch (want)
+        {
+        case COM_SOURCE_KBD:
+            n = com_kbd_read(&ch, 1);
+            break;
+        case COM_SOURCE_UART:
+            n = com_uart_read(&ch, 1);
+            break;
+        case COM_SOURCE_TEL:
+            n = com_tel_read(&ch, 1);
+            break;
+        case COM_SOURCE_NONE:
+            break;
+        }
+        if (n)
+            return (unsigned char)ch;
+        *src = COM_SOURCE_NONE;
+        return PICO_ERROR_TIMEOUT;
+    }
+
     if (com_held_src != COM_SOURCE_NONE && time_reached(com_held_until))
         com_held_src = COM_SOURCE_NONE;
 

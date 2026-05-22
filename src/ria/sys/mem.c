@@ -53,7 +53,7 @@ void mem_task(void)
     //     slice the binary stream.
     while (mem_callback)
     {
-        com_source_t src;
+        com_source_t src = COM_SOURCE_NONE;
         int c = com_getchar(&src);
         com_getchar_source(src);
         if (c < 0)

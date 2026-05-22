@@ -55,12 +55,16 @@ typedef enum
     COM_SOURCE_TEL,
 } com_source_t;
 
-// Non-blocking 1-byte read across the active sources. Returns the
-// byte (0..255) or PICO_ERROR_TIMEOUT when no data is available.
-// *src is always written:
-//   - hold armed       -> held source (whether or not a byte arrived)
-//   - no hold, byte    -> the source that delivered
-//   - no hold, no byte -> COM_SOURCE_NONE
+// Non-blocking 1-byte read. *src is in/out:
+//   - in COM_SOURCE_NONE: read from any active source (script-hold
+//     aware). On byte, *src is set to the source that delivered; on
+//     no byte, *src is set to COM_SOURCE_NONE (or the held source
+//     when a hold is armed but had nothing to deliver).
+//   - in specific source: read only from that source, bypassing the
+//     script-hold. Bytes on other sources are left in their FIFOs
+//     for a later reader. On no byte, *src is reset to COM_SOURCE_NONE.
+// Returns the byte (0..255) or PICO_ERROR_TIMEOUT when no data is
+// available on the requested source(s).
 int com_getchar(com_source_t *src);
 
 // Arm or refresh a 100 ms hold pinning all com_getchar reads to src;

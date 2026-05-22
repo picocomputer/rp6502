@@ -71,6 +71,11 @@ typedef enum
 #define RLN_CAPS_SWAP 2
 #define RLN_HANDSHAKE_MS 250
 #define RLN_MAX_ROWS 10
+// When a line completion fires while another parser is mid-ESC, hold
+// the callback off until no byte has arrived on any source for this
+// many ms — gives the in-flight sequence time to land on its own
+// parser and be absorbed instead of leaking into the next read.
+#define RLN_COMPLETE_QUIET_MS 100
 
 // Unified CSI parser. One instance per input stream (local RX, telnet
 // RX, 6502 poke) so a partial sequence on one stream can't be sliced
@@ -107,6 +112,26 @@ static bool rln_enable_history;
 static uint8_t rln_max_length;
 static uint32_t rln_timeout_ms;
 static uint8_t rln_caps;
+
+// Deferred completion. Set when rln_complete fires while at least one
+// parser has an in-flight ESC sequence; the actual callback invocation
+// waits for RLN_COMPLETE_QUIET_MS of byte silence on the sources that
+// were mid-stream at defer entry. Other sources are not read at all
+// during the defer window — their bytes stay in com's per-source FIFO
+// and arrive at the next rln_read_line as a fresh stream.
+static bool rln_complete_deferred;
+static bool rln_complete_deferred_timeout;
+static absolute_time_t rln_complete_deferred_deadline;
+static bool rln_complete_mid_kbd;
+static bool rln_complete_mid_uart;
+static bool rln_complete_mid_tel;
+
+// Script-source identification. Set by instant relief or any other
+// handshake-bail-out path that recognized a scripting peer. The
+// matching com_getchar_source hold is armed at rln_complete_now —
+// arming it earlier (while the current line is still draining) lets
+// com_task drain the very bytes we need to absorb during defer.
+static com_source_t rln_script_source;
 
 // Cross-terminal display state
 static rln_phase_t rln_phase;
@@ -146,14 +171,78 @@ static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
-static void rln_complete(bool rln_timed_out)
+// True if any com-fed parser is part-way through a multi-byte sequence
+// (state != C0). Drives the conditional defer in rln_complete. We
+// classify by state rather than inflight_len because the trigger byte
+// that fires rln_complete (a CR or poked control byte) is itself in
+// the parser's buf with inflight_len == 1 at this moment, but its
+// state is already back to C0 — a single-byte C0 dispatch is not a
+// mid-sequence and must not force a defer.
+//
+// Poke is excluded: it can't be drained during defer (rln_poke is
+// gated to no-op while completion is deferred), so a stuck poke
+// partial would only pin the deadline for nothing. The next
+// rln_read_line memsets it and there is no com FIFO to leak from.
+static bool rln_any_inflight(void)
+{
+    return rln_ansi_kbd.state != ansi_state_C0 ||
+           rln_ansi_uart.state != ansi_state_C0 ||
+           rln_ansi_tel.state != ansi_state_C0;
+}
+
+// Immediate completion: invoke the user callback and clear all
+// in-band completion state. Callers must have already verified that
+// it's safe to drop in-flight parser tails.
+static void rln_complete_now(bool rln_timed_out)
 {
     rln_read_callback_t cc = rln_callback;
     if (!cc)
         return;
     rln_timeout_ms = 0;
     rln_callback = NULL;
+    rln_complete_deferred = false;
+    // Arm the com hold now that the line has really ended. Holding
+    // earlier (e.g. inside the instant-relief block) would let
+    // com_task drain non-held sources while the current line is
+    // still finishing — including the mid-stream tail bytes that
+    // defer is trying to absorb.
+    if (rln_script_source != COM_SOURCE_NONE)
+    {
+        com_getchar_source(rln_script_source);
+        rln_script_source = COM_SOURCE_NONE;
+    }
     cc(rln_timed_out, rln_buf);
+}
+
+// Public completion entry. Fires inline when parsers are quiet; defers
+// otherwise so cross-source mid-ESC sequences can drain and be silently
+// absorbed by the gate in rln_ansi_dispatch_or_defer before the next
+// rln_read_line memsets the parsers.
+static void rln_complete(bool rln_timed_out)
+{
+    if (!rln_callback)
+        return;
+    if (rln_complete_deferred)
+        return;
+    if (!rln_any_inflight())
+    {
+        rln_complete_now(rln_timed_out);
+        return;
+    }
+    rln_complete_deferred = true;
+    rln_complete_deferred_timeout = rln_timed_out;
+    rln_complete_deferred_deadline = make_timeout_time_ms(RLN_COMPLETE_QUIET_MS);
+    // Lock in which com sources were mid-ESC at defer entry. During
+    // the defer window rln pulls only from these via com_getchar's
+    // explicit-source mode, so bytes on clean sources sit untouched
+    // in their FIFOs and arrive at the next read as a fresh stream.
+    // State-based (not inflight_len-based) so the just-fed trigger
+    // byte — sitting in its parser's buf with inflight_len == 1 but
+    // state already back to C0 — doesn't get flagged and have its
+    // post-CR bytes drained-and-absorbed by the defer loop's gate.
+    rln_complete_mid_kbd = rln_ansi_kbd.state != ansi_state_C0;
+    rln_complete_mid_uart = rln_ansi_uart.state != ansi_state_C0;
+    rln_complete_mid_tel = rln_ansi_tel.state != ansi_state_C0;
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
@@ -955,6 +1044,13 @@ static void rln_publish_lastkey(rln_ansi_t *a)
 // forward.
 static void rln_da2_dispatch(void)
 {
+    // Late DA2 arriving after we've already entered edit phase with
+    // geometry suppressed (instant relief or handshake fallback both
+    // leave prompt_col at 0): ignore. Enabling DECSCUSR now would
+    // emit a cursor-shape sequence into a stream whose peer never
+    // negotiated VT220+ for this session.
+    if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
+        return;
     if (rln_decscusr_ok)
         return;
     rln_decscusr_ok = true;
@@ -970,6 +1066,15 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
                                        rln_ansi_state_t entry_state,
                                        bool drop_cpr)
 {
+    // Completion is pending: the line is logically submitted and we're
+    // only here to absorb the trailing bytes of an in-flight sequence.
+    // Drop both protocol replies and typed actions to keep the buffer
+    // and geometry stable across the quiet-window.
+    if (rln_complete_deferred)
+    {
+        rln_ansi_trim_inflight(a);
+        return;
+    }
     // CPR: ESC [ p1 ; p2 R, no private marker, exactly 2 params.
     if (entry_state == ansi_state_CSI &&
         term == 'R' &&
@@ -1084,7 +1189,11 @@ static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
     for (uint16_t i = 0; i < total; i++)
     {
         rln_ansi_feed(a, temp[i], drop_cpr);
-        if (rln_callback != cb_at_start)
+        // Stop if the line finished (callback fired) or finished into a
+        // defer. The defer path keeps rln_callback non-NULL but gates
+        // dispatch — continuing the loop is wasted work and would defer
+        // bytes into a line that's logically already submitted.
+        if (rln_callback != cb_at_start || rln_complete_deferred)
             return;
     }
 }
@@ -1109,13 +1218,13 @@ static void rln_enter_edit(void)
     // stale bytes into the next line's parsers.
     rln_read_callback_t cb_at_start = rln_callback;
     rln_ansi_drain_deferred(&rln_ansi_kbd, /*drop_cpr=*/true);
-    if (rln_callback != cb_at_start)
+    if (rln_callback != cb_at_start || rln_complete_deferred)
         return;
     rln_ansi_drain_deferred(&rln_ansi_uart, /*drop_cpr=*/false);
-    if (rln_callback != cb_at_start)
+    if (rln_callback != cb_at_start || rln_complete_deferred)
         return;
     rln_ansi_drain_deferred(&rln_ansi_tel, !rln_tel_console);
-    if (rln_callback != cb_at_start)
+    if (rln_callback != cb_at_start || rln_complete_deferred)
         return;
     bool prev_overwrite = rln_overwrite;
     rln_overwrite = true;
@@ -1150,6 +1259,12 @@ static void rln_handshake_fallback(void)
 //     to single-line fallback rather than wrap at the prompt column.
 static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 {
+    // Late CPR arriving after we've already entered edit phase with
+    // prompt_col deliberately left at 0 (instant relief or handshake
+    // fallback): ignore. Re-pinning prompt_col here would clobber the
+    // no-wrap clamp and regress the phase back to width_cpr.
+    if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
+        return;
     bool both_overrides = rln_width_override && rln_height_override;
     if (rln_prompt_col == 0)
     {
@@ -1203,6 +1318,8 @@ void rln_read_line(rln_read_callback_t callback)
     rln_lastkey_len = 0;
     rln_action_taken = false;
     rln_lastkey_action = false;
+    rln_complete_deferred = false;
+    rln_script_source = COM_SOURCE_NONE;
 
     rln_phase = rln_phase_prompt_cpr;
     // Sentinels for the content-based CPR heuristic: 0 means
@@ -1267,16 +1384,38 @@ void rln_task(void)
 {
     if (!rln_callback)
         return;
-    // Pull bytes via com_getchar, which respects any active script
-    // hold (held source delivers; others drain to /dev/null) and
-    // otherwise walks its sticky kbd/UART/telnet multiplex. The
-    // reported source identity drives parser selection and instant-
-    // relief tagging. drop_cpr=true on kbd because a local keyboard
-    // never legitimately produces protocol replies.
+    // Pull bytes via com_getchar. In normal operation src=NONE selects
+    // any source (script-hold aware). During deferred completion we
+    // walk only the mid-stream sources via the explicit-source mode,
+    // leaving bytes on clean sources queued in their FIFOs for the
+    // next rln_read_line to consume as fresh input.
     while (rln_callback)
     {
-        com_source_t this_src;
-        int c = com_getchar(&this_src);
+        com_source_t this_src = COM_SOURCE_NONE;
+        int c;
+        if (rln_complete_deferred)
+        {
+            c = -1;
+            if (rln_complete_mid_kbd)
+            {
+                this_src = COM_SOURCE_KBD;
+                c = com_getchar(&this_src);
+            }
+            if (c < 0 && rln_complete_mid_uart)
+            {
+                this_src = COM_SOURCE_UART;
+                c = com_getchar(&this_src);
+            }
+            if (c < 0 && rln_complete_mid_tel)
+            {
+                this_src = COM_SOURCE_TEL;
+                c = com_getchar(&this_src);
+            }
+        }
+        else
+        {
+            c = com_getchar(&this_src);
+        }
         if (c < 0)
             break;
         char ch = (char)c;
@@ -1285,21 +1424,35 @@ void rln_task(void)
         {
         case COM_SOURCE_TEL:
             rln_ansi_feed(&rln_ansi_tel, (uint8_t)ch, !rln_tel_console);
+            if (rln_complete_deferred && rln_ansi_tel.state == ansi_state_C0)
+                rln_complete_mid_tel = false;
             break;
         case COM_SOURCE_UART:
             rln_ansi_feed(&rln_ansi_uart, (uint8_t)ch, /*drop_cpr=*/false);
+            if (rln_complete_deferred && rln_ansi_uart.state == ansi_state_C0)
+                rln_complete_mid_uart = false;
             break;
         case COM_SOURCE_KBD:
             rln_ansi_feed(&rln_ansi_kbd, (uint8_t)ch, /*drop_cpr=*/true);
+            if (rln_complete_deferred && rln_ansi_kbd.state == ansi_state_C0)
+                rln_complete_mid_kbd = false;
             break;
         case COM_SOURCE_NONE:
             break;
         }
+        // Every byte we got here came from a mid-stream source (during
+        // defer) or normal operation — push the quiet window out so
+        // the deadline reflects the actual last-byte arrival.
+        if (rln_complete_deferred)
+            rln_complete_deferred_deadline =
+                make_timeout_time_ms(RLN_COMPLETE_QUIET_MS);
         // Provide instant relief during handshake for scripting tools
         // that do not respond to ANSI sequences. The triggering source
-        // is identified as a script — arm the com-level hold so any
-        // late CPR/DA2 from other sources is swallowed before reaching
-        // edit phase. Only fires pre-edit; once we enter edit phase
+        // is identified as a script — record it so rln_complete_now
+        // can pin the com hold to it once the current line really
+        // ends. Arming the hold here would let com_task drain non-held
+        // sources (including uart's mid-CPR tail) before defer can
+        // absorb them. Only fires pre-edit; once we enter edit phase
         // subsequent iterations skip this check.
         if (rln_phase != rln_phase_edit &&
             (ch == '\r' ||
@@ -1314,7 +1467,7 @@ void rln_task(void)
             // previous successful handshake is still useful for callers
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
-            com_getchar_source(this_src);
+            rln_script_source = this_src;
             rln_prompt_col = 0;
             rln_enter_edit();
         }
@@ -1322,6 +1475,21 @@ void rln_task(void)
     if (rln_phase != rln_phase_edit && rln_callback &&
         time_reached(rln_handshake_deadline))
         rln_handshake_fallback();
+    // Fire deferred completion before the idle-timeout check so a
+    // timeout-triggered defer still resolves through its own path
+    // instead of re-arming a fresh rln_complete(true). Fire early
+    // when every originally-mid-stream source has settled back to C0
+    // — its in-flight tail has been fully drained — so we don't burn
+    // 100ms of wall time waiting on a quiet that already happened.
+    // The deadline remains the fallback for sequences that never land.
+    if (rln_complete_deferred)
+    {
+        bool all_done = !rln_complete_mid_kbd &&
+                        !rln_complete_mid_uart &&
+                        !rln_complete_mid_tel;
+        if (all_done || time_reached(rln_complete_deferred_deadline))
+            rln_complete_now(rln_complete_deferred_timeout);
+    }
     if (rln_timeout_ms && time_reached(rln_timer))
         rln_complete(true);
 }
@@ -1336,6 +1504,8 @@ void rln_init(void)
     rln_overwrite = false;
     rln_width_override = 0;
     rln_height_override = 0;
+    rln_complete_deferred = false;
+    rln_script_source = COM_SOURCE_NONE;
 }
 
 void rln_run(void)
@@ -1357,8 +1527,14 @@ void rln_stop(void)
 
 void rln_break(void)
 {
+    // Defer-in-progress means rln_finish_line already printed the
+    // submit newline; emitting another would leave a blank line. The
+    // defer is abandoned silently by the rln_init reset below — the
+    // user callback won't fire, matching hard-cancel semantics.
+    // bool already_newlined = rln_complete_deferred;
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
+    // if (!already_newlined)
     printf("\n");
     rln_init();
 }
@@ -1454,6 +1630,11 @@ bool rln_api_peek(void)
 void rln_poke(const char *str)
 {
     if (!rln_callback)
+        return;
+    // The line is already submitted from the user's perspective once
+    // completion is deferred; a second poke must not mutate the buffer
+    // or chain another rln_finish_line into the quiet window.
+    if (rln_complete_deferred)
         return;
     bool sync = (rln_phase == rln_phase_edit);
     bool prev_overwrite = rln_overwrite;
