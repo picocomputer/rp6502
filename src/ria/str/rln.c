@@ -87,6 +87,17 @@ typedef struct
     uint8_t buf[RLN_BUF_SIZE];
     uint16_t buf_len;
     uint16_t inflight_len;
+    // Sticky across rln_read_line; set when a legitimate (drop_cpr=false)
+    // CPR is dispatched. Persists across rln_stop / rln_break / rln_init —
+    // terminal responsiveness is a property of the peer connection, not of
+    // any one line. Used to hold a typed CR through the next handshake
+    // instead of tripping typeahead-relief.
+    bool seen_cpr;
+    // Reset by rln_ansi_reset_for_new_line; set whenever a CPR is
+    // dispatched in the current call. Used by rln_clear_stale_seen_cpr
+    // so a parser that was responsive previously but silent this round
+    // doesn't keep its sticky bit and suppress relief on the next call.
+    bool cpr_this_call;
 } rln_ansi_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -110,6 +121,12 @@ static uint8_t rln_caps;
 
 // Cross-terminal display state
 static rln_phase_t rln_phase;
+// Set when rln_enter_edit was called but blocked by the mid-sequence
+// safety guard. Cleared when rln_enter_edit successfully enters edit
+// phase. rln_ansi_feed retries the entry at the end of every byte
+// processed (CAN-reset or dispatch landing back at C0), so whichever
+// byte completes the last partial sequence drives the retry.
+static bool rln_pending_edit;
 static absolute_time_t rln_handshake_deadline;
 static uint16_t rln_prompt_col;      // 1-based
 static uint16_t rln_term_width;      // 0 if no CPR
@@ -756,6 +773,9 @@ static void rln_toggle_overwrite(void)
 // rln_enter_edit -> rln_ansi_drain_deferred -> rln_ansi_feed ->
 // rln_ansi_dispatch_or_defer -> rln_cpr_dispatch.
 static void rln_cpr_dispatch(uint16_t p1, uint16_t p2);
+// rln_ansi_feed reruns the deferred entry from its own tail when the
+// mid-sequence guard previously blocked rln_enter_edit.
+static void rln_enter_edit(void);
 
 static void rln_ansi_advance(rln_ansi_t *a, uint8_t ch)
 {
@@ -977,7 +997,11 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
         a->csi_param_count == 2)
     {
         if (!drop_cpr)
+        {
+            a->seen_cpr = true;
+            a->cpr_this_call = true;
             rln_cpr_dispatch(a->csi_param[0], a->csi_param[1]);
+        }
         rln_ansi_trim_inflight(a);
         return;
     }
@@ -1044,19 +1068,24 @@ static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
     {
         rln_ansi_trim_inflight(a);
         a->state = ansi_state_C0;
-        return;
     }
     // Append to in-flight cache. On overflow drop the byte — instant
     // relief in rln_task will trigger from the buf_len == cap check.
-    if (a->buf_len >= sizeof a->buf)
-        return;
-    a->buf[a->buf_len++] = b;
-    a->inflight_len++;
-
-    rln_ansi_state_t entry_state = a->state;
-    rln_ansi_advance(a, b);
-    if (a->state == ansi_state_C0)
-        rln_ansi_dispatch_or_defer(a, b, entry_state, drop_cpr);
+    else if (a->buf_len < sizeof a->buf)
+    {
+        a->buf[a->buf_len++] = b;
+        a->inflight_len++;
+        rln_ansi_state_t entry_state = a->state;
+        rln_ansi_advance(a, b);
+        if (a->state == ansi_state_C0)
+            rln_ansi_dispatch_or_defer(a, b, entry_state, drop_cpr);
+    }
+    // If a prior rln_enter_edit was deferred by the mid-sequence guard,
+    // retry now. Either this byte returned a parser to C0 (CAN reset or
+    // dispatch landed) or it left this parser mid-sequence; rln_enter_edit
+    // re-checks all four parsers and either enters or stays pending.
+    if (rln_pending_edit)
+        rln_enter_edit();
 }
 
 // Drain the deferred head region through the same parser. Called from
@@ -1091,8 +1120,34 @@ static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
 
 /* ----- Phase transitions ----- */
 
+// True iff any per-stream parser is mid-escape-sequence (state != C0).
+// kbd/uart/tel are fed by rln_task; poke is fed by rln_poke. Any of
+// them being mid-sequence means a dispatch is imminent — we should wait
+// for it rather than draining a partial sequence whose tail would be
+// silently re-fed but whose dispatch result (geometry, mode flips) we'd
+// then race against the late-CPR guard in rln_cpr_dispatch.
+static bool rln_any_parser_in_sequence(void)
+{
+    return rln_ansi_kbd.state != ansi_state_C0 ||
+           rln_ansi_uart.state != ansi_state_C0 ||
+           rln_ansi_tel.state != ansi_state_C0 ||
+           rln_ansi_poke.state != ansi_state_C0;
+}
+
 static void rln_enter_edit(void)
 {
+    // Safety: don't enter edit while any parser is mid-escape-sequence.
+    // The byte that completes the sequence will run rln_ansi_feed's tail
+    // retry and we'll come back here once everyone is at C0. Note this
+    // is purely a structural guard — it doesn't decide *whether* we
+    // should be in edit phase (the call sites own that), only that the
+    // transition itself has to wait for byte-level quiescence.
+    if (rln_any_parser_in_sequence())
+    {
+        rln_pending_edit = true;
+        return;
+    }
+    rln_pending_edit = false;
     rln_phase = rln_phase_edit;
     rln_emit_mode_cursor();
     rln_cur_idx = 0;
@@ -1126,6 +1181,59 @@ static void rln_enter_edit(void)
         rln_emit_mode_cursor();
 }
 
+// Per-line parser reset. Preserves seen_cpr (terminal responsiveness is
+// a property of the peer connection, not of any one rln_read_line call);
+// everything else — including cpr_this_call — gets zeroed in the common
+// case.
+//
+// Special case: mid-escape-sequence at line boundary. When poke (or any
+// other path that bypasses dispatch_C0) calls rln_finish_line, the
+// callback can synchronously start a new rln_read_line while another
+// stream's parser is mid-sequence — e.g., kbd holds an arrow key and
+// rln_ansi_kbd is sitting on `state=Fe, buf=[\33]` waiting for the `[A`.
+// Wiping that here would turn the trailing `[A` into a literal `A`
+// dispatched in the new line. Preserve state/csi_*/buf/inflight_len in
+// that case so the bytes still in flight land correctly in the new line.
+static void rln_ansi_reset_for_new_line(rln_ansi_t *a)
+{
+    if (a->state != ansi_state_C0 || a->inflight_len > 0)
+    {
+        // Mid-sequence carryover. Drop only per-call CPR tracking.
+        a->cpr_this_call = false;
+        return;
+    }
+    bool seen = a->seen_cpr;
+    memset(a, 0, sizeof *a);
+    a->seen_cpr = seen;
+}
+
+// Clear seen_cpr on any parser that didn't dispatch a CPR this call.
+// Called from any path that enters edit phase without completing the CPR
+// sequence: rln_handshake_fallback (deadline) and the typeahead-relief
+// branch in rln_task. A parser that was responsive in a prior call but
+// silent this round must not keep its sticky bit, or the next call's
+// relief will stay suppressed for a peer that is no longer answering.
+static void rln_clear_stale_seen_cpr(void)
+{
+    if (!rln_ansi_uart.cpr_this_call)
+        rln_ansi_uart.seen_cpr = false;
+    if (!rln_ansi_tel.cpr_this_call)
+        rln_ansi_tel.seen_cpr = false;
+}
+
+// True while we are pre-edit and uart or tel has dispatched any CPR
+// (this call or sticky from a prior call). The peer is known responsive
+// and the rest of the CPR1/DA2/CPR2 burst is on its way; any path that
+// would complete or terminate the line synchronously must instead defer
+// the triggering byte through the per-stream parser so the drain in
+// rln_enter_edit can dispatch it after edit phase is reached. Returns
+// false in edit phase so callers don't need a separate phase guard.
+static bool rln_expecting_more_cpr(void)
+{
+    return rln_phase != rln_phase_edit &&
+           (rln_ansi_uart.seen_cpr || rln_ansi_tel.seen_cpr);
+}
+
 static void rln_handshake_fallback(void)
 {
     // Handshake deadline expired. The init burst already RCP'd the
@@ -1134,6 +1242,7 @@ static void rln_handshake_fallback(void)
     // would have advanced us straight to edit), so drop into the
     // single-virtual-line model (row math bypassed by prompt_col==0)
     // and preserve whatever DA2 told us about DECSCUSR.
+    rln_clear_stale_seen_cpr();
     rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
@@ -1205,6 +1314,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_lastkey_action = false;
 
     rln_phase = rln_phase_prompt_cpr;
+    rln_pending_edit = false;
     // Sentinels for the content-based CPR heuristic: 0 means
     // "not pinned yet". Must be cleared every call or replies
     // from the next handshake get misclassified.
@@ -1214,11 +1324,10 @@ void rln_read_line(rln_read_callback_t callback)
     rln_cur_idx = 0;
     rln_rendered_max_row = 0;
     rln_rendered_end = 0;
-    rln_decscusr_ok = false;
-    memset(&rln_ansi_kbd, 0, sizeof rln_ansi_kbd);
-    memset(&rln_ansi_uart, 0, sizeof rln_ansi_uart);
-    memset(&rln_ansi_tel, 0, sizeof rln_ansi_tel);
-    memset(&rln_ansi_poke, 0, sizeof rln_ansi_poke);
+    rln_ansi_reset_for_new_line(&rln_ansi_kbd);
+    rln_ansi_reset_for_new_line(&rln_ansi_uart);
+    rln_ansi_reset_for_new_line(&rln_ansi_tel);
+    rln_ansi_reset_for_new_line(&rln_ansi_poke);
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
@@ -1249,7 +1358,14 @@ void rln_read_line(rln_read_callback_t callback)
     // we trust the pending-wrap (xenl) model on margin writes.
     printf("\33[?25l\33[s\33[6n");
     if (rln_max_length > 0)
+    {
+        // Re-probing DA2; clear the cached availability so a silent
+        // (non-VT220) peer leaves it false. max_length==0 lines skip
+        // the probe — they own no column to overwrite a minicom-style
+        // `c` leak — and retain whatever an earlier line cached.
+        rln_decscusr_ok = false;
         printf("\33[>c\33[u \b");
+    }
     if (!(rln_width_override && rln_height_override))
         printf("\33[999;999H\33[6n\33[u");
     printf("\33[?25h");
@@ -1301,8 +1417,14 @@ void rln_task(void)
         // late CPR/DA2 from other sources is swallowed before reaching
         // edit phase. Only fires pre-edit; once we enter edit phase
         // subsequent iterations skip this check.
+        //
+        // The CR trigger is suppressed while rln_expecting_more_cpr() —
+        // a responsive peer's burst is still landing, so we hold the CR
+        // in the parser's buf[] and let rln_enter_edit's drain dispatch
+        // it once the sequence finishes (or the deadline expires).
+        // Buffer-overflow still triggers unconditionally as a safety net.
         if (rln_phase != rln_phase_edit &&
-            (ch == '\r' ||
+            ((ch == '\r' && !rln_expecting_more_cpr()) ||
              rln_ansi_kbd.buf_len >= RLN_BUF_SIZE ||
              rln_ansi_uart.buf_len >= RLN_BUF_SIZE ||
              rln_ansi_tel.buf_len >= RLN_BUF_SIZE))
@@ -1314,6 +1436,7 @@ void rln_task(void)
             // previous successful handshake is still useful for callers
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
+            rln_clear_stale_seen_cpr();
             com_getchar_source(this_src);
             rln_prompt_col = 0;
             rln_enter_edit();
@@ -1451,6 +1574,12 @@ bool rln_api_peek(void)
 // (\30) which the parser uses to abort an in-flight sequence and
 // reset state. As a visual badge, controls other than CR (\r) and
 // LF (\n) echo as caret notation (^@..^_).
+//
+// While rln_expecting_more_cpr() — a responsive peer is mid-CPR-burst —
+// the immediate-finish path is skipped and the byte is queued through
+// the parser instead. Drain at edit phase will route a CR through
+// dispatch_C0 to rln_finish_line; other control bytes are dropped
+// (rare in poked input during the brief handshake window).
 void rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -1462,7 +1591,8 @@ void rln_poke(const char *str)
     for (const char *p = str; *p; p++)
     {
         uint8_t ch = (uint8_t)*p;
-        if (ch < 32 && ch != '\33' && ch != '\30')
+        if (ch < 32 && ch != '\33' && ch != '\30' &&
+            !rln_expecting_more_cpr())
         {
             if (ch != '\r' && ch != '\n' && rln_max_length >= 2)
             {
