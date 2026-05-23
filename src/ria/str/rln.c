@@ -159,21 +159,6 @@ static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 static rln_ansi_t rln_ansi[COM_SOURCE_COUNT];
 static rln_ansi_t rln_ansi_poke;
 
-// False = drop CPR matches arriving on the telnet stream instead of
-// dispatching them as geometry. Set by com.c at auth-success based on
-// the client's reported TTYPE (script clients get false).
-static bool rln_tel_console = true;
-
-// Per-source rule for whether CPR replies arriving on this stream should
-// be dropped instead of dispatched as geometry. kbd never produces real
-// terminal protocol replies (a local keyboard isn't a terminal); tel
-// drops CPRs only when com.c flagged the peer as a non-interactive
-// script client; uart trusts its peer.
-static bool rln_ansi_drop_cpr(com_source_t s)
-{
-    return s == COM_SOURCE_KBD || (s == COM_SOURCE_TEL && !rln_tel_console);
-}
-
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
 // Typed and poked dispatches both populate these; CPR/DA/DA2 protocol
@@ -1148,10 +1133,9 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
     rln_ansi_trim_inflight(a);
 }
 
-// Feed one byte through a per-stream parser. drop_cpr=true on the
-// telnet parser when the client is dumb so CPR matches are consumed
-// silently instead of pinning geometry to junk values; also true on
-// the poke parser so accidentally-poked CPR shapes can't pin geometry.
+// Feed one byte through a per-stream parser. drop_cpr=true on the kbd
+// parser (a local keyboard isn't a real terminal) and on the poke
+// parser (accidentally-poked CPR shapes must not pin geometry).
 static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
 {
     // CAN aborts any in-progress sequence with no dispatch.
@@ -1229,7 +1213,7 @@ static void rln_enter_edit(void)
     rln_read_callback_t cb_at_start = rln_callback;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
     {
-        rln_ansi_drain_deferred(&rln_ansi[s], rln_ansi_drop_cpr(s));
+        rln_ansi_drain_deferred(&rln_ansi[s], s == COM_SOURCE_KBD);
         if (rln_callback != cb_at_start || rln_complete_deferred)
             return;
     }
@@ -1422,7 +1406,7 @@ void rln_task(void)
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
         if (this_src != COM_SOURCE_NONE)
         {
-            rln_ansi_feed(&rln_ansi[this_src], (uint8_t)ch, rln_ansi_drop_cpr(this_src));
+            rln_ansi_feed(&rln_ansi[this_src], (uint8_t)ch, this_src == COM_SOURCE_KBD);
             if (rln_complete_deferred && rln_ansi[this_src].state == ansi_state_C0)
                 rln_ansi[this_src].defer_mid = false;
         }
@@ -1527,14 +1511,6 @@ uint8_t rln_get_max_length(void) { return rln_max_length; }
 
 void rln_set_caps(uint8_t v) { rln_caps = v; }
 uint8_t rln_get_caps(void) { return rln_caps; }
-
-void rln_set_tel_console(bool active)
-{
-    rln_tel_console = active;
-    // Reset the TEL parser only — the kbd / uart streams are unaffected
-    // by a peer auth handshake.
-    memset(&rln_ansi[COM_SOURCE_TEL], 0, sizeof rln_ansi[COM_SOURCE_TEL]);
-}
 
 uint16_t rln_get_term_width(void)
 {

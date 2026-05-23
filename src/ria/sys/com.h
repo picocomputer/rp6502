@@ -42,11 +42,6 @@ bool com_tel_set_key(const char *key);
 uint16_t com_tel_get_port(void);
 const char *com_tel_get_key(void);
 
-// Notification from tel.c when a telnet client reports its terminal
-// type via SB TTYPE IS. com.c uses the name to decide whether the
-// client is interactive.
-void com_tel_on_remote_ttype(const char *name);
-
 typedef enum
 {
     COM_SOURCE_KBD,

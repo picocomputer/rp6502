@@ -119,7 +119,6 @@ static size_t com_tel_read(char *buf, size_t length)
 }
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
-void com_tel_on_remote_ttype(const char *name) { (void)name; }
 
 #else
 
@@ -190,27 +189,6 @@ static size_t com_tel_read(char *buf, size_t length)
     return count;
 }
 
-// Latched per-connection. Cleared in com_tel_on_disconnect; updated by
-// com_tel_on_remote_ttype when the client reports its terminal type.
-static bool com_tel_remote_is_script;
-
-static bool com_tel_ttype_is_script(const char *name)
-{
-    static const char *const list[] = {
-        "RP6502",
-    };
-    for (size_t i = 0; i < sizeof(list) / sizeof(list[0]); i++)
-        if (strcasecmp(name, list[i]) == 0)
-            return true;
-    return false;
-}
-
-void com_tel_on_remote_ttype(const char *name)
-{
-    com_tel_remote_is_script = com_tel_ttype_is_script(name);
-    DBG("NET TEL remote TTYPE=%s script=%d\n", name, com_tel_remote_is_script);
-}
-
 static void com_tel_drain_tx(void)
 {
     if (com_tel_state != COM_TEL_STATE_CONNECTED)
@@ -259,17 +237,8 @@ static void com_tel_handle_auth(uint8_t ch)
         {
             tel_tx(SYS_TEL_DESC, STR_TEL_CONNECTED, STR_TEL_CONNECTED_LEN);
             com_tel_state = COM_TEL_STATE_CONNECTED;
-            if (!com_tel_remote_is_script)
-            {
-                vga_set_tel_console_active(true);
-                rln_set_tel_console(true);
-                DBG("NET TEL console authenticated\n");
-            }
-            else
-            {
-                rln_set_tel_console(false);
-                DBG("NET TEL console authenticated (suppressed: script client)\n");
-            }
+            vga_set_tel_console_active(true);
+            DBG("NET TEL console authenticated\n");
         }
         else
         {
@@ -373,7 +342,6 @@ static void com_tel_on_disconnect(int desc)
         DBG("NET TEL console disconnected\n");
         com_tel_teardown(COM_TEL_STATE_LISTENING);
     }
-    com_tel_remote_is_script = false;
     tel_close(desc);
 }
 
