@@ -159,6 +159,15 @@ static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
 static rln_ansi_t rln_ansi[COM_SOURCE_COUNT];
 static rln_ansi_t rln_ansi_poke;
 
+// CPR-pending per-source tracking. Lives outside rln_ansi[] so it
+// survives the per-read memset. expecting[] is the current read's
+// outstanding CPR count; seen[] is sticky across reads — once a
+// source has ever dispatched a valid CPR it stays flagged until
+// rln_init, which is how the defer gate distinguishes real
+// terminals (worth waiting on) from script peers (never reply).
+static uint8_t rln_cpr_expecting[COM_SOURCE_COUNT];
+static bool rln_cpr_seen[COM_SOURCE_COUNT];
+
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
 // Typed and poked dispatches both populate these; CPR/DA/DA2 protocol
@@ -184,6 +193,19 @@ static bool rln_any_inflight(void)
 {
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
         if (rln_ansi[s].state != ansi_state_C0)
+            return true;
+    return false;
+}
+
+// True if any source we've ever seen a CPR from still owes one for
+// the current read. The seen[] guard is what prevents non-terminal
+// sources from blocking defer — only sources that have proven they
+// respond to CPR queries pin completion open while a reply is
+// outstanding.
+static bool rln_cpr_pending(void)
+{
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        if (rln_cpr_seen[s] && rln_cpr_expecting[s] > 0)
             return true;
     return false;
 }
@@ -220,7 +242,7 @@ static void rln_complete(bool rln_timed_out)
 {
     if (rln_complete_deferred)
         return;
-    if (!rln_any_inflight())
+    if (!rln_any_inflight() && !rln_cpr_pending())
     {
         rln_complete_now(rln_timed_out);
         return;
@@ -1057,10 +1079,25 @@ static void rln_da2_dispatch(void)
 // entry_state is the parser's state BEFORE this byte was advanced;
 // term is this byte (the terminator).
 static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
+                                       com_source_t src,
                                        uint8_t term,
                                        rln_ansi_state_t entry_state,
                                        bool drop_cpr)
 {
+    // Account for CPR arrival before the defer-absorb gate, so a CPR
+    // that lands during the quiet window can release defer early via
+    // rln_cpr_pending(). Geometry dispatch is still skipped during
+    // defer below — only the accounting needs to run unconditionally.
+    bool is_cpr = (entry_state == ansi_state_CSI &&
+                   term == 'R' &&
+                   a->csi_private == 0 &&
+                   a->csi_param_count == 2);
+    if (is_cpr && src != COM_SOURCE_NONE)
+    {
+        rln_cpr_seen[src] = true;
+        if (rln_cpr_expecting[src] > 0)
+            rln_cpr_expecting[src]--;
+    }
     // Completion is pending: the line is logically submitted and we're
     // only here to absorb the trailing bytes of an in-flight sequence.
     // Drop both protocol replies and typed actions to keep the buffer
@@ -1136,7 +1173,7 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
 // Feed one byte through a per-stream parser. drop_cpr=true on the kbd
 // parser (a local keyboard isn't a real terminal) and on the poke
 // parser (accidentally-poked CPR shapes must not pin geometry).
-static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
+static void rln_ansi_feed(rln_ansi_t *a, com_source_t src, uint8_t b, bool drop_cpr)
 {
     // CAN aborts any in-progress sequence with no dispatch.
     if (b == '\30')
@@ -1155,7 +1192,7 @@ static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
     rln_ansi_state_t entry_state = a->state;
     rln_ansi_advance(a, b);
     if (a->state == ansi_state_C0)
-        rln_ansi_dispatch_or_defer(a, b, entry_state, drop_cpr);
+        rln_ansi_dispatch_or_defer(a, src, b, entry_state, drop_cpr);
 }
 
 // Drain the deferred head region through the same parser. Called from
@@ -1166,7 +1203,7 @@ static void rln_ansi_feed(rln_ansi_t *a, uint8_t b, bool drop_cpr)
 // temp[] which completes the line (and may even synchronously start
 // a new one) doesn't replay further stale bytes against the next
 // line's freshly memset state.
-static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
+static void rln_ansi_drain_deferred(rln_ansi_t *a, com_source_t src, bool drop_cpr)
 {
     if (a->buf_len == 0)
         return;
@@ -1182,7 +1219,7 @@ static void rln_ansi_drain_deferred(rln_ansi_t *a, bool drop_cpr)
     a->inflight_len = 0;
     for (uint16_t i = 0; i < total; i++)
     {
-        rln_ansi_feed(a, temp[i], drop_cpr);
+        rln_ansi_feed(a, src, temp[i], drop_cpr);
         // Stop if the line finished (callback fired) or finished into a
         // defer. The defer path keeps rln_callback non-NULL but gates
         // dispatch — continuing the loop is wasted work and would defer
@@ -1213,13 +1250,13 @@ static void rln_enter_edit(void)
     rln_read_callback_t cb_at_start = rln_callback;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
     {
-        rln_ansi_drain_deferred(&rln_ansi[s], s == COM_SOURCE_KBD);
+        rln_ansi_drain_deferred(&rln_ansi[s], s, s == COM_SOURCE_KBD);
         if (rln_callback != cb_at_start || rln_complete_deferred)
             return;
     }
     bool prev_overwrite = rln_overwrite;
     rln_overwrite = true;
-    rln_ansi_drain_deferred(&rln_ansi_poke, /*drop_cpr=*/true);
+    rln_ansi_drain_deferred(&rln_ansi_poke, COM_SOURCE_NONE, /*drop_cpr=*/true);
     bool need_reemit = (rln_overwrite != prev_overwrite);
     rln_overwrite = prev_overwrite;
     if (need_reemit)
@@ -1325,6 +1362,13 @@ void rln_read_line(rln_read_callback_t callback)
     rln_decscusr_ok = false;
     memset(rln_ansi, 0, sizeof rln_ansi);
     memset(&rln_ansi_poke, 0, sizeof rln_ansi_poke);
+    // CPR1 always sent; CPR2 sent only when at least one geometry axis
+    // isn't overridden. Seed expecting for every source — bytes go to
+    // all attached terminals and any of them may reply. Non-terminal
+    // sources have seen[s]=false so they never block defer regardless.
+    uint8_t cprs = (rln_width_override && rln_height_override) ? 1 : 2;
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        rln_cpr_expecting[s] = cprs;
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
@@ -1384,11 +1428,14 @@ void rln_task(void)
         int c = -1;
         if (rln_complete_deferred)
         {
-            // Walk only the sources that were mid-ESC at defer entry;
-            // bytes on clean sources stay in com's per-source FIFO.
+            // Walk sources that were mid-ESC at defer entry OR that
+            // still owe a CPR reply we've proven they're capable of
+            // sending. Bytes on truly clean sources stay in com's
+            // per-source FIFO for the next read.
             for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             {
-                if (!rln_ansi[s].defer_mid)
+                if (!rln_ansi[s].defer_mid &&
+                    !(rln_cpr_seen[s] && rln_cpr_expecting[s] > 0))
                     continue;
                 this_src = s;
                 c = com_getchar(&this_src);
@@ -1406,7 +1453,7 @@ void rln_task(void)
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
         if (this_src != COM_SOURCE_NONE)
         {
-            rln_ansi_feed(&rln_ansi[this_src], (uint8_t)ch, this_src == COM_SOURCE_KBD);
+            rln_ansi_feed(&rln_ansi[this_src], this_src, (uint8_t)ch, this_src == COM_SOURCE_KBD);
             if (rln_complete_deferred && rln_ansi[this_src].state == ansi_state_C0)
                 rln_ansi[this_src].defer_mid = false;
         }
@@ -1454,7 +1501,7 @@ void rln_task(void)
     // The deadline remains the fallback for sequences that never land.
     if (rln_complete_deferred)
     {
-        bool all_done = true;
+        bool all_done = !rln_cpr_pending();
         for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             if (rln_ansi[s].defer_mid)
                 all_done = false;
@@ -1477,6 +1524,8 @@ void rln_init(void)
     rln_height_override = 0;
     rln_complete_deferred = false;
     rln_script_source = COM_SOURCE_NONE;
+    memset(rln_cpr_expecting, 0, sizeof rln_cpr_expecting);
+    memset(rln_cpr_seen, 0, sizeof rln_cpr_seen);
 }
 
 void rln_run(void)
@@ -1647,7 +1696,7 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        rln_ansi_feed(&rln_ansi_poke, (uint8_t)ch, /*drop_cpr=*/true);
+        rln_ansi_feed(&rln_ansi_poke, COM_SOURCE_NONE, (uint8_t)ch, /*drop_cpr=*/true);
     }
     if (sync)
     {
