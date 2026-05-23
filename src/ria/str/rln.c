@@ -126,13 +126,6 @@ static bool rln_complete_deferred;
 static bool rln_complete_deferred_timeout;
 static absolute_time_t rln_complete_deferred_deadline;
 
-// Script-source identification. Set by instant relief or any other
-// handshake-bail-out path that recognized a scripting peer. The
-// matching com_getchar_source hold is armed at rln_complete_now —
-// arming it earlier (while the current line is still draining) lets
-// com_task drain the very bytes we need to absorb during defer.
-static com_source_t rln_script_source;
-
 // Cross-terminal display state
 static rln_phase_t rln_phase;
 static absolute_time_t rln_handshake_deadline;
@@ -157,15 +150,20 @@ static rln_ansi_t rln_ansi[COM_SOURCE_COUNT];
 static rln_ansi_t rln_ansi_poke;
 
 // CPR-pending per-source tracking. Lives outside rln_ansi[] so it
-// survives the per-read memset. expecting[] is the current read's
-// outstanding CPR count; seen[] is sticky across reads — once a
-// source has dispatched a valid CPR it stays flagged so the defer
-// gate keeps distinguishing real terminals (worth waiting on) from
-// script peers (never reply). Cleared in three cases: rln_init
-// (session reset), handshake fallback for sources that delivered no
-// CPRs this round (terminal swap or non-responder), and instant
-// relief on the triggering source (positively identified as a
-// script peer).
+// survives the per-read memset. initial holds the CPR count seeded
+// into expecting[] at read start (1 or 2 depending on geometry
+// overrides). expecting[] is the current read's outstanding CPR
+// count, decremented as replies dispatch. seen[] is sticky across
+// reads — once a source has dispatched a valid CPR it stays flagged
+// so the defer gate keeps distinguishing real terminals (worth
+// waiting on) from script peers (never reply). seen[s] is cleared
+// only when we're confident the prior verdict is stale: at rln_init
+// (session reset), or at handshake fallback / instant relief when
+// the source delivered no CPRs this round (expecting[s] ==
+// initial) AND isn't mid-ESC (state == C0). The mid-ESC guard
+// keeps a real-but-slow terminal's verdict intact while its CPR
+// is still on the wire.
+static uint8_t rln_cpr_initial;
 static uint8_t rln_cpr_expecting[COM_SOURCE_COUNT];
 static bool rln_cpr_seen[COM_SOURCE_COUNT];
 
@@ -232,16 +230,6 @@ static void rln_complete_now(bool rln_timed_out)
     // defer absorbing a sibling source's protocol tail, and the
     // next chunk would land in a com FIFO that nothing is draining.
     printf("\n");
-    // Arm the com hold now that the line has really ended. Holding
-    // earlier (e.g. inside the instant-relief block) would let
-    // com_task drain non-held sources while the current line is
-    // still finishing — including the mid-stream tail bytes that
-    // defer is trying to absorb.
-    if (rln_script_source != COM_SOURCE_NONE)
-    {
-        com_getchar_source(rln_script_source);
-        rln_script_source = COM_SOURCE_NONE;
-    }
     cc(rln_timed_out, rln_buf);
 }
 
@@ -1273,14 +1261,15 @@ static void rln_handshake_fallback(void)
     // and preserve whatever DA2 told us about DECSCUSR.
     //
     // Forget the sticky "seen" verdict for any source that delivered
-    // zero CPRs this round — silence at the deadline means the prior
-    // verdict is stale (e.g. a real terminal was replaced by a script
-    // peer on this source). Sources that landed at least one CPR
-    // (expecting decremented below the initial cprs) keep their
-    // verdict: they're real, just slow on the rest.
-    uint8_t cprs = (rln_width_override && rln_height_override) ? 1 : 2;
+    // zero CPRs this round AND isn't mid-ESC right now — that's the
+    // only state where the prior verdict can be safely written off
+    // as stale (e.g. terminal swapped for a script peer). Sources
+    // that landed at least one CPR (expecting decremented) or have a
+    // sequence still in flight (state != C0) might still be real;
+    // keep their verdict.
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        if (rln_cpr_expecting[s] == cprs)
+        if (rln_cpr_expecting[s] == rln_cpr_initial &&
+            rln_ansi[s].state == ansi_state_C0)
             rln_cpr_seen[s] = false;
     rln_prompt_col = 0;
     rln_term_height = 0;
@@ -1358,7 +1347,6 @@ void rln_read_line(rln_read_callback_t callback)
     rln_action_taken = false;
     rln_lastkey_action = false;
     rln_complete_deferred = false;
-    rln_script_source = COM_SOURCE_NONE;
 
     rln_phase = rln_phase_prompt_cpr;
     // Sentinels for the content-based CPR heuristic: 0 means
@@ -1377,9 +1365,9 @@ void rln_read_line(rln_read_callback_t callback)
     // isn't overridden. Seed expecting for every source — bytes go to
     // all attached terminals and any of them may reply. Non-terminal
     // sources have seen[s]=false so they never block defer regardless.
-    uint8_t cprs = (rln_width_override && rln_height_override) ? 1 : 2;
+    rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        rln_cpr_expecting[s] = cprs;
+        rln_cpr_expecting[s] = rln_cpr_initial;
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
@@ -1429,10 +1417,10 @@ void rln_task(void)
     if (!rln_callback)
         return;
     // Pull bytes via com_getchar. In normal operation src=NONE selects
-    // any source (script-hold aware). During deferred completion we
-    // walk only the mid-stream sources via the explicit-source mode,
-    // leaving bytes on clean sources queued in their FIFOs for the
-    // next rln_read_line to consume as fresh input.
+    // any source via the sticky RX picker. During deferred completion
+    // we walk only the still-busy sources via the explicit-source
+    // mode, leaving bytes on clean sources queued in their FIFOs for
+    // the next rln_read_line to consume as fresh input.
     while (rln_callback)
     {
         com_source_t this_src = COM_SOURCE_NONE;
@@ -1469,13 +1457,12 @@ void rln_task(void)
             rln_complete_deferred_deadline =
                 make_timeout_time_ms(RLN_COMPLETE_QUIET_MS);
         // Provide instant relief during handshake for scripting tools
-        // that do not respond to ANSI sequences. The triggering source
-        // is identified as a script — record it so rln_complete_now
-        // can pin the com hold to it once the current line really
-        // ends. Arming the hold here would let com_task drain non-held
-        // sources (including uart's mid-CPR tail) before defer can
-        // absorb them. Only fires pre-edit; once we enter edit phase
-        // subsequent iterations skip this check.
+        // that do not respond to ANSI sequences. CR pre-edit, or any
+        // parser hitting its buf cap, means the peer is feeding bytes
+        // without ever completing the CPR exchange — abandon the rest
+        // of the handshake and enter edit phase so the line can flow.
+        // Only fires pre-edit; once we enter edit phase subsequent
+        // iterations skip this check.
         bool any_overflow = false;
         for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             if (rln_ansi[s].buf_len >= RLN_BUF_SIZE)
@@ -1489,11 +1476,15 @@ void rln_task(void)
             // previous successful handshake is still useful for callers
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
-            rln_script_source = this_src;
-            // Positively a script peer: forget any stale "seen"
-            // verdict from a prior read so future reads don't pin
-            // defer waiting on a CPR this source won't send.
-            rln_cpr_seen[this_src] = false;
+            // Forget any stale "seen" verdict from a prior read, but
+            // only when this source delivered zero CPRs this round
+            // AND isn't mid-ESC — same guard as handshake fallback.
+            // A CPR already counted, or a sequence still in flight,
+            // means the source might still be a real terminal whose
+            // verdict we should keep.
+            if (rln_cpr_expecting[this_src] == rln_cpr_initial &&
+                rln_ansi[this_src].state == ansi_state_C0)
+                rln_cpr_seen[this_src] = false;
             rln_prompt_col = 0;
             rln_enter_edit();
         }
@@ -1529,7 +1520,6 @@ void rln_init(void)
     rln_width_override = 0;
     rln_height_override = 0;
     rln_complete_deferred = false;
-    rln_script_source = COM_SOURCE_NONE;
     memset(rln_cpr_expecting, 0, sizeof rln_cpr_expecting);
     memset(rln_cpr_seen, 0, sizeof rln_cpr_seen);
 }

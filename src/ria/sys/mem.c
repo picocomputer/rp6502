@@ -43,19 +43,10 @@ static size_t mem_read_size;
 
 void mem_task(void)
 {
-    // Pin the binary read to one input source via com.c's hold (see
-    // com_getchar_source in com.h). Two cases:
-    //   - A hold is already armed (e.g. rln pinned the source during
-    //     its handshake). com_getchar reads only from that source and
-    //     reports it; we re-arm to extend the deadline past COM_HOLD_MS.
-    //   - No hold yet (interactive start). The first byte identifies
-    //     the source and we arm the hold then, so peer terminals can't
-    //     slice the binary stream.
     while (mem_callback)
     {
         com_source_t src = COM_SOURCE_NONE;
         int c = com_getchar(&src);
-        com_getchar_source(src);
         if (c < 0)
             break;
         mem_deadline = make_timeout_time_ms(mem_timeout_ms);

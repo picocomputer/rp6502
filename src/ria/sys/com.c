@@ -99,14 +99,6 @@ static bool com_bel_enabled = true;
 // sources (kbd, UART, telnet).
 #define COM_RX_IDLE_US 1000
 
-// Script-source hold window. While armed, com_getchar reads only from
-// com_held_src and drains the other sources to /dev/null. Armed and
-// refreshed by com_getchar_source; auto-refreshed by com_getchar on
-// each successful read; auto-cleared on expiry or via com_break.
-#define COM_HOLD_MS 100
-static com_source_t com_held_src;
-static absolute_time_t com_held_until;
-
 #ifndef RP6502_RIA_W
 
 static bool com_tel_tx_writable(void) { return true; }
@@ -511,15 +503,6 @@ static size_t com_read_source(com_source_t src, char *buf, size_t length)
     return 0;
 }
 
-// Drain a single source completely to /dev/null. Used by com_task while
-// a script hold is active so non-held sources can't overflow upstream.
-static void com_drain_source(com_source_t src)
-{
-    char tmp[16];
-    while (com_read_source(src, tmp, sizeof tmp))
-        ;
-}
-
 static bool com_uart_tx_writable(void)
 {
     return (((com_uart_tx_head + 1) % COM_UART_TX_BUF_SIZE) != com_uart_tx_tail);
@@ -660,17 +643,15 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
     return 0;
 }
 
-// Hold-aware single-byte reader. When a hold is armed, only the held
-// source can deliver; com_task drains the others to /dev/null on its
-// own cadence so their upstream rings can't overflow. Each successful
-// read from the held source bumps the deadline another COM_HOLD_MS
-// into the future, so a streaming consumer (e.g. mem_task during a
-// binary upload) keeps the hold alive simply by reading. The hold
-// auto-expires once nothing matches it for COM_HOLD_MS.
+// Single-byte reader.
 //
-// Explicit single-source pull (*src set on entry) bypasses the hold
-// entirely — used by rln to finish off in-flight ESC tails during a
+// Explicit single-source pull (*src set on entry) reads only from that
+// source — used by rln to finish off in-flight ESC tails during a
 // deferred completion without consuming bytes from clean sources.
+//
+// Any-source pull (*src == COM_SOURCE_NONE on entry) picks the next
+// byte via the sticky-source RX picker; on a byte, *src is set to the
+// delivering source.
 int com_getchar(com_source_t *src)
 {
     if (src && *src != COM_SOURCE_NONE)
@@ -679,23 +660,6 @@ int com_getchar(com_source_t *src)
         if (com_read_source(*src, &ch, 1))
             return (unsigned char)ch;
         *src = COM_SOURCE_NONE;
-        return PICO_ERROR_TIMEOUT;
-    }
-
-    if (com_held_src != COM_SOURCE_NONE && time_reached(com_held_until))
-        com_held_src = COM_SOURCE_NONE;
-
-    if (com_held_src != COM_SOURCE_NONE)
-    {
-        char ch;
-        size_t n = com_read_source(com_held_src, &ch, 1);
-        if (src)
-            *src = com_held_src;
-        if (n)
-        {
-            com_held_until = make_timeout_time_ms(COM_HOLD_MS);
-            return (unsigned char)ch;
-        }
         return PICO_ERROR_TIMEOUT;
     }
 
@@ -710,14 +674,6 @@ int com_getchar(com_source_t *src)
     if (src)
         *src = COM_SOURCE_NONE;
     return PICO_ERROR_TIMEOUT;
-}
-
-void com_getchar_source(com_source_t src)
-{
-    if (src == COM_SOURCE_NONE)
-        return;
-    com_held_src = src;
-    com_held_until = make_timeout_time_ms(COM_HOLD_MS);
 }
 
 // One round of TX fanout + UART RX/TX pump + telnet pump. Used by the
@@ -820,7 +776,6 @@ void com_break(void)
     REGS(0xFFE2) = 0;
 
     com_rx_char = -1;
-    com_held_src = COM_SOURCE_NONE;
 }
 
 void com_task(void)
@@ -870,14 +825,6 @@ void com_task(void)
     break_detect = current_break;
 
     com_tel_task();
-
-    // While a script hold is active, drain the non-held sources every
-    // tick so their upstream rings can't overflow with bytes nobody is
-    // going to read. The hold itself auto-expires inside com_getchar.
-    if (com_held_src != COM_SOURCE_NONE)
-        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-            if (s != com_held_src)
-                com_drain_source(s);
 }
 
 bool com_get_bel(void)

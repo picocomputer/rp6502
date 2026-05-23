@@ -52,21 +52,15 @@ typedef enum
 } com_source_t;
 
 // Non-blocking 1-byte read. *src is in/out:
-//   - in COM_SOURCE_NONE: read from any active source (script-hold
-//     aware). On byte, *src is set to the source that delivered; on
-//     no byte, *src is set to COM_SOURCE_NONE (or the held source
-//     when a hold is armed but had nothing to deliver).
-//   - in specific source: read only from that source, bypassing the
-//     script-hold. Bytes on other sources are left in their FIFOs
-//     for a later reader. On no byte, *src is reset to COM_SOURCE_NONE.
+//   - in COM_SOURCE_NONE: read from any active source via the sticky
+//     RX picker. On byte, *src is set to the source that delivered;
+//     on no byte, *src is reset to COM_SOURCE_NONE.
+//   - in specific source: read only from that source. Bytes on other
+//     sources are left in their FIFOs for a later reader. On no byte,
+//     *src is reset to COM_SOURCE_NONE.
 // Returns the byte (0..255) or PICO_ERROR_TIMEOUT when no data is
 // available on the requested source(s).
 int com_getchar(com_source_t *src);
-
-// Arm or refresh a 100 ms hold pinning all com_getchar reads to src;
-// while the hold is active, bytes from the other sources are drained
-// to /dev/null. No-op when src == COM_SOURCE_NONE.
-void com_getchar_source(com_source_t src);
 
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
 // std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main
