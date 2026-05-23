@@ -9,9 +9,9 @@
 #include <pico.h>
 #include <pico/time.h>
 #include <assert.h>
+#include <stdio.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
