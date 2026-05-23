@@ -167,6 +167,19 @@ static uint8_t rln_cpr_initial;
 static uint8_t rln_cpr_expecting[COM_SOURCE_COUNT];
 static bool rln_cpr_seen[COM_SOURCE_COUNT];
 
+// Per-source DA2 tracking. Set when a source dispatches a valid DA2 reply.
+// Used by the lock-off check below to tell which sources proved DA2-aware
+// vs. which completed CPRs without ever replying DA2. Cleared at
+// rln_read_line and rln_init alongside rln_cpr_seen[].
+static bool rln_da2_seen[COM_SOURCE_COUNT];
+// Sticky-off latch: when any source proves DA2-deaf this read (completed
+// its CPR quota or hit the 1-CPR timeout without delivering DA2), forces
+// rln_decscusr_ok back to false and blocks rln_da2_dispatch from
+// re-enabling. Stdout writes go to every attached terminal, so a single
+// VT102 peer would leak the `q` of DECSCUSR as literal text; one bad peer
+// must poison cursor-shape support for everyone. Cleared per read.
+static bool rln_decscusr_locked_off;
+
 // Lastkey capture for the 6502 API. rln_action_taken is the live
 // "this dispatch mutated state" flag, sampled at lastkey publish time.
 // Typed and poked dispatches both populate these; CPR/DA/DA2 protocol
@@ -1047,8 +1060,13 @@ static void rln_publish_lastkey(rln_ansi_t *a)
 // arriving in edit phase still flips the bit and emits the cursor
 // shape so the user sees the correct insert/overwrite indicator going
 // forward.
-static void rln_da2_dispatch(void)
+static void rln_da2_dispatch(com_source_t src)
 {
+    // Sticky-off latch from a peer that proved DA2-deaf this read:
+    // ignore any DA2 (including a deferred one replayed via drain after
+    // the latch fired) so cursor shapes can't be re-enabled.
+    if (rln_decscusr_locked_off)
+        return;
     // Late DA2 arriving after we've already entered edit phase with
     // geometry suppressed (instant relief or handshake fallback both
     // leave prompt_col at 0): ignore. Enabling DECSCUSR now would
@@ -1058,6 +1076,11 @@ static void rln_da2_dispatch(void)
         return;
     if (rln_decscusr_ok)
         return;
+    // Per-source bookkeeping for the lock-off check. Poke-fed DA2
+    // (src == COM_SOURCE_NONE) still flips the global flag — preserving
+    // current behavior — but does not pollute per-source tracking.
+    if (src != COM_SOURCE_NONE)
+        rln_da2_seen[src] = true;
     rln_decscusr_ok = true;
     if (rln_phase == rln_phase_edit)
         rln_emit_mode_cursor();
@@ -1095,6 +1118,22 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
         rln_ansi_trim_inflight(a);
         return;
     }
+    // 2-CPR mode lock-off: if this CPR closed out the source's quota
+    // (CPR1+CPR2 both delivered) and that same source never replied DA2,
+    // the peer is DA2-deaf. The burst order is CPR1, DA2, CPR2, so a
+    // DA2-aware peer would have replied DA2 before its CPR2. Latch the
+    // global lock so any later DA2 (including a deferred one replayed
+    // during the drain triggered by rln_cpr_dispatch below) can't
+    // re-enable cursor shapes. Skipped during defer above so a stale
+    // CPR2 from the prior read's handshake can't trip the latch.
+    if (rln_cpr_initial == 2 &&
+        is_cpr && src != COM_SOURCE_NONE &&
+        rln_cpr_expecting[src] == 0 &&
+        !rln_da2_seen[src])
+    {
+        rln_decscusr_ok = false;
+        rln_decscusr_locked_off = true;
+    }
     // CPR: ESC [ p1 ; p2 R, no private marker, exactly 2 params.
     if (entry_state == ansi_state_CSI &&
         term == 'R' &&
@@ -1111,7 +1150,7 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
         a->csi_private == '>' &&
         term == 'c')
     {
-        rln_da2_dispatch();
+        rln_da2_dispatch(src);
         rln_ansi_trim_inflight(a);
         return;
     }
@@ -1258,8 +1297,25 @@ static void rln_handshake_fallback(void)
     // to fix cursor placement here. We never got both CPRs (CPR2
     // would have advanced us straight to edit), so drop into the
     // single-virtual-line model (row math bypassed by prompt_col==0)
-    // and preserve whatever DA2 told us about DECSCUSR.
+    // and preserve whatever DA2 told us about DECSCUSR — except in
+    // 1-CPR mode below, where the deadline is the only signal a peer
+    // is DA2-deaf.
     //
+    // 1-CPR mode lock-off: in 2-CPR mode the CPR2 sentinel triggers
+    // the live latch in rln_ansi_dispatch_or_defer, but when both
+    // geometry overrides pin the size we only send CPR1 — there's no
+    // sentinel after DA2 in the burst, so we can't tell DA2-deaf from
+    // DA2-in-flight until the deadline. Any source that delivered CPR1
+    // (proving it's a real terminal that processes ANSI) without
+    // having replied DA2 by now is DA2-deaf; latch off for everyone.
+    if (rln_cpr_initial == 1)
+        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+            if (rln_cpr_seen[s] && !rln_da2_seen[s])
+            {
+                rln_decscusr_ok = false;
+                rln_decscusr_locked_off = true;
+                break;
+            }
     // Forget the sticky "seen" verdict for any source that delivered
     // zero CPRs this round AND isn't mid-ESC right now — that's the
     // only state where the prior verdict can be safely written off
@@ -1359,6 +1415,8 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_max_row = 0;
     rln_rendered_end = 0;
     rln_decscusr_ok = false;
+    rln_decscusr_locked_off = false;
+    memset(rln_da2_seen, 0, sizeof rln_da2_seen);
     memset(rln_ansi, 0, sizeof rln_ansi);
     memset(&rln_ansi_poke, 0, sizeof rln_ansi_poke);
     // CPR1 always sent; CPR2 sent only when at least one geometry axis
@@ -1522,6 +1580,8 @@ void rln_init(void)
     rln_complete_deferred = false;
     memset(rln_cpr_expecting, 0, sizeof rln_cpr_expecting);
     memset(rln_cpr_seen, 0, sizeof rln_cpr_seen);
+    memset(rln_da2_seen, 0, sizeof rln_da2_seen);
+    rln_decscusr_locked_off = false;
 }
 
 void rln_run(void)
