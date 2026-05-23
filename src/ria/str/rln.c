@@ -92,11 +92,6 @@ typedef struct
     uint8_t buf[RLN_BUF_SIZE];
     uint16_t buf_len;
     uint16_t inflight_len;
-    // Snapshot at defer entry: was this parser mid-sequence? Cleared
-    // back to false in rln_task once the parser returns to C0, which
-    // lets the deferred completion fire early when every mid-stream
-    // source has settled.
-    bool defer_mid;
 } rln_ansi_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -119,12 +114,14 @@ static uint32_t rln_timeout_ms;
 static uint8_t rln_caps;
 
 // Deferred completion. Set when rln_complete fires while at least one
-// parser has an in-flight ESC sequence; the actual callback invocation
-// waits for RLN_COMPLETE_QUIET_MS of byte silence on the sources that
-// were mid-stream at defer entry. Other sources are not read at all
-// during the defer window — their bytes stay in com's per-source FIFO
-// and arrive at the next rln_read_line as a fresh stream. The "was
-// mid-stream at defer entry" snapshot lives in rln_ansi[].defer_mid.
+// source is still busy (parser mid-ESC or owes a proven CPR reply); the
+// actual callback invocation waits for RLN_COMPLETE_QUIET_MS of byte
+// silence on those still-busy sources. Other sources are not read at
+// all during the defer window — their bytes stay in com's per-source
+// FIFO and arrive at the next rln_read_line as a fresh stream.
+// "Busy" is evaluated live via rln_source_busy(); since no new ESC
+// bytes enter clean sources during defer (gated out) and no new CPRs
+// are issued, the predicate is monotone-decreasing per source.
 static bool rln_complete_deferred;
 static bool rln_complete_deferred_timeout;
 static absolute_time_t rln_complete_deferred_deadline;
@@ -162,9 +159,13 @@ static rln_ansi_t rln_ansi_poke;
 // CPR-pending per-source tracking. Lives outside rln_ansi[] so it
 // survives the per-read memset. expecting[] is the current read's
 // outstanding CPR count; seen[] is sticky across reads — once a
-// source has ever dispatched a valid CPR it stays flagged until
-// rln_init, which is how the defer gate distinguishes real
-// terminals (worth waiting on) from script peers (never reply).
+// source has dispatched a valid CPR it stays flagged so the defer
+// gate keeps distinguishing real terminals (worth waiting on) from
+// script peers (never reply). Cleared in three cases: rln_init
+// (session reset), handshake fallback for sources that delivered no
+// CPRs this round (terminal swap or non-responder), and instant
+// relief on the triggering source (positively identified as a
+// script peer).
 static uint8_t rln_cpr_expecting[COM_SOURCE_COUNT];
 static bool rln_cpr_seen[COM_SOURCE_COUNT];
 
@@ -177,35 +178,37 @@ static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
-// True if any com-fed parser is part-way through a multi-byte sequence
-// (state != C0). Drives the conditional defer in rln_complete. We
-// classify by state rather than inflight_len because the trigger byte
-// that fires rln_complete (a CR or poked control byte) is itself in
-// the parser's buf with inflight_len == 1 at this moment, but its
-// state is already back to C0 — a single-byte C0 dispatch is not a
-// mid-sequence and must not force a defer.
+// True if source s still owes rln in-band protocol work: either mid a
+// multi-byte ANSI sequence, or owes a CPR reply we've proven it can
+// send. Drives the conditional defer in rln_complete, the read gate
+// inside the defer window, and the fire-early check in rln_task.
 //
-// Poke is excluded: it can't be drained during defer (rln_poke is
-// gated to no-op while completion is deferred), so a stuck poke
-// partial would only pin the deadline for nothing. The next
-// rln_read_line memsets it and there is no com FIFO to leak from.
-static bool rln_any_inflight(void)
+// We classify the parser by state rather than inflight_len because the
+// trigger byte that fires rln_complete (a CR or poked control byte) is
+// itself in the parser's buf with inflight_len == 1 at this moment,
+// but its state is already back to C0 — a single-byte C0 dispatch is
+// not a mid-sequence and must not force a defer.
+//
+// The cpr_seen[] gate prevents non-terminal sources (script peers that
+// never reply) from pinning completion open on a speculative request.
+// Parser state has no such gate — a non-C0 state means real bytes
+// arrived and started a sequence we need to absorb.
+//
+// Poke is excluded from rln_any_source_busy via the iteration bounds:
+// it can't be drained during defer (rln_poke is gated to no-op while
+// completion is deferred), so a stuck poke partial would only pin the
+// deadline for nothing. The next rln_read_line memsets it and there is
+// no com FIFO to leak from.
+static bool rln_source_busy(com_source_t s)
 {
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        if (rln_ansi[s].state != ansi_state_C0)
-            return true;
-    return false;
+    return rln_ansi[s].state != ansi_state_C0 ||
+           (rln_cpr_seen[s] && rln_cpr_expecting[s] > 0);
 }
 
-// True if any source we've ever seen a CPR from still owes one for
-// the current read. The seen[] guard is what prevents non-terminal
-// sources from blocking defer — only sources that have proven they
-// respond to CPR queries pin completion open while a reply is
-// outstanding.
-static bool rln_cpr_pending(void)
+static bool rln_any_source_busy(void)
 {
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        if (rln_cpr_seen[s] && rln_cpr_expecting[s] > 0)
+        if (rln_source_busy(s))
             return true;
     return false;
 }
@@ -221,6 +224,14 @@ static void rln_complete_now(bool rln_timed_out)
     rln_timeout_ms = 0;
     rln_callback = NULL;
     rln_complete_deferred = false;
+    // Emit the line-terminating newline here rather than at
+    // rln_finish_line. Uploaders that key their next chunk off
+    // seeing '\n' echo back use the newline as a flow-control
+    // signal — emitting it before defer ends would tell a UART
+    // script "ready for next chunk" while we're still pinned in
+    // defer absorbing a sibling source's protocol tail, and the
+    // next chunk would land in a com FIFO that nothing is draining.
+    printf("\n");
     // Arm the com hold now that the line has really ended. Holding
     // earlier (e.g. inside the instant-relief block) would let
     // com_task drain non-held sources while the current line is
@@ -242,7 +253,7 @@ static void rln_complete(bool rln_timed_out)
 {
     if (rln_complete_deferred)
         return;
-    if (!rln_any_inflight() && !rln_cpr_pending())
+    if (!rln_any_source_busy())
     {
         rln_complete_now(rln_timed_out);
         return;
@@ -250,16 +261,6 @@ static void rln_complete(bool rln_timed_out)
     rln_complete_deferred = true;
     rln_complete_deferred_timeout = rln_timed_out;
     rln_complete_deferred_deadline = make_timeout_time_ms(RLN_COMPLETE_QUIET_MS);
-    // Lock in which com sources were mid-ESC at defer entry. During
-    // the defer window rln pulls only from these via com_getchar's
-    // explicit-source mode, so bytes on clean sources sit untouched
-    // in their FIFOs and arrive at the next read as a fresh stream.
-    // State-based (not inflight_len-based) so the just-fed trigger
-    // byte — sitting in its parser's buf with inflight_len == 1 but
-    // state already back to C0 — doesn't get flagged and have its
-    // post-CR bytes drained-and-absorbed by the defer loop's gate.
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        rln_ansi[s].defer_mid = rln_ansi[s].state != ansi_state_C0;
 }
 
 /* ----- Screen position math (multi-line mode) ----- */
@@ -527,7 +528,6 @@ static void rln_history_add(void)
 static void rln_finish_line(bool add_to_history)
 {
     rln_sync_cursor_to(rln_buflen);
-    printf("\n");
     rln_buf[rln_buflen] = 0;
     if (add_to_history)
         rln_history_add();
@@ -1086,7 +1086,7 @@ static void rln_ansi_dispatch_or_defer(rln_ansi_t *a,
 {
     // Account for CPR arrival before the defer-absorb gate, so a CPR
     // that lands during the quiet window can release defer early via
-    // rln_cpr_pending(). Geometry dispatch is still skipped during
+    // rln_any_source_busy(). Geometry dispatch is still skipped during
     // defer below — only the accounting needs to run unconditionally.
     bool is_cpr = (entry_state == ansi_state_CSI &&
                    term == 'R' &&
@@ -1271,6 +1271,17 @@ static void rln_handshake_fallback(void)
     // would have advanced us straight to edit), so drop into the
     // single-virtual-line model (row math bypassed by prompt_col==0)
     // and preserve whatever DA2 told us about DECSCUSR.
+    //
+    // Forget the sticky "seen" verdict for any source that delivered
+    // zero CPRs this round — silence at the deadline means the prior
+    // verdict is stale (e.g. a real terminal was replaced by a script
+    // peer on this source). Sources that landed at least one CPR
+    // (expecting decremented below the initial cprs) keep their
+    // verdict: they're real, just slow on the rest.
+    uint8_t cprs = (rln_width_override && rln_height_override) ? 1 : 2;
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        if (rln_cpr_expecting[s] == cprs)
+            rln_cpr_seen[s] = false;
     rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
@@ -1428,14 +1439,12 @@ void rln_task(void)
         int c = -1;
         if (rln_complete_deferred)
         {
-            // Walk sources that were mid-ESC at defer entry OR that
-            // still owe a CPR reply we've proven they're capable of
-            // sending. Bytes on truly clean sources stay in com's
+            // Walk only sources still mid-ESC or still owing a proven
+            // CPR reply. Bytes on truly clean sources stay in com's
             // per-source FIFO for the next read.
             for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             {
-                if (!rln_ansi[s].defer_mid &&
-                    !(rln_cpr_seen[s] && rln_cpr_expecting[s] > 0))
+                if (!rln_source_busy(s))
                     continue;
                 this_src = s;
                 c = com_getchar(&this_src);
@@ -1452,11 +1461,7 @@ void rln_task(void)
         char ch = (char)c;
         rln_timer = make_timeout_time_ms(rln_timeout_ms);
         if (this_src != COM_SOURCE_NONE)
-        {
             rln_ansi_feed(&rln_ansi[this_src], this_src, (uint8_t)ch, this_src == COM_SOURCE_KBD);
-            if (rln_complete_deferred && rln_ansi[this_src].state == ansi_state_C0)
-                rln_ansi[this_src].defer_mid = false;
-        }
         // Every byte we got here came from a mid-stream source (during
         // defer) or normal operation — push the quiet window out so
         // the deadline reflects the actual last-byte arrival.
@@ -1485,6 +1490,10 @@ void rln_task(void)
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
             rln_script_source = this_src;
+            // Positively a script peer: forget any stale "seen"
+            // verdict from a prior read so future reads don't pin
+            // defer waiting on a CPR this source won't send.
+            rln_cpr_seen[this_src] = false;
             rln_prompt_col = 0;
             rln_enter_edit();
         }
@@ -1495,17 +1504,14 @@ void rln_task(void)
     // Fire deferred completion before the idle-timeout check so a
     // timeout-triggered defer still resolves through its own path
     // instead of re-arming a fresh rln_complete(true). Fire early
-    // when every originally-mid-stream source has settled back to C0
-    // — its in-flight tail has been fully drained — so we don't burn
-    // 100ms of wall time waiting on a quiet that already happened.
-    // The deadline remains the fallback for sequences that never land.
+    // when no source is still busy — its in-flight tail has been
+    // fully drained — so we don't burn the full quiet window waiting
+    // on a quiet that already happened. The deadline remains the
+    // fallback for sequences that never land.
     if (rln_complete_deferred)
     {
-        bool all_done = !rln_cpr_pending();
-        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-            if (rln_ansi[s].defer_mid)
-                all_done = false;
-        if (all_done || time_reached(rln_complete_deferred_deadline))
+        if (!rln_any_source_busy() ||
+            time_reached(rln_complete_deferred_deadline))
             rln_complete_now(rln_complete_deferred_timeout);
     }
     if (rln_timeout_ms && time_reached(rln_timer))
