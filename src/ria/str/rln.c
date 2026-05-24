@@ -878,7 +878,7 @@ static void rln_toggle_overwrite(void)
 
 // Forward decl: rln_cpr_dispatch -> rln_enter_edit -> drain -> feed ->
 // dispatch_or_defer -> rln_cpr_dispatch is a real cycle.
-static void rln_cpr_dispatch(uint16_t p1, uint16_t p2);
+static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2);
 
 static void rln_ansi_advance(rln_source_t *a, uint8_t ch)
 {
@@ -1075,17 +1075,7 @@ static void rln_publish_lastkey(rln_source_t *a)
 // forward.
 static void rln_da2_dispatch(com_source_t src)
 {
-    // Per-source DA2 verification fires unconditionally — even when the
-    // global flag is already set, DECSCUSR is suppressed, or the latch
-    // has fired — so the 2-CPR lock-off check has the right state for
-    // every source. Without this, two terminals replying DA2 in
-    // sequence would leave the second source's da2_seen false (early
-    // returns below would swallow it), and that source's CPR2 would
-    // then trigger lock-off and disable DECSCUSR globally. Poke-fed
-    // DA2 (src == NONE) skips since there's no per-source slot to
-    // write, but still flips the global flag below.
-    if (src != COM_SOURCE_NONE)
-        rln_sources[src].da2_seen = true;
+    (void)src; // per-source da2_seen set in dispatch_or_defer above gate
     // Sticky-off latch from a peer that proved DA2-deaf this read:
     // ignore any DA2 (including a deferred one replayed via drain after
     // the latch fired) so cursor shapes can't be re-enabled.
@@ -1121,39 +1111,37 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     bool is_da2 = (entry_state == ansi_state_CSI_private &&
                    a->csi_private == '>' &&
                    term == 'c');
-    // Account for CPR arrival before the defer-absorb gate so the
-    // cpr_expecting decrement is visible to rln_defer_check_resolved's
-    // cpr_met test — that's how a CPR landing during the defer window
-    // releases defer early for this source. Gated on !drop_cpr so a
-    // literal `\33[1;1R` typed on the local keyboard (which routes with
-    // drop_cpr=true) doesn't flag KBD as a terminal — it would pin
-    // defer in subsequent reads and could mis-trigger the 2-CPR
-    // lock-off below.
+    // Protocol-state updates that must run regardless of defer:
+    //   - cpr_seen / cpr_expecting drive defer resolution and the
+    //     lock-off detection below.
+    //   - da2_seen feeds the lock-off check; every DA2 reply must
+    //     be recorded, even those absorbed during defer.
+    //   - rln_cpr_dispatch refines term_width / term_height from late
+    //     or shadow-terminal CPRs (the manifold-min rule, documented
+    //     in that function); it guards its own enter_edit/render
+    //     calls against rln_complete_deferred so the completed line
+    //     isn't re-emitted.
+    //   - The 2-CPR lock-off latch likewise has to fire when a real
+    //     CPR2 closes the quota, even if that CPR2 lands during defer.
+    // CPR accounting and DA2 accounting are gated on !drop_cpr and
+    // src != NONE so a literal `\33[1;1R` typed on the local keyboard
+    // (drop_cpr=true) or a poke-fed sequence (src=NONE) doesn't flag
+    // KBD/poke as a tracked terminal — that would pin defer in
+    // subsequent reads and could mis-trigger the lock-off.
     if (is_cpr && src != COM_SOURCE_NONE && !drop_cpr)
     {
         rln_sources[src].cpr_seen = true;
         if (rln_sources[src].cpr_expecting > 0)
             rln_sources[src].cpr_expecting--;
     }
-    // Completion is pending: the line is logically submitted and we're
-    // only here to absorb in-band protocol bytes so they don't leak into
-    // the next read. CPR accounting above already ran (drives defer
-    // resolution); skip geometry dispatch, DA2 dispatch, lock-off check,
-    // and typed-action dispatch — buffer and geometry stay stable across
-    // the quiet-window.
-    if (rln_complete_deferred)
-    {
-        rln_ansi_trim_inflight(a);
-        return;
-    }
+    if (is_da2 && src != COM_SOURCE_NONE)
+        rln_sources[src].da2_seen = true;
     // 2-CPR mode lock-off: if this CPR closed out the source's quota
-    // (CPR1+CPR2 both delivered) and that same source never replied DA2,
-    // the peer is DA2-deaf. The burst order is CPR1, DA2, CPR2, so a
-    // DA2-aware peer would have replied DA2 before its CPR2. Latch the
-    // global lock so any later DA2 (including a deferred one replayed
-    // during the drain triggered by rln_cpr_dispatch below) can't
-    // re-enable cursor shapes. Skipped during defer above so a stale
-    // CPR2 from the prior read's handshake can't trip the latch.
+    // (CPR1+CPR2 both delivered) and that same source never replied
+    // DA2, the peer is DA2-deaf. The burst order is CPR1, DA2, CPR2,
+    // so a DA2-aware peer would have replied DA2 before its CPR2.
+    // Latch the global lock so any later DA2 (including one replayed
+    // via drain) can't re-enable cursor shapes.
     if (rln_cpr_initial == 2 &&
         is_cpr && src != COM_SOURCE_NONE &&
         rln_sources[src].cpr_expecting == 0 &&
@@ -1162,19 +1150,31 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
         rln_decscusr_ok = false;
         rln_decscusr_locked_off = true;
     }
-    if (is_cpr)
+    if (is_cpr && !drop_cpr)
+        rln_cpr_dispatch(src, a->csi_param[0], a->csi_param[1]);
+    // Completion is pending: the line is logically submitted and we're
+    // only here to absorb in-band protocol bytes so they don't leak
+    // into the next read. The pre-gate block above already ran every
+    // effect we want during defer (CPR/DA2 accounting, lock-off,
+    // geometry refinement); skip the DA2 enable + cursor emit and the
+    // typed-action dispatch so the visual line stays stable.
+    if (rln_complete_deferred)
     {
-        if (!drop_cpr)
-            rln_cpr_dispatch(a->csi_param[0], a->csi_param[1]);
+        rln_ansi_trim_inflight(a);
+        return;
     }
-    else if (is_da2)
+    if (is_da2)
     {
         rln_da2_dispatch(src);
     }
-    else if (entry_state == ansi_state_CSI_private ||
+    else if (is_cpr ||
+             entry_state == ansi_state_CSI_private ||
              entry_state == ansi_state_SS2)
     {
-        // Other CSI_private terminators and SS2 are no-ops today.
+        // CPR was dispatched above the gate; CSI_private (other
+        // terminators) and SS2 are no-ops today. All three skip
+        // publish_lastkey so protocol replies don't surface as
+        // typed-key bytes via the 6502 lastkey API.
     }
     else if (rln_phase != rln_phase_edit)
     {
@@ -1335,60 +1335,90 @@ static void rln_handshake_fallback(void)
     rln_enter_edit();
 }
 
-// Dispatch a parsed CPR (\33[<p1>;<p2>R). Row is in p1, col in p2.
-// Content-based routing classifies replies across multiple terminals:
-//   - First reply ever: prompt CPR.
-//   - Next reply with col > prompt_col: size CPR (drives transition).
-//   - Later replies whose col differs from prompt_col: clamp width down.
-//   - Anything else (incl. CPR2 echoing prompt_col when the terminal
-//     ignored \33[999;999H): discard, let the deadline fall through
-//     to single-line fallback rather than wrap at the prompt column.
-static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
+// Dispatch a parsed CPR (\33[<p1>;<p2>R). Row in p1, col in p2.
+//
+// Multi-source manifold rule: when several terminals are attached, the
+// host's stdout fans out to all of them, and each replies with its own
+// CPR1 (current = prompt position) then CPR2 (current = terminal size,
+// after \33[999;999H). Replies arrive interleaved across com sources,
+// but each source's pair stays in order. Classification:
+//   1. First CPR ever (prompt_col == 0): pin prompt_col from p2 and
+//      advance phase. prompt_col is the one axis where all terminals
+//      must agree from the host's point of view — the host sent the
+//      same prompt bytes to each — so the first reply wins.
+//   2. Per-source COUNT picks out CPR2: the accounting block in
+//      rln_ansi_dispatch_or_defer has already decremented this source's
+//      cpr_expecting, so when it reads 0 here (and initial was 2),
+//      this is the source's CPR2 (the geometry reply). Counting beats
+//      the older "col > prompt_col" heuristic, which mis-discards a
+//      legitimate CPR2 when the prompt sits at the terminal's right
+//      edge (CPR2's col equals prompt_col there).
+//   3. First-arriving CPR2 sets term_height / term_width and
+//      transitions to edit phase; subsequent CPR2s from other sources
+//      refine the running MIN — render width must be safe for the
+//      narrowest connected terminal so the same byte stream wraps
+//      identically on every attached terminal.
+//   4. Per-source CPR1s after the first global reply are discarded —
+//      their useful info (prompt position) was already captured in
+//      step 1.
+//   5. CPR after late-DA2 fallback (prompt_col deliberately 0 in
+//      edit phase) is discarded entirely.
+//
+// Called from rln_ansi_dispatch_or_defer above the defer-absorb gate
+// so late CPRs refine geometry even during defer. enter_edit and
+// render_from are guarded against rln_complete_deferred — once the
+// line is submitted we update internal geometry but never re-emit.
+static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
 {
-    // Late CPR arriving after we've already entered edit phase with
-    // prompt_col deliberately left at 0 (instant relief or handshake
-    // fallback): ignore. Re-pinning prompt_col here would clobber the
-    // no-wrap clamp and regress the phase back to width_cpr.
+    // Step 5: discard CPRs after fallback left prompt_col at 0.
     if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
         return;
     bool both_overrides = rln_width_override && rln_height_override;
+    bool is_cpr2 = (src != COM_SOURCE_NONE &&
+                    rln_cpr_initial == 2 &&
+                    rln_sources[src].cpr_expecting == 0);
+    // Step 1: first CPR globally pins prompt_col.
     if (rln_prompt_col == 0)
     {
         rln_prompt_col = p2 ? p2 : 1;
-        if (both_overrides)
-            rln_enter_edit();
-        else
-            rln_phase = rln_phase_width_cpr;
-    }
-    else if (both_overrides)
-    {
-        // Discard everything after CPR1 when geometry is fully pinned.
+        if (!rln_complete_deferred)
+        {
+            if (both_overrides)
+                rln_enter_edit();
+            else
+                rln_phase = rln_phase_width_cpr;
+        }
         return;
     }
-    else if (rln_term_height == 0)
+    // Geometry fully pinned by overrides: ignore everything past CPR1.
+    if (both_overrides)
+        return;
+    // Step 4: per-source CPR1 after the global first reply — discard.
+    if (!is_cpr2)
+        return;
+    // Step 3: first CPR2 sets geometry and transitions to edit.
+    if (rln_term_height == 0)
     {
-        if (p2 <= rln_prompt_col)
-            return; // bogus size; keep waiting for a useful CPR
         rln_term_height = p1;
         rln_term_width = p2;
-        rln_enter_edit();
+        if (!rln_complete_deferred)
+            rln_enter_edit();
+        return;
     }
-    else if (p2 > rln_prompt_col)
+    // Step 3 (refinement): later CPR2s from other sources clamp the
+    // running min across the manifold.
+    bool width_changed = false;
+    if (p2 < rln_term_width)
     {
-        // Late size CPR. Either the first one to arrive after typeahead-
-        // relief preempted CPR2 (rln_term_width == 0), or a narrower/
-        // shorter shadow terminal. Track the running minimum for both axes.
-        bool width_changed = false;
-        if (rln_term_width == 0 || p2 < rln_term_width)
-        {
-            rln_term_width = p2;
-            width_changed = true;
-        }
-        if (rln_term_height == 0 || p1 < rln_term_height)
-            rln_term_height = p1;
-        if (width_changed && rln_phase == rln_phase_edit)
-            rln_render_from(0);
+        rln_term_width = p2;
+        width_changed = true;
     }
+    if (p1 < rln_term_height)
+        rln_term_height = p1;
+    if (width_changed &&
+        rln_phase == rln_phase_edit &&
+        !rln_complete_deferred)
+        rln_render_from(0);
 }
 
 /* ----- Top-level task / lifecycle ----- */
