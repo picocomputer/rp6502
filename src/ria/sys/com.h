@@ -48,16 +48,16 @@ typedef enum
     COM_SOURCE_UART,
     COM_SOURCE_TEL,
     COM_SOURCE_COUNT,
-    COM_SOURCE_NONE = COM_SOURCE_COUNT,
+    COM_SOURCE_ANY = COM_SOURCE_COUNT,
 } com_source_t;
 
 // Non-blocking 1-byte read. *src is in/out:
-//   - in COM_SOURCE_NONE: read from any active source via the sticky
+//   - in COM_SOURCE_ANY: read from any active source via the sticky
 //     RX picker. On byte, *src is set to the source that delivered;
-//     on no byte, *src is reset to COM_SOURCE_NONE.
+//     on no byte, *src is reset to COM_SOURCE_ANY.
 //   - in specific source: read only from that source. Bytes on other
 //     sources are left in their FIFOs for a later reader. On no byte,
-//     *src is reset to COM_SOURCE_NONE.
+//     *src is reset to COM_SOURCE_ANY.
 // Returns the byte (0..255) or PICO_ERROR_TIMEOUT when no data is
 // available on the requested source(s).
 int com_getchar(com_source_t *src);

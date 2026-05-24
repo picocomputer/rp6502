@@ -484,7 +484,7 @@ static size_t com_kbd_read(char *buf, size_t length)
     return count;
 }
 
-// Dispatch a read to the per-source reader. COM_SOURCE_NONE returns 0.
+// Dispatch a read to the per-source reader. COM_SOURCE_ANY returns 0.
 static size_t com_read_source(com_source_t src, char *buf, size_t length)
 {
     switch (src)
@@ -495,7 +495,7 @@ static size_t com_read_source(com_source_t src, char *buf, size_t length)
         return com_uart_read(buf, length);
     case COM_SOURCE_TEL:
         return com_tel_read(buf, length);
-    case COM_SOURCE_NONE:
+    case COM_SOURCE_ANY:
         break;
     }
     return 0;
@@ -591,13 +591,13 @@ static void com_tx_fanout(void)
 // com_rx_char for later recovery by the matching per-source reader.
 static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
-    static com_source_t source = COM_SOURCE_NONE;
+    static com_source_t source = COM_SOURCE_ANY;
     static absolute_time_t idle_timer;
 
-    if (source != COM_SOURCE_NONE && time_reached(idle_timer))
-        source = COM_SOURCE_NONE;
+    if (source != COM_SOURCE_ANY && time_reached(idle_timer))
+        source = COM_SOURCE_ANY;
 
-    if (source == COM_SOURCE_KBD || source == COM_SOURCE_NONE)
+    if (source == COM_SOURCE_KBD || source == COM_SOURCE_ANY)
     {
         size_t i = com_kbd_read(buf, length);
         if (i)
@@ -609,10 +609,10 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
             return i;
         }
         // Kbd doesn't hold the lock when empty.
-        source = COM_SOURCE_NONE;
+        source = COM_SOURCE_ANY;
     }
 
-    if (source == COM_SOURCE_UART || source == COM_SOURCE_NONE)
+    if (source == COM_SOURCE_UART || source == COM_SOURCE_ANY)
     {
         size_t i = com_uart_read(buf, length);
         if (i)
@@ -625,7 +625,7 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
         }
     }
 
-    if (source == COM_SOURCE_TEL || source == COM_SOURCE_NONE)
+    if (source == COM_SOURCE_TEL || source == COM_SOURCE_ANY)
     {
         size_t i = com_tel_read(buf, length);
         if (i)
@@ -647,17 +647,17 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 // source — used by rln to finish off in-flight ESC tails during a
 // deferred completion without consuming bytes from clean sources.
 //
-// Any-source pull (*src == COM_SOURCE_NONE on entry) picks the next
+// Any-source pull (*src == COM_SOURCE_ANY on entry) picks the next
 // byte via the sticky-source RX picker; on a byte, *src is set to the
 // delivering source.
 int com_getchar(com_source_t *src)
 {
-    if (src && *src != COM_SOURCE_NONE)
+    if (src && *src != COM_SOURCE_ANY)
     {
         char ch;
         if (com_read_source(*src, &ch, 1))
             return (unsigned char)ch;
-        *src = COM_SOURCE_NONE;
+        *src = COM_SOURCE_ANY;
         return PICO_ERROR_TIMEOUT;
     }
 
@@ -670,7 +670,7 @@ int com_getchar(com_source_t *src)
         return (unsigned char)ch;
     }
     if (src)
-        *src = COM_SOURCE_NONE;
+        *src = COM_SOURCE_ANY;
     return PICO_ERROR_TIMEOUT;
 }
 

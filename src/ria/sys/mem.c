@@ -45,7 +45,7 @@ void mem_task(void)
 {
     while (mem_callback)
     {
-        com_source_t src = COM_SOURCE_NONE;
+        com_source_t src = COM_SOURCE_ANY;
         int c = com_getchar(&src);
         if (c < 0)
             break;

@@ -1101,8 +1101,7 @@ static void rln_da2_dispatch(com_source_t src)
 static void rln_ansi_dispatch_or_defer(rln_source_t *a,
                                        com_source_t src,
                                        uint8_t term,
-                                       rln_ansi_state_t entry_state,
-                                       bool drop_cpr)
+                                       rln_ansi_state_t entry_state)
 {
     bool is_cpr = (entry_state == ansi_state_CSI &&
                    term == 'R' &&
@@ -1111,11 +1110,20 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     bool is_da2 = (entry_state == ansi_state_CSI_private &&
                    a->csi_private == '>' &&
                    term == 'c');
+    // Tracked terminal sources are the ones whose CPR/DA2 replies are
+    // protocol responses we record. KBD sends typed user input that
+    // could look like a CPR/DA2 but isn't a real reply; the poke
+    // source is virtual (src=COM_SOURCE_ANY, an unindexable sentinel
+    // into rln_sources[]). Everything CPR/DA2-related below gates on
+    // this — protocol-state accounting, the lock-off latch, and the
+    // rln_cpr_dispatch call.
+    bool tracked = (src == COM_SOURCE_UART || src == COM_SOURCE_TEL);
     // Protocol-state updates that must run regardless of defer:
     //   - cpr_seen / cpr_expecting drive defer resolution and the
     //     lock-off detection below.
-    //   - da2_seen feeds the lock-off check; every DA2 reply must
-    //     be recorded, even those absorbed during defer.
+    //   - da2_seen feeds the lock-off check; every DA2 reply from a
+    //     tracked source must be recorded, even those absorbed during
+    //     defer.
     //   - rln_cpr_dispatch refines term_width / term_height from late
     //     or shadow-terminal CPRs (the manifold-min rule, documented
     //     in that function); it guards its own enter_edit/render
@@ -1123,18 +1131,13 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     //     isn't re-emitted.
     //   - The 2-CPR lock-off latch likewise has to fire when a real
     //     CPR2 closes the quota, even if that CPR2 lands during defer.
-    // CPR accounting and DA2 accounting are gated on !drop_cpr and
-    // src != NONE so a literal `\33[1;1R` typed on the local keyboard
-    // (drop_cpr=true) or a poke-fed sequence (src=NONE) doesn't flag
-    // KBD/poke as a tracked terminal — that would pin defer in
-    // subsequent reads and could mis-trigger the lock-off.
-    if (is_cpr && src != COM_SOURCE_NONE && !drop_cpr)
+    if (is_cpr && tracked)
     {
         rln_sources[src].cpr_seen = true;
         if (rln_sources[src].cpr_expecting > 0)
             rln_sources[src].cpr_expecting--;
     }
-    if (is_da2 && src != COM_SOURCE_NONE)
+    if (is_da2 && tracked)
         rln_sources[src].da2_seen = true;
     // 2-CPR mode lock-off: if this CPR closed out the source's quota
     // (CPR1+CPR2 both delivered) and that same source never replied
@@ -1143,14 +1146,14 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     // Latch the global lock so any later DA2 (including one replayed
     // via drain) can't re-enable cursor shapes.
     if (rln_cpr_initial == 2 &&
-        is_cpr && src != COM_SOURCE_NONE &&
+        is_cpr && tracked &&
         rln_sources[src].cpr_expecting == 0 &&
         !rln_sources[src].da2_seen)
     {
         rln_decscusr_ok = false;
         rln_decscusr_locked_off = true;
     }
-    if (is_cpr && !drop_cpr)
+    if (is_cpr && tracked)
         rln_cpr_dispatch(src, a->csi_param[0], a->csi_param[1]);
     // Completion is pending: the line is logically submitted and we're
     // only here to absorb in-band protocol bytes so they don't leak
@@ -1208,10 +1211,11 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     rln_ansi_trim_inflight(a);
 }
 
-// Feed one byte through a per-stream parser. drop_cpr=true on the kbd
-// parser (a local keyboard isn't a real terminal) and on the poke
-// parser (accidentally-poked CPR shapes must not pin geometry).
-static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b, bool drop_cpr)
+// Feed one byte through a per-stream parser. src identifies the parser
+// to dispatch_or_defer, which uses it to gate CPR/DA2 tracking on
+// tracked terminal sources (UART/TEL); KBD and the poke source
+// (src=COM_SOURCE_ANY) skip the tracking but still parse normally.
+static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b)
 {
     // CAN aborts any in-progress sequence with no dispatch.
     if (b == '\30')
@@ -1230,7 +1234,7 @@ static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b, bool dro
     rln_ansi_state_t entry_state = a->state;
     rln_ansi_advance(a, b);
     if (a->state == ansi_state_C0)
-        rln_ansi_dispatch_or_defer(a, src, b, entry_state, drop_cpr);
+        rln_ansi_dispatch_or_defer(a, src, b, entry_state);
 }
 
 // Drain the deferred head region through the same parser. Called from
@@ -1241,7 +1245,7 @@ static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b, bool dro
 // temp[] which completes the line (and may even synchronously start
 // a new one) doesn't replay further stale bytes against the next
 // line's freshly memset state.
-static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src, bool drop_cpr)
+static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src)
 {
     if (a->buf_len == 0)
         return;
@@ -1257,7 +1261,7 @@ static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src, bool drop
     a->inflight_len = 0;
     for (uint16_t i = 0; i < total; i++)
     {
-        rln_ansi_feed(a, src, temp[i], drop_cpr);
+        rln_ansi_feed(a, src, temp[i]);
         // Stop if the line finished (callback fired) or finished into a
         // defer. The defer path keeps rln_callback non-NULL but gates
         // dispatch — continuing the loop is wasted work and would defer
@@ -1280,21 +1284,21 @@ static void rln_enter_edit(void)
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in com_source_t
     // order: kbd (local human) → uart (local terminal) → tel (remote) →
-    // poke (scripted input). drop_cpr=true on kbd because the local
-    // keyboard never legitimately produces protocol replies; same
-    // rationale as poke. Abort the cascade if a dispatched CR mid-
-    // drain completes the line — any later drains would replay
+    // poke (scripted input). dispatch_or_defer derives "is tracked"
+    // from src so KBD and poke (src=COM_SOURCE_ANY) skip protocol
+    // tracking automatically. Abort the cascade if a dispatched CR
+    // mid-drain completes the line — any later drains would replay
     // stale bytes into the next line's parsers.
     rln_read_callback_t cb_at_start = rln_callback;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
     {
-        rln_ansi_drain_deferred(&rln_sources[s], s, s == COM_SOURCE_KBD);
+        rln_ansi_drain_deferred(&rln_sources[s], s);
         if (rln_callback != cb_at_start || rln_complete_deferred)
             return;
     }
     bool prev_overwrite = rln_overwrite;
     rln_overwrite = true;
-    rln_ansi_drain_deferred(&rln_poke_source, COM_SOURCE_NONE, /*drop_cpr=*/true);
+    rln_ansi_drain_deferred(&rln_poke_source, COM_SOURCE_ANY);
     bool need_reemit = (rln_overwrite != prev_overwrite);
     rln_overwrite = prev_overwrite;
     if (need_reemit)
@@ -1374,8 +1378,9 @@ static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
     if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
         return;
     bool both_overrides = rln_width_override && rln_height_override;
-    bool is_cpr2 = (src != COM_SOURCE_NONE &&
-                    rln_cpr_initial == 2 &&
+    // Caller (dispatch_or_defer) only invokes this when src is a
+    // tracked source (UART/TEL), so rln_sources[src] is a valid lookup.
+    bool is_cpr2 = (rln_cpr_initial == 2 &&
                     rln_sources[src].cpr_expecting == 0);
     // Step 1: first CPR globally pins prompt_col.
     if (rln_prompt_col == 0)
@@ -1526,7 +1531,7 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
 // *out_src is set to the source that delivered (or NONE on -1).
 static int rln_read_next(com_source_t *out_src)
 {
-    *out_src = COM_SOURCE_NONE;
+    *out_src = COM_SOURCE_ANY;
     if (!rln_complete_deferred)
         return com_getchar(out_src);
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
@@ -1556,9 +1561,9 @@ void rln_task(void)
             break;
         char ch = (char)c;
         rln_idle_deadline = make_timeout_time_ms(rln_idle_timeout_ms);
-        if (this_src != COM_SOURCE_NONE)
-            rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch, this_src == COM_SOURCE_KBD);
-        if (rln_complete_deferred && this_src != COM_SOURCE_NONE)
+        if (this_src != COM_SOURCE_ANY)
+            rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch);
+        if (rln_complete_deferred && this_src != COM_SOURCE_ANY)
             rln_defer_check_resolved(this_src);
         // Provide instant relief during handshake for scripting tools
         // that do not respond to ANSI sequences. CR pre-edit, or any
@@ -1803,7 +1808,7 @@ void rln_poke(const char *str)
             rln_finish_line(ch == '\r');
             break;
         }
-        rln_ansi_feed(&rln_poke_source, COM_SOURCE_NONE, (uint8_t)ch, /*drop_cpr=*/true);
+        rln_ansi_feed(&rln_poke_source, COM_SOURCE_ANY, (uint8_t)ch);
     }
     if (sync)
     {
