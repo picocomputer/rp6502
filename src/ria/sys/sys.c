@@ -48,7 +48,7 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 void sys_init(void)
 {
 #ifdef NDEBUG
-    mon_add_response_str(STR_TERM_HARD_RESET);
+    mon_add_response_utf8(STR_TERM_HARD_RESET);
 #else
     // We can't soft reset cursor when ROMs stop because minicom
     // will print the q, but one at startup is fine for debug.

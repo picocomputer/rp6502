@@ -43,11 +43,6 @@ uint8_t rln_get_max_length(void);
 void rln_set_caps(uint8_t v);
 uint8_t rln_get_caps(void);
 
-// Whether telnet-sourced CPR replies should pin geometry. com.c sets
-// this at auth-success: true for interactive clients (default), false
-// for clients whose TTYPE marks them as non-interactive.
-void rln_set_tel_console(bool active);
-
 // Terminal geometry overrides. Setting non-zero pins the value and skips
 // the CPR2 handshake when both axes are pinned. 0 = auto-detect.
 void rln_set_term_width(uint16_t v);

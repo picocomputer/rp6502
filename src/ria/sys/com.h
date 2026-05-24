@@ -42,31 +42,25 @@ bool com_tel_set_key(const char *key);
 uint16_t com_tel_get_port(void);
 const char *com_tel_get_key(void);
 
-// Notification from tel.c when a telnet client reports its terminal
-// type via SB TTYPE IS. com.c uses the name to decide whether the
-// client is interactive.
-void com_tel_on_remote_ttype(const char *name);
-
 typedef enum
 {
-    COM_SOURCE_NONE,
     COM_SOURCE_KBD,
     COM_SOURCE_UART,
     COM_SOURCE_TEL,
+    COM_SOURCE_COUNT,
+    COM_SOURCE_ANY = COM_SOURCE_COUNT,
 } com_source_t;
 
-// Non-blocking 1-byte read across the active sources. Returns the
-// byte (0..255) or PICO_ERROR_TIMEOUT when no data is available.
-// *src is always written:
-//   - hold armed       -> held source (whether or not a byte arrived)
-//   - no hold, byte    -> the source that delivered
-//   - no hold, no byte -> COM_SOURCE_NONE
+// Non-blocking 1-byte read. *src is in/out:
+//   - in COM_SOURCE_ANY: read from any active source via the sticky
+//     RX picker. On byte, *src is set to the source that delivered;
+//     on no byte, *src is reset to COM_SOURCE_ANY.
+//   - in specific source: read only from that source. Bytes on other
+//     sources are left in their FIFOs for a later reader. On no byte,
+//     *src is reset to COM_SOURCE_ANY.
+// Returns the byte (0..255) or PICO_ERROR_TIMEOUT when no data is
+// available on the requested source(s).
 int com_getchar(com_source_t *src);
-
-// Arm or refresh a 100 ms hold pinning all com_getchar reads to src;
-// while the hold is active, bytes from the other sources are drained
-// to /dev/null. No-op when src == COM_SOURCE_NONE.
-void com_getchar_source(com_source_t src);
 
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
 // std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main
