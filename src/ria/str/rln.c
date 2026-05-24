@@ -1506,13 +1506,6 @@ void rln_read_line(rln_read_callback_t callback)
     if (!(rln_width_override && rln_height_override))
         printf("\33[999;999H\33[6n\33[u");
     printf("\33[?25h");
-    // Push the burst through to the wire before returning. Short
-    // handshakes (e.g. both geometry axes overridden) fit entirely in
-    // the core0 TX ring and would otherwise sit there until the next
-    // com_task tick — fine on UART, but a meaningful added latency to
-    // the CPR round trip over telnet/TCP. stdio_flush drains the ring
-    // synchronously through fanout, com_tel_pump, and tcp_output.
-    stdio_flush();
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
