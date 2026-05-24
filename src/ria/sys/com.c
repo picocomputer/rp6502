@@ -16,11 +16,9 @@
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
-#include "str/rln.h"
 #include "str/str.h"
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <hardware/sync.h>
@@ -76,9 +74,9 @@ static com_source_t com_rx_char_src;
 // Single-byte recover from the cross-core handoff slot. Per-source readers
 // call this so a byte the merge picker pulled isn't stranded in
 // com_rx_char when rln (rather than the 6502) is the eventual consumer.
-static size_t com_recover_rx_char(char *buf, size_t length, com_source_t src)
+static size_t com_recover_rx_char(char *buf, com_source_t src)
 {
-    if (length && com_rx_char_src == src)
+    if (com_rx_char_src == src)
     {
         int ch = com_rx_char;
         if (ch >= 0)
@@ -170,7 +168,7 @@ static void com_tel_tx_write(char ch)
 
 static size_t com_tel_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_TEL);
+    size_t count = com_recover_rx_char(buf, COM_SOURCE_TEL);
     while (count < length && com_tel_rx_head != com_tel_rx_tail)
     {
         com_tel_rx_tail = (com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE;
@@ -311,7 +309,7 @@ static void com_tel_teardown(com_tel_state_t target)
     bool was_connected = (com_tel_state == COM_TEL_STATE_CONNECTED);
     if (was_session && target == COM_TEL_STATE_IDLE)
         tel_close(SYS_TEL_DESC);
-    if (was_connected && target == COM_TEL_STATE_LISTENING)
+    if (was_connected && target != COM_TEL_STATE_CONNECTED)
         vga_set_tel_console_active(false);
     if (target == COM_TEL_STATE_IDLE && com_tel_state != COM_TEL_STATE_IDLE)
     {
@@ -461,7 +459,7 @@ static void com_uart_drain_rx(void)
 
 static size_t com_uart_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_UART);
+    size_t count = com_recover_rx_char(buf, COM_SOURCE_UART);
     // Always pump the hw FIFO into the software ring so callers that
     // bypass com_task (e.g. vga_connect's blocking loop running only
     // mem_task) still see fresh bytes. Idempotent.
@@ -480,7 +478,7 @@ static size_t com_uart_read(char *buf, size_t length)
 // the 1 ms grain.
 static size_t com_kbd_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_KBD);
+    size_t count = com_recover_rx_char(buf, COM_SOURCE_KBD);
     if (count < length)
         count += kbd_stdio_in_chars(&buf[count], length - count);
     return count;
@@ -709,7 +707,7 @@ static int com_stdio_in_chars(char *buf, int length)
     int count = 0;
 
     // Take char from RIA register
-    if (count < length && REGS(0xFFE0) & 0b01000000)
+    if (REGS(0xFFE0) & 0b01000000)
     {
         buf[count++] = REGS(0xFFE2);
         REGS(0xFFE0) = 0;
