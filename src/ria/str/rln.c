@@ -69,13 +69,17 @@ typedef enum
 #define RLN_CAPS_OFF 0
 #define RLN_CAPS_UPPER 1
 #define RLN_CAPS_SWAP 2
-#define RLN_HANDSHAKE_MS 250
+// Terms < 29 cols may not reach 254/255 chars in 10 rows.
 #define RLN_MAX_ROWS 10
-// When a line completion fires while another parser is mid-ESC, hold
-// the callback off for at most this many ms — gives in-flight
-// sequences time to land on their own parsers and be absorbed instead
-// of leaking into the next read. Hard deadline from the moment defer
-// is armed; byte arrival does not extend it. Early-out via
+// Longest wait before edit mode starts echoing characters. Long enough
+// to absorb a telnet RTT for the CPR replies, short enough that a
+// non-responsive peer doesn't feel like a hang.
+#define RLN_HANDSHAKE_MS 250
+// When line completion fires while a source still owes in-band protocol
+// work (mid-ESC sequence or outstanding CPR replies), hold the callback
+// off up to this many ms so those bytes can land and be absorbed instead
+// of leaking into the next read. Hard deadline from the moment defer is
+// armed; byte arrival does not extend it. Early-out via
 // rln_any_defer_pending() is the happy path; this cap is the fallback
 // for sequences that never finish landing.
 #define RLN_COMPLETE_DEFER_MS 500
@@ -99,11 +103,11 @@ typedef struct
     uint16_t inflight_len;
     // Per-source bookkeeping (zero on rln_poke_source). cpr_seen is
     // sticky across reads — preserved by rln_read_line's per-read reset.
-    uint8_t cpr_expecting;   // outstanding CPR count this read
-    bool cpr_seen;           // sticky: source has dispatched a valid CPR
-    bool da2_seen;           // proven DA2-aware this read
-    bool defer_pending;      // arm-time busy criteria still pending
-    bool defer_esc_pending;  // arm-time in-flight ESC sequence not yet done
+    uint8_t cpr_expecting;  // outstanding CPR count this read
+    bool cpr_seen;          // sticky: source has dispatched a valid CPR
+    bool da2_seen;          // proven DA2-aware this read
+    bool defer_pending;     // arm-time busy criteria still pending
+    bool defer_esc_pending; // arm-time in-flight ESC sequence not yet done
 } rln_source_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -126,15 +130,15 @@ static uint32_t rln_idle_timeout_ms;
 static uint8_t rln_caps;
 
 // Deferred completion. Set when rln_complete fires while at least one
-// source is still busy (parser mid-ESC or owes a proven CPR reply); the
-// actual callback invocation is held off until either every source
-// resolves its arm-time criteria (ESC barrier crossed or one CPR
-// landed) or RLN_COMPLETE_DEFER_MS elapses from the moment defer was
-// armed. Other sources are not read at all during the defer window —
-// their bytes stay in com's per-source FIFO and arrive at the next
-// rln_read_line as a fresh stream. Per-source defer fields live in
-// rln_source_t and are snapshot at arm so each source's criteria
-// depends only on what *that source* owed at arm.
+// source is still busy (parser mid-ESC or owes proven CPR replies); the
+// callback invocation is held off until every busy source resolves its
+// arm-time criteria (in-flight ESC sequence back to C0 AND all owed
+// CPRs landed) or RLN_COMPLETE_DEFER_MS elapses from defer arm. Sources
+// not busy at arm are not read during the defer window — their bytes
+// stay in com's per-source FIFO and arrive at the next rln_read_line
+// as a fresh stream. Per-source defer fields live in rln_source_t and
+// are snapshot at arm so each source's criteria depends only on what
+// *that source* owed at arm.
 static bool rln_complete_deferred;
 static bool rln_complete_deferred_timed_out;
 static absolute_time_t rln_complete_deferred_deadline;
@@ -262,13 +266,13 @@ static void rln_complete_now(bool rln_timed_out)
     rln_idle_timeout_ms = 0;
     rln_callback = NULL;
     rln_complete_deferred = false;
-    // End of input: forget the sticky cpr-seen verdict on any source
+    // End of input: forget the sticky cpr_seen verdict on any source
     // that didn't engage this round. Covers the fast-CR case (completion
     // before the handshake_deadline has elapsed) and idle-timeout
     // completion, both of which the deadline-driven handler in rln_task
     // misses. Run before the callback fires so a synchronous
-    // rln_read_line from cc() sees this round's final expecting[] state
-    // — not the next round's freshly-reset values.
+    // rln_read_line from cc() sees this round's final cpr_expecting
+    // state — not the next round's freshly-reset values.
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
         rln_cpr_forget_stale(s);
     // Emit the line-terminating newline here rather than at
@@ -282,10 +286,11 @@ static void rln_complete_now(bool rln_timed_out)
     cc(rln_timed_out, rln_buf);
 }
 
-// Public completion entry. Fires inline when parsers are quiet; defers
-// otherwise so cross-source mid-ESC sequences can drain and be silently
-// absorbed by the gate in rln_ansi_dispatch_or_defer before the next
-// rln_read_line memsets the parsers.
+// Public completion entry. Fires inline when no source still owes
+// in-band protocol work; defers otherwise so mid-ESC sequences and
+// outstanding CPR replies can be absorbed by the gate in
+// rln_ansi_dispatch_or_defer before the next rln_read_line memsets
+// the parsers.
 static void rln_complete(bool rln_timed_out)
 {
     if (rln_complete_deferred)
@@ -1084,8 +1089,9 @@ static void rln_da2_dispatch(com_source_t src)
         return;
     if (rln_decscusr_ok)
         return;
-    // Poke-fed DA2 (src == COM_SOURCE_NONE) still flips the global flag —
-    // preserving current behavior — but does not pollute per-source tracking.
+    // Poke-fed DA2 (src == COM_SOURCE_NONE) still flips the global flag
+    // but doesn't update any source's da2_seen — poke isn't a tracked
+    // source so there's no slot to write.
     if (src != COM_SOURCE_NONE)
         rln_sources[src].da2_seen = true;
     rln_decscusr_ok = true;
@@ -1124,9 +1130,11 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
             rln_sources[src].cpr_expecting--;
     }
     // Completion is pending: the line is logically submitted and we're
-    // only here to absorb the trailing bytes of an in-flight sequence.
-    // Drop both protocol replies and typed actions to keep the buffer
-    // and geometry stable across the quiet-window.
+    // only here to absorb in-band protocol bytes so they don't leak into
+    // the next read. CPR accounting above already ran (drives defer
+    // resolution); skip geometry dispatch, DA2 dispatch, lock-off check,
+    // and typed-action dispatch — buffer and geometry stay stable across
+    // the quiet-window.
     if (rln_complete_deferred)
     {
         rln_ansi_trim_inflight(a);
@@ -1536,7 +1544,11 @@ void rln_task(void)
             // previous successful handshake is still useful for callers
             // that query rln_get_term_width(); it's only zeroed on a
             // real handshake timeout in rln_handshake_fallback().
-            rln_cpr_forget_stale(this_src);
+            // Don't forget_stale here: the CR replay below fires
+            // rln_complete, which needs sticky cpr_seen to keep
+            // defer engaged so in-transit CPRs get absorbed instead
+            // of leaking. rln_complete_now's end-of-input forget_stale
+            // (and the handshake_deadline path) cover stale verdicts.
             rln_prompt_col = 0;
             rln_enter_edit();
         }
