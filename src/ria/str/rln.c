@@ -117,12 +117,12 @@ static uint8_t rln_history_pos;
 // Input state
 static char rln_buf[RLN_BUF_SIZE];
 static rln_read_callback_t rln_callback;
-static absolute_time_t rln_timer;
+static absolute_time_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
 static bool rln_enable_history;
 static uint8_t rln_max_length;
-static uint32_t rln_timeout_ms;
+static uint32_t rln_idle_timeout_ms;
 static uint8_t rln_caps;
 
 // Deferred completion. Set when rln_complete fires while at least one
@@ -136,7 +136,7 @@ static uint8_t rln_caps;
 // rln_source_t and are snapshot at arm so each source's criteria
 // depends only on what *that source* owed at arm.
 static bool rln_complete_deferred;
-static bool rln_complete_deferred_timeout;
+static bool rln_complete_deferred_timed_out;
 static absolute_time_t rln_complete_deferred_deadline;
 
 // Cross-terminal display state
@@ -258,7 +258,7 @@ static void rln_cpr_forget_stale(com_source_t s)
 static void rln_complete_now(bool rln_timed_out)
 {
     rln_read_callback_t cc = rln_callback;
-    rln_timeout_ms = 0;
+    rln_idle_timeout_ms = 0;
     rln_callback = NULL;
     rln_complete_deferred = false;
     // End of input: forget the sticky cpr-seen verdict on any source
@@ -297,7 +297,7 @@ static void rln_complete(bool rln_timed_out)
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
         rln_defer_arm(s);
     rln_complete_deferred = true;
-    rln_complete_deferred_timeout = rln_timed_out;
+    rln_complete_deferred_timed_out = rln_timed_out;
     rln_complete_deferred_deadline = make_timeout_time_ms(RLN_COMPLETE_DEFER_MS);
 }
 
@@ -506,7 +506,7 @@ static void rln_replace_buf_from_history(void)
 // dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
-    if (!rln_enable_history || rln_timeout_ms)
+    if (!rln_enable_history || rln_idle_timeout_ms)
         return;
     if (dir > 0 && rln_history_pos >= rln_history_count)
         return;
@@ -522,7 +522,7 @@ static void rln_history_step(int dir)
 
 static void rln_history_add(void)
 {
-    if (!rln_enable_history || rln_timeout_ms)
+    if (!rln_enable_history || rln_idle_timeout_ms)
         return;
     if (rln_buflen == 0)
         return;
@@ -1380,7 +1380,7 @@ static void rln_cpr_dispatch(uint16_t p1, uint16_t p2)
 
 void rln_read_line(rln_read_callback_t callback)
 {
-    rln_timeout_ms = 0;
+    rln_idle_timeout_ms = 0;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_callback = callback;
@@ -1459,48 +1459,48 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
 {
     assert(timeout_ms);
     rln_read_line(callback);
-    rln_timeout_ms = timeout_ms;
-    rln_timer = make_timeout_time_ms(rln_timeout_ms);
+    rln_idle_timeout_ms = timeout_ms;
+    rln_idle_deadline = make_timeout_time_ms(rln_idle_timeout_ms);
+}
+
+// Read one byte from the appropriate source(s). In normal operation
+// src=NONE lets com_getchar pick via the sticky RX picker. During
+// deferred completion we walk only the still-busy sources, leaving
+// bytes on clean sources queued in their FIFOs to arrive at the next
+// rln_read_line as a fresh stream. Returns -1 if no byte was available;
+// *out_src is set to the source that delivered (or NONE on -1).
+static int rln_read_next(com_source_t *out_src)
+{
+    *out_src = COM_SOURCE_NONE;
+    if (!rln_complete_deferred)
+        return com_getchar(out_src);
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    {
+        if (!rln_sources[s].defer_pending)
+            continue;
+        com_source_t arg = s;
+        int c = com_getchar(&arg);
+        if (c >= 0)
+        {
+            *out_src = s;
+            return c;
+        }
+    }
+    return -1;
 }
 
 void rln_task(void)
 {
     if (!rln_callback)
         return;
-    // Pull bytes via com_getchar. In normal operation src=NONE selects
-    // any source via the sticky RX picker. During deferred completion
-    // we walk only the still-busy sources via the explicit-source
-    // mode, leaving bytes on clean sources queued in their FIFOs for
-    // the next rln_read_line to consume as fresh input.
     while (rln_callback)
     {
-        com_source_t this_src = COM_SOURCE_NONE;
-        int c = -1;
-        if (rln_complete_deferred)
-        {
-            // Walk only the sources whose arm-time criteria hasn't
-            // been met yet. A source whose ESC barrier was crossed
-            // or whose CPR landed is excluded for the rest of this
-            // defer window — its further bytes belong to the next
-            // read and stay in com's per-source FIFO.
-            for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-            {
-                if (!rln_sources[s].defer_pending)
-                    continue;
-                this_src = s;
-                c = com_getchar(&this_src);
-                if (c >= 0)
-                    break;
-            }
-        }
-        else
-        {
-            c = com_getchar(&this_src);
-        }
+        com_source_t this_src;
+        int c = rln_read_next(&this_src);
         if (c < 0)
             break;
         char ch = (char)c;
-        rln_timer = make_timeout_time_ms(rln_timeout_ms);
+        rln_idle_deadline = make_timeout_time_ms(rln_idle_timeout_ms);
         if (this_src != COM_SOURCE_NONE)
             rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch, this_src == COM_SOURCE_KBD);
         if (rln_complete_deferred && this_src != COM_SOURCE_NONE)
@@ -1554,9 +1554,9 @@ void rln_task(void)
     {
         if (!rln_any_defer_pending() ||
             time_reached(rln_complete_deferred_deadline))
-            rln_complete_now(rln_complete_deferred_timeout);
+            rln_complete_now(rln_complete_deferred_timed_out);
     }
-    if (rln_timeout_ms && time_reached(rln_timer))
+    if (rln_idle_timeout_ms && time_reached(rln_idle_deadline))
         rln_complete(true);
 }
 
