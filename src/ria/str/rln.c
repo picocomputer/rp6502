@@ -1075,6 +1075,17 @@ static void rln_publish_lastkey(rln_source_t *a)
 // forward.
 static void rln_da2_dispatch(com_source_t src)
 {
+    // Per-source DA2 verification fires unconditionally — even when the
+    // global flag is already set, DECSCUSR is suppressed, or the latch
+    // has fired — so the 2-CPR lock-off check has the right state for
+    // every source. Without this, two terminals replying DA2 in
+    // sequence would leave the second source's da2_seen false (early
+    // returns below would swallow it), and that source's CPR2 would
+    // then trigger lock-off and disable DECSCUSR globally. Poke-fed
+    // DA2 (src == NONE) skips since there's no per-source slot to
+    // write, but still flips the global flag below.
+    if (src != COM_SOURCE_NONE)
+        rln_sources[src].da2_seen = true;
     // Sticky-off latch from a peer that proved DA2-deaf this read:
     // ignore any DA2 (including a deferred one replayed via drain after
     // the latch fired) so cursor shapes can't be re-enabled.
@@ -1089,11 +1100,6 @@ static void rln_da2_dispatch(com_source_t src)
         return;
     if (rln_decscusr_ok)
         return;
-    // Poke-fed DA2 (src == COM_SOURCE_NONE) still flips the global flag
-    // but doesn't update any source's da2_seen — poke isn't a tracked
-    // source so there's no slot to write.
-    if (src != COM_SOURCE_NONE)
-        rln_sources[src].da2_seen = true;
     rln_decscusr_ok = true;
     if (rln_phase == rln_phase_edit)
         rln_emit_mode_cursor();
