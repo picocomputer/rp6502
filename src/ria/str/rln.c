@@ -78,7 +78,7 @@ typedef enum
 // is armed; byte arrival does not extend it. Early-out via
 // rln_any_defer_pending() is the happy path; this cap is the fallback
 // for sequences that never finish landing.
-#define RLN_COMPLETE_DEFER_MS 1500
+#define RLN_COMPLETE_DEFER_MS 500
 
 // Per-input-source state. One instance per com source plus one for the
 // 6502 poke stream. Owns the ANSI parser (state, csi params, buf[]) and
@@ -97,13 +97,13 @@ typedef struct
     uint8_t buf[RLN_BUF_SIZE];
     uint16_t buf_len;
     uint16_t inflight_len;
-    // Per-source bookkeeping (zero on rln_poke_source).
-    uint8_t cpr_expecting;        // outstanding CPR count this read
-    bool cpr_seen;                // sticky across reads until forgotten
-    bool da2_seen;                // proven DA2-aware this read
-    bool defer_pending;           // arm-time busy criteria still pending
-    bool defer_saw_esc;           // parser observed non-C0 during defer
-    uint8_t defer_expecting_snap; // cpr_expecting at defer arm
+    // Per-source bookkeeping (zero on rln_poke_source). cpr_seen is
+    // sticky across reads — preserved by rln_read_line's per-read reset.
+    uint8_t cpr_expecting;   // outstanding CPR count this read
+    bool cpr_seen;           // sticky: source has dispatched a valid CPR
+    bool da2_seen;           // proven DA2-aware this read
+    bool defer_pending;      // arm-time busy criteria still pending
+    bool defer_esc_pending;  // arm-time in-flight ESC sequence not yet done
 } rln_source_t;
 
 // History storage. The live edit buffer is rln_buf; history[0] is a
@@ -214,24 +214,25 @@ static void rln_defer_arm(com_source_t s)
 {
     rln_source_t *a = &rln_sources[s];
     a->defer_pending = rln_source_busy(s);
-    a->defer_saw_esc = (a->state != ansi_state_C0);
-    a->defer_expecting_snap = a->cpr_expecting;
+    a->defer_esc_pending = (a->state != ansi_state_C0);
 }
 
 // Called after every byte we feed from source s during defer. Clears
-// defer_pending once that source's criteria is met — either the parser
-// crossed an ESC barrier (entered non-C0 during defer and is now back
-// at C0) or one CPR landed (expecting dropped below the arm snapshot).
+// defer_pending once *both* arm-time criteria are satisfied: the
+// in-flight ESC sequence at arm has returned to C0, AND all outstanding
+// CPRs have landed. ANDing is essential — typed sequences during defer
+// (arrow keys etc.) cycle the parser through CSI back to C0 and would
+// otherwise satisfy an "or" gate while CPRs are still in flight,
+// leaking partial CPR fragments ("33R", "[11;33R") into the next read.
+// defer_esc_pending is set only at arm; we don't re-arm it mid-defer.
 static void rln_defer_check_resolved(com_source_t s)
 {
     rln_source_t *a = &rln_sources[s];
     if (!a->defer_pending)
         return;
-    if (a->state != ansi_state_C0)
-        a->defer_saw_esc = true;
-    bool esc_met = a->defer_saw_esc && a->state == ansi_state_C0;
-    bool cpr_met = a->cpr_expecting < a->defer_expecting_snap;
-    if (esc_met || cpr_met)
+    if (a->defer_esc_pending && a->state == ansi_state_C0)
+        a->defer_esc_pending = false;
+    if (!a->defer_esc_pending && a->cpr_expecting == 0)
         a->defer_pending = false;
 }
 
@@ -1403,6 +1404,13 @@ void rln_read_line(rln_read_callback_t callback)
     rln_rendered_end = 0;
     rln_decscusr_ok = false;
     rln_decscusr_locked_off = false;
+    // Reset per-read source state, preserving cpr_seen (sticky across
+    // reads — a source that proved itself a real terminal last round
+    // still owes us CPRs this round, so defer must engage even before
+    // the first CPR of this round arrives).
+    bool sticky_cpr_seen[COM_SOURCE_COUNT];
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        sticky_cpr_seen[s] = rln_sources[s].cpr_seen;
     memset(rln_sources, 0, sizeof rln_sources);
     memset(&rln_poke_source, 0, sizeof rln_poke_source);
     // CPR1 always sent; CPR2 sent only when at least one geometry axis
@@ -1411,7 +1419,10 @@ void rln_read_line(rln_read_callback_t callback)
     // sources have cpr_seen=false so they never block defer regardless.
     rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    {
+        rln_sources[s].cpr_seen = sticky_cpr_seen[s];
         rln_sources[s].cpr_expecting = rln_cpr_initial;
+    }
     rln_handshake_deadline = make_timeout_time_ms(RLN_HANDSHAKE_MS);
 
     // Build the handshake burst piecewise. Common framing:
