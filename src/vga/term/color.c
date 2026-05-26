@@ -22,6 +22,9 @@ const uint16_t color_2[2] = {
 //   16-231:  6 × 6 × 6 cube (216 colors)
 //  232-255:  grayscale from dark to light in 24 steps
 
+// Terminal's RAM-resident palette; mutable so OSC 4 / OSC 104.
+uint16_t color_256_term[256];
+
 const uint16_t color_256[256] = {
     SCANVIDEO_PIXEL_FROM_RGB8(0, 0, 0),                              // 0  Black
     SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(205, 0, 0),     // 1  Red

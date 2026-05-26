@@ -69,9 +69,10 @@
 #define TERM_CURSOR_BLINK_US 499700
 #define TERM_CURSOR_BLINK_FAST_US 249700
 
-// Whenever a received char actually moves the cursor's logical position,
-// the cursor is forced unlit and its next blink tick is armed this far
-// out. Pure SGR/OSC/mode-set sequences (no cursor motion) leave the
+// Whenever input changes the cursor's logical position or its
+// appearance (DECSCUSR style, DECTCEM visibility), the cursor is
+// forced unlit and its next blink tick is armed this far out. Pure
+// SGR/OSC sequences and color-only changes (OSC 12/112) leave the
 // blink schedule untouched. The gap re-lights to the appropriate
 // steady/blink state when it fires.
 #define TERM_CURSOR_INPUT_GAP_US 5000
@@ -100,7 +101,10 @@ typedef struct
     uint8_t attributes;
     uint16_t fg_color;
     uint16_t bg_color;
+    uint16_t ul_color; // resolved at cell-write: SGR 58 color, or fg if not set
 } term_data_t;
+
+_Static_assert(sizeof(term_data_t) == 8, "term_data_t size lock for cell-memory budget");
 
 // Cursor + SGR + DECSC-saved mode state. Per-screen (lives inside
 // screen_buf_t), and also reused as the storage type for DECSC and ?1049
@@ -121,8 +125,10 @@ typedef struct
     uint8_t sgr_attr;
     uint8_t fg_color_index, bg_color_index;
     uint16_t fg_color, bg_color;
-    uint16_t user_fg_color; // base color from SGR 38, used when fg_color_index == FG_COLOR_INDEX_EXTENDED
-    uint16_t user_bg_color; // base color from SGR 48 / 100-107, used when bg_color_index == BG_COLOR_INDEX_EXTENDED
+    uint16_t user_fg_color;   // base color from SGR 38, used when fg_color_index == FG_COLOR_INDEX_EXTENDED
+    uint16_t user_bg_color;   // base color from SGR 48 / 100-107, used when bg_color_index == BG_COLOR_INDEX_EXTENDED
+    uint16_t ul_color;        // SGR 58, valid only when underline_color_set
+    bool underline_color_set; // SGR 58 active; SGR 59 / SGR 0 clear it
     bool bold;
     bool faint;
     bool reverse; // SGR 7: emit-time fg/bg swap
@@ -145,6 +151,7 @@ typedef struct
     bool dirty[TERM_MAX_HEIGHT];
     uint16_t erase_fg_color[TERM_MAX_HEIGHT];
     uint16_t erase_bg_color[TERM_MAX_HEIGHT];
+    uint16_t erase_ul_color[TERM_MAX_HEIGHT];
     uint8_t erase_attr[TERM_MAX_HEIGHT];
     uint8_t y_offset;
     bool all_clean;
@@ -180,7 +187,7 @@ typedef struct term_state
     uint16_t csi_param[TERM_CSI_PARAM_MAX_LEN];
     char csi_separator[TERM_CSI_PARAM_MAX_LEN];
     uint8_t csi_param_count;
-    uint8_t csi_intermediate;                 // ' ' or '!' captured during CSI parse
+    uint8_t csi_intermediate;                 // ' ', '!', or '$' captured during CSI parse
     bool ice_colors;                          // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
     uint8_t cursor_style;                     // DECSCUSR Ps (store-and-ignore)
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
@@ -245,15 +252,16 @@ static inline void term_emit_attrs(const term_state_t *term,
 
 // Paint [start, end) of `row` with space glyphs at the given fg/bg/attr.
 // Used by every clear/erase/insert path; keep this the only place that
-// touches all four cell fields together.
+// touches all five cell fields together.
 static inline void fill_cells(term_data_t *row, unsigned start, unsigned end,
-                              uint16_t fg, uint16_t bg, uint8_t attr)
+                              uint16_t fg, uint16_t bg, uint16_t ul, uint8_t attr)
 {
     for (unsigned i = start; i < end; i++)
     {
         row[i].font_code = ' ';
         row[i].fg_color = fg;
         row[i].bg_color = bg;
+        row[i].ul_color = ul;
         row[i].attributes = attr;
     }
 }
@@ -268,12 +276,22 @@ static void term_clean_line(term_state_t *term, uint8_t y)
     fill_cells(term_row_ptr(term, y), 0, term->width,
                term->screen->erase_fg_color[y],
                term->screen->erase_bg_color[y],
+               term->screen->erase_ul_color[y],
                term->screen->erase_attr[y]);
 }
 
 // Refresh term->ptr to track cur->{x,y} after row_idx[] or y_offset has
 // moved, and clean the cursor's row so a follow-up glyph write lands on
 // fresh memory. Tail of every routine that scrolls or moves rows.
+// Force the cursor unlit and arm the input-gap timer. Used by movement
+// (com_out_chars) and by appearance changes (DECSCUSR, DECTCEM enable)
+// so the cursor's new state lands on a clean blink boundary.
+static inline void term_cursor_restart_blink(term_state_t *term)
+{
+    term->cursor_lit = false;
+    term->cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
+}
+
 static inline void term_refresh_cursor_ptr(term_state_t *term)
 {
     term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
@@ -322,6 +340,7 @@ static bool term_clean_one_dirty(screen_buf_t *buf, uint8_t width, uint8_t heigh
             fill_cells(row, 0, width,
                        buf->erase_fg_color[i],
                        buf->erase_bg_color[i],
+                       buf->erase_ul_color[i],
                        buf->erase_attr[i]);
             return true;
         }
@@ -351,6 +370,7 @@ static void term_shift_meta_up(term_state_t *term, uint8_t count)
         term->screen->dirty[i] = term->screen->dirty[i + 1];
         term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i + 1];
         term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i + 1];
+        term->screen->erase_ul_color[i] = term->screen->erase_ul_color[i + 1];
         term->screen->erase_attr[i] = term->screen->erase_attr[i + 1];
     }
 }
@@ -362,6 +382,7 @@ static void term_shift_meta_down(term_state_t *term, uint8_t start)
         term->screen->dirty[i] = term->screen->dirty[i - 1];
         term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i - 1];
         term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i - 1];
+        term->screen->erase_ul_color[i] = term->screen->erase_ul_color[i - 1];
         term->screen->erase_attr[i] = term->screen->erase_attr[i - 1];
     }
 }
@@ -371,11 +392,13 @@ static void term_mark_rows_erase(term_state_t *term, uint8_t from, uint8_t to)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
+    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
     for (uint8_t i = from; i < to; i++)
     {
         term->screen->dirty[i] = true;
         term->screen->erase_fg_color[i] = fg;
         term->screen->erase_bg_color[i] = bg;
+        term->screen->erase_ul_color[i] = ul;
         term->screen->erase_attr[i] = attr;
     }
     term->screen->all_clean = false;
@@ -413,6 +436,8 @@ static void term_reset_sgr_and_modes(term_state_t *term)
     term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
     term->cur->user_fg_color = 0;
     term->cur->user_bg_color = 0;
+    term->cur->ul_color = 0;
+    term->cur->underline_color_set = false;
     term->cur->fg_color = term->default_fg_color;
     term->cur->bg_color = term->default_bg_color;
     term->cur->bold = false;
@@ -447,7 +472,7 @@ static void term_reset_sgr_and_modes(term_state_t *term)
 // for the inactive buffer, by alt-screen enter for ?1047 / ?1049, and
 // by alt-screen leave to pre-stage the buffer for the next entry's clear.
 static void term_mark_buf_erased(screen_buf_t *buf, uint8_t height,
-                                 uint16_t fg, uint16_t bg, uint8_t attr)
+                                 uint16_t fg, uint16_t bg, uint16_t ul, uint8_t attr)
 {
     buf->y_offset = 0;
     for (uint8_t y = 0; y < TERM_MAX_HEIGHT; y++)
@@ -459,6 +484,7 @@ static void term_mark_buf_erased(screen_buf_t *buf, uint8_t height,
     {
         buf->erase_fg_color[y] = fg;
         buf->erase_bg_color[y] = bg;
+        buf->erase_ul_color[y] = ul;
         buf->erase_attr[y] = attr;
     }
     buf->all_clean = false;
@@ -469,7 +495,10 @@ static void term_out_RIS(term_state_t *term)
     /* RIS drops alt mode and returns to primary. The cursor-save snapshot
      * is invalidated -- a hard reset shouldn't leave the alt save around.
      * The alt buffer's cell contents are also wiped so a later ?47 (swap-
-     * only, no clear) can't surface pre-RIS content. */
+     * only, no clear) can't surface pre-RIS content. The runtime palette
+     * is also restored: OSC 4 mutations don't survive RIS, matching xterm.
+     * Idempotent on the second per-term call from com_out_chars. */
+    memcpy(color_256_term, color_256, sizeof(color_256_term));
     term->screen = &term->bufs[0];
     term->cur = &term->screen->cs;
     term->alt_active = false;
@@ -483,7 +512,8 @@ static void term_out_RIS(term_state_t *term)
     term_reset_tab_stops(term);
     term_mark_buf_erased(&term->bufs[1], term->height,
                          color_256[TERM_FG_COLOR_INDEX],
-                         color_256[TERM_BG_COLOR_INDEX], 0);
+                         color_256[TERM_BG_COLOR_INDEX],
+                         color_256[TERM_FG_COLOR_INDEX], 0);
     term_full_clear(term); /* also resets x = y = 0 on primary */
 }
 
@@ -536,6 +566,7 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
             term->screen->dirty[y] = true;
             term->screen->erase_fg_color[y] = term->default_fg_color;
             term->screen->erase_bg_color[y] = term->default_bg_color;
+            term->screen->erase_ul_color[y] = term->default_fg_color;
             term->screen->erase_attr[y] = 0;
             term->screen->all_clean = false;
         }
@@ -587,7 +618,7 @@ static uint8_t sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
     {
         uint16_t color_idx = term->csi_param[idx + 2];
         if (color_idx < 256)
-            *color = color_256[color_idx];
+            *color = color_256_term[color_idx];
         return 2;
     }
     if (idx + 4 < term->csi_param_count &&
@@ -632,12 +663,12 @@ static void term_update_bg_color(term_state_t *term)
     if (idx == BG_COLOR_INDEX_EXTENDED)
         term->cur->bg_color = term->cur->user_bg_color;
     else if (term->ice_colors && (term->cur->sgr_attr & ATTR_BLINK))
-        term->cur->bg_color = color_256[idx + 8];
+        term->cur->bg_color = color_256_term[idx + 8];
     else if (idx == TERM_BG_COLOR_INDEX &&
              term->default_bg_color != color_256[TERM_BG_COLOR_INDEX])
         term->cur->bg_color = term->default_bg_color;
     else
-        term->cur->bg_color = color_256[idx];
+        term->cur->bg_color = color_256_term[idx];
 }
 
 // Recompute fg_color from fg_color_index, bold, faint, and the OSC-10
@@ -660,12 +691,12 @@ static void term_recompute_fg(term_state_t *term)
     if (idx == FG_COLOR_INDEX_EXTENDED)
         base = term->cur->user_fg_color;
     else if (term->cur->bold && idx < 8)
-        base = color_256[idx + 8];
+        base = color_256_term[idx + 8];
     else if (idx == TERM_FG_COLOR_INDEX &&
              term->default_fg_color != color_256[TERM_FG_COLOR_INDEX])
         base = term->default_fg_color;
     else
-        base = color_256[idx];
+        base = color_256_term[idx];
     if (term->cur->faint)
     {
         uint16_t r = SCANVIDEO_R5_FROM_PIXEL(base) >> 1;
@@ -692,6 +723,8 @@ static void term_out_SGR(term_state_t *term)
             term->cur->sgr_attr = 0;
             term->cur->fg_color_index = TERM_FG_COLOR_INDEX;
             term->cur->bg_color_index = TERM_BG_COLOR_INDEX;
+            term->cur->ul_color = 0;
+            term->cur->underline_color_set = false;
             term_recompute_fg(term);
             term_update_bg_color(term);
             break;
@@ -817,14 +850,19 @@ static void term_out_SGR(term_state_t *term)
             break;
         case 58:
         {
-            // Underline color not rendered, but the params must be
-            // skipped so the rest of the SGR sequence still applies.
-            uint16_t discard = 0;
-            uint8_t consumed = sgr_color(term, idx, &discard);
+            uint16_t parsed = term->cur->ul_color;
+            uint8_t consumed = sgr_color(term, idx, &parsed);
             if (consumed)
+            {
+                term->cur->ul_color = parsed;
+                term->cur->underline_color_set = true;
                 idx += consumed;
+            }
             break;
         }
+        case 59: // default underline color
+            term->cur->underline_color_set = false;
+            break;
         case 90:
         case 91:
         case 92:
@@ -847,7 +885,7 @@ static void term_out_SGR(term_state_t *term)
         case 106:
         case 107:
             term->cur->bg_color_index = BG_COLOR_INDEX_EXTENDED;
-            term->cur->user_bg_color = color_256[param - 100 + 8];
+            term->cur->user_bg_color = color_256_term[param - 100 + 8];
             term_update_bg_color(term);
             break;
         }
@@ -907,6 +945,49 @@ static void term_out_DSR(term_state_t *term)
         break;
     }
     }
+}
+
+// Request Mode (DECRQM). Reply format: CSI ? Ps ; Pm $ y (private)
+// or CSI Ps ; Pm $ y (ANSI). Pm: 0=unrecognized, 1=set, 2=reset,
+// 3=permanently set, 4=permanently reset. No ANSI modes are
+// implemented here (no IRM, LNM, etc.), so the ANSI form always
+// reports 0. Private mode list mirrors DECSET/DECRST.
+static void term_out_DECRQM(term_state_t *term, bool private)
+{
+    if (!term_is_visible(term))
+        return;
+    unsigned ps = term->csi_param[0];
+    unsigned pm = 0;
+    if (private)
+    {
+        switch (ps)
+        {
+        case 6: // DECOM
+            pm = term->cur->origin_mode ? 1 : 2;
+            break;
+        case 7: // DECAWM
+            pm = term->cur->line_wrap ? 1 : 2;
+            break;
+        case 12: // AT&T 610
+        case 25: // DECTCEM
+            pm = term->cursor_enabled ? 1 : 2;
+            break;
+        case 33: // iCE colors
+            pm = term->ice_colors ? 1 : 2;
+            break;
+        case 47:
+        case 1047:
+        case 1049:
+            pm = term->alt_active ? 1 : 2;
+            break;
+        }
+    }
+    char buf[COM_IN_BUF_SIZE];
+    int n = snprintf(buf, sizeof(buf), "\33[%s%u;%u$y",
+                     private ? "?" : "", ps, pm);
+    if (n < 0 || n >= (int)sizeof(buf))
+        return;
+    com_in_write_reply(buf, n);
 }
 
 // Primary Device Attributes. Service class 61 = VT level 1
@@ -1040,7 +1121,8 @@ static void term_mark_screen_erased(term_state_t *term)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
-    term_mark_buf_erased(term->screen, term->height, fg, bg, attr);
+    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    term_mark_buf_erased(term->screen, term->height, fg, bg, ul, attr);
 }
 
 // Swap to the buffer at idx (0 = primary, 1 = alt). Both screen and cur
@@ -1144,6 +1226,7 @@ static void term_region_scroll_up(term_state_t *term, uint8_t top,
         term->screen->dirty[i] = term->screen->dirty[i + n];
         term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i + n];
         term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i + n];
+        term->screen->erase_ul_color[i] = term->screen->erase_ul_color[i + n];
         term->screen->erase_attr[i] = term->screen->erase_attr[i + n];
     }
 
@@ -1184,6 +1267,7 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
         term->screen->dirty[i] = term->screen->dirty[i - n];
         term->screen->erase_fg_color[i] = term->screen->erase_fg_color[i - n];
         term->screen->erase_bg_color[i] = term->screen->erase_bg_color[i - n];
+        term->screen->erase_ul_color[i] = term->screen->erase_ul_color[i - n];
         term->screen->erase_attr[i] = term->screen->erase_attr[i - n];
     }
 
@@ -1286,6 +1370,7 @@ static void term_out_glyph(term_state_t *term, char ch)
     term->ptr->font_code = byte;
     term->ptr->fg_color = fg;
     term->ptr->bg_color = bg;
+    term->ptr->ul_color = term->cur->underline_color_set ? term->cur->ul_color : fg;
     term->ptr->attributes = attr;
     // Advance unless DECAWM is off and we just wrote at the last visible
     // column — other terminals clamp here instead of parking at col W+1,
@@ -1370,7 +1455,8 @@ static void term_out_DCH(term_state_t *term)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
-    fill_cells(row, tail, term->width, fg, bg, attr);
+    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    fill_cells(row, tail, term->width, fg, bg, ul, attr);
 }
 
 // Insert Pn blank characters at the cursor on the current row; cells past
@@ -1391,7 +1477,8 @@ static void term_out_ICH(term_state_t *term)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
-    fill_cells(row, term->cur->x, term->cur->x + chars, fg, bg, attr);
+    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    fill_cells(row, term->cur->x, term->cur->x + chars, fg, bg, ul, attr);
 }
 
 // Insert Pn lines at the cursor. Only valid inside [margin_top, margin_bot];
@@ -1433,8 +1520,9 @@ static void term_out_ECH(term_state_t *term)
     uint16_t fg, bg;
     uint8_t attr;
     term_emit_attrs(term, &fg, &bg, &attr);
+    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
     fill_cells(term_row_ptr(term, term->cur->y),
-               term->cur->x, term->cur->x + n, fg, bg, attr);
+               term->cur->x, term->cur->x + n, fg, bg, ul, attr);
 }
 
 // Scroll Up Pn rows within the current scroll region. Cursor unchanged.
@@ -1475,7 +1563,12 @@ static void term_out_DECSCUSR(term_state_t *term)
     uint16_t ps = term->csi_param[0];
     if (ps > 6)
         ps = 0;
-    term->cursor_style = (uint8_t)ps;
+    uint8_t new_style = (uint8_t)ps;
+    if (term->cursor_style != new_style)
+    {
+        term->cursor_style = new_style;
+        term_cursor_restart_blink(term);
+    }
 }
 
 // Set Top and Bottom Margins (CSI Pt ; Pb r)
@@ -1584,6 +1677,7 @@ static void term_out_EL(term_state_t *term)
     uint16_t erase_fg, erase_bg;
     uint8_t erase_a;
     term_emit_attrs(term, &erase_fg, &erase_bg, &erase_a);
+    uint16_t erase_ul = term->cur->underline_color_set ? term->cur->ul_color : erase_fg;
     switch (term->csi_param[0])
     {
     case 0: // to the end of the line
@@ -1604,13 +1698,14 @@ static void term_out_EL(term_state_t *term)
                                                : term->width;
         }
         fill_cells(term_row_ptr(term, term->cur->y), x, end,
-                   erase_fg, erase_bg, erase_a);
+                   erase_fg, erase_bg, erase_ul, erase_a);
         break;
     }
     case 2: // full line
         term->screen->dirty[term->cur->y] = true;
         term->screen->erase_fg_color[term->cur->y] = erase_fg;
         term->screen->erase_bg_color[term->cur->y] = erase_bg;
+        term->screen->erase_ul_color[term->cur->y] = erase_ul;
         term->screen->erase_attr[term->cur->y] = erase_a;
         term_clean_line(term, term->cur->y);
         break;
@@ -1797,11 +1892,13 @@ static void term_out_CSI(term_state_t *term, char ch)
 {
     if (term->csi_intermediate)
     {
-        // CSI intermediates: only DECSCUSR (SP q) and DECSTR (! p) recognized.
+        // CSI intermediates: DECSCUSR (SP q), DECSTR (! p), DECRQM ($ p).
         if (term->csi_intermediate == ' ' && ch == 'q')
             term_out_DECSCUSR(term);
         else if (term->csi_intermediate == '!' && ch == 'p')
             term_out_DECSTR(term);
+        else if (term->csi_intermediate == '$' && ch == 'p')
+            term_out_DECRQM(term, false);
         return;
     }
     switch (ch)
@@ -1822,9 +1919,11 @@ static void term_out_CSI(term_state_t *term, char ch)
         term_out_CUU(term);
         break;
     case 'B':
+    case 'e': // VPR -- alias of CUD
         term_out_CUD(term);
         break;
     case 'C':
+    case 'a': // HPR -- alias of CUF
         term_out_CUF(term);
         break;
     case 'D':
@@ -1899,6 +1998,11 @@ static void term_out_CSI(term_state_t *term, char ch)
 
 static void term_out_CSI_question(term_state_t *term, char ch)
 {
+    if (term->csi_intermediate == '$' && ch == 'p')
+    {
+        term_out_DECRQM(term, true);
+        return;
+    }
     switch (ch)
     {
     case 'h': // DECSET
@@ -1915,7 +2019,11 @@ static void term_out_CSI_question(term_state_t *term, char ch)
                 break;
             case 12: // AT&T 610
             case 25: // DECTCEM
-                term->cursor_enabled = true;
+                if (!term->cursor_enabled)
+                {
+                    term->cursor_enabled = true;
+                    term_cursor_restart_blink(term);
+                }
                 break;
             case 33: /* iCE colors -- SGR 5/6 becomes the IBM-VGA bright-bg hack */
                 if (!term->ice_colors)
@@ -2018,6 +2126,7 @@ static void term_out_state_CSI(term_state_t *term, char ch)
         return;
     case ' ':
     case '!':
+    case '$':
         // ECMA-48 intermediate byte: stash and keep parsing until the final.
         // Only one intermediate is tracked; multi-byte intermediates aren't
         // used by anything the Linux console subset emits.
@@ -2060,12 +2169,15 @@ static void term_out_state_CSI(term_state_t *term, char ch)
 
 // Dispatched on OSC terminator (BEL or ST). Implements the dynamic-color
 // subset of xterm OSC sequences:
-//   OSC 10 ; #rrggbb   set default foreground
-//   OSC 11 ; #rrggbb   set default background
-//   OSC 12 ; #rrggbb   set cursor color
-//   OSC 110            reset default foreground
-//   OSC 111            reset default background
-//   OSC 112            reset cursor color
+//   OSC 4 ; N ; #rrggbb  set palette entry N
+//   OSC 10 ; #rrggbb     set default foreground
+//   OSC 11 ; #rrggbb     set default background
+//   OSC 12 ; #rrggbb     set cursor color
+//   OSC 104              reset all palette entries
+//   OSC 104 ; N          reset palette entry N
+//   OSC 110              reset default foreground
+//   OSC 111              reset default background
+//   OSC 112              reset cursor color
 // Spec format restricted to "#rrggbb"; other OSC codes/specs are silently
 // ignored for forward compatibility.
 static void term_out_OSC(term_state_t *term)
@@ -2073,6 +2185,7 @@ static void term_out_OSC(term_state_t *term)
     uint8_t count = term->csi_param_count;
     bool spec_ok = (count == 8);
     bool empty = (count == 0);
+    bool osc104_indexed = (count == 10);
     uint16_t packed = 0;
     if (spec_ok)
         packed = SCANVIDEO_ALPHA_MASK | SCANVIDEO_PIXEL_FROM_RGB8(
@@ -2081,6 +2194,16 @@ static void term_out_OSC(term_state_t *term)
                                             term->csi_param[3]);
     switch (term->csi_param[0])
     {
+    case 4:
+        if (spec_ok)
+            color_256_term[term->csi_param[4]] = packed;
+        break;
+    case 104:
+        if (empty)
+            memcpy(color_256_term, color_256, sizeof(color_256_term));
+        else if (osc104_indexed)
+            color_256_term[term->csi_param[4]] = color_256[term->csi_param[4]];
+        break;
     case 10:
         if (spec_ok)
         {
@@ -2127,11 +2250,14 @@ static void term_out_OSC(term_state_t *term)
 // Streaming OSC body parser; uses csi_param[] as scratch storage.
 //   csi_param[0]      = Ps (accumulated digits)
 //   csi_param[1..3]   = parsed R, G, B bytes once spec begins
+//   csi_param[4]      = palette index for OSC 4 / 104
 //   csi_param_count   = sub-state cursor:
 //       0           collecting Ps digits
 //       1           saw ';', expecting '#'
 //       2..7        accumulating hex digits of #rrggbb
 //       8           spec complete, awaiting terminator
+//       9           OSC 4 collecting palette index; expects ';' to continue to '#'
+//       10          OSC 104 collecting palette index; awaiting terminator
 //       0xFF        malformed; drain until terminator
 static void term_out_state_OSC(term_state_t *term, char ch)
 {
@@ -2155,10 +2281,16 @@ static void term_out_state_OSC(term_state_t *term, char ch)
             term->csi_param[0] = term->csi_param[0] * 10 + (ch - '0');
         else if (ch == ';')
         {
-            term->csi_param_count = 1;
             term->csi_param[1] = 0;
             term->csi_param[2] = 0;
             term->csi_param[3] = 0;
+            term->csi_param[4] = 0;
+            if (term->csi_param[0] == 4)
+                term->csi_param_count = 9;
+            else if (term->csi_param[0] == 104)
+                term->csi_param_count = 10;
+            else
+                term->csi_param_count = 1;
         }
         else
             term->csi_param_count = 0xFF;
@@ -2166,6 +2298,32 @@ static void term_out_state_OSC(term_state_t *term, char ch)
     case 1: // expect '#'
         if (ch == '#')
             term->csi_param_count = 2;
+        else
+            term->csi_param_count = 0xFF;
+        break;
+    case 9: // OSC 4 palette index; ';' advances to color spec
+        if (ch >= '0' && ch <= '9')
+        {
+            unsigned v = term->csi_param[4] * 10u + (unsigned)(ch - '0');
+            if (v > 255)
+                term->csi_param_count = 0xFF;
+            else
+                term->csi_param[4] = (uint16_t)v;
+        }
+        else if (ch == ';')
+            term->csi_param_count = 1;
+        else
+            term->csi_param_count = 0xFF;
+        break;
+    case 10: // OSC 104 palette index; terminator dispatches single-entry reset
+        if (ch >= '0' && ch <= '9')
+        {
+            unsigned v = term->csi_param[4] * 10u + (unsigned)(ch - '0');
+            if (v > 255)
+                term->csi_param_count = 0xFF;
+            else
+                term->csi_param[4] = (uint16_t)v;
+        }
         else
             term->csi_param_count = 0xFF;
         break;
@@ -2269,21 +2427,16 @@ static void com_out_chars(const char *buf, int length)
         term_out_char(&term_40, buf[i]);
         term_out_char(&term_80, buf[i]);
         if (term_40.cur->x != px_40 || term_40.cur->y != py_40)
-        {
-            term_40.cursor_lit = false;
-            term_40.cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
-        }
+            term_cursor_restart_blink(&term_40);
         if (term_80.cur->x != px_80 || term_80.cur->y != py_80)
-        {
-            term_80.cursor_lit = false;
-            term_80.cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
-        }
+            term_cursor_restart_blink(&term_80);
     }
 }
 
 void term_init(void)
 {
     // prepare console
+    memcpy(color_256_term, color_256, sizeof(color_256_term));
     static term_data_t term40_pri_mem[40 * TERM_MAX_HEIGHT];
     static term_data_t term40_alt_mem[40 * TERM_MAX_HEIGHT];
     static term_data_t term80_pri_mem[80 * TERM_MAX_HEIGHT];
@@ -2365,6 +2518,9 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
                   ((scanrow == 7 || scanrow == 5) ? ATTR_DBL_UL : 0) |
                   (scanrow == 4 ? ATTR_STRIKE : 0) |
                   (scanrow == 0 ? ATTR_OVERLINE : 0));
+    // SGR 58 underline color applies only on underline scanrows; hoists
+    // out of the inner loop. ATTR_STRIKE and ATTR_OVERLINE always use fg.
+    const bool ul_row = (line_mask & (ATTR_UNDERLINE | ATTR_DBL_UL)) != 0;
     const uint8_t row_idx = (uint8_t)(scanline_id / 8);
     term_data_t *term_ptr = term_row_ptr(&term_40, row_idx);
     uint16_t *const rgb_line = rgb;
@@ -2381,7 +2537,11 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
             if (attr & blink_mask)
                 fg = bg;
             if (attr & line_mask)
+            {
                 bits = 0xFF;
+                if (ul_row)
+                    fg = term_ptr->ul_color;
+            }
         }
         modes_render_1bpp(rgb, bits, bg, fg);
         rgb += 8;
@@ -2454,6 +2614,9 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
                   ((scanrow == 15 || scanrow == 13) ? ATTR_DBL_UL : 0) |
                   (scanrow == 8 ? ATTR_STRIKE : 0) |
                   (scanrow == 0 ? ATTR_OVERLINE : 0));
+    // SGR 58 underline color applies only on underline scanrows; hoists
+    // out of the inner loop. ATTR_STRIKE and ATTR_OVERLINE always use fg.
+    const bool ul_row = (line_mask & (ATTR_UNDERLINE | ATTR_DBL_UL)) != 0;
     const uint8_t row_idx = (uint8_t)(scanline_id / 16);
     term_data_t *term_ptr = term_row_ptr(&term_80, row_idx);
     uint16_t *const rgb_line = rgb;
@@ -2472,7 +2635,11 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
             if (attr & blink_mask)
                 fg = bg;
             if (attr & line_mask)
+            {
                 bits = 0xFF;
+                if (ul_row)
+                    fg = term_ptr->ul_color;
+            }
         }
         modes_render_1bpp(rgb, bits, bg, fg);
         rgb += 8;
