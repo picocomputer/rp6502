@@ -20,8 +20,9 @@
 // xterm-color (256-color, truecolor, OSC 10/11/12) extensions.
 // See `man 4 console_codes`. DEC Special Graphics charset
 // (ESC ( 0 / SO / SI) is supported via an attribute bit plus a
-// parallel font buffer sourced from CP437. Alt screen buffer
-// (?47/?1047/?1049) is supported with eager-clear-on-entry.
+// parallel font buffer sourced from CP437. Alt screen buffer:
+// ?1047/?1049 lazy-clear on entry (rows marked dirty, drained by the
+// background term_clean_task); ?47 swaps without clearing (content kept).
 // 8-bit codepage encoding only -- no UTF-8 decode.
 //
 // Designed to keep up with 115200 bps without flow control.
@@ -170,7 +171,9 @@ typedef struct term_state
     bool alt_active;            /* true when screen == &bufs[1] */
     cursor_state_t cursor_save; /* ?1049 snapshot */
     bool cursor_save_valid;
-    /* SCO-style save (CSI s / u) -- separate from DECSC and ?1049. */
+    /* SCO-style save (CSI s / u) -- separate from DECSC and ?1049, and (like
+     * them) stored at term level, so it persists across an alt-screen swap
+     * rather than being per-screen as in xterm. */
     uint8_t save_x;
     uint8_t save_y;
     bool save_origin_mode;
@@ -189,7 +192,7 @@ typedef struct term_state
     uint8_t csi_param_count;
     uint8_t csi_intermediate;                 // ' ', '!', or '$' captured during CSI parse
     bool ice_colors;                          // ?33 -- SGR 5/6 means bright bg (the IBM VGA hack), not blink
-    uint8_t cursor_style;                     // DECSCUSR Ps (store-and-ignore)
+    uint8_t cursor_style;                     // DECSCUSR Ps: 0/1/2=block, 3/4=underline, 5/6=bar (read by term_render_*)
     uint8_t tab_stops[TERM_TAB_BITMAP_BYTES]; // 1 bit per column
     cursor_state_t decsc;                     // DECSC snapshot (ESC 7 / ESC 8)
     bool decsc_valid;
@@ -199,13 +202,13 @@ static term_state_t term_40;
 static term_state_t term_80;
 static int16_t term_scanline_begin;
 
-// Add `offset` to `y_offset` and wrap into [0, TERM_MAX_HEIGHT). Used to
+// Add `row` to `y_offset` and wrap into [0, TERM_MAX_HEIGHT). Used to
 // translate a logical row into a physical row_idx[] slot. Inputs are
 // constrained to [0, TERM_MAX_HEIGHT), so the sum can't exceed 2*MAX-1
 // (=63), which fits in uint8_t.
-static inline uint8_t term_buf_slot(uint8_t y_offset, uint8_t offset)
+static inline uint8_t term_buf_slot(uint8_t y_offset, uint8_t row)
 {
-    uint8_t slot = (uint8_t)(y_offset + offset);
+    uint8_t slot = (uint8_t)(y_offset + row);
     if (slot >= TERM_MAX_HEIGHT)
         slot -= TERM_MAX_HEIGHT;
     return slot;
@@ -250,6 +253,16 @@ static inline void term_emit_attrs(const term_state_t *term,
     *attr = (uint8_t)(term->cur->sgr_attr & cell_mask);
 }
 
+// term_emit_attrs plus the SGR-58 underline-color fallback (ul_color when
+// SGR 58 is active, else fg). Single source of truth for the fg/bg/ul/attr an
+// erase or clear should land with; used by every lazy-erase / clear path.
+static inline void term_emit_erase(const term_state_t *term, uint16_t *fg,
+                                   uint16_t *bg, uint16_t *ul, uint8_t *attr)
+{
+    term_emit_attrs(term, fg, bg, attr);
+    *ul = term->cur->underline_color_set ? term->cur->ul_color : *fg;
+}
+
 // Paint [start, end) of `row` with space glyphs at the given fg/bg/attr.
 // Used by every clear/erase/insert path; keep this the only place that
 // touches all five cell fields together.
@@ -280,9 +293,6 @@ static void term_clean_line(term_state_t *term, uint8_t y)
                term->screen->erase_attr[y]);
 }
 
-// Refresh term->ptr to track cur->{x,y} after row_idx[] or y_offset has
-// moved, and clean the cursor's row so a follow-up glyph write lands on
-// fresh memory. Tail of every routine that scrolls or moves rows.
 // Force the cursor unlit and arm the input-gap timer. Used by movement
 // (com_out_chars) and by appearance changes (DECSCUSR, DECTCEM enable)
 // so the cursor's new state lands on a clean blink boundary.
@@ -292,6 +302,9 @@ static inline void term_cursor_restart_blink(term_state_t *term)
     term->cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
 }
 
+// Refresh term->ptr to track cur->{x,y} after row_idx[] or y_offset has
+// moved, and clean the cursor's row so a follow-up glyph write lands on
+// fresh memory. Tail of every routine that scrolls or moves rows.
 static inline void term_refresh_cursor_ptr(term_state_t *term)
 {
     term->ptr = term_row_ptr(term, term->cur->y) + term->cur->x;
@@ -389,10 +402,9 @@ static void term_shift_meta_down(term_state_t *term, uint8_t start)
 
 static void term_mark_rows_erase(term_state_t *term, uint8_t from, uint8_t to)
 {
-    uint16_t fg, bg;
+    uint16_t fg, bg, ul;
     uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    term_emit_erase(term, &fg, &bg, &ul, &attr);
     for (uint8_t i = from; i < to; i++)
     {
         term->screen->dirty[i] = true;
@@ -598,6 +610,22 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
     term->bufs[0].margin_bot = (uint8_t)(term->height - 1);
     term->bufs[1].margin_top = 0;
     term->bufs[1].margin_bot = (uint8_t)(term->height - 1);
+
+    // The resize loop only tracks the active buffer's cursor. Any saved cursor
+    // row (the inactive buffer's cs, and the DECSC / ?1049 / SCO snapshots) can
+    // exceed the new height after a shrink; clamp them so a later swap, DECRC,
+    // or RCP doesn't strand the cursor below the viewport. Same reasoning as
+    // the margin reset above.
+    uint8_t max_y = (uint8_t)(term->height - 1);
+    screen_buf_t *inactive = &term->bufs[term->alt_active ? 0 : 1];
+    if (inactive->cs.y > max_y)
+        inactive->cs.y = max_y;
+    if (term->cursor_save.y > max_y)
+        term->cursor_save.y = max_y;
+    if (term->decsc.y > max_y)
+        term->decsc.y = max_y;
+    if (term->save_y > max_y)
+        term->save_y = max_y;
 }
 
 // Parse the param tail of SGR 38 / 48 / 58 starting at idx. Writes the
@@ -608,6 +636,7 @@ static void term_state_set_height(term_state_t *term, uint8_t height)
 //   ;5;N         -> 2 extras (5, N)
 //   ;2;r;g;b     -> 4 extras
 //   :2::r:g:b    -> 5 extras (ITU/ISO 8613-6: empty colorspace slot)
+//   :2:r:g:b     -> 4 extras (no colorspace slot; libvte-style)
 //   ;1           -> 1 extra (transparent flag)
 // 0 means nothing matched; caller treats the introducer as a no-op and
 // breaks out of its own case to advance by one.
@@ -632,16 +661,33 @@ static uint8_t sgr_color(term_state_t *term, uint8_t idx, uint16_t *color)
                      term->csi_param[idx + 4]);
         return 4;
     }
-    if (idx + 5 < term->csi_param_count &&
+    if (idx + 4 < term->csi_param_count &&
         term->csi_separator[idx] == ':' &&
         term->csi_param[idx + 1] == 2)
     {
+        // Colon (ITU-T T.416 / ISO 8613-6) truecolor. Two layouts occur:
+        //   38:2::r:g:b  6 components, empty colorspace-id slot at idx+2
+        //   38:2:r:g:b   5 components, no colorspace slot (libvte-style)
+        // The 6-form keeps a ':' after the green channel (idx+4); the 5-form
+        // ends the colon run there (next separator is ';' or the terminator).
+        // That ':' is also what disambiguates when the group is followed by
+        // more SGR params. Try the longer, standards-correct form first.
+        if (idx + 5 < term->csi_param_count &&
+            term->csi_separator[idx + 4] == ':')
+        {
+            *color = SCANVIDEO_ALPHA_MASK |
+                     SCANVIDEO_PIXEL_FROM_RGB8(
+                         term->csi_param[idx + 3],
+                         term->csi_param[idx + 4],
+                         term->csi_param[idx + 5]);
+            return 5;
+        }
         *color = SCANVIDEO_ALPHA_MASK |
                  SCANVIDEO_PIXEL_FROM_RGB8(
+                     term->csi_param[idx + 2],
                      term->csi_param[idx + 3],
-                     term->csi_param[idx + 4],
-                     term->csi_param[idx + 5]);
-        return 5;
+                     term->csi_param[idx + 4]);
+        return 4;
     }
     if (idx + 1 < term->csi_param_count &&
         term->csi_param[idx + 1] == 1)
@@ -935,8 +981,12 @@ static void term_out_DSR(term_state_t *term)
         unsigned y = term->cur->y;
         if (x == term->width)
             x--;
+        // Report region-relative under DECOM, but guard the subtraction: a
+        // saved cursor restored above margin_top (DECSC/RCP straddling a
+        // DECSTBM change) would otherwise underflow `unsigned` into a huge
+        // bogus row.
         if (term->cur->origin_mode)
-            y -= term->screen->margin_top;
+            y = (y >= term->screen->margin_top) ? (y - term->screen->margin_top) : 0;
         char buf[COM_IN_BUF_SIZE];
         int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", y + 1, x + 1);
         if (n < 0 || n >= (int)sizeof(buf))
@@ -1118,10 +1168,9 @@ static void term_restore_cursor_state(term_state_t *term)
 // visible stale content is "a few scanlines for one or two frames".
 static void term_mark_screen_erased(term_state_t *term)
 {
-    uint16_t fg, bg;
+    uint16_t fg, bg, ul;
     uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    term_emit_erase(term, &fg, &bg, &ul, &attr);
     term_mark_buf_erased(term->screen, term->height, fg, bg, ul, attr);
 }
 
@@ -1389,9 +1438,9 @@ static void term_out_CUU(term_state_t *term)
     if (rows < 1)
         rows = 1;
     // Soft fence: cursor already inside the region cannot cross margin_top.
-    uint8_t floor = (term->cur->y >= term->screen->margin_top) ? term->screen->margin_top : 0;
+    uint8_t top_fence = (term->cur->y >= term->screen->margin_top) ? term->screen->margin_top : 0;
     uint16_t y = term->cur->y;
-    while (rows && y > floor)
+    while (rows && y > top_fence)
         --rows, --y;
     term->cur->y = y;
     term_refresh_cursor_ptr(term);
@@ -1404,10 +1453,11 @@ static void term_out_CUD(term_state_t *term)
     if (rows < 1)
         rows = 1;
     // Soft fence: cursor already inside the region cannot cross margin_bot.
-    uint8_t ceil = (term->cur->y <= term->screen->margin_bot) ? term->screen->margin_bot
-                                                              : (uint8_t)(term->height - 1);
+    uint8_t bot_fence = (term->cur->y <= term->screen->margin_bot)
+                            ? term->screen->margin_bot
+                            : (uint8_t)(term->height - 1);
     uint16_t y = term->cur->y;
-    while (rows && y < ceil)
+    while (rows && y < bot_fence)
         --rows, ++y;
     term->cur->y = y;
     term_refresh_cursor_ptr(term);
@@ -1452,10 +1502,9 @@ static void term_out_DCH(term_state_t *term)
     for (unsigned i = term->cur->x; i < tail; i++)
         row[i] = row[i + chars];
 
-    uint16_t fg, bg;
+    uint16_t fg, bg, ul;
     uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    term_emit_erase(term, &fg, &bg, &ul, &attr);
     fill_cells(row, tail, term->width, fg, bg, ul, attr);
 }
 
@@ -1474,10 +1523,9 @@ static void term_out_ICH(term_state_t *term)
     for (int i = (int)term->width - 1; i >= (int)term->cur->x + (int)chars; i--)
         row[i] = row[i - chars];
 
-    uint16_t fg, bg;
+    uint16_t fg, bg, ul;
     uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    term_emit_erase(term, &fg, &bg, &ul, &attr);
     fill_cells(row, term->cur->x, term->cur->x + chars, fg, bg, ul, attr);
 }
 
@@ -1517,10 +1565,9 @@ static void term_out_ECH(term_state_t *term)
     uint16_t avail = (uint16_t)(term->width - term->cur->x);
     if (n > avail)
         n = avail;
-    uint16_t fg, bg;
+    uint16_t fg, bg, ul;
     uint8_t attr;
-    term_emit_attrs(term, &fg, &bg, &attr);
-    uint16_t ul = term->cur->underline_color_set ? term->cur->ul_color : fg;
+    term_emit_erase(term, &fg, &bg, &ul, &attr);
     fill_cells(term_row_ptr(term, term->cur->y),
                term->cur->x, term->cur->x + n, fg, bg, ul, attr);
 }
@@ -1674,10 +1721,9 @@ static void term_out_CPL(term_state_t *term)
 // Erase Line
 static void term_out_EL(term_state_t *term)
 {
-    uint16_t erase_fg, erase_bg;
+    uint16_t erase_fg, erase_bg, erase_ul;
     uint8_t erase_a;
-    term_emit_attrs(term, &erase_fg, &erase_bg, &erase_a);
-    uint16_t erase_ul = term->cur->underline_color_set ? term->cur->ul_color : erase_fg;
+    term_emit_erase(term, &erase_fg, &erase_bg, &erase_ul, &erase_a);
     switch (term->csi_param[0])
     {
     case 0: // to the end of the line
@@ -1754,6 +1800,7 @@ static void term_out_state_C0(term_state_t *term, char ch)
     case '\t': // HT
         return term_out_HT(term);
     case '\n': // LF
+    case '\v': // VT -- treated as LF (VT100 / Linux console)
         return term_out_LF(term);
     case '\f': // FF
         return term_full_clear(term);
@@ -1769,7 +1816,14 @@ static void term_out_state_C0(term_state_t *term, char ch)
         term->ansi_state = ansi_state_Fe;
         break;
     default:
-        return term_out_glyph(term, ch);
+        // CP437 art relies on the smiley/suit glyphs at 0x01-0x06; render
+        // those and every printable byte (>= 0x20). Other unrecognized C0
+        // controls are ignored, per VT/ECMA-48 -- the rest of the low CP437
+        // glyphs are display-only and don't survive a stream, so the scene
+        // only depends on 0x01-0x06.
+        if ((uint8_t)ch >= 0x20 || ((uint8_t)ch >= 0x01 && (uint8_t)ch <= 0x06))
+            return term_out_glyph(term, ch);
+        break; // unrecognized C0 control: ignore
     }
 }
 
@@ -2521,26 +2575,26 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     // SGR 58 underline color applies only on underline scanrows; hoists
     // out of the inner loop. ATTR_STRIKE and ATTR_OVERLINE always use fg.
     const bool ul_row = (line_mask & (ATTR_UNDERLINE | ATTR_DBL_UL)) != 0;
-    const uint8_t row_idx = (uint8_t)(scanline_id / 8);
-    term_data_t *term_ptr = term_row_ptr(&term_40, row_idx);
+    const uint8_t logical_row = (uint8_t)(scanline_id / 8);
+    term_data_t *cell = term_row_ptr(&term_40, logical_row);
     uint16_t *const rgb_line = rgb;
-    for (int i = 0; i < 40; i++, term_ptr++)
+    for (int i = 0; i < 40; i++, cell++)
     {
-        uint8_t attr = term_ptr->attributes;
-        uint8_t bits = font_line[term_ptr->font_code];
-        uint16_t fg = term_ptr->fg_color;
-        uint16_t bg = term_ptr->bg_color;
+        uint8_t attr = cell->attributes;
+        uint8_t bits = font_line[cell->font_code];
+        uint16_t fg = cell->fg_color;
+        uint16_t bg = cell->bg_color;
         if (attr)
         {
             if (attr & ATTR_DEC)
-                bits = font_line_dec[(uint8_t)(term_ptr->font_code - 0x5F)];
+                bits = font_line_dec[(uint8_t)(cell->font_code - 0x5F)];
             if (attr & blink_mask)
                 fg = bg;
             if (attr & line_mask)
             {
                 bits = 0xFF;
                 if (ul_row)
-                    fg = term_ptr->ul_color;
+                    fg = cell->ul_color;
             }
         }
         modes_render_1bpp(rgb, bits, bg, fg);
@@ -2550,7 +2604,7 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     // pixels in place; cursor wins over ATTR_BLINK on its cell. Steady
     // styles (2/4/6) draw regardless of cursor_lit -- blink_cursor only
     // owns the timing, the style decides whether the off half is visible.
-    if (row_idx == term_40.cur->y &&
+    if (logical_row == term_40.cur->y &&
         term_40.cursor_enabled &&
         (term_40.cursor_lit ||
          term_40.cursor_style == 2 ||
@@ -2580,7 +2634,7 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
             break;
         default:
         { // 0/1/2 -- block: invert cell with cursor color
-            term_data_t *cp = term_row_ptr(&term_40, row_idx) + cx;
+            term_data_t *cp = term_row_ptr(&term_40, logical_row) + cx;
             uint8_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & ATTR_DEC)
@@ -2617,28 +2671,28 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     // SGR 58 underline color applies only on underline scanrows; hoists
     // out of the inner loop. ATTR_STRIKE and ATTR_OVERLINE always use fg.
     const bool ul_row = (line_mask & (ATTR_UNDERLINE | ATTR_DBL_UL)) != 0;
-    const uint8_t row_idx = (uint8_t)(scanline_id / 16);
-    term_data_t *term_ptr = term_row_ptr(&term_80, row_idx);
+    const uint8_t logical_row = (uint8_t)(scanline_id / 16);
+    term_data_t *cell = term_row_ptr(&term_80, logical_row);
     uint16_t *const rgb_line = rgb;
-    for (int i = 0; i < 80; i++, term_ptr++)
+    for (int i = 0; i < 80; i++, cell++)
     {
-        uint8_t attr = term_ptr->attributes;
-        uint8_t bits = font_line[term_ptr->font_code];
-        uint16_t fg = term_ptr->fg_color;
-        uint16_t bg = term_ptr->bg_color;
+        uint8_t attr = cell->attributes;
+        uint8_t bits = font_line[cell->font_code];
+        uint16_t fg = cell->fg_color;
+        uint16_t bg = cell->bg_color;
         if (attr)
         {
             if (attr & ATTR_DEC)
-                bits = font_line_dec[(uint8_t)(term_ptr->font_code - 0x5F)];
-            else if ((attr & ATTR_ITALIC) && term_ptr->font_code < 0x80)
-                bits = italic_line[term_ptr->font_code];
+                bits = font_line_dec[(uint8_t)(cell->font_code - 0x5F)];
+            else if ((attr & ATTR_ITALIC) && cell->font_code < 0x80)
+                bits = italic_line[cell->font_code];
             if (attr & blink_mask)
                 fg = bg;
             if (attr & line_mask)
             {
                 bits = 0xFF;
                 if (ul_row)
-                    fg = term_ptr->ul_color;
+                    fg = cell->ul_color;
             }
         }
         modes_render_1bpp(rgb, bits, bg, fg);
@@ -2648,7 +2702,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     // bottom 2 rows on 8x16; bar is 2px wide for proportionality. Steady
     // styles (2/4/6) draw regardless of cursor_lit -- blink_cursor only
     // owns the timing, the style decides whether the off half is visible.
-    if (row_idx == term_80.cur->y &&
+    if (logical_row == term_80.cur->y &&
         term_80.cursor_enabled &&
         (term_80.cursor_lit ||
          term_80.cursor_style == 2 ||
@@ -2679,7 +2733,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
             break;
         default:
         { // 0/1/2 -- block: invert cell with cursor color
-            term_data_t *cp = term_row_ptr(&term_80, row_idx) + cx;
+            term_data_t *cp = term_row_ptr(&term_80, logical_row) + cx;
             uint8_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & ATTR_DEC)
