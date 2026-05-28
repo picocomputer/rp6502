@@ -59,9 +59,11 @@ uint16_t rln_get_term_width(void);
 uint16_t rln_get_term_height(void);
 
 // Inject a sequence of input bytes into the active readline. CR ends
-// the line normally; CTRL-C (0x03) finishes the line with a "^C" echo
-// (when readline owns the room) without inserting either char. Poked
-// bytes are dispatched in overwrite mode.
+// the line normally; any other C0 control byte (0x00-0x1F) except ESC
+// (which begins a CSI sequence) and CAN (0x18, which aborts one) also
+// finishes the line. Non-CR/LF controls echo as caret notation (^@..^_)
+// when readline owns the room, without being inserted. Poked bytes are
+// dispatched in overwrite mode.
 void rln_poke(const char *str);
 
 // 6502 API entry points.

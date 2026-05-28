@@ -260,7 +260,7 @@ static void rln_cpr_forget_stale(com_source_t s)
 // Immediate completion: invoke the user callback and clear all
 // in-band completion state. Callers must have already verified that
 // it's safe to drop in-flight parser tails.
-static void rln_complete_now(bool rln_timed_out)
+static void rln_complete_now(bool timed_out)
 {
     rln_read_callback_t cc = rln_callback;
     rln_idle_timeout_ms = 0;
@@ -283,7 +283,7 @@ static void rln_complete_now(bool rln_timed_out)
     // defer absorbing a sibling source's protocol tail, and the
     // next chunk would land in a com FIFO that nothing is draining.
     printf("\n");
-    cc(rln_timed_out, rln_buf);
+    cc(timed_out, rln_buf);
 }
 
 // Public completion entry. Fires inline when no source still owes
@@ -291,19 +291,19 @@ static void rln_complete_now(bool rln_timed_out)
 // outstanding CPR replies can be absorbed by the gate in
 // rln_ansi_dispatch_or_defer before the next rln_read_line memsets
 // the parsers.
-static void rln_complete(bool rln_timed_out)
+static void rln_complete(bool timed_out)
 {
     if (rln_complete_deferred)
         return;
     if (!rln_any_source_busy())
     {
-        rln_complete_now(rln_timed_out);
+        rln_complete_now(timed_out);
         return;
     }
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
         rln_defer_arm(s);
     rln_complete_deferred = true;
-    rln_complete_deferred_timed_out = rln_timed_out;
+    rln_complete_deferred_timed_out = timed_out;
     rln_complete_deferred_deadline = make_timeout_time_ms(RLN_COMPLETE_DEFER_MS);
 }
 
@@ -694,7 +694,7 @@ static void rln_line_delete_n(rln_source_t *a)
     uint16_t count = a->csi_param[0];
     if (count < 1)
         count = 1;
-    uint16_t end = rln_bufpos + count;
+    uint32_t end = (uint32_t)rln_bufpos + count;
     if (end > rln_buflen)
         end = rln_buflen;
     rln_delete_range(rln_bufpos, (uint8_t)end);
