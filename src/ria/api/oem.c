@@ -34,7 +34,8 @@ static void oem_request_code_page(uint16_t cp)
     (void)cp;
     oem_code_page_run = OEM_CODE_PAGE;
 #else
-    if (f_setcp(cp) == FR_OK)
+    // cp >= 900 are DBCS; allow SBCS only
+    if (cp < 900 && f_setcp(cp) == FR_OK)
         oem_code_page_run = cp;
     else if (oem_code_page_run == 0)
     {
