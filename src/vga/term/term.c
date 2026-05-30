@@ -512,13 +512,17 @@ static void term_mark_buf_erased(screen_buf_t *buf, uint8_t height,
     buf->all_clean = false;
 }
 
-static void term_out_RIS(term_state_t *term)
+// Common hard-reset core: everything RIS and the display-change reset share,
+// stopping short of touching screen contents or cursor position. RIS then
+// clears+homes (term_full_clear); the display-change path reflows the cursor
+// (term_out_RIS_no_clear). Keep the two callers in sync via this helper.
+static void term_reset_core(term_state_t *term)
 {
-    /* RIS drops alt mode and returns to primary. The cursor-save snapshot
-     * is invalidated -- a hard reset shouldn't leave the alt save around.
-     * The alt buffer's cell contents are also wiped so a later ?47 (swap-
-     * only, no clear) can't surface pre-RIS content. The runtime palette
-     * is also restored: OSC 4 mutations don't survive RIS, matching xterm.
+    /* Drops alt mode and returns to primary. The cursor-save snapshot is
+     * invalidated -- a hard reset shouldn't leave the alt save around. The
+     * alt buffer's cell contents are also wiped so a later ?47 (swap-only,
+     * no clear) can't surface pre-reset content. The runtime palette is also
+     * restored: OSC 4 mutations don't survive a reset, matching xterm.
      * Idempotent on the second per-term call from com_out_chars. */
     memcpy(color_256_term, color_256, sizeof(color_256_term));
     term->screen = &term->bufs[0];
@@ -536,6 +540,11 @@ static void term_out_RIS(term_state_t *term)
                          color_256[TERM_FG_COLOR_INDEX],
                          color_256[TERM_BG_COLOR_INDEX],
                          color_256[TERM_FG_COLOR_INDEX], 0);
+}
+
+static void term_out_RIS(term_state_t *term)
+{
+    term_reset_core(term);
     term_full_clear(term); /* also resets x = y = 0 on primary */
 }
 
@@ -1338,6 +1347,49 @@ static void term_region_scroll_down(term_state_t *term, uint8_t top,
 
     // Mark the n newly-exposed rows at the top dirty (lazy clear).
     term_mark_rows_erase(term, top, (uint8_t)(top + n));
+}
+
+// Visually-empty test: a space, default background, and no rendered line
+// attributes (underline/strike/overline). A lazy-dirty row is judged from its
+// pending erase colors. Logical-row indexed (matches dirty[]/term_row_ptr).
+static bool term_row_is_blank(const term_state_t *term, uint8_t y)
+{
+    if (term->screen->dirty[y])
+        return term->screen->erase_bg_color[y] == term->default_bg_color &&
+               term->screen->erase_attr[y] == 0;
+    const term_data_t *row = term_row_ptr(term, y);
+    for (uint8_t x = 0; x < term->width; x++)
+        if (row[x].font_code != ' ' ||
+            row[x].bg_color != term->default_bg_color ||
+            row[x].attributes != 0)
+            return false;
+    return true;
+}
+
+// Reposition the cursor after a display-change reset without homing or
+// clearing: drop onto the bottom-most row that still holds data, keeping the
+// current column. If every row below the cursor is already blank, stay put.
+// Landing on a row that has data is fine -- no CR, and no scroll at the bottom.
+static void term_reflow_cursor_after_display_change(term_state_t *term)
+{
+    uint8_t y = term->cur->y;
+    if (y >= term->height) // defensive; set_height already clamps cur->y
+        y = (uint8_t)(term->height - 1);
+    uint8_t target = y;
+    for (uint8_t r = (uint8_t)(y + 1); r < term->height; r++)
+        if (!term_row_is_blank(term, r))
+            target = r;
+    term_set_cursor_position(term, term->cur->x, target);
+}
+
+// Like RIS, but preserves the primary screen and reflows the cursor instead of
+// clearing/homing. Out-of-band (PIX DISPLAY xreg, not com_out_chars), so it
+// restarts the cursor blink itself.
+static void term_out_RIS_no_clear(term_state_t *term)
+{
+    term_reset_core(term);
+    term_reflow_cursor_after_display_change(term);
+    term_cursor_restart_blink(term);
 }
 
 static void term_out_LF(term_state_t *term)
@@ -2786,6 +2838,12 @@ void term_RIS(void)
 {
     term_out_RIS(&term_40);
     term_out_RIS(&term_80);
+}
+
+void term_RIS_no_clear(void)
+{
+    term_out_RIS_no_clear(&term_40);
+    term_out_RIS_no_clear(&term_80);
 }
 
 bool term_prog(uint16_t *xregs)
