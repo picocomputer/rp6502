@@ -47,22 +47,32 @@
 #define TERM_BG_COLOR_INDEX 0
 
 // Cell `attributes` byte: render-time flags.
-#define ATTR_UNDERLINE (1u << 0) // SGR 4
-#define ATTR_STRIKE (1u << 1)    // SGR 9
-#define ATTR_OVERLINE (1u << 2)  // SGR 53
-#define ATTR_DBL_UL (1u << 3)    // SGR 21
-#define ATTR_BLINK (1u << 4)     // SGR 5 / 6 (proper, phase-driven)
-#define ATTR_DEC (1u << 5)       // cell renders from DEC graphics buffer
-#define ATTR_ITALIC (1u << 6)    // SGR 3 (ASCII-only, 8x16 mode only)
-#define ATTR_RENDER_MASK (ATTR_UNDERLINE | ATTR_STRIKE | ATTR_OVERLINE | \
-                          ATTR_DBL_UL | ATTR_BLINK | ATTR_DEC | ATTR_ITALIC)
+#define ATTR_BLINK_FAST (1u << 0) // SGR 6 rapid (blink phase bit 0)
+#define ATTR_BLINK (1u << 1)      // SGR 5 slow  (blink phase bit 1)
+#define ATTR_UNDERLINE (1u << 2)  // SGR 4
+#define ATTR_DBL_UL (1u << 3)     // SGR 21
+#define ATTR_STRIKE (1u << 4)     // SGR 9
+#define ATTR_OVERLINE (1u << 5)   // SGR 53
+#define ATTR_DEC (1u << 6)        // cell renders from DEC graphics buffer
+#define ATTR_ITALIC (1u << 7)     // SGR 3 (ASCII-only, 8x16 mode only)
+// SGR 5 (slow) and SGR 6 (rapid) live at bits 0-1 so they map onto the live
+// blink phase counter directly. A cell carries exactly one of the two; the
+// renderer ANDs it against the phase so each pulses at its own rate. The two
+// underlines sit adjacent at bits 2-3. See TERM_BLINK_TICK_US.
+#define ATTR_ANY_BLINK (ATTR_BLINK | ATTR_BLINK_FAST)
+#define ATTR_RENDER_MASK (ATTR_BLINK | ATTR_BLINK_FAST | ATTR_UNDERLINE | \
+                          ATTR_DBL_UL | ATTR_STRIKE | ATTR_OVERLINE |     \
+                          ATTR_DEC | ATTR_ITALIC)
 
 // SGR-state-only flags (not stored per-cell): emit-time fg/bg transforms.
 // Held in cursor_state_t alongside bold/faint, not in sgr_attr.
 
-// Global ATTR_BLINK pulse half-period (one half-cycle, on then off).
-// Slightly off 333ms to avoid frame-tear sync with display refresh.
-#define TERM_BLINK_PHASE_US 332700
+// Cell-blink base tick = the SGR 6 rapid-blink half-period. The phase counter
+// (cell_blink_phase) increments every tick: bit 0 flips each tick (SGR 6 rapid,
+// ~3 Hz), bit 1 every two ticks (SGR 5 slow, ~1.5 Hz -- the original rate).
+// ~3 Hz clears ECMA-48's 150/min (2.5 Hz) slow/rapid boundary. Slightly off
+// 166.67ms to avoid frame-tear sync with display refresh.
+#define TERM_BLINK_TICK_US 166500
 
 // Cursor blink half-period: normal cell vs "stuck at right edge"
 // (off-screen deferred-wrap state blinks at 2x rate so it's still noticeable).
@@ -227,11 +237,11 @@ static inline term_data_t *term_row_ptr(const term_state_t *term, uint8_t y)
 
 // Compute the effective fg/bg/attr a cell write should land with, given
 // the current SGR state. Applies emit-time REVERSE/CONCEAL toggles; render
-// bits (UL/STRIKE/OVERLINE/DBL_UL/BLINK) flow through unchanged. ATTR_DEC
-// is the caller's responsibility -- only set for DEC-charset glyph cells.
-// In ice_colors mode (DECSET ?33) the ATTR_BLINK bit is suppressed at the
-// cell level -- the bright bg is already baked into bg_color and we don't
-// want the renderer to also pulse the cell.
+// bits (UL/STRIKE/OVERLINE/DBL_UL/BLINK/BLINK_FAST) flow through unchanged.
+// ATTR_DEC is the caller's responsibility -- only set for DEC glyph cells.
+// In ice_colors mode (DECSET ?33) both blink bits (ATTR_ANY_BLINK) are
+// suppressed at the cell level -- the bright bg is already baked into
+// bg_color and we don't want the renderer to also pulse the cell.
 static inline void term_emit_attrs(const term_state_t *term,
                                    uint16_t *fg, uint16_t *bg, uint8_t *attr)
 {
@@ -249,7 +259,7 @@ static inline void term_emit_attrs(const term_state_t *term,
     *bg = b;
     uint8_t cell_mask = ATTR_RENDER_MASK & ~ATTR_DEC;
     if (term->ice_colors)
-        cell_mask &= (uint8_t)~ATTR_BLINK;
+        cell_mask &= (uint8_t)~ATTR_ANY_BLINK;
     *attr = (uint8_t)(term->cur->sgr_attr & cell_mask);
 }
 
@@ -542,7 +552,7 @@ static void term_state_init(term_state_t *term, uint8_t width,
     term->cursor_save_valid = false;
     term->cursor_lit = false;
     term->cell_blink_phase = 0;
-    term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
+    term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_TICK_US);
     term_out_RIS(term);
 }
 
@@ -708,7 +718,7 @@ static void term_update_bg_color(term_state_t *term)
     uint8_t idx = term->cur->bg_color_index;
     if (idx == BG_COLOR_INDEX_EXTENDED)
         term->cur->bg_color = term->cur->user_bg_color;
-    else if (term->ice_colors && (term->cur->sgr_attr & ATTR_BLINK))
+    else if (term->ice_colors && (term->cur->sgr_attr & ATTR_ANY_BLINK))
         term->cur->bg_color = color_256_term[idx + 8];
     else if (idx == TERM_BG_COLOR_INDEX &&
              term->default_bg_color != color_256[TERM_BG_COLOR_INDEX])
@@ -789,9 +799,15 @@ static void term_out_SGR(term_state_t *term)
         case 4: // underline
             term->cur->sgr_attr |= ATTR_UNDERLINE;
             break;
-        case 5: // slow blink
-        case 6: // rapid blink (aliased; we run one phase rate)
-            term->cur->sgr_attr |= ATTR_BLINK;
+        case 5: // slow blink (~1.5 Hz)
+            term->cur->sgr_attr =
+                (uint8_t)((term->cur->sgr_attr & ~ATTR_ANY_BLINK) | ATTR_BLINK);
+            if (term->ice_colors)
+                term_update_bg_color(term);
+            break;
+        case 6: // rapid blink (~3 Hz)
+            term->cur->sgr_attr =
+                (uint8_t)((term->cur->sgr_attr & ~ATTR_ANY_BLINK) | ATTR_BLINK_FAST);
             if (term->ice_colors)
                 term_update_bg_color(term);
             break;
@@ -818,8 +834,8 @@ static void term_out_SGR(term_state_t *term)
         case 24: // underline off
             term->cur->sgr_attr &= (uint8_t)~(ATTR_UNDERLINE | ATTR_DBL_UL);
             break;
-        case 25: // not blink
-            term->cur->sgr_attr &= (uint8_t)~ATTR_BLINK;
+        case 25: // not blink (clears slow and rapid)
+            term->cur->sgr_attr &= (uint8_t)~ATTR_ANY_BLINK;
             if (term->ice_colors)
                 term_update_bg_color(term);
             break;
@@ -2526,17 +2542,20 @@ static void term_blink_cursor(term_state_t *term)
         term->cursor_timer = make_timeout_time_us(TERM_CURSOR_BLINK_US);
 }
 
-// SGR-5/6 cell blink half-phase, per-term. The renderer ANDs the cell's
-// `attributes` byte against this mask: 0 = visible half-cycle (no-op);
-// ATTR_BLINK = off half-cycle (fg suppressed to bg). Toggled from Core 0
-// here; read by Core 1 in the renderer hot path. Per-term so the cursor
+// SGR-5/6 cell blink phase, per-term: a free-running 2-bit counter at bits 0-1
+// (ATTR_ANY_BLINK). Bit 0 (ATTR_BLINK_FAST) flips every tick -> SGR 6 rapid;
+// bit 1 (ATTR_BLINK) every two ticks -> SGR 5 slow. The renderer ANDs a cell's
+// single blink bit against this value, so each cell darkens only on its own
+// rate's off-phase, and both relight together at phase 0. Incremented from
+// Core 0 here; read by Core 1 in the renderer hot path. Per-term so the cursor
 // timer and cell blink timer share an owner instead of crossing a global.
 static void term_cell_blink_phase_task(term_state_t *term)
 {
     if (time_reached(term->cell_blink_timer))
     {
-        term->cell_blink_phase = term->cell_blink_phase ? 0u : ATTR_BLINK;
-        term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_PHASE_US);
+        term->cell_blink_phase =
+            (uint8_t)((term->cell_blink_phase + 1) & ATTR_ANY_BLINK);
+        term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_TICK_US);
     }
 }
 
@@ -2565,7 +2584,9 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     //   row 4     = strikethrough (middle)
     //   row 5,7   = double underline
     //   row 7     = underline
-    // blink_mask is term_40's cell-blink half-phase byte (0 or ATTR_BLINK).
+    // blink_mask is term_40's 2-bit cell-blink phase: bit 0 (ATTR_BLINK_FAST)
+    // is the rapid off-half, bit 1 (ATTR_BLINK) the slow off-half. Each cell's
+    // single blink bit ANDs against it, so the two rates pulse independently.
     const uint8_t blink_mask = term_40.cell_blink_phase;
     const uint8_t line_mask =
         (uint8_t)((scanrow == 7 ? ATTR_UNDERLINE : 0) |
@@ -2662,6 +2683,7 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     //   row 8      = strikethrough (middle)
     //   row 13,15  = double underline
     //   row 15     = underline
+    // 2-bit cell-blink phase (bit 0 = rapid off-half, bit 1 = slow off-half).
     const uint8_t blink_mask = term_80.cell_blink_phase;
     const uint8_t line_mask =
         (uint8_t)((scanrow == 15 ? ATTR_UNDERLINE : 0) |
