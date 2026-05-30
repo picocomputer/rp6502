@@ -282,7 +282,7 @@ static void rln_complete_now(bool timed_out)
     // script "ready for next chunk" while we're still pinned in
     // defer absorbing a sibling source's protocol tail, and the
     // next chunk would land in a com FIFO that nothing is draining.
-    printf("\n");
+    putchar('\n');
     cc(timed_out, rln_buf);
 }
 
@@ -822,7 +822,7 @@ static void rln_line_insert(char ch)
             rln_bufpos++;
             rln_cur_idx = rln_bufpos;
             if (at_row_end)
-                printf("\n");
+                putchar('\n');
         }
         else
             rln_bufpos++;
@@ -1654,7 +1654,6 @@ void rln_break(void)
 {
     if (rln_callback)
         rln_sync_cursor_to(rln_buflen);
-    printf("\n");
     rln_init();
 }
 
@@ -1757,7 +1756,7 @@ static void rln_poke_emit_caret(uint8_t target, char ch)
             putchar(marker[i]);
             if (c == w)
             {
-                printf("\n");
+                putchar('\n');
                 c = 1;
             }
             else

@@ -749,11 +749,29 @@ void com_init(void)
 void com_stop(void)
 {
     if (!ria_active())
+    {
         printf(STR_TERM_SOFT_RESET);
+        while (!com_putchar_ready())
+            com_stdio_pump();
+        putchar('\n'); // doesn't flush
+    }
 }
 
 void com_break(void)
 {
+    // Queue a newline unless com_stop just left a CRLF.
+    {
+        size_t head = com_tx_core0_head;
+        size_t tail = com_tx_core0_tail;
+        size_t count = (head - tail + COM_TX_CORE0_BUF_SIZE) % COM_TX_CORE0_BUF_SIZE;
+        size_t last = head;
+        size_t prev = (head + COM_TX_CORE0_BUF_SIZE - 1) % COM_TX_CORE0_BUF_SIZE;
+        if (count < 2 ||
+            com_tx_core0_buf[last] != '\n' ||
+            com_tx_core0_buf[prev] != '\r')
+            putchar('\n');
+    }
+
     // Drain hw FIFO first so any in-flight bytes land in the ring,
     // then clear the ring.
     com_uart_drain_rx();
