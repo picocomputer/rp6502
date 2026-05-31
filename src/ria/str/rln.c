@@ -391,6 +391,21 @@ static void rln_sync_cursor_to(uint8_t target)
         else if (delta < 0)
             printf("\33[%dD", -delta);
     }
+    else if (rln_input_no_wrap())
+    {
+        // Single row: position by absolute column from a CR anchor. A
+        // write to the last column leaves the cursor in pending-wrap;
+        // anchoring at column 1 and stepping forward places it exactly
+        // regardless of that state, so left/backspace don't drift. The
+        // end index lands at the margin; clamp there rather than letting
+        // rln_buf_to_screen roll it over to a phantom next row.
+        uint16_t w = rln_get_term_width();
+        uint32_t logical = (uint32_t)(rln_prompt_col - 1) + target;
+        uint16_t c = (logical >= w) ? w : (uint16_t)(logical + 1);
+        putchar('\r');
+        if (c > 1)
+            printf("\33[%uC", c - 1);
+    }
     else
     {
         uint8_t fr, tr;
