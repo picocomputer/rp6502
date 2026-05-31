@@ -393,18 +393,16 @@ static void rln_sync_cursor_to(uint8_t target)
     }
     else if (rln_input_no_wrap())
     {
-        // Single row: position by absolute column from a CR anchor. A
-        // write to the last column leaves the cursor in pending-wrap;
-        // anchoring at column 1 and stepping forward places it exactly
-        // regardless of that state, so left/backspace don't drift. The
-        // end index lands at the margin; clamp there rather than letting
-        // rln_buf_to_screen roll it over to a phantom next row.
-        uint16_t w = rln_get_term_width();
-        uint32_t logical = (uint32_t)(rln_prompt_col - 1) + target;
-        uint16_t c = (logical >= w) ? w : (uint16_t)(logical + 1);
-        putchar('\r');
-        if (c > 1)
-            printf("\33[%uC", c - 1);
+        // Single row: position by absolute column (CHA). A write into the
+        // last column parks the terminal in deferred-wrap one cell past
+        // the row end; a relative move would mis-measure from the parked
+        // cell, and the next glyph there wraps/scrolls. CHA resolves the
+        // park to the real cell without wrapping. The cursor cap keeps
+        // `target` off the rolled-over next row, so the column is exact.
+        uint8_t r;
+        uint16_t c;
+        rln_buf_to_screen(target, &r, &c);
+        printf("\33[%uG", c);
     }
     else
     {
@@ -417,6 +415,11 @@ static void rln_sync_cursor_to(uint8_t target)
     rln_cur_idx = target;
 }
 
+// Defined below, after rln_effective_max (which rln_cursor_max needs);
+// forward-declared here because the editing/render code above uses them.
+static uint8_t rln_cursor_max(void);
+static void rln_clamp_cursor(void);
+
 // Redraw the buffer from `start` onward, then place the cursor at
 // rln_bufpos. Two paths:
 //   - No-wrap: plain writes with space-fill erase. No EL, no ICH, no DCH —
@@ -427,18 +430,28 @@ static void rln_render_from(uint8_t start)
 {
     if (rln_phase != rln_phase_edit)
         return;
+    rln_clamp_cursor();
     rln_sync_cursor_to(start);
     if (rln_input_no_wrap())
     {
         for (uint8_t i = start; i < rln_buflen; i++)
             putchar(rln_buf[i]);
-        rln_cur_idx = rln_buflen;
+        rln_cur_idx = rln_cursor_max();
         if (rln_rendered_end > rln_buflen)
         {
             uint8_t spaces = (uint8_t)(rln_rendered_end - rln_buflen);
+            uint8_t er;
+            uint16_t ec;
+            // A trailing space written into the last column lands in
+            // pending-wrap and does not advance, so back up one fewer.
+            rln_buf_to_screen(rln_buflen, &er, &ec);
+            uint16_t back = spaces;
+            if (ec + spaces - 1 >= rln_get_term_width())
+                back = (uint16_t)(spaces - 1);
             for (uint8_t i = 0; i < spaces; i++)
                 putchar(' ');
-            printf("\33[%uD", spaces);
+            if (back)
+                printf("\33[%uD", back);
         }
         rln_rendered_end = rln_buflen;
     }
@@ -502,6 +515,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 {
     if (rln_phase != rln_phase_edit)
         return;
+    rln_clamp_cursor();
     if (!rln_input_no_wrap())
     {
         rln_render_from(at);
@@ -512,11 +526,20 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
         putchar(rln_buf[i]);
     if (pad)
     {
+        uint8_t pr;
+        uint16_t pc;
+        // A pad space written into the last column lands in pending-wrap
+        // and does not advance, so back up one fewer.
+        rln_buf_to_screen(rln_buflen, &pr, &pc);
+        uint16_t back = pad;
+        if (pc + pad - 1 >= rln_get_term_width())
+            back = (uint16_t)(pad - 1);
         for (uint8_t i = 0; i < pad; i++)
             putchar(' ');
-        printf("\33[%uD", pad);
+        if (back)
+            printf("\33[%uD", back);
     }
-    rln_cur_idx = rln_buflen;
+    rln_cur_idx = rln_cursor_max();
     rln_rendered_end = rln_buflen;
     rln_sync_cursor_to(rln_bufpos);
 }
@@ -570,7 +593,7 @@ static void rln_history_add(void)
 // both the typed CR dispatch and rln_poke's control-byte path.
 static void rln_finish_line(bool add_to_history)
 {
-    rln_sync_cursor_to(rln_buflen);
+    rln_sync_cursor_to(rln_cursor_max());
     rln_buf[rln_buflen] = 0;
     if (add_to_history)
         rln_history_add();
@@ -589,9 +612,10 @@ static void rln_line_home(void)
 
 static void rln_line_end(void)
 {
-    if (rln_bufpos != rln_buflen)
+    uint8_t e = rln_cursor_max();
+    if (rln_bufpos != e)
         rln_action_taken = true;
-    rln_bufpos = rln_buflen;
+    rln_bufpos = e;
     rln_sync_cursor_to(rln_bufpos);
 }
 
@@ -640,6 +664,7 @@ static void rln_line_word(int dir)
     if (to == rln_bufpos)
         return;
     rln_bufpos = to;
+    rln_clamp_cursor();
     rln_action_taken = true;
     rln_sync_cursor_to(rln_bufpos);
 }
@@ -661,6 +686,7 @@ static void rln_step(int delta)
             mag = rln_bufpos;
         rln_bufpos -= (uint8_t)mag;
     }
+    rln_clamp_cursor();
     if (rln_bufpos != prev)
     {
         rln_action_taken = true;
@@ -770,6 +796,29 @@ static uint8_t rln_effective_max(void)
     return cap;
 }
 
+// Highest reachable cursor index. Normally buflen; one less when the
+// input is full AND fills exactly to the terminal's last column, so the
+// cursor rests on the last char (the terminal's pending-wrap cell)
+// instead of rolling onto a phantom next row, which would make relative
+// cursor moves drift up. The "full" guard (>= effective_max) keeps
+// multi-line appending working: a partly-typed wrap input that merely
+// fills a row must still let you move onto the next row.
+static uint8_t rln_cursor_max(void)
+{
+    if (rln_buflen && rln_prompt_col &&
+        rln_buflen >= rln_effective_max() &&
+        ((rln_prompt_col - 1u + rln_buflen) % rln_get_term_width()) == 0)
+        return (uint8_t)(rln_buflen - 1);
+    return rln_buflen;
+}
+
+static void rln_clamp_cursor(void)
+{
+    uint8_t m = rln_cursor_max();
+    if (rln_bufpos > m)
+        rln_bufpos = m;
+}
+
 // ICH (CSI Ps @): insert Ps blank chars at the cursor, shifting the tail
 // right. Cursor stays at its current position. Symmetric with DCH.
 static void rln_line_insert_n(rln_source_t *a)
@@ -843,12 +892,21 @@ static void rln_line_insert(char ch)
             }
             putchar(ch);
             rln_bufpos++;
+            // If the cursor would land on the unreachable rolled-over end
+            // (full input filling the last column), clamp it back onto the
+            // last char and skip the wrap-resolving newline so it stays on
+            // the row instead of dropping below.
+            bool clamped = (rln_bufpos > rln_cursor_max());
+            rln_clamp_cursor();
             rln_cur_idx = rln_bufpos;
-            if (at_row_end)
+            if (at_row_end && !clamped)
                 putchar('\n');
         }
         else
+        {
             rln_bufpos++;
+            rln_clamp_cursor();
+        }
         return;
     }
     if (rln_buflen >= rln_effective_max())
@@ -1668,7 +1726,7 @@ void rln_run(void)
 void rln_stop(void)
 {
     if (rln_callback)
-        rln_sync_cursor_to(rln_buflen);
+        rln_sync_cursor_to(rln_cursor_max());
     rln_init();
     if (!ria_active())
         rln_emit_mode_cursor();
@@ -1677,7 +1735,7 @@ void rln_stop(void)
 void rln_break(void)
 {
     if (rln_callback)
-        rln_sync_cursor_to(rln_buflen);
+        rln_sync_cursor_to(rln_cursor_max());
     rln_init();
 }
 
