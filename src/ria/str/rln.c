@@ -52,11 +52,7 @@ typedef enum
 typedef enum
 {
     rln_phase_prompt_cpr, // waiting for first CPR (prompt position)
-    rln_phase_width_cpr,  // waiting for second CPR (height + width). DA2
-                          // is sent between CPR1 and CPR2 in the burst, and
-                          // is absorbed by the always-on CPR sniffer
-                          // regardless of phase, so this phase just gates
-                          // the CPR-driven transition to edit
+    rln_phase_width_cpr,  // waiting for second CPR (terminal height + width)
     rln_phase_edit,       // normal editing
 } rln_phase_t;
 
@@ -84,14 +80,11 @@ typedef enum
 // for sequences that never finish landing.
 #define RLN_COMPLETE_DEFER_MS 500
 
-// Per-input-source state. One instance per com source plus one for the
-// 6502 poke stream. Owns the ANSI parser (state, csi params, buf[]) and
-// per-source bookkeeping for CPR/DA2 tracking and deferred completion.
-// buf[] doubles as in-flight cache (tail = currently in-progress
-// sequence) and deferred-typed buffer (head = completed typed sequences
-// whose dispatch is waiting for edit phase). Per-source bookkeeping
-// fields are unused on rln_poke_source — poke is excluded from CPR/DA2
-// tracking and from defer iteration.
+// Per-input-source state: one instance per com source plus one for the
+// 6502 poke stream. Owns the ANSI parser and per-source CPR/DA2/defer
+// bookkeeping. buf[] doubles as in-flight cache (tail = in-progress
+// sequence) and deferred-typed buffer (head = completed sequences
+// awaiting edit phase). Bookkeeping fields are unused on rln_poke_source.
 typedef struct
 {
     rln_ansi_state_t state;
@@ -133,16 +126,13 @@ static uint8_t rln_caps;
 // across reads; reset on stop() (via rln_init).
 static bool rln_suppress_newline;
 
-// Deferred completion. Set when rln_complete fires while at least one
-// source is still busy (parser mid-ESC or owes proven CPR replies); the
-// callback invocation is held off until every busy source resolves its
-// arm-time criteria (in-flight ESC sequence back to C0 AND all owed
-// CPRs landed) or RLN_COMPLETE_DEFER_MS elapses from defer arm. Sources
-// not busy at arm are not read during the defer window — their bytes
-// stay in com's per-source FIFO and arrive at the next rln_read_line
-// as a fresh stream. Per-source defer fields live in rln_source_t and
-// are snapshot at arm so each source's criteria depends only on what
-// *that source* owed at arm.
+// Deferred completion. Set when rln_complete fires while a source is
+// still busy (parser mid-ESC or owes proven CPR replies); the callback
+// is held off until every busy source resolves its arm-time criteria
+// (in-flight ESC back to C0 AND all owed CPRs landed) or
+// RLN_COMPLETE_DEFER_MS elapses. Sources not busy at arm aren't read
+// during the window — their bytes wait in com's FIFO for the next read.
+// rln_poke_source is exempt (synchronous; never owes a handshake).
 static bool rln_complete_deferred;
 static bool rln_complete_deferred_timed_out;
 static absolute_time_t rln_complete_deferred_deadline;
@@ -159,29 +149,22 @@ static uint8_t rln_cur_idx;          // buffer index whose screen position the c
 static bool rln_overwrite;           // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
 static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
 static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
-static uint8_t rln_rendered_end;     // buflen as of last render in no-wrap mode
+static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
 
-// Per-source state. rln_sources[s] holds the parser + CPR/DA2/defer
+// Per-source state: rln_sources[s] holds the parser + CPR/DA2/defer
 // bookkeeping for each com input source (kbd, uart, tel). rln_poke_source
-// is a separate instance because it is fed synchronously from rln_poke
-// (the 6502 API) and has its own drop-cpr rule and overwrite handshake.
+// is separate — fed synchronously from rln_poke (the 6502 API).
 static rln_source_t rln_sources[COM_SOURCE_COUNT];
 static rln_source_t rln_poke_source;
 
-// CPR-pending count seeded into rln_sources[s].cpr_expecting at read
-// start (1 or 2 depending on geometry overrides). cpr_seen is sticky
-// across reads — once a source has dispatched a valid CPR it stays
-// flagged so the defer gate keeps distinguishing real terminals from
-// script peers that never reply. cpr_seen is cleared when the prior
-// verdict is confirmed stale (rln_cpr_forget_stale call sites).
+// CPR-pending count seeded into each source's cpr_expecting at read
+// start (1 or 2, depending on geometry overrides).
 static uint8_t rln_cpr_initial;
 
-// Sticky-off latch: when any source proves DA2-deaf this read (completed
-// its CPR quota or hit the 1-CPR timeout without delivering DA2), forces
-// rln_decscusr_ok back to false and blocks rln_da2_dispatch from
-// re-enabling. Stdout writes go to every attached terminal, so a single
-// VT102 peer would leak the `q` of DECSCUSR as literal text; one bad peer
-// must poison cursor-shape support for everyone. Cleared per read.
+// Sticky-off latch: when any source proves DA2-deaf this read, forces
+// rln_decscusr_ok false and blocks re-enabling. Stdout fans out to every
+// terminal, so one VT102 peer would leak DECSCUSR's `q` as literal text —
+// one bad peer must poison cursor shapes for all. Cleared per read.
 static bool rln_decscusr_locked_off;
 
 // Lastkey capture for the 6502 API. rln_action_taken is the live
@@ -193,16 +176,9 @@ static uint8_t rln_lastkey_len;
 static bool rln_action_taken;
 static bool rln_lastkey_action;
 
-// True if source s still owes rln in-band protocol work: mid a
-// multi-byte ANSI sequence, or owes a CPR reply we've proven it can
-// send. Classify by parser state rather than inflight_len: the CR or
-// poked control byte that fires rln_complete is itself in the parser's
-// buf with inflight_len == 1, but state is already back to C0 — a
-// single-byte C0 dispatch must not force a defer. The cpr_seen gate
-// keeps script peers (never reply) from pinning completion open on a
-// speculative request. Poke is excluded by iteration bounds: rln_poke
-// is gated off during defer, so a stuck poke partial would only pin
-// the deadline for nothing.
+// True if source s still owes in-band protocol work: mid a multi-byte
+// ANSI sequence, or owes a proven CPR reply. cpr_seen keeps
+// never-replying script peers from pinning completion open.
 static bool rln_source_busy(com_source_t s)
 {
     return rln_sources[s].state != ansi_state_C0 ||
@@ -225,14 +201,11 @@ static void rln_defer_arm(com_source_t s)
     a->defer_esc_pending = (a->state != ansi_state_C0);
 }
 
-// Called after every byte we feed from source s during defer. Clears
-// defer_pending once *both* arm-time criteria are satisfied: the
-// in-flight ESC sequence at arm has returned to C0, AND all outstanding
-// CPRs have landed. ANDing is essential — typed sequences during defer
-// (arrow keys etc.) cycle the parser through CSI back to C0 and would
-// otherwise satisfy an "or" gate while CPRs are still in flight,
-// leaking partial CPR fragments ("33R", "[11;33R") into the next read.
-// defer_esc_pending is set only at arm; we don't re-arm it mid-defer.
+// Called after every byte fed from source s during defer. Clears
+// defer_pending only once *both* arm-time criteria hold: the arm-time
+// ESC sequence is back to C0 AND all owed CPRs have landed. AND (not
+// OR): a typed sequence completing mid-defer must not release the gate
+// while CPRs are still in flight. defer_esc_pending is set only at arm.
 static void rln_defer_check_resolved(com_source_t s)
 {
     rln_source_t *a = &rln_sources[s];
@@ -261,6 +234,12 @@ static void rln_cpr_forget_stale(com_source_t s)
         rln_sources[s].cpr_seen = false;
 }
 
+static void rln_forget_all_stale(void)
+{
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        rln_cpr_forget_stale(s);
+}
+
 // Immediate completion: invoke the user callback and clear all
 // in-band completion state. Callers must have already verified that
 // it's safe to drop in-flight parser tails.
@@ -270,34 +249,23 @@ static void rln_complete_now(bool timed_out)
     rln_idle_timeout_ms = 0;
     rln_callback = NULL;
     rln_complete_deferred = false;
-    // End of input: forget the sticky cpr_seen verdict on any source
-    // that didn't engage this round. Covers the fast-CR case (completion
-    // before the handshake_deadline has elapsed) and idle-timeout
-    // completion, both of which the deadline-driven handler in rln_task
-    // misses. Run before the callback fires so a synchronous
-    // rln_read_line from cc() sees this round's final cpr_expecting
-    // state — not the next round's freshly-reset values.
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        rln_cpr_forget_stale(s);
-    // Emit the line-terminating newline here rather than at
-    // rln_finish_line. Uploaders that key their next chunk off
-    // seeing '\n' echo back use the newline as a flow-control
-    // signal — emitting it before defer ends would tell a UART
-    // script "ready for next chunk" while we're still pinned in
-    // defer absorbing a sibling source's protocol tail, and the
-    // next chunk would land in a com FIFO that nothing is draining.
-    // The SUPPRESS_NL attribute drops it so field input on the last
-    // line keeps the cursor on its row.
+    // Forget stale cpr_seen verdicts before the callback fires, so a
+    // synchronous rln_read_line() from cc() sees this round's final
+    // cpr_expecting state. Covers fast-CR and idle-timeout completion,
+    // which the deadline handler in rln_task misses.
+    rln_forget_all_stale();
+    // Emit the terminating newline here (not at rln_finish_line):
+    // uploaders use the '\n' echo as a flow-control "ready for next
+    // chunk" signal, so it must wait until defer ends. SUPPRESS_NL
+    // drops it so last-line field input keeps the cursor on its row.
     if (!rln_suppress_newline)
         putchar('\n');
     cc(timed_out, rln_buf);
 }
 
-// Public completion entry. Fires inline when no source still owes
-// in-band protocol work; defers otherwise so mid-ESC sequences and
-// outstanding CPR replies can be absorbed by the gate in
-// rln_ansi_dispatch_or_defer before the next rln_read_line memsets
-// the parsers.
+// Public completion entry. Fires inline when no source owes in-band
+// work; defers otherwise so mid-ESC sequences and outstanding CPRs can
+// be absorbed before the next rln_read_line resets the parsers.
 static void rln_complete(bool timed_out)
 {
     if (rln_complete_deferred)
@@ -340,13 +308,11 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
     *col = (uint16_t)(logical % w) + 1;
 }
 
-// Emit relative cursor moves from (fr,fc) to (tr,tc). For downward
-// moves we use LF (\n): CUD doesn't scroll, so if the prompt has been
-// pushed to the bottom of the screen, "down one row" via CUD silently
-// no-ops and renders end up clobbering the same row. LF scrolls as
-// needed. Forced wrap in rln_render_from leaves the cursor at
-// deterministic positions — there is no xenl pending-wrap state to
-// consume — so \r and \n are unambiguous.
+// Emit relative cursor moves from (fr,fc) to (tr,tc). Downward moves use
+// LF, not CUD: CUD doesn't scroll, so at the bottom of the screen it
+// no-ops and renders clobber the same row. Forced wraps leave the cursor
+// at deterministic positions (no xenl pending-wrap), so \r and \n are
+// unambiguous.
 static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
 {
     if (tr > fr)
@@ -394,11 +360,10 @@ static void rln_sync_cursor_to(uint8_t target)
     else if (rln_input_no_wrap())
     {
         // Single row: position by absolute column (CHA). A write into the
-        // last column parks the terminal in deferred-wrap one cell past
-        // the row end; a relative move would mis-measure from the parked
-        // cell, and the next glyph there wraps/scrolls. CHA resolves the
-        // park to the real cell without wrapping. The cursor cap keeps
-        // `target` off the rolled-over next row, so the column is exact.
+        // last column parks the terminal in pending-wrap; a relative move
+        // would mis-measure from there, but CHA resolves to the real cell.
+        // cursor_max keeps `target` off the rolled-over next row, so the
+        // column is exact.
         uint8_t r;
         uint16_t c;
         rln_buf_to_screen(target, &r, &c);
@@ -415,10 +380,69 @@ static void rln_sync_cursor_to(uint8_t target)
     rln_cur_idx = target;
 }
 
-// Defined below, after rln_effective_max (which rln_cursor_max needs);
-// forward-declared here because the editing/render code above uses them.
-static uint8_t rln_cursor_max(void);
-static void rln_clamp_cursor(void);
+// Effective max chars we can hold, given current screen geometry. In
+// multi-line mode we cap at RLN_MAX_ROWS visible rows.
+static uint8_t rln_effective_max(void)
+{
+    uint8_t cap = rln_max_length;
+    if (rln_prompt_col)
+    {
+        uint16_t w = rln_get_term_width();
+        // Compute the row*width product in 32 bits so a large width
+        // override (rln_set_term_width accepts up to 65535) can't
+        // truncate; clamp back into uint16_t before the row math.
+        uint32_t cells = (uint32_t)RLN_MAX_ROWS * w;
+        uint16_t avail = cells > UINT16_MAX ? UINT16_MAX : (uint16_t)cells;
+        if (avail > (uint16_t)(rln_prompt_col - 1))
+            avail -= (uint16_t)(rln_prompt_col - 1);
+        else
+            avail = 0;
+        if (avail > 255)
+            avail = 255;
+        if (cap > avail)
+            cap = (uint8_t)avail;
+    }
+    return cap;
+}
+
+// Highest reachable cursor index. Normally buflen; one less when the
+// input is full and fills exactly to the last column, so the cursor
+// rests on the pending-wrap cell instead of a phantom next row (which
+// would drift relative moves up). The "full" guard keeps multi-line
+// appending working — merely filling a row must still let you move on.
+static uint8_t rln_cursor_max(void)
+{
+    if (rln_buflen && rln_prompt_col &&
+        rln_buflen >= rln_effective_max() &&
+        ((rln_prompt_col - 1u + rln_buflen) % rln_get_term_width()) == 0)
+        return (uint8_t)(rln_buflen - 1);
+    return rln_buflen;
+}
+
+static void rln_clamp_cursor(void)
+{
+    uint8_t m = rln_cursor_max();
+    if (rln_bufpos > m)
+        rln_bufpos = m;
+}
+
+// Write `count` erase spaces starting at the current screen position (the
+// cell just past rln_buflen), then back the cursor up to where it started.
+// A trailing space written into the last column lands in pending-wrap and
+// does not advance, so back up one fewer in that case.
+static void rln_emit_trailing_spaces(uint8_t count)
+{
+    uint8_t r;
+    uint16_t c;
+    rln_buf_to_screen(rln_buflen, &r, &c);
+    uint16_t back = count;
+    if (c + count - 1 >= rln_get_term_width())
+        back = (uint16_t)(count - 1);
+    for (uint8_t i = 0; i < count; i++)
+        putchar(' ');
+    if (back)
+        printf("\33[%uD", back);
+}
 
 // Redraw the buffer from `start` onward, then place the cursor at
 // rln_bufpos. Two paths:
@@ -437,23 +461,9 @@ static void rln_render_from(uint8_t start)
         for (uint8_t i = start; i < rln_buflen; i++)
             putchar(rln_buf[i]);
         rln_cur_idx = rln_cursor_max();
-        if (rln_rendered_end > rln_buflen)
-        {
-            uint8_t spaces = (uint8_t)(rln_rendered_end - rln_buflen);
-            uint8_t er;
-            uint16_t ec;
-            // A trailing space written into the last column lands in
-            // pending-wrap and does not advance, so back up one fewer.
-            rln_buf_to_screen(rln_buflen, &er, &ec);
-            uint16_t back = spaces;
-            if (ec + spaces - 1 >= rln_get_term_width())
-                back = (uint16_t)(spaces - 1);
-            for (uint8_t i = 0; i < spaces; i++)
-                putchar(' ');
-            if (back)
-                printf("\33[%uD", back);
-        }
-        rln_rendered_end = rln_buflen;
+        if (rln_last_render_buflen > rln_buflen)
+            rln_emit_trailing_spaces((uint8_t)(rln_last_render_buflen - rln_buflen));
+        rln_last_render_buflen = rln_buflen;
     }
     else
     {
@@ -498,7 +508,7 @@ static void rln_render_from(uint8_t start)
         }
         rln_rendered_max_row = r_end;
         rln_cur_idx = rln_buflen;
-        rln_rendered_end = rln_buflen;
+        rln_last_render_buflen = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
 }
@@ -506,11 +516,10 @@ static void rln_render_from(uint8_t start)
 /* ----- Tail-rewrite emit helper ----- */
 
 // Emit the screen update for an in-place buffer change at position `at`.
-// The buffer must already reflect the new state. Leaves cursor at
-// rln_bufpos. `pad` is the number of trailing spaces needed to erase
-// old display positions past the new tail (0 for insert / in-place
-// replace, N for delete-N). Wrap mode falls back to rln_render_from
-// rather than per-row ICH/DCH — simpler, and bounded by RLN_MAX_ROWS.
+// The buffer must already reflect the new state; leaves cursor at
+// rln_bufpos. `pad` = trailing spaces to erase old positions past the new
+// tail (0 for insert/in-place replace, N for delete-N). Wrap mode falls
+// back to rln_render_from instead of per-row ICH/DCH.
 static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 {
     if (rln_phase != rln_phase_edit)
@@ -525,22 +534,9 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
     for (uint8_t i = at; i < rln_buflen; i++)
         putchar(rln_buf[i]);
     if (pad)
-    {
-        uint8_t pr;
-        uint16_t pc;
-        // A pad space written into the last column lands in pending-wrap
-        // and does not advance, so back up one fewer.
-        rln_buf_to_screen(rln_buflen, &pr, &pc);
-        uint16_t back = pad;
-        if (pc + pad - 1 >= rln_get_term_width())
-            back = (uint16_t)(pad - 1);
-        for (uint8_t i = 0; i < pad; i++)
-            putchar(' ');
-        if (back)
-            printf("\33[%uD", back);
-    }
+        rln_emit_trailing_spaces(pad);
     rln_cur_idx = rln_cursor_max();
-    rln_rendered_end = rln_buflen;
+    rln_last_render_buflen = rln_buflen;
     rln_sync_cursor_to(rln_bufpos);
 }
 
@@ -694,13 +690,18 @@ static void rln_step(int delta)
     }
 }
 
+// CSI numeric parameter with the ANSI default-of-1 applied: an omitted or
+// zero Ps means 1.
+static uint16_t rln_param_or_1(uint16_t v)
+{
+    return v < 1 ? 1 : v;
+}
+
 static void rln_line_forward(rln_source_t *a)
 {
     if (a->csi_param_count > 1 && a->csi_param[1] != 1)
         return rln_line_word(1);
-    int count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
+    int count = rln_param_or_1(a->csi_param[0]);
     rln_step(count);
 }
 
@@ -708,9 +709,7 @@ static void rln_line_backward(rln_source_t *a)
 {
     if (a->csi_param_count > 1 && a->csi_param[1] != 1)
         return rln_line_word(-1);
-    int count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
+    int count = rln_param_or_1(a->csi_param[0]);
     rln_step(-count);
 }
 
@@ -740,9 +739,7 @@ static void rln_line_delete(void)
 
 static void rln_line_delete_n(rln_source_t *a)
 {
-    uint16_t count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
+    uint16_t count = rln_param_or_1(a->csi_param[0]);
     uint32_t end = (uint32_t)rln_bufpos + count;
     if (end > rln_buflen)
         end = rln_buflen;
@@ -775,57 +772,11 @@ static void rln_line_kill_to_start(void)
     rln_delete_range(0, rln_bufpos);
 }
 
-// Effective max chars we can hold, given current screen geometry. In
-// multi-line mode we cap at RLN_MAX_ROWS visible rows.
-static uint8_t rln_effective_max(void)
-{
-    uint8_t cap = rln_max_length;
-    if (rln_prompt_col)
-    {
-        uint16_t w = rln_get_term_width();
-        uint16_t avail = (uint16_t)RLN_MAX_ROWS * w;
-        if (avail > (uint16_t)(rln_prompt_col - 1))
-            avail -= (uint16_t)(rln_prompt_col - 1);
-        else
-            avail = 0;
-        if (avail > 255)
-            avail = 255;
-        if (cap > avail)
-            cap = (uint8_t)avail;
-    }
-    return cap;
-}
-
-// Highest reachable cursor index. Normally buflen; one less when the
-// input is full AND fills exactly to the terminal's last column, so the
-// cursor rests on the last char (the terminal's pending-wrap cell)
-// instead of rolling onto a phantom next row, which would make relative
-// cursor moves drift up. The "full" guard (>= effective_max) keeps
-// multi-line appending working: a partly-typed wrap input that merely
-// fills a row must still let you move onto the next row.
-static uint8_t rln_cursor_max(void)
-{
-    if (rln_buflen && rln_prompt_col &&
-        rln_buflen >= rln_effective_max() &&
-        ((rln_prompt_col - 1u + rln_buflen) % rln_get_term_width()) == 0)
-        return (uint8_t)(rln_buflen - 1);
-    return rln_buflen;
-}
-
-static void rln_clamp_cursor(void)
-{
-    uint8_t m = rln_cursor_max();
-    if (rln_bufpos > m)
-        rln_bufpos = m;
-}
-
 // ICH (CSI Ps @): insert Ps blank chars at the cursor, shifting the tail
 // right. Cursor stays at its current position. Symmetric with DCH.
 static void rln_line_insert_n(rln_source_t *a)
 {
-    uint16_t count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
+    uint16_t count = rln_param_or_1(a->csi_param[0]);
     uint8_t cap = rln_effective_max();
     uint8_t avail = (cap > rln_buflen) ? (uint8_t)(cap - rln_buflen) : 0;
     if (count > avail)
@@ -844,9 +795,7 @@ static void rln_line_insert_n(rln_source_t *a)
 // spaces. Cursor stays put, buflen unchanged, no shift. Stops at buflen.
 static void rln_line_erase_n(rln_source_t *a)
 {
-    uint16_t count = a->csi_param[0];
-    if (count < 1)
-        count = 1;
+    uint16_t count = rln_param_or_1(a->csi_param[0]);
     uint32_t end = (uint32_t)rln_bufpos + count;
     if (end > rln_buflen)
         end = rln_buflen;
@@ -1016,7 +965,6 @@ static void rln_ansi_advance(rln_source_t *a, uint8_t ch)
             a->csi_private = ch;
             return;
         }
-        // terminator
         a->state = ansi_state_C0;
         if (a->csi_param_count < RLN_CSI_PARAM_MAX_LEN)
             a->csi_param_count++;
@@ -1147,26 +1095,19 @@ static void rln_publish_lastkey(rln_source_t *a)
     rln_lastkey_action = rln_action_taken;
 }
 
-// Dispatch a parsed Secondary DA reply (\33[><...>c). The fact that
-// a reply arrived at all is the signal — minicom and similarly broken
-// peers ignore DA2 (and leak its `c` as literal text, scrubbed by the
-// burst's DECRC + space + BS). Param values are discarded. A late DA2
-// arriving in edit phase still flips the bit and emits the cursor
-// shape so the user sees the correct insert/overwrite indicator going
-// forward.
+// Dispatch a parsed Secondary DA reply (\33[><...>c). The reply's mere
+// arrival is the signal; param values are discarded. A late DA2 in edit
+// phase still flips the bit and emits the cursor shape.
 static void rln_da2_dispatch(com_source_t src)
 {
-    (void)src; // per-source da2_seen set in dispatch_or_defer above gate
-    // Sticky-off latch from a peer that proved DA2-deaf this read:
-    // ignore any DA2 (including a deferred one replayed via drain after
-    // the latch fired) so cursor shapes can't be re-enabled.
+    (void)src; // da2_seen is recorded by the caller
+    // DA2-deaf latch set this read: ignore all DA2 (incl. a deferred one
+    // replayed via drain) so cursor shapes can't be re-enabled.
     if (rln_decscusr_locked_off)
         return;
-    // Late DA2 arriving after we've already entered edit phase with
-    // geometry suppressed (instant relief or handshake fallback both
-    // leave prompt_col at 0): ignore. Enabling DECSCUSR now would
-    // emit a cursor-shape sequence into a stream whose peer never
-    // negotiated VT220+ for this session.
+    // Late DA2 in edit phase with geometry suppressed (prompt_col==0 from
+    // instant relief or handshake fallback): ignore — enabling DECSCUSR
+    // now would emit into a stream whose peer never negotiated VT220+.
     if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
         return;
     if (rln_decscusr_ok)
@@ -1191,27 +1132,15 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     bool is_da2 = (entry_state == ansi_state_CSI_private &&
                    a->csi_private == '>' &&
                    term == 'c');
-    // Tracked terminal sources are the ones whose CPR/DA2 replies are
-    // protocol responses we record. KBD sends typed user input that
-    // could look like a CPR/DA2 but isn't a real reply; the poke
-    // source is virtual (src=COM_SOURCE_ANY, an unindexable sentinel
-    // into rln_sources[]). Everything CPR/DA2-related below gates on
-    // this — protocol-state accounting, the lock-off latch, and the
-    // rln_cpr_dispatch call.
+    // Tracked sources (UART/TEL) are the ones whose CPR/DA2 replies are
+    // real protocol responses. KBD typed input can look like a reply but
+    // isn't; the poke source is virtual (src=COM_SOURCE_ANY). All
+    // CPR/DA2 handling below gates on this.
     bool tracked = (src == COM_SOURCE_UART || src == COM_SOURCE_TEL);
-    // Protocol-state updates that must run regardless of defer:
-    //   - cpr_seen / cpr_expecting drive defer resolution and the
-    //     lock-off detection below.
-    //   - da2_seen feeds the lock-off check; every DA2 reply from a
-    //     tracked source must be recorded, even those absorbed during
-    //     defer.
-    //   - rln_cpr_dispatch refines term_width / term_height from late
-    //     or shadow-terminal CPRs (the manifold-min rule, documented
-    //     in that function); it guards its own enter_edit/render
-    //     calls against rln_complete_deferred so the completed line
-    //     isn't re-emitted.
-    //   - The 2-CPR lock-off latch likewise has to fire when a real
-    //     CPR2 closes the quota, even if that CPR2 lands during defer.
+    // Protocol-state accounting (cpr_seen/cpr_expecting, da2_seen),
+    // geometry refinement (rln_cpr_dispatch), and the lock-off latch all
+    // run before the defer gate below: they must record every CPR/DA2,
+    // including replies absorbed during defer.
     if (is_cpr && tracked)
     {
         rln_sources[src].cpr_seen = true;
@@ -1220,12 +1149,10 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     }
     if (is_da2 && tracked)
         rln_sources[src].da2_seen = true;
-    // 2-CPR mode lock-off: if this CPR closed out the source's quota
-    // (CPR1+CPR2 both delivered) and that same source never replied
-    // DA2, the peer is DA2-deaf. The burst order is CPR1, DA2, CPR2,
-    // so a DA2-aware peer would have replied DA2 before its CPR2.
-    // Latch the global lock so any later DA2 (including one replayed
-    // via drain) can't re-enable cursor shapes.
+    // 2-CPR lock-off: if this CPR closes the source's quota and that
+    // source never replied DA2, it's DA2-deaf — the burst order is
+    // CPR1, DA2, CPR2, so a DA2-aware peer would have replied before its
+    // CPR2. Latch the lock so later DA2s can't re-enable cursor shapes.
     if (rln_cpr_initial == 2 &&
         is_cpr && tracked &&
         rln_sources[src].cpr_expecting == 0 &&
@@ -1236,12 +1163,10 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
     }
     if (is_cpr && tracked)
         rln_cpr_dispatch(src, a->csi_param[0], a->csi_param[1]);
-    // Completion is pending: the line is logically submitted and we're
-    // only here to absorb in-band protocol bytes so they don't leak
-    // into the next read. The pre-gate block above already ran every
-    // effect we want during defer (CPR/DA2 accounting, lock-off,
-    // geometry refinement); skip the DA2 enable + cursor emit and the
-    // typed-action dispatch so the visual line stays stable.
+    // Defer pending: the line is logically submitted; we're only
+    // absorbing in-band protocol bytes so they don't leak into the next
+    // read. The pre-gate block already ran the effects we want during
+    // defer, so skip the DA2 enable and typed dispatch.
     if (rln_complete_deferred)
     {
         rln_ansi_trim_inflight(a);
@@ -1255,10 +1180,9 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
              entry_state == ansi_state_CSI_private ||
              entry_state == ansi_state_SS2)
     {
-        // CPR was dispatched above the gate; CSI_private (other
-        // terminators) and SS2 are no-ops today. All three skip
-        // publish_lastkey so protocol replies don't surface as
-        // typed-key bytes via the 6502 lastkey API.
+        // CPR dispatched above; CSI_private (other terminators) and SS2
+        // are no-ops. All three skip publish_lastkey so protocol replies
+        // don't surface via the 6502 lastkey API.
     }
     else if (rln_phase != rln_phase_edit)
     {
@@ -1318,14 +1242,11 @@ static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b)
         rln_ansi_dispatch_or_defer(a, src, b, entry_state);
 }
 
-// Drain the deferred head region through the same parser. Called from
-// rln_enter_edit. Re-feeds every byte currently in buf[]: protocol
-// replies were trimmed at dispatch time during handshake, so what's
-// left is typed bytes + any in-flight tail. Replaying preserves any
-// in-flight state. Snapshots rln_callback at entry so that a CR in
-// temp[] which completes the line (and may even synchronously start
-// a new one) doesn't replay further stale bytes against the next
-// line's freshly memset state.
+// Drain the deferred head region through the same parser (from
+// rln_enter_edit). Re-feeds every buffered byte: handshake-time protocol
+// replies were already trimmed, so what's left is typed bytes + any
+// in-flight tail. Snapshots rln_callback so a CR that completes the line
+// mid-drain doesn't replay stale bytes into the next line's parser.
 static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src)
 {
     if (a->buf_len == 0)
@@ -1343,10 +1264,8 @@ static void rln_ansi_drain_deferred(rln_source_t *a, com_source_t src)
     for (uint16_t i = 0; i < total; i++)
     {
         rln_ansi_feed(a, src, temp[i]);
-        // Stop if the line finished (callback fired) or finished into a
-        // defer. The defer path keeps rln_callback non-NULL but gates
-        // dispatch — continuing the loop is wasted work and would defer
-        // bytes into a line that's logically already submitted.
+        // Stop if the line finished (callback fired) or entered defer —
+        // continuing would replay bytes into an already-submitted line.
         if (rln_callback != cb_at_start || rln_complete_deferred)
             return;
     }
@@ -1388,22 +1307,14 @@ static void rln_enter_edit(void)
 
 static void rln_handshake_fallback(void)
 {
-    // Handshake deadline expired. The init burst already RCP'd the
-    // cursor back to the prompt and re-showed it, so we don't need
-    // to fix cursor placement here. We never got both CPRs (CPR2
-    // would have advanced us straight to edit), so drop into the
-    // single-virtual-line model (row math bypassed by prompt_col==0)
-    // and preserve whatever DA2 told us about DECSCUSR — except in
-    // 1-CPR mode below, where the deadline is the only signal a peer
-    // is DA2-deaf.
+    // Handshake deadline expired without both CPRs. The init burst
+    // already RCP'd the cursor back, so drop into the single-virtual-line
+    // model (row math bypassed by prompt_col==0).
     //
-    // 1-CPR mode lock-off: in 2-CPR mode the CPR2 sentinel triggers
-    // the live latch in rln_ansi_dispatch_or_defer, but when both
-    // geometry overrides pin the size we only send CPR1 — there's no
-    // sentinel after DA2 in the burst, so we can't tell DA2-deaf from
-    // DA2-in-flight until the deadline. Any source that delivered CPR1
-    // (proving it's a real terminal that processes ANSI) without
-    // having replied DA2 by now is DA2-deaf; latch off for everyone.
+    // 1-CPR lock-off: with both geometry axes overridden we send only
+    // CPR1, so there's no CPR2 sentinel to trigger the live latch — the
+    // deadline is the only DA2-deaf signal. Any source that delivered
+    // CPR1 but never replied DA2 is DA2-deaf; latch off for everyone.
     if (rln_cpr_initial == 1)
         for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             if (rln_sources[s].cpr_expecting == 0 && !rln_sources[s].da2_seen)
@@ -1412,8 +1323,7 @@ static void rln_handshake_fallback(void)
                 rln_decscusr_locked_off = true;
                 break;
             }
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-        rln_cpr_forget_stale(s);
+    rln_forget_all_stale();
     rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
@@ -1422,37 +1332,28 @@ static void rln_handshake_fallback(void)
 
 // Dispatch a parsed CPR (\33[<p1>;<p2>R). Row in p1, col in p2.
 //
-// Multi-source manifold rule: when several terminals are attached, the
-// host's stdout fans out to all of them, and each replies with its own
-// CPR1 (current = prompt position) then CPR2 (current = terminal size,
-// after \33[999;999H). Replies arrive interleaved across com sources,
-// but each source's pair stays in order. Classification:
+// Multi-source manifold rule: host stdout fans out to all attached
+// terminals; each replies CPR1 (prompt position) then CPR2 (terminal
+// size, after \33[999;999H). Replies interleave across sources but each
+// source's pair stays ordered. Classification:
 //   1. First CPR ever (prompt_col == 0): pin prompt_col from p2 and
-//      advance phase. prompt_col is the one axis where all terminals
-//      must agree from the host's point of view — the host sent the
-//      same prompt bytes to each — so the first reply wins.
-//   2. Per-source COUNT picks out CPR2: the accounting block in
-//      rln_ansi_dispatch_or_defer has already decremented this source's
-//      cpr_expecting, so when it reads 0 here (and initial was 2),
-//      this is the source's CPR2 (the geometry reply). Counting beats
-//      the older "col > prompt_col" heuristic, which mis-discards a
-//      legitimate CPR2 when the prompt sits at the terminal's right
-//      edge (CPR2's col equals prompt_col there).
-//   3. First-arriving CPR2 sets term_height / term_width and
-//      transitions to edit phase; subsequent CPR2s from other sources
-//      refine the running MIN — render width must be safe for the
-//      narrowest connected terminal so the same byte stream wraps
-//      identically on every attached terminal.
-//   4. Per-source CPR1s after the first global reply are discarded —
-//      their useful info (prompt position) was already captured in
-//      step 1.
-//   5. CPR after late-DA2 fallback (prompt_col deliberately 0 in
-//      edit phase) is discarded entirely.
+//      advance phase. All terminals got the same prompt bytes, so the
+//      first reply wins.
+//   2. Per-source COUNT picks out CPR2: dispatch_or_defer already
+//      decremented cpr_expecting, so 0 here (with initial 2) means this
+//      is the source's CPR2 (the geometry reply).
+//   3. First CPR2 sets term_height/term_width and enters edit phase;
+//      later CPR2s refine the running MIN — render width must be safe
+//      for the narrowest terminal so the byte stream wraps identically
+//      on all of them.
+//   4. Per-source CPR1s after the first global reply are discarded
+//      (prompt position already captured in step 1).
+//   5. CPR after late-DA2 fallback (prompt_col 0 in edit phase) is
+//      discarded.
 //
-// Called from rln_ansi_dispatch_or_defer above the defer-absorb gate
-// so late CPRs refine geometry even during defer. enter_edit and
-// render_from are guarded against rln_complete_deferred — once the
-// line is submitted we update internal geometry but never re-emit.
+// Called above the defer-absorb gate so late CPRs refine geometry even
+// during defer; enter_edit/render_from are guarded against
+// rln_complete_deferred so a submitted line is never re-emitted.
 static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
 {
     // Step 5: discard CPRs after fallback left prompt_col at 0.
@@ -1523,7 +1424,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_complete_deferred = false;
 
     rln_phase = rln_phase_prompt_cpr;
-    // Sentinels for the content-based CPR heuristic: 0 means
+    // Sentinels for the per-source counting heuristic: 0 means
     // "not pinned yet". Must be cleared every call or replies
     // from the next handshake get misclassified.
     rln_prompt_col = 0;
@@ -1531,7 +1432,7 @@ void rln_read_line(rln_read_callback_t callback)
     rln_term_width = 0;
     rln_cur_idx = 0;
     rln_rendered_max_row = 0;
-    rln_rendered_end = 0;
+    rln_last_render_buflen = 0;
     rln_decscusr_ok = false;
     rln_decscusr_locked_off = false;
     // Reset per-read source state, preserving cpr_seen (sticky across
@@ -1561,26 +1462,21 @@ void rln_read_line(rln_read_callback_t callback)
     //   6n      CPR1 (prompt column) — always sent
     // Optional DA2 probe (skipped when max_length == 0 so we don't
     // touch a column rln doesn't own):
-    //   >c      DA2 — DECSCUSR-support probe; minicom mis-parses
-    //           this and leaks the `c` as literal text at the
-    //           prompt column
+    //   >c      DA2 — DECSCUSR probe; minicom leaks the `c` as literal
+    //           text at the prompt column
     //   u       DECRC snaps cursor back to prompt column
-    //   ' \b'   write a space at the prompt column to overwrite any
-    //           leaked `c`, then BS back. EL would be shorter but would
-    //           clobber form data on the same row past the prompt.
-    // Optional geometry probe (skipped only when BOTH overrides are
-    // set — partial overrides still take CPR2 for the other axis):
+    //   ' \b'   space over any leaked `c`, then BS back (not EL — EL
+    //           would clobber form data past the prompt)
+    // Optional geometry probe (skipped only when BOTH overrides are set):
     //   999;999H go to bottom-right
     //   6n       CPR2 (terminal height + width)
     //   u        DECRC back to prompt
     // Always tail:
     //   ?25h     show cursor
-    // RCP runs from the burst rather than the CPR-reply path so the
-    // cursor returns to the prompt even when the terminal doesn't
-    // respond to CPR (pipes, dumb relays); the deadline fallback
-    // inherits the right cursor placement for free. We do not touch
-    // DECAWM; the user's terminal stays in its native wrap mode and
-    // we trust the pending-wrap (xenl) model on margin writes.
+    // RCP runs from the burst (not the CPR-reply path) so the cursor
+    // returns to the prompt even when the peer ignores CPR; the deadline
+    // fallback then inherits the right placement. DECAWM is left alone —
+    // we trust pending-wrap (xenl) on margin writes.
     printf("\33[?25l\33[s\33[6n");
     if (rln_max_length > 0)
         printf("\33[>c\33[u \b");
@@ -1598,11 +1494,11 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
 }
 
 // Read one byte from the appropriate source(s). In normal operation
-// src=NONE lets com_getchar pick via the sticky RX picker. During
-// deferred completion we walk only the still-busy sources, leaving
+// src=COM_SOURCE_ANY lets com_getchar pick via the sticky RX picker.
+// During deferred completion we walk only the still-busy sources, leaving
 // bytes on clean sources queued in their FIFOs to arrive at the next
 // rln_read_line as a fresh stream. Returns -1 if no byte was available;
-// *out_src is set to the source that delivered (or NONE on -1).
+// *out_src is set to the source that delivered (or COM_SOURCE_ANY on -1).
 static int rln_read_next(com_source_t *out_src)
 {
     *out_src = COM_SOURCE_ANY;
@@ -1639,31 +1535,24 @@ void rln_task(void)
             rln_ansi_feed(&rln_sources[this_src], this_src, (uint8_t)ch);
         if (rln_complete_deferred && this_src != COM_SOURCE_ANY)
             rln_defer_check_resolved(this_src);
-        // Provide instant relief during handshake for scripting tools
-        // that do not respond to ANSI sequences. CR pre-edit, or any
-        // parser hitting its buf cap, means the peer is feeding bytes
-        // without ever completing the CPR exchange — abandon the rest
-        // of the handshake and enter edit phase so the line can flow.
-        // Only fires pre-edit; once we enter edit phase subsequent
-        // iterations skip this check.
+        // Instant relief for scripting tools that don't answer ANSI: a
+        // pre-edit CR, or any parser hitting its buf cap, means the peer
+        // is feeding bytes without completing the CPR exchange — abandon
+        // the handshake and enter edit phase so the line can flow.
         bool any_overflow = false;
         for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
             if (rln_sources[s].buf_len >= RLN_BUF_SIZE)
                 any_overflow = true;
         if (rln_phase != rln_phase_edit && (ch == '\r' || any_overflow))
         {
-            // Skip the rest of the CPR handshake. We never confirmed
-            // geometry for this session, so drop prompt_col to force
-            // no-wrap rendering (no row math at unverified widths).
-            // rln_term_width is left as-is — a value captured by a
-            // previous successful handshake is still useful for callers
-            // that query rln_get_term_width(); it's only zeroed on a
-            // real handshake timeout in rln_handshake_fallback().
-            // Don't forget_stale here: the CR replay below fires
-            // rln_complete, which needs sticky cpr_seen to keep
-            // defer engaged so in-transit CPRs get absorbed instead
-            // of leaking. rln_complete_now's end-of-input forget_stale
-            // (and the handshake_deadline path) cover stale verdicts.
+            // Skip the rest of the handshake: geometry was never
+            // confirmed, so drop prompt_col to force no-wrap rendering.
+            // term_width is kept (still useful for rln_get_term_width;
+            // only a real timeout zeroes it). Don't forget_stale here —
+            // the CR replay fires rln_complete, which needs sticky
+            // cpr_seen to keep defer engaged so in-transit CPRs are
+            // absorbed; complete_now and the deadline path clear stale
+            // verdicts.
             rln_prompt_col = 0;
             rln_enter_edit();
         }
@@ -1673,21 +1562,15 @@ void rln_task(void)
         if (rln_phase != rln_phase_edit)
             rln_handshake_fallback();
         else
-            // CPR-success transitions to edit before the deadline, so the
-            // fallback never fires for the happy path. Run forget_stale
-            // directly here so a once-real-now-gone source can't keep
-            // pinning rln_complete defer with its stale cpr_seen verdict.
-            // Idempotent — harmless to re-run every tick past the deadline.
-            for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
-                rln_cpr_forget_stale(s);
+            // Happy path already in edit before the deadline. Run
+            // forget_stale here so a once-real-now-gone source can't pin
+            // defer with a stale cpr_seen verdict. Idempotent.
+            rln_forget_all_stale();
     }
     // Fire deferred completion before the idle-timeout check so a
-    // timeout-triggered defer still resolves through its own path
-    // instead of re-arming a fresh rln_complete(true). Fire early
-    // when every source has met its arm-time criteria — no more
-    // per-source resolution can land — so we don't burn the full
-    // defer window waiting on a quiet that already happened. The
-    // deadline remains the fallback for sequences that never land.
+    // timeout-triggered defer resolves through its own path, not a fresh
+    // rln_complete(true). Fire early once every source met its arm-time
+    // criteria; the deadline is the fallback for bytes that never land.
     if (rln_complete_deferred)
     {
         if (!rln_any_defer_pending() ||

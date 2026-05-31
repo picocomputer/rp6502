@@ -70,7 +70,8 @@ uint16_t rln_get_term_height(void);
 // finishes the line, without adding to history. Controls other than CR
 // echo as caret notation (^@..^_) when readline owns the room (0x03 as
 // ^C), without being inserted. Poked bytes are dispatched in overwrite
-// mode.
+// mode. A poke that arrives while a previous line's completion is still
+// being deferred (the line is already submitted) is a no-op.
 void rln_poke(const char *str);
 
 // 6502 API entry points.
