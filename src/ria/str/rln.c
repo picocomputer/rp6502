@@ -848,7 +848,15 @@ static void rln_line_insert(char ch)
             bool clamped = (rln_bufpos > rln_cursor_max());
             rln_clamp_cursor();
             rln_cur_idx = rln_bufpos;
-            if (at_row_end && !clamped)
+            if (clamped)
+            {
+                // CHA back onto the last cell
+                uint8_t r;
+                uint16_t c;
+                rln_buf_to_screen(rln_bufpos, &r, &c);
+                printf("\33[%uG", c);
+            }
+            else if (at_row_end)
                 putchar('\n');
         }
         else
