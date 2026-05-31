@@ -43,6 +43,12 @@ uint8_t rln_get_max_length(void);
 void rln_set_caps(uint8_t v);
 uint8_t rln_get_caps(void);
 
+// Suppress the line-terminating newline on completion (0=off, 1=on), so
+// field input on the last line keeps the cursor on its row. Persists
+// across reads; reset on stop().
+void rln_set_suppress_nl(uint8_t v);
+uint8_t rln_get_suppress_nl(void);
+
 // Terminal geometry overrides. Setting non-zero pins the value and skips
 // the CPR2 handshake when both axes are pinned. 0 = auto-detect.
 void rln_set_term_width(uint16_t v);
@@ -61,9 +67,10 @@ uint16_t rln_get_term_height(void);
 // Inject a sequence of input bytes into the active readline. CR ends
 // the line normally; any other C0 control byte (0x00-0x1F) except ESC
 // (which begins a CSI sequence) and CAN (0x18, which aborts one) also
-// finishes the line. Non-CR/LF controls echo as caret notation (^@..^_)
-// when readline owns the room, without being inserted. Poked bytes are
-// dispatched in overwrite mode.
+// finishes the line, without adding to history. Controls other than CR
+// echo as caret notation (^@..^_) when readline owns the room (0x03 as
+// ^C), without being inserted. Poked bytes are dispatched in overwrite
+// mode.
 void rln_poke(const char *str);
 
 // 6502 API entry points.

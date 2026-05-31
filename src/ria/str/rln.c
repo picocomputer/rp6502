@@ -128,6 +128,10 @@ static bool rln_enable_history;
 static uint8_t rln_max_length;
 static uint32_t rln_idle_timeout_ms;
 static uint8_t rln_caps;
+// 6502 attribute: when set, the line-terminating newline is suppressed
+// so field input on the last line keeps the cursor on its row. Persists
+// across reads; reset on stop() (via rln_init).
+static bool rln_suppress_newline;
 
 // Deferred completion. Set when rln_complete fires while at least one
 // source is still busy (parser mid-ESC or owes proven CPR replies); the
@@ -282,7 +286,10 @@ static void rln_complete_now(bool timed_out)
     // script "ready for next chunk" while we're still pinned in
     // defer absorbing a sibling source's protocol tail, and the
     // next chunk would land in a com FIFO that nothing is draining.
-    putchar('\n');
+    // The SUPPRESS_NL attribute drops it so field input on the last
+    // line keeps the cursor on its row.
+    if (!rln_suppress_newline)
+        putchar('\n');
     cc(timed_out, rln_buf);
 }
 
@@ -542,9 +549,10 @@ static void rln_history_add(void)
         rln_history_count++;
 }
 
-// Park the cursor past the input, emit a newline, nul-terminate the
-// buffer, optionally push to history, and complete. Used by both the
-// typed CR dispatch and rln_poke's control-byte completion path.
+// Park the cursor past the input, nul-terminate the buffer, optionally
+// push to history, and complete. The terminating newline is emitted in
+// rln_complete_now (suppressed by the SUPPRESS_NL attribute). Used by
+// both the typed CR dispatch and rln_poke's control-byte path.
 static void rln_finish_line(bool add_to_history)
 {
     rln_sync_cursor_to(rln_buflen);
@@ -1623,6 +1631,7 @@ void rln_init(void)
     rln_enable_history = true;
     rln_max_length = 255; // fits in 2^8 with nul
     rln_caps = RLN_CAPS_OFF;
+    rln_suppress_newline = false;
     rln_phase = rln_phase_edit;
     rln_overwrite = false;
     rln_width_override = 0;
@@ -1664,6 +1673,9 @@ uint8_t rln_get_max_length(void) { return rln_max_length; }
 
 void rln_set_caps(uint8_t v) { rln_caps = v; }
 uint8_t rln_get_caps(void) { return rln_caps; }
+
+void rln_set_suppress_nl(uint8_t v) { rln_suppress_newline = v; }
+uint8_t rln_get_suppress_nl(void) { return rln_suppress_newline; }
 
 uint16_t rln_get_term_width(void)
 {
@@ -1769,8 +1781,10 @@ static void rln_poke_emit_caret(uint8_t target, char ch)
 // Any C0 control byte (0x00-0x1F) in the poked stream finishes the
 // input, except for ESC (\33) which starts a CSI sequence and CAN
 // (\30) which the parser uses to abort an in-flight sequence and
-// reset state. As a visual badge, controls other than CR (\r) and
-// LF (\n) echo as caret notation (^@..^_).
+// reset state. CR (\r) completes and is added to history. Every other
+// control (including LF, which echoes as ^J) completes without history
+// and echoes as caret notation (^@..^_). The terminating newline is
+// suppressed by the SUPPRESS_NL attribute, not by any particular byte.
 void rln_poke(const char *str)
 {
     if (!rln_callback)
@@ -1789,7 +1803,7 @@ void rln_poke(const char *str)
         uint8_t ch = (uint8_t)*p;
         if (ch < 32 && ch != '\33' && ch != '\30')
         {
-            if (ch != '\r' && ch != '\n' && rln_max_length >= 2)
+            if (ch != '\r' && rln_max_length >= 2)
             {
                 uint8_t target = rln_bufpos;
                 if (target > (uint8_t)(rln_max_length - 2))
