@@ -13,6 +13,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "term/font.h"
+#include "term/term.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>
@@ -51,6 +52,7 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
         // Also performs a reset.
         vga_xreg_canvas(NULL);
         vga_set_display(word);
+        term_RIS_no_clear(); // preserve-screen reset + cursor reflow
         memset(xregs, 0, sizeof(xregs));
         return true;
     case 0x01: // CODE_PAGE

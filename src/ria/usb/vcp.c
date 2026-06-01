@@ -22,7 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // TinyUSB wraps all serial devices as CDC, which is
 // technically incorrect for FTDI, CP210X, CH34X, and PL2303.
-// VCP (Virtual Communications Port) is a better umbrella term.
+// VCP (Virtual COM Port) is a better umbrella term.
 
 __in_flash("vcp_string") static const char vcp_string[] = "VCP";
 static_assert(sizeof(vcp_string) == 3 + 1);

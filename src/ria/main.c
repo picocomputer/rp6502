@@ -158,11 +158,9 @@ static void run(void)
 static void stop(void)
 {
     cpu_stop(); // Must be first
-    vga_stop(); // Must be before ria
+    vga_stop();
     rln_stop();
-    com_stop();
     api_stop();
-    ria_stop();
     pix_stop();
     oem_stop();
     std_stop();
@@ -175,6 +173,8 @@ static void stop(void)
     rom_stop();
     pro_stop();
     mon_stop();
+    com_stop(); // Adds newline
+    ria_stop(); // Last for stops that check ria_active()
 }
 
 // Event for CTRL-ALT-DEL and UART breaks.
