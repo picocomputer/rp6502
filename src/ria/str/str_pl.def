@@ -1,0 +1,381 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Polish localization
+ * Copyright (c) 2026 WojciechGw
+ * 
+ */
+
+// Polish
+
+// Suppress bogus VS Code IntelliSense errors
+#if defined(__INTELLISENSE__) && !defined(X)
+#define X(name, value) extern const char name[];
+#define XR(name, value) X(name, value)
+#endif
+
+// OEM Code Page for this locale
+#define OEM_CODE_PAGE 852
+
+// Time format
+X(STR_STRFTIME, "%Y-%m-%d %H:%M:%S %z %Z")
+
+// More
+X(STR_MON_MORE_SHOW, "--więcej--")
+X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b        \b\b\b\b\b\b\b\b")
+
+// Only used in unreachable code
+X(STR_ERR_INTERNAL_ERROR, "?Błąd wewnętrzny\n")
+X(STR_INTERNAL_ERROR, "błąd wewnętrzny")
+
+// System errors
+X(STR_ERR_MONITOR_RESPONSE_OVERFLOW, "?Przepełnienie odpowiedzi monitora\n")
+X(STR_ERR_DEAD_KEY_CACHE_OVERFLOW, "?Przepełnienie pamięci martwych klawiszy\n")
+X(STR_ERR_UNKNOWN_COMMAND, "?Nieznana komenda\n")
+X(STR_ERR_INVALID_ARGUMENT, "?Nieprawidłowy argument\n")
+X(STR_ERR_NO_HELP_FOUND, "?Nie znaleziono pomocy\n")
+X(STR_ERR_CYW_FAILED_TO_INIT, "?Nie udało się zainicjować CYW43\n")
+X(STR_ERR_VGA_CONNECTION_LOST, "?Utracono połączenie VGA\n")
+X(STR_ERR_RIA_VERIFY, "?Weryfikacja nie powiodła się pod $%04X\n")
+X(STR_ERR_RIA_TIMEOUT, "?Przekroczony czas oczekiwania 6502\n")
+X(STR_ERR_RX_TIMEOUT, "?Przekroczony czas oczekiwania RX\n")
+X(STR_ERR_CRC, "?Błąd CRC\n")
+X(STR_ERR_UNKNOWN_NUMBER, "?Nieznany błąd %d\n")
+X(STR_ERR_ROM_ARGV_OVERFLOW, "?Przepełnienie argv ROM\n")
+X(STR_ERR_ROM_ARGV_INVALID, "?Nieprawidłowy argument ROM\n")
+X(STR_ERR_ROM_NAME_INVALID, "?Nieprawidłowa nazwa ROM\n")
+X(STR_ERR_ROM_DATA_INVALID, "?Nieprawidłowe dane ROM\n")
+X(STR_ERR_INVALID_UF2_FILE, "?Nieprawidłowy plik UF2\n")
+X(STR_ERR_VGA_NOT_CONNECTED, "?VGA nie jest podłączone\n")
+
+// Littlefs errors
+X(STR_ERR_LFS_IO, "?Błąd IO\n")                          // -5
+X(STR_ERR_LFS_CORRUPT, "?Uszkodzone\n")                  // -84
+X(STR_ERR_LFS_NOENT, "?Brak wpisu katalogu\n")           // -2
+X(STR_ERR_LFS_EXIST, "?Wpis już istnieje\n")             // -17
+X(STR_ERR_LFS_NOTDIR, "?Wpis nie jest katalogiem\n")     // -20
+X(STR_ERR_LFS_ISDIR, "?Wpis jest katalogiem\n")          // -21
+X(STR_ERR_LFS_NOTEMPTY, "?Katalog nie jest pusty\n")     // -39
+X(STR_ERR_LFS_BADF, "?Nieprawidłowy numer pliku\n")      // -9
+X(STR_ERR_LFS_FBIG, "?Plik jest zbyt duży\n")            // -27
+X(STR_ERR_LFS_INVAL, "?Nieprawidłowy parametr\n")        // -22
+X(STR_ERR_LFS_NOSPC, "?Brak miejsca na urządzeniu\n")    // -28
+X(STR_ERR_LFS_NOMEM, "?Brak dostępnej pamięci\n")        // -12
+X(STR_ERR_LFS_NOATTR, "?Brak danych/atrybutu\n")         // -61
+X(STR_ERR_LFS_NAMETOOLONG, "?Nazwa pliku jest zbyt długa\n") // -36
+
+// FatFs errors
+X(STR_ERR_FATFS_DISK_ERR, "?Błąd dysku\n")                         // 1
+X(STR_ERR_FATFS_INT_ERR, "?Błąd wewnętrzny\n")                     // 2
+X(STR_ERR_FATFS_NOT_READY, "?Nie jest gotowe\n")                   // 3
+X(STR_ERR_FATFS_NO_FILE, "?Brak pliku\n")                          // 4
+X(STR_ERR_FATFS_NO_PATH, "?Brak ścieżki\n")                        // 5
+X(STR_ERR_FATFS_INVALID_NAME, "?Nieprawidłowa nazwa\n")            // 6
+X(STR_ERR_FATFS_DENIED, "?Odmowa dostępu\n")                       // 7
+X(STR_ERR_FATFS_EXIST, "?Istnieje\n")                              // 8
+X(STR_ERR_FATFS_INVALID_OBJECT, "?Nieprawidłowy obiekt\n")         // 9
+X(STR_ERR_FATFS_WRITE_PROTECTED, "?Zabezpieczone przed zapisem\n") // 10
+X(STR_ERR_FATFS_INVALID_DRIVE, "?Nieprawidłowy napęd\n")           // 11
+X(STR_ERR_FATFS_NOT_ENABLED, "?Nieaktywne\n")                      // 12
+X(STR_ERR_FATFS_NO_FILESYSTEM, "?Brak systemu plików\n")           // 13
+X(STR_ERR_FATFS_MKFS_ABORTED, "?Przerwano\n")                      // 14
+X(STR_ERR_FATFS_TIMEOUT, "?Przekroczono czas oczekiwania\n")       // 15
+X(STR_ERR_FATFS_LOCKED, "?Zablokowane\n")                          // 16
+X(STR_ERR_FATFS_NOT_ENOUGH_CORE, "?Za mało pamięci głównej\n")     // 17
+X(STR_ERR_FATFS_TOO_MANY_OPEN_FILES, "?Zbyt wiele otwartych plików\n") // 18
+X(STR_ERR_FATFS_INVALID_PARAMETER, "?Nieprawidłowy parametr\n")    // 19
+
+// WiFi status
+X(STR_WFI_NOT_CONFIGURED, "nieskonfigurowano")
+X(STR_WFI_WAITING, "oczekiwanie")
+X(STR_WFI_JOINING, "dołączanie")
+X(STR_WFI_GETTING_IP, "pobieranie IP")
+X(STR_WFI_CONNECTING, "łączenie")
+X(STR_WFI_CONNECTED, "połączono")
+X(STR_WFI_NO_IP_ADDRESS, "brak adresu IP")
+X(STR_WFI_SSID_NOT_FOUND, "nie znaleziono SSID")
+X(STR_WFI_AUTH_FAILED, "błąd uwierzytelniania")
+X(STR_WFI_CONNECT_FAILED, "błąd połączenia")
+
+// Network Time Protocol status
+X(STR_NTP_NO_NETWORK, "brak sieci")
+X(STR_NTP_DNS_LOOKUP, "wyszukiwanie DNS")
+X(STR_NTP_DNS_FAIL, "błąd DNS")
+X(STR_NTP_REQUESTED, "wysłano żądanie")
+X(STR_NTP_REQUEST_TIMEOUT, "limit czasu żądania")
+X(STR_NTP_SET_TIME_FAILURE, "błąd ustawienia czasu")
+X(STR_NTP_SUCCESS, "sukces")
+
+// Status fragments
+X(STR_ON, "włączone")
+X(STR_OFF, "wyłączone")
+X(STR_RF_OFF, "RF wyłączone")
+X(STR_ENABLED, "włączone")
+X(STR_DISABLED, "wyłączone")
+X(STR_WORLDWIDE, "cały świat")
+X(STR_PARENS_NO_MEDIA, "(brak nośnika)")
+X(STR_PARENS_NONE, "(brak)")
+X(STR_PARENS_SET, "(ustawione)")
+X(STR_BLE_PAIRING, ", parowanie")
+X(STR_BLE_NO_RF, ", brak RF")
+
+// Device names
+X(STR_KEYBOARD_SINGULAR, "klawiatura")
+X(STR_KEYBOARD_PLURAL, "klawiatury")
+X(STR_MOUSE_SINGULAR, "mysz")
+X(STR_MOUSE_PLURAL, "myszy")
+X(STR_GAMEPAD_SINGULAR, "gamepad")
+X(STR_GAMEPAD_PLURAL, "gamepady")
+X(STR_STORAGE_SINGULAR, "pamięć masowa")
+X(STR_STORAGE_PLURAL, "pamięci masowe")
+X(STR_SERIAL_SINGULAR, "port szeregowy")
+X(STR_SERIAL_PLURAL, "porty szeregowe")
+X(STR_EP_FREE_SINGULAR, "dostępny EP")
+X(STR_EP_FREE_PLURAL, "dostępnych EP")
+
+// Installed ROM list
+X(STR_ROM_INSTALLED_NONE, "Brak zainstalowanych ROM.\n")
+X(STR_ROM_INSTALLED_SINGULAR, "%d zainstalowany ROM:\n")
+X(STR_ROM_INSTALLED_PLURAL, "%d zainstalowanych ROM:\n")
+
+// UF2 progress messages, must be in RAM
+XR(STR_UF2_FLASHING, "\rProgramowanie UF2: %d%%")
+XR(STR_UF2_FLASH_FAILED, "\n?Programowanie UF2 nie powiodło się, odzyskaj przez BOOTSEL\n")
+
+X(STR_HELP_HELP,
+  "Komendy:\n"
+  "HELP (komenda|rom)  - \aTa pomoc lub rozszerzona pomoc komendy albo rom.\n"
+  "HELP ABOUT|SYSTEM   - \aABOUT zawiera autorów. SYSTEM opisuje użycie.\n"
+  "STATUS              - \aPokaż status systemu i podłączonych urządzeń.\n"
+  "SET (atr) (wart)    - \aZmień lub pokaż ustawienia.\n"
+  "DIR (kat|napęd)     - \aWypisz zawartość katalogu.\n"
+  "LS (kat)            - \aZmień lub pokaż bieżący katalog.\n"
+  "(MSC)0:             - \aMSC0:-MSC9: Zmień bieżące urządzenie pamięci.\n"
+  "LOAD plik           - \aWczytaj plik ROM. Uruchom, jeśli ma wektor resetu.\n"
+  "INFO plik           - \aPokaż tekst pomocy z pliku ROM, jeśli istnieje.\n"
+  "INSTALL plik (rom)  - \aZainstaluj plik ROM w RIA.\n"
+  "rom                 - \aWczytaj i uruchom zainstalowany ROM.\n"
+  "REMOVE rom          - \aUsuń ROM z RIA.\n"
+  "REBOOT              - \aZrestartuj RIA. Wczyta wybrany startowy ROM.\n"
+  "RESET               - \aUruchom 6502 od bieżącego wektora resetu ($FFFC).\n"
+  "FLASH plik          - \aFlashuj plik UF2, aby zaktualizować RIA lub VGA.\n"
+  "MKDIR kat           - \aUtwórz nowy katalog.\n"
+  "UNLINK plik|kat     - \aUsuń plik lub pusty katalog.\n"
+  "COPY źródło cel     - \aSkopiuj plik.\n"
+  "MOVE źródło cel     - \aPrzenieś albo zmień nazwę pliku lub katalogu.\n"
+  "UPLOAD plik         - \aZapisz plik. Potem następują bloki binarne.\n"
+  "BINARY adr dł crc   - \aZapisz pamięć. Potem następują dane binarne.\n"
+  "0000 (00 00 ...)    - \aCzytaj lub zapisuj pamięć.\n")
+
+X(STR_HELP_SET,
+  "Ustawienia:\n"
+  "HELP SET atr       - \aPokaż informacje o ustawieniu.\n"
+  "SET PHI2 (kHz)     - \aSprawdź lub ustaw prędkość PHI2 (zegar 6502).\n"
+  "SET BOOT (rom|-)   - \aWybierz ROM startowy po zimnym starcie. \"-\" oznacza brak.\n"
+  "SET TZ (tz)        - \aSprawdź lub ustaw strefę czasową.\n"
+  "SET KB (układ)     - \aSprawdź lub ustaw układ klawiatury.\n"
+  "SET CP (cp)        - \aSprawdź lub ustaw stronę kodową.\n"
+  "SET VGA (0|1|2)    - \aSprawdź lub ustaw typ obrazu dla wyjścia VGA.\n"
+  "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n"
+#ifdef RP6502_RIA_W
+  "SET RF (0|1)       - \aWyłącz lub włącz radio.\n"
+  "SET RFCC (cc|-)    - \aUstaw kod kraju dla RF. \"-\" oznacza cały świat.\n"
+  "SET SSID (ssid|-)  - \aUstaw SSID WiFi. \"-\" oznacza brak.\n"
+  "SET PASS (hasło|-) - \aUstaw hasło WiFi. \"-\" oznacza brak.\n"
+  "SET PORT (port)    - \aUstaw port TCP zdalnej konsoli telnet.\n"
+  "SET KEY (klucz|-)  - \aUstaw klucz dostępu zdalnej konsoli. \"-\" oznacza brak.\n"
+  "SET BLE (0|1|2|86) - \aWyłącz lub włącz Bluetooth LE. 2 włącza parowanie.\n"
+#endif
+  "")
+
+X(STR_HELP_SYSTEM,
+  "Picocomputer nie używa tradycyjnego równoległego ROM-u, takiego jak 27C64\n"
+  "lub podobny. Zamiast tego ten monitor przygotowuje RAM 6502 oprogramowaniem,\n"
+  "które normalnie znajdowałoby się w kości ROM. 6502 jest teraz w stanie resetu;\n"
+  "linia RESB jest niska. To, co widzisz, pochodzi z RP6502-RIA. Możesz wrócić\n"
+  "do tego monitora w dowolnym momencie, naciskając CTRL-ALT-DEL albo wysyłając\n"
+  "break do portu szeregowego. Ponieważ te sygnały obsługuje RP6502-RIA, zawsze\n"
+  "zatrzymają 6502, nawet po awarii. Ten monitor może wykonywać skrypty przydatne\n"
+  "podczas tworzenia oprogramowania. Udostępnia też komendy interaktywne, na\n"
+  "przykład wpisanie adresu szesnastkowego, aby zobaczyć odpowiednią wartość RAM:\n"
+  "]0200\n"
+  "0200  DA DA DA DA DA DA DA DA  |........|\n"
+  "64KB pamięci rozszerzonej (XRAM) jest mapowane od $10000 do $1FFFF.\n"
+  "Zakres pamięci podaj ze znakiem \"-\":\n"
+  "]10000-100FF\n"
+  "Możesz też zapisywać pamięć. Na przykład, aby zapisać wektor RESET 6502:\n"
+  "]FFFC 00 02\n"
+  "Dozwolony jest format Intel HEX:\n"
+  "]:02FFFC00000201\n"
+  "Ręczna manipulacja pamięcią jest przydatna do prostego debugowania,\n"
+  "ale prawdziwa siła tkwi w innych komendach opisanych w tym systemie pomocy.\n"
+  "Miłej zabawy!\n")
+
+X(STR_HELP_DIR,
+  "LS (także pod aliasem DIR) i CD służą do poruszania się po urządzeniach pamięci\n"
+  "pamięci masowej USB. Możesz przełączyć się na inne urządzenie USB przez\n"
+  "0: do 7:. Użyj komendy STATUS, aby uzyskać listę zamontowanych napędów.\n")
+
+X(STR_HELP_MKDIR,
+  "MKDIR służy do tworzenia nowych katalogów. Użyj UNLINK, aby usuwać puste katalogi.\n")
+
+X(STR_HELP_LOAD,
+  "LOAD i INFO odczytują pliki ROM z napędu USB. Plik ROM zawiera zarówno\n"
+  "informacje ASCII dla użytkownika, jak i informacje binarne dla systemu.\n"
+  "Wiersze mogą kończyć się LF albo CRLF. Pierwszy wiersz musi zawierać wyłącznie:\n"
+  "#!RP6502\n"
+  "Po nim następują wiersze HELP/INFO zaczynające się od # i spacji:\n"
+  "# Fajna Gra V0.0 autor Super Dev\n"
+  "Po wierszach informacyjnych dane binarne poprzedzają wiersze ASCII z liczbami\n"
+  "szesnastkowymi lub dziesiętnymi określającymi adres, długość i CRC-32.\n"
+  "$C000 1024 0x0C0FFEE0\n"
+  "Po tym następują dane binarne. Maksymalna długość to 1024 bajty, więc powtarzaj\n"
+  "według potrzeby. CRC-32 jest obliczane tą samą metodą co zip.\n"
+  "Jeśli plik ROM zawiera dane dla wektora RESET $FFFC-$FFFD, 6502 zostanie\n"
+  "zresetowany (uruchomiony) natychmiast po wczytaniu.\n")
+
+X(STR_HELP_INSTALL,
+  "INSTALL i REMOVE zarządzają ROM-ami zainstalowanymi w pamięci flash RP6502 RIA.\n"
+  "Aby można było je zainstalować, pliki ROM muszą zawierać wektor resetu.\n"
+  "Lista zainstalowanych ROM-ów jest pokazywana na podstawowym ekranie HELP.\n"
+  "Po zainstalowaniu ROM-y stają się integralną częścią systemu i można je wczytać\n"
+  "ręcznie, używając po prostu samej ich nazwy jak każdej innej komendy.\n"
+  "Nazwa ROM nie może kolidować z żadną komendą systemową,\n"
+  "musi zaczynać się od litery i może zawierać najwyżej 16 liter i cyfr ASCII.\n"
+  "Jeśli plik ma rozszerzenie, musi to być \".rp6502\";\n"
+  "zostanie ono usunięte podczas instalacji.\n")
+
+X(STR_HELP_REBOOT,
+  "REBOOT zrestartuje RIA. Działa tak samo jak naciśnięcie przycisku RESET\n"
+  "podłączonego do pinu RIA RUN albo odłączenie zasilania.\n")
+
+X(STR_HELP_RESET,
+  "RESET uruchomi 6502, ustawiając RESB w stan wysoki. Ten monitor zostanie "
+  "wstrzymany, aż 6502 zatrzyma się przez UART break, CTRL-ALT-DEL albo exit().\n")
+
+X(STR_HELP_FLASH,
+  "FLASH odczytuje plik UF2 z napędu USB i flashuje go do RIA albo VGA.\n"
+  "Jeśli flashowanie się nie powiedzie, odzyskaj przez USB standardową metodą\n"
+  "BOOTSEL (przytrzymaj BOOTSEL podczas podłączania USB do komputera,\n"
+  "a potem skopiuj plik).\n")
+
+X(STR_HELP_UPLOAD,
+  "UPLOAD służy do wysłania pliku z innego systemu do lokalnego systemu plików.\n"
+  "Plik może mieć dowolny typ i dowolną nazwę oraz nadpisze istniejący plik\n"
+  "o tej samej nazwie. Na przykład możesz wysłać plik ROM razem z innymi\n"
+  "plikami zawierającymi grafikę lub dane poziomów gry.\n"
+  "Potem możesz uruchomić grę przy pomocy LOAD rom i ją przetestować.\n"
+  "Przesyłanie zaczyna się od nazwy pliku.\n"
+  "]UPLOAD plik.bin\n"
+  "System odpowie znakiem zachęty \"}\" albo komunikatem błędu zaczynającym się od \"?\".\n"
+  "Każdy błąd przerwie przesyłanie i wrócisz do monitora.\n"
+  "Nie ma ponawiania,ponieważ UPLOAD nie jest przeznaczone dla połączeń stratnych.\n"
+  "Każdy blok podaj z długością do 1024 bajtów oraz CRC-32, które możesz obliczyć\n"
+  "dowolną biblioteką zip.\n"
+  "}$400 $0C0FFEE0\n"
+  "Wyślij dane binarne, a otrzymasz kolejny znak zachęty \"}\" albo błąd \"?\".\n"
+  "Transfer kończy komenda END albo pusty wiersz do wyboru.\n"
+  "}END\n"
+  "Po sukcesie wrócisz do znaku zachęty \"]\", a po niepowodzeniu do błędu \"?\".\n")
+
+X(STR_HELP_UNLINK,
+  "UNLINK (także pod aliasem RM) usuwa plik lub katalog.\n"
+  "Jest przeznaczone do skryptów na innym systemie podłączonym do monitora.\n"
+  "Na przykład możesz chcieć usunąć dane zapisu w ramach testów automatycznych.\n")
+
+X(STR_HELP_COPY,
+  "COPY powiela plik katalog. Cel może być nową nazwą pliku albo katalogiem.\n")
+
+X(STR_HELP_MOVE,
+  "MOVE zmienia nazwę pliku lub katalogu albo przenosi go na tym samym napędzie.\n"
+  "Cel może być nową nazwą albo katalogiem.\n")
+
+X(STR_HELP_BINARY,
+  "BINARY to najszybszy sposób przesłania kodu lub danych z systemu budowania\n"
+  "do RAM 6502. Użyj komendy \"BINARY adres długość CRC\" z maksymalną długością\n"
+  "1024 bajtów i CRC-32 obliczonym biblioteką zip. Potem wyślij dane binarne.\n"
+  "Po taransmisji zakończonej sukcesem wrócisz do znaku zachęty \"]\",\n"
+  "a po niepowodzeniu do błędu \"?\".\n")
+
+X(STR_HELP_STATUS,
+  "STATUS pokaże status całego sprzętu w RIA i podłączonego do RIA.\n")
+
+X(STR_HELP_SET_PHI2,
+  "PHI2 to prędkość zegara 6502 w kHz. Prawidłowy zakres to " STR_PHI2_MIN_MAX ",\n"
+  "ale nie wszystkie częstotliwości są dostępne. W takim przypadku następna wyższa\n"
+  "częstotliwość zostanie automatycznie obliczona i wybrana. Ustawienie jest\n"
+  "zapisywane w pamięci flash RIA.\n")
+
+X(STR_HELP_SET_BOOT,
+  "BOOT wybiera zainstalowany ROM, który ma być automatycznie wczytany\n"
+  "i uruchomiony po włączeniu zasilania albo restarcie systemu. Na przykład możesz\n"
+  "chcieć, aby system od razu startował do BASIC-a albo CLI systemu operacyjnego.\n"
+  "Użycie argumentu \"-\" spowoduje start systemu do monitora, którego teraz używasz.\n"
+  "Ustawienie jest zapisywane w pamięci flash RIA.\n")
+
+X(STR_HELP_SET_TZ,
+  "Możesz ustawić strefę czasową z poniższej tabeli, podając samo miasto,\n"
+  "np. \"SET TZ LOS_ANGELES\", albo pełną nazwę \"SET TZ AMERICA/LOS_ANGELES\".\n"
+  "Dla lokalizacji spoza tabeli można użyć SET TZ z łańcuchem POSIX TZ,\n"
+  "na przykład \"SET TZ PST8PDT,M3.2.0/2,M11.1.0/2\". Najłatwiej uzyskać łańcuch\n"
+  "POSIX TZ, pytając AI: \"posix tz dla {twoja lokalizacja}\".\n")
+
+X(STR_HELP_SET_KB,
+  "SET KB wybiera układ klawiatury, np. SET KB PL-PROG\n")
+
+X(STR_HELP_SET_CP,
+  "SET CP wybiera systemową stronę kodową OEM. Obsługiwane są: 437, 720, 737, 771,\n"
+  "775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
+#ifndef NDEBUG
+  "To jest kompilacja deweloperska. Dostępna jest tylko " STR_OEM_CODE_PAGE ".\n"
+#endif
+  "")
+
+X(STR_HELP_SET_VGA,
+  "SET VGA wybiera typ wyświetlacza dla wyjścia VGA. Wszystkie rozdzielczości\n"
+  "obrazu są obsługiwane przez wszystkie typy wyświetlacza. Typ wyświetlacza\n"
+  "służy do zachowania kwadratowych pikseli i minimalizacji pasów.\n"
+  "Pamiętaj, że 1280x1024 ma proporcje 5:4, więc grafika 4:3 będzie miała\n"
+  "niewielkie marginesy, ale terminal będzie powiększony o 2 wiersze.\n"
+  "  0 - \a640x480, dla wyświetlaczy 4:3\n"
+  "  1 - \a640x480 i 1280x720, dla wyświetlaczy 16:9\n"
+  "  2 - \a1280x1024, dla wyświetlaczy 5:4 SXGA\n")
+
+X(STR_HELP_SET_NFC,
+  "SET NFC (0|1|2|86) wyłącza|włącza|skanuje|czyści zapisane urządzenie NFC.\n")
+
+X(STR_HELP_SET_RF,
+  "SET RF (0|1) wyłącza|włącza wszystkie urządzenia radiowe.\n")
+
+X(STR_HELP_SET_RFCC,
+  "Ustaw to, aby CYW43 mógł używać najlepszych częstotliwości radiowych\n"
+  "dla Twojego kraju. Użycie \"-\" wyczyści kod kraju i przywróci ustawienie światowe.\n"
+)
+
+X(STR_HELP_SET_SSID,
+  "To jest identyfikator SSID twojej sieci WiFi. Ustawienie \"-\" wyłączy WiFi.\n")
+
+X(STR_HELP_SET_PASS,
+  "SET PASS {hasło} ustawia hasło Twojej sieci WiFi.\n"
+  "SET PASS -       usuwa zapisane hasło.\n"
+)
+
+X(STR_HELP_SET_BLE,
+  "SET BLE (0|1) wyłącza|włącza Bluetooth LE.\n"
+  "SET BLE 2     przechodzi w tryb parowania, który pozostanie aktywny do sukcesu.\n"
+  "SET BLE 86    usuwa i rozłącza wszystkie sparowane urządzenia.\n")
+
+X(STR_HELP_SET_PORT,
+  "SET PORT {nr portu} ustawia port TCP zdalnego dostępu do konsoli przez telnet.\n"
+  "                    Standardowy port telnet to 23.\n"
+  "SET PORT 0          wyłącza konsolę telnet.\n"
+  "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno PORT\n"
+  "jak i KEY (patrz \"help KEY\").\n")
+
+X(STR_HELP_SET_KEY,
+  "SET KEY {klucz} ustawia klucz dostępu do zdalnej konsoli telnet.\n"
+  "SET KEY -       usuwa klucz.\n"
+  "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno KEY\n"
+  " jak i PORT (patrz \"help KEY\").\n")
