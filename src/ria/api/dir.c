@@ -22,6 +22,7 @@ static_assert(FF_SFN_BUF == 12);
 static_assert(FF_USE_CHMOD == 1);
 static_assert(FF_FS_CRTIME == 1);
 static_assert(FF_USE_LABEL == 1);
+static_assert(FF_LFN_UNICODE == 0);
 
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
@@ -317,7 +318,7 @@ bool dir_api_setlabel(void)
 // int f_getlabel(const char* path, char* label, unsigned long* vsn)
 bool dir_api_getlabel(void)
 {
-    const int label_size = 23;
+    const int label_size = 12;
     char label[label_size];
     DWORD vsn;
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
