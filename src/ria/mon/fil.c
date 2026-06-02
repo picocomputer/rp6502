@@ -81,27 +81,21 @@ bool fil_drive_exists(const char *args)
     return result != FR_INVALID_DRIVE;
 }
 
-static int fil_cwd_response(char *buf, size_t buf_size, int state)
+// Emit one terminal-width slice of src per call so a long path wraps
+// across lines instead of overrunning the terminal or the response
+// buffer. The slice width is the current terminal width, capped at
+// buf_size - 2 to leave room for the appended newline and null. Returns
+// the next state, or -1 once src is exhausted.
+static int fil_paginate(char *buf, size_t buf_size, int state, const char *src)
 {
-    if (state < 0)
-        return state;
-    FRESULT result;
-    char *cwd = (char *)mbuf;
-    result = f_getcwd(cwd, MBUF_SIZE);
-    mon_add_response_fatfs(result);
-    if (result != FR_OK)
-        return -1;
-    // Split the path at the visible terminal width so long cwds wrap
-    // cleanly on a 40-col display instead of overflowing past the edge.
-    // The +2 budget covers the trailing newline and null terminator.
     size_t width = rln_get_term_width();
     if (width > buf_size - 2)
         width = buf_size - 2;
-    size_t total = strlen(cwd);
+    size_t total = strlen(src);
     if (total < (size_t)state * width)
         return -1;
-    cwd += (size_t)state * width;
-    snprintf(buf, width + 1, "%s", cwd);
+    src += (size_t)state * width;
+    snprintf(buf, width + 1, "%s", src);
     size_t written = strlen(buf);
     if (written)
     {
@@ -109,6 +103,30 @@ static int fil_cwd_response(char *buf, size_t buf_size, int state)
         buf[written + 1] = '\0';
     }
     return state + 1;
+}
+
+static int fil_cwd_response(char *buf, size_t buf_size, int state)
+{
+    if (state < 0)
+        return state;
+    char *cwd = (char *)mbuf;
+    FRESULT result = f_getcwd(cwd, MBUF_SIZE);
+    mon_add_response_fatfs(result);
+    if (result != FR_OK)
+        return -1;
+    return fil_paginate(buf, buf_size, state, cwd);
+}
+
+// Print the directory being listed by DIR/LS. fil_mon_dir leaves its
+// resolved absolute path in mbuf for us to paginate.
+static int fil_dir_path_response(char *buf, size_t buf_size, int state)
+{
+    if (state < 0)
+        return state;
+    char *path = (char *)mbuf;
+    if (!path[0]) // resolution failed; skip the header, list anyway
+        return -1;
+    return fil_paginate(buf, buf_size, state, path);
 }
 
 void fil_mon_chdir(const char *args)
@@ -229,17 +247,35 @@ static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
 
 void fil_mon_dir(const char *args)
 {
-    const char *path = str_parse_string(&args);
+    const char *raw = str_parse_string(&args);
     if (!str_parse_end(args))
     {
         mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
         return;
     }
-    FRESULT fresult = f_opendir(&fil_fatfs_dir, path ? path : ".");
+    // Stage the path in mbuf: str_abs_path reuses str_buf (where a parsed
+    // arg lives) as scratch, and the header response reads it from mbuf.
+    const char *target = raw ? raw : ".";
+    memcpy(mbuf, target, strlen(target) + 1);
+
+    FRESULT fresult = f_opendir(&fil_fatfs_dir, (char *)mbuf);
     mon_add_response_fatfs(fresult);
     if (FR_OK != fresult)
         return;
-    mon_add_response_fn(fil_cwd_response);
+
+    // Resolve to the absolute path of the dir being listed, back into mbuf,
+    // then fix the basename to the case stored on disk: str_abs_path keeps
+    // segments as typed, whereas f_getcwd reconstructs them from disk.
+    const char *abs = str_abs_path((char *)mbuf);
+    if (abs)
+    {
+        memcpy(mbuf, abs, strlen(abs) + 1);
+        str_correct_basename((char *)mbuf, MBUF_SIZE);
+    }
+    else
+        mbuf[0] = '\0';
+
+    mon_add_response_fn(fil_dir_path_response);
     mon_add_response_fn(fil_dir_entry_response);
 }
 
