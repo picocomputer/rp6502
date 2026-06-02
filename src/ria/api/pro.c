@@ -267,11 +267,8 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         const char *abs = str_abs_path(path);
         if (!abs)
             goto fail;
-        if (strcmp(abs, pro_running_path) == 0)
-            goto already_running;
         strncpy(path, abs, sizeof(path) - 1);
         path[sizeof(path) - 1] = '\0';
-        DBG("pro_nfc argv[0] %s\n", path);
         if (f_stat(path, NULL) != FR_OK)
             goto fail;
     }
@@ -297,14 +294,15 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         }
         if (!found)
             goto fail;
-        if (strcmp(path, pro_running_path) == 0)
-            goto already_running;
-        DBG("pro_nfc argv[0] %s\n", path);
     }
 
     // Splice the on-disk basename so argv[0] preserves case.
     if (!str_correct_basename(path, sizeof(path)))
         goto fail;
+    DBG("pro_nfc argv[0] %s\n", path);
+
+    if (strcmp(path, pro_running_path) == 0)
+        goto already_running;
 
     // Full success
     bel_add(&bel_nfc_success_1);
