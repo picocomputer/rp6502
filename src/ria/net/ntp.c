@@ -236,24 +236,24 @@ static const char *ntp_status_str(void)
     switch (ntp_state)
     {
     case ntp_state_init:
-        return STR_NTP_NO_NETWORK;
+        return S(STR_NTP_NO_NETWORK);
     case ntp_state_dns:
     case ntp_state_dns_wait:
-        return STR_NTP_DNS_LOOKUP;
+        return S(STR_NTP_DNS_LOOKUP);
     case ntp_state_dns_fail:
-        return STR_NTP_DNS_FAIL;
+        return S(STR_NTP_DNS_FAIL);
     case ntp_state_request:
     case ntp_state_request_wait:
-        return STR_NTP_REQUESTED;
+        return S(STR_NTP_REQUESTED);
     case ntp_state_request_timeout:
-        return STR_NTP_REQUEST_TIMEOUT;
+        return S(STR_NTP_REQUEST_TIMEOUT);
     case ntp_state_set_time_fail:
-        return STR_NTP_SET_TIME_FAILURE;
+        return S(STR_NTP_SET_TIME_FAILURE);
     case ntp_state_success:
-        return STR_NTP_SUCCESS;
+        return S(STR_NTP_SUCCESS);
     case ntp_state_internal_error:
     default:
-        return STR_INTERNAL_ERROR;
+        return S(STR_INTERNAL_ERROR);
     }
 }
 

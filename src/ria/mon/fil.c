@@ -141,7 +141,7 @@ void fil_mon_chdir(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     result = f_opendir(&dir, path);
@@ -163,7 +163,7 @@ void fil_mon_mkdir(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     FRESULT result = f_mkdir(path);
@@ -175,7 +175,7 @@ void fil_mon_chdrive(const char *args)
     const char *tok = str_parse_string(&args);
     if (!tok || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     DIR dir;
@@ -250,7 +250,7 @@ void fil_mon_dir(const char *args)
     const char *raw = str_parse_string(&args);
     if (!str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     // Stage the path in mbuf: str_abs_path reuses str_buf (where a parsed
@@ -287,12 +287,12 @@ static void fil_upload_rx_mbuf(bool timeout)
     if (timeout)
     {
         result = FR_INT_ERR;
-        mon_add_response_utf8(STR_ERR_RX_TIMEOUT);
+        mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
     }
     else if (ria_buf_crc32() != fil_rx_crc)
     {
         result = FR_INT_ERR;
-        mon_add_response_utf8(STR_ERR_CRC);
+        mon_add_response_utf8(S(STR_ERR_CRC));
     }
     // This will leave the file unchanged until
     // the first chunk is received successfully.
@@ -322,7 +322,7 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
     if (timeout)
     {
         puts("");
-        mon_add_response_utf8(STR_ERR_RX_TIMEOUT);
+        mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         fil_state = FIL_IDLE;
         return;
     }
@@ -331,7 +331,7 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
     if (!tok)
     {
         if (!str_parse_end(scan))
-            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         fil_state = FIL_IDLE;
         return;
     }
@@ -348,13 +348,13 @@ static void fil_upload_dispatch(bool timeout, const char *buf)
         if (!fil_rx_size || fil_rx_size > MBUF_SIZE)
         {
             fil_state = FIL_IDLE;
-            mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
         mem_read_mbuf(FIL_TIMEOUT_MS, fil_upload_rx_mbuf, fil_rx_size);
         return;
     }
-    mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+    mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     fil_state = FIL_IDLE;
     return;
 }
@@ -364,7 +364,7 @@ void fil_mon_upload(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     FRESULT result = f_open(&fil_fatfs_fil, path, FA_READ | FA_WRITE);
@@ -385,7 +385,7 @@ void fil_mon_unlink(const char *args)
     const char *path = str_parse_string(&args);
     if (!path || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     FRESULT result = f_unlink(path);
@@ -405,7 +405,7 @@ void fil_mon_copy(const char *args)
     const char *dst = str_parse_string(&args);
     if (!src_raw || !dst || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     FRESULT fr = fil_resolve_dst(src_path, dst, dst_path, FF_LFN_BUF + 1);
@@ -461,7 +461,7 @@ void fil_mon_move(const char *args)
     const char *dst = str_parse_string(&args);
     if (!src_raw || !dst || !str_parse_end(args))
     {
-        mon_add_response_utf8(STR_ERR_INVALID_ARGUMENT);
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
     FRESULT fr = fil_resolve_dst(src_path, dst, dst_path, FF_LFN_BUF + 1);

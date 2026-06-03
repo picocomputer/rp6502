@@ -35,6 +35,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +C0         | Caps (retired)
 // +R0         | RESB (retired)
 // +TUTC0      | Time Zone
+// +MEN        | Locale
 // +S437       | Code Page
 // +LUS        | Keyboard Layout
 // +D0         | VGA display type
@@ -82,6 +83,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "+V%u\n"
                                "+P%u\n"
                                "+T%s\n"
+                               "+M%s\n"
                                "+S%u\n"
                                "+L%s\n"
                                "+D%u\n"
@@ -100,6 +102,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                CFG_VERSION,
                                cpu_get_phi2_khz(),
                                clk_get_time_zone(),
+                               str_get_locale(),
                                oem_get_code_page(),
                                kbd_get_layout(),
                                vga_get_display_type(),
@@ -156,6 +159,9 @@ static void cfg_load_with_boot_opt(bool boot_only)
             break;
         case 'T':
             clk_load_time_zone(str);
+            break;
+        case 'M':
+            str_load_locale(str);
             break;
         case 'S':
             oem_load_code_page(str);

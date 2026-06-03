@@ -29,6 +29,7 @@
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "str/rln.h"
+#include "str/str.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu.h"
@@ -85,6 +86,7 @@ static void init(void)
     cfg_init(); // Config stored on lfs
 
     // Misc device drivers, add yours here.
+    str_init();
     std_init();
     cyw_init();
     oem_init();

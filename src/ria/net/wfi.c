@@ -137,38 +137,38 @@ static const char *wfi_status_message(void)
     {
     case wfi_state_off:
         if (!cyw_get_rf_enable())
-            return STR_RF_OFF;
+            return S(STR_RF_OFF);
         else if (!wfi_ssid[0])
-            return STR_WFI_NOT_CONFIGURED;
+            return S(STR_WFI_NOT_CONFIGURED);
         else
-            return STR_WFI_WAITING;
+            return S(STR_WFI_WAITING);
     case wfi_state_connect:
     case wfi_state_connecting:
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_JOIN:
-            return STR_WFI_JOINING;
+            return S(STR_WFI_JOINING);
         case CYW43_LINK_NOIP:
-            return STR_WFI_GETTING_IP;
+            return S(STR_WFI_GETTING_IP);
         default:
-            return STR_WFI_CONNECTING;
+            return S(STR_WFI_CONNECTING);
         }
     case wfi_state_connected:
-        return STR_WFI_CONNECTED;
+        return S(STR_WFI_CONNECTED);
     case wfi_state_connect_failed:
         switch (cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA))
         {
         case CYW43_LINK_NOIP:
-            return STR_WFI_NO_IP_ADDRESS;
+            return S(STR_WFI_NO_IP_ADDRESS);
         case CYW43_LINK_NONET:
-            return STR_WFI_SSID_NOT_FOUND;
+            return S(STR_WFI_SSID_NOT_FOUND);
         case CYW43_LINK_BADAUTH:
-            return STR_WFI_AUTH_FAILED;
+            return S(STR_WFI_AUTH_FAILED);
         default:
-            return STR_WFI_CONNECT_FAILED;
+            return S(STR_WFI_CONNECT_FAILED);
         }
     }
-    return STR_INTERNAL_ERROR;
+    return S(STR_INTERNAL_ERROR);
 }
 
 int wfi_status_response(char *buf, size_t buf_size, int state)

@@ -29,5 +29,9 @@ uint16_t oem_get_code_page_run(void);
 void oem_load_code_page(const char *str);
 bool oem_set_code_page(uint32_t cp);
 uint16_t oem_get_code_page(void);
+bool oem_is_auto(void);
+
+// Set the locale's default
+void oem_locale_changed(uint16_t cp);
 
 #endif /* _RIA_API_OEM_H_ */

@@ -12,9 +12,6 @@
 #define XR(name, value) X(name, value)
 #endif
 
-// OEM Code Page for this locale
-#define OEM_CODE_PAGE 437
-
 // Time format
 X(STR_STRFTIME, "%c %z %Z")
 
@@ -313,12 +310,18 @@ X(STR_HELP_SET_TZ,
   "example, \"SET TZ PST8PDT,M3.2.0/2,M11.1.0/2\". The easiest way to get a "
   "POSIX TZ string is to ask an AI \"posix tz for {your location}\".\n")
 
+X(STR_HELP_SET_LOC,
+  "SET LOC selects the display language. When SET CP is automatic it also sets "
+  "the code page. e.g. SET LOC EN\n")
+
 X(STR_HELP_SET_KB,
   "SET KB selects a keyboard layout. e.g. SET KB US\n")
 
 X(STR_HELP_SET_CP,
-  "SET CP selects the system OEM code page. The following is supported: 437, 720, "
-  "737, 771, 775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
+  "SET CP selects the system OEM code page. SET CP 0 is automatic (the default): "
+  "the code page follows the locale set with SET LOC. Any other value is a fixed "
+  "override. Supported: 437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, "
+  "862, 863, 864, 865, 866, 869.\n"
 #ifndef NDEBUG
   "This is a development build. Only " STR_OEM_CODE_PAGE " is available.\n"
 #endif
