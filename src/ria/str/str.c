@@ -257,12 +257,12 @@ const char *str_abs_path(const char *path)
         {
             if (out + 1 + slen > 255)
                 return NULL;
-            str_buf[out++] = '/';
             if (drive_len == 1) // ":" installed ROM
                 for (size_t k = 0; k < slen; k++)
                     str_buf[out++] = (char)toupper((unsigned char)seg[k]);
             else
             {
+                str_buf[out++] = '/';
                 memcpy(str_buf + out, seg, slen);
                 out += slen;
             }
