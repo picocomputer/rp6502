@@ -37,7 +37,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +TUTC0      | Time Zone
 // +MEN        | Locale
 // +S437       | Code Page
-// +LUS        | Keyboard Layout
+// +LUS DE     | Keyboard Layout list
 // +D0         | VGA display type
 // +N1         | NFC Enabled
 // +HvCpHaSh   | NFC VCP Hash
@@ -104,7 +104,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                clk_get_time_zone(),
                                str_get_locale(),
                                oem_get_code_page(),
-                               kbd_get_layout(),
+                               kbd_get_layout_list(),
                                vga_get_display_type(),
                                nfc_get_enabled(),
                                vcp_get_nfc_device_hash(),

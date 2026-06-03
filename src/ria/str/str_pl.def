@@ -172,7 +172,7 @@ X(STR_HELP_SET,
   "SET PHI2 (kHz)     - \aSprawdź lub ustaw prędkość PHI2 (zegar 6502).\n"
   "SET BOOT (rom|-)   - \aWybierz ROM startowy po zimnym starcie. \"-\" oznacza brak.\n"
   "SET TZ (tz)        - \aSprawdź lub ustaw strefę czasową.\n"
-  "SET KB (układ)     - \aSprawdź lub ustaw układ klawiatury.\n"
+  "SET KB (układy)    - \aSprawdź lub ustaw układy klawiatury.\n"
   "SET CP (cp)        - \aSprawdź lub ustaw stronę kodową.\n"
   "SET VGA (0|1|2)    - \aSprawdź lub ustaw typ obrazu dla wyjścia VGA.\n"
   "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n"
@@ -324,7 +324,8 @@ X(STR_HELP_SET_LOC,
   "stronę kodową, np. SET LOC PL\n")
 
 X(STR_HELP_SET_KB,
-  "SET KB wybiera układ klawiatury, np. SET KB PL-PROG\n")
+  "SET KB wybiera układy klawiatury. np. SET KB US DE PL-PROG\n"
+  "Naciśnij Super+Spacja, aby przełączać układy.\n")
 
 X(STR_HELP_SET_CP,
   "SET CP wybiera systemową stronę kodową OEM. SET CP 0 to tryb automatyczny\n"

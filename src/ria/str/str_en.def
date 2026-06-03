@@ -168,7 +168,7 @@ X(STR_HELP_SET,
   "SET PHI2 (kHz)     - \aQuery or set PHI2 speed. This is the 6502 clock.\n"
   "SET BOOT (rom|-)   - \aSelect ROM to boot from cold start. \"-\" for none.\n"
   "SET TZ (tz)        - \aQuery or set time zone.\n"
-  "SET KB (layout)    - \aQuery or set keyboard layout.\n"
+  "SET KB (layouts)   - \aQuery or set keyboard layouts.\n"
   "SET CP (cp)        - \aQuery or set code page.\n"
   "SET VGA (0|1|2)    - \aQuery or set display type for VGA output.\n"
   "SET NFC (0|1|2|86) - \aDisable or enable NFC reader. 2 scans for PN532.\n"
@@ -315,7 +315,8 @@ X(STR_HELP_SET_LOC,
   "the code page. e.g. SET LOC EN\n")
 
 X(STR_HELP_SET_KB,
-  "SET KB selects a keyboard layout. e.g. SET KB US\n")
+  "SET KB selects keyboard layouts. e.g. SET KB US DE PL-PROG\n"
+  "Press Super+Space to switch layouts.\n")
 
 X(STR_HELP_SET_CP,
   "SET CP selects the system OEM code page. SET CP 0 is automatic (the default): "

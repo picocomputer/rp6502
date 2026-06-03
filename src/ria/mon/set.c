@@ -364,20 +364,20 @@ static void set_locale(const char *args)
 static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-    snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbd_get_layout(), kbd_get_layout_verbose());
+    const char *list = kbd_get_layout_list();
+    if (strchr(list, ' '))
+        snprintf(buf, buf_size, STR_SET_KB_LIST_RESPONSE, list);
+    else
+        snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbd_get_layout(), kbd_get_layout_verbose());
     return -1;
 }
 
 static void set_kbd_layout(const char *args)
 {
-    if (*args)
+    if (*args && !kbd_set_layout(args))
     {
-        const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !kbd_set_layout(tok))
-        {
-            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-            return;
-        }
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return;
     }
     mon_add_response_fn(set_kbd_layout_response);
 }
