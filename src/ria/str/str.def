@@ -41,6 +41,7 @@ X(STR_VGA_CONNECTION_LOST, "VGA Connection Lost")
 
 // Status
 X(STR_STATUS_WIFI, "WiFi: \a%s\n")
+X(STR_STATUS_WIFI_RSSI, "WiFi: \a%s (%d dBm)\n")
 X(STR_STATUS_MAC, "MAC : \a%02X:%02X:%02X:%02X:%02X:%02X\n")
 X(STR_STATUS_IPV4, "IPv4: \a%s\n")
 X(STR_STATUS_NTP, "NTP : \a%s\n")

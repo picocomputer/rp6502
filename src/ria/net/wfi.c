@@ -177,7 +177,12 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
     {
     case 0:
     {
-        snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
+        int32_t rssi;
+        if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi) && rssi != 0)
+            snprintf_utf8(buf, buf_size, STR_STATUS_WIFI_RSSI,
+                          wfi_status_message(), (int)rssi);
+        else
+            snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
     }
     break;
     case 1:
