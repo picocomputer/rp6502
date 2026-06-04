@@ -473,8 +473,11 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
-        rln_sync_cursor_to(0);
-        for (uint8_t i = 0; i < rln_buflen; i++)
+        // Incremental: rewrite only from the change point and let the
+        // terminal autowrap the tail (the chars before `start` are
+        // unchanged on screen).
+        rln_sync_cursor_to(start);
+        for (uint8_t i = start; i < rln_buflen; i++)
             putchar(rln_buf[i]);
         uint8_t cmax = rln_cursor_max();
         uint8_t er;
@@ -1463,6 +1466,7 @@ void rln_read_line(rln_read_callback_t callback)
 
     // Build the handshake burst piecewise. Common framing:
     //   ?25l    hide cursor
+    //   ?7h     enable autowrap (the wrap render relies on it)
     //   s       DECSC saves prompt position
     //   6n      CPR1 (prompt column) — always sent
     // Optional DA2 probe (skipped when max_length == 0 so we don't
@@ -1480,9 +1484,10 @@ void rln_read_line(rln_read_callback_t callback)
     //   ?25h     show cursor
     // RCP runs from the burst (not the CPR-reply path) so the cursor
     // returns to the prompt even when the peer ignores CPR; the deadline
-    // fallback then inherits the right placement. DECAWM is left alone —
-    // we trust pending-wrap (xenl) on margin writes.
-    printf("\33[?25l\33[s\33[6n");
+    // fallback then inherits the right placement. ?7h enables autowrap:
+    // the one-logical-line render needs the terminal to wrap (a telnet
+    // client never gets the boot soft-reset, so don't assume its default).
+    printf("\33[?25l\33[?7h\33[s\33[6n");
     if (rln_max_length > 0)
         printf("\33[>c\33[u \b");
     if (!(rln_width_override && rln_height_override))
