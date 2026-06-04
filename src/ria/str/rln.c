@@ -479,14 +479,25 @@ static void rln_render_from(uint8_t start)
         rln_sync_cursor_to(start);
         for (uint8_t i = start; i < rln_buflen; i++)
             putchar(rln_buf[i]);
-        uint8_t cmax = rln_cursor_max();
+        // The render leaves the cursor just past the last char, at
+        // buf_to_screen(buflen). When that char filled the final column the
+        // terminal is in pending-wrap — an invisible cell. Commit it with a
+        // SPACE (which makes the terminal do its own autowrap, so the row
+        // stays a soft-wrapped continuation a resize can reflow) then a BS
+        // back onto the new row, finally EL to drop the space and any stale
+        // tail. A hard \n here would split the logical line and break reflow.
+        // Never leave the terminal in pending-wrap (as readline/libedit/
+        // linenoise don't); cursor_max pulls a full input's cursor back onto
+        // the last cell via the closing sync (a move, not pending-wrap).
+        uint16_t w = rln_get_term_width();
+        bool filled_margin = rln_buflen > start &&
+                             ((uint32_t)(rln_prompt_col - 1) + rln_buflen) % w == 0;
         uint8_t er;
         uint16_t ec;
-        rln_buf_to_screen(cmax, &er, &ec);
-        // Clear the tail past the last char — skip when the line fills
-        // exactly to the margin, where the cursor sits in pending-wrap on
-        // that cell and EL would erase it.
-        if (cmax == rln_buflen)
+        rln_buf_to_screen(rln_buflen, &er, &ec);
+        if (filled_margin)
+            printf(" \b\33[K");
+        else
             printf("\33[K");
         // Clear rows a previous (longer) render owned below the new end,
         // then return to the new end so cur_idx tracks the screen.
@@ -500,7 +511,7 @@ static void rln_render_from(uint8_t start)
                 printf("\33[%uC", ec - 1);
         }
         rln_rendered_max_row = er;
-        rln_cur_idx = cmax;
+        rln_cur_idx = rln_buflen;
         rln_last_render_buflen = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
