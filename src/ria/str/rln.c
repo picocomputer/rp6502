@@ -145,6 +145,8 @@ static uint16_t rln_term_width;      // 0 if no CPR
 static uint16_t rln_term_height;     // 0 if no CPR
 static uint16_t rln_width_override;  // 0 = auto-detect
 static uint16_t rln_height_override; // 0 = auto-detect
+static uint16_t rln_naws_width;      // 0 = no telnet NAWS
+static uint16_t rln_naws_height;     // 0 = no telnet NAWS
 static uint8_t rln_cur_idx;          // buffer index whose screen position the cursor is at
 static bool rln_overwrite;           // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
 static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
@@ -511,6 +513,36 @@ static void rln_render_from(uint8_t start)
         rln_last_render_buflen = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
+}
+
+// Redraw the edited line after the terminal width changed under us. The
+// forced wraps rln emits are hard newlines, so the terminal never reflows
+// rln's own rows — the on-screen layout still matches the OLD width. Home
+// the cursor and clear the owned rows using old-width math, then redraw at
+// the new width (caller has already updated geometry).
+static void rln_reflow(uint16_t old_w)
+{
+    uint32_t logical_cur = (uint32_t)(rln_prompt_col - 1) + rln_cur_idx;
+    uint8_t cur_row = (uint8_t)(logical_cur / old_w);
+    if (cur_row)
+        printf("\33[%uA", cur_row);
+    printf("\r");
+    if (rln_prompt_col > 1)
+        printf("\33[%uC", rln_prompt_col - 1);
+    uint8_t maxr = rln_rendered_max_row;
+    printf("\33[K");
+    for (uint8_t r = 0; r < maxr; r++)
+        printf("\n\r\33[K");
+    if (maxr)
+    {
+        printf("\33[%uA\r", maxr);
+        if (rln_prompt_col > 1)
+            printf("\33[%uC", rln_prompt_col - 1);
+    }
+    rln_cur_idx = 0;
+    rln_rendered_max_row = 0;
+    rln_last_render_buflen = 0;
+    rln_render_from(0);
 }
 
 /* ----- Tail-rewrite emit helper ----- */
@@ -1402,18 +1434,15 @@ static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
     }
     // Step 3 (refinement): later CPR2s from other sources clamp the
     // running min across the manifold.
-    bool width_changed = false;
+    uint16_t old_w = rln_get_term_width();
     if (p2 < rln_term_width)
-    {
         rln_term_width = p2;
-        width_changed = true;
-    }
     if (p1 < rln_term_height)
         rln_term_height = p1;
-    if (width_changed &&
-        rln_phase == rln_phase_edit &&
-        !rln_complete_deferred)
-        rln_render_from(0);
+    if (rln_phase == rln_phase_edit &&
+        !rln_complete_deferred &&
+        rln_get_term_width() != old_w)
+        rln_reflow(old_w);
 }
 
 /* ----- Top-level task / lifecycle ----- */
@@ -1645,6 +1674,8 @@ uint16_t rln_get_term_width(void)
 {
     if (rln_width_override)
         return rln_width_override;
+    if (rln_naws_width)
+        return rln_naws_width;
     if (rln_term_width > 0)
         return rln_term_width;
     if (vga_connected())
@@ -1659,6 +1690,8 @@ uint16_t rln_get_term_height(void)
 {
     if (rln_height_override)
         return rln_height_override;
+    if (rln_naws_height)
+        return rln_naws_height;
     if (rln_term_height > 0)
         return rln_term_height;
     if (vga_connected())
@@ -1668,6 +1701,22 @@ uint16_t rln_get_term_height(void)
 
 void rln_set_term_width(uint16_t v) { rln_width_override = v; }
 void rln_set_term_height(uint16_t v) { rln_height_override = v; }
+
+void rln_set_naws_size(uint16_t w, uint16_t h)
+{
+    if (w == rln_naws_width && h == rln_naws_height)
+        return;
+    uint16_t old_w = rln_get_term_width();
+    rln_naws_width = w;
+    rln_naws_height = h;
+    if (rln_phase == rln_phase_edit &&
+        rln_prompt_col != 0 &&
+        !rln_complete_deferred &&
+        rln_buflen > 0 &&
+        w != 0 &&
+        rln_get_term_width() != old_w)
+        rln_reflow(old_w);
+}
 
 /* Readline magic: lastkey + peekpoke
  */

@@ -16,6 +16,7 @@
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include <stdlib.h>
 #include <string.h>
@@ -291,6 +292,15 @@ static void com_tel_drain_rx(void)
             com_tel_rx_buf[com_tel_rx_head] = ch;
         }
     }
+
+    // NAWS arrives as a side effect of the tel_rx decode above; relay any
+    // fresh size to rln, which reflows the line in place on a resize.
+    if (com_tel_state == COM_TEL_STATE_CONNECTED)
+    {
+        uint16_t nw, nh;
+        if (tel_get_naws(SYS_TEL_DESC, &nw, &nh))
+            rln_set_naws_size(nw, nh);
+    }
 }
 
 static bool com_tel_should_listen(void)
@@ -310,7 +320,10 @@ static void com_tel_teardown(com_tel_state_t target)
     if (was_session && target == COM_TEL_STATE_IDLE)
         tel_close(SYS_TEL_DESC);
     if (was_connected && target != COM_TEL_STATE_CONNECTED)
+    {
         vga_set_tel_console_active(false);
+        rln_set_naws_size(0, 0); // drop stale telnet geometry
+    }
     if (target == COM_TEL_STATE_IDLE && com_tel_state != COM_TEL_STATE_IDLE)
     {
         tel_listen_close(com_tel_active_port);
