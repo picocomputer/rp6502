@@ -100,6 +100,9 @@ typedef struct
     // Per-source bookkeeping (zero on rln_poke_source). cpr_seen is
     // sticky across reads — preserved by rln_read_line's per-read reset.
     uint8_t cpr_expecting;  // outstanding CPR count this read
+    uint16_t cpr_w;         // max column this read = the screen right edge
+    uint16_t cpr_h;         // max row this read = the screen bottom edge
+    uint16_t cpr_pcol;      // min column this read = the prompt column
     bool cpr_seen;          // sticky: source has dispatched a valid CPR
     bool da2_seen;          // proven DA2-aware this read
     bool defer_pending;     // arm-time busy criteria still pending
@@ -473,9 +476,6 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
-        // Incremental: rewrite only from the change point and let the
-        // terminal autowrap the tail (the chars before `start` are
-        // unchanged on screen).
         rln_sync_cursor_to(start);
         for (uint8_t i = start; i < rln_buflen; i++)
             putchar(rln_buf[i]);
@@ -518,10 +518,10 @@ static void rln_render_from(uint8_t start)
 }
 
 // Redraw the wrapping input after the terminal width changed under us
-// (NAWS, or a CPR2 refinement). The terminal reflowed our one logical line
-// keeping the cursor on the same char, so home the cursor relative to the
-// NEW width, clear the rows the old render owned, and full-redraw — the
-// standard "re-fetch size, reposition, redraw" path. Caller updated geometry.
+// (NAWS, or a CPR geometry refinement). The terminal reflowed our one
+// logical line keeping the cursor on the same char, so home the cursor
+// relative to the NEW width, clear the rows the old render owned, and
+// full-redraw.
 static void rln_resize_redraw(void)
 {
     if (rln_phase != rln_phase_edit || rln_prompt_col == 0)
@@ -574,7 +574,6 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 
 static void rln_replace_buf_from_history(void)
 {
-    // Buffer just got swapped from history; cursor goes to end.
     rln_buflen = (uint8_t)strnlen(rln_buf, RLN_BUF_SIZE - 1);
     rln_bufpos = rln_buflen;
     rln_render_from(0);
@@ -615,8 +614,7 @@ static void rln_history_add(void)
 
 // Park the cursor past the input, nul-terminate the buffer, optionally
 // push to history, and complete. The terminating newline is emitted in
-// rln_complete_now (suppressed by the SUPPRESS_NL attribute). Used by
-// both the typed CR dispatch and rln_poke's control-byte path.
+// rln_complete_now (suppressed by the SUPPRESS_NL attribute).
 static void rln_finish_line(bool add_to_history)
 {
     rln_sync_cursor_to(rln_cursor_max());
@@ -1097,16 +1095,14 @@ static void rln_dispatch_CSI(rln_source_t *a, uint8_t ch)
         }
 }
 
-// Trim the in-flight tail off buf[] (e.g. after dispatching a sequence
-// or after CAN). Leaves deferred head bytes intact.
+// Trim the in-flight tail off buf[], leaving deferred head bytes intact.
 static void rln_ansi_trim_inflight(rln_source_t *a)
 {
     a->buf_len -= a->inflight_len;
     a->inflight_len = 0;
 }
 
-// Snapshot the in-flight tail into rln_lastkey_buf. Called only from
-// typed-action dispatch during edit phase.
+// Snapshot the in-flight tail into rln_lastkey_buf.
 static void rln_publish_lastkey(rln_source_t *a)
 {
     uint8_t n = a->inflight_len > RLN_LASTKEY_MAX
@@ -1305,12 +1301,11 @@ static void rln_enter_edit(void)
     else
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in com_source_t
-    // order: kbd (local human) → uart (local terminal) → tel (remote) →
-    // poke (scripted input). dispatch_or_defer derives "is tracked"
-    // from src so KBD and poke (src=COM_SOURCE_ANY) skip protocol
-    // tracking automatically. Abort the cascade if a dispatched CR
-    // mid-drain completes the line — any later drains would replay
-    // stale bytes into the next line's parsers.
+    // order (KBD, UART, TEL), then the poke parser separately below.
+    // dispatch_or_defer gates protocol tracking on src, so KBD and poke
+    // (src=COM_SOURCE_ANY) skip it. Abort the cascade if a dispatched CR
+    // mid-drain completes the line — any later drains would replay stale
+    // bytes into the next line's parsers.
     rln_read_callback_t cb_at_start = rln_callback;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
     {
@@ -1354,76 +1349,72 @@ static void rln_handshake_fallback(void)
 
 // Dispatch a parsed CPR (\33[<p1>;<p2>R). Row in p1, col in p2.
 //
-// Multi-source manifold rule: host stdout fans out to all attached
-// terminals; each replies CPR1 (prompt position) then CPR2 (terminal
-// size, after \33[999;999H). Replies interleave across sources but each
-// source's pair stays ordered. Classification:
-//   1. First CPR ever (prompt_col == 0): pin prompt_col from p2 and
-//      advance phase. All terminals got the same prompt bytes, so the
-//      first reply wins.
-//   2. Per-source COUNT picks out CPR2: dispatch_or_defer already
-//      decremented cpr_expecting, so 0 here (with initial 2) means this
-//      is the source's CPR2 (the geometry reply).
-//   3. First CPR2 sets term_height/term_width and enters edit phase;
-//      later CPR2s refine the running MIN — render width must be safe
-//      for the narrowest terminal so the byte stream wraps identically
-//      on all of them.
-//   4. Per-source CPR1s after the first global reply are discarded
-//      (prompt position already captured in step 1).
-//   5. CPR after late-DA2 fallback (prompt_col 0 in edit phase) is
-//      discarded.
+// Classified by content, not arrival order, so a reply that arrives first or
+// leaks from a previous read (the fast-paste failure) is still sorted right.
+// \33[999;999H clamps the geometry reply to the bottom-right, so for one
+// source the geometry reply is the MAX row/col and the prompt reply sits
+// inside it (the MIN col). A source's size is trusted only once it has
+// answered its full quota (cpr_expecting == 0) AND its edge is a real width
+// past the prompt (max col > min col) — never a stray prompt reply collapsing
+// width to ~1. term_width/height take the MIN of the trusted per-source edges
+// (safe for the narrowest terminal); prompt_col is the prompt's own column
+// (the min), pinned once. Until one source qualifies the size stays unknown
+// and the handshake deadline drops to no-wrap.
 //
-// Called above the defer-absorb gate so late CPRs refine geometry even
-// during defer; enter_edit/render_from are guarded against
-// rln_complete_deferred so a submitted line is never re-emitted.
+// Called above the defer gate so a leaked reply still updates the span;
+// enter_edit/resize are guarded against rln_complete_deferred.
 static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
 {
-    // Step 5: discard CPRs after fallback left prompt_col at 0.
     if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
         return;
     bool both_overrides = rln_width_override && rln_height_override;
-    // Caller (dispatch_or_defer) only invokes this when src is a
-    // tracked source (UART/TEL), so rln_sources[src] is a valid lookup.
-    bool is_cpr2 = (rln_cpr_initial == 2 &&
-                    rln_sources[src].cpr_expecting == 0);
-    // Step 1: first CPR globally pins prompt_col.
-    if (rln_prompt_col == 0)
+    // Both axes overridden: only CPR1 is sent, so the lone reply is the
+    // prompt and the size comes from the overrides.
+    if (both_overrides)
     {
-        rln_prompt_col = p2 ? p2 : 1;
-        if (!rln_complete_deferred)
+        if (rln_prompt_col == 0)
         {
-            if (both_overrides)
+            rln_prompt_col = p2 ? p2 : 1;
+            if (!rln_complete_deferred)
                 rln_enter_edit();
-            else
-                rln_phase = rln_phase_width_cpr;
         }
         return;
     }
-    // Geometry fully pinned by overrides: ignore everything past CPR1.
-    if (both_overrides)
+    // Widen this source's column span: edge (max col) and prompt (min col).
+    rln_source_t *a = &rln_sources[src];
+    if (p2 > a->cpr_w)
+        a->cpr_w = p2;
+    if (a->cpr_pcol == 0 || p2 < a->cpr_pcol)
+        a->cpr_pcol = p2 ? p2 : 1;
+    if (p1 > a->cpr_h)
+        a->cpr_h = p1;
+    if (rln_phase == rln_phase_prompt_cpr && !rln_complete_deferred)
+        rln_phase = rln_phase_width_cpr;
+    uint16_t w = 0, h = 0, pc = 0;
+    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        if (rln_sources[s].cpr_expecting == 0 &&
+            rln_sources[s].cpr_w > rln_sources[s].cpr_pcol)
+        {
+            if (!w || rln_sources[s].cpr_w < w)
+            {
+                w = rln_sources[s].cpr_w;
+                pc = rln_sources[s].cpr_pcol;
+            }
+            if (!h || rln_sources[s].cpr_h < h)
+                h = rln_sources[s].cpr_h;
+        }
+    if (!h)
         return;
-    // Step 4: per-source CPR1 after the global first reply — discard.
-    if (!is_cpr2)
-        return;
-    // Step 3: first CPR2 sets geometry and transitions to edit.
-    if (rln_term_height == 0)
-    {
-        rln_term_height = p1;
-        rln_term_width = p2;
-        if (!rln_complete_deferred)
-            rln_enter_edit();
-        return;
-    }
-    // Step 3 (refinement): later CPR2s from other sources clamp the
-    // running min across the manifold.
     uint16_t old_w = rln_get_term_width();
-    if (p2 < rln_term_width)
-        rln_term_width = p2;
-    if (p1 < rln_term_height)
-        rln_term_height = p1;
-    if (rln_phase == rln_phase_edit &&
-        !rln_complete_deferred &&
-        rln_get_term_width() != old_w)
+    if (rln_prompt_col == 0)
+        rln_prompt_col = pc;
+    rln_term_height = h;
+    rln_term_width = w;
+    if (rln_complete_deferred)
+        return;
+    if (rln_phase != rln_phase_edit)
+        rln_enter_edit();
+    else if (rln_get_term_width() != old_w)
         rln_resize_redraw();
 }
 
@@ -1443,9 +1434,9 @@ void rln_read_line(rln_read_callback_t callback)
     rln_complete_deferred = false;
 
     rln_phase = rln_phase_prompt_cpr;
-    // Sentinels for the per-source counting heuristic: 0 means
-    // "not pinned yet". Must be cleared every call or replies
-    // from the next handshake get misclassified.
+    // prompt_col == 0 is the per-read sentinel: the first CPR pins it, and
+    // it gates the no-wrap fallback. Geometry is re-derived from this read's
+    // CPRs, so clear it too rather than carry a stale size.
     rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
@@ -1478,31 +1469,31 @@ void rln_read_line(rln_read_callback_t callback)
     // Build the handshake burst piecewise. Common framing:
     //   ?25l    hide cursor
     //   ?7h     enable autowrap (the wrap render relies on it)
-    //   s       DECSC saves prompt position
+    //   7       DECSC saves prompt position
     //   6n      CPR1 (prompt column) — always sent
     // Optional DA2 probe (skipped when max_length == 0 so we don't
     // touch a column rln doesn't own):
     //   >c      DA2 — DECSCUSR probe; minicom leaks the `c` as literal
     //           text at the prompt column
-    //   u       DECRC snaps cursor back to prompt column
+    //   8       DECRC snaps cursor back to prompt column
     //   ' \b'   space over any leaked `c`, then BS back (not EL — EL
     //           would clobber form data past the prompt)
     // Optional geometry probe (skipped only when BOTH overrides are set):
     //   999;999H go to bottom-right
     //   6n       CPR2 (terminal height + width)
-    //   u        DECRC back to prompt
+    //   8        DECRC back to prompt
     // Always tail:
     //   ?25h     show cursor
-    // RCP runs from the burst (not the CPR-reply path) so the cursor
+    // DECRC runs from the burst (not the CPR-reply path) so the cursor
     // returns to the prompt even when the peer ignores CPR; the deadline
     // fallback then inherits the right placement. ?7h enables autowrap:
     // the one-logical-line render needs the terminal to wrap (a telnet
     // client never gets the boot soft-reset, so don't assume its default).
-    printf("\33[?25l\33[?7h\33[s\33[6n");
+    printf("\33[?25l\33[?7h\0337\33[6n");
     if (rln_max_length > 0)
-        printf("\33[>c\33[u \b");
+        printf("\33[>c\0338 \b");
     if (!(rln_width_override && rln_height_override))
-        printf("\33[999;999H\33[6n\33[u");
+        printf("\33[999;999H\33[6n\0338");
     printf("\33[?25h");
 }
 
