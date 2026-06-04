@@ -139,7 +139,7 @@ static volatile size_t com_tel_tx_tail;
 #define COM_TEL_RX_BUF_SIZE 32
 // After this many milliseconds with a full ring and no consume,
 // com_tel_drain_rx drops bytes instead of backpressuring the TCP peer.
-#define COM_TEL_RX_OVERFLOW_MS 500
+#define COM_TEL_RX_OVERFLOW_MS 5000
 static char com_tel_rx_buf[COM_TEL_RX_BUF_SIZE];
 static size_t com_tel_rx_head;
 static size_t com_tel_rx_tail;
