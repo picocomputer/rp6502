@@ -108,6 +108,7 @@ static size_t com_tel_read(char *buf, size_t length)
     (void)length;
     return 0;
 }
+static int com_tel_peek(void) { return -1; }
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
 
@@ -178,6 +179,13 @@ static size_t com_tel_read(char *buf, size_t length)
     if (count)
         com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
     return count;
+}
+
+static int com_tel_peek(void)
+{
+    if (com_tel_rx_head != com_tel_rx_tail)
+        return (uint8_t)com_tel_rx_buf[(com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE];
+    return -1;
 }
 
 static void com_tel_drain_tx(void)
@@ -485,6 +493,14 @@ static size_t com_uart_read(char *buf, size_t length)
     return count;
 }
 
+static int com_uart_peek(void)
+{
+    com_uart_drain_rx();
+    if (com_uart_rx_head != com_uart_rx_tail)
+        return (uint8_t)com_uart_rx_buf[(com_uart_rx_tail + 1) % COM_UART_RX_BUF_SIZE];
+    return -1;
+}
+
 // Local keyboard input. Steals the cross-core handoff slot if it was
 // tagged KBD, then reads from kbd_stdio_in_chars. No internal sticky
 // dwell — the outer com_rx_pick holds against the other sources at
@@ -685,6 +701,26 @@ int com_getchar(com_source_t *src)
     if (src)
         *src = COM_SOURCE_ANY;
     return PICO_ERROR_TIMEOUT;
+}
+
+// Non-consuming 1-byte peek at a specific source. Mirrors com_getchar's
+// single-source path (recover slot, then the source FIFO) without advancing.
+// Only the tracked terminal sources (UART/TEL) are peekable; others report
+// none. rln uses this during a deferred completion to tell an in-flight
+// protocol reply (begins with ESC) from the next pasted line's typed bytes.
+int com_peekchar(com_source_t src)
+{
+    if (com_rx_char_src == src && com_rx_char >= 0)
+        return com_rx_char;
+    switch (src)
+    {
+    case COM_SOURCE_UART:
+        return com_uart_peek();
+    case COM_SOURCE_TEL:
+        return com_tel_peek();
+    default:
+        return -1;
+    }
 }
 
 // One round of TX fanout + UART RX/TX pump + telnet pump. Used by the

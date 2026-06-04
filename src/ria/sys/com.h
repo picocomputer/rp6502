@@ -62,6 +62,10 @@ typedef enum
 // available on the requested source(s).
 int com_getchar(com_source_t *src);
 
+// Non-blocking 1-byte peek at a specific source (UART/TEL), without
+// consuming. Returns the byte (0..255), or negative when none is queued.
+int com_peekchar(com_source_t src);
+
 // com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
 // std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main
 // loop, so the SPSC protocol is serialized naturally; no lock, no __dmb()

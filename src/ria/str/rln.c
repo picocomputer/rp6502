@@ -1529,6 +1529,21 @@ static int rln_read_next(com_source_t *out_src)
     {
         if (!rln_sources[s].defer_pending)
             continue;
+        // At rest but still owing a CPR: the next byte is either the ESC that
+        // begins the reply (absorb it) or the next pasted line's typed input.
+        // Peek so typed bytes stay FIFO-queued for the next read; yield the
+        // source so completion fires instead of waiting out the defer deadline.
+        if (rln_sources[s].state == ansi_state_C0)
+        {
+            int p = com_peekchar(s);
+            if (p < 0)
+                continue; // reply not here yet — keep the gate open
+            if (p != '\33')
+            {
+                rln_sources[s].defer_pending = false;
+                continue;
+            }
+        }
         com_source_t arg = s;
         int c = com_getchar(&arg);
         if (c >= 0)
