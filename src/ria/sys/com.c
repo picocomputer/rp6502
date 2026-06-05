@@ -98,6 +98,15 @@ static bool com_bel_enabled = true;
 // sources (kbd, UART, telnet).
 #define COM_RX_IDLE_US 1000
 
+// Non-consuming peek at the next byte of an SPSC RX ring (head==tail empty;
+// the next byte sits one past tail). Returns the byte (0..255) or -1.
+static int com_ring_peek(const uint8_t *buf, size_t size, size_t head, size_t tail)
+{
+    if (head == tail)
+        return -1;
+    return buf[(tail + 1) % size];
+}
+
 #ifndef RP6502_RIA_W
 
 static bool com_tel_tx_writable(void) { return true; }
@@ -183,9 +192,8 @@ static size_t com_tel_read(char *buf, size_t length)
 
 static int com_tel_peek(void)
 {
-    if (com_tel_rx_head != com_tel_rx_tail)
-        return (uint8_t)com_tel_rx_buf[(com_tel_rx_tail + 1) % COM_TEL_RX_BUF_SIZE];
-    return -1;
+    return com_ring_peek((const uint8_t *)com_tel_rx_buf, COM_TEL_RX_BUF_SIZE,
+                         com_tel_rx_head, com_tel_rx_tail);
 }
 
 static void com_tel_drain_tx(void)
@@ -496,9 +504,8 @@ static size_t com_uart_read(char *buf, size_t length)
 static int com_uart_peek(void)
 {
     com_uart_drain_rx();
-    if (com_uart_rx_head != com_uart_rx_tail)
-        return (uint8_t)com_uart_rx_buf[(com_uart_rx_tail + 1) % COM_UART_RX_BUF_SIZE];
-    return -1;
+    return com_ring_peek((const uint8_t *)com_uart_rx_buf, COM_UART_RX_BUF_SIZE,
+                         com_uart_rx_head, com_uart_rx_tail);
 }
 
 // Local keyboard input. Steals the cross-core handoff slot if it was
