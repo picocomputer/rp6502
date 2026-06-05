@@ -6,6 +6,7 @@
 
 #include "api/oem.h"
 #include "str/str.h"
+#include "sys/cfg.h"
 #include "sys/cpu.h"
 #include <fatfs/ff.h>
 #include <string.h>
@@ -24,17 +25,162 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
-#define STR_OEM_CODE_PAGE __XSTRING(OEM_CODE_PAGE)
+#define STR_OEM_CODE_PAGE __XSTRING(RP6502_CODE_PAGE)
 
-// Put string literals into flash, or RAM with XR().
+// Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
     const char __in_flash(__XSTRING(name)) name[] = value;
 #define XR(name, value) \
     const char __not_in_flash(__XSTRING(name)) name[] = value;
 #include "str.def"
-#include "str_locale.def"
 #undef X
 #undef XR
+
+// Localized strings, one storage copy per locale (suffixed _en/_pl). X
+// stays in flash; XR is RAM-resident so it survives the XIP suspend during
+// flashing. This is a copy_to_ram build, so plain literals would land in
+// RAM -- keep each string explicitly __in_flash.
+#define X(name, value) static const char __in_flash(__XSTRING(name)) name##_en[] = value;
+#define XR(name, value) static const char __not_in_flash(__XSTRING(name)) name##_en[] = value;
+#include "str_en.def"
+#undef X
+#undef XR
+#define X(name, value) static const char __in_flash(__XSTRING(name)) name##_pl[] = value;
+#define XR(name, value) static const char __not_in_flash(__XSTRING(name)) name##_pl[] = value;
+#include "str_pl.def"
+#undef X
+#undef XR
+
+// Per-locale lookup tables (in flash), indexed by enum str_loc_id.
+#define X(name, value) name##_en,
+#define XR(name, value) name##_en,
+static const char *const __in_flash("str_loc_en") str_loc_en[] = {
+#include "str_en.def"
+};
+#undef X
+#undef XR
+#define X(name, value) name##_pl,
+#define XR(name, value) name##_pl,
+static const char *const __in_flash("str_loc_pl") str_loc_pl[] = {
+#include "str_pl.def"
+};
+#undef X
+#undef XR
+
+// Locale registry. The string tables and these parallel arrays are all
+// ordered by RP6502_LOCALES, so one index selects the table, the names and
+// the default code page. This module is the sole owner of the active locale.
+#define X(suffix, file, shortn, verbose, cp) str_loc_##file,
+static const char *const *const __in_flash("str_tables") str_tables[] = {
+    RP6502_LOCALES};
+#undef X
+#define X(suffix, file, shortn, verbose, cp) shortn,
+static const char *const __in_flash("str_locale_names") str_locale_names[] = {
+    RP6502_LOCALES};
+#undef X
+#define X(suffix, file, shortn, verbose, cp) verbose,
+static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
+    RP6502_LOCALES};
+#undef X
+#define X(suffix, file, shortn, verbose, cp) cp,
+static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
+    RP6502_LOCALES};
+#undef X
+
+static_assert(sizeof str_loc_pl == sizeof str_loc_en,
+              "locale string tables differ in length");
+
+static int str_locale_index;
+
+const char *S(int id)
+{
+    return str_tables[str_locale_index][id];
+}
+
+// Switch the active string table (clamped). Internal; the locale is selected
+// by name through str_set_locale / str_load_locale.
+static void str_select_locale(int index)
+{
+    int count = (int)(sizeof str_tables / sizeof str_tables[0]);
+    str_locale_index = (index >= 0 && index < count) ? index : 0;
+}
+
+// Find a locale by short name. Falls back to the build default
+// (RP6502_LOCALE) when name is empty or unknown, mirroring kbd.
+static int str_sanitize_locale(const char *name)
+{
+    const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];
+    int default_index = 0;
+    int found_index = -1;
+    for (int i = 0; i < count; i++)
+    {
+        if (!strcasecmp(str_locale_names[i], __XSTRING(RP6502_LOCALE)))
+            default_index = i;
+        if (!strcasecmp(str_locale_names[i], name))
+            found_index = i;
+    }
+    return found_index < 0 ? default_index : found_index;
+}
+
+// Switch the string table and push the locale's default code page to oem
+// (oem only acts on it in auto mode).
+static void str_apply_locale(int index)
+{
+    str_select_locale(index);
+    oem_locale_changed(str_locale_cp[index]);
+}
+
+void str_init(void)
+{
+    str_apply_locale(str_sanitize_locale(""));
+}
+
+int str_locales_response(char *buf, size_t buf_size, int state)
+{
+    const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];
+    if (state < 0 || state >= count)
+        return -1;
+    int maxlen = 0;
+    for (int i = 0; i < count; i++)
+    {
+        int thislen = strlen(str_locale_names[i]);
+        if (thislen > maxlen)
+            maxlen = thislen;
+    }
+    snprintf(buf, buf_size,
+             "  %*s - \a%s\n",
+             maxlen, str_locale_names[state],
+             str_locale_verbose[state]);
+    return state + 1;
+}
+
+void str_load_locale(const char *name)
+{
+    str_apply_locale(str_sanitize_locale(name));
+}
+
+bool str_set_locale(const char *name)
+{
+    int new_index = str_sanitize_locale(name);
+    if (strcasecmp(name, str_locale_names[new_index]))
+        return false;
+    if (str_locale_index != new_index)
+    {
+        str_apply_locale(new_index);
+        cfg_save();
+    }
+    return true;
+}
+
+const char *str_get_locale(void)
+{
+    return str_locale_names[str_locale_index];
+}
+
+const char *str_get_locale_verbose(void)
+{
+    return str_locale_verbose[str_locale_index];
+}
 
 // Shared output buffer for str_parse_string and str_abs_path.
 static char str_buf[256];
@@ -111,12 +257,12 @@ const char *str_abs_path(const char *path)
         {
             if (out + 1 + slen > 255)
                 return NULL;
-            str_buf[out++] = '/';
             if (drive_len == 1) // ":" installed ROM
                 for (size_t k = 0; k < slen; k++)
                     str_buf[out++] = (char)toupper((unsigned char)seg[k]);
             else
             {
+                str_buf[out++] = '/';
                 memcpy(str_buf + out, seg, slen);
                 out += slen;
             }

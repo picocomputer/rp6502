@@ -79,12 +79,11 @@ __printflike(3, 4) int snprintf_utf8(char *dst, size_t dst_size,
 int vsnprintf_utf8(char *dst, size_t dst_size,
                    const char *utf8_fmt, va_list va);
 
-// String literals are in flash, or in RAM via XR().
+// Non-localized string literals are in flash, or in RAM via XR().
 #define X(name, value) \
     extern const char name[];
-#define XR(name, value) X(name, value)
+// #define XR(name, value) X(name, value)
 #include "str.def"
-#include "str_locale.def"
 #undef X
 #undef XR
 
@@ -98,5 +97,32 @@ int vsnprintf_utf8(char *dst, size_t dst_size,
 #include "str.def"
 #undef X
 #undef XR
+
+// Localized strings. Each name is an id (an index), not a pointer; S(id)
+// returns the active locale's string. The locale is selected by name with
+// the str_*_locale API below. The compiled-in locale set is str_locale.def.
+#include "str_locale.def"
+enum str_loc_id
+{
+#define X(name, value) name,
+#define XR(name, value) X(name, value)
+#include "str_en.def" // canonical key order; values ignored in this pass
+#undef X
+#undef XR
+    STR_LOC_COUNT
+};
+
+// Active-locale string for a localized id.
+const char *S(int id);
+
+// Initialize the string module (establishes the build-default locale).
+void str_init(void);
+
+// Locale (UI language) selection.
+int str_locales_response(char *buf, size_t buf_size, int state);
+void str_load_locale(const char *name);
+bool str_set_locale(const char *name);
+const char *str_get_locale(void);
+const char *str_get_locale_verbose(void);
 
 #endif /* _RIA_STR_STR_H_ */

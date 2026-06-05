@@ -173,7 +173,7 @@ static void mon_enter(bool timeout, const char *buf)
         return;
     // Suppress error for empty lines
     if (!str_parse_end(buf))
-        mon_add_response_utf8(STR_ERR_UNKNOWN_COMMAND);
+        mon_add_response_utf8(S(STR_ERR_UNKNOWN_COMMAND));
 }
 
 static int mon_utf8_response(char *buf, size_t buf_size, int state)
@@ -196,33 +196,33 @@ static const char *mon_lfs_lookup(int result)
     switch (-result)
     {
     case LFS_ERR_IO: // -5
-        return STR_ERR_LFS_IO;
+        return S(STR_ERR_LFS_IO);
     case LFS_ERR_CORRUPT: // -84
-        return STR_ERR_LFS_CORRUPT;
+        return S(STR_ERR_LFS_CORRUPT);
     case LFS_ERR_NOENT: // -2
-        return STR_ERR_LFS_NOENT;
+        return S(STR_ERR_LFS_NOENT);
     case LFS_ERR_EXIST: // -17
-        return STR_ERR_LFS_EXIST;
+        return S(STR_ERR_LFS_EXIST);
     case LFS_ERR_NOTDIR: // -20
-        return STR_ERR_LFS_NOTDIR;
+        return S(STR_ERR_LFS_NOTDIR);
     case LFS_ERR_ISDIR: // -21
-        return STR_ERR_LFS_ISDIR;
+        return S(STR_ERR_LFS_ISDIR);
     case LFS_ERR_NOTEMPTY: // -39
-        return STR_ERR_LFS_NOTEMPTY;
+        return S(STR_ERR_LFS_NOTEMPTY);
     case LFS_ERR_BADF: // -9
-        return STR_ERR_LFS_BADF;
+        return S(STR_ERR_LFS_BADF);
     case LFS_ERR_FBIG: // -27
-        return STR_ERR_LFS_FBIG;
+        return S(STR_ERR_LFS_FBIG);
     case LFS_ERR_INVAL: // -22
-        return STR_ERR_LFS_INVAL;
+        return S(STR_ERR_LFS_INVAL);
     case LFS_ERR_NOSPC: // -28
-        return STR_ERR_LFS_NOSPC;
+        return S(STR_ERR_LFS_NOSPC);
     case LFS_ERR_NOMEM: // -12
-        return STR_ERR_LFS_NOMEM;
+        return S(STR_ERR_LFS_NOMEM);
     case LFS_ERR_NOATTR: // -61
-        return STR_ERR_LFS_NOATTR;
+        return S(STR_ERR_LFS_NOATTR);
     case LFS_ERR_NAMETOOLONG: // -36
-        return STR_ERR_LFS_NAMETOOLONG;
+        return S(STR_ERR_LFS_NAMETOOLONG);
     default:
         return NULL;
     }
@@ -233,43 +233,43 @@ static const char *mon_fatfs_lookup(int fresult)
     switch (fresult)
     {
     case FR_DISK_ERR: // 1
-        return STR_ERR_FATFS_DISK_ERR;
+        return S(STR_ERR_FATFS_DISK_ERR);
     case FR_INT_ERR: // 2
-        return STR_ERR_FATFS_INT_ERR;
+        return S(STR_ERR_FATFS_INT_ERR);
     case FR_NOT_READY: // 3
-        return STR_ERR_FATFS_NOT_READY;
+        return S(STR_ERR_FATFS_NOT_READY);
     case FR_NO_FILE: // 4
-        return STR_ERR_FATFS_NO_FILE;
+        return S(STR_ERR_FATFS_NO_FILE);
     case FR_NO_PATH: // 5
-        return STR_ERR_FATFS_NO_PATH;
+        return S(STR_ERR_FATFS_NO_PATH);
     case FR_INVALID_NAME: // 6
-        return STR_ERR_FATFS_INVALID_NAME;
+        return S(STR_ERR_FATFS_INVALID_NAME);
     case FR_DENIED: // 7
-        return STR_ERR_FATFS_DENIED;
+        return S(STR_ERR_FATFS_DENIED);
     case FR_EXIST: // 8
-        return STR_ERR_FATFS_EXIST;
+        return S(STR_ERR_FATFS_EXIST);
     case FR_INVALID_OBJECT: // 9
-        return STR_ERR_FATFS_INVALID_OBJECT;
+        return S(STR_ERR_FATFS_INVALID_OBJECT);
     case FR_WRITE_PROTECTED: // 10
-        return STR_ERR_FATFS_WRITE_PROTECTED;
+        return S(STR_ERR_FATFS_WRITE_PROTECTED);
     case FR_INVALID_DRIVE: // 11
-        return STR_ERR_FATFS_INVALID_DRIVE;
+        return S(STR_ERR_FATFS_INVALID_DRIVE);
     case FR_NOT_ENABLED: // 12
-        return STR_ERR_FATFS_NOT_ENABLED;
+        return S(STR_ERR_FATFS_NOT_ENABLED);
     case FR_NO_FILESYSTEM: // 13
-        return STR_ERR_FATFS_NO_FILESYSTEM;
+        return S(STR_ERR_FATFS_NO_FILESYSTEM);
     case FR_MKFS_ABORTED: // 14
-        return STR_ERR_FATFS_MKFS_ABORTED;
+        return S(STR_ERR_FATFS_MKFS_ABORTED);
     case FR_TIMEOUT: // 15
-        return STR_ERR_FATFS_TIMEOUT;
+        return S(STR_ERR_FATFS_TIMEOUT);
     case FR_LOCKED: // 16
-        return STR_ERR_FATFS_LOCKED;
+        return S(STR_ERR_FATFS_LOCKED);
     case FR_NOT_ENOUGH_CORE: // 17
-        return STR_ERR_FATFS_NOT_ENOUGH_CORE;
+        return S(STR_ERR_FATFS_NOT_ENOUGH_CORE);
     case FR_TOO_MANY_OPEN_FILES: // 18
-        return STR_ERR_FATFS_TOO_MANY_OPEN_FILES;
+        return S(STR_ERR_FATFS_TOO_MANY_OPEN_FILES);
     case FR_INVALID_PARAMETER: // 19
-        return STR_ERR_FATFS_INVALID_PARAMETER;
+        return S(STR_ERR_FATFS_INVALID_PARAMETER);
     default:
         return NULL;
     }
@@ -284,7 +284,7 @@ static int mon_err_response(char *buf, size_t buf_size, int state,
     if (err_str != NULL)
         snprintf_utf8(buf, buf_size, "%s", err_str);
     else
-        snprintf_utf8(buf, buf_size, STR_ERR_UNKNOWN_NUMBER, state);
+        snprintf_utf8(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
     return -1;
 }
 
@@ -317,10 +317,10 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
         }
     }
     i--;
-    if (mon_response_str[i] == STR_ERR_MONITOR_RESPONSE_OVERFLOW)
+    if (mon_response_str[i] == S(STR_ERR_MONITOR_RESPONSE_OVERFLOW))
         return;
     mon_response_fn_list[i] = mon_utf8_response;
-    mon_response_str[i] = STR_ERR_MONITOR_RESPONSE_OVERFLOW;
+    mon_response_str[i] = S(STR_ERR_MONITOR_RESPONSE_OVERFLOW);
     mon_response_state[i] = 0;
 }
 
@@ -399,11 +399,11 @@ static void mon_more(void)
     switch (mon_more_state)
     {
     case MON_MORE_START:
-        printf_utf8(STR_MON_MORE_SHOW);
+        printf_utf8(S(STR_MON_MORE_SHOW));
         mon_more_state = MON_MORE_WAIT;
         break;
     case MON_MORE_END:
-        printf_utf8(STR_MON_MORE_ERASE);
+        printf_utf8(S(STR_MON_MORE_ERASE));
         mon_more_rows_left = rln_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;

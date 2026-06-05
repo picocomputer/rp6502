@@ -20,28 +20,31 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// OEM_CODE_PAGE is the runtime default code page. Debug builds install
-// only that page to flash and lock the runtime to it. Release builds (NDEBUG)
-// install every code page so the user can switch at runtime.
-
 static uint16_t oem_code_page_set;
 static uint16_t oem_code_page_run;
+static uint16_t oem_auto_cp = RP6502_CODE_PAGE;
+
+// Resolve the code page to apply: the override if set, else the locale auto.
+static uint16_t oem_resolve(void)
+{
+    return oem_code_page_set ? oem_code_page_set : oem_auto_cp;
+}
 
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
 #ifndef NDEBUG
     (void)cp;
-    oem_code_page_run = OEM_CODE_PAGE;
+    oem_code_page_run = RP6502_CODE_PAGE;
 #else
     // cp >= 900 are DBCS; allow SBCS only
     if (cp < 900 && f_setcp(cp) == FR_OK)
         oem_code_page_run = cp;
     else if (oem_code_page_run == 0)
     {
-        if (f_setcp(OEM_CODE_PAGE) != FR_OK)
-            mon_add_response_utf8(STR_ERR_INTERNAL_ERROR);
-        oem_code_page_run = OEM_CODE_PAGE;
+        if (f_setcp(RP6502_CODE_PAGE) != FR_OK)
+            mon_add_response_utf8(S(STR_ERR_INTERNAL_ERROR));
+        oem_code_page_run = RP6502_CODE_PAGE;
     }
 #endif
     if (old_code_page != oem_code_page_run)
@@ -53,17 +56,18 @@ static void oem_request_code_page(uint16_t cp)
 
 void oem_init(void)
 {
+    // Nothing loaded from config (no CONFIG.SYS): default to auto.
     if (!oem_code_page_run)
     {
-        oem_request_code_page(OEM_CODE_PAGE);
-        oem_code_page_set = oem_code_page_run;
+        oem_code_page_set = 0;
+        oem_request_code_page(oem_resolve());
     }
 }
 
 void oem_stop(void)
 {
-    if (oem_code_page_run != oem_code_page_set)
-        oem_request_code_page(oem_code_page_set);
+    if (oem_code_page_run != oem_resolve())
+        oem_request_code_page(oem_resolve());
 }
 
 void oem_set_code_page_run(uint16_t cp)
@@ -75,12 +79,23 @@ bool oem_set_code_page(uint32_t cp)
 {
     if (cp > UINT16_MAX)
         return false;
+    if (cp == 0)
+    {
+        // Auto: track the locale's default code page.
+        if (oem_code_page_set != 0)
+        {
+            oem_code_page_set = 0;
+            oem_request_code_page(oem_resolve());
+            cfg_save();
+        }
+        return true;
+    }
     oem_request_code_page(cp);
     if (cp != oem_code_page_run)
         return false;
-    if (oem_code_page_set != oem_code_page_run)
+    if (oem_code_page_set != cp)
     {
-        oem_code_page_set = oem_code_page_run;
+        oem_code_page_set = cp;
         cfg_save();
     }
     return true;
@@ -91,9 +106,21 @@ uint16_t oem_get_code_page(void)
     return oem_code_page_set;
 }
 
+bool oem_is_auto(void)
+{
+    return oem_code_page_set == 0;
+}
+
 uint16_t oem_get_code_page_run(void)
 {
     return oem_code_page_run;
+}
+
+void oem_locale_changed(uint16_t cp)
+{
+    oem_auto_cp = cp;
+    if (oem_code_page_set == 0)
+        oem_request_code_page(oem_resolve());
 }
 
 void oem_load_code_page(const char *str)
@@ -101,6 +128,6 @@ void oem_load_code_page(const char *str)
     uint16_t cp;
     if (!str_parse_uint16(&str, &cp))
         return;
-    oem_request_code_page(cp);
-    oem_code_page_set = oem_code_page_run;
+    oem_code_page_set = cp; // 0 = auto; legacy non-zero = hard override
+    oem_request_code_page(oem_resolve());
 }

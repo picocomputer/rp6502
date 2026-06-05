@@ -103,12 +103,12 @@ int usb_status_response(char *buf, size_t buf_size, int state)
     int count_serial = vcp_status_count();
     int count_ep_free = hcd_free_ep_count();
     snprintf_utf8(buf, buf_size, STR_STATUS_USB,
-                  usb_count_hid_kbd, usb_count_hid_kbd == 1 ? STR_KEYBOARD_SINGULAR : STR_KEYBOARD_PLURAL,
-                  usb_count_hid_mou, usb_count_hid_mou == 1 ? STR_MOUSE_SINGULAR : STR_MOUSE_PLURAL,
-                  count_gamepad, count_gamepad == 1 ? STR_GAMEPAD_SINGULAR : STR_GAMEPAD_PLURAL,
-                  count_storage, count_storage == 1 ? STR_STORAGE_SINGULAR : STR_STORAGE_PLURAL,
-                  count_serial, count_serial == 1 ? STR_SERIAL_SINGULAR : STR_SERIAL_PLURAL,
-                  count_ep_free, count_ep_free == 1 ? STR_EP_FREE_SINGULAR : STR_EP_FREE_PLURAL);
+                  usb_count_hid_kbd, usb_count_hid_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
+                  usb_count_hid_mou, usb_count_hid_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
+                  count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
+                  count_storage, count_storage == 1 ? S(STR_STORAGE_SINGULAR) : S(STR_STORAGE_PLURAL),
+                  count_serial, count_serial == 1 ? S(STR_SERIAL_SINGULAR) : S(STR_SERIAL_PLURAL),
+                  count_ep_free, count_ep_free == 1 ? S(STR_EP_FREE_SINGULAR) : S(STR_EP_FREE_PLURAL));
     return -1;
 }
 

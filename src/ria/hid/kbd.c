@@ -48,6 +48,8 @@ static const struct
 
 static bool kbd_layout_loaded;
 static int kbd_layout_index;
+static char kbd_layout_list[KBD_LAYOUT_LIST_SIZE];
+static const char *kbd_layout_pos;
 static uint16_t kbd_xram;
 static absolute_time_t kbd_repeat_timer;
 static uint8_t kbd_repeat_modifier;
@@ -222,6 +224,38 @@ static char kbd_ctrl_promote(char ch, uint8_t keycode)
     if (keycode == HID_KEY_BACKSPACE)
         return '\b';
     return 0;
+}
+
+// Resolve kbd_layout_index from kbd_layout_pos and rebuild the cache.
+static void kbd_apply_active(void)
+{
+    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
+    size_t len = 0;
+    while (kbd_layout_pos[len] && kbd_layout_pos[len] != ' ')
+        len++;
+    for (int i = 0; i < layouts_count; i++)
+        if (strlen(kbd_layout_names[i]) == len &&
+            !strncmp(kbd_layout_pos, kbd_layout_names[i], len))
+        {
+            kbd_layout_index = i;
+            break;
+        }
+    kbd_rebuild_code_page_cache();
+}
+
+static void kbd_cycle_layout(void)
+{
+    const char *p = kbd_layout_pos;
+    while (*p && *p != ' ')
+        p++;
+    while (*p == ' ')
+        p++;
+    if (!*p)
+        p = kbd_layout_list;
+    if (p == kbd_layout_pos)
+        return;
+    kbd_layout_pos = p;
+    kbd_apply_active();
 }
 
 static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
@@ -444,6 +478,14 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     {
         switch (keycode)
         {
+        case HID_KEY_SPACE:
+            if (key_gui)
+            {
+                kbd_repeat_keycode = 0; // one-shot; never auto-repeats while held
+                kbd_cycle_layout();
+                return;
+            }
+            break;
         case HID_KEY_F4:
             if (key_alt && !pro_is_launcher())
             {
@@ -558,6 +600,63 @@ static int kbd_sanitize_layout(const char *kb)
         return found_index;
 }
 
+// Find name as a whole token within a space separated list.
+static const char *kbd_find_token(const char *list, const char *name)
+{
+    size_t name_len = strlen(name);
+    while (*list)
+    {
+        while (*list == ' ')
+            list++;
+        if (!*list)
+            break;
+        size_t len = 0;
+        while (list[len] && list[len] != ' ')
+            len++;
+        if (len == name_len && !strncmp(list, name, len))
+            return list;
+        list += len;
+    }
+    return NULL;
+}
+
+// Validate and canonicalize a space separated layout list into out.
+// Fails on an unknown or duplicate layout, an empty list, or overflow.
+static bool kbd_build_layout_list(const char *in, char *out, size_t size)
+{
+    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
+    size_t len = 0;
+    out[0] = 0;
+    while (*in)
+    {
+        while (*in == ' ')
+            in++;
+        if (!*in)
+            break;
+        size_t tok_len = 0;
+        while (in[tok_len] && in[tok_len] != ' ')
+            tok_len++;
+        const char *name = NULL;
+        for (int i = 0; i < layouts_count; i++)
+            if (strlen(kbd_layout_names[i]) == tok_len &&
+                !strncasecmp(in, kbd_layout_names[i], tok_len))
+            {
+                name = kbd_layout_names[i];
+                break;
+            }
+        if (!name || kbd_find_token(out, name))
+            return false;
+        if (len + (len ? 1 : 0) + strlen(name) + 1 > size)
+            return false;
+        if (len)
+            out[len++] = ' ';
+        strcpy(out + len, name);
+        len += strlen(name);
+        in += tok_len;
+    }
+    return len != 0;
+}
+
 void kbd_init(void)
 {
     kbd_stop();
@@ -565,8 +664,9 @@ void kbd_init(void)
     kbd_send_leds();
     if (!kbd_layout_loaded)
     {
-        kbd_layout_index = kbd_sanitize_layout("");
-        kbd_rebuild_code_page_cache();
+        strcpy(kbd_layout_list, kbd_layout_names[kbd_sanitize_layout("")]);
+        kbd_layout_pos = kbd_layout_list;
+        kbd_apply_active();
     }
 }
 
@@ -648,7 +748,7 @@ overflow_error:
     kbd_cached_dead2 = (void *)&kbd_deadkey_cache[0];
     kbd_cached_dead3 = (void *)&kbd_deadkey_cache[0];
     kbd_deadkey_cache[0] = 0;
-    mon_add_response_utf8(STR_ERR_DEAD_KEY_CACHE_OVERFLOW);
+    mon_add_response_utf8(S(STR_ERR_DEAD_KEY_CACHE_OVERFLOW));
 }
 
 static bool __in_flash("kbd_parse") kbd_parse_field(const hid_field_t *field, void *context)
@@ -838,23 +938,33 @@ size_t kbd_stdio_in_chars(char *buf, size_t length)
 
 void kbd_load_layout(const char *str)
 {
-    kbd_layout_index = kbd_sanitize_layout(str);
+    if (!kbd_build_layout_list(str, kbd_layout_list, sizeof kbd_layout_list))
+        strcpy(kbd_layout_list, kbd_layout_names[kbd_sanitize_layout("")]);
+    kbd_layout_pos = kbd_layout_list;
     kbd_layout_loaded = true;
-    kbd_rebuild_code_page_cache();
+    kbd_apply_active();
 }
 
-bool kbd_set_layout(const char *kb)
+bool kbd_set_layout(const char *list)
 {
-    int new_kbd_layout_index = kbd_sanitize_layout(kb);
-    if (strcasecmp(kb, kbd_layout_names[new_kbd_layout_index]))
+    char buf[KBD_LAYOUT_LIST_SIZE];
+    if (!kbd_build_layout_list(list, buf, sizeof buf))
         return false;
-    if (kbd_layout_index != new_kbd_layout_index)
-    {
-        kbd_layout_index = new_kbd_layout_index;
-        kbd_rebuild_code_page_cache();
-        cfg_save();
-    }
+    if (!strcmp(buf, kbd_layout_list))
+        return true;
+    strcpy(kbd_layout_list, buf);
+    // Keep the active layout if it survived, otherwise the first.
+    kbd_layout_pos = kbd_find_token(kbd_layout_list, kbd_layout_names[kbd_layout_index]);
+    if (!kbd_layout_pos)
+        kbd_layout_pos = kbd_layout_list;
+    kbd_apply_active();
+    cfg_save();
     return true;
+}
+
+const char *kbd_get_layout_list(void)
+{
+    return kbd_layout_list;
 }
 
 const char *kbd_get_layout(void)

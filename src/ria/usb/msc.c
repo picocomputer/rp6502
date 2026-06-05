@@ -55,7 +55,7 @@ static_assert(sizeof(TCHAR) == sizeof(char));
 #ifdef NDEBUG
 static_assert(FF_CODE_PAGE == 0);
 #else
-static_assert(FF_CODE_PAGE == OEM_CODE_PAGE);
+static_assert(FF_CODE_PAGE == RP6502_CODE_PAGE);
 #endif
 static_assert(FF_FS_EXFAT == RP6502_EXFAT);
 static_assert(FF_LBA64 == RP6502_EXFAT);
@@ -1020,7 +1020,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         char sizebuf[24];
         if (msc_vol[vol].status != msc_volume_mounted)
         {
-            snprintf(sizebuf, sizeof(sizebuf), "%s", STR_PARENS_NO_MEDIA);
+            snprintf(sizebuf, sizeof(sizebuf), "%s", S(STR_PARENS_NO_MEDIA));
         }
         else
         {
@@ -1085,7 +1085,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
                           VolumeStr[vol],
                           sizebuf,
-                          STR_PARENS_NONE, STR_PARENS_NONE, "");
+                          S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");
         }
     }
     return state + 1;

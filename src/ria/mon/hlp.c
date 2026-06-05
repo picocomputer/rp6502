@@ -24,13 +24,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 __in_flash("hlp_commands") static struct
 {
     const char *const cmd;
-    const char *const text;
+    int text; // localized string id for S()
     mon_response_fn extra_fn;
 } const HLP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
-    {STR_ABOUT, STR_HELP_ABOUT, NULL},
-    {STR_CREDITS, STR_HELP_ABOUT, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
     {STR_0, STR_HELP_SYSTEM, NULL},
     {STR_0000, STR_HELP_SYSTEM, NULL},
@@ -67,12 +65,13 @@ static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMA
 __in_flash("hlp_settings") static struct
 {
     const char *const cmd;
-    const char *const text;
+    int text; // localized string id for S()
     mon_response_fn extra_fn;
 } const HLP_SETTINGS[] = {
     {STR_PHI2, STR_HELP_SET_PHI2, NULL},
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
     {STR_TZ, STR_HELP_SET_TZ, clk_tzdata_response},
+    {STR_LOC, STR_HELP_SET_LOC, str_locales_response},
     {STR_KB, STR_HELP_SET_KB, kbd_layouts_response},
     {STR_CP, STR_HELP_SET_CP, NULL},
     {STR_VGA, STR_HELP_SET_VGA, NULL},
@@ -103,23 +102,29 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
         if (!attr)
         {
             if (str_parse_end(args))
-                *cp = STR_HELP_SET;
+                *cp = S(STR_HELP_SET);
             return;
         }
         for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
             if (!strcasecmp(attr, HLP_SETTINGS[i].cmd))
             {
-                *cp = HLP_SETTINGS[i].text;
+                *cp = S(HLP_SETTINGS[i].text);
                 *fnp = HLP_SETTINGS[i].extra_fn;
                 return;
             }
+        return;
+    }
+    // ABOUT and CREDITS share the non-localized credits help.
+    if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
+    {
+        *cp = STR_HELP_ABOUT;
         return;
     }
     // Help for commands and a couple special words.
     for (size_t i = 0; i < HLP_COMMANDS_COUNT; i++)
         if (!strcasecmp(word, HLP_COMMANDS[i].cmd))
         {
-            *cp = HLP_COMMANDS[i].text;
+            *cp = S(HLP_COMMANDS[i].text);
             *fnp = HLP_COMMANDS[i].extra_fn;
             return;
         }
@@ -129,7 +134,7 @@ void hlp_mon_help(const char *args)
 {
     if (!*args)
     {
-        mon_add_response_utf8(STR_HELP_HELP);
+        mon_add_response_utf8(S(STR_HELP_HELP));
         mon_add_response_fn(rom_installed_response);
         return;
     }

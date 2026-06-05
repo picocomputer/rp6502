@@ -4,20 +4,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* TRANSLATORS: copy str_en.def to str_<your-locale>.def, translate the
- * string values inside, and set RP6502_LOCALE=<your-locale> in
- * CMakeLists.txt. Update the #define OEM_CODE_PAGE at the top of
- * the new file to the appropriate default code page for the locale.
+/* The compiled-in locale set. Every locale here is linked into the
+ * firmware and selectable at runtime with SET LOC.
+ *
+ * TRANSLATORS: copy str_en.def to str_<your-locale>.def, translate the
+ * string values inside, then add a row below. The short name is what
+ * the user types (SET LOC PL); keep it ASCII. The last column is the
+ * locale's default OEM code page (used by SET CP auto mode).
+ *
+ *   X(suffix, file_token, "SHORT", "Verbose", default_code_page)
+ *
+ * RP6502_LOCALE in CMakeLists.txt picks the build default locale; its
+ * short name must match a row below.
  */
 
-// Suppress bogus VS Code IntelliSense errors
+// Suppress bogus VS Code IntelliSense errors (CMake normally sets this).
 #ifdef __INTELLISENSE__
 #define RP6502_LOCALE en
 #endif
 
-// Dispatch to CMakeLists.txt RP6502_LOCALE=<your-locale>
-#define STR_LOCALE_FILE_(loc) __XSTRING(str_##loc.def)
-#define STR_LOCALE_FILE(loc) STR_LOCALE_FILE_(loc)
-#include STR_LOCALE_FILE(RP6502_LOCALE)
-#undef STR_LOCALE_FILE
-#undef STR_LOCALE_FILE_
+#ifndef RP6502_LOCALES
+#define RP6502_LOCALES              \
+    X(EN, en, "EN", "English", 437) \
+    X(PL, pl, "PL", "Polski", 852)
+#endif

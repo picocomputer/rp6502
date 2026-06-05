@@ -5,7 +5,7 @@
  *
  * Polish localization
  * Copyright (c) 2026 WojciechGw
- * 
+ *
  */
 
 // Polish
@@ -16,15 +16,12 @@
 #define XR(name, value) X(name, value)
 #endif
 
-// OEM Code Page for this locale
-#define OEM_CODE_PAGE 852
-
 // Time format
 X(STR_STRFTIME, "%Y-%m-%d %H:%M:%S %z %Z")
 
 // More
 X(STR_MON_MORE_SHOW, "--więcej--")
-X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b        \b\b\b\b\b\b\b\b")
+X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b\b\b          \b\b\b\b\b\b\b\b\b\b")
 
 // Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Błąd wewnętrzny\n")
@@ -51,41 +48,41 @@ X(STR_ERR_INVALID_UF2_FILE, "?Nieprawidłowy plik UF2\n")
 X(STR_ERR_VGA_NOT_CONNECTED, "?VGA nie jest podłączone\n")
 
 // Littlefs errors
-X(STR_ERR_LFS_IO, "?Błąd IO\n")                          // -5
-X(STR_ERR_LFS_CORRUPT, "?Uszkodzone\n")                  // -84
-X(STR_ERR_LFS_NOENT, "?Brak wpisu katalogu\n")           // -2
-X(STR_ERR_LFS_EXIST, "?Wpis już istnieje\n")             // -17
-X(STR_ERR_LFS_NOTDIR, "?Wpis nie jest katalogiem\n")     // -20
-X(STR_ERR_LFS_ISDIR, "?Wpis jest katalogiem\n")          // -21
-X(STR_ERR_LFS_NOTEMPTY, "?Katalog nie jest pusty\n")     // -39
-X(STR_ERR_LFS_BADF, "?Nieprawidłowy numer pliku\n")      // -9
-X(STR_ERR_LFS_FBIG, "?Plik jest zbyt duży\n")            // -27
-X(STR_ERR_LFS_INVAL, "?Nieprawidłowy parametr\n")        // -22
-X(STR_ERR_LFS_NOSPC, "?Brak miejsca na urządzeniu\n")    // -28
-X(STR_ERR_LFS_NOMEM, "?Brak dostępnej pamięci\n")        // -12
-X(STR_ERR_LFS_NOATTR, "?Brak danych/atrybutu\n")         // -61
+X(STR_ERR_LFS_IO, "?Błąd IO\n")                              // -5
+X(STR_ERR_LFS_CORRUPT, "?Uszkodzone\n")                      // -84
+X(STR_ERR_LFS_NOENT, "?Brak wpisu katalogu\n")               // -2
+X(STR_ERR_LFS_EXIST, "?Wpis już istnieje\n")                 // -17
+X(STR_ERR_LFS_NOTDIR, "?Wpis nie jest katalogiem\n")         // -20
+X(STR_ERR_LFS_ISDIR, "?Wpis jest katalogiem\n")              // -21
+X(STR_ERR_LFS_NOTEMPTY, "?Katalog nie jest pusty\n")         // -39
+X(STR_ERR_LFS_BADF, "?Nieprawidłowy numer pliku\n")          // -9
+X(STR_ERR_LFS_FBIG, "?Plik jest zbyt duży\n")                // -27
+X(STR_ERR_LFS_INVAL, "?Nieprawidłowy parametr\n")            // -22
+X(STR_ERR_LFS_NOSPC, "?Brak miejsca na urządzeniu\n")        // -28
+X(STR_ERR_LFS_NOMEM, "?Brak dostępnej pamięci\n")            // -12
+X(STR_ERR_LFS_NOATTR, "?Brak danych/atrybutu\n")             // -61
 X(STR_ERR_LFS_NAMETOOLONG, "?Nazwa pliku jest zbyt długa\n") // -36
 
 // FatFs errors
-X(STR_ERR_FATFS_DISK_ERR, "?Błąd dysku\n")                         // 1
-X(STR_ERR_FATFS_INT_ERR, "?Błąd wewnętrzny\n")                     // 2
-X(STR_ERR_FATFS_NOT_READY, "?Nie jest gotowe\n")                   // 3
-X(STR_ERR_FATFS_NO_FILE, "?Brak pliku\n")                          // 4
-X(STR_ERR_FATFS_NO_PATH, "?Brak ścieżki\n")                        // 5
-X(STR_ERR_FATFS_INVALID_NAME, "?Nieprawidłowa nazwa\n")            // 6
-X(STR_ERR_FATFS_DENIED, "?Odmowa dostępu\n")                       // 7
-X(STR_ERR_FATFS_EXIST, "?Istnieje\n")                              // 8
-X(STR_ERR_FATFS_INVALID_OBJECT, "?Nieprawidłowy obiekt\n")         // 9
-X(STR_ERR_FATFS_WRITE_PROTECTED, "?Zabezpieczone przed zapisem\n") // 10
-X(STR_ERR_FATFS_INVALID_DRIVE, "?Nieprawidłowy napęd\n")           // 11
-X(STR_ERR_FATFS_NOT_ENABLED, "?Nieaktywne\n")                      // 12
-X(STR_ERR_FATFS_NO_FILESYSTEM, "?Brak systemu plików\n")           // 13
-X(STR_ERR_FATFS_MKFS_ABORTED, "?Przerwano\n")                      // 14
-X(STR_ERR_FATFS_TIMEOUT, "?Przekroczono czas oczekiwania\n")       // 15
-X(STR_ERR_FATFS_LOCKED, "?Zablokowane\n")                          // 16
-X(STR_ERR_FATFS_NOT_ENOUGH_CORE, "?Za mało pamięci głównej\n")     // 17
+X(STR_ERR_FATFS_DISK_ERR, "?Błąd dysku\n")                             // 1
+X(STR_ERR_FATFS_INT_ERR, "?Błąd wewnętrzny\n")                         // 2
+X(STR_ERR_FATFS_NOT_READY, "?Nie jest gotowe\n")                       // 3
+X(STR_ERR_FATFS_NO_FILE, "?Brak pliku\n")                              // 4
+X(STR_ERR_FATFS_NO_PATH, "?Brak ścieżki\n")                            // 5
+X(STR_ERR_FATFS_INVALID_NAME, "?Nieprawidłowa nazwa\n")                // 6
+X(STR_ERR_FATFS_DENIED, "?Odmowa dostępu\n")                           // 7
+X(STR_ERR_FATFS_EXIST, "?Istnieje\n")                                  // 8
+X(STR_ERR_FATFS_INVALID_OBJECT, "?Nieprawidłowy obiekt\n")             // 9
+X(STR_ERR_FATFS_WRITE_PROTECTED, "?Zabezpieczone przed zapisem\n")     // 10
+X(STR_ERR_FATFS_INVALID_DRIVE, "?Nieprawidłowy napęd\n")               // 11
+X(STR_ERR_FATFS_NOT_ENABLED, "?Nieaktywne\n")                          // 12
+X(STR_ERR_FATFS_NO_FILESYSTEM, "?Brak systemu plików\n")               // 13
+X(STR_ERR_FATFS_MKFS_ABORTED, "?Przerwano\n")                          // 14
+X(STR_ERR_FATFS_TIMEOUT, "?Przekroczono czas oczekiwania\n")           // 15
+X(STR_ERR_FATFS_LOCKED, "?Zablokowane\n")                              // 16
+X(STR_ERR_FATFS_NOT_ENOUGH_CORE, "?Za mało pamięci głównej\n")         // 17
 X(STR_ERR_FATFS_TOO_MANY_OPEN_FILES, "?Zbyt wiele otwartych plików\n") // 18
-X(STR_ERR_FATFS_INVALID_PARAMETER, "?Nieprawidłowy parametr\n")    // 19
+X(STR_ERR_FATFS_INVALID_PARAMETER, "?Nieprawidłowy parametr\n")        // 19
 
 // WiFi status
 X(STR_WFI_NOT_CONFIGURED, "nieskonfigurowano")
@@ -175,7 +172,7 @@ X(STR_HELP_SET,
   "SET PHI2 (kHz)     - \aSprawdź lub ustaw prędkość PHI2 (zegar 6502).\n"
   "SET BOOT (rom|-)   - \aWybierz ROM startowy po zimnym starcie. \"-\" oznacza brak.\n"
   "SET TZ (tz)        - \aSprawdź lub ustaw strefę czasową.\n"
-  "SET KB (układ)     - \aSprawdź lub ustaw układ klawiatury.\n"
+  "SET KB (układy)    - \aSprawdź lub ustaw układy klawiatury.\n"
   "SET CP (cp)        - \aSprawdź lub ustaw stronę kodową.\n"
   "SET VGA (0|1|2)    - \aSprawdź lub ustaw typ obrazu dla wyjścia VGA.\n"
   "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n"
@@ -322,11 +319,18 @@ X(STR_HELP_SET_TZ,
   "na przykład \"SET TZ PST8PDT,M3.2.0/2,M11.1.0/2\". Najłatwiej uzyskać łańcuch\n"
   "POSIX TZ, pytając AI: \"posix tz dla {twoja lokalizacja}\".\n")
 
+X(STR_HELP_SET_LOC,
+  "SET LOC wybiera język interfejsu. Gdy SET CP jest automatyczne, ustawia też\n"
+  "stronę kodową, np. SET LOC PL\n")
+
 X(STR_HELP_SET_KB,
-  "SET KB wybiera układ klawiatury, np. SET KB PL-PROG\n")
+  "SET KB wybiera układy klawiatury. np. SET KB US DE PL-PROG\n"
+  "Naciśnij Super+Spacja, aby przełączać układy.\n")
 
 X(STR_HELP_SET_CP,
-  "SET CP wybiera systemową stronę kodową OEM. Obsługiwane są: 437, 720, 737, 771,\n"
+  "SET CP wybiera systemową stronę kodową OEM. SET CP 0 to tryb automatyczny\n"
+  "(domyślny): strona kodowa podąża za językiem ustawionym przez SET LOC.\n"
+  "Każda inna wartość to stałe nadpisanie. Obsługiwane są: 437, 720, 737, 771,\n"
   "775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
 #ifndef NDEBUG
   "To jest kompilacja deweloperska. Dostępna jest tylko " STR_OEM_CODE_PAGE ".\n"
@@ -351,31 +355,29 @@ X(STR_HELP_SET_RF,
 
 X(STR_HELP_SET_RFCC,
   "Ustaw to, aby CYW43 mógł używać najlepszych częstotliwości radiowych\n"
-  "dla Twojego kraju. Użycie \"-\" wyczyści kod kraju i przywróci ustawienie światowe.\n"
-)
+  "dla Twojego kraju. Użycie \"-\" wyczyści kod kraju i przywróci ustawienie światowe.\n")
 
 X(STR_HELP_SET_SSID,
   "To jest identyfikator SSID twojej sieci WiFi. Ustawienie \"-\" wyłączy WiFi.\n")
 
 X(STR_HELP_SET_PASS,
-  "SET PASS {hasło} ustawia hasło Twojej sieci WiFi.\n"
-  "SET PASS -       usuwa zapisane hasło.\n"
-)
+  "SET PASS {hasło} \austawia hasło Twojej sieci WiFi.\n"
+  "SET PASS -       \ausuwa zapisane hasło.\n")
 
 X(STR_HELP_SET_BLE,
-  "SET BLE (0|1) wyłącza|włącza Bluetooth LE.\n"
-  "SET BLE 2     przechodzi w tryb parowania, który pozostanie aktywny do sukcesu.\n"
-  "SET BLE 86    usuwa i rozłącza wszystkie sparowane urządzenia.\n")
+  "SET BLE (0|1) \awyłącza|włącza Bluetooth LE.\n"
+  "SET BLE 2     \aprzechodzi w tryb parowania, który pozostanie aktywny do sukcesu.\n"
+  "SET BLE 86    \ausuwa i rozłącza wszystkie sparowane urządzenia.\n")
 
 X(STR_HELP_SET_PORT,
-  "SET PORT {nr portu} ustawia port TCP zdalnego dostępu do konsoli przez telnet.\n"
-  "                    Standardowy port telnet to 23.\n"
-  "SET PORT 0          wyłącza konsolę telnet.\n"
+  "SET PORT {nr portu} \austawia port TCP zdalnego dostępu do konsoli przez telnet. "
+  "Standardowy port telnet to 23.\n"
+  "SET PORT 0          \awyłącza konsolę telnet.\n"
   "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno PORT\n"
   "jak i KEY (patrz \"help KEY\").\n")
 
 X(STR_HELP_SET_KEY,
-  "SET KEY {klucz} ustawia klucz dostępu do zdalnej konsoli telnet.\n"
-  "SET KEY -       usuwa klucz.\n"
+  "SET KEY {klucz} \austawia klucz dostępu do zdalnej konsoli telnet.\n"
+  "SET KEY -       \ausuwa klucz.\n"
   "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno KEY\n"
   " jak i PORT (patrz \"help KEY\").\n")

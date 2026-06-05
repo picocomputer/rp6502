@@ -553,16 +553,16 @@ int ble_status_response(char *buf, size_t buf_size, int state)
     {
         if (cyw_get_rf_enable())
             snprintf_utf8(buf, buf_size, STR_STATUS_BLE_FULL,
-                          ble_count_kbd, ble_count_kbd == 1 ? STR_KEYBOARD_SINGULAR : STR_KEYBOARD_PLURAL,
-                          ble_count_mou, ble_count_mou == 1 ? STR_MOUSE_SINGULAR : STR_MOUSE_PLURAL,
-                          ble_count_pad, ble_count_pad == 1 ? STR_GAMEPAD_SINGULAR : STR_GAMEPAD_PLURAL,
-                          ble_pairing ? STR_BLE_PAIRING : "");
+                          ble_count_kbd, ble_count_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
+                          ble_count_mou, ble_count_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
+                          ble_count_pad, ble_count_pad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
+                          ble_pairing ? S(STR_BLE_PAIRING) : "");
         else
-            snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, STR_RF_OFF);
+            snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_RF_OFF));
     }
     else
     {
-        snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, STR_DISABLED);
+        snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_DISABLED));
     }
     return -1;
 }
