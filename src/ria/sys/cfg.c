@@ -66,7 +66,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
         opt_str = (char *)mbuf;
         mbuf[0] = 0;
         // Preserve the existing boot line across rewrite
-        while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
+        while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file, NULL))
         {
             if (mbuf[0] != '+')
                 break;
@@ -139,7 +139,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             mon_add_response_lfs(lfsresult);
         return;
     }
-    while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file))
+    while (lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file, NULL))
     {
         if (mbuf[0] != '+')
             break;
