@@ -185,7 +185,8 @@ typedef struct
     uint8_t stage;
     uint8_t recovery_stage;
     void *buffer;
-    uint8_t max_lun; // highest LUN index on this device (0 = single LUN)
+    uint32_t data_xferred; // bytes moved in the last data phase (host-observed)
+    uint8_t max_lun;       // highest LUN index on this device (0 = single LUN)
 } msc_interface_t;
 
 typedef struct
@@ -613,6 +614,7 @@ static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xfer
     uint32_t const residue = (xferred_bytes <= cbw->total_bytes)
                                  ? cbw->total_bytes - xferred_bytes
                                  : 0;
+    p_msc->data_xferred = xferred_bytes;
 
     // On STALL, clear the HCD-level halt so the controller can reuse the pipe.
     // The device-level CLEAR_FEATURE is issued by recovery below.
@@ -684,6 +686,9 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
     case MSC_STAGE_DATA:
         if (ep_addr != msc_data_ep(p_msc, cbw))
             return true; // stale completion from a prior command
+        // Record host-side data-phase length so disk_read()/disk_write() can
+        // reject a short transfer (total_bytes==0 falls through here from CMD).
+        p_msc->data_xferred = cbw->total_bytes ? xferred_bytes : 0;
         if (event == XFER_RESULT_FAILED)
         {
             msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
@@ -1744,6 +1749,10 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
             status = msc_scsi_read10(vol, buff, (uint32_t)sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
+        // A PASSED CSW can still under-deliver; the unread tail would surface
+        // upstream as a CRC error rather than the disk error it really is.
+        if (msc_get_itf(dev_addr)->data_xferred != (uint32_t)n * block_size)
+            return RES_ERROR;
         buff += (uint32_t)n * block_size;
         sector += n;
         count -= n;
@@ -1773,6 +1782,9 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
             status = msc_scsi_write10(vol, buff, (uint32_t)sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
+        // A short OUT data phase means not all blocks were written.
+        if (msc_get_itf(dev_addr)->data_xferred != (uint32_t)n * block_size)
+            return RES_ERROR;
         buff += (uint32_t)n * block_size;
         sector += n;
         count -= n;
