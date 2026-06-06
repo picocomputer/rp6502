@@ -567,7 +567,7 @@ msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
 //--------------------------------------------------------------------+
 // CLASS-USBH API
 //--------------------------------------------------------------------+
-static bool msch_init(void)
+bool msch_class_driver_init(void)
 {
     TU_LOG_DRV("sizeof(msch_interface_t) = %u\r\n", sizeof(msch_interface_t));
     TU_LOG_DRV("sizeof(msch_epbuf_t) = %u\r\n", sizeof(msch_epbuf_t));
@@ -575,12 +575,7 @@ static bool msch_init(void)
     return true;
 }
 
-static bool msch_deinit(void)
-{
-    return true;
-}
-
-static void msch_close(uint8_t dev_addr)
+void msch_class_driver_close(uint8_t dev_addr)
 {
     msch_interface_t *p_msc = get_itf(dev_addr);
     TU_VERIFY(p_msc->ep_in, );
@@ -801,7 +796,7 @@ static bool bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, 
     return true;
 }
 
-static bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
+bool msch_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
 {
     if (is_bot(get_itf(dev_addr)))
         return bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
@@ -812,7 +807,7 @@ static bool msch_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event,
 // MSC Enumeration
 //--------------------------------------------------------------------+
 
-static uint16_t msch_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+uint16_t msch_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
@@ -912,7 +907,7 @@ static void get_max_lun_complete_cb(tuh_xfer_t *xfer)
     usbh_driver_set_config_complete(daddr, p_msc->itf_num);
 }
 
-static bool msch_set_config(uint8_t daddr, uint8_t itf_num)
+bool msch_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
 {
     msch_interface_t *p_msc = get_itf(daddr);
     TU_ASSERT(p_msc->itf_num == itf_num);
@@ -953,24 +948,6 @@ static bool msch_set_config(uint8_t daddr, uint8_t itf_num)
         usbh_driver_set_config_complete(daddr, p_msc->itf_num);
     }
     return true;
-}
-
-//--------------------------------------------------------------------+
-// Application class driver registration
-//--------------------------------------------------------------------+
-
-static const usbh_class_driver_t msc_class_driver = {
-    .name = "MSC",
-    .init = msch_init,
-    .deinit = msch_deinit,
-    .open = msch_open,
-    .set_config = msch_set_config,
-    .xfer_cb = msch_xfer_cb,
-    .close = msch_close};
-
-const usbh_class_driver_t *msc_get_class_driver(void)
-{
-    return &msc_class_driver;
 }
 
 #endif

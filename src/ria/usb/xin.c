@@ -414,13 +414,13 @@ static bool xin_queue_in(xin_device_t *device, int idx)
     return tuh_edpt_xfer(&xfer);
 }
 
-static bool xin_class_driver_init(void)
+bool xin_class_driver_init(void)
 {
     memset(xin_devices, 0, sizeof(xin_devices));
     return true;
 }
 
-static uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
 
@@ -597,7 +597,7 @@ static void xin_audio_disable_cb(tuh_xfer_t *xfer)
     usbh_driver_set_config_complete(xfer->daddr, device->itf_num);
 }
 
-static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
+bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
 {
     int idx = xin_find_index_by_dev_addr(dev_addr);
     if (idx < 0 || xin_devices[idx].itf_num != itf_num)
@@ -647,7 +647,7 @@ static bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
     return true;
 }
 
-static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
+bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes)
 {
     int idx = xin_find_index_by_dev_addr(dev_addr);
     if (idx < 0)
@@ -770,7 +770,7 @@ static bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_res
     return true;
 }
 
-static void xin_class_driver_close(uint8_t dev_addr)
+void xin_class_driver_close(uint8_t dev_addr)
 {
     int index = xin_find_index_by_dev_addr(dev_addr);
     if (index < 0)
@@ -782,21 +782,6 @@ static void xin_class_driver_close(uint8_t dev_addr)
 
     xin_devices[index].active = false;
     memset(&xin_devices[index], 0, sizeof(xin_device_t));
-}
-
-// Define the XInput class driver
-static const usbh_class_driver_t xin_class_driver = {
-    .name = "XInput",
-    .init = xin_class_driver_init,
-    .deinit = NULL,
-    .open = xin_class_driver_open,
-    .set_config = xin_class_driver_set_config,
-    .xfer_cb = xin_class_driver_xfer_cb,
-    .close = xin_class_driver_close};
-
-const usbh_class_driver_t *xin_get_class_driver(void)
-{
-    return &xin_class_driver;
 }
 
 int xin_pad_count(void)
