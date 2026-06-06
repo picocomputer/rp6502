@@ -186,6 +186,7 @@ typedef struct
     uint8_t recovery_stage;
     void *buffer;
     uint32_t data_xferred; // bytes moved in the last data phase (host-observed)
+    uint32_t cmd_xferred;  // data_xferred for the command's own data phase, before any autosense
     uint8_t max_lun;       // highest LUN index on this device (0 = single LUN)
 } msc_interface_t;
 
@@ -1092,6 +1093,9 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                        ? (uint32_t)remaining_ms
                                        : MSC_SCSI_OP_TIMEOUT_MS;
         status = msc_scsi_sync(dev_addr, cbw, data, attempt_timeout);
+        // Capture this command's own data-phase length before the REQUEST SENSE
+        // below (autosense is itself a data phase that overwrites data_xferred).
+        msc_get_itf(dev_addr)->cmd_xferred = msc_get_itf(dev_addr)->data_xferred;
         if (status == MSC_STATUS_TIMED_OUT)
             return status;
         if (status == MSC_STATUS_PHASE_ERROR)
@@ -1101,8 +1105,8 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             msc_vol[vol].sense_ascq = 0;
             return status;
         }
-        if (status == MSC_STATUS_PASSED &&
-            msc_protocol(dev_addr) != MSC_PROTOCOL_CBI_NO_INTERRUPT)
+        // Only BOT carries a CSW status; CBI/CB infer it from REQUEST SENSE below.
+        if (status == MSC_STATUS_PASSED && msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
         {
             msc_vol[vol].last_ok = get_absolute_time();
             return status;
@@ -1751,7 +1755,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
             return msc_status_to_dresult(vol, status);
         // A PASSED CSW can still under-deliver; the unread tail would surface
         // upstream as a CRC error rather than the disk error it really is.
-        if (msc_get_itf(dev_addr)->data_xferred != (uint32_t)n * block_size)
+        if (msc_get_itf(dev_addr)->cmd_xferred != (uint32_t)n * block_size)
             return RES_ERROR;
         buff += (uint32_t)n * block_size;
         sector += n;
@@ -1783,7 +1787,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
         // A short OUT data phase means not all blocks were written.
-        if (msc_get_itf(dev_addr)->data_xferred != (uint32_t)n * block_size)
+        if (msc_get_itf(dev_addr)->cmd_xferred != (uint32_t)n * block_size)
             return RES_ERROR;
         buff += (uint32_t)n * block_size;
         sector += n;
