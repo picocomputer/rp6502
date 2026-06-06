@@ -11,11 +11,13 @@
 #include "host/hcd.h"
 #include "str/str.h"
 #include "usb/msc.h"
+#include "usb/msc_host.h"
 #include "usb/usb.h"
 #include "usb/vcp.h"
 #include "usb/xin.h"
 #include <pico/time.h>
 #include <stdio.h>
+#include <string.h>
 #include <tusb.h>
 
 extern int hcd_free_ep_count(void);
@@ -50,6 +52,17 @@ static inline int usb_idx_to_hid_slot(int idx)
 static inline void usb_enum_kick(void)
 {
     usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
+}
+
+// Custom application class drivers registered with the TinyUSB host.
+// memcpy because usbh_class_driver_t has const members (not assignable).
+usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
+{
+    static usbh_class_driver_t drivers[2];
+    memcpy(&drivers[0], xin_get_class_driver(), sizeof(drivers[0]));
+    memcpy(&drivers[1], msc_get_class_driver(), sizeof(drivers[1]));
+    *driver_count = 2;
+    return drivers;
 }
 
 void usb_init(void)

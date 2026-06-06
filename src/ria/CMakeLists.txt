@@ -102,6 +102,7 @@ target_sources(${RIA_TARGET} PRIVATE
     sys/sys.c
     sys/vga.c
     usb/msc.c
+    usb/msc_host.c
     usb/nfc.c
     usb/usb.c
     usb/vcp.c
@@ -144,13 +145,11 @@ pico_generate_pio_header(${RIA_TARGET}
 set_source_files_properties(
     ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/class/msc/msc_host.c
     ${PICO_SDK_PATH}/src/rp2_common/pico_btstack/btstack_flash_bank.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/hcd_rp2040.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/msc_host.c
     net/ble_tlv.c
 )

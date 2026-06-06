@@ -34,8 +34,8 @@
 
 #define CFG_TUH_HUB (5)
 #define CFG_TUH_HID (8)
-// Boolean enable; volume count lives in usb/msc.c
-#define CFG_TUH_MSC (1)
+// Custom MSC driver lives in usb/msc_host.c
+#define CFG_TUH_MSC (0)
 // Max simultaneous CDC devices
 #define CFG_TUH_CDC (4)
 // Enable all serial-adapter drivers

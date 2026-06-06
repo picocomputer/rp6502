@@ -8,6 +8,7 @@
 #include "tusb.h"
 #include "str/str.h"
 #include "usb/msc.h"
+#include "usb/msc_host.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
@@ -130,9 +131,8 @@ typedef struct
 
 static msc_vol_t msc_vol[FF_VOLUMES];
 
-// This driver requires our custom TinyUSB: src/tinyusb_rp6502/msc_host.c
-// It will not work with upstream: src/tinyusb/src/class/msc/msc_host.c
-// Additional SCSI commands and interfaces are not in upstream TinyUSB.
+// Built on the custom MSC host transport (usb/msc_host.c): its synchronous
+// SCSI API and CBI/BOT protocol support are not in upstream TinyUSB.
 
 typedef struct TU_ATTR_PACKED
 {
@@ -263,27 +263,14 @@ typedef struct TU_ATTR_PACKED
 } scsi_unmap_param_t;
 TU_VERIFY_STATIC(sizeof(scsi_unmap_param_t) == 24, "size is not correct");
 
-// Superset of msc_csw_status_t (defined in msc_host.c) with a timeout value.
-typedef enum
-{
-    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
-    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
-    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
-    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
-} msc_status_t;
-
-uint8_t tuh_msc_protocol(uint8_t dev_addr);
-msc_status_t tuh_msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
-                               const void *data, uint32_t timeout_ms);
-
-// Override of the weak tuh_msc_pump() default in msc_host.c.
+// Override of the weak tuh_msc_pump() default in usb/msc_host.c.
 // Pumps USB events and all application tasks during blocking I/O.
 // FatFs re-entry would be a problem so main_task() never calls FatFs
 // but it does call the required tuh_task().
 void tuh_msc_pump(void) { main_task(); }
 
 // Initialize a CBW for a volume's LUN.
-// Signature and tag are stamped by the tinyusb_rp6502 host layer.
+// Signature and tag are stamped by usb/msc_host.c.
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
                                 uint32_t total_bytes, uint8_t dir,
                                 uint8_t cmd_len, const void *cmd)
