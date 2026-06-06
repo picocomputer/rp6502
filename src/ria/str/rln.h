@@ -54,14 +54,21 @@ uint8_t rln_get_suppress_nl(void);
 void rln_set_term_width(uint16_t v);
 void rln_set_term_height(uint16_t v);
 
-// Terminal width. Priority: rln_set_term_width override if set, then
-// the most recent CPR-reported width, then a VGA-aware fallback (40
-// for 320-wide canvases, 80 otherwise) when VGA is connected, then 80.
+// Telnet NAWS terminal size. Outranks CPR/VGA/default but yields to the
+// rln_set_term_* override. (0,0) clears it; that and any mid-edit width
+// change reflow the current input line at the new effective width.
+void rln_set_naws_size(uint16_t w, uint16_t h);
+
+// Terminal width. Priority: rln_set_term_width override if set, then the
+// telnet NAWS width, then the highest-priority terminal's CPR width (telnet
+// over uart), then a VGA-aware fallback (40 for 320-wide canvases, 80
+// otherwise) when VGA is connected, then 80.
 uint16_t rln_get_term_width(void);
 
-// Terminal height. Priority: rln_set_term_height override if set, then
-// the most recent CPR-reported height, then a VGA-aware fallback (32
-// in display mode 2, 30 otherwise) when VGA is connected, then 24.
+// Terminal height. Priority: rln_set_term_height override if set, then the
+// telnet NAWS height, then the highest-priority terminal's CPR height (telnet
+// over uart), then a VGA-aware fallback (32 in display mode 2, 30 otherwise)
+// when VGA is connected, then 24.
 uint16_t rln_get_term_height(void);
 
 // Inject a sequence of input bytes into the active readline. CR ends
