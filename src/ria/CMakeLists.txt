@@ -102,7 +102,6 @@ target_sources(${RIA_TARGET} PRIVATE
     sys/sys.c
     sys/vga.c
     usb/msc.c
-    usb/msc_host.c
     usb/nfc.c
     usb/usb.c
     usb/vcp.c

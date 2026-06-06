@@ -34,7 +34,7 @@
 
 #define CFG_TUH_HUB (5)
 #define CFG_TUH_HID (8)
-// Custom MSC driver lives in usb/msc_host.c
+// Custom MSC driver lives in usb/msc.c
 #define CFG_TUH_MSC (0)
 // Max simultaneous CDC devices
 #define CFG_TUH_CDC (4)

@@ -6,9 +6,12 @@
 
 #include "main.h"
 #include "tusb.h"
+#include "class/msc/msc.h"
+#include "host/usbh.h"
+#include "host/usbh_pvt.h"
+#include "host/hcd.h"
 #include "str/str.h"
 #include "usb/msc.h"
-#include "usb/msc_host.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
@@ -32,6 +35,25 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
     DBG_VOL(vol, cmd " (status=0x%02x sk=0x%02x asc=0x%02x ascq=0x%02x)\n", \
             (unsigned)(status),                                             \
             msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq)
+
+#ifndef CFG_TUH_MSC_LOG_LEVEL
+#define CFG_TUH_MSC_LOG_LEVEL CFG_TUH_LOG_LEVEL
+#endif
+
+#define TU_LOG_DRV(...) TU_LOG(CFG_TUH_MSC_LOG_LEVEL, __VA_ARGS__)
+
+#ifndef CFG_TUH_MSC_MAXLUN
+#define CFG_TUH_MSC_MAXLUN 4
+#endif
+
+// Superset of msc_csw_status_t with an additional timeout value.
+typedef enum
+{
+    MSC_STATUS_PASSED,      // == MSC_CSW_STATUS_PASSED
+    MSC_STATUS_FAILED,      // == MSC_CSW_STATUS_FAILED
+    MSC_STATUS_PHASE_ERROR, // == MSC_CSW_STATUS_PHASE_ERROR
+    MSC_STATUS_TIMED_OUT,   // returned on I/O timeout
+} msc_status_t;
 
 // File descriptor pool for open files
 #define MSC_STD_FIL_MAX 8
@@ -131,8 +153,788 @@ typedef struct
 
 static msc_vol_t msc_vol[FF_VOLUMES];
 
-// Built on the custom MSC host transport (usb/msc_host.c): its synchronous
-// SCSI API and CBI/BOT protocol support are not in upstream TinyUSB.
+// USB Mass Storage host transport: a custom TinyUSB host class driver.
+// Its synchronous SCSI API and CBI/BOT protocol support are not in
+// upstream TinyUSB.
+
+enum
+{
+    MSC_STAGE_IDLE,
+    MSC_STAGE_CMD,
+    MSC_STAGE_DATA,
+    MSC_STAGE_STATUS,
+    MSC_STAGE_STATUS_RETRY,
+};
+
+enum
+{
+    RECOVERY_IDLE,
+    RECOVERY_RESET,
+    RECOVERY_CLEAR_IN,
+    RECOVERY_CLEAR_OUT,
+};
+
+typedef struct
+{
+    volatile bool mounted;
+    uint8_t itf_num;
+    uint8_t ep_in;
+    uint8_t ep_out;
+    uint8_t protocol; // MSC_PROTOCOL_BOT or MSC_PROTOCOL_CBI*
+    uint8_t subclass; // MSC_SUBCLASS_UFI, MSC_SUBCLASS_SFF, etc.
+    uint8_t stage;
+    uint8_t recovery_stage;
+    void *buffer;
+    uint8_t max_lun; // highest LUN index on this device (0 = single LUN)
+} msc_interface_t;
+
+typedef struct
+{
+    TUH_EPBUF_TYPE_DEF(msc_cbw_t, cbw);
+    TUH_EPBUF_TYPE_DEF(msc_csw_t, csw);
+    TUH_EPBUF_DEF(cbi_cmd, 12);    // CBI ADSC command buffer (UFI = 12 bytes)
+    TUH_EPBUF_DEF(max_lun_buf, 1); // GET_MAX_LUN response (1 byte)
+} msc_epbuf_t;
+
+static msc_interface_t msc_itf[CFG_TUH_DEVICE_MAX];
+CFG_TUH_MEM_SECTION static msc_epbuf_t msc_epbuf[CFG_TUH_DEVICE_MAX];
+
+// Monotonically incrementing CBW tag for sequencing and stale-CSW detection.
+static uint32_t msc_cbw_tag_counter = 0;
+
+TU_ATTR_ALWAYS_INLINE static inline msc_interface_t *msc_get_itf(uint8_t daddr)
+{
+    return &msc_itf[daddr - 1];
+}
+
+TU_ATTR_ALWAYS_INLINE static inline msc_epbuf_t *msc_get_epbuf(uint8_t daddr)
+{
+    return &msc_epbuf[daddr - 1];
+}
+
+TU_ATTR_ALWAYS_INLINE static inline bool msc_is_bot(msc_interface_t const *p_msc)
+{
+    return p_msc->protocol == MSC_PROTOCOL_BOT;
+}
+
+// Resolve data endpoint from CBW direction.
+TU_ATTR_ALWAYS_INLINE static inline uint8_t msc_data_ep(msc_interface_t const *p_msc,
+                                                        msc_cbw_t const *cbw)
+{
+    return (cbw->dir & TUSB_DIR_IN_MASK) ? p_msc->ep_in : p_msc->ep_out;
+}
+
+// Fabricate a CSW and set stage to IDLE.
+static void msc_complete_command(uint8_t daddr, uint8_t csw_status, uint32_t data_residue)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+    p_msc->stage = MSC_STAGE_IDLE;
+    epbuf->csw.data_residue = data_residue;
+    epbuf->csw.status = csw_status;
+}
+
+// Submit data-phase transfer or complete with failure.
+static void msc_start_data_phase(uint8_t daddr)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    msc_cbw_t const *cbw = &msc_get_epbuf(daddr)->cbw;
+    // Reject transfers that exceed the 16-bit USB transfer length.
+    // Callers must clamp transfer sizes before building the CBW.
+    if (cbw->total_bytes > UINT16_MAX)
+    {
+        msc_complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        return;
+    }
+    p_msc->stage = MSC_STAGE_DATA;
+    if (!usbh_edpt_xfer(daddr, msc_data_ep(p_msc, cbw), p_msc->buffer, (uint16_t)cbw->total_bytes))
+    {
+        msc_complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+    }
+}
+
+static bool msc_mounted(uint8_t dev_addr)
+{
+    return msc_get_itf(dev_addr)->mounted;
+}
+
+static bool msc_ready(uint8_t dev_addr)
+{
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+    TU_VERIFY(p_msc->mounted);
+    if (p_msc->stage != MSC_STAGE_IDLE)
+        return false;
+    if (p_msc->recovery_stage != RECOVERY_IDLE)
+        return false;
+    if (usbh_edpt_busy(dev_addr, p_msc->ep_in))
+        return false;
+    if (usbh_edpt_busy(dev_addr, p_msc->ep_out))
+        return false;
+    return true;
+}
+
+static uint8_t msc_get_maxlun(uint8_t dev_addr)
+{
+    return msc_get_itf(dev_addr)->max_lun;
+}
+
+static uint8_t msc_protocol(uint8_t dev_addr)
+{
+    return msc_get_itf(dev_addr)->protocol;
+}
+
+static msc_csw_status_t msc_csw_status(uint8_t dev_addr)
+{
+    return msc_get_epbuf(dev_addr)->csw.status;
+}
+
+static void msc_cancel_inflight(uint8_t dev_addr)
+{
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+
+    // If a CBI ADSC control transfer is in-flight, abort it.
+    if (p_msc->stage == MSC_STAGE_CMD && !msc_is_bot(p_msc))
+    {
+        tuh_edpt_abort_xfer(dev_addr, 0);
+    }
+
+    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
+    tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
+
+    p_msc->stage = MSC_STAGE_IDLE;
+}
+
+// Send CLEAR_FEATURE(ENDPOINT_HALT) to ep_addr on daddr.
+static bool msc_clear_endpoint_halt(uint8_t daddr, uint8_t ep_addr,
+                                    tuh_xfer_cb_t complete_cb, uintptr_t user_data)
+{
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_ENDPOINT,
+            .type = TUSB_REQ_TYPE_STANDARD,
+            .direction = TUSB_DIR_OUT},
+        .bRequest = TUSB_REQ_CLEAR_FEATURE,
+        .wValue = TUSB_REQ_FEATURE_EDPT_HALT,
+        .wIndex = ep_addr,
+        .wLength = 0};
+    tuh_xfer_t xfer = {
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = NULL,
+        .complete_cb = complete_cb,
+        .user_data = user_data};
+    return tuh_control_xfer(&xfer);
+}
+
+// Last-resort local clear so the transport does not remain wedged when a
+// CLEAR_FEATURE request can't be queued.
+static void msc_recovery_abort_to_idle(msc_interface_t *p_msc, uint8_t daddr)
+{
+    uint8_t const rhport = usbh_get_rhport(daddr);
+    hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
+    hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+    p_msc->recovery_stage = RECOVERY_IDLE;
+}
+
+static void msc_recovery_xfer_cb(tuh_xfer_t *xfer)
+{
+    uint8_t const daddr = xfer->daddr;
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+
+    if (xfer->result != XFER_RESULT_SUCCESS)
+    {
+        uint8_t const rhport = usbh_get_rhport(daddr);
+        switch (p_msc->recovery_stage)
+        {
+        case RECOVERY_CLEAR_IN:
+            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
+            TU_ATTR_FALLTHROUGH;
+        case RECOVERY_CLEAR_OUT:
+            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+            p_msc->recovery_stage = RECOVERY_IDLE;
+            return;
+        default:
+            break;
+        }
+        p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+        if (!msc_clear_endpoint_halt(daddr, p_msc->ep_in, msc_recovery_xfer_cb, 0))
+            msc_recovery_abort_to_idle(p_msc, daddr);
+        return;
+    }
+
+    switch (p_msc->recovery_stage)
+    {
+    case RECOVERY_RESET:
+        p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+        if (!msc_clear_endpoint_halt(daddr, p_msc->ep_in, msc_recovery_xfer_cb, 0))
+            msc_recovery_abort_to_idle(p_msc, daddr);
+        break;
+
+    case RECOVERY_CLEAR_IN:
+    {
+        uint8_t const rhport = usbh_get_rhport(daddr);
+        hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
+        p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
+        if (!msc_clear_endpoint_halt(daddr, p_msc->ep_out, msc_recovery_xfer_cb, 0))
+        {
+            hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+            p_msc->recovery_stage = RECOVERY_IDLE;
+        }
+        break;
+    }
+
+    case RECOVERY_CLEAR_OUT:
+        hcd_edpt_clear_stall(usbh_get_rhport(daddr), daddr, p_msc->ep_out);
+        p_msc->recovery_stage = RECOVERY_IDLE;
+        break;
+
+    default:
+        p_msc->recovery_stage = RECOVERY_IDLE;
+        break;
+    }
+}
+
+// Fall back to endpoint clear-halt recovery when a reset request cannot
+// be queued on EP0 (typically because the control pipe is busy).
+static void msc_recovery_start_clear_halts(uint8_t daddr)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    p_msc->recovery_stage = RECOVERY_CLEAR_IN;
+    if (!msc_clear_endpoint_halt(daddr, p_msc->ep_in, msc_recovery_xfer_cb, 0))
+        msc_recovery_abort_to_idle(p_msc, daddr);
+}
+
+// Start async reset recovery.  Stage must be IDLE.
+// msc_ready() returns false until recovery finishes.
+static void msc_start_recovery(uint8_t daddr)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    if (!p_msc->ep_in)
+        return;
+    if (p_msc->recovery_stage != RECOVERY_IDLE)
+        return;
+
+    if (msc_is_bot(p_msc))
+    {
+        // BOT: Bulk-Only Mass Storage Reset, then clear halts.
+        tusb_control_request_t const request = {
+            .bmRequestType_bit = {
+                .recipient = TUSB_REQ_RCPT_INTERFACE,
+                .type = TUSB_REQ_TYPE_CLASS,
+                .direction = TUSB_DIR_OUT},
+            .bRequest = MSC_REQ_RESET,
+            .wValue = 0,
+            .wIndex = p_msc->itf_num,
+            .wLength = 0};
+        tuh_xfer_t xfer = {
+            .daddr = daddr,
+            .ep_addr = 0,
+            .setup = &request,
+            .buffer = NULL,
+            .complete_cb = msc_recovery_xfer_cb,
+            .user_data = 0};
+        p_msc->recovery_stage = RECOVERY_RESET;
+        if (!tuh_control_xfer(&xfer))
+        {
+            msc_recovery_start_clear_halts(daddr);
+        }
+        return;
+    }
+
+    // CBI reset: SEND_DIAGNOSTIC(SelfTest=1) via ADSC, then clear bulk endpoints.
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+    tu_memclr(epbuf->cbi_cmd, 12); // UFI spec: reserved CDB bytes shall be 0x00
+    epbuf->cbi_cmd[0] = 0x1D;      // SEND_DIAGNOSTIC
+    epbuf->cbi_cmd[1] = 0x04;      // SelfTest=1
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_OUT},
+        .bRequest = 0, // ADSC
+        .wValue = 0,
+        .wIndex = p_msc->itf_num,
+        .wLength = 12};
+    tuh_xfer_t xfer = {
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = epbuf->cbi_cmd,
+        .complete_cb = msc_recovery_xfer_cb,
+        .user_data = 0};
+    p_msc->recovery_stage = RECOVERY_RESET;
+    if (!tuh_control_xfer(&xfer))
+    {
+        msc_recovery_start_clear_halts(daddr);
+    }
+}
+
+// Cancel any in-flight command and start async recovery, or
+// force-stop an ongoing recovery that has stalled.
+static void msc_abort(uint8_t daddr)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    if (!p_msc->ep_in)
+        return;
+
+    // If recovery is already in progress, force-stop it.
+    if (p_msc->recovery_stage != RECOVERY_IDLE)
+    {
+        // Cancel the in-flight recovery request and restart recovery from a
+        // clean state so we never return while transport may still be wedged.
+        tuh_edpt_abort_xfer(daddr, 0);
+        msc_cancel_inflight(daddr);
+        p_msc->recovery_stage = RECOVERY_IDLE;
+        msc_start_recovery(daddr);
+        return;
+    }
+
+    // Nothing to abort.
+    if (p_msc->stage == MSC_STAGE_IDLE)
+        return;
+
+    msc_cancel_inflight(daddr);
+    msc_start_recovery(daddr);
+}
+
+static void msc_cbi_adsc_complete(tuh_xfer_t *xfer)
+{
+    uint8_t const daddr = xfer->daddr;
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+
+    if (XFER_RESULT_SUCCESS != xfer->result)
+    {
+        msc_complete_command(daddr, MSC_CSW_STATUS_FAILED, epbuf->cbw.total_bytes);
+        return;
+    }
+
+    // ADSC succeeded — run data phase if any, otherwise assume success (CB transport).
+    if (epbuf->cbw.total_bytes && p_msc->buffer)
+        msc_start_data_phase(daddr);
+    else
+        msc_complete_command(daddr, MSC_CSW_STATUS_PASSED, 0);
+}
+
+static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    TU_VERIFY(p_msc->ep_in);
+    TU_VERIFY(p_msc->stage == MSC_STAGE_IDLE);
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+
+    epbuf->cbw = *cbw;
+    // Stamp signature and tag — callers don't need to set these.
+    epbuf->cbw.signature = MSC_CBW_SIGNATURE;
+    // Skip 0 on wrap: tag 0 is legal per spec but unconventional and
+    // could confuse stale-CSW detection in edge cases.
+    if (++msc_cbw_tag_counter == 0)
+        ++msc_cbw_tag_counter;
+    epbuf->cbw.tag = msc_cbw_tag_counter;
+    p_msc->buffer = data;
+    p_msc->stage = MSC_STAGE_CMD;
+
+    if (msc_is_bot(p_msc))
+    {
+        // BOT transport
+        TU_VERIFY(usbh_edpt_claim(daddr, p_msc->ep_out));
+
+        if (!usbh_edpt_xfer(daddr, p_msc->ep_out, (uint8_t *)&epbuf->cbw, sizeof(msc_cbw_t)))
+        {
+            p_msc->stage = MSC_STAGE_IDLE;
+            (void)usbh_edpt_release(daddr, p_msc->ep_out);
+            return false;
+        }
+
+        return true;
+    }
+
+    // CBI: send CDB via ADSC (Accept Device-Specific Command) control request.
+    tu_memclr(epbuf->cbi_cmd, 12);
+    uint8_t cmd_len = cbw->cmd_len;
+    if (cmd_len > 12)
+        cmd_len = 12;
+    memcpy(epbuf->cbi_cmd, cbw->command, cmd_len);
+
+    // UFI always requires exactly 12 bytes in the ADSC data stage regardless of
+    // the logical command length.  The buffer is already zero-padded to 12 bytes.
+    uint8_t adsc_len = (p_msc->subclass == MSC_SUBCLASS_UFI) ? 12 : cmd_len;
+
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_OUT},
+        .bRequest = 0, // ADSC
+        .wValue = 0,
+        .wIndex = p_msc->itf_num,
+        .wLength = adsc_len};
+
+    tuh_xfer_t xfer = {
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = epbuf->cbi_cmd,
+        .complete_cb = msc_cbi_adsc_complete,
+        .user_data = 0};
+
+    if (!tuh_control_xfer(&xfer))
+    {
+        p_msc->stage = MSC_STAGE_IDLE;
+        return false;
+    }
+    return true;
+}
+
+bool msc_class_driver_init(void)
+{
+    TU_LOG_DRV("sizeof(msc_interface_t) = %u\r\n", sizeof(msc_interface_t));
+    TU_LOG_DRV("sizeof(msc_epbuf_t) = %u\r\n", sizeof(msc_epbuf_t));
+    tu_memclr(msc_itf, sizeof(msc_itf));
+    return true;
+}
+
+// CBI (CB-only, interrupt endpoint unused) transfer-complete handler.
+// Command status is inferred from the data-phase outcome.
+static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xferred_bytes)
+{
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+    msc_cbw_t const *cbw = &msc_get_epbuf(dev_addr)->cbw;
+
+    if (p_msc->stage != MSC_STAGE_DATA)
+        return true;
+
+    uint32_t const residue = (xferred_bytes <= cbw->total_bytes)
+                                 ? cbw->total_bytes - xferred_bytes
+                                 : 0;
+
+    if (event == XFER_RESULT_FAILED && residue > 0)
+    {
+        // Some bytes arrived before the error (short/partial bulk transfer).
+        // Re-arm from the already-transferred offset to attempt the remainder.
+        if (usbh_edpt_xfer(dev_addr, msc_data_ep(p_msc, cbw),
+                           (uint8_t *)p_msc->buffer + xferred_bytes,
+                           (uint16_t)residue))
+            return true;
+        // Re-arm failed (device gone); fall through to completion.
+    }
+
+    // On STALL, clear the HCD-level halt so the controller can reuse the pipe.
+    // The device-level CLEAR_FEATURE is issued by recovery below.
+    if (event == XFER_RESULT_STALLED)
+        hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, msc_data_ep(p_msc, cbw));
+
+    uint8_t const status = (event == XFER_RESULT_SUCCESS)
+                               ? MSC_CSW_STATUS_PASSED
+                               : MSC_CSW_STATUS_FAILED;
+    msc_complete_command(dev_addr, status, residue);
+    if (event != XFER_RESULT_SUCCESS)
+        msc_start_recovery(dev_addr);
+    return true;
+}
+
+// Callback following a device-level CLEAR_FEATURE(ENDPOINT_HALT) issued after a
+// BOT data-phase or CSW-phase STALL.
+// On success, queue CSW read; on failure, fail command and start recovery.
+//   user_data == 0: first-attempt CSW read (data-phase STALL, BOT §6.6.1)
+//   user_data == 1: retry CSW read         (CSW-phase STALL,  BOT §6.7.2)
+static void msc_bot_clear_for_csw_cb(tuh_xfer_t *xfer)
+{
+    uint8_t const daddr = xfer->daddr;
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+    msc_csw_t *csw = &epbuf->csw;
+    msc_cbw_t const *cbw = &epbuf->cbw;
+    if (xfer->result != XFER_RESULT_SUCCESS)
+    {
+        msc_complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        msc_start_recovery(daddr);
+        return;
+    }
+    bool const is_retry = (xfer->user_data != 0);
+    p_msc->stage = is_retry ? MSC_STAGE_STATUS_RETRY : MSC_STAGE_STATUS;
+    if (!usbh_edpt_xfer(daddr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
+    {
+        msc_complete_command(daddr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+        msc_start_recovery(daddr);
+    }
+}
+
+// BOT transfer-complete handler.
+static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
+{
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+    msc_epbuf_t *epbuf = msc_get_epbuf(dev_addr);
+    msc_cbw_t const *cbw = &epbuf->cbw;
+    msc_csw_t *csw = &epbuf->csw;
+
+    switch (p_msc->stage)
+    {
+    case MSC_STAGE_CMD:
+        if (ep_addr != p_msc->ep_out || event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t))
+        {
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+            break;
+        }
+        if (cbw->total_bytes && p_msc->buffer)
+        {
+            msc_start_data_phase(dev_addr);
+            break;
+        }
+        TU_ATTR_FALLTHROUGH;
+
+    case MSC_STAGE_DATA:
+        if (ep_addr != msc_data_ep(p_msc, cbw))
+        {
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+            break;
+        }
+        if (event == XFER_RESULT_FAILED)
+        {
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+            break;
+        }
+        if (event == XFER_RESULT_STALLED)
+        {
+            uint8_t const stalled_ep = msc_data_ep(p_msc, cbw);
+            hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, stalled_ep);
+            if (msc_clear_endpoint_halt(dev_addr, stalled_ep, msc_bot_clear_for_csw_cb, 0))
+            {
+                p_msc->stage = MSC_STAGE_STATUS;
+                break;
+            }
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+            break;
+        }
+        // Read CSW
+        p_msc->stage = MSC_STAGE_STATUS;
+        if (!usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
+        {
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+        }
+        break;
+
+    case MSC_STAGE_STATUS:
+    case MSC_STAGE_STATUS_RETRY:
+    {
+        if (ep_addr != p_msc->ep_in)
+        {
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+            break;
+        }
+        bool should_retry = false;
+        if (p_msc->stage != MSC_STAGE_STATUS_RETRY)
+        {
+            if (event == XFER_RESULT_SUCCESS && xferred_bytes == 0)
+            {
+                TU_LOG_DRV("  MSC BOT: 0-length CSW, retrying\r\n");
+                should_retry = true;
+            }
+            else if (event == XFER_RESULT_STALLED)
+            {
+                TU_LOG_DRV("  MSC BOT: CSW STALL, clearing and retrying\r\n");
+                hcd_edpt_clear_stall(usbh_get_rhport(dev_addr), dev_addr, p_msc->ep_in);
+                if (msc_clear_endpoint_halt(dev_addr, p_msc->ep_in, msc_bot_clear_for_csw_cb, 1))
+                {
+                    p_msc->stage = MSC_STAGE_STATUS_RETRY;
+                    break;
+                }
+                msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+                msc_start_recovery(dev_addr);
+                break;
+            }
+        }
+
+        if (should_retry)
+        {
+            p_msc->stage = MSC_STAGE_STATUS_RETRY;
+            if (usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
+                break;
+            // Could not queue the retry read — treat as a hard transport error.
+            TU_LOG_DRV("  MSC BOT: CSW retry xfer failed\r\n");
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+            break;
+        }
+
+        // Validate CSW per BOT spec §6.3
+        p_msc->stage = MSC_STAGE_IDLE;
+        bool csw_valid = (event == XFER_RESULT_SUCCESS &&
+                          xferred_bytes == sizeof(msc_csw_t) &&
+                          csw->signature == MSC_CSW_SIGNATURE &&
+                          csw->tag == cbw->tag &&
+                          csw->status <= MSC_CSW_STATUS_PHASE_ERROR &&
+                          csw->data_residue <= cbw->total_bytes);
+        if (!csw_valid)
+        {
+            // BOT §5.3.3: invalid CSW requires reset recovery.
+            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
+            msc_start_recovery(dev_addr);
+        }
+        else if (csw->status == MSC_CSW_STATUS_PHASE_ERROR)
+        {
+            // BOT §6.7.2: phase error requires reset recovery.
+            // The raw device CSW (with PHASE_ERROR status) is preserved in
+            // epbuf->csw so that msc_scsi_sync() can return
+            // msc_status_phase_error to the caller.
+            msc_start_recovery(dev_addr);
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    return true;
+}
+
+bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t event, uint32_t xferred_bytes)
+{
+    if (msc_is_bot(msc_get_itf(dev_addr)))
+        return msc_bot_xfer_cb(dev_addr, ep_addr, event, xferred_bytes);
+    return msc_cbi_xfer_cb(dev_addr, event, xferred_bytes);
+}
+
+uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+{
+    (void)rhport;
+
+    TU_VERIFY(MSC_PROTOCOL_BOT == desc_itf->bInterfaceProtocol ||
+                  MSC_PROTOCOL_CBI == desc_itf->bInterfaceProtocol ||
+                  MSC_PROTOCOL_CBI_NO_INTERRUPT == desc_itf->bInterfaceProtocol,
+              0);
+
+    if (desc_itf->bInterfaceProtocol == MSC_PROTOCOL_BOT)
+    {
+        TU_VERIFY(MSC_SUBCLASS_SCSI == desc_itf->bInterfaceSubClass, 0);
+    }
+    else // CBI
+    {
+        TU_VERIFY(MSC_SUBCLASS_UFI == desc_itf->bInterfaceSubClass ||
+                      MSC_SUBCLASS_SFF == desc_itf->bInterfaceSubClass,
+                  0);
+    }
+
+    // Walk descriptors to compute driver length
+    uint16_t drv_len = sizeof(tusb_desc_interface_t);
+    {
+        uint8_t const *p = tu_desc_next(desc_itf);
+        uint8_t const *end = ((uint8_t const *)desc_itf) + max_len;
+        uint8_t ep_found = 0;
+        while (ep_found < desc_itf->bNumEndpoints && p < end)
+        {
+            uint8_t len = ((tusb_desc_interface_t const *)p)->bLength;
+            if (len == 0)
+                break;
+            if (tu_desc_type(p) == TUSB_DESC_ENDPOINT)
+                ep_found++;
+            drv_len = (uint16_t)(drv_len + len);
+            p += len;
+        }
+    }
+    TU_ASSERT(drv_len <= max_len, 0);
+
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+    p_msc->protocol = desc_itf->bInterfaceProtocol;
+    p_msc->subclass = desc_itf->bInterfaceSubClass;
+    p_msc->max_lun = 0;
+
+    uint8_t const *p_desc = tu_desc_next(desc_itf);
+    uint8_t const *desc_end = ((uint8_t const *)desc_itf) + drv_len;
+    uint8_t ep_count = 0;
+
+    // Open bulk endpoints only. CBI interrupt endpoints are intentionally
+    // ignored — the CB path infers command status from the data-phase outcome,
+    // which avoids bInterval ms of latency per command.
+    while (ep_count < desc_itf->bNumEndpoints && p_desc < desc_end)
+    {
+        if (tu_desc_type(p_desc) != TUSB_DESC_ENDPOINT)
+        {
+            p_desc = tu_desc_next(p_desc);
+            continue;
+        }
+        ep_count++;
+        tusb_desc_endpoint_t const *ep_desc = (tusb_desc_endpoint_t const *)p_desc;
+
+        if (TUSB_XFER_BULK == ep_desc->bmAttributes.xfer)
+        {
+            TU_ASSERT(tuh_edpt_open(dev_addr, ep_desc), 0);
+            if (TUSB_DIR_IN == tu_edpt_dir(ep_desc->bEndpointAddress))
+                p_msc->ep_in = ep_desc->bEndpointAddress;
+            else
+                p_msc->ep_out = ep_desc->bEndpointAddress;
+        }
+
+        p_desc = tu_desc_next(p_desc);
+    }
+
+    TU_ASSERT(p_msc->ep_in, 0);
+    TU_ASSERT(p_msc->ep_out, 0);
+    p_msc->itf_num = desc_itf->bInterfaceNumber;
+    return drv_len;
+}
+
+// Pumps USB events and all application tasks during blocking I/O.
+// FatFs re-entry would be a problem, so main_task() never calls FatFs
+// but it does call the required tuh_task().
+static void msc_pump(void) { main_task(); }
+
+// Wait for transport ready, submit command, and wait for completion.
+// No autosense — used directly for REQUEST SENSE itself.
+// Calls msc_pump() while spinning.
+static msc_status_t msc_scsi_sync(uint8_t dev_addr, msc_cbw_t *cbw,
+                                  const void *data, uint32_t timeout_ms)
+{
+    uint32_t const start_ms = tusb_time_millis_api();
+
+    // Wait for transport ready AND successfully submit the command.
+    // CBI transport sends the CDB via an ADSC control transfer on the
+    // shared EPX.  If another control transfer is in-flight (e.g. hub
+    // Get Port Status), msc_scsi_submit() returns false even though
+    // the MSC layer is idle.  We must retry submission rather than
+    // failing the entire command.
+    for (;;)
+    {
+        if (!msc_mounted(dev_addr))
+            return MSC_STATUS_FAILED;
+        if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
+            return MSC_STATUS_TIMED_OUT;
+        if (!msc_ready(dev_addr))
+        {
+            msc_pump();
+            continue;
+        }
+        // Cast away const: transport API uses void* for both directions.
+        if (msc_scsi_submit(dev_addr, cbw, (void *)(uintptr_t)data))
+            break;
+        // Submit failed (control pipe busy) — pump events and retry
+        msc_pump();
+    }
+    while (!msc_ready(dev_addr))
+    {
+        if (!msc_mounted(dev_addr))
+            return MSC_STATUS_FAILED;
+        if ((tusb_time_millis_api() - start_ms) >= timeout_ms)
+        {
+            msc_abort(dev_addr);
+            return MSC_STATUS_TIMED_OUT;
+        }
+        msc_pump();
+    }
+    // CSW validation happens in msc_bot_xfer_cb: invalid CSWs are replaced with a
+    // synthesized FAILED status and reset recovery is started. A device-reported
+    // PHASE_ERROR is left intact so we can return it verbatim. Arrival here
+    // implies msc_ready() returned true, i.e., recovery has drained.
+    return (msc_status_t)msc_csw_status(dev_addr);
+}
 
 typedef struct TU_ATTR_PACKED
 {
@@ -263,14 +1065,8 @@ typedef struct TU_ATTR_PACKED
 } scsi_unmap_param_t;
 TU_VERIFY_STATIC(sizeof(scsi_unmap_param_t) == 24, "size is not correct");
 
-// Override of the weak tuh_msc_pump() default in usb/msc_host.c.
-// Pumps USB events and all application tasks during blocking I/O.
-// FatFs re-entry would be a problem so main_task() never calls FatFs
-// but it does call the required tuh_task().
-void tuh_msc_pump(void) { main_task(); }
-
 // Initialize a CBW for a volume's LUN.
-// Signature and tag are stamped by usb/msc_host.c.
+// Signature and tag are stamped by msc_scsi_submit().
 static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
                                 uint32_t total_bytes, uint8_t dir,
                                 uint8_t cmd_len, const void *cmd)
@@ -297,7 +1093,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
         uint32_t attempt_timeout = remaining_ms > MSC_SCSI_OP_TIMEOUT_MS
                                        ? (uint32_t)remaining_ms
                                        : MSC_SCSI_OP_TIMEOUT_MS;
-        status = tuh_msc_scsi_sync(dev_addr, cbw, data, attempt_timeout);
+        status = msc_scsi_sync(dev_addr, cbw, data, attempt_timeout);
         if (status == MSC_STATUS_TIMED_OUT)
             return status;
         if (status == MSC_STATUS_PHASE_ERROR)
@@ -308,7 +1104,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             return status;
         }
         if (status == MSC_STATUS_PASSED &&
-            tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_CBI_NO_INTERRUPT)
+            msc_protocol(dev_addr) != MSC_PROTOCOL_CBI_NO_INTERRUPT)
         {
             msc_vol[vol].last_ok = get_absolute_time();
             return status;
@@ -325,7 +1121,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
         uint32_t sense_timeout = remaining_ms > MSC_SCSI_OP_TIMEOUT_MS
                                      ? (uint32_t)remaining_ms
                                      : MSC_SCSI_OP_TIMEOUT_MS;
-        msc_status_t sense_status = tuh_msc_scsi_sync(
+        msc_status_t sense_status = msc_scsi_sync(
             dev_addr, &sense_cbw, &sense_resp, sense_timeout);
         bool sense_data_valid = (sense_status == MSC_STATUS_PASSED) ||
                                 (sense_status != MSC_STATUS_TIMED_OUT &&
@@ -342,7 +1138,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             msc_vol[vol].sense_asc = 0;
             msc_vol[vol].sense_ascq = 0;
         }
-        if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
+        if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
         {
             // CB: sense data is the only outcome indicator (no transport status).
             // CBI: sense data overrides the interrupt status to handle recovered errors.
@@ -575,7 +1371,7 @@ static bool msc_read_capacity(uint8_t vol)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
 
-    if (tuh_msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
+    if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
         // CBI: READ FORMAT CAPACITIES
         scsi_read_format_capacity_data_t rfc = {0};
@@ -641,7 +1437,7 @@ static bool msc_read_capacity(uint8_t vol)
 static void msc_sense_write_protect(uint8_t vol)
 {
     uint8_t dev_addr = msc_vol[vol].dev_addr;
-    if (tuh_msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
+    if (msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
     {
         scsi_mode_sense6_resp_t ms6;
         if (msc_scsi_mode_sense6(vol, 0x3F, &ms6) == MSC_STATUS_PASSED)
@@ -682,9 +1478,9 @@ static bool msc_probe_unmap(uint8_t vol)
     return resp.lbpu;
 }
 
-void tuh_msc_mount_cb(uint8_t dev_addr)
+static void msc_mount_cb(uint8_t dev_addr)
 {
-    uint8_t const max_lun = tuh_msc_get_maxlun(dev_addr);
+    uint8_t const max_lun = msc_get_maxlun(dev_addr);
     for (uint8_t lun = 0; lun <= max_lun; lun++)
     {
         // Find a free FatFS volume slot.
@@ -712,7 +1508,7 @@ void tuh_msc_mount_cb(uint8_t dev_addr)
     }
 }
 
-void tuh_msc_umount_cb(uint8_t dev_addr)
+static void msc_umount_cb(uint8_t dev_addr)
 {
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
     {
@@ -726,6 +1522,90 @@ void tuh_msc_umount_cb(uint8_t dev_addr)
             DBG_VOL(vol, "unmounted (dev_addr %d)\n", dev_addr);
         }
     }
+}
+
+static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
+{
+    uint8_t daddr = xfer->daddr;
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+
+    if (xfer->result == XFER_RESULT_SUCCESS)
+    {
+        // Clamp to CFG_TUH_MSC_MAXLUN-1 per BOT spec §3.2
+        uint8_t ml = epbuf->max_lun_buf[0];
+        if (ml >= CFG_TUH_MSC_MAXLUN)
+            ml = CFG_TUH_MSC_MAXLUN - 1;
+        p_msc->max_lun = ml;
+    }
+    // else: STALL means no LUNs beyond 0; max_lun stays 0.
+
+    p_msc->mounted = true;
+    msc_mount_cb(daddr);
+    usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+}
+
+bool msc_class_driver_set_config(uint8_t daddr, uint8_t itf_num)
+{
+    msc_interface_t *p_msc = msc_get_itf(daddr);
+    TU_ASSERT(p_msc->itf_num == itf_num);
+
+    // CBI/CB: single-LUN by spec, skip GET_MAX_LUN.
+    if (!msc_is_bot(p_msc))
+    {
+        p_msc->mounted = true;
+        msc_mount_cb(daddr);
+        usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+        return true;
+    }
+
+    // BOT: issue GET_MAX_LUN; completion fires msc_get_max_lun_complete_cb.
+    msc_epbuf_t *epbuf = msc_get_epbuf(daddr);
+    epbuf->max_lun_buf[0] = 0;
+    tusb_control_request_t const request = {
+        .bmRequestType_bit = {
+            .recipient = TUSB_REQ_RCPT_INTERFACE,
+            .type = TUSB_REQ_TYPE_CLASS,
+            .direction = TUSB_DIR_IN},
+        .bRequest = MSC_REQ_GET_MAX_LUN,
+        .wValue = 0,
+        .wIndex = p_msc->itf_num,
+        .wLength = 1};
+    tuh_xfer_t xfer = {
+        .daddr = daddr,
+        .ep_addr = 0,
+        .setup = &request,
+        .buffer = epbuf->max_lun_buf,
+        .complete_cb = msc_get_max_lun_complete_cb,
+        .user_data = 0};
+    if (!tuh_control_xfer(&xfer))
+    {
+        // Control pipe busy or error — proceed with LUN 0 only.
+        p_msc->mounted = true;
+        msc_mount_cb(daddr);
+        usbh_driver_set_config_complete(daddr, p_msc->itf_num);
+    }
+    return true;
+}
+
+void msc_class_driver_close(uint8_t dev_addr)
+{
+    msc_interface_t *p_msc = msc_get_itf(dev_addr);
+    TU_VERIFY(p_msc->ep_in, );
+
+    TU_LOG_DRV("  MSCh close addr = %d\r\n", dev_addr);
+
+    msc_cancel_inflight(dev_addr);
+    p_msc->recovery_stage = RECOVERY_IDLE;
+
+    tuh_edpt_close(dev_addr, p_msc->ep_in);
+    tuh_edpt_close(dev_addr, p_msc->ep_out);
+
+    if (p_msc->mounted)
+        msc_umount_cb(dev_addr);
+
+    tu_memclr(p_msc, sizeof(msc_interface_t));
+    tu_memclr(msc_get_epbuf(dev_addr), sizeof(msc_epbuf_t));
 }
 
 DWORD get_fattime(void)
@@ -817,7 +1697,7 @@ DSTATUS disk_initialize(BYTE pdrv)
             msc_sense_write_protect(vol);
             // ---- UNMAP SUPPORT ----
             if (!msc_vol[vol].write_prot &&
-                tuh_msc_protocol(msc_vol[vol].dev_addr) == MSC_PROTOCOL_BOT &&
+                msc_protocol(msc_vol[vol].dev_addr) == MSC_PROTOCOL_BOT &&
                 msc_vol[vol].lbpme)
                 msc_vol[vol].unmap_supported = msc_probe_unmap(vol);
             msc_vol[vol].status = msc_volume_mounted;
@@ -918,7 +1798,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
             return RES_NOTRDY;
         if (msc_vol[vol].write_prot)
             return RES_OK;
-        if (tuh_msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
+        if (msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
             return RES_OK;
         if (msc_vol[vol].sync_cache_suppressed)
             return RES_OK;

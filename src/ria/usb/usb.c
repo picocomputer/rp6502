@@ -11,7 +11,6 @@
 #include "host/hcd.h"
 #include "str/str.h"
 #include "usb/msc.h"
-#include "usb/msc_host.h"
 #include "usb/usb.h"
 #include "usb/vcp.h"
 #include "usb/xin.h"
@@ -68,12 +67,12 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
         },
         {
             .name = "MSC",
-            .init = msch_class_driver_init,
+            .init = msc_class_driver_init,
             .deinit = NULL,
-            .open = msch_class_driver_open,
-            .set_config = msch_class_driver_set_config,
-            .xfer_cb = msch_class_driver_xfer_cb,
-            .close = msch_class_driver_close,
+            .open = msc_class_driver_open,
+            .set_config = msc_class_driver_set_config,
+            .xfer_cb = msc_class_driver_xfer_cb,
+            .close = msc_class_driver_close,
         },
     };
     *driver_count = TU_ARRAY_SIZE(drivers);
