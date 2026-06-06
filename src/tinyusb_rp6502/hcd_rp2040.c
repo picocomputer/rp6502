@@ -196,7 +196,7 @@ static void __tusb_irq_path_func(sie_start_xfer)(bool send_setup, bool is_rx, bo
   // Write everything except START_TRANS first, wait for the controller to see it,
   // then set START_TRANS.
   usb_hw->sie_ctrl = sie_ctrl;
-  busy_wait_at_least_cycles(32);
+  busy_wait_at_least_cycles(24);
   usb_hw->sie_ctrl = sie_ctrl | USB_SIE_CTRL_START_TRANS_BITS;
 }
 
@@ -401,7 +401,7 @@ static void __tusb_irq_path_func(hcd_rp2040_irq)(void) {
   if (status & USB_INTS_HOST_CONN_DIS_BITS) {
     // Clear speed latch first; after settle the re-read reflects the true current state.
     usb_hw_clear->sie_status = USB_SIE_STATUS_SPEED_BITS;
-    busy_wait_at_least_cycles(32);
+    busy_wait_at_least_cycles(24);
     const uint8_t speed = dev_speed();
     if (speed == SIE_CTRL_SPEED_DISCONNECT) {
       // Stop SIE and silence hardware before emitting remove. Concurrent
