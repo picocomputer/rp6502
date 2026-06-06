@@ -292,11 +292,9 @@ static void msc_cancel_inflight(uint8_t dev_addr)
 {
     msc_interface_t *p_msc = msc_get_itf(dev_addr);
 
-    // If a CBI ADSC control transfer is in-flight, abort it.
-    if (p_msc->stage == MSC_STAGE_CMD && !msc_is_bot(p_msc))
-    {
-        tuh_edpt_abort_xfer(dev_addr, 0);
-    }
+    // Abort any control transfer this driver has in-flight on EP0 (CBI ADSC,
+    // BOT reset/clear-halt). A no-op when EP0 isn't ours.
+    tuh_edpt_abort_xfer(dev_addr, 0);
 
     tuh_edpt_abort_xfer(dev_addr, p_msc->ep_in);
     tuh_edpt_abort_xfer(dev_addr, p_msc->ep_out);
@@ -348,8 +346,16 @@ static void msc_recovery_xfer_cb(tuh_xfer_t *xfer)
         switch (p_msc->recovery_stage)
         {
         case RECOVERY_CLEAR_IN:
+            // ep_in clear-halt failed: drop its local stall, then still issue
+            // the device-level clear on ep_out so it isn't left halted.
             hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_in);
-            TU_ATTR_FALLTHROUGH;
+            p_msc->recovery_stage = RECOVERY_CLEAR_OUT;
+            if (!msc_clear_endpoint_halt(daddr, p_msc->ep_out, msc_recovery_xfer_cb, 0))
+            {
+                hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
+                p_msc->recovery_stage = RECOVERY_IDLE;
+            }
+            return;
         case RECOVERY_CLEAR_OUT:
             hcd_edpt_clear_stall(rhport, daddr, p_msc->ep_out);
             p_msc->recovery_stage = RECOVERY_IDLE;
@@ -483,7 +489,6 @@ static void msc_abort(uint8_t daddr)
     {
         // Cancel the in-flight recovery request and restart recovery from a
         // clean state so we never return while transport may still be wedged.
-        tuh_edpt_abort_xfer(daddr, 0);
         msc_cancel_inflight(daddr);
         p_msc->recovery_stage = RECOVERY_IDLE;
         msc_start_recovery(daddr);
@@ -609,17 +614,6 @@ static bool msc_cbi_xfer_cb(uint8_t dev_addr, xfer_result_t event, uint32_t xfer
                                  ? cbw->total_bytes - xferred_bytes
                                  : 0;
 
-    if (event == XFER_RESULT_FAILED && residue > 0)
-    {
-        // Some bytes arrived before the error (short/partial bulk transfer).
-        // Re-arm from the already-transferred offset to attempt the remainder.
-        if (usbh_edpt_xfer(dev_addr, msc_data_ep(p_msc, cbw),
-                           (uint8_t *)p_msc->buffer + xferred_bytes,
-                           (uint16_t)residue))
-            return true;
-        // Re-arm failed (device gone); fall through to completion.
-    }
-
     // On STALL, clear the HCD-level halt so the controller can reuse the pipe.
     // The device-level CLEAR_FEATURE is issued by recovery below.
     if (event == XFER_RESULT_STALLED)
@@ -672,7 +666,9 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
     switch (p_msc->stage)
     {
     case MSC_STAGE_CMD:
-        if (ep_addr != p_msc->ep_out || event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t))
+        if (ep_addr != p_msc->ep_out)
+            return true; // stale completion from a prior command
+        if (event != XFER_RESULT_SUCCESS || xferred_bytes != sizeof(msc_cbw_t))
         {
             msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
             msc_start_recovery(dev_addr);
@@ -687,11 +683,7 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
 
     case MSC_STAGE_DATA:
         if (ep_addr != msc_data_ep(p_msc, cbw))
-        {
-            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
-            msc_start_recovery(dev_addr);
-            break;
-        }
+            return true; // stale completion from a prior command
         if (event == XFER_RESULT_FAILED)
         {
             msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
@@ -724,11 +716,7 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
     case MSC_STAGE_STATUS_RETRY:
     {
         if (ep_addr != p_msc->ep_in)
-        {
-            msc_complete_command(dev_addr, MSC_CSW_STATUS_FAILED, cbw->total_bytes);
-            msc_start_recovery(dev_addr);
-            break;
-        }
+            return true; // stale completion from a prior command
         bool should_retry = false;
         if (p_msc->stage != MSC_STAGE_STATUS_RETRY)
         {
@@ -806,6 +794,11 @@ bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t e
 uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
     (void)rhport;
+
+    // Per-device state holds a single MSC interface; decline any further one
+    // rather than clobbering the bound interface's endpoints.
+    if (msc_get_itf(dev_addr)->ep_in)
+        return 0;
 
     TU_VERIFY(MSC_PROTOCOL_BOT == desc_itf->bInterfaceProtocol ||
                   MSC_PROTOCOL_CBI == desc_itf->bInterfaceProtocol ||
@@ -1496,7 +1489,7 @@ static void msc_mount_cb(uint8_t dev_addr)
         if (vol == FF_VOLUMES)
         {
             DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
-            continue;
+            break;
         }
         msc_vol[vol].dev_addr = dev_addr;
         msc_vol[vol].lun = lun;
