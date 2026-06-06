@@ -38,6 +38,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define TEL_OPT_ECHO 1
 #define TEL_OPT_SGA 3
 #define TEL_OPT_TTYPE 24
+#define TEL_OPT_NAWS 31
 
 // Subnegotiation commands
 #define TEL_TTYPE_IS 0
@@ -50,10 +51,11 @@ enum
     TEL_IDX_ECHO,
     TEL_IDX_SGA,
     TEL_IDX_TTYPE,
+    TEL_IDX_NAWS,
     TEL_OPT_COUNT,
 };
 static const uint8_t tel_opt_codes[TEL_OPT_COUNT] = {
-    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE};
+    TEL_OPT_BINARY, TEL_OPT_ECHO, TEL_OPT_SGA, TEL_OPT_TTYPE, TEL_OPT_NAWS};
 
 // RFC 1143 Q-method per-option states.
 typedef enum
@@ -97,6 +99,9 @@ typedef struct
     bool tx_escape_pending;
     uint8_t tx_escape_byte;
     const char *ttype;
+    uint16_t naws_w;
+    uint16_t naws_h;
+    bool naws_dirty;
 } tel_conn_t;
 
 static tel_conn_t tel_conns[NET_MAX_CONNECTIONS];
@@ -120,7 +125,8 @@ static bool tel_accept_us(const tel_conn_t *tc, int idx)
 // Policy: which options we accept when the peer offers to enable.
 static bool tel_accept_him(const tel_conn_t *tc, int idx)
 {
-    (void)tc;
+    if (idx == TEL_IDX_NAWS)
+        return tc->is_server; // only the console server consumes client size
     return idx == TEL_IDX_BINARY || idx == TEL_IDX_ECHO || idx == TEL_IDX_SGA;
 }
 
@@ -304,6 +310,15 @@ static void tel_handle_sb(int desc, tel_conn_t *tc)
 {
     if (tc->sb_len < 1)
         return;
+    // NAWS: width then height, each 16-bit big-endian (RFC 1073). The SB
+    // collector already un-escaped IAC IAC, so sb_buf holds true bytes.
+    if (tc->sb_buf[0] == TEL_OPT_NAWS && tc->sb_len >= 5)
+    {
+        tc->naws_w = (uint16_t)((tc->sb_buf[1] << 8) | tc->sb_buf[2]);
+        tc->naws_h = (uint16_t)((tc->sb_buf[3] << 8) | tc->sb_buf[4]);
+        tc->naws_dirty = true;
+        return;
+    }
     if (tc->ttype &&
         tc->sb_buf[0] == TEL_OPT_TTYPE &&
         tc->sb_len >= 2 && tc->sb_buf[1] == TEL_TTYPE_SEND)
@@ -506,6 +521,19 @@ uint16_t tel_rx(int desc, char *buf, uint16_t len)
     return tel_decode(desc, buf, len);
 }
 
+// Hand back a fresh NAWS window size, consuming the pending flag. False
+// when nothing new arrived since the last call.
+bool tel_get_naws(int desc, uint16_t *w, uint16_t *h)
+{
+    tel_conn_t *tc = &tel_conns[desc];
+    if (!tc->naws_dirty)
+        return false;
+    tc->naws_dirty = false;
+    *w = tc->naws_w;
+    *h = tc->naws_h;
+    return true;
+}
+
 // Compute the wire size of a source byte during NVT TX encoding.
 // For CR in NVT mode, caller passes the next source byte (or -1 at end
 // of buffer) so we can distinguish CR-LF (1 byte) from bare CR-NUL (2).
@@ -675,9 +703,10 @@ static void tel_negotiate_server(int desc)
     tc->telnet_mode = true;
     tc->is_server = true;
     tc->ttype = NULL;
-    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA); // DO SGA
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO); // WILL ECHO
-    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);  // WILL SGA
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_SGA);  // DO SGA
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_ECHO);  // WILL ECHO
+    tel_q_ask_us_enable(desc, tc, TEL_IDX_SGA);   // WILL SGA
+    tel_q_ask_him_enable(desc, tc, TEL_IDX_NAWS); // DO NAWS
     DBG("NET TEL server negotiation sent\n");
 }
 

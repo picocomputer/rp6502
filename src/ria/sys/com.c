@@ -16,6 +16,7 @@
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "sys/cfg.h"
+#include "str/rln.h"
 #include "str/str.h"
 #include <stdlib.h>
 #include <string.h>
@@ -97,6 +98,15 @@ static bool com_bel_enabled = true;
 // sources (kbd, UART, telnet).
 #define COM_RX_IDLE_US 1000
 
+// Non-consuming peek at the next byte of an SPSC RX ring (head==tail empty;
+// the next byte sits one past tail). Returns the byte (0..255) or -1.
+static int com_ring_peek(const uint8_t *buf, size_t size, size_t head, size_t tail)
+{
+    if (head == tail)
+        return -1;
+    return buf[(tail + 1) % size];
+}
+
 #ifndef RP6502_RIA_W
 
 static bool com_tel_tx_writable(void) { return true; }
@@ -107,6 +117,7 @@ static size_t com_tel_read(char *buf, size_t length)
     (void)length;
     return 0;
 }
+static int com_tel_peek(void) { return -1; }
 static void com_tel_pump(void) {}
 static void com_tel_task(void) {}
 
@@ -137,7 +148,7 @@ static volatile size_t com_tel_tx_tail;
 #define COM_TEL_RX_BUF_SIZE 32
 // After this many milliseconds with a full ring and no consume,
 // com_tel_drain_rx drops bytes instead of backpressuring the TCP peer.
-#define COM_TEL_RX_OVERFLOW_MS 500
+#define COM_TEL_RX_OVERFLOW_MS 5000
 static char com_tel_rx_buf[COM_TEL_RX_BUF_SIZE];
 static size_t com_tel_rx_head;
 static size_t com_tel_rx_tail;
@@ -177,6 +188,12 @@ static size_t com_tel_read(char *buf, size_t length)
     if (count)
         com_tel_rx_drop_after = make_timeout_time_ms(COM_TEL_RX_OVERFLOW_MS);
     return count;
+}
+
+static int com_tel_peek(void)
+{
+    return com_ring_peek((const uint8_t *)com_tel_rx_buf, COM_TEL_RX_BUF_SIZE,
+                         com_tel_rx_head, com_tel_rx_tail);
 }
 
 static void com_tel_drain_tx(void)
@@ -291,6 +308,15 @@ static void com_tel_drain_rx(void)
             com_tel_rx_buf[com_tel_rx_head] = ch;
         }
     }
+
+    // NAWS arrives as a side effect of the tel_rx decode above; relay any
+    // fresh size to rln, which reflows the line in place on a resize.
+    if (com_tel_state == COM_TEL_STATE_CONNECTED)
+    {
+        uint16_t nw, nh;
+        if (tel_get_naws(SYS_TEL_DESC, &nw, &nh))
+            rln_set_naws_size(nw, nh);
+    }
 }
 
 static bool com_tel_should_listen(void)
@@ -310,7 +336,10 @@ static void com_tel_teardown(com_tel_state_t target)
     if (was_session && target == COM_TEL_STATE_IDLE)
         tel_close(SYS_TEL_DESC);
     if (was_connected && target != COM_TEL_STATE_CONNECTED)
+    {
         vga_set_tel_console_active(false);
+        rln_set_naws_size(0, 0); // drop stale telnet geometry
+    }
     if (target == COM_TEL_STATE_IDLE && com_tel_state != COM_TEL_STATE_IDLE)
     {
         tel_listen_close(com_tel_active_port);
@@ -470,6 +499,13 @@ static size_t com_uart_read(char *buf, size_t length)
         buf[count++] = (char)com_uart_rx_buf[com_uart_rx_tail];
     }
     return count;
+}
+
+static int com_uart_peek(void)
+{
+    com_uart_drain_rx();
+    return com_ring_peek((const uint8_t *)com_uart_rx_buf, COM_UART_RX_BUF_SIZE,
+                         com_uart_rx_head, com_uart_rx_tail);
 }
 
 // Local keyboard input. Steals the cross-core handoff slot if it was
@@ -672,6 +708,26 @@ int com_getchar(com_source_t *src)
     if (src)
         *src = COM_SOURCE_ANY;
     return PICO_ERROR_TIMEOUT;
+}
+
+// Non-consuming 1-byte peek at a specific source. Mirrors com_getchar's
+// single-source path (recover slot, then the source FIFO) without advancing.
+// Only the tracked terminal sources (UART/TEL) are peekable; others report
+// none. rln uses this during a deferred completion to tell an in-flight
+// protocol reply (begins with ESC) from the next pasted line's typed bytes.
+int com_peekchar(com_source_t src)
+{
+    if (com_rx_char_src == src && com_rx_char >= 0)
+        return com_rx_char;
+    switch (src)
+    {
+    case COM_SOURCE_UART:
+        return com_uart_peek();
+    case COM_SOURCE_TEL:
+        return com_tel_peek();
+    default:
+        return -1;
+    }
 }
 
 // One round of TX fanout + UART RX/TX pump + telnet pump. Used by the

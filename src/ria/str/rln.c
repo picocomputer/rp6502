@@ -34,9 +34,14 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 ** Runtime invariants (the handshake in rln_read_line is exempt — it
 ** uses \33[999;999H inside a DECSC/DECRC bracket to elicit CPR2):
 **   - No absolute Y cursor movement; no writes past rln_max_length.
-**   - Can't depend on auto-wrap; pending-wrap (xenl) is OK to rely on.
+**   - The wrapping input is one logical line: rln writes it continuously
+**     and lets the terminal autowrap (the standard readline/linenoise
+**     model), so the terminal owns wrapping and resize reflow. rln keeps
+**     its own row model and relies on pending-wrap (xenl) at the margin.
 **   - rln owns only rln_max_length cells from the start of input, so
 **     no ICH/DCH unless rln owns the entire visible input region.
+**   - Dynamic resize (NAWS / CPR refinement) trusts the terminal to rewrap
+**     on a width change; non-reflowing terminals aren't supported for it.
 */
 
 typedef enum
@@ -97,6 +102,9 @@ typedef struct
     // Per-source bookkeeping (zero on rln_poke_source). cpr_seen is
     // sticky across reads — preserved by rln_read_line's per-read reset.
     uint8_t cpr_expecting;  // outstanding CPR count this read
+    uint16_t cpr_w;         // max column this read = the screen right edge
+    uint16_t cpr_h;         // max row this read = the screen bottom edge
+    uint16_t cpr_pcol;      // min column this read = the prompt column
     bool cpr_seen;          // sticky: source has dispatched a valid CPR
     bool da2_seen;          // proven DA2-aware this read
     bool defer_pending;     // arm-time busy criteria still pending
@@ -145,6 +153,8 @@ static uint16_t rln_term_width;      // 0 if no CPR
 static uint16_t rln_term_height;     // 0 if no CPR
 static uint16_t rln_width_override;  // 0 = auto-detect
 static uint16_t rln_height_override; // 0 = auto-detect
+static uint16_t rln_naws_width;      // 0 = no telnet NAWS
+static uint16_t rln_naws_height;     // 0 = no telnet NAWS
 static uint8_t rln_cur_idx;          // buffer index whose screen position the cursor is at
 static bool rln_overwrite;           // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
 static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
@@ -310,8 +320,8 @@ static void rln_buf_to_screen(uint8_t i, uint8_t *row, uint16_t *col)
 
 // Emit relative cursor moves from (fr,fc) to (tr,tc). Downward moves use
 // LF, not CUD: CUD doesn't scroll, so at the bottom of the screen it
-// no-ops and renders clobber the same row. Forced wraps leave the cursor
-// at deterministic positions (no xenl pending-wrap), so \r and \n are
+// no-ops and renders clobber the same row. These are cursor moves, not
+// content; an explicit move cancels any pending wrap, so \r and \n are
 // unambiguous.
 static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
 {
@@ -376,6 +386,11 @@ static void rln_sync_cursor_to(uint8_t target)
         rln_buf_to_screen(rln_cur_idx, &fr, &fc);
         rln_buf_to_screen(target, &tr, &tc);
         rln_emit_move(fr, fc, tr, tc);
+        // A zero-length relative move emits nothing, so a prior margin write
+        // left in pending-wrap (xenl) would survive; CHA to the same column
+        // clears it, matching the no-wrap branch's unconditional CHA.
+        if (fr == tr && fc == tc && tc == rln_get_term_width())
+            printf("\33[%uG", tc);
     }
     rln_cur_idx = target;
 }
@@ -444,12 +459,27 @@ static void rln_emit_trailing_spaces(uint8_t count)
         printf("\33[%uD", back);
 }
 
-// Redraw the buffer from `start` onward, then place the cursor at
-// rln_bufpos. Two paths:
-//   - No-wrap: plain writes with space-fill erase. No EL, no ICH, no DCH —
-//     these would clobber adjacent form data on the same row.
-//   - Wrap: per-row \33[K and forced wraps. Never \33[J, which would
-//     erase rows below that rln does not own.
+// Walk down `rows` existing rows from the cursor, clearing each, then return up
+// to the start row at column `col`. CUD (not LF) so rows above stay put.
+static void rln_clear_rows_below(uint8_t rows, uint16_t col)
+{
+    for (uint8_t k = 0; k < rows; k++)
+        printf("\33[B\r\33[K");
+    if (rows)
+    {
+        printf("\33[%uA", rows);
+        if (col > 1)
+            printf("\33[%uC", col - 1);
+    }
+}
+
+// Redraw the buffer, then place the cursor at rln_bufpos. Two paths:
+//   - No-wrap: plain writes from `start` with space-fill erase. No EL, no
+//     ICH, no DCH — these would clobber adjacent form data on the same row.
+//   - Wrap: the input is one logical line — write it from the start and let
+//     the terminal autowrap (the standard readline/linenoise model), then
+//     clear the tail and any rows a previous longer render owned. Never
+//     \33[J, which would erase rows below that rln does not own.
 static void rln_render_from(uint8_t start)
 {
     if (rln_phase != rln_phase_edit)
@@ -467,50 +497,64 @@ static void rln_render_from(uint8_t start)
     }
     else
     {
-        // Clear the start row from the cursor onward, then write
-        // chars. Each forced wrap clears the new row before writing
-        // into it, so the only rows we ever touch are rln's own.
-        uint16_t w = rln_get_term_width();
-        uint8_t r;
-        uint16_t c;
-        rln_buf_to_screen(start, &r, &c);
-        printf("\33[K");
         for (uint8_t i = start; i < rln_buflen; i++)
-        {
             putchar(rln_buf[i]);
-            if (c == w)
-            {
-                // Forced wrap so a shadow terminal of a different
-                // width still breaks at the same logical column,
-                // plus clear the new row before populating it.
-                printf("\n\33[K");
-                r++;
-                c = 1;
-            }
+        // The render leaves the cursor just past the last char. When that char
+        // filled the final column the terminal is in pending-wrap. Two cases:
+        //   - Full input pinned on the last cell (cursor_max < buflen): keep
+        //     the cursor there. Do NOT commit the wrap with a SPACE — that
+        //     autowraps to a phantom continuation row (a stray newline/scroll)
+        //     with no next char coming. The closing sync's CHA clears the xenl;
+        //     no EL, which at the margin would erase the char just written.
+        //   - Otherwise: a margin-filling row is committed with SPACE+BS so it
+        //     stays a soft-wrapped continuation a resize can reflow (a hard \n
+        //     would split the logical line); EL then drops the space and any
+        //     stale tail. A non-margin end just needs EL.
+        uint8_t cmax = rln_cursor_max();
+        uint8_t er;
+        uint16_t ec;
+        if (cmax < rln_buflen)
+        {
+            rln_buf_to_screen(cmax, &er, &ec);
+            rln_cur_idx = cmax;
+        }
+        else
+        {
+            rln_buf_to_screen(rln_buflen, &er, &ec);
+            bool filled_margin = rln_buflen > start && ec == 1;
+            if (filled_margin)
+                printf(" \b\33[K");
             else
-                c++;
+                printf("\33[K");
+            rln_cur_idx = rln_buflen;
         }
-        // Walk down through any rows a previous (longer) render
-        // owned past the new end and clear each one. Then return
-        // the cursor to the new end position so cur_idx stays in
-        // sync with the screen.
-        uint8_t r_end = r;
-        while (r < rln_rendered_max_row)
-        {
-            printf("\n\r\33[K");
-            r++;
-        }
-        if (r > r_end)
-        {
-            printf("\33[%uA\r", r - r_end);
-            if (c > 1)
-                printf("\33[%uC", c - 1);
-        }
-        rln_rendered_max_row = r_end;
-        rln_cur_idx = rln_buflen;
+        // Clear rows a previous (longer) render owned below the new end,
+        // then return to the new end so cur_idx tracks the screen.
+        if (rln_rendered_max_row > er)
+            rln_clear_rows_below((uint8_t)(rln_rendered_max_row - er), ec);
+        rln_rendered_max_row = er;
         rln_last_render_buflen = rln_buflen;
     }
     rln_sync_cursor_to(rln_bufpos);
+}
+
+// Redraw the wrapping input after the terminal width changed under us
+// (NAWS, or a CPR geometry refinement). The terminal reflowed our one
+// logical line keeping the cursor on the same char, so home the cursor
+// relative to the NEW width, clear the rows the old render owned, and
+// full-redraw.
+static void rln_resize_redraw(void)
+{
+    if (rln_phase != rln_phase_edit || rln_prompt_col == 0)
+        return;
+    rln_sync_cursor_to(0);
+    uint8_t maxr = rln_rendered_max_row;
+    printf("\33[K");
+    rln_clear_rows_below(maxr, rln_prompt_col);
+    rln_cur_idx = 0;
+    rln_rendered_max_row = 0;
+    rln_last_render_buflen = 0;
+    rln_render_from(0);
 }
 
 /* ----- Tail-rewrite emit helper ----- */
@@ -544,8 +588,15 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
 
 static void rln_replace_buf_from_history(void)
 {
-    // Buffer just got swapped from history; cursor goes to end.
     rln_buflen = (uint8_t)strnlen(rln_buf, RLN_BUF_SIZE - 1);
+    // Keep recalled entries within the live cap so buflen <= effective_max
+    // holds unconditionally (overwrite edits in place without a cap check).
+    uint8_t cap = rln_effective_max();
+    if (rln_buflen > cap)
+    {
+        rln_buflen = cap;
+        rln_buf[rln_buflen] = 0;
+    }
     rln_bufpos = rln_buflen;
     rln_render_from(0);
 }
@@ -585,8 +636,7 @@ static void rln_history_add(void)
 
 // Park the cursor past the input, nul-terminate the buffer, optionally
 // push to history, and complete. The terminating newline is emitted in
-// rln_complete_now (suppressed by the SUPPRESS_NL attribute). Used by
-// both the typed CR dispatch and rln_poke's control-byte path.
+// rln_complete_now (suppressed by the SUPPRESS_NL attribute).
 static void rln_finish_line(bool add_to_history)
 {
     rln_sync_cursor_to(rln_cursor_max());
@@ -823,41 +873,25 @@ static void rln_line_insert(char ch)
     }
     if (rln_overwrite && rln_bufpos < rln_buflen)
     {
-        // Overwrite replaces one char in place; nothing past the
-        // cursor moves, so we just sync the cursor, write the char,
-        // and resolve xenl if we landed at the right margin.
+        // Overwrite replaces one char in place; nothing past the cursor
+        // moves. Write it and let the terminal autowrap at the margin; the
+        // follow-up sync issues an explicit move that cancels pending-wrap.
         rln_buf[rln_bufpos] = ch;
         rln_action_taken = true;
         if (rln_phase == rln_phase_edit)
         {
             rln_sync_cursor_to(rln_bufpos);
-            bool at_row_end = false;
-            if (!rln_input_no_wrap())
-            {
-                uint8_t r;
-                uint16_t c;
-                rln_buf_to_screen(rln_bufpos, &r, &c);
-                at_row_end = (c == rln_get_term_width());
-            }
+            uint8_t r;
+            uint16_t c;
+            rln_buf_to_screen(rln_bufpos, &r, &c);
+            bool at_margin = (c == rln_get_term_width());
             putchar(ch);
+            // The write advances the cursor past the cell, except at the
+            // margin where pending-wrap leaves it parked on the cell.
+            rln_cur_idx = at_margin ? rln_bufpos : (uint8_t)(rln_bufpos + 1);
             rln_bufpos++;
-            // If the cursor would land on the unreachable rolled-over end
-            // (full input filling the last column), clamp it back onto the
-            // last char and skip the wrap-resolving newline so it stays on
-            // the row instead of dropping below.
-            bool clamped = (rln_bufpos > rln_cursor_max());
             rln_clamp_cursor();
-            rln_cur_idx = rln_bufpos;
-            if (clamped)
-            {
-                // CHA back onto the last cell
-                uint8_t r;
-                uint16_t c;
-                rln_buf_to_screen(rln_bufpos, &r, &c);
-                printf("\33[%uG", c);
-            }
-            else if (at_row_end)
-                putchar('\n');
+            rln_sync_cursor_to(rln_bufpos);
         }
         else
         {
@@ -1083,16 +1117,14 @@ static void rln_dispatch_CSI(rln_source_t *a, uint8_t ch)
         }
 }
 
-// Trim the in-flight tail off buf[] (e.g. after dispatching a sequence
-// or after CAN). Leaves deferred head bytes intact.
+// Trim the in-flight tail off buf[], leaving deferred head bytes intact.
 static void rln_ansi_trim_inflight(rln_source_t *a)
 {
     a->buf_len -= a->inflight_len;
     a->inflight_len = 0;
 }
 
-// Snapshot the in-flight tail into rln_lastkey_buf. Called only from
-// typed-action dispatch during edit phase.
+// Snapshot the in-flight tail into rln_lastkey_buf.
 static void rln_publish_lastkey(rln_source_t *a)
 {
     uint8_t n = a->inflight_len > RLN_LASTKEY_MAX
@@ -1291,12 +1323,11 @@ static void rln_enter_edit(void)
     else
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in com_source_t
-    // order: kbd (local human) → uart (local terminal) → tel (remote) →
-    // poke (scripted input). dispatch_or_defer derives "is tracked"
-    // from src so KBD and poke (src=COM_SOURCE_ANY) skip protocol
-    // tracking automatically. Abort the cascade if a dispatched CR
-    // mid-drain completes the line — any later drains would replay
-    // stale bytes into the next line's parsers.
+    // order (KBD, UART, TEL), then the poke parser separately below.
+    // dispatch_or_defer gates protocol tracking on src, so KBD and poke
+    // (src=COM_SOURCE_ANY) skip it. Abort the cascade if a dispatched CR
+    // mid-drain completes the line — any later drains would replay stale
+    // bytes into the next line's parsers.
     rln_read_callback_t cb_at_start = rln_callback;
     for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
     {
@@ -1340,80 +1371,73 @@ static void rln_handshake_fallback(void)
 
 // Dispatch a parsed CPR (\33[<p1>;<p2>R). Row in p1, col in p2.
 //
-// Multi-source manifold rule: host stdout fans out to all attached
-// terminals; each replies CPR1 (prompt position) then CPR2 (terminal
-// size, after \33[999;999H). Replies interleave across sources but each
-// source's pair stays ordered. Classification:
-//   1. First CPR ever (prompt_col == 0): pin prompt_col from p2 and
-//      advance phase. All terminals got the same prompt bytes, so the
-//      first reply wins.
-//   2. Per-source COUNT picks out CPR2: dispatch_or_defer already
-//      decremented cpr_expecting, so 0 here (with initial 2) means this
-//      is the source's CPR2 (the geometry reply).
-//   3. First CPR2 sets term_height/term_width and enters edit phase;
-//      later CPR2s refine the running MIN — render width must be safe
-//      for the narrowest terminal so the byte stream wraps identically
-//      on all of them.
-//   4. Per-source CPR1s after the first global reply are discarded
-//      (prompt position already captured in step 1).
-//   5. CPR after late-DA2 fallback (prompt_col 0 in edit phase) is
-//      discarded.
+// Classified by content, not arrival order, so a reply that arrives first or
+// leaks from a previous read (the fast-paste failure) is still sorted right.
+// \33[999;999H clamps the geometry reply to the bottom-right, so for one
+// source the geometry reply is the MAX row/col and the prompt reply sits
+// inside it (the MIN col). A source's size is trusted only once it has
+// answered its full quota (cpr_expecting == 0) AND its edge is a real width
+// past the prompt (max col > min col) — never a stray prompt reply collapsing
+// width to ~1. The highest-priority qualified terminal supplies the size —
+// telnet CPR over uart CPR (NAWS, when set, outranks both in
+// rln_get_term_width); prompt_col is pinned once from the first qualifier.
+// Until one source qualifies the size stays unknown and the handshake
+// deadline drops to no-wrap.
 //
-// Called above the defer-absorb gate so late CPRs refine geometry even
-// during defer; enter_edit/render_from are guarded against
-// rln_complete_deferred so a submitted line is never re-emitted.
+// Called above the defer gate so a leaked reply still updates the span;
+// enter_edit/resize are guarded against rln_complete_deferred.
 static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
 {
-    // Step 5: discard CPRs after fallback left prompt_col at 0.
     if (rln_phase == rln_phase_edit && rln_prompt_col == 0)
         return;
     bool both_overrides = rln_width_override && rln_height_override;
-    // Caller (dispatch_or_defer) only invokes this when src is a
-    // tracked source (UART/TEL), so rln_sources[src] is a valid lookup.
-    bool is_cpr2 = (rln_cpr_initial == 2 &&
-                    rln_sources[src].cpr_expecting == 0);
-    // Step 1: first CPR globally pins prompt_col.
-    if (rln_prompt_col == 0)
+    // Both axes overridden: only CPR1 is sent, so the lone reply is the
+    // prompt and the size comes from the overrides.
+    if (both_overrides)
     {
-        rln_prompt_col = p2 ? p2 : 1;
-        if (!rln_complete_deferred)
+        if (rln_prompt_col == 0)
         {
-            if (both_overrides)
+            rln_prompt_col = p2 ? p2 : 1;
+            if (!rln_complete_deferred)
                 rln_enter_edit();
-            else
-                rln_phase = rln_phase_width_cpr;
         }
         return;
     }
-    // Geometry fully pinned by overrides: ignore everything past CPR1.
-    if (both_overrides)
+    // Widen this source's column span: edge (max col) and prompt (min col).
+    rln_source_t *a = &rln_sources[src];
+    if (p2 > a->cpr_w)
+        a->cpr_w = p2;
+    if (a->cpr_pcol == 0 || p2 < a->cpr_pcol)
+        a->cpr_pcol = p2 ? p2 : 1;
+    if (p1 > a->cpr_h)
+        a->cpr_h = p1;
+    if (rln_phase == rln_phase_prompt_cpr && !rln_complete_deferred)
+        rln_phase = rln_phase_width_cpr;
+    // Highest-priority qualified terminal wins: telnet CPR over uart CPR. A
+    // source qualifies once it has answered its quota (cpr_expecting == 0) with
+    // a real edge past the prompt (cpr_w > cpr_pcol). KBD sends no real CPR so
+    // it never qualifies. No longer a min across terminals.
+    rln_source_t *pick = NULL;
+    if (rln_sources[COM_SOURCE_TEL].cpr_expecting == 0 &&
+        rln_sources[COM_SOURCE_TEL].cpr_w > rln_sources[COM_SOURCE_TEL].cpr_pcol)
+        pick = &rln_sources[COM_SOURCE_TEL];
+    else if (rln_sources[COM_SOURCE_UART].cpr_expecting == 0 &&
+             rln_sources[COM_SOURCE_UART].cpr_w > rln_sources[COM_SOURCE_UART].cpr_pcol)
+        pick = &rln_sources[COM_SOURCE_UART];
+    if (!pick)
         return;
-    // Step 4: per-source CPR1 after the global first reply — discard.
-    if (!is_cpr2)
+    uint16_t w = pick->cpr_w, h = pick->cpr_h, pc = pick->cpr_pcol;
+    uint16_t old_w = rln_get_term_width();
+    if (rln_prompt_col == 0)
+        rln_prompt_col = pc;
+    rln_term_height = h;
+    rln_term_width = w;
+    if (rln_complete_deferred)
         return;
-    // Step 3: first CPR2 sets geometry and transitions to edit.
-    if (rln_term_height == 0)
-    {
-        rln_term_height = p1;
-        rln_term_width = p2;
-        if (!rln_complete_deferred)
-            rln_enter_edit();
-        return;
-    }
-    // Step 3 (refinement): later CPR2s from other sources clamp the
-    // running min across the manifold.
-    bool width_changed = false;
-    if (p2 < rln_term_width)
-    {
-        rln_term_width = p2;
-        width_changed = true;
-    }
-    if (p1 < rln_term_height)
-        rln_term_height = p1;
-    if (width_changed &&
-        rln_phase == rln_phase_edit &&
-        !rln_complete_deferred)
-        rln_render_from(0);
+    if (rln_phase != rln_phase_edit)
+        rln_enter_edit();
+    else if (rln_get_term_width() != old_w)
+        rln_resize_redraw();
 }
 
 /* ----- Top-level task / lifecycle ----- */
@@ -1432,9 +1456,9 @@ void rln_read_line(rln_read_callback_t callback)
     rln_complete_deferred = false;
 
     rln_phase = rln_phase_prompt_cpr;
-    // Sentinels for the per-source counting heuristic: 0 means
-    // "not pinned yet". Must be cleared every call or replies
-    // from the next handshake get misclassified.
+    // prompt_col == 0 is the per-read sentinel: the first CPR pins it, and
+    // it gates the no-wrap fallback. Geometry is re-derived from this read's
+    // CPRs, so clear it too rather than carry a stale size.
     rln_prompt_col = 0;
     rln_term_height = 0;
     rln_term_width = 0;
@@ -1466,30 +1490,34 @@ void rln_read_line(rln_read_callback_t callback)
 
     // Build the handshake burst piecewise. Common framing:
     //   ?25l    hide cursor
-    //   s       DECSC saves prompt position
+    //   ?7h     enable autowrap (the wrap render relies on it)
+    //   7       DECSC saves prompt position
     //   6n      CPR1 (prompt column) — always sent
     // Optional DA2 probe (skipped when max_length == 0 so we don't
     // touch a column rln doesn't own):
     //   >c      DA2 — DECSCUSR probe; minicom leaks the `c` as literal
     //           text at the prompt column
-    //   u       DECRC snaps cursor back to prompt column
+    //   8       DECRC snaps cursor back to prompt column
     //   ' \b'   space over any leaked `c`, then BS back (not EL — EL
     //           would clobber form data past the prompt)
     // Optional geometry probe (skipped only when BOTH overrides are set):
     //   999;999H go to bottom-right
     //   6n       CPR2 (terminal height + width)
-    //   u        DECRC back to prompt
+    //   8        DECRC back to prompt
     // Always tail:
     //   ?25h     show cursor
-    // RCP runs from the burst (not the CPR-reply path) so the cursor
+    // DECRC runs from the burst (not the CPR-reply path) so the cursor
     // returns to the prompt even when the peer ignores CPR; the deadline
-    // fallback then inherits the right placement. DECAWM is left alone —
-    // we trust pending-wrap (xenl) on margin writes.
-    printf("\33[?25l\33[s\33[6n");
+    // fallback then inherits the right placement. ?7h enables autowrap:
+    // the one-logical-line render needs the terminal to wrap (a telnet
+    // client never gets the boot soft-reset, so don't assume its default).
+    // DECAWM is forced on every read and left on by contract — cooked-input
+    // callers accept it; rln does not save or restore the prior state.
+    printf("\33[?25l\33[?7h\0337\33[6n");
     if (rln_max_length > 0)
-        printf("\33[>c\33[u \b");
+        printf("\33[>c\0338 \b");
     if (!(rln_width_override && rln_height_override))
-        printf("\33[999;999H\33[6n\33[u");
+        printf("\33[999;999H\33[6n\0338");
     printf("\33[?25h");
 }
 
@@ -1516,6 +1544,21 @@ static int rln_read_next(com_source_t *out_src)
     {
         if (!rln_sources[s].defer_pending)
             continue;
+        // At rest but still owing a CPR: the next byte is either the ESC that
+        // begins the reply (absorb it) or the next pasted line's typed input.
+        // Peek so typed bytes stay FIFO-queued for the next read; yield the
+        // source so completion fires instead of waiting out the defer deadline.
+        if (rln_sources[s].state == ansi_state_C0)
+        {
+            int p = com_peekchar(s);
+            if (p < 0)
+                continue; // reply not here yet — keep the gate open
+            if (p != '\33')
+            {
+                rln_sources[s].defer_pending = false;
+                continue;
+            }
+        }
         com_source_t arg = s;
         int c = com_getchar(&arg);
         if (c >= 0)
@@ -1645,6 +1688,8 @@ uint16_t rln_get_term_width(void)
 {
     if (rln_width_override)
         return rln_width_override;
+    if (rln_naws_width)
+        return rln_naws_width;
     if (rln_term_width > 0)
         return rln_term_width;
     if (vga_connected())
@@ -1659,6 +1704,8 @@ uint16_t rln_get_term_height(void)
 {
     if (rln_height_override)
         return rln_height_override;
+    if (rln_naws_height)
+        return rln_naws_height;
     if (rln_term_height > 0)
         return rln_term_height;
     if (vga_connected())
@@ -1668,6 +1715,22 @@ uint16_t rln_get_term_height(void)
 
 void rln_set_term_width(uint16_t v) { rln_width_override = v; }
 void rln_set_term_height(uint16_t v) { rln_height_override = v; }
+
+void rln_set_naws_size(uint16_t w, uint16_t h)
+{
+    if (w == rln_naws_width && h == rln_naws_height)
+        return;
+    uint16_t old_w = rln_get_term_width();
+    rln_naws_width = w;
+    rln_naws_height = h;
+    if (rln_callback &&
+        rln_phase == rln_phase_edit &&
+        rln_prompt_col != 0 &&
+        !rln_complete_deferred &&
+        rln_buflen > 0 &&
+        rln_get_term_width() != old_w)
+        rln_resize_redraw();
+}
 
 /* Readline magic: lastkey + peekpoke
  */
@@ -1712,34 +1775,20 @@ bool rln_api_peek(void)
 
 // Emit a "^X" caret-notation marker for the C0 byte `ch` at buffer
 // position `target`, then advance rln_cur_idx past it. Caller must have
-// already called rln_sync_cursor_to(target). In wrap mode we track the
-// physical column and emit \n on margin overflow so the marker doesn't
-// stretch outside the line's visible row.
+// already called rln_sync_cursor_to(target). The two cells autowrap like
+// any other write; track where the cursor parks (on the cell at the margin).
 static void rln_poke_emit_caret(uint8_t target, char ch)
 {
-    char marker[2] = {'^', (char)('@' + ch)};
-    if (rln_input_no_wrap())
-    {
-        putchar(marker[0]);
-        putchar(marker[1]);
-    }
-    else
+    putchar('^');
+    putchar((char)('@' + ch));
+    rln_cur_idx = (uint8_t)(target + 2);
+    if (rln_prompt_col)
     {
         uint16_t w = rln_get_term_width();
-        uint16_t c = (uint16_t)((rln_prompt_col - 1 + target) % w) + 1;
-        for (int i = 0; i < 2; i++)
-        {
-            putchar(marker[i]);
-            if (c == w)
-            {
-                putchar('\n');
-                c = 1;
-            }
-            else
-                c++;
-        }
+        uint16_t last_col = (uint16_t)((rln_prompt_col - 1 + target + 1) % w) + 1;
+        if (last_col == w)
+            rln_cur_idx = (uint8_t)(target + 1); // margin: caret parks on the cell
     }
-    rln_cur_idx = (uint8_t)(target + 2);
 }
 
 // Any C0 control byte (0x00-0x1F) in the poked stream finishes the
