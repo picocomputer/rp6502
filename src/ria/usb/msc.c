@@ -148,10 +148,6 @@ typedef struct
 
 static msc_vol_t msc_vol[FF_VOLUMES];
 
-// USB Mass Storage host transport: a custom TinyUSB host class driver.
-// Its synchronous SCSI API and CBI/BOT protocol support are not in
-// upstream TinyUSB.
-
 enum
 {
     MSC_STAGE_IDLE,
