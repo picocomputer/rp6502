@@ -139,8 +139,6 @@ static bool rom_fseek_to(uint32_t pos, int *err)
     return true;
 }
 
-// Report a disk/flash I/O error from rom_gets/rom_fseek_to (>0 FRESULT, <0 lfs).
-// Each helper no-ops for the wrong sign / zero, so one call covers both backends.
 static void rom_report_io(int err)
 {
     mon_add_response_fatfs(err);
