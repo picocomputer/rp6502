@@ -1744,8 +1744,6 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
             status = msc_scsi_read10(vol, buff, (uint32_t)sector, n, block_size);
         if (status != MSC_STATUS_PASSED)
             return msc_status_to_dresult(vol, status);
-        // A PASSED CSW can still under-deliver; the unread tail would surface
-        // upstream as a CRC error rather than the disk error it really is.
         if (msc_get_itf(dev_addr)->cmd_xferred != (uint32_t)n * block_size)
             return RES_ERROR;
         buff += (uint32_t)n * block_size;
