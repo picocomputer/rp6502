@@ -52,6 +52,33 @@ static inline void usb_enum_kick(void)
     usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
 }
 
+// Custom application class drivers registered with the TinyUSB host.
+usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
+{
+    static const usbh_class_driver_t drivers[] = {
+        {
+            .name = "XInput",
+            .init = xin_class_driver_init,
+            .deinit = NULL,
+            .open = xin_class_driver_open,
+            .set_config = xin_class_driver_set_config,
+            .xfer_cb = xin_class_driver_xfer_cb,
+            .close = xin_class_driver_close,
+        },
+        {
+            .name = "MSC",
+            .init = msc_class_driver_init,
+            .deinit = NULL,
+            .open = msc_class_driver_open,
+            .set_config = msc_class_driver_set_config,
+            .xfer_cb = msc_class_driver_xfer_cb,
+            .close = msc_class_driver_close,
+        },
+    };
+    *driver_count = TU_ARRAY_SIZE(drivers);
+    return drivers;
+}
+
 void usb_init(void)
 {
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};

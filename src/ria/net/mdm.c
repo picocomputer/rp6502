@@ -313,7 +313,7 @@ const char *mdm_read_phonebook_entry(unsigned index)
                                      LFS_O_RDONLY, &lfs_file_config);
     if (lfsresult < 0)
         return mdm_phone_buf;
-    for (; lfs_gets(mdm_phone_buf, sizeof(mdm_phone_buf), &lfs_volume, &lfs_file); index--)
+    for (; lfs_gets(mdm_phone_buf, sizeof(mdm_phone_buf), &lfs_volume, &lfs_file, NULL); index--)
     {
         size_t len = strlen(mdm_phone_buf);
         while (len && mdm_phone_buf[len - 1] == '\n')
@@ -454,7 +454,7 @@ bool mdm_read_settings(mdm_settings_t *settings)
         return false;
     }
     char line[MDM_AT_COMMAND_LEN + 1];
-    while (lfs_gets(line, sizeof(line), &lfs_volume, &lfs_file))
+    while (lfs_gets(line, sizeof(line), &lfs_volume, &lfs_file, NULL))
     {
         size_t len = strlen(line);
         while (len && line[len - 1] == '\n')

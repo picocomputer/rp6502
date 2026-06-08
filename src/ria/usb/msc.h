@@ -15,12 +15,23 @@
 #include <stdbool.h>
 #include "api/api.h"
 #include "api/std.h"
+#include "host/usbh.h"
+#include "host/usbh_pvt.h"
 
 /* Status
  */
 
 int msc_status_count(void);
 int msc_status_response(char *buf, size_t buf_size, int state);
+
+/* TinyUSB host class-driver callbacks.
+ */
+
+bool msc_class_driver_init(void);
+uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_interface_t const *desc_itf, uint16_t max_len);
+bool msc_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num);
+bool msc_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t result, uint32_t xferred_bytes);
+void msc_class_driver_close(uint8_t dev_addr);
 
 /* STDIO
  */
