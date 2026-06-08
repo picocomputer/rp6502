@@ -36,15 +36,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
             (unsigned)(status),                                             \
             msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq)
 
-#ifndef CFG_TUH_MSC_LOG_LEVEL
-#define CFG_TUH_MSC_LOG_LEVEL CFG_TUH_LOG_LEVEL
-#endif
-
-#define TU_LOG_DRV(...) TU_LOG(CFG_TUH_MSC_LOG_LEVEL, __VA_ARGS__)
-
-#ifndef CFG_TUH_MSC_MAXLUN
-#define CFG_TUH_MSC_MAXLUN 4
-#endif
+#define TU_LOG_DRV(...) TU_LOG(CFG_TUH_LOG_LEVEL, __VA_ARGS__)
 
 // Superset of msc_csw_status_t with an additional timeout value.
 typedef enum
@@ -58,6 +50,9 @@ typedef enum
 // File descriptor pool for open files
 #define MSC_STD_FIL_MAX 8
 static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
+
+// Support up to four logical units per device
+#define MSC_MAX_LUN_COUNT 4
 
 // Timeout for read/write/sync SCSI commands and
 // anything that might interact with motors.
@@ -1534,10 +1529,10 @@ static void msc_get_max_lun_complete_cb(tuh_xfer_t *xfer)
 
     if (xfer->result == XFER_RESULT_SUCCESS)
     {
-        // Clamp to CFG_TUH_MSC_MAXLUN-1 per BOT spec §3.2
+        // Clamp to MSC_MAX_LUN_COUNT-1 per BOT spec §3.2
         uint8_t ml = epbuf->max_lun_buf[0];
-        if (ml >= CFG_TUH_MSC_MAXLUN)
-            ml = CFG_TUH_MSC_MAXLUN - 1;
+        if (ml >= MSC_MAX_LUN_COUNT)
+            ml = MSC_MAX_LUN_COUNT - 1;
         p_msc->max_lun = ml;
     }
     // else: STALL means no LUNs beyond 0; max_lun stays 0.
