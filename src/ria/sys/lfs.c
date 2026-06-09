@@ -144,14 +144,18 @@ int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...)
     return result;
 }
 
-char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file)
+char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err)
 {
+    if (err)
+        *err = 0;
     size_t len;
     for (len = 0; len < n - 1; len++)
     {
         lfs_ssize_t result = lfs_file_read(lfs, file, &str[len], 1);
         if (result != 1)
         {
+            if (result < 0 && err)
+                *err = (int)result;
             str[len] = 0;
             return NULL;
         }
