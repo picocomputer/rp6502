@@ -91,6 +91,7 @@ static_assert(sizeof str_loc_pl == sizeof str_loc_en,
               "locale string tables differ in length");
 
 static int str_locale_index;
+static bool str_locale_loaded;
 
 const char *S(int id)
 {
@@ -132,7 +133,8 @@ static void str_apply_locale(int index)
 
 void str_init(void)
 {
-    str_apply_locale(str_sanitize_locale(""));
+    if (!str_locale_loaded)
+        str_apply_locale(str_sanitize_locale(""));
 }
 
 int str_locales_response(char *buf, size_t buf_size, int state)
@@ -157,6 +159,7 @@ int str_locales_response(char *buf, size_t buf_size, int state)
 void str_load_locale(const char *name)
 {
     str_apply_locale(str_sanitize_locale(name));
+    str_locale_loaded = true;
 }
 
 bool str_set_locale(const char *name)
