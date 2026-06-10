@@ -93,6 +93,7 @@ api_errno api_errno_from_lfs(int lfs_err);
 bool api_pop_uint8_end(uint8_t *data);
 bool api_pop_uint16_end(uint16_t *data);
 bool api_pop_uint32_end(uint32_t *data);
+bool api_pop_uint64_end(uint64_t *data);
 bool api_pop_int8_end(int8_t *data);
 bool api_pop_int16_end(int16_t *data);
 bool api_pop_int32_end(int32_t *data);

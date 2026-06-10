@@ -37,9 +37,17 @@ const char *clk_get_time_zone(void);
 /* The API implementation for time support
  */
 
+bool clk_api_clock(void);
+bool clk_api_time_get(void);
+bool clk_api_time_set(void);
+bool clk_api_gmtime(void);
+bool clk_api_localtime(void);
+bool clk_api_mktime(void);
+bool clk_api_strftime(void);
+
+// Deprecated. Retained for binaries built with older SDKs.
 bool clk_api_tzset(void);
 bool clk_api_tzquery(void);
-bool clk_api_clock(void);
 bool clk_api_get_res(void);
 bool clk_api_get_time(void);
 bool clk_api_set_time(void);

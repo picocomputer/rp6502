@@ -248,139 +248,51 @@ api_errno __in_flash("api_errno_from_lfs") api_errno_from_lfs(int lfs_err)
     }
 }
 
+// Short values zero-fill or sign-extend. The MSB is always the last
+// stack byte because the stack must be empty after the pop.
+static bool api_pop_end(void *data, size_t size, bool sign)
+{
+    size_t n = XSTACK_SIZE - xstack_ptr;
+    if (n > size)
+        return false;
+    int fill = (sign && n && (xstack[XSTACK_SIZE - 1] & 0x80)) ? 0xFF : 0;
+    memset(data, fill, size);
+    memcpy(data, &xstack[xstack_ptr], n);
+    xstack_ptr = XSTACK_SIZE;
+    return true;
+}
+
 bool api_pop_uint8_end(uint8_t *data)
 {
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        *data = xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    default:
-        return false;
-    }
+    return api_pop_end(data, sizeof(*data), false);
 }
 
 bool api_pop_uint16_end(uint16_t *data)
 {
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        *data = xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 2:
-        memcpy(data, &xstack[xstack_ptr], 2);
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    default:
-        return false;
-    }
+    return api_pop_end(data, sizeof(*data), false);
 }
 
 bool api_pop_uint32_end(uint32_t *data)
 {
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        *data = xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 2:
-        *data = 0;
-        memcpy(data, &xstack[xstack_ptr], 2);
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 3:
-        *data = 0;
-        memcpy(data, &xstack[xstack_ptr], 3);
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 4:
-        memcpy(data, &xstack[xstack_ptr], 4);
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    default:
-        return false;
-    }
+    return api_pop_end(data, sizeof(*data), false);
+}
+
+bool api_pop_uint64_end(uint64_t *data)
+{
+    return api_pop_end(data, sizeof(*data), false);
 }
 
 bool api_pop_int8_end(int8_t *data)
 {
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        *data = (int8_t)xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    default:
-        return false;
-    }
+    return api_pop_end(data, sizeof(*data), true);
 }
 
 bool api_pop_int16_end(int16_t *data)
 {
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        *data = (int8_t)xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 2:
-        memcpy(data, &xstack[xstack_ptr], 2);
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    default:
-        return false;
-    }
+    return api_pop_end(data, sizeof(*data), true);
 }
 
 bool api_pop_int32_end(int32_t *data)
 {
-    switch (xstack_ptr)
-    {
-    case XSTACK_SIZE:
-        *data = 0;
-        return true;
-    case XSTACK_SIZE - 1:
-        *data = (int8_t)xstack[xstack_ptr];
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 2:
-    {
-        int16_t tmp;
-        memcpy(&tmp, &xstack[xstack_ptr], 2);
-        *data = tmp;
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    }
-    case XSTACK_SIZE - 3:
-        *data = 0;
-        memcpy(data, &xstack[xstack_ptr], 3);
-        // Sign-extend the 24-bit value.
-        *data = (*data ^ 0x00800000) - 0x00800000;
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    case XSTACK_SIZE - 4:
-        memcpy(data, &xstack[xstack_ptr], 4);
-        xstack_ptr = XSTACK_SIZE;
-        return true;
-    default:
-        return false;
-    }
+    return api_pop_end(data, sizeof(*data), true);
 }
