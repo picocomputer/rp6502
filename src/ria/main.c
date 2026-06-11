@@ -321,6 +321,18 @@ bool main_api(uint8_t operation)
         return rln_api_peek();
     case 0x32:
         return rln_api_poke();
+    case 0x38:
+        return clk_api_time_get();
+    case 0x39:
+        return clk_api_time_set();
+    case 0x3A:
+        return clk_api_gmtime();
+    case 0x3B:
+        return clk_api_localtime();
+    case 0x3C:
+        return clk_api_mktime();
+    case 0x3D:
+        return clk_api_strftime();
     }
     return api_return_errno(API_ENOSYS);
 }

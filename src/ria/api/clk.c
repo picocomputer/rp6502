@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <wchar.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_CLK)
@@ -145,22 +146,114 @@ void clk_run(void)
     clk_start_us = time_us_64();
 }
 
+// Locale-aware strftime emitting code page text. Conversions newlib would
+// render in the C locale expand from the active locale, UTF-8 in flash
+// converted to the active code page; the rest pass through newlib one spec
+// at a time. Literal format bytes copy through verbatim.
+static bool clk_strftime_worker(char *dst, size_t *pos, size_t max,
+                                const char *format, const struct tm *tm,
+                                int depth)
+{
+    while (*format)
+    {
+        if (*format != '%')
+        {
+            if (*pos + 1 >= max)
+                return false;
+            dst[(*pos)++] = *format++;
+            continue;
+        }
+        format++;
+        // Era and alternate-digit forms are not supported.
+        if (*format == 'E' || *format == 'O')
+            format++;
+        char conversion = *format;
+        if (!conversion)
+            break;
+        format++;
+        const char *loc = NULL;
+        const char *loc_format = NULL;
+        switch (conversion)
+        {
+        case 'a':
+            loc = S(STR_TIME_ABDAY_0 + tm->tm_wday);
+            break;
+        case 'A':
+            loc = S(STR_TIME_DAY_0 + tm->tm_wday);
+            break;
+        case 'b':
+        case 'h':
+            loc = S(STR_TIME_ABMON_0 + tm->tm_mon);
+            break;
+        case 'B':
+            loc = S(STR_TIME_MON_0 + tm->tm_mon);
+            break;
+        case 'p':
+            loc = S(tm->tm_hour < 12 ? STR_TIME_AM : STR_TIME_PM);
+            break;
+        case 'c':
+            loc_format = S(STR_TIME_D_T_FMT);
+            break;
+        case 'x':
+            loc_format = S(STR_TIME_D_FMT);
+            break;
+        case 'X':
+            loc_format = S(STR_TIME_T_FMT);
+            break;
+        case 'r':
+            loc_format = S(STR_TIME_T_FMT_AMPM);
+            break;
+        }
+        if (loc)
+        {
+            unsigned char ch;
+            while ((ch = str_utf8_to_oem(&loc)))
+            {
+                if (*pos + 1 >= max)
+                    return false;
+                dst[(*pos)++] = ch;
+            }
+        }
+        else if (loc_format)
+        {
+            if (depth >= 2 ||
+                !clk_strftime_worker(dst, pos, max, loc_format, tm, depth + 1))
+                return false;
+        }
+        else
+        {
+            char spec[3] = {'%', conversion, 0};
+            char tmp[32];
+            size_t n = strftime(tmp, sizeof(tmp), spec, tm);
+            if (*pos + n >= max)
+                return false;
+            memcpy(&dst[*pos], tmp, n);
+            *pos += n;
+        }
+    }
+    return true;
+}
+
+static size_t clk_strftime(char *dst, size_t max, const char *format,
+                           const struct tm *tm)
+{
+    size_t pos = 0;
+    if (!max)
+        return 0;
+    if (!clk_strftime_worker(dst, &pos, max, format, tm, 0))
+        pos = 0;
+    dst[pos] = 0;
+    return pos;
+}
+
 int clk_status_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
     struct timespec ts;
-    if (!aon_timer_get_time(&ts))
-    {
-        snprintf_utf8(buf, buf_size, STR_STATUS_TIME, S(STR_INTERNAL_ERROR));
-    }
-    else
-    {
-        char time_str[80];
-        struct tm tminfo;
-        localtime_r(&ts.tv_sec, &tminfo);
-        strftime(time_str, sizeof(time_str), S(STR_STRFTIME), &tminfo);
-        snprintf_utf8(buf, buf_size, STR_STATUS_TIME, time_str);
-    }
+    aon_timer_get_time(&ts);
+    struct tm tminfo;
+    localtime_r(&ts.tv_sec, &tminfo);
+    clk_strftime(buf, buf_size, STR_STATUS_TIME, &tminfo);
     return -1;
 }
 
@@ -272,6 +365,150 @@ const char *clk_get_time_zone(void)
         return clk_tzinfo_name[clk_tzinfo_index];
 }
 
+bool clk_api_clock(void)
+{
+    return api_return_axsreg((time_us_64() - clk_start_us) / 10000);
+}
+
+bool clk_api_time_get(void)
+{
+    struct timespec ts;
+    if (!aon_timer_get_time(&ts))
+        return api_return_errno(API_EIO);
+    int64_t sec = ts.tv_sec;
+    if (!api_push_n(&sec, sizeof(sec)))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
+}
+
+bool clk_api_time_set(void)
+{
+    uint64_t u;
+    if (!api_pop_uint64_end(&u))
+        return api_return_errno(API_EINVAL);
+    struct timespec ts = {.tv_sec = (int64_t)u, .tv_nsec = 0};
+    if (!aon_timer_set_time(&ts))
+        return api_return_errno(API_ERANGE);
+    return api_return_ax(0);
+}
+
+struct __attribute__((packed)) clk_wire_tm
+{
+    int16_t tm_sec;
+    int16_t tm_min;
+    int16_t tm_hour;
+    int16_t tm_mday;
+    int16_t tm_mon;
+    int16_t tm_year;
+    int16_t tm_wday;
+    int16_t tm_yday;
+    int16_t tm_isdst;
+};
+static_assert(18 == sizeof(struct clk_wire_tm));
+
+static void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
+{
+    w->tm_sec = tm->tm_sec;
+    w->tm_min = tm->tm_min;
+    w->tm_hour = tm->tm_hour;
+    w->tm_mday = tm->tm_mday;
+    w->tm_mon = tm->tm_mon;
+    w->tm_year = tm->tm_year;
+    w->tm_wday = tm->tm_wday;
+    w->tm_yday = tm->tm_yday;
+    w->tm_isdst = tm->tm_isdst;
+}
+
+static void clk_wire_to_tm(const struct clk_wire_tm *w, struct tm *tm)
+{
+    memset(tm, 0, sizeof(*tm));
+    tm->tm_sec = w->tm_sec;
+    tm->tm_min = w->tm_min;
+    tm->tm_hour = w->tm_hour;
+    tm->tm_mday = w->tm_mday;
+    tm->tm_mon = w->tm_mon;
+    tm->tm_year = w->tm_year;
+    tm->tm_wday = w->tm_wday;
+    tm->tm_yday = w->tm_yday;
+    tm->tm_isdst = w->tm_isdst;
+}
+
+static bool clk_api_to_tm(bool local)
+{
+    uint64_t u;
+    if (!api_pop_uint64_end(&u))
+        return api_return_errno(API_EINVAL);
+    // Short pushes are unsigned; 8-byte pushes carry the sign.
+    time_t t = (int64_t)u;
+    struct tm tm;
+    if (!(local ? localtime_r(&t, &tm) : gmtime_r(&t, &tm)))
+        return api_return_errno(API_EINVAL);
+    if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
+        return api_return_errno(API_ERANGE);
+    struct clk_wire_tm w;
+    clk_tm_to_wire(&tm, &w);
+    if (!api_push_n(&w, sizeof(w)))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
+}
+
+bool clk_api_gmtime(void)
+{
+    return clk_api_to_tm(false);
+}
+
+bool clk_api_localtime(void)
+{
+    return clk_api_to_tm(true);
+}
+
+bool clk_api_mktime(void)
+{
+    struct clk_wire_tm w;
+    if (!api_pop_n(&w, sizeof(w)) || xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
+    struct tm tm;
+    clk_wire_to_tm(&w, &tm);
+    time_t t = mktime(&tm);
+    if (t == (time_t)-1)
+        return api_return_errno(API_ERANGE);
+    int64_t sec = t;
+    if (!api_push_n(&sec, sizeof(sec)))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
+}
+
+bool clk_api_strftime(void)
+{
+    const char *format = (char *)&xstack[xstack_ptr];
+    // Compose below the format so they never overlap.
+    size_t max = xstack_ptr;
+    // The guard byte backstops a missing terminator. Validate before
+    // advancing; core 1 serves 0xFFEC against xstack_ptr concurrently,
+    // so it must never be published past XSTACK_SIZE.
+    size_t format_size = strlen(format) + 1;
+    if (format_size > XSTACK_SIZE - max)
+        return api_return_errno(API_EINVAL);
+    xstack_ptr = max + format_size;
+    struct clk_wire_tm w;
+    if (!api_pop_n(&w, sizeof(w)) || xstack_ptr != XSTACK_SIZE)
+        return api_return_errno(API_EINVAL);
+    if (w.tm_sec < 0 || w.tm_sec > 61 || w.tm_min < 0 || w.tm_min > 59 ||
+        w.tm_hour < 0 || w.tm_hour > 23 || w.tm_mday < 1 || w.tm_mday > 31 ||
+        w.tm_mon < 0 || w.tm_mon > 11 || w.tm_wday < 0 || w.tm_wday > 6 ||
+        w.tm_yday < 0 || w.tm_yday > 365)
+        return api_return_errno(API_EINVAL);
+    struct tm tm;
+    clk_wire_to_tm(&w, &tm);
+    size_t n = clk_strftime((char *)xstack, max, format, &tm);
+    // relocate buffer to top of xstack
+    xstack_ptr = XSTACK_SIZE - n;
+    memmove(&xstack[xstack_ptr], xstack, n);
+    return api_return_ax(n);
+}
+
+// Deprecated. Retained for binaries built with older SDKs.
+
 bool clk_api_tzset(void)
 {
     struct __attribute__((packed))
@@ -311,11 +548,6 @@ bool clk_api_tzquery(void)
         return api_return_errno(API_EINVAL);
     int32_t seconds = (int32_t)(local_sec - gm_sec);
     return api_return_axsreg(seconds);
-}
-
-bool clk_api_clock(void)
-{
-    return api_return_axsreg((time_us_64() - clk_start_us) / 10000);
 }
 
 bool clk_api_get_res(void)

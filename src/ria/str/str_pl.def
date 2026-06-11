@@ -16,8 +16,53 @@
 #define XR(name, value) X(name, value)
 #endif
 
-// Time format
-X(STR_STRFTIME, "%Y-%m-%d %H:%M:%S %z %Z")
+// Time and date, POSIX LC_TIME.
+// Day and month entries must stay consecutive; they are indexed
+// by tm_wday and tm_mon.
+X(STR_TIME_DAY_0, "niedziela")
+X(STR_TIME_DAY_1, "poniedziałek")
+X(STR_TIME_DAY_2, "wtorek")
+X(STR_TIME_DAY_3, "środa")
+X(STR_TIME_DAY_4, "czwartek")
+X(STR_TIME_DAY_5, "piątek")
+X(STR_TIME_DAY_6, "sobota")
+X(STR_TIME_ABDAY_0, "nie")
+X(STR_TIME_ABDAY_1, "pon")
+X(STR_TIME_ABDAY_2, "wto")
+X(STR_TIME_ABDAY_3, "śro")
+X(STR_TIME_ABDAY_4, "czw")
+X(STR_TIME_ABDAY_5, "pią")
+X(STR_TIME_ABDAY_6, "sob")
+X(STR_TIME_MON_0, "styczeń")
+X(STR_TIME_MON_1, "luty")
+X(STR_TIME_MON_2, "marzec")
+X(STR_TIME_MON_3, "kwiecień")
+X(STR_TIME_MON_4, "maj")
+X(STR_TIME_MON_5, "czerwiec")
+X(STR_TIME_MON_6, "lipiec")
+X(STR_TIME_MON_7, "sierpień")
+X(STR_TIME_MON_8, "wrzesień")
+X(STR_TIME_MON_9, "październik")
+X(STR_TIME_MON_10, "listopad")
+X(STR_TIME_MON_11, "grudzień")
+X(STR_TIME_ABMON_0, "sty")
+X(STR_TIME_ABMON_1, "lut")
+X(STR_TIME_ABMON_2, "mar")
+X(STR_TIME_ABMON_3, "kwi")
+X(STR_TIME_ABMON_4, "maj")
+X(STR_TIME_ABMON_5, "cze")
+X(STR_TIME_ABMON_6, "lip")
+X(STR_TIME_ABMON_7, "sie")
+X(STR_TIME_ABMON_8, "wrz")
+X(STR_TIME_ABMON_9, "paź")
+X(STR_TIME_ABMON_10, "lis")
+X(STR_TIME_ABMON_11, "gru")
+X(STR_TIME_AM, "")
+X(STR_TIME_PM, "")
+X(STR_TIME_D_T_FMT, "%a, %e %b %Y, %H:%M:%S") // %c
+X(STR_TIME_D_FMT, "%d.%m.%Y")                 // %x
+X(STR_TIME_T_FMT, "%H:%M:%S")                 // %X
+X(STR_TIME_T_FMT_AMPM, "")                    // %r
 
 // More
 X(STR_MON_MORE_SHOW, "--więcej--")
