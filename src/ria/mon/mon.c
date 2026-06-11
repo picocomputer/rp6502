@@ -495,7 +495,7 @@ void mon_task(void)
             // it silently and don't advance the column. Must run before
             // the --more-- check (so BEL never pauses) and before the
             // < 0x20 width-aware branch below (so BEL doesn't flip
-            // mon_response_width_aware off and disable wrapping). The
+            // mon_response_width_aware on and disable wrapping). The
             // indent_pending guard preserves indent emission ordering.
             if (mon_response_indent_pending == 0 && c == '\a')
             {
@@ -562,12 +562,12 @@ void mon_task(void)
                 }
             }
             // Width-aware newline injection. Suppressed once any producer in
-            // this command chain has emitted a non-plain-ASCII byte (ESC,
-            // UTF-8 continuation, etc.) — such producers manage their own
-            // width and our column counter would be wrong from there on.
-            // Also catches words longer than the line that the word-wrap
-            // branch above could not break. Assumes producers don't emit
-            // raw control bytes (\b, \t, \f) before flipping width_aware.
+            // this command chain has emitted a control byte (ESC sequences,
+            // \b, \t, etc.) — such producers manage their own cursor and our
+            // column counter would be wrong from there on. Bytes 0x20-0xFF
+            // are one SBCS OEM glyph each, so each counts one column. Also
+            // catches words longer than the line that the word-wrap branch
+            // above could not break.
             if (!mon_response_width_aware && c != '\n' && c != '\r' &&
                 mon_response_col >= width)
             {
@@ -589,7 +589,7 @@ void mon_task(void)
             {
                 mon_response_col = 0;
             }
-            else if ((unsigned char)c < 0x20 || (unsigned char)c > 0x7E)
+            else if ((unsigned char)c < 0x20)
             {
                 mon_response_width_aware = true;
             }
