@@ -34,10 +34,12 @@ void clk_load_time_zone(const char *str);
 bool clk_set_time_zone(const char *tz);
 const char *clk_get_time_zone(void);
 
+// 6502 run time in ticks of us_per_tick microseconds
+uint32_t clk_get_run(uint32_t us_per_tick);
+
 /* The API implementation for time support
  */
 
-bool clk_api_clock(void);
 bool clk_api_time_get(void);
 bool clk_api_time_set(void);
 bool clk_api_gmtime(void);
@@ -46,6 +48,7 @@ bool clk_api_mktime(void);
 bool clk_api_strftime(void);
 
 // Deprecated. Retained for binaries built with older SDKs.
+bool clk_api_clock(void);
 bool clk_api_tzset(void);
 bool clk_api_tzquery(void);
 bool clk_api_get_res(void);

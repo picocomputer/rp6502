@@ -6,6 +6,7 @@
 
 #include "api/api.h"
 #include "api/atr.h"
+#include "api/clk.h"
 #include "api/oem.h"
 #include "api/pro.h"
 #include "api/std.h"
@@ -37,6 +38,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define ATR_RLN_WIDTH 0x0A
 #define ATR_RLN_HEIGHT 0x0B
 #define ATR_RLN_SUPPRESS_NL 0x0C
+#define ATR_CLK_RUN_MS 0x10
+#define ATR_CLK_RUN_CS 0x11
+#define ATR_CLK_RUN_DS 0x12
+#define ATR_CLK_RUN_S 0x13
 
 // long ria_get_attr(uint8_t attr_id);
 bool atr_api_get(void)
@@ -69,6 +74,14 @@ bool atr_api_get(void)
         return api_return_axsreg(rln_get_term_height());
     case ATR_RLN_SUPPRESS_NL:
         return api_return_axsreg(rln_get_suppress_nl());
+    case ATR_CLK_RUN_MS:
+        return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
+    case ATR_CLK_RUN_CS:
+        return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
+    case ATR_CLK_RUN_DS:
+        return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
+    case ATR_CLK_RUN_S:
+        return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
     default:
         return api_return_errno(API_EINVAL);
     }
@@ -133,9 +146,13 @@ bool atr_api_set(void)
             return api_return_errno(API_EINVAL);
         rln_set_suppress_nl((uint8_t)value);
         break;
-    case ATR_LRAND:     // Read only
-    case ATR_EXIT_CODE: // Read only
-    case ATR_SIGINT:    // Read only
+    case ATR_LRAND:      // Read only
+    case ATR_EXIT_CODE:  // Read only
+    case ATR_SIGINT:     // Read only
+    case ATR_CLK_RUN_MS: // Read only
+    case ATR_CLK_RUN_CS: // Read only
+    case ATR_CLK_RUN_DS: // Read only
+    case ATR_CLK_RUN_S:  // Read only
     default:
         return api_return_errno(API_EINVAL);
     }

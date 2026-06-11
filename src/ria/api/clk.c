@@ -365,9 +365,14 @@ const char *clk_get_time_zone(void)
         return clk_tzinfo_name[clk_tzinfo_index];
 }
 
+uint32_t clk_get_run(uint32_t us_per_tick)
+{
+    return (time_us_64() - clk_start_us) / us_per_tick;
+}
+
 bool clk_api_clock(void)
 {
-    return api_return_axsreg((time_us_64() - clk_start_us) / 10000);
+    return api_return_axsreg(clk_get_run(10000));
 }
 
 bool clk_api_time_get(void)
