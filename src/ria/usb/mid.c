@@ -205,6 +205,18 @@ static void mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
 
 static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
+    if (b == 0xFF) // System Reset: recorded as the FF FF escape
+    {
+        if (conn->rx_in_sysex)
+        {
+            conn->rx_in_sysex = false;
+            mid_rx_push_sysex_end(conn);
+        }
+        conn->rx_status = 0;
+        conn->rx_msg_len = 0;
+        mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xFF, 0xFF}, 2);
+        return;
+    }
     if (b >= 0xF8)
     {
         mid_rx_push_event(conn, t_ns, &b, 1);
@@ -351,6 +363,15 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
         }
         if (conn->tx_state == MID_TX_META_TYPE)
         {
+            if (b == 0xFF) // doubled escape: a wire System Reset
+            {
+                conn->tx_status = 0;
+                conn->tx_msg[0] = 0xFF;
+                conn->tx_msg_len = 1;
+                conn->tx_msg_sent = 0;
+                conn->tx_pending = true;
+                continue;
+            }
             conn->tx_meta_type = b;
             conn->tx_meta_len = 0;
             conn->tx_state = MID_TX_META_LEN;
