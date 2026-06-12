@@ -47,6 +47,7 @@ typedef struct
 {
     bool mounted;
     bool opened;
+    uint8_t session; // bumped per mount, invalidates stale descriptors
     uint8_t daddr;
     uint8_t itf;   // TinyUSB interface this cable lives on
     uint8_t cable; // cable number within the interface
@@ -76,11 +77,14 @@ typedef struct
     uint8_t tx_state;
     uint8_t tx_msg[3];
     uint8_t tx_msg_len;
-    uint8_t tx_msg_sent;
     uint8_t tx_msg_need;
     uint8_t tx_status;
     bool tx_pending;
     bool tx_idle;
+    uint8_t tx_acc[3]; // sysex bytes accumulating toward one packet
+    uint8_t tx_acc_len;
+    bool tx_acc_eox;     // accumulator ends the sysex
+    bool tx_sysex_break; // ended by a foreign status byte, reparse it
     uint8_t tx_meta_type; // FF meta consumed locally, applied at its due time
     uint32_t tx_meta_len;
     uint32_t tx_meta_rem;
@@ -127,6 +131,25 @@ static uint8_t mid_msg_data_len(uint8_t status)
     return 0;
 }
 
+// Code Index Number for a complete non-sysex wire message.
+static uint8_t mid_msg_cin(uint8_t status)
+{
+    if (status >= 0xF8)
+        return MIDI_CIN_1BYTE_DATA;
+    if (status < 0xF0)
+        return status >> 4;
+    switch (status)
+    {
+    case 0xF1:
+    case 0xF3:
+        return MIDI_CIN_SYSCOM_2BYTE;
+    case 0xF2:
+        return MIDI_CIN_SYSCOM_3BYTE;
+    default: // F6 Tune Request, stray F7
+        return MIDI_CIN_SYSEX_END_1BYTE;
+    }
+}
+
 static uint8_t mid_vlq_len(uint32_t v)
 {
     if (v < 0x80)
@@ -161,16 +184,17 @@ static void mid_rx_push_sysex_end(mid_t *conn)
 
 // Push one delta-prefixed event, dropped whole when the ring is full.
 // Absolute tick anchoring keeps timing exact across drops.
-static void mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, uint8_t len)
+static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, uint8_t len)
 {
     if (conn->rx_ring_sysex)
     {
         // No deltas inside sysex, they would be ambiguous with data bytes
         if (len == 1 && msg[0] >= 0xF8)
         {
-            if (mid_ring_free(conn->rx_head, conn->rx_tail) > 1)
-                mid_rx_push(conn, msg[0]);
-            return;
+            if (mid_ring_free(conn->rx_head, conn->rx_tail) <= 1)
+                return false;
+            mid_rx_push(conn, msg[0]);
+            return true;
         }
         mid_rx_push_sysex_end(conn);
     }
@@ -184,13 +208,14 @@ static void mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
                     : (uint32_t)(total - conn->rx_ticks);
     uint16_t reserve = msg[0] == 0xF0 ? 1 : 0; // sysex keeps space for F7
     if (mid_ring_free(conn->rx_head, conn->rx_tail) < mid_vlq_len(delta) + len + reserve)
-        return;
+        return false;
     conn->rx_ticks += delta;
     mid_rx_push_vlq(conn, delta);
     for (uint8_t i = 0; i < len; i++)
         mid_rx_push(conn, msg[i]);
     if (msg[0] == 0xF0)
         conn->rx_ring_sysex = true;
+    return true;
 }
 
 static void mid_rx_push_sysex_data(mid_t *conn, uint8_t b)
@@ -308,23 +333,45 @@ static bool mid_itf_can_rx(uint8_t itf)
     return false;
 }
 
-// One interface FIFO carries every cable; demux each chunk to its port.
+// Demux one event packet to its port. The CIN is untrusted (devices encode
+// it wrong), payload length derives from status and the port's sysex state.
+static void mid_rx_packet(uint8_t itf, uint64_t t_ns, const uint8_t *pkt)
+{
+    mid_t *conn = mid_find_port(itf, pkt[0] >> 4);
+    if (!conn || !conn->opened || !conn->has_rx)
+        return; // closed or absent cable, drop
+    uint8_t b = pkt[1];
+    uint8_t len;
+    if (b >= 0xF8)
+        len = 1;
+    else if (b == 0xF0 || b < 0x80)
+    {
+        if (b < 0x80 && !conn->rx_in_sysex)
+            return; // data with no context, drop
+        len = 1;
+        while (len < 3 && pkt[1 + len] < 0x80)
+            len++;
+        if (len < 3 && pkt[1 + len] == 0xF7)
+            len++;
+    }
+    else
+        len = 1 + mid_msg_data_len(b);
+    for (uint8_t i = 0; i < len; i++)
+        mid_rx_wire_byte(conn, t_ns, pkt[1 + i]);
+}
+
+// One interface FIFO carries every cable's packets.
 static void mid_rx_pull_itf(uint8_t itf)
 {
     while (mid_itf_can_rx(itf))
     {
-        // stream_read can write bufsize+2, claim 62 into 64
         uint8_t stage[64];
-        uint8_t cable;
-        uint32_t n = tuh_midi_stream_read(itf, &cable, stage, sizeof(stage) - 2);
+        uint32_t n = tuh_midi_packet_read_n(itf, stage, sizeof(stage));
         if (!n)
             break;
-        mid_t *conn = mid_find_port(itf, cable);
-        if (!conn || !conn->opened || !conn->has_rx)
-            continue; // closed or absent cable, drop
         uint64_t t_ns = time_us_64() * 1000;
-        for (uint32_t i = 0; i < n; i++)
-            mid_rx_wire_byte(conn, t_ns, stage[i]);
+        for (uint32_t i = 0; i + 4 <= n; i += 4)
+            mid_rx_packet(itf, t_ns, &stage[i]);
     }
 }
 
@@ -339,7 +386,10 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
         conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
         if (conn->tx_state == MID_TX_DELTA)
         {
-            conn->tx_delta = (conn->tx_delta << 7) | (b & 0x7F);
+            if (conn->tx_delta > (0x0FFFFFFF >> 7)) // saturate at the SMF max
+                conn->tx_delta = 0x0FFFFFFF;
+            else
+                conn->tx_delta = (conn->tx_delta << 7) | (b & 0x7F);
             if (b & 0x80)
                 continue;
             conn->tx_ticks += conn->tx_delta;
@@ -366,7 +416,6 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
                 conn->tx_status = 0;
                 conn->tx_msg[0] = 0xFF;
                 conn->tx_msg_len = 1;
-                conn->tx_msg_sent = 0;
                 conn->tx_pending = true;
                 continue;
             }
@@ -377,7 +426,10 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
         }
         if (conn->tx_state == MID_TX_META_LEN)
         {
-            conn->tx_meta_len = (conn->tx_meta_len << 7) | (b & 0x7F);
+            if (conn->tx_meta_len > (0x0FFFFFFF >> 7)) // saturate at the SMF max
+                conn->tx_meta_len = 0x0FFFFFFF;
+            else
+                conn->tx_meta_len = (conn->tx_meta_len << 7) | (b & 0x7F);
             if (b & 0x80)
                 continue;
             conn->tx_meta_rem = conn->tx_meta_len;
@@ -407,6 +459,7 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
             }
             if (b == 0xF4 || b == 0xF5)
             {
+                conn->tx_status = 0; // system common cancels running status
                 conn->tx_state = MID_TX_DELTA;
                 continue;
             }
@@ -439,20 +492,19 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
             conn->tx_msg_need--;
         }
         if (conn->tx_msg_len && !conn->tx_msg_need)
-        {
-            conn->tx_msg_sent = 0;
             conn->tx_pending = true;
-        }
     }
     return conn->tx_pending;
 }
 
-static size_t mid_tx_send(uint8_t itf, uint8_t cable, const uint8_t *data, size_t len)
+// Queue one 4-byte event packet, false when the endpoint FIFO is full.
+// The FIFO only ever holds whole packets, so writes are 4 or 0.
+static bool mid_tx_packet(mid_t *conn, uint8_t cin, const uint8_t *data, uint8_t len)
 {
-    uint32_t n = tuh_midi_stream_write(itf, cable, data, len);
-    if (n)
-        tuh_midi_write_flush(itf);
-    return n;
+    uint8_t pkt[4] = {(uint8_t)((conn->cable << 4) | cin), 0, 0, 0};
+    for (uint8_t i = 0; i < len; i++)
+        pkt[1 + i] = data[i];
+    return tuh_midi_packet_write_n(conn->itf, pkt, 4) == 4;
 }
 
 // Apply a TX-stream meta locally (never sent to the device) and echo it on
@@ -469,7 +521,19 @@ static void mid_tx_apply_meta(mid_t *conn)
             tempo = ((uint32_t)conn->tx_msg[0] << 16) |
                     ((uint32_t)conn->tx_msg[1] << 8) | conn->tx_msg[2];
         uint64_t tick = tempo ? ((uint64_t)tempo * 1000 + conn->ppqn / 2) / conn->ppqn : 0;
-        if (tick && tick <= UINT32_MAX)
+        if (!tick || tick > UINT32_MAX)
+            tempo = 0;
+        // Echo first, under the old timescale, so the marker lands at the
+        // correct recorded time and a full ring rejects the whole change.
+        bool device_sysex = conn->rx_ring_sysex && conn->rx_in_sysex;
+        bool pushed = mid_rx_push_event(
+            conn, t_ns,
+            (const uint8_t[]){0xFF, 0x51, 0x03, (uint8_t)(tempo >> 16),
+                              (uint8_t)(tempo >> 8), (uint8_t)tempo},
+            6);
+        if (device_sysex) // resume the interrupted device sysex as a fragment
+            mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xF0}, 1);
+        if (tempo && pushed)
         {
             // Rebase both timelines so the new rate begins cleanly here
             conn->tempo = tempo;
@@ -477,12 +541,6 @@ static void mid_tx_apply_meta(mid_t *conn)
             conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
             conn->rx_ticks = conn->tx_ticks = 0;
         }
-        else
-            tempo = 0;
-        mid_rx_push_event(conn, t_ns,
-                          (const uint8_t[]){0xFF, 0x51, 0x03, (uint8_t)(tempo >> 16),
-                                            (uint8_t)(tempo >> 8), (uint8_t)tempo},
-                          6);
         break;
     }
     default:
@@ -490,46 +548,72 @@ static void mid_tx_apply_meta(mid_t *conn)
     }
 }
 
-static void mid_tx_run(uint8_t idx, uint64_t now_ns)
+// True when a packet was queued and the interface needs a flush.
+static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
 {
     mid_t *conn = &mid_mounts[idx];
+    bool wrote = false;
     for (;;)
     {
         if (conn->tx_state == MID_TX_SYSEX)
         {
-            while (conn->tx_head != conn->tx_tail)
+            for (;;)
             {
+                if (conn->tx_acc_len == 3 || conn->tx_acc_eox)
+                {
+                    uint8_t cin = conn->tx_acc_eox
+                                      ? MIDI_CIN_SYSEX_END_1BYTE + conn->tx_acc_len - 1
+                                      : MIDI_CIN_SYSEX_START;
+                    if (!mid_tx_packet(conn, cin, conn->tx_acc, conn->tx_acc_len))
+                        return wrote;
+                    wrote = true;
+                    conn->tx_acc_len = 0;
+                    if (conn->tx_acc_eox)
+                    {
+                        conn->tx_acc_eox = false;
+                        conn->tx_state = conn->tx_sysex_break ? MID_TX_MSG : MID_TX_DELTA;
+                        conn->tx_sysex_break = false;
+                        conn->tx_msg_len = 0;
+                        break;
+                    }
+                }
+                if (conn->tx_head == conn->tx_tail)
+                {
+                    conn->tx_idle = true; // producer underrun, even mid-sysex
+                    return wrote;
+                }
                 uint8_t b = conn->tx_ring[conn->tx_tail];
-                if (b >= 0x80 && b < 0xF7)
+                if (b >= 0xF8)
+                {
+                    // Realtime passes through as its own packet
+                    if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &b, 1))
+                        return wrote;
+                    wrote = true;
+                    conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+                    continue;
+                }
+                if (b >= 0x80 && b != 0xF7)
                 {
                     // New status mid-sysex, terminate and start next event
-                    uint8_t eox = 0xF7;
-                    if (mid_tx_send(conn->itf, conn->cable, &eox, 1) != 1)
-                        return;
-                    conn->tx_state = MID_TX_MSG;
-                    conn->tx_msg_len = 0;
-                    break;
+                    conn->tx_acc[conn->tx_acc_len++] = 0xF7;
+                    conn->tx_acc_eox = true;
+                    conn->tx_sysex_break = true;
+                    continue;
                 }
-                if (mid_tx_send(conn->itf, conn->cable, &b, 1) != 1)
-                    return;
                 conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+                conn->tx_acc[conn->tx_acc_len++] = b;
                 if (b == 0xF7)
-                {
-                    conn->tx_state = MID_TX_DELTA;
-                    break;
-                }
+                    conn->tx_acc_eox = true;
             }
-            if (conn->tx_state == MID_TX_SYSEX)
-                return;
             continue;
         }
         if (!mid_tx_parse(conn, now_ns))
         {
             conn->tx_idle = true;
-            return;
+            return wrote;
         }
         if (conn->tx_due_ns > now_ns)
-            return;
+            return wrote;
         if (conn->tx_meta)
         {
             mid_tx_apply_meta(conn);
@@ -537,13 +621,22 @@ static void mid_tx_run(uint8_t idx, uint64_t now_ns)
             conn->tx_state = MID_TX_DELTA;
             continue;
         }
-        size_t n = mid_tx_send(conn->itf, conn->cable, conn->tx_msg + conn->tx_msg_sent,
-                               conn->tx_msg_len - conn->tx_msg_sent);
-        conn->tx_msg_sent += n;
-        if (conn->tx_msg_sent < conn->tx_msg_len)
-            return;
+        if (conn->tx_msg[0] == 0xF0)
+        {
+            // Sysex seeds the accumulator; packets form at 3 bytes or EOX
+            conn->tx_acc[0] = 0xF0;
+            conn->tx_acc_len = 1;
+            conn->tx_acc_eox = false;
+            conn->tx_sysex_break = false;
+            conn->tx_pending = false;
+            conn->tx_state = MID_TX_SYSEX;
+            continue;
+        }
+        if (!mid_tx_packet(conn, mid_msg_cin(conn->tx_msg[0]), conn->tx_msg, conn->tx_msg_len))
+            return wrote;
+        wrote = true;
         conn->tx_pending = false;
-        conn->tx_state = conn->tx_msg[0] == 0xF0 ? MID_TX_SYSEX : MID_TX_DELTA;
+        conn->tx_state = MID_TX_DELTA;
     }
 }
 
@@ -585,9 +678,14 @@ void mid_task(void)
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
         mid_rx_pull_itf(itf);
     uint64_t now_ns = time_us_64() * 1000;
+    uint16_t flush = 0;
     for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
-        if (mid_mounts[idx].mounted && mid_mounts[idx].opened)
-            mid_tx_run(idx, now_ns);
+        if (mid_mounts[idx].mounted && mid_mounts[idx].opened &&
+            mid_tx_run(idx, now_ns))
+            flush |= 1u << mid_mounts[idx].itf;
+    for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
+        if (flush & (1u << itf))
+            tuh_midi_write_flush(itf);
 }
 
 int mid_status_count(void)
@@ -608,7 +706,8 @@ int mid_status_response(char *buf, size_t buf_size, int state)
     {
         char devname[sizeof(mid_string) + 2];
         snprintf(devname, sizeof(devname), "%s%d", mid_string, state);
-        snprintf_utf8(buf, buf_size, STR_STATUS_MIDI, devname, conn->name);
+        // name is already OEM, snprintf_utf8 would mangle high bytes
+        snprintf(buf, buf_size, STR_STATUS_MIDI, devname, conn->name);
     }
     return state + 1;
 }
@@ -671,21 +770,19 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         }
     }
 
-    // Stale RX accumulates only while the whole interface is idle; if no
-    // sibling cable is open, flush it so this cable starts clean.
+    // Stale RX accumulates unless an open input cable keeps the interface
+    // drained; if none is, flush it so this cable starts clean.
     bool itf_idle = true;
     for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
         if (i != idx && mid_mounts[i].mounted && mid_mounts[i].opened &&
-            mid_mounts[i].itf == conn->itf)
+            mid_mounts[i].has_rx && mid_mounts[i].itf == conn->itf)
             itf_idle = false;
     if (itf_idle)
-        for (int i = 64; i; i--)
-        {
-            uint8_t stage[64];
-            uint8_t cable_num;
-            if (!tuh_midi_stream_read(conn->itf, &cable_num, stage, sizeof(stage) - 2))
-                break;
-        }
+    {
+        uint8_t stage[64];
+        while (tuh_midi_packet_read_n(conn->itf, stage, sizeof(stage)))
+            ;
+    }
 
     uint64_t now_ns = time_us_64() * 1000;
     conn->tempo = MID_DEFAULT_TEMPO;
@@ -708,28 +805,49 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_pending = false;
     conn->tx_idle = true;
     conn->tx_meta = false;
+    conn->tx_acc_len = 0;
+    conn->tx_acc_eox = false;
+    conn->tx_sysex_break = false;
     conn->opened = true;
     DBG("MIDI%d: open ppqn %u\n", idx, conn->ppqn);
-    return idx;
+    return (conn->session << 4) | idx;
+}
+
+// The descriptor carries the mount session so a stale fd held across
+// unplug/replug cannot alias whoever reuses the slot.
+static mid_t *mid_desc_conn(int desc)
+{
+    int idx = desc & 0xF;
+    if (idx >= CFG_TUH_MIDI || (desc >> 4) != mid_mounts[idx].session)
+        return NULL;
+    return &mid_mounts[idx];
 }
 
 int mid_std_close(int desc, api_errno *err)
 {
-    if (!mid_mounts[desc].opened)
+    mid_t *conn = mid_desc_conn(desc);
+    if (!conn || !conn->opened)
     {
         *err = API_EBADF;
         return -1;
     }
-    DBG("MIDI%d: close\n", desc);
-    mid_mounts[desc].opened = false;
+    DBG("MIDI%d: close\n", desc & 0xF);
+    if (conn->mounted && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
+    {
+        // Best effort: don't leave the device hanging mid-sysex
+        uint8_t eox = 0xF7;
+        if (mid_tx_packet(conn, MIDI_CIN_SYSEX_END_1BYTE, &eox, 1))
+            tuh_midi_write_flush(conn->itf);
+    }
+    conn->opened = false;
     return 0;
 }
 
 std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
                            uint32_t *bytes_read, api_errno *err)
 {
-    mid_t *conn = &mid_mounts[desc];
-    if (!conn->mounted || !conn->opened || !conn->has_rx)
+    mid_t *conn = mid_desc_conn(desc);
+    if (!conn || !conn->mounted || !conn->opened || !conn->has_rx)
     {
         *err = API_EIO;
         return STD_ERROR;
@@ -747,8 +865,8 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
 std_rw_result mid_std_write(int desc, const char *buf, uint32_t buf_size,
                             uint32_t *bytes_written, api_errno *err)
 {
-    mid_t *conn = &mid_mounts[desc];
-    if (!conn->mounted || !conn->opened || !conn->has_tx)
+    mid_t *conn = mid_desc_conn(desc);
+    if (!conn || !conn->mounted || !conn->opened || !conn->has_tx)
     {
         *err = API_EIO;
         return STD_ERROR;
@@ -784,7 +902,9 @@ void tuh_midi_mount_cb(uint8_t itf, const tuh_midi_mount_cb_t *mount_cb_data)
         if (slot == CFG_TUH_MIDI)
             break; // no free port; remaining cables are dropped
         mid_t *conn = &mid_mounts[slot];
+        uint8_t session = (uint8_t)(conn->session + 1);
         memset(conn, 0, sizeof(*conn));
+        conn->session = session;
         conn->daddr = mount_cb_data->daddr;
         conn->itf = itf;
         conn->cable = c;

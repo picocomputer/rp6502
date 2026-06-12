@@ -208,6 +208,9 @@ uint16_t midih_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_
   TU_VERIFY(idx < CFG_TUH_MIDI, 0);
   midih_interface_t *p_midi = &_midi_host[idx];
   p_midi->itf_count = 0;
+  // A previously aborted open can leave stale counts in the free slot
+  p_midi->rx_cable_count = 0;
+  p_midi->tx_cable_count = 0;
 
   tuh_midi_descriptor_cb_t desc_cb = { 0 };
   desc_cb.jack_num = 0;
@@ -233,9 +236,11 @@ uint16_t midih_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_
     desc_itf = (const tusb_desc_interface_t *)p_desc;
     p_midi->itf_count = 1;
     // skip non-interface and non-midi streaming descriptors
-    while (tu_desc_in_bounds(p_desc, desc_end) && (desc_itf->bDescriptorType != TUSB_DESC_INTERFACE ||
-                                                   (desc_itf->bInterfaceClass == TUSB_CLASS_AUDIO &&
-                                                    desc_itf->bInterfaceSubClass != AUDIO_SUBCLASS_MIDI_STREAMING))) {
+    // tu_desc_in_bounds accepts bLength == 0, which would never advance
+    while (tu_desc_in_bounds(p_desc, desc_end) && tu_desc_len(p_desc) >= 2 &&
+           (desc_itf->bDescriptorType != TUSB_DESC_INTERFACE ||
+            (desc_itf->bInterfaceClass == TUSB_CLASS_AUDIO &&
+             desc_itf->bInterfaceSubClass != AUDIO_SUBCLASS_MIDI_STREAMING))) {
       if (desc_itf->bDescriptorType == TUSB_DESC_INTERFACE && desc_itf->bAlternateSetting == 0) {
         p_midi->itf_count++;
       }
@@ -256,7 +261,7 @@ uint16_t midih_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_
   bool found_new_interface = false;
   do {
     p_desc = tu_desc_next(p_desc);
-    if (!tu_desc_in_bounds(p_desc, desc_end)) {
+    if (!tu_desc_in_bounds(p_desc, desc_end) || tu_desc_len(p_desc) < 2) {
       break;
     }
     switch (tu_desc_type(p_desc)) {
@@ -296,18 +301,25 @@ uint16_t midih_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_
       case TUSB_DESC_ENDPOINT: {
         const tusb_desc_endpoint_t *p_ep = (const tusb_desc_endpoint_t *) p_desc;
 
-        p_desc = tu_desc_next(p_desc); // next to CS endpoint
-        TU_VERIFY(tu_desc_in_bounds(p_desc, desc_end), 0);
-        const midi_desc_cs_endpoint_t *p_csep = (const midi_desc_cs_endpoint_t *) p_desc;
+        // The CS endpoint descriptor is required by spec but missing on some
+        // noncompliant devices; verify before reading, default to one jack.
+        uint8_t num_jacks = 1;
+        const uint8_t *p_csep_desc = tu_desc_next(p_desc);
+        if (tu_desc_in_bounds(p_csep_desc, desc_end) &&
+            tu_desc_type(p_csep_desc) == TUSB_DESC_CS_ENDPOINT &&
+            tu_desc_len(p_csep_desc) >= sizeof(midi_desc_cs_endpoint_t)) {
+          num_jacks = ((const midi_desc_cs_endpoint_t *) p_csep_desc)->bNumEmbMIDIJack;
+          p_desc = p_csep_desc;
+        }
 
         TU_LOG_DRV("  Endpoint and CS_Endpoint descriptor %02x\r\n", p_ep->bEndpointAddress);
         tu_edpt_stream_t *ep_stream;
         if (tu_edpt_dir(p_ep->bEndpointAddress) == TUSB_DIR_OUT) {
-          p_midi->tx_cable_count = p_csep->bNumEmbMIDIJack;
+          p_midi->tx_cable_count = num_jacks;
           desc_cb.desc_epout = p_ep;
           ep_stream              = &p_midi->ep_stream.tx;
         } else {
-          p_midi->rx_cable_count = p_csep->bNumEmbMIDIJack;
+          p_midi->rx_cable_count = num_jacks;
           desc_cb.desc_epin      = p_ep;
           ep_stream              = &p_midi->ep_stream.rx;
         }
@@ -373,8 +385,8 @@ uint8_t tuh_midi_itf_get_index(uint8_t daddr, uint8_t itf_num) {
 }
 
 bool tuh_midi_itf_get_info(uint8_t idx, tuh_itf_info_t* info) {
+  TU_VERIFY(idx < CFG_TUH_MIDI && info);
   midih_interface_t* p_midi = &_midi_host[idx];
-  TU_VERIFY(p_midi && info);
 
   info->daddr = p_midi->daddr;
 
