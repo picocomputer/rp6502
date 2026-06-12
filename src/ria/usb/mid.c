@@ -29,7 +29,11 @@ static_assert(sizeof(mid_string) == 4 + 1);
 
 #define MID_RING_SIZE 128
 #define MID_NAME_SIZE 32
-#define MID_DEFAULT_TICK_NS 1041667 // 120 BPM at 480 PPQN
+#define MID_DEFAULT_TEMPO 500000 // microseconds per quarter note, 120 BPM
+#define MID_DEFAULT_PPQN 480
+#define MID_DEFAULT_TICK_NS 1041667 // MID_DEFAULT_TEMPO * 1000 / MID_DEFAULT_PPQN
+static_assert(MID_DEFAULT_TICK_NS ==
+              (MID_DEFAULT_TEMPO * 1000 + MID_DEFAULT_PPQN / 2) / MID_DEFAULT_PPQN);
 
 enum
 {
@@ -51,8 +55,9 @@ typedef struct
     bool has_rx;
     bool has_tx;
     char name[MID_NAME_SIZE];
-    uint32_t tick_ns;
-    uint16_t ppqn; // division for FF 51 tempo conversion, 0 = unset
+    uint32_t tick_ns; // derived: tempo * 1000 / ppqn
+    uint32_t tempo;   // microseconds per quarter note
+    uint16_t ppqn;    // ticks per quarter note
     // RX
     uint64_t rx_epoch_ns;
     uint16_t rx_head, rx_tail;
@@ -431,41 +436,60 @@ static size_t mid_tx_send(uint8_t itf, uint8_t cable, const uint8_t *data, size_
     return n;
 }
 
-// Apply a TX-stream meta locally (never sent to the device) and mark the
-// effect on the RX recording: the resolved change, or FF 60 on rejection.
+// Commit a new tempo/division pair: re-derive the tick and rebase both
+// timelines so the new rate begins cleanly at t_ns.
+static void mid_commit_tick(mid_t *conn, uint64_t t_ns, uint32_t tempo, uint16_t ppqn, uint32_t tick)
+{
+    conn->tempo = tempo;
+    conn->ppqn = ppqn;
+    conn->tick_ns = tick;
+    conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
+    conn->rx_ticks = conn->tx_ticks = 0;
+}
+
+// Apply a TX-stream meta locally (never sent to the device) and echo it on
+// the RX recording, value zeroed when rejected and nothing was applied.
 static void mid_tx_apply_meta(mid_t *conn)
 {
     uint64_t t_ns = conn->tx_due_ns;
     switch (conn->tx_meta_type)
     {
     case 0x51: // SMF Set Tempo: microseconds per quarter note
-        if (conn->tx_meta_len == 3 && conn->ppqn)
-        {
-            uint32_t tempo = ((uint32_t)conn->tx_msg[0] << 16) |
-                             ((uint32_t)conn->tx_msg[1] << 8) | conn->tx_msg[2];
-            uint64_t tick = ((uint64_t)tempo * 1000 + conn->ppqn / 2) / conn->ppqn;
-            if (tempo && tick && tick <= UINT32_MAX)
-            {
-                mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xFF, 0x51, 0x03,
-                                  conn->tx_msg[0], conn->tx_msg[1], conn->tx_msg[2]}, 6);
-                conn->tick_ns = (uint32_t)tick;
-                conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
-                conn->rx_ticks = conn->tx_ticks = 0;
-                return;
-            }
-        }
+    {
+        uint32_t tempo = 0;
+        if (conn->tx_meta_len == 3)
+            tempo = ((uint32_t)conn->tx_msg[0] << 16) |
+                    ((uint32_t)conn->tx_msg[1] << 8) | conn->tx_msg[2];
+        uint64_t tick = tempo ? ((uint64_t)tempo * 1000 + conn->ppqn / 2) / conn->ppqn : 0;
+        if (tick && tick <= UINT32_MAX)
+            mid_commit_tick(conn, t_ns, tempo, conn->ppqn, (uint32_t)tick);
+        else
+            tempo = 0;
+        mid_rx_push_event(conn, t_ns,
+                          (const uint8_t[]){0xFF, 0x51, 0x03, (uint8_t)(tempo >> 16),
+                                            (uint8_t)(tempo >> 8), (uint8_t)tempo},
+                          6);
         break;
-    case 0x61: // Set PPQN division for tempo conversion
-        if (conn->tx_meta_len == 2 && (conn->tx_msg[0] || conn->tx_msg[1]))
-        {
-            conn->ppqn = ((uint16_t)conn->tx_msg[0] << 8) | conn->tx_msg[1];
-            return; // no audible effect until the next tempo
-        }
-        break;
-    default:
-        return; // unknown meta (standard SMF metas included): swallowed
     }
-    mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xFF, 0x60, 0x01, conn->tx_meta_type}, 4);
+    case 0x61: // Set division; tempo is remembered, so re-derive the tick
+    {
+        uint16_t ppqn = 0;
+        if (conn->tx_meta_len == 2)
+            ppqn = ((uint16_t)conn->tx_msg[0] << 8) | conn->tx_msg[1];
+        uint64_t tick = ppqn ? ((uint64_t)conn->tempo * 1000 + ppqn / 2) / ppqn : 0;
+        if (tick && tick <= UINT32_MAX)
+            mid_commit_tick(conn, t_ns, conn->tempo, ppqn, (uint32_t)tick);
+        else
+            ppqn = 0;
+        mid_rx_push_event(conn, t_ns,
+                          (const uint8_t[]){0xFF, 0x61, 0x02,
+                                            (uint8_t)(ppqn >> 8), (uint8_t)ppqn},
+                          5);
+        break;
+    }
+    default:
+        break; // unknown meta (standard SMF metas included): swallowed
+    }
 }
 
 static void mid_tx_run(uint8_t idx, uint64_t now_ns)
@@ -647,7 +671,8 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
 
     uint64_t now_ns = time_us_64() * 1000;
     conn->tick_ns = MID_DEFAULT_TICK_NS;
-    conn->ppqn = 0;
+    conn->tempo = MID_DEFAULT_TEMPO;
+    conn->ppqn = MID_DEFAULT_PPQN;
     conn->rx_epoch_ns = now_ns;
     conn->rx_head = conn->rx_tail = 0;
     conn->rx_ticks = 0;
