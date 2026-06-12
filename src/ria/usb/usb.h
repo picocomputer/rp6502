@@ -29,4 +29,7 @@ void usb_set_hid_leds(uint8_t leds);
 // True when USB in boot enumeration sequence
 bool usb_boot_enumerating(void);
 
+// True while any enumeration may be in progress
+bool usb_enumerating(void);
+
 #endif /* _RIA_USB_USB_H_ */

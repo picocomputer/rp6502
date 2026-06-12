@@ -10,6 +10,7 @@
 #include "sys/com.h"
 #include "sys/pix.h"
 #include "net/mdm.h"
+#include "usb/mid.h"
 #include "usb/nfc.h"
 #include "usb/vcp.h"
 #include "usb/msc.h"
@@ -40,6 +41,7 @@ typedef struct
 __in_flash("std_drivers") static const std_driver_t std_drivers[] = {
     {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
+    {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, NULL, NULL},
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
     {nfc_std_handles, nfc_std_open, nfc_std_close, nfc_std_read, nfc_std_write, NULL, NULL},
     {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},

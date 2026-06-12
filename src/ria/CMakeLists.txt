@@ -101,6 +101,7 @@ target_sources(${RIA_TARGET} PRIVATE
     sys/ria.c
     sys/sys.c
     sys/vga.c
+    usb/mid.c
     usb/msc.c
     usb/nfc.c
     usb/usb.c

@@ -41,6 +41,7 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/mid.h"
 #include "usb/nfc.h"
 #include "usb/xin.h"
 #include <pico/time.h>
@@ -119,6 +120,7 @@ void main_task(void)
     cpu_task();
     ria_task();
     kbd_task();
+    mid_task();
     cyw_task();
     vga_task();
     com_task();

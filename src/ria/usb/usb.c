@@ -10,6 +10,7 @@
 #include "hid/pad.h"
 #include "host/hcd.h"
 #include "str/str.h"
+#include "usb/mid.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/vcp.h"
@@ -128,6 +129,7 @@ int usb_status_response(char *buf, size_t buf_size, int state)
     int count_gamepad = usb_count_hid_pad + xin_pad_count();
     int count_storage = msc_status_count();
     int count_serial = vcp_status_count();
+    int count_midi = mid_status_count();
     int count_ep_free = hcd_free_ep_count();
     snprintf_utf8(buf, buf_size, STR_STATUS_USB,
                   usb_count_hid_kbd, usb_count_hid_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
@@ -135,6 +137,7 @@ int usb_status_response(char *buf, size_t buf_size, int state)
                   count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
                   count_storage, count_storage == 1 ? S(STR_STORAGE_SINGULAR) : S(STR_STORAGE_PLURAL),
                   count_serial, count_serial == 1 ? S(STR_SERIAL_SINGULAR) : S(STR_SERIAL_PLURAL),
+                  count_midi, count_midi == 1 ? S(STR_MIDI_SINGULAR) : S(STR_MIDI_PLURAL),
                   count_ep_free, count_ep_free == 1 ? S(STR_EP_FREE_SINGULAR) : S(STR_EP_FREE_PLURAL));
     return -1;
 }
@@ -222,6 +225,12 @@ bool usb_boot_enumerating(void)
         return false;
     }
     return true;
+}
+
+bool usb_enumerating(void)
+{
+    // return false;
+    return !time_reached(usb_enum_timeout);
 }
 
 void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)

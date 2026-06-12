@@ -43,6 +43,8 @@
 #define CFG_TUH_CDC_CP210X (1)
 #define CFG_TUH_CDC_CH34X (1)
 #define CFG_TUH_CDC_PL2303 (1)
+// Max simultaneous MIDI 1.0 devices
+#define CFG_TUH_MIDI (4)
 
 // Devices; limited by free endpoints
 #define CFG_TUH_DEVICE_MAX (16)
