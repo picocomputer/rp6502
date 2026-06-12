@@ -31,9 +31,7 @@ static_assert(sizeof(mid_string) == 4 + 1);
 #define MID_NAME_SIZE 32
 #define MID_DEFAULT_TEMPO 500000 // microseconds per quarter note, 120 BPM
 #define MID_DEFAULT_PPQN 480
-#define MID_DEFAULT_TICK_NS 1041667 // MID_DEFAULT_TEMPO * 1000 / MID_DEFAULT_PPQN
-static_assert(MID_DEFAULT_TICK_NS ==
-              (MID_DEFAULT_TEMPO * 1000 + MID_DEFAULT_PPQN / 2) / MID_DEFAULT_PPQN);
+#define MID_MAX_PPQN 32767 // SMF division with bit 15 clear
 
 enum
 {
@@ -57,7 +55,7 @@ typedef struct
     char name[MID_NAME_SIZE];
     uint32_t tick_ns; // derived: tempo * 1000 / ppqn
     uint32_t tempo;   // microseconds per quarter note
-    uint16_t ppqn;    // ticks per quarter note
+    uint16_t ppqn;    // ticks per quarter note, fixed at open
     // RX
     uint64_t rx_epoch_ns;
     uint16_t rx_head, rx_tail;
@@ -457,17 +455,6 @@ static size_t mid_tx_send(uint8_t itf, uint8_t cable, const uint8_t *data, size_
     return n;
 }
 
-// Commit a new tempo/division pair: re-derive the tick and rebase both
-// timelines so the new rate begins cleanly at t_ns.
-static void mid_commit_tick(mid_t *conn, uint64_t t_ns, uint32_t tempo, uint16_t ppqn, uint32_t tick)
-{
-    conn->tempo = tempo;
-    conn->ppqn = ppqn;
-    conn->tick_ns = tick;
-    conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
-    conn->rx_ticks = conn->tx_ticks = 0;
-}
-
 // Apply a TX-stream meta locally (never sent to the device) and echo it on
 // the RX recording, value zeroed when rejected and nothing was applied.
 static void mid_tx_apply_meta(mid_t *conn)
@@ -483,29 +470,19 @@ static void mid_tx_apply_meta(mid_t *conn)
                     ((uint32_t)conn->tx_msg[1] << 8) | conn->tx_msg[2];
         uint64_t tick = tempo ? ((uint64_t)tempo * 1000 + conn->ppqn / 2) / conn->ppqn : 0;
         if (tick && tick <= UINT32_MAX)
-            mid_commit_tick(conn, t_ns, tempo, conn->ppqn, (uint32_t)tick);
+        {
+            // Rebase both timelines so the new rate begins cleanly here
+            conn->tempo = tempo;
+            conn->tick_ns = (uint32_t)tick;
+            conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
+            conn->rx_ticks = conn->tx_ticks = 0;
+        }
         else
             tempo = 0;
         mid_rx_push_event(conn, t_ns,
                           (const uint8_t[]){0xFF, 0x51, 0x03, (uint8_t)(tempo >> 16),
                                             (uint8_t)(tempo >> 8), (uint8_t)tempo},
                           6);
-        break;
-    }
-    case 0x61: // Set division; tempo is remembered, so re-derive the tick
-    {
-        uint16_t ppqn = 0;
-        if (conn->tx_meta_len == 2)
-            ppqn = ((uint16_t)conn->tx_msg[0] << 8) | conn->tx_msg[1];
-        uint64_t tick = ppqn ? ((uint64_t)conn->tempo * 1000 + ppqn / 2) / ppqn : 0;
-        if (tick && tick <= UINT32_MAX)
-            mid_commit_tick(conn, t_ns, conn->tempo, ppqn, (uint32_t)tick);
-        else
-            ppqn = 0;
-        mid_rx_push_event(conn, t_ns,
-                          (const uint8_t[]){0xFF, 0x61, 0x02,
-                                            (uint8_t)(ppqn >> 8), (uint8_t)ppqn},
-                          5);
         break;
     }
     default:
@@ -668,10 +645,30 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    if (name[6]) // cable and tempo are set with in-stream meta events now
+    // Optional division (ticks per quarter note) follows the colon
+    uint32_t ppqn = MID_DEFAULT_PPQN;
+    if (name[6])
     {
-        *err = API_EINVAL;
-        return -1;
+        ppqn = 0;
+        for (const char *p = &name[6]; *p; p++)
+        {
+            if (!isdigit((unsigned char)*p))
+            {
+                *err = API_EINVAL;
+                return -1;
+            }
+            ppqn = ppqn * 10 + (*p - '0');
+            if (ppqn > MID_MAX_PPQN)
+            {
+                *err = API_EINVAL;
+                return -1;
+            }
+        }
+        if (!ppqn)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
     }
 
     // Stale RX accumulates only while the whole interface is idle; if no
@@ -691,9 +688,9 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         }
 
     uint64_t now_ns = time_us_64() * 1000;
-    conn->tick_ns = MID_DEFAULT_TICK_NS;
     conn->tempo = MID_DEFAULT_TEMPO;
-    conn->ppqn = MID_DEFAULT_PPQN;
+    conn->ppqn = (uint16_t)ppqn;
+    conn->tick_ns = (uint32_t)(((uint64_t)MID_DEFAULT_TEMPO * 1000 + ppqn / 2) / ppqn);
     conn->rx_epoch_ns = now_ns;
     conn->rx_head = conn->rx_tail = 0;
     conn->rx_ticks = 0;
@@ -712,7 +709,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_idle = true;
     conn->tx_meta = false;
     conn->opened = true;
-    DBG("MIDI%d: open\n", idx);
+    DBG("MIDI%d: open ppqn %u\n", idx, conn->ppqn);
     return idx;
 }
 
