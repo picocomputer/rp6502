@@ -8,7 +8,6 @@
 #include "api/oem.h"
 #include "fatfs/ff.h"
 #include "str/str.h"
-#include "usb/usb.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>
@@ -43,7 +42,6 @@ typedef struct
 {
     bool mounted;
     bool opened;
-    bool name_pending;
     uint8_t daddr;
     uint8_t rx_cables;
     uint8_t tx_cables;
@@ -79,8 +77,7 @@ typedef struct
 static mid_t mid_mounts[CFG_TUH_MIDI];
 static_assert(CFG_TUH_MIDI <= 10); // one char 0-9 in "MIDI0:"
 
-// Product string fetches share one buffer, one device at a time.
-static bool mid_name_busy;
+// Product string fetches share one buffer, serialized by the control pipe.
 static uint8_t mid_name_buf[64];
 
 static inline uint16_t mid_ring_free(uint16_t head, uint16_t tail)
@@ -441,7 +438,6 @@ static void mid_name_to_oem(const tusb_desc_string_t *desc, char *dest, size_t d
 static void mid_name_cb(tuh_xfer_t *xfer)
 {
     uint8_t idx = (uint8_t)xfer->user_data;
-    mid_name_busy = false;
     if (idx >= CFG_TUH_MIDI || xfer->result != XFER_RESULT_SUCCESS)
         return;
     char name[MID_NAME_SIZE];
@@ -450,29 +446,8 @@ static void mid_name_cb(tuh_xfer_t *xfer)
         memcpy(mid_mounts[idx].name, name, sizeof(name));
 }
 
-// Fetch product strings from task context only, never during enumeration,
-// so our control transfers can't break enum or hub sequences mid-claim.
-static void mid_name_fetch(void)
-{
-    if (mid_name_busy || usb_enumerating())
-        return;
-    for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
-        if (mid_mounts[idx].mounted && mid_mounts[idx].name_pending)
-        {
-            if (tuh_descriptor_get_product_string(mid_mounts[idx].daddr, 0x0409,
-                                                  mid_name_buf, sizeof(mid_name_buf),
-                                                  mid_name_cb, idx))
-            {
-                mid_mounts[idx].name_pending = false;
-                mid_name_busy = true;
-            }
-            return; // retry next task tick when the control pipe is busy
-        }
-}
-
 void mid_task(void)
 {
-    mid_name_fetch();
     uint64_t now_ns = time_us_64() * 1000;
     for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
         if (mid_mounts[idx].mounted && mid_mounts[idx].opened)
@@ -723,9 +698,11 @@ void tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t *mount_cb_data)
     uint16_t vid, pid;
     tuh_vid_pid_get(conn->daddr, &vid, &pid);
     snprintf(conn->name, sizeof(conn->name), "%04X:%04X", vid, pid);
-    conn->name_pending = true;
     conn->mounted = true;
     DBG("MIDI%d: mount %04X:%04X dev_addr=%d\n", idx, vid, pid, conn->daddr);
+    tuh_descriptor_get_product_string(conn->daddr, 0x0409,
+                                      mid_name_buf, sizeof(mid_name_buf),
+                                      mid_name_cb, idx);
 }
 
 void tuh_midi_umount_cb(uint8_t idx)
@@ -735,6 +712,5 @@ void tuh_midi_umount_cb(uint8_t idx)
     {
         mid_mounts[idx].mounted = false;
         mid_mounts[idx].opened = false;
-        mid_mounts[idx].name_pending = false;
     }
 }

@@ -227,12 +227,6 @@ bool usb_boot_enumerating(void)
     return true;
 }
 
-bool usb_enumerating(void)
-{
-    // return false;
-    return !time_reached(usb_enum_timeout);
-}
-
 void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
 {
     (void)rhport;
