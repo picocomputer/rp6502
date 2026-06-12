@@ -36,6 +36,9 @@ enum
     MID_TX_DELTA,
     MID_TX_MSG,
     MID_TX_SYSEX,
+    MID_TX_META_TYPE,
+    MID_TX_META_LEN,
+    MID_TX_META_DATA,
 };
 
 typedef struct
@@ -43,13 +46,15 @@ typedef struct
     bool mounted;
     bool opened;
     uint8_t daddr;
-    uint8_t rx_cables;
-    uint8_t tx_cables;
-    int8_t open_cable; // -1 merges RX cables, TX uses cable 0
+    uint8_t itf;   // TinyUSB interface this cable lives on
+    uint8_t cable; // cable number within the interface
+    bool has_rx;
+    bool has_tx;
     char name[MID_NAME_SIZE];
     uint32_t tick_ns;
-    uint64_t epoch_ns;
+    uint16_t ppqn; // division for FF 51 tempo conversion, 0 = unset
     // RX
+    uint64_t rx_epoch_ns;
     uint16_t rx_head, rx_tail;
     uint64_t rx_ticks;
     uint8_t rx_status;
@@ -60,6 +65,7 @@ typedef struct
     bool rx_ring_sysex;
     uint8_t rx_ring[MID_RING_SIZE];
     // TX
+    uint64_t tx_epoch_ns;
     uint16_t tx_head, tx_tail;
     uint64_t tx_ticks;
     uint64_t tx_due_ns;
@@ -72,6 +78,10 @@ typedef struct
     uint8_t tx_status;
     bool tx_pending;
     bool tx_idle;
+    uint8_t tx_meta_type; // FF meta consumed locally, applied at its due time
+    uint32_t tx_meta_len;
+    uint32_t tx_meta_rem;
+    bool tx_meta;
     uint8_t tx_ring[MID_RING_SIZE];
 } mid_t;
 static mid_t mid_mounts[CFG_TUH_MIDI];
@@ -161,9 +171,9 @@ static void mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
         }
         mid_rx_push_sysex_end(conn);
     }
-    if (t_ns < conn->epoch_ns)
-        t_ns = conn->epoch_ns;
-    uint64_t total = (t_ns - conn->epoch_ns) / conn->tick_ns;
+    if (t_ns < conn->rx_epoch_ns)
+        t_ns = conn->rx_epoch_ns;
+    uint64_t total = (t_ns - conn->rx_epoch_ns) / conn->tick_ns;
     uint32_t delta = 0;
     if (total > conn->rx_ticks)
         delta = total - conn->rx_ticks > 0x0FFFFFFF
@@ -261,19 +271,42 @@ static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
     }
 }
 
-static void mid_rx_pull(uint8_t idx)
+static mid_t *mid_find_port(uint8_t itf, uint8_t cable)
 {
-    mid_t *conn = &mid_mounts[idx];
-    while (mid_ring_free(conn->rx_head, conn->rx_tail) >= 96)
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+        if (mid_mounts[i].mounted && mid_mounts[i].itf == itf &&
+            mid_mounts[i].cable == cable)
+            return &mid_mounts[i];
+    return NULL;
+}
+
+// True while some open input cable on the interface has room to receive.
+static bool mid_itf_can_rx(uint8_t itf)
+{
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+    {
+        mid_t *p = &mid_mounts[i];
+        if (p->mounted && p->opened && p->has_rx && p->itf == itf &&
+            mid_ring_free(p->rx_head, p->rx_tail) >= 96)
+            return true;
+    }
+    return false;
+}
+
+// One interface FIFO carries every cable; demux each chunk to its port.
+static void mid_rx_pull_itf(uint8_t itf)
+{
+    while (mid_itf_can_rx(itf))
     {
         // stream_read can write bufsize+2, claim 62 into 64
         uint8_t stage[64];
         uint8_t cable;
-        uint32_t n = tuh_midi_stream_read(idx, &cable, stage, sizeof(stage) - 2);
+        uint32_t n = tuh_midi_stream_read(itf, &cable, stage, sizeof(stage) - 2);
         if (!n)
             break;
-        if (conn->open_cable >= 0 && cable != conn->open_cable)
-            continue;
+        mid_t *conn = mid_find_port(itf, cable);
+        if (!conn || !conn->opened || !conn->has_rx)
+            continue; // closed or absent cable, drop
         uint64_t t_ns = time_us_64() * 1000;
         for (uint32_t i = 0; i < n; i++)
             mid_rx_wire_byte(conn, t_ns, stage[i]);
@@ -296,14 +329,14 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
                 continue;
             conn->tx_ticks += conn->tx_delta;
             conn->tx_delta = 0;
-            conn->tx_due_ns = conn->epoch_ns + conn->tx_ticks * conn->tick_ns;
+            conn->tx_due_ns = conn->tx_epoch_ns + conn->tx_ticks * conn->tick_ns;
             if (conn->tx_idle)
             {
                 conn->tx_idle = false;
                 // Producer underrun: slip the timeline forward, never back
                 if (conn->tx_due_ns < now_ns)
                 {
-                    conn->epoch_ns += now_ns - conn->tx_due_ns;
+                    conn->tx_epoch_ns += now_ns - conn->tx_due_ns;
                     conn->tx_due_ns = now_ns;
                 }
             }
@@ -311,10 +344,43 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
             conn->tx_msg_len = 0;
             continue;
         }
+        if (conn->tx_state == MID_TX_META_TYPE)
+        {
+            conn->tx_meta_type = b;
+            conn->tx_meta_len = 0;
+            conn->tx_state = MID_TX_META_LEN;
+            continue;
+        }
+        if (conn->tx_state == MID_TX_META_LEN)
+        {
+            conn->tx_meta_len = (conn->tx_meta_len << 7) | (b & 0x7F);
+            if (b & 0x80)
+                continue;
+            conn->tx_meta_rem = conn->tx_meta_len;
+            conn->tx_msg_len = 0;
+            if (conn->tx_meta_rem)
+                conn->tx_state = MID_TX_META_DATA;
+            else
+                conn->tx_pending = conn->tx_meta = true;
+            continue;
+        }
+        if (conn->tx_state == MID_TX_META_DATA)
+        {
+            if (conn->tx_msg_len < sizeof(conn->tx_msg))
+                conn->tx_msg[conn->tx_msg_len++] = b;
+            if (!--conn->tx_meta_rem)
+                conn->tx_pending = conn->tx_meta = true;
+            continue;
+        }
         if (conn->tx_msg_len && b >= 0x80)
             conn->tx_msg_len = 0; // malformed, drop the partial message
         if (!conn->tx_msg_len)
         {
+            if (b == 0xFF) // meta event: consumed locally, never sent
+            {
+                conn->tx_state = MID_TX_META_TYPE;
+                continue;
+            }
             if (b == 0xF4 || b == 0xF5)
             {
                 conn->tx_state = MID_TX_DELTA;
@@ -357,18 +423,54 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
     return conn->tx_pending;
 }
 
-static size_t mid_tx_send(uint8_t idx, uint8_t cable, const uint8_t *data, size_t len)
+static size_t mid_tx_send(uint8_t itf, uint8_t cable, const uint8_t *data, size_t len)
 {
-    uint32_t n = tuh_midi_stream_write(idx, cable, data, len);
+    uint32_t n = tuh_midi_stream_write(itf, cable, data, len);
     if (n)
-        tuh_midi_write_flush(idx);
+        tuh_midi_write_flush(itf);
     return n;
+}
+
+// Apply a TX-stream meta locally (never sent to the device) and mark the
+// effect on the RX recording: the resolved change, or FF 60 on rejection.
+static void mid_tx_apply_meta(mid_t *conn)
+{
+    uint64_t t_ns = conn->tx_due_ns;
+    switch (conn->tx_meta_type)
+    {
+    case 0x51: // SMF Set Tempo: microseconds per quarter note
+        if (conn->tx_meta_len == 3 && conn->ppqn)
+        {
+            uint32_t tempo = ((uint32_t)conn->tx_msg[0] << 16) |
+                             ((uint32_t)conn->tx_msg[1] << 8) | conn->tx_msg[2];
+            uint64_t tick = ((uint64_t)tempo * 1000 + conn->ppqn / 2) / conn->ppqn;
+            if (tempo && tick && tick <= UINT32_MAX)
+            {
+                mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xFF, 0x51, 0x03,
+                                  conn->tx_msg[0], conn->tx_msg[1], conn->tx_msg[2]}, 6);
+                conn->tick_ns = (uint32_t)tick;
+                conn->rx_epoch_ns = conn->tx_epoch_ns = t_ns;
+                conn->rx_ticks = conn->tx_ticks = 0;
+                return;
+            }
+        }
+        break;
+    case 0x61: // Set PPQN division for tempo conversion
+        if (conn->tx_meta_len == 2 && (conn->tx_msg[0] || conn->tx_msg[1]))
+        {
+            conn->ppqn = ((uint16_t)conn->tx_msg[0] << 8) | conn->tx_msg[1];
+            return; // no audible effect until the next tempo
+        }
+        break;
+    default:
+        return; // unknown meta (standard SMF metas included): swallowed
+    }
+    mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xFF, 0x60, 0x01, conn->tx_meta_type}, 4);
 }
 
 static void mid_tx_run(uint8_t idx, uint64_t now_ns)
 {
     mid_t *conn = &mid_mounts[idx];
-    uint8_t cable = conn->open_cable < 0 ? 0 : conn->open_cable;
     for (;;)
     {
         if (conn->tx_state == MID_TX_SYSEX)
@@ -380,13 +482,13 @@ static void mid_tx_run(uint8_t idx, uint64_t now_ns)
                 {
                     // New status mid-sysex, terminate and start next event
                     uint8_t eox = 0xF7;
-                    if (mid_tx_send(idx, cable, &eox, 1) != 1)
+                    if (mid_tx_send(conn->itf, conn->cable, &eox, 1) != 1)
                         return;
                     conn->tx_state = MID_TX_MSG;
                     conn->tx_msg_len = 0;
                     break;
                 }
-                if (mid_tx_send(idx, cable, &b, 1) != 1)
+                if (mid_tx_send(conn->itf, conn->cable, &b, 1) != 1)
                     return;
                 conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
                 if (b == 0xF7)
@@ -406,7 +508,14 @@ static void mid_tx_run(uint8_t idx, uint64_t now_ns)
         }
         if (conn->tx_due_ns > now_ns)
             return;
-        size_t n = mid_tx_send(idx, cable, conn->tx_msg + conn->tx_msg_sent,
+        if (conn->tx_meta)
+        {
+            mid_tx_apply_meta(conn);
+            conn->tx_pending = conn->tx_meta = false;
+            conn->tx_state = MID_TX_DELTA;
+            continue;
+        }
+        size_t n = mid_tx_send(conn->itf, conn->cable, conn->tx_msg + conn->tx_msg_sent,
                                conn->tx_msg_len - conn->tx_msg_sent);
         conn->tx_msg_sent += n;
         if (conn->tx_msg_sent < conn->tx_msg_len)
@@ -437,24 +546,26 @@ static void mid_name_to_oem(const tusb_desc_string_t *desc, char *dest, size_t d
 
 static void mid_name_cb(tuh_xfer_t *xfer)
 {
-    uint8_t idx = (uint8_t)xfer->user_data;
-    if (idx >= CFG_TUH_MIDI || xfer->result != XFER_RESULT_SUCCESS)
+    uint8_t itf = (uint8_t)xfer->user_data;
+    if (xfer->result != XFER_RESULT_SUCCESS)
         return;
     char name[MID_NAME_SIZE];
     mid_name_to_oem((const tusb_desc_string_t *)mid_name_buf, name, sizeof(name));
-    if (name[0])
-        memcpy(mid_mounts[idx].name, name, sizeof(name));
+    if (!name[0])
+        return;
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+        if (mid_mounts[i].mounted && mid_mounts[i].itf == itf)
+            memcpy(mid_mounts[i].name, name, sizeof(name));
 }
 
 void mid_task(void)
 {
+    for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
+        mid_rx_pull_itf(itf);
     uint64_t now_ns = time_us_64() * 1000;
     for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
         if (mid_mounts[idx].mounted && mid_mounts[idx].opened)
-        {
-            mid_rx_pull(idx);
             mid_tx_run(idx, now_ns);
-        }
 }
 
 int mid_status_count(void)
@@ -512,76 +623,39 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    // Numbers 0-15 select a cable, 16+ sets nanoseconds per tick
-    int cable = -1;
-    uint32_t tick_ns = MID_DEFAULT_TICK_NS;
-    const char *params = &name[6];
-    while (*params)
+    if (name[6]) // cable and tempo are set with in-stream meta events now
     {
-        if (!isdigit((unsigned char)*params))
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        uint64_t value = 0;
-        while (isdigit((unsigned char)*params))
-        {
-            value = value * 10 + (*params - '0');
-            if (value > UINT32_MAX)
-            {
-                *err = API_EINVAL;
-                return -1;
-            }
-            params++;
-        }
-        if (value <= 15)
-            cable = (int)value;
-        else
-            tick_ns = (uint32_t)value;
-        if (*params == ',')
-        {
-            params++;
-            if (!*params)
-            {
-                *err = API_EINVAL;
-                return -1;
-            }
-        }
-        else if (*params)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-    }
-    if (cable >= 0)
-    {
-        uint8_t cables = conn->rx_cables > conn->tx_cables ? conn->rx_cables
-                                                           : conn->tx_cables;
-        if (cable >= cables)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
+        *err = API_EINVAL;
+        return -1;
     }
 
-    // Discard anything received while closed
-    for (int i = 64; i; i--)
-    {
-        uint8_t stage[64];
-        uint8_t cable_num;
-        if (!tuh_midi_stream_read(idx, &cable_num, stage, sizeof(stage) - 2))
-            break;
-    }
+    // Stale RX accumulates only while the whole interface is idle; if no
+    // sibling cable is open, flush it so this cable starts clean.
+    bool itf_idle = true;
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+        if (i != idx && mid_mounts[i].mounted && mid_mounts[i].opened &&
+            mid_mounts[i].itf == conn->itf)
+            itf_idle = false;
+    if (itf_idle)
+        for (int i = 64; i; i--)
+        {
+            uint8_t stage[64];
+            uint8_t cable_num;
+            if (!tuh_midi_stream_read(conn->itf, &cable_num, stage, sizeof(stage) - 2))
+                break;
+        }
 
-    conn->open_cable = cable;
-    conn->tick_ns = tick_ns;
-    conn->epoch_ns = time_us_64() * 1000;
+    uint64_t now_ns = time_us_64() * 1000;
+    conn->tick_ns = MID_DEFAULT_TICK_NS;
+    conn->ppqn = 0;
+    conn->rx_epoch_ns = now_ns;
     conn->rx_head = conn->rx_tail = 0;
     conn->rx_ticks = 0;
     conn->rx_status = 0;
     conn->rx_msg_len = 0;
     conn->rx_in_sysex = false;
     conn->rx_ring_sysex = false;
+    conn->tx_epoch_ns = now_ns;
     conn->tx_head = conn->tx_tail = 0;
     conn->tx_ticks = 0;
     conn->tx_delta = 0;
@@ -590,8 +664,9 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_status = 0;
     conn->tx_pending = false;
     conn->tx_idle = true;
+    conn->tx_meta = false;
     conn->opened = true;
-    DBG("MIDI%d: open cable %d tick %luns\n", idx, cable, (unsigned long)tick_ns);
+    DBG("MIDI%d: open\n", idx);
     return idx;
 }
 
@@ -611,7 +686,7 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
                            uint32_t *bytes_read, api_errno *err)
 {
     mid_t *conn = &mid_mounts[desc];
-    if (!conn->mounted || !conn->opened)
+    if (!conn->mounted || !conn->opened || !conn->has_rx)
     {
         *err = API_EIO;
         return STD_ERROR;
@@ -630,47 +705,65 @@ std_rw_result mid_std_write(int desc, const char *buf, uint32_t buf_size,
                             uint32_t *bytes_written, api_errno *err)
 {
     mid_t *conn = &mid_mounts[desc];
-    if (!conn->mounted || !conn->opened)
+    if (!conn->mounted || !conn->opened || !conn->has_tx)
     {
         *err = API_EIO;
         return STD_ERROR;
     }
     uint32_t n = 0;
-    if (conn->tx_cables)
-        while (n < buf_size && mid_ring_free(conn->tx_head, conn->tx_tail))
-        {
-            conn->tx_ring[conn->tx_head] = buf[n++];
-            conn->tx_head = (conn->tx_head + 1) & (MID_RING_SIZE - 1);
-        }
+    while (n < buf_size && mid_ring_free(conn->tx_head, conn->tx_tail))
+    {
+        conn->tx_ring[conn->tx_head] = buf[n++];
+        conn->tx_head = (conn->tx_head + 1) & (MID_RING_SIZE - 1);
+    }
     *bytes_written = n;
     return STD_OK;
 }
 
-void tuh_midi_mount_cb(uint8_t idx, const tuh_midi_mount_cb_t *mount_cb_data)
+void tuh_midi_mount_cb(uint8_t itf, const tuh_midi_mount_cb_t *mount_cb_data)
 {
-    if (idx >= CFG_TUH_MIDI)
+    if (itf >= CFG_TUH_MIDI)
         return;
-    mid_t *conn = &mid_mounts[idx];
-    memset(conn, 0, sizeof(*conn));
-    conn->daddr = mount_cb_data->daddr;
-    conn->rx_cables = mount_cb_data->rx_cable_count;
-    conn->tx_cables = mount_cb_data->tx_cable_count;
+    uint8_t rx = mount_cb_data->rx_cable_count;
+    uint8_t tx = mount_cb_data->tx_cable_count;
+    uint8_t ncables = rx > tx ? rx : tx;
     uint16_t vid, pid;
-    tuh_vid_pid_get(conn->daddr, &vid, &pid);
-    snprintf(conn->name, sizeof(conn->name), "%04X:%04X", vid, pid);
-    conn->mounted = true;
-    DBG("MIDI%d: mount %04X:%04X dev_addr=%d\n", idx, vid, pid, conn->daddr);
-    tuh_descriptor_get_product_string(conn->daddr, 0x0409,
+    tuh_vid_pid_get(mount_cb_data->daddr, &vid, &pid);
+    for (uint8_t c = 0; c < ncables; c++)
+    {
+        uint8_t slot = CFG_TUH_MIDI;
+        for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+            if (!mid_mounts[i].mounted)
+            {
+                slot = i;
+                break;
+            }
+        if (slot == CFG_TUH_MIDI)
+            break; // no free port; remaining cables are dropped
+        mid_t *conn = &mid_mounts[slot];
+        memset(conn, 0, sizeof(*conn));
+        conn->daddr = mount_cb_data->daddr;
+        conn->itf = itf;
+        conn->cable = c;
+        conn->has_rx = c < rx;
+        conn->has_tx = c < tx;
+        snprintf(conn->name, sizeof(conn->name), "%04X:%04X", vid, pid);
+        conn->mounted = true;
+        DBG("MIDI%u: itf %u cable %u %c%c %04X:%04X\n", slot, itf, c,
+            conn->has_rx ? 'R' : '-', conn->has_tx ? 'T' : '-', vid, pid);
+    }
+    tuh_descriptor_get_product_string(mount_cb_data->daddr, 0x0409,
                                       mid_name_buf, sizeof(mid_name_buf),
-                                      mid_name_cb, idx);
+                                      mid_name_cb, itf);
 }
 
-void tuh_midi_umount_cb(uint8_t idx)
+void tuh_midi_umount_cb(uint8_t itf)
 {
-    DBG("MIDI%d: unmount\n", idx);
-    if (idx < CFG_TUH_MIDI)
-    {
-        mid_mounts[idx].mounted = false;
-        mid_mounts[idx].opened = false;
-    }
+    DBG("MIDI: unmount itf %u\n", itf);
+    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
+        if (mid_mounts[i].mounted && mid_mounts[i].itf == itf)
+        {
+            mid_mounts[i].mounted = false;
+            mid_mounts[i].opened = false;
+        }
 }
