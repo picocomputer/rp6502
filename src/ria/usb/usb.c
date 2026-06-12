@@ -4,11 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "api/oem.h"
+#include "fatfs/ff.h"
 #include "hid/hid.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
 #include "host/hcd.h"
+#include "main.h"
 #include "str/str.h"
 #include "usb/mid.h"
 #include "usb/msc.h"
@@ -17,6 +20,7 @@
 #include "usb/xin.h"
 #include <pico/time.h>
 #include <stdio.h>
+#include <string.h>
 #include <tusb.h>
 
 extern int hcd_free_ep_count(void);
@@ -225,6 +229,97 @@ bool usb_boot_enumerating(void)
         return false;
     }
     return true;
+}
+
+// UTF-16 char count in a string descriptor, clamped to the buffer capacity.
+uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
+{
+    const tusb_desc_string_t *desc = desc_buf;
+    if (desc->bDescriptorType != TUSB_DESC_STRING || desc->bLength < 2)
+        return 0;
+    uint16_t ulen = (desc->bLength - 2) / 2;
+    uint16_t max_ulen = (desc_buf_size - sizeof(tusb_desc_string_t)) / sizeof(uint16_t);
+    if (ulen > max_ulen)
+        ulen = max_ulen;
+    return ulen;
+}
+
+// Convert USB string descriptor to OEM for display.
+void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size)
+{
+    const tusb_desc_string_t *desc = desc_buf;
+    uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
+    uint16_t cp = oem_get_code_page_run();
+    size_t pos = 0;
+    for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
+    {
+        WCHAR ch = ff_uni2oem(desc->utf16le[i], cp);
+        dest[pos++] = ch ? (char)ch : 127;
+    }
+    dest[pos] = '\0';
+}
+
+// One fetch at a time; the pending flag holds the buffer until the
+// callback releases it, even across a timed-out wait.
+static uint8_t usb_string_buf[USB_DESC_STRING_BUF_SIZE];
+static bool usb_string_pending;
+static xfer_result_t usb_string_result;
+
+static void usb_string_fetch_cb(tuh_xfer_t *xfer)
+{
+    usb_string_result = xfer->result;
+    usb_string_pending = false;
+}
+
+// Pumps main_task() while spinning, like msc_scsi_sync.
+static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
+{
+    if (usb_string_pending)
+        return NULL;
+    memset(usb_string_buf, 0, sizeof(usb_string_buf));
+    if (!index)
+        return usb_string_buf; // device has no such string
+    usb_string_pending = true;
+    if (!tuh_descriptor_get_string(daddr, index, 0x0409, usb_string_buf,
+                                   sizeof(usb_string_buf), usb_string_fetch_cb, 0))
+    {
+        usb_string_pending = false;
+        return NULL;
+    }
+    uint32_t start_ms = tusb_time_millis_api();
+    while (usb_string_pending)
+    {
+        if (tusb_time_millis_api() - start_ms >= 250)
+            return NULL; // the callback still owns the buffer
+        main_task();
+    }
+    if (usb_string_result != XFER_RESULT_SUCCESS)
+        memset(usb_string_buf, 0, sizeof(usb_string_buf));
+    return usb_string_buf;
+}
+
+const void *usb_string_fetch_manufacturer(uint8_t daddr)
+{
+    tusb_desc_device_t desc;
+    if (!tuh_descriptor_get_device_local(daddr, &desc))
+        return NULL;
+    return usb_string_fetch(daddr, desc.iManufacturer);
+}
+
+const void *usb_string_fetch_product(uint8_t daddr)
+{
+    tusb_desc_device_t desc;
+    if (!tuh_descriptor_get_device_local(daddr, &desc))
+        return NULL;
+    return usb_string_fetch(daddr, desc.iProduct);
+}
+
+const void *usb_string_fetch_serial(uint8_t daddr)
+{
+    tusb_desc_device_t desc;
+    if (!tuh_descriptor_get_device_local(daddr, &desc))
+        return NULL;
+    return usb_string_fetch(daddr, desc.iSerialNumber);
 }
 
 void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)

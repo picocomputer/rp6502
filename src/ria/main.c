@@ -43,6 +43,7 @@
 #include "usb/usb.h"
 #include "usb/mid.h"
 #include "usb/nfc.h"
+#include "usb/vcp.h"
 #include "usb/xin.h"
 #include <pico/time.h>
 #include <stdio.h>
@@ -141,6 +142,7 @@ static void task(void)
     fil_task();
     rom_task();
     uf2_task();
+    vcp_task();
     nfc_task(); // must be last for exec
     api_task(); // must be last for exec
 }

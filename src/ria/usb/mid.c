@@ -5,9 +5,8 @@
  */
 
 #include "usb/mid.h"
-#include "api/oem.h"
-#include "fatfs/ff.h"
 #include "str/str.h"
+#include "usb/usb.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>
@@ -28,7 +27,6 @@ __in_flash("mid_string") static const char mid_string[] = "MIDI";
 static_assert(sizeof(mid_string) == 4 + 1);
 
 #define MID_RING_SIZE 128
-#define MID_NAME_SIZE 32
 #define MID_DEFAULT_TEMPO 500000 // microseconds per quarter note, 120 BPM
 #define MID_DEFAULT_PPQN 480
 #define MID_MAX_PPQN 32767 // SMF division with bit 15 clear
@@ -53,7 +51,6 @@ typedef struct
     uint8_t cable; // cable number within the interface
     bool has_rx;
     bool has_tx;
-    char name[MID_NAME_SIZE];
     uint32_t tick_ns; // derived: tempo * 1000 / ppqn
     uint32_t tempo;   // microseconds per quarter note
     uint16_t ppqn;    // ticks per quarter note, fixed at open
@@ -83,8 +80,8 @@ typedef struct
     bool tx_idle;
     uint8_t tx_acc[3]; // sysex bytes accumulating toward one packet
     uint8_t tx_acc_len;
-    bool tx_acc_eox;     // accumulator ends the sysex
-    bool tx_sysex_break; // ended by a foreign status byte, reparse it
+    bool tx_acc_eox;      // accumulator ends the sysex
+    bool tx_sysex_break;  // ended by a foreign status byte, reparse it
     uint8_t tx_meta_type; // FF meta consumed locally, applied at its due time
     uint32_t tx_meta_len;
     uint32_t tx_meta_rem;
@@ -93,9 +90,6 @@ typedef struct
 } mid_t;
 static mid_t mid_mounts[CFG_TUH_MIDI];
 static_assert(CFG_TUH_MIDI <= 10); // one char 0-9 in "MIDI0:"
-
-// Product string fetches share one buffer, serialized by the control pipe.
-static uint8_t mid_name_buf[64];
 
 static inline uint16_t mid_ring_free(uint16_t head, uint16_t tail)
 {
@@ -640,39 +634,6 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
     }
 }
 
-// Convert USB string descriptor to OEM for display.
-static void mid_name_to_oem(const tusb_desc_string_t *desc, char *dest, size_t dest_size)
-{
-    uint16_t ulen = 0;
-    if (desc->bDescriptorType == TUSB_DESC_STRING && desc->bLength >= 2)
-        ulen = (desc->bLength - 2) / 2;
-    uint16_t max_ulen = (sizeof(mid_name_buf) - sizeof(tusb_desc_string_t)) / sizeof(uint16_t);
-    if (ulen > max_ulen)
-        ulen = max_ulen;
-    uint16_t cp = oem_get_code_page_run();
-    size_t pos = 0;
-    for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
-    {
-        WCHAR ch = ff_uni2oem(desc->utf16le[i], cp);
-        dest[pos++] = ch ? (char)ch : '?';
-    }
-    dest[pos] = '\0';
-}
-
-static void mid_name_cb(tuh_xfer_t *xfer)
-{
-    uint8_t itf = (uint8_t)xfer->user_data;
-    if (xfer->result != XFER_RESULT_SUCCESS)
-        return;
-    char name[MID_NAME_SIZE];
-    mid_name_to_oem((const tusb_desc_string_t *)mid_name_buf, name, sizeof(name));
-    if (!name[0])
-        return;
-    for (uint8_t i = 0; i < CFG_TUH_MIDI; i++)
-        if (mid_mounts[i].mounted && mid_mounts[i].itf == itf)
-            memcpy(mid_mounts[i].name, name, sizeof(name));
-}
-
 void mid_task(void)
 {
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
@@ -706,8 +667,19 @@ int mid_status_response(char *buf, size_t buf_size, int state)
     {
         char devname[sizeof(mid_string) + 2];
         snprintf(devname, sizeof(devname), "%s%d", mid_string, state);
-        // name is already OEM, snprintf_utf8 would mangle high bytes
-        snprintf(buf, buf_size, STR_STATUS_MIDI, devname, conn->name);
+        char name[USB_DESC_STRING_MAX_CHAR_LEN + 1];
+        name[0] = '\0';
+        const void *desc = usb_string_fetch_product(conn->daddr);
+        if (desc)
+            usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, name, sizeof(name));
+        if (!name[0])
+        {
+            uint16_t vid = 0, pid = 0;
+            tuh_vid_pid_get(conn->daddr, &vid, &pid);
+            snprintf(name, sizeof(name), "%04X:%04X", vid, pid);
+        }
+        // name is OEM, snprintf_utf8 would mangle high bytes
+        snprintf(buf, buf_size, STR_STATUS_MIDI, devname, name);
     }
     return state + 1;
 }
@@ -910,14 +882,10 @@ void tuh_midi_mount_cb(uint8_t itf, const tuh_midi_mount_cb_t *mount_cb_data)
         conn->cable = c;
         conn->has_rx = c < rx;
         conn->has_tx = c < tx;
-        snprintf(conn->name, sizeof(conn->name), "%04X:%04X", vid, pid);
         conn->mounted = true;
         DBG("MIDI%u: itf %u cable %u %c%c %04X:%04X\n", slot, itf, c,
             conn->has_rx ? 'R' : '-', conn->has_tx ? 'T' : '-', vid, pid);
     }
-    tuh_descriptor_get_product_string(mount_cb_data->daddr, 0x0409,
-                                      mid_name_buf, sizeof(mid_name_buf),
-                                      mid_name_cb, itf);
 }
 
 void tuh_midi_umount_cb(uint8_t itf)

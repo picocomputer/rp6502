@@ -16,6 +16,12 @@
 #include "api/api.h"
 #include "api/std.h"
 
+/* Main events
+ */
+
+// Runs in the FatFs task tier: may block on USB string fetches.
+void vcp_task(void);
+
 /* Status
  */
 
@@ -36,7 +42,8 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size, uint32
 
 void vcp_load_nfc_device_hash(const char *str);
 const char *vcp_get_nfc_device_hash(void);
-void vcp_set_nfc_device_name(const char *name);
+// False when the device identity hash couldn't be built; retryable.
+bool vcp_set_nfc_device_name(const char *name);
 int vcp_nfc_open(void);
 
 #endif /* _RIA_USB_VCP_H_ */
