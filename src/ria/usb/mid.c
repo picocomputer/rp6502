@@ -512,7 +512,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    // Numbers 0-15 select a cable, 16+ sets microseconds per tick
+    // Numbers 0-15 select a cable, 16+ sets nanoseconds per tick
     int cable = -1;
     uint32_t tick_ns = MID_DEFAULT_TICK_NS;
     const char *params = &name[6];
@@ -523,61 +523,21 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
             *err = API_EINVAL;
             return -1;
         }
-        uint32_t whole = 0;
+        uint64_t value = 0;
         while (isdigit((unsigned char)*params))
         {
-            whole = whole * 10 + (*params - '0');
-            if (whole > 4294967) // keeps nanoseconds in 32 bits
+            value = value * 10 + (*params - '0');
+            if (value > UINT32_MAX)
             {
                 *err = API_EINVAL;
                 return -1;
             }
             params++;
         }
-        bool fractional = false;
-        uint32_t frac = 0;
-        int frac_digits = 0;
-        if (*params == '.')
-        {
-            params++;
-            if (!isdigit((unsigned char)*params))
-            {
-                *err = API_EINVAL;
-                return -1;
-            }
-            fractional = true;
-            while (isdigit((unsigned char)*params))
-            {
-                if (frac_digits < 6)
-                {
-                    frac = frac * 10 + (*params - '0');
-                    frac_digits++;
-                }
-                params++;
-            }
-        }
-        if (!fractional && whole <= 15)
-            cable = whole;
-        else if (whole >= 16)
-        {
-            static const uint32_t pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
-            uint32_t frac_ns = frac_digits
-                                   ? (uint32_t)(((uint64_t)frac * 1000 + pow10[frac_digits] / 2) /
-                                                pow10[frac_digits])
-                                   : 0;
-            uint64_t ns = (uint64_t)whole * 1000 + frac_ns;
-            if (ns > UINT32_MAX)
-            {
-                *err = API_EINVAL;
-                return -1;
-            }
-            tick_ns = ns;
-        }
+        if (value <= 15)
+            cable = (int)value;
         else
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
+            tick_ns = (uint32_t)value;
         if (*params == ',')
         {
             params++;
