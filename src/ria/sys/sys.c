@@ -15,6 +15,7 @@
 #include "str/str.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/mid.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/vcp.h"
@@ -89,4 +90,5 @@ void sys_mon_status(const char *args)
     mon_add_response_fn(usb_status_response);
     mon_add_response_fn(msc_status_response);
     mon_add_response_fn(vcp_status_response);
+    mon_add_response_fn(mid_status_response);
 }

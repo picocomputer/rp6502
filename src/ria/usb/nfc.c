@@ -603,11 +603,15 @@ void nfc_task(void)
         {
             char name[8];
             nfc_vcp_name(name, sizeof(name));
-            vcp_set_nfc_device_name(name);
-            nfc_success();
-            nfc_start_tx(NFC_SAM_TX);
+            if (vcp_set_nfc_device_name(name))
+            {
+                nfc_success();
+                nfc_start_tx(NFC_SAM_TX);
+                break;
+            }
+            // Hash fetch couldn't run, retry until the probe timeout
         }
-        else if (time_reached(nfc_timeout))
+        if (time_reached(nfc_timeout))
             nfc_goto(NFC_SCAN_CLOSE, 0);
         break;
     }

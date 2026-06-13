@@ -14,7 +14,7 @@ separate tool calls instead of shell operators.
 Never search the root of the filesystem. Everything you need will be in
 the user home directory.
 
-Never use git unless I specifically ask. No commits, branches, stashes,
+Limit git usage unless I specifically ask. No commits, branches, stashes,
 resets, or any other git command on your own initiative.
 
 To build, run `cmake --build build` from the project root. That builds
