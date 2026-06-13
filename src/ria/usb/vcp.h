@@ -19,7 +19,6 @@
 /* Main events
  */
 
-// Runs in the FatFs task tier: may block on USB string fetches.
 void vcp_task(void);
 
 /* Status
