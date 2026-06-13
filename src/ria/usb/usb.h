@@ -29,4 +29,22 @@ void usb_set_hid_leds(uint8_t leds);
 // True when USB in boot enumeration sequence
 bool usb_boot_enumerating(void);
 
+/* USB string descriptors
+ */
+
+// Fetch/conversion buffer: 2-byte header + 31 UTF-16 chars
+#define USB_DESC_STRING_BUF_SIZE 64
+#define USB_DESC_STRING_MAX_CHAR_LEN ((USB_DESC_STRING_BUF_SIZE - 2) / 2)
+
+// UTF-16 char count in a string descriptor, clamped to the buffer capacity.
+uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size);
+
+// Convert USB string descriptor to OEM for display.
+void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size);
+
+// Blocking fetches returning a shared USB_DESC_STRING_BUF_SIZE buffer.
+const void *usb_string_fetch_manufacturer(uint8_t daddr);
+const void *usb_string_fetch_product(uint8_t daddr);
+const void *usb_string_fetch_serial(uint8_t daddr);
+
 #endif /* _RIA_USB_USB_H_ */

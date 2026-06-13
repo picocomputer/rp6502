@@ -41,7 +41,9 @@
 #include "sys/sys.h"
 #include "sys/vga.h"
 #include "usb/usb.h"
+#include "usb/mid.h"
 #include "usb/nfc.h"
+#include "usb/vcp.h"
 #include "usb/xin.h"
 #include <pico/time.h>
 #include <stdio.h>
@@ -119,6 +121,7 @@ void main_task(void)
     cpu_task();
     ria_task();
     kbd_task();
+    mid_task();
     cyw_task();
     vga_task();
     com_task();
@@ -139,6 +142,7 @@ static void task(void)
     fil_task();
     rom_task();
     uf2_task();
+    vcp_task();
     nfc_task(); // must be last for exec
     api_task(); // must be last for exec
 }
