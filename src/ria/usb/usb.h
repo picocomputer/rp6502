@@ -42,9 +42,7 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size);
 // Convert USB string descriptor to OEM for display.
 void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size);
 
-// Blocking fetches returning a shared USB_DESC_STRING_BUF_SIZE buffer,
-// zeroed when the device has no string, or NULL when the fetch couldn't
-// run. These pump main_task() while waiting, same restrictions as FatFs.
+// Blocking fetches returning a shared USB_DESC_STRING_BUF_SIZE buffer.
 const void *usb_string_fetch_manufacturer(uint8_t daddr);
 const void *usb_string_fetch_product(uint8_t daddr);
 const void *usb_string_fetch_serial(uint8_t daddr);
