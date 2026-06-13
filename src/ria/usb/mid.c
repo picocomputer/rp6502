@@ -51,6 +51,9 @@ typedef struct
     uint8_t cable; // cable number within the interface
     bool has_rx;
     bool has_tx;
+    // Tick in ns is fixed point, not clock resolution: timestamps are 1 us
+    // quanta. Rounding the tick to us would skew tempo up to ~0.2% at high
+    // ppqn; rounding to ns stays under 1 ppm, below the 30 ppm crystal.
     uint32_t tick_ns; // derived: tempo * 1000 / ppqn
     uint32_t tempo;   // microseconds per quarter note
     uint16_t ppqn;    // ticks per quarter note, fixed at open
