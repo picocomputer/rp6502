@@ -92,50 +92,123 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to the modifier byte of kbd_keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
-#define X(suffix, name, desc)                                          \
-    static const char __in_flash("kbd_layout_strings")                 \
-        KBD_LAYOUT_NAME_##suffix[] = name;                             \
-    static const char __in_flash("kbd_layout_strings")                 \
-        KBD_LAYOUT_DESC_##suffix[] = desc;                             \
-    static const DWORD __in_flash("kbd_layout_deadkeys")               \
-        KBD_LAYOUT_DEAD2__##suffix[][3] = {KBD_LAYOUT_DEAD2_##suffix}; \
-    static const DWORD __in_flash("kbd_layout_deadkeys")               \
-        KBD_LAYOUT_DEAD3__##suffix[][4] = {KBD_LAYOUT_DEAD3_##suffix};
-KBD_LAYOUTS
-#undef X
+// Per-layout tables generated from def/kbd.def. Each BEGIN opens one
+// __in_flash array named by its suffix; the manifest is re-included once per
+// pass below. Adding a layout touches only def/ (see def/kbd.def).
+#define BEGIN(sfx, code, desc) \
+    static const DWORD __in_flash("kbd_keys") kbd_keys_##sfx[128][5] = {
+#define KEY(kc, u, s, a, sa, caps) [kc] = {u, s, a, sa, caps},
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r)
+#define END() \
+    }         \
+    ;
+#include "def/kbd.def"
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
 
-#define X(suffix, name, desc) \
-    KBD_LAYOUT_NAME_##suffix,
+#define BEGIN(sfx, code, desc) \
+    static const DWORD __in_flash("kbd_dead2") kbd_dead2_##sfx[][3] = {
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r) {d, b, r},
+#define DEAD3(d1, d2, b, r)
+#define END() {0}} \
+    ;
+#include "def/kbd.def"
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
+
+#define BEGIN(sfx, code, desc) \
+    static const DWORD __in_flash("kbd_dead3") kbd_dead3_##sfx[][4] = {
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r) {d1, d2, b, r},
+#define END() {0}} \
+    ;
+#include "def/kbd.def"
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
+
+#define BEGIN(sfx, code, desc) code,
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r)
+#define END()
 static const char *__in_flash("kbd_layout_names")
     kbd_layout_names[] = {
-        KBD_LAYOUTS};
-#undef X
+#include "def/kbd.def"
+};
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
 
-#define X(suffix, name, desc) \
-    KBD_LAYOUT_DESC_##suffix,
+#define BEGIN(sfx, code, desc) desc,
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r)
+#define END()
 static const char *__in_flash("kbd_layout_descriptions")
     kbd_layout_descriptions[] = {
-        KBD_LAYOUTS};
-#undef X
+#include "def/kbd.def"
+};
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
 
-#define X(suffix, name, desc) \
-    {KBD_LAYOUT_KEYS_##suffix},
-static DWORD const __in_flash("kbd_layout_keys")
-    kbd_layout_keys[][128][5] = {
-        KBD_LAYOUTS};
-#undef X
+#define BEGIN(sfx, code, desc) kbd_keys_##sfx,
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r)
+#define END()
+static DWORD const __in_flash("kbd_layout_keys") (*kbd_layout_keys[])[5] = {
+#include "def/kbd.def"
+};
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
 
-#define X(suffix, name, desc) \
-    KBD_LAYOUT_DEAD2__##suffix,
+#define BEGIN(sfx, code, desc) kbd_dead2_##sfx,
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r)
+#define END()
 static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
-    KBD_LAYOUTS};
-#undef X
+#include "def/kbd.def"
+};
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
 
-#define X(suffix, name, desc) \
-    KBD_LAYOUT_DEAD3__##suffix,
+#define BEGIN(sfx, code, desc) kbd_dead3_##sfx,
+#define KEY(kc, u, s, a, sa, caps)
+#define DEAD2(d, b, r)
+#define DEAD3(d1, d2, b, r)
+#define END()
 static DWORD const __in_flash("kbd_layout_dead3") (*kbd_layout_dead3[])[4] = {
-    KBD_LAYOUTS};
-#undef X
+#include "def/kbd.def"
+};
+#undef BEGIN
+#undef KEY
+#undef DEAD2
+#undef DEAD3
+#undef END
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {

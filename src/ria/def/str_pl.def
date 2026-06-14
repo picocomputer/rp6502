@@ -10,15 +10,10 @@
 
 // Polish
 
-// Suppress bogus VS Code IntelliSense errors
-#if defined(__INTELLISENSE__) && !defined(X)
-#define X(name, value) extern const char name[];
-#define XR(name, value) X(name, value)
-#endif
+#include "def/def.h"
+BEGIN(PL, "PL", "Polski", 852)
 
 // Time and date, POSIX LC_TIME.
-// Day and month entries must stay consecutive; they are indexed
-// by tm_wday and tm_mon.
 X(STR_TIME_DAY_0, "niedziela")
 X(STR_TIME_DAY_1, "poniedziałek")
 X(STR_TIME_DAY_2, "wtorek")
@@ -184,10 +179,6 @@ X(STR_ROM_INSTALLED_NONE, "Brak zainstalowanych ROM.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d zainstalowany ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d zainstalowanych ROM:\n")
 
-// UF2 progress messages, must be in RAM
-XR(STR_UF2_FLASHING, "\rProgramowanie UF2: %d%%")
-XR(STR_UF2_FLASH_FAILED, "\n?Programowanie UF2 nie powiodło się, odzyskaj przez BOOTSEL\n")
-
 X(STR_HELP_HELP,
   "Komendy:\n"
   "HELP (komenda|rom)  - \aTa pomoc lub rozszerzona pomoc komendy albo rom.\n"
@@ -222,17 +213,16 @@ X(STR_HELP_SET,
   "SET KB (układy)    - \aSprawdź lub ustaw układy klawiatury.\n"
   "SET CP (cp)        - \aSprawdź lub ustaw stronę kodową.\n"
   "SET VGA (0|1|2)    - \aSprawdź lub ustaw typ obrazu dla wyjścia VGA.\n"
-  "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n"
-#ifdef RP6502_RIA_W
+  "SET NFC (0|1|2|86) - \aWyłącz lub włącz czytnik NFC. 2 skanuje PN532.\n")
+
+X(STR_HELP_SET_W,
   "SET RF (0|1)       - \aWyłącz lub włącz radio.\n"
   "SET RFCC (cc|-)    - \aUstaw kod kraju dla RF. \"-\" oznacza cały świat.\n"
   "SET SSID (ssid|-)  - \aUstaw SSID WiFi. \"-\" oznacza brak.\n"
   "SET PASS (hasło|-) - \aUstaw hasło WiFi. \"-\" oznacza brak.\n"
   "SET PORT (port)    - \aUstaw port TCP zdalnej konsoli telnet.\n"
   "SET KEY (klucz|-)  - \aUstaw klucz dostępu zdalnej konsoli. \"-\" oznacza brak.\n"
-  "SET BLE (0|1|2|86) - \aWyłącz lub włącz Bluetooth LE. 2 włącza parowanie.\n"
-#endif
-  "")
+  "SET BLE (0|1|2|86) - \aWyłącz lub włącz Bluetooth LE. 2 włącza parowanie.\n")
 
 X(STR_HELP_SYSTEM,
   "Picocomputer nie używa tradycyjnego równoległego ROM-u, takiego jak 27C64\n"
@@ -378,11 +368,10 @@ X(STR_HELP_SET_CP,
   "SET CP wybiera systemową stronę kodową OEM. SET CP 0 to tryb automatyczny\n"
   "(domyślny): strona kodowa podąża za językiem ustawionym przez SET LOC.\n"
   "Każda inna wartość to stałe nadpisanie. Obsługiwane są: 437, 720, 737, 771,\n"
-  "775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n"
-#ifndef NDEBUG
-  "To jest kompilacja deweloperska. Dostępna jest tylko " STR_OEM_CODE_PAGE ".\n"
-#endif
-  "")
+  "775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n")
+
+X(STR_HELP_SET_CP_DEV,
+  "To jest kompilacja deweloperska. Dostępna jest tylko " STR_OEM_CODE_PAGE ".\n")
 
 X(STR_HELP_SET_VGA,
   "SET VGA wybiera typ wyświetlacza dla wyjścia VGA. Wszystkie rozdzielczości\n"
@@ -428,3 +417,5 @@ X(STR_HELP_SET_KEY,
   "SET KEY -       \ausuwa klucz.\n"
   "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno KEY\n"
   " jak i PORT (patrz \"help KEY\").\n")
+
+END()

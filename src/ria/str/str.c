@@ -32,77 +32,103 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
     const char __in_flash(__XSTRING(name)) name[] = value;
 #define XR(name, value) \
     const char __not_in_flash(__XSTRING(name)) name[] = value;
-#include "str.def"
+#include "def/str_sys.def"
 #undef X
 #undef XR
 
-// Localized strings, one storage copy per locale (suffixed _en/_pl). X
-// stays in flash; XR is RAM-resident so it survives the XIP suspend during
-// flashing. This is a copy_to_ram build, so plain literals would land in
-// RAM -- keep each string explicitly __in_flash.
-#define X(name, value) static const char __in_flash(__XSTRING(name)) name##_en[] = value;
-#define XR(name, value) static const char __not_in_flash(__XSTRING(name)) name##_en[] = value;
-#include "str_en.def"
+// Per-locale string tables and registry, generated from def/str.def. Each
+// BEGIN opens one __in_flash table of pointers sized to str_loc_id; the
+// [name] = value designators place each string by its id, so line order
+// within a locale file is irrelevant. The manifest is re-included once per
+// pass. Adding a locale touches only def/ (see def/str.def). This is a
+// copy_to_ram build, so the tables are explicitly __in_flash to stay out of RAM.
+#define BEGIN(sfx, code, verbose, cp) \
+    static const char *const __in_flash("str_tab") str_tab_##sfx[STR_LOC_COUNT] = {
+#define END() };
+#define X(name, value) [name] = value,
+#include "def/str.def"
+#undef BEGIN
+#undef END
 #undef X
-#undef XR
-#define X(name, value) static const char __in_flash(__XSTRING(name)) name##_pl[] = value;
-#define XR(name, value) static const char __not_in_flash(__XSTRING(name)) name##_pl[] = value;
-#include "str_pl.def"
-#undef X
-#undef XR
 
-// Per-locale lookup tables (in flash), indexed by enum str_loc_id.
-#define X(name, value) name##_en,
-#define XR(name, value) name##_en,
-static const char *const __in_flash("str_loc_en") str_loc_en[] = {
-#include "str_en.def"
+#define BEGIN(sfx, code, verbose, cp) str_tab_##sfx,
+#define END()
+#define X(name, value)
+static const char *const *const __in_flash("str_tabs") str_tabs[] = {
+#include "def/str.def"
 };
+#undef BEGIN
+#undef END
 #undef X
-#undef XR
-#define X(name, value) name##_pl,
-#define XR(name, value) name##_pl,
-static const char *const __in_flash("str_loc_pl") str_loc_pl[] = {
-#include "str_pl.def"
-};
-#undef X
-#undef XR
 
-// Locale registry. The string tables and these parallel arrays are all
-// ordered by RP6502_LOCALES, so one index selects the table, the names and
-// the default code page. This module is the sole owner of the active locale.
-#define X(suffix, file, shortn, verbose, cp) str_loc_##file,
-static const char *const *const __in_flash("str_tables") str_tables[] = {
-    RP6502_LOCALES};
-#undef X
-#define X(suffix, file, shortn, verbose, cp) shortn,
+// Parallel registry arrays, ordered by def/str.def.
+#define BEGIN(sfx, code, verbose, cp) code,
+#define END()
+#define X(name, value)
 static const char *const __in_flash("str_locale_names") str_locale_names[] = {
-    RP6502_LOCALES};
-#undef X
-#define X(suffix, file, shortn, verbose, cp) verbose,
-static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
-    RP6502_LOCALES};
-#undef X
-#define X(suffix, file, shortn, verbose, cp) cp,
-static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
-    RP6502_LOCALES};
+#include "def/str.def"
+};
+#undef BEGIN
+#undef END
 #undef X
 
-static_assert(sizeof str_loc_pl == sizeof str_loc_en,
-              "locale string tables differ in length");
+#define BEGIN(sfx, code, verbose, cp) verbose,
+#define END()
+#define X(name, value)
+static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
+#include "def/str.def"
+};
+#undef BEGIN
+#undef END
+#undef X
+
+#define BEGIN(sfx, code, verbose, cp) cp,
+#define END()
+#define X(name, value)
+static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
+#include "def/str.def"
+};
+#undef BEGIN
+#undef END
+#undef X
+
+// Order no longer matters (entries are placed by id), but every locale must
+// still define each string exactly once. Count each locale's entries and
+// assert the total; a missing or extra line trips here, a duplicate id trips
+// -Werror=override-init in the table pass above.
+#define BEGIN(sfx, code, verbose, cp) enum \
+{                                          \
+    str_count_##sfx = 0
+#define END() \
+    }         \
+    ;
+#define X(name, value) +1
+#include "def/str.def"
+#undef BEGIN
+#undef END
+#undef X
+#define BEGIN(sfx, code, verbose, cp) \
+    static_assert((int)str_count_##sfx == STR_LOC_COUNT, "locale " #sfx " string count mismatch");
+#define END()
+#define X(name, value)
+#include "def/str.def"
+#undef BEGIN
+#undef END
+#undef X
 
 static int str_locale_index;
 static bool str_locale_loaded;
 
 const char *S(int id)
 {
-    return str_tables[str_locale_index][id];
+    return str_tabs[str_locale_index][id];
 }
 
 // Switch the active string table (clamped). Internal; the locale is selected
 // by name through str_set_locale / str_load_locale.
 static void str_select_locale(int index)
 {
-    int count = (int)(sizeof str_tables / sizeof str_tables[0]);
+    int count = (int)(sizeof str_tabs / sizeof str_tabs[0]);
     str_locale_index = (index >= 0 && index < count) ? index : 0;
 }
 

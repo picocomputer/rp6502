@@ -82,8 +82,8 @@ int vsnprintf_utf8(char *dst, size_t dst_size,
 // Non-localized string literals are in flash, or in RAM via XR().
 #define X(name, value) \
     extern const char name[];
-// #define XR(name, value) X(name, value)
-#include "str.def"
+#define XR(name, value) X(name, value)
+#include "def/str_sys.def"
 #undef X
 #undef XR
 
@@ -94,19 +94,22 @@ int vsnprintf_utf8(char *dst, size_t dst_size,
         name##_LEN = sizeof(value) - 1 \
     };
 #define XR(name, value) X(name, value)
-#include "str.def"
+#include "def/str_sys.def"
 #undef X
 #undef XR
 
 // Localized strings. Each name is an id (an index), not a pointer; S(id)
 // returns the active locale's string. The locale is selected by name with
-// the str_*_locale API below. The compiled-in locale set is str_locale.def.
-#include "str_locale.def"
+// the str_*_locale API below. The compiled-in locales are listed in def/str.def.
 enum str_loc_id
 {
+#define BEGIN(sfx, code, verbose, cp)
+#define END()
 #define X(name, value) name,
 #define XR(name, value) X(name, value)
-#include "str_en.def" // canonical key order; values ignored in this pass
+#include "def/str_en.def" // canonical key order; values ignored in this pass
+#undef BEGIN
+#undef END
 #undef X
 #undef XR
     STR_LOC_COUNT
