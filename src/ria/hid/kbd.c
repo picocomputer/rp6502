@@ -8,10 +8,10 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "api/pro.h"
+#include "ble/ble.h"
 #include "hid/kbd.h"
 #include "hid/hid.h"
 #include "mon/mon.h"
-#include "net/ble.h"
 #include "str/rln.h"
 #include "str/str.h"
 #include "sys/cfg.h"
@@ -92,123 +92,155 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to the modifier byte of kbd_keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
-// Per-layout tables generated from def/kbd.def. Each BEGIN opens one
-// __in_flash array named by its suffix; the manifest is re-included once per
+// XDEAD(...) routes by field count to the per-pass XDEAD2/XDEAD3 (3 fields ->
+// XDEAD2, 4 -> XDEAD3) so a def file writes one XDEAD for either length; a
+// wrong count selects no macro and fails to compile.
+#define XDEAD_PICK(_1, _2, _3, _4, NAME, ...) NAME
+#define XDEAD(...) XDEAD_PICK(__VA_ARGS__, XDEAD3, XDEAD2, , )(__VA_ARGS__)
+
+// Per-layout tables generated from def/kbd.def. Each XBEGIN opens one
+// __in_flash array named by its XSUFFIX; the manifest is re-included once per
 // pass below. Adding a layout touches only def/ (see def/kbd.def).
-#define BEGIN(sfx, code, desc) \
-    static const DWORD __in_flash("kbd_keys") kbd_keys_##sfx[128][5] = {
-#define KEY(kc, u, s, a, sa, caps) [kc] = {u, s, a, sa, caps},
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r)
-#define END() \
-    }         \
+#define XBEGIN(code, desc) \
+    static const DWORD __in_flash("kbd_keys") __CONCAT(kbd_keys_, XSUFFIX)[128][5] = {
+#define XKEY(kc, u, s, a, sa, caps) [kc] = {u, s, a, sa, caps},
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND() \
+    }          \
     ;
 #include "def/kbd.def"
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) \
-    static const DWORD __in_flash("kbd_dead2") kbd_dead2_##sfx[][3] = {
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r) {d, b, r},
-#define DEAD3(d1, d2, b, r)
-#define END() {0}} \
+#define XBEGIN(code, desc) \
+    static const DWORD __in_flash("kbd_dead2") __CONCAT(kbd_dead2_, XSUFFIX)[][3] = {
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r) {d, b, r},
+#define XDEAD3(d1, d2, b, r)
+#define XEND() {0}} \
     ;
 #include "def/kbd.def"
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) \
-    static const DWORD __in_flash("kbd_dead3") kbd_dead3_##sfx[][4] = {
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r) {d1, d2, b, r},
-#define END() {0}} \
+#define XBEGIN(code, desc) \
+    static const DWORD __in_flash("kbd_dead3") __CONCAT(kbd_dead3_, XSUFFIX)[][4] = {
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r) {d1, d2, b, r},
+#define XEND() {0}} \
     ;
 #include "def/kbd.def"
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) code,
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r)
-#define END()
+// Layout name/description strings as external __in_flash arrays (named so the
+// literals stay in flash instead of being merged into RAM by LTO).
+#define XBEGIN(code, desc) const char __in_flash("kbd_name") __CONCAT(kbd_name_, XSUFFIX)[] = code;
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
+#include "def/kbd.def"
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
+
+#define XBEGIN(code, desc) const char __in_flash("kbd_desc") __CONCAT(kbd_desc_, XSUFFIX)[] = desc;
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
+#include "def/kbd.def"
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
+
+#define XBEGIN(code, desc) __CONCAT(kbd_name_, XSUFFIX),
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
 static const char *__in_flash("kbd_layout_names")
     kbd_layout_names[] = {
 #include "def/kbd.def"
 };
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) desc,
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r)
-#define END()
+#define XBEGIN(code, desc) __CONCAT(kbd_desc_, XSUFFIX),
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
 static const char *__in_flash("kbd_layout_descriptions")
     kbd_layout_descriptions[] = {
 #include "def/kbd.def"
 };
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) kbd_keys_##sfx,
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r)
-#define END()
+#define XBEGIN(code, desc) __CONCAT(kbd_keys_, XSUFFIX),
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
 static DWORD const __in_flash("kbd_layout_keys") (*kbd_layout_keys[])[5] = {
 #include "def/kbd.def"
 };
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) kbd_dead2_##sfx,
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r)
-#define END()
+#define XBEGIN(code, desc) __CONCAT(kbd_dead2_, XSUFFIX),
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
 static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
 #include "def/kbd.def"
 };
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
-#define BEGIN(sfx, code, desc) kbd_dead3_##sfx,
-#define KEY(kc, u, s, a, sa, caps)
-#define DEAD2(d, b, r)
-#define DEAD3(d1, d2, b, r)
-#define END()
+#define XBEGIN(code, desc) __CONCAT(kbd_dead3_, XSUFFIX),
+#define XKEY(kc, u, s, a, sa, caps)
+#define XDEAD2(d, b, r)
+#define XDEAD3(d1, d2, b, r)
+#define XEND()
 static DWORD const __in_flash("kbd_layout_dead3") (*kbd_layout_dead3[])[4] = {
 #include "def/kbd.def"
 };
-#undef BEGIN
-#undef KEY
-#undef DEAD2
-#undef DEAD3
-#undef END
+#undef XBEGIN
+#undef XKEY
+#undef XDEAD2
+#undef XDEAD3
+#undef XEND
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {

@@ -5,6 +5,7 @@
  */
 
 #include "mon/mon.h"
+#include "str/str.h"
 #include "sys/lfs.h"
 #include <hal_flash_bank.h>
 #include <hardware/flash.h>
@@ -16,9 +17,7 @@
  * Erased state is 0xFF, matching NOR flash semantics.
  */
 
-static const char __in_flash("ble_tlv_db_path") bank_path_0[] = "BLETLVDB0.SYS";
-static const char __in_flash("ble_tlv_db_path") bank_path_1[] = "BLETLVDB1.SYS";
-static const char *const __in_flash("ble_tlv_db_paths") bank_path[] = {bank_path_0, bank_path_1};
+static const char *const __in_flash("tlv_db_paths") bank_path[] = {STR_BLE_TLV_DB0, STR_BLE_TLV_DB1};
 
 // Keep files open to avoid expensive open/close operations
 static lfs_file_t bank_files[2];
@@ -31,7 +30,7 @@ static bool init_attempted = false;
 static bool files_open = false;
 static bool error_reported = false;
 
-static void ble_tlv_report_error_once(int result)
+static void tlv_report_error_once(int result)
 {
     if (result < 0 && !error_reported)
     {
@@ -40,7 +39,7 @@ static void ble_tlv_report_error_once(int result)
     }
 }
 
-static void ble_tlv_init(void)
+static void tlv_init(void)
 {
     if (init_attempted)
         return;
@@ -52,7 +51,7 @@ static void ble_tlv_init(void)
                                       LFS_O_RDWR | LFS_O_CREAT, &file_configs[i]);
         if (result < 0)
         {
-            ble_tlv_report_error_once(result);
+            tlv_report_error_once(result);
             return;
         }
     }
@@ -60,36 +59,36 @@ static void ble_tlv_init(void)
     error_reported = false;
 }
 
-static bool ble_tlv_seek(int bank, lfs_soff_t offset)
+static bool tlv_seek(int bank, lfs_soff_t offset)
 {
     lfs_soff_t result = lfs_file_seek(&lfs_volume, &bank_files[bank], offset, LFS_SEEK_SET);
     if (result < 0)
     {
-        ble_tlv_report_error_once(result);
+        tlv_report_error_once(result);
         return false;
     }
     return true;
 }
 
-static uint32_t ble_tlv_get_size(void *context)
+static uint32_t tlv_get_size(void *context)
 {
     (void)context;
     return FLASH_SECTOR_SIZE;
 }
 
-static uint32_t ble_tlv_get_alignment(void *context)
+static uint32_t tlv_get_alignment(void *context)
 {
     (void)context;
     return 1;
 }
 
-static void ble_tlv_erase(void *context, int bank)
+static void tlv_erase(void *context, int bank)
 {
     (void)context;
     if ((unsigned)bank > 1)
         return;
 
-    ble_tlv_init();
+    tlv_init();
 
     if (!files_open)
         return;
@@ -97,14 +96,14 @@ static void ble_tlv_erase(void *context, int bank)
     int result = lfs_file_close(&lfs_volume, &bank_files[bank]);
     if (result < 0)
     {
-        ble_tlv_report_error_once(result);
+        tlv_report_error_once(result);
         return;
     }
 
     result = lfs_remove(&lfs_volume, bank_path[bank]);
     if (result < 0)
     {
-        ble_tlv_report_error_once(result);
+        tlv_report_error_once(result);
         return;
     }
 
@@ -112,21 +111,21 @@ static void ble_tlv_erase(void *context, int bank)
                               LFS_O_RDWR | LFS_O_CREAT, &file_configs[bank]);
     if (result < 0)
     {
-        ble_tlv_report_error_once(result);
+        tlv_report_error_once(result);
         files_open = false;
         return;
     }
     error_reported = false;
 }
 
-static void ble_tlv_read(void *context, int bank,
+static void tlv_read(void *context, int bank,
                          uint32_t offset, uint8_t *buffer, uint32_t size)
 {
     (void)context;
     if ((unsigned)bank > 1 || offset >= FLASH_SECTOR_SIZE || (offset + size) > FLASH_SECTOR_SIZE)
         return;
 
-    ble_tlv_init();
+    tlv_init();
 
     memset(buffer, 0xFF, size);
 
@@ -136,7 +135,7 @@ static void ble_tlv_read(void *context, int bank,
     lfs_soff_t file_size = lfs_file_size(&lfs_volume, &bank_files[bank]);
     if (file_size < 0)
     {
-        ble_tlv_report_error_once(file_size);
+        tlv_report_error_once(file_size);
         return;
     }
 
@@ -144,16 +143,16 @@ static void ble_tlv_read(void *context, int bank,
     if ((lfs_soff_t)offset >= file_size)
         return;
 
-    if (!ble_tlv_seek(bank, offset))
+    if (!tlv_seek(bank, offset))
         return;
 
     lfs_ssize_t avail = file_size - offset;
     lfs_ssize_t to_read = (lfs_ssize_t)size < avail ? (lfs_ssize_t)size : avail;
     lfs_ssize_t bytes_read = lfs_file_read(&lfs_volume, &bank_files[bank], buffer, to_read);
-    ble_tlv_report_error_once(bytes_read);
+    tlv_report_error_once(bytes_read);
 }
 
-static void ble_tlv_write(void *context, int bank,
+static void tlv_write(void *context, int bank,
                           uint32_t offset, const uint8_t *data, uint32_t size)
 {
     (void)context;
@@ -161,7 +160,7 @@ static void ble_tlv_write(void *context, int bank,
         (offset + size) > FLASH_SECTOR_SIZE || size == 0)
         return;
 
-    ble_tlv_init();
+    tlv_init();
 
     if (!files_open)
         return;
@@ -169,7 +168,7 @@ static void ble_tlv_write(void *context, int bank,
     lfs_soff_t file_size = lfs_file_size(&lfs_volume, &bank_files[bank]);
     if (file_size < 0)
     {
-        ble_tlv_report_error_once(file_size);
+        tlv_report_error_once(file_size);
         return;
     }
 
@@ -179,7 +178,7 @@ static void ble_tlv_write(void *context, int bank,
         uint8_t ff[64];
         memset(ff, 0xFF, sizeof(ff));
 
-        if (!ble_tlv_seek(bank, file_size))
+        if (!tlv_seek(bank, file_size))
             return;
 
         lfs_ssize_t gap = (lfs_ssize_t)offset - file_size;
@@ -189,33 +188,33 @@ static void ble_tlv_write(void *context, int bank,
             lfs_ssize_t written = lfs_file_write(&lfs_volume, &bank_files[bank], ff, chunk);
             if (written < 0)
             {
-                ble_tlv_report_error_once(written);
+                tlv_report_error_once(written);
                 return;
             }
             gap -= written;
         }
     }
-    else if (!ble_tlv_seek(bank, offset))
+    else if (!tlv_seek(bank, offset))
     {
         return;
     }
 
     lfs_ssize_t written = lfs_file_write(&lfs_volume, &bank_files[bank], data, size);
     if (written < 0)
-        ble_tlv_report_error_once(written);
+        tlv_report_error_once(written);
     else if (written != (lfs_ssize_t)size)
-        ble_tlv_report_error_once(LFS_ERR_NOSPC);
+        tlv_report_error_once(LFS_ERR_NOSPC);
 
     int sync_result = lfs_file_sync(&lfs_volume, &bank_files[bank]);
-    ble_tlv_report_error_once(sync_result);
+    tlv_report_error_once(sync_result);
 }
 
 static const hal_flash_bank_t pico_flash_bank_instance_obj = {
-    .get_size = &ble_tlv_get_size,
-    .get_alignment = &ble_tlv_get_alignment,
-    .erase = &ble_tlv_erase,
-    .read = &ble_tlv_read,
-    .write = &ble_tlv_write,
+    .get_size = &tlv_get_size,
+    .get_alignment = &tlv_get_alignment,
+    .erase = &tlv_erase,
+    .read = &tlv_read,
+    .write = &tlv_write,
 };
 
 const hal_flash_bank_t *pico_flash_bank_instance(void)

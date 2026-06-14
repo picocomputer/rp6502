@@ -6,11 +6,11 @@
 
 #include "api/clk.h"
 #include "api/oem.h"
+#include "ble/ble.h"
 #include "hid/kbd.h"
 #include "mon/mon.h"
 #include "mon/rom.h"
 #include "mon/set.h"
-#include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "str/str.h"

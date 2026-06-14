@@ -1,24 +1,24 @@
 /* ADD A KEYBOARD LAYOUT - no C knowledge needed, and you never touch a .c/.h file.
  *
- * 1. Copy the closest existing layout, e.g. def/kbd_us.def, to a new
- *    def/kbd_<name>.def.
- * 2. Edit the new file:
- *      - Change the BEGIN line: a unique ALL-CAPS tag, the short code users
- *        see (e.g. "FR"), and the full name (e.g. "France").
- *      - Fill in each KEY row with the character each key types:
- *          KEY(hid_keycode, plain, shift, altgr, shift+altgr, caps_lock)
+ * 1. Copy the closest existing layout, e.g. def/kbd_us.def,
+ *    to a new def/kbd_<name>.def.
+ * 2. Add #include "def/kbd_<name>.def" line below.
+ * 3. Edit the new file:
+ *      - Set XSUFFIX to a unique ALL_CAPS tag and edit the XBEGIN line: the
+ *        short code users see (e.g. "FR") and the full name (e.g. "France").
+ *      - Fill in each XKEY row with the character each key types:
+ *          XKEY(hid_keycode, plain, shift, altgr, shift+altgr, caps_lock)
  *        Each character is a Unicode codepoint: an ASCII literal like 'a'
  *        or a hex codepoint like 0x00e9 (é). Use 0 for "types nothing".
  *        Set caps_lock true only for letters, so Caps Lock shifts them.
  *      - Dead keys (optional): a key that prints nothing until the next
  *        key is pressed, then combines the two, e.g. ´ then e gives é.
- *        List them after the KEY rows, all fields Unicode codepoints:
- *          DEAD2(dead, base, result)         // ´ + e  -> é
- *          DEAD3(dead1, dead2, base, result) // two accents, then base
- *        The dead key must also be a normal KEY (it types its own symbol
+ *        List them after the XKEY rows, all fields Unicode codepoints.
+ *          XDEAD(dead, base, result)         // ´ + e  -> é
+ *          XDEAD(dead1, dead2, base, result) // two accents, then base
+ *        The dead key must also be a normal XKEY (it types its own symbol
  *        when not composing). Free behaviors: dead + Space emits the bare
  *        accent, dead + Backspace cancels, an unmatched pair types both.
- * 3. Add one #include line below.
  * 4. Build and test with SET KB <layout>.
  */
 

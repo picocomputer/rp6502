@@ -103,13 +103,13 @@ int vsnprintf_utf8(char *dst, size_t dst_size,
 // the str_*_locale API below. The compiled-in locales are listed in def/str.def.
 enum str_loc_id
 {
-#define BEGIN(sfx, code, verbose, cp)
-#define END()
+#define XBEGIN(code, verbose, cp)
+#define XEND()
 #define X(name, value) name,
 #define XR(name, value) X(name, value)
 #include "def/str_en.def" // canonical key order; values ignored in this pass
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 #undef XR
     STR_LOC_COUNT

@@ -7,80 +7,84 @@
 
 // clang-format off
 #include "def/def.h"
+#define XSUFFIX PL_PROG
+XBEGIN("PL-PROG", "Poland - Programmer's")
 
 // Contributors: WojciechGw
-BEGIN(PL_PROG, "PL-PROG", "Poland - Programmer's")
-// KEY(keycode, unmodified, shift, altGr, shift+altGr, use_caps_lock)
-KEY(0x04, 'a',    'A',    0x0105, 0x0104,  true) // ą Ą
-KEY(0x05, 'b',    'B',    0,      0,       true)
-KEY(0x06, 'c',    'C',    0x0107, 0x0106,  true) // ć Ć
-KEY(0x07, 'd',    'D',    0,      0,       true)
-KEY(0x08, 'e',    'E',    0x0119, 0x0118,  true) // ę Ę
-KEY(0x09, 'f',    'F',    0,      0,       true)
-KEY(0x0a, 'g',    'G',    0,      0,       true)
-KEY(0x0b, 'h',    'H',    0,      0,       true)
-KEY(0x0c, 'i',    'I',    0,      0,       true)
-KEY(0x0d, 'j',    'J',    0,      0,       true)
-KEY(0x0e, 'k',    'K',    0,      0,       true)
-KEY(0x0f, 'l',    'L',    0x0142, 0x0141,  true) // ł Ł
-KEY(0x10, 'm',    'M',    0,      0,       true)
-KEY(0x11, 'n',    'N',    0x0144, 0x0143,  true) // ń Ń
-KEY(0x12, 'o',    'O',    0x00f3, 0x00d3,  true) // ó Ó
-KEY(0x13, 'p',    'P',    0,      0,       true)
-KEY(0x14, 'q',    'Q',    0,      0,       true)
-KEY(0x15, 'r',    'R',    0,      0,       true)
-KEY(0x16, 's',    'S',    0x015b, 0x015a,  true) // ś Ś
-KEY(0x17, 't',    'T',    0,      0,       true)
-KEY(0x18, 'u',    'U',    0,      0,       true)
-KEY(0x19, 'v',    'V',    0,      0,       true)
-KEY(0x1a, 'w',    'W',    0,      0,       true)
-KEY(0x1b, 'x',    'X',    0x017a, 0x0179,  true) // ź Ź
-KEY(0x1c, 'y',    'Y',    0,      0,       true)
-KEY(0x1d, 'z',    'Z',    0x017c, 0x017b,  true) // ż Ż
-KEY(0x1e, '1',    '!',    0,      0,      false)
-KEY(0x1f, '2',    '@',    0,      0,      false)
-KEY(0x20, '3',    '#',    0x00a7, 0,      false) // §
-KEY(0x21, '4',    '$',    0x20ac, 0,      false) // €
-KEY(0x22, '5',    '%',    0,      0,      false)
-KEY(0x23, '6',    '^',    0,      0,      false)
-KEY(0x24, '7',    '&',    0,      0,      false)
-KEY(0x25, '8',    '*',    0,      0,      false)
-KEY(0x26, '9',    '(',    0,      0,      false)
-KEY(0x27, '0',    ')',    0,      0,      false)
-KEY(0x28, '\r',   '\r',   0,      0,      false) // Enter
-KEY(0x29, '\x1b', '\x1b', 0,      0,      false) // Esc
-KEY(0x2a, '\x7f', '\x7f', 0,      0,      false) // Backspace
-KEY(0x2b, '\t',   '\t',   0,      0,      false) // Tab
-KEY(0x2c, ' ',    ' ',    0,      0,      false) // Space
-KEY(0x2d, '-',    '_',    0,      0,      false)
-KEY(0x2e, '=',    '+',    0,      0,      false)
-KEY(0x2f, '[',    '{',    0,      0,      false)
-KEY(0x30, ']',    '}',    0,      0,      false)
-KEY(0x31, '\\',   '|',    0,      0,      false)
-KEY(0x32, '\\',   '|',    0,      0,      false)
-KEY(0x33, ';',    ':',    0,      0,      false)
-KEY(0x34, '\'',   '\"',   0,      0,      false)
-KEY(0x35, '`',    '~',    0,      0,      false)
-KEY(0x36, ',',    '<',    0,      0,      false)
-KEY(0x37, '.',    '>',    0,      0,      false)
-KEY(0x38, '/',    '?',    0,      0,      false)
+
+// XKEY(keycode, unmodified, shift, altGr, shift+altGr, use_caps_lock)
+XKEY(0x04, 'a',    'A',    0x0105, 0x0104,  true) // ą Ą
+XKEY(0x05, 'b',    'B',    0,      0,       true)
+XKEY(0x06, 'c',    'C',    0x0107, 0x0106,  true) // ć Ć
+XKEY(0x07, 'd',    'D',    0,      0,       true)
+XKEY(0x08, 'e',    'E',    0x0119, 0x0118,  true) // ę Ę
+XKEY(0x09, 'f',    'F',    0,      0,       true)
+XKEY(0x0a, 'g',    'G',    0,      0,       true)
+XKEY(0x0b, 'h',    'H',    0,      0,       true)
+XKEY(0x0c, 'i',    'I',    0,      0,       true)
+XKEY(0x0d, 'j',    'J',    0,      0,       true)
+XKEY(0x0e, 'k',    'K',    0,      0,       true)
+XKEY(0x0f, 'l',    'L',    0x0142, 0x0141,  true) // ł Ł
+XKEY(0x10, 'm',    'M',    0,      0,       true)
+XKEY(0x11, 'n',    'N',    0x0144, 0x0143,  true) // ń Ń
+XKEY(0x12, 'o',    'O',    0x00f3, 0x00d3,  true) // ó Ó
+XKEY(0x13, 'p',    'P',    0,      0,       true)
+XKEY(0x14, 'q',    'Q',    0,      0,       true)
+XKEY(0x15, 'r',    'R',    0,      0,       true)
+XKEY(0x16, 's',    'S',    0x015b, 0x015a,  true) // ś Ś
+XKEY(0x17, 't',    'T',    0,      0,       true)
+XKEY(0x18, 'u',    'U',    0,      0,       true)
+XKEY(0x19, 'v',    'V',    0,      0,       true)
+XKEY(0x1a, 'w',    'W',    0,      0,       true)
+XKEY(0x1b, 'x',    'X',    0x017a, 0x0179,  true) // ź Ź
+XKEY(0x1c, 'y',    'Y',    0,      0,       true)
+XKEY(0x1d, 'z',    'Z',    0x017c, 0x017b,  true) // ż Ż
+XKEY(0x1e, '1',    '!',    0,      0,      false)
+XKEY(0x1f, '2',    '@',    0,      0,      false)
+XKEY(0x20, '3',    '#',    0x00a7, 0,      false) // §
+XKEY(0x21, '4',    '$',    0x20ac, 0,      false) // €
+XKEY(0x22, '5',    '%',    0,      0,      false)
+XKEY(0x23, '6',    '^',    0,      0,      false)
+XKEY(0x24, '7',    '&',    0,      0,      false)
+XKEY(0x25, '8',    '*',    0,      0,      false)
+XKEY(0x26, '9',    '(',    0,      0,      false)
+XKEY(0x27, '0',    ')',    0,      0,      false)
+XKEY(0x28, '\r',   '\r',   0,      0,      false) // Enter
+XKEY(0x29, '\x1b', '\x1b', 0,      0,      false) // Esc
+XKEY(0x2a, '\x7f', '\x7f', 0,      0,      false) // Backspace
+XKEY(0x2b, '\t',   '\t',   0,      0,      false) // Tab
+XKEY(0x2c, ' ',    ' ',    0,      0,      false) // Space
+XKEY(0x2d, '-',    '_',    0,      0,      false)
+XKEY(0x2e, '=',    '+',    0,      0,      false)
+XKEY(0x2f, '[',    '{',    0,      0,      false)
+XKEY(0x30, ']',    '}',    0,      0,      false)
+XKEY(0x31, '\\',   '|',    0,      0,      false)
+XKEY(0x32, '\\',   '|',    0,      0,      false)
+XKEY(0x33, ';',    ':',    0,      0,      false)
+XKEY(0x34, '\'',   '\"',   0,      0,      false)
+XKEY(0x35, '`',    '~',    0,      0,      false)
+XKEY(0x36, ',',    '<',    0,      0,      false)
+XKEY(0x37, '.',    '>',    0,      0,      false)
+XKEY(0x38, '/',    '?',    0,      0,      false)
 // Keypad
-KEY(0x54, '/',    '/',    0,      0,      false)
-KEY(0x55, '*',    '*',    0,      0,      false)
-KEY(0x56, '-',    '-',    0,      0,      false)
-KEY(0x57, '+',    '+',    0,      0,      false)
-KEY(0x58, '\r',   '\r',   0,      0,      false)
-KEY(0x59, '1',    0,      0,      0,      false)
-KEY(0x5a, '2',    0,      0,      0,      false)
-KEY(0x5b, '3',    0,      0,      0,      false)
-KEY(0x5c, '4',    0,      0,      0,      false)
-KEY(0x5d, '5',    0,      0,      0,      false)
-KEY(0x5e, '6',    0,      0,      0,      false)
-KEY(0x5f, '7',    0,      0,      0,      false)
-KEY(0x60, '8',    0,      0,      0,      false)
-KEY(0x61, '9',    0,      0,      0,      false)
-KEY(0x62, '0',    0,      0,      0,      false)
-KEY(0x63, '.',    0,      0,      0,      false)
-KEY(0x64, '\\',   '|',    0,      0,      false)
-KEY(0x67, '=',    '=',    0,      0,      false)
-END()
+XKEY(0x54, '/',    '/',    0,      0,      false)
+XKEY(0x55, '*',    '*',    0,      0,      false)
+XKEY(0x56, '-',    '-',    0,      0,      false)
+XKEY(0x57, '+',    '+',    0,      0,      false)
+XKEY(0x58, '\r',   '\r',   0,      0,      false)
+XKEY(0x59, '1',    0,      0,      0,      false)
+XKEY(0x5a, '2',    0,      0,      0,      false)
+XKEY(0x5b, '3',    0,      0,      0,      false)
+XKEY(0x5c, '4',    0,      0,      0,      false)
+XKEY(0x5d, '5',    0,      0,      0,      false)
+XKEY(0x5e, '6',    0,      0,      0,      false)
+XKEY(0x5f, '7',    0,      0,      0,      false)
+XKEY(0x60, '8',    0,      0,      0,      false)
+XKEY(0x61, '9',    0,      0,      0,      false)
+XKEY(0x62, '0',    0,      0,      0,      false)
+XKEY(0x63, '.',    0,      0,      0,      false)
+XKEY(0x64, '\\',   '|',    0,      0,      false)
+XKEY(0x67, '=',    '=',    0,      0,      false)
+
+XEND()
+#undef XSUFFIX

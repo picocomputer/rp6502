@@ -72,6 +72,8 @@ target_sources(${RIA_TARGET} PRIVATE
     aud/bel.c
     aud/opl.c
     aud/psg.c
+    ble/ble.c
+    ble/tlv.c
     hid/hid.c
     hid/kbd.c
     hid/mou.c
@@ -84,7 +86,6 @@ target_sources(${RIA_TARGET} PRIVATE
     mon/set.c
     mon/uf2.c
     mon/vip.c
-    net/ble.c
     net/cmd.c
     net/cyw.c
     net/mdm.c
@@ -146,15 +147,14 @@ pico_generate_pio_header(${RIA_TARGET}
 # Override various lib files with custom code.
 # The magic is that header-only files don't get compiled.
 set_source_files_properties(
+    ${PICO_SDK_PATH}/src/rp2_common/pico_btstack/btstack_flash_bank.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb/src/class/midi/midi_host.c
-    ${PICO_SDK_PATH}/src/rp2_common/pico_btstack/btstack_flash_bank.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/hcd_rp2040.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
     ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/midi_host.c
-    net/ble_tlv.c
 )

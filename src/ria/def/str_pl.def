@@ -11,7 +11,8 @@
 // Polish
 
 #include "def/def.h"
-BEGIN(PL, "PL", "Polski", 852)
+#define XSUFFIX PL
+XBEGIN("PL", "Polski", 852)
 
 // Time and date, POSIX LC_TIME.
 X(STR_TIME_DAY_0, "niedziela")
@@ -418,4 +419,5 @@ X(STR_HELP_SET_KEY,
   "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno KEY\n"
   " jak i PORT (patrz \"help KEY\").\n")
 
-END()
+XEND()
+#undef XSUFFIX

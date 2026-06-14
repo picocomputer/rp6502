@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _RIA_NET_BLE_H_
-#define _RIA_NET_BLE_H_
+#ifndef _RIA_BLE_BLE_H_
+#define _RIA_BLE_BLE_H_
 
 /* Bluetooth LE driver, main events and HID.
  */
@@ -39,4 +39,4 @@ void ble_load_enabled(const char *str);
 bool ble_set_enabled(uint8_t ble);
 uint8_t ble_get_enabled(void);
 
-#endif /* _RIA_NET_BLE_H_ */
+#endif /* _RIA_BLE_BLE_H_ */

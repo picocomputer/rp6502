@@ -36,84 +36,100 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #undef X
 #undef XR
 
-// Per-locale string tables and registry, generated from def/str.def. Each
-// BEGIN opens one __in_flash table of pointers sized to str_loc_id; the
-// [name] = value designators place each string by its id, so line order
-// within a locale file is irrelevant. The manifest is re-included once per
-// pass. Adding a locale touches only def/ (see def/str.def). This is a
-// copy_to_ram build, so the tables are explicitly __in_flash to stay out of RAM.
-#define BEGIN(sfx, code, verbose, cp) \
-    static const char *const __in_flash("str_tab") str_tab_##sfx[STR_LOC_COUNT] = {
-#define END() };
-#define X(name, value) [name] = value,
+// Per-locale string storage and tables, generated from def/str.def. Adding a
+// locale touches only def/. STR_ID pairs the locale's XSUFFIX with a string
+// id to form one name shared by the storage pass and the table pass.
+#define STR_ID_(loc, name) str_loc_##loc##_##name
+#define STR_ID(loc, name) STR_ID_(loc, name)
+
+// Each localized string is its own external __in_flash array. External
+// linkage is required: a static array or a bare literal initializer gets
+// merged by LTO into .rodata.str, which a copy_to_ram build places in RAM.
+#define XBEGIN(code, verbose, cp)
+#define XEND()
+#define X(name, value) const char __in_flash("str_loc") STR_ID(XSUFFIX, name)[] = value;
 #include "def/str.def"
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 
-#define BEGIN(sfx, code, verbose, cp) str_tab_##sfx,
-#define END()
+// Each XBEGIN opens one __in_flash table of pointers sized to str_loc_id; the
+// [name] designators place each string by its id, so line order within a
+// locale file is irrelevant.
+#define XBEGIN(code, verbose, cp) \
+    static const char *const __in_flash("str_tab") __CONCAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
+#define XEND() };
+#define X(name, value) [name] = STR_ID(XSUFFIX, name),
+#include "def/str.def"
+#undef XBEGIN
+#undef XEND
+#undef X
+#undef STR_ID
+#undef STR_ID_
+
+#define XBEGIN(code, verbose, cp) __CONCAT(str_tab_, XSUFFIX),
+#define XEND()
 #define X(name, value)
 static const char *const *const __in_flash("str_tabs") str_tabs[] = {
 #include "def/str.def"
 };
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 
 // Parallel registry arrays, ordered by def/str.def.
-#define BEGIN(sfx, code, verbose, cp) code,
-#define END()
+#define XBEGIN(code, verbose, cp) code,
+#define XEND()
 #define X(name, value)
 static const char *const __in_flash("str_locale_names") str_locale_names[] = {
 #include "def/str.def"
 };
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 
-#define BEGIN(sfx, code, verbose, cp) verbose,
-#define END()
+#define XBEGIN(code, verbose, cp) verbose,
+#define XEND()
 #define X(name, value)
 static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
 #include "def/str.def"
 };
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 
-#define BEGIN(sfx, code, verbose, cp) cp,
-#define END()
+#define XBEGIN(code, verbose, cp) cp,
+#define XEND()
 #define X(name, value)
 static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 #include "def/str.def"
 };
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 
 // Order no longer matters (entries are placed by id), but every locale must
 // still define each string exactly once. Count each locale's entries and
 // assert the total; a missing or extra line trips here, a duplicate id trips
 // -Werror=override-init in the table pass above.
-#define BEGIN(sfx, code, verbose, cp) enum \
+#define XBEGIN(code, verbose, cp) enum \
 {                                          \
-    str_count_##sfx = 0
-#define END() \
+    __CONCAT(str_count_, XSUFFIX) = 0
+#define XEND() \
     }         \
     ;
 #define X(name, value) +1
 #include "def/str.def"
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
-#define BEGIN(sfx, code, verbose, cp) \
-    static_assert((int)str_count_##sfx == STR_LOC_COUNT, "locale " #sfx " string count mismatch");
-#define END()
+#define XBEGIN(code, verbose, cp) \
+    static_assert((int)__CONCAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
+#define XEND()
 #define X(name, value)
 #include "def/str.def"
-#undef BEGIN
-#undef END
+#undef XBEGIN
+#undef XEND
 #undef X
 
 static int str_locale_index;

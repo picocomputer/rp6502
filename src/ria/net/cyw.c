@@ -10,8 +10,8 @@ void cyw_init(void) {}
 void cyw_task(void) {}
 #else
 
+#include "ble/ble.h"
 #include "mon/mon.h"
-#include "net/ble.h"
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "str/rln.h"
