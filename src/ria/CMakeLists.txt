@@ -37,10 +37,13 @@ target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE
-    -Wall -Wextra -Wsign-compare
+    -Wall -Wextra -Wsign-compare -Woverride-init
     $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
     $<$<CONFIG:Release>:-Os>
 )
+
+# A duplicated locale id in def/str_*.def would silently leave a hole
+set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
 
 target_include_directories(${RIA_TARGET} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}

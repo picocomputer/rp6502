@@ -241,6 +241,9 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     uint16_t max_ulen = (desc_buf_size - sizeof(tusb_desc_string_t)) / sizeof(uint16_t);
     if (ulen > max_ulen)
         ulen = max_ulen;
+    // Some devices over-report bLength and pad the string with NUL.
+    while (ulen > 0 && desc->utf16le[ulen - 1] == 0)
+        ulen--;
     return ulen;
 }
 

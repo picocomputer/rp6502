@@ -1,0 +1,84 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: Unlicense
+ */
+
+// clang-format off
+#include "def/def.h"
+
+BEGIN(SE, "SE", "Sweden")
+// KEY(keycode, unmodified, shift, altGr, shift+altGr, use_caps_lock)
+KEY(0x04, 'a',    'A',    0,      0,  true)
+KEY(0x05, 'b',    'B',    0,      0,  true)
+KEY(0x06, 'c',    'C',    0,      0,  true)
+KEY(0x07, 'd',    'D',    0,      0,  true)
+KEY(0x08, 'e',    'E',    0,      0,  true)
+KEY(0x09, 'f',    'F',    0,      0,  true)
+KEY(0x0a, 'g',    'G',    0,      0,  true)
+KEY(0x0b, 'h',    'H',    0,      0,  true)
+KEY(0x0c, 'i',    'I',    0,      0,  true)
+KEY(0x0d, 'j',    'J',    0,      0,  true)
+KEY(0x0e, 'k',    'K',    0,      0,  true)
+KEY(0x0f, 'l',    'L',    0,      0,  true)
+KEY(0x10, 'm',    'M',    0,      0,  true)
+KEY(0x11, 'n',    'N',    0,      0,  true)
+KEY(0x12, 'o',    'O',    0,      0,  true)
+KEY(0x13, 'p',    'P',    0,      0,  true)
+KEY(0x14, 'q',    'Q',    0,      0,  true)
+KEY(0x15, 'r',    'R',    0,      0,  true)
+KEY(0x16, 's',    'S',    0,      0,  true)
+KEY(0x17, 't',    'T',    0,      0,  true)
+KEY(0x18, 'u',    'U',    0,      0,  true)
+KEY(0x19, 'v',    'V',    0,      0,  true)
+KEY(0x1a, 'w',    'W',    0,      0,  true)
+KEY(0x1b, 'x',    'X',    0,      0,  true)
+KEY(0x1c, 'y',    'Y',    0,      0,  true)
+KEY(0x1d, 'z',    'Z',    0,      0,  true)
+KEY(0x1e, '1',    '!',    0,      0, false)
+KEY(0x1f, '2',    '\"',   '\x40', 0, false) // @
+KEY(0x20, '3',    '#',    '\xa3', 0, false) // £
+KEY(0x21, '4',    '\xa4', '$',    0, false) // ¤
+KEY(0x22, '5',    '%',    0,      0, false)
+KEY(0x23, '6',    '&',    0,      0, false)
+KEY(0x24, '7',    '/',    '{',    0, false)
+KEY(0x25, '8',    '(',    '[',    0, false)
+KEY(0x26, '9',    ')',    ']',    0, false)
+KEY(0x27, '0',    '=',    '}',    0, false)
+KEY(0x28, '\r',   '\r',   0,      0, false) // Enter
+KEY(0x29, '\x1b', '\x1b', 0,      0, false) // Esc
+KEY(0x2a, '\x7f', '\x7f', 0,      0, false) // Backspace
+KEY(0x2b, '\t',   '\t',   0,      0, false) // Tab
+KEY(0x2c, ' ',    ' ',    0,      0, false) // Space
+KEY(0x2d, '+',    '?',    '\\',   0, false)
+KEY(0x2e, '\xb4', '`',    '\xb1', 0, false) // ´ ` ±
+KEY(0x2f, '\xe5', '\xc5', 0,      0, false) // å Å
+KEY(0x30, '\xa8', '^',    '~',    0, false) // ¨ ^ ~
+KEY(0x31, '\x27', '*',    0,      0, false) // ' *
+KEY(0x33, '\xf6', '\xd6', 0,      0, false) // ö Ö
+KEY(0x34, '\xe4', '\xc4', 0,      0, false) // ä Ä
+KEY(0x35, '\xa7', '\xbd', '\xb6', 0, false) // § ½ ¶
+KEY(0x36, ',',    ';',    0,      0, false)
+KEY(0x37, '.',    ':',    0,      0, false)
+KEY(0x38, '-',    '_',    0,      0, false)
+// Keypad
+KEY(0x54, '/',    '/',    0,      0, false)
+KEY(0x55, '*',    '*',    0,      0, false)
+KEY(0x56, '-',    '-',    0,      0, false)
+KEY(0x57, '+',    '+',    0,      0, false)
+KEY(0x58, '\r',   '\r',   0,      0, false)
+KEY(0x59, '1',    0,      0,      0, false)
+KEY(0x5a, '2',    0,      0,      0, false)
+KEY(0x5b, '3',    0,      0,      0, false)
+KEY(0x5c, '4',    0,      0,      0, false)
+KEY(0x5d, '5',    0,      0,      0, false)
+KEY(0x5e, '6',    0,      0,      0, false)
+KEY(0x5f, '7',    0,      0,      0, false)
+KEY(0x60, '8',    0,      0,      0, false)
+KEY(0x61, '9',    0,      0,      0, false)
+KEY(0x62, '0',    0,      0,      0, false)
+KEY(0x63, ',',    0,      0,      0, false)
+KEY(0x64, '<',    '>',    '\x7c', 0, false) // |
+KEY(0x67, '=',    '=',    0,      0, false)
+END()

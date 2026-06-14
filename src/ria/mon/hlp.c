@@ -88,9 +88,11 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-static void help_response_lookup(const char *args, const char **cp, mon_response_fn *fnp)
+static void help_response_lookup(const char *args, const char **cp,
+                                 const char **appendp, mon_response_fn *fnp)
 {
     *cp = NULL;
+    *appendp = NULL;
     *fnp = NULL;
     const char *word = str_parse_string(&args);
     if (!word)
@@ -102,7 +104,12 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
         if (!attr)
         {
             if (str_parse_end(args))
+            {
                 *cp = S(STR_HELP_SET);
+#ifdef RP6502_RIA_W
+                *appendp = S(STR_HELP_SET_W);
+#endif
+            }
             return;
         }
         for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
@@ -110,6 +117,10 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
             {
                 *cp = S(HLP_SETTINGS[i].text);
                 *fnp = HLP_SETTINGS[i].extra_fn;
+#ifndef NDEBUG
+                if (HLP_SETTINGS[i].text == STR_HELP_SET_CP)
+                    *appendp = S(STR_HELP_SET_CP_DEV);
+#endif
                 return;
             }
         return;
@@ -118,6 +129,9 @@ static void help_response_lookup(const char *args, const char **cp, mon_response
     if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
     {
         *cp = STR_HELP_ABOUT;
+#ifdef RP6502_RIA_W
+        *appendp = STR_HELP_ABOUT_W;
+#endif
         return;
     }
     // Help for commands and a couple special words.
@@ -139,10 +153,13 @@ void hlp_mon_help(const char *args)
         return;
     }
     const char *c;
+    const char *append;
     mon_response_fn fn;
-    help_response_lookup(args, &c, &fn);
+    help_response_lookup(args, &c, &append, &fn);
     if (c != NULL)
         mon_add_response_utf8(c);
+    if (append != NULL)
+        mon_add_response_utf8(append);
     if (fn != NULL)
         mon_add_response_fn(fn);
     if (c == NULL && fn == NULL)
@@ -152,7 +169,8 @@ void hlp_mon_help(const char *args)
 bool hlp_topic_exists(const char *buf)
 {
     const char *c;
+    const char *append;
     mon_response_fn fn;
-    help_response_lookup(buf, &c, &fn);
+    help_response_lookup(buf, &c, &append, &fn);
     return c != NULL;
 }
