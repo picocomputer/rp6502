@@ -33,7 +33,7 @@ static void led_set(bool on)
 #endif
 }
 
-void led_init(void)
+void __in_flash("led_init") led_init(void)
 {
 #ifdef PICO_DEFAULT_LED_PIN
     gpio_init(PICO_DEFAULT_LED_PIN);

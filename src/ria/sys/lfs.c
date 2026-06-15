@@ -80,7 +80,7 @@ static const struct lfs_config cfg = {
     .lookahead_buffer = lfs_lookahead_buffer,
 };
 
-void lfs_init(void)
+void __in_flash("lfs_init") lfs_init(void)
 {
     // Check we're not overlapping the LFS region in flash
     extern char __flash_binary_end;

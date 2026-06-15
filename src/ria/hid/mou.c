@@ -65,7 +65,7 @@ static mou_connection_t *mou_get_connection_by_slot(int slot)
     return NULL;
 }
 
-void mou_init(void)
+void __in_flash("mou_init") mou_init(void)
 {
     mou_stop();
 }

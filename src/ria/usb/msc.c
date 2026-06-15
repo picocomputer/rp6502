@@ -585,7 +585,7 @@ static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
     return true;
 }
 
-bool msc_class_driver_init(void)
+bool __in_flash("msc_class_driver_init") msc_class_driver_init(void)
 {
     TU_LOG_DRV("sizeof(msc_interface_t) = %u\r\n", sizeof(msc_interface_t));
     TU_LOG_DRV("sizeof(msc_epbuf_t) = %u\r\n", sizeof(msc_epbuf_t));

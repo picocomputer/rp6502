@@ -39,7 +39,7 @@ static void tlv_report_error_once(int result)
     }
 }
 
-static void tlv_init(void)
+static void __in_flash("tlv_init") tlv_init(void)
 {
     if (init_attempted)
         return;
@@ -119,7 +119,7 @@ static void tlv_erase(void *context, int bank)
 }
 
 static void tlv_read(void *context, int bank,
-                         uint32_t offset, uint8_t *buffer, uint32_t size)
+                     uint32_t offset, uint8_t *buffer, uint32_t size)
 {
     (void)context;
     if ((unsigned)bank > 1 || offset >= FLASH_SECTOR_SIZE || (offset + size) > FLASH_SECTOR_SIZE)
@@ -153,7 +153,7 @@ static void tlv_read(void *context, int bank,
 }
 
 static void tlv_write(void *context, int bank,
-                          uint32_t offset, const uint8_t *data, uint32_t size)
+                      uint32_t offset, const uint8_t *data, uint32_t size)
 {
     (void)context;
     if ((unsigned)bank > 1 || offset >= FLASH_SECTOR_SIZE ||

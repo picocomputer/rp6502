@@ -637,7 +637,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
         report->button1 |= (1 << 1); // R2
 }
 
-void pad_init(void)
+void __in_flash("pad_init") pad_init(void)
 {
     pad_stop();
 }

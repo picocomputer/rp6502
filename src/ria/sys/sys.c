@@ -46,7 +46,7 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 #endif
     "\n";
 
-void sys_init(void)
+void __in_flash("sys_init") sys_init(void)
 {
 #ifdef NDEBUG
     mon_add_response_utf8(STR_TERM_HARD_RESET);
