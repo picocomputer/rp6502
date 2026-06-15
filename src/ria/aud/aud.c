@@ -23,7 +23,7 @@ int8_t aud_sine_table[256];
 
 static irq_handler_t aud_irq_fn;
 
-void aud_init(void)
+void __in_flash("aud_init") aud_init(void)
 {
     pwm_config config = pwm_get_default_config();
     pwm_config_set_wrap(&config, ((1u << AUD_PWM_BITS) - 1));

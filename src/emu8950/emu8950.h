@@ -11,6 +11,7 @@
 #define EMU8950_NO_FLOAT 1                 // Avoid irq pushing floats
 #define EMU8950_NO_TLL 1                   // Avoid a very large table
 #define EMU8950_NO_TEST_FLAG 1             // Not in test
+#define EMU8950_NO_WAVE_TABLE_MAP 1        // ~8k
 #define EMU8950_SIMPLER_NOISE 1            // Performance
 #define EMU8950_SHORT_NOISE_UPDATE_CHECK 1 // Performance
 
@@ -100,6 +101,8 @@ typedef struct __OPL_SLOT
     /* phase generator (pg) */
 #if !EMU8950_NO_WAVE_TABLE_MAP
     uint16_t *wave_table; /* wave table */
+#elif !EMU8950_SLOT_RENDER
+    uint16_t *wav_or_table; /* per-WS OR-mask row; waveform shaped from logsin_table on the fly */
 #endif
     uint32_t pg_phase; /* pg phase */ // note this moves twice as fast in slot_render version
     uint32_t pg_out;                  /* pg output, as index of wave table */

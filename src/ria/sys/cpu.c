@@ -54,7 +54,7 @@ void cpu_main(void)
     set_sys_clock_khz(CPU_RP2350_KHZ, true);
 }
 
-void cpu_init(void)
+void __in_flash("cpu_init") cpu_init(void)
 {
     // Apply default only if config load did not set one.
     if (!cpu_phi2_khz_run)

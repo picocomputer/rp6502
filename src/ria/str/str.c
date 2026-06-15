@@ -58,7 +58,9 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 // locale file is irrelevant.
 #define XBEGIN(code, verbose, cp) \
     static const char *const __in_flash("str_tab") __CONCAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
-#define XEND() };
+#define XEND() \
+    }          \
+    ;
 #define X(name, value) [name] = STR_ID(XSUFFIX, name),
 #include "def/str.def"
 #undef XBEGIN
@@ -113,10 +115,10 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 // assert the total; a missing or extra line trips here, a duplicate id trips
 // -Werror=override-init in the table pass above.
 #define XBEGIN(code, verbose, cp) enum \
-{                                          \
+{                                      \
     __CONCAT(str_count_, XSUFFIX) = 0
 #define XEND() \
-    }         \
+    }          \
     ;
 #define X(name, value) +1
 #include "def/str.def"
@@ -173,7 +175,7 @@ static void str_apply_locale(int index)
     oem_locale_changed(str_locale_cp[index]);
 }
 
-void str_init(void)
+void __in_flash("str_init") str_init(void)
 {
     if (!str_locale_loaded)
         str_apply_locale(str_sanitize_locale(""));

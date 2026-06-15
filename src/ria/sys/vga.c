@@ -204,7 +204,7 @@ static void vga_connect(void)
     vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
 }
 
-void vga_init(void)
+void __in_flash("vga_init") vga_init(void)
 {
     // Disable backchannel for the case where RIA reboots and VGA doesn't
     vga_pix_backchannel_disable();

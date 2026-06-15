@@ -84,7 +84,7 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
     return drivers;
 }
 
-void usb_init(void)
+void __in_flash("usb_init") usb_init(void)
 {
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(TUH_OPT_RHPORT, &rh_init);

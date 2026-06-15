@@ -12,6 +12,7 @@
 #include "sys/cfg.h"
 #include "sys/vga.h"
 #include <fatfs/ff.h>
+#include <pico.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_OEM)
 #include <stdio.h>
@@ -54,7 +55,7 @@ static void oem_request_code_page(uint16_t cp)
     }
 }
 
-void oem_init(void)
+void __in_flash("oem_init") oem_init(void)
 {
     // Nothing loaded from config (no CONFIG.SYS): default to auto.
     if (!oem_code_page_run)

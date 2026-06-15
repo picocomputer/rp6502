@@ -447,7 +447,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
     }
 }
 
-static void ria_cs_rwb_pio_init(void)
+static void __in_flash("ria_cs_rwb_pio_init") ria_cs_rwb_pio_init(void)
 {
     uint offset = pio_add_program(RIA_CS_RWB_PIO, &ria_cs_rwb_program);
     pio_sm_config config = ria_cs_rwb_program_get_default_config(offset);
@@ -462,7 +462,7 @@ static void ria_cs_rwb_pio_init(void)
     pio_sm_set_enabled(RIA_CS_RWB_PIO, RIA_CS_RWB_SM, true);
 }
 
-static void ria_write_pio_init(void)
+static void __in_flash("ria_write_pio_init") ria_write_pio_init(void)
 {
     // PIO to manage PHI2 clock and 6502 writes
     uint offset = pio_add_program(RIA_WRITE_PIO, &ria_write_program);
@@ -513,7 +513,7 @@ static void ria_write_pio_init(void)
         true);
 }
 
-static void ria_read_pio_init(void)
+static void __in_flash("ria_read_pio_init") ria_read_pio_init(void)
 {
     // PIO for 6502 reads
     uint offset = pio_add_program(RIA_READ_PIO, &ria_read_program);
@@ -563,7 +563,7 @@ static void ria_read_pio_init(void)
         true);
 }
 
-static void ria_act_pio_init(void)
+static void __in_flash("ria_act_pio_init") ria_act_pio_init(void)
 {
     // PIO to supply action loop with events
     uint offset = pio_add_program(RIA_ACT_PIO, &ria_action_program);
@@ -578,7 +578,7 @@ static void ria_act_pio_init(void)
     multicore_launch_core1(act_loop);
 }
 
-void ria_init(void)
+void __in_flash("ria_init") ria_init(void)
 {
     // drive irq pin
     gpio_init(CPU_IRQB_PIN);

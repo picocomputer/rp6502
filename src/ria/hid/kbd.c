@@ -762,7 +762,7 @@ static bool kbd_build_layout_list(const char *in, char *out, size_t size)
     return len != 0;
 }
 
-void kbd_init(void)
+void __in_flash("kbd_init") kbd_init(void)
 {
     kbd_stop();
     kbd_hid_leds = KEYBOARD_LED_NUMLOCK;

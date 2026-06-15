@@ -787,7 +787,7 @@ static stdio_driver_t com_stdio_driver = {
     .crlf_enabled = true,
 };
 
-void com_init(void)
+void __in_flash("com_init") com_init(void)
 {
     gpio_pull_up(COM_UART_TX_PIN);
     gpio_pull_up(COM_UART_RX_PIN);

@@ -6,7 +6,7 @@
 
 #ifndef RP6502_RIA_W
 #include "net/cyw.h"
-void cyw_init(void) {}
+void __in_flash("cyw_init") cyw_init(void) {}
 void cyw_task(void) {}
 #else
 
@@ -143,7 +143,7 @@ void cyw_led_set(bool on)
     cyw_led_requested = on;
 }
 
-void cyw_init(void)
+void __in_flash("cyw_init") cyw_init(void)
 {
     // CYW43439 datasheet says 50MHz for SPI.
     // The Raspberry Pi SDK only provides for a 2,0 divider,

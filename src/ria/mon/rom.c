@@ -776,7 +776,7 @@ static bool rom_xram_done(void)
     return !rom_len;
 }
 
-void rom_init(void)
+void __in_flash("rom_init") rom_init(void)
 {
     // Try booting the set boot ROM
     const char *boot = rom_get_boot();
