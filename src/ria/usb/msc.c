@@ -95,16 +95,16 @@ static_assert(FF_STR_VOLUME_ID == 1);
 #endif
 
 // Place volume strings in flash
-static const char __in_flash("fatfs_vol") VolumeStrMSC0[] = "MSC0";
-static const char __in_flash("fatfs_vol") VolumeStrMSC1[] = "MSC1";
-static const char __in_flash("fatfs_vol") VolumeStrMSC2[] = "MSC2";
-static const char __in_flash("fatfs_vol") VolumeStrMSC3[] = "MSC3";
-static const char __in_flash("fatfs_vol") VolumeStrMSC4[] = "MSC4";
-static const char __in_flash("fatfs_vol") VolumeStrMSC5[] = "MSC5";
-static const char __in_flash("fatfs_vol") VolumeStrMSC6[] = "MSC6";
-static const char __in_flash("fatfs_vol") VolumeStrMSC7[] = "MSC7";
-static const char __in_flash("fatfs_vol") VolumeStrMSC8[] = "MSC8";
-static const char __in_flash("fatfs_vol") VolumeStrMSC9[] = "MSC9";
+const char __in_flash("fatfs_vol") VolumeStrMSC0[] = "MSC0";
+const char __in_flash("fatfs_vol") VolumeStrMSC1[] = "MSC1";
+const char __in_flash("fatfs_vol") VolumeStrMSC2[] = "MSC2";
+const char __in_flash("fatfs_vol") VolumeStrMSC3[] = "MSC3";
+const char __in_flash("fatfs_vol") VolumeStrMSC4[] = "MSC4";
+const char __in_flash("fatfs_vol") VolumeStrMSC5[] = "MSC5";
+const char __in_flash("fatfs_vol") VolumeStrMSC6[] = "MSC6";
+const char __in_flash("fatfs_vol") VolumeStrMSC7[] = "MSC7";
+const char __in_flash("fatfs_vol") VolumeStrMSC8[] = "MSC8";
+const char __in_flash("fatfs_vol") VolumeStrMSC9[] = "MSC9";
 const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC0, VolumeStrMSC1, VolumeStrMSC2, VolumeStrMSC3,
     VolumeStrMSC4, VolumeStrMSC5, VolumeStrMSC6, VolumeStrMSC7,

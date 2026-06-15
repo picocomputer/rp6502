@@ -7,139 +7,141 @@
 
 // clang-format off
 #include "def/def.h"
+#define XSUFFIX US_INTL
+XBEGIN("US-INTL", "United States - International")
 
-// A good layout to clone for a new locale.
-BEGIN(US_INTL, "US-INTL", "United States - International")
-// KEY(keycode, unmodified, shift, altGr, shift+altGr, use_caps_lock)
-KEY(0x04, 'a',  'A',  0x00e1, 0x00c1,  true) // a A á Á
-KEY(0x05, 'b',  'B',  0,      0,       true)
-KEY(0x06, 'c',  'C',  0x00a9, 0x00a2,  true) // c C © ¢
-KEY(0x07, 'd',  'D',  0x00f0, 0x00d0,  true) // d D ð Ð
-KEY(0x08, 'e',  'E',  0x00e9, 0x00c9,  true) // e E é É
-KEY(0x09, 'f',  'F',  0,      0,       true)
-KEY(0x0a, 'g',  'G',  0,      0,       true)
-KEY(0x0b, 'h',  'H',  0,      0,       true)
-KEY(0x0c, 'i',  'I',  0x00ed, 0x00cd,  true) // i I í Í
-KEY(0x0d, 'j',  'J',  0,      0,       true)
-KEY(0x0e, 'k',  'K',  0,      0,       true)
-KEY(0x0f, 'l',  'L',  0x00f8, 0x00d3,  true) // l L ø Ó
-KEY(0x10, 'm',  'M',  0,      0,       true)
-KEY(0x11, 'n',  'N',  0x00f1, 0x00d1,  true) // n N ñ Ñ
-KEY(0x12, 'o',  'O',  0x00f3, 0x00d3,  true) // o O ó Ó
-KEY(0x13, 'p',  'P',  0x00f6, 0x00d6,  true) // p P ö Ö
-KEY(0x14, 'q',  'Q',  0x00e4, 0x00c4,  true) // q Q ä Ä
-KEY(0x15, 'r',  'R',  0,      0,       true)
-KEY(0x16, 's',  'S',  0x00df, 0x00a7,  true) // s S ß §
-KEY(0x17, 't',  'T',  0x00fe, 0x00de,  true) // t T þ Þ
-KEY(0x18, 'u',  'U',  0x00fa, 0x00da,  true) // u U ú Ú
-KEY(0x19, 'v',  'V',  0,      0,       true)
-KEY(0x1a, 'w',  'W',  0x00e5, 0x00c5,  true) // w W å Å
-KEY(0x1b, 'x',  'X',  0,      0,       true)
-KEY(0x1c, 'y',  'Y',  0x00fc, 0x00dc,  true) // y Y ü Ü
-KEY(0x1d, 'z',  'Z',  0x00e6, 0x00c6,  true) // z Z æ Æ
-KEY(0x1e, '1',  '!',  0x00a1, 0x00b9, false) // 1 ! ¡ ¹
-KEY(0x1f, '2',  '@',  0x00b2, 0,      false) // 2 @ ²
-KEY(0x20, '3',  '#',  0x00b3, 0,      false) // 3 # ³
-KEY(0x21, '4',  '$',  0x00a4, 0x00a3, false) // 4 $ ¤ £
-KEY(0x22, '5',  '%',  0x20ac, 0,      false) // 5 % €
-KEY(0x23, '6',  '^',  0x00bc, 0,      false) // 6 ^ ¼
-KEY(0x24, '7',  '&',  0x00bd, 0,      false) // 7 & ½
-KEY(0x25, '8',  '*',  0x00be, 0,      false) // 8 * ¾
-KEY(0x26, '9',  '(',  0x2018, 0,      false) // 9 ( ‘
-KEY(0x27, '0',  ')',  0x2019, 0,      false) // 0 ) ’
-KEY(0x28, '\r', '\r', 0,      0,      false) // Enter
-KEY(0x29, 0x001b, 0x001b, 0,  0,      false) // Esc
-KEY(0x2a, 0x007f, 0x007f, 0,  0,      false) // Backspace
-KEY(0x2b, '\t', '\t', 0,      0,      false) // Tab
-KEY(0x2c, ' ',  ' ',  0,      0,      false) // Space
-KEY(0x2d, '-',  '_',  0x00a5, 0,      false) // - _ ¥
-KEY(0x2e, '=',  '+',  0x00d7, 0x00f7, false) // = + × ÷
-KEY(0x2f, '[',  '{',  0x00ab, 0,      false) // [ { «
-KEY(0x30, ']',  '}',  0x00bb, 0,      false) // ] } »
-KEY(0x31, '\\', '|',  0x00ac, 0x00a6, false) // \ | ¬ ¦
-KEY(0x33, ';',  ':',  0x00b6, 0x00b0, false) // ; : ¶ °
-KEY(0x34, '\'', '\"', 0x00b4, 0x00a8, false) // ' " ´ ¨
-KEY(0x35, '`',  '~',  0,      0,      false)
-KEY(0x36, ',',  '<',  0x00e7, 0,      false) // , < ç
-KEY(0x37, '.',  '>',  0,      0,      false)
-KEY(0x38, '/',  '?',  0x00bf, 0,      false) // / ? ¿
+// XKEY(keycode, unmodified, shift, altGr, shift+altGr, use_caps_lock)
+XKEY(0x04, 'a',  'A',  0x00e1, 0x00c1,  true) // a A á Á
+XKEY(0x05, 'b',  'B',  0,      0,       true)
+XKEY(0x06, 'c',  'C',  0x00a9, 0x00a2,  true) // c C © ¢
+XKEY(0x07, 'd',  'D',  0x00f0, 0x00d0,  true) // d D ð Ð
+XKEY(0x08, 'e',  'E',  0x00e9, 0x00c9,  true) // e E é É
+XKEY(0x09, 'f',  'F',  0,      0,       true)
+XKEY(0x0a, 'g',  'G',  0,      0,       true)
+XKEY(0x0b, 'h',  'H',  0,      0,       true)
+XKEY(0x0c, 'i',  'I',  0x00ed, 0x00cd,  true) // i I í Í
+XKEY(0x0d, 'j',  'J',  0,      0,       true)
+XKEY(0x0e, 'k',  'K',  0,      0,       true)
+XKEY(0x0f, 'l',  'L',  0x00f8, 0x00d3,  true) // l L ø Ó
+XKEY(0x10, 'm',  'M',  0,      0,       true)
+XKEY(0x11, 'n',  'N',  0x00f1, 0x00d1,  true) // n N ñ Ñ
+XKEY(0x12, 'o',  'O',  0x00f3, 0x00d3,  true) // o O ó Ó
+XKEY(0x13, 'p',  'P',  0x00f6, 0x00d6,  true) // p P ö Ö
+XKEY(0x14, 'q',  'Q',  0x00e4, 0x00c4,  true) // q Q ä Ä
+XKEY(0x15, 'r',  'R',  0,      0,       true)
+XKEY(0x16, 's',  'S',  0x00df, 0x00a7,  true) // s S ß §
+XKEY(0x17, 't',  'T',  0x00fe, 0x00de,  true) // t T þ Þ
+XKEY(0x18, 'u',  'U',  0x00fa, 0x00da,  true) // u U ú Ú
+XKEY(0x19, 'v',  'V',  0,      0,       true)
+XKEY(0x1a, 'w',  'W',  0x00e5, 0x00c5,  true) // w W å Å
+XKEY(0x1b, 'x',  'X',  0,      0,       true)
+XKEY(0x1c, 'y',  'Y',  0x00fc, 0x00dc,  true) // y Y ü Ü
+XKEY(0x1d, 'z',  'Z',  0x00e6, 0x00c6,  true) // z Z æ Æ
+XKEY(0x1e, '1',  '!',  0x00a1, 0x00b9, false) // 1 ! ¡ ¹
+XKEY(0x1f, '2',  '@',  0x00b2, 0,      false) // 2 @ ²
+XKEY(0x20, '3',  '#',  0x00b3, 0,      false) // 3 # ³
+XKEY(0x21, '4',  '$',  0x00a4, 0x00a3, false) // 4 $ ¤ £
+XKEY(0x22, '5',  '%',  0x20ac, 0,      false) // 5 % €
+XKEY(0x23, '6',  '^',  0x00bc, 0,      false) // 6 ^ ¼
+XKEY(0x24, '7',  '&',  0x00bd, 0,      false) // 7 & ½
+XKEY(0x25, '8',  '*',  0x00be, 0,      false) // 8 * ¾
+XKEY(0x26, '9',  '(',  0x2018, 0,      false) // 9 ( ‘
+XKEY(0x27, '0',  ')',  0x2019, 0,      false) // 0 ) ’
+XKEY(0x28, '\r', '\r', 0,      0,      false) // Enter
+XKEY(0x29, 0x001b, 0x001b, 0,  0,      false) // Esc
+XKEY(0x2a, 0x007f, 0x007f, 0,  0,      false) // Backspace
+XKEY(0x2b, '\t', '\t', 0,      0,      false) // Tab
+XKEY(0x2c, ' ',  ' ',  0,      0,      false) // Space
+XKEY(0x2d, '-',  '_',  0x00a5, 0,      false) // - _ ¥
+XKEY(0x2e, '=',  '+',  0x00d7, 0x00f7, false) // = + × ÷
+XKEY(0x2f, '[',  '{',  0x00ab, 0,      false) // [ { «
+XKEY(0x30, ']',  '}',  0x00bb, 0,      false) // ] } »
+XKEY(0x31, '\\', '|',  0x00ac, 0x00a6, false) // \ | ¬ ¦
+XKEY(0x33, ';',  ':',  0x00b6, 0x00b0, false) // ; : ¶ °
+XKEY(0x34, '\'', '\"', 0x00b4, 0x00a8, false) // ' " ´ ¨
+XKEY(0x35, '`',  '~',  0,      0,      false)
+XKEY(0x36, ',',  '<',  0x00e7, 0,      false) // , < ç
+XKEY(0x37, '.',  '>',  0,      0,      false)
+XKEY(0x38, '/',  '?',  0x00bf, 0,      false) // / ? ¿
 // Keypad
-KEY(0x54, '/',  '/',  0,      0,      false)
-KEY(0x55, '*',  '*',  0,      0,      false)
-KEY(0x56, '-',  '-',  0,      0,      false)
-KEY(0x57, '+',  '+',  0,      0,      false)
-KEY(0x58, '\r', '\r', 0,      0,      false)
-KEY(0x59, '1',  0,    0,      0,      false)
-KEY(0x5a, '2',  0,    0,      0,      false)
-KEY(0x5b, '3',  0,    0,      0,      false)
-KEY(0x5c, '4',  0,    0,      0,      false)
-KEY(0x5d, '5',  0,    0,      0,      false)
-KEY(0x5e, '6',  0,    0,      0,      false)
-KEY(0x5f, '7',  0,    0,      0,      false)
-KEY(0x60, '8',  0,    0,      0,      false)
-KEY(0x61, '9',  0,    0,      0,      false)
-KEY(0x62, '0',  0,    0,      0,      false)
-KEY(0x63, '.',  0,    0,      0,      false)
-KEY(0x64, '\\', '|',  0,      0,      false)
-KEY(0x67, '=',  '=',  0,      0,      false)
+XKEY(0x54, '/',  '/',  0,      0,      false)
+XKEY(0x55, '*',  '*',  0,      0,      false)
+XKEY(0x56, '-',  '-',  0,      0,      false)
+XKEY(0x57, '+',  '+',  0,      0,      false)
+XKEY(0x58, '\r', '\r', 0,      0,      false)
+XKEY(0x59, '1',  0,    0,      0,      false)
+XKEY(0x5a, '2',  0,    0,      0,      false)
+XKEY(0x5b, '3',  0,    0,      0,      false)
+XKEY(0x5c, '4',  0,    0,      0,      false)
+XKEY(0x5d, '5',  0,    0,      0,      false)
+XKEY(0x5e, '6',  0,    0,      0,      false)
+XKEY(0x5f, '7',  0,    0,      0,      false)
+XKEY(0x60, '8',  0,    0,      0,      false)
+XKEY(0x61, '9',  0,    0,      0,      false)
+XKEY(0x62, '0',  0,    0,      0,      false)
+XKEY(0x63, '.',  0,    0,      0,      false)
+XKEY(0x64, '\\', '|',  0,      0,      false)
+XKEY(0x67, '=',  '=',  0,      0,      false)
 
-// Two-stroke dead keys: DEAD2(dead_key, base_key, result)
-DEAD2('`',  'a', 0x00e0) // à
-DEAD2('\'', 'a', 0x00e1) // á
-DEAD2('^',  'a', 0x00e2) // â
-DEAD2('~',  'a', 0x00e3) // ã
-DEAD2('\"', 'a', 0x00e4) // ä
-DEAD2('`',  'A', 0x00c0) // À
-DEAD2('\'', 'A', 0x00c1) // Á
-DEAD2('^',  'A', 0x00c2) // Â
-DEAD2('~',  'A', 0x00c3) // Ã
-DEAD2('\"', 'A', 0x00c4) // Ä
-DEAD2('`',  'e', 0x00e8) // è
-DEAD2('\'', 'e', 0x00e9) // é
-DEAD2('^',  'e', 0x00ea) // ê
-DEAD2('\"', 'e', 0x00eb) // ë
-DEAD2('`',  'E', 0x00c8) // È
-DEAD2('\'', 'E', 0x00c9) // É
-DEAD2('^',  'E', 0x00ca) // Ê
-DEAD2('\"', 'E', 0x00cb) // Ë
-DEAD2('`',  'i', 0x00ec) // ì
-DEAD2('\'', 'i', 0x00ed) // í
-DEAD2('^',  'i', 0x00ee) // î
-DEAD2('\"', 'i', 0x00ef) // ï
-DEAD2('`',  'I', 0x00cc) // Ì
-DEAD2('\'', 'I', 0x00cd) // Í
-DEAD2('^',  'I', 0x00ce) // Î
-DEAD2('\"', 'I', 0x00cf) // Ï
-DEAD2('`',  'o', 0x00f2) // ò
-DEAD2('\'', 'o', 0x00f3) // ó
-DEAD2('^',  'o', 0x00f4) // ô
-DEAD2('~',  'o', 0x00f5) // õ
-DEAD2('\"', 'o', 0x00f6) // ö
-DEAD2('`',  'O', 0x00d2) // Ò
-DEAD2('\'', 'O', 0x00d3) // Ó
-DEAD2('^',  'O', 0x00d4) // Ô
-DEAD2('~',  'O', 0x00d5) // Õ
-DEAD2('\"', 'O', 0x00d6) // Ö
-DEAD2('`',  'u', 0x00f9) // ù
-DEAD2('\'', 'u', 0x00fa) // ú
-DEAD2('^',  'u', 0x00fb) // û
-DEAD2('\"', 'u', 0x00fc) // ü
-DEAD2('`',  'U', 0x00d9) // Ù
-DEAD2('\'', 'U', 0x00da) // Ú
-DEAD2('^',  'U', 0x00db) // Û
-DEAD2('\"', 'U', 0x00dc) // Ü
-DEAD2('`',  'y', 0x1ef3) // ỳ
-DEAD2('\'', 'y', 0x00fd) // ý
-DEAD2('^',  'y', 0x0177) // ŷ
-DEAD2('~',  'y', 0x1ef9) // ỹ
-DEAD2('\"', 'y', 0x00ff) // ÿ
-DEAD2('`',  'Y', 0x1ef2) // Ỳ
-DEAD2('\'', 'Y', 0x00dd) // Ý
-DEAD2('^',  'Y', 0x0176) // Ŷ
-DEAD2('~',  'Y', 0x1ef8) // Ỹ
-DEAD2('\"', 'Y', 0x0178) // Ÿ
-DEAD2('\'', 'c', 0x00e7) // ç
-DEAD2('\'', 'C', 0x00c7) // Ç
-DEAD2('~',  'n', 0x00f1) // ñ
-DEAD2('~',  'N', 0x00d1) // Ñ
-END()
+// Dead keys: XDEAD(dead_key, base_key, result)
+XDEAD('`',  'a', 0x00e0) // à
+XDEAD('\'', 'a', 0x00e1) // á
+XDEAD('^',  'a', 0x00e2) // â
+XDEAD('~',  'a', 0x00e3) // ã
+XDEAD('\"', 'a', 0x00e4) // ä
+XDEAD('`',  'A', 0x00c0) // À
+XDEAD('\'', 'A', 0x00c1) // Á
+XDEAD('^',  'A', 0x00c2) // Â
+XDEAD('~',  'A', 0x00c3) // Ã
+XDEAD('\"', 'A', 0x00c4) // Ä
+XDEAD('`',  'e', 0x00e8) // è
+XDEAD('\'', 'e', 0x00e9) // é
+XDEAD('^',  'e', 0x00ea) // ê
+XDEAD('\"', 'e', 0x00eb) // ë
+XDEAD('`',  'E', 0x00c8) // È
+XDEAD('\'', 'E', 0x00c9) // É
+XDEAD('^',  'E', 0x00ca) // Ê
+XDEAD('\"', 'E', 0x00cb) // Ë
+XDEAD('`',  'i', 0x00ec) // ì
+XDEAD('\'', 'i', 0x00ed) // í
+XDEAD('^',  'i', 0x00ee) // î
+XDEAD('\"', 'i', 0x00ef) // ï
+XDEAD('`',  'I', 0x00cc) // Ì
+XDEAD('\'', 'I', 0x00cd) // Í
+XDEAD('^',  'I', 0x00ce) // Î
+XDEAD('\"', 'I', 0x00cf) // Ï
+XDEAD('`',  'o', 0x00f2) // ò
+XDEAD('\'', 'o', 0x00f3) // ó
+XDEAD('^',  'o', 0x00f4) // ô
+XDEAD('~',  'o', 0x00f5) // õ
+XDEAD('\"', 'o', 0x00f6) // ö
+XDEAD('`',  'O', 0x00d2) // Ò
+XDEAD('\'', 'O', 0x00d3) // Ó
+XDEAD('^',  'O', 0x00d4) // Ô
+XDEAD('~',  'O', 0x00d5) // Õ
+XDEAD('\"', 'O', 0x00d6) // Ö
+XDEAD('`',  'u', 0x00f9) // ù
+XDEAD('\'', 'u', 0x00fa) // ú
+XDEAD('^',  'u', 0x00fb) // û
+XDEAD('\"', 'u', 0x00fc) // ü
+XDEAD('`',  'U', 0x00d9) // Ù
+XDEAD('\'', 'U', 0x00da) // Ú
+XDEAD('^',  'U', 0x00db) // Û
+XDEAD('\"', 'U', 0x00dc) // Ü
+XDEAD('`',  'y', 0x1ef3) // ỳ
+XDEAD('\'', 'y', 0x00fd) // ý
+XDEAD('^',  'y', 0x0177) // ŷ
+XDEAD('~',  'y', 0x1ef9) // ỹ
+XDEAD('\"', 'y', 0x00ff) // ÿ
+XDEAD('`',  'Y', 0x1ef2) // Ỳ
+XDEAD('\'', 'Y', 0x00dd) // Ý
+XDEAD('^',  'Y', 0x0176) // Ŷ
+XDEAD('~',  'Y', 0x1ef8) // Ỹ
+XDEAD('\"', 'Y', 0x0178) // Ÿ
+XDEAD('\'', 'c', 0x00e7) // ç
+XDEAD('\'', 'C', 0x00c7) // Ç
+XDEAD('~',  'n', 0x00f1) // ñ
+XDEAD('~',  'N', 0x00d1) // Ñ
+
+XEND()
+#undef XSUFFIX

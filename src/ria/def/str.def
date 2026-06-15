@@ -1,19 +1,16 @@
 /* ADD A LANGUAGE - no C knowledge needed, and you never touch a .c/.h file.
  *
  * 1. Copy def/str_en.def to a new def/str_<lang>.def.
- * 2. Edit the new file:
- *      - Change the BEGIN line: a unique ALL-CAPS tag (e.g. FR), the code
- *        users type in SET LOC (e.g. "FR"), the language's own name (e.g.
- *        "Francais"), and its default OEM code-page number.
+ * 2. Add #include "def/str_<lang>.def" line below.
+ * 3. Edit the new file:
+ *      - Set XSUFFIX to a unique ALL_CAPS tag (e.g. FR) and edit the XBEGIN
+ *        line: the code users type in SET LOC (e.g. "FR"), the language's own
+ *        name (e.g. "Francais"), and its default OEM code-page number.
  *      - Translate ONLY the text inside the quotes. Keep every STR_... name
  *        exactly once - don't rename, drop, or duplicate one.
- *      - Inside the quotes, keep every %-specifier (%d, %s, %04X ...), every
- *        backslash escape (\n, \t), and every \a (column-align marker used in
- *        help text) exactly as in English. Translate only the words.
- *      - For the code page on the BEGIN line, pick the OEM page that covers
+ *      - For the code page on the XBEGIN line, pick the OEM page that covers
  *        your language's characters (HELP SET CP lists the supported pages);
  *        e.g. English uses 437, Polish uses 852.
- * 3. Add one #include line below.
  * 4. Build and test with SET LOC <code>.
  */
 

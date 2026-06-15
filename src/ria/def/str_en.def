@@ -7,7 +7,8 @@
 // English
 
 #include "def/def.h"
-BEGIN(EN, "EN", "English", 437)
+#define XSUFFIX EN
+XBEGIN("EN", "English", 437)
 
 // Time and date, POSIX LC_TIME.
 X(STR_TIME_DAY_0, "Sunday")
@@ -405,4 +406,5 @@ X(STR_HELP_SET_KEY,
   "SET KEY sets the passkey for remote console access. Use \"-\" to clear. "
   "Both PORT and KEY must be set to enable telnet console access.\n")
 
-END()
+XEND()
+#undef XSUFFIX
