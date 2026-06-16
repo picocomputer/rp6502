@@ -57,7 +57,7 @@ const char *rom_get_boot(void); // uses mbuf
 
 bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
-int rom_std_close(int desc, api_errno *err);
+std_rw_result rom_std_close(int desc, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 
