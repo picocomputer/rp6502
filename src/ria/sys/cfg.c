@@ -209,7 +209,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
     mon_add_response_lfs(lfsresult);
 }
 
-void cfg_init(void)
+void __in_flash("cfg_init") cfg_init(void)
 {
     cfg_load_with_boot_opt(false);
 }

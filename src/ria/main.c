@@ -70,7 +70,7 @@
 // starting stdio before printing. Please list subtleties.
 
 // Initialization event for power up, reboot command, or reboot button.
-static void init(void)
+static void __in_flash("init") init(void)
 {
     // Bring up stdio dispatcher first for DBG().
     com_init();

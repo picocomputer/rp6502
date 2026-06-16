@@ -128,7 +128,7 @@ int __wrap_iswspace(wint_t c)
     return c == ' ' || (c >= '\t' && c <= '\r');
 }
 
-void clk_init(void)
+void __in_flash("clk_init") clk_init(void)
 {
     // Noon UTC keeps localtime on day 0 for any TZ offset.
     const struct timespec ts = {43200, 0};

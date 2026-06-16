@@ -92,7 +92,7 @@ static xin_device_t xin_devices[XIN_MAX_DEVICES];
 // clang-format off
 
 // Synthetic HID descriptors allow use of HID gamepad driver
-__in_flash("xin_hid_descriptors") static const uint8_t xin_xbox_one_desc[] = {
+__in_flash("xin_xbox_one_desc") static const uint8_t xin_xbox_one_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop Controls)
     0x09, 0x05, // Usage (Game Pad)
     0xa1, 0x01, // Collection (Application)
@@ -217,7 +217,7 @@ __in_flash("xin_hid_descriptors") static const uint8_t xin_xbox_one_desc[] = {
     0xc0, // End Collection
 };
 
-__in_flash("xin_hid_descriptors") static const uint8_t xin_xbox_360_desc[] = {
+__in_flash("xin_xbox_360_desc") static const uint8_t xin_xbox_360_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop Controls)
     0x09, 0x05, // Usage (Game Pad)
     0xa1, 0x01, // Collection (Application)
@@ -414,7 +414,7 @@ static bool xin_queue_in(xin_device_t *device, int idx)
     return tuh_edpt_xfer(&xfer);
 }
 
-bool xin_class_driver_init(void)
+bool __in_flash("xin_class_driver_init") xin_class_driver_init(void)
 {
     memset(xin_devices, 0, sizeof(xin_devices));
     return true;

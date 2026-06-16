@@ -148,17 +148,17 @@ static absolute_time_t rln_complete_deferred_deadline;
 // Cross-terminal display state
 static rln_phase_t rln_phase;
 static absolute_time_t rln_handshake_deadline;
-static uint16_t rln_prompt_col;      // 1-based
-static uint16_t rln_term_width;      // 0 if no CPR
-static uint16_t rln_term_height;     // 0 if no CPR
-static uint16_t rln_width_override;  // 0 = auto-detect
-static uint16_t rln_height_override; // 0 = auto-detect
-static uint16_t rln_naws_width;      // 0 = no telnet NAWS
-static uint16_t rln_naws_height;     // 0 = no telnet NAWS
-static uint8_t rln_cur_idx;          // buffer index whose screen position the cursor is at
-static bool rln_overwrite;           // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
-static bool rln_decscusr_ok;         // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
-static uint8_t rln_rendered_max_row; // highest row index rln has written to in the current line
+static uint16_t rln_prompt_col;        // 1-based
+static uint16_t rln_term_width;        // 0 if no CPR
+static uint16_t rln_term_height;       // 0 if no CPR
+static uint16_t rln_width_override;    // 0 = auto-detect
+static uint16_t rln_height_override;   // 0 = auto-detect
+static uint16_t rln_naws_width;        // 0 = no telnet NAWS
+static uint16_t rln_naws_height;       // 0 = no telnet NAWS
+static uint8_t rln_cur_idx;            // buffer index whose screen position the cursor is at
+static bool rln_overwrite;             // preserved across rln_read_line calls; cleared by rln_init (rln_stop/rln_break)
+static bool rln_decscusr_ok;           // peer claimed VT220+ via Primary DA; safe to emit DECSCUSR
+static uint8_t rln_rendered_max_row;   // highest row index rln has written to in the current line
 static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
 
 // Per-source state: rln_sources[s] holds the parser + CPR/DA2/defer
@@ -1632,7 +1632,7 @@ void rln_task(void)
         rln_complete(true);
 }
 
-void rln_init(void)
+void __in_flash("rln_init") rln_init(void)
 {
     rln_callback = NULL;
     rln_enable_history = true;

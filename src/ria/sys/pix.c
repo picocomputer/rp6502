@@ -38,7 +38,7 @@ void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
     pio_sm_set_clkdiv_int_frac(PIX_PIO, PIX_SM, clkdiv_int, clkdiv_frac);
 }
 
-void pix_init(void)
+void __in_flash("pix_init") pix_init(void)
 {
     uint offset = pio_add_program(PIX_PIO, &pix_tx_program);
     pio_sm_config config = pix_tx_program_get_default_config(offset);

@@ -459,7 +459,7 @@ void std_task(void)
     }
 }
 
-void std_init(void)
+void __in_flash("std_init") std_init(void)
 {
     std_fd_pool[STD_FD_STDIN].is_open = true;
     std_fd_pool[STD_FD_STDIN].read = std_stdin_read;
