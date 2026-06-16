@@ -170,6 +170,7 @@ static void stop(void)
     pix_stop();
     oem_stop();
     std_stop();
+    mid_stop();
     dir_stop();
     kbd_stop();
     mou_stop();

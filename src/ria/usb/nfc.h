@@ -37,7 +37,7 @@ bool nfc_parse_text(const uint8_t *tag_data, size_t len, char *buf, size_t buf_s
 
 bool nfc_std_handles(const char *name);
 int nfc_std_open(const char *name, uint8_t flags, api_errno *err);
-int nfc_std_close(int desc, api_errno *err);
+std_rw_result nfc_std_close(int desc, api_errno *err);
 std_rw_result nfc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 

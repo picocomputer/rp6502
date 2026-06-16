@@ -14,7 +14,7 @@ void mdm_set_conn(int desc) { (void)desc; }
 bool mdm_settings_persistent(void) { return false; }
 bool mdm_std_handles(const char *) { return false; }
 int mdm_std_open(const char *, uint8_t, api_errno *) { return -1; }
-int mdm_std_close(int, api_errno *) { return -1; }
+std_rw_result mdm_std_close(int, api_errno *) { return STD_ERROR; }
 std_rw_result mdm_std_read(int, char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
 std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
 void mdm_ring(void) {}
@@ -970,15 +970,15 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
     return desc;
 }
 
-int mdm_std_close(int desc, api_errno *err)
+std_rw_result mdm_std_close(int desc, api_errno *err)
 {
     if (desc < 0 || desc >= NET_MDM_DESCS || !mdm_conns[desc].is_open)
     {
         *err = API_EBADF;
-        return -1;
+        return STD_ERROR;
     }
     mdm_conn_stop(&mdm_conns[desc]);
-    return 0;
+    return STD_OK;
 }
 
 std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)

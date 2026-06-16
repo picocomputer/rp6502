@@ -283,17 +283,17 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
     return idx;
 }
 
-int vcp_std_close(int desc, api_errno *err)
+std_rw_result vcp_std_close(int desc, api_errno *err)
 {
     if (!vcp_mounts[desc].opened)
     {
         *err = API_EBADF;
-        return -1;
+        return STD_ERROR;
     }
     DBG("VCP%d: close\n", desc);
     tuh_cdc_disconnect(desc, NULL, 0);
     vcp_mounts[desc].opened = false;
-    return 0;
+    return STD_OK;
 }
 
 std_rw_result vcp_std_read(int desc, char *buf, uint32_t buf_size,

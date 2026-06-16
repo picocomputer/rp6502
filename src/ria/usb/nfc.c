@@ -949,7 +949,7 @@ int nfc_std_open(const char *name, uint8_t flags, api_errno *err)
     return 0;
 }
 
-int nfc_std_close(int desc, api_errno *err)
+std_rw_result nfc_std_close(int desc, api_errno *err)
 {
     (void)desc;
     (void)err;
@@ -958,7 +958,7 @@ int nfc_std_close(int desc, api_errno *err)
     nfc_write_accumulating = false;
     nfc_write_response = false;
     nfc_api_open = false;
-    return 0;
+    return STD_OK;
 }
 
 std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count,

@@ -2022,22 +2022,22 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return (int)(fp - msc_std_fil_pool);
 }
 
-int msc_std_close(int desc, api_errno *err)
+std_rw_result msc_std_close(int desc, api_errno *err)
 {
     FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
-        return -1;
+        return STD_ERROR;
     }
     FRESULT fresult = f_close(fp);
     fp->obj.fs = NULL;
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fatfs(fresult);
-        return -1;
+        return STD_ERROR;
     }
-    return 0;
+    return STD_OK;
 }
 
 std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
@@ -2146,19 +2146,19 @@ int msc_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
     return 0;
 }
 
-int msc_std_sync(int desc, api_errno *err)
+std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     FIL *fp = msc_std_validate_fil(desc);
     if (!fp)
     {
         *err = API_EBADF;
-        return -1;
+        return STD_ERROR;
     }
     FRESULT fresult = f_sync(fp);
     if (fresult != FR_OK)
     {
         *err = api_errno_from_fatfs(fresult);
-        return -1;
+        return STD_ERROR;
     }
-    return 0;
+    return STD_OK;
 }

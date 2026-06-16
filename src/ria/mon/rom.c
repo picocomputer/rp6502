@@ -979,11 +979,11 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
     return -1;
 }
 
-int rom_std_close(int desc, api_errno *err)
+std_rw_result rom_std_close(int desc, api_errno *err)
 {
     (void)err;
     rom_assets[desc].is_open = false;
-    return 0;
+    return STD_OK;
 }
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)

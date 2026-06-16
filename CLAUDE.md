@@ -47,4 +47,9 @@ necessary. Specific slop to never write:
 * Header comments are contract-level and as terse as their neighbors. Match
   the existing one-liners like "// Code page without saving to config".
 
+Docs live in ~/picocomputer.github.io (Sphinx, source in docs/source/*.rst).
+When a change alters observable behavior — syscalls/API, device pipes,
+monitor commands — update the matching docs in the same change. Match the
+existing prose voice; never edit docs/build (generated output).
+
 Commit this information to MEMORY.

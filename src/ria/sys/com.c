@@ -804,6 +804,7 @@ void __in_flash("com_init") com_init(void)
 
 void com_stop(void)
 {
+    com_rx_char = -1;
     if (!ria_active())
     {
         printf(STR_TERM_SOFT_RESET);

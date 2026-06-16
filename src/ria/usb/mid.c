@@ -28,8 +28,7 @@ static_assert(sizeof(mid_string) == 4 + 1);
 
 #define MID_RING_SIZE 128
 #define MID_DEFAULT_TEMPO 500000 // microseconds per quarter note, 120 BPM
-#define MID_DEFAULT_PPQN 480
-#define MID_MAX_PPQN 32767 // SMF division with bit 15 clear
+#define MID_MAX_PPQN 32767       // SMF division with bit 15 clear
 
 enum
 {
@@ -56,7 +55,7 @@ typedef struct
     // ppqn; rounding to ns stays under 1 ppm, below the 30 ppm crystal.
     uint32_t tick_ns; // derived: tempo * 1000 / ppqn
     uint32_t tempo;   // microseconds per quarter note
-    uint16_t ppqn;    // ticks per quarter note, fixed at open
+    uint16_t ppqn;    // ticks per quarter note, fixed at open; 0 = raw passthrough
     // RX
     uint64_t rx_epoch_ns;
     uint16_t rx_head, rx_tail;
@@ -97,6 +96,12 @@ static_assert(CFG_TUH_MIDI <= 10); // one char 0-9 in "MIDI0:"
 static inline uint16_t mid_ring_free(uint16_t head, uint16_t tail)
 {
     return (uint16_t)((MID_RING_SIZE - 1) - ((head - tail) & (MID_RING_SIZE - 1)));
+}
+
+// A zero division means no SMF framing or timing: wire bytes pass straight through.
+static inline bool mid_raw(const mid_t *conn)
+{
+    return !conn->ppqn;
 }
 
 // Data byte count for a status byte, sysex handled separately.
@@ -343,7 +348,7 @@ static void mid_rx_packet(uint8_t itf, uint64_t t_ns, const uint8_t *pkt)
         len = 1;
     else if (b == 0xF0 || b < 0x80)
     {
-        if (b < 0x80 && !conn->rx_in_sysex)
+        if (b < 0x80 && !mid_raw(conn) && !conn->rx_in_sysex)
             return; // data with no context, drop
         len = 1;
         while (len < 3 && pkt[1 + len] < 0x80)
@@ -353,6 +358,13 @@ static void mid_rx_packet(uint8_t itf, uint64_t t_ns, const uint8_t *pkt)
     }
     else
         len = 1 + mid_msg_data_len(b);
+    if (mid_raw(conn))
+    {
+        for (uint8_t i = 0; i < len; i++)
+            if (mid_ring_free(conn->rx_head, conn->rx_tail))
+                mid_rx_push(conn, pkt[1 + i]);
+        return;
+    }
     for (uint8_t i = 0; i < len; i++)
         mid_rx_wire_byte(conn, t_ns, pkt[1 + i]);
 }
@@ -545,10 +557,122 @@ static void mid_tx_apply_meta(mid_t *conn)
     }
 }
 
+// Queue the accumulated sysex bytes as one USB packet, clearing the
+// accumulator. False when the endpoint FIFO is full and the caller retries.
+static bool mid_tx_flush_acc(mid_t *conn)
+{
+    uint8_t cin = conn->tx_acc_eox
+                      ? MIDI_CIN_SYSEX_END_1BYTE + conn->tx_acc_len - 1
+                      : MIDI_CIN_SYSEX_START;
+    if (!mid_tx_packet(conn, cin, conn->tx_acc, conn->tx_acc_len))
+        return false;
+    conn->tx_acc_len = 0;
+    return true;
+}
+
+// Raw mode TX: forward the wire stream straight through, packetizing by
+// status. Real-time bytes pass inline even mid-message or mid-sysex. A
+// status byte that cuts a sysex short still needs an F7 to form a valid USB
+// end packet; only a clean close stays silent.
+static bool mid_tx_run_raw(mid_t *conn)
+{
+    bool wrote = false;
+    for (;;)
+    {
+        if (conn->tx_pending)
+        {
+            if (!mid_tx_packet(conn, mid_msg_cin(conn->tx_msg[0]), conn->tx_msg, conn->tx_msg_len))
+                return wrote;
+            wrote = true;
+            conn->tx_pending = false;
+            conn->tx_msg_len = 0;
+        }
+        if (conn->tx_state == MID_TX_SYSEX && (conn->tx_acc_len == 3 || conn->tx_acc_eox))
+        {
+            if (!mid_tx_flush_acc(conn))
+                return wrote;
+            wrote = true;
+            if (conn->tx_acc_eox)
+            {
+                conn->tx_acc_eox = false;
+                conn->tx_state = MID_TX_DELTA;
+            }
+        }
+        if (conn->tx_tail == conn->tx_head)
+            return wrote;
+        uint8_t b = conn->tx_ring[conn->tx_tail];
+        if (b >= 0xF8)
+        {
+            if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &b, 1))
+                return wrote;
+            wrote = true;
+            conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+            continue;
+        }
+        if (conn->tx_state == MID_TX_SYSEX)
+        {
+            if (b >= 0x80 && b != 0xF7)
+            {
+                // Status ends the sysex; close the USB packet and reparse b
+                conn->tx_acc[conn->tx_acc_len++] = 0xF7;
+                conn->tx_acc_eox = true;
+                continue;
+            }
+            conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+            conn->tx_acc[conn->tx_acc_len++] = b;
+            if (b == 0xF7)
+                conn->tx_acc_eox = true;
+            continue;
+        }
+        conn->tx_tail = (conn->tx_tail + 1) & (MID_RING_SIZE - 1);
+        if (conn->tx_msg_len && b >= 0x80)
+            conn->tx_msg_len = 0; // new status mid-message, drop the partial
+        if (!conn->tx_msg_len)
+        {
+            if (b == 0xF0)
+            {
+                conn->tx_status = 0;
+                conn->tx_acc[0] = 0xF0;
+                conn->tx_acc_len = 1;
+                conn->tx_acc_eox = false;
+                conn->tx_state = MID_TX_SYSEX;
+            }
+            else if (b < 0x80)
+            {
+                if (!conn->tx_status)
+                    continue; // data with no running status, drop
+                conn->tx_msg[0] = conn->tx_status;
+                conn->tx_msg[1] = b;
+                conn->tx_msg_len = 2;
+                conn->tx_msg_need = mid_msg_data_len(conn->tx_status) - 1;
+            }
+            else
+            {
+                if (b >= 0xF0)
+                    conn->tx_status = 0; // system common cancels running status
+                else
+                    conn->tx_status = b;
+                conn->tx_msg[0] = b;
+                conn->tx_msg_len = 1;
+                conn->tx_msg_need = mid_msg_data_len(b);
+            }
+        }
+        else
+        {
+            conn->tx_msg[conn->tx_msg_len++] = b;
+            conn->tx_msg_need--;
+        }
+        if (conn->tx_msg_len && !conn->tx_msg_need)
+            conn->tx_pending = true;
+    }
+}
+
 // True when a packet was queued and the interface needs a flush.
 static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
 {
     mid_t *conn = &mid_mounts[idx];
+    if (mid_raw(conn))
+        return mid_tx_run_raw(conn);
     bool wrote = false;
     for (;;)
     {
@@ -558,13 +682,9 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
             {
                 if (conn->tx_acc_len == 3 || conn->tx_acc_eox)
                 {
-                    uint8_t cin = conn->tx_acc_eox
-                                      ? MIDI_CIN_SYSEX_END_1BYTE + conn->tx_acc_len - 1
-                                      : MIDI_CIN_SYSEX_START;
-                    if (!mid_tx_packet(conn, cin, conn->tx_acc, conn->tx_acc_len))
+                    if (!mid_tx_flush_acc(conn))
                         return wrote;
                     wrote = true;
-                    conn->tx_acc_len = 0;
                     if (conn->tx_acc_eox)
                     {
                         conn->tx_acc_eox = false;
@@ -719,31 +839,25 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
         return -1;
     }
 
-    // Optional division (ticks per quarter note) follows the colon
-    uint32_t ppqn = MID_DEFAULT_PPQN;
-    if (name[6])
+    // A division (ticks per quarter note) after the colon selects the timed
+    // SMF stream, e.g. "MIDIn:480". An absent or zero division opens the raw
+    // wire stream, zero being meaningless as a division.
+    uint32_t ppqn = 0;
+    for (const char *p = &name[6]; *p; p++)
     {
-        ppqn = 0;
-        for (const char *p = &name[6]; *p; p++)
+        if (!isdigit((unsigned char)*p))
         {
-            if (!isdigit((unsigned char)*p))
-            {
-                *err = API_EINVAL;
-                return -1;
-            }
-            ppqn = ppqn * 10 + (*p - '0');
-            if (ppqn > MID_MAX_PPQN)
-            {
-                *err = API_EINVAL;
-                return -1;
-            }
+            *err = API_EINVAL;
+            return -1;
         }
-        if (!ppqn)
+        ppqn = ppqn * 10 + (*p - '0');
+        if (ppqn > MID_MAX_PPQN)
         {
             *err = API_EINVAL;
             return -1;
         }
     }
+    bool raw = !ppqn;
 
     // Stale RX accumulates unless an open input cable keeps the interface
     // drained; if none is, flush it so this cable starts clean.
@@ -762,7 +876,8 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     uint64_t now_ns = time_us_64() * 1000;
     conn->tempo = MID_DEFAULT_TEMPO;
     conn->ppqn = (uint16_t)ppqn;
-    conn->tick_ns = (uint32_t)(((uint64_t)MID_DEFAULT_TEMPO * 1000 + ppqn / 2) / ppqn);
+    conn->tick_ns = raw ? 0 // raw leaves ppqn 0; timing unused, would divide by zero
+                        : (uint32_t)(((uint64_t)MID_DEFAULT_TEMPO * 1000 + ppqn / 2) / ppqn);
     conn->rx_epoch_ns = now_ns;
     conn->rx_head = conn->rx_tail = 0;
     conn->rx_ticks = 0;
@@ -784,7 +899,10 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_acc_eox = false;
     conn->tx_sysex_break = false;
     conn->opened = true;
-    DBG("MIDI%d: open ppqn %u\n", idx, conn->ppqn);
+    if (raw)
+        DBG("MIDI%d: open raw\n", idx);
+    else
+        DBG("MIDI%d: open ppqn %u\n", idx, conn->ppqn);
     return (conn->session << 4) | idx;
 }
 
@@ -798,24 +916,59 @@ static mid_t *mid_desc_conn(int desc)
     return &mid_mounts[idx];
 }
 
-int mid_std_close(int desc, api_errno *err)
+// True while queued TX still has a packet to release: ring bytes, a parsed
+// message, or a sysex packet a full FIFO has not yet taken.
+static bool mid_tx_draining(const mid_t *conn)
 {
-    mid_t *conn = mid_desc_conn(desc);
-    if (!conn || !conn->opened)
+    return conn->tx_head != conn->tx_tail || conn->tx_pending ||
+           conn->tx_acc_eox || conn->tx_acc_len == 3;
+}
+
+// Flush a trailing F7 so the device is not left mid-sysex, then close. Raw
+// streams inject nothing, so they close without it.
+static void mid_close_finalize(mid_t *conn)
+{
+    if (!mid_raw(conn) && conn->mounted && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
     {
-        *err = API_EBADF;
-        return -1;
-    }
-    DBG("MIDI%d: close\n", desc & 0xF);
-    if (conn->mounted && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
-    {
-        // Best effort: don't leave the device hanging mid-sysex
         uint8_t eox = 0xF7;
         if (mid_tx_packet(conn, MIDI_CIN_SYSEX_END_1BYTE, &eox, 1))
             tuh_midi_write_flush(conn->itf);
     }
     conn->opened = false;
-    return 0;
+}
+
+// Shared close/sync gate. STD_ERROR for a stale descriptor; STD_PENDING
+// while the queued tail is still playing out on schedule; STD_OK once it has
+// drained, the cable is input-only, or it unplugged mid-drain (nothing left
+// to send). The resolved connection is returned for the caller to finalize.
+static std_rw_result mid_drain_gate(int desc, mid_t **conn, api_errno *err)
+{
+    *conn = mid_desc_conn(desc);
+    if (!*conn)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    if ((*conn)->opened && (*conn)->mounted && (*conn)->has_tx && mid_tx_draining(*conn))
+        return STD_PENDING;
+    return STD_OK;
+}
+
+std_rw_result mid_std_close(int desc, api_errno *err)
+{
+    mid_t *conn;
+    std_rw_result result = mid_drain_gate(desc, &conn, err);
+    if (result != STD_OK)
+        return result;
+    DBG("MIDI%d: close\n", desc & 0xF);
+    mid_close_finalize(conn);
+    return STD_OK;
+}
+
+std_rw_result mid_std_sync(int desc, api_errno *err)
+{
+    mid_t *conn;
+    return mid_drain_gate(desc, &conn, err);
 }
 
 std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
@@ -900,4 +1053,13 @@ void tuh_midi_umount_cb(uint8_t itf)
             mid_mounts[i].mounted = false;
             mid_mounts[i].opened = false;
         }
+}
+
+// Forced teardown when the 6502 stops: drop any undrained TX tail and free
+// the cable (the graceful on-schedule drain happens on close while running).
+void mid_stop(void)
+{
+    for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
+        if (mid_mounts[idx].opened)
+            mid_close_finalize(&mid_mounts[idx]);
 }
