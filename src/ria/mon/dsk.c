@@ -9,6 +9,7 @@
 #include "str/str.h"
 #include "str/rln.h"
 #include "sys/mem.h"
+#include "sys/ria.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
@@ -109,7 +110,40 @@ static bool dsk_parse_alloc(const char *tok, uint32_t *au)
     return true;
 }
 
-// Print the device identity and size (the confirm preview).
+static const char *dsk_fs_name(BYTE fs_type)
+{
+    switch (fs_type)
+    {
+    case FS_FAT12:
+        return STR_FS_FAT12;
+    case FS_FAT16:
+        return STR_FS_FAT16;
+    case FS_FAT32:
+        return STR_FS_FAT32;
+    case FS_EXFAT:
+        return STR_FS_EXFAT;
+    default:
+        return STR_FS_NONE;
+    }
+}
+
+// Print the current filesystem format and free/total space (or "none").
+static void dsk_print_format_free(void)
+{
+    DWORD nclst;
+    FATFS *fs;
+    if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+    {
+        printf_utf8(S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
+        printf_utf8(S(STR_DISK_INFO_FREE),
+                    (unsigned long)nclst * fs->csize,
+                    (unsigned long)(fs->n_fatent - 2) * fs->csize);
+    }
+    else
+        printf_utf8(S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
+}
+
+// Print the device identity, size, and current format/free (the preview).
 static void dsk_preview(void)
 {
     char vendor[9], product[17], rev[5];
@@ -122,6 +156,7 @@ static void dsk_preview(void)
     if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
         printf_utf8(S(STR_DISK_SIZE),
                     (unsigned long)(info.block_count / (1048576 / info.block_size)));
+    dsk_print_format_free();
 }
 
 static void dsk_preview_make_format(void)
@@ -430,23 +465,6 @@ static void dsk_label(const char *args)
         mon_add_response_fatfs(fr);
 }
 
-static const char *dsk_fs_name(BYTE fs_type)
-{
-    switch (fs_type)
-    {
-    case FS_FAT12:
-        return STR_FS_FAT12;
-    case FS_FAT16:
-        return STR_FS_FAT16;
-    case FS_FAT32:
-        return STR_FS_FAT32;
-    case FS_EXFAT:
-        return STR_FS_EXFAT;
-    default:
-        return STR_FS_NONE;
-    }
-}
-
 static void dsk_info(const char *args)
 {
     msc_dsk_info_t info;
@@ -465,21 +483,28 @@ static void dsk_info(const char *args)
     if (info.block_size)
         printf_utf8(S(STR_DISK_SIZE),
                     (unsigned long)(info.block_count / (1048576 / info.block_size)));
-    DWORD nclst;
-    FATFS *fs;
-    if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
-    {
-        printf_utf8(S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
-        printf_utf8(S(STR_DISK_INFO_FREE),
-                    (unsigned long)nclst * fs->csize,
-                    (unsigned long)(fs->n_fatent - 2) * fs->csize);
-    }
-    else
-        printf_utf8(S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
+    dsk_print_format_free();
 }
 
 void dsk_task(void)
 {
+    // Ctrl-C (SIGINT) aborts the confirm prompt and the running passes, the
+    // same as a break. FORMAT UNIT cannot be cancelled: discard the signal so a
+    // Ctrl-C during it doesn't abort the mkfs that follows. While idle, leave
+    // SIGINT for the monitor's own line reader.
+    if (dsk_state == DSK_RUN_FORMAT_UNIT)
+        ria_get_sigint();
+    else if (dsk_state != DSK_IDLE && ria_get_sigint())
+    {
+        if (dsk_state == DSK_CONFIRM)
+            rln_break(); // cancel the pending YES read
+        else if (dsk_state == DSK_RUN_MKFS || dsk_state == DSK_RUN_ZERO)
+            msc_dsk_reenumerate(dsk_pdrv); // partial write: remount
+        putchar('\n');
+        dsk_state = DSK_IDLE;
+        mon_add_response_utf8(S(STR_DISK_ABORTED));
+        return;
+    }
     switch (dsk_state)
     {
     case DSK_RUN_FORMAT_UNIT:
