@@ -64,7 +64,8 @@ static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
-static mon_confirm_fn mon_confirm_cb; // pending YES/no confirmation action
+static mon_confirm_fn mon_confirm_cb; // pending post-response action
+static bool mon_confirm_needs_yes;    // true: prompt for YES; false: run after drain
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -200,6 +201,13 @@ static void mon_confirm_enter(bool timeout, const char *buf)
 void mon_response_confirm(mon_confirm_fn cb)
 {
     mon_confirm_cb = cb;
+    mon_confirm_needs_yes = true;
+}
+
+void mon_response_then(mon_confirm_fn cb)
+{
+    mon_confirm_cb = cb;
+    mon_confirm_needs_yes = false;
 }
 
 static int mon_utf8_response(char *buf, size_t buf_size, int state)
@@ -636,6 +644,15 @@ void mon_task(void)
         dsk_active() ||
         usb_boot_enumerating())
         return;
+    // A "then" continuation runs once the response queue has drained, with no
+    // prompt (e.g. disk verify leads with its info block, then scans).
+    if (mon_confirm_cb && !mon_confirm_needs_yes)
+    {
+        mon_confirm_fn cb = mon_confirm_cb;
+        mon_confirm_cb = NULL;
+        cb();
+        return;
+    }
     // The monitor has control
     if (mon_needs_prompt)
     {

@@ -38,7 +38,8 @@ typedef struct
     uint32_t block_size;
 } msc_dsk_info_t;
 
-int msc_dsk_vol_from_name(const char *name); // "MSCn"/"MSCn:" -> index, or -1
+int msc_dsk_vol_from_name(const char *name); // "MSCn"/"MSCn:"/"n:" -> index, or -1
+void msc_dsk_size_str(uint64_t block_count, uint32_t block_size, char *out, size_t out_size);
 bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv);
 bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out);
 bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5]);

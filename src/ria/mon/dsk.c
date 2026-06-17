@@ -56,7 +56,8 @@ static char dsk_path[6];          // "MSCn:" for FatFs calls
 static bool dsk_is_floppy;
 static uint8_t dsk_fs;            // 0=auto, 1=FAT, 2=exFAT
 static bool dsk_full;             // /full low-level format
-static uint32_t dsk_au;           // allocation unit bytes (0 = auto)
+static uint32_t dsk_au;           // allocation unit bytes (requested, then resolved)
+static uint8_t dsk_fsty;          // resolved FS_FAT12/16/32/EXFAT for format
 static bool dsk_has_label;
 static char dsk_label_oem[12];
 static uint8_t dsk_layout;        // DSK_LAYOUT_* for format
@@ -68,17 +69,13 @@ static uint64_t dsk_lba;          // current sector
 static int dsk_last_pct;
 static uint32_t dsk_bad;          // verify bad-sector count
 
-// Copy a drive token into dsk_path as "MSCn:".
-static void dsk_set_path(const char *tok)
+// Build the canonical "MSCn:" path for a resolved volume (so "0:" and "MSC0:"
+// produce the same FatFs path).
+static void dsk_set_path(uint8_t vol)
 {
-    size_t n = 0;
-    while (tok[n] && tok[n] != ':' && n < sizeof(dsk_path) - 2)
-    {
-        dsk_path[n] = tok[n];
-        n++;
-    }
-    dsk_path[n++] = ':';
-    dsk_path[n] = '\0';
+    static_assert(FF_VOLUMES <= 10);
+    memcpy(dsk_path, "MSC0:", 6);
+    dsk_path[3] = (char)('0' + vol);
 }
 
 // Parse an allocation-unit option like "/16k" or "/512". Returns false unless
@@ -124,6 +121,48 @@ static const char *dsk_fs_name(BYTE fs_type)
     }
 }
 
+// True if the sector looks like a FAT/exFAT volume boot record (mirrors FatFs
+// check_fs). A bare 0x55AA is not enough — an MBR carries it too.
+static bool dsk_is_fat_vbr(const uint8_t *w)
+{
+    uint16_t sign = (uint16_t)(w[510] | (w[511] << 8));
+#if FF_FS_EXFAT
+    static const uint8_t EXFAT_SIG[11] = {0xEB, 0x76, 0x90, 'E', 'X', 'F', 'A', 'T', ' ', ' ', ' '};
+    if (sign == 0xAA55 && memcmp(w, EXFAT_SIG, sizeof(EXFAT_SIG)) == 0)
+        return true;
+#endif
+    uint8_t jmp = w[0];
+    if (jmp != 0xEB && jmp != 0xE9 && jmp != 0xE8)
+        return false;
+    static const uint8_t FAT32_SIG[8] = {'F', 'A', 'T', '3', '2', ' ', ' ', ' '};
+    if (sign == 0xAA55 && memcmp(w + 82, FAT32_SIG, sizeof(FAT32_SIG)) == 0)
+        return true;
+    uint16_t bps = (uint16_t)(w[11] | (w[12] << 8));
+    uint8_t spc = w[13];
+    uint16_t rsvd = (uint16_t)(w[14] | (w[15] << 8));
+    uint8_t nfat = w[16];
+    uint16_t root = (uint16_t)(w[17] | (w[18] << 8));
+    uint16_t tot16 = (uint16_t)(w[19] | (w[20] << 8));
+    uint32_t tot32 = (uint32_t)(w[32] | (w[33] << 8) | (w[34] << 16) | ((uint32_t)w[35] << 24));
+    uint16_t fsz16 = (uint16_t)(w[22] | (w[23] << 8));
+    return (bps & (bps - 1)) == 0 && bps >= FF_MIN_SS && bps <= FF_MAX_SS &&
+           spc != 0 && (spc & (spc - 1)) == 0 && rsvd != 0 &&
+           (unsigned)(nfat - 1) <= 1 && root != 0 &&
+           (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
+}
+
+// Localized "Part:" line id for the current on-disk layout, or -1 if unknown.
+static int dsk_scheme_str(void)
+{
+    if (!msc_dsk_read(dsk_vol, mbuf, 0, 1))
+        return -1;
+    if (dsk_is_fat_vbr(mbuf))
+        return STR_DISK_PART_SFD;
+    if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
+        return (mbuf[446 + 4] == 0xEE) ? STR_DISK_PART_GPT : STR_DISK_PART_MBR;
+    return -1;
+}
+
 // Device/size/format preview as a monitor response generator: one line per
 // call (an empty fill skips a line). dsk_show_make adds the format-only lines.
 // Routed through the response queue so the \a alignment markers work.
@@ -151,11 +190,29 @@ static int dsk_preview_response(char *buf, size_t size, int state)
     {
         msc_dsk_info_t info;
         if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
-            snprintf_utf8(buf, size, S(STR_DISK_SIZE),
-                          (unsigned long)(info.block_count / (1048576 / info.block_size)));
+        {
+            char szbuf[24];
+            msc_dsk_size_str(info.block_count, info.block_size, szbuf, sizeof(szbuf));
+            snprintf_utf8(buf, size, S(STR_DISK_SIZE), szbuf);
+        }
         return 3;
     }
     case 3:
+    {
+        char label[24];
+        DWORD vsn;
+        if (f_getlabel(dsk_path, label, &vsn) == FR_OK && label[0])
+            snprintf_utf8(buf, size, S(STR_DISK_INFO_LABEL), label);
+        return 4;
+    }
+    case 4:
+    {
+        int s = dsk_scheme_str();
+        if (s >= 0)
+            snprintf_utf8(buf, size, S(s));
+        return 5;
+    }
+    case 5:
     {
         DWORD nclst;
         FATFS *fs;
@@ -163,9 +220,17 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             snprintf_utf8(buf, size, S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
         else
             snprintf_utf8(buf, size, S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
-        return 4;
+        return 6;
     }
-    case 4:
+    case 6:
+    {
+        DWORD nclst;
+        FATFS *fs;
+        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+            snprintf_utf8(buf, size, S(STR_DISK_ALLOC), (unsigned)(fs->csize * 512u));
+        return 7;
+    }
+    case 7:
     {
         DWORD nclst;
         FATFS *fs;
@@ -173,26 +238,21 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             snprintf_utf8(buf, size, S(STR_DISK_INFO_FREE),
                           (unsigned long)nclst * fs->csize,
                           (unsigned long)(fs->n_fatent - 2) * fs->csize);
-        return dsk_show_make ? 5 : -1;
+        return dsk_show_make ? 8 : -1;
     }
-    case 5:
+    case 8:
         snprintf_utf8(buf, size,
                       S(dsk_layout == DSK_LAYOUT_SFD   ? STR_DISK_MAKE_SFD
                         : dsk_layout == DSK_LAYOUT_GPT ? STR_DISK_MAKE_GPT
                                                        : STR_DISK_MAKE_MBR));
-        return 6;
-    case 6:
-#if FF_FS_EXFAT
-        snprintf_utf8(buf, size, S(dsk_fs == 2 ? STR_DISK_MAKE_EXFAT : STR_DISK_MAKE_FAT));
-#else
-        snprintf_utf8(buf, size, S(STR_DISK_MAKE_FAT));
-#endif
-        return 7;
-    case 7:
-        if (dsk_au)
-            snprintf_utf8(buf, size, S(STR_DISK_ALLOC), (unsigned)dsk_au);
-        return 8;
-    case 8:
+        return 9;
+    case 9:
+        snprintf_utf8(buf, size, S(STR_DISK_MAKE_FS), dsk_fs_name(dsk_fsty));
+        return 10;
+    case 10:
+        snprintf_utf8(buf, size, S(STR_DISK_ALLOC), (unsigned)dsk_au);
+        return 11;
+    case 11:
         if (dsk_full)
             snprintf_utf8(buf, size, S(STR_DISK_MODE_FULL));
         return -1;
@@ -201,19 +261,97 @@ static int dsk_preview_response(char *buf, size_t size, int state)
     }
 }
 
+// Standard FAT cluster-count limits (FAT spec, not FatFs internals).
+#define DSK_MAX_FAT12 0xFF5u  // 4085
+#define DSK_MAX_FAT16 0xFFF5u // 65525
+#define DSK_MAX_FAT32 0x0FFFFFF5u
+
+// The disk tool's own, stable FS-selection policy, so the result is OUR contract
+// rather than whatever f_mkfs would auto-pick. We hand f_mkfs an explicit type +
+// cluster size via its public MKFS_PARM (so its internal auto-selection never
+// runs); the only thing relied on is the standard FAT cluster-count limits
+// above. `raw` is the device sector count (512 B sectors); the small partition /
+// metadata overhead is ignored — the auto cluster sizes keep counts well clear
+// of the limits, and f_mkfs re-validates as a safety net. `want`: 0=auto, 1=FAT
+// family, 2=exFAT; a user /Nk (req_au_bytes) overrides the cluster size. Returns
+// FS_FAT12/16/32/EXFAT + cluster size in *au_sectors, or 0 if unsatisfiable.
+static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT *au_sectors)
+{
+#if !FF_FS_EXFAT
+    (void)want; // only consulted for exFAT selection
+#endif
+#if FF_FS_EXFAT
+    // exFAT when asked, or (auto) for media past ~32 GiB (the SDXC / desktop
+    // convention). Cluster size scales with capacity.
+    if (want == 2 || (want == 0 && raw >= 0x4000000))
+    {
+        UINT au = req_au_bytes ? req_au_bytes / 512 : 0;
+        if (au == 0)
+        {
+            au = 8;                         // 4 KB
+            if (raw >= 0x80000) au = 64;    // >= 512 MiB -> 32 KB
+            if (raw >= 0x4000000) au = 256; // >= 32 GiB  -> 128 KB
+        }
+        *au_sectors = au;
+        return FS_EXFAT;
+    }
+#endif
+#if FF_LBA64
+    if (raw >= 0x100000000)
+        return 0; // beyond FAT sector addressing; exFAT only
+#endif
+    // Explicit cluster: the FAT sub-type follows from the count (f_mkfs validates).
+    if (req_au_bytes)
+    {
+        UINT au = req_au_bytes / 512;
+        DWORD n = (DWORD)(raw / au);
+        if (n > DSK_MAX_FAT32)
+            return 0;
+        *au_sectors = au;
+        return n <= DSK_MAX_FAT12 ? FS_FAT12 : n <= DSK_MAX_FAT16 ? FS_FAT16 : FS_FAT32;
+    }
+    // Auto cluster: grow until the count fits FAT16 (cap 32 KB clusters); the
+    // small media that stays under the FAT12 limit becomes FAT12.
+    UINT au = 1;
+    while (raw / au > DSK_MAX_FAT16 && au < 64)
+        au <<= 1;
+    if (raw / au <= DSK_MAX_FAT16)
+    {
+        *au_sectors = au;
+        return (raw / au) <= DSK_MAX_FAT12 ? FS_FAT12 : FS_FAT16;
+    }
+    // Too many clusters for FAT16 -> FAT32, with a >= 4 KB cluster scaled by size
+    // so the count stays well clear of the FAT16 ceiling.
+    au = 8;                        // 4 KB
+    if (raw >= 0x1000000) au = 16; // >= 8 GiB  -> 8 KB
+    if (raw >= 0x2000000) au = 32; // >= 16 GiB -> 16 KB
+    while (raw / au > DSK_MAX_FAT32 && au < 128)
+        au <<= 1;
+    if (raw / au > DSK_MAX_FAT32)
+        return 0; // too large for FAT32; use exFAT
+    *au_sectors = au;
+    return FS_FAT32;
+}
+
 // Build the filesystem (and apply the label). Returns the FatFs result.
 static FRESULT dsk_do_mkfs(void)
 {
     MKFS_PARM parm;
     memset(&parm, 0, sizeof(parm));
     parm.n_fat = 2;
-    parm.au_size = dsk_au;
-#if FF_FS_EXFAT
-    if (dsk_fs == 2)
+    parm.au_size = dsk_au; // resolved cluster size (bytes); always explicit
+    switch (dsk_fsty)
+    {
+    case FS_EXFAT:
         parm.fmt = FM_EXFAT;
-    else
-#endif
-        parm.fmt = FM_FAT | FM_FAT32;
+        break;
+    case FS_FAT32:
+        parm.fmt = FM_FAT32;
+        break;
+    default: // FAT12 / FAT16
+        parm.fmt = FM_FAT;
+        break;
+    }
     if (dsk_layout == DSK_LAYOUT_SFD)
         parm.fmt |= FM_SFD; // superfloppy: no partition table
 #if FF_LBA64
@@ -256,6 +394,15 @@ static void dsk_run_zero(void)
     dsk_state = DSK_RUN_ZERO;
 }
 
+// Continuation run after the info block drains (verify is read-only, no YES).
+static void dsk_run_verify(void)
+{
+    dsk_lba = 0;
+    dsk_last_pct = -1;
+    dsk_bad = 0;
+    dsk_state = DSK_RUN_VERIFY;
+}
+
 // Resolve and validate a drive token. Returns the volume index or -1 (after
 // queueing the appropriate error). Fills *info.
 static int dsk_open(const char *tok, msc_dsk_info_t *info, bool need_writable)
@@ -286,7 +433,7 @@ static int dsk_open(const char *tok, msc_dsk_info_t *info, bool need_writable)
         mon_add_response_fatfs(FR_WRITE_PROTECTED);
         return -1;
     }
-    dsk_set_path(tok);
+    dsk_set_path((uint8_t)vol);
     return vol;
 }
 
@@ -381,6 +528,15 @@ static void dsk_format(const char *args)
         else
             dsk_layout = DSK_LAYOUT_MBR;
     }
+    // Own the FS type + cluster size (no f_mkfs auto-select).
+    UINT au_sectors;
+    dsk_fsty = dsk_resolve_fs(info.block_count, dsk_fs, dsk_au, &au_sectors);
+    if (dsk_fsty == 0)
+    {
+        mon_add_response_fatfs(FR_MKFS_ABORTED);
+        return;
+    }
+    dsk_au = au_sectors * 512u; // resolved cluster size in bytes
     dsk_show_make = true;
     mon_add_response_fn(dsk_preview_response);
     mon_response_confirm(dsk_run_format);
@@ -421,10 +577,9 @@ static void dsk_verify(const char *args)
     msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
     dsk_block_size = info.block_size;
     dsk_total = info.block_count;
-    dsk_lba = 0;
-    dsk_last_pct = -1;
-    dsk_bad = 0;
-    dsk_state = DSK_RUN_VERIFY; // read-only, no confirmation
+    dsk_show_make = false;
+    mon_add_response_fn(dsk_preview_response);
+    mon_response_then(dsk_run_verify); // lead with info, then scan (read-only)
 }
 
 static void dsk_label(const char *args)

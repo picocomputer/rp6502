@@ -1923,6 +1923,51 @@ static void msc_inquiry_rtrim(uint8_t *s, size_t l)
     }
 }
 
+// Format a device capacity as a short human string ("119.2 GB", "1.44 MB").
+// Floppy-era media (< 5 MB) is shown in KB/MB; larger media in decimal MB/GB/TB.
+void msc_dsk_size_str(uint64_t block_count, uint32_t block_size,
+                      char *out, size_t out_size)
+{
+    const char *unit;
+    double size;
+    uint64_t raw = block_count * (uint64_t)block_size;
+    if (raw < 5000000ULL)
+    {
+        unit = "KB";
+        size = raw / 1024.0;
+        if (size >= 1000)
+        {
+            unit = "MB";
+            size /= 1000;
+        }
+        // no %g, strip zeros manually
+        char num[16];
+        snprintf(num, sizeof(num), "%.3f", size);
+        char *p = num + strlen(num) - 1;
+        while (*p == '0')
+            *p-- = '\0';
+        if (*p == '.')
+            *p = '\0';
+        snprintf(out, out_size, "%s %s", num, unit);
+    }
+    else
+    {
+        unit = "MB";
+        size = raw / 1e6;
+        if (size >= 1000)
+        {
+            unit = "GB";
+            size /= 1000;
+        }
+        if (size >= 1000)
+        {
+            unit = "TB";
+            size /= 1000;
+        }
+        snprintf(out, out_size, "%.1f %s", size, unit);
+    }
+}
+
 int msc_status_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0 || state >= FF_VOLUMES)
@@ -1937,53 +1982,10 @@ int msc_status_response(char *buf, size_t buf_size, int state)
 
         char sizebuf[24];
         if (msc_pdrv[pdrv].status != msc_volume_mounted)
-        {
             snprintf(sizebuf, sizeof(sizebuf), "%s", S(STR_PARENS_NO_MEDIA));
-        }
         else
-        {
-            // Floppy-era media (under 5 MB): raw/1024/1000
-            // Everything else: pure decimal raw/1000/1000
-            const char *unit;
-            double size;
-            uint64_t raw = (uint64_t)msc_pdrv[pdrv].block_count *
-                           (uint64_t)msc_pdrv[pdrv].block_size;
-            if (raw < 5000000ULL)
-            {
-                unit = "KB";
-                size = raw / 1024.0;
-                if (size >= 1000)
-                {
-                    unit = "MB";
-                    size /= 1000;
-                }
-                // no %g, strip zeros manually
-                char num[16];
-                snprintf(num, sizeof(num), "%.3f", size);
-                char *p = num + strlen(num) - 1;
-                while (*p == '0')
-                    *p-- = '\0';
-                if (*p == '.')
-                    *p = '\0';
-                snprintf(sizebuf, sizeof(sizebuf), "%s %s", num, unit);
-            }
-            else
-            {
-                unit = "MB";
-                size = raw / 1e6;
-                if (size >= 1000)
-                {
-                    unit = "GB";
-                    size /= 1000;
-                }
-                if (size >= 1000)
-                {
-                    unit = "TB";
-                    size /= 1000;
-                }
-                snprintf(sizebuf, sizeof(sizebuf), "%.1f %s", size, unit);
-            }
-        }
+            msc_dsk_size_str(msc_pdrv[pdrv].block_count, msc_pdrv[pdrv].block_size,
+                             sizebuf, sizeof(sizebuf));
         scsi_inquiry_resp_t inq;
         msc_status_t status = msc_scsi_inquiry(pdrv, &inq);
         if (status == MSC_STATUS_PASSED)
@@ -2014,8 +2016,9 @@ int msc_status_response(char *buf, size_t buf_size, int state)
  * device/geometry/format primitives. All run in the FatFs-safe task tier.
  */
 
-// Map an "MSCn" / "MSCn:" name (case-insensitive) to a logical volume index,
-// or -1. The volume need not be in use; callers validate with msc_dsk_get_info.
+// Map an "MSCn"/"MSCn:" name or the "n"/"n:" shortcut (case-insensitive) to a
+// logical volume index, or -1. The volume need not be in use; callers validate
+// with msc_dsk_get_info.
 int msc_dsk_vol_from_name(const char *name)
 {
     char buf[6];
@@ -2029,6 +2032,9 @@ int msc_dsk_vol_from_name(const char *name)
     for (uint8_t v = 0; v < FF_VOLUMES; v++)
         if (strcasecmp(buf, VolumeStr[v]) == 0)
             return v;
+    // "n:"/"n" shortcut for MSCn (same as FatFs's numeric volume IDs).
+    if (n == 1 && buf[0] >= '0' && buf[0] <= '9' && (buf[0] - '0') < FF_VOLUMES)
+        return buf[0] - '0';
     return -1;
 }
 
