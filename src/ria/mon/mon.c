@@ -669,7 +669,10 @@ void mon_task(void)
         mon_response_col = 0;
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
-        rln_read_line(mon_confirm_cb ? mon_confirm_enter : mon_enter);
+        if (mon_confirm_cb)
+            rln_read_line_no_history(mon_confirm_enter); // don't record YES/no
+        else
+            rln_read_line(mon_enter);
         return;
     }
     if (ria_get_sigint())

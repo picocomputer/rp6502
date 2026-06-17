@@ -459,6 +459,16 @@ X(STR_HELP_DISK_FORMAT,
   "available only on floppy drives. A preview is shown and you must type YES to "
   "confirm.\n")
 
+X(STR_HELP_DISK_FORMAT_BASIC,
+  "DISK FORMAT drive [/sfd|/mbr] [/512|/4k...] [/quick|/full] [label]\n"
+  "Creates a new filesystem on a USB drive named like MSC1:. The on-disk layout "
+  "is set by /sfd (superfloppy, no partition table) or /mbr; the default is "
+  "superfloppy for floppies and MBR for flash drives. The allocation unit "
+  "(cluster) may be set with /512 through larger powers of two; the default is "
+  "chosen by capacity. /quick (default) writes only the new filesystem. /full "
+  "first does a low-level format and is available only on floppy drives. A "
+  "preview is shown and you must type YES to confirm.\n")
+
 X(STR_HELP_DISK_ZERO,
   "DISK ZERO drive\n"
   "Writes zeros to every sector of a USB drive named like MSC1:, erasing all "

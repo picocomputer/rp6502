@@ -96,7 +96,11 @@ __in_flash("hlp_disk") static struct
     mon_response_fn extra_fn;
 } const HLP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
+#if RP6502_EXFAT
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
+#else
+    {STR_FORMAT, STR_HELP_DISK_FORMAT_BASIC, NULL},
+#endif
     {STR_ZERO, STR_HELP_DISK_ZERO, NULL},
     {STR_VERIFY, STR_HELP_DISK_VERIFY, NULL},
     {STR_LABEL, STR_HELP_DISK_LABEL, NULL},

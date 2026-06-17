@@ -126,6 +126,7 @@ static absolute_time_t rln_idle_deadline;
 static uint8_t rln_buflen;
 static uint8_t rln_bufpos;
 static bool rln_enable_history;
+static bool rln_skip_history;
 static uint8_t rln_max_length;
 static uint32_t rln_idle_timeout_ms;
 static uint8_t rln_caps;
@@ -604,7 +605,7 @@ static void rln_replace_buf_from_history(void)
 // dir > 0 walks toward older entries (up arrow), dir < 0 toward newer.
 static void rln_history_step(int dir)
 {
-    if (!rln_enable_history || rln_idle_timeout_ms)
+    if (!rln_enable_history || rln_idle_timeout_ms || rln_skip_history)
         return;
     if (dir > 0 && rln_history_pos >= rln_history_count)
         return;
@@ -620,7 +621,7 @@ static void rln_history_step(int dir)
 
 static void rln_history_add(void)
 {
-    if (!rln_enable_history || rln_idle_timeout_ms)
+    if (!rln_enable_history || rln_idle_timeout_ms || rln_skip_history)
         return;
     if (rln_buflen == 0)
         return;
@@ -1445,6 +1446,7 @@ static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
 void rln_read_line(rln_read_callback_t callback)
 {
     rln_idle_timeout_ms = 0;
+    rln_skip_history = false;
     rln_buflen = 0;
     rln_bufpos = 0;
     rln_callback = callback;
@@ -1527,6 +1529,12 @@ void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
     rln_read_line(callback);
     rln_idle_timeout_ms = timeout_ms;
     rln_idle_deadline = make_timeout_time_ms(rln_idle_timeout_ms);
+}
+
+void rln_read_line_no_history(rln_read_callback_t callback)
+{
+    rln_read_line(callback);
+    rln_skip_history = true;
 }
 
 // Read one byte from the appropriate source(s). In normal operation

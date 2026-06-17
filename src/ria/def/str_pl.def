@@ -472,6 +472,17 @@ X(STR_HELP_DISK_FORMAT,
   "formatowanie niskopoziomowe i jest dostępne tylko dla stacji dyskietek. "
   "Wyświetlany jest podgląd i trzeba wpisać YES, aby potwierdzić.\n")
 
+X(STR_HELP_DISK_FORMAT_BASIC,
+  "DISK FORMAT dysk [/sfd|/mbr] [/512|/4k...] [/quick|/full] [etykieta]\n"
+  "Tworzy nowy system plików na dysku USB o nazwie np. MSC1:. Układ na dysku "
+  "wybiera /sfd (superdyskietka, bez tablicy partycji) lub /mbr; domyślnie "
+  "superdyskietka dla dyskietek i MBR dla pamięci flash. Jednostkę alokacji "
+  "(klaster) można ustawić od /512 wzwyż (potęgi dwójki); domyślnie zależy od "
+  "pojemności. /quick (domyślnie) zapisuje tylko nowy system plików. /full "
+  "najpierw wykonuje formatowanie niskopoziomowe i jest dostępne tylko dla "
+  "stacji dyskietek. Wyświetlany jest podgląd i trzeba wpisać YES, aby "
+  "potwierdzić.\n")
+
 X(STR_HELP_DISK_ZERO,
   "DISK ZERO dysk\n"
   "Zapisuje zera we wszystkich sektorach dysku USB o nazwie np. MSC1:, usuwając "
