@@ -325,6 +325,7 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
     au = 8;                        // 4 KB
     if (raw >= 0x1000000) au = 16; // >= 8 GiB  -> 8 KB
     if (raw >= 0x2000000) au = 32; // >= 16 GiB -> 16 KB
+    if (raw >= 0x4000000) au = 64; // >= 32 GiB -> 32 KB (FAT32 cluster max)
     while (raw / au > DSK_MAX_FAT32 && au < 128)
         au <<= 1;
     if (raw / au > DSK_MAX_FAT32)
