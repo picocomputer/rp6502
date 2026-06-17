@@ -151,16 +151,36 @@ static bool dsk_is_fat_vbr(const uint8_t *w)
            (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
 }
 
-// Localized "Part:" line id for the current on-disk layout, or -1 if unknown.
-static int dsk_scheme_str(void)
+// Localized scheme word for the current on-disk layout, or -1 if unknown.
+static int dsk_scheme_word(void)
 {
     if (!msc_dsk_read(dsk_vol, mbuf, 0, 1))
         return -1;
     if (dsk_is_fat_vbr(mbuf))
-        return STR_DISK_PART_SFD;
+        return STR_DISK_SCHEME_SFD;
     if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
-        return (mbuf[446 + 4] == 0xEE) ? STR_DISK_PART_GPT : STR_DISK_PART_MBR;
+        return (mbuf[446 + 4] == 0xEE) ? STR_DISK_SCHEME_GPT : STR_DISK_SCHEME_MBR;
     return -1;
+}
+
+// Build the "<scheme> <filesystem> <cluster> (<label>)" descriptor shared by the
+// FMT (current) and MAKE (target) lines. scheme: STR id or -1 (omit). fsname: the
+// filesystem name (never NULL). au_bytes: cluster size in KB (512 B shown in
+// bytes), 0 to omit when there is no filesystem. label: appended in parens when
+// non-empty (NULL/"" omits it).
+static void dsk_fmt_desc(char *out, size_t size, int scheme, const char *fsname,
+                         uint32_t au_bytes, const char *label)
+{
+    size_t n = 0;
+    if (scheme >= 0)
+        n += snprintf(out + n, size - n, "%s ", S(scheme));
+    n += snprintf(out + n, size - n, "%s", fsname);
+    if (au_bytes == 512)
+        n += snprintf(out + n, size - n, " 512 B");
+    else if (au_bytes)
+        n += snprintf(out + n, size - n, " %u KB", (unsigned)(au_bytes / 1024));
+    if (label && label[0])
+        snprintf(out + n, size - n, " (%s)", label);
 }
 
 // Device/size/format preview as a monitor response generator: one line per
@@ -172,11 +192,18 @@ static int dsk_preview_response(char *buf, size_t size, int state)
         return state;
     switch (state)
     {
-    case 0:
+    case 0: // DEV: device size (matches the status command) + inquiry strings
     {
         char vendor[9], product[17], rev[5];
         if (msc_dsk_inquiry_strings(dsk_vol, vendor, product, rev))
-            snprintf_utf8(buf, size, S(STR_DISK_DEV), vendor, product, rev);
+        {
+            msc_dsk_info_t info;
+            char szbuf[24];
+            szbuf[0] = '\0';
+            if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
+                str_size((uint64_t)info.block_count * info.block_size, szbuf, sizeof(szbuf));
+            snprintf_utf8(buf, size, S(STR_DISK_DEV), szbuf, vendor, product, rev);
+        }
         return 1;
     }
     case 1:
@@ -186,73 +213,51 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             snprintf_utf8(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }
-    case 2:
+    case 2: // FMT: boot scheme, filesystem, cluster size, and volume label
     {
-        msc_dsk_info_t info;
-        if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
-        {
-            char szbuf[24];
-            msc_dsk_size_str(info.block_count, info.block_size, szbuf, sizeof(szbuf));
-            snprintf_utf8(buf, size, S(STR_DISK_SIZE), szbuf);
-        }
+        char desc[64], label[24];
+        DWORD nclst, vsn;
+        FATFS *fs;
+        int scheme = dsk_scheme_word();
+        if (f_getlabel(dsk_path, label, &vsn) != FR_OK)
+            label[0] = '\0';
+        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+            dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fs->fs_type),
+                         fs->csize * 512u, label);
+        else
+            dsk_fmt_desc(desc, sizeof(desc), scheme, STR_FS_NONE, 0, label);
+        snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
         return 3;
     }
-    case 3:
+    case 3: // VOL: filesystem used of total, percent used
     {
-        char label[24];
-        DWORD vsn;
-        if (f_getlabel(dsk_path, label, &vsn) == FR_OK && label[0])
-            snprintf_utf8(buf, size, S(STR_DISK_INFO_LABEL), label);
-        return 4;
+        DWORD nclst;
+        FATFS *fs;
+        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+        {
+            uint64_t totb = (uint64_t)(fs->n_fatent - 2) * fs->csize * 512u;
+            uint64_t freeb = (uint64_t)nclst * fs->csize * 512u;
+            uint64_t usedb = totb - freeb;
+            unsigned pct = totb ? (unsigned)(usedb * 100 / totb) : 0;
+            char usedbuf[24], totbuf[24];
+            str_size(usedb, usedbuf, sizeof(usedbuf));
+            str_size(totb, totbuf, sizeof(totbuf));
+            snprintf_utf8(buf, size, S(STR_DISK_VOL), usedbuf, totbuf, pct);
+        }
+        return dsk_show_make ? 4 : -1;
     }
-    case 4:
+    case 4: // target: layout, filesystem, cluster size, and label to apply
     {
-        int s = dsk_scheme_str();
-        if (s >= 0)
-            snprintf_utf8(buf, size, S(s));
+        int scheme = dsk_layout == DSK_LAYOUT_SFD   ? STR_DISK_SCHEME_SFD
+                     : dsk_layout == DSK_LAYOUT_GPT ? STR_DISK_SCHEME_GPT
+                                                    : STR_DISK_SCHEME_MBR;
+        char desc[64];
+        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au,
+                     dsk_has_label ? dsk_label_oem : NULL);
+        snprintf_utf8(buf, size, S(STR_DISK_MAKE), desc);
         return 5;
     }
     case 5:
-    {
-        DWORD nclst;
-        FATFS *fs;
-        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
-            snprintf_utf8(buf, size, S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
-        else
-            snprintf_utf8(buf, size, S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
-        return 6;
-    }
-    case 6:
-    {
-        DWORD nclst;
-        FATFS *fs;
-        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
-            snprintf_utf8(buf, size, S(STR_DISK_ALLOC), (unsigned)(fs->csize * 512u));
-        return 7;
-    }
-    case 7:
-    {
-        DWORD nclst;
-        FATFS *fs;
-        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
-            snprintf_utf8(buf, size, S(STR_DISK_INFO_FREE),
-                          (unsigned long)nclst * fs->csize,
-                          (unsigned long)(fs->n_fatent - 2) * fs->csize);
-        return dsk_show_make ? 8 : -1;
-    }
-    case 8:
-        snprintf_utf8(buf, size,
-                      S(dsk_layout == DSK_LAYOUT_SFD   ? STR_DISK_MAKE_SFD
-                        : dsk_layout == DSK_LAYOUT_GPT ? STR_DISK_MAKE_GPT
-                                                       : STR_DISK_MAKE_MBR));
-        return 9;
-    case 9:
-        snprintf_utf8(buf, size, S(STR_DISK_MAKE_FS), dsk_fs_name(dsk_fsty));
-        return 10;
-    case 10:
-        snprintf_utf8(buf, size, S(STR_DISK_ALLOC), (unsigned)dsk_au);
-        return 11;
-    case 11:
         if (dsk_full)
             snprintf_utf8(buf, size, S(STR_DISK_MODE_FULL));
         return -1;

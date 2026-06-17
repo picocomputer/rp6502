@@ -827,3 +827,44 @@ int snprintf_utf8(char *dst, size_t dst_size, const char *utf8_fmt, ...)
     va_end(va);
     return n;
 }
+
+void str_size(uint64_t bytes, char *out, size_t out_size)
+{
+    const char *unit;
+    double size;
+    if (bytes < 5000000ULL)
+    {
+        // Floppy-era media: KB, rolling to MB, trailing zeros stripped.
+        unit = "KB";
+        size = bytes / 1024.0;
+        if (size >= 1000)
+        {
+            unit = "MB";
+            size /= 1000;
+        }
+        char num[16];
+        snprintf(num, sizeof(num), "%.3f", size);
+        char *p = num + strlen(num) - 1;
+        while (*p == '0')
+            *p-- = '\0';
+        if (*p == '.')
+            *p = '\0';
+        snprintf(out, out_size, "%s %s", num, unit);
+    }
+    else
+    {
+        unit = "MB";
+        size = bytes / 1e6;
+        if (size >= 1000)
+        {
+            unit = "GB";
+            size /= 1000;
+        }
+        if (size >= 1000)
+        {
+            unit = "TB";
+            size /= 1000;
+        }
+        snprintf(out, out_size, "%.1f %s", size, unit);
+    }
+}

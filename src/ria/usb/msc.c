@@ -1923,51 +1923,6 @@ static void msc_inquiry_rtrim(uint8_t *s, size_t l)
     }
 }
 
-// Format a device capacity as a short human string ("119.2 GB", "1.44 MB").
-// Floppy-era media (< 5 MB) is shown in KB/MB; larger media in decimal MB/GB/TB.
-void msc_dsk_size_str(uint64_t block_count, uint32_t block_size,
-                      char *out, size_t out_size)
-{
-    const char *unit;
-    double size;
-    uint64_t raw = block_count * (uint64_t)block_size;
-    if (raw < 5000000ULL)
-    {
-        unit = "KB";
-        size = raw / 1024.0;
-        if (size >= 1000)
-        {
-            unit = "MB";
-            size /= 1000;
-        }
-        // no %g, strip zeros manually
-        char num[16];
-        snprintf(num, sizeof(num), "%.3f", size);
-        char *p = num + strlen(num) - 1;
-        while (*p == '0')
-            *p-- = '\0';
-        if (*p == '.')
-            *p = '\0';
-        snprintf(out, out_size, "%s %s", num, unit);
-    }
-    else
-    {
-        unit = "MB";
-        size = raw / 1e6;
-        if (size >= 1000)
-        {
-            unit = "GB";
-            size /= 1000;
-        }
-        if (size >= 1000)
-        {
-            unit = "TB";
-            size /= 1000;
-        }
-        snprintf(out, out_size, "%.1f %s", size, unit);
-    }
-}
-
 int msc_status_response(char *buf, size_t buf_size, int state)
 {
     if (state < 0 || state >= FF_VOLUMES)
@@ -1984,8 +1939,8 @@ int msc_status_response(char *buf, size_t buf_size, int state)
         if (msc_pdrv[pdrv].status != msc_volume_mounted)
             snprintf(sizebuf, sizeof(sizebuf), "%s", S(STR_PARENS_NO_MEDIA));
         else
-            msc_dsk_size_str(msc_pdrv[pdrv].block_count, msc_pdrv[pdrv].block_size,
-                             sizebuf, sizeof(sizebuf));
+            str_size((uint64_t)msc_pdrv[pdrv].block_count * msc_pdrv[pdrv].block_size,
+                     sizebuf, sizeof(sizebuf));
         scsi_inquiry_resp_t inq;
         msc_status_t status = msc_scsi_inquiry(pdrv, &inq);
         if (status == MSC_STATUS_PASSED)

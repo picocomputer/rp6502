@@ -79,6 +79,10 @@ __printflike(3, 4) int snprintf_utf8(char *dst, size_t dst_size,
 int vsnprintf_utf8(char *dst, size_t dst_size,
                    const char *utf8_fmt, va_list va);
 
+// Format a byte count as a short human string ("119.1 GB", "1.44 MB", "512 KB").
+// Media under 5 MB is shown in KB/MB; larger media in decimal MB/GB/TB.
+void str_size(uint64_t bytes, char *out, size_t out_size);
+
 // Non-localized string literals are in flash, or in RAM via XR().
 #define X(name, value) \
     extern const char name[];
