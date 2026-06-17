@@ -288,6 +288,7 @@ static void dsk_format(const char *args)
         else
         {
             // Volume label (OEM bytes from the terminal, as FatFs expects).
+            // An empty "" clears the label.
             size_t n = 0;
             while (t[n] && n < sizeof(dsk_label_oem) - 1)
             {
@@ -295,8 +296,6 @@ static void dsk_format(const char *args)
                 n++;
             }
             dsk_label_oem[n] = '\0';
-            if (dsk_label_oem[0] == '-' && dsk_label_oem[1] == '\0')
-                dsk_label_oem[0] = '\0';
             dsk_has_label = true;
         }
     }
@@ -367,22 +366,42 @@ static void dsk_verify(const char *args)
 static void dsk_part(const char *args)
 {
     msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, true);
+    int vol = dsk_open(str_parse_string(&args), &info, false);
     if (vol < 0)
         return;
+    bool requested = false;
     dsk_scheme = DSK_SCHEME_MBR;
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
     {
         if (!strcasecmp(t, STR_OPT_MBR))
+        {
             dsk_scheme = DSK_SCHEME_MBR;
+            requested = true;
+        }
         else if (!strcasecmp(t, STR_OPT_GPT))
+        {
             dsk_scheme = DSK_SCHEME_GPT;
+            requested = true;
+        }
         else
         {
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
         }
+    }
+    dsk_vol = (uint8_t)vol;
+    msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
+    if (!requested)
+    {
+        // No scheme requested: show the current partition table only.
+        dsk_preview();
+        return;
+    }
+    if (info.write_prot)
+    {
+        mon_add_response_fatfs(FR_WRITE_PROTECTED);
+        return;
     }
     if (info.is_floppy)
     {
@@ -395,8 +414,6 @@ static void dsk_part(const char *args)
         mon_add_response_utf8(S(STR_ERR_EXFAT_DISABLED));
         return;
     }
-    dsk_vol = (uint8_t)vol;
-    msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
     if (dsk_read_scheme() == dsk_scheme)
     {
         mon_add_response_utf8(S(STR_DISK_NO_CHANGE));
@@ -443,9 +460,9 @@ static void dsk_label(const char *args)
         arg[n] = dsk_path[n];
         n++;
     }
-    if (!(t[0] == '-' && t[1] == '\0'))
-        for (size_t m = 0; t[m] && n < sizeof(arg) - 1; m++)
-            arg[n++] = t[m];
+    // An empty "" label clears it.
+    for (size_t m = 0; t[m] && n < sizeof(arg) - 1; m++)
+        arg[n++] = t[m];
     arg[n] = '\0';
     FRESULT fr = f_setlabel(arg);
     if (fr == FR_OK)
@@ -456,6 +473,55 @@ static void dsk_label(const char *args)
     }
     else
         mon_add_response_fatfs(fr);
+}
+
+static const char *dsk_fs_name(BYTE fs_type)
+{
+    switch (fs_type)
+    {
+    case FS_FAT12:
+        return STR_FS_FAT12;
+    case FS_FAT16:
+        return STR_FS_FAT16;
+    case FS_FAT32:
+        return STR_FS_FAT32;
+    case FS_EXFAT:
+        return STR_FS_EXFAT;
+    default:
+        return STR_FS_NONE;
+    }
+}
+
+static void dsk_info(const char *args)
+{
+    msc_dsk_info_t info;
+    int vol = dsk_open(str_parse_string(&args), &info, false);
+    if (vol < 0)
+        return;
+    if (!str_parse_end(args))
+    {
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return;
+    }
+    dsk_vol = (uint8_t)vol;
+    char vendor[9], product[17], rev[5];
+    if (msc_dsk_inquiry_strings(dsk_vol, vendor, product, rev))
+        printf_utf8(S(STR_DISK_DEV), vendor, product, rev);
+    if (info.block_size)
+        printf_utf8(S(STR_DISK_SIZE),
+                    (unsigned long)(info.block_count / (1048576 / info.block_size)));
+    printf_utf8(S(STR_DISK_INFO_PART), info.partno);
+    DWORD nclst;
+    FATFS *fs;
+    if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+    {
+        printf_utf8(S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
+        printf_utf8(S(STR_DISK_INFO_FREE),
+                    (unsigned long)nclst * fs->csize,
+                    (unsigned long)(fs->n_fatent - 2) * fs->csize);
+    }
+    else
+        printf_utf8(S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
 }
 
 void dsk_task(void)
@@ -626,7 +692,9 @@ void dsk_mon_disk(const char *args)
         mon_add_response_utf8(S(STR_HELP_DISK));
         return;
     }
-    if (!strcasecmp(sub, STR_FORMAT))
+    if (!strcasecmp(sub, STR_INFO))
+        dsk_info(args);
+    else if (!strcasecmp(sub, STR_FORMAT))
         dsk_format(args);
     else if (!strcasecmp(sub, STR_ZERO))
         dsk_zero(args);

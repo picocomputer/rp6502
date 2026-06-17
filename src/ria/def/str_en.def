@@ -430,15 +430,24 @@ X(STR_DISK_MAKE_MBR, "Make: \aMBR partition table\n")
 X(STR_DISK_MAKE_GPT, "Make: \aGPT partition table\n")
 X(STR_DISK_ALLOC, "Alloc: \a%u bytes\n")
 X(STR_DISK_MODE_FULL, "Mode: \afull (low-level)\n")
+X(STR_DISK_INFO_PART, "Part: \a%u\n")
+X(STR_DISK_INFO_FORMAT, "Fmt : \a%s\n")
+X(STR_DISK_INFO_FREE, "Free: \a%lu of %lu blocks\n")
 
 X(STR_HELP_DISK,
   "Disk:\n"
   "HELP DISK sub        - \aShow information about a disk subcommand.\n"
+  "DISK INFO drv        - \aShow partition, format, and free space.\n"
   "DISK FORMAT drv ..   - \aCreate a filesystem. See HELP DISK FORMAT.\n"
   "DISK ZERO drv        - \aErase every sector. Leaves the drive unmountable.\n"
   "DISK VERIFY drv      - \aRead every sector and report bad ones.\n"
-  "DISK PART drv (/mbr) - \aWrite a single-partition table. /mbr or /gpt.\n"
+  "DISK PART drv (/mbr) - \aShow or rewrite the partition table.\n"
   "DISK LABEL drv (lbl) - \aShow or set the volume label.\n")
+
+X(STR_HELP_DISK_INFO,
+  "DISK INFO drive\n"
+  "Shows the device, the partition number, the filesystem format, and the free "
+  "space of a USB drive named like MSC1:.\n")
 
 X(STR_HELP_DISK_FORMAT,
   "DISK FORMAT drive [/fat|/exfat] [/512|/4k...] [/quick|/full] [label]\n"
@@ -463,17 +472,18 @@ X(STR_HELP_DISK_VERIFY,
 
 X(STR_HELP_DISK_PART,
   "DISK PART drive [/mbr|/gpt]\n"
-  "Writes a fresh partition table to a USB drive named like MSC1: with one "
-  "partition spanning the whole device. /mbr (default) is the most compatible; "
-  "/gpt is available only in builds with exFAT. This erases existing "
-  "partitioning. If the table already matches, no change is made. You must type "
-  "YES to confirm. Run DISK FORMAT afterward to create a filesystem.\n")
+  "With no option, shows the current partition table of a USB drive named like "
+  "MSC1:. With /mbr (default) or /gpt, writes a fresh table with one partition "
+  "spanning the whole device, erasing existing partitioning; /gpt is available "
+  "only in builds with exFAT. If the table already matches, no change is made. "
+  "You must type YES to confirm. Run DISK FORMAT afterward to create a "
+  "filesystem.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL drive [label]\n"
   "With no label, shows the current volume label of a USB drive named like "
-  "MSC1:. With a label, sets it and prints the old and new names. Use \"-\" to "
-  "clear the label.\n")
+  "MSC1:. With a label, sets it and prints the old and new names. Pass an empty "
+  "\"\" to clear the label.\n")
 
 XEND()
 #undef XSUFFIX

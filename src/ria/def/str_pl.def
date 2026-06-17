@@ -443,15 +443,24 @@ X(STR_DISK_MAKE_MBR, "Utwórz: \atablica partycji MBR\n")
 X(STR_DISK_MAKE_GPT, "Utwórz: \atablica partycji GPT\n")
 X(STR_DISK_ALLOC, "Alok: \a%u bajtów\n")
 X(STR_DISK_MODE_FULL, "Tryb: \apełny (niskopoziomowy)\n")
+X(STR_DISK_INFO_PART, "Part: \a%u\n")
+X(STR_DISK_INFO_FORMAT, "Fmt : \a%s\n")
+X(STR_DISK_INFO_FREE, "Wolne: \a%lu z %lu bloków\n")
 
 X(STR_HELP_DISK,
   "Dysk:\n"
   "HELP DISK pod        - \aPokaż informacje o podpoleceniu dysku.\n"
+  "DISK INFO dys        - \aPokaż partycję, format i wolne miejsce.\n"
   "DISK FORMAT dys ..   - \aUtwórz system plików. Patrz HELP DISK FORMAT.\n"
   "DISK ZERO dys        - \aWymaż wszystkie sektory. Dysk bez systemu plików.\n"
   "DISK VERIFY dys      - \aOdczytaj wszystkie sektory i zgłoś uszkodzone.\n"
-  "DISK PART dys (/mbr) - \aZapisz tablicę z jedną partycją. /mbr lub /gpt.\n"
+  "DISK PART dys (/mbr) - \aPokaż lub zapisz tablicę partycji.\n"
   "DISK LABEL dys (et)  - \aPokaż lub ustaw etykietę woluminu.\n")
+
+X(STR_HELP_DISK_INFO,
+  "DISK INFO dysk\n"
+  "Pokazuje urządzenie, numer partycji, format systemu plików oraz wolne "
+  "miejsce dysku USB o nazwie np. MSC1:.\n")
 
 X(STR_HELP_DISK_FORMAT,
   "DISK FORMAT dysk [/fat|/exfat] [/512|/4k...] [/quick|/full] [etykieta]\n"
@@ -478,18 +487,18 @@ X(STR_HELP_DISK_VERIFY,
 
 X(STR_HELP_DISK_PART,
   "DISK PART dysk [/mbr|/gpt]\n"
-  "Zapisuje nową tablicę partycji na dysku USB o nazwie np. MSC1: z jedną "
-  "partycją obejmującą całe urządzenie. /mbr (domyślnie) jest najbardziej "
-  "zgodny; /gpt jest dostępny tylko w kompilacjach z exFAT. Usuwa istniejące "
-  "partycjonowanie. Jeśli tablica już pasuje, nic nie jest zmieniane. Trzeba "
-  "wpisać YES, aby potwierdzić. Następnie uruchom DISK FORMAT, aby utworzyć "
-  "system plików.\n")
+  "Bez opcji pokazuje bieżącą tablicę partycji dysku USB o nazwie np. MSC1:. "
+  "Z /mbr (domyślnie) lub /gpt zapisuje nową tablicę z jedną partycją "
+  "obejmującą całe urządzenie, usuwając istniejące partycjonowanie; /gpt jest "
+  "dostępny tylko w kompilacjach z exFAT. Jeśli tablica już pasuje, nic nie "
+  "jest zmieniane. Trzeba wpisać YES, aby potwierdzić. Następnie uruchom DISK "
+  "FORMAT, aby utworzyć system plików.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL dysk [etykieta]\n"
   "Bez etykiety pokazuje bieżącą etykietę woluminu dysku USB o nazwie np. "
-  "MSC1:. Z etykietą ustawia ją i wypisuje starą oraz nową nazwę. Użyj \"-\", "
-  "aby wyczyścić etykietę.\n")
+  "MSC1:. Z etykietą ustawia ją i wypisuje starą oraz nową nazwę. Podaj puste "
+  "\"\", aby wyczyścić etykietę.\n")
 
 XEND()
 #undef XSUFFIX

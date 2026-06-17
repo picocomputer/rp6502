@@ -95,6 +95,7 @@ __in_flash("hlp_disk") static struct
     int text; // localized string id for S()
     mon_response_fn extra_fn;
 } const HLP_DISK[] = {
+    {STR_INFO, STR_HELP_DISK_INFO, NULL},
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
     {STR_ZERO, STR_HELP_DISK_ZERO, NULL},
     {STR_VERIFY, STR_HELP_DISK_VERIFY, NULL},
