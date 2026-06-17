@@ -23,20 +23,22 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-// Runtime FF_MIN_GPT hook. The default reproduces the stock threshold; the disk
-// tool forces MBR or GPT around f_mkfs()/f_fdisk(). Only the GPT-capable
-// (exFAT/LBA64) build references it.
+// Runtime FF_MIN_GPT hook. The default reproduces the stock threshold; disk
+// format forces MBR or GPT around f_mkfs(). Only the GPT-capable (exFAT/LBA64)
+// build references it.
 #if FF_LBA64
 #define DSK_GPT_DEFAULT 0x10000000
 static LBA_t dsk_gpt_threshold = DSK_GPT_DEFAULT;
 LBA_t dsk_min_gpt(void) { return dsk_gpt_threshold; }
 #endif
 
+// On-disk layout for "disk format". AUTO resolves by device class/size.
 enum
 {
-    DSK_SCHEME_MBR,
-    DSK_SCHEME_GPT,
-    DSK_SCHEME_NONE,
+    DSK_LAYOUT_AUTO,
+    DSK_LAYOUT_SFD,
+    DSK_LAYOUT_MBR,
+    DSK_LAYOUT_GPT,
 };
 
 static enum
@@ -47,7 +49,6 @@ static enum
     DSK_RUN_MKFS,
     DSK_RUN_ZERO,
     DSK_RUN_VERIFY,
-    DSK_RUN_PART,
 } dsk_state;
 
 // Operation context, valid from confirm through completion.
@@ -61,7 +62,7 @@ static bool dsk_full;             // /full low-level format
 static uint32_t dsk_au;           // allocation unit bytes (0 = auto)
 static bool dsk_has_label;
 static char dsk_label_oem[12];
-static uint8_t dsk_scheme;        // DSK_SCHEME_* for part
+static uint8_t dsk_layout;        // DSK_LAYOUT_* for format
 static bool dsk_fmt_started;      // FORMAT UNIT issued (poll phase)
 static uint32_t dsk_block_size;
 static uint64_t dsk_total;        // sectors for zero/verify
@@ -108,19 +109,7 @@ static bool dsk_parse_alloc(const char *tok, uint32_t *au)
     return true;
 }
 
-// Determine the on-disk partitioning scheme via LBA 0.
-static uint8_t dsk_read_scheme(void)
-{
-    if (!msc_dsk_read(dsk_vol, mbuf, 0, 1))
-        return DSK_SCHEME_NONE;
-    if (mbuf[510] != 0x55 || mbuf[511] != 0xAA)
-        return DSK_SCHEME_NONE;
-    if (mbuf[446 + 4] == 0xEE)
-        return DSK_SCHEME_GPT;
-    return DSK_SCHEME_MBR;
-}
-
-// Print the device identity, size, and partition list (the confirm preview).
+// Print the device identity and size (the confirm preview).
 static void dsk_preview(void)
 {
     char vendor[9], product[17], rev[5];
@@ -133,29 +122,22 @@ static void dsk_preview(void)
     if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
         printf_utf8(S(STR_DISK_SIZE),
                     (unsigned long)(info.block_count / (1048576 / info.block_size)));
-    if (msc_dsk_read(dsk_vol, mbuf, 0, 1) &&
-        mbuf[510] == 0x55 && mbuf[511] == 0xAA && mbuf[446 + 4] != 0xEE)
-    {
-        bool any = false;
-        for (int i = 0; i < 4; i++)
-        {
-            const uint8_t *e = mbuf + 446 + i * 16;
-            uint8_t type = e[4];
-            uint32_t size = e[12] | (e[13] << 8) | (e[14] << 16) | ((uint32_t)e[15] << 24);
-            if (type == 0 || size == 0)
-                continue;
-            printf_utf8(S(STR_DISK_PART_LINE), i + 1, type, (unsigned long)(size / 2048));
-            any = true;
-        }
-        if (!any)
-            printf_utf8(S(STR_DISK_PART_NONE));
-    }
-    else
-        printf_utf8(S(STR_DISK_PART_NONE));
 }
 
 static void dsk_preview_make_format(void)
 {
+    switch (dsk_layout)
+    {
+    case DSK_LAYOUT_SFD:
+        printf_utf8(S(STR_DISK_MAKE_SFD));
+        break;
+    case DSK_LAYOUT_GPT:
+        printf_utf8(S(STR_DISK_MAKE_GPT));
+        break;
+    default:
+        printf_utf8(S(STR_DISK_MAKE_MBR));
+        break;
+    }
 #if FF_FS_EXFAT
     printf_utf8(S(dsk_fs == 2 ? STR_DISK_MAKE_EXFAT : STR_DISK_MAKE_FAT));
 #else
@@ -174,16 +156,18 @@ static FRESULT dsk_do_mkfs(void)
     memset(&parm, 0, sizeof(parm));
     parm.n_fat = 2;
     parm.au_size = dsk_au;
-    if (dsk_is_floppy)
-        parm.fmt = FM_FAT | FM_SFD;
 #if FF_FS_EXFAT
-    else if (dsk_fs == 2)
+    if (dsk_fs == 2)
         parm.fmt = FM_EXFAT;
-#endif
     else
+#endif
         parm.fmt = FM_FAT | FM_FAT32;
+    if (dsk_layout == DSK_LAYOUT_SFD)
+        parm.fmt |= FM_SFD; // superfloppy: no partition table
 #if FF_LBA64
-    dsk_gpt_threshold = (LBA_t)-1; // any new table f_mkfs writes is MBR
+    // f_mkfs writes GPT when the drive is >= FF_MIN_GPT (dsk_min_gpt()), else
+    // MBR. Force the chosen scheme; FM_SFD ignores it.
+    dsk_gpt_threshold = (dsk_layout == DSK_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
     FRESULT fr = f_mkfs(dsk_path, &parm, mbuf, MBUF_SIZE);
 #if FF_LBA64
@@ -266,6 +250,7 @@ static void dsk_format(const char *args)
     dsk_full = false;
     dsk_au = 0;
     dsk_has_label = false;
+    dsk_layout = DSK_LAYOUT_AUTO;
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
     {
@@ -277,6 +262,19 @@ static void dsk_format(const char *args)
             dsk_full = false;
         else if (!strcasecmp(t, STR_OPT_FULL))
             dsk_full = true;
+        else if (!strcasecmp(t, STR_OPT_SFD) ||
+                 !strcasecmp(t, STR_OPT_MBR) ||
+                 !strcasecmp(t, STR_OPT_GPT))
+        {
+            if (dsk_layout != DSK_LAYOUT_AUTO) // at most one layout flag
+            {
+                mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+                return;
+            }
+            dsk_layout = !strcasecmp(t, STR_OPT_SFD)   ? DSK_LAYOUT_SFD
+                         : !strcasecmp(t, STR_OPT_MBR) ? DSK_LAYOUT_MBR
+                                                       : DSK_LAYOUT_GPT;
+        }
         else if (t[0] == '/')
         {
             if (!dsk_parse_alloc(t, &dsk_au))
@@ -311,6 +309,27 @@ static void dsk_format(const char *args)
     {
         mon_add_response_utf8(S(STR_ERR_NOT_FORMATTABLE));
         return;
+    }
+    if (dsk_layout == DSK_LAYOUT_GPT && !FF_LBA64)
+    {
+        mon_add_response_utf8(S(STR_ERR_EXFAT_DISABLED));
+        return;
+    }
+    if (dsk_layout == DSK_LAYOUT_GPT && dsk_is_floppy)
+    {
+        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+        return;
+    }
+    if (dsk_layout == DSK_LAYOUT_AUTO) // resolve by device class/size
+    {
+        if (dsk_is_floppy)
+            dsk_layout = DSK_LAYOUT_SFD;
+#if FF_LBA64
+        else if (info.block_count >= DSK_GPT_DEFAULT)
+            dsk_layout = DSK_LAYOUT_GPT;
+#endif
+        else
+            dsk_layout = DSK_LAYOUT_MBR;
     }
     dsk_preview();
     dsk_preview_make_format();
@@ -361,70 +380,6 @@ static void dsk_verify(const char *args)
     dsk_last_pct = -1;
     dsk_bad = 0;
     dsk_state = DSK_RUN_VERIFY; // read-only, no confirmation
-}
-
-static void dsk_part(const char *args)
-{
-    msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, false);
-    if (vol < 0)
-        return;
-    bool requested = false;
-    dsk_scheme = DSK_SCHEME_MBR;
-    const char *t;
-    while ((t = str_parse_string(&args)) != NULL)
-    {
-        if (!strcasecmp(t, STR_OPT_MBR))
-        {
-            dsk_scheme = DSK_SCHEME_MBR;
-            requested = true;
-        }
-        else if (!strcasecmp(t, STR_OPT_GPT))
-        {
-            dsk_scheme = DSK_SCHEME_GPT;
-            requested = true;
-        }
-        else
-        {
-            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-            return;
-        }
-    }
-    dsk_vol = (uint8_t)vol;
-    msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
-    if (!requested)
-    {
-        // No scheme requested: show the current partition table only.
-        dsk_preview();
-        return;
-    }
-    if (info.write_prot)
-    {
-        mon_add_response_fatfs(FR_WRITE_PROTECTED);
-        return;
-    }
-    if (info.is_floppy)
-    {
-        // Floppies are superfloppies; partitioning is not supported.
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-        return;
-    }
-    if (dsk_scheme == DSK_SCHEME_GPT && !FF_LBA64)
-    {
-        mon_add_response_utf8(S(STR_ERR_EXFAT_DISABLED));
-        return;
-    }
-    if (dsk_read_scheme() == dsk_scheme)
-    {
-        mon_add_response_utf8(S(STR_DISK_NO_CHANGE));
-        return;
-    }
-    dsk_preview();
-    printf_utf8(S(dsk_scheme == DSK_SCHEME_GPT ? STR_DISK_MAKE_GPT : STR_DISK_MAKE_MBR));
-    printf_utf8(S(STR_DISK_CONFIRM_PROMPT));
-    dsk_after_confirm = DSK_RUN_PART;
-    dsk_state = DSK_CONFIRM;
-    rln_read_line(dsk_confirm_cb);
 }
 
 static void dsk_label(const char *args)
@@ -510,7 +465,6 @@ static void dsk_info(const char *args)
     if (info.block_size)
         printf_utf8(S(STR_DISK_SIZE),
                     (unsigned long)(info.block_count / (1048576 / info.block_size)));
-    printf_utf8(S(STR_DISK_INFO_PART), info.partno);
     DWORD nclst;
     FATFS *fs;
     if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
@@ -647,25 +601,6 @@ void dsk_task(void)
         return;
     }
 
-    case DSK_RUN_PART:
-    {
-        LBA_t ptbl[2] = {100, 0}; // one partition spanning the whole drive
-#if FF_LBA64
-        dsk_gpt_threshold = (dsk_scheme == DSK_SCHEME_GPT) ? 0 : (LBA_t)-1;
-#endif
-        FRESULT fr = f_fdisk(dsk_pdrv, ptbl, mbuf);
-#if FF_LBA64
-        dsk_gpt_threshold = DSK_GPT_DEFAULT;
-#endif
-        msc_dsk_reenumerate(dsk_pdrv);
-        if (fr == FR_OK)
-            mon_add_response_utf8(S(STR_DISK_DONE));
-        else
-            mon_add_response_fatfs(fr);
-        dsk_state = DSK_IDLE;
-        return;
-    }
-
     default:
         return;
     }
@@ -700,8 +635,6 @@ void dsk_mon_disk(const char *args)
         dsk_zero(args);
     else if (!strcasecmp(sub, STR_VERIFY))
         dsk_verify(args);
-    else if (!strcasecmp(sub, STR_PART))
-        dsk_part(args);
     else if (!strcasecmp(sub, STR_LABEL))
         dsk_label(args);
     else

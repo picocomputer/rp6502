@@ -423,7 +423,6 @@ X(STR_HELP_SET_KEY,
   " jak i PORT (patrz \"help KEY\").\n")
 
 // Narzędzie dyskowe
-X(STR_DISK_NO_CHANGE, "Bez zmian\n")
 X(STR_DISK_ABORTED, "Przerwano\n")
 X(STR_DISK_DONE, "Gotowe\n")
 X(STR_DISK_CONFIRM_PROMPT, "Wpisz YES aby potwierdzić: ")
@@ -435,42 +434,41 @@ X(STR_DISK_VERIFY_DONE, "Sprawdzanie zakończone, uszkodzone sektory: %d\n")
 X(STR_DISK_DEV, "Urz : \a%s %s rew %s\n")
 X(STR_DISK_SERIAL, "S/N : \a%s\n")
 X(STR_DISK_SIZE, "Rozm: \a%lu MB\n")
-X(STR_DISK_PART_LINE, "Part%d: \a%02X %lu MB\n")
-X(STR_DISK_PART_NONE, "Part: \a(brak)\n")
 X(STR_DISK_MAKE_FAT, "Utwórz: \aFAT\n")
 X(STR_DISK_MAKE_EXFAT, "Utwórz: \aexFAT\n")
+X(STR_DISK_MAKE_SFD, "Utwórz: \asuperdyskietka\n")
 X(STR_DISK_MAKE_MBR, "Utwórz: \atablica partycji MBR\n")
 X(STR_DISK_MAKE_GPT, "Utwórz: \atablica partycji GPT\n")
 X(STR_DISK_ALLOC, "Alok: \a%u bajtów\n")
 X(STR_DISK_MODE_FULL, "Tryb: \apełny (niskopoziomowy)\n")
-X(STR_DISK_INFO_PART, "Part: \a%u\n")
 X(STR_DISK_INFO_FORMAT, "Fmt : \a%s\n")
 X(STR_DISK_INFO_FREE, "Wolne: \a%lu z %lu bloków\n")
 
 X(STR_HELP_DISK,
   "Dysk:\n"
   "HELP DISK pod        - \aPokaż informacje o podpoleceniu dysku.\n"
-  "DISK INFO dys        - \aPokaż partycję, format i wolne miejsce.\n"
+  "DISK INFO dys        - \aPokaż format i wolne miejsce.\n"
   "DISK FORMAT dys ..   - \aUtwórz system plików. Patrz HELP DISK FORMAT.\n"
   "DISK ZERO dys        - \aWymaż wszystkie sektory. Dysk bez systemu plików.\n"
   "DISK VERIFY dys      - \aOdczytaj wszystkie sektory i zgłoś uszkodzone.\n"
-  "DISK PART dys (/mbr) - \aPokaż lub zapisz tablicę partycji.\n"
   "DISK LABEL dys (et)  - \aPokaż lub ustaw etykietę woluminu.\n")
 
 X(STR_HELP_DISK_INFO,
   "DISK INFO dysk\n"
-  "Pokazuje urządzenie, numer partycji, format systemu plików oraz wolne "
-  "miejsce dysku USB o nazwie np. MSC1:.\n")
+  "Pokazuje urządzenie, format systemu plików oraz wolne miejsce dysku USB o "
+  "nazwie np. MSC1:.\n")
 
 X(STR_HELP_DISK_FORMAT,
-  "DISK FORMAT dysk [/fat|/exfat] [/512|/4k...] [/quick|/full] [etykieta]\n"
+  "DISK FORMAT dysk [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [etykieta]\n"
   "Tworzy nowy system plików na dysku USB o nazwie np. MSC1:. /fat (domyślnie) "
   "jest najbardziej zgodny; /exfat jest dostępny tylko w kompilacjach, które go "
-  "zawierają. Jednostkę alokacji (klaster) można ustawić od /512 wzwyż (potęgi "
-  "dwójki); domyślnie zależy od pojemności. /quick (domyślnie) zapisuje tylko "
-  "nowy system plików. /full najpierw wykonuje formatowanie niskopoziomowe i "
-  "jest dostępne tylko dla stacji dyskietek. Pamięci flash są partycjonowane; "
-  "dyskietki nie. Wyświetlany jest podgląd i trzeba wpisać YES, aby potwierdzić.\n")
+  "zawierają. Układ na dysku wybiera /sfd (superdyskietka, bez tablicy partycji), "
+  "/mbr lub /gpt (tylko kompilacje z exFAT); domyślnie superdyskietka dla "
+  "dyskietek i MBR dla pamięci flash. Jednostkę alokacji (klaster) można ustawić "
+  "od /512 wzwyż (potęgi dwójki); domyślnie zależy od pojemności. /quick "
+  "(domyślnie) zapisuje tylko nowy system plików. /full najpierw wykonuje "
+  "formatowanie niskopoziomowe i jest dostępne tylko dla stacji dyskietek. "
+  "Wyświetlany jest podgląd i trzeba wpisać YES, aby potwierdzić.\n")
 
 X(STR_HELP_DISK_ZERO,
   "DISK ZERO dysk\n"
@@ -484,15 +482,6 @@ X(STR_HELP_DISK_VERIFY,
   "Odczytuje wszystkie sektory dysku USB o nazwie np. MSC1: i zgłasza sektory, "
   "których nie udało się odczytać. Operacja tylko do odczytu, niczego nie "
   "zmienia.\n")
-
-X(STR_HELP_DISK_PART,
-  "DISK PART dysk [/mbr|/gpt]\n"
-  "Bez opcji pokazuje bieżącą tablicę partycji dysku USB o nazwie np. MSC1:. "
-  "Z /mbr (domyślnie) lub /gpt zapisuje nową tablicę z jedną partycją "
-  "obejmującą całe urządzenie, usuwając istniejące partycjonowanie; /gpt jest "
-  "dostępny tylko w kompilacjach z exFAT. Jeśli tablica już pasuje, nic nie "
-  "jest zmieniane. Trzeba wpisać YES, aby potwierdzić. Następnie uruchom DISK "
-  "FORMAT, aby utworzyć system plików.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL dysk [etykieta]\n"

@@ -410,7 +410,6 @@ X(STR_HELP_SET_KEY,
   "Both PORT and KEY must be set to enable telnet console access.\n")
 
 // Disk utility
-X(STR_DISK_NO_CHANGE, "No change\n")
 X(STR_DISK_ABORTED, "Aborted\n")
 X(STR_DISK_DONE, "Done\n")
 X(STR_DISK_CONFIRM_PROMPT, "Type YES to confirm: ")
@@ -422,42 +421,41 @@ X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
 X(STR_DISK_DEV, "Dev : \a%s %s rev %s\n")
 X(STR_DISK_SERIAL, "S/N : \a%s\n")
 X(STR_DISK_SIZE, "Size: \a%lu MB\n")
-X(STR_DISK_PART_LINE, "Part%d: \a%02X %lu MB\n")
-X(STR_DISK_PART_NONE, "Part: \a(none)\n")
 X(STR_DISK_MAKE_FAT, "Make: \aFAT\n")
 X(STR_DISK_MAKE_EXFAT, "Make: \aexFAT\n")
+X(STR_DISK_MAKE_SFD, "Make: \asuperfloppy\n")
 X(STR_DISK_MAKE_MBR, "Make: \aMBR partition table\n")
 X(STR_DISK_MAKE_GPT, "Make: \aGPT partition table\n")
 X(STR_DISK_ALLOC, "Alloc: \a%u bytes\n")
 X(STR_DISK_MODE_FULL, "Mode: \afull (low-level)\n")
-X(STR_DISK_INFO_PART, "Part: \a%u\n")
 X(STR_DISK_INFO_FORMAT, "Fmt : \a%s\n")
 X(STR_DISK_INFO_FREE, "Free: \a%lu of %lu blocks\n")
 
 X(STR_HELP_DISK,
   "Disk:\n"
   "HELP DISK sub        - \aShow information about a disk subcommand.\n"
-  "DISK INFO drv        - \aShow partition, format, and free space.\n"
+  "DISK INFO drv        - \aShow format and free space.\n"
   "DISK FORMAT drv ..   - \aCreate a filesystem. See HELP DISK FORMAT.\n"
   "DISK ZERO drv        - \aErase every sector. Leaves the drive unmountable.\n"
   "DISK VERIFY drv      - \aRead every sector and report bad ones.\n"
-  "DISK PART drv (/mbr) - \aShow or rewrite the partition table.\n"
   "DISK LABEL drv (lbl) - \aShow or set the volume label.\n")
 
 X(STR_HELP_DISK_INFO,
   "DISK INFO drive\n"
-  "Shows the device, the partition number, the filesystem format, and the free "
-  "space of a USB drive named like MSC1:.\n")
+  "Shows the device, the filesystem format, and the free space of a USB drive "
+  "named like MSC1:.\n")
 
 X(STR_HELP_DISK_FORMAT,
-  "DISK FORMAT drive [/fat|/exfat] [/512|/4k...] [/quick|/full] [label]\n"
+  "DISK FORMAT drive [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [label]\n"
   "Creates a new filesystem on a USB drive named like MSC1:. /fat (default) is "
   "the most compatible; /exfat is available only in builds that include it. The "
-  "allocation unit (cluster) may be set with /512 through larger powers of two; "
-  "the default is chosen by capacity. /quick (default) writes only the new "
-  "filesystem. /full first does a low-level format and is available only on "
-  "floppy drives. Flash drives are partitioned; floppies are not. A preview is "
-  "shown and you must type YES to confirm.\n")
+  "on-disk layout is set by /sfd (superfloppy, no partition table), /mbr, or "
+  "/gpt (exFAT builds only); the default is superfloppy for floppies and MBR for "
+  "flash drives. The allocation unit (cluster) may be set with /512 through "
+  "larger powers of two; the default is chosen by capacity. /quick (default) "
+  "writes only the new filesystem. /full first does a low-level format and is "
+  "available only on floppy drives. A preview is shown and you must type YES to "
+  "confirm.\n")
 
 X(STR_HELP_DISK_ZERO,
   "DISK ZERO drive\n"
@@ -469,15 +467,6 @@ X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY drive\n"
   "Reads every sector of a USB drive named like MSC1: and reports any sectors "
   "that fail to read. This is read-only and changes nothing.\n")
-
-X(STR_HELP_DISK_PART,
-  "DISK PART drive [/mbr|/gpt]\n"
-  "With no option, shows the current partition table of a USB drive named like "
-  "MSC1:. With /mbr (default) or /gpt, writes a fresh table with one partition "
-  "spanning the whole device, erasing existing partitioning; /gpt is available "
-  "only in builds with exFAT. If the table already matches, no change is made. "
-  "You must type YES to confirm. Run DISK FORMAT afterward to create a "
-  "filesystem.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL drive [label]\n"

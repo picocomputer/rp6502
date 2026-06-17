@@ -7,7 +7,7 @@
 #ifndef _RIA_MON_DSK_H_
 #define _RIA_MON_DSK_H_
 
-/* Disk utility: format, zero, verify, partition, and label USB drives.
+/* Disk utility: show info, format, zero, verify, and label USB drives.
  */
 
 #include <stdbool.h>
@@ -15,7 +15,7 @@
 // Monitor command handler for "DISK".
 void dsk_mon_disk(const char *args);
 
-// Drives the long-running passes (format/zero/verify/part) across ticks.
+// Drives the long-running passes (format/zero/verify) across ticks.
 void dsk_task(void);
 
 // True while a confirm prompt or a pass is in progress.

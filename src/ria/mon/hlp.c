@@ -99,7 +99,6 @@ __in_flash("hlp_disk") static struct
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
     {STR_ZERO, STR_HELP_DISK_ZERO, NULL},
     {STR_VERIFY, STR_HELP_DISK_VERIFY, NULL},
-    {STR_PART, STR_HELP_DISK_PART, NULL},
     {STR_LABEL, STR_HELP_DISK_LABEL, NULL},
 };
 static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;

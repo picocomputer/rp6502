@@ -20,7 +20,6 @@
 #include "sys/mem.h"
 #include "sys/ria.h"
 #include "sys/sys.h"
-#include "usb/msc.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
@@ -611,7 +610,6 @@ void mon_task(void)
         fil_active() ||
         uf2_active() ||
         dsk_active() ||
-        msc_active() ||
         usb_boot_enumerating())
         return;
     // The monitor has control

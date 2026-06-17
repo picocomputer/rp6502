@@ -41,7 +41,6 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
-#include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/mid.h"
 #include "usb/nfc.h"
@@ -144,7 +143,6 @@ static void task(void)
     fil_task();
     rom_task();
     uf2_task();
-    msc_task();
     dsk_task();
     vcp_task();
     nfc_task(); // must be last for exec

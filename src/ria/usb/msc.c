@@ -90,7 +90,7 @@ static_assert(FF_LFN_UNICODE == 0);
 static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
 static_assert(FF_FS_RPATH == 2);
-static_assert(FF_MULTI_PARTITION == 1);
+static_assert(FF_MULTI_PARTITION == 0);
 static_assert(FF_USE_MKFS == 1);
 static_assert(FF_FS_LOCK == 8);
 static_assert(FF_FS_NORTC == 0);
@@ -133,9 +133,8 @@ typedef enum
     msc_volume_ejected,
 } msc_volume_status_t;
 
-// Physical drive: one slot per device LUN. FatFs addresses these by pdrv and
-// all media/geometry/sense state lives here. Logical volumes (partitions) map
-// to a pdrv via the FatFs VolToPart[] table.
+// One volume per device LUN: vol == pdrv == slot, named MSCn: (n == slot). All
+// media/geometry/sense state and the mounted FatFs object live here.
 typedef struct
 {
     msc_volume_status_t status;
@@ -153,30 +152,10 @@ typedef struct
     bool sync_cache_suppressed;
     bool lbpme;
     absolute_time_t last_ok;
+    FATFS fatfs;
 } msc_pdrv_t;
 
 static msc_pdrv_t msc_pdrv[FF_VOLUMES];
-
-// Logical volume (MSCn:): one per mounted partition. Maps to a physical drive
-// and partition number through VolToPart[].
-typedef struct
-{
-    bool in_use;
-    uint8_t pdrv;
-    uint8_t partno;   // 0 = auto/SFD (whole-device superfloppy), 1.. = partition
-    uint64_t sectors; // size of this volume's partition (block_count when partno 0)
-    FATFS fatfs;
-} msc_lvol_t;
-
-static msc_lvol_t msc_lvol[FF_VOLUMES];
-
-// FatFs logical-drive -> {physical drive, partition} map, filled dynamically as
-// devices enumerate. pt 0 = auto search (preserves single-partition/SFD).
-PARTITION VolToPart[FF_VOLUMES];
-
-// Set by the mount callback (USB context where SCSI is unsafe); consumed by
-// msc_task() in the FatFs-safe task tier to enumerate partitions.
-static volatile bool msc_pdrv_enum_pending[FF_VOLUMES];
 
 enum
 {
@@ -1545,48 +1524,6 @@ static uint8_t msc_pdrv_alloc(void)
     return FF_VOLUMES;
 }
 
-// Register one logical volume (MSCn:) for a partition on pdrv and lazily mount
-// it. partno 0 = auto/SFD (whole device). Returns false if no free slot.
-static bool msc_register_lvol(uint8_t pdrv, uint8_t partno, uint64_t sectors)
-{
-    uint8_t vol = FF_VOLUMES;
-    for (uint8_t v = 0; v < FF_VOLUMES; v++)
-        if (!msc_lvol[v].in_use)
-        {
-            vol = v;
-            break;
-        }
-    if (vol == FF_VOLUMES)
-        return false;
-    msc_lvol[vol].in_use = true;
-    msc_lvol[vol].pdrv = pdrv;
-    msc_lvol[vol].partno = partno;
-    msc_lvol[vol].sectors = sectors;
-    VolToPart[vol].pd = pdrv;
-    VolToPart[vol].pt = partno;
-    TCHAR volstr[6];
-    msc_vol_path(volstr, vol);
-    f_mount(&msc_lvol[vol].fatfs, volstr, 0);
-    DBG_VOL(vol, "mount pdrv %u partition %u\n", pdrv, partno);
-    return true;
-}
-
-// Unmount and release every logical volume that maps to pdrv.
-static void msc_release_lvols(uint8_t pdrv)
-{
-    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-    {
-        if (!msc_lvol[vol].in_use || msc_lvol[vol].pdrv != pdrv)
-            continue;
-        TCHAR volstr[6];
-        msc_vol_path(volstr, vol);
-        f_unmount(volstr);
-        memset(&msc_lvol[vol], 0, sizeof(msc_lvol[vol]));
-        VolToPart[vol].pd = 0;
-        VolToPart[vol].pt = 0;
-    }
-}
-
 static void msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const max_lun = msc_get_maxlun(dev_addr);
@@ -1601,10 +1538,13 @@ static void msc_mount_cb(uint8_t dev_addr)
         msc_pdrv[pdrv].dev_addr = dev_addr;
         msc_pdrv[pdrv].lun = lun;
         msc_pdrv[pdrv].status = msc_volume_registered;
-        // Enumeration (READ CAPACITY + partition-table read) needs SCSI, which
-        // is unsafe in this USB callback. Defer it to msc_task().
-        msc_pdrv_enum_pending[pdrv] = true;
-        DBG_VOL(pdrv, "registered dev_addr %d LUN %d (enum pending)\n", dev_addr, lun);
+        // Lazy mount only (no disk I/O here); SCSI is unsafe in this USB
+        // callback. Bring-up (READ CAPACITY etc.) runs in disk_initialize on
+        // first FatFs access in the task tier.
+        TCHAR volstr[6];
+        msc_vol_path(volstr, pdrv);
+        f_mount(&msc_pdrv[pdrv].fatfs, volstr, 0);
+        DBG_VOL(pdrv, "registered dev_addr %d LUN %d\n", dev_addr, lun);
     }
 }
 
@@ -1615,8 +1555,9 @@ static void msc_umount_cb(uint8_t dev_addr)
         if (msc_pdrv[pdrv].status == msc_volume_free ||
             msc_pdrv[pdrv].dev_addr != dev_addr)
             continue;
-        msc_release_lvols(pdrv);
-        msc_pdrv_enum_pending[pdrv] = false;
+        TCHAR volstr[6];
+        msc_vol_path(volstr, pdrv);
+        f_unmount(volstr);
         memset(&msc_pdrv[pdrv], 0, sizeof(msc_pdrv[pdrv]));
         DBG_VOL(pdrv, "unmounted (dev_addr %d)\n", dev_addr);
     }
@@ -1948,186 +1889,23 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
-// True if the sector looks like a FAT/exFAT volume boot record. Mirrors the
-// FatFs check_fs() heuristic. A bare 0x55AA signature is NOT enough — a VBR
-// carries it too, so a superfloppy must not be mistaken for an MBR.
-static bool msc_is_fat_vbr(const uint8_t *w)
-{
-    uint16_t sign = (uint16_t)(w[510] | (w[511] << 8));
-#if FF_FS_EXFAT
-    static const uint8_t EXFAT_SIG[11] = {0xEB, 0x76, 0x90, 'E', 'X', 'F', 'A', 'T', ' ', ' ', ' '};
-    if (sign == 0xAA55 && memcmp(w, EXFAT_SIG, sizeof(EXFAT_SIG)) == 0)
-        return true;
-#endif
-    uint8_t jmp = w[0];
-    if (jmp != 0xEB && jmp != 0xE9 && jmp != 0xE8)
-        return false;
-    static const uint8_t FAT32_SIG[8] = {'F', 'A', 'T', '3', '2', ' ', ' ', ' '};
-    if (sign == 0xAA55 && memcmp(w + 82, FAT32_SIG, sizeof(FAT32_SIG)) == 0)
-        return true;
-    uint16_t bps = (uint16_t)(w[11] | (w[12] << 8));
-    uint8_t spc = w[13];
-    uint16_t rsvd = (uint16_t)(w[14] | (w[15] << 8));
-    uint8_t nfat = w[16];
-    uint16_t root = (uint16_t)(w[17] | (w[18] << 8));
-    uint16_t tot16 = (uint16_t)(w[19] | (w[20] << 8));
-    uint32_t tot32 = (uint32_t)(w[32] | (w[33] << 8) | (w[34] << 16) | ((uint32_t)w[35] << 24));
-    uint16_t fsz16 = (uint16_t)(w[22] | (w[23] << 8));
-    return (bps & (bps - 1)) == 0 && bps >= FF_MIN_SS && bps <= FF_MAX_SS &&
-           spc != 0 && (spc & (spc - 1)) == 0 && rsvd != 0 &&
-           (unsigned)(nfat - 1) <= 1 && root != 0 &&
-           (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
-}
-
-// A partition discovered in a table, before FAT validation.
-typedef struct
-{
-    uint64_t start;
-    uint64_t sectors;
-    uint8_t partno;
-} msc_part_cand_t;
-
-// Collect MBR primary partitions from the LBA-0 image in mbuf.
-static int msc_collect_mbr(const uint8_t *sec, msc_part_cand_t *cand, int max)
-{
-    int n = 0;
-    for (int i = 0; i < 4 && n < max; i++)
-    {
-        const uint8_t *e = sec + 446 + i * 16;
-        uint8_t type = e[4];
-        uint32_t start = e[8] | (e[9] << 8) | (e[10] << 16) | ((uint32_t)e[11] << 24);
-        uint32_t size = e[12] | (e[13] << 8) | (e[14] << 16) | ((uint32_t)e[15] << 24);
-        if (type == 0 || size == 0 || type == 0x05 || type == 0x0F || type == 0xEE)
-            continue; // empty / extended / protective
-        cand[n].start = start;
-        cand[n].sectors = size;
-        cand[n].partno = (uint8_t)(i + 1);
-        n++;
-    }
-    return n;
-}
-
-#if FF_LBA64
-// Collect MS Basic Data partitions from a GPT (protective MBR already seen).
-static int msc_collect_gpt(uint8_t pdrv, msc_part_cand_t *cand, int max)
-{
-    static const uint8_t GPT_SIG[8] = {'E', 'F', 'I', ' ', 'P', 'A', 'R', 'T'};
-    static const uint8_t MSBASIC[16] = {
-        0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
-        0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7};
-    if (disk_read(pdrv, mbuf, 1, 1) != RES_OK || memcmp(mbuf, GPT_SIG, sizeof(GPT_SIG)) != 0)
-        return 0;
-    uint32_t n_ent = mbuf[80] | (mbuf[81] << 8) | (mbuf[82] << 16) | ((uint32_t)mbuf[83] << 24);
-    uint64_t pt_lba = 0;
-    for (int b = 0; b < 8; b++)
-        pt_lba |= (uint64_t)mbuf[72 + b] << (8 * b);
-    if (n_ent > 128)
-        n_ent = 128;
-    int n = 0;
-    uint8_t order = 0;
-    for (uint32_t i = 0; i < n_ent && n < max; i++)
-    {
-        if ((i & 3) == 0 && disk_read(pdrv, mbuf, pt_lba + i / 4, 1) != RES_OK)
-            break;
-        const uint8_t *e = mbuf + (i & 3) * 128;
-        if (memcmp(e, MSBASIC, sizeof(MSBASIC)) != 0)
-            continue;
-        uint64_t first = 0, last = 0;
-        for (int b = 0; b < 8; b++)
-            first |= (uint64_t)e[32 + b] << (8 * b);
-        for (int b = 0; b < 8; b++)
-            last |= (uint64_t)e[40 + b] << (8 * b);
-        if (++order == 0)
-            break;
-        cand[n].start = first;
-        cand[n].sectors = last - first + 1;
-        cand[n].partno = order;
-        n++;
-    }
-    return n;
-}
-#endif
-
-// Bring a physical drive online and register a logical volume for each FAT
-// volume: a superfloppy (whole-device VBR) is one volume; otherwise each
-// MBR/GPT partition that actually contains a FAT volume. Always registers at
-// least one anchor (partno 0) so blank or non-FAT media stays selectable and
-// formattable. Runs in the FatFs-safe task tier (synchronous SCSI is allowed).
-static void msc_pdrv_enumerate(uint8_t pdrv)
-{
-    msc_release_lvols(pdrv); // clear any stale mapping (re-enumerate path)
-    DSTATUS st = disk_initialize(pdrv);
-    if ((st & (STA_NOINIT | STA_NODISK)) || disk_read(pdrv, mbuf, 0, 1) != RES_OK)
-    {
-        msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count); // anchor (no media)
-        return;
-    }
-    if (msc_is_fat_vbr(mbuf))
-    {
-        // Whole device is one FAT volume (superfloppy, no partition table).
-        msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count);
-        return;
-    }
-    msc_part_cand_t cand[FF_VOLUMES];
-    int nc = 0;
-    if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
-    {
-#if FF_LBA64
-        if (mbuf[446 + 4] == 0xEE)
-            nc = msc_collect_gpt(pdrv, cand, FF_VOLUMES);
-        else
-#endif
-            nc = msc_collect_mbr(mbuf, cand, FF_VOLUMES);
-    }
-    int registered = 0;
-    for (int i = 0; i < nc; i++)
-    {
-        // Only assign a drive to a partition that holds a FAT volume.
-        if (disk_read(pdrv, mbuf, cand[i].start, 1) != RES_OK || !msc_is_fat_vbr(mbuf))
-            continue;
-        if (!msc_register_lvol(pdrv, cand[i].partno, cand[i].sectors))
-        {
-            DBG("MSC: pdrv %u: out of volume slots, some partitions skipped\n", pdrv);
-            break;
-        }
-        registered++;
-    }
-    if (registered == 0)
-        msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count); // anchor
-}
-
-void msc_task(void)
-{
-    for (uint8_t pdrv = 0; pdrv < FF_VOLUMES; pdrv++)
-    {
-        if (!msc_pdrv_enum_pending[pdrv])
-            continue;
-        msc_pdrv_enum_pending[pdrv] = false;
-        msc_pdrv_enumerate(pdrv);
-    }
-}
-
-bool msc_active(void)
-{
-    for (uint8_t pdrv = 0; pdrv < FF_VOLUMES; pdrv++)
-        if (msc_pdrv_enum_pending[pdrv])
-            return true;
-    return false;
-}
-
+// Remount after format/zero so the next access re-reads the new (or, after
+// zero, absent) filesystem.
 void msc_dsk_reenumerate(uint8_t pdrv)
 {
     if (pdrv >= FF_VOLUMES || msc_pdrv[pdrv].status == msc_volume_free)
         return;
-    msc_release_lvols(pdrv);
-    msc_pdrv_enum_pending[pdrv] = true;
+    TCHAR volstr[6];
+    msc_vol_path(volstr, pdrv);
+    f_unmount(volstr);
+    f_mount(&msc_pdrv[pdrv].fatfs, volstr, 0);
 }
 
 int msc_status_count(void)
 {
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-        if (msc_lvol[vol].in_use)
+        if (msc_pdrv[vol].status != msc_volume_free)
             count++;
     return count;
 }
@@ -2150,18 +1928,12 @@ int msc_status_response(char *buf, size_t buf_size, int state)
     if (state < 0 || state >= FF_VOLUMES)
         return -1;
     uint8_t vol = state;
-    if (msc_lvol[vol].in_use)
+    if (msc_pdrv[vol].status != msc_volume_free)
     {
-        uint8_t pdrv = msc_lvol[vol].pdrv;
+        uint8_t pdrv = vol;
         // Refresh or init media status
         if (disk_status(pdrv) == STA_NOINIT)
             disk_initialize(pdrv);
-
-        char partbuf[8];
-        if (msc_lvol[vol].partno)
-            snprintf(partbuf, sizeof(partbuf), " p%u", msc_lvol[vol].partno);
-        else
-            partbuf[0] = '\0';
 
         char sizebuf[24];
         if (msc_pdrv[pdrv].status != msc_volume_mounted)
@@ -2174,7 +1946,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             // Everything else: pure decimal raw/1000/1000
             const char *unit;
             double size;
-            uint64_t raw = (uint64_t)msc_lvol[vol].sectors *
+            uint64_t raw = (uint64_t)msc_pdrv[pdrv].block_count *
                            (uint64_t)msc_pdrv[pdrv].block_size;
             if (raw < 5000000ULL)
             {
@@ -2224,16 +1996,14 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                           sizebuf,
                           inq.vendor_id,
                           inq.product_id,
-                          inq.product_rev,
-                          partbuf);
+                          inq.product_rev);
         }
         else
         {
             snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
                           VolumeStr[vol],
                           sizebuf,
-                          S(STR_PARENS_NONE), S(STR_PARENS_NONE), "",
-                          partbuf);
+                          S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");
         }
     }
     return state + 1;
@@ -2264,9 +2034,9 @@ int msc_dsk_vol_from_name(const char *name)
 
 bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
 {
-    if (vol >= FF_VOLUMES || !msc_lvol[vol].in_use)
+    if (vol >= FF_VOLUMES || msc_pdrv[vol].status == msc_volume_free)
         return false;
-    *pdrv = msc_lvol[vol].pdrv;
+    *pdrv = vol;
     return true;
 }
 
@@ -2284,7 +2054,6 @@ bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
     out->is_floppy = !msc_is_bot(p_msc) ||
                      p_msc->subclass == MSC_SUBCLASS_UFI ||
                      p_msc->subclass == MSC_SUBCLASS_SFF;
-    out->partno = msc_lvol[vol].partno;
     out->block_count = msc_pdrv[pdrv].block_count;
     out->block_size = msc_pdrv[pdrv].block_size;
     return true;
