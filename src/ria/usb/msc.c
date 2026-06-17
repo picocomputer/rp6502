@@ -1948,88 +1948,152 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
-// Parse the MBR/GPT at LBA 0 (in mbuf) and register a logical volume per
-// FAT/data partition. Returns the number registered (0 = no usable table, so
-// the caller registers one auto/SFD volume instead). May read more sectors into
-// mbuf for GPT, so the MBR path consumes mbuf before any further read.
-static int msc_register_partitions(uint8_t pdrv)
+// True if the sector looks like a FAT/exFAT volume boot record. Mirrors the
+// FatFs check_fs() heuristic. A bare 0x55AA signature is NOT enough — a VBR
+// carries it too, so a superfloppy must not be mistaken for an MBR.
+static bool msc_is_fat_vbr(const uint8_t *w)
 {
-    const uint8_t *sec = mbuf;
-    if (sec[510] != 0x55 || sec[511] != 0xAA)
-        return 0; // no MBR signature -> treat as superfloppy / auto
-    int count = 0;
-#if FF_LBA64
-    if (sec[446 + 4] == 0xEE) // GPT protective MBR
-    {
-        static const uint8_t GPT_SIG[8] = {'E', 'F', 'I', ' ', 'P', 'A', 'R', 'T'};
-        if (disk_read(pdrv, mbuf, 1, 1) != RES_OK ||
-            memcmp(mbuf, GPT_SIG, 8) != 0)
-            return 0;
-        uint32_t n_ent = mbuf[80] | (mbuf[81] << 8) | (mbuf[82] << 16) |
-                         ((uint32_t)mbuf[83] << 24);
-        uint64_t pt_lba = 0;
-        for (int b = 0; b < 8; b++)
-            pt_lba |= (uint64_t)mbuf[72 + b] << (8 * b);
-        if (n_ent > 128)
-            n_ent = 128;
-        static const uint8_t MSBASIC[16] = {
-            0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
-            0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7};
-        uint8_t order = 0;
-        for (uint32_t i = 0; i < n_ent; i++)
-        {
-            if ((i & 3) == 0 && disk_read(pdrv, mbuf, pt_lba + i / 4, 1) != RES_OK)
-                break;
-            const uint8_t *e = mbuf + (i & 3) * 128;
-            if (memcmp(e, MSBASIC, 16) != 0)
-                continue;
-            uint64_t first = 0, last = 0;
-            for (int b = 0; b < 8; b++)
-                first |= (uint64_t)e[32 + b] << (8 * b);
-            for (int b = 0; b < 8; b++)
-                last |= (uint64_t)e[40 + b] << (8 * b);
-            if (++order == 0)
-                break;
-            if (!msc_register_lvol(pdrv, order, last - first + 1))
-            {
-                DBG("MSC: pdrv %u: out of volume slots, some partitions skipped\n", pdrv);
-                break;
-            }
-            count++;
-        }
-        return count;
-    }
+    uint16_t sign = (uint16_t)(w[510] | (w[511] << 8));
+#if FF_FS_EXFAT
+    static const uint8_t EXFAT_SIG[11] = {0xEB, 0x76, 0x90, 'E', 'X', 'F', 'A', 'T', ' ', ' ', ' '};
+    if (sign == 0xAA55 && memcmp(w, EXFAT_SIG, sizeof(EXFAT_SIG)) == 0)
+        return true;
 #endif
-    for (int i = 0; i < 4; i++) // MBR primaries
+    uint8_t jmp = w[0];
+    if (jmp != 0xEB && jmp != 0xE9 && jmp != 0xE8)
+        return false;
+    static const uint8_t FAT32_SIG[8] = {'F', 'A', 'T', '3', '2', ' ', ' ', ' '};
+    if (sign == 0xAA55 && memcmp(w + 82, FAT32_SIG, sizeof(FAT32_SIG)) == 0)
+        return true;
+    uint16_t bps = (uint16_t)(w[11] | (w[12] << 8));
+    uint8_t spc = w[13];
+    uint16_t rsvd = (uint16_t)(w[14] | (w[15] << 8));
+    uint8_t nfat = w[16];
+    uint16_t root = (uint16_t)(w[17] | (w[18] << 8));
+    uint16_t tot16 = (uint16_t)(w[19] | (w[20] << 8));
+    uint32_t tot32 = (uint32_t)(w[32] | (w[33] << 8) | (w[34] << 16) | ((uint32_t)w[35] << 24));
+    uint16_t fsz16 = (uint16_t)(w[22] | (w[23] << 8));
+    return (bps & (bps - 1)) == 0 && bps >= FF_MIN_SS && bps <= FF_MAX_SS &&
+           spc != 0 && (spc & (spc - 1)) == 0 && rsvd != 0 &&
+           (unsigned)(nfat - 1) <= 1 && root != 0 &&
+           (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
+}
+
+// A partition discovered in a table, before FAT validation.
+typedef struct
+{
+    uint64_t start;
+    uint64_t sectors;
+    uint8_t partno;
+} msc_part_cand_t;
+
+// Collect MBR primary partitions from the LBA-0 image in mbuf.
+static int msc_collect_mbr(const uint8_t *sec, msc_part_cand_t *cand, int max)
+{
+    int n = 0;
+    for (int i = 0; i < 4 && n < max; i++)
     {
         const uint8_t *e = sec + 446 + i * 16;
         uint8_t type = e[4];
+        uint32_t start = e[8] | (e[9] << 8) | (e[10] << 16) | ((uint32_t)e[11] << 24);
         uint32_t size = e[12] | (e[13] << 8) | (e[14] << 16) | ((uint32_t)e[15] << 24);
         if (type == 0 || size == 0 || type == 0x05 || type == 0x0F || type == 0xEE)
-            continue; // empty / extended / protective not supported
-        if (!msc_register_lvol(pdrv, (uint8_t)(i + 1), size))
-        {
-            DBG("MSC: pdrv %u: out of volume slots, some partitions skipped\n", pdrv);
-            break;
-        }
-        count++;
+            continue; // empty / extended / protective
+        cand[n].start = start;
+        cand[n].sectors = size;
+        cand[n].partno = (uint8_t)(i + 1);
+        n++;
     }
-    return count;
+    return n;
 }
 
-// Bring a physical drive online and register a logical volume for each
-// partition. Always registers at least one (auto/SFD) volume so blank and
-// removable media stay selectable and formattable. Runs in the FatFs-safe
-// task tier (synchronous SCSI is allowed here).
+#if FF_LBA64
+// Collect MS Basic Data partitions from a GPT (protective MBR already seen).
+static int msc_collect_gpt(uint8_t pdrv, msc_part_cand_t *cand, int max)
+{
+    static const uint8_t GPT_SIG[8] = {'E', 'F', 'I', ' ', 'P', 'A', 'R', 'T'};
+    static const uint8_t MSBASIC[16] = {
+        0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
+        0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7};
+    if (disk_read(pdrv, mbuf, 1, 1) != RES_OK || memcmp(mbuf, GPT_SIG, sizeof(GPT_SIG)) != 0)
+        return 0;
+    uint32_t n_ent = mbuf[80] | (mbuf[81] << 8) | (mbuf[82] << 16) | ((uint32_t)mbuf[83] << 24);
+    uint64_t pt_lba = 0;
+    for (int b = 0; b < 8; b++)
+        pt_lba |= (uint64_t)mbuf[72 + b] << (8 * b);
+    if (n_ent > 128)
+        n_ent = 128;
+    int n = 0;
+    uint8_t order = 0;
+    for (uint32_t i = 0; i < n_ent && n < max; i++)
+    {
+        if ((i & 3) == 0 && disk_read(pdrv, mbuf, pt_lba + i / 4, 1) != RES_OK)
+            break;
+        const uint8_t *e = mbuf + (i & 3) * 128;
+        if (memcmp(e, MSBASIC, sizeof(MSBASIC)) != 0)
+            continue;
+        uint64_t first = 0, last = 0;
+        for (int b = 0; b < 8; b++)
+            first |= (uint64_t)e[32 + b] << (8 * b);
+        for (int b = 0; b < 8; b++)
+            last |= (uint64_t)e[40 + b] << (8 * b);
+        if (++order == 0)
+            break;
+        cand[n].start = first;
+        cand[n].sectors = last - first + 1;
+        cand[n].partno = order;
+        n++;
+    }
+    return n;
+}
+#endif
+
+// Bring a physical drive online and register a logical volume for each FAT
+// volume: a superfloppy (whole-device VBR) is one volume; otherwise each
+// MBR/GPT partition that actually contains a FAT volume. Always registers at
+// least one anchor (partno 0) so blank or non-FAT media stays selectable and
+// formattable. Runs in the FatFs-safe task tier (synchronous SCSI is allowed).
 static void msc_pdrv_enumerate(uint8_t pdrv)
 {
     msc_release_lvols(pdrv); // clear any stale mapping (re-enumerate path)
     DSTATUS st = disk_initialize(pdrv);
-    int registered = 0;
-    if (!(st & (STA_NOINIT | STA_NODISK)) && disk_read(pdrv, mbuf, 0, 1) == RES_OK)
-        registered = msc_register_partitions(pdrv);
-    if (registered == 0)
+    if ((st & (STA_NOINIT | STA_NODISK)) || disk_read(pdrv, mbuf, 0, 1) != RES_OK)
+    {
+        msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count); // anchor (no media)
+        return;
+    }
+    if (msc_is_fat_vbr(mbuf))
+    {
+        // Whole device is one FAT volume (superfloppy, no partition table).
         msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count);
+        return;
+    }
+    msc_part_cand_t cand[FF_VOLUMES];
+    int nc = 0;
+    if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
+    {
+#if FF_LBA64
+        if (mbuf[446 + 4] == 0xEE)
+            nc = msc_collect_gpt(pdrv, cand, FF_VOLUMES);
+        else
+#endif
+            nc = msc_collect_mbr(mbuf, cand, FF_VOLUMES);
+    }
+    int registered = 0;
+    for (int i = 0; i < nc; i++)
+    {
+        // Only assign a drive to a partition that holds a FAT volume.
+        if (disk_read(pdrv, mbuf, cand[i].start, 1) != RES_OK || !msc_is_fat_vbr(mbuf))
+            continue;
+        if (!msc_register_lvol(pdrv, cand[i].partno, cand[i].sectors))
+        {
+            DBG("MSC: pdrv %u: out of volume slots, some partitions skipped\n", pdrv);
+            break;
+        }
+        registered++;
+    }
+    if (registered == 0)
+        msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count); // anchor
 }
 
 void msc_task(void)
