@@ -7,9 +7,7 @@
 #include "mon/dsk.h"
 #include "mon/mon.h"
 #include "str/str.h"
-#include "str/rln.h"
 #include "sys/mem.h"
-#include "sys/ria.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
@@ -45,15 +43,13 @@ enum
 static enum
 {
     DSK_IDLE,
-    DSK_CONFIRM,
     DSK_RUN_FORMAT_UNIT,
     DSK_RUN_MKFS,
     DSK_RUN_ZERO,
     DSK_RUN_VERIFY,
 } dsk_state;
 
-// Operation context, valid from confirm through completion.
-static int dsk_after_confirm;     // state to enter when the user types YES
+// Operation context, valid from preview through completion.
 static uint8_t dsk_vol;           // logical volume (MSCn:)
 static uint8_t dsk_pdrv;          // physical drive backing dsk_vol
 static char dsk_path[6];          // "MSCn:" for FatFs calls
@@ -64,6 +60,7 @@ static uint32_t dsk_au;           // allocation unit bytes (0 = auto)
 static bool dsk_has_label;
 static char dsk_label_oem[12];
 static uint8_t dsk_layout;        // DSK_LAYOUT_* for format
+static bool dsk_show_make;        // preview generator: include the format lines
 static bool dsk_fmt_started;      // FORMAT UNIT issued (poll phase)
 static uint32_t dsk_block_size;
 static uint64_t dsk_total;        // sectors for zero/verify
@@ -127,61 +124,81 @@ static const char *dsk_fs_name(BYTE fs_type)
     }
 }
 
-// Print the current filesystem format and free/total space (or "none").
-static void dsk_print_format_free(void)
+// Device/size/format preview as a monitor response generator: one line per
+// call (an empty fill skips a line). dsk_show_make adds the format-only lines.
+// Routed through the response queue so the \a alignment markers work.
+static int dsk_preview_response(char *buf, size_t size, int state)
 {
-    DWORD nclst;
-    FATFS *fs;
-    if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+    if (state < 0)
+        return state;
+    switch (state)
     {
-        printf_utf8(S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
-        printf_utf8(S(STR_DISK_INFO_FREE),
-                    (unsigned long)nclst * fs->csize,
-                    (unsigned long)(fs->n_fatent - 2) * fs->csize);
-    }
-    else
-        printf_utf8(S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
-}
-
-// Print the device identity, size, and current format/free (the preview).
-static void dsk_preview(void)
-{
-    char vendor[9], product[17], rev[5];
-    if (msc_dsk_inquiry_strings(dsk_vol, vendor, product, rev))
-        printf_utf8(S(STR_DISK_DEV), vendor, product, rev);
-    char serial[USB_DESC_STRING_BUF_SIZE];
-    if (msc_dsk_serial(dsk_vol, serial, sizeof(serial)))
-        printf_utf8(S(STR_DISK_SERIAL), serial);
-    msc_dsk_info_t info;
-    if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
-        printf_utf8(S(STR_DISK_SIZE),
-                    (unsigned long)(info.block_count / (1048576 / info.block_size)));
-    dsk_print_format_free();
-}
-
-static void dsk_preview_make_format(void)
-{
-    switch (dsk_layout)
+    case 0:
     {
-    case DSK_LAYOUT_SFD:
-        printf_utf8(S(STR_DISK_MAKE_SFD));
-        break;
-    case DSK_LAYOUT_GPT:
-        printf_utf8(S(STR_DISK_MAKE_GPT));
-        break;
-    default:
-        printf_utf8(S(STR_DISK_MAKE_MBR));
-        break;
+        char vendor[9], product[17], rev[5];
+        if (msc_dsk_inquiry_strings(dsk_vol, vendor, product, rev))
+            snprintf_utf8(buf, size, S(STR_DISK_DEV), vendor, product, rev);
+        return 1;
     }
+    case 1:
+    {
+        char serial[USB_DESC_STRING_BUF_SIZE];
+        if (msc_dsk_serial(dsk_vol, serial, sizeof(serial)))
+            snprintf_utf8(buf, size, S(STR_DISK_SERIAL), serial);
+        return 2;
+    }
+    case 2:
+    {
+        msc_dsk_info_t info;
+        if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
+            snprintf_utf8(buf, size, S(STR_DISK_SIZE),
+                          (unsigned long)(info.block_count / (1048576 / info.block_size)));
+        return 3;
+    }
+    case 3:
+    {
+        DWORD nclst;
+        FATFS *fs;
+        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+            snprintf_utf8(buf, size, S(STR_DISK_INFO_FORMAT), dsk_fs_name(fs->fs_type));
+        else
+            snprintf_utf8(buf, size, S(STR_DISK_INFO_FORMAT), STR_FS_NONE);
+        return 4;
+    }
+    case 4:
+    {
+        DWORD nclst;
+        FATFS *fs;
+        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+            snprintf_utf8(buf, size, S(STR_DISK_INFO_FREE),
+                          (unsigned long)nclst * fs->csize,
+                          (unsigned long)(fs->n_fatent - 2) * fs->csize);
+        return dsk_show_make ? 5 : -1;
+    }
+    case 5:
+        snprintf_utf8(buf, size,
+                      S(dsk_layout == DSK_LAYOUT_SFD   ? STR_DISK_MAKE_SFD
+                        : dsk_layout == DSK_LAYOUT_GPT ? STR_DISK_MAKE_GPT
+                                                       : STR_DISK_MAKE_MBR));
+        return 6;
+    case 6:
 #if FF_FS_EXFAT
-    printf_utf8(S(dsk_fs == 2 ? STR_DISK_MAKE_EXFAT : STR_DISK_MAKE_FAT));
+        snprintf_utf8(buf, size, S(dsk_fs == 2 ? STR_DISK_MAKE_EXFAT : STR_DISK_MAKE_FAT));
 #else
-    printf_utf8(S(STR_DISK_MAKE_FAT));
+        snprintf_utf8(buf, size, S(STR_DISK_MAKE_FAT));
 #endif
-    if (dsk_au)
-        printf_utf8(S(STR_DISK_ALLOC), (unsigned)dsk_au);
-    if (dsk_full)
-        printf_utf8(S(STR_DISK_MODE_FULL));
+        return 7;
+    case 7:
+        if (dsk_au)
+            snprintf_utf8(buf, size, S(STR_DISK_ALLOC), (unsigned)dsk_au);
+        return 8;
+    case 8:
+        if (dsk_full)
+            snprintf_utf8(buf, size, S(STR_DISK_MODE_FULL));
+        return -1;
+    default:
+        return -1;
+    }
 }
 
 // Build the filesystem (and apply the label). Returns the FatFs result.
@@ -225,20 +242,18 @@ static FRESULT dsk_do_mkfs(void)
     return fr;
 }
 
-static void dsk_confirm_cb(bool timeout, const char *buf)
+// Confirm actions: invoked by the monitor only when the user types YES.
+static void dsk_run_format(void)
 {
-    if (dsk_state != DSK_CONFIRM) // cancelled by break
-        return;
-    const char *tok = str_parse_string(&buf);
-    if (timeout || !tok || strcasecmp(tok, STR_YES) != 0 || !str_parse_end(buf))
-    {
-        mon_add_response_utf8(S(STR_DISK_ABORTED));
-        dsk_state = DSK_IDLE;
-        return;
-    }
     dsk_last_pct = -1;
     dsk_fmt_started = false;
-    dsk_state = dsk_after_confirm;
+    dsk_state = (dsk_full && dsk_is_floppy) ? DSK_RUN_FORMAT_UNIT : DSK_RUN_MKFS;
+}
+
+static void dsk_run_zero(void)
+{
+    dsk_last_pct = -1;
+    dsk_state = DSK_RUN_ZERO;
 }
 
 // Resolve and validate a drive token. Returns the volume index or -1 (after
@@ -366,12 +381,9 @@ static void dsk_format(const char *args)
         else
             dsk_layout = DSK_LAYOUT_MBR;
     }
-    dsk_preview();
-    dsk_preview_make_format();
-    printf_utf8(S(STR_DISK_CONFIRM_PROMPT));
-    dsk_after_confirm = (dsk_full && dsk_is_floppy) ? DSK_RUN_FORMAT_UNIT : DSK_RUN_MKFS;
-    dsk_state = DSK_CONFIRM;
-    rln_read_line(dsk_confirm_cb);
+    dsk_show_make = true;
+    mon_add_response_fn(dsk_preview_response);
+    mon_response_confirm(dsk_run_format);
 }
 
 static void dsk_zero(const char *args)
@@ -389,11 +401,9 @@ static void dsk_zero(const char *args)
     msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
     dsk_block_size = info.block_size;
     dsk_total = info.block_count;
-    dsk_preview();
-    printf_utf8(S(STR_DISK_CONFIRM_PROMPT));
-    dsk_after_confirm = DSK_RUN_ZERO;
-    dsk_state = DSK_CONFIRM;
-    rln_read_line(dsk_confirm_cb);
+    dsk_show_make = false;
+    mon_add_response_fn(dsk_preview_response);
+    mon_response_confirm(dsk_run_zero);
 }
 
 static void dsk_verify(const char *args)
@@ -477,34 +487,12 @@ static void dsk_info(const char *args)
         return;
     }
     dsk_vol = (uint8_t)vol;
-    char vendor[9], product[17], rev[5];
-    if (msc_dsk_inquiry_strings(dsk_vol, vendor, product, rev))
-        printf_utf8(S(STR_DISK_DEV), vendor, product, rev);
-    if (info.block_size)
-        printf_utf8(S(STR_DISK_SIZE),
-                    (unsigned long)(info.block_count / (1048576 / info.block_size)));
-    dsk_print_format_free();
+    dsk_show_make = false;
+    mon_add_response_fn(dsk_preview_response);
 }
 
 void dsk_task(void)
 {
-    // Ctrl-C (SIGINT) aborts the confirm prompt and the running passes, the
-    // same as a break. FORMAT UNIT cannot be cancelled: discard the signal so a
-    // Ctrl-C during it doesn't abort the mkfs that follows. While idle, leave
-    // SIGINT for the monitor's own line reader.
-    if (dsk_state == DSK_RUN_FORMAT_UNIT)
-        ria_get_sigint();
-    else if (dsk_state != DSK_IDLE && ria_get_sigint())
-    {
-        if (dsk_state == DSK_CONFIRM)
-            rln_break(); // cancel the pending YES read
-        else if (dsk_state == DSK_RUN_MKFS || dsk_state == DSK_RUN_ZERO)
-            msc_dsk_reenumerate(dsk_pdrv); // partial write: remount
-        putchar('\n');
-        dsk_state = DSK_IDLE;
-        mon_add_response_utf8(S(STR_DISK_ABORTED));
-        return;
-    }
     switch (dsk_state)
     {
     case DSK_RUN_FORMAT_UNIT:

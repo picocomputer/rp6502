@@ -59,6 +59,7 @@ X(STR_TIME_T_FMT_AMPM, "%I:%M:%S %p")       // %r
 // More
 X(STR_MON_MORE_SHOW, "--More--")
 X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b        \b\b\b\b\b\b\b\b")
+X(STR_MON_CONFIRM_PROMPT, "Type YES to confirm: ")
 
 // Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
@@ -410,26 +411,24 @@ X(STR_HELP_SET_KEY,
   "Both PORT and KEY must be set to enable telnet console access.\n")
 
 // Disk utility
-X(STR_DISK_ABORTED, "Aborted\n")
 X(STR_DISK_DONE, "Done\n")
-X(STR_DISK_CONFIRM_PROMPT, "Type YES to confirm: ")
 X(STR_DISK_LABEL_RESPONSE, "Label: %s\n")
 X(STR_DISK_LABEL_CHANGED, "Label: %s -> %s\n")
 X(STR_DISK_FORMATTING, "Formatting, do not remove media...\n")
 X(STR_DISK_BAD_SECTOR, "?Bad sector %lu\n")
 X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
-X(STR_DISK_DEV, "Dev : %s %s rev %s\n")
-X(STR_DISK_SERIAL, "S/N : %s\n")
-X(STR_DISK_SIZE, "Size: %lu MB\n")
-X(STR_DISK_MAKE_FAT, "Make: FAT\n")
-X(STR_DISK_MAKE_EXFAT, "Make: exFAT\n")
-X(STR_DISK_MAKE_SFD, "Make: superfloppy\n")
-X(STR_DISK_MAKE_MBR, "Make: MBR partition table\n")
-X(STR_DISK_MAKE_GPT, "Make: GPT partition table\n")
-X(STR_DISK_ALLOC, "Alloc: %u bytes\n")
-X(STR_DISK_MODE_FULL, "Mode: full (low-level)\n")
-X(STR_DISK_INFO_FORMAT, "Fmt : %s\n")
-X(STR_DISK_INFO_FREE, "Free: %lu of %lu blocks\n")
+X(STR_DISK_DEV, "Dev : \a%s %s rev %s\n")
+X(STR_DISK_SERIAL, "S/N : \a%s\n")
+X(STR_DISK_SIZE, "Size: \a%lu MB\n")
+X(STR_DISK_MAKE_FAT, "Make: \aFAT\n")
+X(STR_DISK_MAKE_EXFAT, "Make: \aexFAT\n")
+X(STR_DISK_MAKE_SFD, "Make: \asuperfloppy\n")
+X(STR_DISK_MAKE_MBR, "Make: \aMBR partition table\n")
+X(STR_DISK_MAKE_GPT, "Make: \aGPT partition table\n")
+X(STR_DISK_ALLOC, "Alloc: \a%u bytes\n")
+X(STR_DISK_MODE_FULL, "Mode: \afull (low-level)\n")
+X(STR_DISK_INFO_FORMAT, "Fmt : \a%s\n")
+X(STR_DISK_INFO_FREE, "Free: \a%lu of %lu blocks\n")
 
 X(STR_HELP_DISK,
   "Disk:\n"

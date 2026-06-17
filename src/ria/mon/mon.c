@@ -64,6 +64,7 @@ static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
+static mon_confirm_fn mon_confirm_cb; // pending YES/no confirmation action
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -176,6 +177,29 @@ static void mon_enter(bool timeout, const char *buf)
     // Suppress error for empty lines
     if (!str_parse_end(buf))
         mon_add_response_utf8(S(STR_ERR_UNKNOWN_COMMAND));
+}
+
+static void mon_confirm_enter(bool timeout, const char *buf)
+{
+    (void)timeout;
+    assert(!timeout);
+    if (mon_needs_read_line) // cancelled (Ctrl-C poke / break)
+    {
+        mon_confirm_cb = NULL;
+        return;
+    }
+    mon_needs_prompt = true;
+    mon_needs_read_line = true;
+    mon_confirm_fn cb = mon_confirm_cb;
+    mon_confirm_cb = NULL;
+    const char *tok = str_parse_string(&buf);
+    if (cb && tok && !strcasecmp(tok, STR_YES) && str_parse_end(buf))
+        cb();
+}
+
+void mon_response_confirm(mon_confirm_fn cb)
+{
+    mon_confirm_cb = cb;
 }
 
 static int mon_utf8_response(char *buf, size_t buf_size, int state)
@@ -615,7 +639,10 @@ void mon_task(void)
     // The monitor has control
     if (mon_needs_prompt)
     {
-        printf("]");
+        if (mon_confirm_cb)
+            printf_utf8(S(STR_MON_CONFIRM_PROMPT));
+        else
+            printf("]");
         mon_needs_prompt = false;
         return;
     }
@@ -625,7 +652,7 @@ void mon_task(void)
         mon_response_col = 0;
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
-        rln_read_line(mon_enter);
+        rln_read_line(mon_confirm_cb ? mon_confirm_enter : mon_enter);
         return;
     }
     if (ria_get_sigint())
@@ -646,6 +673,7 @@ void mon_stop(void)
         mon_needs_break = true;
         mon_more();
     }
+    mon_confirm_cb = NULL; // a break/stop cancels any pending confirmation
     mon_needs_prompt = true;
     mon_needs_read_line = true;
 }
