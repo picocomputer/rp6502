@@ -30,7 +30,7 @@
 /  f_findnext(). (0:Disable, 1:Enable 2:Enable with matching altname[] too) */
 
 
-#define FF_USE_MKFS		0
+#define FF_USE_MKFS		1
 /* This option switches f_mkfs(). (0:Disable or 1:Enable) */
 
 
@@ -200,7 +200,7 @@
 */
 
 
-#define FF_MULTI_PARTITION	0
+#define FF_MULTI_PARTITION	1
 /* This option switches support for multiple volumes on the physical drive.
 /  By default (0), each logical drive number is bound to the same physical drive
 /  number and only an FAT volume found on the physical drive will be mounted.
@@ -224,9 +224,11 @@
 /  To enable the 64-bit LBA, also exFAT needs to be enabled. (FF_FS_EXFAT == 1) */
 
 
-#define FF_MIN_GPT		0x10000000
+#define FF_MIN_GPT		dsk_min_gpt()
 /* Minimum number of sectors to switch GPT as partitioning format in f_mkfs() and
-/  f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0. */
+/  f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0.
+/  RP6502: redefined to a runtime hook so the disk monitor can force MBR/GPT.
+/  dsk_min_gpt() is declared in ff.h and defined in mon/dsk.c (FF_LBA64 only). */
 
 
 #define FF_USE_TRIM		1

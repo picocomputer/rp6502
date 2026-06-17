@@ -87,6 +87,9 @@ X(STR_ERR_ROM_NAME_INVALID, "?Nieprawidłowa nazwa ROM\n")
 X(STR_ERR_ROM_DATA_INVALID, "?Nieprawidłowe dane ROM\n")
 X(STR_ERR_INVALID_UF2_FILE, "?Nieprawidłowy plik UF2\n")
 X(STR_ERR_VGA_NOT_CONNECTED, "?VGA nie jest podłączone\n")
+X(STR_ERR_NO_MEDIA, "?Brak nośnika\n")
+X(STR_ERR_EXFAT_DISABLED, "?exFAT niedostępny w tej kompilacji\n")
+X(STR_ERR_NOT_FORMATTABLE, "?Pełne formatowanie nieobsługiwane na tym urządzeniu\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?Błąd IO\n")                              // -5
@@ -418,6 +421,75 @@ X(STR_HELP_SET_KEY,
   "SET KEY -       \ausuwa klucz.\n"
   "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno KEY\n"
   " jak i PORT (patrz \"help KEY\").\n")
+
+// Narzędzie dyskowe
+X(STR_DISK_NO_CHANGE, "Bez zmian\n")
+X(STR_DISK_ABORTED, "Przerwano\n")
+X(STR_DISK_DONE, "Gotowe\n")
+X(STR_DISK_CONFIRM_PROMPT, "Wpisz YES aby potwierdzić: ")
+X(STR_DISK_LABEL_RESPONSE, "Etykieta: \a%s\n")
+X(STR_DISK_LABEL_CHANGED, "Etykieta: \a%s -> %s\n")
+X(STR_DISK_FORMATTING, "Formatowanie, nie wyjmuj nośnika...\n")
+X(STR_DISK_BAD_SECTOR, "?Uszkodzony sektor %lu\n")
+X(STR_DISK_VERIFY_DONE, "Sprawdzanie zakończone, uszkodzone sektory: %d\n")
+X(STR_DISK_DEV, "Urz : \a%s %s rew %s\n")
+X(STR_DISK_SERIAL, "S/N : \a%s\n")
+X(STR_DISK_SIZE, "Rozm: \a%lu MB\n")
+X(STR_DISK_PART_LINE, "Part%d: \a%02X %lu MB\n")
+X(STR_DISK_PART_NONE, "Part: \a(brak)\n")
+X(STR_DISK_MAKE_FAT, "Utwórz: \aFAT\n")
+X(STR_DISK_MAKE_EXFAT, "Utwórz: \aexFAT\n")
+X(STR_DISK_MAKE_MBR, "Utwórz: \atablica partycji MBR\n")
+X(STR_DISK_MAKE_GPT, "Utwórz: \atablica partycji GPT\n")
+X(STR_DISK_ALLOC, "Alok: \a%u bajtów\n")
+X(STR_DISK_MODE_FULL, "Tryb: \apełny (niskopoziomowy)\n")
+
+X(STR_HELP_DISK,
+  "Dysk:\n"
+  "HELP DISK pod        - \aPokaż informacje o podpoleceniu dysku.\n"
+  "DISK FORMAT dys ..   - \aUtwórz system plików. Patrz HELP DISK FORMAT.\n"
+  "DISK ZERO dys        - \aWymaż wszystkie sektory. Dysk bez systemu plików.\n"
+  "DISK VERIFY dys      - \aOdczytaj wszystkie sektory i zgłoś uszkodzone.\n"
+  "DISK PART dys (/mbr) - \aZapisz tablicę z jedną partycją. /mbr lub /gpt.\n"
+  "DISK LABEL dys (et)  - \aPokaż lub ustaw etykietę woluminu.\n")
+
+X(STR_HELP_DISK_FORMAT,
+  "DISK FORMAT dysk [/fat|/exfat] [/512|/4k...] [/quick|/full] [etykieta]\n"
+  "Tworzy nowy system plików na dysku USB o nazwie np. MSC1:. /fat (domyślnie) "
+  "jest najbardziej zgodny; /exfat jest dostępny tylko w kompilacjach, które go "
+  "zawierają. Jednostkę alokacji (klaster) można ustawić od /512 wzwyż (potęgi "
+  "dwójki); domyślnie zależy od pojemności. /quick (domyślnie) zapisuje tylko "
+  "nowy system plików. /full najpierw wykonuje formatowanie niskopoziomowe i "
+  "jest dostępne tylko dla stacji dyskietek. Pamięci flash są partycjonowane; "
+  "dyskietki nie. Wyświetlany jest podgląd i trzeba wpisać YES, aby potwierdzić.\n")
+
+X(STR_HELP_DISK_ZERO,
+  "DISK ZERO dysk\n"
+  "Zapisuje zera we wszystkich sektorach dysku USB o nazwie np. MSC1:, usuwając "
+  "wszystkie dane i nie pozostawiając systemu plików; dysk będzie niezdatny do "
+  "zamontowania do czasu sformatowania. Postęp pokazywany jest w procentach. "
+  "Trzeba wpisać YES, aby potwierdzić.\n")
+
+X(STR_HELP_DISK_VERIFY,
+  "DISK VERIFY dysk\n"
+  "Odczytuje wszystkie sektory dysku USB o nazwie np. MSC1: i zgłasza sektory, "
+  "których nie udało się odczytać. Operacja tylko do odczytu, niczego nie "
+  "zmienia.\n")
+
+X(STR_HELP_DISK_PART,
+  "DISK PART dysk [/mbr|/gpt]\n"
+  "Zapisuje nową tablicę partycji na dysku USB o nazwie np. MSC1: z jedną "
+  "partycją obejmującą całe urządzenie. /mbr (domyślnie) jest najbardziej "
+  "zgodny; /gpt jest dostępny tylko w kompilacjach z exFAT. Usuwa istniejące "
+  "partycjonowanie. Jeśli tablica już pasuje, nic nie jest zmieniane. Trzeba "
+  "wpisać YES, aby potwierdzić. Następnie uruchom DISK FORMAT, aby utworzyć "
+  "system plików.\n")
+
+X(STR_HELP_DISK_LABEL,
+  "DISK LABEL dysk [etykieta]\n"
+  "Bez etykiety pokazuje bieżącą etykietę woluminu dysku USB o nazwie np. "
+  "MSC1:. Z etykietą ustawia ją i wypisuje starą oraz nową nazwę. Użyj \"-\", "
+  "aby wyczyścić etykietę.\n")
 
 XEND()
 #undef XSUFFIX

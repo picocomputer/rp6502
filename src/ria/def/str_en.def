@@ -83,6 +83,9 @@ X(STR_ERR_ROM_NAME_INVALID, "?ROM name invalid\n")
 X(STR_ERR_ROM_DATA_INVALID, "?ROM data invalid\n")
 X(STR_ERR_INVALID_UF2_FILE, "?Invalid UF2 file\n")
 X(STR_ERR_VGA_NOT_CONNECTED, "?VGA not connected\n")
+X(STR_ERR_NO_MEDIA, "?No media\n")
+X(STR_ERR_EXFAT_DISABLED, "?exFAT not available in this build\n")
+X(STR_ERR_NOT_FORMATTABLE, "?Full format not supported on this device\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?IO error\n")                     // -5
@@ -405,6 +408,72 @@ X(STR_HELP_SET_PORT,
 X(STR_HELP_SET_KEY,
   "SET KEY sets the passkey for remote console access. Use \"-\" to clear. "
   "Both PORT and KEY must be set to enable telnet console access.\n")
+
+// Disk utility
+X(STR_DISK_NO_CHANGE, "No change\n")
+X(STR_DISK_ABORTED, "Aborted\n")
+X(STR_DISK_DONE, "Done\n")
+X(STR_DISK_CONFIRM_PROMPT, "Type YES to confirm: ")
+X(STR_DISK_LABEL_RESPONSE, "Label: \a%s\n")
+X(STR_DISK_LABEL_CHANGED, "Label: \a%s -> %s\n")
+X(STR_DISK_FORMATTING, "Formatting, do not remove media...\n")
+X(STR_DISK_BAD_SECTOR, "?Bad sector %lu\n")
+X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
+X(STR_DISK_DEV, "Dev : \a%s %s rev %s\n")
+X(STR_DISK_SERIAL, "S/N : \a%s\n")
+X(STR_DISK_SIZE, "Size: \a%lu MB\n")
+X(STR_DISK_PART_LINE, "Part%d: \a%02X %lu MB\n")
+X(STR_DISK_PART_NONE, "Part: \a(none)\n")
+X(STR_DISK_MAKE_FAT, "Make: \aFAT\n")
+X(STR_DISK_MAKE_EXFAT, "Make: \aexFAT\n")
+X(STR_DISK_MAKE_MBR, "Make: \aMBR partition table\n")
+X(STR_DISK_MAKE_GPT, "Make: \aGPT partition table\n")
+X(STR_DISK_ALLOC, "Alloc: \a%u bytes\n")
+X(STR_DISK_MODE_FULL, "Mode: \afull (low-level)\n")
+
+X(STR_HELP_DISK,
+  "Disk:\n"
+  "HELP DISK sub        - \aShow information about a disk subcommand.\n"
+  "DISK FORMAT drv ..   - \aCreate a filesystem. See HELP DISK FORMAT.\n"
+  "DISK ZERO drv        - \aErase every sector. Leaves the drive unmountable.\n"
+  "DISK VERIFY drv      - \aRead every sector and report bad ones.\n"
+  "DISK PART drv (/mbr) - \aWrite a single-partition table. /mbr or /gpt.\n"
+  "DISK LABEL drv (lbl) - \aShow or set the volume label.\n")
+
+X(STR_HELP_DISK_FORMAT,
+  "DISK FORMAT drive [/fat|/exfat] [/512|/4k...] [/quick|/full] [label]\n"
+  "Creates a new filesystem on a USB drive named like MSC1:. /fat (default) is "
+  "the most compatible; /exfat is available only in builds that include it. The "
+  "allocation unit (cluster) may be set with /512 through larger powers of two; "
+  "the default is chosen by capacity. /quick (default) writes only the new "
+  "filesystem. /full first does a low-level format and is available only on "
+  "floppy drives. Flash drives are partitioned; floppies are not. A preview is "
+  "shown and you must type YES to confirm.\n")
+
+X(STR_HELP_DISK_ZERO,
+  "DISK ZERO drive\n"
+  "Writes zeros to every sector of a USB drive named like MSC1:, erasing all "
+  "data and leaving no filesystem; the drive is unmountable until formatted. "
+  "Progress is shown as a percentage. You must type YES to confirm.\n")
+
+X(STR_HELP_DISK_VERIFY,
+  "DISK VERIFY drive\n"
+  "Reads every sector of a USB drive named like MSC1: and reports any sectors "
+  "that fail to read. This is read-only and changes nothing.\n")
+
+X(STR_HELP_DISK_PART,
+  "DISK PART drive [/mbr|/gpt]\n"
+  "Writes a fresh partition table to a USB drive named like MSC1: with one "
+  "partition spanning the whole device. /mbr (default) is the most compatible; "
+  "/gpt is available only in builds with exFAT. This erases existing "
+  "partitioning. If the table already matches, no change is made. You must type "
+  "YES to confirm. Run DISK FORMAT afterward to create a filesystem.\n")
+
+X(STR_HELP_DISK_LABEL,
+  "DISK LABEL drive [label]\n"
+  "With no label, shows the current volume label of a USB drive named like "
+  "MSC1:. With a label, sets it and prints the old and new names. Use \"-\" to "
+  "clear the label.\n")
 
 XEND()
 #undef XSUFFIX

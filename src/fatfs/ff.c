@@ -485,9 +485,9 @@ static const char *const VolumeStr[FF_VOLUMES] = {FF_VOLUME_STRS};	/* Pre-define
 #endif
 
 #if FF_LBA64
-#if FF_MIN_GPT > 0x100000000
-#error Wrong FF_MIN_GPT setting
-#endif
+/* RP6502: FF_MIN_GPT is a runtime hook (dsk_min_gpt()), so the compile-time
+   range check is not possible here. The <=2^32 invariant is enforced by
+   dsk_min_gpt() in mon/dsk.c. */
 static const BYTE GUID_MS_Basic[16] = {0xA2,0xA0,0xD0,0xEB,0xE5,0xB9,0x33,0x44,0x87,0xC0,0x68,0xB6,0xB7,0x26,0x99,0xC7};
 #endif
 

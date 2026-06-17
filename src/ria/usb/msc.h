@@ -18,11 +18,47 @@
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 
+/* Main events
+ */
+
+// Enumerate newly mounted devices (partition discovery). FatFs-safe task tier.
+void msc_task(void);
+
+// True while a device is awaiting partition enumeration.
+bool msc_active(void);
+
 /* Status
  */
 
 int msc_status_count(void);
 int msc_status_response(char *buf, size_t buf_size, int state);
+
+/* Disk utility (mon/dsk.c) support. A logical volume index (0..FF_VOLUMES-1)
+ * identifies an MSCn: drive; these resolve it to its physical device.
+ */
+
+typedef struct
+{
+    bool present;
+    bool removable;
+    bool write_prot;
+    bool is_floppy;  // CBI/UFI/SFF floppy (vs BOT/SCSI flash)
+    uint8_t partno;  // 0 = whole-device/superfloppy, 1.. = partition number
+    uint64_t block_count;
+    uint32_t block_size;
+} msc_dsk_info_t;
+
+int msc_dsk_vol_from_name(const char *name); // "MSCn"/"MSCn:" -> index, or -1
+bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv);
+bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out);
+bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5]);
+bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size);
+bool msc_dsk_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count);
+bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count);
+int msc_dsk_format_start(uint8_t vol);  // 0=poll, -1=error, -2=IMMED unsupported
+int msc_dsk_format_poll(uint8_t vol);   // -1=error, 0..99=percent, 100=complete
+bool msc_dsk_format_sync(uint8_t vol);  // blocking FORMAT UNIT fallback
+void msc_dsk_reenumerate(uint8_t pdrv); // re-read partition table after format/part
 
 /* TinyUSB host class-driver callbacks.
  */

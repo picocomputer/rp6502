@@ -19,6 +19,7 @@
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
+#include "mon/dsk.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
 #include "mon/ram.h"
@@ -40,6 +41,7 @@
 #include "sys/ria.h"
 #include "sys/sys.h"
 #include "sys/vga.h"
+#include "usb/msc.h"
 #include "usb/usb.h"
 #include "usb/mid.h"
 #include "usb/nfc.h"
@@ -142,6 +144,8 @@ static void task(void)
     fil_task();
     rom_task();
     uf2_task();
+    msc_task();
+    dsk_task();
     vcp_task();
     nfc_task(); // must be last for exec
     api_task(); // must be last for exec
@@ -188,6 +192,7 @@ static void stop(void)
 // Stop will be executed first if 6502 is running.
 static void break_(void) // break is keyword
 {
+    dsk_break();
     fil_break();
     mon_break();
     ram_break();

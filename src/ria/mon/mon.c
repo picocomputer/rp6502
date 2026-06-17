@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "mon/dsk.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
@@ -19,6 +20,7 @@
 #include "sys/mem.h"
 #include "sys/ria.h"
 #include "sys/sys.h"
+#include "usb/msc.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
@@ -103,6 +105,7 @@ __in_flash("mon_commands") static struct
     {STR_MOVE, fil_mon_move},
     {STR_MV, fil_mon_move},
     {STR_BINARY, ram_mon_binary},
+    {STR_DISK, dsk_mon_disk},
 };
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
@@ -607,6 +610,8 @@ void mon_task(void)
         rom_active() ||
         fil_active() ||
         uf2_active() ||
+        dsk_active() ||
+        msc_active() ||
         usb_boot_enumerating())
         return;
     // The monitor has control

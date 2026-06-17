@@ -11,7 +11,9 @@
 #include "host/usbh_pvt.h"
 #include "host/hcd.h"
 #include "str/str.h"
+#include "sys/mem.h"
 #include "usb/msc.h"
+#include "usb/usb.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include "pico/aon_timer.h"
@@ -34,7 +36,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define DBG_CMD(vol, cmd, status)                                           \
     DBG_VOL(vol, cmd " (status=0x%02x sk=0x%02x asc=0x%02x ascq=0x%02x)\n", \
             (unsigned)(status),                                             \
-            msc_vol[vol].sense_key, msc_vol[vol].sense_asc, msc_vol[vol].sense_ascq)
+            msc_pdrv[vol].sense_key, msc_pdrv[vol].sense_asc, msc_pdrv[vol].sense_ascq)
 
 #define TU_LOG_DRV(...) TU_LOG(CFG_TUH_LOG_LEVEL, __VA_ARGS__)
 
@@ -63,6 +65,10 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // not need to account for mechanical delay.
 #define MSC_SCSI_OP_TIMEOUT_MS 250
 
+// FORMAT UNIT can take minutes on a floppy. With IMMED the command returns at
+// once and progress is polled; without IMMED this bounds the synchronous wait.
+#define MSC_FORMAT_UNIT_TIMEOUT_MS 120000
+
 // disk_status() issues a TUR on removable volumes only when this many
 // milliseconds have elapsed since the last successful SCSI command.
 // This detects media removal without adding overhead during active I/O.
@@ -84,7 +90,8 @@ static_assert(FF_LFN_UNICODE == 0);
 static_assert(FF_LFN_BUF == 255);
 static_assert(FF_SFN_BUF == 12);
 static_assert(FF_FS_RPATH == 2);
-static_assert(FF_MULTI_PARTITION == 0);
+static_assert(FF_MULTI_PARTITION == 1);
+static_assert(FF_USE_MKFS == 1);
 static_assert(FF_FS_LOCK == 8);
 static_assert(FF_FS_NORTC == 0);
 static_assert(FF_USE_TRIM == 1);
@@ -126,12 +133,14 @@ typedef enum
     msc_volume_ejected,
 } msc_volume_status_t;
 
+// Physical drive: one slot per device LUN. FatFs addresses these by pdrv and
+// all media/geometry/sense state lives here. Logical volumes (partitions) map
+// to a pdrv via the FatFs VolToPart[] table.
 typedef struct
 {
     msc_volume_status_t status;
     uint8_t dev_addr;
     uint8_t lun;
-    FATFS fatfs;
     bool removable;
     uint8_t spc_version; // 0x05=SPC-3, 0x06=SPC-4, 0x07=SPC-5
     uint64_t block_count;
@@ -144,9 +153,30 @@ typedef struct
     bool sync_cache_suppressed;
     bool lbpme;
     absolute_time_t last_ok;
-} msc_vol_t;
+} msc_pdrv_t;
 
-static msc_vol_t msc_vol[FF_VOLUMES];
+static msc_pdrv_t msc_pdrv[FF_VOLUMES];
+
+// Logical volume (MSCn:): one per mounted partition. Maps to a physical drive
+// and partition number through VolToPart[].
+typedef struct
+{
+    bool in_use;
+    uint8_t pdrv;
+    uint8_t partno;   // 0 = auto/SFD (whole-device superfloppy), 1.. = partition
+    uint64_t sectors; // size of this volume's partition (block_count when partno 0)
+    FATFS fatfs;
+} msc_lvol_t;
+
+static msc_lvol_t msc_lvol[FF_VOLUMES];
+
+// FatFs logical-drive -> {physical drive, partition} map, filled dynamically as
+// devices enumerate. pt 0 = auto search (preserves single-partition/SFD).
+PARTITION VolToPart[FF_VOLUMES];
+
+// Set by the mount callback (USB context where SCSI is unsafe); consumed by
+// msc_task() in the FatFs-safe task tier to enumerate partitions.
+static volatile bool msc_pdrv_enum_pending[FF_VOLUMES];
 
 enum
 {
@@ -1062,7 +1092,7 @@ static inline void msc_cbw_init(msc_cbw_t *cbw, uint8_t vol,
                                 uint8_t cmd_len, const void *cmd)
 {
     memset(cbw, 0, sizeof(msc_cbw_t));
-    cbw->lun = msc_vol[vol].lun;
+    cbw->lun = msc_pdrv[vol].lun;
     cbw->total_bytes = total_bytes;
     cbw->dir = dir;
     cbw->cmd_len = cmd_len;
@@ -1075,7 +1105,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                      const void *data, uint32_t timeout_ms)
 {
     absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
-    uint8_t dev_addr = msc_vol[vol].dev_addr;
+    uint8_t dev_addr = msc_pdrv[vol].dev_addr;
     msc_status_t status = MSC_STATUS_FAILED;
     for (int attempt = 0; attempt < 3; attempt++)
     {
@@ -1091,15 +1121,15 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             return status;
         if (status == MSC_STATUS_PHASE_ERROR)
         {
-            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-            msc_vol[vol].sense_asc = 0;
-            msc_vol[vol].sense_ascq = 0;
+            msc_pdrv[vol].sense_key = SCSI_SENSE_NONE;
+            msc_pdrv[vol].sense_asc = 0;
+            msc_pdrv[vol].sense_ascq = 0;
             return status;
         }
         // Only BOT carries a CSW status; CBI/CB infer it from REQUEST SENSE below.
         if (status == MSC_STATUS_PASSED && msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
         {
-            msc_vol[vol].last_ok = get_absolute_time();
+            msc_pdrv[vol].last_ok = get_absolute_time();
             return status;
         }
         scsi_sense_fixed_resp_t sense_resp;
@@ -1121,15 +1151,15 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
                                  sense_resp.response_code != 0);
         if (sense_data_valid && sense_resp.response_code)
         {
-            msc_vol[vol].sense_key = sense_resp.sense_key;
-            msc_vol[vol].sense_asc = sense_resp.add_sense_code;
-            msc_vol[vol].sense_ascq = sense_resp.add_sense_qualifier;
+            msc_pdrv[vol].sense_key = sense_resp.sense_key;
+            msc_pdrv[vol].sense_asc = sense_resp.add_sense_code;
+            msc_pdrv[vol].sense_ascq = sense_resp.add_sense_qualifier;
         }
         else
         {
-            msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-            msc_vol[vol].sense_asc = 0;
-            msc_vol[vol].sense_ascq = 0;
+            msc_pdrv[vol].sense_key = SCSI_SENSE_NONE;
+            msc_pdrv[vol].sense_asc = 0;
+            msc_pdrv[vol].sense_ascq = 0;
         }
         if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
         {
@@ -1139,11 +1169,11 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             {
                 status = MSC_STATUS_TIMED_OUT;
             }
-            else if (msc_vol[vol].sense_key == SCSI_SENSE_NONE ||
-                     msc_vol[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
+            else if (msc_pdrv[vol].sense_key == SCSI_SENSE_NONE ||
+                     msc_pdrv[vol].sense_key == SCSI_SENSE_RECOVERED_ERROR)
             {
                 status = MSC_STATUS_PASSED;
-                msc_vol[vol].last_ok = get_absolute_time();
+                msc_pdrv[vol].last_ok = get_absolute_time();
             }
             else
             {
@@ -1151,7 +1181,7 @@ static msc_status_t msc_scsi_command(uint8_t vol, msc_cbw_t *cbw,
             }
         }
         if (status == MSC_STATUS_FAILED &&
-            msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+            msc_pdrv[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
             !time_reached(deadline))
             continue;
         return status;
@@ -1171,7 +1201,7 @@ static msc_status_t msc_scsi_inquiry(uint8_t vol,
     msc_status_t status = msc_scsi_command(vol, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
     // Per SPC-4 §6.4.1, INQUIRY is one of the few commands that executes in any
     // device state and explicitly does not clear a UNIT ATTENTION condition.
-    if (msc_vol[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
+    if (msc_pdrv[vol].sense_key == SCSI_SENSE_UNIT_ATTENTION &&
         resp->response_data_format != 0)
         status = MSC_STATUS_PASSED;
     DBG_CMD(vol, "INQUIRY", status);
@@ -1186,6 +1216,41 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
     msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
     DBG_CMD(vol, "TUR", status);
     return status;
+}
+
+// SCSI FORMAT UNIT (opcode 0x04). With immed, a 4-byte defect-list-header
+// parameter list with the IMMED bit is sent so the command returns at once and
+// the format runs in the background (poll progress via REQUEST SENSE).
+static msc_status_t msc_scsi_format_unit(uint8_t vol, bool immed)
+{
+    uint8_t cmd[6] = {0x04, 0x00, 0x00, 0x00, 0x00, 0x00};
+    uint8_t param[4] = {0x00, 0x00, 0x00, 0x00};
+    uint32_t total = 0;
+    const void *data = NULL;
+    if (immed)
+    {
+        cmd[1] = 0x10;   // FmtData=1: a parameter list follows
+        param[1] = 0x02; // defect-list header IMMED bit
+        total = sizeof(param);
+        data = param;
+    }
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, total, TUSB_DIR_OUT, sizeof(cmd), cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, data, MSC_FORMAT_UNIT_TIMEOUT_MS);
+    DBG_CMD(vol, "FORMAT UNIT", status);
+    return status;
+}
+
+// Raw REQUEST SENSE into an 18-byte buffer (keeps the FORMAT-progress field).
+static msc_status_t msc_scsi_request_sense_raw(uint8_t vol, uint8_t resp[18])
+{
+    scsi_request_sense_t const cmd = {
+        .cmd_code = SCSI_CMD_REQUEST_SENSE,
+        .alloc_length = 18};
+    memset(resp, 0, 18);
+    msc_cbw_t cbw;
+    msc_cbw_init(&cbw, vol, 18, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
+    return msc_scsi_sync(msc_pdrv[vol].dev_addr, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
 }
 
 static msc_status_t msc_scsi_read_capacity10(uint8_t vol, scsi_read_capacity10_resp_t *resp)
@@ -1362,7 +1427,7 @@ static msc_status_t msc_scsi_write10(uint8_t vol,
 // Returns true on success, populating block_count and block_size.
 static bool msc_read_capacity(uint8_t vol)
 {
-    uint8_t dev_addr = msc_vol[vol].dev_addr;
+    uint8_t dev_addr = msc_pdrv[vol].dev_addr;
 
     if (msc_protocol(dev_addr) != MSC_PROTOCOL_BOT)
     {
@@ -1377,12 +1442,12 @@ static bool msc_read_capacity(uint8_t vol)
         if (blocks == 0 || bsize == 0 ||
             (bsize & (bsize - 1)) != 0 || bsize > 4096)
             return false;
-        msc_vol[vol].block_count = blocks;
-        msc_vol[vol].block_size = bsize;
+        msc_pdrv[vol].block_count = blocks;
+        msc_pdrv[vol].block_size = bsize;
         return true;
     }
 
-    if (msc_vol[vol].spc_version >= 0x05)
+    if (msc_pdrv[vol].spc_version >= 0x05)
     {
         // BOT SPC-3+: READ CAPACITY(16) — required for >2TB and LBPME.
         scsi_read_capacity16_resp_t cap16 = {0};
@@ -1397,12 +1462,12 @@ static bool msc_read_capacity(uint8_t vol)
         if (last_lba64 > UINT32_MAX)
             return false; // >2TB not supported without FF_LBA64
 #endif
-        msc_vol[vol].block_count = last_lba64 + 1;
-        msc_vol[vol].block_size = bsize16;
-        msc_vol[vol].lbpme = (cap16.lbpme_byte >> 7) & 1;
+        msc_pdrv[vol].block_count = last_lba64 + 1;
+        msc_pdrv[vol].block_size = bsize16;
+        msc_pdrv[vol].lbpme = (cap16.lbpme_byte >> 7) & 1;
         DBG_VOL(vol, "READ CAPACITY(16): %llu blocks, %lu bytes/block, LBPME=%d\n",
-                (unsigned long long)msc_vol[vol].block_count,
-                (unsigned long)bsize16, msc_vol[vol].lbpme);
+                (unsigned long long)msc_pdrv[vol].block_count,
+                (unsigned long)bsize16, msc_pdrv[vol].lbpme);
         return true;
     }
 
@@ -1416,8 +1481,8 @@ static bool msc_read_capacity(uint8_t vol)
     uint32_t bsize = tu_ntohl(cap10.block_size);
     if (bsize == 0 || (bsize & (bsize - 1)) != 0 || bsize > 4096)
         return false;
-    msc_vol[vol].block_count = last_lba + 1;
-    msc_vol[vol].block_size = bsize;
+    msc_pdrv[vol].block_count = last_lba + 1;
+    msc_pdrv[vol].block_size = bsize;
     return true;
 }
 
@@ -1429,14 +1494,14 @@ static bool msc_read_capacity(uint8_t vol)
 // Non-fatal: defaults to not protected on failure.
 static void msc_sense_write_protect(uint8_t vol)
 {
-    uint8_t dev_addr = msc_vol[vol].dev_addr;
+    uint8_t dev_addr = msc_pdrv[vol].dev_addr;
     if (msc_protocol(dev_addr) == MSC_PROTOCOL_BOT)
     {
         scsi_mode_sense6_resp_t ms6;
         if (msc_scsi_mode_sense6(vol, 0x3F, &ms6) == MSC_STATUS_PASSED)
         {
             DBG_VOL(vol, "MODE SENSE(6) WP=%d\n", ms6.write_protected);
-            msc_vol[vol].write_prot = ms6.write_protected;
+            msc_pdrv[vol].write_prot = ms6.write_protected;
         }
     }
     else
@@ -1445,7 +1510,7 @@ static void msc_sense_write_protect(uint8_t vol)
         if (msc_scsi_mode_sense10(vol, 0x3F, &ms10) == MSC_STATUS_PASSED)
         {
             DBG_VOL(vol, "MODE SENSE(10) WP=%d\n", ms10.write_protected);
-            msc_vol[vol].write_prot = ms10.write_protected;
+            msc_pdrv[vol].write_prot = ms10.write_protected;
         }
     }
 }
@@ -1471,49 +1536,89 @@ static bool msc_probe_unmap(uint8_t vol)
     return resp.lbpu;
 }
 
+// Allocate a free physical-drive slot. Returns FF_VOLUMES if none.
+static uint8_t msc_pdrv_alloc(void)
+{
+    for (uint8_t p = 0; p < FF_VOLUMES; p++)
+        if (msc_pdrv[p].status == msc_volume_free)
+            return p;
+    return FF_VOLUMES;
+}
+
+// Register one logical volume (MSCn:) for a partition on pdrv and lazily mount
+// it. partno 0 = auto/SFD (whole device). Returns false if no free slot.
+static bool msc_register_lvol(uint8_t pdrv, uint8_t partno, uint64_t sectors)
+{
+    uint8_t vol = FF_VOLUMES;
+    for (uint8_t v = 0; v < FF_VOLUMES; v++)
+        if (!msc_lvol[v].in_use)
+        {
+            vol = v;
+            break;
+        }
+    if (vol == FF_VOLUMES)
+        return false;
+    msc_lvol[vol].in_use = true;
+    msc_lvol[vol].pdrv = pdrv;
+    msc_lvol[vol].partno = partno;
+    msc_lvol[vol].sectors = sectors;
+    VolToPart[vol].pd = pdrv;
+    VolToPart[vol].pt = partno;
+    TCHAR volstr[6];
+    msc_vol_path(volstr, vol);
+    f_mount(&msc_lvol[vol].fatfs, volstr, 0);
+    DBG_VOL(vol, "mount pdrv %u partition %u\n", pdrv, partno);
+    return true;
+}
+
+// Unmount and release every logical volume that maps to pdrv.
+static void msc_release_lvols(uint8_t pdrv)
+{
+    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+    {
+        if (!msc_lvol[vol].in_use || msc_lvol[vol].pdrv != pdrv)
+            continue;
+        TCHAR volstr[6];
+        msc_vol_path(volstr, vol);
+        f_unmount(volstr);
+        memset(&msc_lvol[vol], 0, sizeof(msc_lvol[vol]));
+        VolToPart[vol].pd = 0;
+        VolToPart[vol].pt = 0;
+    }
+}
+
 static void msc_mount_cb(uint8_t dev_addr)
 {
     uint8_t const max_lun = msc_get_maxlun(dev_addr);
     for (uint8_t lun = 0; lun <= max_lun; lun++)
     {
-        // Find a free FatFS volume slot.
-        uint8_t vol = FF_VOLUMES;
-        for (uint8_t v = 0; v < FF_VOLUMES; v++)
+        uint8_t pdrv = msc_pdrv_alloc();
+        if (pdrv == FF_VOLUMES)
         {
-            if (msc_vol[v].status == msc_volume_free)
-            {
-                vol = v;
-                break;
-            }
-        }
-        if (vol == FF_VOLUMES)
-        {
-            DBG("MSC mount: no free vol for dev %d LUN %d\n", dev_addr, lun);
+            DBG("MSC mount: no free pdrv for dev %d LUN %d\n", dev_addr, lun);
             break;
         }
-        msc_vol[vol].dev_addr = dev_addr;
-        msc_vol[vol].lun = lun;
-        msc_vol[vol].status = msc_volume_registered;
-        TCHAR volstr[6];
-        msc_vol_path(volstr, vol);
-        f_mount(&msc_vol[vol].fatfs, volstr, 0);
-        DBG_VOL(vol, "mount dev_addr %d LUN %d\n", dev_addr, lun);
+        msc_pdrv[pdrv].dev_addr = dev_addr;
+        msc_pdrv[pdrv].lun = lun;
+        msc_pdrv[pdrv].status = msc_volume_registered;
+        // Enumeration (READ CAPACITY + partition-table read) needs SCSI, which
+        // is unsafe in this USB callback. Defer it to msc_task().
+        msc_pdrv_enum_pending[pdrv] = true;
+        DBG_VOL(pdrv, "registered dev_addr %d LUN %d (enum pending)\n", dev_addr, lun);
     }
 }
 
 static void msc_umount_cb(uint8_t dev_addr)
 {
-    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
+    for (uint8_t pdrv = 0; pdrv < FF_VOLUMES; pdrv++)
     {
-        if (msc_vol[vol].dev_addr == dev_addr &&
-            msc_vol[vol].status != msc_volume_free)
-        {
-            TCHAR volstr[6];
-            msc_vol_path(volstr, vol);
-            f_unmount(volstr);
-            memset(&msc_vol[vol], 0, sizeof(msc_vol[vol]));
-            DBG_VOL(vol, "unmounted (dev_addr %d)\n", dev_addr);
-        }
+        if (msc_pdrv[pdrv].status == msc_volume_free ||
+            msc_pdrv[pdrv].dev_addr != dev_addr)
+            continue;
+        msc_release_lvols(pdrv);
+        msc_pdrv_enum_pending[pdrv] = false;
+        memset(&msc_pdrv[pdrv], 0, sizeof(msc_pdrv[pdrv]));
+        DBG_VOL(pdrv, "unmounted (dev_addr %d)\n", dev_addr);
     }
 }
 
@@ -1624,64 +1729,64 @@ DSTATUS disk_status(BYTE pdrv)
 {
     // We only support partition 0. One vol per physical drive.
     uint8_t vol = pdrv;
-    if (msc_vol[vol].status != msc_volume_mounted)
+    if (msc_pdrv[vol].status != msc_volume_mounted)
     {
-        DBG_VOL(vol, "disk_status, not mounted, status=%d\n", msc_vol[vol].status);
+        DBG_VOL(vol, "disk_status, not mounted, status=%d\n", msc_pdrv[vol].status);
         return STA_NOINIT;
     }
     // Test for removed media if we haven't used the drive in a while.
-    if (msc_vol[vol].removable &&
-        time_reached(delayed_by_ms(msc_vol[vol].last_ok, MSC_DISK_STATUS_TIMEOUT_MS)))
+    if (msc_pdrv[vol].removable &&
+        time_reached(delayed_by_ms(msc_pdrv[vol].last_ok, MSC_DISK_STATUS_TIMEOUT_MS)))
     {
         DBG_VOL(vol, "disk_status, issuing TUR\n");
         if (msc_scsi_test_unit_ready(vol) == MSC_STATUS_FAILED)
         {
-            uint8_t asc = msc_vol[vol].sense_asc;
+            uint8_t asc = msc_pdrv[vol].sense_asc;
             if (asc == 0x3A || asc == 0x28) // MEDIUM NOT PRESENT or MAY HAVE CHANGED
             {
                 // Clear media state only. Device-level traits (removable,
                 // spc_version) are preserved so disk_initialize skips the
                 // re-INQUIRY on media re-insertion.
-                msc_vol[vol].status = msc_volume_ejected;
-                msc_vol[vol].block_count = 0;
-                msc_vol[vol].block_size = 0;
-                msc_vol[vol].write_prot = false;
-                msc_vol[vol].sense_key = SCSI_SENSE_NONE;
-                msc_vol[vol].sense_asc = 0;
-                msc_vol[vol].sense_ascq = 0;
+                msc_pdrv[vol].status = msc_volume_ejected;
+                msc_pdrv[vol].block_count = 0;
+                msc_pdrv[vol].block_size = 0;
+                msc_pdrv[vol].write_prot = false;
+                msc_pdrv[vol].sense_key = SCSI_SENSE_NONE;
+                msc_pdrv[vol].sense_asc = 0;
+                msc_pdrv[vol].sense_ascq = 0;
                 return STA_NOINIT;
             }
         }
     }
-    return msc_vol[vol].write_prot ? STA_PROTECT : 0;
+    return msc_pdrv[vol].write_prot ? STA_PROTECT : 0;
 }
 
 DSTATUS disk_initialize(BYTE pdrv)
 {
     uint8_t vol = pdrv;
-    DBG_VOL(vol, "disk_initialize, status=%d\n", msc_vol[vol].status);
+    DBG_VOL(vol, "disk_initialize, status=%d\n", msc_pdrv[vol].status);
 
-    if (msc_vol[vol].status == msc_volume_registered ||
-        msc_vol[vol].status == msc_volume_ejected)
+    if (msc_pdrv[vol].status == msc_volume_registered ||
+        msc_pdrv[vol].status == msc_volume_ejected)
     {
         // ---- INQUIRY (first mount only) ----
-        if (msc_vol[vol].status == msc_volume_registered)
+        if (msc_pdrv[vol].status == msc_volume_registered)
         {
             scsi_inquiry_resp_t inq;
             if (msc_scsi_inquiry(vol, &inq) != MSC_STATUS_PASSED)
                 return STA_NOINIT;
-            msc_vol[vol].removable = inq.is_removable;
-            msc_vol[vol].spc_version = inq.version;
+            msc_pdrv[vol].removable = inq.is_removable;
+            msc_pdrv[vol].spc_version = inq.version;
         }
 
         // ---- TUR ----
         bool tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
-        if (!tur_ok && msc_vol[vol].sense_key == SCSI_SENSE_NOT_READY)
+        if (!tur_ok && msc_pdrv[vol].sense_key == SCSI_SENSE_NOT_READY)
             tur_ok = msc_scsi_test_unit_ready(vol) == MSC_STATUS_PASSED;
         if (!tur_ok)
         {
-            if (msc_vol[vol].removable)
-                msc_vol[vol].status = msc_volume_ejected;
+            if (msc_pdrv[vol].removable)
+                msc_pdrv[vol].status = msc_volume_ejected;
         }
         // ---- CAPACITY ----
         else if (msc_read_capacity(vol))
@@ -1689,21 +1794,21 @@ DSTATUS disk_initialize(BYTE pdrv)
             // ---- WRITE PROTECTION ----
             msc_sense_write_protect(vol);
             // ---- UNMAP SUPPORT ----
-            if (!msc_vol[vol].write_prot &&
-                msc_protocol(msc_vol[vol].dev_addr) == MSC_PROTOCOL_BOT &&
-                msc_vol[vol].lbpme)
-                msc_vol[vol].unmap_supported = msc_probe_unmap(vol);
-            msc_vol[vol].status = msc_volume_mounted;
+            if (!msc_pdrv[vol].write_prot &&
+                msc_protocol(msc_pdrv[vol].dev_addr) == MSC_PROTOCOL_BOT &&
+                msc_pdrv[vol].lbpme)
+                msc_pdrv[vol].unmap_supported = msc_probe_unmap(vol);
+            msc_pdrv[vol].status = msc_volume_mounted;
         }
     }
 
-    if (msc_vol[vol].status == msc_volume_ejected)
+    if (msc_pdrv[vol].status == msc_volume_ejected)
         return STA_NODISK;
 
-    if (msc_vol[vol].status != msc_volume_mounted)
+    if (msc_pdrv[vol].status != msc_volume_mounted)
         return STA_NOINIT;
 
-    return msc_vol[vol].write_prot ? STA_PROTECT : 0;
+    return msc_pdrv[vol].write_prot ? STA_PROTECT : 0;
 }
 
 static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
@@ -1712,7 +1817,7 @@ static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
         return RES_OK;
     if (status == MSC_STATUS_TIMED_OUT)
         return RES_NOTRDY;
-    uint8_t sk = msc_vol[vol].sense_key;
+    uint8_t sk = msc_pdrv[vol].sense_key;
     if (sk == SCSI_SENSE_NOT_READY)
         return RES_NOTRDY;
     if (sk == SCSI_SENSE_DATA_PROTECT)
@@ -1725,8 +1830,8 @@ static DRESULT msc_status_to_dresult(uint8_t vol, msc_status_t status)
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t vol = pdrv;
-    uint32_t const block_size = msc_vol[vol].block_size;
-    uint8_t const dev_addr = msc_vol[vol].dev_addr;
+    uint32_t const block_size = msc_pdrv[vol].block_size;
+    uint8_t const dev_addr = msc_pdrv[vol].dev_addr;
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
     // Clamp each transfer so total_bytes fits the USB host transfer
@@ -1756,10 +1861,10 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
     uint8_t vol = pdrv;
-    if (msc_vol[vol].write_prot)
+    if (msc_pdrv[vol].write_prot)
         return RES_WRPRT;
-    uint32_t const block_size = msc_vol[vol].block_size;
-    uint8_t const dev_addr = msc_vol[vol].dev_addr;
+    uint32_t const block_size = msc_pdrv[vol].block_size;
+    uint8_t const dev_addr = msc_pdrv[vol].dev_addr;
     if (block_size == 0 || dev_addr == 0)
         return RES_NOTRDY;
     uint16_t const max_blocks = (uint16_t)(UINT16_MAX / block_size);
@@ -1792,32 +1897,32 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     {
     case CTRL_SYNC:
     {
-        if (msc_vol[vol].dev_addr == 0)
+        if (msc_pdrv[vol].dev_addr == 0)
             return RES_NOTRDY;
-        if (msc_vol[vol].write_prot)
+        if (msc_pdrv[vol].write_prot)
             return RES_OK;
-        if (msc_protocol(msc_vol[vol].dev_addr) != MSC_PROTOCOL_BOT)
+        if (msc_protocol(msc_pdrv[vol].dev_addr) != MSC_PROTOCOL_BOT)
             return RES_OK;
-        if (msc_vol[vol].sync_cache_suppressed)
+        if (msc_pdrv[vol].sync_cache_suppressed)
             return RES_OK;
         msc_status_t status = msc_scsi_sync_cache10(vol);
         if (status == MSC_STATUS_FAILED &&
-            msc_vol[vol].sense_key == SCSI_SENSE_ILLEGAL_REQUEST)
+            msc_pdrv[vol].sense_key == SCSI_SENSE_ILLEGAL_REQUEST)
         {
-            msc_vol[vol].sync_cache_suppressed = true;
+            msc_pdrv[vol].sync_cache_suppressed = true;
             return RES_OK;
         }
         return msc_status_to_dresult(vol, status);
     }
     case GET_SECTOR_COUNT:
 #if FF_LBA64
-        *((LBA_t *)buff) = msc_vol[vol].block_count;
+        *((LBA_t *)buff) = msc_pdrv[vol].block_count;
 #else
-        *((DWORD *)buff) = (DWORD)msc_vol[vol].block_count;
+        *((DWORD *)buff) = (DWORD)msc_pdrv[vol].block_count;
 #endif
         return RES_OK;
     case GET_SECTOR_SIZE:
-        *((WORD *)buff) = (WORD)msc_vol[vol].block_size;
+        *((WORD *)buff) = (WORD)msc_pdrv[vol].block_size;
         return RES_OK;
     case GET_BLOCK_SIZE:
         // 1 = erase block size unknown; FatFs treats as single-sector alignment.
@@ -1825,7 +1930,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
         return RES_OK;
     case CTRL_TRIM:
     {
-        if (!msc_vol[vol].unmap_supported)
+        if (!msc_pdrv[vol].unmap_supported)
             return RES_OK;
         LBA_t *rt = (LBA_t *)buff;
         LBA_t start = rt[0];
@@ -1843,16 +1948,123 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
     }
 }
 
+// Parse the MBR/GPT at LBA 0 (in mbuf) and register a logical volume per
+// FAT/data partition. Returns the number registered (0 = no usable table, so
+// the caller registers one auto/SFD volume instead). May read more sectors into
+// mbuf for GPT, so the MBR path consumes mbuf before any further read.
+static int msc_register_partitions(uint8_t pdrv)
+{
+    const uint8_t *sec = mbuf;
+    if (sec[510] != 0x55 || sec[511] != 0xAA)
+        return 0; // no MBR signature -> treat as superfloppy / auto
+    int count = 0;
+#if FF_LBA64
+    if (sec[446 + 4] == 0xEE) // GPT protective MBR
+    {
+        static const uint8_t GPT_SIG[8] = {'E', 'F', 'I', ' ', 'P', 'A', 'R', 'T'};
+        if (disk_read(pdrv, mbuf, 1, 1) != RES_OK ||
+            memcmp(mbuf, GPT_SIG, 8) != 0)
+            return 0;
+        uint32_t n_ent = mbuf[80] | (mbuf[81] << 8) | (mbuf[82] << 16) |
+                         ((uint32_t)mbuf[83] << 24);
+        uint64_t pt_lba = 0;
+        for (int b = 0; b < 8; b++)
+            pt_lba |= (uint64_t)mbuf[72 + b] << (8 * b);
+        if (n_ent > 128)
+            n_ent = 128;
+        static const uint8_t MSBASIC[16] = {
+            0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
+            0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7};
+        uint8_t order = 0;
+        for (uint32_t i = 0; i < n_ent; i++)
+        {
+            if ((i & 3) == 0 && disk_read(pdrv, mbuf, pt_lba + i / 4, 1) != RES_OK)
+                break;
+            const uint8_t *e = mbuf + (i & 3) * 128;
+            if (memcmp(e, MSBASIC, 16) != 0)
+                continue;
+            uint64_t first = 0, last = 0;
+            for (int b = 0; b < 8; b++)
+                first |= (uint64_t)e[32 + b] << (8 * b);
+            for (int b = 0; b < 8; b++)
+                last |= (uint64_t)e[40 + b] << (8 * b);
+            if (++order == 0)
+                break;
+            if (!msc_register_lvol(pdrv, order, last - first + 1))
+            {
+                DBG("MSC: pdrv %u: out of volume slots, some partitions skipped\n", pdrv);
+                break;
+            }
+            count++;
+        }
+        return count;
+    }
+#endif
+    for (int i = 0; i < 4; i++) // MBR primaries
+    {
+        const uint8_t *e = sec + 446 + i * 16;
+        uint8_t type = e[4];
+        uint32_t size = e[12] | (e[13] << 8) | (e[14] << 16) | ((uint32_t)e[15] << 24);
+        if (type == 0 || size == 0 || type == 0x05 || type == 0x0F || type == 0xEE)
+            continue; // empty / extended / protective not supported
+        if (!msc_register_lvol(pdrv, (uint8_t)(i + 1), size))
+        {
+            DBG("MSC: pdrv %u: out of volume slots, some partitions skipped\n", pdrv);
+            break;
+        }
+        count++;
+    }
+    return count;
+}
+
+// Bring a physical drive online and register a logical volume for each
+// partition. Always registers at least one (auto/SFD) volume so blank and
+// removable media stay selectable and formattable. Runs in the FatFs-safe
+// task tier (synchronous SCSI is allowed here).
+static void msc_pdrv_enumerate(uint8_t pdrv)
+{
+    msc_release_lvols(pdrv); // clear any stale mapping (re-enumerate path)
+    DSTATUS st = disk_initialize(pdrv);
+    int registered = 0;
+    if (!(st & (STA_NOINIT | STA_NODISK)) && disk_read(pdrv, mbuf, 0, 1) == RES_OK)
+        registered = msc_register_partitions(pdrv);
+    if (registered == 0)
+        msc_register_lvol(pdrv, 0, msc_pdrv[pdrv].block_count);
+}
+
+void msc_task(void)
+{
+    for (uint8_t pdrv = 0; pdrv < FF_VOLUMES; pdrv++)
+    {
+        if (!msc_pdrv_enum_pending[pdrv])
+            continue;
+        msc_pdrv_enum_pending[pdrv] = false;
+        msc_pdrv_enumerate(pdrv);
+    }
+}
+
+bool msc_active(void)
+{
+    for (uint8_t pdrv = 0; pdrv < FF_VOLUMES; pdrv++)
+        if (msc_pdrv_enum_pending[pdrv])
+            return true;
+    return false;
+}
+
+void msc_dsk_reenumerate(uint8_t pdrv)
+{
+    if (pdrv >= FF_VOLUMES || msc_pdrv[pdrv].status == msc_volume_free)
+        return;
+    msc_release_lvols(pdrv);
+    msc_pdrv_enum_pending[pdrv] = true;
+}
+
 int msc_status_count(void)
 {
     int count = 0;
     for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-    {
-        if (msc_vol[vol].status == msc_volume_registered ||
-            msc_vol[vol].status == msc_volume_mounted ||
-            msc_vol[vol].status == msc_volume_ejected)
+        if (msc_lvol[vol].in_use)
             count++;
-    }
     return count;
 }
 
@@ -1874,16 +2086,21 @@ int msc_status_response(char *buf, size_t buf_size, int state)
     if (state < 0 || state >= FF_VOLUMES)
         return -1;
     uint8_t vol = state;
-    if (msc_vol[vol].status == msc_volume_registered ||
-        msc_vol[vol].status == msc_volume_mounted ||
-        msc_vol[vol].status == msc_volume_ejected)
+    if (msc_lvol[vol].in_use)
     {
+        uint8_t pdrv = msc_lvol[vol].pdrv;
         // Refresh or init media status
-        if (disk_status(vol) == STA_NOINIT)
-            disk_initialize(vol);
+        if (disk_status(pdrv) == STA_NOINIT)
+            disk_initialize(pdrv);
+
+        char partbuf[8];
+        if (msc_lvol[vol].partno)
+            snprintf(partbuf, sizeof(partbuf), " p%u", msc_lvol[vol].partno);
+        else
+            partbuf[0] = '\0';
 
         char sizebuf[24];
-        if (msc_vol[vol].status != msc_volume_mounted)
+        if (msc_pdrv[pdrv].status != msc_volume_mounted)
         {
             snprintf(sizebuf, sizeof(sizebuf), "%s", S(STR_PARENS_NO_MEDIA));
         }
@@ -1893,8 +2110,8 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             // Everything else: pure decimal raw/1000/1000
             const char *unit;
             double size;
-            uint64_t raw = (uint64_t)msc_vol[vol].block_count *
-                           (uint64_t)msc_vol[vol].block_size;
+            uint64_t raw = (uint64_t)msc_lvol[vol].sectors *
+                           (uint64_t)msc_pdrv[pdrv].block_size;
             if (raw < 5000000ULL)
             {
                 unit = "KB";
@@ -1932,7 +2149,7 @@ int msc_status_response(char *buf, size_t buf_size, int state)
             }
         }
         scsi_inquiry_resp_t inq;
-        msc_status_t status = msc_scsi_inquiry(vol, &inq);
+        msc_status_t status = msc_scsi_inquiry(pdrv, &inq);
         if (status == MSC_STATUS_PASSED)
         {
             msc_inquiry_rtrim(inq.vendor_id, 8);
@@ -1943,17 +2160,167 @@ int msc_status_response(char *buf, size_t buf_size, int state)
                           sizebuf,
                           inq.vendor_id,
                           inq.product_id,
-                          inq.product_rev);
+                          inq.product_rev,
+                          partbuf);
         }
         else
         {
             snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
                           VolumeStr[vol],
                           sizebuf,
-                          S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");
+                          S(STR_PARENS_NONE), S(STR_PARENS_NONE), "",
+                          partbuf);
         }
     }
     return state + 1;
+}
+
+/* ---- Disk utility (mon/dsk.c) support -------------------------------------
+ * These resolve a logical volume (MSCn:) to its physical drive and expose
+ * device/geometry/format primitives. All run in the FatFs-safe task tier.
+ */
+
+// Map an "MSCn" / "MSCn:" name (case-insensitive) to a logical volume index,
+// or -1. The volume need not be in use; callers validate with msc_dsk_get_info.
+int msc_dsk_vol_from_name(const char *name)
+{
+    char buf[6];
+    size_t n = 0;
+    while (name[n] && name[n] != ':' && n < sizeof(buf) - 1)
+    {
+        buf[n] = name[n];
+        n++;
+    }
+    buf[n] = '\0';
+    for (uint8_t v = 0; v < FF_VOLUMES; v++)
+        if (strcasecmp(buf, VolumeStr[v]) == 0)
+            return v;
+    return -1;
+}
+
+bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
+{
+    if (vol >= FF_VOLUMES || !msc_lvol[vol].in_use)
+        return false;
+    *pdrv = msc_lvol[vol].pdrv;
+    return true;
+}
+
+bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return false;
+    if (disk_status(pdrv) == STA_NOINIT)
+        disk_initialize(pdrv);
+    msc_interface_t *p_msc = msc_get_itf(msc_pdrv[pdrv].dev_addr);
+    out->present = (msc_pdrv[pdrv].status == msc_volume_mounted);
+    out->removable = msc_pdrv[pdrv].removable;
+    out->write_prot = msc_pdrv[pdrv].write_prot;
+    out->is_floppy = !msc_is_bot(p_msc) ||
+                     p_msc->subclass == MSC_SUBCLASS_UFI ||
+                     p_msc->subclass == MSC_SUBCLASS_SFF;
+    out->partno = msc_lvol[vol].partno;
+    out->block_count = msc_pdrv[pdrv].block_count;
+    out->block_size = msc_pdrv[pdrv].block_size;
+    return true;
+}
+
+bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5])
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return false;
+    scsi_inquiry_resp_t inq;
+    if (msc_scsi_inquiry(pdrv, &inq) != MSC_STATUS_PASSED)
+        return false;
+    msc_inquiry_rtrim(inq.vendor_id, 8);
+    msc_inquiry_rtrim(inq.product_id, 16);
+    msc_inquiry_rtrim(inq.product_rev, 4);
+    memcpy(vendor, inq.vendor_id, 8);
+    vendor[8] = '\0';
+    memcpy(product, inq.product_id, 16);
+    product[16] = '\0';
+    memcpy(rev, inq.product_rev, 4);
+    rev[4] = '\0';
+    return true;
+}
+
+bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv) || dst_size == 0)
+        return false;
+    const void *s = usb_string_fetch_serial(msc_pdrv[pdrv].dev_addr);
+    if (!s)
+        return false;
+    usb_desc_string_to_oem(s, USB_DESC_STRING_BUF_SIZE, dst, dst_size);
+    return dst[0] != '\0';
+}
+
+bool msc_dsk_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return false;
+    return disk_read(pdrv, (BYTE *)buf, (LBA_t)lba, count) == RES_OK;
+}
+
+bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return false;
+    return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
+}
+
+// Start a background FORMAT UNIT (IMMED). 0=started (poll), -1=error,
+// -2=IMMED/parameter list unsupported (caller should use msc_dsk_format_sync).
+int msc_dsk_format_start(uint8_t vol)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return -1;
+    if (msc_pdrv[pdrv].write_prot)
+        return -1;
+    if (msc_scsi_format_unit(pdrv, true) == MSC_STATUS_PASSED)
+        return 0;
+    if (msc_pdrv[pdrv].sense_key == SCSI_SENSE_ILLEGAL_REQUEST)
+        return -2;
+    return -1;
+}
+
+// Poll FORMAT UNIT progress. -1=error, 0..99=percent, 100=complete.
+int msc_dsk_format_poll(uint8_t vol)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return -1;
+    uint8_t s[18];
+    if (msc_scsi_request_sense_raw(pdrv, s) == MSC_STATUS_TIMED_OUT)
+        return -1;
+    if ((s[2] & 0x0F) == SCSI_SENSE_NOT_READY && s[12] == 0x04 && s[13] == 0x04)
+    {
+        if (s[15] & 0x80) // SKSV: progress indication valid
+        {
+            uint32_t prog = ((uint32_t)s[16] << 8) | s[17];
+            int pct = (int)((prog * 100) / 65536);
+            return pct > 99 ? 99 : pct;
+        }
+        return 0;
+    }
+    return 100;
+}
+
+// Synchronous (blocking) FORMAT UNIT, for drives that reject the IMMED list.
+bool msc_dsk_format_sync(uint8_t vol)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+        return false;
+    if (msc_pdrv[pdrv].write_prot)
+        return false;
+    return msc_scsi_format_unit(pdrv, false) == MSC_STATUS_PASSED;
 }
 
 static FIL *msc_std_validate_fil(int desc)
