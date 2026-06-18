@@ -68,6 +68,10 @@ bool str_parse_end(const char *args);
 // Returns 0 at end of string without advancing.
 unsigned char str_utf8_to_oem(const char **p);
 
+// Case-insensitive equality of two OEM strings in the active code page (uses
+// FatFs code-page tables and up-case folding; strcasecmp folds only ASCII).
+bool str_oem_eq(const char *a, const char *b);
+
 // printf where utf8_fmt and any %s args are treated as UTF-8.
 // Output bytes are UTF-8 -> OEM-converted (active code page) via putchar.
 __printflike(1, 2) int printf_utf8(const char *utf8_fmt, ...);

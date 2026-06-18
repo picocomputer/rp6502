@@ -63,7 +63,8 @@ X(STR_TIME_T_FMT_AMPM, "")                    // %r
 // More
 X(STR_MON_MORE_SHOW, "--więcej--")
 X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b\b\b          \b\b\b\b\b\b\b\b\b\b")
-X(STR_MON_CONFIRM_PROMPT, "Wpisz YES aby potwierdzić: ")
+X(STR_MON_CONFIRM_PROMPT, "Wpisz TAK aby potwierdzić: ")
+X(STR_MON_CONFIRM_YES, "TAK") // word the user types to confirm (UTF-8)
 
 // Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Błąd wewnętrzny\n")

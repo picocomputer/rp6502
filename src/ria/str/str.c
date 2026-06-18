@@ -323,15 +323,16 @@ const char *str_abs_path(const char *path)
     return str_buf;
 }
 
-// Case-insensitive compare matching FatFs's name lookup: convert each
-// OEM byte to Unicode via the configured code page, then upper-case via
-// ff_wtoupper. strcasecmp would only handle ASCII.
-static bool str_lfn_eq(const char *a, const char *b)
+// Case-insensitive equality of two OEM strings in the active code page,
+// matching FatFs's name lookup: convert each OEM byte to Unicode then
+// upper-case via ff_wtoupper. strcasecmp would only fold ASCII.
+bool str_oem_eq(const char *a, const char *b)
 {
+    WORD cp = oem_get_code_page_run();
     for (;;)
     {
-        WCHAR ua = ff_oem2uni((unsigned char)*a, FF_CODE_PAGE);
-        WCHAR ub = ff_oem2uni((unsigned char)*b, FF_CODE_PAGE);
+        WCHAR ua = ff_oem2uni((unsigned char)*a, cp);
+        WCHAR ub = ff_oem2uni((unsigned char)*b, cp);
         if (ff_wtoupper(ua) != ff_wtoupper(ub))
             return false;
         if (!*a)
@@ -428,7 +429,7 @@ bool str_lookup_basename(const char *path, char *out, size_t out_size)
     {
         if (f_readdir(&dir, &fno) != FR_OK || !fno.fname[0])
             break;
-        if (str_lfn_eq(fno.fname, name))
+        if (str_oem_eq(fno.fname, name))
         {
             size_t flen = strlen(fno.fname);
             if (flen + 1 <= out_size)

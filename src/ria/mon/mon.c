@@ -193,8 +193,12 @@ static void mon_confirm_enter(bool timeout, const char *buf)
     mon_needs_read_line = true;
     mon_confirm_fn cb = mon_confirm_cb;
     mon_confirm_cb = NULL;
+    // The typed token is OEM (active code page); the confirm word is UTF-8, so
+    // convert it to OEM, then compare with the code-page-aware str_oem_eq.
+    char yes[16];
+    snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
     const char *tok = str_parse_string(&buf);
-    if (cb && tok && !strcasecmp(tok, STR_YES) && str_parse_end(buf))
+    if (cb && tok && str_oem_eq(tok, yes) && str_parse_end(buf))
         cb();
 }
 

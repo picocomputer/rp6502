@@ -60,6 +60,7 @@ X(STR_TIME_T_FMT_AMPM, "%I:%M:%S %p")       // %r
 X(STR_MON_MORE_SHOW, "--More--")
 X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b        \b\b\b\b\b\b\b\b")
 X(STR_MON_CONFIRM_PROMPT, "Type YES to confirm: ")
+X(STR_MON_CONFIRM_YES, "YES") // word the user types to confirm (UTF-8)
 
 // Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
