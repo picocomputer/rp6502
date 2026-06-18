@@ -14,8 +14,8 @@ separate tool calls instead of shell operators.
 Never search the root of the filesystem. Everything you need will be in
 the user home directory.
 
-Limit git usage unless I specifically ask. No commits, branches, stashes,
-resets, or any other git command on your own initiative.
+Limit git usage to as few requests as possibler unless I specifically ask
+for something only git can answer.
 
 To build, run `cmake --build build` from the project root. That builds
 every target in one shot. Do not hunt for individual ninja target names
