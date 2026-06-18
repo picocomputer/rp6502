@@ -187,6 +187,22 @@ X(STR_ROM_INSTALLED_NONE, "Brak zainstalowanych ROM.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d zainstalowany ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d zainstalowanych ROM:\n")
 
+// Narzędzie dyskowe
+X(STR_DISK_DONE, "Gotowe\n")
+X(STR_DISK_LABEL_RESPONSE, "Etykieta: %s\n")
+X(STR_DISK_LABEL_CHANGED, "Etykieta: %s -> %s\n")
+X(STR_DISK_FORMATTING, "Formatowanie, nie wyjmuj nośnika...\n")
+X(STR_DISK_BAD_SECTOR, "?Uszkodzony sektor %lu\n")
+X(STR_DISK_VERIFY_DONE, "Sprawdzanie zakończone, uszkodzone sektory: %d\n")
+X(STR_DISK_DEV, "URZ: \a%s %s %s rew %s\n")
+X(STR_DISK_SERIAL, "S/N: \a%s\n")
+X(STR_DISK_VOL_FMT, "WOL: \a%s\n")
+X(STR_DISK_VOL_USE, "WOL: \a%s zajęte z %s (%u%%)\n")
+X(STR_DISK_FMT, "FMT: \a%s\n")
+X(STR_DISK_WARN_FORMAT, "Za chwilę SFORMATUJESZ to urządzenie!\n")
+X(STR_DISK_WARN_ERASE, "Za chwilę WYMAŻESZ to urządzenie!\n")
+X(STR_DISK_ERASING, "Wymazywanie, nie wyjmuj nośnika...\n")
+
 X(STR_HELP_HELP,
   "Komendy:\n"
   "HELP (komenda|rom)  - \aTa pomoc lub rozszerzona pomoc komendy albo rom.\n"
@@ -426,23 +442,6 @@ X(STR_HELP_SET_KEY,
   "Aby włączyć dostęp do konsoli telnet, muszą być ustawione zarówno KEY\n"
   " jak i PORT (patrz \"help KEY\").\n")
 
-// Narzędzie dyskowe
-X(STR_DISK_DONE, "Gotowe\n")
-X(STR_DISK_LABEL_RESPONSE, "Etykieta: %s\n")
-X(STR_DISK_LABEL_CHANGED, "Etykieta: %s -> %s\n")
-X(STR_DISK_FORMATTING, "Formatowanie, nie wyjmuj nośnika...\n")
-X(STR_DISK_BAD_SECTOR, "?Uszkodzony sektor %lu\n")
-X(STR_DISK_VERIFY_DONE, "Sprawdzanie zakończone, uszkodzone sektory: %d\n")
-X(STR_DISK_DEV, "URZ: \a%s %s %s rew %s\n")
-X(STR_DISK_SERIAL, "S/N: \a%s\n")
-X(STR_DISK_VOL_FMT, "WOL: \a%s\n")
-X(STR_DISK_VOL_USE, "WOL: \a%s zajęte z %s (%u%%)\n")
-X(STR_DISK_FMT, "FMT: \a%s\n")
-X(STR_DISK_WARN_FORMAT, "Za chwilę SFORMATUJESZ to urządzenie!\n")
-X(STR_DISK_WARN_ERASE, "Za chwilę WYMAŻESZ to urządzenie!\n")
-X(STR_DISK_ERASE_SANITIZE, "Wymazywanie: sanitize (bezpieczne)\n")
-X(STR_DISK_ERASE_OVERWRITE, "Wymazywanie: nadpisanie (bez sanitize)\n")
-
 X(STR_HELP_DISK,
   "Dysk:\n"
   "HELP DISK pod        - \aPokaż pomoc dla podpolecenia dysku.\n"
@@ -455,14 +454,14 @@ X(STR_HELP_DISK,
 X(STR_HELP_DISK_INFO,
   "DISK INFO dysk\n"
   "Pokazuje urządzenie, format na dysku (układ, system plików, rozmiar klastra, "
-  "etykietę) oraz zajętość woluminu. Dyski nazywają się MSC1: lub 1:.\n")
+  "etykietę) oraz zajętość woluminu. Dyski nazywają się MSCn: lub n:.\n")
 
 X(STR_HELP_DISK_FORMAT,
   "DISK FORMAT dysk [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [etykieta]\n"
-  "Tworzy system plików na dysku o nazwie MSC1: lub 1:. /fat (domyślnie) jest "
-  "najbardziej zgodny; /exfat nadaje się do dużych dysków. Układ: /sfd "
-  "(superdyskietka, bez tablicy partycji), /mbr lub /gpt; domyślnie SFD dla "
-  "dyskietek, MBR dla flash. /512 i wyższe potęgi dwójki ustawiają rozmiar "
+  "Tworzy system plików na dysku o nazwie MSCn: lub n:. /fat (domyślnie) jest "
+  "najbardziej zgodny; /exfat nadaje się do dużych dysków. Układ: /sfd, /mbr lub "
+  "/gpt; domyślnie SFD dla dyskietek, MBR dla flash. /512 i wyższe potęgi dwójki "
+  "ustawiają rozmiar "
   "klastra (domyślnie wg pojemności). /quick (domyślnie) zapisuje tylko system "
   "plików; /full dodaje formatowanie niskopoziomowe (tylko dyskietki). Opcje i "
   "etykieta mogą być w dowolnej kolejności. Wyświetlany jest podgląd; wpisz YES, "
@@ -470,9 +469,9 @@ X(STR_HELP_DISK_FORMAT,
 
 X(STR_HELP_DISK_FORMAT_BASIC,
   "DISK FORMAT dysk [/sfd|/mbr] [/512|/4k...] [/quick|/full] [etykieta]\n"
-  "Tworzy system plików FAT na dysku o nazwie MSC1: lub 1:. Układ: /sfd "
-  "(superdyskietka, bez tablicy partycji) lub /mbr; domyślnie SFD dla dyskietek, "
-  "MBR dla flash. /512 i wyższe potęgi dwójki ustawiają rozmiar klastra "
+  "Tworzy system plików FAT na dysku o nazwie MSCn: lub n:. Układ: /sfd lub /mbr; "
+  "domyślnie SFD dla dyskietek, MBR dla flash. /512 i wyższe potęgi dwójki "
+  "ustawiają rozmiar klastra "
   "(domyślnie wg pojemności). /quick (domyślnie) zapisuje tylko system plików; "
   "/full dodaje formatowanie niskopoziomowe (tylko dyskietki). Opcje i etykieta "
   "mogą być w dowolnej kolejności. Wyświetlany jest podgląd; wpisz YES, aby "
@@ -480,22 +479,19 @@ X(STR_HELP_DISK_FORMAT_BASIC,
 
 X(STR_HELP_DISK_ERASE,
   "DISK ERASE dysk\n"
-  "Usuwa wszystkie dane z dysku o nazwie MSC1: lub 1:. Najpierw próbuje "
-  "sprzętowego sanitize (kontroler kasuje całą pamięć flash, łącznie z blokami "
-  "zapasowymi, więc danych nie da się odzyskać). Jeśli urządzenie nie obsługuje "
-  "sanitize, nadpisuje każdy sektor zerami, co pokonuje programy do odzyskiwania "
-  "plików, ale dane mogą pozostać w przemapowanych komórkach flash. Użyta metoda "
-  "jest zgłaszana. Ctrl-C przerywa nadpisywanie; sanitize jest nieprzerywalne. "
-  "Wpisz YES, aby potwierdzić.\n")
+  "Usuwa wszystkie dane z dysku o nazwie MSCn: lub n:, nadpisując każdy sektor "
+  "zerami, co pokonuje programy do odzyskiwania plików, ale dane mogą pozostać "
+  "w przemapowanych komórkach flash. Ctrl-C przerywa. Wpisz YES, aby "
+  "potwierdzić.\n")
 
 X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY dysk\n"
-  "Odczytuje wszystkie sektory dysku o nazwie MSC1: lub 1: i zgłasza te, których "
+  "Odczytuje wszystkie sektory dysku o nazwie MSCn: lub n: i zgłasza te, których "
   "nie udało się odczytać. Tylko do odczytu. Naciśnij Ctrl-C, aby przerwać.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL dysk [etykieta]\n"
-  "Bez etykiety pokazuje etykietę woluminu dysku o nazwie MSC1: lub 1:. Z "
+  "Bez etykiety pokazuje etykietę woluminu dysku o nazwie MSCn: lub n:. Z "
   "etykietą ustawia ją i wypisuje starą oraz nową nazwę. Podaj puste \"\", aby "
   "wyczyścić etykietę.\n")
 

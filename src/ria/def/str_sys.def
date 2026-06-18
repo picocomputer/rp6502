@@ -174,14 +174,13 @@ X(STR_MDM_RESPONSE_7, "BUSY")
 X(STR_MDM_RESPONSE_8, "NO ANSWER")
 
 // UF2 flash progress, RAM-resident
-XR(STR_UF2_FLASHING, "\rFlash: %d%%")
+XR(STR_UF2_FLASHING, "\rFlash %d%%")
 XR(STR_UF2_FLASH_FAILED, "\n?Flashing UF2 failed, recover via BOOTSEL\n")
 
-// Disk utility progress, RAM-resident (carriage-return overwrite)
-XR(STR_DISK_PROG_FORMAT, "\rFormat %d%%")
-XR(STR_DISK_PROG_ERASE, "\rErase %d%%")
-XR(STR_DISK_PROG_SANITIZE, "\rSanitize %d%%")
-XR(STR_DISK_PROG_VERIFY, "\rVerify %d%%")
+// Disk utility progress (carriage-return overwrite)
+X(STR_DISK_PROG_FORMAT, "\rFormat %d%%")
+X(STR_DISK_PROG_ERASE, "\rErase %d%%")
+X(STR_DISK_PROG_VERIFY, "\rVerify %d%%")
 
 // The only bit of help we don't localize.
 X(STR_HELP_ABOUT,

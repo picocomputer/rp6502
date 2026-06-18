@@ -48,9 +48,7 @@ static enum {
     DSK_IDLE,
     DSK_RUN_FORMAT_UNIT,
     DSK_RUN_MKFS,
-    DSK_RUN_ERASE_BEGIN,
-    DSK_RUN_SANITIZE,
-    DSK_RUN_OVERWRITE,
+    DSK_RUN_ERASE,
     DSK_RUN_VERIFY,
 } dsk_state;
 
@@ -495,7 +493,8 @@ static void dsk_run_format(void)
 static void dsk_run_erase(void)
 {
     dsk_last_pct = -1;
-    dsk_state = DSK_RUN_ERASE_BEGIN;
+    dsk_lba = 0;
+    dsk_state = DSK_RUN_ERASE;
 }
 
 // Continuation run after the info block drains (verify is read-only, no YES).
@@ -855,64 +854,17 @@ void dsk_task(void)
         return;
     }
 
-    case DSK_RUN_ERASE_BEGIN:
+    case DSK_RUN_ERASE:
     {
-        // Prefer a hardware sanitize; fall back to a full overwrite.
-        int r = msc_dsk_sanitize_start(dsk_vol);
-        if (r == 0 || r == 1)
-        {
-            printf_utf8(S(STR_DISK_ERASE_SANITIZE));
-            dsk_state = DSK_RUN_SANITIZE;
-        }
-        else if (r == -1)
-        {
-            printf_utf8(S(STR_DISK_ERASE_OVERWRITE));
-            dsk_lba = 0;
-            dsk_state = DSK_RUN_OVERWRITE;
-        }
-        else
-        {
-            mon_print_fatfs(FR_DISK_ERR);
-            dsk_state = DSK_IDLE;
-        }
-        return;
-    }
-
-    case DSK_RUN_SANITIZE: // background hardware erase; cannot be interrupted
-    {
-        int pct = msc_dsk_sanitize_poll(dsk_vol);
-        if (pct < 0)
-        {
-            putchar('\n');
-            mon_print_fatfs(FR_DISK_ERR);
-            msc_dsk_reenumerate(dsk_pdrv);
-            dsk_state = DSK_IDLE;
-            return;
-        }
-        if (pct != dsk_last_pct)
-        {
-            dsk_last_pct = pct;
-            printf_utf8(STR_DISK_PROG_SANITIZE, pct);
-        }
-        if (pct >= 100)
-        {
-            putchar('\n');
-            msc_dsk_reenumerate(dsk_pdrv);
-            printf_utf8(S(STR_DISK_DONE));
-            dsk_state = DSK_IDLE;
-        }
-        return;
-    }
-
-    case DSK_RUN_OVERWRITE:
-    {
-        if (ria_get_sigint()) // Ctrl-C stops the overwrite
+        if (ria_get_sigint()) // Ctrl-C stops the erase
         {
             putchar('\n');
             msc_dsk_reenumerate(dsk_pdrv); // sectors were zeroed; drop stale mount
             main_break();
             return;
         }
+        if (dsk_lba == 0)
+            printf_utf8(S(STR_DISK_ERASING));
         // Chunk is bounded by mbuf, the only scratch available; disk_write would
         // accept more sectors per transfer, but a larger buffer is not affordable.
         uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
@@ -995,9 +947,6 @@ bool dsk_active(void)
 
 void dsk_break(void)
 {
-    // SANITIZE is a background hardware erase that cannot be cancelled; let it finish.
-    if (dsk_state == DSK_RUN_SANITIZE)
-        return;
     dsk_state = DSK_IDLE;
 }
 

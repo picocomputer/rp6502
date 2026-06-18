@@ -1215,32 +1215,6 @@ static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t hea
     return status;
 }
 
-// SCSI SANITIZE (opcode 0x48). service_action 0x02=BLOCK ERASE, 0x03=CRYPTO
-// ERASE; neither carries a parameter list. With immed the command returns at
-// once and the erase runs in the background (poll progress via REQUEST SENSE).
-static msc_status_t msc_scsi_sanitize(uint8_t vol, uint8_t service_action, bool immed)
-{
-    uint8_t cmd[10] = {0x48, (uint8_t)((immed ? 0x80 : 0) | (service_action & 0x1F)),
-                       0, 0, 0, 0, 0, 0, 0, 0};
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
-    DBG_CMD(vol, "SANITIZE", status);
-    return status;
-}
-
-// Raw REQUEST SENSE into an 18-byte buffer (keeps the FORMAT-progress field).
-static msc_status_t msc_scsi_request_sense_raw(uint8_t vol, uint8_t resp[18])
-{
-    scsi_request_sense_t const cmd = {
-        .cmd_code = SCSI_CMD_REQUEST_SENSE,
-        .alloc_length = 18};
-    memset(resp, 0, 18);
-    msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, 18, TUSB_DIR_IN_MASK, sizeof(cmd), &cmd);
-    return msc_scsi_sync(msc_pdrv[vol].dev_addr, &cbw, resp, MSC_SCSI_RW_TIMEOUT_MS);
-}
-
 static msc_status_t msc_scsi_read_capacity10(uint8_t vol, scsi_read_capacity10_resp_t *resp)
 {
     scsi_read_capacity10_t const cmd = {.cmd_code = SCSI_CMD_READ_CAPACITY_10};
@@ -2085,44 +2059,6 @@ bool msc_dsk_format_track(uint8_t vol, uint8_t track, uint8_t head)
     if (msc_pdrv[pdrv].write_prot)
         return false;
     return msc_scsi_format_unit(pdrv, track, head) == MSC_STATUS_PASSED;
-}
-
-int msc_dsk_sanitize_start(uint8_t vol)
-{
-    uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
-        return -2;
-    if (msc_pdrv[pdrv].write_prot)
-        return -2;
-    // Crypto erase is instant on self-encrypting devices; block erase physically
-    // clears all NAND. A rejected service action leaves device state unchanged.
-    if (msc_scsi_sanitize(pdrv, 0x03, true) == MSC_STATUS_PASSED)
-        return 0;
-    if (msc_scsi_sanitize(pdrv, 0x02, true) == MSC_STATUS_PASSED)
-        return 1;
-    return -1;
-}
-
-int msc_dsk_sanitize_poll(uint8_t vol)
-{
-    uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
-        return -1;
-    uint8_t s[18];
-    if (msc_scsi_request_sense_raw(pdrv, s) == MSC_STATUS_TIMED_OUT)
-        return -1;
-    // NOT READY + ASC/ASCQ 0x04/0x1B == "sanitize in progress".
-    if ((s[2] & 0x0F) == SCSI_SENSE_NOT_READY && s[12] == 0x04 && s[13] == 0x1B)
-    {
-        if (s[15] & 0x80) // SKSV: progress indication valid
-        {
-            uint32_t prog = ((uint32_t)s[16] << 8) | s[17];
-            int pct = (int)((prog * 100) / 65536);
-            return pct > 99 ? 99 : pct;
-        }
-        return 0;
-    }
-    return 100;
 }
 
 static FIL *msc_std_validate_fil(int desc)

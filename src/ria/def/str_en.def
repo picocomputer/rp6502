@@ -183,6 +183,22 @@ X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d installed ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d installed ROMs:\n")
 
+// Disk utility
+X(STR_DISK_DONE, "Done\n")
+X(STR_DISK_LABEL_RESPONSE, "Label: %s\n")
+X(STR_DISK_LABEL_CHANGED, "Label: %s -> %s\n")
+X(STR_DISK_FORMATTING, "Formatting, do not remove media...\n")
+X(STR_DISK_BAD_SECTOR, "?Bad sector %lu\n")
+X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
+X(STR_DISK_DEV, "DEV: \a%s %s %s rev %s\n")
+X(STR_DISK_SERIAL, "S/N: \a%s\n")
+X(STR_DISK_VOL_FMT, "VOL: \a%s\n")
+X(STR_DISK_VOL_USE, "VOL: \a%s used of %s (%u%%)\n")
+X(STR_DISK_FMT, "FMT: \a%s\n")
+X(STR_DISK_WARN_FORMAT, "You are about to FORMAT this device!\n")
+X(STR_DISK_WARN_ERASE, "You are about to ERASE this device!\n")
+X(STR_DISK_ERASING, "Erasing, do not remove media...\n")
+
 X(STR_HELP_HELP,
   "Commands:\n"
   "HELP (command|rom)  - \aThis help or expanded help for command or rom.\n"
@@ -413,23 +429,6 @@ X(STR_HELP_SET_KEY,
   "SET KEY sets the passkey for remote console access. Use \"-\" to clear. "
   "Both PORT and KEY must be set to enable telnet console access.\n")
 
-// Disk utility
-X(STR_DISK_DONE, "Done\n")
-X(STR_DISK_LABEL_RESPONSE, "Label: %s\n")
-X(STR_DISK_LABEL_CHANGED, "Label: %s -> %s\n")
-X(STR_DISK_FORMATTING, "Formatting, do not remove media...\n")
-X(STR_DISK_BAD_SECTOR, "?Bad sector %lu\n")
-X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
-X(STR_DISK_DEV, "DEV: \a%s %s %s rev %s\n")
-X(STR_DISK_SERIAL, "S/N: \a%s\n")
-X(STR_DISK_VOL_FMT, "VOL: \a%s\n")
-X(STR_DISK_VOL_USE, "VOL: \a%s used of %s (%u%%)\n")
-X(STR_DISK_FMT, "FMT: \a%s\n")
-X(STR_DISK_WARN_FORMAT, "You are about to FORMAT this device!\n")
-X(STR_DISK_WARN_ERASE, "You are about to ERASE this device!\n")
-X(STR_DISK_ERASE_SANITIZE, "Erase: sanitize (secure)\n")
-X(STR_DISK_ERASE_OVERWRITE, "Erase: overwrite (no sanitize)\n")
-
 X(STR_HELP_DISK,
   "Disk:\n"
   "HELP DISK sub        - \aShow help for a disk subcommand.\n"
@@ -442,44 +441,41 @@ X(STR_HELP_DISK,
 X(STR_HELP_DISK_INFO,
   "DISK INFO drive\n"
   "Shows the device, the on-disk format (scheme, filesystem, cluster size, "
-  "label), and how full the volume is. Drives are named MSC1: or 1:.\n")
+  "label), and how full the volume is. Drives are named MSCn: or n:.\n")
 
 X(STR_HELP_DISK_FORMAT,
   "DISK FORMAT drive [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [label]\n"
-  "Creates a filesystem on a drive named MSC1: or 1:. /fat (default) is most "
-  "compatible; /exfat suits large drives. Layout: /sfd (superfloppy, no "
-  "partition table), /mbr, or /gpt; default is SFD for floppies, MBR for flash. "
-  "/512 through larger powers of two set the cluster size (default by capacity). "
+  "Creates a filesystem on a drive named MSCn: or n:. /fat (default) is most "
+  "compatible; /exfat suits large drives. Layout: /sfd, /mbr, or /gpt; default "
+  "is SFD for floppies, MBR for flash. /512 through larger powers of two set the "
+  "cluster size (default by capacity). "
   "/quick (default) writes only the filesystem; /full adds a low-level format "
   "(floppies only). Options and the label may appear in any order. A preview is "
   "shown; type YES to confirm.\n")
 
 X(STR_HELP_DISK_FORMAT_BASIC,
   "DISK FORMAT drive [/sfd|/mbr] [/512|/4k...] [/quick|/full] [label]\n"
-  "Creates a FAT filesystem on a drive named MSC1: or 1:. Layout: /sfd "
-  "(superfloppy, no partition table) or /mbr; default is SFD for floppies, MBR "
-  "for flash. /512 through larger powers of two set the cluster size (default by "
+  "Creates a FAT filesystem on a drive named MSCn: or n:. Layout: /sfd or /mbr; "
+  "default is SFD for floppies, MBR for flash. /512 through larger powers of two "
+  "set the cluster size (default by "
   "capacity). /quick (default) writes only the filesystem; /full adds a "
   "low-level format (floppies only). Options and the label may appear in any "
   "order. A preview is shown; type YES to confirm.\n")
 
 X(STR_HELP_DISK_ERASE,
   "DISK ERASE drive\n"
-  "Destroys all data on a drive named MSC1: or 1:. First tries a hardware "
-  "sanitize (the controller erases all flash, including spare blocks, so data is "
-  "unrecoverable). If the device lacks sanitize, it overwrites every sector with "
-  "zeros instead, which defeats file-recovery software but may leave data in "
-  "remapped flash cells. The method used is reported. Ctrl-C stops the "
-  "overwrite; sanitize cannot be interrupted. Type YES to confirm.\n")
+  "Destroys all data on a drive named MSCn: or n: by overwriting every sector "
+  "with zeros, which defeats file-recovery software but may leave data in "
+  "remapped flash cells. Press Ctrl-C to stop. Type YES to confirm.\n")
 
 X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY drive\n"
-  "Reads every sector of a drive named MSC1: or 1: and reports any that fail. "
+  "Reads every sector of a drive named MSCn: or n: and reports any that fail. "
   "Read-only. Press Ctrl-C to stop.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL drive [label]\n"
-  "With no label, shows the volume label of a drive named MSC1: or 1:. With a "
+  "With no label, shows the volume label of a drive named MSCn: or n:. With a "
   "label, sets it and prints the old and new names. Pass an empty \"\" to clear "
   "the label.\n")
 
