@@ -43,8 +43,7 @@ enum
     DSK_LAYOUT_GPT,
 };
 
-static enum
-{
+static enum {
     DSK_IDLE,
     DSK_RUN_FORMAT_UNIT,
     DSK_RUN_MKFS,
@@ -63,24 +62,24 @@ enum
 };
 
 // Operation context, valid from preview through completion.
-static uint8_t dsk_vol;           // logical volume (MSCn:)
-static uint8_t dsk_pdrv;          // physical drive backing dsk_vol
-static char dsk_path[6];          // "MSCn:" for FatFs calls
+static uint8_t dsk_vol;  // logical volume (MSCn:)
+static uint8_t dsk_pdrv; // physical drive backing dsk_vol
+static char dsk_path[6]; // "MSCn:" for FatFs calls
 static bool dsk_is_floppy;
-static uint8_t dsk_fs;            // 0=auto, 1=FAT, 2=exFAT
-static bool dsk_full;             // /full low-level format
-static uint32_t dsk_au;           // allocation unit bytes (requested, then resolved)
-static uint8_t dsk_fsty;          // resolved FS_FAT12/16/32/EXFAT for format
+static uint8_t dsk_fs;   // 0=auto, 1=FAT, 2=exFAT
+static bool dsk_full;    // /full low-level format
+static uint32_t dsk_au;  // allocation unit bytes (requested, then resolved)
+static uint8_t dsk_fsty; // resolved FS_FAT12/16/32/EXFAT for format
 static bool dsk_has_label;
 static char dsk_label_oem[12];
-static uint8_t dsk_layout;        // DSK_LAYOUT_* for format
-static uint8_t dsk_preview_op;    // DSK_PREVIEW_* trailing lines for the generator
-static bool dsk_fmt_started;      // FORMAT UNIT issued (poll phase)
+static uint8_t dsk_layout;     // DSK_LAYOUT_* for format
+static uint8_t dsk_preview_op; // DSK_PREVIEW_* trailing lines for the generator
+static bool dsk_fmt_started;   // FORMAT UNIT issued (poll phase)
 static uint32_t dsk_block_size;
-static uint64_t dsk_total;        // sectors for zero/verify
-static uint64_t dsk_lba;          // current sector
+static uint64_t dsk_total; // sectors for zero/verify
+static uint64_t dsk_lba;   // current sector
 static int dsk_last_pct;
-static uint32_t dsk_bad;          // verify bad-sector count
+static uint32_t dsk_bad; // verify bad-sector count
 
 // Build the canonical "MSCn:" path for a resolved volume (so "0:" and "MSC0:"
 // produce the same FatFs path).
@@ -260,15 +259,13 @@ static int dsk_preview_response(char *buf, size_t size, int state)
         return dsk_preview_op == DSK_PREVIEW_PLAIN ? -1 : 4;
     }
     case 4: // confirm warning (format or erase)
-        snprintf_utf8(buf, size, S(dsk_preview_op == DSK_PREVIEW_ERASE
-                                       ? STR_DISK_WARN_ERASE
-                                       : STR_DISK_WARN_FORMAT));
+        snprintf_utf8(buf, size, S(dsk_preview_op == DSK_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
         return dsk_preview_op == DSK_PREVIEW_FORMAT ? 5 : -1;
     case 5: // FMT: target layout, filesystem, cluster size, quick/full, label
     {
         const char *scheme = dsk_layout == DSK_LAYOUT_SFD   ? STR_SFD
                              : dsk_layout == DSK_LAYOUT_GPT ? STR_GPT
-                                                           : STR_MBR;
+                                                            : STR_MBR;
         char desc[64];
         dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au, NULL);
         size_t n = strlen(desc);
@@ -310,9 +307,11 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
         UINT au = req_au_bytes ? req_au_bytes / 512 : 0;
         if (au == 0)
         {
-            au = 8;                         // 4 KB
-            if (raw >= 0x80000) au = 64;    // >= 512 MiB -> 32 KB
-            if (raw >= 0x4000000) au = 256; // >= 32 GiB  -> 128 KB
+            au = 8; // 4 KB
+            if (raw >= 0x80000)
+                au = 64; // >= 256 MiB -> 32 KB
+            if (raw >= 0x4000000)
+                au = 256; // >= 32 GiB  -> 128 KB
         }
         *au_sectors = au;
         return FS_EXFAT;
@@ -330,7 +329,8 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
         if (n > DSK_MAX_FAT32)
             return 0;
         *au_sectors = au;
-        return n <= DSK_MAX_FAT12 ? FS_FAT12 : n <= DSK_MAX_FAT16 ? FS_FAT16 : FS_FAT32;
+        return n <= DSK_MAX_FAT12 ? FS_FAT12 : n <= DSK_MAX_FAT16 ? FS_FAT16
+                                                                  : FS_FAT32;
     }
     // Auto cluster: grow until the count fits FAT16 (cap 32 KB clusters); the
     // small media that stays under the FAT12 limit becomes FAT12.
@@ -344,10 +344,13 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
     }
     // Too many clusters for FAT16 -> FAT32, with a >= 4 KB cluster scaled by size
     // so the count stays well clear of the FAT16 ceiling.
-    au = 8;                        // 4 KB
-    if (raw >= 0x1000000) au = 16; // >= 8 GiB  -> 8 KB
-    if (raw >= 0x2000000) au = 32; // >= 16 GiB -> 16 KB
-    if (raw >= 0x4000000) au = 64; // >= 32 GiB -> 32 KB (FAT32 cluster max)
+    au = 8; // 4 KB
+    if (raw >= 0x1000000)
+        au = 16; // >= 8 GiB  -> 8 KB
+    if (raw >= 0x2000000)
+        au = 32; // >= 16 GiB -> 16 KB
+    if (raw >= 0x4000000)
+        au = 64; // >= 32 GiB -> 32 KB (FAT32 cluster max)
     while (raw / au > DSK_MAX_FAT32 && au < 128)
         au <<= 1;
     if (raw / au > DSK_MAX_FAT32)
