@@ -450,8 +450,7 @@ X(STR_HELP_DISK_FORMAT,
   "is SFD for floppies, MBR for flash. /512 through larger powers of two set the "
   "cluster size (default by capacity). "
   "/quick (default) writes only the filesystem; /full adds a low-level format "
-  "(floppies only). Options and the label may appear in any order. A preview is "
-  "shown; type YES to confirm.\n")
+  "(floppies only). A preview is shown; type YES to confirm.\n")
 
 X(STR_HELP_DISK_FORMAT_BASIC,
   "DISK FORMAT drive [/sfd|/mbr] [/512|/4k...] [/quick|/full] [label]\n"
@@ -459,14 +458,13 @@ X(STR_HELP_DISK_FORMAT_BASIC,
   "default is SFD for floppies, MBR for flash. /512 through larger powers of two "
   "set the cluster size (default by "
   "capacity). /quick (default) writes only the filesystem; /full adds a "
-  "low-level format (floppies only). Options and the label may appear in any "
-  "order. A preview is shown; type YES to confirm.\n")
+  "low-level format (floppies only). A preview is shown; type YES to confirm.\n")
 
 X(STR_HELP_DISK_ERASE,
   "DISK ERASE drive\n"
   "Destroys all data on a drive named MSCn: or n: by overwriting every sector "
   "with zeros, which defeats file-recovery software but may leave data in "
-  "remapped flash cells. Press Ctrl-C to stop. Type YES to confirm.\n")
+  "remapped flash cells. Type YES to confirm.\n")
 
 X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY drive\n"
