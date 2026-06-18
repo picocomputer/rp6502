@@ -45,12 +45,13 @@ bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char
 bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size);
 bool msc_dsk_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count);
 bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count);
-int msc_dsk_format_start(uint8_t vol);   // 0=poll, -1=error, -2=IMMED unsupported
+int msc_dsk_format_start(uint8_t vol);   // 0=poll, -2=use _format_sync, -1=cannot
 int msc_dsk_format_poll(uint8_t vol);    // -1=error, 0..99=percent, 100=complete
 bool msc_dsk_format_sync(uint8_t vol);   // blocking FORMAT UNIT fallback
 int msc_dsk_sanitize_start(uint8_t vol); // 0=crypto, 1=block; -1=overwrite; -2=error
 int msc_dsk_sanitize_poll(uint8_t vol);  // -1=error, 0..99=percent, 100=complete
 void msc_dsk_reenumerate(uint8_t pdrv);  // remount after format/erase
+void msc_vol_path(char buf[6], uint8_t vol); // "MSCn:" FatFs path for a volume
 
 /* TinyUSB host class-driver callbacks.
  */

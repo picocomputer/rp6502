@@ -118,7 +118,7 @@ const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC8, VolumeStrMSC9};
 
 // Build a FatFS volume path like "MSC0:" for volume.
-static inline void msc_vol_path(TCHAR buf[6], uint8_t vol)
+void msc_vol_path(TCHAR buf[6], uint8_t vol)
 {
     static_assert(FF_VOLUMES <= 10);
     memcpy(buf, "MSC0:", 6);
@@ -2082,8 +2082,9 @@ bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
     return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-// Start a background FORMAT UNIT (IMMED). 0=started (poll), -1=error,
-// -2=IMMED/parameter list unsupported (caller should use msc_dsk_format_sync).
+// Start a background FORMAT UNIT (IMMED). 0=started (poll),
+// -2=IMMED/parameter list rejected (caller should use msc_dsk_format_sync),
+// -1=FORMAT UNIT unavailable or failed (caller must not silently quick-format).
 int msc_dsk_format_start(uint8_t vol)
 {
     uint8_t pdrv;

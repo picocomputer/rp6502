@@ -87,6 +87,9 @@ X(STR_ERR_VGA_NOT_CONNECTED, "?VGA not connected\n")
 X(STR_ERR_NO_MEDIA, "?No media\n")
 X(STR_ERR_EXFAT_DISABLED, "?exFAT not available in this build\n")
 X(STR_ERR_NOT_FORMATTABLE, "?Full format not supported on this device\n")
+X(STR_ERR_SECTOR_SIZE, "?Sector size not supported\n")
+X(STR_ERR_GPT_DISABLED, "?GPT not available in this build\n")
+X(STR_ERR_FORMAT_FAILED, "?Low-level format failed\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?IO error\n")                     // -5

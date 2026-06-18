@@ -30,6 +30,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // build references it.
 #if FF_LBA64
 #define DSK_GPT_DEFAULT 0x10000000
+static_assert(DSK_GPT_DEFAULT <= 0x100000000ULL, "FF_MIN_GPT default out of range");
 static LBA_t dsk_gpt_threshold = DSK_GPT_DEFAULT;
 LBA_t dsk_min_gpt(void) { return dsk_gpt_threshold; }
 #endif
@@ -81,13 +82,20 @@ static uint64_t dsk_lba;   // current sector
 static int dsk_last_pct;
 static uint32_t dsk_bad; // verify bad-sector count
 
+// Cached f_getfree result so the two VOL preview lines share one FAT scan.
+static struct
+{
+    bool valid;
+    DWORD csize;
+    DWORD n_fatent;
+    DWORD nclst;
+} dsk_free;
+
 // Build the canonical "MSCn:" path for a resolved volume (so "0:" and "MSC0:"
 // produce the same FatFs path).
 static void dsk_set_path(uint8_t vol)
 {
-    static_assert(FF_VOLUMES <= 10);
-    memcpy(dsk_path, "MSC0:", 6);
-    dsk_path[3] = (char)('0' + vol);
+    msc_vol_path(dsk_path, vol);
 }
 
 // Parse an allocation-unit option like "/16k" or "/512". Returns false unless
@@ -175,22 +183,35 @@ static const char *dsk_scheme_word(void)
     return NULL;
 }
 
-// Build the "<scheme> <filesystem> <cluster> (<label>)" descriptor shared by the
-// VOL (current) and FMT (target) lines. scheme: word or NULL (omit). fsname: the
-// filesystem name (never NULL). au_bytes: cluster size in KB (512 B shown in
-// bytes), 0 to omit when there is no filesystem. label: appended in parens when
-// non-empty (NULL/"" omits it).
+// Build the "<scheme> <filesystem> <cluster> <suffix> (<label>)" descriptor shared
+// by the VOL (current) and FMT (target) lines. scheme: word or NULL (omit).
+// fsname: the filesystem name (never NULL). au_bytes: cluster size in KB (512 B
+// shown in bytes), 0 to omit when there is no filesystem. suffix: extra word
+// (Quick/Full) or NULL. label: appended in parens when non-empty (NULL/"" omits).
+// The `n >= size` guards stop a truncated segment from underflowing size - n.
 static void dsk_fmt_desc(char *out, size_t size, const char *scheme, const char *fsname,
-                         uint32_t au_bytes, const char *label)
+                         uint32_t au_bytes, const char *suffix, const char *label)
 {
     size_t n = 0;
     if (scheme)
         n += snprintf(out + n, size - n, "%s ", scheme);
+    if (n >= size)
+        return;
     n += snprintf(out + n, size - n, "%s", fsname);
+    if (n >= size)
+        return;
     if (au_bytes == 512)
         n += snprintf(out + n, size - n, " 512 B");
     else if (au_bytes)
         n += snprintf(out + n, size - n, " %u KB", (unsigned)(au_bytes / 1024));
+    if (n >= size)
+        return;
+    if (suffix && suffix[0])
+    {
+        n += snprintf(out + n, size - n, " %s", suffix);
+        if (n >= size)
+            return;
+    }
     if (label && label[0])
         snprintf(out + n, size - n, " (%s)", label);
 }
@@ -233,22 +254,27 @@ static int dsk_preview_response(char *buf, size_t size, int state)
         const char *scheme = dsk_scheme_word();
         if (f_getlabel(dsk_path, label, &vsn) != FR_OK)
             label[0] = '\0';
+        dsk_free.valid = false;
         if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+        {
+            dsk_free.valid = true;
+            dsk_free.csize = fs->csize;
+            dsk_free.n_fatent = fs->n_fatent;
+            dsk_free.nclst = nclst;
             dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fs->fs_type),
-                         fs->csize * 512u, label);
+                         fs->csize * 512u, NULL, label);
+        }
         else
-            dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, label);
+            dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, NULL, label);
         snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
         return 3;
     }
-    case 3: // VOL: filesystem used of total, percent used
+    case 3: // VOL: filesystem used of total, percent used (reuses case 2's scan)
     {
-        DWORD nclst;
-        FATFS *fs;
-        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
+        if (dsk_free.valid)
         {
-            uint64_t totb = (uint64_t)(fs->n_fatent - 2) * fs->csize * 512u;
-            uint64_t freeb = (uint64_t)nclst * fs->csize * 512u;
+            uint64_t totb = (uint64_t)(dsk_free.n_fatent - 2) * dsk_free.csize * 512u;
+            uint64_t freeb = (uint64_t)dsk_free.nclst * dsk_free.csize * 512u;
             uint64_t usedb = totb - freeb;
             unsigned pct = totb ? (unsigned)(usedb * 100 / totb) : 0;
             char usedbuf[24], totbuf[24];
@@ -267,11 +293,9 @@ static int dsk_preview_response(char *buf, size_t size, int state)
                              : dsk_layout == DSK_LAYOUT_GPT ? STR_GPT
                                                             : STR_MBR;
         char desc[64];
-        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au, NULL);
-        size_t n = strlen(desc);
-        n += snprintf(desc + n, sizeof(desc) - n, " %s", dsk_full ? STR_FULL : STR_QUICK);
-        if (dsk_has_label && dsk_label_oem[0])
-            snprintf(desc + n, sizeof(desc) - n, " (%s)", dsk_label_oem);
+        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au,
+                     dsk_full ? STR_FULL : STR_QUICK,
+                     dsk_has_label ? dsk_label_oem : NULL);
         snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
         return -1;
     }
@@ -285,16 +309,58 @@ static int dsk_preview_response(char *buf, size_t size, int state)
 #define DSK_MAX_FAT16 0xFFF5u // 65525
 #define DSK_MAX_FAT32 0x0FFFFFF5u
 
+// Data clusters a FAT/FAT32 volume of `raw` 512 B sectors holds with cluster
+// size `au` (sectors) under `layout`, matching f_mkfs's own accounting: a
+// partition base (MBR 63 / GPT 2081 / SFD 0 sectors) plus the in-volume reserved
+// area, two FATs, and a 512-entry root directory. The FAT width follows the
+// sub-type implied by the first-pass count, exactly as f_mkfs picks it. Counting
+// on the data region (not the raw device) keeps OUR sub-type choice in step with
+// what f_mkfs builds, so a forced type cannot overshoot a boundary into
+// FR_MKFS_ABORTED. (FAT layout is the spec; the 63/2081 bases are de-facto
+// standard, not FatFs internals.)
+static LBA_t dsk_fat_data_clusters(LBA_t raw, uint8_t layout, UINT au)
+{
+    LBA_t base = layout == DSK_LAYOUT_GPT   ? 2081
+                 : layout == DSK_LAYOUT_MBR ? 63
+                                            : 0;
+    if (raw <= base)
+        return 0;
+    LBA_t vol = raw - base;
+    DWORD n0 = (DWORD)(vol / au); // first-pass count selects the FAT width
+    DWORD rsv, dir, fatb;
+    if (n0 > DSK_MAX_FAT16)
+    {
+        rsv = 32; // FAT32 reserved area
+        dir = 0;  // root is a cluster chain, not static
+        fatb = n0 * 4 + 8;
+    }
+    else if (n0 > DSK_MAX_FAT12)
+    {
+        rsv = 1;
+        dir = 32; // 512-entry root directory
+        fatb = n0 * 2 + 4;
+    }
+    else
+    {
+        rsv = 1;
+        dir = 32;
+        fatb = (n0 * 3 + 1) / 2 + 3; // 12-bit entries
+    }
+    LBA_t overhead = rsv + 2 * ((fatb + 511) / 512) + dir; // reserved + 2 FATs + root
+    if (vol <= overhead)
+        return 0;
+    return (vol - overhead) / au;
+}
+
 // The disk tool's own, stable FS-selection policy, so the result is OUR contract
 // rather than whatever f_mkfs would auto-pick. We hand f_mkfs an explicit type +
 // cluster size via its public MKFS_PARM (so its internal auto-selection never
-// runs); the only thing relied on is the standard FAT cluster-count limits
-// above. `raw` is the device sector count (512 B sectors); the small partition /
-// metadata overhead is ignored — the auto cluster sizes keep counts well clear
-// of the limits, and f_mkfs re-validates as a safety net. `want`: 0=auto, 1=FAT
-// family, 2=exFAT; a user /Nk (req_au_bytes) overrides the cluster size. Returns
-// FS_FAT12/16/32/EXFAT + cluster size in *au_sectors, or 0 if unsatisfiable.
-static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT *au_sectors)
+// runs); cluster counts come from dsk_fat_data_clusters() so they match the data
+// region f_mkfs lays out. `raw` is the device sector count (512 B sectors);
+// `layout` is the resolved DSK_LAYOUT_*. `want`: 0=auto, 1=FAT family, 2=exFAT; a
+// user /Nk (req_au_bytes) overrides the cluster size. Returns FS_FAT12/16/32/EXFAT
+// + cluster size in *au_sectors, or 0 if unsatisfiable.
+static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT *au_sectors, uint8_t layout)
 {
 #if !FF_FS_EXFAT
     (void)want; // only consulted for exFAT selection
@@ -321,12 +387,12 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
     if (raw >= 0x100000000)
         return 0; // beyond FAT sector addressing; exFAT only
 #endif
-    // Explicit cluster: the FAT sub-type follows from the count (f_mkfs validates).
+    // Explicit cluster: the FAT sub-type follows from the data-region count.
     if (req_au_bytes)
     {
         UINT au = req_au_bytes / 512;
-        DWORD n = (DWORD)(raw / au);
-        if (n > DSK_MAX_FAT32)
+        LBA_t n = dsk_fat_data_clusters(raw, layout, au);
+        if (n == 0 || n > DSK_MAX_FAT32)
             return 0;
         *au_sectors = au;
         return n <= DSK_MAX_FAT12 ? FS_FAT12 : n <= DSK_MAX_FAT16 ? FS_FAT16
@@ -335,12 +401,13 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
     // Auto cluster: grow until the count fits FAT16 (cap 32 KB clusters); the
     // small media that stays under the FAT12 limit becomes FAT12.
     UINT au = 1;
-    while (raw / au > DSK_MAX_FAT16 && au < 64)
+    while (dsk_fat_data_clusters(raw, layout, au) > DSK_MAX_FAT16 && au < 64)
         au <<= 1;
-    if (raw / au <= DSK_MAX_FAT16)
+    LBA_t nc = dsk_fat_data_clusters(raw, layout, au);
+    if (nc != 0 && nc <= DSK_MAX_FAT16)
     {
         *au_sectors = au;
-        return (raw / au) <= DSK_MAX_FAT12 ? FS_FAT12 : FS_FAT16;
+        return nc <= DSK_MAX_FAT12 ? FS_FAT12 : FS_FAT16;
     }
     // Too many clusters for FAT16 -> FAT32, with a >= 4 KB cluster scaled by size
     // so the count stays well clear of the FAT16 ceiling.
@@ -351,9 +418,10 @@ static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT 
         au = 32; // >= 16 GiB -> 16 KB
     if (raw >= 0x4000000)
         au = 64; // >= 32 GiB -> 32 KB (FAT32 cluster max)
-    while (raw / au > DSK_MAX_FAT32 && au < 128)
+    while (dsk_fat_data_clusters(raw, layout, au) > DSK_MAX_FAT32 && au < 128)
         au <<= 1;
-    if (raw / au > DSK_MAX_FAT32)
+    nc = dsk_fat_data_clusters(raw, layout, au);
+    if (nc == 0 || nc > DSK_MAX_FAT32)
         return 0; // too large for FAT32; use exFAT
     *au_sectors = au;
     return FS_FAT32;
@@ -382,7 +450,8 @@ static FRESULT dsk_do_mkfs(void)
         parm.fmt |= FM_SFD; // superfloppy: no partition table
 #if FF_LBA64
     // f_mkfs writes GPT when the drive is >= FF_MIN_GPT (dsk_min_gpt()), else
-    // MBR. Force the chosen scheme; FM_SFD ignores it.
+    // MBR. Force the chosen scheme; FM_SFD ignores it. (LBA_t)-1 intentionally
+    // exceeds the 2^32 doc max so GPT is never chosen.
     dsk_gpt_threshold = (dsk_layout == DSK_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
     FRESULT fr = f_mkfs(dsk_path, &parm, mbuf, MBUF_SIZE);
@@ -392,15 +461,7 @@ static FRESULT dsk_do_mkfs(void)
     if (fr == FR_OK && dsk_has_label)
     {
         char arg[sizeof(dsk_path) + sizeof(dsk_label_oem)];
-        size_t n = 0;
-        while (dsk_path[n])
-        {
-            arg[n] = dsk_path[n];
-            n++;
-        }
-        for (size_t m = 0; dsk_label_oem[m] && n < sizeof(arg) - 1; m++)
-            arg[n++] = dsk_label_oem[m];
-        arg[n] = '\0';
+        snprintf(arg, sizeof(arg), "%s%s", dsk_path, dsk_label_oem);
         fr = f_setlabel(arg);
     }
     return fr;
@@ -441,6 +502,21 @@ static bool dsk_validate(uint8_t vol, msc_dsk_info_t *info, bool need_writable)
     if (!info->present)
     {
         mon_add_response_utf8(S(STR_ERR_NO_MEDIA));
+        return false;
+    }
+    // A present volume always has nonzero geometry; 0 sectors means a bogus or
+    // overflowed READ CAPACITY. Reject so the progress math never divides by 0.
+    if (info->block_count == 0)
+    {
+        mon_add_response_fatfs(FR_INVALID_DRIVE);
+        return false;
+    }
+    // 512-byte logical sectors only: FatFs is built FF_MAX_SS==512 and mbuf is
+    // the sole scratch for the raw erase/verify passes, so a larger sector
+    // cannot be buffered.
+    if (info->block_size != 512)
+    {
+        mon_add_response_utf8(S(STR_ERR_SECTOR_SIZE));
         return false;
     }
     if (need_writable && info->write_prot)
@@ -564,7 +640,7 @@ static void dsk_format(const char *args)
     }
     if (dsk_layout == DSK_LAYOUT_GPT && !FF_LBA64)
     {
-        mon_add_response_utf8(S(STR_ERR_EXFAT_DISABLED));
+        mon_add_response_utf8(S(STR_ERR_GPT_DISABLED));
         return;
     }
     if (dsk_layout == DSK_LAYOUT_GPT && dsk_is_floppy)
@@ -585,7 +661,7 @@ static void dsk_format(const char *args)
     }
     // Own the FS type + cluster size (no f_mkfs auto-select).
     UINT au_sectors;
-    dsk_fsty = dsk_resolve_fs(info.block_count, dsk_fs, dsk_au, &au_sectors);
+    dsk_fsty = dsk_resolve_fs(info.block_count, dsk_fs, dsk_au, &au_sectors, dsk_layout);
     if (dsk_fsty == 0)
     {
         mon_add_response_fatfs(FR_MKFS_ABORTED);
@@ -677,17 +753,9 @@ static void dsk_label(const char *args)
     char oldlabel[24];
     if (f_getlabel(dsk_path, oldlabel, &vsn) != FR_OK)
         oldlabel[0] = '\0';
-    char arg[sizeof(dsk_path) + sizeof(dsk_label_oem)];
-    size_t n = 0;
-    while (dsk_path[n])
-    {
-        arg[n] = dsk_path[n];
-        n++;
-    }
     // An empty "" label clears it.
-    for (size_t m = 0; newlabel[m] && n < sizeof(arg) - 1; m++)
-        arg[n++] = newlabel[m];
-    arg[n] = '\0';
+    char arg[sizeof(dsk_path) + sizeof(dsk_label_oem)];
+    snprintf(arg, sizeof(arg), "%s%s", dsk_path, newlabel);
     FRESULT fr = f_setlabel(arg);
     if (fr == FR_OK)
     {
@@ -725,11 +793,20 @@ void dsk_task(void)
             else if (r == -2)
             {
                 printf_utf8(S(STR_DISK_FORMATTING));
-                msc_dsk_format_sync(dsk_vol); // blocking, uninterruptible
-                dsk_state = DSK_RUN_MKFS;
+                if (msc_dsk_format_sync(dsk_vol)) // blocking, uninterruptible
+                    dsk_state = DSK_RUN_MKFS;
+                else
+                {
+                    mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
+                    msc_dsk_reenumerate(dsk_pdrv);
+                    dsk_state = DSK_IDLE;
+                }
             }
-            else // low-level format unavailable; fall through to quick
-                dsk_state = DSK_RUN_MKFS;
+            else // /full asked but no usable low-level format: fail rather than
+            {    // silently quick-format, which leaves the media unprepared.
+                mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
+                dsk_state = DSK_IDLE;
+            }
             return;
         }
         {
@@ -737,7 +814,7 @@ void dsk_task(void)
             if (pct < 0)
             {
                 putchar('\n');
-                mon_add_response_fatfs(FR_DISK_ERR);
+                mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
                 msc_dsk_reenumerate(dsk_pdrv);
                 dsk_state = DSK_IDLE;
                 return;
@@ -821,12 +898,13 @@ void dsk_task(void)
         if (ria_get_sigint()) // Ctrl-C stops the overwrite
         {
             putchar('\n');
+            msc_dsk_reenumerate(dsk_pdrv); // sectors were zeroed; drop stale mount
             main_break();
             return;
         }
+        // Chunk is bounded by mbuf, the only scratch available; disk_write would
+        // accept more sectors per transfer, but a larger buffer is not affordable.
         uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
-        if (per == 0)
-            per = 1;
         uint64_t remain = dsk_total - dsk_lba;
         uint32_t n = remain < per ? (uint32_t)remain : per;
         memset(mbuf, 0, (size_t)n * dsk_block_size);
@@ -864,8 +942,6 @@ void dsk_task(void)
             return;
         }
         uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
-        if (per == 0)
-            per = 1;
         uint64_t remain = dsk_total - dsk_lba;
         uint32_t n = remain < per ? (uint32_t)remain : per;
         if (!msc_dsk_read(dsk_vol, mbuf, dsk_lba, n))

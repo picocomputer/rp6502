@@ -91,6 +91,9 @@ X(STR_ERR_VGA_NOT_CONNECTED, "?VGA nie jest podłączone\n")
 X(STR_ERR_NO_MEDIA, "?Brak nośnika\n")
 X(STR_ERR_EXFAT_DISABLED, "?exFAT niedostępny w tej kompilacji\n")
 X(STR_ERR_NOT_FORMATTABLE, "?Pełne formatowanie nieobsługiwane na tym urządzeniu\n")
+X(STR_ERR_SECTOR_SIZE, "?Rozmiar sektora nieobsługiwany\n")
+X(STR_ERR_GPT_DISABLED, "?GPT niedostępny w tej kompilacji\n")
+X(STR_ERR_FORMAT_FAILED, "?Formatowanie niskopoziomowe nie powiodło się\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?Błąd IO\n")                              // -5
