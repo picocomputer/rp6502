@@ -418,6 +418,15 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
+void mon_print_fatfs(int fresult)
+{
+    const char *err_str = mon_fatfs_lookup(fresult);
+    if (err_str != NULL)
+        printf_utf8("%s", err_str);
+    else
+        printf_utf8(S(STR_ERR_UNKNOWN_NUMBER), fresult);
+}
+
 static void mon_more(void)
 {
     if (mon_needs_break)

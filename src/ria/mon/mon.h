@@ -38,6 +38,10 @@ void mon_add_response_utf8(const char *utf8);
 void mon_add_response_lfs(int result);
 void mon_add_response_fatfs(int fresult);
 
+// Print a FatFs error immediately (for run-phase tasks that own the terminal and
+// print progress directly, rather than queuing via mon_add_response_fatfs).
+void mon_print_fatfs(int fresult);
+
 // After queuing a preview, request a YES/no confirmation. cb() runs only if the
 // user types YES; Ctrl-C, break, or anything else cancels back to the prompt.
 typedef void (*mon_confirm_fn)(void);

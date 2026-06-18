@@ -65,8 +65,7 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // not need to account for mechanical delay.
 #define MSC_SCSI_OP_TIMEOUT_MS 250
 
-// FORMAT UNIT can take minutes on a floppy. With IMMED the command returns at
-// once and progress is polled; without IMMED this bounds the synchronous wait.
+// A synchronous FORMAT UNIT can take minutes on a floppy; this bounds the wait.
 #define MSC_FORMAT_UNIT_TIMEOUT_MS 120000
 
 // disk_status() issues a TUR on removable volumes only when this many
@@ -1197,25 +1196,30 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
     return status;
 }
 
-// SCSI FORMAT UNIT (opcode 0x04). With immed, a 4-byte defect-list-header
-// parameter list with the IMMED bit is sent so the command returns at once and
-// the format runs in the background (poll progress via REQUEST SENSE).
-static msc_status_t msc_scsi_format_unit(uint8_t vol, bool immed)
+// UFI FORMAT UNIT (opcode 0x04) for one track/head, matching the Linux ufiformat
+// tool: a whole-disk request is acked without formatting, so the medium is
+// formatted one track at a time (the host loops track x head). Per the UFI spec,
+// CDB byte 1 = 0x17 (FmtData=1, CmpList=0, Defect List Format=7), byte 2 = track,
+// byte 8 = parameter-list length (12). The parameter list is a defect-list header
+// (FOV | DCRT | STPF, with the head/side in bit 0, defect-list length 8) plus an
+// 8-byte format descriptor carrying the medium geometry (a Formattable Descriptor
+// from READ FORMAT CAPACITIES). The command is synchronous; completion is polled
+// via REQUEST SENSE (msc_dsk_format_poll).
+static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t head)
 {
-    uint8_t cmd[6] = {0x04, 0x00, 0x00, 0x00, 0x00, 0x00};
-    uint8_t param[4] = {0x00, 0x00, 0x00, 0x00};
-    uint32_t total = 0;
-    const void *data = NULL;
-    if (immed)
-    {
-        cmd[1] = 0x10;   // FmtData=1: a parameter list follows
-        param[1] = 0x02; // defect-list header IMMED bit
-        total = sizeof(param);
-        data = param;
-    }
+    uint8_t cmd[12] = {0x04, 0x17, track, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x0C, 0x00, 0x00, 0x00};
+    uint32_t blocks = (uint32_t)msc_pdrv[vol].block_count;
+    uint32_t bsize = msc_pdrv[vol].block_size;
+    uint8_t param[12] = {
+        0x00, (uint8_t)(0xB0 | head), 0x00, 0x08, // header: FOV|DCRT|STPF | side
+        (uint8_t)(blocks >> 24), (uint8_t)(blocks >> 16),
+        (uint8_t)(blocks >> 8), (uint8_t)blocks, // format descriptor: number of blocks
+        0x00,                                    // reserved
+        (uint8_t)(bsize >> 16), (uint8_t)(bsize >> 8), (uint8_t)bsize}; // block length
     msc_cbw_t cbw;
-    msc_cbw_init(&cbw, vol, total, TUSB_DIR_OUT, sizeof(cmd), cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, data, MSC_FORMAT_UNIT_TIMEOUT_MS);
+    msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, sizeof(cmd), cmd);
+    msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_FORMAT_UNIT_TIMEOUT_MS);
     DBG_CMD(vol, "FORMAT UNIT", status);
     return status;
 }
@@ -2082,24 +2086,28 @@ bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
     return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-// Start a background FORMAT UNIT (IMMED). 0=started (poll),
-// -2=IMMED/parameter list rejected (caller should use msc_dsk_format_sync),
-// -1=FORMAT UNIT unavailable or failed (caller must not silently quick-format).
-int msc_dsk_format_start(uint8_t vol)
+// Start a FORMAT UNIT for one track/head. 0=started (poll with msc_dsk_format_poll
+// until that track finishes), -1=error/refused.
+int msc_dsk_format_start(uint8_t vol, uint8_t track, uint8_t head)
 {
     uint8_t pdrv;
     if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
         return -1;
     if (msc_pdrv[pdrv].write_prot)
         return -1;
-    if (msc_scsi_format_unit(pdrv, true) == MSC_STATUS_PASSED)
+    if (msc_scsi_format_unit(pdrv, track, head) == MSC_STATUS_PASSED)
         return 0;
-    if (msc_pdrv[pdrv].sense_key == SCSI_SENSE_ILLEGAL_REQUEST)
-        return -2;
+    // A track format still running answers the autosense REQUEST SENSE with NOT
+    // READY / FORMAT IN PROGRESS (04/04); that is "started", not an error.
+    if (msc_pdrv[pdrv].sense_key == SCSI_SENSE_NOT_READY &&
+        msc_pdrv[pdrv].sense_asc == 0x04 && msc_pdrv[pdrv].sense_ascq == 0x04)
+        return 0;
     return -1;
 }
 
-// Poll FORMAT UNIT progress. -1=error, 0..99=percent, 100=complete.
+// Poll background FORMAT UNIT progress. -1=error/failed, 0..99=percent,
+// 100=complete. "Format in progress" (NOT READY 04/04) reports the SKSV percent;
+// once that clears the format only succeeded if the unit is actually ready.
 int msc_dsk_format_poll(uint8_t vol)
 {
     uint8_t pdrv;
@@ -2118,18 +2126,7 @@ int msc_dsk_format_poll(uint8_t vol)
         }
         return 0;
     }
-    return 100;
-}
-
-// Synchronous (blocking) FORMAT UNIT, for drives that reject the IMMED list.
-bool msc_dsk_format_sync(uint8_t vol)
-{
-    uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
-        return false;
-    if (msc_pdrv[pdrv].write_prot)
-        return false;
-    return msc_scsi_format_unit(pdrv, false) == MSC_STATUS_PASSED;
+    return msc_scsi_test_unit_ready(pdrv) == MSC_STATUS_PASSED ? 100 : -1;
 }
 
 // Start a background SANITIZE (IMMED), trying crypto erase then block erase.

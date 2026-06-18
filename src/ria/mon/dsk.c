@@ -75,7 +75,11 @@ static bool dsk_has_label;
 static char dsk_label_oem[12];
 static uint8_t dsk_layout;     // DSK_LAYOUT_* for format
 static uint8_t dsk_preview_op; // DSK_PREVIEW_* trailing lines for the generator
-static bool dsk_fmt_started;   // FORMAT UNIT issued (poll phase)
+static bool dsk_fmt_started;   // FORMAT UNIT issued for the current track (poll phase)
+static uint8_t dsk_fmt_track;  // current track in the per-track format loop
+static uint8_t dsk_fmt_head;   // current head in the per-track format loop
+static uint8_t dsk_fmt_tracks; // track count for the loop
+static uint8_t dsk_fmt_heads;  // head count for the loop
 static uint32_t dsk_block_size;
 static uint64_t dsk_total; // sectors for zero/verify
 static uint64_t dsk_lba;   // current sector
@@ -467,12 +471,28 @@ static FRESULT dsk_do_mkfs(void)
     return fr;
 }
 
+// Floppy track/head geometry for the per-track FORMAT UNIT loop, by sector count.
+// Heads is 2 for every standard floppy; tracks is 80 except 360 KB media (40).
+static void dsk_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads)
+{
+    *heads = 2;
+    *tracks = (blocks <= 720) ? 40 : 80;
+}
+
 // Confirm actions: invoked by the monitor only when the user types YES.
 static void dsk_run_format(void)
 {
     dsk_last_pct = -1;
     dsk_fmt_started = false;
-    dsk_state = (dsk_full && dsk_is_floppy) ? DSK_RUN_FORMAT_UNIT : DSK_RUN_MKFS;
+    dsk_fmt_track = 0;
+    dsk_fmt_head = 0;
+    if (dsk_full && dsk_is_floppy)
+    {
+        dsk_floppy_geometry(dsk_total, &dsk_fmt_tracks, &dsk_fmt_heads);
+        dsk_state = DSK_RUN_FORMAT_UNIT;
+    }
+    else
+        dsk_state = DSK_RUN_MKFS;
 }
 
 static void dsk_run_erase(void)
@@ -633,6 +653,7 @@ static void dsk_format(const char *args)
     dsk_vol = (uint8_t)vol;
     msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
     dsk_is_floppy = info.is_floppy;
+    dsk_total = info.block_count; // sector count for the per-track format geometry
     if (dsk_full && !dsk_is_floppy)
     {
         mon_add_response_utf8(S(STR_ERR_NOT_FORMATTABLE));
@@ -785,46 +806,53 @@ void dsk_task(void)
     switch (dsk_state)
     {
     case DSK_RUN_FORMAT_UNIT:
+        // Format one track per pass (the drive no-ops a whole-disk request), then
+        // poll that track to completion before advancing. Progress is overall.
         if (!dsk_fmt_started)
         {
-            int r = msc_dsk_format_start(dsk_vol);
-            if (r == 0)
-                dsk_fmt_started = true;
-            else if (r == -2)
-            {
+            if (dsk_fmt_track == 0 && dsk_fmt_head == 0)
                 printf_utf8(S(STR_DISK_FORMATTING));
-                if (msc_dsk_format_sync(dsk_vol)) // blocking, uninterruptible
-                    dsk_state = DSK_RUN_MKFS;
-                else
-                {
-                    mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
-                    msc_dsk_reenumerate(dsk_pdrv);
-                    dsk_state = DSK_IDLE;
-                }
-            }
-            else // /full asked but no usable low-level format: fail rather than
-            {    // silently quick-format, which leaves the media unprepared.
-                mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
+            if (msc_dsk_format_start(dsk_vol, dsk_fmt_track, dsk_fmt_head) != 0)
+            {
+                if (dsk_last_pct >= 0)
+                    putchar('\n');
+                printf_utf8(S(STR_ERR_FORMAT_FAILED));
+                msc_dsk_reenumerate(dsk_pdrv);
                 dsk_state = DSK_IDLE;
+                return;
             }
+            dsk_fmt_started = true;
             return;
         }
         {
             int pct = msc_dsk_format_poll(dsk_vol);
             if (pct < 0)
             {
-                putchar('\n');
-                mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
+                if (dsk_last_pct >= 0)
+                    putchar('\n');
+                printf_utf8(S(STR_ERR_FORMAT_FAILED));
                 msc_dsk_reenumerate(dsk_pdrv);
                 dsk_state = DSK_IDLE;
                 return;
             }
-            if (pct != dsk_last_pct)
+            if (pct >= 100) // this track/head finished; advance
             {
-                dsk_last_pct = pct;
-                printf_utf8(STR_DISK_PROG_FORMAT, pct);
+                dsk_fmt_started = false;
+                if (++dsk_fmt_head >= dsk_fmt_heads)
+                {
+                    dsk_fmt_head = 0;
+                    dsk_fmt_track++;
+                }
             }
-            if (pct >= 100)
+            uint32_t total = (uint32_t)dsk_fmt_tracks * dsk_fmt_heads;
+            uint32_t done = (uint32_t)dsk_fmt_track * dsk_fmt_heads + dsk_fmt_head;
+            int overall = total ? (int)(done * 100 / total) : 100;
+            if (overall != dsk_last_pct)
+            {
+                dsk_last_pct = overall;
+                printf_utf8(STR_DISK_PROG_FORMAT, overall);
+            }
+            if (dsk_fmt_track >= dsk_fmt_tracks)
             {
                 putchar('\n');
                 dsk_state = DSK_RUN_MKFS;
@@ -837,9 +865,9 @@ void dsk_task(void)
         FRESULT fr = dsk_do_mkfs();
         msc_dsk_reenumerate(dsk_pdrv);
         if (fr == FR_OK)
-            mon_add_response_utf8(S(STR_DISK_DONE));
+            printf_utf8(S(STR_DISK_DONE));
         else
-            mon_add_response_fatfs(fr);
+            mon_print_fatfs(fr);
         dsk_state = DSK_IDLE;
         return;
     }
@@ -861,7 +889,7 @@ void dsk_task(void)
         }
         else
         {
-            mon_add_response_fatfs(FR_DISK_ERR);
+            mon_print_fatfs(FR_DISK_ERR);
             dsk_state = DSK_IDLE;
         }
         return;
@@ -873,7 +901,7 @@ void dsk_task(void)
         if (pct < 0)
         {
             putchar('\n');
-            mon_add_response_fatfs(FR_DISK_ERR);
+            mon_print_fatfs(FR_DISK_ERR);
             msc_dsk_reenumerate(dsk_pdrv);
             dsk_state = DSK_IDLE;
             return;
@@ -887,7 +915,7 @@ void dsk_task(void)
         {
             putchar('\n');
             msc_dsk_reenumerate(dsk_pdrv);
-            mon_add_response_utf8(S(STR_DISK_DONE));
+            printf_utf8(S(STR_DISK_DONE));
             dsk_state = DSK_IDLE;
         }
         return;
@@ -911,7 +939,7 @@ void dsk_task(void)
         if (!msc_dsk_write(dsk_vol, mbuf, dsk_lba, n))
         {
             putchar('\n');
-            mon_add_response_fatfs(FR_DISK_ERR);
+            mon_print_fatfs(FR_DISK_ERR);
             msc_dsk_reenumerate(dsk_pdrv);
             dsk_state = DSK_IDLE;
             return;
@@ -927,7 +955,7 @@ void dsk_task(void)
         {
             putchar('\n');
             msc_dsk_reenumerate(dsk_pdrv);
-            mon_add_response_utf8(S(STR_DISK_DONE));
+            printf_utf8(S(STR_DISK_DONE));
             dsk_state = DSK_IDLE;
         }
         return;
