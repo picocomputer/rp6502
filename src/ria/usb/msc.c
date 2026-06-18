@@ -65,9 +65,6 @@ static FIL msc_std_fil_pool[MSC_STD_FIL_MAX];
 // not need to account for mechanical delay.
 #define MSC_SCSI_OP_TIMEOUT_MS 250
 
-// A synchronous FORMAT UNIT can take minutes on a floppy; this bounds the wait.
-#define MSC_FORMAT_UNIT_TIMEOUT_MS 120000
-
 // disk_status() issues a TUR on removable volumes only when this many
 // milliseconds have elapsed since the last successful SCSI command.
 // This detects media removal without adding overhead during active I/O.
@@ -496,7 +493,6 @@ static void msc_abort(uint8_t daddr)
         return;
     }
 
-    // Nothing to abort.
     if (p_msc->stage == MSC_STAGE_IDLE)
         return;
 
@@ -543,7 +539,6 @@ static bool msc_scsi_submit(uint8_t daddr, msc_cbw_t const *cbw, void *data)
 
     if (msc_is_bot(p_msc))
     {
-        // BOT transport
         TU_VERIFY(usbh_edpt_claim(daddr, p_msc->ep_out));
 
         if (!usbh_edpt_xfer(daddr, p_msc->ep_out, (uint8_t *)&epbuf->cbw, sizeof(msc_cbw_t)))
@@ -708,7 +703,6 @@ static bool msc_bot_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t eve
             msc_start_recovery(dev_addr);
             break;
         }
-        // Read CSW
         p_msc->stage = MSC_STAGE_STATUS;
         if (!usbh_edpt_xfer(dev_addr, p_msc->ep_in, (uint8_t *)csw, (uint16_t)sizeof(msc_csw_t)))
         {
@@ -1196,15 +1190,12 @@ static msc_status_t msc_scsi_test_unit_ready(uint8_t vol)
     return status;
 }
 
-// UFI FORMAT UNIT (opcode 0x04) for one track/head, matching the Linux ufiformat
-// tool: a whole-disk request is acked without formatting, so the medium is
-// formatted one track at a time (the host loops track x head). Per the UFI spec,
+// UFI FORMAT UNIT (opcode 0x04) for one track/head. Per the UFI spec,
 // CDB byte 1 = 0x17 (FmtData=1, CmpList=0, Defect List Format=7), byte 2 = track,
 // byte 8 = parameter-list length (12). The parameter list is a defect-list header
 // (FOV | DCRT | STPF, with the head/side in bit 0, defect-list length 8) plus an
 // 8-byte format descriptor carrying the medium geometry (a Formattable Descriptor
-// from READ FORMAT CAPACITIES). The command is synchronous; completion is polled
-// via REQUEST SENSE (msc_dsk_format_poll).
+// from READ FORMAT CAPACITIES).
 static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t head)
 {
     uint8_t cmd[12] = {0x04, 0x17, track, 0x00, 0x00, 0x00,
@@ -1219,7 +1210,7 @@ static msc_status_t msc_scsi_format_unit(uint8_t vol, uint8_t track, uint8_t hea
         (uint8_t)(bsize >> 16), (uint8_t)(bsize >> 8), (uint8_t)bsize}; // block length
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, sizeof(param), TUSB_DIR_OUT, sizeof(cmd), cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_FORMAT_UNIT_TIMEOUT_MS);
+    msc_status_t status = msc_scsi_command(vol, &cbw, param, MSC_SCSI_RW_TIMEOUT_MS);
     DBG_CMD(vol, "FORMAT UNIT", status);
     return status;
 }
@@ -1233,7 +1224,7 @@ static msc_status_t msc_scsi_sanitize(uint8_t vol, uint8_t service_action, bool 
                        0, 0, 0, 0, 0, 0, 0, 0};
     msc_cbw_t cbw;
     msc_cbw_init(&cbw, vol, 0, TUSB_DIR_OUT, sizeof(cmd), cmd);
-    msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_FORMAT_UNIT_TIMEOUT_MS);
+    msc_status_t status = msc_scsi_command(vol, &cbw, NULL, MSC_SCSI_RW_TIMEOUT_MS);
     DBG_CMD(vol, "SANITIZE", status);
     return status;
 }
@@ -2086,52 +2077,16 @@ bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
     return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-// Start a FORMAT UNIT for one track/head. 0=started (poll with msc_dsk_format_poll
-// until that track finishes), -1=error/refused.
-int msc_dsk_format_start(uint8_t vol, uint8_t track, uint8_t head)
+bool msc_dsk_format_track(uint8_t vol, uint8_t track, uint8_t head)
 {
     uint8_t pdrv;
     if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
-        return -1;
+        return false;
     if (msc_pdrv[pdrv].write_prot)
-        return -1;
-    if (msc_scsi_format_unit(pdrv, track, head) == MSC_STATUS_PASSED)
-        return 0;
-    // A track format still running answers the autosense REQUEST SENSE with NOT
-    // READY / FORMAT IN PROGRESS (04/04); that is "started", not an error.
-    if (msc_pdrv[pdrv].sense_key == SCSI_SENSE_NOT_READY &&
-        msc_pdrv[pdrv].sense_asc == 0x04 && msc_pdrv[pdrv].sense_ascq == 0x04)
-        return 0;
-    return -1;
+        return false;
+    return msc_scsi_format_unit(pdrv, track, head) == MSC_STATUS_PASSED;
 }
 
-// Poll background FORMAT UNIT progress. -1=error/failed, 0..99=percent,
-// 100=complete. "Format in progress" (NOT READY 04/04) reports the SKSV percent;
-// once that clears the format only succeeded if the unit is actually ready.
-int msc_dsk_format_poll(uint8_t vol)
-{
-    uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
-        return -1;
-    uint8_t s[18];
-    if (msc_scsi_request_sense_raw(pdrv, s) == MSC_STATUS_TIMED_OUT)
-        return -1;
-    if ((s[2] & 0x0F) == SCSI_SENSE_NOT_READY && s[12] == 0x04 && s[13] == 0x04)
-    {
-        if (s[15] & 0x80) // SKSV: progress indication valid
-        {
-            uint32_t prog = ((uint32_t)s[16] << 8) | s[17];
-            int pct = (int)((prog * 100) / 65536);
-            return pct > 99 ? 99 : pct;
-        }
-        return 0;
-    }
-    return msc_scsi_test_unit_ready(pdrv) == MSC_STATUS_PASSED ? 100 : -1;
-}
-
-// Start a background SANITIZE (IMMED), trying crypto erase then block erase.
-// 0=crypto started, 1=block started, -1=no sanitize support (caller overwrites),
-// -2=cannot proceed.
 int msc_dsk_sanitize_start(uint8_t vol)
 {
     uint8_t pdrv;
@@ -2148,7 +2103,6 @@ int msc_dsk_sanitize_start(uint8_t vol)
     return -1;
 }
 
-// Poll SANITIZE progress. -1=error, 0..99=percent, 100=complete.
 int msc_dsk_sanitize_poll(uint8_t vol)
 {
     uint8_t pdrv;

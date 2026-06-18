@@ -75,7 +75,6 @@ static bool dsk_has_label;
 static char dsk_label_oem[12];
 static uint8_t dsk_layout;     // DSK_LAYOUT_* for format
 static uint8_t dsk_preview_op; // DSK_PREVIEW_* trailing lines for the generator
-static bool dsk_fmt_started;   // FORMAT UNIT issued for the current track (poll phase)
 static uint8_t dsk_fmt_track;  // current track in the per-track format loop
 static uint8_t dsk_fmt_head;   // current head in the per-track format loop
 static uint8_t dsk_fmt_tracks; // track count for the loop
@@ -479,11 +478,9 @@ static void dsk_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads
     *tracks = (blocks <= 720) ? 40 : 80;
 }
 
-// Confirm actions: invoked by the monitor only when the user types YES.
 static void dsk_run_format(void)
 {
     dsk_last_pct = -1;
-    dsk_fmt_started = false;
     dsk_fmt_track = 0;
     dsk_fmt_head = 0;
     if (dsk_full && dsk_is_floppy)
@@ -806,44 +803,30 @@ void dsk_task(void)
     switch (dsk_state)
     {
     case DSK_RUN_FORMAT_UNIT:
-        // Format one track per pass (the drive no-ops a whole-disk request), then
-        // poll that track to completion before advancing. Progress is overall.
-        if (!dsk_fmt_started)
+        if (ria_get_sigint()) // Ctrl-C stops the format between tracks
         {
-            if (dsk_fmt_track == 0 && dsk_fmt_head == 0)
-                printf_utf8(S(STR_DISK_FORMATTING));
-            if (msc_dsk_format_start(dsk_vol, dsk_fmt_track, dsk_fmt_head) != 0)
-            {
-                if (dsk_last_pct >= 0)
-                    putchar('\n');
-                printf_utf8(S(STR_ERR_FORMAT_FAILED));
-                msc_dsk_reenumerate(dsk_pdrv);
-                dsk_state = DSK_IDLE;
-                return;
-            }
-            dsk_fmt_started = true;
+            putchar('\n');
+            msc_dsk_reenumerate(dsk_pdrv); // partial low-level format; drop stale mount
+            main_break();
             return;
         }
+        if (dsk_fmt_track == 0 && dsk_fmt_head == 0)
+            printf_utf8(S(STR_DISK_FORMATTING));
+        if (!msc_dsk_format_track(dsk_vol, dsk_fmt_track, dsk_fmt_head))
         {
-            int pct = msc_dsk_format_poll(dsk_vol);
-            if (pct < 0)
-            {
-                if (dsk_last_pct >= 0)
-                    putchar('\n');
-                printf_utf8(S(STR_ERR_FORMAT_FAILED));
-                msc_dsk_reenumerate(dsk_pdrv);
-                dsk_state = DSK_IDLE;
-                return;
-            }
-            if (pct >= 100) // this track/head finished; advance
-            {
-                dsk_fmt_started = false;
-                if (++dsk_fmt_head >= dsk_fmt_heads)
-                {
-                    dsk_fmt_head = 0;
-                    dsk_fmt_track++;
-                }
-            }
+            if (dsk_last_pct >= 0)
+                putchar('\n');
+            printf_utf8(S(STR_ERR_FORMAT_FAILED));
+            msc_dsk_reenumerate(dsk_pdrv);
+            dsk_state = DSK_IDLE;
+            return;
+        }
+        if (++dsk_fmt_head >= dsk_fmt_heads) // this track/head done; advance
+        {
+            dsk_fmt_head = 0;
+            dsk_fmt_track++;
+        }
+        {
             uint32_t total = (uint32_t)dsk_fmt_tracks * dsk_fmt_heads;
             uint32_t done = (uint32_t)dsk_fmt_track * dsk_fmt_heads + dsk_fmt_head;
             int overall = total ? (int)(done * 100 / total) : 100;
@@ -852,11 +835,11 @@ void dsk_task(void)
                 dsk_last_pct = overall;
                 printf_utf8(STR_DISK_PROG_FORMAT, overall);
             }
-            if (dsk_fmt_track >= dsk_fmt_tracks)
-            {
-                putchar('\n');
-                dsk_state = DSK_RUN_MKFS;
-            }
+        }
+        if (dsk_fmt_track >= dsk_fmt_tracks)
+        {
+            putchar('\n');
+            dsk_state = DSK_RUN_MKFS;
         }
         return;
 
@@ -1012,8 +995,8 @@ bool dsk_active(void)
 
 void dsk_break(void)
 {
-    // FORMAT UNIT and SANITIZE cannot be cancelled; let them finish.
-    if (dsk_state == DSK_RUN_FORMAT_UNIT || dsk_state == DSK_RUN_SANITIZE)
+    // SANITIZE is a background hardware erase that cannot be cancelled; let it finish.
+    if (dsk_state == DSK_RUN_SANITIZE)
         return;
     dsk_state = DSK_IDLE;
 }
