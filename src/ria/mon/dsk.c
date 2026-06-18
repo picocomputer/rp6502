@@ -4,10 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "mon/dsk.h"
+#include "mon/hlp.h"
 #include "mon/mon.h"
 #include "str/str.h"
 #include "sys/mem.h"
+#include "sys/ria.h"
 #include "usb/msc.h"
 #include "usb/usb.h"
 #include <fatfs/ff.h>
@@ -45,9 +48,19 @@ static enum
     DSK_IDLE,
     DSK_RUN_FORMAT_UNIT,
     DSK_RUN_MKFS,
-    DSK_RUN_ZERO,
+    DSK_RUN_ERASE_BEGIN,
+    DSK_RUN_SANITIZE,
+    DSK_RUN_OVERWRITE,
     DSK_RUN_VERIFY,
 } dsk_state;
+
+// Trailing preview lines the generator emits after the shared info block.
+enum
+{
+    DSK_PREVIEW_PLAIN, // info / verify: info block only
+    DSK_PREVIEW_FORMAT,
+    DSK_PREVIEW_ERASE,
+};
 
 // Operation context, valid from preview through completion.
 static uint8_t dsk_vol;           // logical volume (MSCn:)
@@ -61,7 +74,7 @@ static uint8_t dsk_fsty;          // resolved FS_FAT12/16/32/EXFAT for format
 static bool dsk_has_label;
 static char dsk_label_oem[12];
 static uint8_t dsk_layout;        // DSK_LAYOUT_* for format
-static bool dsk_show_make;        // preview generator: include the format lines
+static uint8_t dsk_preview_op;    // DSK_PREVIEW_* trailing lines for the generator
 static bool dsk_fmt_started;      // FORMAT UNIT issued (poll phase)
 static uint32_t dsk_block_size;
 static uint64_t dsk_total;        // sectors for zero/verify
@@ -109,15 +122,15 @@ static const char *dsk_fs_name(BYTE fs_type)
     switch (fs_type)
     {
     case FS_FAT12:
-        return STR_FS_FAT12;
+        return STR_FAT12;
     case FS_FAT16:
-        return STR_FS_FAT16;
+        return STR_FAT16;
     case FS_FAT32:
-        return STR_FS_FAT32;
+        return STR_FAT32;
     case FS_EXFAT:
-        return STR_FS_EXFAT;
+        return STR_EXFAT;
     default:
-        return STR_FS_NONE;
+        return S(STR_PARENS_NONE);
     }
 }
 
@@ -151,29 +164,29 @@ static bool dsk_is_fat_vbr(const uint8_t *w)
            (tot16 >= 64 || tot32 >= 0x10000) && fsz16 != 0;
 }
 
-// Localized scheme word for the current on-disk layout, or -1 if unknown.
-static int dsk_scheme_word(void)
+// Scheme word for the current on-disk layout, or NULL if unknown.
+static const char *dsk_scheme_word(void)
 {
     if (!msc_dsk_read(dsk_vol, mbuf, 0, 1))
-        return -1;
+        return NULL;
     if (dsk_is_fat_vbr(mbuf))
-        return STR_DISK_SCHEME_SFD;
+        return STR_SFD;
     if (mbuf[510] == 0x55 && mbuf[511] == 0xAA)
-        return (mbuf[446 + 4] == 0xEE) ? STR_DISK_SCHEME_GPT : STR_DISK_SCHEME_MBR;
-    return -1;
+        return (mbuf[446 + 4] == 0xEE) ? STR_GPT : STR_MBR;
+    return NULL;
 }
 
 // Build the "<scheme> <filesystem> <cluster> (<label>)" descriptor shared by the
-// FMT (current) and MAKE (target) lines. scheme: STR id or -1 (omit). fsname: the
+// VOL (current) and FMT (target) lines. scheme: word or NULL (omit). fsname: the
 // filesystem name (never NULL). au_bytes: cluster size in KB (512 B shown in
 // bytes), 0 to omit when there is no filesystem. label: appended in parens when
 // non-empty (NULL/"" omits it).
-static void dsk_fmt_desc(char *out, size_t size, int scheme, const char *fsname,
+static void dsk_fmt_desc(char *out, size_t size, const char *scheme, const char *fsname,
                          uint32_t au_bytes, const char *label)
 {
     size_t n = 0;
-    if (scheme >= 0)
-        n += snprintf(out + n, size - n, "%s ", S(scheme));
+    if (scheme)
+        n += snprintf(out + n, size - n, "%s ", scheme);
     n += snprintf(out + n, size - n, "%s", fsname);
     if (au_bytes == 512)
         n += snprintf(out + n, size - n, " 512 B");
@@ -183,8 +196,8 @@ static void dsk_fmt_desc(char *out, size_t size, int scheme, const char *fsname,
         snprintf(out + n, size - n, " (%s)", label);
 }
 
-// Device/size/format preview as a monitor response generator: one line per
-// call (an empty fill skips a line). dsk_show_make adds the format-only lines.
+// Device/volume preview as a monitor response generator: one line per call (an
+// empty fill skips a line). dsk_preview_op adds the warning / target lines.
 // Routed through the response queue so the \a alignment markers work.
 static int dsk_preview_response(char *buf, size_t size, int state)
 {
@@ -213,20 +226,20 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             snprintf_utf8(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }
-    case 2: // FMT: boot scheme, filesystem, cluster size, and volume label
+    case 2: // VOL: boot scheme, filesystem, cluster size, and volume label
     {
         char desc[64], label[24];
         DWORD nclst, vsn;
         FATFS *fs;
-        int scheme = dsk_scheme_word();
+        const char *scheme = dsk_scheme_word();
         if (f_getlabel(dsk_path, label, &vsn) != FR_OK)
             label[0] = '\0';
         if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
             dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fs->fs_type),
                          fs->csize * 512u, label);
         else
-            dsk_fmt_desc(desc, sizeof(desc), scheme, STR_FS_NONE, 0, label);
-        snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
+            dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, label);
+        snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
         return 3;
     }
     case 3: // VOL: filesystem used of total, percent used
@@ -242,25 +255,29 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             char usedbuf[24], totbuf[24];
             str_size(usedb, usedbuf, sizeof(usedbuf));
             str_size(totb, totbuf, sizeof(totbuf));
-            snprintf_utf8(buf, size, S(STR_DISK_VOL), usedbuf, totbuf, pct);
+            snprintf_utf8(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
         }
-        return dsk_show_make ? 4 : -1;
+        return dsk_preview_op == DSK_PREVIEW_PLAIN ? -1 : 4;
     }
-    case 4: // target: layout, filesystem, cluster size, and label to apply
+    case 4: // confirm warning (format or erase)
+        snprintf_utf8(buf, size, S(dsk_preview_op == DSK_PREVIEW_ERASE
+                                       ? STR_DISK_WARN_ERASE
+                                       : STR_DISK_WARN_FORMAT));
+        return dsk_preview_op == DSK_PREVIEW_FORMAT ? 5 : -1;
+    case 5: // FMT: target layout, filesystem, cluster size, quick/full, label
     {
-        int scheme = dsk_layout == DSK_LAYOUT_SFD   ? STR_DISK_SCHEME_SFD
-                     : dsk_layout == DSK_LAYOUT_GPT ? STR_DISK_SCHEME_GPT
-                                                    : STR_DISK_SCHEME_MBR;
+        const char *scheme = dsk_layout == DSK_LAYOUT_SFD   ? STR_SFD
+                             : dsk_layout == DSK_LAYOUT_GPT ? STR_GPT
+                                                           : STR_MBR;
         char desc[64];
-        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au,
-                     dsk_has_label ? dsk_label_oem : NULL);
-        snprintf_utf8(buf, size, S(STR_DISK_MAKE), desc);
-        return 5;
-    }
-    case 5:
-        if (dsk_full)
-            snprintf_utf8(buf, size, S(STR_DISK_MODE_FULL));
+        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au, NULL);
+        size_t n = strlen(desc);
+        n += snprintf(desc + n, sizeof(desc) - n, " %s", dsk_full ? STR_FULL : STR_QUICK);
+        if (dsk_has_label && dsk_label_oem[0])
+            snprintf(desc + n, sizeof(desc) - n, " (%s)", dsk_label_oem);
+        snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
         return -1;
+    }
     default:
         return -1;
     }
@@ -394,10 +411,10 @@ static void dsk_run_format(void)
     dsk_state = (dsk_full && dsk_is_floppy) ? DSK_RUN_FORMAT_UNIT : DSK_RUN_MKFS;
 }
 
-static void dsk_run_zero(void)
+static void dsk_run_erase(void)
 {
     dsk_last_pct = -1;
-    dsk_state = DSK_RUN_ZERO;
+    dsk_state = DSK_RUN_ERASE_BEGIN;
 }
 
 // Continuation run after the info block drains (verify is read-only, no YES).
@@ -409,54 +426,68 @@ static void dsk_run_verify(void)
     dsk_state = DSK_RUN_VERIFY;
 }
 
-// Resolve and validate a drive token. Returns the volume index or -1 (after
-// queueing the appropriate error). Fills *info.
-static int dsk_open(const char *tok, msc_dsk_info_t *info, bool need_writable)
+// Validate a resolved volume: fill *info and require present[, writable].
+// Sets dsk_path and returns true, or queues the error and returns false.
+static bool dsk_validate(uint8_t vol, msc_dsk_info_t *info, bool need_writable)
 {
-    if (!tok)
-    {
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-        return -1;
-    }
-    int vol = msc_dsk_vol_from_name(tok);
-    if (vol < 0)
-    {
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-        return -1;
-    }
-    if (!msc_dsk_get_info((uint8_t)vol, info))
+    if (!msc_dsk_get_info(vol, info))
     {
         mon_add_response_fatfs(FR_INVALID_DRIVE);
-        return -1;
+        return false;
     }
     if (!info->present)
     {
         mon_add_response_utf8(S(STR_ERR_NO_MEDIA));
-        return -1;
+        return false;
     }
     if (need_writable && info->write_prot)
     {
         mon_add_response_fatfs(FR_WRITE_PROTECTED);
+        return false;
+    }
+    dsk_set_path(vol);
+    return true;
+}
+
+// Parse a drive-only argument list (info/erase/verify). Returns the volume, or
+// -1 after queueing sub's help (no drive) or an argument error (garbage/extra).
+static int dsk_parse_drive_only(const char *args, const char *sub)
+{
+    int vol = -1;
+    const char *t;
+    while ((t = str_parse_string(&args)) != NULL)
+    {
+        int v;
+        if (vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
+            vol = v;
+        else
+        {
+            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+            return -1;
+        }
+    }
+    if (vol < 0)
+    {
+        hlp_disk_sub_response(sub);
         return -1;
     }
-    dsk_set_path((uint8_t)vol);
     return vol;
 }
 
 static void dsk_format(const char *args)
 {
-    msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, true);
-    if (vol < 0)
-        return;
     dsk_fs = 0;
     dsk_full = false;
     dsk_au = 0;
     dsk_has_label = false;
     dsk_layout = DSK_LAYOUT_AUTO;
+    // Tokens may appear in any order: a '/' token is a flag, the first token
+    // that names a volume is the drive, any other token is the label.
+    int vol = -1;
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
     {
+        int v;
         if (!strcasecmp(t, STR_OPT_FAT))
             dsk_fs = 1;
         else if (!strcasecmp(t, STR_OPT_EXFAT))
@@ -486,7 +517,9 @@ static void dsk_format(const char *args)
                 return;
             }
         }
-        else
+        else if (vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
+            vol = v;
+        else if (!dsk_has_label)
         {
             // Volume label (OEM bytes from the terminal, as FatFs expects).
             // An empty "" clears the label.
@@ -499,7 +532,20 @@ static void dsk_format(const char *args)
             dsk_label_oem[n] = '\0';
             dsk_has_label = true;
         }
+        else
+        {
+            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+            return;
+        }
     }
+    if (vol < 0)
+    {
+        hlp_disk_sub_response(STR_FORMAT);
+        return;
+    }
+    msc_dsk_info_t info;
+    if (!dsk_validate((uint8_t)vol, &info, true))
+        return;
     if (dsk_fs == 2 && !FF_FS_EXFAT)
     {
         mon_add_response_utf8(S(STR_ERR_EXFAT_DISABLED));
@@ -543,61 +589,75 @@ static void dsk_format(const char *args)
         return;
     }
     dsk_au = au_sectors * 512u; // resolved cluster size in bytes
-    dsk_show_make = true;
+    dsk_preview_op = DSK_PREVIEW_FORMAT;
     mon_add_response_fn(dsk_preview_response);
     mon_response_confirm(dsk_run_format);
 }
 
-static void dsk_zero(const char *args)
+static void dsk_erase(const char *args)
 {
-    msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, true);
+    int vol = dsk_parse_drive_only(args, STR_ERASE);
     if (vol < 0)
         return;
-    if (!str_parse_end(args))
-    {
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+    msc_dsk_info_t info;
+    if (!dsk_validate((uint8_t)vol, &info, true))
         return;
-    }
     dsk_vol = (uint8_t)vol;
     msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
     dsk_block_size = info.block_size;
     dsk_total = info.block_count;
-    dsk_show_make = false;
+    dsk_preview_op = DSK_PREVIEW_ERASE;
     mon_add_response_fn(dsk_preview_response);
-    mon_response_confirm(dsk_run_zero);
+    mon_response_confirm(dsk_run_erase);
 }
 
 static void dsk_verify(const char *args)
 {
-    msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, false);
+    int vol = dsk_parse_drive_only(args, STR_VERIFY);
     if (vol < 0)
         return;
-    if (!str_parse_end(args))
-    {
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+    msc_dsk_info_t info;
+    if (!dsk_validate((uint8_t)vol, &info, false))
         return;
-    }
     dsk_vol = (uint8_t)vol;
     msc_dsk_pdrv_of_vol(dsk_vol, &dsk_pdrv);
     dsk_block_size = info.block_size;
     dsk_total = info.block_count;
-    dsk_show_make = false;
+    dsk_preview_op = DSK_PREVIEW_PLAIN;
     mon_add_response_fn(dsk_preview_response);
     mon_response_then(dsk_run_verify); // lead with info, then scan (read-only)
 }
 
 static void dsk_label(const char *args)
 {
-    msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, false);
+    // drive + optional label, in any order.
+    int vol = -1;
+    const char *newlabel = NULL;
+    const char *t;
+    while ((t = str_parse_string(&args)) != NULL)
+    {
+        int v;
+        if (vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
+            vol = v;
+        else if (!newlabel)
+            newlabel = t;
+        else
+        {
+            mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+            return;
+        }
+    }
     if (vol < 0)
+    {
+        hlp_disk_sub_response(STR_LABEL);
+        return;
+    }
+    msc_dsk_info_t info;
+    if (!dsk_validate((uint8_t)vol, &info, false))
         return;
     char label[24];
     DWORD vsn;
-    const char *t = str_parse_string(&args);
-    if (!t)
+    if (!newlabel) // show current
     {
         FRESULT fr = f_getlabel(dsk_path, label, &vsn);
         if (fr == FR_OK)
@@ -622,8 +682,8 @@ static void dsk_label(const char *args)
         n++;
     }
     // An empty "" label clears it.
-    for (size_t m = 0; t[m] && n < sizeof(arg) - 1; m++)
-        arg[n++] = t[m];
+    for (size_t m = 0; newlabel[m] && n < sizeof(arg) - 1; m++)
+        arg[n++] = newlabel[m];
     arg[n] = '\0';
     FRESULT fr = f_setlabel(arg);
     if (fr == FR_OK)
@@ -638,17 +698,14 @@ static void dsk_label(const char *args)
 
 static void dsk_info(const char *args)
 {
-    msc_dsk_info_t info;
-    int vol = dsk_open(str_parse_string(&args), &info, false);
+    int vol = dsk_parse_drive_only(args, STR_INFO);
     if (vol < 0)
         return;
-    if (!str_parse_end(args))
-    {
-        mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+    msc_dsk_info_t info;
+    if (!dsk_validate((uint8_t)vol, &info, false))
         return;
-    }
     dsk_vol = (uint8_t)vol;
-    dsk_show_make = false;
+    dsk_preview_op = DSK_PREVIEW_PLAIN;
     mon_add_response_fn(dsk_preview_response);
 }
 
@@ -707,8 +764,63 @@ void dsk_task(void)
         return;
     }
 
-    case DSK_RUN_ZERO:
+    case DSK_RUN_ERASE_BEGIN:
     {
+        // Prefer a hardware sanitize; fall back to a full overwrite.
+        int r = msc_dsk_sanitize_start(dsk_vol);
+        if (r == 0 || r == 1)
+        {
+            printf_utf8(S(STR_DISK_ERASE_SANITIZE));
+            dsk_state = DSK_RUN_SANITIZE;
+        }
+        else if (r == -1)
+        {
+            printf_utf8(S(STR_DISK_ERASE_OVERWRITE));
+            dsk_lba = 0;
+            dsk_state = DSK_RUN_OVERWRITE;
+        }
+        else
+        {
+            mon_add_response_fatfs(FR_DISK_ERR);
+            dsk_state = DSK_IDLE;
+        }
+        return;
+    }
+
+    case DSK_RUN_SANITIZE: // background hardware erase; cannot be interrupted
+    {
+        int pct = msc_dsk_sanitize_poll(dsk_vol);
+        if (pct < 0)
+        {
+            putchar('\n');
+            mon_add_response_fatfs(FR_DISK_ERR);
+            msc_dsk_reenumerate(dsk_pdrv);
+            dsk_state = DSK_IDLE;
+            return;
+        }
+        if (pct != dsk_last_pct)
+        {
+            dsk_last_pct = pct;
+            printf_utf8(STR_DISK_PROG_SANITIZE, pct);
+        }
+        if (pct >= 100)
+        {
+            putchar('\n');
+            msc_dsk_reenumerate(dsk_pdrv);
+            mon_add_response_utf8(S(STR_DISK_DONE));
+            dsk_state = DSK_IDLE;
+        }
+        return;
+    }
+
+    case DSK_RUN_OVERWRITE:
+    {
+        if (ria_get_sigint()) // Ctrl-C stops the overwrite
+        {
+            putchar('\n');
+            main_break();
+            return;
+        }
         uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
         if (per == 0)
             per = 1;
@@ -728,7 +840,7 @@ void dsk_task(void)
         if (pct != dsk_last_pct)
         {
             dsk_last_pct = pct;
-            printf_utf8(STR_DISK_PROG_ZERO, pct);
+            printf_utf8(STR_DISK_PROG_ERASE, pct);
         }
         if (dsk_lba >= dsk_total)
         {
@@ -742,6 +854,12 @@ void dsk_task(void)
 
     case DSK_RUN_VERIFY:
     {
+        if (ria_get_sigint()) // Ctrl-C stops the scan
+        {
+            putchar('\n');
+            main_break();
+            return;
+        }
         uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
         if (per == 0)
             per = 1;
@@ -787,8 +905,8 @@ bool dsk_active(void)
 
 void dsk_break(void)
 {
-    // A FORMAT UNIT cannot be cancelled; let it finish and keep control.
-    if (dsk_state == DSK_RUN_FORMAT_UNIT)
+    // FORMAT UNIT and SANITIZE cannot be cancelled; let them finish.
+    if (dsk_state == DSK_RUN_FORMAT_UNIT || dsk_state == DSK_RUN_SANITIZE)
         return;
     dsk_state = DSK_IDLE;
 }
@@ -805,8 +923,8 @@ void dsk_mon_disk(const char *args)
         dsk_info(args);
     else if (!strcasecmp(sub, STR_FORMAT))
         dsk_format(args);
-    else if (!strcasecmp(sub, STR_ZERO))
-        dsk_zero(args);
+    else if (!strcasecmp(sub, STR_ERASE))
+        dsk_erase(args);
     else if (!strcasecmp(sub, STR_VERIFY))
         dsk_verify(args);
     else if (!strcasecmp(sub, STR_LABEL))

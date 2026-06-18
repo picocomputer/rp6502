@@ -419,66 +419,66 @@ X(STR_DISK_BAD_SECTOR, "?Bad sector %lu\n")
 X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
 X(STR_DISK_DEV, "DEV: \a%s %s %s rev %s\n")
 X(STR_DISK_SERIAL, "S/N: \a%s\n")
+X(STR_DISK_VOL_FMT, "VOL: \a%s\n")
+X(STR_DISK_VOL_USE, "VOL: \a%s used of %s (%u%%)\n")
 X(STR_DISK_FMT, "FMT: \a%s\n")
-X(STR_DISK_VOL, "VOL: \a%s of %s (%u%%)\n")
-X(STR_DISK_SCHEME_SFD, "superfloppy")
-X(STR_DISK_SCHEME_MBR, "MBR")
-X(STR_DISK_SCHEME_GPT, "GPT")
-X(STR_DISK_MAKE, "MAKE: \a%s\n")
-X(STR_DISK_MODE_FULL, "MODE: \afull (low-level)\n")
+X(STR_DISK_WARN_FORMAT, "You are about to FORMAT this device!\n")
+X(STR_DISK_WARN_ERASE, "You are about to ERASE this device!\n")
+X(STR_DISK_ERASE_SANITIZE, "Erase: sanitize (secure)\n")
+X(STR_DISK_ERASE_OVERWRITE, "Erase: overwrite (no sanitize)\n")
 
 X(STR_HELP_DISK,
   "Disk:\n"
-  "HELP DISK sub        - \aShow information about a disk subcommand.\n"
-  "DISK INFO drv        - \aShow format and free space.\n"
+  "HELP DISK sub        - \aShow help for a disk subcommand.\n"
+  "DISK INFO drv        - \aShow device, format, and usage.\n"
   "DISK FORMAT drv ..   - \aCreate a filesystem. See HELP DISK FORMAT.\n"
-  "DISK ZERO drv        - \aErase every sector. Leaves the drive unmountable.\n"
+  "DISK ERASE drv       - \aSecurely destroy all data. See HELP DISK ERASE.\n"
   "DISK VERIFY drv      - \aRead every sector and report bad ones.\n"
   "DISK LABEL drv (lbl) - \aShow or set the volume label.\n")
 
 X(STR_HELP_DISK_INFO,
   "DISK INFO drive\n"
-  "Shows the device, the filesystem format, and the free space of a USB drive "
-  "named like MSC1:.\n")
+  "Shows the device, the on-disk format (scheme, filesystem, cluster size, "
+  "label), and how full the volume is. Drives are named MSC1: or 1:.\n")
 
 X(STR_HELP_DISK_FORMAT,
   "DISK FORMAT drive [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [label]\n"
-  "Creates a new filesystem on a USB drive named like MSC1:. /fat (default) is "
-  "the most compatible; /exfat is available only in builds that include it. The "
-  "on-disk layout is set by /sfd (superfloppy, no partition table), /mbr, or "
-  "/gpt (exFAT builds only); the default is superfloppy for floppies and MBR for "
-  "flash drives. The allocation unit (cluster) may be set with /512 through "
-  "larger powers of two; the default is chosen by capacity. /quick (default) "
-  "writes only the new filesystem. /full first does a low-level format and is "
-  "available only on floppy drives. A preview is shown and you must type YES to "
-  "confirm.\n")
+  "Creates a filesystem on a drive named MSC1: or 1:. /fat (default) is most "
+  "compatible; /exfat suits large drives. Layout: /sfd (superfloppy, no "
+  "partition table), /mbr, or /gpt; default is SFD for floppies, MBR for flash. "
+  "/512 through larger powers of two set the cluster size (default by capacity). "
+  "/quick (default) writes only the filesystem; /full adds a low-level format "
+  "(floppies only). Options and the label may appear in any order. A preview is "
+  "shown; type YES to confirm.\n")
 
 X(STR_HELP_DISK_FORMAT_BASIC,
   "DISK FORMAT drive [/sfd|/mbr] [/512|/4k...] [/quick|/full] [label]\n"
-  "Creates a new filesystem on a USB drive named like MSC1:. The on-disk layout "
-  "is set by /sfd (superfloppy, no partition table) or /mbr; the default is "
-  "superfloppy for floppies and MBR for flash drives. The allocation unit "
-  "(cluster) may be set with /512 through larger powers of two; the default is "
-  "chosen by capacity. /quick (default) writes only the new filesystem. /full "
-  "first does a low-level format and is available only on floppy drives. A "
-  "preview is shown and you must type YES to confirm.\n")
+  "Creates a FAT filesystem on a drive named MSC1: or 1:. Layout: /sfd "
+  "(superfloppy, no partition table) or /mbr; default is SFD for floppies, MBR "
+  "for flash. /512 through larger powers of two set the cluster size (default by "
+  "capacity). /quick (default) writes only the filesystem; /full adds a "
+  "low-level format (floppies only). Options and the label may appear in any "
+  "order. A preview is shown; type YES to confirm.\n")
 
-X(STR_HELP_DISK_ZERO,
-  "DISK ZERO drive\n"
-  "Writes zeros to every sector of a USB drive named like MSC1:, erasing all "
-  "data and leaving no filesystem; the drive is unmountable until formatted. "
-  "Progress is shown as a percentage. You must type YES to confirm.\n")
+X(STR_HELP_DISK_ERASE,
+  "DISK ERASE drive\n"
+  "Destroys all data on a drive named MSC1: or 1:. First tries a hardware "
+  "sanitize (the controller erases all flash, including spare blocks, so data is "
+  "unrecoverable). If the device lacks sanitize, it overwrites every sector with "
+  "zeros instead, which defeats file-recovery software but may leave data in "
+  "remapped flash cells. The method used is reported. Ctrl-C stops the "
+  "overwrite; sanitize cannot be interrupted. Type YES to confirm.\n")
 
 X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY drive\n"
-  "Reads every sector of a USB drive named like MSC1: and reports any sectors "
-  "that fail to read. This is read-only and changes nothing.\n")
+  "Reads every sector of a drive named MSC1: or 1: and reports any that fail. "
+  "Read-only. Press Ctrl-C to stop.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL drive [label]\n"
-  "With no label, shows the current volume label of a USB drive named like "
-  "MSC1:. With a label, sets it and prints the old and new names. Pass an empty "
-  "\"\" to clear the label.\n")
+  "With no label, shows the volume label of a drive named MSC1: or 1:. With a "
+  "label, sets it and prints the old and new names. Pass an empty \"\" to clear "
+  "the label.\n")
 
 XEND()
 #undef XSUFFIX

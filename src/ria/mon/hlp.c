@@ -101,11 +101,23 @@ __in_flash("hlp_disk") static struct
 #else
     {STR_FORMAT, STR_HELP_DISK_FORMAT_BASIC, NULL},
 #endif
-    {STR_ZERO, STR_HELP_DISK_ZERO, NULL},
+    {STR_ERASE, STR_HELP_DISK_ERASE, NULL},
     {STR_VERIFY, STR_HELP_DISK_VERIFY, NULL},
     {STR_LABEL, STR_HELP_DISK_LABEL, NULL},
 };
 static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;
+
+// Queue the help for a disk subcommand (dsk.c uses this when a required drive
+// argument is missing). Unknown sub: no output.
+void hlp_disk_sub_response(const char *sub)
+{
+    for (size_t i = 0; i < HLP_DISK_COUNT; i++)
+        if (!strcasecmp(sub, HLP_DISK[i].cmd))
+        {
+            mon_add_response_utf8(S(HLP_DISK[i].text));
+            return;
+        }
+}
 
 static void help_response_lookup(const char *args, const char **cp,
                                  const char **appendp, mon_response_fn *fnp)

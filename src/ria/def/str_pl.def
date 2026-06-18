@@ -432,69 +432,69 @@ X(STR_DISK_BAD_SECTOR, "?Uszkodzony sektor %lu\n")
 X(STR_DISK_VERIFY_DONE, "Sprawdzanie zakończone, uszkodzone sektory: %d\n")
 X(STR_DISK_DEV, "URZ: \a%s %s %s rew %s\n")
 X(STR_DISK_SERIAL, "S/N: \a%s\n")
+X(STR_DISK_VOL_FMT, "WOL: \a%s\n")
+X(STR_DISK_VOL_USE, "WOL: \a%s zajęte z %s (%u%%)\n")
 X(STR_DISK_FMT, "FMT: \a%s\n")
-X(STR_DISK_VOL, "WOL: \a%s z %s (%u%%)\n")
-X(STR_DISK_SCHEME_SFD, "superdyskietka")
-X(STR_DISK_SCHEME_MBR, "MBR")
-X(STR_DISK_SCHEME_GPT, "GPT")
-X(STR_DISK_MAKE, "UTW: \a%s\n")
-X(STR_DISK_MODE_FULL, "TRYB: \apełny (niskopoziomowy)\n")
+X(STR_DISK_WARN_FORMAT, "Za chwilę SFORMATUJESZ to urządzenie!\n")
+X(STR_DISK_WARN_ERASE, "Za chwilę WYMAŻESZ to urządzenie!\n")
+X(STR_DISK_ERASE_SANITIZE, "Wymazywanie: sanitize (bezpieczne)\n")
+X(STR_DISK_ERASE_OVERWRITE, "Wymazywanie: nadpisanie (bez sanitize)\n")
 
 X(STR_HELP_DISK,
   "Dysk:\n"
-  "HELP DISK pod        - \aPokaż informacje o podpoleceniu dysku.\n"
-  "DISK INFO dys        - \aPokaż format i wolne miejsce.\n"
+  "HELP DISK pod        - \aPokaż pomoc dla podpolecenia dysku.\n"
+  "DISK INFO dys        - \aPokaż urządzenie, format i zajętość.\n"
   "DISK FORMAT dys ..   - \aUtwórz system plików. Patrz HELP DISK FORMAT.\n"
-  "DISK ZERO dys        - \aWymaż wszystkie sektory. Dysk bez systemu plików.\n"
+  "DISK ERASE dys       - \aBezpiecznie usuń wszystkie dane. Patrz HELP DISK ERASE.\n"
   "DISK VERIFY dys      - \aOdczytaj wszystkie sektory i zgłoś uszkodzone.\n"
   "DISK LABEL dys (et)  - \aPokaż lub ustaw etykietę woluminu.\n")
 
 X(STR_HELP_DISK_INFO,
   "DISK INFO dysk\n"
-  "Pokazuje urządzenie, format systemu plików oraz wolne miejsce dysku USB o "
-  "nazwie np. MSC1:.\n")
+  "Pokazuje urządzenie, format na dysku (układ, system plików, rozmiar klastra, "
+  "etykietę) oraz zajętość woluminu. Dyski nazywają się MSC1: lub 1:.\n")
 
 X(STR_HELP_DISK_FORMAT,
   "DISK FORMAT dysk [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [etykieta]\n"
-  "Tworzy nowy system plików na dysku USB o nazwie np. MSC1:. /fat (domyślnie) "
-  "jest najbardziej zgodny; /exfat jest dostępny tylko w kompilacjach, które go "
-  "zawierają. Układ na dysku wybiera /sfd (superdyskietka, bez tablicy partycji), "
-  "/mbr lub /gpt (tylko kompilacje z exFAT); domyślnie superdyskietka dla "
-  "dyskietek i MBR dla pamięci flash. Jednostkę alokacji (klaster) można ustawić "
-  "od /512 wzwyż (potęgi dwójki); domyślnie zależy od pojemności. /quick "
-  "(domyślnie) zapisuje tylko nowy system plików. /full najpierw wykonuje "
-  "formatowanie niskopoziomowe i jest dostępne tylko dla stacji dyskietek. "
-  "Wyświetlany jest podgląd i trzeba wpisać YES, aby potwierdzić.\n")
+  "Tworzy system plików na dysku o nazwie MSC1: lub 1:. /fat (domyślnie) jest "
+  "najbardziej zgodny; /exfat nadaje się do dużych dysków. Układ: /sfd "
+  "(superdyskietka, bez tablicy partycji), /mbr lub /gpt; domyślnie SFD dla "
+  "dyskietek, MBR dla flash. /512 i wyższe potęgi dwójki ustawiają rozmiar "
+  "klastra (domyślnie wg pojemności). /quick (domyślnie) zapisuje tylko system "
+  "plików; /full dodaje formatowanie niskopoziomowe (tylko dyskietki). Opcje i "
+  "etykieta mogą być w dowolnej kolejności. Wyświetlany jest podgląd; wpisz YES, "
+  "aby potwierdzić.\n")
 
 X(STR_HELP_DISK_FORMAT_BASIC,
   "DISK FORMAT dysk [/sfd|/mbr] [/512|/4k...] [/quick|/full] [etykieta]\n"
-  "Tworzy nowy system plików na dysku USB o nazwie np. MSC1:. Układ na dysku "
-  "wybiera /sfd (superdyskietka, bez tablicy partycji) lub /mbr; domyślnie "
-  "superdyskietka dla dyskietek i MBR dla pamięci flash. Jednostkę alokacji "
-  "(klaster) można ustawić od /512 wzwyż (potęgi dwójki); domyślnie zależy od "
-  "pojemności. /quick (domyślnie) zapisuje tylko nowy system plików. /full "
-  "najpierw wykonuje formatowanie niskopoziomowe i jest dostępne tylko dla "
-  "stacji dyskietek. Wyświetlany jest podgląd i trzeba wpisać YES, aby "
+  "Tworzy system plików FAT na dysku o nazwie MSC1: lub 1:. Układ: /sfd "
+  "(superdyskietka, bez tablicy partycji) lub /mbr; domyślnie SFD dla dyskietek, "
+  "MBR dla flash. /512 i wyższe potęgi dwójki ustawiają rozmiar klastra "
+  "(domyślnie wg pojemności). /quick (domyślnie) zapisuje tylko system plików; "
+  "/full dodaje formatowanie niskopoziomowe (tylko dyskietki). Opcje i etykieta "
+  "mogą być w dowolnej kolejności. Wyświetlany jest podgląd; wpisz YES, aby "
   "potwierdzić.\n")
 
-X(STR_HELP_DISK_ZERO,
-  "DISK ZERO dysk\n"
-  "Zapisuje zera we wszystkich sektorach dysku USB o nazwie np. MSC1:, usuwając "
-  "wszystkie dane i nie pozostawiając systemu plików; dysk będzie niezdatny do "
-  "zamontowania do czasu sformatowania. Postęp pokazywany jest w procentach. "
-  "Trzeba wpisać YES, aby potwierdzić.\n")
+X(STR_HELP_DISK_ERASE,
+  "DISK ERASE dysk\n"
+  "Usuwa wszystkie dane z dysku o nazwie MSC1: lub 1:. Najpierw próbuje "
+  "sprzętowego sanitize (kontroler kasuje całą pamięć flash, łącznie z blokami "
+  "zapasowymi, więc danych nie da się odzyskać). Jeśli urządzenie nie obsługuje "
+  "sanitize, nadpisuje każdy sektor zerami, co pokonuje programy do odzyskiwania "
+  "plików, ale dane mogą pozostać w przemapowanych komórkach flash. Użyta metoda "
+  "jest zgłaszana. Ctrl-C przerywa nadpisywanie; sanitize jest nieprzerywalne. "
+  "Wpisz YES, aby potwierdzić.\n")
 
 X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY dysk\n"
-  "Odczytuje wszystkie sektory dysku USB o nazwie np. MSC1: i zgłasza sektory, "
-  "których nie udało się odczytać. Operacja tylko do odczytu, niczego nie "
-  "zmienia.\n")
+  "Odczytuje wszystkie sektory dysku o nazwie MSC1: lub 1: i zgłasza te, których "
+  "nie udało się odczytać. Tylko do odczytu. Naciśnij Ctrl-C, aby przerwać.\n")
 
 X(STR_HELP_DISK_LABEL,
   "DISK LABEL dysk [etykieta]\n"
-  "Bez etykiety pokazuje bieżącą etykietę woluminu dysku USB o nazwie np. "
-  "MSC1:. Z etykietą ustawia ją i wypisuje starą oraz nową nazwę. Podaj puste "
-  "\"\", aby wyczyścić etykietę.\n")
+  "Bez etykiety pokazuje etykietę woluminu dysku o nazwie MSC1: lub 1:. Z "
+  "etykietą ustawia ją i wypisuje starą oraz nową nazwę. Podaj puste \"\", aby "
+  "wyczyścić etykietę.\n")
 
 XEND()
 #undef XSUFFIX
