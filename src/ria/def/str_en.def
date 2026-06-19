@@ -436,7 +436,7 @@ X(STR_HELP_DISK,
   "HELP DISK sub        - \aShow help for a disk subcommand.\n"
   "DISK INFO drv        - \aShow device, format, and usage.\n"
   "DISK FORMAT drv ..   - \aCreate a filesystem. See HELP DISK FORMAT.\n"
-  "DISK ERASE drv       - \aSecurely destroy all data. See HELP DISK ERASE.\n"
+  "DISK ERASE drv       - \aOverwrite all data with zeros. See HELP DISK ERASE.\n"
   "DISK VERIFY drv      - \aRead every sector and report bad ones.\n"
   "DISK LABEL drv (lbl) - \aShow or set the volume label.\n")
 
