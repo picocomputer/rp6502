@@ -738,8 +738,10 @@ static void dsk_format(const char *args)
         int v;
         if (!strcasecmp(t, STR_OPT_FAT))
             dsk_fs = 1;
+#if RP6502_EXFAT
         else if (!strcasecmp(t, STR_OPT_EXFAT))
             dsk_fs = 2;
+#endif
         else if (!strcasecmp(t, STR_OPT_QUICK))
             dsk_full = false;
         else if (!strcasecmp(t, STR_OPT_FULL))
@@ -788,11 +790,6 @@ static void dsk_format(const char *args)
     msc_dsk_info_t info;
     if (!dsk_validate((uint8_t)vol, &info, true))
         return;
-    if (dsk_fs == 2 && !FF_FS_EXFAT)
-    {
-        mon_add_response_utf8(S(STR_ERR_EXFAT_DISABLED));
-        return;
-    }
     dsk_vol = (uint8_t)vol;
     dsk_gen = msc_dsk_gen(dsk_vol); // re-checked at YES against a hot-swap
     dsk_is_floppy = info.is_floppy;
