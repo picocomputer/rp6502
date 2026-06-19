@@ -36,7 +36,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define DSK_GPT_DEFAULT 0x10000000
 static_assert(DSK_GPT_DEFAULT <= 0x100000000ULL, "FF_MIN_GPT default out of range");
 static LBA_t dsk_gpt_threshold = DSK_GPT_DEFAULT;
-LBA_t dsk_min_gpt(void) { return dsk_gpt_threshold; }
+unsigned long long dsk_min_gpt(void) { return dsk_gpt_threshold; }
 #endif
 
 // On-disk layout for "disk format". AUTO resolves by device class/size.
@@ -675,7 +675,7 @@ static int dsk_run_response(char *buf, size_t size, int state)
                 {
                     dsk_bad++;
                     buf[0] = '\r'; // overwrite the transient progress line
-                    snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long)lba);
+                    snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long long)lba);
                     return 0;
                 }
             }

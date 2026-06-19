@@ -229,7 +229,7 @@ unsigned long long dsk_min_gpt (void);	/* RP6502: runtime FF_MIN_GPT hook (mon/d
 /* Minimum number of sectors to switch GPT as partitioning format in f_mkfs() and
 /  f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0.
 /  RP6502 FF_MIN_GPT hook [1/3]: redefined to a runtime hook so the disk monitor
-/  can force MBR/GPT. dsk_min_gpt() is declared in ff.h [2/3] and defined in
+/  can force MBR/GPT. dsk_min_gpt() is declared above [2/3] and defined in
 /  mon/dsk.c; the compile-time range check is removed in ff.c [3/3]. Re-apply all
 /  three on a FatFs upgrade. (FF_LBA64 only.) */
 

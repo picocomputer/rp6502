@@ -1983,7 +1983,7 @@ int msc_dsk_vol_from_name(const char *name)
     return -1;
 }
 
-bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
+static bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
 {
     if (vol >= FF_VOLUMES || msc_pdrv[vol].status == msc_volume_free)
         return false;
