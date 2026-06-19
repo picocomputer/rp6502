@@ -59,7 +59,6 @@ static int mon_more_rows_left = 23;
 static int mon_response_col;
 static int mon_response_indent;
 static int mon_response_indent_pending;
-static bool mon_response_width_aware;
 static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
@@ -189,6 +188,7 @@ static void mon_confirm_enter(bool timeout, const char *buf)
         mon_confirm_cb = NULL;
         return;
     }
+    mon_more_rows_left = rln_get_term_height() - 1;
     mon_needs_prompt = true;
     mon_needs_read_line = true;
     mon_confirm_fn cb = mon_confirm_cb;
@@ -383,7 +383,6 @@ static void mon_break_response(void)
     mon_response_col = 0;
     mon_response_indent = 0;
     mon_response_indent_pending = 0;
-    mon_response_width_aware = false;
     mon_response_next_loaded = false;
     mon_more_rows_left = rln_get_term_height() - 1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
@@ -420,15 +419,6 @@ void mon_add_response_fatfs(int fresult)
 {
     if (fresult > 0)
         mon_append_response(mon_fatfs_response, NULL, fresult);
-}
-
-void mon_print_fatfs(int fresult)
-{
-    const char *err_str = mon_fatfs_lookup(fresult);
-    if (err_str != NULL)
-        printf_utf8("%s", err_str);
-    else
-        printf_utf8(S(STR_ERR_UNKNOWN_NUMBER), fresult);
 }
 
 static void mon_more(void)
@@ -540,10 +530,8 @@ void mon_task(void)
         {
             // BEL marks the indent column for subsequent wraps; consume
             // it silently and don't advance the column. Must run before
-            // the --more-- check (so BEL never pauses) and before the
-            // < 0x20 width-aware branch below (so BEL doesn't flip
-            // mon_response_width_aware on and disable wrapping). The
-            // indent_pending guard preserves indent emission ordering.
+            // the --more-- check so BEL never pauses. The indent_pending
+            // guard preserves indent emission ordering.
             if (mon_response_indent_pending == 0 && c == '\a')
             {
                 mon_response_indent =
@@ -575,7 +563,7 @@ void mon_task(void)
             // lookahead spans into the staged buffer when the word crosses
             // the fill boundary, so the wrap decision is made on the full
             // word without copying anything.
-            if (!mon_response_width_aware && c == ' ')
+            if (c == ' ')
             {
                 int n = mon_response_pos + 1;
                 while (mon_response_cur[n] && mon_response_cur[n] != ' ' &&
@@ -608,15 +596,11 @@ void mon_task(void)
                     continue;
                 }
             }
-            // Width-aware newline injection. Suppressed once any producer in
-            // this command chain has emitted a control byte (ESC sequences,
-            // \b, \t, etc.) — such producers manage their own cursor and our
-            // column counter would be wrong from there on. Bytes 0x20-0xFF
-            // are one SBCS OEM glyph each, so each counts one column. Also
-            // catches words longer than the line that the word-wrap branch
-            // above could not break.
-            if (!mon_response_width_aware && c != '\n' && c != '\r' &&
-                mon_response_col >= width)
+            // Hard newline injection for a glyph that would overflow the line —
+            // catches words longer than the line that the word-wrap branch above
+            // could not break. Bytes 0x20-0xFF are one SBCS OEM glyph each, so
+            // each counts one column.
+            if ((unsigned char)c >= 0x20 && mon_response_col >= width)
             {
                 putchar('\n');
                 mon_response_col = 0;
@@ -636,11 +620,12 @@ void mon_task(void)
             {
                 mon_response_col = 0;
             }
-            else if ((unsigned char)c < 0x20)
+            else if (c == '\b')
             {
-                mon_response_width_aware = true;
+                if (mon_response_col > 0)
+                    mon_response_col--;
             }
-            else
+            else if ((unsigned char)c >= 0x20)
             {
                 mon_response_col++;
             }
@@ -680,7 +665,6 @@ void mon_task(void)
     {
         mon_needs_read_line = false;
         mon_response_col = 0;
-        mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
             rln_read_line_no_history(mon_confirm_enter); // don't record YES/no

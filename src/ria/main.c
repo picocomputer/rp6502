@@ -143,7 +143,6 @@ static void task(void)
     fil_task();
     rom_task();
     uf2_task();
-    dsk_task();
     vcp_task();
     nfc_task(); // must be last for exec
     api_task(); // must be last for exec

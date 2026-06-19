@@ -15,9 +15,6 @@
 // Monitor command handler for "DISK".
 void dsk_mon_disk(const char *args);
 
-// Drives the long-running passes (format/zero/verify) across ticks.
-void dsk_task(void);
-
 // True while a confirm prompt or a pass is in progress.
 bool dsk_active(void);
 

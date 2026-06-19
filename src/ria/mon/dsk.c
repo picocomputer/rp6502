@@ -81,7 +81,9 @@ static uint32_t dsk_block_size;
 static uint64_t dsk_total; // sectors for zero/verify
 static uint64_t dsk_lba;   // current sector
 static int dsk_last_pct;
-static uint32_t dsk_bad; // verify bad-sector count
+static uint32_t dsk_bad;   // verify bad-sector count
+static uint32_t dsk_pin_n; // verify: sectors in the failing chunk being pinpointed (0 = none)
+static uint32_t dsk_pin_i; // verify: cursor within that chunk
 
 // Cached f_getfree result so the two VOL preview lines share one FAT scan.
 static struct
@@ -476,6 +478,171 @@ static void dsk_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads
     *tracks = (blocks <= 720) ? 40 : 80;
 }
 
+// One mon_response producer drives a whole run (format/erase/verify), one chunk
+// per call, emitting at most one line; progress redraws in place via \r, so
+// unchanged-percent ticks emit nothing. dsk_state selects the phase. Ctrl-C
+// aborts via main_break(), whose break_() resets the queue and owns dsk IDLE.
+static int dsk_run_response(char *buf, size_t size, int state)
+{
+    if (state < 0)
+        return state; // response cancelled (break)
+    switch (dsk_state)
+    {
+    case DSK_RUN_FORMAT_UNIT:
+        if (ria_get_sigint()) // Ctrl-C stops the format between tracks
+        {
+            putchar('\n');
+            msc_dsk_reenumerate(dsk_pdrv); // partial low-level format; drop stale mount
+            main_break();
+            return -1;
+        }
+        if (!msc_dsk_format_track(dsk_vol, dsk_fmt_track, dsk_fmt_head))
+        {
+            mon_add_response_utf8(S(STR_ERR_FORMAT_FAILED));
+            msc_dsk_reenumerate(dsk_pdrv);
+            dsk_state = DSK_IDLE;
+            if (dsk_last_pct >= 0) // break from the in-place progress line
+                snprintf(buf, size, "\n");
+            return -1;
+        }
+        if (++dsk_fmt_head >= dsk_fmt_heads) // this track/head done; advance
+        {
+            dsk_fmt_head = 0;
+            dsk_fmt_track++;
+        }
+        {
+            uint32_t total = (uint32_t)dsk_fmt_tracks * dsk_fmt_heads;
+            uint32_t done = (uint32_t)dsk_fmt_track * dsk_fmt_heads + dsk_fmt_head;
+            int overall = total ? (int)(done * 100 / total) : 100;
+            if (overall != dsk_last_pct)
+            {
+                dsk_last_pct = overall;
+                snprintf_utf8(buf, size, STR_DISK_PROG_FORMAT, overall);
+            }
+        }
+        if (dsk_fmt_track >= dsk_fmt_tracks)
+            dsk_state = DSK_RUN_MKFS; // mkfs emits the line break before its result
+        return 0;
+
+    case DSK_RUN_MKFS:
+    {
+        FRESULT fr = dsk_do_mkfs();
+        msc_dsk_reenumerate(dsk_pdrv);
+        dsk_state = DSK_IDLE;
+        // A per-track pass left the cursor on "\rFormat 100%"; break from it
+        // before the result. The quick path printed no progress.
+        const char *nl = dsk_last_pct >= 0 ? "\n" : "";
+        if (fr == FR_OK)
+            snprintf_utf8(buf, size, "%s%s", nl, S(STR_DISK_DONE));
+        else
+        {
+            mon_add_response_fatfs(fr);
+            snprintf(buf, size, "%s", nl);
+        }
+        return -1;
+    }
+
+    case DSK_RUN_ERASE:
+        if (ria_get_sigint()) // Ctrl-C stops the erase
+        {
+            putchar('\n');
+            msc_dsk_reenumerate(dsk_pdrv); // sectors were zeroed; drop stale mount
+            main_break();
+            return -1;
+        }
+        if (dsk_lba >= dsk_total) // all sectors zeroed; final progress already shown
+        {
+            msc_dsk_reenumerate(dsk_pdrv);
+            dsk_state = DSK_IDLE;
+            snprintf_utf8(buf, size, "\n%s", S(STR_DISK_DONE));
+            return -1;
+        }
+        {
+            // Chunk is bounded by mbuf, the only scratch available; disk_write would
+            // accept more sectors per transfer, but a larger buffer is not affordable.
+            uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
+            uint64_t remain = dsk_total - dsk_lba;
+            uint32_t n = remain < per ? (uint32_t)remain : per;
+            memset(mbuf, 0, (size_t)n * dsk_block_size);
+            if (!msc_dsk_write(dsk_vol, mbuf, dsk_lba, n))
+            {
+                mon_add_response_fatfs(FR_DISK_ERR);
+                msc_dsk_reenumerate(dsk_pdrv);
+                dsk_state = DSK_IDLE;
+                snprintf(buf, size, "\n"); // break from the in-place progress line
+                return -1;
+            }
+            dsk_lba += n;
+            int pct = (int)(dsk_lba * 100 / dsk_total);
+            if (pct != dsk_last_pct)
+            {
+                dsk_last_pct = pct;
+                snprintf_utf8(buf, size, STR_DISK_PROG_ERASE, pct);
+            }
+        }
+        return 0;
+
+    case DSK_RUN_VERIFY:
+        if (ria_get_sigint()) // Ctrl-C stops the scan
+        {
+            putchar('\n');
+            main_break();
+            return -1;
+        }
+        if (dsk_pin_n) // re-reading a failed chunk one sector at a time
+        {
+            while (dsk_pin_i < dsk_pin_n)
+            {
+                uint64_t lba = dsk_lba + dsk_pin_i++;
+                if (!msc_dsk_read(dsk_vol, mbuf, lba, 1))
+                {
+                    dsk_bad++;
+                    buf[0] = '\n'; // break from the progress line, then the report
+                    snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long)lba);
+                    return 0;
+                }
+            }
+            dsk_lba += dsk_pin_n; // chunk pinpointed; redraw progress, fall through
+            dsk_pin_n = 0;
+            dsk_last_pct = -1;
+        }
+        else if (dsk_lba < dsk_total) // scan the next chunk
+        {
+            uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
+            uint64_t remain = dsk_total - dsk_lba;
+            uint32_t n = remain < per ? (uint32_t)remain : per;
+            if (!msc_dsk_read(dsk_vol, mbuf, dsk_lba, n))
+            {
+                dsk_pin_n = n; // pinpoint the bad sector(s) on the next calls
+                dsk_pin_i = 0;
+                return 0;
+            }
+            dsk_lba += n;
+        }
+        {
+            int pct = (int)(dsk_lba * 100 / dsk_total);
+            if (pct != dsk_last_pct)
+            {
+                dsk_last_pct = pct;
+                snprintf_utf8(buf, size, STR_DISK_PROG_VERIFY, pct);
+                return 0;
+            }
+        }
+        if (dsk_lba >= dsk_total)
+        {
+            dsk_state = DSK_IDLE;
+            buf[0] = '\n';
+            snprintf_utf8(buf + 1, size - 1, S(STR_DISK_VERIFY_DONE), (int)dsk_bad);
+            return -1;
+        }
+        return 0;
+
+    default:
+        dsk_state = DSK_IDLE;
+        return -1;
+    }
+}
+
 static void dsk_run_format(void)
 {
     dsk_last_pct = -1;
@@ -484,17 +651,21 @@ static void dsk_run_format(void)
     if (dsk_full && dsk_is_floppy)
     {
         dsk_floppy_geometry(dsk_total, &dsk_fmt_tracks, &dsk_fmt_heads);
+        mon_add_response_utf8(S(STR_DISK_FORMATTING)); // banner before the per-track pass
         dsk_state = DSK_RUN_FORMAT_UNIT;
     }
     else
         dsk_state = DSK_RUN_MKFS;
+    mon_add_response_fn(dsk_run_response);
 }
 
 static void dsk_run_erase(void)
 {
     dsk_last_pct = -1;
     dsk_lba = 0;
+    mon_add_response_utf8(S(STR_DISK_ERASING)); // banner before the zero pass
     dsk_state = DSK_RUN_ERASE;
+    mon_add_response_fn(dsk_run_response);
 }
 
 // Continuation run after the info block drains (verify is read-only, no YES).
@@ -503,7 +674,9 @@ static void dsk_run_verify(void)
     dsk_lba = 0;
     dsk_last_pct = -1;
     dsk_bad = 0;
+    dsk_pin_n = 0;
     dsk_state = DSK_RUN_VERIFY;
+    mon_add_response_fn(dsk_run_response);
 }
 
 // Validate a resolved volume: fill *info and require present[, writable].
@@ -795,149 +968,6 @@ static void dsk_info(const char *args)
     dsk_vol = (uint8_t)vol;
     dsk_preview_op = DSK_PREVIEW_PLAIN;
     mon_add_response_fn(dsk_preview_response);
-}
-
-void dsk_task(void)
-{
-    switch (dsk_state)
-    {
-    case DSK_RUN_FORMAT_UNIT:
-        if (ria_get_sigint()) // Ctrl-C stops the format between tracks
-        {
-            putchar('\n');
-            msc_dsk_reenumerate(dsk_pdrv); // partial low-level format; drop stale mount
-            main_break();
-            return;
-        }
-        if (dsk_fmt_track == 0 && dsk_fmt_head == 0)
-            printf_utf8(S(STR_DISK_FORMATTING));
-        if (!msc_dsk_format_track(dsk_vol, dsk_fmt_track, dsk_fmt_head))
-        {
-            if (dsk_last_pct >= 0)
-                putchar('\n');
-            printf_utf8(S(STR_ERR_FORMAT_FAILED));
-            msc_dsk_reenumerate(dsk_pdrv);
-            dsk_state = DSK_IDLE;
-            return;
-        }
-        if (++dsk_fmt_head >= dsk_fmt_heads) // this track/head done; advance
-        {
-            dsk_fmt_head = 0;
-            dsk_fmt_track++;
-        }
-        {
-            uint32_t total = (uint32_t)dsk_fmt_tracks * dsk_fmt_heads;
-            uint32_t done = (uint32_t)dsk_fmt_track * dsk_fmt_heads + dsk_fmt_head;
-            int overall = total ? (int)(done * 100 / total) : 100;
-            if (overall != dsk_last_pct)
-            {
-                dsk_last_pct = overall;
-                printf_utf8(STR_DISK_PROG_FORMAT, overall);
-            }
-        }
-        if (dsk_fmt_track >= dsk_fmt_tracks)
-        {
-            putchar('\n');
-            dsk_state = DSK_RUN_MKFS;
-        }
-        return;
-
-    case DSK_RUN_MKFS:
-    {
-        FRESULT fr = dsk_do_mkfs();
-        msc_dsk_reenumerate(dsk_pdrv);
-        if (fr == FR_OK)
-            printf_utf8(S(STR_DISK_DONE));
-        else
-            mon_print_fatfs(fr);
-        dsk_state = DSK_IDLE;
-        return;
-    }
-
-    case DSK_RUN_ERASE:
-    {
-        if (ria_get_sigint()) // Ctrl-C stops the erase
-        {
-            putchar('\n');
-            msc_dsk_reenumerate(dsk_pdrv); // sectors were zeroed; drop stale mount
-            main_break();
-            return;
-        }
-        if (dsk_lba == 0)
-            printf_utf8(S(STR_DISK_ERASING));
-        // Chunk is bounded by mbuf, the only scratch available; disk_write would
-        // accept more sectors per transfer, but a larger buffer is not affordable.
-        uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
-        uint64_t remain = dsk_total - dsk_lba;
-        uint32_t n = remain < per ? (uint32_t)remain : per;
-        memset(mbuf, 0, (size_t)n * dsk_block_size);
-        if (!msc_dsk_write(dsk_vol, mbuf, dsk_lba, n))
-        {
-            putchar('\n');
-            mon_print_fatfs(FR_DISK_ERR);
-            msc_dsk_reenumerate(dsk_pdrv);
-            dsk_state = DSK_IDLE;
-            return;
-        }
-        dsk_lba += n;
-        int pct = (int)(dsk_lba * 100 / dsk_total);
-        if (pct != dsk_last_pct)
-        {
-            dsk_last_pct = pct;
-            printf_utf8(STR_DISK_PROG_ERASE, pct);
-        }
-        if (dsk_lba >= dsk_total)
-        {
-            putchar('\n');
-            msc_dsk_reenumerate(dsk_pdrv);
-            printf_utf8(S(STR_DISK_DONE));
-            dsk_state = DSK_IDLE;
-        }
-        return;
-    }
-
-    case DSK_RUN_VERIFY:
-    {
-        if (ria_get_sigint()) // Ctrl-C stops the scan
-        {
-            putchar('\n');
-            main_break();
-            return;
-        }
-        uint32_t per = dsk_block_size ? (uint32_t)(MBUF_SIZE / dsk_block_size) : 1;
-        uint64_t remain = dsk_total - dsk_lba;
-        uint32_t n = remain < per ? (uint32_t)remain : per;
-        if (!msc_dsk_read(dsk_vol, mbuf, dsk_lba, n))
-        {
-            // Pinpoint the failing sector(s) within the chunk.
-            for (uint32_t i = 0; i < n; i++)
-                if (!msc_dsk_read(dsk_vol, mbuf, dsk_lba + i, 1))
-                {
-                    putchar('\n');
-                    printf_utf8(S(STR_DISK_BAD_SECTOR), (unsigned long)(dsk_lba + i));
-                    dsk_bad++;
-                }
-            dsk_last_pct = -1;
-        }
-        dsk_lba += n;
-        int pct = (int)(dsk_lba * 100 / dsk_total);
-        if (pct != dsk_last_pct)
-        {
-            dsk_last_pct = pct;
-            printf_utf8(STR_DISK_PROG_VERIFY, pct);
-        }
-        if (dsk_lba >= dsk_total)
-        {
-            putchar('\n');
-            printf_utf8(S(STR_DISK_VERIFY_DONE), (int)dsk_bad);
-            dsk_state = DSK_IDLE;
-        }
-        return;
-    }
-
-    default:
-        return;
-    }
 }
 
 bool dsk_active(void)
