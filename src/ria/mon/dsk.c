@@ -597,7 +597,7 @@ static int dsk_run_response(char *buf, size_t size, int state)
                 if (!msc_dsk_read(dsk_vol, mbuf, lba, 1))
                 {
                     dsk_bad++;
-                    buf[0] = '\n'; // break from the progress line, then the report
+                    buf[0] = '\r'; // overwrite the transient progress line
                     snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long)lba);
                     return 0;
                 }
