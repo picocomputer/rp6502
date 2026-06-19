@@ -332,176 +332,49 @@ static int dsk_preview_response(char *buf, size_t size, int state)
     }
 }
 
-// Standard FAT cluster-count limits (FAT spec, not FatFs internals).
-#define DSK_MAX_FAT12 0xFF5u  // 4085
-#define DSK_MAX_FAT16 0xFFF5u // 65525
-#define DSK_MAX_FAT32 0x0FFFFFF5u
-#define DSK_MIN_FAT 32u // f_mkfs's MIN_FAT12 floor (ff.c), applies to any FAT type
+// RP6502 mkfs preview hook (paired with the call sites in fatfs/ff.c): f_mkfs
+// reports the FS type and cluster size it has chosen, captured here into
+// dsk_fsty/dsk_au for the format preview. dsk_previewing is set only around the
+// no-write preview run below, so a real format passes straight through.
+static bool dsk_previewing;
 
-// Partition base f_mkfs reserves ahead of the volume, in 512 B sectors:
-// MBR 63 / GPT 2081 (2048 aligned + the 32+1 GPT structures) / SFD 0.
-static LBA_t dsk_part_base(uint8_t layout)
+int dsk_mkfs_capture(BYTE fsty, DWORD au_sectors)
 {
-    return layout == DSK_LAYOUT_GPT ? 2081 : layout == DSK_LAYOUT_MBR ? 63 : 0;
+    if (!dsk_previewing)
+        return 0; // real format: let f_mkfs proceed and write
+    dsk_fsty = fsty;
+    dsk_au = au_sectors * 512u;
+    return 1; // preview: stop f_mkfs right after it picked the geometry (FR_OK)
 }
 
-// First-pass cluster count, exactly what f_mkfs uses to pick the FAT sub-type
-// (ff.c:6369): volume sectors minus the partition base, divided by the cluster
-// size — before any reserved/FAT/root overhead.
-static LBA_t dsk_fat_first_pass(LBA_t raw, uint8_t layout, UINT au)
+// Ask f_mkfs which filesystem and cluster size it would build, without writing,
+// so the preview can never disagree with the actual format. The request maps to
+// f_mkfs's own selection (FM_ANY auto-picks exFAT past ~32 GiB, as before); the
+// capture hook stops it before any TRIM/write. Returns f_mkfs's result: FR_OK
+// with dsk_fsty/dsk_au filled, or its own FR_MKFS_* / FR_* when unsatisfiable.
+// The layout (MBR/GPT/SFD) is forced the same way as dsk_do_mkfs so sz_vol — and
+// thus the choice — matches the real run.
+static FRESULT dsk_preview_mkfs(void)
 {
-    LBA_t base = dsk_part_base(layout);
-    return raw > base ? (raw - base) / au : 0;
-}
-
-// Final data-cluster count a FAT/FAT32 volume holds, matching f_mkfs's own
-// accounting: the first-pass count picks the FAT width (and thus the reserved
-// area, two FATs, and 512-entry root), then the overhead is removed (ff.c:6397).
-// The width here only sizes the overhead; the caller selects the sub-type from
-// dsk_fat_first_pass(), as f_mkfs does. (FAT layout is the spec; the 63/2081
-// bases are de-facto standard, not FatFs internals.)
-static LBA_t dsk_fat_data_clusters(LBA_t raw, uint8_t layout, UINT au)
-{
-    LBA_t base = dsk_part_base(layout);
-    if (raw <= base)
-        return 0;
-    LBA_t vol = raw - base;
-    LBA_t n0 = vol / au; // first-pass count selects the FAT width
-    LBA_t rsv, dir, fatb;
-    if (n0 > DSK_MAX_FAT16)
-    {
-        rsv = 32; // FAT32 reserved area
-        dir = 0;  // root is a cluster chain, not static
-        fatb = n0 * 4 + 8;
-    }
-    else if (n0 > DSK_MAX_FAT12)
-    {
-        rsv = 1;
-        dir = 32; // 512-entry root directory
-        fatb = n0 * 2 + 4;
-    }
-    else
-    {
-        rsv = 1;
-        dir = 32;
-        fatb = (n0 * 3 + 1) / 2 + 3; // 12-bit entries
-    }
-    LBA_t overhead = rsv + 2 * ((fatb + 511) / 512) + dir; // reserved + 2 FATs + root
-    if (vol <= overhead)
-        return 0;
-    return (vol - overhead) / au;
-}
-
-// The disk tool's own, stable FS-selection policy, so the result is OUR contract
-// rather than whatever f_mkfs would auto-pick. We hand f_mkfs an explicit type +
-// cluster size via its public MKFS_PARM (so its internal auto-selection never
-// runs). The sub-type is chosen from the first-pass count (dsk_fat_first_pass),
-// exactly as f_mkfs picks it, while dsk_fat_data_clusters() validates the final
-// post-overhead count so a forced (type, cluster) can never abort. `raw` is the
-// device sector count (512 B sectors); `layout` is the resolved DSK_LAYOUT_*.
-// `want`: 0=auto, 1=FAT family, 2=exFAT; a user /Nk (req_au_bytes) overrides the
-// cluster size. Returns FS_FAT12/16/32/EXFAT + cluster size in *au_sectors, or 0
-// if unsatisfiable.
-static BYTE dsk_resolve_fs(LBA_t raw, uint8_t want, uint32_t req_au_bytes, UINT *au_sectors, uint8_t layout)
-{
-#if !FF_FS_EXFAT
-    (void)want; // only consulted for exFAT selection
-#endif
-#if FF_FS_EXFAT
-    // exFAT when asked, or (auto) for media past ~32 GiB (the SDXC / desktop
-    // convention). Cluster size scales with capacity.
-    if (want == 2 || (want == 0 && raw >= 0x4000000))
-    {
-        UINT au = req_au_bytes ? req_au_bytes / 512 : 0;
-        if (au == 0)
-        {
-            au = 8; // 4 KB
-            if (raw >= 0x80000)
-                au = 64; // >= 256 MiB -> 32 KB
-            if (raw >= 0x4000000)
-                au = 256; // >= 32 GiB  -> 128 KB
-        }
-        *au_sectors = au;
-        return FS_EXFAT;
-    }
-#endif
+    MKFS_PARM parm;
+    memset(&parm, 0, sizeof(parm));
+    parm.n_fat = 2;
+    parm.au_size = dsk_au; // user /Nk request (0: let f_mkfs choose)
+    parm.fmt = dsk_fs == 2   ? FM_EXFAT
+               : dsk_fs == 1 ? (FM_FAT | FM_FAT32)
+                             : FM_ANY;
+    if (dsk_layout == DSK_LAYOUT_SFD)
+        parm.fmt |= FM_SFD;
 #if FF_LBA64
-    if (raw >= 0x100000000)
-        return 0; // beyond FAT sector addressing; exFAT only
+    dsk_gpt_threshold = (dsk_layout == DSK_LAYOUT_GPT) ? 0 : (LBA_t)-1;
 #endif
-    // Explicit cluster: the sub-type follows the first-pass count, exactly as
-    // f_mkfs picks it, so the preview matches what gets built. f_mkfs clamps the
-    // FAT/FAT32 cluster to 128 sectors (ff.c:6176); mirror that first.
-    if (req_au_bytes)
-    {
-        UINT au = req_au_bytes / 512;
-        if (au > 128)
-            au = 128;
-        LBA_t fp = dsk_fat_first_pass(raw, layout, au);
-        LBA_t n = dsk_fat_data_clusters(raw, layout, au);
-        if (fp == 0 || n < DSK_MIN_FAT)
-            return 0;
-        if (fp <= DSK_MAX_FAT12) // FAT12: final <= first-pass, always valid
-        {
-            *au_sectors = au;
-            return FS_FAT12;
-        }
-        if (fp <= DSK_MAX_FAT16) // FAT16: only if the final count stays in range
-        {
-            if (n <= DSK_MAX_FAT12 || n > DSK_MAX_FAT16)
-                return 0; // f_mkfs would FR_MKFS_ABORTED at this fixed cluster
-            *au_sectors = au;
-            return FS_FAT16;
-        }
-        if (fp > DSK_MAX_FAT32 || n <= DSK_MAX_FAT16)
-            return 0; // beyond FAT32, or too few clusters after overhead
-        *au_sectors = au;
-        return FS_FAT32;
-    }
-    // Auto cluster: grow the cluster until the first-pass count fits FAT16 (cap at
-    // 32 KB), as f_mkfs would; media within the FAT12 limit becomes FAT12. The
-    // final-count tests mirror f_mkfs's validity checks so the chosen (type,
-    // cluster) never aborts; the boundary case bumps the cluster once more.
-    UINT au = 1;
-    while (dsk_fat_first_pass(raw, layout, au) > DSK_MAX_FAT16 && au < 64)
-        au <<= 1;
-    for (; au <= 64; au <<= 1)
-    {
-        LBA_t fp = dsk_fat_first_pass(raw, layout, au);
-        LBA_t n = dsk_fat_data_clusters(raw, layout, au);
-        if (fp == 0 || n < DSK_MIN_FAT)
-            return 0;
-        if (fp > DSK_MAX_FAT16)
-            break; // needs FAT32
-        if (fp <= DSK_MAX_FAT12)
-        {
-            *au_sectors = au;
-            return FS_FAT12;
-        }
-        if (n > DSK_MAX_FAT12 && n <= DSK_MAX_FAT16)
-        {
-            *au_sectors = au;
-            return FS_FAT16;
-        }
-        // Boundary: overhead pushed the FAT16 count into FAT12 territory; a larger
-        // cluster makes the first-pass count FAT12, so try again.
-    }
-    // Too many clusters for FAT16 -> FAT32, with a >= 4 KB cluster scaled by size
-    // so the count stays well clear of the FAT16 ceiling.
-    au = 8; // 4 KB
-    if (raw >= 0x1000000)
-        au = 16; // >= 8 GiB  -> 8 KB
-    if (raw >= 0x2000000)
-        au = 32; // >= 16 GiB -> 16 KB
-    if (raw >= 0x4000000)
-        au = 64; // >= 32 GiB -> 32 KB (FAT32 cluster max)
-    while (dsk_fat_data_clusters(raw, layout, au) > DSK_MAX_FAT32 && au < 128)
-        au <<= 1;
-    LBA_t nc = dsk_fat_data_clusters(raw, layout, au);
-    if (nc <= DSK_MAX_FAT16 || nc > DSK_MAX_FAT32)
-        return 0; // too few (FAT32 floor) or too many; use exFAT
-    *au_sectors = au;
-    return FS_FAT32;
+    dsk_previewing = true;
+    FRESULT fr = f_mkfs(dsk_path, &parm, mbuf, MBUF_SIZE);
+    dsk_previewing = false;
+#if FF_LBA64
+    dsk_gpt_threshold = DSK_GPT_DEFAULT;
+#endif
+    return fr;
 }
 
 // Build the filesystem (and apply the label). Returns the FatFs result.
@@ -950,15 +823,17 @@ static void dsk_format(const char *args)
         else
             dsk_layout = DSK_LAYOUT_MBR;
     }
-    // Own the FS type + cluster size (no f_mkfs auto-select).
-    UINT au_sectors;
-    dsk_fsty = dsk_resolve_fs(info.block_count, dsk_fs, dsk_au, &au_sectors, dsk_layout);
-    if (dsk_fsty == 0)
+    // Ask f_mkfs itself which FS type and cluster size it would build, without
+    // writing, so the preview can never disagree with the actual format. The
+    // preview run clears the mounted FatFs object; remount to restore the VOL
+    // line, which reads the (unchanged) current filesystem.
+    FRESULT fr = dsk_preview_mkfs();
+    msc_dsk_reenumerate(dsk_vol);
+    if (fr != FR_OK)
     {
-        mon_add_response_fatfs(FR_MKFS_ABORTED);
+        mon_add_response_fatfs(fr);
         return;
     }
-    dsk_au = au_sectors * 512u; // resolved cluster size in bytes
     dsk_preview_op = DSK_PREVIEW_FORMAT;
     mon_add_response_fn(dsk_preview_response);
     mon_response_confirm(dsk_run_format);
