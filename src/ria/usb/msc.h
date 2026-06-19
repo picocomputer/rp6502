@@ -40,7 +40,9 @@ typedef struct
 
 int msc_dsk_vol_from_name(const char *name); // "MSCn"/"MSCn:"/"n:" -> index, or -1
 bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv);
+uint8_t msc_dsk_gen(uint8_t vol); // mount generation; changes when the slot is reused
 bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out);
+bool msc_dsk_fs_geom(uint8_t vol, uint8_t *fs_type, uint32_t *csize); // no f_getfree scan
 bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5]);
 bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size);
 bool msc_dsk_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count);

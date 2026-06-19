@@ -42,8 +42,6 @@ void mon_add_response_fatfs(int fresult);
 // user types YES; Ctrl-C, break, or anything else cancels back to the prompt.
 typedef void (*mon_confirm_fn)(void);
 void mon_response_confirm(mon_confirm_fn cb);
-// Run cb once the response queue drains, with no prompt (read-only continuation).
-void mon_response_then(mon_confirm_fn cb);
 
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.

@@ -59,12 +59,12 @@ static int mon_more_rows_left = 23;
 static int mon_response_col;
 static int mon_response_indent;
 static int mon_response_indent_pending;
+static bool mon_response_width_aware;
 static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
-static mon_confirm_fn mon_confirm_cb; // pending post-response action
-static bool mon_confirm_needs_yes;    // true: prompt for YES; false: run after drain
+static mon_confirm_fn mon_confirm_cb; // pending YES/no confirmation action
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -205,13 +205,6 @@ static void mon_confirm_enter(bool timeout, const char *buf)
 void mon_response_confirm(mon_confirm_fn cb)
 {
     mon_confirm_cb = cb;
-    mon_confirm_needs_yes = true;
-}
-
-void mon_response_then(mon_confirm_fn cb)
-{
-    mon_confirm_cb = cb;
-    mon_confirm_needs_yes = false;
 }
 
 static int mon_utf8_response(char *buf, size_t buf_size, int state)
@@ -383,6 +376,7 @@ static void mon_break_response(void)
     mon_response_col = 0;
     mon_response_indent = 0;
     mon_response_indent_pending = 0;
+    mon_response_width_aware = false;
     mon_response_next_loaded = false;
     mon_more_rows_left = rln_get_term_height() - 1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
@@ -563,7 +557,7 @@ void mon_task(void)
             // lookahead spans into the staged buffer when the word crosses
             // the fill boundary, so the wrap decision is made on the full
             // word without copying anything.
-            if (c == ' ')
+            if (!mon_response_width_aware && c == ' ')
             {
                 int n = mon_response_pos + 1;
                 while (mon_response_cur[n] && mon_response_cur[n] != ' ' &&
@@ -599,8 +593,9 @@ void mon_task(void)
             // Hard newline injection for a glyph that would overflow the line —
             // catches words longer than the line that the word-wrap branch above
             // could not break. Bytes 0x20-0xFF are one SBCS OEM glyph each, so
-            // each counts one column.
-            if ((unsigned char)c >= 0x20 && mon_response_col >= width)
+            // each counts one column. Suppressed once a producer emits a control
+            // byte (see the ladder below) whose width we can't track.
+            if (!mon_response_width_aware && (unsigned char)c >= 0x20 && mon_response_col >= width)
             {
                 putchar('\n');
                 mon_response_col = 0;
@@ -625,7 +620,13 @@ void mon_task(void)
                 if (mon_response_col > 0)
                     mon_response_col--;
             }
-            else if ((unsigned char)c >= 0x20)
+            else if ((unsigned char)c < 0x20)
+            {
+                // A control byte (ESC sequence, tab, ...) whose on-screen width we
+                // can't track; stop wrap/column injection for the rest of the chain.
+                mon_response_width_aware = true;
+            }
+            else
             {
                 mon_response_col++;
             }
@@ -642,15 +643,6 @@ void mon_task(void)
         dsk_active() ||
         usb_boot_enumerating())
         return;
-    // A "then" continuation runs once the response queue has drained, with no
-    // prompt (e.g. disk verify leads with its info block, then scans).
-    if (mon_confirm_cb && !mon_confirm_needs_yes)
-    {
-        mon_confirm_fn cb = mon_confirm_cb;
-        mon_confirm_cb = NULL;
-        cb();
-        return;
-    }
     // The monitor has control
     if (mon_needs_prompt)
     {
@@ -665,6 +657,7 @@ void mon_task(void)
     {
         mon_needs_read_line = false;
         mon_response_col = 0;
+        mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
         if (mon_confirm_cb)
             rln_read_line_no_history(mon_confirm_enter); // don't record YES/no

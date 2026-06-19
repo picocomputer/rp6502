@@ -153,6 +153,11 @@ typedef struct
 
 static msc_pdrv_t msc_pdrv[FF_VOLUMES];
 
+// Bumped on every register and unmount, so the disk tool can detect a slot that
+// was reused by a different device across a confirm prompt. Kept out of msc_pdrv
+// so it survives the slot's memset on unmount.
+static uint8_t msc_mount_gen[FF_VOLUMES];
+
 enum
 {
     MSC_STAGE_IDLE,
@@ -1521,6 +1526,7 @@ static void msc_mount_cb(uint8_t dev_addr)
         msc_pdrv[pdrv].dev_addr = dev_addr;
         msc_pdrv[pdrv].lun = lun;
         msc_pdrv[pdrv].status = msc_volume_registered;
+        msc_mount_gen[pdrv]++;
         // Lazy mount only (no disk I/O here); SCSI is unsafe in this USB
         // callback. Bring-up (READ CAPACITY etc.) runs in disk_initialize on
         // first FatFs access in the task tier.
@@ -1542,6 +1548,7 @@ static void msc_umount_cb(uint8_t dev_addr)
         msc_vol_path(volstr, pdrv);
         f_unmount(volstr);
         memset(&msc_pdrv[pdrv], 0, sizeof(msc_pdrv[pdrv]));
+        msc_mount_gen[pdrv]++;
         DBG_VOL(pdrv, "unmounted (dev_addr %d)\n", dev_addr);
     }
 }
@@ -1984,6 +1991,11 @@ bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
     return true;
 }
 
+uint8_t msc_dsk_gen(uint8_t vol)
+{
+    return vol < FF_VOLUMES ? msc_mount_gen[vol] : 0;
+}
+
 bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
 {
     uint8_t pdrv;
@@ -1991,6 +2003,8 @@ bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
         return false;
     if (disk_status(pdrv) == STA_NOINIT)
         disk_initialize(pdrv);
+    if (msc_pdrv[pdrv].dev_addr == 0) // freed/incomplete slot; msc_get_itf would index [-1]
+        return false;
     msc_interface_t *p_msc = msc_get_itf(msc_pdrv[pdrv].dev_addr);
     out->present = (msc_pdrv[pdrv].status == msc_volume_mounted);
     out->removable = msc_pdrv[pdrv].removable;
@@ -2000,6 +2014,18 @@ bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
                      p_msc->subclass == MSC_SUBCLASS_SFF;
     out->block_count = msc_pdrv[pdrv].block_count;
     out->block_size = msc_pdrv[pdrv].block_size;
+    return true;
+}
+
+// Filesystem type + cluster size (sectors) of a mounted volume, read straight
+// from the FatFs object — no f_getfree scan. False when nothing is mounted.
+bool msc_dsk_fs_geom(uint8_t vol, uint8_t *fs_type, uint32_t *csize)
+{
+    uint8_t pdrv;
+    if (!msc_dsk_pdrv_of_vol(vol, &pdrv) || msc_pdrv[pdrv].fatfs.fs_type == 0)
+        return false;
+    *fs_type = msc_pdrv[pdrv].fatfs.fs_type;
+    *csize = msc_pdrv[pdrv].fatfs.csize;
     return true;
 }
 

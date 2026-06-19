@@ -91,6 +91,7 @@ X(STR_ERR_NOT_FORMATTABLE, "?Full format not supported on this device\n")
 X(STR_ERR_SECTOR_SIZE, "?Sector size not supported\n")
 X(STR_ERR_GPT_DISABLED, "?GPT not available in this build\n")
 X(STR_ERR_FORMAT_FAILED, "?Low-level format failed\n")
+X(STR_ERR_DEVICE_CHANGED, "?Device changed\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?IO error\n")                     // -5
