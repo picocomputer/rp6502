@@ -448,10 +448,10 @@ X(STR_HELP_DISK,
   "Dysk:\n"
   "HELP DISK pod        - \aPokaż pomoc dla podpolecenia dysku.\n"
   "DISK INFO dys        - \aPokaż urządzenie, format i zajętość.\n"
+  "DISK LABEL dys (et)  - \aPokaż lub ustaw etykietę woluminu.\n"
   "DISK FORMAT dys ..   - \aUtwórz system plików. Patrz HELP DISK FORMAT.\n"
   "DISK ERASE dys       - \aNadpisz wszystkie dane zerami. Patrz HELP DISK ERASE.\n"
-  "DISK VERIFY dys      - \aOdczytaj wszystkie sektory i zgłoś uszkodzone.\n"
-  "DISK LABEL dys (et)  - \aPokaż lub ustaw etykietę woluminu.\n")
+  "DISK VERIFY dys      - \aOdczytaj wszystkie sektory i zgłoś uszkodzone.\n")
 
 X(STR_HELP_DISK_INFO,
   "DISK INFO dysk\n"
