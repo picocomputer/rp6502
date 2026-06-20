@@ -26,12 +26,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // RP6502 FF_MIN_GPT hook: definition for the runtime threshold the FatFs edits
-// reference (ffconf.h [1/3] macro + [2/3] declaration, ff.c [3/3]). The default reproduces the
-// stock threshold; dsk_do_mkfs forces MBR or GPT around f_mkfs(). The <=2^32 doc
-// max (which the deleted ff.c #error guarded) holds for every value written to
-// dsk_gpt_threshold: the static_assert covers the default, and dsk_do_mkfs only
-// ever assigns 0 (force GPT) or (LBA_t)-1 (force MBR; intentionally above the max
-// so GPT is never chosen). Only the GPT-capable (exFAT/LBA64) build references it.
+// reference (ffconf.h [1/3] macro + [2/3] declaration, ff.c [3/3]). The default
+// reproduces the stock threshold; dsk_preview_mkfs and dsk_do_mkfs force MBR or
+// GPT around f_mkfs(). The <=2^32 doc max (which the deleted ff.c #error guarded)
+// holds for every value written to dsk_gpt_threshold: the static_assert covers
+// the default, and the runtime writers only ever assign 0 (force GPT), (LBA_t)-1
+// (force MBR; intentionally above the max so GPT is never chosen), or restore the
+// default. Only the GPT-capable (exFAT/LBA64) build references it.
 #if FF_LBA64
 #define DSK_GPT_DEFAULT 0x10000000
 static_assert(DSK_GPT_DEFAULT <= 0x100000000ULL, "FF_MIN_GPT default out of range");
@@ -68,7 +69,7 @@ enum
 static uint8_t dsk_vol;  // logical volume (MSCn:)
 static uint8_t dsk_gen;  // mount generation captured at preview (TOCTOU guard)
 static char dsk_path[6]; // "MSCn:" for FatFs calls
-static bool dsk_is_floppy;
+static bool dsk_is_floppy; // format-only state (not set for erase/verify)
 static uint8_t dsk_fs;   // 0=auto, 1=FAT, 2=exFAT
 static bool dsk_full;    // /full low-level format
 static uint32_t dsk_au;  // allocation unit bytes (requested, then resolved)
@@ -81,7 +82,7 @@ static uint8_t dsk_fmt_track;  // current track in the per-track format loop
 static uint8_t dsk_fmt_head;   // current head in the per-track format loop
 static uint8_t dsk_fmt_tracks; // track count for the loop
 static uint8_t dsk_fmt_heads;  // head count for the loop
-static uint64_t dsk_total; // sectors for zero/verify
+static uint64_t dsk_total; // total sectors: erase/verify, and full-floppy format geometry
 static uint64_t dsk_lba;   // current sector
 static int dsk_last_pct;
 static uint32_t dsk_bad;   // verify bad-sector count
@@ -98,7 +99,7 @@ static struct
 } dsk_free;
 
 // Label result captured synchronously, emitted by dsk_label_response.
-static char dsk_label_old[24]; // previous label (changed case)
+static char dsk_label_old[24]; // previous label (shown only on the change path)
 static char dsk_label_cur[24]; // current or new label to display
 static bool dsk_label_changed; // false: show current; true: old -> new
 
@@ -198,9 +199,9 @@ static const char *dsk_scheme_word(void)
 
 // Build the "<scheme> <filesystem> <cluster> <suffix> (<label>)" descriptor shared
 // by the VOL (current) and FMT (target) lines. scheme: word or NULL (omit).
-// fsname: the filesystem name (never NULL). au_bytes: cluster size in KB (512 B
-// shown in bytes), 0 to omit when there is no filesystem. suffix: extra word
-// (Quick/Full) or NULL. label: appended in parens when non-empty (NULL/"" omits).
+// fsname: the filesystem name (never NULL). au_bytes: cluster size in bytes
+// (printed as KB, or "512 B" for 512), 0 to omit when there is no filesystem.
+// suffix: extra word (Quick/Full) or NULL. label: in parens when non-empty (NULL/"" omits).
 // The `n >= size` guards stop a truncated segment from underflowing size - n.
 static void dsk_fmt_desc(char *out, size_t size, const char *scheme, const char *fsname,
                          uint32_t au_bytes, const char *suffix, const char *label)
@@ -377,6 +378,14 @@ static FRESULT dsk_preview_mkfs(void)
     return fr;
 }
 
+// Apply a volume label to dsk_path's drive ("" clears it).
+static FRESULT dsk_set_label(const char *label)
+{
+    char arg[sizeof(dsk_path) + sizeof(dsk_label_oem)];
+    snprintf(arg, sizeof(arg), "%s%s", dsk_path, label);
+    return f_setlabel(arg);
+}
+
 // Build the filesystem (and apply the label). Returns the FatFs result.
 static FRESULT dsk_do_mkfs(void)
 {
@@ -409,17 +418,15 @@ static FRESULT dsk_do_mkfs(void)
     dsk_gpt_threshold = DSK_GPT_DEFAULT;
 #endif
     if (fr == FR_OK && dsk_has_label)
-    {
-        char arg[sizeof(dsk_path) + sizeof(dsk_label_oem)];
-        snprintf(arg, sizeof(arg), "%s%s", dsk_path, dsk_label_oem);
-        fr = f_setlabel(arg);
-    }
+        fr = dsk_set_label(dsk_label_oem);
     return fr;
 }
 
 // Floppy track/head geometry for the per-track FORMAT UNIT loop, by sector count.
 // Single-sided 160 KB (320) and 180 KB (360) media have one head; every other
 // standard floppy has two. Tracks is 40 up to the 360 KB formats, else 80.
+// Heuristic keyed to standard capacities; a nonstandard count gives a best guess
+// (an out-of-range track just fails the format, no corruption).
 static void dsk_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads)
 {
     *heads = (blocks == 320 || blocks == 360) ? 1 : 2;
@@ -597,7 +604,7 @@ static int dsk_run_response(char *buf, size_t size, int state)
 // A USB hot-swap during the confirm prompt frees the slot and a new device can
 // reuse it, so the captured generation must still match; media/write-protect can
 // also have changed. Queues the matching error and returns false on any mismatch.
-static bool dsk_run_revalidate(bool need_writable)
+static bool dsk_run_revalidate(void)
 {
     if (msc_dsk_gen(dsk_vol) != dsk_gen)
     {
@@ -615,7 +622,7 @@ static bool dsk_run_revalidate(bool need_writable)
         mon_add_response_fatfs(FR_INVALID_DRIVE);
         return false;
     }
-    if (need_writable && info.write_prot)
+    if (info.write_prot) // both destructive runs (format, erase) need a writable target
     {
         mon_add_response_fatfs(FR_WRITE_PROTECTED);
         return false;
@@ -625,7 +632,7 @@ static bool dsk_run_revalidate(bool need_writable)
 
 static void dsk_run_format(void)
 {
-    if (!dsk_run_revalidate(true))
+    if (!dsk_run_revalidate())
     {
         dsk_state = DSK_IDLE;
         return;
@@ -646,7 +653,7 @@ static void dsk_run_format(void)
 
 static void dsk_run_erase(void)
 {
-    if (!dsk_run_revalidate(true))
+    if (!dsk_run_revalidate())
     {
         dsk_state = DSK_IDLE;
         return;
@@ -697,6 +704,18 @@ static bool dsk_validate(uint8_t vol, msc_dsk_info_t *info, bool need_writable)
     return true;
 }
 
+// If t names a drive and no drive is set yet (*vol < 0), store it; return true.
+static bool dsk_match_drive(const char *t, int *vol)
+{
+    int v;
+    if (*vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
+    {
+        *vol = v;
+        return true;
+    }
+    return false;
+}
+
 // Parse a drive-only argument list (info/erase/verify). Returns the volume, or
 // -1 after queueing sub's help (no drive) or an argument error (garbage/extra).
 static int dsk_parse_drive_only(const char *args, const char *sub)
@@ -705,10 +724,7 @@ static int dsk_parse_drive_only(const char *args, const char *sub)
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
     {
-        int v;
-        if (vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
-            vol = v;
-        else
+        if (!dsk_match_drive(t, &vol))
         {
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return -1;
@@ -735,7 +751,6 @@ static void dsk_format(const char *args)
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
     {
-        int v;
         if (!strcasecmp(t, STR_OPT_FAT))
             dsk_fs = 1;
 #if RP6502_EXFAT
@@ -767,8 +782,10 @@ static void dsk_format(const char *args)
                 return;
             }
         }
-        else if (vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
-            vol = v;
+        else if (dsk_match_drive(t, &vol))
+        {
+            // drive captured as a side effect
+        }
         else if (!dsk_has_label)
         {
             // Volume label (OEM bytes from the terminal, as FatFs expects).
@@ -894,9 +911,10 @@ static void dsk_label(const char *args)
     const char *t;
     while ((t = str_parse_string(&args)) != NULL)
     {
-        int v;
-        if (vol < 0 && (v = msc_dsk_vol_from_name(t)) >= 0)
-            vol = v;
+        if (dsk_match_drive(t, &vol))
+        {
+            // drive captured as a side effect
+        }
         else if (!newlabel)
             newlabel = t;
         else
@@ -934,9 +952,7 @@ static void dsk_label(const char *args)
     if (f_getlabel(dsk_path, dsk_label_old, &vsn) != FR_OK)
         dsk_label_old[0] = '\0';
     // An empty "" label clears it.
-    char arg[sizeof(dsk_path) + sizeof(dsk_label_oem)];
-    snprintf(arg, sizeof(arg), "%s%s", dsk_path, newlabel);
-    FRESULT fr = f_setlabel(arg);
+    FRESULT fr = dsk_set_label(newlabel);
     if (fr != FR_OK)
     {
         mon_add_response_fatfs(fr);

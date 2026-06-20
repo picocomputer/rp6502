@@ -22,8 +22,7 @@ void dsk_break(void);
 // Monitor command handler for "DISK".
 void dsk_mon_disk(const char *args);
 
-// True while a confirm prompt or a pass is in progress.
+// True while a destructive/scan pass is running.
 bool dsk_active(void);
-
 
 #endif /* _RIA_MON_DSK_H_ */

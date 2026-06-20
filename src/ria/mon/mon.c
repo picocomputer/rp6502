@@ -36,7 +36,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #define MON_RESPONSE_BUF_SIZE 128
-// Enough slots for the longest response chain (status/set).
+// 16 = longest response chain (set with no args queues 15) + 1 free-slot margin.
 #define MON_RESPONSE_FN_COUNT 16
 // Minimum column budget remaining after the indent for wrap-with-indent
 // to engage. If the BEL marker lands too close to the right edge the
@@ -55,7 +55,7 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-static int mon_more_rows_left = 23;
+static int mon_more_rows_left = 23; // default 24-row screen less prompt; reset to term_height-1 before use
 static int mon_response_col;
 static int mon_response_indent;
 static int mon_response_indent_pending;
@@ -355,6 +355,14 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     mon_response_state[i] = 0;
 }
 
+// Reset a response slot to empty (state -1 marks a free slot).
+static void mon_clear_slot(int i)
+{
+    mon_response_fn_list[i] = NULL;
+    mon_response_str[i] = NULL;
+    mon_response_state[i] = -1;
+}
+
 static void mon_next_response(void)
 {
     int i = 0;
@@ -364,9 +372,7 @@ static void mon_next_response(void)
         mon_response_str[i] = mon_response_str[i + 1];
         mon_response_state[i] = mon_response_state[i + 1];
     }
-    mon_response_fn_list[i] = NULL;
-    mon_response_str[i] = NULL;
-    mon_response_state[i] = -1;
+    mon_clear_slot(i);
 }
 
 static void mon_break_response(void)
@@ -382,9 +388,7 @@ static void mon_break_response(void)
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
         mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1);
-        mon_response_fn_list[i] = NULL;
-        mon_response_str[i] = NULL;
-        mon_response_state[i] = -1;
+        mon_clear_slot(i);
     }
 }
 
