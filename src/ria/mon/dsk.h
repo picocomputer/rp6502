@@ -10,7 +10,14 @@
 /* Disk utility: show info, format, zero, verify, and label USB drives.
  */
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
+
+/* Main events
+ */
+
+void dsk_break(void);
 
 // Monitor command handler for "DISK".
 void dsk_mon_disk(const char *args);
@@ -18,8 +25,5 @@ void dsk_mon_disk(const char *args);
 // True while a confirm prompt or a pass is in progress.
 bool dsk_active(void);
 
-// Abort the current operation. A FORMAT UNIT in progress is not abortable and
-// is left to complete.
-void dsk_break(void);
 
 #endif /* _RIA_MON_DSK_H_ */

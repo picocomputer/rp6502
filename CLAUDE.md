@@ -14,7 +14,7 @@ separate tool calls instead of shell operators.
 Never search the root of the filesystem. Everything you need will be in
 the user home directory.
 
-Limit git usage to as few requests as possibler unless I specifically ask
+Limit git usage to as few requests as possible unless I specifically ask
 for something only git can answer.
 
 To build, run `cmake --build build` from the project root. That builds

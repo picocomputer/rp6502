@@ -20,7 +20,7 @@
 
 void hlp_mon_help(const char *args);
 
-// Queue the help for a disk subcommand by keyword (STR_INFO, STR_FORMAT, ...).
+// Queue the help for a disk subcommand by keyword
 void hlp_disk_sub_response(const char *sub);
 
 // Test if help exists. Used to determine
