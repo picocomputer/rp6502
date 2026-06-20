@@ -225,6 +225,7 @@ X(STR_HELP_HELP,
   "UNLINK plik|kat     - \aUsuń plik lub pusty katalog.\n"
   "COPY źródło cel     - \aSkopiuj plik.\n"
   "MOVE źródło cel     - \aPrzenieś albo zmień nazwę pliku lub katalogu.\n"
+  "DISK pod dys ...    - \aInfo, etykieta, format, kasowanie i weryfikacja dysku.\n"
   "UPLOAD plik         - \aZapisz plik. Potem następują bloki binarne.\n"
   "BINARY adr dł crc   - \aZapisz pamięć. Potem następują dane binarne.\n"
   "0000 (00 00 ...)    - \aCzytaj lub zapisuj pamięć.\n")

@@ -221,6 +221,7 @@ X(STR_HELP_HELP,
   "UNLINK file|dir     - \aDelete a file or empty directory.\n"
   "COPY src dst        - \aCopy a file.\n"
   "MOVE src dst        - \aMove or rename a file or directory.\n"
+  "DISK sub drv ...    - \aInfo, label, format, erase, or verify a disk.\n"
   "UPLOAD file         - \aWrite file. Binary chunks follow.\n"
   "BINARY addr len crc - \aWrite memory. Binary data follows.\n"
   "0000 (00 00 ...)    - \aRead or write memory.\n")
