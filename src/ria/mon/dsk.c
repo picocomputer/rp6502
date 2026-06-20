@@ -637,10 +637,10 @@ static void dsk_run_format(void)
     dsk_last_pct = -1;
     dsk_fmt_track = 0;
     dsk_fmt_head = 0;
+    mon_add_response_utf8(S(STR_DISK_FORMATTING)); // banner before either pass
     if (dsk_full && dsk_is_floppy)
     {
         dsk_floppy_geometry(dsk_total, &dsk_fmt_tracks, &dsk_fmt_heads);
-        mon_add_response_utf8(S(STR_DISK_FORMATTING)); // banner before the per-track pass
         dsk_state = DSK_RUN_FORMAT_UNIT;
     }
     else
