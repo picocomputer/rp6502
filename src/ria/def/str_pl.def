@@ -225,6 +225,7 @@ X(STR_HELP_HELP,
   "UNLINK plik|kat     - \aUsuń plik lub pusty katalog.\n"
   "COPY źródło cel     - \aSkopiuj plik.\n"
   "MOVE źródło cel     - \aPrzenieś albo zmień nazwę pliku lub katalogu.\n"
+  "DISK pod dys ...    - \aInfo, etykieta, format, kasowanie i weryfikacja dysku.\n"
   "UPLOAD plik         - \aZapisz plik. Potem następują bloki binarne.\n"
   "BINARY adr dł crc   - \aZapisz pamięć. Potem następują dane binarne.\n"
   "0000 (00 00 ...)    - \aCzytaj lub zapisuj pamięć.\n")
@@ -394,9 +395,6 @@ X(STR_HELP_SET_CP,
   "(domyślny): strona kodowa podąża za językiem ustawionym przez SET LOC.\n"
   "Każda inna wartość to stałe nadpisanie. Obsługiwane są: 437, 720, 737, 771,\n"
   "775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n")
-
-X(STR_HELP_SET_CP_DEV,
-  "To jest kompilacja deweloperska. Dostępna jest tylko " STR_OEM_CODE_PAGE ".\n")
 
 X(STR_HELP_SET_VGA,
   "SET VGA wybiera typ wyświetlacza dla wyjścia VGA. Wszystkie rozdzielczości\n"

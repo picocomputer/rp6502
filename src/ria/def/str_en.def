@@ -221,6 +221,7 @@ X(STR_HELP_HELP,
   "UNLINK file|dir     - \aDelete a file or empty directory.\n"
   "COPY src dst        - \aCopy a file.\n"
   "MOVE src dst        - \aMove or rename a file or directory.\n"
+  "DISK sub drv ...    - \aInfo, label, format, erase, or verify a disk.\n"
   "UPLOAD file         - \aWrite file. Binary chunks follow.\n"
   "BINARY addr len crc - \aWrite memory. Binary data follows.\n"
   "0000 (00 00 ...)    - \aRead or write memory.\n")
@@ -385,9 +386,6 @@ X(STR_HELP_SET_CP,
   "the code page follows the locale set with SET LOC. Any other value is a fixed "
   "override. Supported: 437, 720, 737, 771, 775, 850, 852, 855, 857, 860, 861, "
   "862, 863, 864, 865, 866, 869.\n")
-
-X(STR_HELP_SET_CP_DEV,
-  "This is a development build. Only " STR_OEM_CODE_PAGE " is available.\n")
 
 X(STR_HELP_SET_VGA,
   "SET VGA selects the display type for VGA output. All canvas resolutions are "

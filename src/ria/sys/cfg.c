@@ -46,6 +46,8 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // +WMyWiFi    | WiFi SSID
 // +KsEkRiT    | WiFi Password
 // +B1         | Bluetooth Enabled
+// +O23        | Telnet Port
+// +AsEkRiT    | Telnet Key
 // BASIC       | Boot ROM - Must be last
 
 #define CFG_VERSION 1

@@ -84,11 +84,7 @@
 / Locale and Namespace Configurations
 /---------------------------------------------------------------------------*/
 
-#ifdef NDEBUG
 #define FF_CODE_PAGE	0
-#else
-#define FF_CODE_PAGE	RP6502_CODE_PAGE
-#endif
 /* This option specifies the OEM code page to be used on the target system.
 /  Incorrect code page setting can cause a file open failure.
 /
@@ -114,6 +110,13 @@
 /   949 - Korean (DBCS)
 /   950 - Traditional Chinese (DBCS)
 /     0 - Include all code pages above and configured by f_setcp()
+*/
+
+#define FF_NO_DBCS		1
+/* RP6502: With FF_CODE_PAGE 0, drop the DBCS pages (932/936/949/950). Their
+/  conversion tables in ffunicode.c are the bulk of this module's flash
+/  footprint and we never use them. ff.c (f_setcp, DBC range tables) and
+/  ffunicode.c both honor this switch so they stay in sync.
 */
 
 
