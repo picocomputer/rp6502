@@ -589,10 +589,12 @@ static const BYTE Ct864[] = TBL_CT864;
 static const BYTE Ct865[] = TBL_CT865;
 static const BYTE Ct866[] = TBL_CT866;
 static const BYTE Ct869[] = TBL_CT869;
+#if !FF_NO_DBCS	/* RP6502: DBCS range tables unused when DBCS pages excluded */
 static const BYTE Dc932[] = TBL_DC932;
 static const BYTE Dc936[] = TBL_DC936;
 static const BYTE Dc949[] = TBL_DC949;
 static const BYTE Dc950[] = TBL_DC950;
+#endif
 
 #elif FF_CODE_PAGE < 900	/* Static code page configuration (SBCS) */
 #define CODEPAGE FF_CODE_PAGE
@@ -7241,8 +7243,13 @@ FRESULT f_setcp (
 	WORD cp		/* Value to be set as active code page */
 )
 {
+#if !FF_NO_DBCS
 	static const WORD       validcp[22] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869,   932,   936,   949,   950, 0};
 	static const BYTE *const tables[22] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, Dc932, Dc936, Dc949, Dc950, 0};
+#else	/* RP6502: DBCS pages excluded (see ffconf.h FF_NO_DBCS) */
+	static const WORD       validcp[18] = {  437,   720,   737,   771,   775,   850,   852,   855,   857,   860,   861,   862,   863,   864,   865,   866,   869, 0};
+	static const BYTE *const tables[18] = {Ct437, Ct720, Ct737, Ct771, Ct775, Ct850, Ct852, Ct855, Ct857, Ct860, Ct861, Ct862, Ct863, Ct864, Ct865, Ct866, Ct869, 0};
+#endif
 	UINT i;
 
 

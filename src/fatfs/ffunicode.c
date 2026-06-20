@@ -32,12 +32,21 @@
 #define MERGE2(a, b) a ## b
 #define CVTBL(tbl, cp) MERGE2(tbl, cp)
 
+/* RP6502: FF_NO_DBCS (see ffconf.h) drops the DBCS code pages from the
+   FF_CODE_PAGE 0 auto set; default it on here if the config didn't. */
+#ifndef FF_NO_DBCS
+#define FF_NO_DBCS 1
+#endif
+#if FF_NO_DBCS && FF_CODE_PAGE >= 900
+#error "FF_NO_DBCS cannot exclude an explicitly selected DBCS FF_CODE_PAGE"
+#endif
+
 
 /*------------------------------------------------------------------------*/
 /* Code Conversion Tables                                                 */
 /*------------------------------------------------------------------------*/
 
-#if FF_CODE_PAGE == 932 || FF_CODE_PAGE == 0	/* Japanese */
+#if FF_CODE_PAGE == 932 || (FF_CODE_PAGE == 0 && !FF_NO_DBCS)	/* Japanese */
 static const __in_flash("fatfs") WCHAR uni2oem932[] = {	/* Unicode --> Shift_JIS code pairs */
 	0x00A7, 0x8198, 0x00A8, 0x814E, 0x00B0, 0x818B, 0x00B1, 0x817D,	0x00B4, 0x814C, 0x00B6, 0x81F7, 0x00D7, 0x817E, 0x00F7, 0x8180,
 	0x0391, 0x839F, 0x0392, 0x83A0, 0x0393, 0x83A1, 0x0394, 0x83A2,	0x0395, 0x83A3, 0x0396, 0x83A4, 0x0397, 0x83A5, 0x0398, 0x83A6,
@@ -1514,7 +1523,7 @@ static const __in_flash("fatfs") WCHAR oem2uni932[] = {	/* Shift_JIS --> Unicode
 };
 #endif
 
-#if FF_CODE_PAGE == 936 || FF_CODE_PAGE == 0	/* Simplified Chinese */
+#if FF_CODE_PAGE == 936 || (FF_CODE_PAGE == 0 && !FF_NO_DBCS)	/* Simplified Chinese */
 static const __in_flash("fatfs") WCHAR uni2oem936[] = {	/* Unicode --> GBK remaped table */
 	0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x000E, 0x000F,
 	0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0018, 0x0019, 0x001A, 0x001B, 0x001C, 0x001D, 0x001E, 0x001F,
@@ -4569,7 +4578,7 @@ static const __in_flash("fatfs") WCHAR oem2uni936[] = {	/* GBK --> Unicode remap
 };
 #endif
 
-#if FF_CODE_PAGE == 949 || FF_CODE_PAGE == 0	/* Korean */
+#if FF_CODE_PAGE == 949 || (FF_CODE_PAGE == 0 && !FF_NO_DBCS)	/* Korean */
 static const __in_flash("fatfs") WCHAR uni2oem949[] = {	/* Unicode --> UHC code pairs */
 	0x00A1, 0xA2AE, 0x00A4, 0xA2B4, 0x00A7, 0xA1D7, 0x00A8, 0xA1A7,	0x00AA, 0xA8A3, 0x00AD, 0xA1A9, 0x00AE, 0xA2E7, 0x00B0, 0xA1C6,
 	0x00B1, 0xA1BE, 0x00B2, 0xA9F7, 0x00B3, 0xA9F8, 0x00B4, 0xA2A5,	0x00B6, 0xA2D2, 0x00B7, 0xA1A4, 0x00B8, 0xA2AC, 0x00B9, 0xA9F6,
@@ -7794,7 +7803,7 @@ static const __in_flash("fatfs") WCHAR oem2uni949[] = {	/* UHC --> Unicode remap
 };
 #endif
 
-#if FF_CODE_PAGE == 950 || FF_CODE_PAGE == 0	/* Traditional Chinese */
+#if FF_CODE_PAGE == 950 || (FF_CODE_PAGE == 0 && !FF_NO_DBCS)	/* Traditional Chinese */
 static const __in_flash("fatfs") WCHAR uni2oem950[] = {	/* Unicode --> Big5 remaped table */
 	0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008, 0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x000E, 0x000F,
 	0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0018, 0x0019, 0x001A, 0x001B, 0x001C, 0x001D, 0x001E, 0x001F,
@@ -10495,7 +10504,7 @@ static WCHAR uni2oem_sbcs (	/* Returns OEM code character, zero on error */
 
 
 
-#if FF_CODE_PAGE >= 900 || FF_CODE_PAGE == 0
+#if FF_CODE_PAGE >= 900 || (FF_CODE_PAGE == 0 && !FF_NO_DBCS)
 /*------------------------------------------------------------------------*/
 /* OEM <==> Unicode Conversions for DBCS                                  */
 /*------------------------------------------------------------------------*/
@@ -10741,7 +10750,11 @@ WCHAR ff_uni2oem (	/* Returns OEM code character, zero on error */
 	if (uni < 0x80) return (WCHAR)uni;	/* ASCII: pass-through */
 	if (uni >= 0x10000) return 0;		/* Surrogate pair: error */
 #if FF_CODE_PAGE == 0
+#if FF_NO_DBCS
+	return uni2oem_sbcs(uni, cp);
+#else
 	return cp < 900 ? uni2oem_sbcs(uni, cp) : uni2oem_dbcs(uni, cp);
+#endif
 #elif FF_CODE_PAGE < 900
 	return uni2oem_sbcs(uni, cp);
 #else
@@ -10763,7 +10776,11 @@ WCHAR ff_oem2uni (	/* Returns Unicode character in UTF-16, zero on error */
 {
 	if (oem < 0x80) return oem;	/* ASCII: pass-through */
 #if FF_CODE_PAGE == 0
+#if FF_NO_DBCS
+	return oem2uni_sbcs(oem, cp);
+#else
 	return cp < 900 ? oem2uni_sbcs(oem, cp) : oem2uni_dbcs(oem, cp);
+#endif
 #elif FF_CODE_PAGE < 900
 	return oem2uni_sbcs(oem, cp);
 #else

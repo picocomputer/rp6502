@@ -52,4 +52,13 @@ When a change alters observable behavior — syscalls/API, device pipes,
 monitor commands — update the matching docs in the same change. Match the
 existing prose voice; never edit docs/build (generated output).
 
+The vendored FatFs sources (src/fatfs/ff.c, ff.h, ffconf.h) are upstream
+code you re-apply on every version bump, so editing them is a last resort —
+prefer our own files. Two deliberate, sanctioned exceptions already live
+there: the formatting "RP6502 mkfs preview hook" (dsk_mkfs_capture) in ff.c,
+and the FF_NO_DBCS code-page switch in ffconf.h (honored by ff.c's f_setcp
+and DBC range tables, and by ffunicode.c) that drops the DBCS code pages.
+Keep any such edit minimal, tag it RP6502, and call it out — don't churn
+or "reconcile" markers.
+
 Commit this information to MEMORY.

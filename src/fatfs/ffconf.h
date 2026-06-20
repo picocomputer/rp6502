@@ -112,6 +112,13 @@
 /     0 - Include all code pages above and configured by f_setcp()
 */
 
+#define FF_NO_DBCS		1
+/* RP6502: With FF_CODE_PAGE 0, drop the DBCS pages (932/936/949/950). Their
+/  conversion tables in ffunicode.c are the bulk of this module's flash
+/  footprint and we never use them. ff.c (f_setcp, DBC range tables) and
+/  ffunicode.c both honor this switch so they stay in sync.
+*/
+
 
 #define FF_USE_LFN		1
 #define FF_MAX_LFN		255
