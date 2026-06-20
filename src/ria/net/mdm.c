@@ -995,6 +995,9 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
         // Refill response buffer from generator if needed
         if (mdm_response_buf_empty() && mdm_conn->response_state >= 0)
         {
+            // A terminal call may return without writing; clear so its
+            // length is zero rather than resurrecting the prior line.
+            mdm_conn->response_buf[0] = 0;
             mdm_conn->response_state = mdm_conn->response_fn(mdm_conn->response_buf, MDM_RESPONSE_BUF_SIZE, mdm_conn->response_state);
             mdm_conn->response_buf_head = strlen(mdm_conn->response_buf);
             mdm_conn->response_buf_tail = 0;
