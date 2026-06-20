@@ -114,7 +114,7 @@ const char __in_flash("fatfs_vols") * VolumeStr[FF_VOLUMES] = {
     VolumeStrMSC8, VolumeStrMSC9};
 
 // Build a FatFS volume path like "MSC0:" for volume.
-void msc_vol_path(TCHAR buf[6], uint8_t vol)
+static void msc_vol_path(TCHAR buf[6], uint8_t vol)
 {
     static_assert(FF_VOLUMES <= 10);
     memcpy(buf, "MSC0:", 6);
@@ -1989,11 +1989,9 @@ static bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
     return true;
 }
 
-uint8_t msc_dsk_gen(uint8_t vol)
-{
-    return vol < FF_VOLUMES ? msc_mount_gen[vol] : 0;
-}
-
+// Resolve a volume to its full descriptor: media presence/geometry, device class,
+// mount generation, and the mounted filesystem type/cluster size read straight
+// from the FatFs object (fs_type 0 when nothing is mounted; no f_getfree scan).
 bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
 {
     uint8_t pdrv;
@@ -2012,18 +2010,10 @@ bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
                      p_msc->subclass == MSC_SUBCLASS_SFF;
     out->block_count = msc_pdrv[pdrv].block_count;
     out->block_size = msc_pdrv[pdrv].block_size;
-    return true;
-}
-
-// Filesystem type + cluster size (sectors) of a mounted volume, read straight
-// from the FatFs object — no f_getfree scan. False when nothing is mounted.
-bool msc_dsk_fs_geom(uint8_t vol, uint8_t *fs_type, uint32_t *csize)
-{
-    uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv) || msc_pdrv[pdrv].fatfs.fs_type == 0)
-        return false;
-    *fs_type = msc_pdrv[pdrv].fatfs.fs_type;
-    *csize = msc_pdrv[pdrv].fatfs.csize;
+    out->gen = msc_mount_gen[vol];
+    out->fs_type = msc_pdrv[pdrv].fatfs.fs_type;
+    out->csize = msc_pdrv[pdrv].fatfs.csize;
+    msc_vol_path(out->path, vol);
     return true;
 }
 

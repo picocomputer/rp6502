@@ -464,9 +464,8 @@ X(STR_HELP_DISK_FORMAT,
   "/gpt; domyślnie SFD dla dyskietek, MBR dla flash. /512 i wyższe potęgi dwójki "
   "ustawiają rozmiar "
   "klastra (domyślnie wg pojemności). /quick (domyślnie) zapisuje tylko system "
-  "plików; /full dodaje formatowanie niskopoziomowe (tylko dyskietki). Opcje i "
-  "etykieta mogą być w dowolnej kolejności. Wyświetlany jest podgląd; wpisz YES, "
-  "aby potwierdzić.\n")
+  "plików; /full dodaje formatowanie niskopoziomowe (tylko dyskietki). "
+  "Wyświetlany jest podgląd; wpisz YES, aby potwierdzić.\n")
 
 X(STR_HELP_DISK_FORMAT_BASIC,
   "DISK FORMAT dysk [/sfd|/mbr] [/512|/4k...] [/quick|/full] [etykieta]\n"
@@ -474,16 +473,14 @@ X(STR_HELP_DISK_FORMAT_BASIC,
   "domyślnie SFD dla dyskietek, MBR dla flash. /512 i wyższe potęgi dwójki "
   "ustawiają rozmiar klastra "
   "(domyślnie wg pojemności). /quick (domyślnie) zapisuje tylko system plików; "
-  "/full dodaje formatowanie niskopoziomowe (tylko dyskietki). Opcje i etykieta "
-  "mogą być w dowolnej kolejności. Wyświetlany jest podgląd; wpisz YES, aby "
-  "potwierdzić.\n")
+  "/full dodaje formatowanie niskopoziomowe (tylko dyskietki). Wyświetlany jest "
+  "podgląd; wpisz YES, aby potwierdzić.\n")
 
 X(STR_HELP_DISK_ERASE,
   "DISK ERASE dysk\n"
   "Usuwa wszystkie dane z dysku o nazwie MSCn: lub n:, nadpisując każdy sektor "
   "zerami, co pokonuje programy do odzyskiwania plików, ale dane mogą pozostać "
-  "w przemapowanych komórkach flash. Ctrl-C przerywa. Wpisz YES, aby "
-  "potwierdzić.\n")
+  "w przemapowanych komórkach flash. Wpisz YES, aby potwierdzić.\n")
 
 X(STR_HELP_DISK_VERIFY,
   "DISK VERIFY dysk\n"

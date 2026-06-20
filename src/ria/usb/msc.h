@@ -33,22 +33,23 @@ typedef struct
     bool present;
     bool removable;
     bool write_prot;
-    bool is_floppy;  // CBI/UFI/SFF floppy (vs BOT/SCSI flash)
+    bool is_floppy; // CBI/UFI/SFF floppy (vs BOT/SCSI flash)
     uint64_t block_count;
     uint32_t block_size;
+    uint8_t gen;     // mount generation; changes when the slot is reused (TOCTOU guard)
+    uint8_t fs_type; // mounted FS_FAT12/16/32/EXFAT, 0 = no filesystem
+    uint32_t csize;  // cluster size in sectors (0 when fs_type == 0)
+    char path[6];    // canonical "MSCn:" FatFs path for this volume
 } msc_dsk_info_t;
 
 int msc_dsk_vol_from_name(const char *name); // "MSCn"/"MSCn:"/"n:" -> index, or -1
-uint8_t msc_dsk_gen(uint8_t vol); // mount generation; changes when the slot is reused
 bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out);
-bool msc_dsk_fs_geom(uint8_t vol, uint8_t *fs_type, uint32_t *csize); // no f_getfree scan
 bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5]);
 bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size);
 bool msc_dsk_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count);
 bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count);
 bool msc_dsk_format_track(uint8_t vol, uint8_t track, uint8_t head);
-void msc_dsk_reenumerate(uint8_t pdrv);  // remount after format/erase
-void msc_vol_path(char buf[6], uint8_t vol); // "MSCn:" FatFs path for a volume
+void msc_dsk_reenumerate(uint8_t pdrv); // remount after format/erase
 
 /* TinyUSB host class-driver callbacks.
  */

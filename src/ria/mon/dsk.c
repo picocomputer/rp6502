@@ -28,7 +28,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 // RP6502 FF_MIN_GPT hook: definition for the runtime threshold the FatFs edits
 // reference (ffconf.h [1/3] macro + [2/3] declaration, ff.c [3/3]). The default
 // reproduces the stock threshold; dsk_preview_mkfs and dsk_do_mkfs force MBR or
-// GPT around f_mkfs(). The <=2^32 doc max (which the deleted ff.c #error guarded)
+// GPT around f_mkfs(). The <=2^32 doc max (which the commented-out ff.c #error guarded)
 // holds for every value written to dsk_gpt_threshold: the static_assert covers
 // the default, and the runtime writers only ever assign 0 (force GPT), (LBA_t)-1
 // (force MBR; intentionally above the max so GPT is never chosen), or restore the
@@ -66,14 +66,14 @@ enum
 };
 
 // Operation context, valid from preview through completion.
-static uint8_t dsk_vol;  // logical volume (MSCn:)
-static uint8_t dsk_gen;  // mount generation captured at preview (TOCTOU guard)
-static char dsk_path[6]; // "MSCn:" for FatFs calls
-static bool dsk_is_floppy; // format-only state (not set for erase/verify)
-static uint8_t dsk_fs;   // 0=auto, 1=FAT, 2=exFAT
-static bool dsk_full;    // /full low-level format
-static uint32_t dsk_au;  // allocation unit bytes (requested, then resolved)
-static uint8_t dsk_fsty; // resolved FS_FAT12/16/32/EXFAT for format
+static uint8_t dsk_vol;         // logical volume (MSCn:)
+static uint8_t dsk_gen;         // mount generation captured at preview (TOCTOU guard)
+static char dsk_path[6];        // "MSCn:" for FatFs calls
+static bool dsk_is_floppy;      // format-only state (not set for erase/verify)
+static uint8_t dsk_fs_req;      // requested FS: 0=auto, 1=FAT, 2=exFAT
+static bool dsk_full;           // /full low-level format
+static uint32_t dsk_au;         // allocation unit bytes (requested, then resolved)
+static uint8_t dsk_fs_resolved; // resolved FS_FAT12/16/32/EXFAT for format
 static bool dsk_has_label;
 static char dsk_label_oem[12];
 static uint8_t dsk_layout;     // DSK_LAYOUT_* for format
@@ -82,8 +82,8 @@ static uint8_t dsk_fmt_track;  // current track in the per-track format loop
 static uint8_t dsk_fmt_head;   // current head in the per-track format loop
 static uint8_t dsk_fmt_tracks; // track count for the loop
 static uint8_t dsk_fmt_heads;  // head count for the loop
-static uint64_t dsk_total; // total sectors: erase/verify, and full-floppy format geometry
-static uint64_t dsk_lba;   // current sector
+static uint64_t dsk_total;     // total sectors: erase/verify, and full-floppy format geometry
+static uint64_t dsk_lba;       // current sector
 static int dsk_last_pct;
 static uint32_t dsk_bad;   // verify bad-sector count
 static uint32_t dsk_pin_n; // verify: sectors in the failing chunk being pinpointed (0 = none)
@@ -288,11 +288,11 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             return 3;
         }
         // FORMAT/ERASE: skip the usage scan (about to wipe); read FS type and
-        // cluster straight from the mounted object.
-        uint8_t fsty;
-        uint32_t csize;
-        if (msc_dsk_fs_geom(dsk_vol, &fsty, &csize))
-            dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fsty), csize * 512u, NULL, label);
+        // cluster straight from the mounted object via get_info (no f_getfree).
+        msc_dsk_info_t fsinfo;
+        if (msc_dsk_get_info(dsk_vol, &fsinfo) && fsinfo.fs_type)
+            dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fsinfo.fs_type),
+                         fsinfo.csize * 512u, NULL, label);
         else
             dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, NULL, label);
         snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
@@ -322,7 +322,7 @@ static int dsk_preview_response(char *buf, size_t size, int state)
                              : dsk_layout == DSK_LAYOUT_GPT ? STR_GPT
                                                             : STR_MBR;
         char desc[64];
-        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fsty), dsk_au,
+        dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fs_resolved), dsk_au,
                      dsk_full ? STR_FULL : STR_QUICK,
                      dsk_has_label ? dsk_label_oem : NULL);
         snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
@@ -335,7 +335,7 @@ static int dsk_preview_response(char *buf, size_t size, int state)
 
 // RP6502 mkfs preview hook (paired with the call sites in fatfs/ff.c): f_mkfs
 // reports the FS type and cluster size it has chosen, captured here into
-// dsk_fsty/dsk_au for the format preview. dsk_previewing is set only around the
+// dsk_fs_resolved/dsk_au for the format preview. dsk_previewing is set only around the
 // no-write preview run below, so a real format passes straight through.
 static bool dsk_previewing;
 
@@ -343,7 +343,7 @@ int dsk_mkfs_capture(BYTE fsty, DWORD au_sectors)
 {
     if (!dsk_previewing)
         return 0; // real format: let f_mkfs proceed and write
-    dsk_fsty = fsty;
+    dsk_fs_resolved = fsty;
     dsk_au = au_sectors * 512u;
     return 1; // preview: stop f_mkfs right after it picked the geometry (FR_OK)
 }
@@ -352,7 +352,7 @@ int dsk_mkfs_capture(BYTE fsty, DWORD au_sectors)
 // so the preview can never disagree with the actual format. The request maps to
 // f_mkfs's own selection (FM_ANY auto-picks exFAT past ~32 GiB, as before); the
 // capture hook stops it before any TRIM/write. Returns f_mkfs's result: FR_OK
-// with dsk_fsty/dsk_au filled, or its own FR_MKFS_* / FR_* when unsatisfiable.
+// with dsk_fs_resolved/dsk_au filled, or its own FR_MKFS_* / FR_* when unsatisfiable.
 // The layout (MBR/GPT/SFD) is forced the same way as dsk_do_mkfs so sz_vol — and
 // thus the choice — matches the real run.
 static FRESULT dsk_preview_mkfs(void)
@@ -361,9 +361,9 @@ static FRESULT dsk_preview_mkfs(void)
     memset(&parm, 0, sizeof(parm));
     parm.n_fat = 2;
     parm.au_size = dsk_au; // user /Nk request (0: let f_mkfs choose)
-    parm.fmt = dsk_fs == 2   ? FM_EXFAT
-               : dsk_fs == 1 ? (FM_FAT | FM_FAT32)
-                             : FM_ANY;
+    parm.fmt = dsk_fs_req == 2   ? FM_EXFAT
+               : dsk_fs_req == 1 ? (FM_FAT | FM_FAT32)
+                                 : FM_ANY;
     if (dsk_layout == DSK_LAYOUT_SFD)
         parm.fmt |= FM_SFD;
 #if FF_LBA64
@@ -393,7 +393,7 @@ static FRESULT dsk_do_mkfs(void)
     memset(&parm, 0, sizeof(parm));
     parm.n_fat = 2;
     parm.au_size = dsk_au; // resolved cluster size (bytes); always explicit
-    switch (dsk_fsty)
+    switch (dsk_fs_resolved)
     {
     case FS_EXFAT:
         parm.fmt = FM_EXFAT;
@@ -606,20 +606,27 @@ static int dsk_run_response(char *buf, size_t size, int state)
 // also have changed. Queues the matching error and returns false on any mismatch.
 static bool dsk_run_revalidate(void)
 {
-    if (msc_dsk_gen(dsk_vol) != dsk_gen)
+    // A freed/reused slot always carries a bumped generation, so a failed
+    // get_info is itself a "device changed".
+    msc_dsk_info_t info;
+    if (!msc_dsk_get_info(dsk_vol, &info) || info.gen != dsk_gen)
     {
         mon_add_response_utf8(S(STR_ERR_DEVICE_CHANGED));
         return false;
     }
-    msc_dsk_info_t info;
-    if (!msc_dsk_get_info(dsk_vol, &info) || !info.present)
+    if (!info.present)
     {
         mon_add_response_utf8(S(STR_ERR_NO_MEDIA));
         return false;
     }
-    if (info.block_count == 0 || info.block_size != 512)
+    if (info.block_count == 0)
     {
         mon_add_response_fatfs(FR_INVALID_DRIVE);
+        return false;
+    }
+    if (info.block_size != 512)
+    {
+        mon_add_response_utf8(S(STR_ERR_SECTOR_SIZE));
         return false;
     }
     if (info.write_prot) // both destructive runs (format, erase) need a writable target
@@ -660,7 +667,7 @@ static void dsk_run_erase(void)
     }
     dsk_last_pct = -1;
     dsk_lba = 0;
-    memset(mbuf, 0, MBUF_SIZE); // zero once; the chunk loop never dirties mbuf
+    memset(mbuf, 0, MBUF_SIZE);                 // zero once; the chunk loop never dirties mbuf
     mon_add_response_utf8(S(STR_DISK_ERASING)); // banner before the zero pass
     dsk_state = DSK_RUN_ERASE;
     mon_add_response_fn(dsk_run_response);
@@ -700,7 +707,7 @@ static bool dsk_validate(uint8_t vol, msc_dsk_info_t *info, bool need_writable)
         mon_add_response_fatfs(FR_WRITE_PROTECTED);
         return false;
     }
-    msc_vol_path(dsk_path, vol); // canonical "MSCn:" so "0:" and "MSC0:" agree
+    memcpy(dsk_path, info->path, sizeof(dsk_path)); // canonical "MSCn:" so "0:" and "MSC0:" agree
     return true;
 }
 
@@ -740,7 +747,7 @@ static int dsk_parse_drive_only(const char *args, const char *sub)
 
 static void dsk_format(const char *args)
 {
-    dsk_fs = 0;
+    dsk_fs_req = 0;
     dsk_full = false;
     dsk_au = 0;
     dsk_has_label = false;
@@ -752,10 +759,10 @@ static void dsk_format(const char *args)
     while ((t = str_parse_string(&args)) != NULL)
     {
         if (!strcasecmp(t, STR_OPT_FAT))
-            dsk_fs = 1;
+            dsk_fs_req = 1;
 #if RP6502_EXFAT
         else if (!strcasecmp(t, STR_OPT_EXFAT))
-            dsk_fs = 2;
+            dsk_fs_req = 2;
 #endif
         else if (!strcasecmp(t, STR_OPT_QUICK))
             dsk_full = false;
@@ -808,7 +815,7 @@ static void dsk_format(const char *args)
     if (!dsk_validate((uint8_t)vol, &info, true))
         return;
     dsk_vol = (uint8_t)vol;
-    dsk_gen = msc_dsk_gen(dsk_vol); // re-checked at YES against a hot-swap
+    dsk_gen = info.gen; // re-checked at YES against a hot-swap
     dsk_is_floppy = info.is_floppy;
     dsk_total = info.block_count; // sector count for the per-track format geometry
     if (dsk_full && !dsk_is_floppy)
@@ -862,7 +869,7 @@ static void dsk_erase(const char *args)
     if (!dsk_validate((uint8_t)vol, &info, true))
         return;
     dsk_vol = (uint8_t)vol;
-    dsk_gen = msc_dsk_gen(dsk_vol); // re-checked at YES against a hot-swap
+    dsk_gen = info.gen; // re-checked at YES against a hot-swap
     dsk_total = info.block_count;
     dsk_preview_op = DSK_PREVIEW_ERASE;
     mon_add_response_fn(dsk_preview_response);
