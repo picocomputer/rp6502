@@ -19,6 +19,7 @@
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
+#include "mon/dsk.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
 #include "mon/ram.h"
@@ -188,6 +189,7 @@ static void stop(void)
 // Stop will be executed first if 6502 is running.
 static void break_(void) // break is keyword
 {
+    dsk_break();
     fil_break();
     mon_break();
     ram_break();

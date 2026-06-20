@@ -59,6 +59,8 @@ X(STR_TIME_T_FMT_AMPM, "%I:%M:%S %p")       // %r
 // More
 X(STR_MON_MORE_SHOW, "--More--")
 X(STR_MON_MORE_ERASE, "\b\b\b\b\b\b\b\b        \b\b\b\b\b\b\b\b")
+X(STR_MON_CONFIRM_PROMPT, "Type YES to confirm: ")
+X(STR_MON_CONFIRM_YES, "YES")
 
 // Only used in unreachable code
 X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
@@ -83,6 +85,12 @@ X(STR_ERR_ROM_NAME_INVALID, "?ROM name invalid\n")
 X(STR_ERR_ROM_DATA_INVALID, "?ROM data invalid\n")
 X(STR_ERR_INVALID_UF2_FILE, "?Invalid UF2 file\n")
 X(STR_ERR_VGA_NOT_CONNECTED, "?VGA not connected\n")
+X(STR_ERR_NO_MEDIA, "?No media\n")
+X(STR_ERR_NOT_FORMATTABLE, "?Full format not supported on this device\n")
+X(STR_ERR_SECTOR_SIZE, "?Sector size not supported\n")
+X(STR_ERR_GPT_DISABLED, "?GPT not available in this build\n")
+X(STR_ERR_FORMAT_FAILED, "?Low-level format failed\n")
+X(STR_ERR_DEVICE_CHANGED, "?Device changed\n")
 
 // Littlefs errors
 X(STR_ERR_LFS_IO, "?IO error\n")                     // -5
@@ -175,6 +183,22 @@ X(STR_EP_FREE_PLURAL, "ep free")
 X(STR_ROM_INSTALLED_NONE, "No installed ROMs.\n")
 X(STR_ROM_INSTALLED_SINGULAR, "%d installed ROM:\n")
 X(STR_ROM_INSTALLED_PLURAL, "%d installed ROMs:\n")
+
+// Disk utility
+X(STR_DISK_DONE, "Done\n")
+X(STR_DISK_LABEL_RESPONSE, "Label: %s\n")
+X(STR_DISK_LABEL_CHANGED, "Label: %s -> %s\n")
+X(STR_DISK_FORMATTING, "Formatting, do not remove media...\n")
+X(STR_DISK_BAD_SECTOR, "?Bad sector %llu\n")
+X(STR_DISK_VERIFY_DONE, "Verify done, %d bad sector(s)\n")
+X(STR_DISK_DEV, "DEV: \a%s %s %s rev %s\n")
+X(STR_DISK_SERIAL, "S/N: \a%s\n")
+X(STR_DISK_VOL_FMT, "VOL: \a%s\n")
+X(STR_DISK_VOL_USE, "VOL: \a%s used of %s (%u%%)\n")
+X(STR_DISK_FMT, "FMT: \a%s\n")
+X(STR_DISK_WARN_FORMAT, "You are about to FORMAT this device!\n")
+X(STR_DISK_WARN_ERASE, "You are about to ERASE this device!\n")
+X(STR_DISK_ERASING, "Erasing, do not remove media...\n")
 
 X(STR_HELP_HELP,
   "Commands:\n"
@@ -405,6 +429,54 @@ X(STR_HELP_SET_PORT,
 X(STR_HELP_SET_KEY,
   "SET KEY sets the passkey for remote console access. Use \"-\" to clear. "
   "Both PORT and KEY must be set to enable telnet console access.\n")
+
+X(STR_HELP_DISK,
+  "Disk:\n"
+  "HELP DISK sub        - \aShow help for a disk subcommand.\n"
+  "DISK INFO drv        - \aShow device, format, and usage.\n"
+  "DISK LABEL drv (lbl) - \aShow or set the volume label.\n"
+  "DISK FORMAT drv ..   - \aCreate a filesystem. See HELP DISK FORMAT.\n"
+  "DISK ERASE drv       - \aOverwrite all data with zeros. See HELP DISK ERASE.\n"
+  "DISK VERIFY drv      - \aRead every sector and report bad ones.\n")
+
+X(STR_HELP_DISK_INFO,
+  "DISK INFO drive\n"
+  "Shows the device, the on-disk format (scheme, filesystem, cluster size, "
+  "label), and how full the volume is. Drives are named MSCn: or n:.\n")
+
+X(STR_HELP_DISK_FORMAT,
+  "DISK FORMAT drive [/fat|/exfat] [/sfd|/mbr|/gpt] [/512|/4k...] [/quick|/full] [label]\n"
+  "Creates a filesystem on a drive named MSCn: or n:. /fat (default) is most "
+  "compatible; /exfat suits large drives. Layout: /sfd, /mbr, or /gpt; default "
+  "is SFD for floppies, MBR for flash. /512 through larger powers of two set the "
+  "cluster size (default by capacity). "
+  "/quick (default) writes only the filesystem; /full adds a low-level format "
+  "(floppies only). A preview is shown; type YES to confirm.\n")
+
+X(STR_HELP_DISK_FORMAT_BASIC,
+  "DISK FORMAT drive [/sfd|/mbr] [/512|/4k...] [/quick|/full] [label]\n"
+  "Creates a FAT filesystem on a drive named MSCn: or n:. Layout: /sfd or /mbr; "
+  "default is SFD for floppies, MBR for flash. /512 through larger powers of two "
+  "set the cluster size (default by "
+  "capacity). /quick (default) writes only the filesystem; /full adds a "
+  "low-level format (floppies only). A preview is shown; type YES to confirm.\n")
+
+X(STR_HELP_DISK_ERASE,
+  "DISK ERASE drive\n"
+  "Destroys all data on a drive named MSCn: or n: by overwriting every sector "
+  "with zeros, which defeats file-recovery software but may leave data in "
+  "remapped flash cells. Type YES to confirm.\n")
+
+X(STR_HELP_DISK_VERIFY,
+  "DISK VERIFY drive\n"
+  "Reads every sector of a drive named MSCn: or n: and reports any that fail. "
+  "Read-only. Press Ctrl-C to stop.\n")
+
+X(STR_HELP_DISK_LABEL,
+  "DISK LABEL drive [label]\n"
+  "With no label, shows the volume label of a drive named MSCn: or n:. With a "
+  "label, sets it and prints the old and new names. Pass an empty \"\" to clear "
+  "the label.\n")
 
 XEND()
 #undef XSUFFIX

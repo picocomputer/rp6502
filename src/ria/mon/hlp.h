@@ -20,6 +20,9 @@
 
 void hlp_mon_help(const char *args);
 
+// Queue the help for a disk subcommand by keyword
+void hlp_disk_sub_response(const char *sub);
+
 // Test if help exists. Used to determine
 // acceptable names when installing ROMs.
 bool hlp_topic_exists(const char *buf);

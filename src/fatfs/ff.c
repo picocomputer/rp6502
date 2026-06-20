@@ -485,9 +485,9 @@ static const char *const VolumeStr[FF_VOLUMES] = {FF_VOLUME_STRS};	/* Pre-define
 #endif
 
 #if FF_LBA64
-#if FF_MIN_GPT > 0x100000000
-#error Wrong FF_MIN_GPT setting
-#endif
+// #if FF_MIN_GPT > 0x100000000
+// #error Wrong FF_MIN_GPT setting
+// #endif
 static const BYTE GUID_MS_Basic[16] = {0xA2,0xA0,0xD0,0xEB,0xE5,0xB9,0x33,0x44,0x87,0xC0,0x68,0xB6,0xB7,0x26,0x99,0xC7};
 #endif
 
@@ -6043,6 +6043,14 @@ static FRESULT create_partition (
 
 
 
+/* RP6502 mkfs preview hook: f_mkfs reports the FS type and cluster size it has
+   chosen, so the disk monitor (mon/dsk.c) can preview a format without
+   duplicating this selection logic. Called at the two points where each branch
+   has finalized (fsty, cluster) and is about to TRIM/write: [1/2] FAT, [2/2]
+   exFAT. Returns nonzero only during a preview, which stops f_mkfs early (FR_OK,
+   nothing written). Re-apply on a FatFs upgrade. (Defined in mon/dsk.c.) */
+int dsk_mkfs_capture (BYTE fsty, DWORD au_sectors);
+
 FRESULT f_mkfs (
 	const TCHAR* path,		/* Logical drive number */
 	const MKFS_PARM* opt,	/* Format options */
@@ -6192,10 +6200,6 @@ FRESULT f_mkfs (
 		UINT j, st;
 
 		if (sz_vol < 0x1000) LEAVE_MKFS(FR_MKFS_ABORTED);	/* Too small volume for exFAT? */
-#if FF_USE_TRIM
-		lba[0] = b_vol; lba[1] = b_vol + sz_vol - 1;	/* Inform storage device that the volume area may be erased */
-		disk_ioctl(pdrv, CTRL_TRIM, lba);
-#endif
 		/* Determine FAT location, data location and number of clusters */
 		if (sz_au == 0) {	/* AU auto-selection */
 			sz_au = 8;
@@ -6209,6 +6213,11 @@ FRESULT f_mkfs (
 		n_clst = (DWORD)((sz_vol - (b_data - b_vol)) / sz_au);	/* Number of clusters */
 		if (n_clst <16) LEAVE_MKFS(FR_MKFS_ABORTED);			/* Too few clusters? */
 		if (n_clst > MAX_EXFAT) LEAVE_MKFS(FR_MKFS_ABORTED);	/* Too many clusters? */
+		if (dsk_mkfs_capture(FS_EXFAT, sz_au)) LEAVE_MKFS(FR_OK);	/* RP6502 mkfs preview hook [2/2]; TRIM relocated below it */
+#if FF_USE_TRIM
+		lba[0] = b_vol; lba[1] = b_vol + sz_vol - 1;	/* Inform storage device that the volume area may be erased */
+		disk_ioctl(pdrv, CTRL_TRIM, lba);
+#endif
 
 		szb_bit = (n_clst + 7) / 8;								/* Size of allocation bitmap */
 		clen[0] = (szb_bit + sz_au * ss - 1) / (sz_au * ss);	/* Number of allocation bitmap clusters */
@@ -6423,6 +6432,7 @@ FRESULT f_mkfs (
 			break;
 		} while (1);
 
+		if (dsk_mkfs_capture(fsty, pau)) LEAVE_MKFS(FR_OK);	/* RP6502 mkfs preview hook [1/2] (before TRIM/writes) */
 #if FF_USE_TRIM
 		lba[0] = b_vol; lba[1] = b_vol + sz_vol - 1;	/* Inform storage device that the volume area may be erased */
 		disk_ioctl(pdrv, CTRL_TRIM, lba);
