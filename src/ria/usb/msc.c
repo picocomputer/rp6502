@@ -1989,9 +1989,8 @@ static bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
     return true;
 }
 
-// Resolve a volume to its full descriptor: media presence/geometry, device class,
-// mount generation, and the mounted filesystem type/cluster size read straight
-// from the FatFs object (fs_type 0 when nothing is mounted; no f_getfree scan).
+// Resolve a volume to its descriptor: media presence/geometry, device class,
+// mount generation, and the canonical "MSCn:" volume path.
 bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
 {
     uint8_t pdrv;
@@ -2011,8 +2010,6 @@ bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
     out->block_count = msc_pdrv[pdrv].block_count;
     out->block_size = msc_pdrv[pdrv].block_size;
     out->gen = msc_mount_gen[vol];
-    out->fs_type = msc_pdrv[pdrv].fatfs.fs_type;
-    out->csize = msc_pdrv[pdrv].fatfs.csize;
     msc_vol_path(out->path, vol);
     return true;
 }

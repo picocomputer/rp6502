@@ -36,10 +36,8 @@ typedef struct
     bool is_floppy; // CBI/UFI/SFF floppy (vs BOT/SCSI flash)
     uint64_t block_count;
     uint32_t block_size;
-    uint8_t gen;     // mount generation; changes when the slot is reused (TOCTOU guard)
-    uint8_t fs_type; // mounted FS_FAT12/16/32/EXFAT, 0 = no filesystem
-    uint32_t csize;  // cluster size in sectors (0 when fs_type == 0)
-    char path[6];    // canonical "MSCn:" FatFs path for this volume
+    uint8_t gen;  // mount generation; changes when the slot is reused (TOCTOU guard)
+    char path[6]; // canonical "MSCn:" FatFs path for this volume
 } msc_dsk_info_t;
 
 int msc_dsk_vol_from_name(const char *name); // "MSCn"/"MSCn:"/"n:" -> index, or -1

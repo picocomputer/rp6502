@@ -267,38 +267,27 @@ static int dsk_preview_response(char *buf, size_t size, int state)
         const char *scheme = dsk_scheme_word();
         if (f_getlabel(dsk_path, label, &vsn) != FR_OK)
             label[0] = '\0';
-        if (dsk_preview_op == DSK_PREVIEW_PLAIN)
+        // One scan feeds this line's cluster size and the "used of total" line
+        // (case 3). Run it for every op so format and erase also show how much
+        // data is on the volume before the user confirms the wipe.
+        DWORD nclst;
+        FATFS *fs;
+        dsk_free.valid = false;
+        if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
         {
-            // INFO/VERIFY: a full scan feeds the "used of total" line (case 3).
-            DWORD nclst;
-            FATFS *fs;
-            dsk_free.valid = false;
-            if (f_getfree(dsk_path, &nclst, &fs) == FR_OK)
-            {
-                dsk_free.valid = true;
-                dsk_free.csize = fs->csize;
-                dsk_free.n_fatent = fs->n_fatent;
-                dsk_free.nclst = nclst;
-                dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fs->fs_type),
-                             fs->csize * 512u, NULL, label);
-            }
-            else
-                dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, NULL, label);
-            snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
-            return 3;
+            dsk_free.valid = true;
+            dsk_free.csize = fs->csize;
+            dsk_free.n_fatent = fs->n_fatent;
+            dsk_free.nclst = nclst;
+            dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fs->fs_type),
+                         fs->csize * 512u, NULL, label);
         }
-        // FORMAT/ERASE: skip the usage scan (about to wipe); read FS type and
-        // cluster straight from the mounted object via get_info (no f_getfree).
-        msc_dsk_info_t fsinfo;
-        if (msc_dsk_get_info(dsk_vol, &fsinfo) && fsinfo.fs_type)
-            dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(fsinfo.fs_type),
-                         fsinfo.csize * 512u, NULL, label);
         else
             dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, NULL, label);
         snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
-        return 4; // skip the usage line; go to the warning
+        return 3;
     }
-    case 3: // VOL: filesystem used of total, percent used (PLAIN only; case 2's scan)
+    case 3: // VOL: filesystem used of total, percent used (case 2's scan)
     {
         if (dsk_free.valid)
         {
@@ -311,7 +300,8 @@ static int dsk_preview_response(char *buf, size_t size, int state)
             str_size(totb, totbuf, sizeof(totbuf));
             snprintf_utf8(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
         }
-        return -1;
+        // INFO/VERIFY end here; format and erase continue to the warning.
+        return dsk_preview_op == DSK_PREVIEW_PLAIN ? -1 : 4;
     }
     case 4: // confirm warning (format or erase)
         snprintf_utf8(buf, size, S(dsk_preview_op == DSK_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
