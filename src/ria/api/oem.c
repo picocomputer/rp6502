@@ -34,10 +34,6 @@ static uint16_t oem_resolve(void)
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
-#ifndef NDEBUG
-    (void)cp;
-    oem_code_page_run = RP6502_CODE_PAGE;
-#else
     // cp >= 900 are DBCS; allow SBCS only
     if (cp < 900 && f_setcp(cp) == FR_OK)
         oem_code_page_run = cp;
@@ -47,7 +43,6 @@ static void oem_request_code_page(uint16_t cp)
             mon_add_response_utf8(S(STR_ERR_INTERNAL_ERROR));
         oem_code_page_run = RP6502_CODE_PAGE;
     }
-#endif
     if (old_code_page != oem_code_page_run)
     {
         vga_set_code_page(oem_code_page_run);

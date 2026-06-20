@@ -148,10 +148,6 @@ static void help_response_lookup(const char *args, const char **cp,
             {
                 *cp = S(HLP_SETTINGS[i].text);
                 *fnp = HLP_SETTINGS[i].extra_fn;
-#ifndef NDEBUG
-                if (HLP_SETTINGS[i].text == STR_HELP_SET_CP)
-                    *appendp = S(STR_HELP_SET_CP_DEV);
-#endif
                 return;
             }
         return;

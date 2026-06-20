@@ -25,7 +25,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
-#define STR_OEM_CODE_PAGE __XSTRING(RP6502_CODE_PAGE)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \

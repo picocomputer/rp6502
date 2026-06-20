@@ -84,11 +84,7 @@
 / Locale and Namespace Configurations
 /---------------------------------------------------------------------------*/
 
-#ifdef NDEBUG
 #define FF_CODE_PAGE	0
-#else
-#define FF_CODE_PAGE	RP6502_CODE_PAGE
-#endif
 /* This option specifies the OEM code page to be used on the target system.
 /  Incorrect code page setting can cause a file open failure.
 /

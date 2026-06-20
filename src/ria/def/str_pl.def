@@ -396,9 +396,6 @@ X(STR_HELP_SET_CP,
   "Każda inna wartość to stałe nadpisanie. Obsługiwane są: 437, 720, 737, 771,\n"
   "775, 850, 852, 855, 857, 860, 861, 862, 863, 864, 865, 866, 869.\n")
 
-X(STR_HELP_SET_CP_DEV,
-  "To jest kompilacja deweloperska. Dostępna jest tylko " STR_OEM_CODE_PAGE ".\n")
-
 X(STR_HELP_SET_VGA,
   "SET VGA wybiera typ wyświetlacza dla wyjścia VGA. Wszystkie rozdzielczości\n"
   "obrazu są obsługiwane przez wszystkie typy wyświetlacza. Typ wyświetlacza\n"

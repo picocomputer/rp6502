@@ -76,14 +76,10 @@ static void set_boot(const char *args)
 static int set_code_page_response(char *buf, size_t buf_size, int state)
 {
     (void)state;
-#ifndef NDEBUG
-    snprintf(buf, buf_size, STR_SET_CODE_PAGE_DEV_RESPONSE, oem_get_code_page_run());
-#else
     if (oem_is_auto())
         snprintf(buf, buf_size, STR_SET_CODE_PAGE_AUTO_RESPONSE, oem_get_code_page_run());
     else
         snprintf(buf, buf_size, STR_SET_CODE_PAGE_RESPONSE, oem_get_code_page());
-#endif
     return -1;
 }
 
