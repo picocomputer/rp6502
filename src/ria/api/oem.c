@@ -22,7 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static uint16_t oem_code_page_set;
 static uint16_t oem_code_page_run;
-static uint16_t oem_auto_cp; // Locale default code page (0 until a locale is applied)
+static uint16_t oem_auto_cp;
 
 // Resolve the code page to apply: the override if set, else the locale auto.
 static uint16_t oem_resolve(void)
