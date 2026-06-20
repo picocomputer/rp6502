@@ -85,8 +85,8 @@ static int set_code_page_response(char *buf, size_t buf_size, int state)
 
 static void set_code_page(const char *args)
 {
-    uint32_t val;
-    if (*args && (!str_parse_uint32(&args, &val) ||
+    uint16_t val;
+    if (*args && (!str_parse_uint16(&args, &val) ||
                   !str_parse_end(args) ||
                   !oem_set_code_page(val)))
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
@@ -266,8 +266,8 @@ static void set_port(const char *args)
 {
     if (!*args)
         return mon_add_response_fn(set_port_response);
-    uint32_t val;
-    if (!str_parse_uint32(&args, &val) ||
+    uint16_t val;
+    if (!str_parse_uint16(&args, &val) ||
         !str_parse_end(args) ||
         !com_tel_set_port(val))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));

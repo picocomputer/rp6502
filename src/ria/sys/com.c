@@ -383,7 +383,7 @@ static bool com_tel_on_accept(uint16_t port)
 
 void com_tel_load_port(const char *str)
 {
-    com_tel_port = atoi(str);
+    str_parse_uint16(&str, &com_tel_port);
 }
 
 void com_tel_load_key(const char *str)
@@ -396,11 +396,9 @@ void com_tel_load_key(const char *str)
     }
 }
 
-bool com_tel_set_port(uint32_t port)
+bool com_tel_set_port(uint16_t port)
 {
-    if (port > 65535)
-        return false;
-    if (com_tel_port != (uint16_t)port)
+    if (com_tel_port != port)
     {
         com_tel_port = port;
         if (port == 0)

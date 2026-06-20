@@ -64,10 +64,8 @@ void oem_set_code_page_run(uint16_t cp)
     oem_request_code_page(cp);
 }
 
-bool oem_set_code_page(uint32_t cp)
+bool oem_set_code_page(uint16_t cp)
 {
-    if (cp > UINT16_MAX)
-        return false;
     if (cp == 0)
     {
         // Auto: track the locale's default code page.

@@ -27,7 +27,7 @@ uint16_t oem_get_code_page_run(void);
 
 // Configuration setting CP
 void oem_load_code_page(const char *str);
-bool oem_set_code_page(uint32_t cp);
+bool oem_set_code_page(uint16_t cp);
 uint16_t oem_get_code_page(void);
 bool oem_is_auto(void);
 
