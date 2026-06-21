@@ -188,6 +188,17 @@ static void mdm_resp_append(out_source_fn fn, const char *str, int state)
         }
 }
 
+// A response is still in progress while any queued slot is live OR the wrapper
+// holds buffered output: resp_state[0] goes negative once a source is fully
+// staged, before its buffered tail has flushed and before the next slot runs.
+static bool mdm_resp_busy(void)
+{
+    for (int i = 0; i < MDM_RESP_SLOTS; i++)
+        if (mdm_conn->resp_state[i] >= 0)
+            return true;
+    return out_pending(&mdm_conn->resp_wrap);
+}
+
 static void mdm_resp_reset(void)
 {
     for (int i = 0; i < MDM_RESP_SLOTS && mdm_conn->resp_state[i] >= 0; i++)
@@ -243,7 +254,7 @@ static bool mdm_cmd_buf_is_at_command(void)
 
 static int mdm_tx_command_mode(char ch)
 {
-    if (mdm_conn->resp_state[0] >= 0)
+    if (mdm_resp_busy())
         return 0;
     if (!(mdm_settings->cr_char & 0x80) && ch == mdm_settings->cr_char)
     {
@@ -830,7 +841,7 @@ void mdm_task()
         mdm_set_conn(i);
         if (mdm_conn->parse_active)
         {
-            if (mdm_conn->resp_state[0] >= 0)
+            if (mdm_resp_busy())
                 continue;
             if (!mdm_conn->parse_result)
             {
@@ -1084,7 +1095,7 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
             if (pos >= count)
                 break;
         }
-        // Render the response queue, word-wrapped (80) and S3/S4-translated.
+        // Render the response queue, word-wrapped (79) and S3/S4-translated.
         if (mdm_conn->resp_state[0] >= 0 || out_pending(&mdm_conn->resp_wrap))
         {
             if (pos >= count)
@@ -1092,9 +1103,14 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
             mdm_sink_buf = buf;
             mdm_sink_count = count;
             mdm_sink_pos = pos;
-            mdm_conn->resp_wrap.width = 80;
+            mdm_conn->resp_wrap.width = 79;
+            int st0 = mdm_conn->resp_state[0];
+            bool is_str = (mdm_conn->resp_fn[0] == mdm_str_response);
             bool paused = out_render(&mdm_conn->resp_wrap, mdm_conn->resp_fn[0],
                                      &mdm_conn->resp_state[0], mdm_sink);
+            DBG("NET MDM render %s st %d->%d paused=%d produced=%u\n",
+                is_str ? "prose" : "FN", st0, mdm_conn->resp_state[0], paused,
+                (unsigned)(mdm_sink_pos - pos));
             pos = mdm_sink_pos;
             if (paused)
                 break;
