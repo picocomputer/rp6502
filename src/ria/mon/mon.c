@@ -520,7 +520,10 @@ void mon_task(void)
         mon_response_next_loaded = (mon_response_next[0] != 0);
         if (mon_response_state[0] < 0)
             mon_next_response();
-        return;
+        // An async producer that yielded nothing (e.g. a WiFi scan still
+        // running) must not strand a prior response's tail buffered in cur.
+        if (mon_response_next_loaded || mon_response_pos < 0)
+            return;
     }
     // Flush the current response buffer
     if (mon_response_pos >= 0)
