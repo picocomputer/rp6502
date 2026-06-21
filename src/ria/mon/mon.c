@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "mon/dsk.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
 #include "mon/mon.h"
@@ -35,7 +36,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 #define MON_RESPONSE_BUF_SIZE 128
-// Enough slots for the longest response chain (status/set).
+// 16 = longest response chain (set with no args queues 15) + 1 free-slot margin.
 #define MON_RESPONSE_FN_COUNT 16
 // Minimum column budget remaining after the indent for wrap-with-indent
 // to engage. If the BEL marker lands too close to the right edge the
@@ -54,7 +55,7 @@ static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
     {[0 ... MON_RESPONSE_FN_COUNT - 1] = -1};
-static int mon_more_rows_left = 23;
+static int mon_more_rows_left = 23; // default 24-row screen less prompt; reset to term_height-1 before use
 static int mon_response_col;
 static int mon_response_indent;
 static int mon_response_indent_pending;
@@ -63,6 +64,7 @@ static int mon_response_pos = -1;
 static bool mon_needs_prompt = true;
 static bool mon_needs_read_line = true;
 static bool mon_needs_break = false;
+static mon_confirm_fn mon_confirm_cb; // pending YES/no confirmation action
 static enum {
     MON_MORE_OFF,
     MON_MORE_START,
@@ -103,6 +105,7 @@ __in_flash("mon_commands") static struct
     {STR_MOVE, fil_mon_move},
     {STR_MV, fil_mon_move},
     {STR_BINARY, ram_mon_binary},
+    {STR_DISK, dsk_mon_disk},
 };
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
@@ -174,6 +177,34 @@ static void mon_enter(bool timeout, const char *buf)
     // Suppress error for empty lines
     if (!str_parse_end(buf))
         mon_add_response_utf8(S(STR_ERR_UNKNOWN_COMMAND));
+}
+
+static void mon_confirm_enter(bool timeout, const char *buf)
+{
+    (void)timeout;
+    assert(!timeout);
+    if (mon_needs_read_line) // cancelled (Ctrl-C poke / break)
+    {
+        mon_confirm_cb = NULL;
+        return;
+    }
+    mon_more_rows_left = rln_get_term_height() - 1;
+    mon_needs_prompt = true;
+    mon_needs_read_line = true;
+    mon_confirm_fn cb = mon_confirm_cb;
+    mon_confirm_cb = NULL;
+    // The typed token is OEM (active code page); the confirm word is UTF-8, so
+    // convert it to OEM, then compare with the code-page-aware str_oem_eq.
+    char yes[16];
+    snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
+    const char *tok = str_parse_string(&buf);
+    if (cb && tok && str_oem_eq(tok, yes) && str_parse_end(buf))
+        cb();
+}
+
+void mon_response_confirm(mon_confirm_fn cb)
+{
+    mon_confirm_cb = cb;
 }
 
 static int mon_utf8_response(char *buf, size_t buf_size, int state)
@@ -324,6 +355,14 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
     mon_response_state[i] = 0;
 }
 
+// Reset a response slot to empty (state -1 marks a free slot).
+static void mon_clear_slot(int i)
+{
+    mon_response_fn_list[i] = NULL;
+    mon_response_str[i] = NULL;
+    mon_response_state[i] = -1;
+}
+
 static void mon_next_response(void)
 {
     int i = 0;
@@ -333,9 +372,7 @@ static void mon_next_response(void)
         mon_response_str[i] = mon_response_str[i + 1];
         mon_response_state[i] = mon_response_state[i + 1];
     }
-    mon_response_fn_list[i] = NULL;
-    mon_response_str[i] = NULL;
-    mon_response_state[i] = -1;
+    mon_clear_slot(i);
 }
 
 static void mon_break_response(void)
@@ -351,9 +388,7 @@ static void mon_break_response(void)
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
         mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1);
-        mon_response_fn_list[i] = NULL;
-        mon_response_str[i] = NULL;
-        mon_response_state[i] = -1;
+        mon_clear_slot(i);
     }
 }
 
@@ -493,10 +528,8 @@ void mon_task(void)
         {
             // BEL marks the indent column for subsequent wraps; consume
             // it silently and don't advance the column. Must run before
-            // the --more-- check (so BEL never pauses) and before the
-            // < 0x20 width-aware branch below (so BEL doesn't flip
-            // mon_response_width_aware on and disable wrapping). The
-            // indent_pending guard preserves indent emission ordering.
+            // the --more-- check so BEL never pauses. The indent_pending
+            // guard preserves indent emission ordering.
             if (mon_response_indent_pending == 0 && c == '\a')
             {
                 mon_response_indent =
@@ -561,15 +594,12 @@ void mon_task(void)
                     continue;
                 }
             }
-            // Width-aware newline injection. Suppressed once any producer in
-            // this command chain has emitted a control byte (ESC sequences,
-            // \b, \t, etc.) — such producers manage their own cursor and our
-            // column counter would be wrong from there on. Bytes 0x20-0xFF
-            // are one SBCS OEM glyph each, so each counts one column. Also
-            // catches words longer than the line that the word-wrap branch
-            // above could not break.
-            if (!mon_response_width_aware && c != '\n' && c != '\r' &&
-                mon_response_col >= width)
+            // Hard newline injection for a glyph that would overflow the line —
+            // catches words longer than the line that the word-wrap branch above
+            // could not break. Bytes 0x20-0xFF are one SBCS OEM glyph each, so
+            // each counts one column. Suppressed once a producer emits a control
+            // byte (see the ladder below) whose width we can't track.
+            if (!mon_response_width_aware && (unsigned char)c >= 0x20 && mon_response_col >= width)
             {
                 putchar('\n');
                 mon_response_col = 0;
@@ -589,8 +619,15 @@ void mon_task(void)
             {
                 mon_response_col = 0;
             }
+            else if (c == '\b')
+            {
+                if (mon_response_col > 0)
+                    mon_response_col--;
+            }
             else if ((unsigned char)c < 0x20)
             {
+                // A control byte (ESC sequence, tab, ...) whose on-screen width we
+                // can't track; stop wrap/column injection for the rest of the chain.
                 mon_response_width_aware = true;
             }
             else
@@ -607,12 +644,16 @@ void mon_task(void)
         rom_active() ||
         fil_active() ||
         uf2_active() ||
+        dsk_active() ||
         usb_boot_enumerating())
         return;
     // The monitor has control
     if (mon_needs_prompt)
     {
-        printf("]");
+        if (mon_confirm_cb)
+            printf_utf8(S(STR_MON_CONFIRM_PROMPT));
+        else
+            printf("]");
         mon_needs_prompt = false;
         return;
     }
@@ -622,7 +663,10 @@ void mon_task(void)
         mon_response_col = 0;
         mon_response_width_aware = false;
         ria_get_sigint(); // discard any SIGINT raised while monitor was idle
-        rln_read_line(mon_enter);
+        if (mon_confirm_cb)
+            rln_read_line_no_history(mon_confirm_enter); // don't record YES/no
+        else
+            rln_read_line(mon_enter);
         return;
     }
     if (ria_get_sigint())
@@ -643,6 +687,7 @@ void mon_stop(void)
         mon_needs_break = true;
         mon_more();
     }
+    mon_confirm_cb = NULL; // a break/stop cancels any pending confirmation
     mon_needs_prompt = true;
     mon_needs_read_line = true;
 }

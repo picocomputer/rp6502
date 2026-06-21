@@ -25,7 +25,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
-#define STR_OEM_CODE_PAGE __XSTRING(RP6502_CODE_PAGE)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
@@ -323,15 +322,16 @@ const char *str_abs_path(const char *path)
     return str_buf;
 }
 
-// Case-insensitive compare matching FatFs's name lookup: convert each
-// OEM byte to Unicode via the configured code page, then upper-case via
-// ff_wtoupper. strcasecmp would only handle ASCII.
-static bool str_lfn_eq(const char *a, const char *b)
+// Case-insensitive equality of two OEM strings in the active code page,
+// matching FatFs's name lookup: convert each OEM byte to Unicode then
+// upper-case via ff_wtoupper. strcasecmp would only fold ASCII.
+bool str_oem_eq(const char *a, const char *b)
 {
+    WORD cp = oem_get_code_page_run();
     for (;;)
     {
-        WCHAR ua = ff_oem2uni((unsigned char)*a, FF_CODE_PAGE);
-        WCHAR ub = ff_oem2uni((unsigned char)*b, FF_CODE_PAGE);
+        WCHAR ua = ff_oem2uni((unsigned char)*a, cp);
+        WCHAR ub = ff_oem2uni((unsigned char)*b, cp);
         if (ff_wtoupper(ua) != ff_wtoupper(ub))
             return false;
         if (!*a)
@@ -428,7 +428,7 @@ bool str_lookup_basename(const char *path, char *out, size_t out_size)
     {
         if (f_readdir(&dir, &fno) != FR_OK || !fno.fname[0])
             break;
-        if (str_lfn_eq(fno.fname, name))
+        if (str_oem_eq(fno.fname, name))
         {
             size_t flen = strlen(fno.fname);
             if (flen + 1 <= out_size)
@@ -826,4 +826,45 @@ int snprintf_utf8(char *dst, size_t dst_size, const char *utf8_fmt, ...)
     int n = vsnprintf_utf8(dst, dst_size, utf8_fmt, va);
     va_end(va);
     return n;
+}
+
+void str_size(uint64_t bytes, char *out, size_t out_size)
+{
+    const char *unit;
+    double size;
+    if (bytes < 5000000ULL)
+    {
+        // Floppy-era media: KB, rolling to MB, trailing zeros stripped.
+        unit = "KB";
+        size = bytes / 1024.0;
+        if (size >= 1000)
+        {
+            unit = "MB";
+            size /= 1000;
+        }
+        char num[16];
+        snprintf(num, sizeof(num), "%.3f", size);
+        char *p = num + strlen(num) - 1;
+        while (*p == '0')
+            *p-- = '\0';
+        if (*p == '.')
+            *p = '\0';
+        snprintf(out, out_size, "%s %s", num, unit);
+    }
+    else
+    {
+        unit = "MB";
+        size = bytes / 1e6;
+        if (size >= 1000)
+        {
+            unit = "GB";
+            size /= 1000;
+        }
+        if (size >= 1000)
+        {
+            unit = "TB";
+            size /= 1000;
+        }
+        snprintf(out, out_size, "%.1f %s", size, unit);
+    }
 }

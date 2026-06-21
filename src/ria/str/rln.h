@@ -35,6 +35,10 @@ void rln_read_line(rln_read_callback_t callback);
 // The timeout_ms parameter temporarily overrides the configured timeout.
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms);
 
+// Read a line that is not recorded in history (e.g. a YES/no confirmation),
+// keeping the normal (disabled) idle timeout.
+void rln_read_line_no_history(rln_read_callback_t callback);
+
 // 6502 applications may configure the max length
 void rln_set_max_length(uint8_t v);
 uint8_t rln_get_max_length(void);

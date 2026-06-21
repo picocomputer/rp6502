@@ -30,7 +30,7 @@
 /  f_findnext(). (0:Disable, 1:Enable 2:Enable with matching altname[] too) */
 
 
-#define FF_USE_MKFS		0
+#define FF_USE_MKFS		1
 /* This option switches f_mkfs(). (0:Disable or 1:Enable) */
 
 
@@ -84,11 +84,7 @@
 / Locale and Namespace Configurations
 /---------------------------------------------------------------------------*/
 
-#ifdef NDEBUG
 #define FF_CODE_PAGE	0
-#else
-#define FF_CODE_PAGE	RP6502_CODE_PAGE
-#endif
 /* This option specifies the OEM code page to be used on the target system.
 /  Incorrect code page setting can cause a file open failure.
 /
@@ -114,6 +110,13 @@
 /   949 - Korean (DBCS)
 /   950 - Traditional Chinese (DBCS)
 /     0 - Include all code pages above and configured by f_setcp()
+*/
+
+#define FF_NO_DBCS		1
+/* RP6502: With FF_CODE_PAGE 0, drop the DBCS pages (932/936/949/950). Their
+/  conversion tables in ffunicode.c are the bulk of this module's flash
+/  footprint and we never use them. ff.c (f_setcp, DBC range tables) and
+/  ffunicode.c both honor this switch so they stay in sync.
 */
 
 
@@ -220,13 +223,18 @@
 
 
 #define FF_LBA64		RP6502_EXFAT
+unsigned long long dsk_min_gpt (void);	/* RP6502: runtime FF_MIN_GPT hook (mon/dsk.c) */
 /* This option switches support for 64-bit LBA. (0:Disable or 1:Enable)
 /  To enable the 64-bit LBA, also exFAT needs to be enabled. (FF_FS_EXFAT == 1) */
 
 
-#define FF_MIN_GPT		0x10000000
+#define FF_MIN_GPT		dsk_min_gpt()
 /* Minimum number of sectors to switch GPT as partitioning format in f_mkfs() and
-/  f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0. */
+/  f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0.
+/  RP6502 FF_MIN_GPT hook [1/3]: redefined to a runtime hook so the disk monitor
+/  can force MBR/GPT. dsk_min_gpt() is declared above [2/3] and defined in
+/  mon/dsk.c; the compile-time range check is commented out in ff.c [3/3]. Re-apply all
+/  three on a FatFs upgrade. (FF_LBA64 only.) */
 
 
 #define FF_USE_TRIM		1

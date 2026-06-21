@@ -38,6 +38,11 @@ void mon_add_response_utf8(const char *utf8);
 void mon_add_response_lfs(int result);
 void mon_add_response_fatfs(int fresult);
 
+// After queuing a preview, request a YES/no confirmation. cb() runs only if the
+// user types YES; Ctrl-C, break, or anything else cancels back to the prompt.
+typedef void (*mon_confirm_fn)(void);
+void mon_response_confirm(mon_confirm_fn cb);
+
 // Test if commands exists. Used to determine
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);

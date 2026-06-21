@@ -59,6 +59,7 @@ __in_flash("hlp_commands") static struct
     {STR_COPY, STR_HELP_COPY, NULL},
     {STR_MOVE, STR_HELP_MOVE, NULL},
     {STR_BINARY, STR_HELP_BINARY, NULL},
+    {STR_DISK, STR_HELP_DISK, NULL},
 };
 static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
 
@@ -87,6 +88,36 @@ __in_flash("hlp_settings") static struct
 #endif
 };
 static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
+
+__in_flash("hlp_disk") static struct
+{
+    const char *const cmd;
+    int text; // localized string id for S()
+    mon_response_fn extra_fn;
+} const HLP_DISK[] = {
+    {STR_INFO, STR_HELP_DISK_INFO, NULL},
+#if RP6502_EXFAT
+    {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
+#else
+    {STR_FORMAT, STR_HELP_DISK_FORMAT_BASIC, NULL},
+#endif
+    {STR_ERASE, STR_HELP_DISK_ERASE, NULL},
+    {STR_VERIFY, STR_HELP_DISK_VERIFY, NULL},
+    {STR_LABEL, STR_HELP_DISK_LABEL, NULL},
+};
+static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;
+
+// Queue the help for a disk subcommand (dsk.c uses this when a required drive
+// argument is missing). Unknown sub: no output.
+void hlp_disk_sub_response(const char *sub)
+{
+    for (size_t i = 0; i < HLP_DISK_COUNT; i++)
+        if (!strcasecmp(sub, HLP_DISK[i].cmd))
+        {
+            mon_add_response_utf8(S(HLP_DISK[i].text));
+            return;
+        }
+}
 
 static void help_response_lookup(const char *args, const char **cp,
                                  const char **appendp, mon_response_fn *fnp)
@@ -117,10 +148,25 @@ static void help_response_lookup(const char *args, const char **cp,
             {
                 *cp = S(HLP_SETTINGS[i].text);
                 *fnp = HLP_SETTINGS[i].extra_fn;
-#ifndef NDEBUG
-                if (HLP_SETTINGS[i].text == STR_HELP_SET_CP)
-                    *appendp = S(STR_HELP_SET_CP_DEV);
-#endif
+                return;
+            }
+        return;
+    }
+    // DISK command has another level of help
+    if (!strcasecmp(word, STR_DISK))
+    {
+        const char *sub = str_parse_string(&args);
+        if (!sub)
+        {
+            if (str_parse_end(args))
+                *cp = S(STR_HELP_DISK);
+            return;
+        }
+        for (size_t i = 0; i < HLP_DISK_COUNT; i++)
+            if (!strcasecmp(sub, HLP_DISK[i].cmd))
+            {
+                *cp = S(HLP_DISK[i].text);
+                *fnp = HLP_DISK[i].extra_fn;
                 return;
             }
         return;

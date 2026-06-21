@@ -37,7 +37,7 @@ void com_set_bel(bool value);
 // Telnet console server settings
 void com_tel_load_port(const char *str);
 void com_tel_load_key(const char *str);
-bool com_tel_set_port(uint32_t port);
+bool com_tel_set_port(uint16_t port);
 bool com_tel_set_key(const char *key);
 uint16_t com_tel_get_port(void);
 const char *com_tel_get_key(void);

@@ -7,7 +7,6 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
-#include "mon/mon.h"
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/vga.h"
@@ -23,7 +22,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static uint16_t oem_code_page_set;
 static uint16_t oem_code_page_run;
-static uint16_t oem_auto_cp = RP6502_CODE_PAGE;
+static uint16_t oem_auto_cp;
 
 // Resolve the code page to apply: the override if set, else the locale auto.
 static uint16_t oem_resolve(void)
@@ -34,20 +33,9 @@ static uint16_t oem_resolve(void)
 static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
-#ifndef NDEBUG
-    (void)cp;
-    oem_code_page_run = RP6502_CODE_PAGE;
-#else
     // cp >= 900 are DBCS; allow SBCS only
     if (cp < 900 && f_setcp(cp) == FR_OK)
         oem_code_page_run = cp;
-    else if (oem_code_page_run == 0)
-    {
-        if (f_setcp(RP6502_CODE_PAGE) != FR_OK)
-            mon_add_response_utf8(S(STR_ERR_INTERNAL_ERROR));
-        oem_code_page_run = RP6502_CODE_PAGE;
-    }
-#endif
     if (old_code_page != oem_code_page_run)
     {
         vga_set_code_page(oem_code_page_run);
@@ -76,10 +64,8 @@ void oem_set_code_page_run(uint16_t cp)
     oem_request_code_page(cp);
 }
 
-bool oem_set_code_page(uint32_t cp)
+bool oem_set_code_page(uint16_t cp)
 {
-    if (cp > UINT16_MAX)
-        return false;
     if (cp == 0)
     {
         // Auto: track the locale's default code page.
