@@ -246,7 +246,7 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
     return pos;
 }
 
-int clk_status_response(char *buf, size_t buf_size, int state)
+int clk_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     struct timespec ts;
@@ -257,7 +257,7 @@ int clk_status_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-int clk_tzdata_response(char *buf, size_t buf_size, int state)
+int clk_tzdata_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;

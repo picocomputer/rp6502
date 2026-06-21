@@ -10,6 +10,7 @@
 #include "mon/mon.h"
 #include "mon/rom.h"
 #include "net/cyw.h"
+#include "net/wfi.h"
 #include "str/str.h"
 #include <pico.h>
 #include <string.h>
@@ -21,12 +22,14 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-__in_flash("hlp_commands") static struct
+typedef struct
 {
     const char *const cmd;
-    int text; // localized string id for S()
+    int prose; // localized string id for S()
     mon_response_fn extra_fn;
-} const HLP_COMMANDS[] = {
+} hlp_entry_t;
+
+__in_flash("hlp_commands") static const hlp_entry_t HLP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
@@ -63,12 +66,7 @@ __in_flash("hlp_commands") static struct
 };
 static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
 
-__in_flash("hlp_settings") static struct
-{
-    const char *const cmd;
-    int text; // localized string id for S()
-    mon_response_fn extra_fn;
-} const HLP_SETTINGS[] = {
+__in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
     {STR_PHI2, STR_HELP_SET_PHI2, NULL},
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
     {STR_TZ, STR_HELP_SET_TZ, clk_tzdata_response},
@@ -80,7 +78,7 @@ __in_flash("hlp_settings") static struct
 #ifdef RP6502_RIA_W
     {STR_RF, STR_HELP_SET_RF, NULL},
     {STR_RFCC, STR_HELP_SET_RFCC, cyw_country_code_response},
-    {STR_SSID, STR_HELP_SET_SSID, NULL},
+    {STR_SSID, STR_HELP_SET_SSID, wfi_scan_response},
     {STR_PASS, STR_HELP_SET_PASS, NULL},
     {STR_BLE, STR_HELP_SET_BLE, NULL},
     {STR_PORT, STR_HELP_SET_PORT, NULL},
@@ -89,12 +87,7 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-__in_flash("hlp_disk") static struct
-{
-    const char *const cmd;
-    int text; // localized string id for S()
-    mon_response_fn extra_fn;
-} const HLP_DISK[] = {
+__in_flash("hlp_disk") static const hlp_entry_t HLP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
 #if RP6502_EXFAT
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
@@ -107,87 +100,51 @@ __in_flash("hlp_disk") static struct
 };
 static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;
 
-// Queue the help for a disk subcommand (dsk.c uses this when a required drive
-// argument is missing). Unknown sub: no output.
-void hlp_disk_sub_response(const char *sub)
+static const char *hlp_find(const hlp_entry_t *tbl, size_t n,
+                            const char *key, mon_response_fn *fn)
 {
-    for (size_t i = 0; i < HLP_DISK_COUNT; i++)
-        if (!strcasecmp(sub, HLP_DISK[i].cmd))
+    for (size_t i = 0; i < n; i++)
+        if (!strcasecmp(key, tbl[i].cmd))
         {
-            mon_add_response_utf8(S(HLP_DISK[i].text));
-            return;
+            if (fn)
+                *fn = tbl[i].extra_fn;
+            return S(tbl[i].prose);
         }
+    return NULL;
 }
 
-static void help_response_lookup(const char *args, const char **cp,
-                                 const char **appendp, mon_response_fn *fnp)
+const char *hlp_lookup(const char *word, const char *sub, mon_response_fn *fn)
 {
-    *cp = NULL;
-    *appendp = NULL;
-    *fnp = NULL;
-    const char *word = str_parse_string(&args);
+    if (fn)
+        *fn = NULL;
     if (!word)
-        return;
-    // SET command has another level of help
-    if (!strcasecmp(word, STR_SET))
+        return NULL;
+    // SET and DISK are the only commands with a second level of help.
+    if (sub)
     {
-        const char *attr = str_parse_string(&args);
-        if (!attr)
-        {
-            if (str_parse_end(args))
-            {
-                *cp = S(STR_HELP_SET);
-#ifdef RP6502_RIA_W
-                *appendp = S(STR_HELP_SET_W);
-#endif
-            }
-            return;
-        }
-        for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
-            if (!strcasecmp(attr, HLP_SETTINGS[i].cmd))
-            {
-                *cp = S(HLP_SETTINGS[i].text);
-                *fnp = HLP_SETTINGS[i].extra_fn;
-                return;
-            }
-        return;
-    }
-    // DISK command has another level of help
-    if (!strcasecmp(word, STR_DISK))
-    {
-        const char *sub = str_parse_string(&args);
-        if (!sub)
-        {
-            if (str_parse_end(args))
-                *cp = S(STR_HELP_DISK);
-            return;
-        }
-        for (size_t i = 0; i < HLP_DISK_COUNT; i++)
-            if (!strcasecmp(sub, HLP_DISK[i].cmd))
-            {
-                *cp = S(HLP_DISK[i].text);
-                *fnp = HLP_DISK[i].extra_fn;
-                return;
-            }
-        return;
+        if (!strcasecmp(word, STR_SET))
+            return hlp_find(HLP_SETTINGS, HLP_SETTINGS_COUNT, sub, fn);
+        if (!strcasecmp(word, STR_DISK))
+            return hlp_find(HLP_DISK, HLP_DISK_COUNT, sub, fn);
+        return NULL;
     }
     // ABOUT and CREDITS share the non-localized credits help.
     if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
-    {
-        *cp = STR_HELP_ABOUT;
-#ifdef RP6502_RIA_W
-        *appendp = STR_HELP_ABOUT_W;
-#endif
-        return;
-    }
-    // Help for commands and a couple special words.
-    for (size_t i = 0; i < HLP_COMMANDS_COUNT; i++)
-        if (!strcasecmp(word, HLP_COMMANDS[i].cmd))
-        {
-            *cp = S(HLP_COMMANDS[i].text);
-            *fnp = HLP_COMMANDS[i].extra_fn;
-            return;
-        }
+        return STR_HELP_ABOUT;
+    return hlp_find(HLP_COMMANDS, HLP_COMMANDS_COUNT, word, fn);
+}
+
+// Split a help query into its command word and optional SET/DISK sub-key. word
+// is copied out because str_parse_string reuses one shared buffer, so parsing
+// the sub-key would otherwise clobber word.
+static void hlp_split(const char *args, char *word, size_t word_size, const char **sub)
+{
+    const char *tok = str_parse_string(&args);
+    strncpy(word, tok ? tok : "", word_size - 1);
+    word[word_size - 1] = 0;
+    *sub = NULL;
+    if (!strcasecmp(word, STR_SET) || !strcasecmp(word, STR_DISK))
+        *sub = str_parse_string(&args);
 }
 
 void hlp_mon_help(const char *args)
@@ -198,25 +155,32 @@ void hlp_mon_help(const char *args)
         mon_add_response_fn(rom_installed_response);
         return;
     }
-    const char *c;
-    const char *append;
+    char word[16];
+    const char *sub;
+    hlp_split(args, word, sizeof word, &sub);
     mon_response_fn fn;
-    help_response_lookup(args, &c, &append, &fn);
-    if (c != NULL)
-        mon_add_response_utf8(c);
-    if (append != NULL)
-        mon_add_response_utf8(append);
+    const char *prose = hlp_lookup(word, sub, &fn);
+    if (!prose)
+    {
+        rom_mon_help(args);
+        return;
+    }
+    mon_add_response_utf8(prose);
+#ifdef RP6502_RIA_W
+    // Radio builds continue the settings summary and the credits with a _W block.
+    if (!sub && !strcasecmp(word, STR_SET))
+        mon_add_response_utf8(S(STR_HELP_SET_W));
+    else if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
+        mon_add_response_utf8(STR_HELP_ABOUT_W);
+#endif
     if (fn != NULL)
         mon_add_response_fn(fn);
-    if (c == NULL && fn == NULL)
-        rom_mon_help(args);
 }
 
 bool hlp_topic_exists(const char *buf)
 {
-    const char *c;
-    const char *append;
-    mon_response_fn fn;
-    help_response_lookup(buf, &c, &append, &fn);
-    return c != NULL;
+    char word[16];
+    const char *sub;
+    hlp_split(buf, word, sizeof word, &sub);
+    return hlp_lookup(word, sub, NULL) != NULL;
 }

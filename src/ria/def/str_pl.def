@@ -144,6 +144,7 @@ X(STR_WFI_NO_IP_ADDRESS, "brak adresu IP")
 X(STR_WFI_SSID_NOT_FOUND, "nie znaleziono SSID")
 X(STR_WFI_AUTH_FAILED, "błąd uwierzytelniania")
 X(STR_WFI_CONNECT_FAILED, "błąd połączenia")
+X(STR_WFI_NO_NETWORKS, "Nie znaleziono sieci")
 
 // Network Time Protocol status
 X(STR_NTP_NO_NETWORK, "brak sieci")

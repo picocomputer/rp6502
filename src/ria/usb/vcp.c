@@ -92,7 +92,7 @@ int vcp_status_count(void)
     return count;
 }
 
-int vcp_status_response(char *buf, size_t buf_size, int state)
+int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_CDC)
         return -1;

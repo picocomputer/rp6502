@@ -1907,7 +1907,7 @@ static void msc_inquiry_rtrim(uint8_t *s, size_t l)
     }
 }
 
-int msc_status_response(char *buf, size_t buf_size, int state)
+int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= FF_VOLUMES)
         return -1;

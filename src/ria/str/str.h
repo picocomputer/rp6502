@@ -130,7 +130,7 @@ const char *S(int id);
 void str_init(void);
 
 // Locale (UI language) selection.
-int str_locales_response(char *buf, size_t buf_size, int state);
+int str_locales_response(char *buf, size_t buf_size, int state, unsigned width);
 void str_load_locale(const char *name);
 bool str_set_locale(const char *name);
 const char *str_get_locale(void);

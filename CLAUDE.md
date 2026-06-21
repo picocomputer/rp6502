@@ -21,15 +21,6 @@ To build, run `cmake --build build` from the project root. That builds
 every target in one shot. Do not hunt for individual ninja target names
 (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
 
-This is a copy_to_ram build: .text and .data live in RAM, only __in_flash
-data stays in flash. RAM is the scarce resource. A string literal reaches
-flash only as a NAMED, EXTERNAL-linkage __in_flash array. It silently
-falls back to RAM if it is `static` (LTO merges it into .rodata.str,
-dropping the section) or anonymous (a bare "..." in an array/struct
-initializer has no section at all). Pointer/int arrays are exempt and may
-stay static. Verify with `objcopy --only-section=.data <elf> f && grep -a`;
-don't trust the attribute.
-
 Never delete debug macros (DBG, DEBUG_*, etc.) on "currently unused"
 grounds. They are scaffolding kept for future bring-up. If a review
 notices one isn't called today, leave it; do not propose removing it.

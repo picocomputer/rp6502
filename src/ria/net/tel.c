@@ -7,7 +7,6 @@
 #ifdef RP6502_RIA_W
 
 #include "main.h"
-#include "net/mdm.h"
 #include "net/net.h"
 #include "net/tel.h"
 #include "sys/com.h"
@@ -678,15 +677,15 @@ static void tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-void tel_negotiate(int desc)
+void tel_negotiate(int desc, bool telnet_mode, const char *ttype)
 {
     tel_conn_t *tc = &tel_conns[desc];
-    tc->telnet_mode = (mdm_settings->net_mode != 0);
+    tc->telnet_mode = telnet_mode;
     if (!tc->telnet_mode)
         return;
 
     tc->is_server = false;
-    tc->ttype = mdm_settings->tty_type;
+    tc->ttype = ttype;
     // Order matches the pre-refactor code: DO then WILL per option. Some
     // peers (Synchronet) key initial behavior off the sequence.
     tel_q_ask_him_enable(desc, tc, TEL_IDX_BINARY); // DO BINARY
@@ -720,14 +719,15 @@ void tel_listen_close(uint16_t port)
     net_listen_close(port);
 }
 
-bool tel_accept(int desc, uint16_t port, void (*on_close)(int))
+bool tel_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
+                void (*on_close)(int))
 {
     // Modem-emulator role: the retro machine is always the terminal, even
     // when answering a call. Use client-side negotiation.
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
         return false;
-    tel_negotiate(desc);
+    tel_negotiate(desc, telnet_mode, ttype);
     return true;
 }
 

@@ -75,7 +75,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 VIP_LIST
 #undef X
 
-int vip_response(char *buf, size_t buf_size, int state)
+int vip_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;

@@ -32,8 +32,8 @@ void vga_break(void);
 bool vga_connected(void);
 
 // Responders for status.
-int vga_boot_response(char *buf, size_t buf_size, int state);
-int vga_status_response(char *buf, size_t buf_size, int state);
+int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width);
+int vga_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting VGA
 void vga_load_display_type(const char *str);

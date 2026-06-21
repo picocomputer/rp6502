@@ -207,7 +207,7 @@ void mon_response_confirm(mon_confirm_fn cb)
     mon_confirm_cb = cb;
 }
 
-static int mon_utf8_response(char *buf, size_t buf_size, int state)
+static int mon_utf8_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -319,12 +319,12 @@ static int mon_err_response(char *buf, size_t buf_size, int state,
     return -1;
 }
 
-static int mon_lfs_response(char *buf, size_t buf_size, int state)
+static int mon_lfs_response(char *buf, size_t buf_size, int state, unsigned)
 {
     return mon_err_response(buf, buf_size, state, mon_lfs_lookup);
 }
 
-static int mon_fatfs_response(char *buf, size_t buf_size, int state)
+static int mon_fatfs_response(char *buf, size_t buf_size, int state, unsigned)
 {
     return mon_err_response(buf, buf_size, state, mon_fatfs_lookup);
 }
@@ -338,8 +338,11 @@ static void mon_append_response(mon_response_fn fn, const char *str, int state)
         if (!mon_response_fn_list[i])
         {
             // Suppress consecutive duplicates — no value in showing the same
-            // string twice in a row.
-            if (i > 0 && fn == mon_response_fn_list[i - 1] && str == mon_response_str[i - 1])
+            // string twice in a row. Only against a still-active source: a spent
+            // slot (state < 0, output still draining) belongs to a self-requeuing
+            // responder (e.g. ram_print_response) whose next call must not dedup.
+            if (i > 0 && fn == mon_response_fn_list[i - 1] && str == mon_response_str[i - 1] &&
+                mon_response_state[i - 1] >= 0)
                 return;
             mon_response_fn_list[i] = fn;
             mon_response_str[i] = str;
@@ -387,7 +390,7 @@ static void mon_break_response(void)
     mon_more_rows_left = rln_get_term_height() - 1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
-        mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1);
+        mon_response_fn_list[i](mon_response_cur, MON_RESPONSE_BUF_SIZE, -1, rln_get_term_width());
         mon_clear_slot(i);
     }
 }
@@ -513,11 +516,14 @@ void mon_task(void)
     {
         mon_response_next[0] = 0;
         mon_response_state[0] = (mon_response_fn_list[0])(
-            mon_response_next, MON_RESPONSE_BUF_SIZE, mon_response_state[0]);
+            mon_response_next, MON_RESPONSE_BUF_SIZE, mon_response_state[0], rln_get_term_width());
         mon_response_next_loaded = (mon_response_next[0] != 0);
         if (mon_response_state[0] < 0)
             mon_next_response();
-        return;
+        // An async producer that yielded nothing (e.g. a WiFi scan still
+        // running) must not strand a prior response's tail buffered in cur.
+        if (mon_response_next_loaded || mon_response_pos < 0)
+            return;
     }
     // Flush the current response buffer
     if (mon_response_pos >= 0)

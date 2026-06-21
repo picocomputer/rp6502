@@ -62,7 +62,7 @@ static bool ram_start_read_chunk(void)
     return true;
 }
 
-static int ram_print_response(char *buf, size_t buf_size, int state)
+static int ram_print_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)buf_size;
     if (state < 0)

@@ -28,7 +28,7 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-static int set_phi2_response(char *buf, size_t buf_size, int state)
+static int set_phi2_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, STR_SET_PHI2_RESPONSE, cpu_get_phi2_khz());
@@ -46,7 +46,7 @@ static void set_phi2(const char *args)
         mon_add_response_fn(set_phi2_response);
 }
 
-static int set_boot_response(char *buf, size_t buf_size, int state)
+static int set_boot_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *rom = rom_get_boot();
@@ -73,7 +73,7 @@ static void set_boot(const char *args)
     mon_add_response_fn(set_boot_response);
 }
 
-static int set_code_page_response(char *buf, size_t buf_size, int state)
+static int set_code_page_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     if (oem_is_auto())
@@ -94,7 +94,7 @@ static void set_code_page(const char *args)
         mon_add_response_fn(set_code_page_response);
 }
 
-static int set_vga_response(char *buf, size_t buf_size, int state)
+static int set_vga_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, STR_SET_VGA_RESPONSE,
@@ -115,7 +115,7 @@ static void set_vga(const char *args)
 
 #ifdef RP6502_RIA_W
 
-static int set_rf_response(char *buf, size_t buf_size, int state)
+static int set_rf_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t en = cyw_get_rf_enable();
@@ -135,7 +135,7 @@ static void set_rf(const char *args)
         mon_add_response_fn(set_rf_response);
 }
 
-static int set_rfcc_response(char *buf, size_t buf_size, int state)
+static int set_rfcc_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *cc = cyw_get_rf_country_code();
@@ -165,7 +165,7 @@ static void set_rfcc(const char *args)
     mon_add_response_fn(set_rfcc_response);
 }
 
-static int set_ssid_response(char *buf, size_t buf_size, int state)
+static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *ssid = wfi_get_ssid();
@@ -179,7 +179,7 @@ static int set_ssid_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static int set_pass_response(char *buf, size_t buf_size, int state)
+static int set_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *pass = wfi_get_pass();
@@ -222,7 +222,7 @@ static void set_pass(const char *args)
     mon_add_response_fn(set_pass_response);
 }
 
-static int set_ble_response(char *buf, size_t buf_size, int state)
+static int set_ble_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t en = ble_get_enabled();
@@ -244,7 +244,7 @@ static void set_ble(const char *args)
         mon_add_response_fn(set_ble_response);
 }
 
-static int set_key_response(char *buf, size_t buf_size, int state)
+static int set_key_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *key = com_tel_get_key();
@@ -253,7 +253,7 @@ static int set_key_response(char *buf, size_t buf_size, int state)
     return -1;
 }
 
-static int set_port_response(char *buf, size_t buf_size, int state)
+static int set_port_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     bool en = com_tel_get_port() > 0 && com_tel_get_key()[0];
@@ -294,7 +294,7 @@ static void set_key(const char *args)
 
 #endif
 
-static int set_nfc_response(char *buf, size_t buf_size, int state)
+static int set_nfc_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t en = nfc_get_enabled();
@@ -314,7 +314,7 @@ static void set_nfc(const char *args)
         mon_add_response_fn(set_nfc_response);
 }
 
-static int set_time_zone_response(char *buf, size_t buf_size, int state)
+static int set_time_zone_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, clk_get_time_zone());
@@ -335,7 +335,7 @@ static void set_time_zone(const char *args)
     mon_add_response_fn(set_time_zone_response);
 }
 
-static int set_locale_response(char *buf, size_t buf_size, int state)
+static int set_locale_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, STR_SET_LOC_RESPONSE,
@@ -357,7 +357,7 @@ static void set_locale(const char *args)
     mon_add_response_fn(set_locale_response);
 }
 
-static int set_kbd_layout_response(char *buf, size_t buf_size, int state)
+static int set_kbd_layout_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *list = kbd_get_layout_list();
