@@ -21,10 +21,11 @@ bool tel_get_naws(int desc, uint16_t *w, uint16_t *h);
 bool tel_open(int desc, const char *hostname, uint16_t port,
               void (*on_close)(int));
 void tel_close(int desc);
-void tel_negotiate(int desc);
+void tel_negotiate(int desc, bool telnet_mode, const char *ttype);
 bool tel_listen(uint16_t port, net_accept_fn on_accept);
 void tel_listen_close(uint16_t port);
-bool tel_accept(int desc, uint16_t port, void (*on_close)(int));
+bool tel_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
+                void (*on_close)(int));
 bool tel_accept_server(int desc, uint16_t port, void (*on_close)(int));
 void tel_reject(uint16_t port);
 bool tel_has_pending(uint16_t port);

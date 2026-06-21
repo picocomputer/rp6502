@@ -6,7 +6,6 @@
 
 #ifndef RP6502_RIA_W
 #include "net/mdm.h"
-mdm_settings_t *mdm_settings;
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void __in_flash("mdm_init") mdm_init(void) {}
@@ -17,7 +16,6 @@ int mdm_std_open(const char *, uint8_t, api_errno *) { return -1; }
 std_rw_result mdm_std_close(int, api_errno *) { return STD_ERROR; }
 std_rw_result mdm_std_read(int, char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
 std_rw_result mdm_std_write(int, const char *, uint32_t, uint32_t *, api_errno *) { return STD_ERROR; }
-void mdm_ring(void) {}
 bool mdm_answer(void) { return false; }
 uint8_t mdm_get_ring_count(void) { return 0; }
 bool mdm_conns_is_open(int desc)
@@ -110,7 +108,6 @@ typedef struct
 
 static mdm_conn_t mdm_conns[NET_MDM_DESCS];
 static mdm_conn_t *mdm_conn;
-mdm_settings_t *mdm_settings;
 
 static char mdm_phone_buf[MDM_AT_COMMAND_LEN + 1];
 
@@ -127,7 +124,11 @@ static int mdm_desc(void)
 void mdm_set_conn(int desc)
 {
     mdm_conn = &mdm_conns[desc];
-    mdm_settings = &mdm_conn->settings;
+}
+
+mdm_settings_t *mdm_settings(void)
+{
+    return &mdm_conn->settings;
 }
 
 bool mdm_settings_persistent(void)
@@ -212,21 +213,19 @@ static void mdm_resp_reset(void)
     mdm_conn->resp_prev_cr = false;
 }
 
-void mdm_set_response_fn(out_source_fn fn, int state)
+void mdm_add_response_fn(mdm_response_fn fn)
 {
-    mdm_resp_reset();
+    mdm_resp_append(fn, NULL, 0);
+}
+
+void mdm_add_response_fn_state(mdm_response_fn fn, int state)
+{
     mdm_resp_append(fn, NULL, state);
 }
 
-void mdm_set_response_utf8(const char *utf8)
+void mdm_add_response_utf8(const char *utf8)
 {
-    mdm_resp_reset();
     mdm_resp_append(mdm_str_response, utf8, 0);
-}
-
-void mdm_add_response_fn(out_source_fn fn, int state)
-{
-    mdm_resp_append(fn, NULL, state);
 }
 
 static void mdm_response_append(char ch)
@@ -240,10 +239,10 @@ static void mdm_response_append(char ch)
 
 static void mdm_response_append_cr_lf(void)
 {
-    if (!(mdm_settings->cr_char & 0x80))
-        mdm_response_append(mdm_settings->cr_char);
-    if (!(mdm_settings->lf_char & 0x80))
-        mdm_response_append(mdm_settings->lf_char);
+    if (!(mdm_conn->settings.cr_char & 0x80))
+        mdm_response_append(mdm_conn->settings.cr_char);
+    if (!(mdm_conn->settings.lf_char & 0x80))
+        mdm_response_append(mdm_conn->settings.lf_char);
 }
 
 static bool mdm_cmd_buf_is_at_command(void)
@@ -256,9 +255,9 @@ static int mdm_tx_command_mode(char ch)
 {
     if (mdm_resp_busy())
         return 0;
-    if (!(mdm_settings->cr_char & 0x80) && ch == mdm_settings->cr_char)
+    if (!(mdm_conn->settings.cr_char & 0x80) && ch == mdm_conn->settings.cr_char)
     {
-        if (mdm_settings->echo)
+        if (mdm_conn->settings.echo)
             mdm_response_append_cr_lf();
         mdm_conn->cmd_buf[mdm_conn->cmd_buf_len] = 0;
         mdm_conn->cmd_buf_len = 0;
@@ -269,24 +268,24 @@ static int mdm_tx_command_mode(char ch)
             mdm_conn->parse_str = &mdm_conn->cmd_buf[2];
         }
     }
-    else if (ch == 127 || (!(mdm_settings->bs_char & 0x80) && ch == mdm_settings->bs_char))
+    else if (ch == 127 || (!(mdm_conn->settings.bs_char & 0x80) && ch == mdm_conn->settings.bs_char))
     {
-        if (mdm_settings->echo)
+        if (mdm_conn->settings.echo)
         {
-            mdm_response_append(mdm_settings->bs_char);
+            mdm_response_append(mdm_conn->settings.bs_char);
             mdm_response_append(' ');
-            mdm_response_append(mdm_settings->bs_char);
+            mdm_response_append(mdm_conn->settings.bs_char);
         }
         if (mdm_conn->cmd_buf_len)
             mdm_conn->cmd_buf[--mdm_conn->cmd_buf_len] = 0;
     }
     else if (ch >= 32 && ch < 127)
     {
-        if (mdm_settings->echo)
+        if (mdm_conn->settings.echo)
             mdm_response_append(ch);
         if (ch == '/' && mdm_conn->cmd_buf_len == 1 && mdm_cmd_buf_is_at_command())
         {
-            if (mdm_settings->echo || (!mdm_settings->quiet && mdm_settings->verbose))
+            if (mdm_conn->settings.echo || (!mdm_conn->settings.quiet && mdm_conn->settings.verbose))
                 mdm_response_append_cr_lf();
             mdm_conn->cmd_buf_len = 0;
             mdm_conn->parse_active = true;
@@ -304,7 +303,7 @@ static void mdm_tx_escape_observer(char ch)
 {
     // S2 disabled: clear any stale count so re-enabling doesn't fire on a
     // partial old sequence.
-    if (mdm_settings->esc_char >= 128)
+    if (mdm_conn->settings.esc_char >= 128)
     {
         mdm_conn->escape_count = 0;
         mdm_conn->escape_last_char = get_absolute_time();
@@ -316,7 +315,7 @@ static void mdm_tx_escape_observer(char ch)
         mdm_conn->escape_count = 0;
     if (mdm_conn->escape_count || last_char_guarded)
     {
-        if (ch != mdm_settings->esc_char)
+        if (ch != mdm_conn->settings.esc_char)
             mdm_conn->escape_count = 0;
         else if (++mdm_conn->escape_count == MDM_ESCAPE_COUNT)
             mdm_conn->escape_guard = make_timeout_time_us(MDM_ESCAPE_GUARD_TIME_US);
@@ -324,7 +323,7 @@ static void mdm_tx_escape_observer(char ch)
     mdm_conn->escape_last_char = get_absolute_time();
 }
 
-int mdm_response_code(char *buf, size_t buf_size, int code, unsigned width)
+static int mdm_response_code(char *buf, size_t buf_size, int code, unsigned width)
 {
     (void)width;
     if (code < 0)
@@ -340,19 +339,19 @@ int mdm_response_code(char *buf, size_t buf_size, int code, unsigned width)
         0x01BF, // X3
         0x01FF, // X4
     };
-    unsigned x = mdm_settings->progress;
+    unsigned x = mdm_conn->settings.progress;
     if (x > 4)
         x = 4;
     bool suppress = false;
-    if (mdm_settings->quiet == 1)
+    if (mdm_conn->settings.quiet == 1)
         suppress = true;
-    else if (mdm_settings->quiet == 2 && mdm_conn->is_answering)
+    else if (mdm_conn->settings.quiet == 2 && mdm_conn->is_answering)
         suppress = true;
     else if (!(x_mask[x] & (1u << code)))
         suppress = true;
     if (suppress)
         buf[0] = 0;
-    else if (mdm_settings->verbose)
+    else if (mdm_conn->settings.verbose)
         snprintf(buf, buf_size, "\r\n%s\r\n", MDM_RESPONSES[code]);
     else
         snprintf(buf, buf_size, "%d\r", code);
@@ -618,7 +617,7 @@ bool mdm_dial(const char *s)
         return false;
     if (mdm_conn->state == mdm_state_ringing)
     {
-        tel_reject(mdm_settings->listen_port);
+        tel_reject(mdm_conn->settings.listen_port);
         mdm_conn->ring_count = 0;
         mdm_conn->state = mdm_state_on_hook;
     }
@@ -657,13 +656,14 @@ bool mdm_connect(void)
     }
     if (mdm_conn->state == mdm_state_dialing)
     {
-        if (mdm_settings->progress > 0)
-            mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
+        if (mdm_conn->settings.progress > 0)
+            mdm_add_response_fn_state(mdm_response_code, 5); // CONNECT 1200
         else
-            mdm_set_response_fn(mdm_response_code, 1); // CONNECT
+            mdm_add_response_fn_state(mdm_response_code, 1); // CONNECT
         mdm_conn->state = mdm_state_connected;
         mdm_conn->in_command_mode = false;
-        tel_negotiate(mdm_desc());
+        tel_negotiate(mdm_desc(), mdm_conn->settings.net_mode != 0,
+                      mdm_conn->settings.tty_type);
         return true;
     }
     return false;
@@ -673,7 +673,7 @@ bool mdm_hangup(void)
 {
     if (mdm_conn->state == mdm_state_ringing)
     {
-        tel_reject(mdm_settings->listen_port);
+        tel_reject(mdm_conn->settings.listen_port);
         mdm_conn->state = mdm_state_on_hook;
         mdm_conn->in_command_mode = true;
         mdm_conn->ring_count = 0;
@@ -692,10 +692,11 @@ bool mdm_hangup(void)
 static void mdm_finalize_carrier_lost(void)
 {
     mdm_hangup();
-    mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+    mdm_resp_reset();
+    mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
 }
 
-void mdm_carrier_lost(void)
+static void mdm_carrier_lost(void)
 {
     if (mdm_conn->state == mdm_state_on_hook)
         return;
@@ -726,7 +727,7 @@ uint8_t mdm_get_ring_count(void)
     return mdm_conn->ring_count;
 }
 
-void mdm_ring(void)
+static void mdm_ring(void)
 {
     if (mdm_conn->state != mdm_state_on_hook)
         return;
@@ -747,22 +748,26 @@ bool mdm_answer(void)
     if (mdm_conn->state != mdm_state_ringing)
         return false;
     mdm_conn->is_answering = true;
-    if (!tel_accept(mdm_desc(), mdm_settings->listen_port, mdm_net_on_close))
+    if (!tel_accept(mdm_desc(), mdm_conn->settings.listen_port,
+                    mdm_conn->settings.net_mode != 0, mdm_conn->settings.tty_type,
+                    mdm_net_on_close))
     {
         // Call gone — answered elsewhere or remote hung up
         mdm_conn->state = mdm_state_on_hook;
         mdm_conn->in_command_mode = true;
         mdm_conn->ring_count = 0;
-        mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+        mdm_resp_reset();
+        mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
         return true;
     }
     mdm_conn->state = mdm_state_connected;
     mdm_conn->in_command_mode = false;
     mdm_conn->ring_count = 0;
-    if (mdm_settings->progress > 0)
-        mdm_set_response_fn(mdm_response_code, 5); // CONNECT 1200
+    mdm_resp_reset();
+    if (mdm_conn->settings.progress > 0)
+        mdm_add_response_fn_state(mdm_response_code, 5); // CONNECT 1200
     else
-        mdm_set_response_fn(mdm_response_code, 1); // CONNECT
+        mdm_add_response_fn_state(mdm_response_code, 1); // CONNECT
     return true;
 }
 
@@ -787,7 +792,7 @@ static bool mdm_net_on_accept(uint16_t port)
 static void mdm_listen_update(void)
 {
     uint16_t active = mdm_conn->active_listen_port;
-    uint16_t wanted = mdm_settings->listen_port;
+    uint16_t wanted = mdm_conn->settings.listen_port;
     if (active == wanted)
         return;
     if (active > 0)
@@ -806,7 +811,7 @@ static void mdm_listen_update(void)
     if (wanted == com_tel_get_port())
     {
         DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", mdm_desc());
-        mdm_settings->listen_port = 0;
+        mdm_conn->settings.listen_port = 0;
         return;
     }
     if (!wfi_ready())
@@ -822,7 +827,7 @@ bool mdm_set_listen_port(uint16_t port)
 {
     if (port > 0 && port == com_tel_get_port())
         return false;
-    mdm_settings->listen_port = port;
+    mdm_conn->settings.listen_port = port;
     mdm_listen_update();
     return true;
 }
@@ -846,13 +851,13 @@ void mdm_task()
             if (!mdm_conn->parse_result)
             {
                 mdm_conn->parse_active = false;
-                mdm_set_response_fn(mdm_response_code, 4); // ERROR
+                mdm_add_response_fn_state(mdm_response_code, 4); // ERROR
             }
             else if (*mdm_conn->parse_str == 0)
             {
                 mdm_conn->parse_active = false;
                 if (mdm_conn->in_command_mode)
-                    mdm_set_response_fn(mdm_response_code, 0); // OK
+                    mdm_add_response_fn(mdm_response_code); // OK
             }
             else
             {
@@ -862,22 +867,23 @@ void mdm_task()
         mdm_listen_update();
         if (mdm_conn->state == mdm_state_ringing)
         {
-            if (!tel_has_pending(mdm_settings->listen_port))
+            if (!tel_has_pending(mdm_conn->settings.listen_port))
             {
                 // Call gone (answered elsewhere or remote hung up)
                 mdm_conn->state = mdm_state_on_hook;
                 mdm_conn->in_command_mode = true;
                 mdm_conn->ring_count = 0;
-                mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+                mdm_resp_reset();
+                mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
             }
             else if (time_reached(mdm_conn->ring_timer) &&
                      mdm_conn->resp_state[0] < 0)
             {
                 mdm_conn->ring_count++;
-                mdm_set_response_fn(mdm_response_code, 2); // RING
+                mdm_add_response_fn_state(mdm_response_code, 2); // RING
                 mdm_conn->ring_timer = make_timeout_time_ms(6000);
-                if (mdm_settings->auto_answer > 0 &&
-                    mdm_conn->ring_count >= mdm_settings->auto_answer)
+                if (mdm_conn->settings.auto_answer > 0 &&
+                    mdm_conn->ring_count >= mdm_conn->settings.auto_answer)
                 {
                     mdm_answer();
                 }
@@ -895,7 +901,7 @@ void mdm_task()
                     DBG("NET MDM dial failed after wifi ready\n");
                     mdm_conn->state = mdm_state_on_hook;
                     mdm_conn->in_command_mode = true;
-                    mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+                    mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
                 }
             }
             else if (!wfi_connecting())
@@ -903,7 +909,7 @@ void mdm_task()
                 DBG("NET MDM dial failed, wifi not connecting\n");
                 mdm_conn->state = mdm_state_on_hook;
                 mdm_conn->in_command_mode = true;
-                mdm_set_response_fn(mdm_response_code, 3); // NO CARRIER
+                mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
             }
         }
         if (mdm_conn->escape_count == MDM_ESCAPE_COUNT &&
@@ -914,7 +920,8 @@ void mdm_task()
             {
                 mdm_conn->cmd_buf_len = 0;
                 mdm_conn->in_command_mode = true;
-                mdm_set_response_fn(mdm_response_code, 0); // OK
+                mdm_resp_reset();
+                mdm_add_response_fn(mdm_response_code); // OK
             }
         }
     }
@@ -923,7 +930,6 @@ void mdm_task()
 static void mdm_conn_stop(mdm_conn_t *conn)
 {
     mdm_conn = conn;
-    mdm_settings = &conn->settings;
     if (conn->active_listen_port > 0)
     {
         tel_listen_close(conn->active_listen_port);
@@ -960,8 +966,8 @@ static uint32_t mdm_sink_pos;
 
 static bool mdm_sink(char ch)
 {
-    uint8_t cr = mdm_settings->cr_char;
-    uint8_t lf = mdm_settings->lf_char;
+    uint8_t cr = mdm_conn->settings.cr_char;
+    uint8_t lf = mdm_conn->settings.lf_char;
     char out[2];
     int n = 0;
     if (ch == '\r')
@@ -1045,9 +1051,9 @@ int mdm_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     if (mdm_conn->settings_slot >= 0)
-        mdm_read_settings(mdm_settings);
+        mdm_read_settings(&mdm_conn->settings);
     else
-        mdm_factory_settings(mdm_settings);
+        mdm_factory_settings(&mdm_conn->settings);
     mdm_conn->is_open = true;
     mdm_listen_update();
     // Optionally process filename as AT command

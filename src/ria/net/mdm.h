@@ -56,13 +56,13 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
  * Functions below operate on the current connection set by mdm_set_conn().
  */
 
-extern mdm_settings_t *mdm_settings;
+mdm_settings_t *mdm_settings(void);
 void mdm_set_conn(int desc);
 bool mdm_settings_persistent(void);
-int mdm_response_code(char *buf, size_t buf_size, int code, unsigned width);
-void mdm_set_response_fn(out_source_fn fn, int state);
-void mdm_set_response_utf8(const char *utf8);
-void mdm_add_response_fn(out_source_fn fn, int state);
+typedef out_source_fn mdm_response_fn;
+void mdm_add_response_fn(mdm_response_fn fn); // state 0
+void mdm_add_response_fn_state(mdm_response_fn fn, int state);
+void mdm_add_response_utf8(const char *utf8);
 void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);
@@ -71,8 +71,6 @@ const char *mdm_read_phonebook_entry(unsigned index);
 bool mdm_dial(const char *s);
 bool mdm_connect(void);
 bool mdm_hangup(void);
-void mdm_carrier_lost(void);
-void mdm_ring(void);
 bool mdm_answer(void);
 uint8_t mdm_get_ring_count(void);
 bool mdm_set_listen_port(uint16_t port);

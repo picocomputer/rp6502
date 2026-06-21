@@ -69,10 +69,10 @@ static bool cmd_echo(const char **s)
     switch (cmd_parse_num(s))
     {
     case 0:
-        mdm_settings->echo = 0;
+        mdm_settings()->echo = 0;
         return true;
     case 1:
-        mdm_settings->echo = 1;
+        mdm_settings()->echo = 1;
         return true;
     }
     return false;
@@ -122,13 +122,13 @@ static bool cmd_quiet(const char **s)
     switch (cmd_parse_num(s))
     {
     case 0:
-        mdm_settings->quiet = 0;
+        mdm_settings()->quiet = 0;
         return true;
     case 1:
-        mdm_settings->quiet = 1;
+        mdm_settings()->quiet = 1;
         return true;
     case 2:
-        mdm_settings->quiet = 2;
+        mdm_settings()->quiet = 2;
         return true;
     }
     return false;
@@ -138,25 +138,25 @@ static int cmd_s_query_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t val = 0;
-    switch (mdm_settings->s_pointer)
+    switch (mdm_settings()->s_pointer)
     {
     case 0:
-        val = mdm_settings->auto_answer;
+        val = mdm_settings()->auto_answer;
         break;
     case 1:
         val = mdm_get_ring_count();
         break;
     case 2:
-        val = mdm_settings->esc_char;
+        val = mdm_settings()->esc_char;
         break;
     case 3:
-        val = mdm_settings->cr_char;
+        val = mdm_settings()->cr_char;
         break;
     case 4:
-        val = mdm_settings->lf_char;
+        val = mdm_settings()->lf_char;
         break;
     case 5:
-        val = mdm_settings->bs_char;
+        val = mdm_settings()->bs_char;
         break;
     }
     snprintf(buf, buf_size, "%u\r\n", val);
@@ -178,7 +178,7 @@ static bool cmd_s_pointer(const char **s)
     case 3:
     case 4:
     case 5:
-        mdm_settings->s_pointer = num;
+        mdm_settings()->s_pointer = num;
         return true;
     default:
         return false;
@@ -189,7 +189,7 @@ static bool cmd_s_pointer(const char **s)
 static bool cmd_s_query(const char **s)
 {
     (void)s;
-    mdm_set_response_fn(cmd_s_query_response, 0);
+    mdm_add_response_fn(cmd_s_query_response);
     return true;
 }
 
@@ -200,22 +200,22 @@ static bool cmd_s_set(const char **s)
     // Hayes: bare ATS= writes 0.
     if (num < 0)
         num = 0;
-    switch (mdm_settings->s_pointer)
+    switch (mdm_settings()->s_pointer)
     {
     case 0:
-        mdm_settings->auto_answer = num;
+        mdm_settings()->auto_answer = num;
         return true;
     case 2:
-        mdm_settings->esc_char = num;
+        mdm_settings()->esc_char = num;
         return true;
     case 3:
-        mdm_settings->cr_char = num;
+        mdm_settings()->cr_char = num;
         return true;
     case 4:
-        mdm_settings->lf_char = num;
+        mdm_settings()->lf_char = num;
         return true;
     case 5:
-        mdm_settings->bs_char = num;
+        mdm_settings()->bs_char = num;
         return true;
     default:
         return false;
@@ -228,10 +228,10 @@ static bool cmd_verbose(const char **s)
     switch (cmd_parse_num(s))
     {
     case 0:
-        mdm_settings->verbose = 0;
+        mdm_settings()->verbose = 0;
         return true;
     case 1:
-        mdm_settings->verbose = 1;
+        mdm_settings()->verbose = 1;
         return true;
     }
     return false;
@@ -243,7 +243,7 @@ static bool cmd_progress(const char **s)
     int value = cmd_parse_num(s);
     if (value >= 0 && value <= 4)
     {
-        mdm_settings->progress = value;
+        mdm_settings()->progress = value;
         return true;
     }
     return false;
@@ -256,7 +256,7 @@ static bool cmd_reset(const char **s)
     {
     case -1:
     case 0:
-        return mdm_read_settings(mdm_settings);
+        return mdm_read_settings(mdm_settings());
     }
     return false;
 }
@@ -268,7 +268,7 @@ static bool cmd_load_factory(const char **s)
     {
     case -1:
     case 0:
-        mdm_factory_settings(mdm_settings);
+        mdm_factory_settings(mdm_settings());
         return true;
     }
     return false;
@@ -287,22 +287,22 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
         break;
     case 1:
         snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u \\T=%s\r\n",
-                 mdm_settings->echo,
-                 mdm_settings->quiet,
-                 mdm_settings->verbose,
-                 mdm_settings->progress,
-                 mdm_settings->listen_port,
-                 mdm_settings->net_mode,
-                 mdm_settings->tty_type);
+                 mdm_settings()->echo,
+                 mdm_settings()->quiet,
+                 mdm_settings()->verbose,
+                 mdm_settings()->progress,
+                 mdm_settings()->listen_port,
+                 mdm_settings()->net_mode,
+                 mdm_settings()->tty_type);
         break;
     case 2:
         snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
-                 mdm_settings->auto_answer,
+                 mdm_settings()->auto_answer,
                  mdm_get_ring_count(),
-                 mdm_settings->esc_char,
-                 mdm_settings->cr_char,
-                 mdm_settings->lf_char,
-                 mdm_settings->bs_char);
+                 mdm_settings()->esc_char,
+                 mdm_settings()->cr_char,
+                 mdm_settings()->lf_char,
+                 mdm_settings()->bs_char);
         break;
     case 3:
         snprintf(buf, buf_size, "\r\nSTORED PROFILE:\r\n");
@@ -375,7 +375,7 @@ static bool cmd_view_config(const char **s)
     switch (cmd_parse_num(s))
     {
     case -1:
-        mdm_set_response_fn(cmd_view_config_response, 0);
+        mdm_add_response_fn(cmd_view_config_response);
         return true;
     }
     return false;
@@ -388,7 +388,7 @@ static bool cmd_save_nvram(const char **s)
     {
     case -1:
     case 0:
-        return mdm_write_settings(mdm_settings);
+        return mdm_write_settings(mdm_settings());
     }
     return false;
 }
@@ -450,9 +450,9 @@ static bool cmd_help_response(const char *name)
     const char *prose = hlp_lookup(STR_SET, name, &fn);
     if (!prose)
         return false;
-    mdm_set_response_utf8(prose);
+    mdm_add_response_utf8(prose);
     if (fn)
-        mdm_add_response_fn(fn, 0);
+        mdm_add_response_fn(fn);
     return true;
 }
 
@@ -479,7 +479,7 @@ static bool cmd_plus_rfcc(const char **s)
         return result;
     }
     case '?':
-        mdm_set_response_fn(cmd_plus_rfcc_response, 0);
+        mdm_add_response_fn(cmd_plus_rfcc_response);
         return true;
     case '!':
         return cmd_help_response(STR_RFCC);
@@ -515,7 +515,7 @@ static bool cmd_plus_ssid(const char **s)
         return result;
     }
     case '?':
-        mdm_set_response_fn(cmd_plus_ssid_response, 0);
+        mdm_add_response_fn(cmd_plus_ssid_response);
         return true;
     case '!':
         return cmd_help_response(STR_SSID);
@@ -546,7 +546,7 @@ static bool cmd_plus_pass(const char **s)
         return result;
     }
     case '?':
-        mdm_set_response_fn(cmd_plus_pass_response, 0);
+        mdm_add_response_fn(cmd_plus_pass_response);
         return true;
     }
     --*s;
@@ -578,7 +578,7 @@ static bool cmd_parse_plus(const char **s)
 static int cmd_backslash_n_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, "%u\r\n", mdm_settings->net_mode);
+    snprintf(buf, buf_size, "%u\r\n", mdm_settings()->net_mode);
     return -1;
 }
 
@@ -589,13 +589,13 @@ static bool cmd_backslash_n(const char **s)
     if (ch == '?')
     {
         ++*s;
-        mdm_set_response_fn(cmd_backslash_n_response, 0);
+        mdm_add_response_fn(cmd_backslash_n_response);
         return true;
     }
     int num = cmd_parse_num(s);
     if (num >= 0 && num <= 1)
     {
-        mdm_settings->net_mode = num;
+        mdm_settings()->net_mode = num;
         return true;
     }
     return false;
@@ -605,7 +605,7 @@ static bool cmd_backslash_n(const char **s)
 static int cmd_backslash_t_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, "%s\r\n", mdm_settings->tty_type);
+    snprintf(buf, buf_size, "%s\r\n", mdm_settings()->tty_type);
     return -1;
 }
 
@@ -617,14 +617,14 @@ static bool cmd_backslash_t(const char **s)
     switch (ch)
     {
     case '?':
-        mdm_set_response_fn(cmd_backslash_t_response, 0);
+        mdm_add_response_fn(cmd_backslash_t_response);
         return true;
     case '=':
     {
         size_t len = strlen(*s);
-        if (len >= sizeof(mdm_settings->tty_type))
+        if (len >= sizeof(mdm_settings()->tty_type))
             return false;
-        strcpy(mdm_settings->tty_type, *s);
+        strcpy(mdm_settings()->tty_type, *s);
         *s += len;
         return true;
     }
@@ -637,7 +637,7 @@ static bool cmd_backslash_t(const char **s)
 static int cmd_backslash_l_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, "%u\r\n", mdm_settings->listen_port);
+    snprintf(buf, buf_size, "%u\r\n", mdm_settings()->listen_port);
     return -1;
 }
 
@@ -648,7 +648,7 @@ static bool cmd_backslash_l(const char **s)
     if (ch == '?')
     {
         ++*s;
-        mdm_set_response_fn(cmd_backslash_l_response, 0);
+        mdm_add_response_fn(cmd_backslash_l_response);
         return true;
     }
     int num = cmd_parse_num(s);
