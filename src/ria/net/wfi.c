@@ -223,7 +223,6 @@ int wfi_status_response(char *buf, size_t buf_size, int state, unsigned)
 // WiFi scan: a small store of the strongest unique access points, refreshed on
 // each wfi_scan_response invocation.
 #define WFI_SCAN_MAX 24
-#define WFI_SCAN_TIMEOUT_MS 5000
 
 typedef struct
 {
@@ -235,44 +234,36 @@ typedef struct
 static wfi_ap_t wfi_aps[WFI_SCAN_MAX];
 static uint8_t wfi_ap_count;
 static enum { WFI_SCAN_IDLE, WFI_SCAN_BUSY, WFI_SCAN_DONE } wfi_scan_status;
-static absolute_time_t wfi_scan_deadline;
 
-// Insert sorted by RSSI descending, dedup by SSID keeping the strongest.
+// Record the latest non-zero RSSI per unique SSID, in discovery order.
 static void wfi_ap_insert(const char *ssid, int8_t rssi, uint8_t auth)
 {
+    if (rssi == 0)
+        return;
     for (unsigned i = 0; i < wfi_ap_count; i++)
         if (!strcmp(wfi_aps[i].ssid, ssid))
         {
-            if (rssi > wfi_aps[i].rssi)
-            {
-                wfi_aps[i].rssi = rssi;
-                wfi_aps[i].auth = auth;
-            }
+            wfi_aps[i].rssi = rssi;
+            wfi_aps[i].auth = auth;
             return;
         }
-    unsigned idx;
-    if (wfi_ap_count < WFI_SCAN_MAX)
-        idx = wfi_ap_count++;
-    else if (rssi > wfi_aps[WFI_SCAN_MAX - 1].rssi)
-        idx = WFI_SCAN_MAX - 1;
-    else
+    if (wfi_ap_count >= WFI_SCAN_MAX)
         return;
+    unsigned idx = wfi_ap_count++;
     strncpy(wfi_aps[idx].ssid, ssid, sizeof(wfi_aps[idx].ssid) - 1);
     wfi_aps[idx].ssid[sizeof(wfi_aps[idx].ssid) - 1] = 0;
     wfi_aps[idx].rssi = rssi;
     wfi_aps[idx].auth = auth;
-    while (idx > 0 && wfi_aps[idx].rssi > wfi_aps[idx - 1].rssi)
-    {
-        wfi_ap_t tmp = wfi_aps[idx - 1];
-        wfi_aps[idx - 1] = wfi_aps[idx];
-        wfi_aps[idx] = tmp;
-        idx--;
-    }
 }
 
 static int wfi_scan_cb(void *env, const cyw43_ev_scan_result_t *r)
 {
     (void)env;
+    DBG("NET WFI scan t=%u %02x:%02x:%02x:%02x:%02x:%02x rssi=%4d auth=%02x len=%2u ssid=%.*s\n",
+        (unsigned)to_ms_since_boot(get_absolute_time()),
+        r->bssid[0], r->bssid[1], r->bssid[2], r->bssid[3], r->bssid[4], r->bssid[5],
+        r->rssi, r->auth_mode, r->ssid_len,
+        (int)(r->ssid_len > 32 ? 32 : r->ssid_len), (const char *)r->ssid);
     if (r->ssid_len == 0)
         return 0; // hidden network
     char ssid[33];
@@ -297,20 +288,41 @@ static void wfi_scan_begin(void)
     if (!cyw43_wifi_scan(&cyw43_state, &opts, NULL, wfi_scan_cb))
     {
         wfi_scan_status = WFI_SCAN_BUSY;
-        wfi_scan_deadline = make_timeout_time_ms(WFI_SCAN_TIMEOUT_MS);
+        DBG("NET WFI scan begin t=%u\n", (unsigned)to_ms_since_boot(get_absolute_time()));
     }
     else
+    {
+        DBG("NET WFI scan begin FAILED t=%u\n", (unsigned)to_ms_since_boot(get_absolute_time()));
         wfi_scan_status = WFI_SCAN_DONE;
+    }
 }
 
 static bool wfi_scan_busy(void)
 {
     if (wfi_scan_status != WFI_SCAN_BUSY)
         return false;
-    if (cyw43_wifi_scan_active(&cyw43_state) && !time_reached(wfi_scan_deadline))
+    if (cyw43_wifi_scan_active(&cyw43_state))
         return true;
+    DBG("NET WFI scan done  t=%u count=%u\n",
+        (unsigned)to_ms_since_boot(get_absolute_time()), wfi_ap_count);
     wfi_scan_status = WFI_SCAN_DONE;
     return false;
+}
+
+// Sort by RSSI, strongest first.
+static void wfi_ap_sort(void)
+{
+    for (unsigned i = 1; i < wfi_ap_count; i++)
+    {
+        wfi_ap_t key = wfi_aps[i];
+        unsigned j = i;
+        while (j > 0 && wfi_aps[j - 1].rssi < key.rssi)
+        {
+            wfi_aps[j] = wfi_aps[j - 1];
+            j--;
+        }
+        wfi_aps[j] = key;
+    }
 }
 
 static void wfi_scan_format(unsigned i, char *buf, size_t size)
@@ -346,6 +358,8 @@ int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
         return 1;
     }
     unsigned i = (unsigned)state - 1;
+    if (i == 0)
+        wfi_ap_sort(); // sort once, immediately before rendering the list
     if (i >= wfi_ap_count)
     {
         if (i == 0)
