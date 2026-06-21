@@ -25,7 +25,9 @@ void wfi_task(void);
 /* Utility
  */
 
-int wfi_status_response(char *buf, size_t buf_size, int state);
+int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width);
+int wfi_status_response(char *buf, size_t buf_size, int state, unsigned width);
+
 void wfi_shutdown(void);
 bool wfi_ready(void);
 bool wfi_connecting(void);

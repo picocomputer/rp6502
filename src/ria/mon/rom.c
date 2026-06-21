@@ -596,7 +596,7 @@ static int rom_utf8_seq_len(unsigned char b0)
 
 // state encoding: 0 = initial, 1 = streaming (last OEM byte != '\n'),
 // 2 = streaming (last OEM byte == '\n', no trailing newline needed at EOF).
-static int rom_help_response(char *buf, size_t buf_size, int state)
+static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
     {
@@ -832,7 +832,7 @@ void rom_stop(void)
     }
 }
 
-int rom_installed_response(char *buf, size_t buf_size, int state)
+int rom_installed_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;

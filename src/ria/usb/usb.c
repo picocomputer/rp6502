@@ -127,7 +127,7 @@ void usb_task(void)
     }
 }
 
-int usb_status_response(char *buf, size_t buf_size, int state)
+int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     int count_gamepad = usb_count_hid_pad + xin_pad_count();

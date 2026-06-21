@@ -105,7 +105,7 @@ static int fil_paginate(char *buf, size_t buf_size, int state, const char *src)
     return state + 1;
 }
 
-static int fil_cwd_response(char *buf, size_t buf_size, int state)
+static int fil_cwd_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -119,7 +119,7 @@ static int fil_cwd_response(char *buf, size_t buf_size, int state)
 
 // Print the directory being listed by DIR/LS. fil_mon_dir leaves its
 // resolved absolute path in mbuf for us to paginate.
-static int fil_dir_path_response(char *buf, size_t buf_size, int state)
+static int fil_dir_path_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -193,7 +193,7 @@ void fil_mon_chdrive(const char *args)
     }
 }
 
-static int fil_dir_entry_response(char *buf, size_t buf_size, int state)
+static int fil_dir_entry_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0)
     {

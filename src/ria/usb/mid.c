@@ -781,7 +781,7 @@ int mid_status_count(void)
     return count;
 }
 
-int mid_status_response(char *buf, size_t buf_size, int state)
+int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_MIDI)
         return -1;

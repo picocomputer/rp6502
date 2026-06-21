@@ -233,7 +233,7 @@ static void dsk_fmt_desc(char *out, size_t size, const char *scheme, const char 
 // Device/volume preview as a monitor response generator: one line per call (an
 // empty fill skips a line). dsk_preview_op adds the warning / target lines.
 // Routed through the response queue so the \a alignment markers work.
-static int dsk_preview_response(char *buf, size_t size, int state)
+static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -427,7 +427,7 @@ static void dsk_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads
 // per call, emitting at most one line; progress redraws in place via \r, so
 // unchanged-percent ticks emit nothing. dsk_state selects the phase. Ctrl-C
 // aborts via main_break(), whose break_() resets the queue and owns dsk IDLE.
-static int dsk_run_response(char *buf, size_t size, int state)
+static int dsk_run_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state; // response cancelled (break)
@@ -713,6 +713,14 @@ static bool dsk_match_drive(const char *t, int *vol)
     return false;
 }
 
+// Queue a disk subcommand's help (shown when its required drive is missing).
+static void dsk_sub_help(const char *sub)
+{
+    const char *prose = hlp_lookup(STR_DISK, sub, NULL);
+    if (prose)
+        mon_add_response_utf8(prose);
+}
+
 // Parse a drive-only argument list (info/erase/verify). Returns the volume, or
 // -1 after queueing sub's help (no drive) or an argument error (garbage/extra).
 static int dsk_parse_drive_only(const char *args, const char *sub)
@@ -729,7 +737,7 @@ static int dsk_parse_drive_only(const char *args, const char *sub)
     }
     if (vol < 0)
     {
-        hlp_disk_sub_response(sub);
+        dsk_sub_help(sub);
         return -1;
     }
     return vol;
@@ -798,7 +806,7 @@ static void dsk_format(const char *args)
     }
     if (vol < 0)
     {
-        hlp_disk_sub_response(STR_FORMAT);
+        dsk_sub_help(STR_FORMAT);
         return;
     }
     msc_dsk_info_t info;
@@ -889,7 +897,7 @@ static void dsk_verify(const char *args)
 
 // One-line label result through the response queue (width-aware, paged) instead
 // of a bare printf, like the rest of the monitor.
-static int dsk_label_response(char *buf, size_t size, int state)
+static int dsk_label_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -922,7 +930,7 @@ static void dsk_label(const char *args)
     }
     if (vol < 0)
     {
-        hlp_disk_sub_response(STR_LABEL);
+        dsk_sub_help(STR_LABEL);
         return;
     }
     msc_dsk_info_t info;

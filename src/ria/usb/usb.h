@@ -21,7 +21,7 @@ void usb_init(void);
 void usb_task(void);
 
 // For monitor status command.
-int usb_status_response(char *buf, size_t buf_size, int state);
+int usb_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Sends LED info to keyboards
 void usb_set_hid_leds(uint8_t leds);

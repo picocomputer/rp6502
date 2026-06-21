@@ -7,7 +7,7 @@
 #ifndef RP6502_RIA_W
 #include "net/ntp.h"
 void ntp_task() {}
-int ntp_status_response(char *, size_t, int) { return -1; }
+int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
 #include "net/ntp.h"
@@ -257,7 +257,7 @@ static const char *ntp_status_str(void)
     }
 }
 
-int ntp_status_response(char *buf, size_t buf_size, int state)
+int ntp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf_utf8(buf, buf_size, STR_STATUS_NTP, ntp_status_str());

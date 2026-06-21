@@ -140,6 +140,7 @@ X(STR_WFI_NO_IP_ADDRESS, "no IP address")
 X(STR_WFI_SSID_NOT_FOUND, "ssid not found")
 X(STR_WFI_AUTH_FAILED, "auth failed")
 X(STR_WFI_CONNECT_FAILED, "connect failed")
+X(STR_WFI_NO_NETWORKS, "No networks found")
 
 // Network Time Protocol status
 X(STR_NTP_NO_NETWORK, "no network")

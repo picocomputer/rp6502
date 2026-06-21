@@ -14,14 +14,15 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "mon/mon.h"
 
 /* Monitor commands
  */
 
 void hlp_mon_help(const char *args);
 
-// Queue the help for a disk subcommand by keyword
-void hlp_disk_sub_response(const char *sub);
+// Look up help by category word plus optional sub-key.
+const char *hlp_lookup(const char *word, const char *sub, mon_response_fn *fn);
 
 // Test if help exists. Used to determine
 // acceptable names when installing ROMs.
