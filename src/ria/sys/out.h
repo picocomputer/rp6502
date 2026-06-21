@@ -52,16 +52,10 @@ typedef struct
 
 // Render one source through word-wrap to sink, wrapping to w->width and feeding
 // fn(buf, size, *state, w->width) for chunks. Returns true while output remains
-// (the sink paused, or — in step mode — after a generator call); false when fn
-// returned a negative state and nothing is buffered (advance the queue). *state
-// carries the generator's resumable state across calls.
-//
-// step: yield (return) after every generator call so the caller's main loop can
-// run before the chunk is flushed. The monitor needs this because a generator
-// may start a RIA read (going busy) whose output must not print until it
-// finishes. The modem passes false to render straight through to its read
-// buffer (its generators have no such side effects).
-bool out_render(out_wrap_t *w, out_source_fn fn, int *state, out_sink sink, bool step);
+// (the sink paused); false when fn returned a negative state and nothing is
+// buffered (advance the queue). *state carries the generator's resumable state
+// across calls.
+bool out_render(out_wrap_t *w, out_source_fn fn, int *state, out_sink sink);
 
 // True while w holds rendered bytes not yet flushed to the sink. The caller must
 // keep calling out_render while this is true even after its generator state has

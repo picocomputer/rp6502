@@ -503,7 +503,7 @@ void mon_task(void)
     if (mon_response_state[0] >= 0 || out_pending(&mon_wrap))
     {
         mon_wrap.width = rln_get_term_width();
-        if (!out_render(&mon_wrap, mon_response_fn_list[0], &mon_response_state[0], mon_sink, true))
+        if (!out_render(&mon_wrap, mon_response_fn_list[0], &mon_response_state[0], mon_sink))
             mon_next_response();
         return;
     }

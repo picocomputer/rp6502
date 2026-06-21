@@ -1094,7 +1094,7 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
             mdm_sink_pos = pos;
             mdm_conn->resp_wrap.width = 80;
             bool paused = out_render(&mdm_conn->resp_wrap, mdm_conn->resp_fn[0],
-                                     &mdm_conn->resp_state[0], mdm_sink, false);
+                                     &mdm_conn->resp_state[0], mdm_sink);
             pos = mdm_sink_pos;
             if (paused)
                 break;

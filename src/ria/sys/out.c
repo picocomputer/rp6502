@@ -5,7 +5,6 @@
  */
 
 #include "sys/out.h"
-#include <string.h>
 
 // Minimum column budget remaining after the indent for wrap-with-indent to
 // engage. If the BEL marker lands too close to the right edge the indent is
@@ -105,7 +104,7 @@ static bool out_flush(out_wrap_t *w, out_sink sink, bool more)
     return false;
 }
 
-bool out_render(out_wrap_t *w, out_source_fn fn, int *state, out_sink sink, bool step)
+bool out_render(out_wrap_t *w, out_source_fn fn, int *state, out_sink sink)
 {
     if (!w->cur)
     {
@@ -130,25 +129,18 @@ bool out_render(out_wrap_t *w, out_source_fn fn, int *state, out_sink sink, bool
             w->next[0] = 0;
             *state = fn(w->next, OUT_BUF_SIZE, *state, w->width);
             w->next_loaded = (w->next[0] != 0);
-            // An empty fill with nothing buffered is an async await (e.g. a
-            // scan still running) — retry later.
-            if (!w->next_loaded && w->pos < 0)
-                return *state >= 0;
-            // Step mode: yield after the generator call so the caller's main
-            // loop runs (the generator may have started a RIA read) before the
-            // chunk is flushed.
-            if (step)
-                return true;
-            continue;
         }
-        // Flush cur (next holds the cross-fill lookahead).
-        if (w->pos >= 0)
+        if (w->pos < 0)
         {
-            if (out_flush(w, sink, *state >= 0))
-                return true; // sink paused
-            continue; // cur drained; loop to swap/stage
+            if (w->next_loaded)
+                continue; // staged a chunk; loop to swap it in
+            // cur empty and nothing staged: a non-negative state is an async
+            // await (e.g. a scan still running) — retry later; negative is done.
+            return *state >= 0;
         }
-        return false; // generator done and nothing buffered
+        if (out_flush(w, sink, *state >= 0))
+            return true; // sink paused
+        // cur drained; loop to swap/stage/finish
     }
 }
 
