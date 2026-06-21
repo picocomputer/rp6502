@@ -15,6 +15,7 @@ int wfi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #include "net/wfi.h"
 #include "str/str.h"
 #include "sys/cfg.h"
+#include "sys/mem.h"
 #include <pico/cyw43_arch.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)
@@ -220,8 +221,9 @@ int wfi_status_response(char *buf, size_t buf_size, int state, unsigned)
     return state + 1;
 }
 
-// WiFi scan: a small store of the strongest unique access points, refreshed on
-// each wfi_scan_response invocation.
+// WiFi scan store: strongest unique AP per SSID. Overlaid on mbuf instead of a
+// static buffer; valid only across one monitor scan/render cycle (6502 halted,
+// async wfi_scan_cb the sole writer).
 #define WFI_SCAN_MAX 24
 
 typedef struct
@@ -231,29 +233,34 @@ typedef struct
     uint8_t auth; // scan auth bitmask: bit0 WEP, bit1 WPA, bit2 WPA2/RSN
 } wfi_ap_t;
 
-static wfi_ap_t wfi_aps[WFI_SCAN_MAX];
+_Static_assert(WFI_SCAN_MAX * sizeof(wfi_ap_t) <= MBUF_SIZE,
+               "wfi scan store exceeds mbuf");
+
 static uint8_t wfi_ap_count;
-static enum { WFI_SCAN_IDLE, WFI_SCAN_BUSY, WFI_SCAN_DONE } wfi_scan_status;
+static enum { WFI_SCAN_IDLE,
+              WFI_SCAN_BUSY,
+              WFI_SCAN_DONE } wfi_scan_status;
 
 // Record the latest non-zero RSSI per unique SSID, in discovery order.
 static void wfi_ap_insert(const char *ssid, int8_t rssi, uint8_t auth)
 {
+    wfi_ap_t *aps = (wfi_ap_t *)mbuf;
     if (rssi == 0)
         return;
     for (unsigned i = 0; i < wfi_ap_count; i++)
-        if (!strcmp(wfi_aps[i].ssid, ssid))
+        if (!strcmp(aps[i].ssid, ssid))
         {
-            wfi_aps[i].rssi = rssi;
-            wfi_aps[i].auth = auth;
+            aps[i].rssi = rssi;
+            aps[i].auth = auth;
             return;
         }
     if (wfi_ap_count >= WFI_SCAN_MAX)
         return;
     unsigned idx = wfi_ap_count++;
-    strncpy(wfi_aps[idx].ssid, ssid, sizeof(wfi_aps[idx].ssid) - 1);
-    wfi_aps[idx].ssid[sizeof(wfi_aps[idx].ssid) - 1] = 0;
-    wfi_aps[idx].rssi = rssi;
-    wfi_aps[idx].auth = auth;
+    strncpy(aps[idx].ssid, ssid, sizeof(aps[idx].ssid) - 1);
+    aps[idx].ssid[sizeof(aps[idx].ssid) - 1] = 0;
+    aps[idx].rssi = rssi;
+    aps[idx].auth = auth;
 }
 
 static int wfi_scan_cb(void *env, const cyw43_ev_scan_result_t *r)
@@ -312,23 +319,24 @@ static bool wfi_scan_busy(void)
 // Sort by RSSI, strongest first.
 static void wfi_ap_sort(void)
 {
+    wfi_ap_t *aps = (wfi_ap_t *)mbuf;
     for (unsigned i = 1; i < wfi_ap_count; i++)
     {
-        wfi_ap_t key = wfi_aps[i];
+        wfi_ap_t key = aps[i];
         unsigned j = i;
-        while (j > 0 && wfi_aps[j - 1].rssi < key.rssi)
+        while (j > 0 && aps[j - 1].rssi < key.rssi)
         {
-            wfi_aps[j] = wfi_aps[j - 1];
+            aps[j] = aps[j - 1];
             j--;
         }
-        wfi_aps[j] = key;
+        aps[j] = key;
     }
 }
 
 static void wfi_scan_format(unsigned i, char *buf, size_t size)
 {
-    const wfi_ap_t *ap = &wfi_aps[i];
-    const char *sec = (ap->auth & 4) ? "WPA2"
+    const wfi_ap_t *ap = &((wfi_ap_t *)mbuf)[i];
+    const char *sec = (ap->auth & 4)   ? "WPA2"
                       : (ap->auth & 2) ? "WPA"
                       : (ap->auth & 1) ? "WEP"
                                        : "OPEN";
