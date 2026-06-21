@@ -134,12 +134,16 @@ const char *hlp_lookup(const char *word, const char *sub, mon_response_fn *fn)
     return hlp_find(HLP_COMMANDS, HLP_COMMANDS_COUNT, word, fn);
 }
 
-// Split a help query into its command word and optional SET/DISK sub-key.
-static void hlp_split(const char *args, const char **word, const char **sub)
+// Split a help query into its command word and optional SET/DISK sub-key. word
+// is copied out because str_parse_string reuses one shared buffer, so parsing
+// the sub-key would otherwise clobber word.
+static void hlp_split(const char *args, char *word, size_t word_size, const char **sub)
 {
-    *word = str_parse_string(&args);
+    const char *tok = str_parse_string(&args);
+    strncpy(word, tok ? tok : "", word_size - 1);
+    word[word_size - 1] = 0;
     *sub = NULL;
-    if (*word && (!strcasecmp(*word, STR_SET) || !strcasecmp(*word, STR_DISK)))
+    if (!strcasecmp(word, STR_SET) || !strcasecmp(word, STR_DISK))
         *sub = str_parse_string(&args);
 }
 
@@ -151,8 +155,9 @@ void hlp_mon_help(const char *args)
         mon_add_response_fn(rom_installed_response);
         return;
     }
-    const char *word, *sub;
-    hlp_split(args, &word, &sub);
+    char word[16];
+    const char *sub;
+    hlp_split(args, word, sizeof word, &sub);
     mon_response_fn fn;
     const char *prose = hlp_lookup(word, sub, &fn);
     if (!prose)
@@ -174,7 +179,8 @@ void hlp_mon_help(const char *args)
 
 bool hlp_topic_exists(const char *buf)
 {
-    const char *word, *sub;
-    hlp_split(buf, &word, &sub);
+    char word[16];
+    const char *sub;
+    hlp_split(buf, word, sizeof word, &sub);
     return hlp_lookup(word, sub, NULL) != NULL;
 }
