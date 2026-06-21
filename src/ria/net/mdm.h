@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include "api/api.h"
 #include "api/std.h"
+#include "sys/out.h"
 
 #define MDM_PHONEBOOK_ENTRIES 4
 
@@ -58,8 +59,10 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 extern mdm_settings_t *mdm_settings;
 void mdm_set_conn(int desc);
 bool mdm_settings_persistent(void);
-int mdm_response_code(char *buf, size_t buf_size, int code);
-void mdm_set_response_fn(int (*fn)(char *, size_t, int), int state);
+int mdm_response_code(char *buf, size_t buf_size, int code, unsigned width);
+void mdm_set_response_fn(out_source_fn fn, int state);
+void mdm_set_response_utf8(const char *utf8);
+void mdm_add_response_fn(out_source_fn fn, int state);
 void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);

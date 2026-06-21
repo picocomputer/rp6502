@@ -233,7 +233,7 @@ static void dsk_fmt_desc(char *out, size_t size, const char *scheme, const char 
 // Device/volume preview as a monitor response generator: one line per call (an
 // empty fill skips a line). dsk_preview_op adds the warning / target lines.
 // Routed through the response queue so the \a alignment markers work.
-static int dsk_preview_response(char *buf, size_t size, int state)
+static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state;
@@ -427,7 +427,7 @@ static void dsk_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *heads
 // per call, emitting at most one line; progress redraws in place via \r, so
 // unchanged-percent ticks emit nothing. dsk_state selects the phase. Ctrl-C
 // aborts via main_break(), whose break_() resets the queue and owns dsk IDLE.
-static int dsk_run_response(char *buf, size_t size, int state)
+static int dsk_run_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state; // response cancelled (break)
@@ -889,7 +889,7 @@ static void dsk_verify(const char *args)
 
 // One-line label result through the response queue (width-aware, paged) instead
 // of a bare printf, like the rest of the monitor.
-static int dsk_label_response(char *buf, size_t size, int state)
+static int dsk_label_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
         return state;

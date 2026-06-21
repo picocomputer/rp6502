@@ -14,11 +14,16 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "mon/mon.h"
 
 /* Monitor commands
  */
 
 void hlp_mon_help(const char *args);
+
+// Look up a SET attribute's help prose and optional list responder by name
+// (e.g. STR_RFCC, STR_SSID). Returns false if the name is unknown.
+bool hlp_lookup_setting(const char *name, const char **prose, mon_response_fn *fn);
 
 // Queue the help for a disk subcommand by keyword
 void hlp_disk_sub_response(const char *sub);

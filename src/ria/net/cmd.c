@@ -8,6 +8,7 @@
 #include "net/cyw.h"
 #include "net/mdm.h"
 #include "net/wfi.h"
+#include "mon/hlp.h"
 #include "str/str.h"
 #include <stdio.h>
 #include <ctype.h>
@@ -133,7 +134,7 @@ static bool cmd_quiet(const char **s)
     return false;
 }
 
-static int cmd_s_query_response(char *buf, size_t buf_size, int state)
+static int cmd_s_query_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t val = 0;
@@ -274,7 +275,7 @@ static bool cmd_load_factory(const char **s)
 }
 
 // &V
-static int cmd_view_config_response(char *buf, size_t buf_size, int state)
+static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsigned)
 {
     mdm_settings_t stored_settings;
     if (!mdm_settings_persistent() && state >= 6 && state <= 10)
@@ -345,24 +346,21 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state)
         snprintf(buf, buf_size, "\r\nNETWORK:\r\n");
         break;
     case 12:
-        snprintf(buf, buf_size, "+RF=%u\r\n", cyw_get_rf_enable());
-        break;
-    case 13:
     {
         const char *cc = cyw_get_rf_country_code();
-        snprintf_utf8(buf, buf_size, "+RFCC=%s\r\n", strlen(cc) ? cc : S(STR_WORLDWIDE));
+        snprintf_utf8(buf, buf_size, "+RFCC:%s\r\n", strlen(cc) ? cc : S(STR_WORLDWIDE));
         break;
     }
-    case 14:
+    case 13:
 #if RP6502_CREATOR
-        snprintf_utf8(buf, buf_size, "+SSID=%s\r\n",
+        snprintf_utf8(buf, buf_size, "+SSID:%s\r\n",
                       strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
-        snprintf(buf, buf_size, "+SSID=%s\r\n", wfi_get_ssid());
+        snprintf(buf, buf_size, "+SSID:%s\r\n", wfi_get_ssid());
 #endif
         break;
-    case 15:
-        snprintf_utf8(buf, buf_size, "+PASS=%s\r\n",
+    case 14:
+        snprintf_utf8(buf, buf_size, "+PASS:%s\r\n",
                       strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
         break;
     default:
@@ -444,33 +442,22 @@ static bool cmd_parse_amp(const char **s)
     return false;
 }
 
-// +RF?
-static int cmd_plus_rf_response(char *buf, size_t buf_size, int state)
+// "!" — queue a setting's help prose then its list (the same content the
+// monitor's HELP SET <name> shows), word-wrapped to 80 by the modem renderer.
+static bool cmd_help_response(const char *name)
 {
-    (void)state;
-    snprintf(buf, buf_size, "%u\r\n", cyw_get_rf_enable());
-    return -1;
-}
-
-// +RF
-static bool cmd_plus_rf(const char **s)
-{
-    char ch = **s;
-    ++*s;
-    switch (toupper(ch))
-    {
-    case '=':
-        return cyw_set_rf_enable(cmd_parse_num(s));
-    case '?':
-        mdm_set_response_fn(cmd_plus_rf_response, 0);
-        return true;
-    }
-    --*s;
-    return false;
+    const char *prose;
+    mon_response_fn fn;
+    if (!hlp_lookup_setting(name, &prose, &fn))
+        return false;
+    mdm_set_response_utf8(prose);
+    if (fn)
+        mdm_add_response_fn(fn, 0);
+    return true;
 }
 
 // +RFCC?
-static int cmd_plus_rfcc_response(char *buf, size_t buf_size, int state)
+static int cmd_plus_rfcc_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *cc = cyw_get_rf_country_code();
@@ -494,13 +481,15 @@ static bool cmd_plus_rfcc(const char **s)
     case '?':
         mdm_set_response_fn(cmd_plus_rfcc_response, 0);
         return true;
+    case '!':
+        return cmd_help_response(STR_RFCC);
     }
     --*s;
     return false;
 }
 
 // +SSID?
-static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state)
+static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
 #if RP6502_CREATOR
@@ -528,13 +517,15 @@ static bool cmd_plus_ssid(const char **s)
     case '?':
         mdm_set_response_fn(cmd_plus_ssid_response, 0);
         return true;
+    case '!':
+        return cmd_help_response(STR_SSID);
     }
     --*s;
     return false;
 }
 
 // +PASS?
-static int cmd_plus_pass_response(char *buf, size_t buf_size, int state)
+static int cmd_plus_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
@@ -570,11 +561,6 @@ static bool cmd_parse_plus(const char **s)
         *s += STR_RFCC_LEN;
         return cmd_plus_rfcc(s);
     }
-    if (!strncasecmp(*s, STR_RF, STR_RF_LEN))
-    {
-        *s += STR_RF_LEN;
-        return cmd_plus_rf(s);
-    }
     if (!strncasecmp(*s, STR_SSID, STR_SSID_LEN))
     {
         *s += STR_SSID_LEN;
@@ -589,7 +575,7 @@ static bool cmd_parse_plus(const char **s)
 }
 
 // \N?
-static int cmd_backslash_n_response(char *buf, size_t buf_size, int state)
+static int cmd_backslash_n_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, "%u\r\n", mdm_settings->net_mode);
@@ -616,7 +602,7 @@ static bool cmd_backslash_n(const char **s)
 }
 
 // \T?
-static int cmd_backslash_t_response(char *buf, size_t buf_size, int state)
+static int cmd_backslash_t_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, "%s\r\n", mdm_settings->tty_type);
@@ -648,7 +634,7 @@ static bool cmd_backslash_t(const char **s)
 }
 
 // \L?
-static int cmd_backslash_l_response(char *buf, size_t buf_size, int state)
+static int cmd_backslash_l_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     snprintf(buf, buf_size, "%u\r\n", mdm_settings->listen_port);

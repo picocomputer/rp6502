@@ -307,14 +307,14 @@ bool vga_connected(void)
            vga_state == VGA_NO_VERSION;
 }
 
-int vga_boot_response(char *buf, size_t buf_size, int state)
+int vga_boot_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     if (!vga_connected())
         return -1;
-    return vga_status_response(buf, buf_size, state);
+    return vga_status_response(buf, buf_size, state, width);
 }
 
-int vga_status_response(char *buf, size_t buf_size, int state)
+int vga_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *msg = STR_VGA_SEARCHING;

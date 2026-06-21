@@ -22,7 +22,7 @@ void kbd_task(void);
 void kbd_stop(void);
 
 // Responder prints all keyboard layout options.
-int kbd_layouts_response(char *buf, size_t buf_size, int state);
+int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Called when code page changes so cache can be rebuilt.
 void kbd_rebuild_code_page_cache(void);

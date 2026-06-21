@@ -7,7 +7,7 @@
 #if !defined(RP6502_RIA_W)
 #include "ble/ble.h"
 void ble_task(void) {}
-int ble_status_response(char *, size_t, int) { return -1; }
+int ble_status_response(char *, size_t, int, unsigned) { return -1; }
 void ble_set_hid_leds(uint8_t) {}
 #else
 
@@ -546,7 +546,7 @@ void ble_shutdown(void)
     ble_state = BLE_OFF;
 }
 
-int ble_status_response(char *buf, size_t buf_size, int state)
+int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     if (ble_enabled)

@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "sys/out.h"
 
 /* Main events
  */
@@ -21,17 +22,9 @@ void mon_task(void);
 void mon_stop(void);
 void mon_break(void);
 
-// Monitor response system paginates without blocking.
-// A mon_response_fn will snprintf to the buffer and
-// return the state with which to be called next with.
-// A mon_response_fn is only guaranteed 80 columns plus
-// a newline and null but may use the entire buffer.
-// A mon_response_fn will return a negative state when
-// there is no more work.
-// If mon_response_fn is called with a negative state,
-// the response is being cancelled so close any open
-// files.
-typedef int (*mon_response_fn)(char *, size_t, int);
+// The monitor's response queue is rendered through sys/out.c (see out.h for
+// the out_source_fn contract).
+typedef out_source_fn mon_response_fn;
 void mon_add_response_fn(mon_response_fn fn); // state 0
 void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_utf8(const char *utf8);

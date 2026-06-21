@@ -233,7 +233,7 @@ const char *cyw_get_rf_country_code_verbose(void)
         return cyw_country_name[cyw_country];
 }
 
-int cyw_country_code_response(char *buf, size_t buf_size, int state)
+int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     if (state < 0)
         return state;
@@ -245,7 +245,7 @@ int cyw_country_code_response(char *buf, size_t buf_size, int state)
             name_max = len;
     }
     size_t cell = 2 + 3 + name_max;
-    unsigned w = rln_get_term_width();
+    unsigned w = width;
     if (w > buf_size - 2)
         w = buf_size - 2;
     unsigned cols = (w >= cell + 4) ? (w - 2) / (cell + 2) : 1;

@@ -44,7 +44,7 @@ bool rom_load_installed(const char *args);
 void rom_exec(void);
 
 // Responder prints all installed ROMs.
-int rom_installed_response(char *buf, size_t buf_size, int state);
+int rom_installed_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting BOOT
 // No loader because this isn't stored in RAM

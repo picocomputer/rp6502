@@ -10,6 +10,7 @@
 #include "mon/mon.h"
 #include "mon/rom.h"
 #include "net/cyw.h"
+#include "net/wfi.h"
 #include "str/str.h"
 #include <pico.h>
 #include <string.h>
@@ -80,7 +81,7 @@ __in_flash("hlp_settings") static struct
 #ifdef RP6502_RIA_W
     {STR_RF, STR_HELP_SET_RF, NULL},
     {STR_RFCC, STR_HELP_SET_RFCC, cyw_country_code_response},
-    {STR_SSID, STR_HELP_SET_SSID, NULL},
+    {STR_SSID, STR_HELP_SET_SSID, wfi_scan_response},
     {STR_PASS, STR_HELP_SET_PASS, NULL},
     {STR_BLE, STR_HELP_SET_BLE, NULL},
     {STR_PORT, STR_HELP_SET_PORT, NULL},
@@ -88,6 +89,18 @@ __in_flash("hlp_settings") static struct
 #endif
 };
 static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
+
+bool hlp_lookup_setting(const char *name, const char **prose, mon_response_fn *fn)
+{
+    for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
+        if (!strcasecmp(name, HLP_SETTINGS[i].cmd))
+        {
+            *prose = S(HLP_SETTINGS[i].text);
+            *fn = HLP_SETTINGS[i].extra_fn;
+            return true;
+        }
+    return false;
+}
 
 __in_flash("hlp_disk") static struct
 {

@@ -26,7 +26,7 @@ void mid_stop(void);
  */
 
 int mid_status_count(void);
-int mid_status_response(char *buf, size_t buf_size, int state);
+int mid_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* STDIO
  */

@@ -796,7 +796,7 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-int kbd_layouts_response(char *buf, size_t buf_size, int state)
+int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned)
 {
     const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     if (state < 0 || state >= layouts_count)

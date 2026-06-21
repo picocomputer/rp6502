@@ -38,6 +38,6 @@ const char *cyw_get_rf_country_code(void);
 const char *cyw_get_rf_country_code_verbose(void);
 
 // List known country codes for help
-int cyw_country_code_response(char *buf, size_t buf_size, int state);
+int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width);
 
 #endif /* _RIA_NET_CYW_H_ */

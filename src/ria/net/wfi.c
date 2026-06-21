@@ -7,7 +7,8 @@
 #ifndef RP6502_RIA_W
 #include "net/wfi.h"
 void wfi_task() {}
-int wfi_status_response(char *, size_t, int) { return -1; }
+int wfi_status_response(char *, size_t, int, unsigned) { return -1; }
+int wfi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
 #include "net/cyw.h"
@@ -171,7 +172,7 @@ static const char *wfi_status_message(void)
     return S(STR_INTERNAL_ERROR);
 }
 
-int wfi_status_response(char *buf, size_t buf_size, int state)
+int wfi_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     switch (state)
     {
@@ -216,6 +217,142 @@ int wfi_status_response(char *buf, size_t buf_size, int state)
     default:
         return -1;
     }
+    return state + 1;
+}
+
+// WiFi scan: a small store of the strongest unique access points, refreshed on
+// each wfi_scan_response invocation.
+#define WFI_SCAN_MAX 24
+#define WFI_SCAN_TIMEOUT_MS 5000
+
+typedef struct
+{
+    char ssid[33];
+    int8_t rssi;
+    uint8_t auth; // scan auth bitmask: bit0 WEP, bit1 WPA, bit2 WPA2/RSN
+} wfi_ap_t;
+
+static wfi_ap_t wfi_aps[WFI_SCAN_MAX];
+static uint8_t wfi_ap_count;
+static enum { WFI_SCAN_IDLE, WFI_SCAN_BUSY, WFI_SCAN_DONE } wfi_scan_status;
+static absolute_time_t wfi_scan_deadline;
+
+// Insert sorted by RSSI descending, dedup by SSID keeping the strongest.
+static void wfi_ap_insert(const char *ssid, int8_t rssi, uint8_t auth)
+{
+    for (unsigned i = 0; i < wfi_ap_count; i++)
+        if (!strcmp(wfi_aps[i].ssid, ssid))
+        {
+            if (rssi > wfi_aps[i].rssi)
+            {
+                wfi_aps[i].rssi = rssi;
+                wfi_aps[i].auth = auth;
+            }
+            return;
+        }
+    unsigned idx;
+    if (wfi_ap_count < WFI_SCAN_MAX)
+        idx = wfi_ap_count++;
+    else if (rssi > wfi_aps[WFI_SCAN_MAX - 1].rssi)
+        idx = WFI_SCAN_MAX - 1;
+    else
+        return;
+    strncpy(wfi_aps[idx].ssid, ssid, sizeof(wfi_aps[idx].ssid) - 1);
+    wfi_aps[idx].ssid[sizeof(wfi_aps[idx].ssid) - 1] = 0;
+    wfi_aps[idx].rssi = rssi;
+    wfi_aps[idx].auth = auth;
+    while (idx > 0 && wfi_aps[idx].rssi > wfi_aps[idx - 1].rssi)
+    {
+        wfi_ap_t tmp = wfi_aps[idx - 1];
+        wfi_aps[idx - 1] = wfi_aps[idx];
+        wfi_aps[idx] = tmp;
+        idx--;
+    }
+}
+
+static int wfi_scan_cb(void *env, const cyw43_ev_scan_result_t *r)
+{
+    (void)env;
+    if (r->ssid_len == 0)
+        return 0; // hidden network
+    char ssid[33];
+    unsigned n = r->ssid_len > 32 ? 32 : r->ssid_len;
+    for (unsigned k = 0; k < n; k++)
+    {
+        uint8_t ch = r->ssid[k];
+        ssid[k] = (ch >= 0x20 && ch < 0x7f) ? (char)ch : '.';
+    }
+    ssid[n] = 0;
+    wfi_ap_insert(ssid, (int8_t)r->rssi, r->auth_mode);
+    return 0;
+}
+
+static void wfi_scan_begin(void)
+{
+    if (wfi_scan_status == WFI_SCAN_BUSY)
+        return;
+    wfi_ap_count = 0;
+    cyw43_arch_enable_sta_mode();
+    cyw43_wifi_scan_options_t opts = {0};
+    if (!cyw43_wifi_scan(&cyw43_state, &opts, NULL, wfi_scan_cb))
+    {
+        wfi_scan_status = WFI_SCAN_BUSY;
+        wfi_scan_deadline = make_timeout_time_ms(WFI_SCAN_TIMEOUT_MS);
+    }
+    else
+        wfi_scan_status = WFI_SCAN_DONE;
+}
+
+static bool wfi_scan_busy(void)
+{
+    if (wfi_scan_status != WFI_SCAN_BUSY)
+        return false;
+    if (cyw43_wifi_scan_active(&cyw43_state) && !time_reached(wfi_scan_deadline))
+        return true;
+    wfi_scan_status = WFI_SCAN_DONE;
+    return false;
+}
+
+static void wfi_scan_format(unsigned i, char *buf, size_t size)
+{
+    const wfi_ap_t *ap = &wfi_aps[i];
+    const char *sec = (ap->auth & 4) ? "WPA2"
+                      : (ap->auth & 2) ? "WPA"
+                      : (ap->auth & 1) ? "WEP"
+                                       : "OPEN";
+    snprintf(buf, size, "%4ddBm  %-4s  %s\n", ap->rssi, sec, ap->ssid);
+}
+
+int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
+{
+    (void)width; // single column
+    if (state < 0)
+        return state;
+    if (!cyw_get_rf_enable())
+    {
+        if (state == 0)
+            snprintf_utf8(buf, buf_size, "%s\n", S(STR_RF_OFF));
+        return -1;
+    }
+    if (state == 0)
+    {
+        if (!wfi_scan_busy())
+            wfi_scan_begin();
+        return 1;
+    }
+    if (wfi_scan_busy())
+    {
+        buf[0] = 0; // not ready; call again
+        return 1;
+    }
+    unsigned i = (unsigned)state - 1;
+    if (i >= wfi_ap_count)
+    {
+        if (i == 0)
+            snprintf_utf8(buf, buf_size, "%s\n", S(STR_WFI_NO_NETWORKS));
+        return -1;
+    }
+    wfi_scan_format(i, buf, buf_size);
     return state + 1;
 }
 
