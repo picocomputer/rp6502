@@ -102,7 +102,6 @@ target_sources(${RIA_TARGET} PRIVATE
     sys/led.c
     sys/lfs.c
     sys/mem.c
-    sys/out.c
     sys/pix.c
     sys/ria.c
     sys/sys.c

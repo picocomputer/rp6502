@@ -15,7 +15,6 @@
 #include <stdbool.h>
 #include "api/api.h"
 #include "api/std.h"
-#include "sys/out.h"
 
 #define MDM_PHONEBOOK_ENTRIES 4
 
@@ -59,10 +58,12 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 mdm_settings_t *mdm_settings(void);
 void mdm_set_conn(int desc);
 bool mdm_settings_persistent(void);
-typedef out_source_fn mdm_response_fn;
-void mdm_add_response_fn(mdm_response_fn fn); // state 0
-void mdm_add_response_fn_state(mdm_response_fn fn, int state);
-void mdm_add_response_utf8(const char *utf8);
+// A response generator: snprintf()s the next chunk and returns the next state,
+// or a negative state when done. A negative state in means cancel (close any
+// open files). Guaranteed 80 columns plus a newline and null.
+typedef int (*mdm_response_fn)(char *buf, size_t size, int state, unsigned width);
+void mdm_set_response_fn(mdm_response_fn fn); // state 0
+void mdm_set_response_fn_state(mdm_response_fn fn, int state);
 void mdm_factory_settings(mdm_settings_t *settings);
 bool mdm_write_settings(const mdm_settings_t *settings);
 bool mdm_read_settings(mdm_settings_t *settings);

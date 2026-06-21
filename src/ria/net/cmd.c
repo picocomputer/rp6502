@@ -189,7 +189,7 @@ static bool cmd_s_pointer(const char **s)
 static bool cmd_s_query(const char **s)
 {
     (void)s;
-    mdm_add_response_fn(cmd_s_query_response);
+    mdm_set_response_fn(cmd_s_query_response);
     return true;
 }
 
@@ -375,7 +375,7 @@ static bool cmd_view_config(const char **s)
     switch (cmd_parse_num(s))
     {
     case -1:
-        mdm_add_response_fn(cmd_view_config_response);
+        mdm_set_response_fn(cmd_view_config_response);
         return true;
     }
     return false;
@@ -442,17 +442,15 @@ static bool cmd_parse_amp(const char **s)
     return false;
 }
 
-// "!" — queue a setting's help prose then its list (the same content the
-// monitor's HELP SET <name> shows), word-wrapped to 80 by the modem renderer.
+// "!" — list a setting's choices (the same list the monitor's HELP SET <name>
+// shows, e.g. country codes or a WiFi scan), self-formatted to 80 columns.
 static bool cmd_help_response(const char *name)
 {
     mon_response_fn fn;
-    const char *prose = hlp_lookup(STR_SET, name, &fn);
-    if (!prose)
+    if (!hlp_lookup(STR_SET, name, &fn))
         return false;
-    mdm_add_response_utf8(prose);
     if (fn)
-        mdm_add_response_fn(fn);
+        mdm_set_response_fn(fn);
     return true;
 }
 
@@ -479,7 +477,7 @@ static bool cmd_plus_rfcc(const char **s)
         return result;
     }
     case '?':
-        mdm_add_response_fn(cmd_plus_rfcc_response);
+        mdm_set_response_fn(cmd_plus_rfcc_response);
         return true;
     case '!':
         return cmd_help_response(STR_RFCC);
@@ -515,7 +513,7 @@ static bool cmd_plus_ssid(const char **s)
         return result;
     }
     case '?':
-        mdm_add_response_fn(cmd_plus_ssid_response);
+        mdm_set_response_fn(cmd_plus_ssid_response);
         return true;
     case '!':
         return cmd_help_response(STR_SSID);
@@ -546,7 +544,7 @@ static bool cmd_plus_pass(const char **s)
         return result;
     }
     case '?':
-        mdm_add_response_fn(cmd_plus_pass_response);
+        mdm_set_response_fn(cmd_plus_pass_response);
         return true;
     }
     --*s;
@@ -589,7 +587,7 @@ static bool cmd_backslash_n(const char **s)
     if (ch == '?')
     {
         ++*s;
-        mdm_add_response_fn(cmd_backslash_n_response);
+        mdm_set_response_fn(cmd_backslash_n_response);
         return true;
     }
     int num = cmd_parse_num(s);
@@ -617,7 +615,7 @@ static bool cmd_backslash_t(const char **s)
     switch (ch)
     {
     case '?':
-        mdm_add_response_fn(cmd_backslash_t_response);
+        mdm_set_response_fn(cmd_backslash_t_response);
         return true;
     case '=':
     {
@@ -648,7 +646,7 @@ static bool cmd_backslash_l(const char **s)
     if (ch == '?')
     {
         ++*s;
-        mdm_add_response_fn(cmd_backslash_l_response);
+        mdm_set_response_fn(cmd_backslash_l_response);
         return true;
     }
     int num = cmd_parse_num(s);

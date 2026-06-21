@@ -37,9 +37,27 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // 16 = longest response chain (set with no args queues 15) + 1 free-slot margin.
 #define MON_RESPONSE_FN_COUNT 16
-// The queued sources are word-wrapped and paginated by sys/out.c; mon_wrap is
-// the caller-owned wrap cursor and mon_sink the pagination/output stage.
-static out_wrap_t mon_wrap;
+
+// Word-wrap formatter for the response queue. mon_wrap is the wrap cursor; the
+// lookahead double-buffer lets a word crossing a chunk boundary still wrap, and
+// mon_sink is the pagination/output stage.
+#define MON_BUF_SIZE 128
+typedef struct
+{
+    unsigned width; // wrap width; set before driving
+    char buf_a[MON_BUF_SIZE];
+    char buf_b[MON_BUF_SIZE];
+    char *cur;
+    char *next;
+    int pos; // -1 when cur is exhausted
+    bool next_loaded;
+    int col;
+    int indent;
+    int indent_pending;
+    bool width_aware;
+} mon_wrap_t;
+static mon_wrap_t mon_wrap;
+
 static mon_response_fn mon_response_fn_list[MON_RESPONSE_FN_COUNT];
 static const char *mon_response_str[MON_RESPONSE_FN_COUNT];
 static int mon_response_state[MON_RESPONSE_FN_COUNT] =
@@ -313,6 +331,195 @@ static int mon_fatfs_response(char *buf, size_t buf_size, int state, unsigned)
     return mon_err_response(buf, buf_size, state, mon_fatfs_lookup);
 }
 
+// Output stage for the response renderer: never print while the 6502 / RIA bus
+// is busy (a generator may have just kicked a RIA read), paginate on row
+// exhaustion, then throttle to com readiness. Returns false to pause the render.
+static bool mon_sink(char ch)
+{
+    if (main_active())
+        return false;
+    if (mon_more_rows_left <= 0)
+    {
+        mon_more_state = MON_MORE_START;
+        return false;
+    }
+    if (!com_putchar_ready())
+        return false;
+    putchar(ch);
+    if (ch == '\n')
+        mon_more_rows_left--;
+    return true;
+}
+
+// Minimum column budget remaining after the indent for wrap-with-indent to
+// engage. If the BEL marker lands too close to the right edge the indent is
+// suppressed and wrapped lines fall back to column 0.
+#define MON_INDENT_MIN_WRAP 20
+
+// Drain mon_wrap.cur to mon_sink with word-wrap. Returns true when the sink
+// paused (more to emit later), false when cur is fully drained. A sink that
+// returns false has not accepted the byte; the unadvanced cursor re-offers it.
+static bool mon_wrap_flush(bool more)
+{
+    char c;
+    while ((c = mon_wrap.cur[mon_wrap.pos]) != 0)
+    {
+        // BEL marks the indent column for subsequent wraps; consume it
+        // silently without emitting, so it can never pause.
+        if (mon_wrap.indent_pending == 0 && c == '\a')
+        {
+            mon_wrap.indent = ((int)mon_wrap.width - mon_wrap.col >= MON_INDENT_MIN_WRAP) ? mon_wrap.col : 0;
+            mon_wrap.pos++;
+            continue;
+        }
+        // Emit one queued indent space per iteration after a wrap, so wrapped
+        // continuation lines resume at the column marked by the producer's BEL.
+        if (mon_wrap.indent_pending > 0)
+        {
+            if (!mon_sink(' '))
+                return true;
+            mon_wrap.indent_pending--;
+            mon_wrap.col++;
+            continue;
+        }
+        // Word wrap on space: peek the next word's length, spanning into the
+        // staged buffer when the word crosses the fill boundary.
+        if (!mon_wrap.width_aware && c == ' ')
+        {
+            int n = mon_wrap.pos + 1;
+            while (mon_wrap.cur[n] && mon_wrap.cur[n] != ' ' && mon_wrap.cur[n] != '\n' && mon_wrap.cur[n] != '\r')
+                n++;
+            int next_word_len = n - mon_wrap.pos - 1;
+            bool word_complete = mon_wrap.cur[n] != 0;
+            if (!word_complete && mon_wrap.next_loaded)
+            {
+                int m = 0;
+                while (mon_wrap.next[m] && mon_wrap.next[m] != ' ' && mon_wrap.next[m] != '\n' && mon_wrap.next[m] != '\r')
+                    m++;
+                next_word_len += m;
+                word_complete = mon_wrap.next[m] != 0 || !more;
+            }
+            else if (!word_complete)
+            {
+                word_complete = !more;
+            }
+            if (!word_complete || mon_wrap.col + 1 + next_word_len > (int)mon_wrap.width)
+            {
+                if (!mon_sink('\n'))
+                    return true;
+                mon_wrap.pos++; // drop the space
+                mon_wrap.col = 0;
+                mon_wrap.indent_pending = mon_wrap.indent;
+                continue;
+            }
+        }
+        // Hard newline for a glyph that would overflow the line — catches words
+        // longer than the line that the word-wrap branch could not break.
+        if (!mon_wrap.width_aware && (unsigned char)c >= 0x20 && mon_wrap.col >= (int)mon_wrap.width)
+        {
+            if (!mon_sink('\n'))
+                return true;
+            mon_wrap.col = 0;
+            mon_wrap.indent_pending = mon_wrap.indent;
+            continue; // re-loop without advancing pos
+        }
+        if (!mon_sink(c))
+            return true;
+        mon_wrap.pos++;
+        if (c == '\n')
+        {
+            mon_wrap.col = 0;
+            mon_wrap.indent = 0;
+        }
+        else if (c == '\r')
+            mon_wrap.col = 0;
+        else if (c == '\b')
+        {
+            if (mon_wrap.col > 0)
+                mon_wrap.col--;
+        }
+        else if ((unsigned char)c < 0x20)
+            // A control byte whose on-screen width we can't track; stop
+            // wrap/column injection for the rest of the chain.
+            mon_wrap.width_aware = true;
+        else
+            mon_wrap.col++;
+    }
+    mon_wrap.pos = -1;
+    return false;
+}
+
+// Render one source through word-wrap to mon_sink, feeding fn(buf, size, *state,
+// width) for chunks. Returns true while output remains (the sink paused); false
+// when fn returned a negative state and nothing is buffered (advance the queue).
+static bool mon_wrap_render(mon_response_fn fn, int *state)
+{
+    if (!mon_wrap.cur)
+    {
+        mon_wrap.cur = mon_wrap.buf_a;
+        mon_wrap.next = mon_wrap.buf_b;
+        mon_wrap.pos = -1;
+    }
+    for (;;)
+    {
+        // Promote a staged next to cur once cur is drained — no copy.
+        if (mon_wrap.pos < 0 && mon_wrap.next_loaded)
+        {
+            char *tmp = mon_wrap.cur;
+            mon_wrap.cur = mon_wrap.next;
+            mon_wrap.next = tmp;
+            mon_wrap.pos = 0;
+            mon_wrap.next_loaded = false;
+        }
+        // Stage the next chunk so the cur about to be flushed has lookahead.
+        if (!mon_wrap.next_loaded && *state >= 0)
+        {
+            mon_wrap.next[0] = 0;
+            *state = fn(mon_wrap.next, MON_BUF_SIZE, *state, mon_wrap.width);
+            mon_wrap.next_loaded = (mon_wrap.next[0] != 0);
+        }
+        if (mon_wrap.pos < 0)
+        {
+            if (mon_wrap.next_loaded)
+                continue; // staged a chunk; loop to swap it in
+            // cur empty and nothing staged: a non-negative state is an async
+            // await (e.g. a scan still running) — retry later; negative is done.
+            return *state >= 0;
+        }
+        if (mon_wrap_flush(*state >= 0))
+            return true; // sink paused
+        // cur drained; loop to swap/stage/finish
+    }
+}
+
+// True while mon_wrap holds rendered bytes not yet flushed to the sink. Keep
+// calling mon_wrap_render while this is true even after the generator state has
+// gone negative, or the trailing buffered output is lost.
+static bool mon_wrap_pending(void)
+{
+    return mon_wrap.cur && (mon_wrap.pos >= 0 || mon_wrap.next_loaded);
+}
+
+// Cancel a half-drained source: call fn with a negative state (cleanup) and
+// reset the cursor.
+static void mon_wrap_cancel(mon_response_fn fn, int *state)
+{
+    if (fn && *state >= 0)
+        fn(mon_wrap.cur ? mon_wrap.cur : mon_wrap.buf_a, MON_BUF_SIZE, -1, mon_wrap.width);
+    *state = -1;
+    mon_wrap.pos = -1;
+    mon_wrap.next_loaded = false;
+    mon_wrap.col = 0;
+    mon_wrap.indent = 0;
+    mon_wrap.indent_pending = 0;
+    mon_wrap.width_aware = false;
+    if (!mon_wrap.cur)
+    {
+        mon_wrap.cur = mon_wrap.buf_a;
+        mon_wrap.next = mon_wrap.buf_b;
+    }
+}
+
 static void mon_append_response(mon_response_fn fn, const char *str, int state)
 {
     assert(state >= 0);
@@ -368,7 +575,7 @@ static void mon_break_response(void)
     mon_more_rows_left = rln_get_term_height() - 1;
     for (int i = 0; i < MON_RESPONSE_FN_COUNT && mon_response_state[i] >= 0; i++)
     {
-        out_cancel(&mon_wrap, mon_response_fn_list[i], &mon_response_state[i]);
+        mon_wrap_cancel(mon_response_fn_list[i], &mon_response_state[i]);
         mon_clear_slot(i);
     }
 }
@@ -463,26 +670,6 @@ static void mon_more(void)
     }
 }
 
-// Output stage for the response renderer: never print while the 6502 / RIA bus
-// is busy (a generator may have just kicked a RIA read), paginate on row
-// exhaustion, then throttle to com readiness. Returns false to pause out_render.
-static bool mon_sink(char ch)
-{
-    if (main_active())
-        return false;
-    if (mon_more_rows_left <= 0)
-    {
-        mon_more_state = MON_MORE_START;
-        return false;
-    }
-    if (!com_putchar_ready())
-        return false;
-    putchar(ch);
-    if (ch == '\n')
-        mon_more_rows_left--;
-    return true;
-}
-
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
@@ -498,12 +685,12 @@ void mon_task(void)
         mon_break_response();
         return;
     }
-    // Render the head queued source through the shared word-wrap formatter.
-    // out_pending keeps draining buffered output after the generator finishes.
-    if (mon_response_state[0] >= 0 || out_pending(&mon_wrap))
+    // Render the head queued source through the word-wrap formatter.
+    // mon_wrap_pending keeps draining buffered output after the generator finishes.
+    if (mon_response_state[0] >= 0 || mon_wrap_pending())
     {
         mon_wrap.width = rln_get_term_width();
-        if (!out_render(&mon_wrap, mon_response_fn_list[0], &mon_response_state[0], mon_sink))
+        if (!mon_wrap_render(mon_response_fn_list[0], &mon_response_state[0]))
             mon_next_response();
         return;
     }

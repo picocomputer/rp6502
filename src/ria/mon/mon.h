@@ -13,7 +13,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "sys/out.h"
 
 /* Main events
  */
@@ -22,9 +21,12 @@ void mon_task(void);
 void mon_stop(void);
 void mon_break(void);
 
-// The monitor's response queue is rendered through sys/out.c (see out.h for
-// the out_source_fn contract).
-typedef out_source_fn mon_response_fn;
+// A response generator. The renderer calls it with the slot's state and the
+// active wrap width; it snprintf()s the next chunk and returns the next state,
+// or a negative state when there is no more. It is only guaranteed 80 columns
+// plus a newline and null but may use the entire buffer. A call with a negative
+// state means the response is being cancelled, so close any open files.
+typedef int (*mon_response_fn)(char *buf, size_t size, int state, unsigned width);
 void mon_add_response_fn(mon_response_fn fn); // state 0
 void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_utf8(const char *utf8);

@@ -62,9 +62,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define MDM_RESPONSE_BUF_SIZE 128
 
-// Pending response sources rendered through sys/out.c. Two is enough for the
-// help-list commands (prose then list); one more for margin.
-#define MDM_RESP_SLOTS 3
+// Single queued response, rendered without word-wrap: the responders self-format
+// and emit explicit newlines. 82 = 80 columns + newline + null.
+#define MDM_RESPONSE_WIDTH 80
+#define MDM_RESPONSE_RENDER_SIZE (MDM_RESPONSE_WIDTH + 2)
 
 typedef enum
 {
@@ -88,10 +89,11 @@ typedef struct
     char response_buf[MDM_RESPONSE_BUF_SIZE]; // raw character-echo ring
     size_t response_buf_head;
     size_t response_buf_tail;
-    out_source_fn resp_fn[MDM_RESP_SLOTS]; // word-wrapped response queue
-    const char *resp_str[MDM_RESP_SLOTS];
-    int resp_state[MDM_RESP_SLOTS];
-    out_wrap_t resp_wrap;
+    mdm_response_fn resp_fn; // single queued response source
+    int resp_state;          // <0 when no active generator
+    char resp_buf[MDM_RESPONSE_RENDER_SIZE];
+    size_t resp_len;
+    size_t resp_pos;
     bool resp_prev_cr; // mdm_sink: a CR was just emitted (suppress the lone-LF CR)
     bool parse_active;
     const char *parse_str;
@@ -146,86 +148,39 @@ static inline bool mdm_response_buf_full(void)
     return ((mdm_conn->response_buf_head + 1) % MDM_RESPONSE_BUF_SIZE) == mdm_conn->response_buf_tail;
 }
 
-// Emits the queued utf8 string source (active slot), OEM-converted.
-static int mdm_str_response(char *buf, size_t size, int state, unsigned width)
-{
-    (void)width;
-    if (state < 0)
-        return state;
-    const char *str = mdm_conn->resp_str[0];
-    const char *p = str + state;
-    size_t i = 0;
-    while (i + 1 < size && *p)
-        buf[i++] = (char)str_utf8_to_oem(&p);
-    buf[i] = 0;
-    if (!*p)
-        return -1;
-    return (int)(p - str);
-}
-
-static void mdm_resp_next(void)
-{
-    int i = 0;
-    for (; i < MDM_RESP_SLOTS - 1; i++)
-    {
-        mdm_conn->resp_fn[i] = mdm_conn->resp_fn[i + 1];
-        mdm_conn->resp_str[i] = mdm_conn->resp_str[i + 1];
-        mdm_conn->resp_state[i] = mdm_conn->resp_state[i + 1];
-    }
-    mdm_conn->resp_fn[i] = NULL;
-    mdm_conn->resp_str[i] = NULL;
-    mdm_conn->resp_state[i] = -1;
-}
-
-static void mdm_resp_append(out_source_fn fn, const char *str, int state)
-{
-    for (int i = 0; i < MDM_RESP_SLOTS; i++)
-        if (mdm_conn->resp_state[i] < 0)
-        {
-            mdm_conn->resp_fn[i] = fn;
-            mdm_conn->resp_str[i] = str;
-            mdm_conn->resp_state[i] = state;
-            return;
-        }
-}
-
-// A response is still in progress while any queued slot is live OR the wrapper
-// holds buffered output: resp_state[0] goes negative once a source is fully
-// staged, before its buffered tail has flushed and before the next slot runs.
+// A response is in progress while the generator is live or the render buffer
+// still holds undrained bytes.
 static bool mdm_resp_busy(void)
 {
-    for (int i = 0; i < MDM_RESP_SLOTS; i++)
-        if (mdm_conn->resp_state[i] >= 0)
-            return true;
-    return out_pending(&mdm_conn->resp_wrap);
+    return mdm_conn->resp_state >= 0 || mdm_conn->resp_pos < mdm_conn->resp_len;
 }
 
 static void mdm_resp_reset(void)
 {
-    for (int i = 0; i < MDM_RESP_SLOTS && mdm_conn->resp_state[i] >= 0; i++)
-        out_cancel(&mdm_conn->resp_wrap, mdm_conn->resp_fn[i], &mdm_conn->resp_state[i]);
-    for (int i = 0; i < MDM_RESP_SLOTS; i++)
-    {
-        mdm_conn->resp_fn[i] = NULL;
-        mdm_conn->resp_str[i] = NULL;
-        mdm_conn->resp_state[i] = -1;
-    }
+    if (mdm_conn->resp_fn && mdm_conn->resp_state >= 0)
+        mdm_conn->resp_fn(mdm_conn->resp_buf, MDM_RESPONSE_RENDER_SIZE, -1,
+                          MDM_RESPONSE_WIDTH);
+    mdm_conn->resp_fn = NULL;
+    mdm_conn->resp_state = -1;
+    mdm_conn->resp_len = 0;
+    mdm_conn->resp_pos = 0;
     mdm_conn->resp_prev_cr = false;
 }
 
-void mdm_add_response_fn(mdm_response_fn fn)
+void mdm_set_response_fn(mdm_response_fn fn)
 {
-    mdm_resp_append(fn, NULL, 0);
+    mdm_conn->resp_fn = fn;
+    mdm_conn->resp_state = 0;
+    mdm_conn->resp_len = 0;
+    mdm_conn->resp_pos = 0;
 }
 
-void mdm_add_response_fn_state(mdm_response_fn fn, int state)
+void mdm_set_response_fn_state(mdm_response_fn fn, int state)
 {
-    mdm_resp_append(fn, NULL, state);
-}
-
-void mdm_add_response_utf8(const char *utf8)
-{
-    mdm_resp_append(mdm_str_response, utf8, 0);
+    mdm_conn->resp_fn = fn;
+    mdm_conn->resp_state = state;
+    mdm_conn->resp_len = 0;
+    mdm_conn->resp_pos = 0;
 }
 
 static void mdm_response_append(char ch)
@@ -657,9 +612,9 @@ bool mdm_connect(void)
     if (mdm_conn->state == mdm_state_dialing)
     {
         if (mdm_conn->settings.progress > 0)
-            mdm_add_response_fn_state(mdm_response_code, 5); // CONNECT 1200
+            mdm_set_response_fn_state(mdm_response_code, 5); // CONNECT 1200
         else
-            mdm_add_response_fn_state(mdm_response_code, 1); // CONNECT
+            mdm_set_response_fn_state(mdm_response_code, 1); // CONNECT
         mdm_conn->state = mdm_state_connected;
         mdm_conn->in_command_mode = false;
         tel_negotiate(mdm_desc(), mdm_conn->settings.net_mode != 0,
@@ -693,7 +648,7 @@ static void mdm_finalize_carrier_lost(void)
 {
     mdm_hangup();
     mdm_resp_reset();
-    mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
+    mdm_set_response_fn_state(mdm_response_code, 3); // NO CARRIER
 }
 
 static void mdm_carrier_lost(void)
@@ -757,7 +712,7 @@ bool mdm_answer(void)
         mdm_conn->in_command_mode = true;
         mdm_conn->ring_count = 0;
         mdm_resp_reset();
-        mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
+        mdm_set_response_fn_state(mdm_response_code, 3); // NO CARRIER
         return true;
     }
     mdm_conn->state = mdm_state_connected;
@@ -765,9 +720,9 @@ bool mdm_answer(void)
     mdm_conn->ring_count = 0;
     mdm_resp_reset();
     if (mdm_conn->settings.progress > 0)
-        mdm_add_response_fn_state(mdm_response_code, 5); // CONNECT 1200
+        mdm_set_response_fn_state(mdm_response_code, 5); // CONNECT 1200
     else
-        mdm_add_response_fn_state(mdm_response_code, 1); // CONNECT
+        mdm_set_response_fn_state(mdm_response_code, 1); // CONNECT
     return true;
 }
 
@@ -851,13 +806,13 @@ void mdm_task()
             if (!mdm_conn->parse_result)
             {
                 mdm_conn->parse_active = false;
-                mdm_add_response_fn_state(mdm_response_code, 4); // ERROR
+                mdm_set_response_fn_state(mdm_response_code, 4); // ERROR
             }
             else if (*mdm_conn->parse_str == 0)
             {
                 mdm_conn->parse_active = false;
                 if (mdm_conn->in_command_mode)
-                    mdm_add_response_fn(mdm_response_code); // OK
+                    mdm_set_response_fn(mdm_response_code); // OK
             }
             else
             {
@@ -874,13 +829,13 @@ void mdm_task()
                 mdm_conn->in_command_mode = true;
                 mdm_conn->ring_count = 0;
                 mdm_resp_reset();
-                mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
+                mdm_set_response_fn_state(mdm_response_code, 3); // NO CARRIER
             }
             else if (time_reached(mdm_conn->ring_timer) &&
-                     mdm_conn->resp_state[0] < 0)
+                     !mdm_resp_busy())
             {
                 mdm_conn->ring_count++;
-                mdm_add_response_fn_state(mdm_response_code, 2); // RING
+                mdm_set_response_fn_state(mdm_response_code, 2); // RING
                 mdm_conn->ring_timer = make_timeout_time_ms(6000);
                 if (mdm_conn->settings.auto_answer > 0 &&
                     mdm_conn->ring_count >= mdm_conn->settings.auto_answer)
@@ -901,7 +856,7 @@ void mdm_task()
                     DBG("NET MDM dial failed after wifi ready\n");
                     mdm_conn->state = mdm_state_on_hook;
                     mdm_conn->in_command_mode = true;
-                    mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
+                    mdm_set_response_fn_state(mdm_response_code, 3); // NO CARRIER
                 }
             }
             else if (!wfi_connecting())
@@ -909,7 +864,7 @@ void mdm_task()
                 DBG("NET MDM dial failed, wifi not connecting\n");
                 mdm_conn->state = mdm_state_on_hook;
                 mdm_conn->in_command_mode = true;
-                mdm_add_response_fn_state(mdm_response_code, 3); // NO CARRIER
+                mdm_set_response_fn_state(mdm_response_code, 3); // NO CARRIER
             }
         }
         if (mdm_conn->escape_count == MDM_ESCAPE_COUNT &&
@@ -921,7 +876,7 @@ void mdm_task()
                 mdm_conn->cmd_buf_len = 0;
                 mdm_conn->in_command_mode = true;
                 mdm_resp_reset();
-                mdm_add_response_fn(mdm_response_code); // OK
+                mdm_set_response_fn(mdm_response_code); // OK
             }
         }
     }
@@ -959,7 +914,7 @@ void mdm_stop(void)
 // Output stage for the response renderer: maps a canonical '\n' to the
 // configured S3/S4 CR-LF (inserting CR before a lone LF, idempotent after an
 // explicit '\r', honoring the high-bit disable) and writes into the active
-// read. Returns false at the read's count so out_render pauses.
+// read. Returns false at the read's count so the render pauses.
 static char *mdm_sink_buf;
 static uint32_t mdm_sink_count;
 static uint32_t mdm_sink_pos;
@@ -1101,26 +1056,42 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
             if (pos >= count)
                 break;
         }
-        // Render the response queue, word-wrapped (79) and S3/S4-translated.
-        if (mdm_conn->resp_state[0] >= 0 || out_pending(&mdm_conn->resp_wrap))
+        // Render the queued response, S3/S4-translated. Responders self-format
+        // to MDM_RESPONSE_WIDTH and emit explicit newlines, so no word-wrap.
+        if (mdm_resp_busy())
         {
             if (pos >= count)
                 break;
+            // Refill the chunk when drained; an empty chunk with a live state is
+            // an async await (e.g. a scan still running) — resume on a later read.
+            if (mdm_conn->resp_pos >= mdm_conn->resp_len)
+            {
+                mdm_conn->resp_buf[0] = 0;
+                mdm_conn->resp_state = mdm_conn->resp_fn(mdm_conn->resp_buf,
+                                                         MDM_RESPONSE_RENDER_SIZE,
+                                                         mdm_conn->resp_state,
+                                                         MDM_RESPONSE_WIDTH);
+                mdm_conn->resp_len = strlen(mdm_conn->resp_buf);
+                mdm_conn->resp_pos = 0;
+                if (mdm_conn->resp_len == 0)
+                {
+                    if (mdm_conn->resp_state >= 0)
+                        break; // nothing yet; resume later
+                    continue;  // generator done with no output
+                }
+            }
             mdm_sink_buf = buf;
             mdm_sink_count = count;
             mdm_sink_pos = pos;
-            mdm_conn->resp_wrap.width = 79;
-            int st0 = mdm_conn->resp_state[0];
-            bool is_str = (mdm_conn->resp_fn[0] == mdm_str_response);
-            bool paused = out_render(&mdm_conn->resp_wrap, mdm_conn->resp_fn[0],
-                                     &mdm_conn->resp_state[0], mdm_sink);
-            DBG("NET MDM render %s st %d->%d paused=%d produced=%u\n",
-                is_str ? "prose" : "FN", st0, mdm_conn->resp_state[0], paused,
-                (unsigned)(mdm_sink_pos - pos));
+            while (mdm_conn->resp_pos < mdm_conn->resp_len)
+            {
+                if (!mdm_sink(mdm_conn->resp_buf[mdm_conn->resp_pos]))
+                    break;
+                mdm_conn->resp_pos++;
+            }
             pos = mdm_sink_pos;
-            if (paused)
-                break;
-            mdm_resp_next();
+            if (mdm_conn->resp_pos < mdm_conn->resp_len)
+                break; // read buffer full; resume mid-chunk on a later read
             continue;
         }
         // Read from the telephone connection in data mode.
