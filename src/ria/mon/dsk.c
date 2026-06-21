@@ -713,6 +713,14 @@ static bool dsk_match_drive(const char *t, int *vol)
     return false;
 }
 
+// Queue a disk subcommand's help (shown when its required drive is missing).
+static void dsk_sub_help(const char *sub)
+{
+    hlp_topic_t t;
+    if (hlp_lookup(STR_DISK, sub, &t))
+        mon_add_response_utf8(t.prose);
+}
+
 // Parse a drive-only argument list (info/erase/verify). Returns the volume, or
 // -1 after queueing sub's help (no drive) or an argument error (garbage/extra).
 static int dsk_parse_drive_only(const char *args, const char *sub)
@@ -729,7 +737,7 @@ static int dsk_parse_drive_only(const char *args, const char *sub)
     }
     if (vol < 0)
     {
-        hlp_disk_sub_response(sub);
+        dsk_sub_help(sub);
         return -1;
     }
     return vol;
@@ -798,7 +806,7 @@ static void dsk_format(const char *args)
     }
     if (vol < 0)
     {
-        hlp_disk_sub_response(STR_FORMAT);
+        dsk_sub_help(STR_FORMAT);
         return;
     }
     msc_dsk_info_t info;
@@ -922,7 +930,7 @@ static void dsk_label(const char *args)
     }
     if (vol < 0)
     {
-        hlp_disk_sub_response(STR_LABEL);
+        dsk_sub_help(STR_LABEL);
         return;
     }
     msc_dsk_info_t info;

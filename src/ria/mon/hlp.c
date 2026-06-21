@@ -22,12 +22,14 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-__in_flash("hlp_commands") static struct
+typedef struct
 {
     const char *const cmd;
-    int text; // localized string id for S()
+    int prose; // localized string id for S()
     mon_response_fn extra_fn;
-} const HLP_COMMANDS[] = {
+} hlp_entry_t;
+
+__in_flash("hlp_commands") static const hlp_entry_t HLP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
@@ -64,12 +66,7 @@ __in_flash("hlp_commands") static struct
 };
 static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
 
-__in_flash("hlp_settings") static struct
-{
-    const char *const cmd;
-    int text; // localized string id for S()
-    mon_response_fn extra_fn;
-} const HLP_SETTINGS[] = {
+__in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
     {STR_PHI2, STR_HELP_SET_PHI2, NULL},
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
     {STR_TZ, STR_HELP_SET_TZ, clk_tzdata_response},
@@ -90,24 +87,7 @@ __in_flash("hlp_settings") static struct
 };
 static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
-bool hlp_lookup_setting(const char *name, const char **prose, mon_response_fn *fn)
-{
-    for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
-        if (!strcasecmp(name, HLP_SETTINGS[i].cmd))
-        {
-            *prose = S(HLP_SETTINGS[i].text);
-            *fn = HLP_SETTINGS[i].extra_fn;
-            return true;
-        }
-    return false;
-}
-
-__in_flash("hlp_disk") static struct
-{
-    const char *const cmd;
-    int text; // localized string id for S()
-    mon_response_fn extra_fn;
-} const HLP_DISK[] = {
+__in_flash("hlp_disk") static const hlp_entry_t HLP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
 #if RP6502_EXFAT
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
@@ -120,87 +100,62 @@ __in_flash("hlp_disk") static struct
 };
 static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;
 
-// Queue the help for a disk subcommand (dsk.c uses this when a required drive
-// argument is missing). Unknown sub: no output.
-void hlp_disk_sub_response(const char *sub)
+static bool hlp_find(const hlp_entry_t *tbl, size_t n,
+                     const char *key, hlp_topic_t *out)
 {
-    for (size_t i = 0; i < HLP_DISK_COUNT; i++)
-        if (!strcasecmp(sub, HLP_DISK[i].cmd))
+    for (size_t i = 0; i < n; i++)
+        if (!strcasecmp(key, tbl[i].cmd))
         {
-            mon_add_response_utf8(S(HLP_DISK[i].text));
-            return;
+            out->prose = S(tbl[i].prose);
+            out->fn = tbl[i].extra_fn;
+            return true;
         }
+    return false;
 }
 
-static void help_response_lookup(const char *args, const char **cp,
-                                 const char **appendp, mon_response_fn *fnp)
+bool hlp_lookup(const char *word, const char *sub, hlp_topic_t *out)
 {
-    *cp = NULL;
-    *appendp = NULL;
-    *fnp = NULL;
-    const char *word = str_parse_string(&args);
+    out->prose = NULL;
+    out->append = NULL;
+    out->fn = NULL;
     if (!word)
-        return;
-    // SET command has another level of help
-    if (!strcasecmp(word, STR_SET))
+        return false;
+    // SET and DISK are the only commands with a second level of help.
+    if (sub)
     {
-        const char *attr = str_parse_string(&args);
-        if (!attr)
-        {
-            if (str_parse_end(args))
-            {
-                *cp = S(STR_HELP_SET);
-#ifdef RP6502_RIA_W
-                *appendp = S(STR_HELP_SET_W);
-#endif
-            }
-            return;
-        }
-        for (size_t i = 0; i < HLP_SETTINGS_COUNT; i++)
-            if (!strcasecmp(attr, HLP_SETTINGS[i].cmd))
-            {
-                *cp = S(HLP_SETTINGS[i].text);
-                *fnp = HLP_SETTINGS[i].extra_fn;
-                return;
-            }
-        return;
-    }
-    // DISK command has another level of help
-    if (!strcasecmp(word, STR_DISK))
-    {
-        const char *sub = str_parse_string(&args);
-        if (!sub)
-        {
-            if (str_parse_end(args))
-                *cp = S(STR_HELP_DISK);
-            return;
-        }
-        for (size_t i = 0; i < HLP_DISK_COUNT; i++)
-            if (!strcasecmp(sub, HLP_DISK[i].cmd))
-            {
-                *cp = S(HLP_DISK[i].text);
-                *fnp = HLP_DISK[i].extra_fn;
-                return;
-            }
-        return;
+        if (!strcasecmp(word, STR_SET))
+            return hlp_find(HLP_SETTINGS, HLP_SETTINGS_COUNT, sub, out);
+        if (!strcasecmp(word, STR_DISK))
+            return hlp_find(HLP_DISK, HLP_DISK_COUNT, sub, out);
+        return false;
     }
     // ABOUT and CREDITS share the non-localized credits help.
     if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
     {
-        *cp = STR_HELP_ABOUT;
+        out->prose = STR_HELP_ABOUT;
 #ifdef RP6502_RIA_W
-        *appendp = STR_HELP_ABOUT_W;
+        out->append = STR_HELP_ABOUT_W;
 #endif
-        return;
+        return true;
     }
-    // Help for commands and a couple special words.
-    for (size_t i = 0; i < HLP_COMMANDS_COUNT; i++)
-        if (!strcasecmp(word, HLP_COMMANDS[i].cmd))
-        {
-            *cp = S(HLP_COMMANDS[i].text);
-            *fnp = HLP_COMMANDS[i].extra_fn;
-            return;
-        }
+    if (hlp_find(HLP_COMMANDS, HLP_COMMANDS_COUNT, word, out))
+    {
+#ifdef RP6502_RIA_W
+        if (!strcasecmp(word, STR_SET))
+            out->append = S(STR_HELP_SET_W);
+#endif
+        return true;
+    }
+    return false;
+}
+
+static bool hlp_lookup_args(const char *args, hlp_topic_t *out)
+{
+    const char *word = str_parse_string(&args);
+    const char *sub = NULL;
+    if (word && (!strcasecmp(word, STR_SET) || !strcasecmp(word, STR_DISK)))
+        sub = str_parse_string(&args);
+    return hlp_lookup(word, sub, out);
 }
 
 void hlp_mon_help(const char *args)
@@ -211,25 +166,21 @@ void hlp_mon_help(const char *args)
         mon_add_response_fn(rom_installed_response);
         return;
     }
-    const char *c;
-    const char *append;
-    mon_response_fn fn;
-    help_response_lookup(args, &c, &append, &fn);
-    if (c != NULL)
-        mon_add_response_utf8(c);
-    if (append != NULL)
-        mon_add_response_utf8(append);
-    if (fn != NULL)
-        mon_add_response_fn(fn);
-    if (c == NULL && fn == NULL)
+    hlp_topic_t t;
+    if (!hlp_lookup_args(args, &t))
+    {
         rom_mon_help(args);
+        return;
+    }
+    mon_add_response_utf8(t.prose);
+    if (t.append != NULL)
+        mon_add_response_utf8(t.append);
+    if (t.fn != NULL)
+        mon_add_response_fn(t.fn);
 }
 
 bool hlp_topic_exists(const char *buf)
 {
-    const char *c;
-    const char *append;
-    mon_response_fn fn;
-    help_response_lookup(buf, &c, &append, &fn);
-    return c != NULL;
+    hlp_topic_t t;
+    return hlp_lookup_args(buf, &t);
 }

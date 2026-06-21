@@ -19,14 +19,20 @@
 /* Monitor commands
  */
 
+typedef struct
+{
+    const char *prose;   // primary help text, NULL when the topic is unknown
+    const char *append;  // extra block queued after prose, or NULL
+    mon_response_fn fn;  // list responder queued after prose, or NULL
+} hlp_topic_t;
+
 void hlp_mon_help(const char *args);
 
-// Look up a SET attribute's help prose and optional list responder by name
-// (e.g. STR_RFCC, STR_SSID). Returns false if the name is unknown.
-bool hlp_lookup_setting(const char *name, const char **prose, mon_response_fn *fn);
-
-// Queue the help for a disk subcommand by keyword
-void hlp_disk_sub_response(const char *sub);
+// Look up help by category word plus optional sub-key. word is a command
+// (e.g. STR_COPY) or STR_SET / STR_DISK / STR_ABOUT / STR_CREDITS; sub is the
+// SET attribute or DISK subcommand, or NULL. Returns false (out cleared) if the
+// topic is unknown.
+bool hlp_lookup(const char *word, const char *sub, hlp_topic_t *out);
 
 // Test if help exists. Used to determine
 // acceptable names when installing ROMs.
