@@ -100,62 +100,47 @@ __in_flash("hlp_disk") static const hlp_entry_t HLP_DISK[] = {
 };
 static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;
 
-static bool hlp_find(const hlp_entry_t *tbl, size_t n,
-                     const char *key, hlp_topic_t *out)
+static const char *hlp_find(const hlp_entry_t *tbl, size_t n,
+                            const char *key, mon_response_fn *fn)
 {
     for (size_t i = 0; i < n; i++)
         if (!strcasecmp(key, tbl[i].cmd))
         {
-            out->prose = S(tbl[i].prose);
-            out->fn = tbl[i].extra_fn;
-            return true;
+            if (fn)
+                *fn = tbl[i].extra_fn;
+            return S(tbl[i].prose);
         }
-    return false;
+    return NULL;
 }
 
-bool hlp_lookup(const char *word, const char *sub, hlp_topic_t *out)
+const char *hlp_lookup(const char *word, const char *sub, mon_response_fn *fn)
 {
-    out->prose = NULL;
-    out->append = NULL;
-    out->fn = NULL;
+    if (fn)
+        *fn = NULL;
     if (!word)
-        return false;
+        return NULL;
     // SET and DISK are the only commands with a second level of help.
     if (sub)
     {
         if (!strcasecmp(word, STR_SET))
-            return hlp_find(HLP_SETTINGS, HLP_SETTINGS_COUNT, sub, out);
+            return hlp_find(HLP_SETTINGS, HLP_SETTINGS_COUNT, sub, fn);
         if (!strcasecmp(word, STR_DISK))
-            return hlp_find(HLP_DISK, HLP_DISK_COUNT, sub, out);
-        return false;
+            return hlp_find(HLP_DISK, HLP_DISK_COUNT, sub, fn);
+        return NULL;
     }
     // ABOUT and CREDITS share the non-localized credits help.
     if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
-    {
-        out->prose = STR_HELP_ABOUT;
-#ifdef RP6502_RIA_W
-        out->append = STR_HELP_ABOUT_W;
-#endif
-        return true;
-    }
-    if (hlp_find(HLP_COMMANDS, HLP_COMMANDS_COUNT, word, out))
-    {
-#ifdef RP6502_RIA_W
-        if (!strcasecmp(word, STR_SET))
-            out->append = S(STR_HELP_SET_W);
-#endif
-        return true;
-    }
-    return false;
+        return STR_HELP_ABOUT;
+    return hlp_find(HLP_COMMANDS, HLP_COMMANDS_COUNT, word, fn);
 }
 
-static bool hlp_lookup_args(const char *args, hlp_topic_t *out)
+// Split a help query into its command word and optional SET/DISK sub-key.
+static void hlp_split(const char *args, const char **word, const char **sub)
 {
-    const char *word = str_parse_string(&args);
-    const char *sub = NULL;
-    if (word && (!strcasecmp(word, STR_SET) || !strcasecmp(word, STR_DISK)))
-        sub = str_parse_string(&args);
-    return hlp_lookup(word, sub, out);
+    *word = str_parse_string(&args);
+    *sub = NULL;
+    if (*word && (!strcasecmp(*word, STR_SET) || !strcasecmp(*word, STR_DISK)))
+        *sub = str_parse_string(&args);
 }
 
 void hlp_mon_help(const char *args)
@@ -166,21 +151,30 @@ void hlp_mon_help(const char *args)
         mon_add_response_fn(rom_installed_response);
         return;
     }
-    hlp_topic_t t;
-    if (!hlp_lookup_args(args, &t))
+    const char *word, *sub;
+    hlp_split(args, &word, &sub);
+    mon_response_fn fn;
+    const char *prose = hlp_lookup(word, sub, &fn);
+    if (!prose)
     {
         rom_mon_help(args);
         return;
     }
-    mon_add_response_utf8(t.prose);
-    if (t.append != NULL)
-        mon_add_response_utf8(t.append);
-    if (t.fn != NULL)
-        mon_add_response_fn(t.fn);
+    mon_add_response_utf8(prose);
+#ifdef RP6502_RIA_W
+    // Radio builds continue the settings summary and the credits with a _W block.
+    if (!sub && !strcasecmp(word, STR_SET))
+        mon_add_response_utf8(S(STR_HELP_SET_W));
+    else if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
+        mon_add_response_utf8(STR_HELP_ABOUT_W);
+#endif
+    if (fn != NULL)
+        mon_add_response_fn(fn);
 }
 
 bool hlp_topic_exists(const char *buf)
 {
-    hlp_topic_t t;
-    return hlp_lookup_args(buf, &t);
+    const char *word, *sub;
+    hlp_split(buf, &word, &sub);
+    return hlp_lookup(word, sub, NULL) != NULL;
 }

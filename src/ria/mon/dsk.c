@@ -716,9 +716,9 @@ static bool dsk_match_drive(const char *t, int *vol)
 // Queue a disk subcommand's help (shown when its required drive is missing).
 static void dsk_sub_help(const char *sub)
 {
-    hlp_topic_t t;
-    if (hlp_lookup(STR_DISK, sub, &t))
-        mon_add_response_utf8(t.prose);
+    const char *prose = hlp_lookup(STR_DISK, sub, NULL);
+    if (prose)
+        mon_add_response_utf8(prose);
 }
 
 // Parse a drive-only argument list (info/erase/verify). Returns the volume, or

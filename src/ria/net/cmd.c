@@ -446,12 +446,13 @@ static bool cmd_parse_amp(const char **s)
 // monitor's HELP SET <name> shows), word-wrapped to 80 by the modem renderer.
 static bool cmd_help_response(const char *name)
 {
-    hlp_topic_t t;
-    if (!hlp_lookup(STR_SET, name, &t))
+    mon_response_fn fn;
+    const char *prose = hlp_lookup(STR_SET, name, &fn);
+    if (!prose)
         return false;
-    mdm_set_response_utf8(t.prose);
-    if (t.fn)
-        mdm_add_response_fn(t.fn, 0);
+    mdm_set_response_utf8(prose);
+    if (fn)
+        mdm_add_response_fn(fn, 0);
     return true;
 }
 
