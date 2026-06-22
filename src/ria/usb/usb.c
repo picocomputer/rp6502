@@ -130,7 +130,7 @@ void usb_task(void)
 int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    int count_gamepad = usb_count_hid_pad + xin_pad_count();
+    int count_gamepad = usb_count_hid_pad + xin_status_count();
     int count_storage = msc_status_count();
     int count_serial = vcp_status_count();
     int count_midi = mid_status_count();

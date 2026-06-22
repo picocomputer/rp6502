@@ -969,7 +969,7 @@ std_rw_result mid_std_sync(int desc, api_errno *err)
     return mid_drain_gate(desc, &conn, err);
 }
 
-std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
+std_rw_result mid_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
@@ -979,7 +979,7 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
         return STD_ERROR;
     }
     uint32_t n = 0;
-    while (n < buf_size && conn->rx_tail != conn->rx_head)
+    while (n < count && conn->rx_tail != conn->rx_head)
     {
         buf[n++] = conn->rx_ring[conn->rx_tail];
         conn->rx_tail = (conn->rx_tail + 1) & (MID_RING_SIZE - 1);
@@ -988,7 +988,7 @@ std_rw_result mid_std_read(int desc, char *buf, uint32_t buf_size,
     return STD_OK;
 }
 
-std_rw_result mid_std_write(int desc, const char *buf, uint32_t buf_size,
+std_rw_result mid_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err)
 {
     mid_t *conn = mid_desc_conn(desc);
@@ -998,7 +998,7 @@ std_rw_result mid_std_write(int desc, const char *buf, uint32_t buf_size,
         return STD_ERROR;
     }
     uint32_t n = 0;
-    while (n < buf_size && mid_ring_free(conn->tx_head, conn->tx_tail))
+    while (n < count && mid_ring_free(conn->tx_head, conn->tx_tail))
     {
         conn->tx_ring[conn->tx_head] = buf[n++];
         conn->tx_head = (conn->tx_head + 1) & (MID_RING_SIZE - 1);

@@ -785,7 +785,7 @@ void xin_class_driver_close(uint8_t dev_addr)
     memset(&xin_devices[idx], 0, sizeof(xin_device_t));
 }
 
-int xin_pad_count(void)
+int xin_status_count(void)
 {
     int count = 0;
     for (int i = 0; i < XIN_MAX_DEVICES; i++)
