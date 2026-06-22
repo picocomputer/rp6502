@@ -786,7 +786,7 @@ int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
     mid_t *conn = &mid_mounts[state];
     if (conn->mounted)
     {
-        char devname[sizeof(mid_string) + 2];
+        char devname[sizeof(mid_string) + 1];
         snprintf(devname, sizeof(devname), "%s%d", mid_string, state);
         char name[USB_DESC_STRING_MAX_CHAR_LEN + 1];
         name[0] = '\0';

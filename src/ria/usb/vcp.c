@@ -75,7 +75,7 @@ static void vcp_desc_string_to_ascii(const void *desc_buf, char *dest, size_t de
     const tusb_desc_string_t *desc = desc_buf;
     uint16_t ulen = usb_desc_string_ulen(desc_buf, USB_DESC_STRING_BUF_SIZE);
     size_t pos = 0;
-    for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
+    for (uint16_t i = 0; i < ulen && pos + 1 < dest_size; i++)
     {
         uint16_t ch = desc->utf16le[i];
         dest[pos++] = (ch >= 0x20 && ch <= 0x7E) ? (char)ch : '\x7F';
@@ -103,7 +103,7 @@ int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
         tuh_vid_pid_get(dev->daddr, &vid, &pid);
         char vendor[USB_DESC_STRING_MAX_CHAR_LEN + 1];
         char product[USB_DESC_STRING_MAX_CHAR_LEN + 1];
-        char comname[sizeof(vcp_string) + 2];
+        char comname[sizeof(vcp_string) + 1];
         vendor[0] = '\0';
         product[0] = '\0';
         const void *desc = usb_string_fetch_manufacturer(dev->daddr);
@@ -113,11 +113,12 @@ int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
         if (desc)
             usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
+        // vendor/product are OEM, snprintf_utf8 would mangle high bytes
         int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                          vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                          product);
         if (state == vcp_nfc_device_idx && n >= 1 && n < (int)buf_size && buf[n - 1] == '\n')
-            snprintf(buf + n - 1, buf_size - (n - 1), " (NFC)\n");
+            snprintf(buf + n - 1, buf_size - (n - 1), "%s", STR_STATUS_NFC);
     }
     return state + 1;
 }
@@ -193,6 +194,11 @@ int vcp_std_open(const char *name, uint8_t flags, api_errno *err)
         baudrate = 0;
         while (isdigit((unsigned char)*params))
         {
+            if (baudrate > (UINT32_MAX - 9) / 10)
+            {
+                *err = API_EINVAL;
+                return -1;
+            }
             baudrate = baudrate * 10 + (*params - '0');
             params++;
         }
@@ -323,6 +329,13 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size,
     return STD_OK;
 }
 
+typedef const void *(*vcp_string_fetch_fn)(uint8_t daddr);
+__in_flash("vcp_hash_fetchers") static const vcp_string_fetch_fn vcp_hash_fetchers[] = {
+    usb_string_fetch_manufacturer,
+    usb_string_fetch_product,
+    usb_string_fetch_serial,
+};
+
 // Build the device identity hash; false when a string fetch couldn't run.
 static bool vcp_hash_dev(uint8_t idx, char *hash)
 {
@@ -336,24 +349,16 @@ static bool vcp_hash_dev(uint8_t idx, char *hash)
                      vid, pid, bcd);
     if (n < 0 || n >= VCP_NFC_HASH_SIZE)
         return false;
-    const void *desc = usb_string_fetch_manufacturer(vcp_mounts[idx].daddr);
-    if (!desc)
-        return false;
-    vcp_desc_string_to_ascii(desc, hash + n, VCP_NFC_HASH_SIZE - n);
-    n += strlen(hash + n);
-    if (n < VCP_NFC_HASH_SIZE - 1)
-        hash[n++] = ':';
-    desc = usb_string_fetch_product(vcp_mounts[idx].daddr);
-    if (!desc)
-        return false;
-    vcp_desc_string_to_ascii(desc, hash + n, VCP_NFC_HASH_SIZE - n);
-    n += strlen(hash + n);
-    if (n < VCP_NFC_HASH_SIZE - 1)
-        hash[n++] = ':';
-    desc = usb_string_fetch_serial(vcp_mounts[idx].daddr);
-    if (!desc)
-        return false;
-    vcp_desc_string_to_ascii(desc, hash + n, VCP_NFC_HASH_SIZE - n);
+    for (size_t f = 0; f < TU_ARRAY_SIZE(vcp_hash_fetchers); f++)
+    {
+        if (f && n < VCP_NFC_HASH_SIZE - 1)
+            hash[n++] = ':';
+        const void *desc = vcp_hash_fetchers[f](vcp_mounts[idx].daddr);
+        if (!desc)
+            return false;
+        vcp_desc_string_to_ascii(desc, hash + n, VCP_NFC_HASH_SIZE - n);
+        n += strlen(hash + n);
+    }
     return true;
 }
 
