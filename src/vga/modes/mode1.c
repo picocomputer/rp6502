@@ -185,13 +185,13 @@ mode1_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_1bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_1bpp_8x8(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_1bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_1bpp_8x16(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_1bpp(scanline_id, width, rgb, config_ptr, 16);
 }
@@ -247,13 +247,13 @@ mode1_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_4bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bpp_8x8(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_4bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bpp_8x16(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_4bpp(scanline_id, width, rgb, config_ptr, 16);
 }
@@ -309,13 +309,13 @@ mode1_render_4bppr(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_4bppr_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bppr_8x8(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_4bppr_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_4bppr_8x16(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_4bppr(scanline_id, width, rgb, config_ptr, 16);
 }
@@ -371,13 +371,13 @@ mode1_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_8bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_8bpp_8x8(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_8bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_8bpp_8x16(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_8bpp(scanline_id, width, rgb, config_ptr, 16);
 }
@@ -427,13 +427,13 @@ mode1_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb,
 }
 
 static bool
-mode1_render_16bpp_8x8(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_16bpp_8x8(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 8);
 }
 
 static bool
-mode1_render_16bpp_8x16(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode1_render_16bpp_8x16(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     return mode1_render_16bpp(scanline_id, width, rgb, config_ptr, 16);
 }
@@ -450,7 +450,7 @@ bool mode1_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode1_config_t))
         return false;
 
-    bool (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t);
+    bool (*render_fn)(int16_t, int16_t, int16_t, uint16_t *, uint16_t);
     switch (attributes)
     {
     case 0:
