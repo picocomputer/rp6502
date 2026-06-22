@@ -384,6 +384,35 @@ static void mid_rx_pull_itf(uint8_t itf)
     }
 }
 
+// Assemble one wire byte into tx_msg; sets tx_pending on a complete message.
+// Caller filters bytes that form no message and sets tx_status for new status.
+static void mid_tx_msg_byte(mid_t *conn, uint8_t b)
+{
+    if (!conn->tx_msg_len)
+    {
+        if (b < 0x80)
+        {
+            conn->tx_msg[0] = conn->tx_status;
+            conn->tx_msg[1] = b;
+            conn->tx_msg_len = 2;
+            conn->tx_msg_need = mid_msg_data_len(conn->tx_status) - 1;
+        }
+        else
+        {
+            conn->tx_msg[0] = b;
+            conn->tx_msg_len = 1;
+            conn->tx_msg_need = mid_msg_data_len(b);
+        }
+    }
+    else
+    {
+        conn->tx_msg[conn->tx_msg_len++] = b;
+        conn->tx_msg_need--;
+    }
+    if (conn->tx_msg_len && !conn->tx_msg_need)
+        conn->tx_pending = true;
+}
+
 // Parse the next delta-prefixed event from the TX ring. True when tx_msg
 // holds a complete unsent message with tx_due_ns computed.
 static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
@@ -479,29 +508,13 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
                     conn->tx_state = MID_TX_DELTA;
                     continue;
                 }
-                conn->tx_msg[0] = conn->tx_status;
-                conn->tx_msg[1] = b;
-                conn->tx_msg_len = 2;
-                conn->tx_msg_need = mid_msg_data_len(conn->tx_status) - 1;
             }
-            else
-            {
-                if (b == 0xF0 || (b >= 0xF1 && b <= 0xF6))
-                    conn->tx_status = 0;
-                else if (b < 0xF0)
-                    conn->tx_status = b;
-                conn->tx_msg[0] = b;
-                conn->tx_msg_len = 1;
-                conn->tx_msg_need = mid_msg_data_len(b);
-            }
+            else if (b == 0xF0 || (b >= 0xF1 && b <= 0xF6))
+                conn->tx_status = 0;
+            else if (b < 0xF0)
+                conn->tx_status = b;
         }
-        else
-        {
-            conn->tx_msg[conn->tx_msg_len++] = b;
-            conn->tx_msg_need--;
-        }
-        if (conn->tx_msg_len && !conn->tx_msg_need)
-            conn->tx_pending = true;
+        mid_tx_msg_byte(conn, b);
     }
     return conn->tx_pending;
 }
@@ -636,34 +649,19 @@ static bool mid_tx_run_raw(mid_t *conn)
                 conn->tx_acc_len = 1;
                 conn->tx_acc_eox = false;
                 conn->tx_state = MID_TX_SYSEX;
+                continue;
             }
-            else if (b < 0x80)
+            if (b < 0x80)
             {
                 if (!conn->tx_status)
                     continue; // data with no running status, drop
-                conn->tx_msg[0] = conn->tx_status;
-                conn->tx_msg[1] = b;
-                conn->tx_msg_len = 2;
-                conn->tx_msg_need = mid_msg_data_len(conn->tx_status) - 1;
             }
+            else if (b >= 0xF0)
+                conn->tx_status = 0; // system common cancels running status
             else
-            {
-                if (b >= 0xF0)
-                    conn->tx_status = 0; // system common cancels running status
-                else
-                    conn->tx_status = b;
-                conn->tx_msg[0] = b;
-                conn->tx_msg_len = 1;
-                conn->tx_msg_need = mid_msg_data_len(b);
-            }
+                conn->tx_status = b;
         }
-        else
-        {
-            conn->tx_msg[conn->tx_msg_len++] = b;
-            conn->tx_msg_need--;
-        }
-        if (conn->tx_msg_len && !conn->tx_msg_need)
-            conn->tx_pending = true;
+        mid_tx_msg_byte(conn, b);
     }
 }
 
