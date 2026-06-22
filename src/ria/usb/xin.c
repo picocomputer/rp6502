@@ -77,12 +77,12 @@ typedef struct
     uint8_t ep_out;
     uint16_t vid;
     uint16_t pid;
-    uint8_t gip_seq;           // GIP sequence number (out_cmd[2]), for all OUT
+    uint8_t gip_seq;           // GIP sequence byte for Xbox One OUT packets
     uint8_t init_seq;          // index into gip_init_packets
     bool init_done;            // true after GIP init sequence sent
     uint8_t report_buffer[64]; // XInput max 64 bytes
     uint8_t out_cmd[16];       // OUT command buffer (persists for async DMA xfer)
-    uint8_t ack_cmd[16];       // Separate buffer for home button ACK (avoids out_cmd race)
+    uint8_t ack_cmd[16];       // Separate buffer for home button ACK (independent of out_cmd)
 } xin_device_t;
 
 #define XIN_MAX_DEVICES 4
@@ -678,8 +678,11 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
 
     if (result != XFER_RESULT_SUCCESS)
     {
-        DBG("XInput: IN transfer FAILED for index %d, result=%d\n", idx, result);
-        return false;
+        // Transient RX timeout / data-seq error, not a halt — re-arm and keep polling.
+        DBG("XInput: IN transfer FAILED for index %d, result=%d, re-arming\n", idx, result);
+        if (!xin_queue_in(device, idx))
+            DBG("XInput: FAILED to re-queue IN after error for index %d\n", idx);
+        return true;
     }
 
     uint8_t *report = device->report_buffer;
@@ -711,8 +714,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
         }
         else if (gip_cmd == 0x03)
         {
-            // GIP_CMD_ACK — controller acknowledging a command we sent.
-            // Expected and harmless; suppress noisy log.
+            // GIP status/heartbeat report — expected and harmless; suppress noisy log.
         }
         else if (gip_cmd == 0x07 && xferred_bytes > 4)
         {
@@ -725,13 +727,13 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                 uint16_t last_off = (uint16_t)(4u + (uint16_t)(num_pairs - 1u) * 2u);
                 if (last_off < xferred_bytes)
                 {
-                    uint8_t si = report[last_off] & 0x01;
-                    DBG("XInput: home button state: %d\n", si);
-                    pad_home_button(xin_idx_to_hid_slot(idx), si);
+                    uint8_t pressed = report[last_off] & 0x01;
+                    DBG("XInput: home button state: %d\n", pressed);
+                    pad_home_button(xin_idx_to_hid_slot(idx), pressed);
                 }
             }
-            // ACK for mode button reports — uses ack_cmd to avoid
-            // racing with out_cmd which may still be in-flight for init/LED.
+            // Courtesy ACK for the virtual-key report; the button was already
+            // delivered via pad_home_button, so a drop on a busy ep_out is fine.
             if ((report[1] & 0x10) && device->init_done)
             {
                 device->ack_cmd[0] = 0x01;      // GIP_CMD_ACK
@@ -740,8 +742,8 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                 device->ack_cmd[3] = 0x09;      // GIP_PL_LEN(9)
                 device->ack_cmd[4] = 0x00;
                 device->ack_cmd[5] = report[0]; // echo original cmd (0x07)
-                device->ack_cmd[6] = report[1]; // echo original opts
-                device->ack_cmd[7] = report[3]; // echo original len_field
+                device->ack_cmd[6] = 0x20;      // GIP_OPT_INTERNAL
+                device->ack_cmd[7] = 0x02;      // GIP_PL_LEN(2)
                 memset(&device->ack_cmd[8], 0, 5);
                 tuh_xfer_t ack_xfer = {
                     .daddr = dev_addr,
@@ -772,19 +774,18 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
 
 void xin_class_driver_close(uint8_t dev_addr)
 {
-    int index = xin_find_index_by_dev_addr(dev_addr);
-    if (index < 0)
+    int idx = xin_find_index_by_dev_addr(dev_addr);
+    if (idx < 0)
         return;
 
-    DBG("XInput: Closing Xbox controller from index %d\n", index);
+    DBG("XInput: Closing Xbox controller from index %d\n", idx);
 
-    pad_umount(xin_idx_to_hid_slot(index));
+    pad_umount(xin_idx_to_hid_slot(idx));
 
-    xin_devices[index].active = false;
-    memset(&xin_devices[index], 0, sizeof(xin_device_t));
+    memset(&xin_devices[idx], 0, sizeof(xin_device_t));
 }
 
-int xin_pad_count(void)
+int xin_status_count(void)
 {
     int count = 0;
     for (int i = 0; i < XIN_MAX_DEVICES; i++)

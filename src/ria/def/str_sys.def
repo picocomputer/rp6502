@@ -51,6 +51,7 @@ X(STR_STATUS_BLE_SIMPLE, "BLE : \a%s\n")
 X(STR_STATUS_USB, "USB : \a%d %s, %d %s, %d %s, %d %s, %d %s, %d %s, %d %s\n")
 X(STR_STATUS_MSC, "%s: \a%s %.8s %.16s rev %.4s\n")
 X(STR_STATUS_CDC, "%s: \a%s %s\n")
+X(STR_STATUS_NFC, " (NFC)\n")
 X(STR_STATUS_MIDI, "%s: \a%s\n")
 
 // Monitor keywords

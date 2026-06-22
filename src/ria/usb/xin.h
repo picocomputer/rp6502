@@ -17,7 +17,7 @@
 #include "host/usbh_pvt.h"
 
 // For monitor status command.
-int xin_pad_count(void);
+int xin_status_count(void);
 
 // TinyUSB host class-driver callbacks.
 bool xin_class_driver_init(void);

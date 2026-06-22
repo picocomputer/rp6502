@@ -47,4 +47,7 @@ const void *usb_string_fetch_manufacturer(uint8_t daddr);
 const void *usb_string_fetch_product(uint8_t daddr);
 const void *usb_string_fetch_serial(uint8_t daddr);
 
+// Stable device identity fingerprint (VID/PID/bcdDevice + descriptor strings)
+bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
+
 #endif /* _RIA_USB_USB_H_ */
