@@ -6,7 +6,6 @@
 
 #include "usb/vcp.h"
 #include "str/str.h"
-#include "sys/cfg.h"
 #include "usb/usb.h"
 #include <tusb.h>
 #include <stdio.h>
@@ -36,7 +35,7 @@ typedef struct
 static vcp_t vcp_mounts[CFG_TUH_CDC];
 static_assert(CFG_TUH_CDC <= 10); // one char 0-9 in "VCP0:"
 
-// NFC device tracking: hash identifies a specific USB VCP device.
+// NFC device tracking: identity hash binds one specific CDC device.
 #define VCP_NFC_HASH_SIZE 128
 static char vcp_nfc_device_hash[VCP_NFC_HASH_SIZE];
 static int vcp_nfc_device_idx = -1;
@@ -67,20 +66,6 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
         if (vcp_pl2303_list[i][0] == vid && vcp_pl2303_list[i][1] == pid)
             return vcp_pl2303_name;
     return vcp_cdc_acm_name;
-}
-
-// Convert USB string descriptor to ASCII for hashing.
-static void vcp_desc_string_to_ascii(const void *desc_buf, char *dest, size_t dest_size)
-{
-    const tusb_desc_string_t *desc = desc_buf;
-    uint16_t ulen = usb_desc_string_ulen(desc_buf, USB_DESC_STRING_BUF_SIZE);
-    size_t pos = 0;
-    for (uint16_t i = 0; i < ulen && pos + 1 < dest_size; i++)
-    {
-        uint16_t ch = desc->utf16le[i];
-        dest[pos++] = (ch >= 0x20 && ch <= 0x7E) ? (char)ch : '\x7F';
-    }
-    dest[pos] = '\0';
 }
 
 int vcp_status_count(void)
@@ -302,7 +287,7 @@ std_rw_result vcp_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-std_rw_result vcp_std_read(int desc, char *buf, uint32_t buf_size,
+std_rw_result vcp_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *bytes_read, api_errno *err)
 {
     if (!vcp_mounts[desc].mounted || !vcp_mounts[desc].opened)
@@ -310,11 +295,11 @@ std_rw_result vcp_std_read(int desc, char *buf, uint32_t buf_size,
         *err = API_EIO;
         return STD_ERROR;
     }
-    *bytes_read = tuh_cdc_read(desc, buf, buf_size);
+    *bytes_read = tuh_cdc_read(desc, buf, count);
     return STD_OK;
 }
 
-std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size,
+std_rw_result vcp_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *bytes_written, api_errno *err)
 {
     if (!vcp_mounts[desc].mounted || !vcp_mounts[desc].opened)
@@ -322,44 +307,11 @@ std_rw_result vcp_std_write(int desc, const char *buf, uint32_t buf_size,
         *err = API_EIO;
         return STD_ERROR;
     }
-    uint32_t count = tuh_cdc_write(desc, buf, buf_size);
-    if (count > 0)
+    uint32_t written = tuh_cdc_write(desc, buf, count);
+    if (written > 0)
         tuh_cdc_write_flush(desc);
-    *bytes_written = count;
+    *bytes_written = written;
     return STD_OK;
-}
-
-typedef const void *(*vcp_string_fetch_fn)(uint8_t daddr);
-__in_flash("vcp_hash_fetchers") static const vcp_string_fetch_fn vcp_hash_fetchers[] = {
-    usb_string_fetch_manufacturer,
-    usb_string_fetch_product,
-    usb_string_fetch_serial,
-};
-
-// Build the device identity hash; false when a string fetch couldn't run.
-static bool vcp_hash_dev(uint8_t idx, char *hash)
-{
-    uint16_t vid, pid;
-    tuh_vid_pid_get(vcp_mounts[idx].daddr, &vid, &pid);
-    tusb_desc_device_t dev_desc;
-    uint16_t bcd = 0;
-    if (tuh_descriptor_get_device_local(vcp_mounts[idx].daddr, &dev_desc))
-        bcd = dev_desc.bcdDevice;
-    int n = snprintf(hash, VCP_NFC_HASH_SIZE, "%04X:%04X:%04X:",
-                     vid, pid, bcd);
-    if (n < 0 || n >= VCP_NFC_HASH_SIZE)
-        return false;
-    for (size_t f = 0; f < TU_ARRAY_SIZE(vcp_hash_fetchers); f++)
-    {
-        if (f && n < VCP_NFC_HASH_SIZE - 1)
-            hash[n++] = ':';
-        const void *desc = vcp_hash_fetchers[f](vcp_mounts[idx].daddr);
-        if (!desc)
-            return false;
-        vcp_desc_string_to_ascii(desc, hash + n, VCP_NFC_HASH_SIZE - n);
-        n += strlen(hash + n);
-    }
-    return true;
 }
 
 // In the FatFs task tier: hash building blocks on USB string fetches.
@@ -371,7 +323,7 @@ void vcp_task(void)
         if (vcp_mounts[i].mounted && !vcp_mounts[i].nfc_checked)
         {
             char hash[VCP_NFC_HASH_SIZE];
-            if (!vcp_hash_dev(i, hash))
+            if (!usb_device_id_hash(vcp_mounts[i].daddr, hash, sizeof(hash)))
                 return; // fetch refused, retry next pass
             vcp_mounts[i].nfc_checked = true;
             if (strcmp(hash, vcp_nfc_device_hash) == 0)
@@ -421,15 +373,12 @@ void vcp_load_nfc_device_hash(const char *str)
         vcp_mounts[i].nfc_checked = false;
 }
 
+// Caller persists the change; this only updates the binding.
 bool vcp_set_nfc_device_name(const char *name)
 {
     if (!name || !name[0])
     {
-        if (vcp_nfc_device_hash[0])
-        {
-            vcp_nfc_device_hash[0] = '\0';
-            cfg_save();
-        }
+        vcp_nfc_device_hash[0] = '\0';
         vcp_nfc_device_idx = -1;
         return true;
     }
@@ -439,11 +388,10 @@ bool vcp_set_nfc_device_name(const char *name)
     if (idx >= CFG_TUH_CDC || !vcp_mounts[idx].mounted)
         return false;
     char hash[VCP_NFC_HASH_SIZE];
-    if (!vcp_hash_dev(idx, hash))
+    if (!usb_device_id_hash(vcp_mounts[idx].daddr, hash, sizeof(hash)))
         return false;
     strcpy(vcp_nfc_device_hash, hash);
     vcp_nfc_device_idx = idx;
-    cfg_save();
     return true;
 }
 
