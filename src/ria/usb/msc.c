@@ -840,8 +840,19 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     while (ep_count < desc_itf->bNumEndpoints && p_desc < end)
     {
         uint8_t const len = ((tusb_desc_interface_t const *)p_desc)->bLength;
-        if (len == 0)
-            break;
+        // Decline a zero-length or straddling descriptor before opening it,
+        // closing any bulk endpoints already opened so a malformed block can't
+        // leak them.
+        if (len == 0 || (uint16_t)(drv_len + len) > max_len)
+        {
+            if (p_msc->ep_in)
+                tuh_edpt_close(dev_addr, p_msc->ep_in);
+            if (p_msc->ep_out)
+                tuh_edpt_close(dev_addr, p_msc->ep_out);
+            p_msc->ep_in = 0;
+            p_msc->ep_out = 0;
+            return 0;
+        }
         if (tu_desc_type(p_desc) == TUSB_DESC_ENDPOINT)
         {
             ep_count++;
@@ -858,7 +869,6 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
         drv_len = (uint16_t)(drv_len + len);
         p_desc += len;
     }
-    TU_ASSERT(drv_len <= max_len, 0);
     TU_ASSERT(p_msc->ep_in, 0);
     TU_ASSERT(p_msc->ep_out, 0);
     p_msc->itf_num = desc_itf->bInterfaceNumber;
