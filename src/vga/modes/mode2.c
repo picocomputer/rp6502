@@ -62,9 +62,9 @@ mode2_get_palette(mode2_config_t *config, int16_t bpp)
 }
 
 static inline __attribute__((always_inline)) int16_t
-mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width)
+mode2_fill_cols(mode2_config_t *config, uint16_t **rgb, int16_t *col, int16_t *width, int16_t tile_size)
 {
-    int16_t width_px = config->width_tiles * 8;
+    int16_t width_px = config->width_tiles * tile_size;
     if (*col < 0)
     {
         if (config->x_wrap)
@@ -125,7 +125,7 @@ mode2_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 
     while (width)
     {
-        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
         uint16_t index;
         uint32_t tile_mem = mode2_get_tile_row_addr(config, 1, tile_size, col, row, row_data, &index);
         uint8_t bits = xram[tile_mem + index];
@@ -182,7 +182,7 @@ mode2_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 
     while (width)
     {
-        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
         uint16_t index;
         uint32_t tile_mem = mode2_get_tile_row_addr(config, 2, tile_size, col, row, row_data, &index);
         uint8_t bits = xram[tile_mem + index];
@@ -243,7 +243,7 @@ mode2_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 
     while (width)
     {
-        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
         uint16_t index;
         uint32_t tile_mem = mode2_get_tile_row_addr(config, 4, tile_size, col, row, row_data, &index);
         uint8_t bits = xram[tile_mem + index];
@@ -302,7 +302,7 @@ mode2_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 
     while (width)
     {
-        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width);
+        int16_t fill_cols = mode2_fill_cols(config, &rgb, &col, &width, tile_size);
         uint16_t index;
         uint32_t tile_mem = mode2_get_tile_row_addr(config, 8, tile_size, col, row, row_data, &index);
         uint8_t bits = xram[tile_mem + index];
