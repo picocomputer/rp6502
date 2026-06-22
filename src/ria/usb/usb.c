@@ -254,7 +254,7 @@ void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *de
     uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
     uint16_t cp = oem_get_code_page_run();
     size_t pos = 0;
-    for (uint16_t i = 0; i < ulen && pos < dest_size - 1; i++)
+    for (uint16_t i = 0; i < ulen && pos + 1 < dest_size; i++)
     {
         WCHAR ch = ff_uni2oem(desc->utf16le[i], cp);
         dest[pos++] = ch ? (char)ch : 127;
@@ -301,28 +301,27 @@ static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
     return usb_string_buf;
 }
 
-const void *usb_string_fetch_manufacturer(uint8_t daddr)
+static const void *usb_string_fetch_dev_field(uint8_t daddr, size_t field_off)
 {
     tusb_desc_device_t desc;
     if (!tuh_descriptor_get_device_local(daddr, &desc))
         return NULL;
-    return usb_string_fetch(daddr, desc.iManufacturer);
+    return usb_string_fetch(daddr, ((const uint8_t *)&desc)[field_off]);
+}
+
+const void *usb_string_fetch_manufacturer(uint8_t daddr)
+{
+    return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iManufacturer));
 }
 
 const void *usb_string_fetch_product(uint8_t daddr)
 {
-    tusb_desc_device_t desc;
-    if (!tuh_descriptor_get_device_local(daddr, &desc))
-        return NULL;
-    return usb_string_fetch(daddr, desc.iProduct);
+    return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iProduct));
 }
 
 const void *usb_string_fetch_serial(uint8_t daddr)
 {
-    tusb_desc_device_t desc;
-    if (!tuh_descriptor_get_device_local(daddr, &desc))
-        return NULL;
-    return usb_string_fetch(daddr, desc.iSerialNumber);
+    return usb_string_fetch_dev_field(daddr, offsetof(tusb_desc_device_t, iSerialNumber));
 }
 
 void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool in_isr)
