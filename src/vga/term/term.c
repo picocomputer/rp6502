@@ -2825,9 +2825,8 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
 }
 
 static bool __attribute__((optimize("O3")))
-term_render(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+term_render(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t)
 {
-    (void)(config_ptr);
     if (width == 320)
         return term_render_320(scanline_id, rgb);
     else

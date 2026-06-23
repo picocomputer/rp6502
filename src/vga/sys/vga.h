@@ -43,9 +43,13 @@ void vga_set_display(vga_display_t display);
 void vga_xreg_canvas(uint16_t *xregs);
 int16_t vga_canvas_height(void);
 
+// Number of programmable scanlines, also bounds scanline_id.
+#define VGA_PROG_MAX 512
+
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t scanline,
+                   bool (*fill_fn)(int16_t plane_id,
+                                   int16_t scanline,
                                    int16_t width,
                                    uint16_t *rgb,
                                    uint16_t config_ptr));
@@ -53,7 +57,8 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
 // For singleton fill modes, like the terminal
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                         uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t scanline,
+                        bool (*fill_fn)(int16_t plane_id,
+                                        int16_t scanline,
                                         int16_t width,
                                         uint16_t *rgb,
                                         uint16_t config_ptr));

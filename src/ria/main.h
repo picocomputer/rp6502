@@ -13,7 +13,7 @@
 
 /* This manages the main loop for the operating system.
  * Device drivers (everything is a device driver) are notified of various
- * events like init, task, run, stop, break, pre_reclock, and post_reclock.
+ * events like init, task, run, stop, break, and reclock.
  * API and XREG calls are dispatched from here too. Everything follows
  * this pattern so it's worth reading main.c in its entirety.
  */

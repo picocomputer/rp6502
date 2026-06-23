@@ -18,10 +18,10 @@
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 
-#define VGA_PROG_MAX 512
 typedef struct
 {
-    bool (*fill_fn[SCANVIDEO_PLANE_COUNT])(int16_t scanline,
+    bool (*fill_fn[SCANVIDEO_PLANE_COUNT])(int16_t plane_id,
+                                           int16_t scanline,
                                            int16_t width,
                                            uint16_t *rgb,
                                            uint16_t config_ptr);
@@ -271,7 +271,8 @@ static void vga_render_scanline(void)
     {
         if (prog.fill_fn[i])
         {
-            filled[i] = prog.fill_fn[i](scanline_id,
+            filled[i] = prog.fill_fn[i](i,
+                                        scanline_id,
                                         width,
                                         (uint16_t *)(data[i] + 1),
                                         prog.fill_config[i]);
@@ -439,7 +440,8 @@ static bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanl
 
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t scanline,
+                   bool (*fill_fn)(int16_t plane_id,
+                                   int16_t scanline,
                                    int16_t width,
                                    uint16_t *rgb,
                                    uint16_t config_ptr))
@@ -458,7 +460,8 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
 
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                         uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t scanline,
+                        bool (*fill_fn)(int16_t plane_id,
+                                        int16_t scanline,
                                         int16_t width,
                                         uint16_t *rgb,
                                         uint16_t config_ptr))

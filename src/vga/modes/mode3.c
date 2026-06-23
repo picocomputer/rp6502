@@ -95,7 +95,7 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 }
 
 static bool
-mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_1bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
@@ -131,7 +131,7 @@ mode3_render_1bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 }
 
 static bool
-mode3_render_1bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_1bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
@@ -167,7 +167,7 @@ mode3_render_1bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
 }
 
 static bool
-mode3_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_2bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
@@ -205,7 +205,7 @@ mode3_render_2bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 }
 
 static bool
-mode3_render_2bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_2bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
@@ -243,7 +243,7 @@ mode3_render_2bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
 }
 
 static bool
-mode3_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_4bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
@@ -278,7 +278,7 @@ mode3_render_4bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 }
 
 static bool
-mode3_render_4bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_4bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
@@ -313,7 +313,7 @@ mode3_render_4bpp_reverse(int16_t scanline_id, int16_t width, uint16_t *rgb, uin
 }
 
 static bool
-mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_8bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 8);
@@ -336,7 +336,7 @@ mode3_render_8bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t co
 }
 
 static bool
-mode3_render_16bpp(int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_16bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint16_t *row_data = (uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
@@ -366,7 +366,7 @@ bool mode3_prog(uint16_t *xregs)
         config_ptr > 0x10000 - sizeof(mode3_config_t))
         return false;
 
-    bool (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t);
+    bool (*render_fn)(int16_t, int16_t, int16_t, uint16_t *, uint16_t);
     switch (attributes)
     {
     case 0:
