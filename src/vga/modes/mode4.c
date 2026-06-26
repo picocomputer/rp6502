@@ -11,7 +11,10 @@
 #include "modes/mode4.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
+#include <pico/stdlib.h>
+#if PICO_ON_DEVICE
 #include <hardware/interp.h>
+#endif
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -247,6 +250,38 @@ static void mode4_render_sprite(int16_t scanline, int16_t width, uint16_t *rgb, 
     }
 }
 
+#if !PICO_ON_DEVICE
+// Software stand-in for the SIO interpolator used by the affine path. The Pico
+// hardware interpolator emits each texel's address and advances the u,v
+// accumulators on every POP; off-device the same arithmetic runs here. Lanes
+// hold u,v in 16.16 fixed point; a POP masks the integer texel index out of
+// each lane, sums them onto the image base, then adds the per-step deltas
+// (the hardware's ADD_RAW accumulator feedback).
+static struct
+{
+    uint32_t accum[2];
+    int32_t step[2];
+    uintptr_t base;
+    uint shift[2];
+    uint32_t mask[2];
+} sw_interp;
+
+static inline uint32_t sw_interp_mask(uint lsb, uint msb)
+{
+    return (((uint32_t)1 << (msb - lsb + 1)) - 1) << lsb;
+}
+
+static inline uintptr_t sw_interp_pop_full(void)
+{
+    uint32_t s0 = (sw_interp.accum[0] >> sw_interp.shift[0]) & sw_interp.mask[0];
+    uint32_t s1 = (sw_interp.accum[1] >> sw_interp.shift[1]) & sw_interp.mask[1];
+    uintptr_t addr = sw_interp.base + s0 + s1;
+    sw_interp.accum[0] += (uint32_t)sw_interp.step[0];
+    sw_interp.accum[1] += (uint32_t)sw_interp.step[1];
+    return addr;
+}
+#endif
+
 // Set up an interpolator to follow a straight line through u,v space
 static inline void setup_interp_affine(
     intersect_t isct,
@@ -262,10 +297,17 @@ static inline void setup_interp_affine(
         mul_fp1616(atrans[3], (isct.tex_offs_x + isct.size_x) * AF_ONE) +
         mul_fp1616(atrans[4], isct.tex_offs_y * AF_ONE) +
         atrans[5];
+#if PICO_ON_DEVICE
     interp0->accum[0] = x0;
     interp0->accum[1] = y0;
     interp0->base[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
     interp0->base[1] = -atrans[3]; // -a10
+#else
+    sw_interp.accum[0] = (uint32_t)x0;
+    sw_interp.accum[1] = (uint32_t)y0;
+    sw_interp.step[0] = -atrans[0]; // -a00, since x decrements by 1 with each coord
+    sw_interp.step[1] = -atrans[3]; // -a10
+#endif
 }
 
 // Set up an interpolator to generate pixel lookup addresses from fp1616
@@ -282,6 +324,7 @@ static inline void setup_interp_pix_coordgen(
     // which generates the u,v coordinate for the *next* read.
     assert(sp->log_size + pixel_shift <= 15);
 
+#if PICO_ON_DEVICE
     interp_config c0 = interp_default_config();
     interp_config_set_add_raw(&c0, true);
     interp_config_set_shift(&c0, 16 - pixel_shift);
@@ -295,12 +338,24 @@ static inline void setup_interp_pix_coordgen(
     interp_set_config(interp0, 1, &c1);
 
     interp_set_base(interp0, 2, (uint32_t)sp_img);
+#else
+    sw_interp.shift[0] = 16 - pixel_shift;
+    sw_interp.mask[0] = sw_interp_mask(pixel_shift, pixel_shift + sp->log_size - 1);
+    sw_interp.shift[1] = 16 - sp->log_size - pixel_shift;
+    sw_interp.mask[1] = sw_interp_mask(pixel_shift + sp->log_size, pixel_shift + 2 * sp->log_size - 1);
+    sw_interp.base = (uintptr_t)sp_img;
+#endif
 }
 
 static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, uint mask)
 {
+#if PICO_ON_DEVICE
     uint32_t overflow = (interp0->accum[0] | interp0->accum[1]) & mask;
     uint16_t *src_addr = (uint16_t *)interp0->pop[2];
+#else
+    uint32_t overflow = (sw_interp.accum[0] | sw_interp.accum[1]) & mask;
+    uint16_t *src_addr = (uint16_t *)sw_interp_pop_full();
+#endif
     if (overflow)
         return;
     uint16_t pixel = *src_addr;
