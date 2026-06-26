@@ -21,6 +21,9 @@ uint8_t __uninitialized_ram(font_dec_8)[8 * 32];
 uint8_t __uninitialized_ram(font_dec_16)[16 * 32];
 uint8_t __uninitialized_ram(italic16)[16 * 128];
 
+// Code page currently built into the high half (0 = blank/uninitialized).
+static uint16_t font_code_page;
+
 static const __in_flash("font_ascii_8") uint8_t FONT8_ASCII[] = {
     0x00, 0x7e, 0x7e, 0x6c, 0x10, 0x38, 0x10, 0x00, 0xff, 0x00, 0xff, 0x0f, 0x3c, 0x3f, 0x7f, 0x18,
     0x80, 0x02, 0x18, 0x66, 0x7f, 0x3e, 0x00, 0x18, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -3772,12 +3775,14 @@ void font_init(void)
     }
     memcpy(italic16, FONT16_ASCII_ITALIC, sizeof(italic16));
     font_build_dec_graphics();
+    // The high half is now blank; clear the record so the load below isn't
+    // skipped when font_init runs again with a code page still set.
+    font_code_page = 0;
     font_set_code_page(437);
 }
 
 void font_set_code_page(uint16_t cp)
 {
-    static uint16_t current_cp = 0;
     const uint8_t *font8hi = NULL;
     const uint8_t *font16hi = NULL;
 
@@ -3856,9 +3861,9 @@ void font_set_code_page(uint16_t cp)
         break;
     }
 
-    if (current_cp == cp)
+    if (font_code_page == cp)
         return;
-    current_cp = cp;
+    font_code_page = cp;
     term_RIS();
 
     if (!cp)
