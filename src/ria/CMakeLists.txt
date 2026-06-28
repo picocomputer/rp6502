@@ -71,6 +71,7 @@ target_sources(${RIA_TARGET} PRIVATE
     aud/aud.c
     aud/bel.c
     aud/opl.c
+    aud/pcm.c
     aud/psg.c
     ble/ble.c
     ble/tlv.c
