@@ -1,6 +1,8 @@
 /*
- * Copyright (c) 2026 Rumbledethumps
- *
+ * Copyright (c) 2026 WojciechGw
+ * 
+ * for Rumbledethumps' Picocomputer 6502
+ * 
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
