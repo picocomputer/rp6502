@@ -63,7 +63,6 @@ X(STR_MON_CONFIRM_PROMPT, "Type YES to confirm: ")
 X(STR_MON_CONFIRM_YES, "YES")
 
 // Only used in unreachable code
-X(STR_ERR_INTERNAL_ERROR, "?Internal error\n")
 X(STR_INTERNAL_ERROR, "internal error")
 
 // System errors

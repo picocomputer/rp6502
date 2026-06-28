@@ -67,7 +67,6 @@ X(STR_MON_CONFIRM_PROMPT, "Wpisz TAK aby potwierdzić: ")
 X(STR_MON_CONFIRM_YES, "TAK")
 
 // Only used in unreachable code
-X(STR_ERR_INTERNAL_ERROR, "?Błąd wewnętrzny\n")
 X(STR_INTERNAL_ERROR, "błąd wewnętrzny")
 
 // System errors
