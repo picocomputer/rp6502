@@ -14,6 +14,7 @@
 #include "api/std.h"
 #include "aud/aud.h"
 #include "aud/opl.h"
+#include "aud/pcm.h"
 #include "aud/psg.h"
 #include "ble/ble.h"
 #include "hid/kbd.h"
@@ -226,6 +227,8 @@ bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
         return psg_xreg(word);
     case 0x101:
         return opl_xreg(word);
+    case 0x102:
+        return pcm_xreg(word);
     default:
         return false;
     }
