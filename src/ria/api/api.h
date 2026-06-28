@@ -63,6 +63,10 @@ api_errno api_errno_from_fatfs(unsigned fresult);
 // Convert a littlefs error code to an api_errno.
 api_errno api_errno_from_lfs(int lfs_err);
 
+// Convert a host (POSIX) errno to an api_errno.
+// Implemented and used by a host backend (the emulator).
+api_errno api_errno_from_host(int host_errno);
+
 /* RIA fastcall registers
  */
 
