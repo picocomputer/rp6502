@@ -7,9 +7,8 @@
 #include "aud/aud.h"
 #include "aud/bel.h"
 #include "aud/opl.h"
-#include "mon/mon.h"
-#include "str/str.h"
 #include "sys/mem.h"
+#include <assert.h>
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 #include <string.h>
@@ -69,11 +68,7 @@ bool opl_xreg(uint16_t word)
     // Would be nice to not malloc but initializeTables() is static
     if (!opl_emu8950)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);
-    if (!opl_emu8950)
-    {
-        mon_add_response_utf8(S(STR_ERR_INTERNAL_ERROR));
-        return false;
-    }
+    assert(opl_emu8950); // OPL_new only fails under memory pressure (a debug build)
     OPL_reset(opl_emu8950);
     xram_queue_page = word >> 8;
     memset(&xram[word], 0, 256);

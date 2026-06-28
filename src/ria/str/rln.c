@@ -7,7 +7,6 @@
 #include "main.h"
 #include "api/api.h"
 #include "str/rln.h"
-#include "str/str.h"
 #include "sys/com.h"
 #include "sys/ria.h"
 #include "sys/vga.h"
