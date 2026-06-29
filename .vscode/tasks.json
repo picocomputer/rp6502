@@ -39,22 +39,6 @@
             }
         },
         {
-            "label": "Dump Fonts",
-            "type": "process",
-            "command": "python3",
-            "args": [
-                "${workspaceFolder}/src/vga/term/font.py"
-            ],
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": [],
-            "windows": {
-                "command": "python"
-            }
-        },
-        {
             "label": "Flash",
             "type": "process",
             "command": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
@@ -71,6 +55,22 @@
             "problemMatcher": [],
             "windows": {
                 "command": "${env:USERPROFILE}/.pico-sdk/openocd/0.12.0+dev/openocd.exe"
+            }
+        },
+        {
+            "label": "Dump Fonts",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/src/vga/term/font.py"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": [],
+            "windows": {
+                "command": "python"
             }
         },
         {

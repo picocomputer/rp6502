@@ -1,6 +1,6 @@
 {
     "search.exclude": {
-        "**/build": true
+        "vendor": true
     },
     "files.associations": {
         "*.h": "c",
@@ -10,20 +10,16 @@
         "${workspaceFolder}",
         "${workspaceFolder}/src/emu"
     ],
-    "cmake.buildDirectory": "${sourceDirectory}/build",
-    "cmake.generator": "Ninja",
-    "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
-    "cmake.configureOnOpen": true,
     "cmake.configureOnEdit": true,
     "cmake.automaticReconfigure": true,
+    "cmake.configureOnOpen": true,
+    "cmake.generator": "Ninja",
+    "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {
         "folder": {
             "statusBarVisibility": "visible"
         },
-        // "configure": {
-        //     "statusBarVisibility": "hidden"
-        // },
         "configurePreset": {
             "statusBarVisibility": "visible"
         },
