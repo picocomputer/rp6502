@@ -127,10 +127,3 @@ Minicom is still useful.
 ```
 $ minicom -w -c on -R cp437 -b 115200 -o -D /dev/ttyACM0
 ```
-
-## License
-
-BSD 3-Clause. See [LICENSE](LICENSE); every source file carries an
-`SPDX-License-Identifier`. The emulator additionally bundles third-party code
-under permissive licenses — see
-[src/emu/THIRD-PARTY-NOTICES.md](src/emu/THIRD-PARTY-NOTICES.md).
