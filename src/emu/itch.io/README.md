@@ -11,7 +11,7 @@ game: it boots and runs the moment itch.io loads it. The example program is
    the `<script>` — the ROM filename and a couple of display settings (below).
    That block is the only part you touch.
 2. **Drop in your program.** Put your `.rp6502` next to `index.html` and point
-   `CONFIG.rom` at it. To keep the example, leave it as `adventure.rp6502`.
+   `CONFIG.rom` at it. Delete the `adventure.rp6502` placeholder.
 3. **Zip and upload.** Zip the *contents* of this folder so `index.html` sits at
    the **root of the zip** (not inside a subfolder). On itch.io create a project,
    set the kind to **HTML**, upload the zip, and tick **This file will be played
