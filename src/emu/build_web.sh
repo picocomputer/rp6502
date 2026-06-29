@@ -15,7 +15,7 @@
 set -euo pipefail
 
 EMU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$EMU_DIR/.." && pwd)"
+ROOT="$(cd "$EMU_DIR/../.." && pwd)"
 EMSDK_DIR="$ROOT/vendor/emsdk"
 EMVER="$(cat "$EMU_DIR/emscripten-version.txt")"
 

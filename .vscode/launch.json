@@ -2,14 +2,75 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Pico Debug (Cortex-Debug)",
+            "cwd": "${userHome}/.pico-sdk/openocd/0.12.0+dev/scripts",
+            "executable": "${command:raspberry-pi-pico.launchTargetPath}",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "serverpath": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
+            "gdbPath": "${command:raspberry-pi-pico.getGDBPath}",
+            "device": "${command:raspberry-pi-pico.getChipUppercase}",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/${command:raspberry-pi-pico.getTarget}.cfg"
+            ],
+            "svdFile": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
+            "runToEntryPoint": "main",
+            "overrideLaunchCommands": [
+                "monitor reset init",
+                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+            ],
+            "openOCDLaunchCommands": [
+                "adapter speed 5000"
+            ]
+        },
+        {
+            "name": "Pico Debug (Cortex-Debug with external OpenOCD)",
+            "cwd": "${workspaceRoot}",
+            "executable": "${command:raspberry-pi-pico.launchTargetPath}",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "external",
+            "gdbTarget": "localhost:3333",
+            "gdbPath": "${command:raspberry-pi-pico.getGDBPath}",
+            "device": "${command:raspberry-pi-pico.getChipUppercase}",
+            "svdFile": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd",
+            "runToEntryPoint": "main",
+            "overrideLaunchCommands": [
+                "monitor reset init",
+                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+            ]
+        },
+        {
+            "name": "Pico Debug (C++ Debugger)",
+            "type": "cppdbg",
+            "request": "launch",
+            "cwd": "${workspaceRoot}",
+            "program": "${command:raspberry-pi-pico.launchTargetPath}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${command:raspberry-pi-pico.getGDBPath}",
+            "miDebuggerServerAddress": "localhost:3333",
+            "debugServerPath": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
+            "debugServerArgs": "-f interface/cmsis-dap.cfg -f target/${command:raspberry-pi-pico.getTarget}.cfg -c \"adapter speed 5000\"",
+            "serverStarted": "Listening on port .* for gdb connections",
+            "filterStderr": true,
+            "hardwareBreakpoints": {
+                "require": true,
+                "limit": 4
+            },
+            "preLaunchTask": "Flash",
+            "svdPath": "${userHome}/.pico-sdk/sdk/2.2.0/src/${command:raspberry-pi-pico.getChip}/hardware_regs/${command:raspberry-pi-pico.getChipUppercase}.svd"
+        },
+        {
             "name": "Debug rp6502-emu (hello.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/hello.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/hello.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -26,11 +87,11 @@
             "name": "Debug rp6502-emu (adventure.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/adventure.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/adventure.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -47,11 +108,11 @@
             "name": "Debug rp6502-emu (exec.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/exec.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/exec.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -68,11 +129,11 @@
             "name": "Debug rp6502-emu (rtc.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/rtc.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/rtc.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -89,11 +150,11 @@
             "name": "Debug rp6502-emu (mode1.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/mode1.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/mode1.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -110,11 +171,11 @@
             "name": "Debug rp6502-emu (mode2.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/mode2.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/mode2.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -131,11 +192,11 @@
             "name": "Debug rp6502-emu (mode3.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/mode3.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/mode3.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -152,11 +213,11 @@
             "name": "Debug rp6502-emu (affine.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/affine.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/affine.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -173,11 +234,11 @@
             "name": "Debug rp6502-emu (mode5.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/mode5.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/mode5.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -194,13 +255,13 @@
             "name": "Debug rp6502-emu (dir.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/dir.rp6502",
+                "${workspaceFolder}/src/emu/tests/roms/dir.rp6502",
                 "--fs",
-                "${workspaceFolder}/tests/roms"
+                "${workspaceFolder}/src/emu/tests/roms"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -217,11 +278,11 @@
             "name": "Debug rp6502-emu (furelise.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/furelise.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/furelise.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -238,11 +299,11 @@
             "name": "Debug rp6502-emu (loderunner.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/loderunner.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/loderunner.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -259,11 +320,11 @@
             "name": "Debug rp6502-emu (paint.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/paint.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/paint.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -280,11 +341,11 @@
             "name": "Debug rp6502-emu (gamepad.rp6502)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
-                "${workspaceFolder}/tests/roms/gamepad.rp6502"
+                "${workspaceFolder}/src/emu/tests/roms/gamepad.rp6502"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -301,12 +362,12 @@
             "name": "Debug rp6502-emu (prompt for ROM + args)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/rp6502-emu",
+            "program": "${workspaceFolder}/src/emu/build/rp6502-emu",
             "args": [
                 "${input:romPath}",
                 "${input:romArgs}"
             ],
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/src/emu",
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -325,7 +386,7 @@
             "id": "romPath",
             "type": "promptString",
             "description": "Path to a .rp6502 ROM",
-            "default": "${workspaceFolder}/tests/roms/adventure.rp6502"
+            "default": "${workspaceFolder}/src/emu/tests/roms/adventure.rp6502"
         },
         {
             "id": "romArgs",

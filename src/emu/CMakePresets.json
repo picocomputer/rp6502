@@ -34,7 +34,7 @@
             "description": "Cross-compile the demo to WASM into build/web/",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/emscripten",
-            "toolchainFile": "${sourceDir}/../vendor/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+            "toolchainFile": "${sourceDir}/../../vendor/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"

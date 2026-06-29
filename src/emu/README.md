@@ -54,7 +54,7 @@ MacOS stalled. Requires a developer with a Mac.
 
 ## Build
 
-From this `emulator/` directory (its `CMakePresets.json` defines `debug`,
+From this `src/emu/` directory (its `CMakePresets.json` defines `debug`,
 `release`, and `wasm`):
 
 ```sh

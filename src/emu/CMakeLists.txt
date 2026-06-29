@@ -27,11 +27,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
-# The shared src/ and vendor/ trees live at the repo root; this emulator/ dir
-# holds only the host/wasm build. RP6502 (the firmware sources) is now the
-# co-located src/ tree — the old src/rp6502 submodule is gone — and the
-# third-party deps it used to vendor (emu8950, fatfs) live under vendor/.
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+# The shared src/ and vendor/ trees live at the repo root; this src/emu dir
+# holds the host/wasm build beside the emulator sources. RP6502 (the firmware
+# sources) is the co-located src/ tree — the old src/rp6502 submodule is gone —
+# and the third-party deps it used to vendor (emu8950, fatfs) live under vendor/.
+get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 set(SRC ${RP6502_ROOT}/src)
 set(EMU ${RP6502_ROOT}/src/emu)
 set(RP6502 ${RP6502_ROOT}/src)

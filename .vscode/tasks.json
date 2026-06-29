@@ -1,0 +1,162 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compile Project",
+            "type": "process",
+            "isBuildCommand": true,
+            "command": "${userHome}/.pico-sdk/ninja/v1.12.1/ninja",
+            "args": [
+                "-C",
+                "${workspaceFolder}/build"
+            ],
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc",
+            "windows": {
+                "command": "${env:USERPROFILE}/.pico-sdk/ninja/v1.12.1/ninja.exe"
+            }
+        },
+        {
+            "label": "Run Project",
+            "type": "process",
+            "command": "${env:HOME}/.pico-sdk/picotool/2.2.0-a4/picotool/picotool",
+            "args": [
+                "load",
+                "${command:raspberry-pi-pico.launchTargetPath}",
+                "-fx"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": [],
+            "windows": {
+                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.2.0-a4/picotool/picotool.exe"
+            }
+        },
+        {
+            "label": "Dump Fonts",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/src/vga/term/font.py"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": [],
+            "windows": {
+                "command": "python"
+            }
+        },
+        {
+            "label": "Flash",
+            "type": "process",
+            "command": "${userHome}/.pico-sdk/openocd/0.12.0+dev/openocd.exe",
+            "args": [
+                "-s",
+                "${userHome}/.pico-sdk/openocd/0.12.0+dev/scripts",
+                "-f",
+                "interface/cmsis-dap.cfg",
+                "-f",
+                "target/${command:raspberry-pi-pico.getTarget}.cfg",
+                "-c",
+                "adapter speed 5000; program \"${command:raspberry-pi-pico.launchTargetPath}\" verify reset exit"
+            ],
+            "problemMatcher": [],
+            "windows": {
+                "command": "${env:USERPROFILE}/.pico-sdk/openocd/0.12.0+dev/openocd.exe"
+            }
+        },
+        {
+            "label": "CMake Configure (Debug)",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/emu"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/emu"
+            },
+            "dependsOn": "CMake Configure (Debug)",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "Test",
+            "type": "process",
+            "command": "ctest",
+            "args": [
+                "--test-dir",
+                "${workspaceFolder}/src/emu/build",
+                "--output-on-failure"
+            ],
+            "dependsOn": "Build",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "WASM: Build demo",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "src/emu/build_web.sh"
+            ],
+            "windows": {
+                "command": "powershell",
+                "args": [
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "src/emu/build_web.ps1"
+                ]
+            },
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        }
+    ]
+}

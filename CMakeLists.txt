@@ -16,9 +16,9 @@ set(RP6502_PROJECT_DEFINITIONS
     RP6502_CREATOR=0
 )
 
-# The shared src/ and vendor/ trees live at the repo root; this firmware/ dir
-# holds only the Pico build. Reference sources and vendored deps via RP6502_ROOT.
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+# The shared src/ and vendor/ trees live beside this root CMakeLists (the
+# firmware build). Reference sources and vendored deps via RP6502_ROOT.
+get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 
 # Project subdirectories (under ${RP6502_ROOT}/src).
 set(RP6502_PROJECT_DIRECTORIES

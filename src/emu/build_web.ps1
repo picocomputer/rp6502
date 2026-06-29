@@ -18,7 +18,7 @@
 $ErrorActionPreference = "Stop"
 
 $emuDir = $PSScriptRoot
-$root = Split-Path -Parent $PSScriptRoot
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $emsdkDir = Join-Path $root "vendor\emsdk"
 $emver = (Get-Content (Join-Path $emuDir "emscripten-version.txt")).Trim()
 $emsdkBat = Join-Path $emsdkDir "emsdk.bat"
