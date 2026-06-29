@@ -71,6 +71,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/hello.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -79,6 +89,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -92,6 +107,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/adventure.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -100,6 +125,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -113,6 +143,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/exec.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -121,6 +161,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -134,6 +179,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/rtc.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -142,6 +197,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -155,6 +215,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/mode1.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -163,6 +233,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -176,6 +251,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/mode2.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -184,6 +269,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -197,6 +287,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/mode3.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -205,6 +305,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -218,6 +323,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/affine.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -226,6 +341,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -239,6 +359,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/mode5.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -247,6 +377,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -262,6 +397,16 @@
                 "${workspaceFolder}/src/emu/tests/roms"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -270,6 +415,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -283,6 +433,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/furelise.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -291,6 +451,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -304,6 +469,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/loderunner.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -312,6 +487,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -325,6 +505,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/paint.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -333,6 +523,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -346,6 +541,16 @@
                 "${workspaceFolder}/src/emu/tests/roms/gamepad.rp6502"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -354,6 +559,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
@@ -368,6 +578,16 @@
                 "${input:romArgs}"
             ],
             "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DISPLAY",
+                    "value": ":0"
+                },
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
             "stopAtEntry": false,
             "externalConsole": false,
             "MIMode": "gdb",
@@ -376,6 +596,11 @@
                 {
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
             ]
