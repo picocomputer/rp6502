@@ -1,0 +1,65 @@
+# Picocomputer 6502 — itch.io sample
+
+A ready-to-publish [itch.io](https://itch.io) HTML5 project that plays one
+self-running Picocomputer 6502 program in the browser. The page is just the
+game: it boots and runs the moment itch.io loads it. The example program is
+`adventure.rp6502`; swap in your own and ship it.
+
+## Deploy in three steps
+
+1. **Configure.** Open `index.html` and edit the `CONFIG` block near the top of
+   the `<script>` — the ROM filename and a couple of display settings (below).
+   That block is the only part you touch.
+2. **Drop in your program.** Put your `.rp6502` next to `index.html` and point
+   `CONFIG.rom` at it. To keep the example, leave it as `adventure.rp6502`.
+3. **Zip and upload.** Zip the *contents* of this folder so `index.html` sits at
+   the **root of the zip** (not inside a subfolder). On itch.io create a project,
+   set the kind to **HTML**, upload the zip, and tick **This file will be played
+   in the browser**. Save, then play.
+
+`index.html`, `rp6502.js`, `rp6502.wasm`, and your `.rp6502` must stay together;
+all paths are relative so the bundle works wherever itch.io serves it.
+
+## The editable section
+
+Everything you configure lives in one `CONFIG` object at the top of the script:
+
+| Field    | What it does                                                       |
+|----------|-------------------------------------------------------------------|
+| `rom`    | Your program's filename, relative to `index.html` (e.g. `game.rp6502`). |
+| `title`  | Browser tab title.                                                 |
+| `bg`     | Letterbox/pillarbox fill color, six hex digits, no `#`.           |
+| `filter` | Pixel scaling: `nearest` (blocky), `linear` (smooth), or `sharp`. |
+
+## Updating the emulator
+
+`index.html`, `rp6502.js`, and `rp6502.wasm` are one matched set from a single
+emulator build. The reason `CONFIG` is a single block near the top is to make
+this trivial: pull the newer files and re-apply that block.
+
+## itch.io embed settings
+
+- **Embed:** *Click to launch in fullscreen* gives the cleanest result and sizes
+  the viewport to the player's screen. *Embed in page* works too — the picture
+  letterboxes to fit whatever viewport you set.
+- **Fullscreen button:** enable it; the picture fills whatever space it's given.
+- **Mobile friendly:** safe to enable — sound just switches on at the first tap.
+- **SharedArrayBuffer support:** leave it **off**. This emulator is single
+  threaded and needs no cross-origin isolation, so it runs on every browser.
+
+## Please tag it `RP6502`
+
+When you publish, add the tag **`RP6502`** to your project so it shows up
+alongside other Picocomputer software (itch.io tags are on the project edit page
+under *Genre / Tags*).
+
+## Notes
+
+- **Saves persist** in the browser's IndexedDB, keyed per program, so different
+  games on different itch.io pages never collide.
+- **Third-party license notices:** append `?credits` to the page URL to dump
+  every bundled component's license (the emulator's built-in `--credits`). Keep
+  that path reachable if you redistribute the bundled emulator.
+- `README.md` is for you, the author. itch.io serves every file in the zip but
+  only opens `index.html`, so this `.md` is never loaded by the player — delete
+  it before uploading if you like.

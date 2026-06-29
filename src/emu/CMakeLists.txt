@@ -227,16 +227,28 @@ else()
         set_target_properties(rp6502-emu PROPERTIES
             OUTPUT_NAME rp6502
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
-        # Assemble the web roots
+        # Tester web root (build/web/html): the menu shell + every test ROM.
         file(GLOB WEB_ROMS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${EMU}/web" "${CMAKE_BINARY_DIR}/html"
+                "${EMU}/html" "${CMAKE_BINARY_DIR}/html"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
             COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
-            COMMENT "Assembling deployable web root (build/web/html) + test ROMs"
+            COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
             VERBATIM)
         add_dependencies(web_root rp6502-emu)
+        # itch.io sample (build/web/itch.io): the single-program shell.
+        add_custom_target(itch_root ALL
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${EMU}/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "${CMAKE_SOURCE_DIR}/tests/roms/adventure.rp6502"
+                "${CMAKE_BINARY_DIR}/html/rp6502.js"
+                "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
+                "${CMAKE_BINARY_DIR}/itch.io"
+            COMMENT "Assembling itch.io sample (build/web/itch.io) + adventure.rp6502"
+            VERBATIM)
+        add_dependencies(itch_root rp6502-emu)
     else() # Linux / BSD
         find_package(Threads REQUIRED)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLCORE)

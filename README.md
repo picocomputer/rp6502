@@ -67,9 +67,12 @@ and F5 launches a debug session with the Debug settings.
 
 To build for web, make sure you ran **emsdk: install and activate** after the submodule init.
 From the CMake side panel select Folder:emu and Configure:WebAssembly.
-Pressing F7 will build a test bundle in build/web/html which must be
-delivered with a web server. You can use the VS Code live preview extension
-`ms-vscode.live-server` or a simple python server to run the example.
+Pressing F7 builds two bundles. `build/web/html` is the tester: a menu shell
+that runs every test ROM. `build/web/itch.io` is a ready-to-publish itch.io
+sample that plays one program (`adventure.rp6502` by default) — see
+`src/emu/itch.io/README.md` to retarget and deploy it. Either must be delivered
+with a web server; use the VS Code live preview extension `ms-vscode.live-server`
+or a simple python server to run them.
 `python3 -m http.server 8000 --directory build/web/html`
 
 To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
