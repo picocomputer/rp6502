@@ -10,12 +10,11 @@ https://picocomputer.github.io/
 Pre-built `.uf2` firmware images for Pi Pico 2 boards:<br>
 https://github.com/picocomputer/rp6502/releases
 
-
-## Developer Tools Setup
-
-This is for building emulation or firmware. For writing 6502 software, see
+This project is for building emulation or firmware. For writing 6502 software, see
 [picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65) and
 [picocomputer/vscode-llvm-mos](https://github.com/picocomputer/vscode-llvm-mos).
+
+## All Platforms
 
 Begin by installing VS Code and the Pi Pico VS Code Extension as described in
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
@@ -24,21 +23,47 @@ Some dependencies are submodules. Don't forget to grab them:
 ```
 $ git submodule update --init
 ```
+
 The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
 submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
 activate the toolchain into that submodule (a one-time ~270 MB download). The same
-thing from the command line:
+thing from the command line (Windows: emsdk.bat) :
 ```
-$ vendor/emsdk/emsdk install latest   # Windows: vendor\emsdk\emsdk.bat
+$ vendor/emsdk/emsdk install latest
 $ vendor/emsdk/emsdk activate latest
 ```
 
-## CMake with VS Code
+## Debian/Ubuntu/Raspbian
+
+The Pi Pico VS Code Extension may need this additional software:
+```
+$ sudo apt install build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
+```
+
+For the emulator, install GL/X11 dev headers:
+```
+sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
+```
+
+## Windows
+
+The Pi Pico VS Code Extension should only need the install from
+[Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
+
+The emulator doesn't have anyone working on it right now.
+
+## MacOs
+
+The Pi Pico VS Code Extension should only need the install from
+[Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
+
+The emulator doesn't have anyone working on it right now.
+
+## Building with CMake and VS Code
 
 The rp6502 and emu project use different CMake models on purpose. The first
 thing you need to remember is that F7 builds with the CMake extension settings
-in the side panel and F5 launches a debug session with the Debug settings in
-the side panel.
+and F5 launches a debug session with the Debug settings.
 
 To build for web, make sure you ran **emsdk: install and activate** after the submodule init.
 From the CMake side panel select Folder:emu and Configure:WebAssembly.
@@ -61,18 +86,10 @@ one of the included test roms to run. You'll also have a binary in src/emu/build
 which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
 and vscode-llvm-mos, or any other IDE thats support DAP.
 
-## Additional Firmware Dev Setup
+## General Linux and WSL notes
 
-The above is all you would need to do in an ideal world. But the Pi Pico tools run on
-many operating systems which makes documentation a moving target. The following
-are my notes for setting up WSL (Windows Subsystem for Linux) with Ubuntu. Don't
-forget that you can get help from the
+Don't forget that you can get Pi Pico SDK setup help from the
 [Raspberry Pi Forums](https://forums.raspberrypi.com/).
-
-The Pi Pico VS Code Extension will need this additional software:
-```
-$ sudo apt install build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
-```
 
 Add a udev rule to avoid needing root access for openocd. Create
 `/etc/udev/rules.d/99-pico.rules` with:

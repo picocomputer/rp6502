@@ -77,5 +77,5 @@ set_source_files_properties(
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(rp6502_vga PRIVATE
-    ${RP6502_ROOT}/src/tinyusb_rp6502/rp2040_usb.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/rp2040_usb.c
 )
