@@ -630,6 +630,7 @@ static void cleanup_cb(void)
         saudio_shutdown();
 #endif
 #ifdef EMU_WITH_DEBUGGER
+    dap_stop(); /* notify any attached DAP client before the window goes away */
     if (dbg_is_active())
         dbgui_discard();
 #endif

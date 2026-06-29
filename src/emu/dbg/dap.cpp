@@ -183,6 +183,7 @@ bool g_launch_done = false;
 bool g_stop_on_entry = false;
 bool g_stop_on_exit = true; /* present program exit as a stop, not a terminate */
 bool g_terminated = false;
+bool g_term_sent = false; /* a TerminatedEvent has gone out; don't repeat it at teardown */
 
 void post(std::function<void()> fn)
 {
@@ -941,7 +942,10 @@ extern "C" void dap_pump(void)
             g_session->send(ev);
         }
         else
+        {
             g_session->send(dap::TerminatedEvent());
+            g_term_sent = true;
+        }
     }
 }
 
@@ -949,6 +953,19 @@ extern "C" bool dap_quit_requested(void) { return g_quit.load(); }
 
 extern "C" void dap_stop(void)
 {
-    g_session.reset();
-    src_free();
+    /* The window is going away with the client still attached (the user hit [X],
+     * not VS Code's Stop): announce it so the session ends cleanly instead of the
+     * client seeing a dropped pipe. send() flushes (cppdap's File::write). Skip
+     * when the client itself asked to disconnect (g_quit) or a TerminatedEvent
+     * already went out. */
+    if (g_session && !g_quit.load() && !g_term_sent)
+    {
+        g_session->send(dap::TerminatedEvent());
+        g_term_sent = true;
+    }
+    /* Do NOT destroy the session: its reader thread is parked in a blocking,
+     * non-interruptible read on stdin (the pipe stays open while VS Code holds its
+     * end), so cppdap's destructor join would hang teardown forever. Leak it — we
+     * are exiting and the OS reclaims the threads and memory. */
+    (void)g_session.release();
 }
