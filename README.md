@@ -67,10 +67,10 @@ and F5 launches a debug session with the Debug settings.
 
 To build for web, make sure you ran **emsdk: install and activate** after the submodule init.
 From the CMake side panel select Folder:emu and Configure:WebAssembly.
-Pressing F7 will build a test bundle in src/emu/build/web which must be
+Pressing F7 will build a test bundle in build/web/html which must be
 delivered with a web server. You can use the VS Code live preview extension
 `ms-vscode.live-server` or a simple python server to run the example.
-`python3 -m http.server 8000 --directory src/emu/build/web`
+`python3 -m http.server 8000 --directory build/web/html`
 
 To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
 panel. Select either the Debug or Release variant. You must select the launch
@@ -82,7 +82,7 @@ To build the emulator, ensure your seatbelt is fastened and tray tables in their
 upright position; we have some bumpy weather ahead. From the CMake side panel
 select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
 panel you select "Emulator Debug" and press F5. You'll get prompted to select
-one of the included test roms to run. You'll also have a binary in src/emu/build
+one of the included test roms to run. You'll also have a binary in build/emulator
 which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
 and vscode-llvm-mos, or any other IDE thats support DAP.
 

@@ -18,9 +18,10 @@ the user home directory.
 Limit git usage to as few requests as possible unless I specifically ask
 for something only git can answer.
 
-To build, run `cmake --build build` from the project root. That builds
-every target in one shot. Do not hunt for individual ninja target names
-(rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+To build, run `cmake --build build/firmware` from the project root. That
+builds every target in one shot. Do not hunt for individual ninja target
+names (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+The emulator is a separate tree at build/emulator (`cmake --build build/emulator`).
 
 Never delete debug macros (DBG, DEBUG_*, etc.) on "currently unused"
 grounds. They are scaffolding kept for future bring-up. If a review

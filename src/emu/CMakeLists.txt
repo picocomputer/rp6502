@@ -27,10 +27,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
-# The shared src/ and vendor/ trees live at the repo root; this src/emu dir
-# holds the host/wasm build beside the emulator sources. RP6502 (the firmware
-# sources) is the co-located src/ tree — the old src/rp6502 submodule is gone —
-# and the third-party deps it used to vendor (emu8950, fatfs) live under vendor/.
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 set(SRC ${RP6502_ROOT}/src)
 set(EMU ${RP6502_ROOT}/src/emu)
@@ -221,13 +217,6 @@ else()
         endif()
     elseif(EMSCRIPTEN)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3)
-        # WebGL2 (GLES3), heap growth (the emulator holds a few 640x480 RGBA
-        # framebuffers + 128 KB of RAM/XRAM). The module is generic — no ROM is
-        # baked in; the page fetches ROMs into MEMFS and passes them as argv. The
-        # MSC0: drive persists in IndexedDB (IDBFS), so we force the filesystem in
-        # (no --embed/--preload would otherwise tree-shake it) and export the
-        # runtime methods the page's preRun uses to mount/sync/seed it. Output is
-        # rp6502.js/.wasm in build/web/ — the deployable web root.
         target_link_options(rp6502-emu PRIVATE
             "-sUSE_WEBGL2=1"
             "-sALLOW_MEMORY_GROWTH=1"
@@ -237,22 +226,15 @@ else()
             "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,addRunDependency,removeRunDependency")
         set_target_properties(rp6502-emu PROPERTIES
             OUTPUT_NAME rp6502
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/build/web")
-        # Assemble the full deployable web root: the link drops rp6502.js/.wasm
-        # into build/web/; copy the page shell in beside them, plus every test ROM
-        # into build/web/roms/ so the page's menu can load them (fetched at
-        # runtime via ?rom=roms/<name>, not embedded). A standalone ALL target
-        # (not POST_BUILD) so editing the shell refreshes build/web without a
-        # relink — and so `cmake --build` produces the complete site on any
-        # platform with no shell script, which is what makes the Windows / VS Code
-        # (CMake Tools "wasm" preset) build work the same as on Linux/macOS.
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
+        # Assemble the web roots
         file(GLOB WEB_ROMS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${EMU}/web" "${CMAKE_SOURCE_DIR}/build/web"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/build/web/roms"
-            COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_SOURCE_DIR}/build/web/roms"
-            COMMENT "Assembling deployable web root (build/web) + test ROMs"
+                "${EMU}/web" "${CMAKE_BINARY_DIR}/html"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
+            COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
+            COMMENT "Assembling deployable web root (build/web/html) + test ROMs"
             VERBATIM)
         add_dependencies(web_root rp6502-emu)
     else() # Linux / BSD
