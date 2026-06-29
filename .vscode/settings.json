@@ -1,3 +1,6 @@
 {
-    "cmake.sourceDirectory": "/home/rumble/rp6502/emulator"
+    "cmake.sourceDirectory": [
+        "${workspaceFolder}/firmware",
+        "${workspaceFolder}/emulator"
+    ]
 }
