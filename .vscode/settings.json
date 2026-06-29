@@ -16,7 +16,30 @@
     "cmake.configureOnOpen": true,
     "cmake.configureOnEdit": true,
     "cmake.automaticReconfigure": true,
-    "cmake.options.statusBarVisibility": "compact",
+    "cmake.options.statusBarVisibility": "hidden",
+    "cmake.options.advanced": {
+        "configure": {
+            "statusBarVisibility": "visible"
+        },
+        "configurePreset": {
+            "statusBarVisibility": "visible"
+        },
+        "launchTarget": {
+            "statusBarVisibility": "visible"
+        },
+        "build": {
+            "statusBarVisibility": "hidden"
+        },
+        "launch": {
+            "statusBarVisibility": "hidden"
+        },
+        "debug": {
+            "statusBarVisibility": "hidden"
+        },
+        "variant": {
+            "statusBarVisibility": "visible"
+        }
+    },
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "C_Cpp.default.cStandard": "c11",
     "C_Cpp.debugShortcut": false,
