@@ -30,7 +30,7 @@ void options_init(options *o)
 {
     memset(o, 0, sizeof *o);
     o->frames = 120;
-    o->scale = 2.0;
+    o->scale = 1.5;
     o->scale_filter = EMU_FILTER_SHARP; /* default sharp */
 }
 

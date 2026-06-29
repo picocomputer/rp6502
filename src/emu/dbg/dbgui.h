@@ -39,6 +39,9 @@ void dbgui_tick(uint64_t pins);
  * reserve room for it and lay the emulated canvas out below the menu rather than
  * under it. Valid after the first dbgui_draw; 0 before. */
 float dbgui_menu_height(void);
+/* Estimated menu-bar height (ImGui points) for sizing the window BEFORE the
+ * first frame measures the real bar (dbgui_menu_height is 0 until then). */
+float dbgui_menu_bar_estimate(void);
 /* Feed a host input event (const sapp_event *). Returns true if ImGui consumed
  * it (the window layer should then not forward it to the emulated machine). */
 bool dbgui_handle_event(const void *sapp_event_ptr);

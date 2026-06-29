@@ -424,6 +424,11 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("Memory Map", nullptr, &g_memmap.open);
             ImGui::EndMenu();
         }
+        /* Present rate, right-aligned (e.g. "59.9 FPS"). */
+        char fps[24];
+        std::snprintf(fps, sizeof fps, "%.1f FPS", ImGui::GetIO().Framerate);
+        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::TextUnformatted(fps);
         ImGui::EndMainMenuBar();
     }
 }
@@ -719,6 +724,13 @@ void dbgui_tick(uint64_t pins)
  * strip (scaled to framebuffer pixels by the DPI factor) so the menu no longer
  * covers the emulated canvas. 0 until the first dbgui_draw runs. */
 float dbgui_menu_height(void) { return g_inited ? g_menu_h : 0.0f; }
+
+/* Pre-first-frame estimate of the menu-bar height (ImGui points), so the window
+ * can open tall enough for the bar before any frame has measured it. simgui's
+ * default font bakes at 13 px; the bar is FontSize + FramePadding.y*2 (3*2) = 19,
+ * measured to the pixel on the actual UI. dbgui_menu_height takes over once the
+ * bar is drawn. */
+float dbgui_menu_bar_estimate(void) { return 19.0f; }
 
 bool dbgui_handle_event(const void *evp)
 {

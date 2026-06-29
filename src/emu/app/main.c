@@ -47,7 +47,7 @@ static void usage(const char *argv0)
             "usage: %s <rom.rp6502> [options]\n"
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --frames <n>              frames to run before screenshot (default 120)\n"
-            "  --scale <n>               window scale, fractional ok (default 2)\n"
+            "  --scale <n>               window scale, fractional ok (default 1.5)\n"
             "  --scale-filter <f>        nearest|linear|sharp (default sharp)\n"
             "  --input <text>            queue keystrokes for stdin ('\\n' = Enter)\n"
             "  --fs <dir>                MSC0: mount directory (default: the launch dir)\n"

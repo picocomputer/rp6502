@@ -435,9 +435,14 @@ static void frame_cb(void)
     if (cw != app.tex_w || ch != app.tex_h)
     {
         /* Before tex_w/tex_h update, note whether the window is still within <1px
-         * of the OLD canvas aspect, i.e. the user hasn't resized it off-aspect. */
+         * of the OLD canvas aspect, i.e. the user hasn't resized it off-aspect.
+         * The canvas region excludes the debugger menu strip, so the width is
+         * matched against that region's height, not the whole window. */
         int w = sapp_width(), h = sapp_height();
-        double off = (double)w - (double)h * app.tex_w / app.tex_h;
+        int avail = h - top_reserved_px();
+        if (avail < 1)
+            avail = 1;
+        double off = (double)w - (double)avail * app.tex_w / app.tex_h;
         int at_aspect = off < 1.0 && off > -1.0;
 
         resize_canvas_texture(cw, ch);
@@ -448,8 +453,9 @@ static void frame_cb(void)
         /* Re-fit the window width to the new aspect ONLY if it was still pristine;
          * a window the user has resized off-aspect is left alone (and letterboxed).
          * We don't poll-and-snap to enforce it: programmatic resizes are unreliable
-         * under WSLg (it restores geometry and drops requests). */
-        int new_w = (int)((long)h * cw / ch);
+         * under WSLg (it restores geometry and drops requests). Height is left as-is
+         * (it already carries the menu strip); only the width tracks the aspect. */
+        int new_w = (int)((long)avail * cw / ch);
         if (at_aspect && new_w != w)
             resize_window(new_w, h);
     }
@@ -654,8 +660,17 @@ int emu_run_window(double scale, bool exit_on_halt)
      * — init_cb sets the aspect hint and the quad letterboxes either way. */
     int cw, ch;
     emu_canvas_size(&cw, &ch);
-    int win_h = (int)(EMU_FB_HEIGHT * app.scale + 0.5);
-    int win_w = (int)((long)win_h * cw / ch);
+    int canvas_h = (int)(EMU_FB_HEIGHT * app.scale + 0.5);
+    int win_w = (int)((long)canvas_h * cw / ch);
+    int win_h = canvas_h;
+#ifdef EMU_WITH_DEBUGGER
+    /* In debug mode the menu bar sits ABOVE the canvas, so open the window taller
+     * by the bar's height; otherwise the canvas-aspect window squeezes the VGA
+     * picture under the menu. Post-open resizes are unreliable (WSLg drops them),
+     * so size it right up front with the pre-frame estimate. */
+    if (dbg_is_active())
+        win_h += (int)(dbgui_menu_bar_estimate() + 0.5f);
+#endif
     sapp_run(&(sapp_desc){
         .init_cb = init_cb,
         .frame_cb = frame_cb,
