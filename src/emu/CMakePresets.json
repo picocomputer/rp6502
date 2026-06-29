@@ -9,7 +9,7 @@
         {
             "name": "debug",
             "displayName": "Debug",
-            "description": "Unoptimized build with symbols for stepping the emulator",
+            "description": "Disable optimizations - include debug information.",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
@@ -20,7 +20,7 @@
         {
             "name": "release",
             "displayName": "Release",
-            "description": "Optimized build",
+            "description": "Optimized for speed - exclude debug information.",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
@@ -30,8 +30,8 @@
         },
         {
             "name": "wasm",
-            "displayName": "WebAssembly (Emscripten)",
-            "description": "Cross-compile the demo to WASM into build/web/",
+            "displayName": "WebAssembly",
+            "description": "Cross-compile into src/emu/build/web/.",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/emscripten",
             "toolchainFile": "${sourceDir}/../../vendor/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",

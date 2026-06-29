@@ -18,10 +18,16 @@
     "cmake.automaticReconfigure": true,
     "cmake.options.statusBarVisibility": "hidden",
     "cmake.options.advanced": {
-        "configure": {
+        "folder": {
             "statusBarVisibility": "visible"
         },
+        // "configure": {
+        //     "statusBarVisibility": "hidden"
+        // },
         "configurePreset": {
+            "statusBarVisibility": "visible"
+        },
+        "variant": {
             "statusBarVisibility": "visible"
         },
         "launchTarget": {
@@ -35,9 +41,6 @@
         },
         "debug": {
             "statusBarVisibility": "hidden"
-        },
-        "variant": {
-            "statusBarVisibility": "visible"
         }
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",

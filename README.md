@@ -10,45 +10,10 @@ https://picocomputer.github.io/
 Pre-built `.uf2` firmware images for Pi Pico 2 boards:<br>
 https://github.com/picocomputer/rp6502/releases
 
-## Layout
 
-This repository is **two** CMake projects that share the `src/` and `vendor/`
-trees:
+## Developer Tools Setup
 
-* **Firmware** — the repository root itself is the RP6502-RIA, RP6502-RIA-W, and
-  RP6502-VGA firmware for the Pico 2 boards, built with the Pico SDK
-  ([CMakeLists.txt](CMakeLists.txt)).
-* **Emulator** — [src/emu/](src/emu/) is a desktop and WebAssembly emulator of
-  the machine (CPU + RIA + VGA) that shares the firmware's own rendering and
-  audio code. See [src/emu/README.md](src/emu/README.md) to build it.
-* [src/](src/) — shared source: the firmware (`ria/`, `vga/`) and the emulator
-  (`emu/`).
-* [vendor/](vendor/) — third-party dependencies. Most are git submodules; run
-  `git submodule update --init` to populate them.
-
-## Opening in VS Code
-
-Open the repository **root** as the folder — not a `.code-workspace`. The root
-*is* the firmware project, so the Raspberry Pi Pico extension activates the way
-it expects, and CMake Tools lists both the firmware (root) and the emulator
-(`src/emu`). Switch between them in the CMake Tools sidebar (or the status-bar
-picker), then configure / build / debug the selected project. The shared `src/`
-and `vendor/` are right there in the same window.
-
-Select the **firmware** project before any Pico action (compile / flash /
-on-chip debug); select the **emulator** project to build or debug the
-desktop/web build.
-
-The two projects use different CMake models on purpose: the firmware builds
-through the Pico **kit** + build-type variant (the extension requires it), while
-the emulator uses its own **CMakePresets** (`debug` / `release` / `wasm`). Build
-the selected project with `F7`. For the emulator, `F5` offers `Debug emu (pick
-ROM)` (choose from `tests/roms`), `Debug emu (dir --fs)`, and `Debug emu (prompt
-ROM + args)`.
-
-## Firmware Dev Setup
-
-This is for building the firmware. For writing 6502 software, see
+This is for building emulation or firmware. For writing 6502 software, see
 [picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65) and
 [picocomputer/vscode-llvm-mos](https://github.com/picocomputer/vscode-llvm-mos).
 
@@ -59,8 +24,46 @@ Some dependencies are submodules. Don't forget to grab them:
 ```
 $ git submodule update --init
 ```
+The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
+submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
+activate the toolchain into that submodule (a one-time ~270 MB download). The same
+thing from the command line:
+```
+$ vendor/emsdk/emsdk install latest   # Windows: vendor\emsdk\emsdk.bat
+$ vendor/emsdk/emsdk activate latest
+```
 
-This is all you would need to do in an ideal world. But the Pi Pico tools run on
+## CMake with VS Code
+
+The rp6502 and emu project use different CMake models on purpose. The first
+thing you need to remember is that F7 builds with the CMake extension settings
+in the side panel and F5 launches a debug session with the Debug settings in
+the side panel.
+
+To build for web, make sure you ran **emsdk: install and activate** after the submodule init.
+From the CMake side panel select Folder:emu and Configure:WebAssembly.
+Pressing F7 will build a test bundle in src/emu/build/web which must be
+delivered with a web server. You can use the VS Code live preview extension
+`ms-vscode.live-server` or a simple python server to run the example.
+`python3 -m http.server 8000 --directory src/emu/build/web`
+
+To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
+panel. Select either the Debug or Release variant. You must select the launch
+target for debugging here, either rp6502_ria or rp6502_vga. Pressing F7 will
+build the firmware. On the Debug side panel, select the "Pico Debug" option that
+matches your debugging setup (probably Cortex-Debug), then press F5.
+
+To build the emulator, ensure your seatbelt is fastened and tray tables in their
+upright position; we have some bumpy weather ahead. From the CMake side panel
+select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
+panel you select "Emulator Debug" and press F5. You'll get prompted to select
+one of the included test roms to run. You'll also have a binary in src/emu/build
+which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
+and vscode-llvm-mos, or any other IDE thats support DAP.
+
+## Additional Firmware Dev Setup
+
+The above is all you would need to do in an ideal world. But the Pi Pico tools run on
 many operating systems which makes documentation a moving target. The following
 are my notes for setting up WSL (Windows Subsystem for Linux) with Ubuntu. Don't
 forget that you can get help from the

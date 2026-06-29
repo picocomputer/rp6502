@@ -48,9 +48,9 @@ MacOS stalled. Requires a developer with a Mac.
   `sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev`.
   Without them the emulator still builds and renders via `--screenshot`.
 * For the WebAssembly build: nothing extra to install — the [Emscripten
-  SDK](https://emscripten.org) is the `vendor/emsdk` submodule (pinned in
-  `emscripten-version.txt`); `build_web.sh` fetches the toolchain into it on
-  first run.
+  SDK](https://emscripten.org) is the `vendor/emsdk` submodule; the VS Code
+  **emsdk: install and activate** task (or `vendor/emsdk/emsdk install latest`
+  then `activate latest`) fetches the toolchain into it on first run.
 
 ## Build
 

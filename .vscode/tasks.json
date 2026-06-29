@@ -126,29 +126,53 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "emu: Build WASM",
-            "type": "shell",
-            "command": "bash",
+            "label": "emsdk: install",
+            "type": "process",
+            "command": "${workspaceFolder}/vendor/emsdk/emsdk",
             "args": [
-                "src/emu/build_web.sh"
+                "install",
+                "latest"
             ],
-            "windows": {
-                "command": "powershell",
-                "args": [
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    "src/emu/build_web.ps1"
-                ]
-            },
             "options": {
-                "cwd": "${workspaceFolder}"
+                "cwd": "${workspaceFolder}/vendor/emsdk"
+            },
+            "windows": {
+                "command": "${workspaceFolder}/vendor/emsdk/emsdk.bat"
             },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": []
+        },
+        {
+            "label": "emsdk: activate",
+            "type": "process",
+            "command": "${workspaceFolder}/vendor/emsdk/emsdk",
+            "args": [
+                "activate",
+                "latest"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/vendor/emsdk"
+            },
+            "windows": {
+                "command": "${workspaceFolder}/vendor/emsdk/emsdk.bat"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "emsdk: install and activate",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "emsdk: install",
+                "emsdk: activate"
+            ],
+            "problemMatcher": []
         }
     ]
 }
