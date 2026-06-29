@@ -74,10 +74,6 @@
             "cwd": "${workspaceFolder}/src/emu",
             "environment": [
                 {
-                    "name": "DISPLAY",
-                    "value": ":0"
-                },
-                {
                     "name": "DEBUGINFOD_URLS",
                     "value": ""
                 }
@@ -122,18 +118,6 @@
                 "loderunner.rp6502",
                 "gamepad.rp6502"
             ]
-        },
-        {
-            "id": "romPath",
-            "type": "promptString",
-            "description": "Path to a .rp6502 ROM",
-            "default": "${workspaceFolder}/src/emu/tests/roms/adventure.rp6502"
-        },
-        {
-            "id": "romArgs",
-            "type": "promptString",
-            "description": "One extra arg (e.g. --screenshot, or leave blank). For multiple args, edit launch.json.",
-            "default": ""
         }
     ]
 }
