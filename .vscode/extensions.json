@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "raspberry-pi.raspberry-pi-pico",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools",
+        "marus25.cortex-debug"
+    ]
+}

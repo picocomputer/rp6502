@@ -74,7 +74,7 @@
             }
         },
         {
-            "label": "CMake Configure (Debug)",
+            "label": "emu: Configure (Debug)",
             "type": "process",
             "command": "cmake",
             "args": [
@@ -91,7 +91,7 @@
             "problemMatcher": []
         },
         {
-            "label": "Build",
+            "label": "emu: Build (Debug)",
             "type": "process",
             "command": "cmake",
             "args": [
@@ -102,11 +102,7 @@
             "options": {
                 "cwd": "${workspaceFolder}/src/emu"
             },
-            "dependsOn": "CMake Configure (Debug)",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
+            "dependsOn": "emu: Configure (Debug)",
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -114,7 +110,7 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "Test",
+            "label": "emu: Test",
             "type": "process",
             "command": "ctest",
             "args": [
@@ -122,11 +118,7 @@
                 "${workspaceFolder}/src/emu/build",
                 "--output-on-failure"
             ],
-            "dependsOn": "Build",
-            "group": {
-                "kind": "test",
-                "isDefault": true
-            },
+            "dependsOn": "emu: Build (Debug)",
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -134,7 +126,7 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "WASM: Build demo",
+            "label": "emu: Build WASM",
             "type": "shell",
             "command": "bash",
             "args": [

@@ -39,6 +39,13 @@ Select the **firmware** project before any Pico action (compile / flash /
 on-chip debug); select the **emulator** project to build or debug the
 desktop/web build.
 
+The two projects use different CMake models on purpose: the firmware builds
+through the Pico **kit** + build-type variant (the extension requires it), while
+the emulator uses its own **CMakePresets** (`debug` / `release` / `wasm`). Build
+the selected project with `F7`. For the emulator, `F5` offers `Debug emu (pick
+ROM)` (choose from `tests/roms`), `Debug emu (dir --fs)`, and `Debug emu (prompt
+ROM + args)`.
+
 ## Firmware Dev Setup
 
 This is for building the firmware. For writing 6502 software, see
