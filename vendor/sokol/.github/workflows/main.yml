@@ -1,0 +1,72 @@
+name: "Build & Test"
+
+on: [push, pull_request]
+
+jobs:
+    windows:
+        runs-on: windows-latest
+        steps:
+        - uses: actions/checkout@main
+        - name: prepare vulkan sdk
+          uses: humbletim/setup-vulkan-sdk@main
+          with:
+            vulkan-query-version: 1.4.335.0
+            vulkan-components: Vulkan-Headers, Vulkan-Loader
+            vulkan-use-cache: true
+        - name: test_win
+          run: |
+            cd tests
+            test_win.cmd
+          shell: cmd
+    mac:
+        runs-on: macos-latest
+        steps:
+        - uses: actions/checkout@main
+        - uses: seanmiddleditch/gha-setup-ninja@master
+        - name: test_macos
+          run: |
+            cd tests
+            ./test_macos.sh
+    ios:
+        runs-on: macos-latest
+        steps:
+        - uses: actions/checkout@main
+        - name: test_ios
+          run: |
+            cd tests
+            ./test_ios.sh
+    linux:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@main
+        - uses: seanmiddleditch/gha-setup-ninja@master
+        - name: prepare
+          run: |
+            sudo apt-get update
+            sudo apt-get install libgl1-mesa-dev libegl1-mesa-dev mesa-common-dev xorg-dev libasound-dev libvulkan-dev
+        - name: test_linux
+          run: |
+            cd tests
+            ./test_linux.sh
+    emscripten:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@main
+        - uses: seanmiddleditch/gha-setup-ninja@master
+        - name: test_emscripten
+          run: |
+            cd tests
+            ./test_emscripten.sh
+    android:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@main
+        - uses: seanmiddleditch/gha-setup-ninja@master
+        - uses: actions/setup-java@v4
+          with:
+            distribution: 'zulu'
+            java-version: '8'
+        - name: test_android
+          run: |
+            cd tests
+            ./test_android.sh

@@ -1,7 +1,7 @@
 This is a RP2350 project, not RP2040 as some legacy filenames may suggest.
 We do not use the TinyUSB in the Pi Pico SDK.
 We have a submodule with overrides:
-* src/tinyusb
+* vendor/tinyusb
 * src/tinyusb_rp6502/hcd_rp2040.c
 * src/tinyusb_rp6502/rp2040_usb.c
 * src/tinyusb_rp6502/midi_host.c
@@ -44,7 +44,7 @@ When a change alters observable behavior — syscalls/API, device pipes,
 monitor commands — update the matching docs in the same change. Match the
 existing prose voice; never edit docs/build (generated output).
 
-The vendored FatFs sources (src/fatfs/ff.c, ff.h, ffconf.h) are upstream
+The vendored FatFs sources (vendor/fatfs/ff.c, ff.h, ffconf.h) are upstream
 code you re-apply on every version bump, so editing them is a last resort —
 prefer our own files. Two deliberate, sanctioned exceptions already live
 there: the formatting "RP6502 mkfs preview hook" (dsk_mkfs_capture) in ff.c,

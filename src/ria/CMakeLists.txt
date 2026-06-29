@@ -47,7 +47,8 @@ set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=overri
 
 target_include_directories(${RIA_TARGET} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
-    ${PROJECT_SOURCE_DIR}/src
+    ${RP6502_ROOT}/src
+    ${RP6502_ROOT}/vendor
 )
 
 target_compile_definitions(${RIA_TARGET} PRIVATE
@@ -119,11 +120,11 @@ rp6502_use_version_header(${RIA_TARGET}
 )
 
 target_sources(${RIA_TARGET} PRIVATE
-    ${PROJECT_SOURCE_DIR}/src/emu8950/emu8950.c
-    ${PROJECT_SOURCE_DIR}/src/fatfs/ff.c
-    ${PROJECT_SOURCE_DIR}/src/fatfs/ffunicode.c
-    ${PROJECT_SOURCE_DIR}/src/littlefs/lfs.c
-    ${PROJECT_SOURCE_DIR}/src/littlefs/lfs_util.c
+    ${RP6502_ROOT}/vendor/emu8950/emu8950.c
+    ${RP6502_ROOT}/vendor/fatfs/ff.c
+    ${RP6502_ROOT}/vendor/fatfs/ffunicode.c
+    ${RP6502_ROOT}/vendor/littlefs/lfs.c
+    ${RP6502_ROOT}/vendor/littlefs/lfs_util.c
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE
@@ -149,13 +150,13 @@ pico_generate_pio_header(${RIA_TARGET}
 # The magic is that header-only files don't get compiled.
 set_source_files_properties(
     ${PICO_SDK_PATH}/src/rp2_common/pico_btstack/btstack_flash_bank.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/class/midi/midi_host.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/portable/raspberrypi/rp2040/hcd_rp2040.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/class/midi/midi_host.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(${RIA_TARGET} PRIVATE
-    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/hcd_rp2040.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
-    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/midi_host.c
+    ${RP6502_ROOT}/src/tinyusb_rp6502/hcd_rp2040.c
+    ${RP6502_ROOT}/src/tinyusb_rp6502/rp2040_usb.c
+    ${RP6502_ROOT}/src/tinyusb_rp6502/midi_host.c
 )

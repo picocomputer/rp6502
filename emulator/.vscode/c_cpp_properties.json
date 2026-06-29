@@ -1,0 +1,26 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Linux",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "cStandard": "c11",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "includePath": [
+                "${workspaceFolder}/../src/emu",
+                "${workspaceFolder}/../src/emu/shim",
+                "${workspaceFolder}/../src/vga",
+                "${workspaceFolder}/../vendor/chips/chips",
+                "${workspaceFolder}/../vendor/chips",
+                "${workspaceFolder}/../vendor/sokol"
+            ],
+            "defines": [
+                "_GNU_SOURCE",
+                "EMU_WITH_SOKOL",
+                "SOKOL_GLCORE",
+                "SOKOL_NO_ENTRY"
+            ]
+        }
+    ]
+}

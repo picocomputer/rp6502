@@ -1,0 +1,15 @@
+{
+    "folders": [
+        {
+            "name": "firmware",
+            "path": "firmware"
+        },
+        {
+            "name": "emulator",
+            "path": "emulator"
+        }
+    ],
+    "settings": {
+        "cmake.options.statusBarVisibility": "compact"
+    }
+}

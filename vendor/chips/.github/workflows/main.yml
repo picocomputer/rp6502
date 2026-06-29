@@ -1,0 +1,78 @@
+name: build_and_test
+
+on: [push, pull_request]
+
+jobs:
+    windows:
+        runs-on: windows-latest
+        steps:
+        - uses: actions/checkout@main
+          with:
+              repository: floooh/chips-test
+        - uses: denoland/setup-deno@v2
+        - name: win-vstudio-debug
+          run: |
+            ./fibs config win-vstudio-debug
+            ./fibs build
+            ./fibs run chips-test
+        - name: win-vstudio-release
+          run: |
+            ./fibs config win-vstudio-release
+            ./fibs build
+    mac:
+        runs-on: macos-latest
+        steps:
+        - uses: actions/checkout@main
+          with:
+              repository: floooh/chips-test
+        - uses: ashutoshvarma/setup-ninja@master
+        - uses: denoland/setup-deno@v2
+        - name: macos-ninja-debug
+          run: |
+            ./fibs config macos-ninja-debug
+            ./fibs build
+            ./fibs run chips-test
+        - name: macos-ninja-release
+          run: |
+            ./fibs config macos-ninja-release
+            ./fibs build
+    linux:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@main
+          with:
+              repository: floooh/chips-test
+        - uses: ashutoshvarma/setup-ninja@master
+        - uses: denoland/setup-deno@v2
+        - name: prepare
+          run:  |
+            sudo apt-get update
+            sudo apt-get install libglu1-mesa-dev mesa-common-dev xorg-dev libasound-dev
+        - name: linux-make-debug
+          run: |
+            ./fibs config linux-ninja-debug
+            ./fibs build
+            ./fibs run chips-test
+        - name: linux-make-release
+          run: |
+            ./fibs config linux-ninja-release
+            ./fibs build
+    emscripten:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@main
+          with:
+              repository: floooh/chips-test
+        - uses: ashutoshvarma/setup-ninja@master
+        - uses: denoland/setup-deno@v2
+        - name: install emsdk
+          run: |
+            ./fibs emsdk install
+        - name: wasm-ninja-debug
+          run: |
+            ./fibs config emsc-ninja-debug
+            ./fibs build
+        - name: wasm-ninja-release
+          run: |
+            ./fibs config emsc-ninja-release
+            ./fibs build
