@@ -1,6 +1,0 @@
-set -e
-source test_common.sh
-build ios_gl_analyze ios_gl_analyze
-build ios_metal_analyze ios_metal_analyze
-build ios_arc_gl_analyze ios_arc_gl_analyze
-build ios_arc_metal_analyze ios_arc_metal_analyze

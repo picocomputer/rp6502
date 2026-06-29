@@ -1,8 +1,0 @@
-.vscode/
-.venv/
-__pycache__/
-#>fips
-# this area is managed by fips, do not edit
-.fips-*
-*.pyc
-#<fips
