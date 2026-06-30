@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
+#include "ui/ui_settings.h"   /* ui_settings_t */
 #include "emu/chips/rp6502.h" /* ria_t, ria_chip */
 
 #ifdef __cplusplus
@@ -46,6 +47,8 @@ typedef struct
 void ui_rp6502_init(ui_rp6502_t *win, const ui_rp6502_desc_t *desc);
 void ui_rp6502_discard(ui_rp6502_t *win);
 void ui_rp6502_draw(ui_rp6502_t *win);
+void ui_rp6502_save_settings(ui_rp6502_t *win, ui_settings_t *settings);
+void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings);
 
 #ifdef __cplusplus
 }
@@ -183,5 +186,17 @@ void ui_rp6502_draw(ui_rp6502_t *win)
         ImGui::EndChild();
     }
     ImGui::End();
+}
+
+void ui_rp6502_save_settings(ui_rp6502_t *win, ui_settings_t *settings)
+{
+    CHIPS_ASSERT(win && settings);
+    ui_settings_add(settings, win->title, win->open);
+}
+
+void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings)
+{
+    CHIPS_ASSERT(win && settings);
+    win->open = ui_settings_isopen(settings, win->title);
 }
 #endif /* CHIPS_UI_IMPL */

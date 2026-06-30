@@ -249,44 +249,110 @@ static const ui_chip_pin_t pins_6522[] = {
     {"PB4", 32, M6522_PB4}, {"PB5", 33, M6522_PB5}, {"PB6", 34, M6522_PB6}, {"PB7", 35, M6522_PB7},
 };
 
-/* ---- Window manager: the menu bar to toggle the overlays, plus the window
- * registry that drives layout persistence. The config-file read/write lives in
- * dbgui_layout.cc; here we own only the registry (key, title, open flag), since
- * some open flags live inside the chips UI structs. ---- */
+/* ---- Layout persistence: the config file is owned by ImGui's settings system.
+ * Two custom ImGuiSettingsHandlers (registered in dbgui_init) ride in that ini:
+ *   [Chips][<window title>]  IsOpen=1  — per-window open flags (chips ui_settings_t)
+ *   [RP6502][Launch]  key=value        — rp6502.py's device block, round-tripped
+ *                                        verbatim (the emulator never reads it)
+ * Window geometry rides in ImGui's built-in [Window] handler; the menu bar (below)
+ * just toggles each window's open flag. ---- */
+static ui_settings_t g_settings;
 
-/* The persistable windows: [EMU] key, ImGui window title (must match the title
- * each window draws under), open flag. */
-#define DBGUI_WIN_COUNT 7
-static const char *const DBGUI_WIN_KEY[DBGUI_WIN_COUNT] = {
-    "control", "disasm", "cpu", "via", "mem", "memmap", "ria"};
-static const char *const DBGUI_WIN_TITLE[DBGUI_WIN_COUNT] = {
-    "Debug Control", "Disassembler", "MOS 6502", "MOS 6522 (VIA)", "Memory", "Memory Map", "RIA"};
-static bool *dbgui_win_open(int i)
+/* Collect every window's open flag into g_settings. The native "Debug Control"
+ * window has no chips struct, so it is added by title here. */
+static void dbgui_collect_settings(void)
 {
-    switch (i)
-    {
-    case 0: return &g_control_open;
-    case 1: return &g_dbg.ui.open;
-    case 2: return &g_cpuwin.open;
-    case 3: return &g_viawin.open;
-    case 4: return &g_memedit.open;
-    case 5: return &g_memmap.open;
-    case 6: return &g_ria.open;
-    }
-    return nullptr;
+    ui_settings_init(&g_settings);
+    ui_dbg_save_settings(&g_dbg, &g_settings);
+    ui_w65c02_save_settings(&g_cpuwin, &g_settings);
+    ui_m6522_save_settings(&g_viawin, &g_settings);
+    ui_memedit_save_settings(&g_memedit, &g_settings);
+    ui_memmap_save_settings(&g_memmap, &g_settings);
+    ui_rp6502_save_settings(&g_ria, &g_settings);
+    ui_settings_add(&g_settings, "Debug Control", g_control_open);
 }
-/* Build the {key, title, open-flag} table the layout persistence acts on. The
- * open flags live in this TU (some inside chips UI structs), so we hand the
- * layout module pointers to them; dbgui_layout.cc does the file/INI work. */
-static int dbgui_win_table(dbgui_win_t *out)
+
+/* [Chips] handler: per-window open flags (mirrors chips-test examples/common/ui.cc). */
+static int g_chips_cur_slot = -1;
+static void chips_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) { ui_settings_init(&g_settings); }
+static void *chips_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
 {
-    for (int i = 0; i < DBGUI_WIN_COUNT; i++)
+    ui_settings_add(&g_settings, name, false);
+    g_chips_cur_slot = g_settings.num_slots - 1;
+    return (void *)&g_settings; /* any non-null: this section has lines to read */
+}
+static void chips_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
+{
+    int is_open = 0;
+    if (g_chips_cur_slot >= 0 && std::sscanf(line, "IsOpen=%i", &is_open) == 1)
+        g_settings.slots[g_chips_cur_slot].open = (is_open != 0);
+}
+static void chips_ini_applyall(ImGuiContext *, ImGuiSettingsHandler *)
+{
+    ui_dbg_load_settings(&g_dbg, &g_settings);
+    ui_w65c02_load_settings(&g_cpuwin, &g_settings);
+    ui_m6522_load_settings(&g_viawin, &g_settings);
+    ui_memedit_load_settings(&g_memedit, &g_settings);
+    ui_memmap_load_settings(&g_memmap, &g_settings);
+    ui_rp6502_load_settings(&g_ria, &g_settings);
+    g_control_open = ui_settings_isopen(&g_settings, "Debug Control");
+}
+static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
+{
+    dbgui_collect_settings();
+    for (int i = 0; i < g_settings.num_slots; i++)
     {
-        out[i].key = DBGUI_WIN_KEY[i];
-        out[i].title = DBGUI_WIN_TITLE[i];
-        out[i].open = dbgui_win_open(i);
+        buf->appendf("[%s][%s]\n", handler->TypeName, g_settings.slots[i].window_title.buf);
+        if (g_settings.slots[i].open)
+            buf->append("IsOpen=1\n");
+        buf->append("\n");
     }
-    return DBGUI_WIN_COUNT;
+}
+
+/* [RP6502][Launch] handler: a dumb passthrough that round-trips rp6502.py's device
+ * block so ImGui's save never drops it (the user's "dummy chips UI element"). */
+static ImGuiTextBuffer g_launch_block;
+static void launch_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) { g_launch_block.clear(); }
+static void *launch_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *)
+{
+    g_launch_block.clear();
+    return (void *)&g_launch_block;
+}
+static void launch_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
+{
+    g_launch_block.appendf("%s\n", line);
+}
+static void launch_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
+{
+    if (g_launch_block.empty())
+        return;
+    buf->appendf("[%s][Launch]\n", handler->TypeName);
+    buf->append(g_launch_block.c_str());
+    buf->append("\n");
+}
+
+/* Register both settings handlers; called once in dbgui_init, before the layout
+ * load, so they fire during LoadIniSettingsFromMemory / SaveIniSettingsToMemory. */
+static void dbgui_register_settings_handlers(void)
+{
+    ImGuiSettingsHandler chips_h;
+    chips_h.TypeName = "Chips";
+    chips_h.TypeHash = ImHashStr("Chips");
+    chips_h.ClearAllFn = chips_ini_clear;
+    chips_h.ReadOpenFn = chips_ini_readopen;
+    chips_h.ReadLineFn = chips_ini_readline;
+    chips_h.ApplyAllFn = chips_ini_applyall;
+    chips_h.WriteAllFn = chips_ini_writeall;
+    ImGui::AddSettingsHandler(&chips_h);
+
+    ImGuiSettingsHandler launch_h;
+    launch_h.TypeName = "RP6502";
+    launch_h.TypeHash = ImHashStr("RP6502");
+    launch_h.ClearAllFn = launch_ini_clear;
+    launch_h.ReadOpenFn = launch_ini_readopen;
+    launch_h.ReadLineFn = launch_ini_readline;
+    launch_h.WriteAllFn = launch_ini_writeall;
+    ImGui::AddSettingsHandler(&launch_h);
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
@@ -385,10 +451,11 @@ void dbgui_init(void)
      * in the final (swapchain) pass. (Setting them explicitly mismatched.) */
     simgui_desc_t sd{};
     simgui_setup(&sd);
-    /* We persist layout ourselves into the [EMU] section of the config file (see
-     * dbgui_load/save_window_state), so disable ImGui's own ini writer -- it would
-     * clobber any foreign sections (e.g. [RP6502]) in that file. */
+    /* We drive load/save to our own config path (dbgui_layout.cc), so disable
+     * ImGui's automatic ini file I/O. The custom Chips/RP6502 settings handlers
+     * still ride inside the ImGui-format file via Load/SaveIniSettingsToMemory. */
     ImGui::GetIO().IniFilename = nullptr;
+    dbgui_register_settings_handlers();
 
     m6502_t *cpu = (m6502_t *)sys_cpu();
     m6522_t *via = (m6522_t *)via_chip();
@@ -479,9 +546,10 @@ void dbgui_init(void)
     ui_memmap_init(&g_memmap, &mmd);
     dbgui_build_memmap();
 
-    /* Restore which windows were open last session (positions come from the ini). */
-    dbgui_win_t wins[DBGUI_WIN_COUNT];
-    dbgui_layout_load(wins, dbgui_win_table(wins));
+    /* Restore geometry + open flags from the config file (ImGui settings + our
+     * Chips/RP6502 handlers). After all windows are initialized, so ApplyAll can
+     * push the loaded open flags into them. */
+    dbgui_layout_load();
     g_inited = true;
 
     /* Drive ui_dbg's view from sys.c's tick loop (heatmap/history/PC). */
@@ -493,8 +561,7 @@ void dbgui_discard(void)
     if (!g_inited)
         return;
     emu_dbg_cycle_cb = nullptr; /* stop feeding ui_dbg before it is destroyed */
-    dbgui_win_t wins[DBGUI_WIN_COUNT];
-    dbgui_layout_save(wins, dbgui_win_table(wins)); /* remember open windows */
+    dbgui_layout_save(); /* final flush of geometry + open flags */
     ui_memmap_discard(&g_memmap);
     ui_memedit_discard(&g_memedit);
     ui_rp6502_discard(&g_ria);
@@ -527,6 +594,14 @@ static bool ui_has_exec_bp(uint16_t addr)
 
 void dbgui_draw(void)
 {
+    /* ImGui flags the settings dirty (a window moved/resized/closed) and, after its
+     * timer, sets WantSaveIniSettings. Flush to our config file when it does. */
+    if (ImGui::GetIO().WantSaveIniSettings)
+    {
+        dbgui_layout_save();
+        ImGui::GetIO().WantSaveIniSettings = false;
+    }
+
     /* Reflect dbg.c's run state into ui_dbg so its toolbar + disassembly show the
      * stop. (ui_dbg may also flip its own 'stopped' when ui_dbg_tick traps on a
      * mirrored breakpoint; this keeps the two in agreement either way.) */
