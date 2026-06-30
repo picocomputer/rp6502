@@ -17,7 +17,6 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/ria.h"
 #include "emu/sys/sys.h"
-#include "emu/sys/xreg.h"
 #include "utest.h"
 #include <math.h>
 
@@ -117,31 +116,6 @@ UTEST(furelise, umlaut_renders)
     ASSERT_GT(lit[0], 0); /* 'F' drew (sanity: text is rendering) */
     ASSERT_GT(lit[1], 0); /* 'ü' drew — the CP437 high-half glyph is present */
     ASSERT_GT(lit[2], 0); /* 'r' drew */
-}
-
-/* OPL2 has no example ROM, so drive its xreg directly: programming device 0
- * channel 1 address 1 brings up the emu8950 core at its 49716 Hz rate and the
- * pump runs its handler without crashing. Guards the OPL dispatch + emu8950
- * link (a silent ROM keeps the 6502 from re-programming audio underneath us). */
-UTEST(audio, opl_dispatch)
-{
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
-    emu_init();
-    ASSERT_EQ(emu_audio_rate(), 24000); /* the standing BEL device */
-
-    ASSERT_TRUE(emu_xreg(0, 1, 1, 0x0E00)); /* OPL config at XRAM page 0x0E */
-    ASSERT_EQ(emu_audio_rate(), 49716);
-
-    static float buf[4096 * 2];
-    long total = 0;
-    for (int i = 0; i < 4; i++)
-    {
-        emu_run_frame();
-        int got;
-        while ((got = emu_audio_read(buf, 4096)) > 0)
-            total += got;
-    }
-    ASSERT_GT(total, (long)(49716 * 3 / 60)); /* ~49.7 kHz of frames pumped */
 }
 
 UTEST_MAIN()

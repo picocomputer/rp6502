@@ -19,17 +19,18 @@ static void run_frames(int n)
         emu_run_frame();
 }
 
-/* hello exits early; the master clock then advances at the fixed scanline rate.
- * 60 frames = exactly one second of run time, to the microsecond. */
+/* The master clock advances at the fixed scanline rate regardless of what the
+ * CPU does, so run time is a pure function of the frame count: 60 frames =
+ * exactly one second, to the microsecond. */
 UTEST(clock, run_time_is_exact_and_reproducible)
 {
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
     run_frames(60);
     ASSERT_EQ(emu_now_us(), 1000000ull);
 
     /* A second identical run yields the identical time. */
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
     run_frames(6);
     ASSERT_EQ(emu_now_us(), 100000ull); /* 100 ms */
@@ -39,7 +40,7 @@ UTEST(clock, run_time_is_exact_and_reproducible)
  * quarter of the instructions but the same wall time elapses. */
 UTEST(clock, time_is_phi2_independent)
 {
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
     emu_set_phi2_khz(2000);
     run_frames(60);

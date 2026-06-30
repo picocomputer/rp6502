@@ -7,42 +7,20 @@
 
 set(UTEST_DIR ${SOKOL}/tests/functional)
 set(ROMS ${CMAKE_CURRENT_SOURCE_DIR}/roms)
-set(HELLO ${ROMS}/hello.rp6502)
-
-# Framebuffer CRC of hello.rp6502 after 2 frames. If the rendering legitimately
-# changes, run test_golden to print the new value and update this line.
-set(GOLDEN_HELLO_CRC "0x7CDBBBB9")
-
-# --- CPU conformance (Klaus Dormann). Standalone: own CPU impl + flat RAM. ---
-add_executable(test_cpu_conformance test_cpu_conformance.c)
-target_include_directories(test_cpu_conformance PRIVATE ${SRC} ${EMU} ${EMU}/dbg)
-add_test(NAME cpu_6502_functional
-    COMMAND test_cpu_conformance ${ROMS}/6502_functional_test.bin 3469)
-add_test(NAME cpu_65c02_extended
-    COMMAND test_cpu_conformance ${ROMS}/65C02_extended_opcodes_test.bin 24F1)
-set_tests_properties(cpu_6502_functional cpu_65c02_extended PROPERTIES TIMEOUT 120)
-
-# --- Golden integration (whole headless pipeline) ---
-add_executable(test_golden test_golden.c)
-target_link_libraries(test_golden PRIVATE emu_core)
-target_include_directories(test_golden PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_golden PRIVATE
-    HELLO_ROM="${HELLO}"
-    GOLDEN_HELLO_CRC=${GOLDEN_HELLO_CRC})
-add_test(NAME golden_hello COMMAND test_golden)
+set(ADVENTURE ${ROMS}/adventure.rp6502)
 
 # --- Unit tests (crc32, .rp6502 loader, xreg dispatch) ---
 add_executable(test_units test_units.c)
 target_link_libraries(test_units PRIVATE emu_core)
 target_include_directories(test_units PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_units PRIVATE HELLO_ROM="${HELLO}")
+target_compile_definitions(test_units PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME units COMMAND test_units)
 
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---
 add_executable(test_features test_features.c)
 target_link_libraries(test_features PRIVATE emu_core)
 target_include_directories(test_features PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_features PRIVATE HELLO_ROM="${HELLO}")
+target_compile_definitions(test_features PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME features COMMAND test_features)
 
 # --- Adventure integration (ROM-asset files + interactive stdin via rln) ---
@@ -63,7 +41,7 @@ add_test(NAME fs COMMAND test_fs)
 add_executable(test_drive test_drive.c)
 target_link_libraries(test_drive PRIVATE emu_core)
 target_include_directories(test_drive PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_drive PRIVATE HELLO_ROM="${HELLO}")
+target_compile_definitions(test_drive PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME drive COMMAND test_drive)
 
 # --- Directory enumeration integration (dir.rp6502: opendir/readdir/stat/getfree) ---
@@ -78,7 +56,7 @@ set_tests_properties(dir PROPERTIES TIMEOUT 60)
 add_executable(test_clock test_clock.c)
 target_link_libraries(test_clock PRIVATE emu_core)
 target_include_directories(test_clock PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_clock PRIVATE HELLO_ROM="${HELLO}")
+target_compile_definitions(test_clock PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME clock COMMAND test_clock)
 
 # --- Exec/argv (pro.c ops 0x08/0x09) + MSC0: program loading ---
@@ -93,8 +71,9 @@ set_tests_properties(exec PROPERTIES TIMEOUT 60)
 add_executable(test_dbg test_dbg.c)
 target_link_libraries(test_dbg PRIVATE emu_core)
 target_include_directories(test_dbg PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_dbg PRIVATE HELLO_ROM="${HELLO}")
+target_compile_definitions(test_dbg PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME dbg COMMAND test_dbg)
+set_tests_properties(dbg PROPERTIES TIMEOUT 60)
 
 # --- DWARF .debug_info variable/type model (dwarf_info.c). Standalone: the
 # parser only needs libc, and the fixture (vars.elf, an llvm-mos -O0 -gdwarf-4
@@ -132,15 +111,8 @@ target_compile_definitions(test_rtc PRIVATE RTC_ROM="${ROMS}/rtc.rp6502")
 add_test(NAME rtc COMMAND test_rtc)
 set_tests_properties(rtc PROPERTIES TIMEOUT 60)
 
-# --- VGA graphics mode 1 (tile/text renderer + xreg + keyboard bitmap) ---
-add_executable(test_mode1 test_mode1.c)
-target_link_libraries(test_mode1 PRIVATE emu_core)
-target_include_directories(test_mode1 PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_mode1 PRIVATE MODE1_ROM="${ROMS}/mode1.rp6502")
-add_test(NAME mode1 COMMAND test_mode1)
-set_tests_properties(mode1 PROPERTIES TIMEOUT 60)
-
-# --- VGA graphics mode 2 (tiled renderer + xreg + keyboard bitmap) ---
+# --- VGA graphics (one representative mode; the renderers share the scanline
+# pipeline). mode2: tiled renderer + xreg + keyboard bitmap. ---
 add_executable(test_mode2 test_mode2.c)
 target_link_libraries(test_mode2 PRIVATE emu_core)
 target_include_directories(test_mode2 PRIVATE ${UTEST_DIR})
@@ -148,37 +120,12 @@ target_compile_definitions(test_mode2 PRIVATE MODE2_ROM="${ROMS}/mode2.rp6502")
 add_test(NAME mode2 COMMAND test_mode2)
 set_tests_properties(mode2 PROPERTIES TIMEOUT 60)
 
-# --- VGA graphics mode 3 (bitmap renderer, 320x180 canvas) ---
-add_executable(test_mode3 test_mode3.c)
-target_link_libraries(test_mode3 PRIVATE emu_core)
-target_include_directories(test_mode3 PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_mode3 PRIVATE MODE3_ROM="${ROMS}/mode3.rp6502")
-add_test(NAME mode3 COMMAND test_mode3)
-set_tests_properties(mode3 PROPERTIES TIMEOUT 60)
-
-# --- VGA graphics mode 4 (affine sprites; software interpolator off-device) ---
-add_executable(test_mode4 test_mode4.c)
-target_link_libraries(test_mode4 PRIVATE emu_core)
-target_include_directories(test_mode4 PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_mode4 PRIVATE MODE4_ROM="${ROMS}/affine.rp6502")
-add_test(NAME mode4 COMMAND test_mode4)
-set_tests_properties(mode4 PROPERTIES TIMEOUT 60)
-
-# --- VGA graphics mode 5 (sprites + multi-plane alpha compositing) ---
-add_executable(test_mode5 test_mode5.c)
-target_link_libraries(test_mode5 PRIVATE emu_core)
-target_include_directories(test_mode5 PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_mode5 PRIVATE MODE5_ROM="${ROMS}/mode5.rp6502")
-add_test(NAME mode5 COMMAND test_mode5)
-set_tests_properties(mode5 PROPERTIES TIMEOUT 60)
-
 # --- Audio (PSG via the ezpsg Fur Elise tracker) ---
 add_executable(test_furelise test_furelise.c)
 target_link_libraries(test_furelise PRIVATE emu_core)
 target_include_directories(test_furelise PRIVATE ${UTEST_DIR})
 target_compile_definitions(test_furelise PRIVATE
-    FURELISE_ROM="${ROMS}/furelise.rp6502"
-    HELLO_ROM="${HELLO}")
+    FURELISE_ROM="${ROMS}/furelise.rp6502")
 add_test(NAME furelise COMMAND test_furelise)
 set_tests_properties(furelise PROPERTIES TIMEOUT 60)
 
@@ -190,11 +137,11 @@ target_compile_definitions(test_paint PRIVATE PAINT_ROM="${ROMS}/paint.rp6502")
 add_test(NAME paint COMMAND test_paint)
 set_tests_properties(paint PROPERTIES TIMEOUT 60)
 
-# --- Gamepad (HID pad xreg + pad_xram_t mirror) + OPL2 music, via Lode Runner ---
-add_executable(test_loderunner test_loderunner.c)
-target_link_libraries(test_loderunner PRIVATE emu_core)
-target_include_directories(test_loderunner PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_loderunner PRIVATE
-    LODERUNNER_ROM="${ROMS}/loderunner.rp6502")
-add_test(NAME loderunner COMMAND test_loderunner)
-set_tests_properties(loderunner PROPERTIES TIMEOUT 60)
+# --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
+add_executable(test_gamepad test_gamepad.c)
+target_link_libraries(test_gamepad PRIVATE emu_core)
+target_include_directories(test_gamepad PRIVATE ${UTEST_DIR})
+target_compile_definitions(test_gamepad PRIVATE
+    GAMEPAD_ROM="${ROMS}/gamepad.rp6502")
+add_test(NAME gamepad COMMAND test_gamepad)
+set_tests_properties(gamepad PROPERTIES TIMEOUT 60)

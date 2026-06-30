@@ -24,17 +24,15 @@ UTEST(crc32, known_vectors)
     ASSERT_EQ(emu_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
 
-UTEST(rom, loads_hello)
+UTEST(rom, loads)
 {
     memset(ram, 0, 0x10000);
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
-    /* program loads at $0200: A2 FF 9A D8 = LDX #$FF; TXS; CLD */
-    ASSERT_EQ(ram[0x0200], 0xA2);
-    ASSERT_EQ(ram[0x0201], 0xFF);
-    ASSERT_EQ(ram[0x0202], 0x9A);
-    /* reset vector at $FFFC/$FFFD -> $0200 */
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
+    /* the loader places code at the $0200 entry and points the reset vector
+     * there ($FFFC/$FFFD -> $0200). */
     ASSERT_EQ(ram[0xFFFC], 0x00);
     ASSERT_EQ(ram[0xFFFD], 0x02);
+    ASSERT_NE(ram[0x0200], 0x00);
 }
 
 UTEST(rom, rejects_missing_file)

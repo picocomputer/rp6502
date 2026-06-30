@@ -212,20 +212,14 @@
 
       if (!roms.length) {
         var MENU = [
-          ['Lode Runner', 'loderunner.rp6502'],
           ['Adventure', 'adventure.rp6502'],
-          ['Mode 1 — C64 text/tiles', 'mode1.rp6502'],
           ['Mode 2 — tiled bitmap', 'mode2.rp6502'],
-          ['Mode 3 — bitmap', 'mode3.rp6502'],
-          ['Mode 4 — affine sprites', 'affine.rp6502'],
-          ['Mode 5 — sprites', 'mode5.rp6502'],
           ['Paint — mouse + 6522', 'paint.rp6502'],
           ['Für Elise — PSG', 'furelise.rp6502'],
           ['Gamepad tester', 'gamepad.rp6502'],
           ['Clock / RTC', 'rtc.rp6502'],
           ['Directory', 'dir.rp6502'],
           ['Exec / argv', 'exec.rp6502'],
-          ['Hello World', 'hello.rp6502'],
         ];
         overlayTitle.textContent = 'Pick a ROM';
         overlayHint.innerHTML = '<div class="menu">' + MENU.map(function (m) {

@@ -5,21 +5,15 @@
             "id": "romPick",
             "type": "pickString",
             "description": "Pick a .rp6502 ROM from tests/roms",
-            "default": "hello.rp6502",
+            "default": "adventure.rp6502",
             "options": [
-                "hello.rp6502",
                 "adventure.rp6502",
                 "exec.rp6502",
                 "rtc.rp6502",
                 "dir.rp6502",
-                "mode1.rp6502",
                 "mode2.rp6502",
-                "mode3.rp6502",
-                "affine.rp6502",
-                "mode5.rp6502",
                 "furelise.rp6502",
                 "paint.rp6502",
-                "loderunner.rp6502",
                 "gamepad.rp6502"
             ]
         }

@@ -26,7 +26,7 @@
  * the program enabled the $FFF0 IRQ) asserts the CPU's IRQ line until read. */
 UTEST(features, sigint_irq)
 {
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
 
     ASSERT_FALSE(ria_irq_asserted()); /* idle at boot */
@@ -59,7 +59,7 @@ UTEST(features, sigint_irq)
  * chain ends when the shell itself exits. */
 UTEST(features, launcher_chain)
 {
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
 
     /* A shell starts and registers itself as the launcher. */
@@ -94,7 +94,7 @@ UTEST(features, launcher_chain)
  * enable flag round-trips. */
 UTEST(features, teletype_bell)
 {
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
 
     ASSERT_EQ(emu_audio_rate(), 24000); /* standing BEL device */
@@ -123,7 +123,7 @@ UTEST(features, teletype_bell)
  * generates no samples at all — not even for a rung bell. */
 UTEST(features, audio_disable)
 {
-    ASSERT_TRUE(emu_rom_load(HELLO_ROM));
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
     ASSERT_EQ(emu_audio_rate(), 24000); /* enabled by default */
 

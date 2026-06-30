@@ -64,9 +64,9 @@ UTEST(drive, install_resolve_and_load)
     ASSERT_TRUE(fresh());
 
     /* A real MSC0: file with the same basename — the install must NOT shadow it. */
-    make_file("hello.rp6502", "NOT THE ROM", 11);
+    make_file("adventure.rp6502", "NOT THE ROM", 11);
 
-    ASSERT_TRUE(fs_install_rom(HELLO_ROM)); /* ":hello.rp6502" -> HELLO_ROM */
+    ASSERT_TRUE(fs_install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" -> ADVENTURE_ROM */
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
@@ -77,10 +77,10 @@ UTEST(drive, install_resolve_and_load)
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
     char host[FS_HOST_MAX_PATH];
-    ASSERT_TRUE(fs_resolve_rom(":hello.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, HELLO_ROM);
-    ASSERT_TRUE(fs_resolve_rom(":HELLO.RP6502", host, sizeof(host))); /* case-insensitive */
-    ASSERT_STREQ(host, HELLO_ROM);
+    ASSERT_TRUE(fs_resolve_rom(":adventure.rp6502", host, sizeof(host)));
+    ASSERT_STREQ(host, ADVENTURE_ROM);
+    ASSERT_TRUE(fs_resolve_rom(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
+    ASSERT_STREQ(host, ADVENTURE_ROM);
     ASSERT_TRUE(fs_resolve_rom(":second.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, second);
     /* An uninstalled or empty ":name" does not resolve. */
@@ -89,16 +89,16 @@ UTEST(drive, install_resolve_and_load)
     ASSERT_FALSE(fs_resolve_rom(":", host, sizeof(host)));
 
     /* The boot/exec loader streams the installed file. */
-    ASSERT_TRUE(emu_rom_load(":hello.rp6502"));
+    ASSERT_TRUE(emu_rom_load(":adventure.rp6502"));
 
     /* A 6502 open(":name") is NOT a thing — like the firmware it goes to MSC0:,
      * where a leading ":" is refused; the install never leaks to the host fs. */
     errno = 0;
-    ASSERT_TRUE(std_open(":hello.rp6502", O_RD) < 0);
+    ASSERT_TRUE(std_open(":adventure.rp6502", O_RD) < 0);
     ASSERT_TRUE(std_open(":", O_RD) < 0);
 
     /* The same basename on MSC0: is the real (different) host file, untouched. */
-    int f = std_open("hello.rp6502", O_RD);
+    int f = std_open("adventure.rp6502", O_RD);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
     size_t got = 0;
@@ -113,17 +113,17 @@ UTEST(drive, install_resolve_and_load)
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
-    ASSERT_TRUE(fs_install_rom(HELLO_ROM)); /* ":hello.rp6502" */
+    ASSERT_TRUE(fs_install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
 
     fs_info_t info;
-    ASSERT_EQ(fs_stat(":hello.rp6502", &info), -1);
+    ASSERT_EQ(fs_stat(":adventure.rp6502", &info), -1);
     ASSERT_EQ(fs_opendir(":"), -1);
-    ASSERT_EQ(fs_chdir(":hello.rp6502"), -1);
+    ASSERT_EQ(fs_chdir(":adventure.rp6502"), -1);
     ASSERT_EQ(fs_chdrive(":"), -1); /* not a cwd-able drive */
-    ASSERT_EQ(fs_unlink(":hello.rp6502"), -1);
+    ASSERT_EQ(fs_unlink(":adventure.rp6502"), -1);
     ASSERT_EQ(fs_mkdir(":sub"), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
-    ASSERT_EQ(fs_stat("MSC0::hello.rp6502", &info), -1);
+    ASSERT_EQ(fs_stat("MSC0::adventure.rp6502", &info), -1);
 }
 
 /* The MSC0: mount is transparent (no chroot): rooted at the launch dir, absolute
