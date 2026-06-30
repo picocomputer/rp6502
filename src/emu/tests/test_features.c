@@ -10,6 +10,7 @@
  */
 
 #include "emu/api/pro.h"
+#include "emu/api/std.h"
 #include "emu/aud/aud.h"
 #include "emu/aud/snd.h"
 #include "emu/mon/rom.h"
@@ -89,9 +90,25 @@ UTEST(features, launcher_chain)
     ASSERT_FALSE(pro_has_launcher());
 }
 
+/* Pump frames, draining audio, until a nonzero sample appears or the budget
+ * runs out. Returns whether the standing handler produced any audible output. */
+static bool pumped_audio(int frames)
+{
+    static float buf[8192];
+    for (int f = 0; f < frames; f++)
+    {
+        snd_task();
+        int got = emu_audio_read(buf, 4096);
+        for (int i = 0; i < got * 2; i++)
+            if (buf[i] != 0.0f)
+                return true;
+    }
+    return false;
+}
+
 /* Bell: the BEL is the standing audio device (firmware), present at boot and
- * silent until rung; ringing it makes the pump produce audible samples; the
- * enable flag round-trips. */
+ * silent until rung. A BEL (0x07) in a program's console output rings the
+ * teletype bell, and the enable flag gates that ring end to end. */
 UTEST(features, teletype_bell)
 {
     ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
@@ -100,23 +117,17 @@ UTEST(features, teletype_bell)
     ASSERT_EQ(emu_audio_rate(), 24000); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
 
-    /* Ring the teletype bell (what a '\a' on console output does) and pump a few
-     * frames: the standing handler now produces audible samples. */
-    bel_add(&bel_teletype);
-    static float buf[8192];
-    bool nonzero = false;
-    for (int f = 0; f < 16 && !nonzero; f++)
-    {
-        snd_task();
-        int got = emu_audio_read(buf, 4096);
-        for (int i = 0; i < got * 2; i++)
-            if (buf[i] != 0.0f)
-                nonzero = true;
-    }
-    ASSERT_TRUE(nonzero);
+    size_t put = 0;
 
+    /* Disabled (nothing has rung yet): a BEL byte is ignored and stays silent. */
     com_set_bel(false);
-    ASSERT_FALSE(com_get_bel());
+    ASSERT_EQ(std_write(1, "\a", 1, &put), IO_OK); /* fd 1 = stdout */
+    ASSERT_FALSE(pumped_audio(16));
+
+    /* Enabled: the same BEL byte now rings the bell -> audible samples. */
+    com_set_bel(true);
+    ASSERT_EQ(std_write(1, "\a", 1, &put), IO_OK);
+    ASSERT_TRUE(pumped_audio(16));
 }
 
 /* --mute (emu_set_audio_enabled(false)): no rate is reported and the synth

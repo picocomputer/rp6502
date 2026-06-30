@@ -1,9 +1,4 @@
-#
-# Copyright (c) 2026 Rumbledethumps
-# SPDX-License-Identifier: BSD-3-Clause
-#
-# CTest suite. Uses utest.h (vendored with sokol) — no new dependency.
-#
+# CTest suite. Uses utest.h (vendored with sokol)
 
 set(UTEST_DIR ${SOKOL}/tests/functional)
 set(ROMS ${CMAKE_CURRENT_SOURCE_DIR}/roms)

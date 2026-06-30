@@ -57,8 +57,8 @@ void com_kbd_push_byte(uint8_t b);
 /* Clear both rings (machine reset). */
 void com_reset(void);
 
-/* Bell-enable flag, exposed through the BEL attribute (vendored atr.c). The
- * emulator stores it but has no teletype bell. */
+/* Bell-enable flag, exposed through the BEL attribute (vendored atr.c). Gates
+ * the teletype bell rung on a BEL in console output. */
 bool com_get_bel(void);
 void com_set_bel(bool value);
 

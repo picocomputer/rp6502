@@ -36,11 +36,9 @@ typedef struct
 static ring_t kbd_ring;
 static ring_t uart_ring;
 
-// TODO The emulator should implement the teletype bell
-
-/* The bell-enable flag (firmware: com.c). The emulator has no teletype bell, but
- * the setting roundtrips through the BEL attribute so a program reads back what
- * it set. Defaults on, like the firmware. */
+/* The bell-enable flag (firmware: com.c). Gates the teletype bell rung on a BEL
+ * (0x07) in program console output; the setting also roundtrips through the BEL
+ * attribute so a program reads back what it set. Defaults on, like the firmware. */
 static bool com_bel_enabled = true;
 
 static ring_t *ring_for(com_source_t src)
