@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Host glue for the vendored terminal: captures term.c's stdio driver so
- * the RIA stdout syscall can feed it directly, supplies the virtual
- * microsecond clock the term timing uses, and sinks terminal query replies.
+ * the RIA stdout syscall (and the reused firmware putchar/printf) can feed
+ * bytes straight into it, applying the firmware's CRLF translation.
  */
 
 #include "emu/host/host.h"

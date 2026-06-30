@@ -43,8 +43,8 @@ static atomic_bool g_pause_req;
 static uint8_t g_bp[0x10000 / 8];
 
 static void (*g_stopped_cb)(int reason, uint16_t pc);
-/* addr -> {file,line} for source-level stepping; set once the DWARF line table
- * is loaded (Phase 3). NULL -> line steps degrade to instruction steps. */
+/* addr -> {file,line} for source-level stepping; set by the DAP adapter once the
+ * program's line table is loaded. NULL -> line steps degrade to instruction steps. */
 static bool (*g_line_lookup)(uint16_t addr, const char **file, int *line);
 
 void dbg_set_active(bool on) { g_active = on; }

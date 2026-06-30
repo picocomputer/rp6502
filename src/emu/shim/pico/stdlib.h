@@ -41,7 +41,7 @@ typedef unsigned int uint;
 #define __isr
 typedef void (*irq_handler_t)(void);
 
-// Monotonic microsecond virtual clock, advanced once per emulated frame.
+// Monotonic microsecond virtual clock derived from the master clock.
 uint64_t emu_now_us(void);
 
 typedef uint64_t absolute_time_t;

@@ -43,11 +43,9 @@ void emu_init(void);
 void emu_run_frame(void);          /* run one 60 Hz VGA frame, rendering it scanline-by-scanline */
 void emu_run_frame_norender(void); /* same, but skip pixel rendering (a catch-up frame) */
 
-/* Frame presentation. emu_run_frame renders the frame scanline-by-scanline into
- * a single staging buffer as the CPU runs; the window uploads
- * emu_present_framebuffer() straight to its streaming texture (sokol's swapchain
- * does the display double-buffering). emu_render copies that frame into fb for
- * --screenshot / the tests. */
+/* Frame presentation. emu_present_framebuffer() returns the completed frame the
+ * window presents; emu_render copies that frame into fb for --screenshot / the
+ * tests. */
 const uint32_t *emu_present_framebuffer(void);
 void emu_render(uint32_t *fb);
 
@@ -70,14 +68,9 @@ uint64_t emu_now_us(void);
  * it in). */
 void *sys_cpu(void); /* m6502_t* */
 
-/* Optional per-CPU-cycle observer. The on-screen overlay registers dbgui_tick
- * here (dbgui_init) so the chips ui_dbg VIEW gets every tick — it needs them to
- * maintain the disassembly heatmap, history and current-PC highlight. NULL
- * otherwise (headless, tests, DAP without a window), so the hot loop pays only a
- * null check. sys.c calls it each cycle while the debugger is active, before the
- * dbg_at_instruction stop check. It is display-only and MUST NOT gate the CPU —
- * dbg.c stays the one authoritative engine that both the overlay and the DAP
- * adapter drive. */
+/* Optional per-CPU-cycle observer for the debugger UI. Display-only and MUST NOT
+ * gate the CPU — dbg.c is the one authoritative engine. NULL when no observer is
+ * registered. */
 extern void (*emu_dbg_cycle_cb)(uint64_t pins);
 
 #ifdef __cplusplus

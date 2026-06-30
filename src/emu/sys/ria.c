@@ -246,8 +246,9 @@ static bool ria_op_dispatch(uint8_t op)
     }
 }
 
-/* The op currently blocked mid-flight (ria.pending_op, 0 = none). Only a stdin
- * read ever lingers; everything else completes on the first dispatch. */
+/* The op currently blocked mid-flight (ria.pending_op, 0 = none). An op that
+ * returns api_working() (stdin, or async MSC file I/O) lingers and is re-polled
+ * by ria_task; everything else completes on the first dispatch. */
 static void ria_syscall(uint8_t op)
 {
     api_set_regs_blocked();
@@ -269,8 +270,9 @@ static void ria_syscall(uint8_t op)
         return;
     }
     default:
-        /* Dispatch once. If the handler is still working (blocking stdin),
-         * leave it pending and let the 6502 spin until ria_task finishes it. */
+        /* Dispatch once. If the handler is still working (api_working: stdin or
+         * async MSC file I/O), leave it pending and let the 6502 spin until
+         * ria_task finishes it. */
         ria.pending_op = ria_op_dispatch(op) ? op : 0;
         return;
     }

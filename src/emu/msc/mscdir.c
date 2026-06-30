@@ -39,7 +39,7 @@ struct msc_dir
 {
     bool used;
     DIR *dp;
-    char host[FS_HOST_MAX_PATH]; /* the opened path, to stat each entry + rewind */
+    char host[FS_HOST_MAX_PATH]; /* the opened path, to stat each entry */
     long pos;                    /* entries read so far */
 };
 static struct msc_dir dirs[MSC_MAX_DIR];
@@ -166,7 +166,6 @@ int fs_readdir(int des, fs_info_t *info)
             return 0;
         }
     } while (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0);
-    /* Host entries only: overlays are not real files here, so they never list. */
     d->pos++;
     char entry[FS_HOST_MAX_PATH];
     struct stat st;

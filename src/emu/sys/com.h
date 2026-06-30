@@ -38,8 +38,8 @@ typedef enum
 } com_source_t;
 
 /* Read one byte. With *src == COM_SOURCE_ANY, picks any ready source and sets
- * *src to it; otherwise reads only *src. Returns -1 (and *src = ANY) when no
- * byte is available. Mirrors the firmware contract rln_read_next relies on. */
+ * *src to it, or resets *src to ANY and returns -1 when none is ready;
+ * otherwise reads only *src, returning -1 (and leaving *src) when it is empty. */
 int com_getchar(com_source_t *src);
 
 /* Peek the next byte of a specific source without consuming it, or -1. */

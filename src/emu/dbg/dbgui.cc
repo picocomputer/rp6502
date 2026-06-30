@@ -8,9 +8,10 @@
  * with the 6510 I/O-port panel removed) and ui_m6522 (VIA) as VIEWS, plus small native
  * windows (run/step/breakpoints, RIA) that drive the one engine in dbg.c. Layout
  * persistence lives in dbgui_layout.cc. The DAP adapter drives the same dbg.c, so VS Code and
- * this overlay stay consistent. We do NOT run ui_dbg's own stepping engine
- * (ui_dbg_tick) — dbg.c gates the CPU and we reflect its stop-state into ui_dbg
- * for display.
+ * this overlay stay consistent. We never let ui_dbg drive the CPU: ui_dbg_tick
+ * still runs every cycle (for the heatmap/history/PC), but we never set its
+ * step_mode, so it never self-steps. dbg.c gates the CPU and we reflect its
+ * stop-state into ui_dbg for display.
  */
 
 #include "imgui.h"

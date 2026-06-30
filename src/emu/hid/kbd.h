@@ -53,8 +53,8 @@ typedef enum
     KBD_KEY_F12,
 } kbd_key_t;
 
-/* Queue printable input as OEM bytes: each UTF-8 sequence is converted to the
- * active code page (a CHAR event's character, or a scripted line). */
+/* Queue printable UTF-8 input as OEM bytes, converting each sequence to the
+ * active code page. */
 void kbd_text(const char *utf8);
 
 /* Queue a non-character key as its xterm sequence, annotating shift/alt/ctrl

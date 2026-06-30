@@ -58,7 +58,8 @@ typedef struct
 } cc65var_t;
 
 /* The auto locals/parameters in scope at pc (csym sc=auto whose lexical scope
- * covers pc), addressed as c_sp + offs (c_sp read via readmem). Returns count. */
+ * covers pc), addressed relative to the live c_sp (read via readmem). Returns
+ * count. */
 int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
                    uint8_t (*readmem)(uint16_t addr), cc65var_t *out, int max);
 

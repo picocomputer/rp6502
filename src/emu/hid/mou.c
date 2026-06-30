@@ -9,7 +9,7 @@
  * pointer events (app_sokol / the web shell), or tests.
  *
  * x and y are 8-bit counters that wrap as the mouse moves; a program reads them
- * each poll and tracks the signed delta since the last read (see paint.c). The
+ * each poll and tracks the signed delta since the last read. The
  * window layer converts window-pixel motion to canvas space before feeding it
  * here, so the pointer speed is independent of the window scaling.
  */

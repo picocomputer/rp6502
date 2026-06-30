@@ -28,9 +28,9 @@ uint32_t emu_crc32(uint32_t crc, const void *buf, size_t len);
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path
  * (MSC0:/...), or an overlay ROM name; emu_rom_load resolves it. The program
  * memory-chunk records are streamed straight into ram[]/xram[]; the named assets
- * are NOT read — only their (offset,length) in the file is recorded, so a ROM:
- * read seeks into the file on demand. Returns false (message on stderr) on any
- * format or CRC error. */
+ * are NOT read — only the start of the asset directory is noted, so a ROM: read
+ * scans the file for the entry on demand. Returns false (message on stderr) on
+ * any format or CRC error. */
 bool emu_rom_load(const char *path);
 
 /* ---- ROM: drive (rom.c): the .rp6502's bundled assets, read on demand from the

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The stdio open dispatcher (std.c): the host-side file API over std.c's driver
- * table (the stdio open dispatcher), plus the per-frame line-editor pump and the
- * machine-reset hooks. The std_api_* / dir_api_* 6502 syscall handlers are
+ * table, plus the per-frame line-editor pump and the machine-reset hooks. The
+ * std_api_* / dir_api_* 6502 syscall handlers are
  * declared by the firmware's api/std.h + api/dir.h, which std.c/dir.c include
  * directly; only the emu-core entry points live here.
  */

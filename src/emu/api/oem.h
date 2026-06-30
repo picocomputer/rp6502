@@ -22,7 +22,7 @@ extern "C"
 
 void oem_reset(void);                /* reset to the default code page (437) */
 uint16_t oem_get_code_page(void);    /* the active OEM code page */
-bool oem_set_code_page(uint16_t cp); /* set it (font + clk); false if unsupported */
+bool oem_set_code_page(uint16_t cp); /* set the active code page; false if unsupported */
 
 /* The firmware oem.h "run" names the vendored atr.c uses. No config-vs-running
  * split in the emulator, so these are the effective page (best-effort set). */

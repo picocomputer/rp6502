@@ -322,7 +322,7 @@ cc65dbg_t *cc65dbg_load(const char *path)
      * csym usually points at an import sym, which chains via "exp" to the lab. */
     uint32_t *symval = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL;
     uint32_t *symexp = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL;
-    uint8_t *symflags = nsym ? calloc(nsym, sizeof(uint8_t)) : NULL; /* see SYM_* below */
+    uint8_t *symflags = nsym ? calloc(nsym, sizeof(uint8_t)) : NULL; /* see SYM_* above */
     if (db && nscope)
         db->scopes = calloc(nscope, sizeof(cc_scope));
     if (db && nseg)

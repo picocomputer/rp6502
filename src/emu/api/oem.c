@@ -50,7 +50,7 @@ uint16_t oem_get_code_page(void)
     return oem_code_page;
 }
 
-/* Best-effort, like the firmware's oem_set_code_page_run: an unsupported page is
+/* Best-effort, like the firmware's oem_set_code_page: an unsupported page is
  * left unchanged and reported false (the CLI rejects it; the syscall ignores). */
 bool oem_set_code_page(uint16_t cp)
 {

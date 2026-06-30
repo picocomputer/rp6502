@@ -6,7 +6,7 @@
  * Host audio output (audio_out.c): drain the emulator's native-rate sample ring,
  * linear-resample it to the sokol-audio device rate, and push. Lives in the app
  * (window) target because it touches sokol-audio; the synth itself is snd.c/aud.c
- * in emu_core. Called once per frame after the machine has run.
+ * in emu_core.
  */
 
 #ifndef _EMU_AUDIO_OUT_H_

@@ -32,7 +32,7 @@
 /* ROM: drive — read-only assets, windows into the loaded .rp6502      */
 /* ------------------------------------------------------------------ */
 
-#define ROM_OPEN_MAX 16 /* concurrent ROM:/overlay window opens (cf. the std fd pool) */
+#define ROM_OPEN_MAX 16 /* concurrent ROM: window opens (cf. the std fd pool) */
 
 /* The loaded program's backing .rp6502 and the file offset where its asset
  * directory begins (0 = the image carries no assets). Assets are NOT indexed in
@@ -131,8 +131,8 @@ static bool path_is_rom(const char *path, const char **rest)
     return false;
 }
 
-/* ---- Read-only file windows [base, base+len) into a host file, shared by the
- * ROM: assets and the null-drive installs (install.c). Read with pread on demand. ---- */
+/* ---- Read-only file windows [base, base+len) into a host file, opened by the
+ * ROM: asset driver. Read with pread on demand. ---- */
 struct rom_window
 {
     bool used;

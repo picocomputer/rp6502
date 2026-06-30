@@ -20,7 +20,7 @@
 #include <sys/random.h>
 #endif
 
-/* An LCG step (the PCG/musl multiplier) feeding a splitmix64 finalizer: cheap,
+/* An LCG step (the PCG/musl multiplier) feeding a Murmur3 fmix64 finalizer: cheap,
  * full-period, and well-distributed across all 64 output bits. */
 static uint64_t rand_state;
 static bool rand_seeded;

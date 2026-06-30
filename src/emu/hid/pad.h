@@ -20,8 +20,7 @@ extern "C"
 #endif
 
 /* Flat button id spanning the firmware report's dpad/button0/button1 fields.
- * pad_hid_set maps each to its bit; the analog sticks/triggers stay centered
- * (no host source yet) so a program reads "no input" for them. */
+ * pad_hid_set maps each to its (byte, bit) in the player record. */
 typedef enum
 {
     PAD_BTN_DPAD_UP,

@@ -129,7 +129,7 @@ static struct
     sg_view rt_att;        /* its color-attachment view (render into) */
     sg_view rt_tex;        /* its texture view (sample in the final pass) */
     int rt_w, rt_h;        /* current offscreen size (0 = not created yet) */
-    emu_scale_filter_t filter; /* 0 == NEAREST default; main() sets sharp */
+    emu_scale_filter_t filter; /* 0 == NEAREST default */
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
     int title_variant;     /* last window-title state (running/stopped/mouse) */
     uint8_t mouse_buttons; /* host mouse button bitmap while captured */

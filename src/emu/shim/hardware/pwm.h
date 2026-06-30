@@ -7,8 +7,8 @@
  * (psg/opl/bel) emit each sample by writing its level to a PWM channel; the
  * emulator captures those writes instead. Only the handful of PWM calls that
  * survive on the host (the ones inside the sample handlers) are provided —
- * aud.c's slice/IRQ setup is compiled out under !PICO_ON_DEVICE. The capture
- * itself lives in snd.c.
+ * the firmware aud.c's slice/IRQ setup has no host stand-in because the
+ * emulator links its own aud.c instead. The capture itself lives in snd.c.
  */
 
 #ifndef _EMU_SHIM_HARDWARE_PWM_H_

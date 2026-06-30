@@ -55,10 +55,9 @@ void ria_reg_write(uint16_t addr, uint8_t data);
 uint64_t ria_tick(uint64_t pins);
 void *ria_chip(void); /* ria_t* — the live chip instance, for the debugger UI */
 
-/* RIA $FFF0 interrupt. ria_trigger_vsync latches the per-frame VSYNC flag (sys.c
- * at the vsync boundary); ria_irq_asserted is the tick-loop predicate sys.c ORs
- * into M6502_IRQ after via_tick. (SIGINT is latched via ria_trigger_sigint in
- * sys/ria.h.) */
+/* RIA $FFF0 interrupt. ria_trigger_vsync latches the VSYNC source (raising IRQB
+ * only while the interrupt is enabled); ria_irq_asserted reports whether an
+ * enabled source is pending. SIGINT is latched by ria_trigger_sigint, below. */
 void ria_trigger_vsync(void);
 bool ria_irq_asserted(void);
 

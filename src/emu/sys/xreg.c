@@ -47,7 +47,7 @@ bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
                 return opl_xreg(word);
             return false;
         }
-        return true; /* address 1 mouse handled above; others accepted */
+        return true;
 
     case 1: /* VGA */
         if (channel == 0)

@@ -3,8 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Random (rand.c): the host entropy source the vendored atr.c lrand API reaches
- * through sys/rand.h. The emulator exposes only the seed control point.
+ * Random (rand.c): the host entropy source behind get_rand_64, which the
+ * vendored atr.c lrand API reaches through pico/rand.h. The emulator exposes
+ * only the seed control point here.
  */
 
 #ifndef _EMU_RAND_H_
@@ -17,8 +18,8 @@ extern "C"
 {
 #endif
 
-/* Force a fixed lrand seed for reproducible runs — the --seed CLI option and
- * the tests. With no seed set, get_rand_64 defaults to host entropy. */
+/* Force a fixed lrand seed for reproducible runs. With no seed set,
+ * get_rand_64 defaults to host entropy. */
 void emu_set_random_seed(uint64_t seed);
 
 #ifdef __cplusplus

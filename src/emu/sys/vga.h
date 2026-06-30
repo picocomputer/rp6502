@@ -37,8 +37,9 @@ int vga_vsync_scanline(void);
 void vga_task(void);
 
 /* Render one scanline y of the current frame into the present buffer (RGBA8
- * 0xAABBGGRR, canvas-native stride). Called per visible scanline by
- * emu_run_frame, interleaved with the CPU so raster effects land correctly. */
+ * 0xAABBGGRR, canvas-native stride). Interleaved with the CPU between scanlines
+ * so mid-frame state changes land on later lines (raster effects), matching
+ * real per-scanline scanout. */
 void vga_render_scanline(int y);
 void emu_canvas_size(int *w, int *h);
 
@@ -51,8 +52,7 @@ void emu_canvas_size(int *w, int *h);
 
 int16_t vga_canvas_height(void);
 
-/* Canvas selector (mirrors ria/sys/vga.h vga_canvas_t). rln.c uses it for a
- * geometry fallback when the CPR handshake hasn't resolved a width yet. */
+/* Canvas selector (mirrors ria/sys/vga.h vga_canvas_t). */
 typedef enum
 {
     vga_canvas_console = 0,
@@ -63,7 +63,7 @@ typedef enum
 } vga_canvas_t;
 
 bool vga_connected(void);          /* the emulator always has a display */
-vga_canvas_t vga_get_canvas(void); /* current canvas (rln geometry fallback) */
+vga_canvas_t vga_get_canvas(void); /* current canvas */
 uint8_t vga_get_display_type(void);
 
 #define VGA_PROG_MAX 512

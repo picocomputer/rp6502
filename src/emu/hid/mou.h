@@ -23,13 +23,11 @@ extern "C"
  * at an XRAM address (0xFFFF = off). Mirrors ria/hid/mou.c mou_xreg. */
 bool mou_set_xram(uint16_t addr);
 
-/* True once a program has pointed the report block at XRAM (xreg_ria_mouse).
- * The window layer gates mouse capture on this. */
+/* True once a program has pointed the report block at XRAM (xreg_ria_mouse). */
 bool mou_is_mapped(void);
 
-/* Accumulate host pointer motion. dx/dy are in mouse-counter units (the window
- * layer converts window-pixel motion to canvas space so the speed is
- * independent of window scaling). Fractional motion is carried between calls. */
+/* Accumulate host pointer motion. dx/dy are in mouse-counter units; the caller
+ * scales raw input to that space. Fractional motion is carried between calls. */
 void mou_host_move(float dx, float dy);
 
 /* Set the button byte (bit 0 left, 1 right, 2 middle), mirroring the HID order. */

@@ -26,7 +26,7 @@ void pro_run(void);                   /* snapshot argv[0] of the starting progra
 
 /* Launcher chain (firmware pro.h), reached by the vendored atr.c through the
  * LAUNCHER/EXIT_CODE attributes. A launcher re-runs after each child exits;
- * pro_exit (called from the EXIT syscall) schedules that re-exec. */
+ * pro_exit schedules that re-exec. */
 bool pro_has_launcher(void);
 void pro_set_launcher(bool is_launcher);
 bool pro_is_launcher(void);

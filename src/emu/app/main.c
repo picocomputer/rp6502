@@ -233,7 +233,7 @@ int main(int argc, char **argv)
     emu_init();
 
     /* argv[0] is the program's own path (in MSC0: form) so it can re-exec
-     * itself; ria_execl/exec resolve later argv paths the same way. A drive path
+     * itself; later argv paths from EXEC are resolved the same way. A drive path
      * or an installed ":name" is already in 6502 form; a host path maps back. */
     if (fs_has_drive_prefix(rom) || rom[0] == ':')
         pro_set_argv0(rom);

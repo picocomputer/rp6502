@@ -25,7 +25,7 @@
 #include <string.h>
 
 /* Survives a machine reset (it must, so EXEC's new argv reaches the new
- * program); set only by pro_set_argv0 (initial load) and pro_api_exec. */
+ * program). */
 static uint8_t pro_argv[XSTACK_SIZE];
 
 /* Launcher chain (firmware pro.c): pro_running_path is argv[0] of the program
@@ -123,8 +123,7 @@ void pro_set_argv0(const char *path)
     pro_run(); /* the initial program is now what's running */
 }
 
-/* Snapshot argv[0] of the program now starting (firmware pro_run). Called from
- * pro_set_argv0 (initial load) and the exec reload at the frame boundary, so
+/* Snapshot argv[0] of the program now starting (firmware pro_run), so
  * pro_running_path always names what is running. */
 void pro_run(void)
 {

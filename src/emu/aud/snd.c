@@ -79,11 +79,10 @@ bool emu_audio_enabled(void) { return snd_enabled; }
 void snd_task(void)
 {
     if (!snd_enabled)
-        return; /* audio disabled: generate nothing */
+        return;
 
-    /* The active device handler — PSG, OPL, or the standing BEL (which mixes a
-     * rung bell, and is silent otherwise). It is always installed, like the
-     * firmware, so there is no idle/no-device case to special-case here. */
+    /* The active device handler: PSG, OPL, or the standing BEL (silent until
+     * rung), always installed like the firmware. */
     void (*handler)(void) = aud_host_irq();
     if (!handler)
         return;

@@ -19,10 +19,8 @@ extern "C"
 {
 #endif
 
-/* Host bridge into the emulator aud.c. The desktop has no PWM IRQ, so aud_setup
- * records the installed driver handler + rate here for snd.c to pump. */
-void (*aud_host_irq(void))(void); /* active sample handler, NULL when silent */
-uint32_t aud_host_rate(void);     /* its sample rate in Hz, 0 when silent */
+void (*aud_host_irq(void))(void); /* active sample handler, NULL before init */
+uint32_t aud_host_rate(void);     /* its sample rate in Hz, 0 before init */
 
 /* Native sample rate (Hz) of the active device, or 0 when silent / disabled. */
 int emu_audio_rate(void);
