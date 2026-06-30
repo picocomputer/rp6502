@@ -16,6 +16,7 @@
 #include "emu/api/std.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
+#include "emu/msc/msc.h"
 #include "emu/msc/mscdir.h"
 #include "emu/msc/mscpath.h"
 #include "utest.h"
@@ -206,6 +207,69 @@ UTEST(drive, tmpdrive_is_fresh_and_writable)
     /* Re-mount a normal dir so any later test starts clean (the temp dir is
      * removed at process exit). */
     fs_set_cwd("/tmp");
+}
+
+/* The windowed real-time path runs data transfers as non-blocking POSIX AIO
+ * (msc_set_async): the driver submits the transfer and returns IO_PENDING until
+ * it completes. Drive it to completion (the per-scanline RIA pump does this in
+ * the running emulator) and check the bytes, that the fd offset tracks across
+ * reads, EOF, and lseek interop. Left in sync mode for the other tests. */
+static io_result drain_write(int fd, const void *buf, size_t n, size_t *put)
+{
+    io_result r;
+    do
+        r = std_write(fd, buf, n, put);
+    while (r == IO_PENDING);
+    return r;
+}
+
+static io_result drain_read(int fd, void *buf, size_t n, size_t *got)
+{
+    io_result r;
+    do
+        r = std_read(fd, buf, n, got);
+    while (r == IO_PENDING);
+    return r;
+}
+
+UTEST(drive, async_aio_transfer)
+{
+    ASSERT_TRUE(fresh());
+    msc_set_async(true);
+
+    char src[2000];
+    for (size_t i = 0; i < sizeof(src); i++)
+        src[i] = (char)(i * 7 + 1);
+
+    int fd = std_open("async.dat", O_WR | O_CREAT_ | O_TRUNC_);
+    ASSERT_TRUE(fd >= 0);
+    size_t put = 0;
+    ASSERT_EQ(drain_write(fd, src, sizeof(src), &put), IO_OK);
+    ASSERT_EQ(put, sizeof(src));
+    std_close(fd);
+
+    fd = std_open("async.dat", O_RD);
+    ASSERT_TRUE(fd >= 0);
+    char buf[2000] = {0};
+    size_t got = 0;
+    /* two sequential reads: the fd offset must advance across them */
+    ASSERT_EQ(drain_read(fd, buf, 1000, &got), IO_OK);
+    ASSERT_EQ(got, 1000u);
+    ASSERT_EQ(memcmp(buf, src, 1000), 0);
+    ASSERT_EQ(drain_read(fd, buf, 1000, &got), IO_OK);
+    ASSERT_EQ(got, 1000u);
+    ASSERT_EQ(memcmp(buf, src + 1000, 1000), 0);
+    /* EOF: a further read returns zero bytes (aio_return == 0) */
+    ASSERT_EQ(drain_read(fd, buf, 1000, &got), IO_OK);
+    ASSERT_EQ(got, 0u);
+    /* lseek interoperates with the aio offset snapshot */
+    ASSERT_EQ(std_lseek(fd, 500, SEEK_SET), 500);
+    ASSERT_EQ(drain_read(fd, buf, 16, &got), IO_OK);
+    ASSERT_EQ(got, 16u);
+    ASSERT_EQ(memcmp(buf, src + 500, 16), 0);
+    std_close(fd);
+
+    msc_set_async(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()

@@ -394,41 +394,71 @@ bool std_api_read_xram(void)
 /* write                                                               */
 /* ------------------------------------------------------------------ */
 
-bool std_api_write_xstack(void)
+/* In-flight write (mirrors rd). The driver submits the transfer on the first
+ * poll and returns IO_PENDING until it completes (async window); the source
+ * (xstack/xram) stays put while the 6502 spins, so the pointer is kept. */
+static struct
 {
-    int fd = API_A;
-    uint16_t size = (uint16_t)(XSTACK_SIZE - xstack_ptr);
-    const char *buf = (const char *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-    if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open)
-        return api_return_errno(API_EBADF);
-    if (!fds[fd].write)
-        return api_return_errno(API_ENOSYS);
+    bool active;
+    int fd;
+    const char *buf;
+    uint16_t size;
+} wr;
+
+static bool wr_finish(void)
+{
     size_t put = 0;
-    if (fds[fd].write(fds[fd].desc, buf, size, &put) != IO_OK)
+    io_result r = fds[wr.fd].write(fds[wr.fd].desc, wr.buf, wr.size, &put);
+    if (r == IO_PENDING)
+        return api_working();
+    wr.active = false;
+    if (r != IO_OK)
         return api_return_errno(api_errno_from_host(errno));
     return api_return_ax((uint16_t)put);
 }
 
+bool std_api_write_xstack(void)
+{
+    if (!wr.active)
+    {
+        int fd = API_A;
+        uint16_t size = (uint16_t)(XSTACK_SIZE - xstack_ptr);
+        const char *buf = (const char *)&xstack[xstack_ptr];
+        xstack_ptr = XSTACK_SIZE;
+        if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open)
+            return api_return_errno(API_EBADF);
+        if (!fds[fd].write)
+            return api_return_errno(API_ENOSYS);
+        wr.active = true;
+        wr.fd = fd;
+        wr.buf = buf;
+        wr.size = size;
+    }
+    return wr_finish();
+}
+
 bool std_api_write_xram(void)
 {
-    uint16_t size, xram_addr;
-    if (!api_pop_uint16(&size) || !api_pop_uint16_end(&xram_addr))
-        return api_return_errno(API_EINVAL);
-    int fd = API_A;
-    if (size > 0x7FFF)
-        size = 0x7FFF;
-    if ((int)xram_addr + size > 0x10000)
-        return api_return_errno(API_EINVAL);
-    const char *buf = (const char *)&xram[xram_addr];
-    if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open)
-        return api_return_errno(API_EBADF);
-    if (!fds[fd].write)
-        return api_return_errno(API_ENOSYS);
-    size_t put = 0;
-    if (fds[fd].write(fds[fd].desc, buf, size, &put) != IO_OK)
-        return api_return_errno(api_errno_from_host(errno));
-    return api_return_ax((uint16_t)put);
+    if (!wr.active)
+    {
+        uint16_t size, xram_addr;
+        if (!api_pop_uint16(&size) || !api_pop_uint16_end(&xram_addr))
+            return api_return_errno(API_EINVAL);
+        int fd = API_A;
+        if (size > 0x7FFF)
+            size = 0x7FFF;
+        if ((int)xram_addr + size > 0x10000)
+            return api_return_errno(API_EINVAL);
+        if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open)
+            return api_return_errno(API_EBADF);
+        if (!fds[fd].write)
+            return api_return_errno(API_ENOSYS);
+        wr.active = true;
+        wr.fd = fd;
+        wr.buf = (const char *)&xram[xram_addr];
+        wr.size = size;
+    }
+    return wr_finish();
 }
 
 /* ------------------------------------------------------------------ */
@@ -512,6 +542,7 @@ void std_reset(void)
     mscdir_reset();    /* close open directories */
     setup_console();   /* re-establish fd 0-4 */
     rd.active = false;
+    wr.active = false;
     rln_busy = false;
     rln_needs_nl = false;
     rln_line = NULL;

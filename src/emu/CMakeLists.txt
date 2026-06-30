@@ -139,6 +139,15 @@ target_include_directories(emu_core PUBLIC
 target_compile_definitions(emu_core PUBLIC _GNU_SOURCE)
 target_link_libraries(emu_core PUBLIC m)
 
+# POSIX AIO (aio_read/aio_write) backs non-blocking file I/O in msc.c. glibc puts
+# it in librt; macOS/BSD carry it in libc; the web build (no aio) compiles it out.
+if(NOT EMSCRIPTEN)
+    find_library(RT_LIBRARY rt)
+    if(RT_LIBRARY)
+        target_link_libraries(emu_core PUBLIC ${RT_LIBRARY})
+    endif()
+endif()
+
 # ---------------------------------------------------------------------------
 # rp6502-emu: the desktop app (argv + headless screenshot + sokol window).
 # ---------------------------------------------------------------------------

@@ -23,6 +23,10 @@ extern "C"
 {
 #endif
 
+/* Enable POSIX AIO for data transfers (the windowed real-time loop). Off by
+ * default: headless/tests and the web build do synchronous I/O. */
+void msc_set_async(bool on);
+
 bool msc_std_handles(const char *path);
 void *msc_std_open(const char *path, uint8_t flags); /* desc, or NULL + errno */
 void msc_std_close(void *desc);
