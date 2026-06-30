@@ -272,6 +272,19 @@ static void dbgui_collect_settings(void)
     ui_settings_add(&g_settings, "Debug Control", g_control_open);
 }
 
+/* A bit signature of every window's open flag, for cheap per-frame change
+ * detection: toggling a window (menu item or its title-bar X) flips our own bool
+ * and does NOT dirty ImGui's settings, so WantSaveIniSettings won't fire — we
+ * watch the flags directly and persist the change ourselves. (<= 32 windows.) */
+static unsigned dbgui_open_sig(void)
+{
+    dbgui_collect_settings();
+    unsigned sig = 0;
+    for (int i = 0; i < g_settings.num_slots; i++)
+        sig = (sig << 1) | (g_settings.slots[i].open ? 1u : 0u);
+    return sig;
+}
+
 /* [Chips] handler: per-window open flags (mirrors chips-test examples/common/ui.cc). */
 static int g_chips_cur_slot = -1;
 static void chips_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) { ui_settings_init(&g_settings); }
@@ -353,6 +366,14 @@ static void dbgui_register_settings_handlers(void)
     launch_h.ReadLineFn = launch_ini_readline;
     launch_h.WriteAllFn = launch_ini_writeall;
     ImGui::AddSettingsHandler(&launch_h);
+
+    /* AddSettingsHandler appends, and ImGui's built-in [Window] handler is always
+     * first, so move ours (just appended) to the front of the handler list — that
+     * is the write order, so [RP6502][Launch] then leads the file. */
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    ImGuiSettingsHandler moved = g.SettingsHandlers.back();
+    g.SettingsHandlers.pop_back();
+    g.SettingsHandlers.insert(g.SettingsHandlers.begin(), moved);
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
@@ -594,12 +615,24 @@ static bool ui_has_exec_bp(uint16_t addr)
 
 void dbgui_draw(void)
 {
-    /* ImGui flags the settings dirty (a window moved/resized/closed) and, after its
-     * timer, sets WantSaveIniSettings. Flush to our config file when it does. */
-    if (ImGui::GetIO().WantSaveIniSettings)
+    /* Persist layout changes. ImGui sets WantSaveIniSettings (after its timer) for
+     * geometry moves/resizes; window open-flags don't dirty ImGui's settings, so we
+     * watch them with a cheap signature and flush on any change too. The signature
+     * reflects the previous frame's final state (toggles happen mid-draw), so a
+     * change saves on the next frame — independent of the exit path. */
+    static unsigned dbgui_last_open_sig;
+    static bool dbgui_open_sig_primed;
+    unsigned open_sig = dbgui_open_sig();
+    if (!dbgui_open_sig_primed)
+    {
+        dbgui_last_open_sig = open_sig;
+        dbgui_open_sig_primed = true;
+    }
+    if (ImGui::GetIO().WantSaveIniSettings || open_sig != dbgui_last_open_sig)
     {
         dbgui_layout_save();
         ImGui::GetIO().WantSaveIniSettings = false;
+        dbgui_last_open_sig = open_sig;
     }
 
     /* Reflect dbg.c's run state into ui_dbg so its toolbar + disassembly show the
