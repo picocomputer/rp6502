@@ -82,6 +82,37 @@ static const struct option longopts[] = {
     {NULL, 0, NULL, 0},
 };
 
+void cli_usage(const char *argv0)
+{
+    fprintf(stderr,
+            "usage: %s <rom.rp6502> [options]\n"
+            "  --screenshot <file.png>   render headlessly to PNG and exit\n"
+            "  --frames <n>              frames to run before screenshot (default 120)\n"
+            "  --scale <n>               window scale, fractional ok (default 1.5)\n"
+            "  --no-vsync                present uncapped instead of syncing to the display\n"
+            "  --filter <f>              nearest|linear|sharp (default sharp)\n"
+            "  --input <text>            queue keystrokes for stdin ('\\n' = Enter)\n"
+            "  --fs <dir>                MSC0: mount directory (default: the launch dir)\n"
+            "  --tmpdrive                MSC0: = a fresh throwaway temp dir (isolate the ROM)\n"
+            "  --rom <file>              install a .rp6502 on the null drive, reached\n"
+            "                            as :basename; repeatable, the first one boots\n"
+            "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
+            "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000)\n"
+            "  --cp <n>                  OEM code page (437/720/737/775/850/852/855/\n"
+            "                            857/860-866/869, default 437)\n"
+            "  --seed <n>                fixed RNG seed for reproducible runs\n"
+            "                            (default: host entropy)\n"
+            "  --mute                    mute all audio (no synth, no OS audio device)\n"
+            "  --debug                   on-screen machine debugger (CPU/VIA/disasm); holds\n"
+            "                            the window open on stop for inspection\n"
+            "  --dap                     act as a DAP debug adapter on stdio (implies --debug)\n"
+            "  --credits                 print third-party credits/licenses and exit\n"
+            "  --ini <file>              config file for the debugger UI layout (an\n"
+            "                            [EMU] section; e.g. the workspace .rp6502)\n"
+            "A ROM's 'emulator' asset can preset these; the command line overrides it.\n",
+            argv0);
+}
+
 /* Reset getopt's global state so the same parser can run over several argv sets
  * (the command line, then the ROM "emulator" asset). glibc/musl re-init when
  * optind is set to 0; the BSD-family getopt (and Windows/wingetopt, macOS) needs

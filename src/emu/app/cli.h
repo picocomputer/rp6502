@@ -55,6 +55,9 @@ void options_init(options *o);
  * "--opt=value", and permutes the lone positional (the ROM) to the tail. */
 int parse_args(int argc, char **argv, options *o);
 
+/* Print the option summary to stderr (argv0 names the program). */
+void cli_usage(const char *argv0);
+
 /* Split a command string into argv tokens, honoring "..."/'...' quoting (a quote
  * groups; unquoted whitespace separates). Token text is written into store[];
  * argv[] is filled with pointers into it. Returns the token count. */
