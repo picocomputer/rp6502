@@ -21,9 +21,10 @@
 
 #include <stdio.h>
 
-int emu_run_window(double scale, bool exit_on_halt)
+int emu_run_window(double scale, bool vsync, bool exit_on_halt)
 {
     (void)scale;
+    (void)vsync;
     (void)exit_on_halt;
     fprintf(stderr, "rp6502-emu: built without window support; use --screenshot\n");
     return 1;
@@ -644,7 +645,7 @@ static void cleanup_cb(void)
     sg_shutdown();
 }
 
-int emu_run_window(double scale, bool exit_on_halt)
+int emu_run_window(double scale, bool vsync, bool exit_on_halt)
 {
     /* Clamp to a sane range; the !(>=) form also maps NaN (atof of garbage) to
      * the floor, and the upper bound keeps win_h*scale in int range. */
@@ -678,6 +679,7 @@ int emu_run_window(double scale, bool exit_on_halt)
         .cleanup_cb = cleanup_cb,
         .width = win_w,
         .height = win_h,
+        .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
         .window_title = "Picocomputer 6502",
         .logger.func = slog_func,
     });

@@ -48,6 +48,7 @@ static void usage(const char *argv0)
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --frames <n>              frames to run before screenshot (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
+            "  --no-vsync                present uncapped instead of syncing to the display\n"
             "  --scale-filter <f>        nearest|linear|sharp (default sharp)\n"
             "  --input <text>            queue keystrokes for stdin ('\\n' = Enter)\n"
             "  --fs <dir>                MSC0: mount directory (default: the launch dir)\n"
@@ -140,7 +141,7 @@ static int run_dap(const options *o)
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on
      * exit, the window closes on Disconnect), so the window is held (never
      * auto-closed) — the final screen stays up until the client disconnects. */
-    return emu_run_window(o->scale, false);
+    return emu_run_window(o->scale, o->vsync, false);
 }
 #endif
 
@@ -294,5 +295,5 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    return emu_run_window(o.scale, !o.debug);
+    return emu_run_window(o.scale, o.vsync, !o.debug);
 }

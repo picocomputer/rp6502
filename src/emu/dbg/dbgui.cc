@@ -403,6 +403,33 @@ static int dbgui_win_table(dbgui_win_t *out)
     return DBGUI_WIN_COUNT;
 }
 
+/* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
+ * host can't run the machine in real time. Measured from emu_vga_frame_count over
+ * wall-clock windows — NOT io.Framerate, which is the host's uncapped present rate
+ * (often hundreds of Hz) and says nothing about whether the emulation keeps pace.
+ * Counts hold flat while stopped at a breakpoint, so it reads ~0 when paused. */
+static float dbgui_vga_fps(void)
+{
+    static double win_time;
+    static unsigned long win_base;
+    static bool primed;
+    static float fps;
+    if (!primed)
+    {
+        primed = true;
+        win_base = emu_vga_frame_count;
+    }
+    win_time += ImGui::GetIO().DeltaTime;
+    if (win_time >= 0.5) /* refresh the reading twice a second */
+    {
+        unsigned long now = emu_vga_frame_count;
+        fps = (float)((double)(now - win_base) / win_time);
+        win_base = now;
+        win_time = 0.0;
+    }
+    return fps;
+}
+
 /* The menu bar: each item toggles a window's open flag, so a window closed with
  * its title-bar X can always be brought back. */
 static void dbgui_draw_menu(void)
@@ -424,9 +451,9 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("Memory Map", nullptr, &g_memmap.open);
             ImGui::EndMenu();
         }
-        /* Present rate, right-aligned (e.g. "59.9 FPS"). */
+        /* Emulated VGA rate, right-aligned (e.g. "59.9 FPS"; ~60 when keeping up). */
         char fps[24];
-        std::snprintf(fps, sizeof fps, "%.1f FPS", ImGui::GetIO().Framerate);
+        std::snprintf(fps, sizeof fps, "%.1f FPS", dbgui_vga_fps());
         ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - ImGui::GetStyle().ItemSpacing.x);
         ImGui::TextUnformatted(fps);
         ImGui::EndMainMenuBar();

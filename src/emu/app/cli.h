@@ -33,6 +33,7 @@ typedef struct
     bool have_bg;
     int frames;
     double scale;
+    bool vsync; /* --no-vsync turns it off (default on) */
     emu_scale_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */

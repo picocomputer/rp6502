@@ -20,10 +20,11 @@ extern "C"
 #endif
 
 /* Open a sokol window and run the machine until closed. The ROM must already be
- * loaded and emu_init() called. scale may be fractional. The title shows
- * "(stopped)" once the program exits; exit_on_halt closes the window then
- * instead of leaving the final output up. */
-int emu_run_window(double scale, bool exit_on_halt);
+ * loaded and emu_init() called. scale may be fractional. vsync sets the GL swap
+ * interval (off = present uncapped; the driver may ignore it either way). The
+ * title shows "(stopped)" once the program exits; exit_on_halt closes the window
+ * then instead of leaving the final output up. */
+int emu_run_window(double scale, bool vsync, bool exit_on_halt);
 
 /* Letterbox/pillarbox fill color behind the canvas (RGB 0-255, default black). */
 void emu_set_bgcolor(uint8_t r, uint8_t g, uint8_t b);

@@ -31,6 +31,7 @@ void options_init(options *o)
     memset(o, 0, sizeof *o);
     o->frames = 120;
     o->scale = 1.5;
+    o->vsync = true; /* default on; --no-vsync to disable */
     o->scale_filter = EMU_FILTER_SHARP; /* default sharp */
 }
 
@@ -56,12 +57,14 @@ enum
 {
     OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_SCALE_FILTER, OPT_INPUT,
     OPT_FS, OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
-    OPT_NO_AUDIO, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_INI,
+    OPT_NO_AUDIO, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_INI, OPT_VSYNC, OPT_NO_VSYNC,
 };
 static const struct option longopts[] = {
     {"screenshot",   required_argument, NULL, OPT_SCREENSHOT},
     {"frames",       required_argument, NULL, OPT_FRAMES},
     {"scale",        required_argument, NULL, OPT_SCALE},
+    {"vsync",        no_argument,       NULL, OPT_VSYNC},
+    {"no-vsync",     no_argument,       NULL, OPT_NO_VSYNC},
     {"scale-filter", required_argument, NULL, OPT_SCALE_FILTER},
     {"input",        required_argument, NULL, OPT_INPUT},
     {"fs",           required_argument, NULL, OPT_FS},
@@ -106,6 +109,8 @@ int parse_args(int argc, char **argv, options *o)
         case OPT_SCREENSHOT: o->shot = optarg; break;
         case OPT_FRAMES: o->frames = atoi(optarg); break;
         case OPT_SCALE: o->scale = atof(optarg); break;
+        case OPT_VSYNC: o->vsync = true; break;
+        case OPT_NO_VSYNC: o->vsync = false; break;
         case OPT_SCALE_FILTER:
             if (!strcmp(optarg, "nearest"))
                 o->scale_filter = EMU_FILTER_NEAREST;
