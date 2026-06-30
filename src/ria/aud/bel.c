@@ -187,7 +187,9 @@ static inline uint32_t bel_decay_release_rate(uint8_t nibble, uint32_t rate)
     return (1 << 24) / (rate / 1000 * bel_decay_release_ms_table[nibble]);
 }
 
-__attribute__((optimize("O3"))) int16_t
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+int16_t
 __time_critical_func(bel_sample)(uint32_t rate)
 {
     if (!bel_state.active)
@@ -345,7 +347,7 @@ generate:;
     return out;
 }
 
-static __isr __attribute__((optimize("O3"))) void
+static __isr void
 __time_critical_func(bel_irq_handler)(void)
 {
     pwm_clear_irq(AUD_IRQ_SLICE);
@@ -362,6 +364,7 @@ __time_critical_func(bel_irq_handler)(void)
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample + AUD_PWM_CENTER);
     pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample + AUD_PWM_CENTER);
 }
+#pragma GCC pop_options
 
 void bel_setup(void)
 {

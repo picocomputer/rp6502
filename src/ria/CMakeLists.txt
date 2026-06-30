@@ -37,7 +37,8 @@ target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE
-    -Wall -Wextra -Wsign-compare -Woverride-init
+    -Wall -Wextra -Wsign-compare
+    $<$<COMPILE_LANGUAGE:C>:-Woverride-init>
     $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
     $<$<CONFIG:Release>:-Os>
 )
@@ -125,6 +126,13 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/vendor/fatfs/ffunicode.c
     ${RP6502_ROOT}/vendor/littlefs/lfs.c
     ${RP6502_ROOT}/vendor/littlefs/lfs_util.c
+)
+
+# emu8950 is vendored verbatim; silence its host-GCC warnings rather than patch
+# upstream (unused args/function, sizeof in calloc's first argument).
+set_source_files_properties(
+    ${RP6502_ROOT}/vendor/emu8950/emu8950.c
+    PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-unused-function;-Wno-calloc-transposed-args"
 )
 
 target_link_libraries(${RIA_TARGET} PRIVATE
