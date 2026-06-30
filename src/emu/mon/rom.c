@@ -475,6 +475,14 @@ bool emu_rom_load(const char *path)
             return false;
         }
         uint8_t *dst = (addr > 0xFFFF) ? &xram[addr - 0x10000] : &ram[addr];
+        /* A ROM load must not write the RIA register window. The firmware's
+         * ria_write_buf skips $FF00-$FFF9 (only the $FFFA-$FFFF vectors land in
+         * that page); mirror it by snapshotting those cells and restoring them
+         * after the record streams in (the CRC still covers the file bytes). */
+        uint8_t guard_save[0xFFFA - 0xFF00];
+        bool guard = addr < 0x10000 && addr < 0xFFFA && addr + len > 0xFF00;
+        if (guard)
+            memcpy(guard_save, &ram[0xFF00], sizeof guard_save);
         if (fread(dst, 1, len, f) != len)
         {
             fprintf(stderr, "rp6502-emu: truncated data record at $%X\n", addr);
@@ -487,6 +495,8 @@ bool emu_rom_load(const char *path)
             fclose(f);
             return false;
         }
+        if (guard)
+            memcpy(&ram[0xFF00], guard_save, sizeof guard_save);
         if (addr <= 0xFFFC && addr + len > 0xFFFC)
             reset_lo = true;
         if (addr <= 0xFFFD && addr + len > 0xFFFD)
