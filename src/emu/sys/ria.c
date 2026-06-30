@@ -35,7 +35,7 @@
 #include "emu/sys/sys.h"
 #include "emu/sys/via.h"
 #include "emu/sys/xreg.h"
-#include "emu/sys/ria.h" /* ria_t — the RIA modeled as a bus-interface chip */
+#include "emu/chips/rp6502.h" /* ria_t — the RIA modeled as a bus-interface chip */
 #include "api/api.h"
 #include "api/atr.h"
 #include "api/std.h"

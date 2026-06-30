@@ -6,23 +6,27 @@
  * The RP6502 RIA modeled as a bus-interface chip, in the floooh/chips style — a
  * peripheral on the W65C02S bus, exactly like the 6522 VIA next to it. It decodes
  * the $FFE0-$FFFF register window, drives data on reads, asserts IRQB, and exposes
- * the register file, the XSTACK, and the RW0/RW1 XRAM portals to the CPU.
+ * the register file, the XSTACK, and the RW0/RW1 XRAM portals to the CPU. The RIA
+ * is the RP6502's only chip-level bus interface beyond the CPU/VIA, so this header
+ * carries the system name; the API keeps the ria_* prefix.
  *
  * The OS services its registers trigger (stdio/file I/O, exec, the VGA/PSG/OPL and
  * USB-HID devices, the clock) live on the FAR SIDE — separate subsystems on other
  * buses (XRAM, PIX) reached THROUGH the RIA. They are not part of this chip; an OP
  * write ($FFEF) hands off to them via ria.c's dispatch.
  *
- * Like via.c wraps m6522_t, ria.c keeps a single ria_t instance and ticks it as
- * `pins = ria_tick(pins)`. The RIA shares the 6502 bus, so it ticks on the m6502
- * pin mask (M6502_* in w65c02.h) directly — no separate pin layout. The register
- * file (regs[]) and XSTACK stay as the chip's memory-mapped storage: dual-ported,
- * since the RIA's own firmware addresses them directly (the REGS() shim), so they
- * are shared backing rather than embedded here.
+ * Unlike the single-header w65c02.h/m6522.h cores, the implementation stays in
+ * sys/ria.c (the emulator's normal C convention); this header is the chip's
+ * interface only. Like via.c wraps m6522_t, ria.c keeps a single ria_t instance
+ * and ticks it as `pins = ria_tick(pins)`. The RIA shares the 6502 bus, so it
+ * ticks on the m6502 pin mask (M6502_* in w65c02.h) directly — no separate pin
+ * layout. The register file (the top of RAM at $FFE0) and XSTACK are the chip's
+ * memory-mapped storage: dual-ported, since the RIA's own firmware addresses them
+ * directly (the REGS() shim), so they are shared backing rather than embedded here.
  */
 
-#ifndef _EMU_RIA_H_
-#define _EMU_RIA_H_
+#ifndef _EMU_CHIPS_RP6502_H_
+#define _EMU_CHIPS_RP6502_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -79,4 +83,4 @@ bool ria_get_sigint(void);     /* consume the latched SIGINT for the attribute (
 }
 #endif
 
-#endif /* _EMU_RIA_H_ */
+#endif /* _EMU_CHIPS_RP6502_H_ */

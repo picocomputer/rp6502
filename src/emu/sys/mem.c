@@ -10,7 +10,8 @@
 uint8_t ram[0x10000];
 uint8_t xram[0x10000];
 
-volatile uint8_t regs[32];
+/* The RIA register file aliases the top of RAM ($FFE0-$FFFF). */
+volatile uint8_t *const regs = ram + RIA_WINDOW_LO;
 
 uint8_t xstack[XSTACK_SIZE + 1];
 size_t xstack_ptr = XSTACK_SIZE;

@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Shared machine memory: the 64KB 6502 RAM, the shared 64KB XRAM, the RIA
- * register file (regs[]) and XSTACK, and the XRAM write-notify ring. Plus the
- * fixed bus geometry (the framebuffer size and the RIA/VIA register windows).
- * Owned by mem.c; nearly every module reads these.
+ * register file (a window into RAM at $FFE0) and XSTACK, and the XRAM
+ * write-notify ring. Plus the fixed bus geometry (the framebuffer size and the
+ * RIA/VIA register windows). Owned by mem.c; nearly every module reads these.
  */
 
 #ifndef _EMU_MEM_H_
@@ -35,13 +35,15 @@ extern "C"
 #define VIA_WINDOW_LO 0xFFD0
 #define VIA_WINDOW_HI 0xFFDF /* inclusive */
 
-/* Mirror of ria/sys/mem.h register aliasing: only the low 5 bits matter. */
-extern volatile uint8_t regs[32];
-#define REGS(addr) regs[(addr) & 0x1F]
-#define REGSW(addr) (*(uint16_t *)&REGS(addr))
-
 /* 64KB 6502 RAM and the shared 64KB extended RAM. */
 extern uint8_t ram[0x10000];
+
+/* The RIA register file is the top of RAM ($FFE0-$FFFF): regs is a view into
+ * ram[], so a register write and a RAM write to that address are one and the
+ * same. Mirror of ria/sys/mem.h register aliasing: only the low 5 bits matter. */
+extern volatile uint8_t *const regs;
+#define REGS(addr) regs[(addr) & 0x1F]
+#define REGSW(addr) (*(uint16_t *)&REGS(addr))
 extern uint8_t xram[0x10000];
 
 /* xstack: 512 bytes top-down + 1 guard zero byte. Empty when ptr == SIZE. */

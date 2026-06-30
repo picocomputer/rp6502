@@ -14,7 +14,7 @@
 #include "emu/aud/aud.h"
 #include "emu/aud/snd.h"
 #include "emu/mon/rom.h"
-#include "emu/sys/ria.h"
+#include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"
 #include "aud/bel.h"
 #include "sys/com.h"

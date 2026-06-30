@@ -29,7 +29,6 @@ extern "C"
 
 #include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
 #include "m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
-#include "emu/sys/ria.h"    /* ria_t (the RIA chip instance, via ria_chip()) */
 
 #include "sokol_app.h"
 #include "sokol_gfx.h"
@@ -45,21 +44,20 @@ extern "C"
 #define CHIPS_UTIL_IMPL          /* emit m6502dasm_op (the disassembler ui_dbg calls) */
 #include "emu/chips/w65c02dasm.h"  /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
 #include "emu/chips/ui_w65c02.h"   /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
+#include "emu/chips/ui_rp6502.h"   /* our RIA debug window (bespoke, not a chips fork) */
 #include "ui/ui_m6522.h"
 #include "ui/ui_dbg.h"
 
 #include <cstdio>  /* snprintf, sscanf */
-#include <cstring> /* strchr (control/ria windows) */
 
 static ui_dbg_t g_dbg;
 static ui_w65c02_t g_cpuwin;
 static ui_m6522_t g_viawin;
 static ui_memedit_t g_memedit;
 static ui_memmap_t g_memmap;
-static ui_chip_t g_riachip; /* pin diagram for the native "RIA" window */
+static ui_rp6502_t g_ria;
 static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
-static bool g_riawin_open = false;  /* the native "RIA" window */
 static float g_menu_h;             /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
@@ -125,28 +123,18 @@ static void tex_destroy(ui_texture_t h)
 }
 
 /* Side-effect-free peek/poke of the 6502 address space for the debugger views.
- * The RIA register window ($FFE0-$FFF9) is backed by regs[], NOT ram[]: it holds
- * the live registers AND the API trampoline opcodes the 6502 actually executes
- * (the self-modifying BRA-spin at $FFF1, plus the LDX/LDA/RTS return patch). So
- * the disassembler must read regs[] there or it shows stale RAM (zeros = BRK)
- * over real code. We read the shadow directly rather than ria_reg_read(), whose
- * reads have side effects (pop the xstack, ack IRQ flags, advance the RW
- * pointers) — a debugger view must never perturb the machine. (The VIA window
- * $FFD0-$FFDF lives inside the m6522 chip with no no-side-effect peek; it reads
- * back as RAM, which is fine — it carries no code.) */
+ * The RIA register file lives in ram[] ($FFE0-$FFFF), so a plain ram[] access
+ * reads the live registers and the API trampoline opcodes the 6502 executes
+ * there — and, unlike ria_reg_read(), without the side effects (xstack pop, IRQ
+ * ack, RW auto-increment) that a debugger view must never trigger. */
 static uint8_t mem_peek(uint16_t addr)
 {
-    if (addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI)
-        return REGS(addr);
     return ram[addr];
 }
 
 static void mem_poke(uint16_t addr, uint8_t data)
 {
-    if (addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI)
-        REGS(addr) = data; /* raw poke of the shadow; do NOT trigger a syscall */
-    else
-        ram[addr] = data;
+    ram[addr] = data;
 }
 
 /* ui_dbg memory read callback (the disassembler + heatmap). */
@@ -157,8 +145,8 @@ static uint8_t mem_read(int layer, uint16_t addr, void *user)
     return mem_peek(addr);
 }
 
-/* ui_memedit callbacks. Layer 0 is the 6502 space ($0000-$FFFF, RIA-aware via
- * mem_peek/poke); layer 1 is XRAM, which the system maps at $10000-$1FFFF (its
+/* ui_memedit callbacks. Layer 0 is the 6502 space ($0000-$FFFF; the RIA register
+ * file lives in it at $FFE0); layer 1 is XRAM, which the system maps at $10000-$1FFFF (its
  * own 64KB bank — the 6502 reaches it only through the RIA's RW0/RW1 windows);
  * layer 2 is the 512-byte RIA xstack ($000-$1FF, a top-down LIFO). dbgui_draw
  * scopes the window's max_addr to 512 while that layer is selected, so the editor
@@ -261,109 +249,6 @@ static const ui_chip_pin_t pins_6522[] = {
     {"PB4", 32, M6522_PB4}, {"PB5", 33, M6522_PB5}, {"PB6", 34, M6522_PB6}, {"PB7", 35, M6522_PB7},
 };
 
-/* The RIA is not a chips-modeled chip; it shares the 6502 bus, so its "pins" are
- * that bus as the RIA decodes it (fed live from ria_chip()->PINS), plus a synthetic CS
- * lit while the RIA window is addressed. RIA_PIN_CS rides a free bit above
- * M6502_PIN_MASK (bit 40), so it never collides with a real CPU pin. */
-#define RIA_PIN_CS (1ULL << 40)
-static const ui_chip_pin_t pins_ria[] = {
-    {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
-    {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW}, {"SYNC", 10, M6502_SYNC}, {"IRQ", 11, M6502_IRQ},
-    {"RES", 12, M6502_RES}, {"CS", 13, RIA_PIN_CS},
-    {"A0", 16, M6502_A0}, {"A1", 17, M6502_A1}, {"A2", 18, M6502_A2}, {"A3", 19, M6502_A3},
-    {"A4", 20, M6502_A4}, {"A5", 21, M6502_A5}, {"A6", 22, M6502_A6}, {"A7", 23, M6502_A7},
-    {"A8", 24, M6502_A8}, {"A9", 25, M6502_A9}, {"A10", 26, M6502_A10}, {"A11", 27, M6502_A11},
-    {"A12", 28, M6502_A12}, {"A13", 29, M6502_A13}, {"A14", 30, M6502_A14}, {"A15", 31, M6502_A15},
-};
-
-/* The documented RIA register window ($FFE0-$FFFF, ria.rst). width 2 = a 16-bit
- * little-endian pair. The vectors $FFFA-$FFFF live in RAM and the rest in regs[];
- * mem_peek routes each to the right backing store. */
-static const struct { uint16_t addr; const char *name; uint8_t width; } RIA_REGS[] = {
-    {0xFFE0, "READY", 1}, {0xFFE1, "TX", 1}, {0xFFE2, "RX", 1}, {0xFFE3, "VSYNC", 1},
-    {0xFFE4, "RW0", 1}, {0xFFE5, "STEP0", 1}, {0xFFE6, "ADDR0", 2},
-    {0xFFE8, "RW1", 1}, {0xFFE9, "STEP1", 1}, {0xFFEA, "ADDR1", 2},
-    {0xFFEC, "XSTACK", 1}, {0xFFED, "ERRNO", 2}, {0xFFEF, "OP", 1},
-    {0xFFF0, "IRQ", 1}, {0xFFF1, "SPIN", 1}, {0xFFF2, "BUSY", 1}, {0xFFF3, "LDA", 1},
-    {0xFFF4, "A", 1}, {0xFFF5, "LDX", 1}, {0xFFF6, "X", 1}, {0xFFF7, "RTS", 1},
-    {0xFFF8, "SREG", 2}, {0xFFFA, "NMIB", 2}, {0xFFFC, "RESB", 2}, {0xFFFE, "IRQB", 2},
-};
-
-/* The native RIA window: the bus-pin diagram + the register window. A read-only
- * inspector (edit registers via the Memory window if needed; the xstack lives
- * there too, as the Memory window's third layer). */
-static void draw_ria(void)
-{
-    if (!g_riawin_open)
-        return;
-    ImGui::SetNextWindowPos(ImVec2(860, 30), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(440, 480), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("RIA", &g_riawin_open))
-    {
-        /* Pins: the bus as the RIA chip last decoded it (ria_chip()->PINS), CS lit
-         * when the RIA window is the addressed device. */
-        uint64_t p = ((const ria_t *)ria_chip())->PINS;
-        uint16_t a = (uint16_t)(p & 0xFFFFu);
-        if (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI)
-            p |= RIA_PIN_CS;
-        ImGui::BeginChild("##ria_pins", ImVec2(176, 0), true);
-        ui_chip_draw(&g_riachip, p);
-        ImGui::EndChild();
-        ImGui::SameLine();
-        ImGui::BeginChild("##ria_state", ImVec2(0, 0), true);
-
-        /* The xstack pointer — an internal latch the memory-mapped register file
-         * doesn't carry (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF]). */
-        ImGui::Text("XSTACK SP $%03X", (unsigned)xstack_ptr);
-        ImGui::Spacing();
-
-        /* Registers. */
-        ImGui::TextUnformatted("Registers");
-        ImGui::Separator();
-        ImGui::BeginChild("##ria_regs", ImVec2(0, 0), false);
-        if (ImGui::BeginTable("##regs", 3,
-                              ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
-                                  ImGuiTableFlags_SizingFixedFit))
-        {
-            for (auto &r : RIA_REGS)
-            {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("$%04X", r.addr);
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(r.name);
-                ImGui::TableNextColumn();
-                if (r.width == 2)
-                    ImGui::Text("$%04X", (unsigned)(mem_peek(r.addr) |
-                                                    (mem_peek((uint16_t)(r.addr + 1)) << 8)));
-                else
-                {
-                    uint8_t v = mem_peek(r.addr);
-                    ImGui::Text("$%02X", v);
-                    char buf[24] = "";
-                    if (r.addr == 0xFFE0)
-                        std::snprintf(buf, sizeof buf, "%s%s", (v & 0x80) ? "TX " : "", (v & 0x40) ? "RX" : "");
-                    else if (r.addr == 0xFFF0)
-                        std::snprintf(buf, sizeof buf, "%s%s", (v & 0x80) ? "VSYNC " : "", (v & 0x40) ? "SIGINT" : "");
-                    else if (r.addr == 0xFFF2 && (v & 0x80))
-                        std::snprintf(buf, sizeof buf, "BUSY");
-                    if (buf[0])
-                    {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("%s", buf);
-                    }
-                }
-            }
-            ImGui::EndTable();
-        }
-        ImGui::EndChild();
-
-        ImGui::EndChild();
-    }
-    ImGui::End();
-}
-
 /* ---- Window manager: the menu bar to toggle the overlays, plus the window
  * registry that drives layout persistence. The config-file read/write lives in
  * dbgui_layout.cc; here we own only the registry (key, title, open flag), since
@@ -386,7 +271,7 @@ static bool *dbgui_win_open(int i)
     case 3: return &g_viawin.open;
     case 4: return &g_memedit.open;
     case 5: return &g_memmap.open;
-    case 6: return &g_riawin_open;
+    case 6: return &g_ria.open;
     }
     return nullptr;
 }
@@ -446,7 +331,7 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("Disassembler", nullptr, &g_dbg.ui.open);
             ImGui::MenuItem("MOS 6502 (CPU)", nullptr, &g_cpuwin.open);
             ImGui::MenuItem("MOS 6522 (VIA)", nullptr, &g_viawin.open);
-            ImGui::MenuItem("RIA", nullptr, &g_riawin_open);
+            ImGui::MenuItem("RIA", nullptr, &g_ria.open);
             ImGui::Separator();
             ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
             ImGui::MenuItem("Memory Map", nullptr, &g_memmap.open);
@@ -559,11 +444,11 @@ void dbgui_init(void)
     UI_CHIP_INIT_DESC(&vd.chip_desc, "6522", 40, pins_6522);
     ui_m6522_init(&g_viawin, &vd);
 
-    /* The RIA pin diagram (a standalone ui_chip; the native draw_ria window owns
-     * the registers + xstack). Fed the live bus pins from ria_chip()->PINS. */
-    ui_chip_desc_t rcd{};
-    UI_CHIP_INIT_DESC(&rcd, "RIA", 32, pins_ria);
-    ui_chip_init(&g_riachip, &rcd);
+    ui_rp6502_desc_t rd{};
+    rd.title = "RIA";
+    rd.x = 860;
+    rd.y = 30;
+    ui_rp6502_init(&g_ria, &rd);
 
     /* Memory editor: three layers (the 6502 space, the XRAM bank, and the RIA
      * xstack). The layer names carry the system address ranges, since the editor
@@ -612,6 +497,7 @@ void dbgui_discard(void)
     dbgui_layout_save(wins, dbgui_win_table(wins)); /* remember open windows */
     ui_memmap_discard(&g_memmap);
     ui_memedit_discard(&g_memedit);
+    ui_rp6502_discard(&g_ria);
     ui_m6522_discard(&g_viawin);
     ui_w65c02_discard(&g_cpuwin);
     ui_dbg_discard(&g_dbg);
@@ -672,7 +558,7 @@ void dbgui_draw(void)
 
     dbgui_draw_menu();
     draw_control();
-    draw_ria();
+    ui_rp6502_draw(&g_ria);
 
     /* dbg.c is the one authoritative engine + breakpoint store (shared with the
      * DAP adapter); ui_dbg's gutter/toolbar/hotkeys are a front-end bridged to it.

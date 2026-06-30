@@ -17,7 +17,7 @@
 #include "emu/dbg/dbg.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/ria.h"
+#include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"

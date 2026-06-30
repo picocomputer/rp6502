@@ -25,7 +25,7 @@
 #include "emu/mon/rom.h"
 #include "emu/msc/mscpath.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/ria.h"
+#include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"

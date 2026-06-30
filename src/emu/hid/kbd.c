@@ -23,7 +23,7 @@
 #include "emu/api/oem.h"
 #include "emu/hid/kbd.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/ria.h"
+#include "emu/chips/rp6502.h"
 #include "sys/com.h"
 #include "sys/ria.h"
 #include "sokol_app.h"
