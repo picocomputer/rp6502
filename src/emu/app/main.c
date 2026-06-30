@@ -283,8 +283,12 @@ int main(int argc, char **argv)
     if (o.shot)
     {
         int frames = o.frames < 1 ? 1 : o.frames;
-        for (int i = 0; i < frames; i++)
-            emu_run_frame();
+        /* Only the final frame is captured, so settle the earlier ones without
+         * the per-scanline pixel work (most of the per-frame cost); render the
+         * last one and snapshot it. */
+        for (int i = 0; i < frames - 1; i++)
+            emu_run_frame_norender();
+        emu_run_frame();
         emu_render(g_fb);
         int cw, ch;
         emu_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */

@@ -35,10 +35,10 @@ int vga_vsync_scanline(void);
  * driven off the virtual clock. */
 void vga_task(void);
 
-/* Render the current frame into an RGBA8 (0xAABBGGRR) framebuffer at the
- * canvas's NATIVE size, tightly packed. EMU_FB_WIDTH x EMU_FB_HEIGHT is the
- * maximum (allocate that); emu_canvas_size reports the live dimensions. */
-void vga_render_frame(uint32_t *fb);
+/* Render one scanline y of the current frame into the present buffer (RGBA8
+ * 0xAABBGGRR, canvas-native stride). Called per visible scanline by
+ * emu_run_frame, interleaved with the CPU so raster effects land correctly. */
+void vga_render_scanline(int y);
 void emu_canvas_size(int *w, int *h);
 
 /* ------------------------------------------------------------------ */

@@ -158,7 +158,7 @@ void emu_init(void)
  * runs PHI2/scanline-rate cycles and the video is paced by the same clock. The
  * vsync counter ($FFE3) ticks at the highest scanline any program renders. The
  * app loop calls this at 60 Hz regardless of the host display's refresh rate. */
-void emu_run_frame(void)
+static void run_frame(bool render)
 {
     /* Debugger hold: a stopped CPU freezes virtual time and the window simply
      * re-presents the last captured frame. Hoisted once per frame so the hot
@@ -168,13 +168,21 @@ void emu_run_frame(void)
         return;
 
     const int vsync_line = vga_vsync_scanline();
+    const int canvas_h = vga_canvas_height(); /* visible region; snapshot for the frame */
     const uint64_t frame_end_n = scanline_n + EMU_VGA_SCANLINES;
-    int sl_in_frame = 0;
+    int line = 0; /* 0-based scanline within this frame */
     bool vsynced = false;
     bool dbg_break = false;
 
     while (scanline_n < frame_end_n)
     {
+        /* Raster-accurate scanout: draw this visible line from the CURRENT
+         * machine state BEFORE its CPU cycles run, so a mid-frame register/VRAM
+         * write only affects later lines (real per-scanline VGA behavior). A
+         * catch-up frame (render == false) skips the pixels but keeps the timing. */
+        if (render && line < canvas_h)
+            vga_render_scanline(line);
+
         const uint64_t deadline = scanline_deadline_8(scanline_n + 1);
         while (master_8 < deadline && !emu_cpu_halted)
         {
@@ -207,16 +215,15 @@ void emu_run_frame(void)
             master_8 = deadline; /* halted: keep the master clock (time) flowing */
         ria_task_pump();         /* poll in-flight I/O each scanline (RIA super-loop analog) */
         scanline_n++;
-        if (!vsynced && ++sl_in_frame >= vsync_line)
+        if (!vsynced && line + 1 >= vsync_line)
         {
             REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* VSYNC counter, 8-bit wrap */
             ria_trigger_vsync(); /* latch $FFF0 bit7; raises IRQ only if the program enabled it */
             vsynced = true;
-            /* The program just got its "frame complete" signal and has NOT yet
-             * drawn the next frame (that happens in the vblank scanlines below),
-             * so XRAM holds exactly the completed frame: snapshot it now. */
-            emu_present_capture();
+            /* The visible lines were rendered as the beam passed them (above), so
+             * g_present already holds the completed frame at this point. */
         }
+        line++;
     }
 
     if (dbg_break)
@@ -252,6 +259,14 @@ void emu_run_frame(void)
         }
     }
 }
+
+/* Run one frame and render it (the displayed frame). */
+void emu_run_frame(void) { run_frame(true); }
+
+/* Run one frame WITHOUT rendering — a catch-up frame the pacer will not present.
+ * CPU/chip/timing/vsync all advance; only the per-scanline pixel work is skipped
+ * (most of the per-frame cost), so catching up after a slow/stalled host is cheap. */
+void emu_run_frame_norender(void) { run_frame(false); }
 
 /* Hand back the frame captured at the last vsync boundary (what the window
  * presents), so --screenshot and the tests see the same completed frame. */

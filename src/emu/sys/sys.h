@@ -40,14 +40,14 @@ uint16_t emu_get_phi2_khz(void);
 extern unsigned long emu_vga_frame_count; /* diagnostic: VGA frames run so far */
 
 void emu_init(void);
-void emu_run_frame(void); /* run exactly one 60 Hz VGA frame */
+void emu_run_frame(void);          /* run one 60 Hz VGA frame, rendering it scanline-by-scanline */
+void emu_run_frame_norender(void); /* same, but skip pixel rendering (a catch-up frame) */
 
-/* Frame presentation. emu_run_frame snapshots the completed frame into a single
- * staging buffer at the vsync boundary (emu_present_capture); the window uploads
+/* Frame presentation. emu_run_frame renders the frame scanline-by-scanline into
+ * a single staging buffer as the CPU runs; the window uploads
  * emu_present_framebuffer() straight to its streaming texture (sokol's swapchain
- * does the display double-buffering). emu_render copies that captured frame into
- * fb for --screenshot / the tests. */
-void emu_present_capture(void);
+ * does the display double-buffering). emu_render copies that frame into fb for
+ * --screenshot / the tests. */
 const uint32_t *emu_present_framebuffer(void);
 void emu_render(uint32_t *fb);
 

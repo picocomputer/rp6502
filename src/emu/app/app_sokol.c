@@ -55,6 +55,7 @@ void emu_set_scale_filter(emu_scale_filter_t filter) { (void)filter; }
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h> /* frame limiter (clock_gettime/clock_nanosleep) */
 
 #if defined(__linux__)
 /* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
@@ -115,6 +116,7 @@ static struct
     double scale;     /* requested window scale (may be fractional) */
     int tex_w, tex_h; /* current texture size = canvas native size */
     bool exit_on_halt; /* close the window when the program stops */
+    bool vsync;        /* false: pace the loop to 60 Hz in software (sleep_until_ns) */
     sg_image img;
     sg_view view;
     sg_sampler smp;        /* NEAREST: the canvas texture / prescale source */
@@ -136,6 +138,11 @@ static struct
  * window-scale independent) then multiplied by this. 2 makes paint, whose
  * MOUSE_DIV halves it, track the physical mouse ~1:1 on screen. */
 #define EMU_MOUSE_GAIN 2.0f
+
+/* Max emulated frames the pacer will run in one callback before dropping the
+ * backlog (no fast-forward after a stall). Also the deepest frame-skip on a
+ * sub-60 display: 6 supports presents down to ~10 Hz, caps catch-up to ~100 ms. */
+#define EMU_MAX_SKIP 6
 
 void emu_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -340,6 +347,35 @@ static void init_cb(void)
 #endif
 }
 
+/* Absolute monotonic nanosecond clock + a sleep-until-absolute-deadline, for the
+ * frame pacer. now_ns() is portable (POSIX clock_gettime; QPC on Windows, whose
+ * windows.h sokol_app already pulled in). The sleep is the no-vsync software
+ * pacer; it's a no-op on the web (RAF paces) and Windows (D3D11 Present paces). */
+static uint64_t now_ns(void)
+{
+#if defined(_WIN32)
+    LARGE_INTEGER f, c;
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&c);
+    return (uint64_t)((double)c.QuadPart * 1e9 / (double)f.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+#endif
+}
+
+static void sleep_until_ns(uint64_t target)
+{
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
+    struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
+                             .tv_nsec = (long)(target % 1000000000ull)};
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &until, NULL);
+#else
+    (void)target;
+#endif
+}
+
 static void frame_cb(void)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -350,50 +386,36 @@ static void frame_cb(void)
             sapp_request_quit();
     }
 #endif
-    /* Pace the machine to the RP6502's fixed 60 Hz VGA. swap_interval defaults to
-     * 1 (vsync on), so this callback fires once per vblank — when the host refresh
-     * is a clean integer multiple of 60 Hz (60/120/180/240), vsync IS our clock:
-     * run one VGA frame every N vsyncs. That is perfectly smooth (the scroll
-     * advances one step every N presents). A wall-clock accumulator here instead
-     * BEATS the two near-equal 60 Hz rates — sapp_frame_duration() is an EMA-
-     * smoothed estimate, never exactly 1/60, so its residual periodically crosses
-     * the step boundary and emits 0 frames then 2 = the once-a-second stutter in
-     * scrolling text. Fall back to a bounded accumulator only for a refresh that
-     * is NOT a 60 Hz multiple (e.g. 144 Hz), headless, or vsync off. */
-    static double accum;
-    double dt = sapp_frame_duration(); /* smoothed; the EMU_BENCH_MS block reuses it */
-    const double step = 1.0 / EMU_VGA_HZ;
-    int vsync_div = 0; /* host refresh / 60, if it is a clean 1..4 multiple */
-    for (int n = 1; n <= 4; n++)
+    /* Emulation is paced by an absolute monotonic clock: run exactly the number
+     * of fixed-60 Hz frames real time owes us since start — independent of the
+     * display refresh, so emulation speed is always correct. The deficit is
+     * capped and dropped (no fast-forward after a stall). Presentation is
+     * decoupled: only the LAST frame of a catch-up batch is rendered; the rest
+     * skip per-scanline pixel work (most of the per-frame cost), so falling
+     * behind stays cheap. The present clock is the vsync swap (vsync) or the
+     * software sleep at the bottom (no-vsync). */
+    double dt = sapp_frame_duration(); /* smoothed; only the EMU_BENCH_MS block uses it */
+    static uint64_t start_ns, done;
+    static bool started;
+    if (!started)
     {
-        double period = step / n; /* expected present period at n*60 Hz */
-        if (dt > 0.875 * period && dt < 1.125 * period)
-        {
-            vsync_div = n;
-            break;
-        }
+        started = true;
+        start_ns = now_ns();
     }
-    if (vsync_div) /* locked to vsync: one VGA frame every vsync_div presents */
+    uint64_t target = (now_ns() - start_ns) * EMU_VGA_HZ / 1000000000ull;
+    uint64_t behind = target > done ? target - done : 0;
+    if (behind > EMU_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
     {
-        static int vsync_count;
-        if (++vsync_count >= vsync_div)
-        {
-            vsync_count = 0;
-            emu_run_frame();
-        }
-        accum = 0.0;
+        done += behind - EMU_MAX_SKIP;
+        behind = EMU_MAX_SKIP;
     }
-    else /* non-multiple refresh / headless / vsync off: bounded accumulator */
+    for (uint64_t i = 0; i < behind; i++)
     {
-        double adt = dt > 0.25 ? 0.25 : dt;
-        accum += adt;
-        for (int frames = 0; accum >= step && frames < 4; frames++)
-        {
-            emu_run_frame();
-            accum -= step;
-        }
-        if (accum > step)
-            accum = step; /* drop the backlog past the catch-up cap */
+        if (i + 1 < behind)
+            emu_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
+        else
+            emu_run_frame(); /* the frame we'll present: render it */
+        done++;
     }
 
 #ifdef EMU_WITH_AUDIO
@@ -461,12 +483,14 @@ static void frame_cb(void)
             resize_window(new_w, h);
     }
 
-    /* Upload the frame captured at the last vsync boundary straight from the emu
-     * core's staging buffer (zero copy). sokol's swapchain double-buffers the
-     * present; the sg_update_image copy is synchronous, so one buffer is enough. */
-    sg_update_image(app.img, &(sg_image_data){
-        .mip_levels[0] = {.ptr = emu_present_framebuffer(), .size = (size_t)cw * ch * sizeof(uint32_t)},
-    });
+    /* Upload the new frame from the emu core's staging buffer (zero copy), but
+     * only when one was produced this callback; a duplicate present (behind == 0,
+     * e.g. a display faster than 60 Hz) re-blits the existing texture below
+     * without re-uploading. sokol's swapchain double-buffers the present. */
+    if (behind > 0)
+        sg_update_image(app.img, &(sg_image_data){
+            .mip_levels[0] = {.ptr = emu_present_framebuffer(), .size = (size_t)cw * ch * sizeof(uint32_t)},
+        });
 
 #ifdef EMU_WITH_DEBUGGER
     /* Build the debugger windows first (between ImGui new-frame and render) so the
@@ -568,6 +592,13 @@ static void frame_cb(void)
 #endif
     sg_end_pass();
     sg_commit();
+
+    /* No-vsync: sokol's loop is uncapped, so pace it in software to when the NEXT
+     * frame is due — start + (done+1)·period (absolute → no drift). Sleeping to
+     * done·period would target a deadline already past and busy-loop. With vsync
+     * the swap-block above already paces the loop. */
+    if (!app.vsync)
+        sleep_until_ns(start_ns + (done + 1) * (1000000000ull / EMU_VGA_HZ));
 }
 
 /* All host key/char translation lives in kbd.c; the window just forwards. */
@@ -654,6 +685,7 @@ int emu_run_window(double scale, bool vsync, bool exit_on_halt)
     if (scale > 64.0)
         scale = 64.0;
     app.scale = scale;
+    app.vsync = vsync;
     app.exit_on_halt = exit_on_halt;
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9

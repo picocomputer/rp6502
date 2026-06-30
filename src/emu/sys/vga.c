@@ -192,11 +192,12 @@ void vga_boot_console(void)
 
 int vga_vsync_scanline(void)
 {
-    /* Mirror the firmware: vsync fires at the highest scanline any program
-     * renders, falling back to the bottom of the frame. */
-    if (g_highest_scanline >= 1 && g_highest_scanline <= EMU_VGA_SCANLINES)
+    /* Mirror the firmware (vga_scanline_complete): vsync fires at the highest
+     * scanline any program renders, clamped to / falling back to the canvas
+     * height (the visible region) — not the full 525-line frame. */
+    if (g_highest_scanline > 0 && g_highest_scanline <= g_canvas_h)
         return g_highest_scanline;
-    return EMU_VGA_SCANLINES;
+    return g_canvas_h;
 }
 
 void vga_task(void)
@@ -220,76 +221,73 @@ void emu_canvas_size(int *w, int *h)
  * display double-buffering + the vsync-locked present, so one buffer suffices. */
 static uint32_t g_present[EMU_FB_WIDTH * EMU_FB_HEIGHT];
 
-void emu_present_capture(void)
-{
-    vga_render_frame(g_present);
-}
-
 const uint32_t *emu_present_framebuffer(void)
 {
     return g_present;
 }
 
-/* Render the canvas at its NATIVE resolution, tightly packed (stride = canvas
- * width). Scaling onto the display is the presentation layer's job (the GPU).
- *
- * Per scanline this follows firmware vga_render_scanline: run each plane's fill
- * then sprite, where sprites draw onto the current "foreground" (the most
- * recently filled plane, or their own zeroed buffer if none). The filled planes
- * are then composited bottom-to-top — the lowest is the opaque base and higher
- * planes overlay where their pixel's alpha bit is set, so e.g. a sprite layer
- * shows through the transparent background of a text layer above it. */
-void vga_render_frame(uint32_t *fb)
+/* Render ONE scanline y of the canvas into fb at the canvas's native stride
+ * (g_canvas_w). Mirrors firmware vga_render_scanline: run each plane's fill then
+ * sprite, where sprites draw onto the current "foreground" (the most recently
+ * filled plane, or their own zeroed buffer if none); the filled planes are then
+ * composited bottom-to-top — the lowest is the opaque base and higher planes
+ * overlay where their pixel's alpha bit is set, so e.g. a sprite layer shows
+ * through the transparent background of a text layer above it. */
+static void render_scanline(int y, uint32_t *fb)
 {
     const int W = g_canvas_w;
-    const int H = g_canvas_h;
     uint16_t plane[SCANVIDEO_PLANE_COUNT][EMU_FB_WIDTH];
-    for (int y = 0; y < H; y++)
+    const vga_prog_t *p = &g_prog[y];
+    bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
+    uint16_t *foreground = NULL;
+    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
-        const vga_prog_t *p = &g_prog[y];
-        bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
-        uint16_t *foreground = NULL;
-        for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
+        if (p->fill_fn[i])
         {
-            if (p->fill_fn[i])
-            {
-                filled[i] = p->fill_fn[i](i, (int16_t)y, (int16_t)W, plane[i], p->fill_config[i]);
-                if (filled[i])
-                    foreground = plane[i];
-            }
-            if (p->sprite_fn[i])
-            {
-                if (!foreground)
-                {
-                    foreground = plane[i];
-                    memset(foreground, 0, (size_t)W * sizeof(uint16_t));
-                    filled[i] = true;
-                }
-                p->sprite_fn[i]((int16_t)y, (int16_t)W, foreground, p->sprite_config[i], p->sprite_length[i]);
-            }
-        }
-
-        uint32_t *dst = fb + (size_t)y * W;
-        int base = -1;
-        for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
+            filled[i] = p->fill_fn[i](i, (int16_t)y, (int16_t)W, plane[i], p->fill_config[i]);
             if (filled[i])
-            {
-                base = i;
-                break;
-            }
-        if (base < 0)
-        {
-            for (int x = 0; x < W; x++)
-                dst[x] = 0xFF000000u;
-            continue;
+                foreground = plane[i];
         }
-        for (int x = 0; x < W; x++)
+        if (p->sprite_fn[i])
         {
-            uint16_t px = plane[base][x];
-            for (int i = base + 1; i < SCANVIDEO_PLANE_COUNT; i++)
-                if (filled[i] && (plane[i][x] & SCANVIDEO_ALPHA_MASK))
-                    px = plane[i][x];
-            dst[x] = g_lut[px];
+            if (!foreground)
+            {
+                foreground = plane[i];
+                memset(foreground, 0, (size_t)W * sizeof(uint16_t));
+                filled[i] = true;
+            }
+            p->sprite_fn[i]((int16_t)y, (int16_t)W, foreground, p->sprite_config[i], p->sprite_length[i]);
         }
     }
+
+    uint32_t *dst = fb + (size_t)y * W;
+    int base = -1;
+    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
+        if (filled[i])
+        {
+            base = i;
+            break;
+        }
+    if (base < 0)
+    {
+        for (int x = 0; x < W; x++)
+            dst[x] = 0xFF000000u;
+        return;
+    }
+    for (int x = 0; x < W; x++)
+    {
+        uint16_t px = plane[base][x];
+        for (int i = base + 1; i < SCANVIDEO_PLANE_COUNT; i++)
+            if (filled[i] && (plane[i][x] & SCANVIDEO_ALPHA_MASK))
+                px = plane[i][x];
+        dst[x] = g_lut[px];
+    }
+}
+
+/* Render scanline y of the current frame into the present buffer, interleaved
+ * with the CPU by emu_run_frame so mid-frame state changes land on later lines
+ * (raster effects), matching the real per-scanline VGA scanout. */
+void vga_render_scanline(int y)
+{
+    render_scanline(y, g_present);
 }
