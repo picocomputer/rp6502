@@ -27,7 +27,7 @@ extern "C"
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* [EMU]-section layout persistence (file/INI side) */
 
-#include "emu/sys/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
+#include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
 #include "m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
 #include "emu/sys/ria.h"    /* ria_t (the RIA chip instance, via ria_chip()) */
 
@@ -43,8 +43,8 @@ extern "C"
 #include "ui/ui_memedit.h"
 #include "ui/ui_memmap.h"
 #define CHIPS_UTIL_IMPL          /* emit m6502dasm_op (the disassembler ui_dbg calls) */
-#include "emu/dbg/w65c02dasm.h"  /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
-#include "emu/dbg/ui_w65c02.h"   /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
+#include "emu/chips/w65c02dasm.h"  /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
+#include "emu/chips/ui_w65c02.h"   /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
 #include "ui/ui_m6522.h"
 #include "ui/ui_dbg.h"
 

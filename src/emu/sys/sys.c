@@ -21,7 +21,7 @@
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
-#include "emu/sys/w65c02.h"
+#include "emu/chips/w65c02.h"
 #include "aud/aud.h"
 #include "sys/cpu.h"
 #include <stdio.h>

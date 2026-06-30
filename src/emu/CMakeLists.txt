@@ -36,7 +36,7 @@ add_library(emu_core STATIC
     ${EMU}/mon/rom.c
     ${EMU}/host/png.c
     ${EMU}/sys/sys.c
-    ${EMU}/sys/w65c02.c
+    ${EMU}/chips/w65c02.c
     ${EMU}/api/api.c
     ${EMU}/api/oem.c
     ${EMU}/host/rand.c

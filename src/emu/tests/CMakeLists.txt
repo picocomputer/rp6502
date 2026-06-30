@@ -95,7 +95,7 @@ add_test(NAME cc65dbg COMMAND test_cc65dbg)
 # --- W65C02S disassembler (the 65C02 fork driving the ui_dbg disasm view). ---
 # Header-only (w65c02dasm.h with CHIPS_UTIL_IMPL); no fixture/toolchain needed.
 add_executable(test_w65c02dasm test_w65c02dasm.c)
-target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${SRC} ${EMU} ${EMU}/dbg)
+target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${SRC} ${EMU})
 add_test(NAME w65c02dasm COMMAND test_w65c02dasm)
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---

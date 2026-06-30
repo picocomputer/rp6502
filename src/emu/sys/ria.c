@@ -43,7 +43,7 @@
 #include "api/clk.h"
 #include "str/rln.h"
 #include "sys/ria.h"
-#include "emu/sys/w65c02.h" /* M6502_* bus pin macros for ria_tick (impl is in w65c02.c) */
+#include "emu/chips/w65c02.h" /* M6502_* bus pin macros for ria_tick (impl is in w65c02.c) */
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,

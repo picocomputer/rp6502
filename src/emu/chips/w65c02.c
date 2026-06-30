@@ -7,4 +7,4 @@
  */
 
 #define CHIPS_IMPL
-#include "emu/sys/w65c02.h"
+#include "emu/chips/w65c02.h"

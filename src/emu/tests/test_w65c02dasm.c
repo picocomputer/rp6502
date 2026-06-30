@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Unit tests for the W65C02S disassembler (src/emu/w65c02dasm.h), the 65C02
+ * Unit tests for the W65C02S disassembler (src/emu/chips/w65c02dasm.h), the 65C02
  * fork of chips/util/m6502dasm.h that drives the on-screen ui_dbg disassembly.
  * Each case feeds a hand-built byte sequence and checks both the decoded text
  * and the instruction length (so PC tracking stays aligned). No toolchain or
@@ -12,7 +12,7 @@
  */
 
 #define CHIPS_UTIL_IMPL
-#include "emu/dbg/w65c02dasm.h"
+#include "emu/chips/w65c02dasm.h"
 #include "utest.h"
 
 #include <string.h>

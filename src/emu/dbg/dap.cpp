@@ -33,7 +33,7 @@ extern "C"
 #include "emu/dbg/dwarf_info.h"
 #include "emu/dbg/cc65dbg.h"
 }
-#include "emu/sys/w65c02.h"          /* m6502_t register accessors (extern "C") */
+#include "emu/chips/w65c02.h"        /* m6502_t register accessors (extern "C") */
 #include "util/m6502dasm.h"  /* m6502dasm_op declaration (impl lives in dbgui.cc) */
 
 #include <atomic>
