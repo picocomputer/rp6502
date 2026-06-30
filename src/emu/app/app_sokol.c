@@ -300,7 +300,7 @@ static void init_cb(void)
         .logger.func = slog_func,
     });
 #ifdef EMU_WITH_AUDIO
-    if (emu_audio_enabled()) /* --no-audio opens no OS audio device */
+    if (emu_audio_enabled()) /* --mute opens no OS audio device */
         saudio_setup(&(saudio_desc){
             .num_channels = 2,
             .logger.func = slog_func,

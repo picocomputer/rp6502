@@ -119,7 +119,7 @@ UTEST(features, teletype_bell)
     ASSERT_FALSE(com_get_bel());
 }
 
-/* --no-audio (emu_set_audio_enabled(false)): no rate is reported and the synth
+/* --mute (emu_set_audio_enabled(false)): no rate is reported and the synth
  * generates no samples at all — not even for a rung bell. */
 UTEST(features, audio_disable)
 {
@@ -172,7 +172,7 @@ static const char *make_asset_rom(const char *args)
  * binary's integration path; here we pin the asset read the loader registers. */
 UTEST(features, rom_emulator_asset)
 {
-    const char *args = "--frames 50 --no-audio --input=\"hi there\"";
+    const char *args = "--frames 50 --mute --input=\"hi there\"";
     const char *path = make_asset_rom(args);
     ASSERT_TRUE(path != NULL);
     ASSERT_TRUE(emu_rom_load(path));

@@ -55,9 +55,9 @@ static bool parse_hex_color(const char *s, int *r, int *g, int *b)
 /* Long-option codes (>= 256 so they never collide with a short-option char). */
 enum
 {
-    OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_SCALE_FILTER, OPT_INPUT,
+    OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_INPUT,
     OPT_FS, OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
-    OPT_NO_AUDIO, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_INI, OPT_VSYNC, OPT_NO_VSYNC,
+    OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_INI, OPT_VSYNC, OPT_NO_VSYNC,
 };
 static const struct option longopts[] = {
     {"screenshot",   required_argument, NULL, OPT_SCREENSHOT},
@@ -65,7 +65,7 @@ static const struct option longopts[] = {
     {"scale",        required_argument, NULL, OPT_SCALE},
     {"vsync",        no_argument,       NULL, OPT_VSYNC},
     {"no-vsync",     no_argument,       NULL, OPT_NO_VSYNC},
-    {"scale-filter", required_argument, NULL, OPT_SCALE_FILTER},
+    {"filter",       required_argument, NULL, OPT_FILTER},
     {"input",        required_argument, NULL, OPT_INPUT},
     {"fs",           required_argument, NULL, OPT_FS},
     {"tmpdrive",     no_argument,       NULL, OPT_TMPDRIVE},
@@ -74,7 +74,7 @@ static const struct option longopts[] = {
     {"phi2",         required_argument, NULL, OPT_PHI2},
     {"cp",           required_argument, NULL, OPT_CP},
     {"seed",         required_argument, NULL, OPT_SEED},
-    {"no-audio",     no_argument,       NULL, OPT_NO_AUDIO},
+    {"mute",         no_argument,       NULL, OPT_MUTE},
     {"debug",        no_argument,       NULL, OPT_DEBUG},
     {"dap",          no_argument,       NULL, OPT_DAP},
     {"credits",      no_argument,       NULL, OPT_CREDITS},
@@ -111,7 +111,7 @@ int parse_args(int argc, char **argv, options *o)
         case OPT_SCALE: o->scale = atof(optarg); break;
         case OPT_VSYNC: o->vsync = true; break;
         case OPT_NO_VSYNC: o->vsync = false; break;
-        case OPT_SCALE_FILTER:
+        case OPT_FILTER:
             if (!strcmp(optarg, "nearest"))
                 o->scale_filter = EMU_FILTER_NEAREST;
             else if (!strcmp(optarg, "linear"))
@@ -120,7 +120,7 @@ int parse_args(int argc, char **argv, options *o)
                 o->scale_filter = EMU_FILTER_SHARP;
             else
             {
-                fprintf(stderr, "rp6502-emu: bad --scale-filter '%s' "
+                fprintf(stderr, "rp6502-emu: bad --filter '%s' "
                                 "(want nearest|linear|sharp)\n", optarg);
                 return 2;
             }
@@ -146,7 +146,7 @@ int parse_args(int argc, char **argv, options *o)
             o->seed = strtoull(optarg, NULL, 0);
             o->have_seed = true;
             break;
-        case OPT_NO_AUDIO: o->no_audio = true; break;
+        case OPT_MUTE: o->mute = true; break;
         case OPT_DEBUG: o->debug = true; break;
         case OPT_DAP: o->dap = true; break;
         case OPT_CREDITS: o->credits = true; break;

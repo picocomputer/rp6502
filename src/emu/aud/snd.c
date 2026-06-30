@@ -68,7 +68,7 @@ static void ring_push(float l, float r)
     g_head = next;
 }
 
-/* --no-audio: when off, the synth never runs (no per-sample CPU work) and the
+/* --mute: when off, the synth never runs (no per-sample CPU work) and the
  * app opens no OS audio device. A session setting, not machine state, so resets
  * leave it alone. */
 static bool snd_enabled = true;

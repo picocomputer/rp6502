@@ -96,7 +96,7 @@
       var mount = '/msc/' + sanitize(CONFIG.rom);  // per-program save storage
       var args = ['--fs', mount, '--rom', '/' + base];
       if (hasBg) args.push('--bgcolor', bg);
-      if (hasFilter) args.push('--scale-filter', filter);
+      if (hasFilter) args.push('--filter', filter);
 
       var Module = {
         canvas: canvas,

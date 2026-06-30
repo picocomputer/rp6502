@@ -49,7 +49,7 @@ static void usage(const char *argv0)
             "  --frames <n>              frames to run before screenshot (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
             "  --no-vsync                present uncapped instead of syncing to the display\n"
-            "  --scale-filter <f>        nearest|linear|sharp (default sharp)\n"
+            "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --input <text>            queue keystrokes for stdin ('\\n' = Enter)\n"
             "  --fs <dir>                MSC0: mount directory (default: the launch dir)\n"
             "  --tmpdrive                MSC0: = a fresh throwaway temp dir (isolate the ROM)\n"
@@ -61,7 +61,7 @@ static void usage(const char *argv0)
             "                            857/860-866/869, default 437)\n"
             "  --seed <n>                fixed RNG seed for reproducible runs\n"
             "                            (default: host entropy)\n"
-            "  --no-audio                disable audio (no synth, no OS audio device)\n"
+            "  --mute                    mute all audio (no synth, no OS audio device)\n"
             "  --debug                   on-screen machine debugger (CPU/VIA/disasm); holds\n"
             "                            the window open on stop for inspection\n"
             "  --dap                     act as a DAP debug adapter on stdio (implies --debug)\n"
@@ -130,7 +130,7 @@ static int run_dap(const options *o)
     emu_set_scale_filter(o->scale_filter);
     if (o->have_seed)
         emu_set_random_seed((uint64_t)o->seed);
-    if (o->no_audio)
+    if (o->mute)
         emu_set_audio_enabled(false);
     if (o->phi2_khz > 0)
         emu_set_phi2_khz((uint16_t)o->phi2_khz);
@@ -256,7 +256,7 @@ int main(int argc, char **argv)
     if (o.have_seed) /* force a reproducible RNG stream (else host entropy) */
         emu_set_random_seed((uint64_t)o.seed);
 
-    if (o.no_audio) /* no synth work, and the window opens no OS audio device */
+    if (o.mute) /* no synth work, and the window opens no OS audio device */
         emu_set_audio_enabled(false);
 
     if (o.phi2_khz > 0) /* override the default PHI2 (emu_init reset it) */

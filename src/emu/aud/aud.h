@@ -27,7 +27,7 @@ uint32_t aud_host_rate(void);     /* its sample rate in Hz, 0 when silent */
 /* Native sample rate (Hz) of the active device, or 0 when silent / disabled. */
 int emu_audio_rate(void);
 
-/* --no-audio: disable audio entirely — the synth stops running (no per-frame
+/* --mute: disable audio entirely — the synth stops running (no per-frame
  * CPU work) and the window app opens no OS audio device. Default enabled. */
 void emu_set_audio_enabled(bool on);
 bool emu_audio_enabled(void);

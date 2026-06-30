@@ -37,7 +37,7 @@ typedef struct
     emu_scale_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */
-    bool no_audio;
+    bool mute;
     bool debug;   /* --debug: on-screen machine debugger (dbg engine active) */
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
     bool credits;       /* --credits: print third-party notices and exit */

@@ -237,7 +237,7 @@
       var args = ['--fs', mount]; // mount MSC0: on the per-game IDBFS dir (no chroot)
       cachePaths.forEach(function (p) { args.push('--rom', p); });
       if (hasBg) args.push('--bgcolor', bg);
-      if (hasFilter) args.push('--scale-filter', filter);
+      if (hasFilter) args.push('--filter', filter);
       // The GL-side filter does the real scaling; align the browser's own
       // canvas-CSS step (it only bites on hi-dpi, where sokol upscales the
       // drawing buffer to physical pixels). Default is sharp, so keep the
