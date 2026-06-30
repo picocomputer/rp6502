@@ -232,11 +232,10 @@ static io_result drain_read(int fd, void *buf, size_t n, size_t *got)
     return r;
 }
 
-UTEST(drive, async_aio_transfer)
+/* The asserting body. A failing ASSERT returns out of here, not out of the
+ * UTEST wrapper, so async mode is always restored before the suite continues. */
+static void async_aio_body(int *utest_result)
 {
-    ASSERT_TRUE(fresh());
-    msc_set_async(true);
-
     char src[2000];
     for (size_t i = 0; i < sizeof(src); i++)
         src[i] = (char)(i * 7 + 1);
@@ -268,7 +267,13 @@ UTEST(drive, async_aio_transfer)
     ASSERT_EQ(got, 16u);
     ASSERT_EQ(memcmp(buf, src + 500, 16), 0);
     std_close(fd);
+}
 
+UTEST(drive, async_aio_transfer)
+{
+    ASSERT_TRUE(fresh());
+    msc_set_async(true);
+    async_aio_body(utest_result);
     msc_set_async(false); /* leave the suite in sync mode for the other tests */
 }
 

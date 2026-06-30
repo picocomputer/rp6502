@@ -24,8 +24,9 @@ extern "C"
  * at startup without any xreg, matching real hardware. */
 void vga_boot_console(void);
 
-/* Select a canvas geometry (vga_canvas_t code from vga/sys/vga.h). */
-void vga_set_canvas(uint16_t canvas);
+/* Select a canvas geometry (vga_canvas_t code from vga/sys/vga.h). Returns
+ * false for an out-of-range code, leaving the canvas state unchanged. */
+bool vga_set_canvas(uint16_t canvas);
 
 /* The scanline at which vsync fires for the current frame — the highest
  * scanline any installed program renders (firmware fires ria_vsync there). */

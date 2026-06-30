@@ -460,11 +460,11 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
     case DW_FORM_exprloc:
     {
         uint64_t n = uleb(c);
+        if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
         v->blen = (uint32_t)n;
         c->p += n;
-        if (c->p > c->end) { c->p = c->end; c->ok = false; }
         break;
     }
     case DW_FORM_block1:
@@ -476,19 +476,19 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
                      : (form == DW_FORM_block2) ? u16(c)
                      : (form == DW_FORM_block4) ? u32(c)
                                                 : uleb(c);
+        if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
         v->blen = (uint32_t)n;
         c->p += n;
-        if (c->p > c->end) { c->p = c->end; c->ok = false; }
         break;
     }
     case DW_FORM_data16:
+        if ((uint64_t)16 > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
         v->blen = 16;
         c->p += 16;
-        if (c->p > c->end) { c->p = c->end; c->ok = false; }
         break;
     default:
         /* unknown / DWARF5-only form: cannot size it safely */
@@ -960,7 +960,17 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
         free(buf);
         return NULL;
     }
+    if ((uint64_t)e_shoff + (uint64_t)e_shnum * (uint64_t)e_shentsize > (uint64_t)sz)
+    {
+        free(buf);
+        return NULL;
+    }
     uint32_t shstr_off = SH_U32(e_shstrndx, 16);
+    if (shstr_off >= (uint64_t)sz)
+    {
+        free(buf);
+        return NULL;
+    }
     const char *shstr = (const char *)(buf + shstr_off);
 
     uint32_t info_off = 0, info_size = 0, abbrev_off = 0, abbrev_size = 0;

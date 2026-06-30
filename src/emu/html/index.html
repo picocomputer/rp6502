@@ -151,19 +151,25 @@
       // prints every bundled component's notice. Capture stdout and show it in
       // the overlay (a stopgap until a proper on-screen About view exists).
       if (params.has('credits')) {
-        var lines = [];
-        var render = function () {
-          overlayTitle.textContent = 'Third-party credits';
-          overlayHint.style.maxWidth = 'none'; // escape the 36em hint cap
-          overlayHint.innerHTML = '<pre style="text-align:left;white-space:pre;'
-            + 'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;'
-            + 'width:max-content;max-width:92vw;max-height:70vh;overflow:auto;margin:0">'
-            + lines.join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
-          overlay.classList.remove('hidden');
+        var pre = document.createElement('pre');
+        pre.style.cssText = 'text-align:left;white-space:pre;'
+          + 'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;'
+          + 'width:max-content;max-width:92vw;max-height:70vh;overflow:auto;margin:0';
+        var shown = false;
+        var render = function (t) {
+          if (!shown) {
+            overlayTitle.textContent = 'Third-party credits';
+            overlayHint.style.maxWidth = 'none'; // escape the 36em hint cap
+            overlayHint.innerHTML = '';
+            overlayHint.appendChild(pre);
+            overlay.classList.remove('hidden');
+            shown = true;
+          }
+          pre.appendChild(document.createTextNode(t + '\n'));
         };
         window.Module = {
           arguments: ['--credits'],
-          print: function (t) { lines.push(t); render(); },
+          print: function (t) { render(t); },
           printErr: function (t) { console.warn(t); },
         };
         overlayTitle.textContent = 'Loading credits…';
@@ -228,12 +234,14 @@
         return; // menu landing — nothing running yet
       }
 
-      var bases = roms.map(baseName);
+      // Same-basename ROMs from different sources must not collide in the
+      // MEMFS cache, so key each cache path on its load index too.
+      var cachePaths = roms.map(function (u, i) { return '/roms/' + i + '-' + baseName(u); });
       var container = params.get('container') || sanitize(roms[0]);
       var mount = '/msc/' + container;
 
       var args = ['--fs', mount]; // mount MSC0: on the per-game IDBFS dir (no chroot)
-      bases.forEach(function (b) { args.push('--rom', '/roms/' + b); });
+      cachePaths.forEach(function (p) { args.push('--rom', p); });
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--scale-filter', filter);
       // The GL-side filter does the real scaling; align the browser's own
@@ -268,7 +276,7 @@
               if (!r.ok) throw new Error('HTTP ' + r.status);
               return r.arrayBuffer();
             }).then(function (buf) {
-              M.FS.writeFile('/roms/' + bases[i], new Uint8Array(buf));
+              M.FS.writeFile(cachePaths[i], new Uint8Array(buf));
             }).catch(function (e) {
               fail('Could not load ' + url + ' (' + e.message + '). ' +
                    'It must be served over HTTP with CORS access.');

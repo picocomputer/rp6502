@@ -98,12 +98,16 @@ add_library(emu_core STATIC
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit;
 # its alignment checks cast pointers to uint32_t. Harmless on a 64-bit host (the
 # low bits survive truncation), so silence the warning for those files only.
-set_source_files_properties(
-    ${RP6502}/vga/modes/mode1.c
-    ${RP6502}/vga/modes/mode2.c
-    ${RP6502}/vga/modes/mode3.c
-    PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
-)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(
+        ${RP6502}/vga/modes/mode1.c
+        ${RP6502}/vga/modes/mode2.c
+        ${RP6502}/vga/modes/mode3.c
+        ${RP6502}/vga/modes/mode4.c
+        ${RP6502}/vga/modes/mode5.c
+        PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
+    )
+endif()
 
 # emu8950.c gates its whole body on USE_EMU8950_OPL (the firmware sets it on the
 # RIA target); without it the OPL2 core compiles to nothing.
@@ -237,7 +241,7 @@ else()
             OUTPUT_NAME rp6502
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
         # Tester web root (build/web/html): the menu shell + every test ROM.
-        file(GLOB WEB_ROMS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
+        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${EMU}/html" "${CMAKE_BINARY_DIR}/html"

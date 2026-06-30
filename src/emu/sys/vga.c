@@ -149,10 +149,11 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
 
 /* Map a canvas code to its pixel geometry (see vga/sys/vga.h vga_canvas_t) and
  * clear all programming, mirroring firmware vga_xreg_canvas. The console canvas
- * reinstalls the terminal program so a return to it keeps rendering. */
-void vga_set_canvas(uint16_t canvas)
+ * reinstalls the terminal program so a return to it keeps rendering. An
+ * out-of-range code is rejected (false) with no state change, as the firmware
+ * NAKs it. */
+bool vga_set_canvas(uint16_t canvas)
 {
-    g_canvas_code = (vga_canvas_t)canvas;
     switch (canvas)
     {
     case 1: /* vga_320_240 */
@@ -166,10 +167,12 @@ void vga_set_canvas(uint16_t canvas)
         break;
     case 0: /* vga_console */
     case 3: /* vga_640_480 */
-    default:
         g_canvas_w = 640, g_canvas_h = 480;
         break;
+    default:
+        return false;
     }
+    g_canvas_code = (vga_canvas_t)canvas;
     memset(g_prog, 0, sizeof(g_prog));
     g_highest_scanline = 0;
     if (canvas == vga_canvas_console)
@@ -177,6 +180,7 @@ void vga_set_canvas(uint16_t canvas)
         uint16_t xregs[8] = {0};
         term_prog(xregs); /* console term across the whole canvas */
     }
+    return true;
 }
 
 void vga_boot_console(void)

@@ -76,6 +76,7 @@ UTEST(dwarf_info, base_types)
 UTEST(dwarf_info, array_type)
 {
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
     const dwarf_var_t *garr = find(g, n, "garr");
@@ -93,6 +94,7 @@ UTEST(dwarf_info, array_type)
 UTEST(dwarf_info, struct_members)
 {
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
     const dwarf_var_t *gpt = find(g, n, "gpt");
@@ -116,6 +118,7 @@ UTEST(dwarf_info, struct_members)
 UTEST(dwarf_info, enum_values)
 {
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
     const dwarf_var_t *gcol = find(g, n, "gcol");
@@ -134,6 +137,7 @@ UTEST(dwarf_info, enum_values)
 UTEST(dwarf_info, pointer_type)
 {
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
     const dwarf_var_t *gptr = find(g, n, "gptr");
@@ -154,6 +158,7 @@ UTEST(dwarf_info, pointer_type)
 UTEST(dwarf_info, global_addresses)
 {
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
     const dwarf_var_t *gstr = find(g, n, "gstr");
@@ -169,6 +174,7 @@ UTEST(dwarf_info, global_addresses)
 UTEST(dwarf_info, locals_in_scope)
 {
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
     dwarf_var_t v[64];
     int n = dwarf_info_locals(di, 0x300, fake_mem, v, 64); /* inside main [0x2c4,0x3ef) */
     ASSERT_TRUE(n >= 3);

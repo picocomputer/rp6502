@@ -476,7 +476,7 @@ dap::Variable make_var(const std::string &name, uint16_t addr, bool addr_ok, con
     return v;
 }
 
-std::vector<dap::Variable> expand_node(const VarNode &n)
+std::vector<dap::Variable> expand_node(VarNode n)
 {
     std::vector<dap::Variable> out;
     const dtype_t *t = n.type;
@@ -879,6 +879,43 @@ extern "C" void dap_start(void)
         if (want < 0)
             want = 0;
         uint16_t pc = (uint16_t)(base & 0xFFFF);
+        long ioff = req.instructionOffset.has_value() ? (long)req.instructionOffset.value() : 0;
+        if (ioff < 0)
+        {
+            // No backward decode on the variable-length 65C02: scan candidate
+            // starts back from base and keep the one whose forward decode lands
+            // on base after exactly n instructions.
+            long n = -ioff;
+            uint16_t tgt = (uint16_t)(base & 0xFFFF);
+            uint16_t best = tgt;
+            for (long back = n * 3; back >= 1; back--)
+            {
+                uint16_t p = (uint16_t)((base - back) & 0xFFFF);
+                long k = 0;
+                while (k < n && p != tgt)
+                {
+                    DasmCtx c;
+                    c.pc = p;
+                    p = m6502dasm_op(p, dasm_in, dasm_out, &c);
+                    k++;
+                }
+                if (p == tgt && k == n)
+                {
+                    best = (uint16_t)((base - back) & 0xFFFF);
+                    break;
+                }
+            }
+            pc = best;
+        }
+        else if (ioff > 0)
+        {
+            for (long k = 0; k < ioff; k++)
+            {
+                DasmCtx c;
+                c.pc = pc;
+                pc = m6502dasm_op(pc, dasm_in, dasm_out, &c);
+            }
+        }
         for (long i = 0; i < want; i++)
         {
             DasmCtx ctx;

@@ -46,7 +46,7 @@ UTEST(xreg, device_channel_dispatch)
 {
     ASSERT_TRUE(emu_xreg(0, 0, 0, 0));  /* RIA-local devices: accepted (stub) */
     ASSERT_TRUE(emu_xreg(1, 0, 0, 3));  /* VGA canvas 640x480 */
-    ASSERT_TRUE(emu_xreg(1, 15, 0, 0)); /* VGA display control: accepted */
+    ASSERT_FALSE(emu_xreg(1, 15, 0, 0)); /* VGA control channel is RIA-private (EACCES) */
     ASSERT_FALSE(emu_xreg(2, 0, 0, 0)); /* unknown device */
     ASSERT_FALSE(emu_xreg(1, 5, 0, 0)); /* unknown VGA channel */
 }
@@ -160,13 +160,13 @@ UTEST(kbd, ansi_sequences)
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
-    /* Editing keys: CR for Enter, DEL for backspace with or without ctrl. */
+    /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_reset();
     kbd_key(KBD_KEY_ENTER, false, false, false);
     kbd_key(KBD_KEY_BACKSPACE, false, false, false);
     kbd_key(KBD_KEY_BACKSPACE, true, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
-    ASSERT_EQ(0, memcmp(b, "\r\x7f\x7f", 3));
+    ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
 /* Typed text is converted UTF-8 -> active OEM code page (default 437). */

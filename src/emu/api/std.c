@@ -144,6 +144,33 @@ static io_result con_read(void *desc, void *buf, size_t n, size_t *got)
     return IO_OK;
 }
 
+/* CON: read (ports the firmware std_con_read): non-blocking — no line ready
+ * reads 0 bytes rather than spinning the 6502 (unlike stdin). */
+static io_result con_read_nonblock(void *desc, void *buf, size_t n, size_t *got)
+{
+    io_result r = con_read(desc, buf, n, got);
+    return (r == IO_PENDING) ? IO_OK : r;
+}
+
+/* TTY: read (ports the firmware std_tty_read): raw, non-blocking drain of queued
+ * keystroke bytes — no cooking/echo, *got=0 when idle. */
+static io_result tty_read(void *desc, void *buf, size_t n, size_t *got)
+{
+    (void)desc;
+    char *out = buf;
+    size_t i = 0;
+    for (; i < n; i++)
+    {
+        com_source_t src = COM_SOURCE_KBD;
+        int ch = com_getchar(&src);
+        if (ch < 0)
+            break;
+        out[i] = (char)ch;
+    }
+    *got = i;
+    return IO_OK;
+}
+
 /* Ring the teletype bell on any BEL (0x07) in a program's console output, like
  * the firmware's com TX scan (ria/sys/com.c). The byte still passes through to
  * the terminal; this rings only on program output, not the rln line echo. */
@@ -172,8 +199,8 @@ static void setup_console(void)
     fds[FD_STDIN] = (std_fd_t){.is_open = true, .read = con_read};
     fds[FD_STDOUT] = (std_fd_t){.is_open = true, .write = con_write};
     fds[FD_STDERR] = (std_fd_t){.is_open = true, .write = con_write};
-    fds[FD_CON] = (std_fd_t){.is_open = true, .read = con_read, .write = con_write};
-    fds[FD_TTY] = (std_fd_t){.is_open = true, .write = con_write};
+    fds[FD_CON] = (std_fd_t){.is_open = true, .read = con_read_nonblock, .write = con_write};
+    fds[FD_TTY] = (std_fd_t){.is_open = true, .read = tty_read, .write = con_write};
 }
 
 /* ------------------------------------------------------------------ */
@@ -291,8 +318,8 @@ bool std_api_open(void)
 bool std_api_close(void)
 {
     int fd = API_A;
-    if (fd >= 0 && fd < FD_FIRST_FREE)
-        return api_return_ax(0); /* console streams stay open */
+    if (fd == FD_CON || fd == FD_TTY)
+        return api_return_ax(0); /* CON:/TTY: stay open; 0/1/2 -> EBADF */
     if (fd < FD_FIRST_FREE || fd >= FD_MAX || !fds[fd].is_open)
         return api_return_errno(API_EBADF);
     std_close(fd);

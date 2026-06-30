@@ -29,6 +29,8 @@
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
+#include "emu/host/host.h"
+#include "emu/sys/com.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/via.h"
@@ -39,6 +41,7 @@
 #include "api/std.h"
 #include "api/dir.h"
 #include "api/clk.h"
+#include "str/rln.h"
 #include "sys/ria.h"
 #include "emu/sys/w65c02.h" /* M6502_* bus pin macros for ria_tick (impl is in w65c02.c) */
 #include <string.h>
@@ -125,7 +128,10 @@ static bool std_xreg(void)
     }
     for (int i = count - 1; i >= (canvas_first ? 1 : 0); i--)
     {
-        if (!emu_xreg(device, channel, (uint8_t)(address + i), word_at(i)))
+        /* PIX_DEVICE_RIA (device 0) holds the address constant (last-wins);
+         * only the VGA/non-RIA path walks address+i. */
+        uint8_t reg = device ? (uint8_t)(address + i) : address;
+        if (!emu_xreg(device, channel, reg, word_at(i)))
         {
             xstack_ptr = XSTACK_SIZE;
             return api_return_errno(API_EINVAL);
@@ -217,6 +223,12 @@ static bool ria_op_dispatch(uint8_t op)
         return dir_api_getlabel();
     case 0x2E:
         return dir_api_getfree();
+    case 0x30:
+        return rln_api_lastkey();
+    case 0x31:
+        return rln_api_peek();
+    case 0x32:
+        return rln_api_poke();
     case 0x3A:
         return clk_api_gmtime();
     case 0x3B:
@@ -335,14 +347,55 @@ static void rw_write(int which, uint8_t data)
 /* Register window read/write                                          */
 /* ------------------------------------------------------------------ */
 
+/* Bare UART flow-control bits in $FFE0 (ria/sys/ria.c). */
+#define RIA_UART_RX_READY 0x40
+#define RIA_UART_TX_READY 0x80
+
+/* The emulator has no physical UART; the bare-UART RX pins read the same typed
+ * input as stdin (the keyboard com source). The com ring stands in for the
+ * firmware's com_rx_char upstream byte. Using the direct UART regs while a stdio
+ * call is in flight is undefined per the docs, so sharing the source is faithful. */
+static int ria_uart_rx_next(void)
+{
+    com_source_t src = COM_SOURCE_KBD;
+    return com_getchar(&src);
+}
+
 uint8_t ria_reg_read(uint16_t addr)
 {
     switch (addr & 0x1F)
     {
-    case 0x00: /* READY: TX always ok, no RX byte pending. */
-        return 0x80;
-    case 0x02: /* RX */
+    case 0x00: /* UART flow control: bit7 TX always ok; bit6 set once a byte is
+                * pulled into the $FFE2 latch (mirrors ria/sys/ria.c $FFE0). */
+    {
+        uint8_t flags = regs[0x00];
+        if (!(flags & RIA_UART_RX_READY))
+        {
+            int ch = ria_uart_rx_next();
+            if (ch >= 0)
+            {
+                regs[0x02] = (uint8_t)ch;
+                flags |= RIA_UART_RX_READY;
+            }
+        }
+        flags |= RIA_UART_TX_READY;
+        regs[0x00] = flags;
+        return flags;
+    }
+    case 0x02: /* UART RX (mirrors ria/sys/ria.c $FFE2): pull the next byte,
+                * flag bit6 and return it, else clear bit6 and return 0. */
+    {
+        int ch = ria_uart_rx_next();
+        if (ch >= 0)
+        {
+            regs[0x02] = (uint8_t)ch;
+            regs[0x00] |= RIA_UART_RX_READY;
+            return regs[0x02];
+        }
+        regs[0x00] &= ~RIA_UART_RX_READY;
+        regs[0x02] = 0;
         return 0;
+    }
     case 0x04: /* RW0 */
         return rw_read(0);
     case 0x08: /* RW1 */
@@ -400,6 +453,13 @@ void ria_reg_write(uint16_t addr, uint8_t data)
 {
     switch (addr & 0x1F)
     {
+    case 0x01: /* UART TX: emit the byte; TX is always ready (bit7). */
+    {
+        char c = (char)data;
+        emu_stdout_write(&c, 1);
+        regs[0x00] |= RIA_UART_TX_READY;
+        return;
+    }
     case 0x04: /* RW0 */
         rw_write(0, data);
         return;

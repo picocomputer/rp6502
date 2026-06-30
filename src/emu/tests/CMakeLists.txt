@@ -59,7 +59,7 @@ target_link_libraries(test_fs PRIVATE emu_core)
 target_include_directories(test_fs PRIVATE ${UTEST_DIR})
 add_test(NAME fs COMMAND test_fs)
 
-# --- Drive root (--drive-root) + ROM overlay (--drive-rom) fs.c additions ---
+# --- Drive fs.c paths: host-backed MSC0:, ROM overlay, async POSIX-AIO transfers ---
 add_executable(test_drive test_drive.c)
 target_link_libraries(test_drive PRIVATE emu_core)
 target_include_directories(test_drive PRIVATE ${UTEST_DIR})

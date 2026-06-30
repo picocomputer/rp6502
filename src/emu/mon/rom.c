@@ -403,9 +403,8 @@ bool emu_rom_load(const char *path)
             fclose(f);
             return false;
         }
-        if (addr > 0x1FFFF || len == 0 ||
-            (addr < 0x10000 && addr + len > 0x10000) ||
-            (addr + len > 0x20000))
+        if (addr > 0x1FFFF || len == 0 || len > 0x20000 - addr ||
+            (addr < 0x10000 && len > 0x10000 - addr))
         {
             fprintf(stderr, "rp6502-emu: data record out of range (addr=$%X len=$%X)\n",
                     addr, len);

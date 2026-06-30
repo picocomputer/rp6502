@@ -80,7 +80,7 @@ static int flags_to_posix(uint8_t flags)
         o |= O_CREAT;
     if ((flags & 0x10) && (flags & 0x80)) /* CREAT + EXCL */
         o |= O_EXCL;
-    if (flags & 0x20) /* TRUNC */
+    if ((flags & 0x20) && wr) /* TRUNC, only when opened for write */
         o |= O_TRUNC;
     if (flags & 0x40) /* APPEND */
         o |= O_APPEND;
@@ -235,7 +235,41 @@ io_result msc_std_write(void *desc, const void *buf, size_t n, size_t *put)
 long msc_std_lseek(void *desc, long off, int whence)
 {
     struct msc_file *f = desc;
-    return (long)lseek(f->fd, off, whence);
+    /* The position is reported back as a signed 32-bit value (0xFFFFFFFF is the
+     * error sentinel), so reject a target past 2GB-1 before moving the pointer,
+     * leaving the file pointer where it was rather than at an unreportable spot. */
+    off_t cur = lseek(f->fd, 0, SEEK_CUR);
+    if (cur < 0)
+        return -1;
+    off_t base;
+    if (whence == SEEK_SET)
+        base = 0;
+    else if (whence == SEEK_CUR)
+        base = cur;
+    else if (whence == SEEK_END)
+    {
+        base = lseek(f->fd, 0, SEEK_END);
+        lseek(f->fd, cur, SEEK_SET);
+        if (base < 0)
+            return -1;
+    }
+    else
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    off_t target = base + off;
+    if (target < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    if (target > 0x7FFFFFFF)
+    {
+        errno = ERANGE;
+        return -1;
+    }
+    return (long)lseek(f->fd, target, SEEK_SET);
 }
 
 void msc_std_sync(void *desc)

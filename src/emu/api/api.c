@@ -191,6 +191,8 @@ api_errno api_errno_from_host(int host_errno)
         return API_ENOMEM;
     case ESPIPE:
         return API_ESPIPE;
+    case ERANGE:
+        return API_ERANGE;
     default:
         return API_EIO;
     }

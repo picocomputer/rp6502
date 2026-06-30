@@ -488,10 +488,14 @@ static void frame_cb(void)
      * only when one was produced this callback; a duplicate present (behind == 0,
      * e.g. a display faster than 60 Hz) re-blits the existing texture below
      * without re-uploading. sokol's swapchain double-buffers the present. */
+    static bool ever_uploaded;
     if (behind > 0)
+    {
         sg_update_image(app.img, &(sg_image_data){
             .mip_levels[0] = {.ptr = emu_present_framebuffer(), .size = (size_t)cw * ch * sizeof(uint32_t)},
         });
+        ever_uploaded = true;
+    }
 
 #ifdef EMU_WITH_DEBUGGER
     /* Build the debugger windows first (between ImGui new-frame and render) so the
@@ -527,7 +531,7 @@ static void frame_cb(void)
      * which catches both a canvas change (cw/ch) and a window resize (factor).
      * The offscreen pass uses its own RGBA8-format sgl context; the default
      * context carries the (possibly BGRA8) swapchain format. */
-    if (app.filter == EMU_FILTER_SHARP)
+    if (ever_uploaded && app.filter == EMU_FILTER_SHARP)
     {
         int f = sharp_prescale(cw, ch, aw, avail_h);
         int want_w = cw * f, want_h = ch * f;
@@ -564,22 +568,27 @@ static void frame_cb(void)
      * sharp samples the prescaled target (LINEAR); linear samples the canvas
      * (LINEAR); nearest samples the canvas (NEAREST). */
     sgl_defaults();
-    sgl_viewport(0, top, aw, avail_h, true); /* draw the canvas below the menu bar */
-    sgl_load_pipeline(app.pip);
-    sgl_enable_texture();
-    if (app.filter == EMU_FILTER_SHARP)
-        sgl_texture(app.rt_tex, app.smp_linear);
-    else if (app.filter == EMU_FILTER_LINEAR)
-        sgl_texture(app.view, app.smp_linear);
-    else
-        sgl_texture(app.view, app.smp);
-    sgl_begin_quads();
-    /* Texture v flipped so framebuffer row 0 is at the top. */
-    sgl_v2f_t2f(-qx, qy, 0.0f, 0.0f);
-    sgl_v2f_t2f(qx, qy, 1.0f, 0.0f);
-    sgl_v2f_t2f(qx, -qy, 1.0f, 1.0f);
-    sgl_v2f_t2f(-qx, -qy, 0.0f, 1.0f);
-    sgl_end();
+    /* Until the first frame has been uploaded the canvas texture is undefined;
+     * emit no geometry so the swapchain pass below shows only the clear color. */
+    if (ever_uploaded)
+    {
+        sgl_viewport(0, top, aw, avail_h, true); /* draw the canvas below the menu bar */
+        sgl_load_pipeline(app.pip);
+        sgl_enable_texture();
+        if (app.filter == EMU_FILTER_SHARP)
+            sgl_texture(app.rt_tex, app.smp_linear);
+        else if (app.filter == EMU_FILTER_LINEAR)
+            sgl_texture(app.view, app.smp_linear);
+        else
+            sgl_texture(app.view, app.smp);
+        sgl_begin_quads();
+        /* Texture v flipped so framebuffer row 0 is at the top. */
+        sgl_v2f_t2f(-qx, qy, 0.0f, 0.0f);
+        sgl_v2f_t2f(qx, qy, 1.0f, 0.0f);
+        sgl_v2f_t2f(qx, -qy, 1.0f, 1.0f);
+        sgl_v2f_t2f(-qx, -qy, 0.0f, 1.0f);
+        sgl_end();
+    }
 
     sg_begin_pass(&(sg_pass){
         .action = {.colors[0] = {.load_action = SG_LOADACTION_CLEAR,

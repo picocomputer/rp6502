@@ -56,9 +56,9 @@ bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
             xregs[address & 0x0F] = word;
             if (address == 0)
             {
-                vga_set_canvas(word);
+                bool ok = vga_set_canvas(word);
                 memset(xregs, 0, sizeof(xregs)); /* fresh state per pix.c */
-                return true;
+                return ok;
             }
             if (address == 1)
             {
@@ -95,8 +95,9 @@ bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
             }
             return true; /* parameter register stored */
         }
-        if (channel == 15) /* display / code page / etc. */
-            return true;
+        /* channel 15 is the VGA control channel: RIA-private while VGA is
+         * connected, so a write NAKs (firmware API_EACCES). All other
+         * channels are unmodeled and rejected. */
         return false;
 
     default:

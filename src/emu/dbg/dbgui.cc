@@ -678,16 +678,22 @@ void dbgui_draw(void)
      * Mirror dbg.c's breakpoints into ui_dbg's list so the disassembly gutter shows
      * them (and remember the set), let ui_dbg draw — during which the user may
      * toggle a gutter dot, press F9, or click a toolbar button — then push the
-     * resulting deltas back to dbg.c after the draw. */
+     * resulting deltas back to dbg.c after the draw. ui_dbg's list is fixed at
+     * UI_DBG_MAX_BREAKPOINTS; mirror only the breakpoints in the displayed
+     * disassembly window (line_array) so every visible dot shows even when dbg.c
+     * holds more than that across the 64K space. */
     uint16_t before[UI_DBG_MAX_BREAKPOINTS];
     int n_before = 0;
     g_dbg.dbg.num_breakpoints = 0; /* rebuild ui_dbg's list from dbg.c */
-    for (int a = 0; a <= 0xFFFF && n_before < UI_DBG_MAX_BREAKPOINTS; a++)
-        if (dbg_has_breakpoint((uint16_t)a))
+    for (int li = 0; li < UI_DBG_NUM_LINES && n_before < UI_DBG_MAX_BREAKPOINTS; li++)
+    {
+        uint16_t a = g_dbg.ui.line_array[li].addr;
+        if (dbg_has_breakpoint(a) && !ui_has_exec_bp(a)) /* line_array repeats addr in the backtrace half */
         {
-            before[n_before++] = (uint16_t)a;
-            ui_dbg_add_breakpoint(&g_dbg, (uint16_t)a);
+            before[n_before++] = a;
+            ui_dbg_add_breakpoint(&g_dbg, a);
         }
+    }
 
     /* ui_dbg's own toolbar (Continue/Over/Into/Tick/Break) and hotkeys
      * (F5/F10/F11/F8/F6) record their action in ui_dbg's state; translate it into

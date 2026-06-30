@@ -41,9 +41,10 @@ int main(int argc, char **argv)
     }
     size_t n = fread(mem, 1, sizeof(mem), f);
     fclose(f);
-    if (n < 0x4000)
+    if (n != sizeof(mem))
     {
-        fprintf(stderr, "%s too small (%zu bytes)\n", path, n);
+        fprintf(stderr, "%s must be exactly %zu bytes (got %zu)\n",
+                path, sizeof(mem), n);
         return 2;
     }
     mem[0xFFFC] = 0x00; /* reset vector -> $0400 (test entry) */

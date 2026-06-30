@@ -14,6 +14,7 @@
     "cmake.configureOnEdit": true,
     "cmake.automaticReconfigure": true,
     "cmake.configureOnOpen": true,
+    "cmake.autoSelectActiveFolder": false,
     "cmake.generator": "Ninja",
     "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
     "cmake.options.statusBarVisibility": "hidden",

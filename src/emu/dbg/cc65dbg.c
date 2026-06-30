@@ -109,7 +109,7 @@ static bool field(const char *rec, const char *key, const char **vs, size_t *vl)
             {
                 *vs = v;
                 *vl = (size_t)(q - v);
-                if (*vl >= 2 && v[0] == '"')
+                if (*vl >= 2 && v[0] == '"' && v[*vl - 1] == '"')
                 {
                     (*vs)++;
                     *vl -= 2;
@@ -323,9 +323,9 @@ cc65dbg_t *cc65dbg_load(const char *path)
     uint32_t *symval = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL;
     uint32_t *symexp = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL;
     uint8_t *symflags = nsym ? calloc(nsym, sizeof(uint8_t)) : NULL; /* see SYM_* below */
-    if (nscope)
+    if (db && nscope)
         db->scopes = calloc(nscope, sizeof(cc_scope));
-    if (nseg)
+    if (db && nseg)
         db->segs = calloc(nseg, sizeof(cc_seg));
     if (!db || (nfile && !files) || (nseg && (!segstart || !segcode || !db->segs)) || (nspan && !spans) ||
         (nsym && (!symval || !symexp || !symflags)) || (nscope && !db->scopes))

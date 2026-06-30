@@ -73,7 +73,8 @@ static uint64_t scanline_n; /* total scanlines emitted since boot */
  * so the integer division introduces NO drift: it is exact at every frame
  * boundary (n a multiple of 525, since 31500/63 = 500). Do NOT "fix" the
  * non-exact 4096000/63 by tracking a per-scanline remainder; that would
- * double-correct and create real drift. */
+ * double-correct and create real drift. The n*4096000 intermediate overflows
+ * uint64 ~4.5 years of uptime (well before master_8 itself), still unreachable. */
 static inline uint64_t scanline_deadline_8(uint64_t n)
 {
     return n * 4096000ull / 63;

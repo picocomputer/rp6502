@@ -220,7 +220,7 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
         (void)uleb(c); /* mtime */
         (void)uleb(c); /* length */
         char full[1024];
-        if (name[0] == '/' || di == 0 || di >= (uint64_t)(ndirs + 1))
+        if (name[0] == '/' || di == 0 || di >= (uint64_t)(ndirs + 1) || di >= 64)
             snprintf(full, sizeof full, "%s", name);
         else
             snprintf(full, sizeof full, "%s/%s", dirs[di], name);
@@ -274,7 +274,7 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
             switch (op)
             {
             case LNS_copy:
-                push_row(dl, address, (file >= 0 && file < nfiles + 1) ? files[file] : "", line, false);
+                push_row(dl, address, (file >= 0 && file < nfiles + 1 && file < 256) ? files[file] : "", line, false);
                 break;
             case LNS_advance_pc:
                 address += (uint32_t)(uleb(c) * min_inst);
@@ -318,7 +318,7 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
             int adj = op - opcode_base;
             address += (uint32_t)((adj / line_range) * min_inst);
             line += line_base + (adj % line_range);
-            push_row(dl, address, (file >= 0 && file < nfiles + 1) ? files[file] : "", line, false);
+            push_row(dl, address, (file >= 0 && file < nfiles + 1 && file < 256) ? files[file] : "", line, false);
         }
     }
 }
@@ -383,13 +383,14 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         fclose(f);
         return NULL;
     }
-    uint8_t *buf = malloc((size_t)sz);
+    uint8_t *buf = malloc((size_t)sz + 1);
     if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz)
     {
         free(buf);
         fclose(f);
         return NULL;
     }
+    buf[sz] = 0; /* terminate any unterminated string at end of file */
     fclose(f);
 
     /* ELF32, little-endian only (the llvm-mos target). */
@@ -402,7 +403,8 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
     uint16_t e_shentsize = buf[46] | (buf[47] << 8);
     uint16_t e_shnum = buf[48] | (buf[49] << 8);
     uint16_t e_shstrndx = buf[50] | (buf[51] << 8);
-    if (e_shoff == 0 || e_shentsize < 40 || e_shstrndx >= e_shnum)
+    if (e_shoff == 0 || e_shentsize < 40 || e_shstrndx >= e_shnum ||
+        (uint64_t)e_shoff + (uint64_t)e_shnum * (uint64_t)e_shentsize > (uint64_t)sz)
     {
         free(buf);
         return NULL;
@@ -416,13 +418,24 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
 
     /* section header: name(0) type(4) flags(8) addr(12) offset(16) size(20)... */
     uint32_t shstr_off = SH_U32(e_shstrndx, 16);
+    if (shstr_off >= (uint64_t)sz)
+    {
+        free(buf);
+        return NULL;
+    }
     const char *shstr = (const char *)(buf + shstr_off);
+
+/* Section name at shstr+SH_U32(i,0), clamped so strcmp never walks past buf. */
+#define SH_NAME(idx)                                            \
+    ((SH_U32(idx, 0) < (uint64_t)sz - shstr_off)                \
+         ? shstr + SH_U32(idx, 0)                               \
+         : "")
 
     uint32_t dl_off = 0, dl_size = 0;
     uint32_t sym_off = 0, sym_size = 0, str_off = 0, str_size = 0;
     for (uint16_t i = 0; i < e_shnum; i++)
     {
-        const char *nm = shstr + SH_U32(i, 0);
+        const char *nm = SH_NAME(i);
         if (strcmp(nm, ".debug_line") == 0)
         {
             dl_off = SH_U32(i, 16);
@@ -460,7 +473,7 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         uint32_t flags = SH_U32(i, 8), saddr = SH_U32(i, 12), ssize = SH_U32(i, 20);
         if (!(flags & 0x2) || ssize == 0)
             continue;
-        dl->sections[dl->nsections].name = intern(dl, shstr + SH_U32(i, 0));
+        dl->sections[dl->nsections].name = intern(dl, SH_NAME(i));
         dl->sections[dl->nsections].addr = (uint16_t)saddr;
         dl->sections[dl->nsections].size = ssize;
         dl->nsections++;

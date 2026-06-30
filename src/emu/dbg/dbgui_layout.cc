@@ -112,16 +112,22 @@ static bool dbgui_config_path(char *out, size_t cap)
     return true;
 }
 
-/* Read a whole file into buf (NUL-terminated). Returns length, or -1. */
+/* Read a file into buf (NUL-terminated, up to cap-1 bytes). Returns the full
+ * file length -- a return >= cap means the content was truncated -- or -1. */
 static long dbgui_read_file(const char *path, char *buf, size_t cap)
 {
     FILE *f = std::fopen(path, "rb");
     if (!f)
         return -1;
-    size_t n = std::fread(buf, 1, cap - 1, f);
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    size_t want = (sz < 0) ? cap - 1 : (size_t)sz;
+    size_t lim = want < cap - 1 ? want : cap - 1;
+    size_t n = std::fread(buf, 1, lim, f);
     std::fclose(f);
     buf[n] = 0;
-    return (long)n;
+    return (sz < 0) ? (long)n : sz;
 }
 
 /* Tiny INI getter: value of `key` within section [sect]. Returns false if absent. */
@@ -242,11 +248,32 @@ void dbgui_layout_save(const dbgui_win_t *wins, int n)
                                 wins[i].key, open);
     }
 
-    char in[8192];
-    if (dbgui_read_file(path, in, sizeof in) < 0)
+    long fsz = 0;
+    if (FILE *rf = std::fopen(path, "rb"))
+    {
+        std::fseek(rf, 0, SEEK_END);
+        fsz = std::ftell(rf);
+        std::fclose(rf);
+    }
+    if (fsz < 0)
+        fsz = 0;
+
+    /* Size both buffers to the real file so a large foreign section (e.g.
+     * [RP6502]) round-trips intact; refuse to rewrite rather than truncate. */
+    size_t in_cap = (size_t)fsz + 1;
+    char *in = (char *)std::malloc(in_cap);
+    if (!in)
+        return;
+    if (dbgui_read_file(path, in, in_cap) < 0)
         in[0] = 0;
 
-    char out[16384];
+    size_t out_cap = (size_t)fsz + (size_t)en + 4;
+    char *out = (char *)std::malloc(out_cap);
+    if (!out)
+    {
+        std::free(in);
+        return;
+    }
     int on = 0;
     const char *p = in;
     bool in_emu = false;
@@ -259,7 +286,7 @@ void dbgui_layout_save(const dbgui_win_t *wins, int n)
             t++;
         if (*t == '[')
             in_emu = (std::strncmp(t, "[EMU]", 5) == 0);
-        if (!in_emu && on + (int)len < (int)sizeof out)
+        if (!in_emu && (size_t)on + len < out_cap)
         {
             std::memcpy(out + on, p, len);
             on += (int)len;
@@ -276,15 +303,18 @@ void dbgui_layout_save(const dbgui_win_t *wins, int n)
         out[on++] = '\n';
         out[on++] = '\n';
     }
-    if (on + en < (int)sizeof out)
+    if ((size_t)(on + en) < out_cap)
     {
         std::memcpy(out + on, emu, (size_t)en);
         on += en;
     }
 
     FILE *f = std::fopen(path, "wb");
-    if (!f)
-        return;
-    std::fwrite(out, 1, (size_t)on, f);
-    std::fclose(f);
+    if (f)
+    {
+        std::fwrite(out, 1, (size_t)on, f);
+        std::fclose(f);
+    }
+    std::free(in);
+    std::free(out);
 }

@@ -138,8 +138,7 @@ void kbd_key(kbd_key_t key, bool ctrl, bool shift, bool alt)
     case KBD_KEY_ENTER:
         return com_kbd_push("\r", 1);
     case KBD_KEY_BACKSPACE:
-        /* DEL with or without ctrl, matching the firmware and xterm. */
-        return com_kbd_push("\x7f", 1);
+        return com_kbd_push(ctrl ? "\x08" : "\x7f", 1);
     case KBD_KEY_TAB:
         return com_kbd_push("\t", 1);
     case KBD_KEY_ESCAPE:
@@ -203,8 +202,33 @@ static uint8_t sokol_to_hid(int kc)
         return (uint8_t)(0x04 + (kc - SAPP_KEYCODE_A));
     if (kc >= SAPP_KEYCODE_1 && kc <= SAPP_KEYCODE_9)
         return (uint8_t)(0x1E + (kc - SAPP_KEYCODE_1));
+    if (kc >= SAPP_KEYCODE_F1 && kc <= SAPP_KEYCODE_F12)
+        return (uint8_t)(0x3A + (kc - SAPP_KEYCODE_F1));
+    if (kc >= SAPP_KEYCODE_KP_1 && kc <= SAPP_KEYCODE_KP_9)
+        return (uint8_t)(0x59 + (kc - SAPP_KEYCODE_KP_1));
     switch (kc)
     {
+    case SAPP_KEYCODE_KP_0: return 0x62;
+    case SAPP_KEYCODE_KP_DECIMAL: return 0x63;
+    case SAPP_KEYCODE_KP_DIVIDE: return 0x54;
+    case SAPP_KEYCODE_KP_MULTIPLY: return 0x55;
+    case SAPP_KEYCODE_KP_SUBTRACT: return 0x56;
+    case SAPP_KEYCODE_KP_ADD: return 0x57;
+    case SAPP_KEYCODE_KP_EQUAL: return 0x67;
+    case SAPP_KEYCODE_CAPS_LOCK: return 0x39;
+    case SAPP_KEYCODE_SCROLL_LOCK: return 0x47;
+    case SAPP_KEYCODE_NUM_LOCK: return 0x53;
+    case SAPP_KEYCODE_PRINT_SCREEN: return 0x46;
+    case SAPP_KEYCODE_PAUSE: return 0x48;
+    case SAPP_KEYCODE_MENU: return 0x65;
+    case SAPP_KEYCODE_LEFT_CONTROL: return 0xE0;
+    case SAPP_KEYCODE_LEFT_SHIFT: return 0xE1;
+    case SAPP_KEYCODE_LEFT_ALT: return 0xE2;
+    case SAPP_KEYCODE_LEFT_SUPER: return 0xE3;
+    case SAPP_KEYCODE_RIGHT_CONTROL: return 0xE4;
+    case SAPP_KEYCODE_RIGHT_SHIFT: return 0xE5;
+    case SAPP_KEYCODE_RIGHT_ALT: return 0xE6;
+    case SAPP_KEYCODE_RIGHT_SUPER: return 0xE7;
     case SAPP_KEYCODE_0: return 0x27;
     case SAPP_KEYCODE_ENTER: return 0x28;
     case SAPP_KEYCODE_KP_ENTER: return 0x58;
