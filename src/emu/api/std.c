@@ -12,9 +12,9 @@
  *
  * Two things differ from the firmware:
  *   - A file read is issued in one std_read call, never chunked/PIX-drained over
- *     many ticks like the firmware. ROM/overlay reads finish synchronously; in the
- *     windowed build MSC0: host I/O runs async (POSIX AIO) and is re-polled until
- *     the aiocb completes. stdin re-dispatches until a line is ready.
+ *     many ticks like the firmware. In the windowed build both MSC0: host I/O and
+ *     ROM: asset reads run async (POSIX AIO), re-polled until the aiocb completes;
+ *     headless they finish synchronously. stdin re-dispatches until a line is ready.
  *   - stdin is the one blocking call: with no line ready it returns api_working()
  *     and the machine re-dispatches it each frame (sys.c) while rln_task() drains
  *     the keyboard, exactly as the hardware polls the RIA.
@@ -334,8 +334,7 @@ bool std_api_close(void)
 /* In-flight read (the polling I/O model). Only one read is ever in flight (the
  * 6502 is blocked on it), so one state serves both the xstack and xram paths. A
  * poll reads what is available now, advancing rd.got; IO_PENDING means poll again
- * (stdin until a line). ROM/overlay reads return IO_OK on the first poll; async
- * MSC reads return IO_PENDING until the aiocb completes. */
+ * (stdin until a line; an async MSC0:/ROM: read until its aiocb completes). */
 static struct
 {
     bool active;

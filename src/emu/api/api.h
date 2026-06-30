@@ -30,11 +30,10 @@ extern "C"
 #define FS_HOST_MAX_PATH 4096 /* host path buffer size for fs_to_host callers */
 
 /* Poll status for the I/O API: a source returns IO_PENDING to be polled again
- * (stdin until a line; a future async provider until its bytes arrive), IO_OK
- * once this poll's bytes are in (got may be 0 at EOF), IO_ERROR on failure
- * (errno set). ROM reads return IO_OK on the first poll; host (MSC0:) file
- * reads may return IO_PENDING until the AIO transfer completes (async
- * window). */
+ * (stdin until a line; an AIO transfer until it completes), IO_OK once this
+ * poll's bytes are in (got may be 0 at EOF), IO_ERROR on failure (errno set).
+ * Under the real-time window both MSC0: and ROM: reads run as POSIX AIO and
+ * may return IO_PENDING; headless they complete synchronously. */
 typedef enum { IO_OK, IO_PENDING, IO_ERROR } io_result;
 
 #ifdef __cplusplus

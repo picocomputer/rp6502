@@ -13,6 +13,7 @@
 #include "emu/dbg/dbg.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
+#include "emu/mon/rom.h"
 #include "emu/msc/msc.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
@@ -699,8 +700,10 @@ int emu_run_window(double scale, bool vsync, bool exit_on_halt)
     app.exit_on_halt = exit_on_halt;
     /* Under the real-time window, file I/O runs as non-blocking POSIX AIO so the
      * 6502 keeps clocking while it completes (read_xram is background DMA into
-     * XRAM). Headless/--screenshot never reach here and stay synchronous. */
+     * XRAM) — both the MSC0: drive and ROM: asset reads. Headless/--screenshot
+     * never reach here and stay synchronous. */
     msc_set_async(true);
+    rom_set_async(true);
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9
      * canvas opens wider. The WM may restore a previous size instead; that's fine

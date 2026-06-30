@@ -11,10 +11,10 @@
  * trampoline is released and the return value (A/X/SREG) is patched in.
  *
  * I/O follows a polling model: a source returns api_working() until its bytes
- * are ready (stdin until the user types a line; a file read completes on the
- * first poll). The trampoline stays blocked, the 6502 spins on it, and
- * ria_task_pump() re-dispatches the op every scanline until it completes —
- * mirroring how the real RIA polls the operation to completion in its loop.
+ * are ready (stdin until the user types a line; a windowed MSC0:/ROM: read until
+ * its AIO transfer completes). The trampoline stays blocked, the 6502 spins on
+ * it, and ria_task_pump() re-dispatches the op every scanline until it completes
+ * — mirroring how the real RIA polls the operation to completion in its loop.
  *
  * The return mechanics live in ria/api/api.h, shared with std.c/dir.c and the
  * vendored rln.c.
@@ -247,8 +247,8 @@ static bool ria_op_dispatch(uint8_t op)
 }
 
 /* The op currently blocked mid-flight (ria.pending_op, 0 = none). An op that
- * returns api_working() (stdin, or async MSC file I/O) lingers and is re-polled
- * by ria_task; everything else completes on the first dispatch. */
+ * returns api_working() (stdin, or async MSC0:/ROM: file I/O) lingers and is
+ * re-polled by ria_task; everything else completes on the first dispatch. */
 static void ria_syscall(uint8_t op)
 {
     api_set_regs_blocked();
@@ -271,7 +271,7 @@ static void ria_syscall(uint8_t op)
     }
     default:
         /* Dispatch once. If the handler is still working (api_working: stdin or
-         * async MSC file I/O), leave it pending and let the 6502 spin until
+         * async MSC0:/ROM: file I/O), leave it pending and let the 6502 spin until
          * ria_task finishes it. */
         ria.pending_op = ria_op_dispatch(op) ? op : 0;
         return;

@@ -27,6 +27,9 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#ifndef __EMSCRIPTEN__
+#include <aio.h>
+#endif
 
 /* ------------------------------------------------------------------ */
 /* ROM: drive — read-only assets, windows into the loaded .rp6502      */
@@ -131,8 +134,16 @@ static bool path_is_rom(const char *path, const char **rest)
     return false;
 }
 
+/* Reads run as POSIX AIO under the real-time window so the 6502 keeps clocking
+ * while they complete (mirrors the MSC0: driver); synchronous otherwise — the
+ * headless/test paths stay deterministic and the web build (no aio) reads from
+ * the in-RAM MEMFS. */
+static bool g_rom_async;
+void rom_set_async(bool on) { g_rom_async = on; }
+
 /* ---- Read-only file windows [base, base+len) into a host file, opened by the
- * ROM: asset driver. Read with pread on demand. ---- */
+ * ROM: asset driver. Read on demand: a positioned AIO read polled to completion
+ * under the window, or pread when synchronous. ---- */
 struct rom_window
 {
     bool used;
@@ -140,6 +151,10 @@ struct rom_window
     size_t base;
     size_t len;
     size_t pos;
+#ifndef __EMSCRIPTEN__
+    bool aio_active;
+    struct aiocb cb; /* the single in-flight read, polled by the RIA pump */
+#endif
 };
 static struct rom_window windows[ROM_OPEN_MAX];
 
@@ -166,6 +181,9 @@ void *rom_window_open(const char *hostpath, size_t base, size_t len)
     w->base = base;
     w->len = len;
     w->pos = 0;
+#ifndef __EMSCRIPTEN__
+    w->aio_active = false;
+#endif
     return w;
 }
 
@@ -174,6 +192,17 @@ void rom_window_close(void *desc)
     struct rom_window *w = desc;
     if (!w || !w->used)
         return;
+#ifndef __EMSCRIPTEN__
+    if (w->aio_active) /* reap an in-flight read (a reset can close mid-op) */
+    {
+        const struct aiocb *l = &w->cb;
+        aio_cancel(w->fd, &w->cb);
+        while (aio_error(&w->cb) == EINPROGRESS)
+            aio_suspend(&l, 1, NULL);
+        aio_return(&w->cb);
+        w->aio_active = false;
+    }
+#endif
     if (w->fd >= 0)
         close(w->fd);
     w->used = false;
@@ -183,8 +212,42 @@ void rom_window_close(void *desc)
 io_result rom_window_read(void *desc, void *buf, size_t n, size_t *got)
 {
     struct rom_window *w = desc;
+    *got = 0;
     size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
     size_t want = n < avail ? n : avail;
+#ifndef __EMSCRIPTEN__
+    if (g_rom_async)
+    {
+        if (!w->aio_active)
+        {
+            if (want == 0)
+                return IO_OK; /* at the window's end: nothing to submit */
+            memset(&w->cb, 0, sizeof(w->cb));
+            w->cb.aio_fildes = w->fd;
+            w->cb.aio_offset = (off_t)(w->base + w->pos);
+            w->cb.aio_buf = buf;
+            w->cb.aio_nbytes = want;
+            w->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
+            if (aio_read(&w->cb) != 0)
+                return IO_ERROR; /* errno set by aio_read */
+            w->aio_active = true;
+            return IO_PENDING;
+        }
+        int e = aio_error(&w->cb);
+        if (e == EINPROGRESS)
+            return IO_PENDING;
+        w->aio_active = false;
+        ssize_t r = aio_return(&w->cb);
+        if (r < 0)
+        {
+            errno = e;
+            return IO_ERROR;
+        }
+        w->pos += (size_t)r;
+        *got = (size_t)r;
+        return IO_OK;
+    }
+#endif
     ssize_t r = pread(w->fd, buf, want, (off_t)(w->base + w->pos));
     if (r < 0)
         return IO_ERROR;
