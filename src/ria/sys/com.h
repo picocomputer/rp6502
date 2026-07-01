@@ -15,7 +15,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <hardware/sync.h>
 
 #define COM_UART uart1
 #define COM_UART_BAUD_RATE 115200
@@ -66,36 +65,14 @@ int com_getchar(com_source_t *src);
 // consuming. Returns the byte (0..255), or negative when none is queued.
 int com_peekchar(com_source_t src);
 
-// com_tx_core0_buf is the core-0-only TX ring. Producers (stdio,
-// std_tty_write) and consumer (com_tx_fanout) all run on the core-0 main
-// loop, so the SPSC protocol is serialized naturally; no lock, no __dmb()
-// needed.
-#define COM_TX_CORE0_BUF_SIZE 32
-extern volatile uint8_t com_tx_core0_buf[COM_TX_CORE0_BUF_SIZE];
-extern volatile size_t com_tx_core0_head;
-extern volatile size_t com_tx_core0_tail;
-
 // Ensure putchar will not block even with a newline expansion
-static inline bool com_putchar_ready(void)
-{
-    return (
-        (((com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE) != com_tx_core0_tail) &&
-        (((com_tx_core0_head + 2) % COM_TX_CORE0_BUF_SIZE) != com_tx_core0_tail));
-}
+bool com_putchar_ready(void);
 
 // Ensure space for com_write()
-static inline bool com_writable(void)
-{
-    return (((com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE) != com_tx_core0_tail);
-}
+bool com_writable(void);
 
-// Bypasses Pico SDK stdout newline expansion. Caller must have checked
-// com_writable() first. Core-0 producers only.
-static inline void com_write(char ch)
-{
-    size_t next = (com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE;
-    com_tx_core0_buf[next] = (uint8_t)ch;
-    com_tx_core0_head = next;
-}
+// Bypasses Pico SDK stdout newline expansion.
+// Caller must have checked com_writable() first.
+void com_write(char ch);
 
 #endif /* _RIA_SYS_COM_H_ */
