@@ -53,6 +53,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/dir.c
     ${RP6502_SRC}/ria/api/std.c
+    ${RP6502_SRC}/ria/api/api.c
     ${RP6502_SRC}/emu/usb/msc.c
     ${RP6502_SRC}/vga/term/term.c
     ${RP6502_SRC}/vga/term/font.c

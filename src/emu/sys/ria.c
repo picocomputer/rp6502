@@ -491,7 +491,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
 }
 
 /* ------------------------------------------------------------------ */
-/* Reset (mirrors api_run startup)                                     */
+/* Reset                                                               */
 /* ------------------------------------------------------------------ */
 
 /* The SIGINT attribute (vendored atr.c) consumes the same latch the $FFF0 IRQ
@@ -508,20 +508,11 @@ bool ria_get_sigint(void)
 
 void ria_reset(void)
 {
-    for (int a = 0xFFE0; a <= 0xFFEF; a++)
-        if (a != 0xFFE3) /* leave VSYNC counter */
-            REGS(a) = 0;
+    api_run();
     ria.irq_enabled = 0; /* $FFF0: IRQ disabled, no pending sources, line idle */
     ria.irq_pending = 0;
     regs[0x10] = 0;
-    xstack_ptr = XSTACK_SIZE;
     xstack[XSTACK_SIZE] = 0; /* cstring guard */
-    REGS(0xFFE5) = 1;        /* STEP0 */
-    REGS(0xFFE9) = 1;        /* STEP1 */
-    API_ERRNO = 0xFFFF;
-    api_reset();
-    api_set_axsreg(0xFFFFFFFFu);
-    api_set_regs_released();
     ria.pending_op = 0;
     emu_cpu_halted = false;
     emu_exit_code = 0;

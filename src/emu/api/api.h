@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * RIA fastcall register aliases (the $FFEx API window). The api_* return/marshal
- * helpers themselves are declared by the firmware's api/api.h, which api.c
- * implements; this header carries only the emulator-side register aliases. The
- * std/file drivers return the firmware's std_rw_result (see api/std.h).
+ * helpers themselves are declared by the firmware's api/api.h and implemented by
+ * the shared ria/api/api.c; this header carries only the emulator-side register
+ * aliases. The std/file drivers return the firmware's std_rw_result (see api/std.h).
  */
 
 #ifndef _EMU_API_H_
@@ -28,9 +28,6 @@ extern "C"
 #define API_SREG REGSW(0xFFF8)
 
 #define FS_HOST_MAX_PATH 4096 /* host path buffer size for fs_to_host callers */
-
-/* Reset per-run API state (the errno-option mapping). */
-void api_reset(void);
 
 #ifdef __cplusplus
 }

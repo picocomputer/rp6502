@@ -119,6 +119,7 @@ uint16_t emu_get_phi2_khz(void)
  * no separate config vs. run clock in the emulator, so both map straight here. */
 void cpu_set_phi2_khz_run(uint16_t khz) { emu_set_phi2_khz(khz); }
 uint16_t cpu_get_phi2_khz_run(void) { return emu_get_phi2_khz(); }
+bool cpu_active(void) { return !emu_cpu_halted; }
 
 static inline uint64_t bus_cycle(uint64_t p)
 {
