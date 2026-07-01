@@ -412,22 +412,31 @@ static void dbgui_draw_menu(void)
         /* Record the bar's drawn height so the window layer can reserve a strip
          * for it and lay the emulated canvas out below it (dbgui_menu_height). */
         g_menu_h = ImGui::GetWindowSize().y;
-        if (ImGui::BeginMenu("Overlays"))
+        if (ImGui::BeginMenu("Hardware"))
         {
-            ImGui::MenuItem("Debug Control", nullptr, &g_control_open);
-            ImGui::MenuItem("Disassembler", nullptr, &g_dbg.ui.open);
-            ImGui::MenuItem("MOS 6502 (CPU)", nullptr, &g_cpuwin.open);
-            ImGui::MenuItem("MOS 6522 (VIA)", nullptr, &g_viawin.open);
-            ImGui::MenuItem("RIA", nullptr, &g_ria.open);
-            ImGui::Separator();
-            ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
-            ImGui::MenuItem("Memory Map", nullptr, &g_memmap.open);
+            ImGui::MenuItem("MOS 65C02 (CPU)", nullptr, &g_cpuwin.open);
+            ImGui::MenuItem("MOS 65C22 (VIA)", nullptr, &g_viawin.open);
+            ImGui::MenuItem("RP6502 (RIA)", nullptr, &g_ria.open);
             ImGui::EndMenu();
         }
-        /* Emulated VGA rate, right-aligned (e.g. "59.9 FPS"; ~60 when keeping up). */
+        if (ImGui::BeginMenu("Debug"))
+        {
+            ImGui::MenuItem("Debug Control", nullptr, &g_control_open);
+            ImGui::MenuItem("Breakpoints", nullptr, &g_dbg.ui.breakpoints.open);
+            ImGui::MenuItem("Stopwatch", nullptr, &g_dbg.ui.stopwatch.open);
+            ImGui::MenuItem("Disassembler", nullptr, &g_dbg.ui.open);
+            ImGui::MenuItem("Execution History", nullptr, &g_dbg.ui.history.open);
+            ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
+            ImGui::MenuItem("Memory Heatmap", nullptr, &g_dbg.ui.heatmap.open);
+            ImGui::MenuItem("Memory Segments", nullptr, &g_memmap.open);
+            ImGui::EndMenu();
+        }
+        /* Emulated VGA rate, right-aligned (e.g. "59.9 FPS"; ~60 when keeping up),
+         * held a few pixels off the window edge so it isn't flush against it. */
         char fps[24];
         std::snprintf(fps, sizeof fps, "%.1f FPS", dbgui_vga_fps());
-        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - ImGui::GetStyle().ItemSpacing.x);
+        float pad = ImGui::GetStyle().ItemSpacing.x + ImGui::GetFontSize() * 0.5f;
+        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - pad);
         ImGui::TextUnformatted(fps);
         ImGui::EndMainMenuBar();
     }
@@ -517,7 +526,7 @@ void dbgui_init(void)
     ui_dbg_external_debugger_connected(&g_dbg);
 
     ui_w65c02_desc_t cd{};
-    cd.title = "MOS 6502";
+    cd.title = "MOS 65C02 (CPU)";
     cd.cpu = cpu;
     cd.x = 10;
     cd.y = 360;
@@ -526,7 +535,7 @@ void dbgui_init(void)
     ui_w65c02_init(&g_cpuwin, &cd);
 
     ui_m6522_desc_t vd{};
-    vd.title = "MOS 6522 (VIA)";
+    vd.title = "MOS 65C22 (VIA)";
     vd.via = via;
     vd.x = 420;
     vd.y = 360;
@@ -535,7 +544,7 @@ void dbgui_init(void)
     ui_m6522_init(&g_viawin, &vd);
 
     ui_rp6502_desc_t rd{};
-    rd.title = "RIA";
+    rd.title = "RP6502 (RIA)";
     rd.x = 860;
     rd.y = 30;
     ui_rp6502_init(&g_ria, &rd);
@@ -558,11 +567,11 @@ void dbgui_init(void)
     med.open = false;
     ui_memedit_init(&g_memedit, &med);
 
-    /* Memory map: the 6502 address-space layout + a "Segments" layer fed from the
-     * loaded linker output. dbgui_build_memmap fills it; dbgui_draw rebuilds it
+    /* Memory Segments: the loaded program's linker segments, one band each, fed
+     * from dbg_get_segments. dbgui_build_memmap fills it; dbgui_draw rebuilds it
      * when the DAP launch pushes a new segment set. */
     ui_memmap_desc_t mmd{};
-    mmd.title = "Memory Map";
+    mmd.title = "Memory Segments";
     mmd.x = 430;
     mmd.y = 250;
     mmd.open = false;
