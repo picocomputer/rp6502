@@ -49,6 +49,7 @@ bool ria_get_sigint(void);
 // ring and RX handoff slot live in ria.c (act_loop's core); com.c (core 0)
 // drains TX and feeds RX through these accessors.
 bool ria_uart_tx_dequeue(uint8_t *ch); // pop one 6502-TX byte (false if empty)
+bool ria_uart_tx_empty(void);          // 6502-TX ring drained?
 bool ria_uart_rx_offer_ready(void);    // RX handoff slot free?
 void ria_uart_rx_offer(uint8_t ch);    // hand a byte to the 6502
 int ria_uart_rx_peek(void);            // peek the offered byte (-1 if none)

@@ -304,6 +304,8 @@ bool ria_uart_tx_dequeue(uint8_t *ch)
     return true;
 }
 
+bool ria_uart_tx_empty(void) { return ria_uart_tx_head == ria_uart_tx_tail; }
+
 // 6502 UART-RX single-byte handoff: com_task (core 0) offers, act_loop (core 1)
 // consumes for 0xFFE0/0xFFE2 reads. -1 => empty. The source tag and the
 // ordering barrier stay on core 0 in com.c (act_loop never needs the tag).

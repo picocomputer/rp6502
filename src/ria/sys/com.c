@@ -792,10 +792,11 @@ void com_stop(void)
 {
     if (!ria_active())
     {
+        while (!ria_uart_tx_empty())
+            com_stdio_pump();
         printf(STR_TERM_SOFT_RESET);
         while (!com_putchar_ready())
             com_stdio_pump();
-        putchar('\n'); // doesn't flush
     }
 }
 
