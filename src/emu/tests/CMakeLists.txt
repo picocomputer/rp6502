@@ -39,6 +39,12 @@ target_include_directories(test_drive PRIVATE ${UTEST_DIR})
 target_compile_definitions(test_drive PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME drive COMMAND test_drive)
 
+# --- Real FatFs on the emulator RAM disk (shared ria/api/fat.c + usb/msc.c diskio) ---
+add_executable(test_fatfs test_fatfs.c)
+target_link_libraries(test_fatfs PRIVATE emu_core)
+target_include_directories(test_fatfs PRIVATE ${UTEST_DIR})
+add_test(NAME fatfs COMMAND test_fatfs)
+
 # --- Directory enumeration integration (dir.rp6502: opendir/readdir/stat/getfree) ---
 add_executable(test_dir test_dir.c)
 target_link_libraries(test_dir PRIVATE emu_core)

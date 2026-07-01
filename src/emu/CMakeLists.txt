@@ -55,6 +55,9 @@ add_library(emu_core STATIC
     ${RP6502}/ria/aud/opl.c
     ${VENDOR}/emu8950/emu8950.c
     ${VENDOR}/fatfs/ffunicode.c
+    ${VENDOR}/fatfs/ff.c
+    ${RP6502}/ria/api/fat.c
+    ${EMU}/usb/msc.c
     ${RP6502}/vga/term/term.c
     ${RP6502}/vga/term/font.c
     ${RP6502}/vga/term/color.c
@@ -98,7 +101,7 @@ target_include_directories(emu_core PUBLIC
     ${CHIPS}
     ${SOKOL}
 )
-target_compile_definitions(emu_core PUBLIC _GNU_SOURCE)
+target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
 target_link_libraries(emu_core PUBLIC m)
 
 # Non-blocking file I/O (POSIX AIO) where the platform provides it; msc/rom fall

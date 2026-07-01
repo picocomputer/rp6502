@@ -13,7 +13,7 @@
 #include "usb/mid.h"
 #include "usb/nfc.h"
 #include "usb/vcp.h"
-#include "usb/msc.h"
+#include "api/fat.h"
 #include "mon/rom.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
@@ -46,7 +46,7 @@ __in_flash("std_drivers") static const std_driver_t std_drivers[] = {
     {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, mid_std_sync, NULL},
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
     {nfc_std_handles, nfc_std_open, nfc_std_close, nfc_std_read, nfc_std_write, NULL, NULL},
-    {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
+    {fat_std_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
 };
 #define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
 
