@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * RIA fastcall register aliases (the $FFEx API window) and the I/O poll result.
- * The api_* return/marshal helpers themselves are declared by the firmware's
- * api/api.h, which api.c implements; this header carries only the emulator-side
- * register aliases and the shared io_result type the std/file drivers return.
+ * RIA fastcall register aliases (the $FFEx API window). The api_* return/marshal
+ * helpers themselves are declared by the firmware's api/api.h, which api.c
+ * implements; this header carries only the emulator-side register aliases. The
+ * std/file drivers return the firmware's std_rw_result (see api/std.h).
  */
 
 #ifndef _EMU_API_H_
@@ -28,13 +28,6 @@ extern "C"
 #define API_SREG REGSW(0xFFF8)
 
 #define FS_HOST_MAX_PATH 4096 /* host path buffer size for fs_to_host callers */
-
-/* Poll status for the I/O API: a source returns IO_PENDING to be polled again
- * (stdin until a line; an AIO transfer until it completes), IO_OK once this
- * poll's bytes are in (got may be 0 at EOF), IO_ERROR on failure (errno set).
- * Under the real-time window both MSC0: and ROM: reads run as POSIX AIO and
- * may return IO_PENDING; headless they complete synchronously. */
-typedef enum { IO_OK, IO_PENDING, IO_ERROR } io_result;
 
 /* Reset per-run API state (the errno-option mapping). */
 void api_reset(void);

@@ -13,10 +13,10 @@
  */
 
 #include "emu/usb/msc.h"
-#include "api/fat.h" /* fat_std_* (shared driver); pulls api/api.h + api/std.h */
+#include "emu/host/fs.h" /* host_file_driver (restored on unmount) */
+#include "api/fat.h"     /* fat_std_* / fat_* (shared driver); pulls api/api.h + api/std.h */
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
-#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -182,368 +182,52 @@ bool emu_ramdrive_mount(void)
         return false;
     if (f_mount(&g_ramfs, "MSC0:", 1) != FR_OK)
         return false;
+    fat_dir_run();                       /* fresh FatFs directory pool */
+    emu_set_dir_ops(&fat_dir_ops);       /* the 6502 dir syscalls -> FatFs */
+    emu_set_fs_driver(&fat_file_driver); /* the 6502 file syscalls -> FatFs */
     g_active = true;
     return true;
 }
 
 void emu_ramdrive_unmount(void)
 {
+    fat_dir_stop(); /* close open FatFs directories */
     f_unmount("MSC0:");
+    emu_set_dir_ops(&host_dir_ops);       /* back to the native host backend */
+    emu_set_fs_driver(&host_file_driver);
     g_active = false;
 }
 
-/* Map the shared driver's api_errno onto a POSIX errno, so the emu std/dir layer
- * (which runs api_errno_from_host over errno) reports the same 6502 errno. */
-static void set_errno_from_api(api_errno e)
-{
-    switch (e)
-    {
-    case API_EIO: errno = EIO; break;
-    case API_ENODEV: errno = ENODEV; break;
-    case API_ENOENT: errno = ENOENT; break;
-    case API_EINVAL: errno = EINVAL; break;
-    case API_EACCES: errno = EACCES; break;
-    case API_EEXIST: errno = EEXIST; break;
-    case API_EBADF: errno = EBADF; break;
-    case API_EAGAIN: errno = EAGAIN; break;
-    case API_EBUSY: errno = EBUSY; break;
-    case API_ENOMEM: errno = ENOMEM; break;
-    case API_EMFILE: errno = EMFILE; break;
-    case API_ERANGE: errno = ERANGE; break;
-    default: errno = EIO; break;
-    }
-}
+/* ---- The FatFs backend as the emu's runtime dir vtable + std.c file driver: the
+ * shared ria/api/fat.c ops directly (int descriptors, api_errno), no adapter. */
+const std_driver_t fat_file_driver = {
+    .handles = fat_std_handles,
+    .open = fat_std_open,
+    .close = fat_std_close,
+    .read = fat_std_read,
+    .write = fat_std_write,
+    .sync = fat_std_sync,
+    .lseek = fat_std_lseek,
+};
 
-/* ---- File driver: the shared fat_std_* in the emu std.c driver-table shape --
- * The emu passes an opaque void* descriptor; the shared driver uses a small int
- * FIL index, so box it as (index + 1) to keep a valid descriptor non-NULL. */
-
-bool fat_std_handles_(const char *path) { return fat_std_handles(path); }
-
-void *fat_std_open_(const char *path, uint8_t flags)
-{
-    api_errno err = 0;
-    int d = fat_std_open(path, flags, &err);
-    if (d < 0)
-    {
-        set_errno_from_api(err);
-        return NULL;
-    }
-    return (void *)(intptr_t)(d + 1);
-}
-
-void fat_std_close_(void *desc)
-{
-    api_errno err = 0;
-    fat_std_close((int)(intptr_t)desc - 1, &err);
-}
-
-io_result fat_std_read_(void *desc, void *buf, size_t n, size_t *got)
-{
-    api_errno err = 0;
-    uint32_t br = 0;
-    std_rw_result r = fat_std_read((int)(intptr_t)desc - 1, buf, (uint32_t)n, &br, &err);
-    *got = br;
-    if (r != STD_OK)
-    {
-        set_errno_from_api(err);
-        return IO_ERROR;
-    }
-    return IO_OK;
-}
-
-io_result fat_std_write_(void *desc, const void *buf, size_t n, size_t *put)
-{
-    api_errno err = 0;
-    uint32_t bw = 0;
-    std_rw_result r = fat_std_write((int)(intptr_t)desc - 1, buf, (uint32_t)n, &bw, &err);
-    *put = bw;
-    if (r != STD_OK)
-    {
-        set_errno_from_api(err);
-        return IO_ERROR;
-    }
-    return IO_OK;
-}
-
-void fat_std_sync_(void *desc)
-{
-    api_errno err = 0;
-    fat_std_sync((int)(intptr_t)desc - 1, &err);
-}
-
-long fat_std_lseek_(void *desc, long off, int whence)
-{
-    api_errno err = 0;
-    int32_t pos = 0;
-    if (fat_std_lseek((int)(intptr_t)desc - 1, (int8_t)whence, (int32_t)off, &pos, &err) != 0)
-    {
-        set_errno_from_api(err);
-        return -1;
-    }
-    return pos;
-}
-
-/* ---- Directory / metadata ops over FatFs (the host/dir.c fs_* shape) ------ */
-
-#define FAT_MAX_DIR 8
-static struct
-{
-    bool used;
-    DIR dp;
-    long pos; /* entries read so far, for telldir/seekdir */
-} fat_dirs[FAT_MAX_DIR];
-
-void fat_dir_reset(void) /* close open directories (machine reset) */
-{
-    for (int i = 0; i < FAT_MAX_DIR; i++)
-    {
-        if (fat_dirs[i].used)
-            f_closedir(&fat_dirs[i].dp);
-        fat_dirs[i].used = false;
-    }
-}
-
-/* FatFs FILINFO already carries FAT-packed dates + attribute bits, so this is a
- * straight copy (unlike the host, which synthesizes them from stat). */
-static void info_from_filinfo(fs_info_t *info, const FILINFO *fno)
-{
-    info->size = (uint32_t)fno->fsize;
-    info->mdate = fno->fdate;
-    info->mtime = fno->ftime;
-    info->cdate = 0; /* FILINFO has no creation time */
-    info->ctime = 0;
-    info->attrib = fno->fattrib;
-    snprintf(info->altname, sizeof(info->altname), "%s", fno->altname);
-    snprintf(info->name, sizeof(info->name), "%s", fno->fname);
-}
-
-static int fat_fail(FRESULT fr)
-{
-    set_errno_from_api(api_errno_from_fatfs(fr));
-    return -1;
-}
-
-int fat_stat(const char *path, fs_info_t *info)
-{
-    FILINFO fno;
-    FRESULT fr = f_stat(path, &fno);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    info_from_filinfo(info, &fno);
-    return 0;
-}
-
-int fat_opendir(const char *path)
-{
-    int des = 0;
-    for (; des < FAT_MAX_DIR; des++)
-        if (!fat_dirs[des].used)
-            break;
-    if (des == FAT_MAX_DIR)
-    {
-        errno = EMFILE;
-        return -1;
-    }
-    FRESULT fr = f_opendir(&fat_dirs[des].dp, path);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    fat_dirs[des].used = true;
-    fat_dirs[des].pos = 0;
-    return des;
-}
-
-static bool fat_dir_bad(int des) /* sets errno like the host dir_slot */
-{
-    if (des < 0 || des >= FAT_MAX_DIR)
-    {
-        errno = EINVAL;
-        return true;
-    }
-    if (!fat_dirs[des].used)
-    {
-        errno = EBADF;
-        return true;
-    }
-    return false;
-}
-
-int fat_readdir(int des, fs_info_t *info)
-{
-    if (fat_dir_bad(des))
-        return -1;
-    FILINFO fno;
-    FRESULT fr = f_readdir(&fat_dirs[des].dp, &fno);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    if (!fno.fname[0]) /* end of directory */
-    {
-        memset(info, 0, sizeof(*info));
-        return 0;
-    }
-    fat_dirs[des].pos++;
-    info_from_filinfo(info, &fno);
-    return 0;
-}
-
-int fat_closedir(int des)
-{
-    if (fat_dir_bad(des))
-        return -1;
-    FRESULT fr = f_closedir(&fat_dirs[des].dp);
-    fat_dirs[des].used = false;
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-long fat_telldir(int des)
-{
-    if (fat_dir_bad(des))
-        return -1;
-    return fat_dirs[des].pos;
-}
-
-int fat_rewinddir(int des)
-{
-    if (fat_dir_bad(des))
-        return -1;
-    FRESULT fr = f_readdir(&fat_dirs[des].dp, NULL); /* NULL rewinds */
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    fat_dirs[des].pos = 0;
-    return 0;
-}
-
-int fat_seekdir(int des, long off)
-{
-    if (fat_dir_bad(des))
-        return -1;
-    if (off < 0)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-    if (fat_dirs[des].pos > off && fat_rewinddir(des) != 0)
-        return -1;
-    while (fat_dirs[des].pos < off)
-    {
-        fs_info_t info;
-        if (fat_readdir(des, &info) != 0)
-            return -1;
-        if (!info.name[0]) /* hit EOF before reaching off */
-        {
-            errno = EINVAL;
-            return -1;
-        }
-    }
-    return 0;
-}
-
-int fat_getfree(const char *path, uint32_t *free_sectors, uint32_t *total_sectors)
-{
-    DWORD nclust = 0;
-    FATFS *fs = NULL;
-    FRESULT fr = f_getfree(path, &nclust, &fs);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    uint64_t tot = (uint64_t)(fs->n_fatent - 2) * fs->csize; /* 512-byte sectors */
-    uint64_t fre = (uint64_t)nclust * fs->csize;
-    *total_sectors = tot > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot;
-    *free_sectors = fre > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fre;
-    return 0;
-}
-
-int fat_chmod(const char *path, uint8_t attr, uint8_t mask)
-{
-    FRESULT fr = f_chmod(path, attr, mask); /* FAT AM_* bits pass straight through */
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_utime(const char *path, uint16_t fdate, uint16_t ftime)
-{
-    FILINFO fno;
-    memset(&fno, 0, sizeof(fno));
-    fno.fdate = fdate;
-    fno.ftime = ftime;
-    FRESULT fr = f_utime(path, &fno);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_getlabel(const char *path, char *label, size_t sz)
-{
-    (void)sz;
-    DWORD vsn;
-    FRESULT fr = f_getlabel(path, label, &vsn);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_setlabel(const char *path)
-{
-    FRESULT fr = f_setlabel(path);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_unlink(const char *path)
-{
-    FRESULT fr = f_unlink(path);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_rename(const char *oldp, const char *newp)
-{
-    FRESULT fr = f_rename(oldp, newp);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_mkdir(const char *path)
-{
-    FRESULT fr = f_mkdir(path);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_chdir(const char *path)
-{
-    FRESULT fr = f_chdir(path);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-int fat_chdrive(const char *drive)
-{
-    if (drive[0] == ':') /* the null drive (installs) is not a cwd-able drive */
-    {
-        errno = ENODEV;
-        return -1;
-    }
-    FRESULT fr = f_chdrive(drive);
-    if (fr != FR_OK)
-        return fat_fail(fr);
-    return 0;
-}
-
-size_t fat_getcwd(char *out, size_t outsz)
-{
-    FRESULT fr = f_getcwd(out, (UINT)outsz);
-    if (fr != FR_OK)
-    {
-        set_errno_from_api(api_errno_from_fatfs(fr));
-        return 0;
-    }
-    return strlen(out);
-}
+const fs_dir_ops fat_dir_ops = {
+    .stat = fat_stat,
+    .opendir = fat_opendir,
+    .readdir = fat_readdir,
+    .closedir = fat_closedir,
+    .telldir = fat_telldir,
+    .seekdir = fat_seekdir,
+    .rewinddir = fat_rewinddir,
+    .unlink = fat_unlink,
+    .rename = fat_rename,
+    .chmod = fat_chmod,
+    .utime = fat_utime,
+    .mkdir = fat_mkdir,
+    .chdir = fat_chdir,
+    .chdrive = fat_chdrive,
+    .getcwd = fat_getcwd,
+    .getlabel = fat_getlabel,
+    .setlabel = fat_setlabel,
+    .getfree = fat_getfree,
+    .stop = fat_dir_stop,
+};

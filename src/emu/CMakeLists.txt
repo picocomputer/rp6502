@@ -30,6 +30,7 @@ add_library(emu_core STATIC
     ${EMU}/sys/vga.c
     ${EMU}/sys/xreg.c
     ${EMU}/host/dir.c
+    ${EMU}/host/posixdir.c
     ${EMU}/host/fs.c
     ${EMU}/mon/install.c
     ${EMU}/mon/rom.c

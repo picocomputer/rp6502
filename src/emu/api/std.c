@@ -4,20 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The 6502 stdio/file syscalls (ria/api/std.c ops 0x14-0x1E). This is the stdio
- * OPEN DISPATCHER: a driver table — ROM:, overlay, then the MSC0: host catch-all,
- * exactly as the firmware's ria/api/std.c matches a path by each driver's
- * handles() in order. open() hands back an opaque per-driver descriptor; the fd
- * pool caches it alongside the driver's read/write/lseek/close/sync so later ops
- * dispatch without re-parsing the path.
+ * OPEN DISPATCHER: a path is claimed by the first driver whose handles() returns
+ * true — ROM: first, then the writable-filesystem catch-all (g_fs_driver, the host
+ * or a mounted RAM FatFs), exactly as the firmware's ria/api/std.c matches. The
+ * drivers share the firmware's std_driver_t ABI (int descriptor, std_rw_result,
+ * api_errno); open() caches the driver's ops in the fd pool so later ops dispatch
+ * without re-parsing the path.
  *
  * Two things differ from the firmware:
  *   - A file read is issued in one std_read call, never chunked/PIX-drained over
- *     many ticks like the firmware. In the windowed build both MSC0: host I/O and
- *     ROM: asset reads run async (POSIX AIO), re-polled until the aiocb completes;
+ *     many ticks. In the windowed build both MSC0: host I/O and ROM: asset reads
+ *     run async (POSIX AIO), re-polled until the aiocb completes (STD_PENDING);
  *     headless they finish synchronously. stdin re-dispatches until a line is ready.
  *   - stdin is the one blocking call: with no line ready it returns api_working()
- *     and the machine re-dispatches it each frame (sys.c) while rln_task() drains
- *     the keyboard, exactly as the hardware polls the RIA.
+ *     and the machine re-dispatches it each frame while rln_task() drains the
+ *     keyboard, exactly as the hardware polls the RIA.
  *
  * fd 0-4 are the reserved console streams (stdin/stdout/stderr/con/tty); fd 5-15
  * are open files. Console writes go to the terminal via emu_stdout_write; con/
@@ -31,14 +32,12 @@
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "emu/host/fs.h"
-#include "emu/usb/msc.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
 #include "api/std.h"
 #include "aud/bel.h"
 #include "str/rln.h"
 #include "sys/com.h"
-#include <errno.h>
 #include <stdio.h> /* SEEK_SET/SEEK_CUR/SEEK_END */
 #include <string.h>
 #include <strings.h> /* strcasecmp */
@@ -51,88 +50,27 @@
 #define FD_FIRST_FREE 5
 #define FD_MAX 16
 
-/* The cached per-fd operations (and the driver table's op set). open() returns an
- * opaque descriptor the rest act on; the console streams set these directly. */
-typedef io_result (*read_fn)(void *desc, void *buf, size_t n, size_t *got);
-typedef io_result (*write_fn)(void *desc, const void *buf, size_t n, size_t *put);
-typedef long (*lseek_fn)(void *desc, long off, int whence);
-typedef void (*close_fn)(void *desc);
-typedef void (*sync_fn)(void *desc);
+/* The active writable-filesystem driver (std.c's catch-all): the native host by
+ * default, a RAM FatFs while --tmpdrive is mounted. Swapped at runtime by the
+ * drive lifecycle (emu/usb/msc.c). ROM: is always tried first (below). */
+static const std_driver_t *g_fs_driver = &host_file_driver;
 
-/* The driver table, mirroring ria/api/std.c: a path is claimed by the first
- * driver whose handles() returns true, so ROM: gets first pick and the MSC0: host
- * driver is the catch-all, last. ROM: leaves write/sync NULL (read-only, sharing
- * rom.c's window). The null drive ":" is deliberately NOT here: like the firmware,
- * installed ROMs are reached only by the boot/exec loader (fs_resolve_rom), never
- * by a 6502 open() — which falls through to MSC0: and fails (a leading ":" is no
- * host path). */
-typedef struct
+void emu_set_fs_driver(const std_driver_t *drv)
 {
-    bool (*handles)(const char *path);
-    void *(*open)(const char *path, uint8_t flags); /* desc, or NULL + errno */
-    close_fn close;
-    read_fn read;
-    write_fn write;
-    sync_fn sync;
-    lseek_fn lseek;
-} std_driver_t;
-
-/* The catch-all filesystem driver dispatches to the host backend, or to a fresh
- * RAM FatFs when --tmpdrive selected it (emu/usb/msc.c). The backend is fixed at
- * startup, so every open descriptor belongs to whichever one is active. */
-static bool cat_std_handles(const char *path)
-{
-    (void)path;
-    return true;
-}
-static void *cat_std_open(const char *path, uint8_t flags)
-{
-    return emu_fat_active() ? fat_std_open_(path, flags) : host_std_open(path, flags);
-}
-static void cat_std_close(void *desc)
-{
-    if (emu_fat_active())
-        fat_std_close_(desc);
-    else
-        host_std_close(desc);
-}
-static io_result cat_std_read(void *desc, void *buf, size_t n, size_t *got)
-{
-    return emu_fat_active() ? fat_std_read_(desc, buf, n, got) : host_std_read(desc, buf, n, got);
-}
-static io_result cat_std_write(void *desc, const void *buf, size_t n, size_t *put)
-{
-    return emu_fat_active() ? fat_std_write_(desc, buf, n, put) : host_std_write(desc, buf, n, put);
-}
-static void cat_std_sync(void *desc)
-{
-    if (emu_fat_active())
-        fat_std_sync_(desc);
-    else
-        host_std_sync(desc);
-}
-static long cat_std_lseek(void *desc, long off, int whence)
-{
-    return emu_fat_active() ? fat_std_lseek_(desc, off, whence) : host_std_lseek(desc, off, whence);
+    g_fs_driver = drv;
 }
 
-static const std_driver_t std_drivers[] = {
-    {rom_std_handles, rom_std_open, rom_window_close, rom_window_read, NULL, NULL, rom_window_lseek},
-    {cat_std_handles, cat_std_open, cat_std_close, cat_std_read, cat_std_write, cat_std_sync, cat_std_lseek},
-};
-#define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
-
-/* The file descriptor pool. fd 0-4 are the console streams (desc unused); fd
- * 5-15 cache a driver's descriptor + ops from open(). */
+/* The per-fd operations cached from open(). The console streams set these
+ * directly; open()ed files copy them from the matching driver. */
 typedef struct
 {
     bool is_open;
-    void *desc;
-    close_fn close;
-    read_fn read;
-    write_fn write;
-    sync_fn sync;
-    lseek_fn lseek;
+    int desc;
+    std_rw_result (*close)(int, api_errno *);
+    std_rw_result (*read)(int, char *, uint32_t, uint32_t *, api_errno *);
+    std_rw_result (*write)(int, const char *, uint32_t, uint32_t *, api_errno *);
+    std_rw_result (*sync)(int, api_errno *);
+    int (*lseek)(int, int8_t, int32_t, int32_t *, api_errno *);
 } std_fd_t;
 static std_fd_t fds[FD_MAX];
 
@@ -156,13 +94,12 @@ static void stdin_callback(bool timeout, const char *buf)
     rln_needs_nl = true;
 }
 
-/* stdin/con read (ports the firmware std_stdin_read): IO_PENDING with no line
- * ready (a request is queued; the machine re-dispatches us), IO_OK once bytes
+/* stdin/con read (ports the firmware std_stdin_read): STD_PENDING with no line
+ * ready (a request is queued; the machine re-dispatches us), STD_OK once bytes
  * (and the trailing newline) are delivered. */
-static io_result con_read(void *desc, void *buf, size_t n, size_t *got)
+static std_rw_result con_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    (void)desc;
-    char *out = buf;
+    (void)desc, (void)err;
     *got = 0;
     if (!rln_needs_nl && rln_line_pos >= rln_line_len)
     {
@@ -171,67 +108,66 @@ static io_result con_read(void *desc, void *buf, size_t n, size_t *got)
             rln_busy = true;
             rln_read_line(stdin_callback);
         }
-        return IO_PENDING;
+        return STD_PENDING;
     }
-    size_t i = 0;
-    for (; i < n && rln_line_pos < rln_line_len; i++)
-        out[i] = rln_line[rln_line_pos++];
-    if (i < n && rln_needs_nl)
+    uint32_t i = 0;
+    for (; i < count && rln_line_pos < rln_line_len; i++)
+        buf[i] = rln_line[rln_line_pos++];
+    if (i < count && rln_needs_nl)
     {
-        out[i++] = '\n';
+        buf[i++] = '\n';
         rln_needs_nl = false;
     }
     *got = i;
-    return IO_OK;
+    return STD_OK;
 }
 
-/* CON: read (ports the firmware std_con_read): non-blocking — no line ready
- * reads 0 bytes rather than spinning the 6502 (unlike stdin). */
-static io_result con_read_nonblock(void *desc, void *buf, size_t n, size_t *got)
+/* CON: read (ports the firmware std_con_read): non-blocking — no line ready reads
+ * 0 bytes rather than spinning the 6502 (unlike stdin). */
+static std_rw_result con_read_nonblock(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    io_result r = con_read(desc, buf, n, got);
-    return (r == IO_PENDING) ? IO_OK : r;
+    std_rw_result r = con_read(desc, buf, count, got, err);
+    return (r == STD_PENDING) ? STD_OK : r;
 }
 
 /* TTY: read (ports the firmware std_tty_read): raw, non-blocking drain of queued
  * keystroke bytes — no cooking/echo, *got=0 when idle. */
-static io_result tty_read(void *desc, void *buf, size_t n, size_t *got)
+static std_rw_result tty_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    (void)desc;
-    char *out = buf;
-    size_t i = 0;
-    for (; i < n; i++)
+    (void)desc, (void)err;
+    uint32_t i = 0;
+    for (; i < count; i++)
     {
         com_source_t src = COM_SOURCE_KBD;
         int ch = com_getchar(&src);
         if (ch < 0)
             break;
-        out[i] = (char)ch;
+        buf[i] = (char)ch;
     }
     *got = i;
-    return IO_OK;
+    return STD_OK;
 }
 
 /* Ring the teletype bell on any BEL (0x07) in a program's console output, like
  * the firmware's com TX scan (ria/sys/com.c). The byte still passes through to
  * the terminal; this rings only on program output, not the rln line echo. */
-static void std_bell_scan(const char *buf, size_t n)
+static void std_bell_scan(const char *buf, uint32_t n)
 {
     if (!com_get_bel())
         return;
-    for (size_t i = 0; i < n; i++)
+    for (uint32_t i = 0; i < n; i++)
         if (buf[i] == '\a')
             bel_add(&bel_teletype);
 }
 
 /* stdout/stderr/con/tty write: to the terminal, instantly (no drain). */
-static io_result con_write(void *desc, const void *buf, size_t n, size_t *put)
+static std_rw_result con_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
-    (void)desc;
-    std_bell_scan(buf, n);
-    emu_stdout_write(buf, n);
-    *put = n;
-    return IO_OK;
+    (void)desc, (void)err;
+    std_bell_scan(buf, count);
+    emu_stdout_write(buf, count);
+    *put = count;
+    return STD_OK;
 }
 
 static void setup_console(void)
@@ -249,7 +185,7 @@ static void setup_console(void)
 /* the std_api_* syscalls below; main.c/tests use it directly)          */
 /* ------------------------------------------------------------------ */
 
-int std_open(const char *path, uint8_t flags)
+int std_open(const char *path, uint8_t flags, api_errno *err)
 {
     if (strcasecmp(path, "CON:") == 0)
         return FD_CON;
@@ -264,26 +200,35 @@ int std_open(const char *path, uint8_t flags)
         }
     if (fd < 0)
     {
-        errno = EMFILE;
+        if (err)
+            *err = API_EMFILE;
         return -1;
     }
-    for (size_t i = 0; i < STD_DRIVER_COUNT; i++)
+    /* ROM: first, then the writable-filesystem catch-all — the firmware order. */
+    const std_driver_t *drivers[2] = {&rom_file_driver, g_fs_driver};
+    for (int i = 0; i < 2; i++)
     {
-        if (!std_drivers[i].handles(path))
+        if (!drivers[i]->handles(path))
             continue;
-        void *desc = std_drivers[i].open(path, flags);
-        if (!desc)
-            return -1; /* errno set by the driver */
+        api_errno e = API_EIO;
+        int desc = drivers[i]->open(path, flags, &e);
+        if (desc < 0)
+        {
+            if (err)
+                *err = e;
+            return -1;
+        }
         fds[fd].is_open = true;
         fds[fd].desc = desc;
-        fds[fd].close = std_drivers[i].close;
-        fds[fd].read = std_drivers[i].read;
-        fds[fd].write = std_drivers[i].write;
-        fds[fd].sync = std_drivers[i].sync;
-        fds[fd].lseek = std_drivers[i].lseek;
+        fds[fd].close = drivers[i]->close;
+        fds[fd].read = drivers[i]->read;
+        fds[fd].write = drivers[i]->write;
+        fds[fd].sync = drivers[i]->sync;
+        fds[fd].lseek = drivers[i]->lseek;
         return fd;
     }
-    errno = ENOENT; /* unreachable: the host driver is a catch-all */
+    if (err)
+        *err = API_ENOENT; /* unreachable: the host driver is a catch-all */
     return -1;
 }
 
@@ -292,36 +237,37 @@ bool std_writable(int fd)
     return fd >= 0 && fd < FD_MAX && fds[fd].is_open && fds[fd].write != NULL;
 }
 
-io_result std_read(int fd, void *buf, size_t n, size_t *got)
+std_rw_result std_read(int fd, char *buf, uint32_t n, uint32_t *got, api_errno *err)
 {
     *got = 0;
     if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open || !fds[fd].read)
     {
-        errno = EBADF;
-        return IO_ERROR;
+        *err = API_EBADF;
+        return STD_ERROR;
     }
-    return fds[fd].read(fds[fd].desc, buf, n, got);
+    return fds[fd].read(fds[fd].desc, buf, n, got, err);
 }
 
-io_result std_write(int fd, const void *buf, size_t n, size_t *put)
+std_rw_result std_write(int fd, const char *buf, uint32_t n, uint32_t *put, api_errno *err)
 {
     *put = 0;
     if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open || !fds[fd].write)
     {
-        errno = EBADF;
-        return IO_ERROR;
+        *err = API_EBADF;
+        return STD_ERROR;
     }
-    return fds[fd].write(fds[fd].desc, buf, n, put);
+    return fds[fd].write(fds[fd].desc, buf, n, put, err);
 }
 
 long std_lseek(int fd, long offset, int whence)
 {
     if (fd < 0 || fd >= FD_MAX || !fds[fd].is_open || !fds[fd].lseek)
-    {
-        errno = EBADF;
         return -1;
-    }
-    return fds[fd].lseek(fds[fd].desc, offset, whence);
+    int32_t pos;
+    api_errno err;
+    if (fds[fd].lseek(fds[fd].desc, (int8_t)whence, (int32_t)offset, &pos, &err) < 0)
+        return -1;
+    return pos;
 }
 
 void std_close(int fd)
@@ -329,7 +275,10 @@ void std_close(int fd)
     if (fd < FD_FIRST_FREE || fd >= FD_MAX || !fds[fd].is_open)
         return; /* console streams (0-4) stay open */
     if (fds[fd].close)
-        fds[fd].close(fds[fd].desc);
+    {
+        api_errno err;
+        fds[fd].close(fds[fd].desc, &err);
+    }
     memset(&fds[fd], 0, sizeof(fds[fd]));
 }
 
@@ -350,9 +299,10 @@ bool std_api_open(void)
     const char *path = (const char *)&xstack[xstack_ptr];
     uint8_t flags = API_A;
     xstack_ptr = XSTACK_SIZE;
-    int fd = std_open(path, flags);
+    api_errno err = API_EIO;
+    int fd = std_open(path, flags, &err);
     if (fd < 0)
-        return api_return_errno(api_errno_from_host(errno));
+        return api_return_errno(err);
     return api_return_ax((uint16_t)fd);
 }
 
@@ -373,7 +323,7 @@ bool std_api_close(void)
 
 /* In-flight read (the polling I/O model). Only one read is ever in flight (the
  * 6502 is blocked on it), so one state serves both the xstack and xram paths. A
- * poll reads what is available now, advancing rd.got; IO_PENDING means poll again
+ * poll reads what is available now, advancing rd.got; STD_PENDING means poll again
  * (stdin until a line; an async MSC0:/ROM: read until its aiocb completes). */
 static struct
 {
@@ -384,13 +334,14 @@ static struct
     uint16_t addr; /* xram dest base (when xram) */
     uint16_t size;
     uint16_t got;
+    api_errno err;
 } rd;
 
-static io_result rd_poll(void)
+static std_rw_result rd_poll(void)
 {
-    void *dst = rd.xram ? (void *)&xram[rd.addr + rd.got] : (void *)(rd.buf + rd.got);
-    size_t got = 0;
-    io_result r = std_read(rd.fd, dst, (size_t)(rd.size - rd.got), &got);
+    char *dst = rd.xram ? (char *)&xram[rd.addr + rd.got] : rd.buf + rd.got;
+    uint32_t got = 0;
+    std_rw_result r = std_read(rd.fd, dst, (uint32_t)(rd.size - rd.got), &got, &rd.err);
     rd.got += (uint16_t)got;
     return r;
 }
@@ -414,12 +365,12 @@ bool std_api_read_xstack(void)
         rd.size = size;
         rd.got = 0;
     }
-    io_result r = rd_poll();
-    if (r == IO_PENDING)
+    std_rw_result r = rd_poll();
+    if (r == STD_PENDING)
         return api_working();
     rd.active = false;
-    if (r == IO_ERROR)
-        return api_return_errno(api_errno_from_host(errno));
+    if (r == STD_ERROR)
+        return api_return_errno(rd.err);
     xstack_ptr = XSTACK_SIZE - rd.got;
     if (rd.got != rd.size)
         memmove(&xstack[xstack_ptr], rd.buf, rd.got);
@@ -449,12 +400,12 @@ bool std_api_read_xram(void)
         rd.size = size;
         rd.got = 0;
     }
-    io_result r = rd_poll();
-    if (r == IO_PENDING)
+    std_rw_result r = rd_poll();
+    if (r == STD_PENDING)
         return api_working();
     rd.active = false;
-    if (r == IO_ERROR)
-        return api_return_errno(api_errno_from_host(errno));
+    if (r == STD_ERROR)
+        return api_return_errno(rd.err);
     return api_return_ax(rd.got);
 }
 
@@ -463,7 +414,7 @@ bool std_api_read_xram(void)
 /* ------------------------------------------------------------------ */
 
 /* In-flight write (mirrors rd). The driver submits the transfer on the first
- * poll and returns IO_PENDING until it completes (async window); the source
+ * poll and returns STD_PENDING until it completes (async window); the source
  * (xstack/xram) stays put while the 6502 spins, so the pointer is kept. */
 static struct
 {
@@ -471,17 +422,18 @@ static struct
     int fd;
     const char *buf;
     uint16_t size;
+    api_errno err;
 } wr;
 
 static bool wr_finish(void)
 {
-    size_t put = 0;
-    io_result r = fds[wr.fd].write(fds[wr.fd].desc, wr.buf, wr.size, &put);
-    if (r == IO_PENDING)
+    uint32_t put = 0;
+    std_rw_result r = fds[wr.fd].write(fds[wr.fd].desc, wr.buf, wr.size, &put, &wr.err);
+    if (r == STD_PENDING)
         return api_working();
     wr.active = false;
-    if (r != IO_OK)
-        return api_return_errno(api_errno_from_host(errno));
+    if (r != STD_OK)
+        return api_return_errno(wr.err);
     return api_return_ax((uint16_t)put);
 }
 
@@ -536,6 +488,15 @@ bool std_api_write_xram(void)
 /* Console streams (fd 0-4) are valid fds but have no lseek/sync (those slots are
  * NULL): ENOSYS, like the firmware. A closed/out-of-range fd is EBADF. */
 
+static bool std_lseek_dispatch(int fd, int8_t whence, int32_t ofs)
+{
+    int32_t pos;
+    api_errno err = API_EIO;
+    if (fds[fd].lseek(fds[fd].desc, whence, ofs, &pos, &err) < 0)
+        return api_return_errno(err);
+    return api_return_axsreg((uint32_t)pos);
+}
+
 bool std_api_lseek_cc65(void)
 {
     int fd = API_A;
@@ -557,10 +518,7 @@ bool std_api_lseek_cc65(void)
         whence = SEEK_END;
     else
         return api_return_errno(API_EINVAL);
-    long np = fds[fd].lseek(fds[fd].desc, ofs, whence);
-    if (np < 0)
-        return api_return_errno(api_errno_from_host(errno));
-    return api_return_axsreg((uint32_t)np);
+    return std_lseek_dispatch(fd, whence, ofs);
 }
 
 bool std_api_lseek_llvm(void)
@@ -576,10 +534,7 @@ bool std_api_lseek_llvm(void)
         return api_return_errno(API_ENOSYS);
     if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
         return api_return_errno(API_EINVAL);
-    long np = fds[fd].lseek(fds[fd].desc, ofs, whence);
-    if (np < 0)
-        return api_return_errno(api_errno_from_host(errno));
-    return api_return_axsreg((uint32_t)np);
+    return std_lseek_dispatch(fd, whence, ofs);
 }
 
 bool std_api_syncfs(void)
@@ -589,7 +544,10 @@ bool std_api_syncfs(void)
         return api_return_errno(API_EBADF);
     if (!fds[fd].sync) /* console streams + read-only drives don't sync */
         return api_return_errno(API_ENOSYS);
-    fds[fd].sync(fds[fd].desc); /* persist MSC0: writes (web: IndexedDB) */
+    api_errno err = API_EIO;
+    std_rw_result r = fds[fd].sync(fds[fd].desc, &err); /* persist MSC0: writes (web: IndexedDB) */
+    if (r == STD_ERROR)
+        return api_return_errno(err);
     return api_return_ax(0);
 }
 
@@ -607,7 +565,7 @@ void std_task(void)
 void std_reset(void)
 {
     std_files_reset(); /* close open files (driver close frees their objects) */
-    host_dir_reset();  /* close open directories */
+    emu_dir_stop();    /* close open directories on the active backend */
     setup_console();   /* re-establish fd 0-4 */
     rd.active = false;
     wr.active = false;

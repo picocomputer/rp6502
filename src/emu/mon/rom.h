@@ -15,7 +15,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "emu/api/api.h" /* io_result */
+#include "emu/api/std.h" /* std_driver_t */
 
 #ifdef __cplusplus
 extern "C"
@@ -44,14 +44,8 @@ long fs_read_rom_asset(const char *name, void *buf, size_t max); /* host-side; -
  * (headless/tests, for determinism). Off by default; mirrors msc_set_async. */
 void rom_set_async(bool on);
 
-/* ---- std file driver hooks (registered in std.c's table). ROM: asset windows;
- * overlay reuses the read-only window side. ---- */
-bool rom_std_handles(const char *path);
-void *rom_std_open(const char *path, uint8_t flags);
-void *rom_window_open(const char *hostpath, size_t base, size_t len); /* a read-only [base,len) window */
-void rom_window_close(void *desc);
-io_result rom_window_read(void *desc, void *buf, size_t n, size_t *got); /* IO_PENDING while the AIO read is in flight */
-long rom_window_lseek(void *desc, long off, int whence);
+/* The ROM: file driver (read-only asset windows), registered in std.c's table. */
+extern const std_driver_t rom_file_driver;
 void rom_assets_reset(void); /* forget the asset directory (a new program replaces it) */
 
 #ifdef __cplusplus

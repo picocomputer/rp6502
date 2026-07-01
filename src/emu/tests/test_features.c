@@ -117,16 +117,17 @@ UTEST(features, teletype_bell)
     ASSERT_EQ(emu_audio_rate(), 24000); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
 
-    size_t put = 0;
+    uint32_t put = 0;
+    api_errno err;
 
     /* Disabled (nothing has rung yet): a BEL byte is ignored and stays silent. */
     com_set_bel(false);
-    ASSERT_EQ(std_write(1, "\a", 1, &put), IO_OK); /* fd 1 = stdout */
+    ASSERT_EQ(std_write(1, "\a", 1, &put, &err), STD_OK); /* fd 1 = stdout */
     ASSERT_FALSE(pumped_audio(16));
 
     /* Enabled: the same BEL byte now rings the bell -> audible samples. */
     com_set_bel(true);
-    ASSERT_EQ(std_write(1, "\a", 1, &put), IO_OK);
+    ASSERT_EQ(std_write(1, "\a", 1, &put, &err), STD_OK);
     ASSERT_TRUE(pumped_audio(16));
 }
 

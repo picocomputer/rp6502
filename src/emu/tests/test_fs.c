@@ -15,7 +15,6 @@
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "utest.h"
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,64 +55,66 @@ static bool host_exists(const char *rel)
 UTEST(fs, msc0_write_read_seek)
 {
     ASSERT_TRUE(fresh_cwd());
+    api_errno err;
 
-    size_t got = 0, put = 0;
-    int f = std_open("hello.txt", O_WR | O_CREAT_ | O_TRUNC_);
+    uint32_t got = 0, put = 0;
+    int f = std_open("hello.txt", O_WR | O_CREAT_ | O_TRUNC_, NULL);
     ASSERT_TRUE(f >= 0);
     ASSERT_TRUE(std_writable(f));
-    ASSERT_EQ(std_write(f, "hello", 5, &put), IO_OK);
-    ASSERT_EQ(put, (size_t)5);
+    ASSERT_EQ(std_write(f, "hello", 5, &put, &err), STD_OK);
+    ASSERT_EQ(put, 5u);
     std_close(f);
     ASSERT_TRUE(host_exists("hello.txt")); /* a real file under the cwd */
 
-    f = std_open("hello.txt", O_RD);
+    f = std_open("hello.txt", O_RD, NULL);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
-    ASSERT_EQ(std_read(f, buf, 8, &got), IO_OK);
-    ASSERT_EQ(got, (size_t)5);
+    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK);
+    ASSERT_EQ(got, 5u);
     ASSERT_STREQ(buf, "hello");
     ASSERT_EQ(std_lseek(f, 1, SEEK_SET), 1L);
-    ASSERT_EQ(std_read(f, buf, 1, &got), IO_OK);
-    ASSERT_EQ(got, (size_t)1);
+    ASSERT_EQ(std_read(f, buf, 1, &got, &err), STD_OK);
+    ASSERT_EQ(got, 1u);
     ASSERT_EQ(buf[0], 'e');
     std_close(f);
 
     /* The same file by its MSC0: (relative) path -> the process cwd. */
-    f = std_open("MSC0:hello.txt", O_RD);
+    f = std_open("MSC0:hello.txt", O_RD, NULL);
     ASSERT_TRUE(f >= 0);
     std_close(f);
 
-    ASSERT_EQ(fs_unlink("hello.txt"), 0);
+    ASSERT_EQ(host_unlink("hello.txt", &err), 0);
     ASSERT_FALSE(host_exists("hello.txt"));
 }
 
 UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
+    api_errno err;
 
     char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
-    fs_getcwd(cwd, sizeof(cwd));
+    host_getcwd(cwd, sizeof(cwd), &err);
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
-    ASSERT_EQ(fs_mkdir("saves"), 0);
-    ASSERT_EQ(fs_chdir("saves"), 0);
-    fs_getcwd(cwd, sizeof(cwd));
+    ASSERT_EQ(host_mkdir("saves", &err), 0);
+    ASSERT_EQ(host_chdir("saves", &err), 0);
+    host_getcwd(cwd, sizeof(cwd), &err);
     snprintf(expect, sizeof(expect), "MSC0:%s/saves", g_dir);
     ASSERT_STREQ(cwd, expect);
 
-    /* A too-small buffer signals "did not fit" with 0 (full-path-or-error), so
-     * the caller never relocates a truncated path. */
+    /* A too-small buffer fails (full-path-or-error), so the caller never
+     * relocates a truncated path. */
     char tiny[8];
-    ASSERT_EQ(fs_getcwd(tiny, sizeof(tiny)), (size_t)0);
+    ASSERT_EQ(host_getcwd(tiny, sizeof(tiny), &err), -1);
 
     /* A relative path resolves under the new cwd. */
-    int f = std_open("game.sav", O_WR | O_CREAT_ | O_TRUNC_);
+    int f = std_open("game.sav", O_WR | O_CREAT_ | O_TRUNC_, NULL);
     ASSERT_TRUE(f >= 0);
     std_close(f);
     ASSERT_TRUE(host_exists("saves/game.sav"));
 
-    ASSERT_EQ(fs_chdir("nope"), -1); /* missing dir fails */
+    ASSERT_EQ(host_chdir("nope", &err), -1); /* missing dir fails */
 }
 
 /* No chroot: MSC0: is the whole native filesystem, so ".." walks freely up the
@@ -121,23 +122,24 @@ UTEST(fs, chdir_getcwd_relative)
 UTEST(fs, no_chroot_clamp)
 {
     ASSERT_TRUE(fresh_cwd());
+    api_errno err;
 
-    ASSERT_EQ(fs_mkdir("sub"), 0);
-    ASSERT_EQ(fs_chdir("sub"), 0);
+    ASSERT_EQ(host_mkdir("sub", &err), 0);
+    ASSERT_EQ(host_chdir("sub", &err), 0);
     char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
-    fs_getcwd(cwd, sizeof(cwd));
+    host_getcwd(cwd, sizeof(cwd), &err);
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir ... */
-    ASSERT_EQ(fs_chdir(".."), 0);
-    fs_getcwd(cwd, sizeof(cwd));
+    ASSERT_EQ(host_chdir("..", &err), 0);
+    host_getcwd(cwd, sizeof(cwd), &err);
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
     ASSERT_STREQ(cwd, expect);
 
     /* ... and again climbs ABOVE it — no clamp; the cwd walks the real tree. */
-    ASSERT_EQ(fs_chdir(".."), 0);
-    fs_getcwd(cwd, sizeof(cwd));
+    ASSERT_EQ(host_chdir("..", &err), 0);
+    host_getcwd(cwd, sizeof(cwd), &err);
     ASSERT_STRNE(cwd, expect);
 }
 
@@ -163,10 +165,11 @@ UTEST(fs, path_translation)
 UTEST(fs, chdrive_stays_on_msc0)
 {
     ASSERT_TRUE(fresh_cwd());
-    ASSERT_EQ(fs_chdrive("MSC0:"), 0);
-    ASSERT_EQ(fs_chdrive("MSC0"), 0);
-    errno = 0;
-    ASSERT_EQ(fs_chdrive("Z:"), -1);
+    api_errno err;
+    ASSERT_EQ(host_chdrive("MSC0:", &err), 0);
+    ASSERT_EQ(host_chdrive("MSC0", &err), 0);
+    ASSERT_EQ(host_chdrive("Z:", &err), -1);
+    ASSERT_EQ(err, API_ENODEV);
 }
 
 /* FatFs attribute bits the 6502 sees (FatFs AM_*). */
@@ -174,13 +177,14 @@ UTEST(fs, chdrive_stays_on_msc0)
 #define AM_DIR 0x10
 #define AM_ARC 0x20
 
-static void make_file(const char *rel, const char *data, size_t n)
+static void make_file(const char *rel, const char *data, uint32_t n)
 {
-    int f = std_open(rel, O_WR | O_CREAT_ | O_TRUNC_);
+    int f = std_open(rel, O_WR | O_CREAT_ | O_TRUNC_, NULL);
     if (f >= 0)
     {
-        size_t put;
-        std_write(f, data, n, &put);
+        uint32_t put;
+        api_errno err;
+        std_write(f, data, n, &put, &err);
         std_close(f);
     }
 }
@@ -189,51 +193,52 @@ static void make_file(const char *rel, const char *data, size_t n)
 UTEST(fs, dir_enumeration)
 {
     ASSERT_TRUE(fresh_cwd());
+    api_errno err;
     make_file("alpha.txt", "hello", 5);
     make_file("beta.dat", "wider content here", 18);
-    ASSERT_EQ(fs_mkdir("subdir"), 0);
+    ASSERT_EQ(host_mkdir("subdir", &err), 0);
 
     /* stat reports size + synthesized FAT attributes. */
-    fs_info_t info;
-    ASSERT_EQ(fs_stat("alpha.txt", &info), 0);
-    ASSERT_EQ(info.size, 5u);
-    ASSERT_TRUE(info.attrib & AM_ARC);
-    ASSERT_FALSE(info.attrib & AM_DIR);
-    ASSERT_STREQ(info.name, "alpha.txt");
-    ASSERT_EQ(fs_stat("subdir", &info), 0);
-    ASSERT_TRUE(info.attrib & AM_DIR);
+    FILINFO info;
+    ASSERT_EQ(host_stat("alpha.txt", &info, &err), 0);
+    ASSERT_EQ(info.fsize, 5u);
+    ASSERT_TRUE(info.fattrib & AM_ARC);
+    ASSERT_FALSE(info.fattrib & AM_DIR);
+    ASSERT_STREQ(info.fname, "alpha.txt");
+    ASSERT_EQ(host_stat("subdir", &info, &err), 0);
+    ASSERT_TRUE(info.fattrib & AM_DIR);
 
-    errno = 0;
-    ASSERT_EQ(fs_stat("nope.txt", &info), -1); /* ENOENT surfaces */
+    ASSERT_EQ(host_stat("nope.txt", &info, &err), -1); /* ENOENT surfaces */
+    ASSERT_EQ(err, API_ENOENT);
 
     /* opendir/readdir lists exactly the three entries; "." and ".." are
      * skipped like FatFs; entry order is filesystem-defined, so match by name. */
-    int des = fs_opendir("");
+    int des = host_opendir("", &err);
     ASSERT_TRUE(des >= 0);
     bool saw_alpha = false, saw_beta = false, saw_sub = false;
     int count = 0;
     for (;;)
     {
-        ASSERT_EQ(fs_readdir(des, &info), 0);
-        if (!info.name[0])
+        ASSERT_EQ(host_readdir(des, &info, &err), 0);
+        if (!info.fname[0])
             break;
-        ASSERT_STRNE(info.name, ".");
-        ASSERT_STRNE(info.name, "..");
-        if (!strcmp(info.name, "alpha.txt"))
+        ASSERT_STRNE(info.fname, ".");
+        ASSERT_STRNE(info.fname, "..");
+        if (!strcmp(info.fname, "alpha.txt"))
         {
             saw_alpha = true;
-            ASSERT_EQ(info.size, 5u);
-            ASSERT_TRUE(info.attrib & AM_ARC);
+            ASSERT_EQ(info.fsize, 5u);
+            ASSERT_TRUE(info.fattrib & AM_ARC);
         }
-        else if (!strcmp(info.name, "beta.dat"))
+        else if (!strcmp(info.fname, "beta.dat"))
         {
             saw_beta = true;
-            ASSERT_EQ(info.size, 18u);
+            ASSERT_EQ(info.fsize, 18u);
         }
-        else if (!strcmp(info.name, "subdir"))
+        else if (!strcmp(info.fname, "subdir"))
         {
             saw_sub = true;
-            ASSERT_TRUE(info.attrib & AM_DIR);
+            ASSERT_TRUE(info.fattrib & AM_DIR);
         }
         count++;
     }
@@ -241,45 +246,49 @@ UTEST(fs, dir_enumeration)
     ASSERT_TRUE(saw_alpha && saw_beta && saw_sub);
 
     /* telldir tracks the entry index; rewinddir restarts it. */
-    ASSERT_EQ(fs_telldir(des), 3L);
-    ASSERT_EQ(fs_rewinddir(des), 0);
-    ASSERT_EQ(fs_telldir(des), 0L);
-    ASSERT_EQ(fs_readdir(des, &info), 0);
-    ASSERT_TRUE(info.name[0]); /* an entry again after rewind */
+    int32_t pos;
+    ASSERT_EQ(host_telldir(des, &pos, &err), 0);
+    ASSERT_EQ(pos, 3);
+    ASSERT_EQ(host_rewinddir(des, &err), 0);
+    ASSERT_EQ(host_telldir(des, &pos, &err), 0);
+    ASSERT_EQ(pos, 0);
+    ASSERT_EQ(host_readdir(des, &info, &err), 0);
+    ASSERT_TRUE(info.fname[0]); /* an entry again after rewind */
 
-    ASSERT_EQ(fs_closedir(des), 0);
-    errno = 0;
-    ASSERT_EQ(fs_readdir(des, &info), -1); /* closed handle -> EBADF */
-    ASSERT_EQ(errno, EBADF);
-    errno = 0;
-    ASSERT_EQ(fs_readdir(99, &info), -1); /* out-of-range -> EINVAL */
-    ASSERT_EQ(errno, EINVAL);
+    ASSERT_EQ(host_closedir(des, &err), 0);
+    ASSERT_EQ(host_readdir(des, &info, &err), -1); /* closed handle -> EBADF */
+    ASSERT_EQ(err, API_EBADF);
+    ASSERT_EQ(host_readdir(99, &info, &err), -1); /* out-of-range -> EINVAL */
+    ASSERT_EQ(err, API_EINVAL);
 
     /* getfree reports real host free/total space (in 512-byte sectors). */
     uint32_t freeb = 0, totalb = 0;
-    ASSERT_EQ(fs_getfree("", &freeb, &totalb), 0);
+    ASSERT_EQ(host_getfree("", &freeb, &totalb, &err), 0);
     ASSERT_GT(totalb, 0u);
     ASSERT_TRUE(freeb <= totalb);
 
     /* no host volume label: empty string, success. */
     char label[16] = "x";
-    ASSERT_EQ(fs_getlabel("", label, sizeof(label)), 0);
+    ASSERT_EQ(host_getlabel("", label, &err), 0);
     ASSERT_STREQ(label, "");
 
     /* chmod toggles the read-only bit (the one FAT attribute with a host
      * equivalent), visible back through stat. */
-    ASSERT_EQ(fs_chmod("alpha.txt", AM_RDO, AM_RDO), 0);
-    ASSERT_EQ(fs_stat("alpha.txt", &info), 0);
-    ASSERT_TRUE(info.attrib & AM_RDO);
-    ASSERT_EQ(fs_chmod("alpha.txt", 0, AM_RDO), 0);
-    ASSERT_EQ(fs_stat("alpha.txt", &info), 0);
-    ASSERT_FALSE(info.attrib & AM_RDO);
+    ASSERT_EQ(host_chmod("alpha.txt", AM_RDO, AM_RDO, &err), 0);
+    ASSERT_EQ(host_stat("alpha.txt", &info, &err), 0);
+    ASSERT_TRUE(info.fattrib & AM_RDO);
+    ASSERT_EQ(host_chmod("alpha.txt", 0, AM_RDO, &err), 0);
+    ASSERT_EQ(host_stat("alpha.txt", &info, &err), 0);
+    ASSERT_FALSE(info.fattrib & AM_RDO);
 
     /* utime sets the modification date (FAT-packed: 1990-03-15). */
-    ASSERT_EQ(fs_utime("beta.dat", (10 << 9) | (3 << 5) | 15, (8 << 11)), 0);
-    ASSERT_EQ(fs_stat("beta.dat", &info), 0);
-    ASSERT_EQ((unsigned)((info.mdate >> 9) & 0x7F), 10u); /* 1980 + 10 = 1990 */
-    ASSERT_EQ((unsigned)((info.mdate >> 5) & 0x0F), 3u);  /* March */
+    FILINFO ut = {0};
+    ut.fdate = (10 << 9) | (3 << 5) | 15;
+    ut.ftime = (8 << 11);
+    ASSERT_EQ(host_utime("beta.dat", &ut, &err), 0);
+    ASSERT_EQ(host_stat("beta.dat", &info, &err), 0);
+    ASSERT_EQ((unsigned)((info.fdate >> 9) & 0x7F), 10u); /* 1980 + 10 = 1990 */
+    ASSERT_EQ((unsigned)((info.fdate >> 5) & 0x0F), 3u);  /* March */
 }
 
 /* A ROM: asset is a read-only WINDOW into the backing .rp6502 (no bytes in RAM).
@@ -289,6 +298,7 @@ UTEST(fs, dir_enumeration)
 UTEST(fs, rom_asset_window_read_only_on_demand)
 {
     ASSERT_TRUE(fresh_cwd());
+    api_errno err;
 
     /* Build a minimal valid .rp6502: the magic, one program record supplying the
      * reset vector (so emu_rom_load accepts it), then a named asset r.txt="abc".
@@ -313,28 +323,26 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     ASSERT_TRUE(emu_rom_load(rompath));
 
     /* Read-only: opening the asset for write is refused. */
-    errno = 0;
-    ASSERT_TRUE(std_open("ROM:r.txt", O_WR | O_CREAT_) < 0);
-    ASSERT_EQ(errno, EACCES);
+    ASSERT_TRUE(std_open("ROM:r.txt", O_WR | O_CREAT_, &err) < 0);
+    ASSERT_EQ(err, API_EACCES);
 
-    int f = std_open("ROM:r.txt", O_RD);
+    int f = std_open("ROM:r.txt", O_RD, NULL);
     ASSERT_TRUE(f >= 0);
     ASSERT_FALSE(std_writable(f));
     char buf[8] = {0};
-    size_t got = 0;
-    ASSERT_EQ(std_read(f, buf, 8, &got), IO_OK); /* on-demand read of the window */
-    ASSERT_EQ(got, (size_t)3);
+    uint32_t got = 0;
+    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK); /* on-demand read of the window */
+    ASSERT_EQ(got, 3u);
     ASSERT_STREQ(buf, "abc");
     /* seek into the window + a partial read still come from the file */
     ASSERT_EQ(std_lseek(f, 1, SEEK_SET), 1L);
-    ASSERT_EQ(std_read(f, buf, 1, &got), IO_OK);
-    ASSERT_EQ(got, (size_t)1);
+    ASSERT_EQ(std_read(f, buf, 1, &got, &err), STD_OK);
+    ASSERT_EQ(got, 1u);
     ASSERT_EQ(buf[0], 'b');
     std_close(f);
 
-    errno = 0;
-    ASSERT_TRUE(std_open("ROM:missing.txt", O_RD) < 0);
-    ASSERT_EQ(errno, ENOENT);
+    ASSERT_TRUE(std_open("ROM:missing.txt", O_RD, &err) < 0);
+    ASSERT_EQ(err, API_ENOENT);
 }
 
 UTEST_MAIN()

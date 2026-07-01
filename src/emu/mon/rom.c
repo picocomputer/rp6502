@@ -143,7 +143,7 @@ void rom_set_async(bool on) { g_rom_async = on; }
 
 /* ---- Read-only file windows [base, base+len) into a host file, opened by the
  * ROM: asset driver. Read on demand: a positioned AIO read polled to completion
- * under the window, or pread when synchronous. ---- */
+ * under the window, or pread when synchronous. Descriptors index the pool. ---- */
 struct rom_window
 {
     bool used;
@@ -158,40 +158,44 @@ struct rom_window
 };
 static struct rom_window windows[ROM_OPEN_MAX];
 
-void *rom_window_open(const char *hostpath, size_t base, size_t len)
+static struct rom_window *rom_win(int desc)
+{
+    if (desc < 0 || desc >= ROM_OPEN_MAX || !windows[desc].used)
+        return NULL;
+    return &windows[desc];
+}
+
+/* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
+static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
     int fd = open(hostpath, O_RDONLY);
     if (fd < 0)
-        return NULL; /* errno set by open() */
-    struct rom_window *w = NULL;
-    for (int i = 0; i < ROM_OPEN_MAX; i++)
-        if (!windows[i].used)
-        {
-            w = &windows[i];
+    {
+        *err = api_errno_from_host(errno);
+        return -1;
+    }
+    int des = 0;
+    for (; des < ROM_OPEN_MAX; des++)
+        if (!windows[des].used)
             break;
-        }
-    if (!w)
+    if (des == ROM_OPEN_MAX)
     {
         close(fd);
-        errno = EMFILE;
-        return NULL;
+        *err = API_EMFILE;
+        return -1;
     }
-    w->used = true;
-    w->fd = fd;
-    w->base = base;
-    w->len = len;
-    w->pos = 0;
-#ifdef EMU_HAVE_AIO
-    w->aio_active = false;
-#endif
-    return w;
+    windows[des] = (struct rom_window){.used = true, .fd = fd, .base = base, .len = len};
+    return des;
 }
 
-void rom_window_close(void *desc)
+static std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    struct rom_window *w = desc;
-    if (!w || !w->used)
-        return;
+    struct rom_window *w = rom_win(desc);
+    if (!w)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
 #ifdef EMU_HAVE_AIO
     if (w->aio_active) /* reap an in-flight read (a reset can close mid-op) */
     {
@@ -206,22 +210,27 @@ void rom_window_close(void *desc)
     if (w->fd >= 0)
         close(w->fd);
     w->used = false;
-    w->fd = -1;
+    return STD_OK;
 }
 
-io_result rom_window_read(void *desc, void *buf, size_t n, size_t *got)
+static std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    struct rom_window *w = desc;
+    struct rom_window *w = rom_win(desc);
     *got = 0;
+    if (!w)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
     size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
-    size_t want = n < avail ? n : avail;
+    size_t want = count < avail ? count : avail;
 #ifdef EMU_HAVE_AIO
     if (g_rom_async)
     {
         if (!w->aio_active)
         {
             if (want == 0)
-                return IO_OK; /* at the window's end: nothing to submit */
+                return STD_OK; /* at the window's end: nothing to submit */
             memset(&w->cb, 0, sizeof(w->cb));
             w->cb.aio_fildes = w->fd;
             w->cb.aio_offset = (off_t)(w->base + w->pos);
@@ -229,74 +238,96 @@ io_result rom_window_read(void *desc, void *buf, size_t n, size_t *got)
             w->cb.aio_nbytes = want;
             w->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_read(&w->cb) != 0)
-                return IO_ERROR; /* errno set by aio_read */
+            {
+                *err = api_errno_from_host(errno);
+                return STD_ERROR;
+            }
             w->aio_active = true;
-            return IO_PENDING;
+            return STD_PENDING;
         }
         int e = aio_error(&w->cb);
         if (e == EINPROGRESS)
-            return IO_PENDING;
+            return STD_PENDING;
         w->aio_active = false;
         ssize_t r = aio_return(&w->cb);
         if (r < 0)
         {
-            errno = e;
-            return IO_ERROR;
+            *err = api_errno_from_host(e);
+            return STD_ERROR;
         }
         w->pos += (size_t)r;
-        *got = (size_t)r;
-        return IO_OK;
+        *got = (uint32_t)r;
+        return STD_OK;
     }
 #endif
     ssize_t r = pread(w->fd, buf, want, (off_t)(w->base + w->pos));
     if (r < 0)
-        return IO_ERROR;
+    {
+        *err = api_errno_from_host(errno);
+        return STD_ERROR;
+    }
     w->pos += (size_t)r;
-    *got = (size_t)r;
-    return IO_OK;
+    *got = (uint32_t)r;
+    return STD_OK;
 }
 
-long rom_window_lseek(void *desc, long offset, int whence)
+static int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    struct rom_window *w = desc;
+    struct rom_window *w = rom_win(desc);
+    if (!w)
+    {
+        *err = API_EBADF;
+        return -1;
+    }
     long base = (whence == SEEK_SET) ? 0
                 : (whence == SEEK_CUR) ? (long)w->pos
                 : (whence == SEEK_END) ? (long)w->len
                                        : -1;
-    if (base < 0 || base + offset < 0)
+    if (base < 0 || base + off < 0)
     {
-        errno = EINVAL;
+        *err = API_EINVAL;
         return -1;
     }
-    w->pos = (size_t)(base + offset);
-    return (long)w->pos;
+    w->pos = (size_t)(base + off);
+    *pos = (int32_t)w->pos;
+    return 0;
 }
 
 /* ---- The ROM: driver (read-only asset windows), registered in std.c's table. ---- */
 
-bool rom_std_handles(const char *path)
+static bool rom_std_handles(const char *path)
 {
     const char *rest;
     return path_is_rom(path, &rest);
 }
 
-void *rom_std_open(const char *path, uint8_t flags)
+static int rom_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     const char *rest;
     path_is_rom(path, &rest);
     if (flags & 0x02) /* write requested on a read-only asset */
     {
-        errno = EACCES;
-        return NULL;
+        *err = API_EACCES;
+        return -1;
     }
     size_t base, len;
     if (!rom_find_asset(rest, &base, &len))
     {
-        errno = ENOENT;
-        return NULL;
+        *err = API_ENOENT;
+        return -1;
     }
-    return rom_window_open(g_rom_src, base, len);
+    return rom_window_open(g_rom_src, base, len, err);
 }
+
+const std_driver_t rom_file_driver = {
+    .handles = rom_std_handles,
+    .open = rom_std_open,
+    .close = rom_std_close,
+    .read = rom_std_read,
+    .write = NULL,
+    .sync = NULL,
+    .lseek = rom_std_lseek,
+};
 
 /* A standalone CRC-32/ISO-HDLC (zlib). The firmware's CRC is littlefs's lfs_crc,
  * wrapped as ria_buf_crc32 over the fixed mbuf — neither a general (buf,len)
