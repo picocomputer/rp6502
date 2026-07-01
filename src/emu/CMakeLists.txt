@@ -13,95 +13,88 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-set(SRC ${RP6502_ROOT}/src)
-set(EMU ${RP6502_ROOT}/src/emu)
-set(RP6502 ${RP6502_ROOT}/src)
-set(VENDOR ${RP6502_ROOT}/vendor)
-set(CHIPS ${VENDOR}/chips)
-set(SOKOL ${VENDOR}/sokol)
-set(IMGUI ${VENDOR}/imgui)
+get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
-    ${EMU}/sys/mem.c
-    ${EMU}/sys/ria.c
-    ${EMU}/host/host.c
-    ${EMU}/dbg/dbg.c
-    ${EMU}/sys/vga.c
-    ${EMU}/sys/xreg.c
-    ${EMU}/host/dir.c
-    ${EMU}/host/posixdir.c
-    ${EMU}/host/fs.c
-    ${EMU}/mon/install.c
-    ${EMU}/mon/rom.c
-    ${EMU}/host/png.c
-    ${EMU}/sys/sys.c
-    ${EMU}/chips/w65c02.c
-    ${EMU}/api/api.c
-    ${EMU}/api/oem.c
-    ${EMU}/host/rand.c
-    ${EMU}/api/std_drivers.c
-    ${EMU}/sys/com.c
-    ${EMU}/hid/kbd.c
-    ${EMU}/hid/pad.c
-    ${EMU}/hid/mou.c
-    ${EMU}/sys/via.c
-    ${EMU}/api/clk.c
-    ${EMU}/api/pro.c
-    ${EMU}/aud/snd.c
-    ${EMU}/aud/aud.c
-    ${RP6502}/ria/aud/bel.c
-    ${RP6502}/ria/aud/psg.c
-    ${RP6502}/ria/aud/opl.c
-    ${VENDOR}/emu8950/emu8950.c
-    ${VENDOR}/fatfs/ffunicode.c
-    ${VENDOR}/fatfs/ff.c
-    ${RP6502}/ria/api/fat.c
-    ${RP6502}/ria/api/dir.c
-    ${RP6502}/ria/api/std.c
-    ${EMU}/usb/msc.c
-    ${RP6502}/vga/term/term.c
-    ${RP6502}/vga/term/font.c
-    ${RP6502}/vga/term/color.c
-    ${RP6502}/vga/modes/mode1.c
-    ${RP6502}/vga/modes/mode2.c
-    ${RP6502}/vga/modes/mode3.c
-    ${RP6502}/vga/modes/mode4.c
-    ${RP6502}/vga/modes/mode5.c
-    ${RP6502}/ria/api/atr.c
-    ${RP6502}/ria/str/rln.c
+    ${RP6502_SRC}/emu/sys/mem.c
+    ${RP6502_SRC}/emu/sys/ria.c
+    ${RP6502_SRC}/emu/host/host.c
+    ${RP6502_SRC}/emu/dbg/dbg.c
+    ${RP6502_SRC}/emu/sys/vga.c
+    ${RP6502_SRC}/emu/sys/xreg.c
+    ${RP6502_SRC}/emu/host/dir.c
+    ${RP6502_SRC}/emu/host/posixdir.c
+    ${RP6502_SRC}/emu/host/fs.c
+    ${RP6502_SRC}/emu/mon/install.c
+    ${RP6502_SRC}/emu/mon/rom.c
+    ${RP6502_SRC}/emu/host/png.c
+    ${RP6502_SRC}/emu/sys/sys.c
+    ${RP6502_SRC}/emu/chips/w65c02.c
+    ${RP6502_SRC}/emu/api/api.c
+    ${RP6502_SRC}/emu/api/oem.c
+    ${RP6502_SRC}/emu/host/rand.c
+    ${RP6502_SRC}/emu/api/std_drivers.c
+    ${RP6502_SRC}/emu/sys/com.c
+    ${RP6502_SRC}/emu/hid/kbd.c
+    ${RP6502_SRC}/emu/hid/pad.c
+    ${RP6502_SRC}/emu/hid/mou.c
+    ${RP6502_SRC}/emu/sys/via.c
+    ${RP6502_SRC}/emu/api/clk.c
+    ${RP6502_SRC}/emu/api/pro.c
+    ${RP6502_SRC}/emu/aud/snd.c
+    ${RP6502_SRC}/emu/aud/aud.c
+    ${RP6502_SRC}/ria/aud/bel.c
+    ${RP6502_SRC}/ria/aud/psg.c
+    ${RP6502_SRC}/ria/aud/opl.c
+    ${RP6502_VENDOR}/emu8950/emu8950.c
+    ${RP6502_VENDOR}/fatfs/ffunicode.c
+    ${RP6502_VENDOR}/fatfs/ff.c
+    ${RP6502_SRC}/ria/api/fat.c
+    ${RP6502_SRC}/ria/api/dir.c
+    ${RP6502_SRC}/ria/api/std.c
+    ${RP6502_SRC}/emu/usb/msc.c
+    ${RP6502_SRC}/vga/term/term.c
+    ${RP6502_SRC}/vga/term/font.c
+    ${RP6502_SRC}/vga/term/color.c
+    ${RP6502_SRC}/vga/modes/mode1.c
+    ${RP6502_SRC}/vga/modes/mode2.c
+    ${RP6502_SRC}/vga/modes/mode3.c
+    ${RP6502_SRC}/vga/modes/mode4.c
+    ${RP6502_SRC}/vga/modes/mode5.c
+    ${RP6502_SRC}/ria/api/atr.c
+    ${RP6502_SRC}/ria/str/rln.c
 )
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(
-        ${RP6502}/vga/modes/mode1.c
-        ${RP6502}/vga/modes/mode2.c
-        ${RP6502}/vga/modes/mode3.c
-        ${RP6502}/vga/modes/mode4.c
-        ${RP6502}/vga/modes/mode5.c
+        ${RP6502_SRC}/vga/modes/mode1.c
+        ${RP6502_SRC}/vga/modes/mode2.c
+        ${RP6502_SRC}/vga/modes/mode3.c
+        ${RP6502_SRC}/vga/modes/mode4.c
+        ${RP6502_SRC}/vga/modes/mode5.c
         PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
     )
 endif()
 
 # emu8950.c gates its whole body on USE_EMU8950_OPL
 set_source_files_properties(
-    ${VENDOR}/emu8950/emu8950.c
+    ${RP6502_VENDOR}/emu8950/emu8950.c
     PROPERTIES COMPILE_DEFINITIONS "USE_EMU8950_OPL=1"
 )
 
 # Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
-    ${EMU}/shim
-    ${RP6502}/vga
-    ${RP6502}/ria
-    ${VENDOR}/fatfs
-    ${RP6502}
-    ${VENDOR}
-    ${SRC}
-    ${CHIPS}/chips
-    ${CHIPS}
-    ${SOKOL}
+    ${RP6502_SRC}/emu/shim
+    ${RP6502_SRC}/vga
+    ${RP6502_SRC}/ria
+    ${RP6502_VENDOR}/fatfs
+    ${RP6502_SRC}
+    ${RP6502_VENDOR}
+    ${RP6502_VENDOR}/chips/chips
+    ${RP6502_VENDOR}/chips
+    ${RP6502_VENDOR}/sokol
 )
 target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
 target_link_libraries(emu_core PUBLIC m)
@@ -151,21 +144,21 @@ if(EMU_HAS_WINDOW)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${EMU}/app/main.c ${EMU}/app/cli.c ${EMU}/app/app_sokol.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/app_sokol.c)
 if(EMU_HAS_WINDOW)
-    list(APPEND APP_SOURCES ${EMU}/app/sokol_impl.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c)
 endif()
 if(EMU_HAS_AUDIO)
-    list(APPEND APP_SOURCES ${EMU}/app/audio_out.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/audio_out.c)
 endif()
 
 add_executable(rp6502-emu ${APP_SOURCES})
 target_link_libraries(rp6502-emu PRIVATE emu_core)
-target_include_directories(rp6502-emu PRIVATE ${SOKOL})
+target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/sokol)
 
 # Windows is only platform without getopt
 if(WIN32)
-    add_subdirectory(${VENDOR}/wingetopt wingetopt)
+    add_subdirectory(${RP6502_VENDOR}/wingetopt wingetopt)
     target_link_libraries(rp6502-emu PRIVATE wingetopt)
     target_compile_definitions(rp6502-emu PRIVATE _BSD_SOURCE)
 endif()
@@ -179,7 +172,7 @@ if(NOT EMU_HAS_WINDOW)
 else()
     # SOKOL_NO_ENTRY: we provide main() ourselves and call sapp_run() directly.
     target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL SOKOL_NO_ENTRY)
-    set_source_files_properties(${EMU}/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
+    set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
     if(WIN32)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
         target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi)
@@ -187,7 +180,7 @@ else()
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-        set_source_files_properties(${EMU}/app/sokol_impl.c ${EMU}/app/app_sokol.c
+        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/app_sokol.c
             PROPERTIES COMPILE_FLAGS "-x objective-c")
         target_link_libraries(rp6502-emu PRIVATE
             "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit")
@@ -210,7 +203,7 @@ else()
         file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${EMU}/html" "${CMAKE_BINARY_DIR}/html"
+                "${RP6502_SRC}/emu/html" "${CMAKE_BINARY_DIR}/html"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
             COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
             COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
@@ -219,7 +212,7 @@ else()
         # itch.io sample (build/web/itch.io): the single-program shell.
         add_custom_target(itch_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${EMU}/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+                "${RP6502_SRC}/emu/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
             COMMAND ${CMAKE_COMMAND} -E copy
                 "${CMAKE_SOURCE_DIR}/tests/roms/adventure.rp6502"
                 "${CMAKE_BINARY_DIR}/html/rp6502.js"
@@ -254,7 +247,7 @@ else()
         set(CPPDAP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
         set(CPPDAP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         set(CPPDAP_BUILD_FUZZER OFF CACHE BOOL "" FORCE)
-        add_subdirectory(${VENDOR}/cppdap cppdap)
+        add_subdirectory(${RP6502_VENDOR}/cppdap cppdap)
 
         # GCC's -Warray-bounds mis-reads cppdap's dap::any scalar storage
         if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -262,24 +255,24 @@ else()
         endif()
 
         target_sources(rp6502-emu PRIVATE
-            ${EMU}/dbg/imgui_impl.cc
-            ${EMU}/dbg/dbgui.cc
-            ${EMU}/dbg/dbgui_layout.cc
-            ${EMU}/dbg/dap.cpp
-            ${EMU}/dbg/dwarf_line.c
-            ${EMU}/dbg/dwarf_info.c
-            ${EMU}/dbg/cc65dbg.c
-            ${IMGUI}/imgui.cpp
-            ${IMGUI}/imgui_draw.cpp
-            ${IMGUI}/imgui_tables.cpp
-            ${IMGUI}/imgui_widgets.cpp)
-        target_include_directories(rp6502-emu PRIVATE ${IMGUI})
+            ${RP6502_SRC}/emu/dbg/imgui_impl.cc
+            ${RP6502_SRC}/emu/dbg/dbgui.cc
+            ${RP6502_SRC}/emu/dbg/dbgui_layout.cc
+            ${RP6502_SRC}/emu/dbg/dap.cpp
+            ${RP6502_SRC}/emu/dbg/dwarf_line.c
+            ${RP6502_SRC}/emu/dbg/dwarf_info.c
+            ${RP6502_SRC}/emu/dbg/cc65dbg.c
+            ${RP6502_VENDOR}/imgui/imgui.cpp
+            ${RP6502_VENDOR}/imgui/imgui_draw.cpp
+            ${RP6502_VENDOR}/imgui/imgui_tables.cpp
+            ${RP6502_VENDOR}/imgui/imgui_widgets.cpp)
+        target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/imgui)
         target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_M6502)
         target_link_libraries(rp6502-emu PRIVATE cppdap)
         # CHIPS_UI_IMPL / SOKOL_IMGUI_IMPL each belong to exactly one TU.
-        set_source_files_properties(${EMU}/dbg/imgui_impl.cc
+        set_source_files_properties(${RP6502_SRC}/emu/dbg/imgui_impl.cc
             PROPERTIES COMPILE_DEFINITIONS "SOKOL_IMGUI_IMPL")
-        set_source_files_properties(${EMU}/dbg/dbgui.cc
+        set_source_files_properties(${RP6502_SRC}/emu/dbg/dbgui.cc
             PROPERTIES COMPILE_DEFINITIONS "CHIPS_UI_IMPL")
     endif()
 endif()

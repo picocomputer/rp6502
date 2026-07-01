@@ -1,6 +1,6 @@
 # CTest suite. Uses utest.h (vendored with sokol)
 
-set(UTEST_DIR ${SOKOL}/tests/functional)
+set(UTEST_DIR ${RP6502_VENDOR}/sokol/tests/functional)
 set(ROMS ${CMAKE_CURRENT_SOURCE_DIR}/roms)
 set(ADVENTURE ${ROMS}/adventure.rp6502)
 
@@ -81,29 +81,29 @@ set_tests_properties(dbg PROPERTIES TIMEOUT 60)
 # build of vars.c) is committed, so this runs with no toolchain or window.
 # vars.c is deliberately header-less so its line numbers match the committed
 # .debug_line; prepending a license header shifts them and breaks dwarf_line. ---
-add_executable(test_dwarf_info test_dwarf_info.c ${EMU}/dbg/dwarf_info.c)
-target_include_directories(test_dwarf_info PRIVATE ${UTEST_DIR} ${SRC} ${EMU} ${EMU}/dbg)
+add_executable(test_dwarf_info test_dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_info.c)
+target_include_directories(test_dwarf_info PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf_info PRIVATE VARS_ELF="${ROMS}/vars.elf")
 add_test(NAME dwarf_info COMMAND test_dwarf_info)
 
 # --- DWARF .debug_line address<->source mapping (dwarf_line.c). Reuses the same
 # committed vars.elf fixture (it also carries .debug_line + .symtab). ---
-add_executable(test_dwarf_line test_dwarf_line.c ${EMU}/dbg/dwarf_line.c)
-target_include_directories(test_dwarf_line PRIVATE ${UTEST_DIR} ${SRC} ${EMU} ${EMU}/dbg)
+add_executable(test_dwarf_line test_dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_line.c)
+target_include_directories(test_dwarf_line PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf_line PRIVATE VARS_ELF="${ROMS}/vars.elf")
 add_test(NAME dwarf_line COMMAND test_dwarf_line)
 
 # --- cc65 .dbg reader (cc65dbg.c): line mapping + funcs + untyped variables.
 # Fixture is the committed, hand-authored cc65.dbg (plain text, no toolchain). ---
-add_executable(test_cc65dbg test_cc65dbg.c ${EMU}/dbg/cc65dbg.c)
-target_include_directories(test_cc65dbg PRIVATE ${UTEST_DIR} ${SRC} ${EMU} ${EMU}/dbg)
+add_executable(test_cc65dbg test_cc65dbg.c ${RP6502_SRC}/emu/dbg/cc65dbg.c)
+target_include_directories(test_cc65dbg PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_cc65dbg PRIVATE CC65_DBG="${ROMS}/cc65.dbg")
 add_test(NAME cc65dbg COMMAND test_cc65dbg)
 
 # --- W65C02S disassembler (the 65C02 fork driving the ui_dbg disasm view). ---
 # Header-only (w65c02dasm.h with CHIPS_UTIL_IMPL); no fixture/toolchain needed.
 add_executable(test_w65c02dasm test_w65c02dasm.c)
-target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${SRC} ${EMU})
+target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu)
 add_test(NAME w65c02dasm COMMAND test_w65c02dasm)
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
