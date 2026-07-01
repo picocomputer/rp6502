@@ -16,6 +16,7 @@
 
 #include "sys/com.h"
 #include "sys/ria.h"
+#include "emu/host/host.h"
 #include <string.h>
 
 /* A Ctrl-C (0x03) anywhere in the keyboard stream latches a SIGINT, exactly
@@ -103,13 +104,34 @@ int com_getchar(com_source_t *src)
         return -1;
     }
     ring_t *r = ring_for(*src);
-    return r ? ring_pop(r) : -1;
+    int c = r ? ring_pop(r) : -1;
+    if (c < 0)
+        *src = COM_SOURCE_ANY;
+    return c;
 }
 
 int com_peekchar(com_source_t src)
 {
     ring_t *r = ring_for(src);
     return r ? ring_peek(r) : -1;
+}
+
+/* Output side of the shared contract. The terminal sink never backpressures,
+ * so writes are always ready and complete instantly. */
+
+bool com_putchar_ready(void)
+{
+    return true;
+}
+
+bool com_writable(void)
+{
+    return true;
+}
+
+void com_write(char ch)
+{
+    emu_stdout_write_raw(&ch, 1);
 }
 
 void com_in_write_reply(const char *s, size_t n)

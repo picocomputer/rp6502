@@ -20,6 +20,9 @@ extern "C"
  * applying the firmware's CRLF translation. */
 void emu_stdout_write(const char *buf, int len);
 
+/* Same sink without the CRLF translation (com_write / TTY: raw path). */
+void emu_stdout_write_raw(const char *buf, int len);
+
 /* Tap the raw terminal byte stream (NULL to clear). Used by tests to assert
  * program output without rendering a frame. */
 void emu_set_stdout_tap(void (*tap)(const char *buf, int len));

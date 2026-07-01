@@ -63,4 +63,8 @@ typedef struct
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
 } std_driver_t;
 
+// This platform's driver table (std_drivers.c)
+extern const std_driver_t std_drivers[];
+extern const size_t std_driver_count;
+
 #endif /* _RIA_API_STD_H_ */

@@ -40,7 +40,7 @@ add_library(emu_core STATIC
     ${EMU}/api/api.c
     ${EMU}/api/oem.c
     ${EMU}/host/rand.c
-    ${EMU}/api/std.c
+    ${EMU}/api/std_drivers.c
     ${EMU}/sys/com.c
     ${EMU}/hid/kbd.c
     ${EMU}/hid/pad.c
@@ -58,6 +58,7 @@ add_library(emu_core STATIC
     ${VENDOR}/fatfs/ff.c
     ${RP6502}/ria/api/fat.c
     ${RP6502}/ria/api/dir.c
+    ${RP6502}/ria/api/std.c
     ${EMU}/usb/msc.c
     ${RP6502}/vga/term/term.c
     ${RP6502}/vga/term/font.c

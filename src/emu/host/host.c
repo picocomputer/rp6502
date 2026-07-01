@@ -9,7 +9,9 @@
  */
 
 #include "emu/host/host.h"
+#include "emu/sys/com.h"
 #include "emu/sys/sys.h"
+#include "aud/bel.h"
 #include "pico/stdio/driver.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -37,9 +39,11 @@ void emu_set_stdout_tap(void (*tap)(const char *buf, int len))
     g_stdout_tap = tap;
 }
 
-void emu_stdout_write(const char *buf, int len)
+/* Echo/tap/bell processing common to the translated and raw sinks. The bell
+ * rings on any BEL in the terminal stream, like the firmware's TX-drain scan
+ * (ria/sys/com.c). */
+static void stdout_taps(const char *buf, int len)
 {
-    static char last;
     /* Bring-up aid: EMU_ECHO mirrors the terminal stream to the host's stderr
      * so the program's text output is visible without rendering the frame. */
     static int echo = -1;
@@ -49,6 +53,16 @@ void emu_stdout_write(const char *buf, int len)
         fwrite(buf, 1, (size_t)len, stderr);
     if (g_stdout_tap)
         g_stdout_tap(buf, len);
+    if (com_get_bel())
+        for (int i = 0; i < len; i++)
+            if (buf[i] == '\a')
+                bel_add(&bel_teletype);
+}
+
+void emu_stdout_write(const char *buf, int len)
+{
+    static char last;
+    stdout_taps(buf, len);
     if (!g_stdio || !g_stdio->out_chars)
         return;
     /* Replicate pico stdio CRLF translation: a bare '\n' becomes "\r\n". */
@@ -74,6 +88,13 @@ void emu_stdout_write(const char *buf, int len)
     }
     if (n)
         g_stdio->out_chars(out, n);
+}
+
+void emu_stdout_write_raw(const char *buf, int len)
+{
+    stdout_taps(buf, len);
+    if (g_stdio && g_stdio->out_chars)
+        g_stdio->out_chars(buf, len);
 }
 
 /* ------------------------------------------------------------------ */

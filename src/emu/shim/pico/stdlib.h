@@ -75,4 +75,17 @@ int emu_term_printf(const char *fmt, ...);
 #define putchar(c) emu_term_putchar(c)
 #define printf emu_term_printf
 
+/* Firmware stdin routing (std_tty_read). On the Pico, stdio_getchar drains
+ * the com driver's merged RX; here the com module's rings are that merge. */
+#include "emu/sys/com.h"
+
+#define PICO_ERROR_TIMEOUT (-1)
+
+static inline int stdio_getchar_timeout_us(uint32_t timeout_us)
+{
+    (void)timeout_us;
+    com_source_t src = COM_SOURCE_ANY;
+    return com_getchar(&src);
+}
+
 #endif /* _EMU_SHIM_PICO_STDLIB_H_ */

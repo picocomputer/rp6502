@@ -19,9 +19,11 @@
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "emu/host/fs.h"
+#include "emu/sys/mem.h"
 #include "emu/usb/msc.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
+#include "stdsys.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,19 +45,17 @@ static bool fresh(void)
     if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
-    std_files_reset();
+    std_stop();
     return chdir(g_dir) == 0; /* MSC0: is the process cwd */
 }
 
-static void make_file(const char *rel, const char *data, uint32_t n)
+static void make_file(const char *rel, const char *data, uint16_t n)
 {
-    int f = std_open(rel, O_WR | O_CREAT_ | O_TRUNC_, NULL);
+    int f = ssys_open(rel, O_WR | O_CREAT_ | O_TRUNC_);
     if (f >= 0)
     {
-        uint32_t put;
-        api_errno err;
-        std_write(f, data, n, &put, &err);
-        std_close(f);
+        ssys_write(f, data, n);
+        ssys_close(f);
     }
 }
 
@@ -66,7 +66,6 @@ static void make_file(const char *rel, const char *data, uint32_t n)
 UTEST(drive, install_resolve_and_load)
 {
     ASSERT_TRUE(fresh());
-    api_errno err;
 
     /* A real MSC0: file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
@@ -97,17 +96,16 @@ UTEST(drive, install_resolve_and_load)
 
     /* A 6502 open(":name") is NOT a thing — like the firmware it goes to MSC0:,
      * where a leading ":" is refused; the install never leaks to the host fs. */
-    ASSERT_TRUE(std_open(":adventure.rp6502", O_RD, NULL) < 0);
-    ASSERT_TRUE(std_open(":", O_RD, NULL) < 0);
+    ASSERT_TRUE(ssys_open(":adventure.rp6502", O_RD) < 0);
+    ASSERT_TRUE(ssys_open(":", O_RD) < 0);
 
     /* The same basename on MSC0: is the real (different) host file, untouched. */
-    int f = std_open("adventure.rp6502", O_RD, NULL);
+    int f = ssys_open("adventure.rp6502", O_RD);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
-    uint32_t got = 0;
-    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK);
+    ASSERT_EQ(ssys_read(f, buf, 8), 8);
     ASSERT_EQ(memcmp(buf, "NOT THE ", 8), 0); /* MSC0:, never the install */
-    std_close(f);
+    ssys_close(f);
 }
 
 /* The null drive is loader-only: never the cwd, never enumerated/stat'd/mutated.
@@ -155,9 +153,9 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_STREQ(cwd, expect);
 
     /* A relative MSC0: path lands in the cwd (= g_dir). */
-    int f = std_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_, NULL);
+    int f = ssys_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
-    std_close(f);
+    ssys_close(f);
     char hostprobe[512];
     snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
     FILE *hp = fopen(hostprobe, "rb");
@@ -200,10 +198,9 @@ UTEST(drive, mount_transparent_no_chroot)
  * FatFs f_* directly and round-trip a file through the std_* file driver. */
 UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
-    std_files_reset();
+    std_stop();
     ASSERT_TRUE(emu_ramdrive_mount());
     ASSERT_TRUE(emu_fat_active()); /* the 6502 syscalls now route to the RAM FatFs */
-    api_errno err;
 
     /* getcwd reports the FatFs volume root, not a host path. */
     char cwd[64];
@@ -222,78 +219,50 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     ASSERT_EQ(info.fsize, 3u);
 
     /* Read it back through the file driver. */
-    int f = std_open("scratch.dat", O_RD, NULL);
+    int f = ssys_open("scratch.dat", O_RD);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
-    uint32_t got = 0;
-    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK);
-    ASSERT_EQ(got, 3u);
+    ASSERT_EQ(ssys_read(f, buf, 8), 3);
     ASSERT_STREQ(buf, "tmp");
-    std_close(f);
+    ssys_close(f);
 
     /* Deactivate the FatFs backend so later tests use the host filesystem. */
     emu_ramdrive_unmount();
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (host_set_async): the driver submits the transfer and returns STD_PENDING until
- * it completes. Drive it to completion (the per-scanline RIA pump does this in
- * the running emulator) and check the bytes, that the fd offset tracks across
- * reads, EOF, and lseek interop. Left in sync mode for the other tests. */
-static std_rw_result drain_write(int fd, const char *buf, uint32_t n, uint32_t *put, api_errno *err)
-{
-    std_rw_result r;
-    do
-        r = std_write(fd, buf, n, put, err);
-    while (r == STD_PENDING);
-    return r;
-}
-
-static std_rw_result drain_read(int fd, char *buf, uint32_t n, uint32_t *got, api_errno *err)
-{
-    std_rw_result r;
-    do
-        r = std_read(fd, buf, n, got, err);
-    while (r == STD_PENDING);
-    return r;
-}
-
-/* The asserting body. A failing ASSERT returns out of here, not out of the
- * UTEST wrapper, so async mode is always restored before the suite continues. */
+ * (host_set_async): the driver submits the transfer and returns STD_PENDING
+ * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
+ * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
+ * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
+ * across reads, EOF, and lseek interop. Left in sync mode for the other tests. */
 static void async_aio_body(int *utest_result)
 {
-    api_errno err;
-    char src[2000];
+    char src[5000];
     for (size_t i = 0; i < sizeof(src); i++)
         src[i] = (char)(i * 7 + 1);
 
-    int fd = std_open("async.dat", O_WR | O_CREAT_ | O_TRUNC_, NULL);
+    memcpy(&xram[0x1000], src, sizeof(src));
+    int fd = ssys_open("async.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(fd >= 0);
-    uint32_t put = 0;
-    ASSERT_EQ(drain_write(fd, src, sizeof(src), &put, &err), STD_OK);
-    ASSERT_EQ(put, (uint32_t)sizeof(src));
-    std_close(fd);
+    ASSERT_EQ(ssys_write_xram(fd, 0x1000, sizeof(src)), (int)sizeof(src));
+    ssys_close(fd);
 
-    fd = std_open("async.dat", O_RD, NULL);
+    fd = ssys_open("async.dat", O_RD);
     ASSERT_TRUE(fd >= 0);
-    char buf[2000] = {0};
-    uint32_t got = 0;
     /* two sequential reads: the fd offset must advance across them */
-    ASSERT_EQ(drain_read(fd, buf, 1000, &got, &err), STD_OK);
-    ASSERT_EQ(got, 1000u);
-    ASSERT_EQ(memcmp(buf, src, 1000), 0);
-    ASSERT_EQ(drain_read(fd, buf, 1000, &got, &err), STD_OK);
-    ASSERT_EQ(got, 1000u);
-    ASSERT_EQ(memcmp(buf, src + 1000, 1000), 0);
+    ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 3000);
+    ASSERT_EQ(memcmp(&xram[0x8000], src, 3000), 0);
+    ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 2000); /* short read at EOF */
+    ASSERT_EQ(memcmp(&xram[0x8000], src + 3000, 2000), 0);
     /* EOF: a further read returns zero bytes (aio_return == 0) */
-    ASSERT_EQ(drain_read(fd, buf, 1000, &got, &err), STD_OK);
-    ASSERT_EQ(got, 0u);
-    /* lseek interoperates with the aio offset snapshot */
-    ASSERT_EQ(std_lseek(fd, 500, SEEK_SET), 500);
-    ASSERT_EQ(drain_read(fd, buf, 16, &got, &err), STD_OK);
-    ASSERT_EQ(got, 16u);
+    ASSERT_EQ(ssys_read_xram(fd, 0x8000, 1000), 0);
+    /* lseek interoperates with the aio offset snapshot; xstack reads too */
+    ASSERT_EQ(ssys_lseek(fd, 500, SEEK_SET), 500);
+    char buf[16];
+    ASSERT_EQ(ssys_read(fd, buf, 16), 16);
     ASSERT_EQ(memcmp(buf, src + 500, 16), 0);
-    std_close(fd);
+    ssys_close(fd);
 }
 
 UTEST(drive, async_aio_transfer)

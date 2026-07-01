@@ -10,32 +10,16 @@
 #include "str/str.h"
 #include "sys/com.h"
 #include "sys/pix.h"
-#include "net/mdm.h"
-#include "usb/mid.h"
-#include "usb/nfc.h"
-#include "usb/vcp.h"
-#include "api/fat.h"
-#include "mon/rom.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_STD)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-// Driver table, msc is catch-all and must be last.
-__in_flash("std_drivers") static const std_driver_t std_drivers[] = {
-    {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
-    {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
-    {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, mid_std_sync, NULL},
-    {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
-    {nfc_std_handles, nfc_std_open, nfc_std_close, nfc_std_read, nfc_std_write, NULL, NULL},
-    {fat_std_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
-};
-#define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
 
 // The stdio file descriptor pool.
 #define STD_FD_MAX 16
@@ -182,7 +166,7 @@ bool std_api_open(void)
         }
     if (fd < 0)
         return api_return_errno(API_EMFILE);
-    for (size_t i = 0; i < STD_DRIVER_COUNT; i++)
+    for (size_t i = 0; i < std_driver_count; i++)
     {
         if (std_drivers[i].handles(path))
         {

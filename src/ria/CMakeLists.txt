@@ -71,6 +71,7 @@ target_sources(${RIA_TARGET} PRIVATE
     api/oem.c
     api/pro.c
     api/std.c
+    api/std_drivers.c
     aud/aud.c
     aud/bel.c
     aud/opl.c

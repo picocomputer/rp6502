@@ -23,6 +23,7 @@
 #include "emu/sys/via.h"
 #include "emu/chips/w65c02.h"
 #include "aud/aud.h"
+#include "str/rln.h"
 #include "sys/cpu.h"
 #include <stdio.h>
 #include <string.h>
@@ -214,7 +215,8 @@ static void run_frame(bool render)
             break;
         if (master_8 < deadline)
             master_8 = deadline; /* halted: keep the master clock (time) flowing */
-        ria_task_pump();         /* poll in-flight I/O each scanline (RIA super-loop analog) */
+        std_task();      /* drain read_xram's PIX gate before the op re-polls */
+        ria_task_pump(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
         scanline_n++;
         if (!vsynced && line + 1 >= vsync_line)
         {
@@ -233,7 +235,7 @@ static void run_frame(bool render)
     emu_vga_frame_count++;
     /* Pump the line editor (drains keyboard + terminal replies, echoes, fires
      * the read callback) then advance any blocking syscall waiting on it. */
-    std_task();
+    rln_task();
     ria_task();
     vga_task(); /* cursor/cell blink, evaluated at the new virtual time */
     snd_task(); /* generate this frame's audio from the active RIA device */

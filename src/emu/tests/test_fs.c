@@ -5,10 +5,10 @@
  *
  * Unit tests for the host-backed filesystem: the MSC0: drive IS the native host
  * filesystem (no chroot — MSC0:/ is the OS root, a relative path resolves the
- * process cwd, ".." walks freely), plus the read-only ROM: drive. The std_* file
- * calls go through the driver table; the dir/metadata ops are driven as the 6502
- * does — stage the xstack, call the host_dir_api_* handler, read AX / the pushed
- * FILINFO (dirsys.h) — since those handlers are now the whole implementation.
+ * process cwd, ".." walks freely), plus the read-only ROM: drive. Both the file
+ * and dir/metadata ops are driven as the 6502 does — stage the xstack, call the
+ * std_api_* / host_dir_api_* handler, read AX and any pushed result (stdsys.h,
+ * dirsys.h) — since those handlers are now the whole implementation.
  */
 
 #include "emu/api/api.h"
@@ -16,6 +16,7 @@
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "dirsys.h"
+#include "stdsys.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +39,7 @@ static bool fresh_cwd(void)
     if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
-    std_files_reset(); /* close any files a prior test left open */
+    std_stop(); /* close any files a prior test left open */
     return chdir(g_dir) == 0; /* MSC0: is the process cwd */
 }
 
@@ -57,33 +58,27 @@ static bool host_exists(const char *rel)
 UTEST(fs, msc0_write_read_seek)
 {
     ASSERT_TRUE(fresh_cwd());
-    api_errno err;
 
-    uint32_t got = 0, put = 0;
-    int f = std_open("hello.txt", O_WR | O_CREAT_ | O_TRUNC_, NULL);
+    int f = ssys_open("hello.txt", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
-    ASSERT_TRUE(std_writable(f));
-    ASSERT_EQ(std_write(f, "hello", 5, &put, &err), STD_OK);
-    ASSERT_EQ(put, 5u);
-    std_close(f);
+    ASSERT_EQ(ssys_write(f, "hello", 5), 5);
+    ssys_close(f);
     ASSERT_TRUE(host_exists("hello.txt")); /* a real file under the cwd */
 
-    f = std_open("hello.txt", O_RD, NULL);
+    f = ssys_open("hello.txt", O_RD);
     ASSERT_TRUE(f >= 0);
     char buf[8] = {0};
-    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK);
-    ASSERT_EQ(got, 5u);
+    ASSERT_EQ(ssys_read(f, buf, 8), 5);
     ASSERT_STREQ(buf, "hello");
-    ASSERT_EQ(std_lseek(f, 1, SEEK_SET), 1L);
-    ASSERT_EQ(std_read(f, buf, 1, &got, &err), STD_OK);
-    ASSERT_EQ(got, 1u);
+    ASSERT_EQ(ssys_lseek(f, 1, SEEK_SET), 1);
+    ASSERT_EQ(ssys_read(f, buf, 1), 1);
     ASSERT_EQ(buf[0], 'e');
-    std_close(f);
+    ssys_close(f);
 
     /* The same file by its MSC0: (relative) path -> the process cwd. */
-    f = std_open("MSC0:hello.txt", O_RD, NULL);
+    f = ssys_open("MSC0:hello.txt", O_RD);
     ASSERT_TRUE(f >= 0);
-    std_close(f);
+    ssys_close(f);
 
     dsys_path("hello.txt");
     host_dir_api_unlink();
@@ -113,9 +108,9 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_STREQ(cwd, expect);
 
     /* A relative path resolves under the new cwd. */
-    int f = std_open("game.sav", O_WR | O_CREAT_ | O_TRUNC_, NULL);
+    int f = ssys_open("game.sav", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
-    std_close(f);
+    ssys_close(f);
     ASSERT_TRUE(host_exists("saves/game.sav"));
 
     dsys_path("nope");
@@ -197,15 +192,13 @@ UTEST(fs, chdrive_stays_on_msc0)
 #define AM_DIR 0x10
 #define AM_ARC 0x20
 
-static void make_file(const char *rel, const char *data, uint32_t n)
+static void make_file(const char *rel, const char *data, uint16_t n)
 {
-    int f = std_open(rel, O_WR | O_CREAT_ | O_TRUNC_, NULL);
+    int f = ssys_open(rel, O_WR | O_CREAT_ | O_TRUNC_);
     if (f >= 0)
     {
-        uint32_t put;
-        api_errno err;
-        std_write(f, data, n, &put, &err);
-        std_close(f);
+        ssys_write(f, data, n);
+        ssys_close(f);
     }
 }
 
@@ -353,7 +346,7 @@ UTEST(fs, dir_enumeration)
 UTEST(fs, rom_asset_window_read_only_on_demand)
 {
     ASSERT_TRUE(fresh_cwd());
-    api_errno err;
+    api_set_errno_opt(2); /* llvm-mos mapping, so ssys_errno() is decodable */
 
     /* Build a minimal valid .rp6502: the magic, one program record supplying the
      * reset vector (so emu_rom_load accepts it), then a named asset r.txt="abc".
@@ -378,26 +371,24 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     ASSERT_TRUE(emu_rom_load(rompath));
 
     /* Read-only: opening the asset for write is refused. */
-    ASSERT_TRUE(std_open("ROM:r.txt", O_WR | O_CREAT_, &err) < 0);
-    ASSERT_EQ(err, API_EACCES);
+    ASSERT_TRUE(ssys_open("ROM:r.txt", O_WR | O_CREAT_) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_EACCES));
 
-    int f = std_open("ROM:r.txt", O_RD, NULL);
+    int f = ssys_open("ROM:r.txt", O_RD);
     ASSERT_TRUE(f >= 0);
-    ASSERT_FALSE(std_writable(f));
+    ASSERT_TRUE(ssys_write(f, "x", 1) < 0); /* the driver has no write slot */
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOSYS));
     char buf[8] = {0};
-    uint32_t got = 0;
-    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK); /* on-demand read of the window */
-    ASSERT_EQ(got, 3u);
+    ASSERT_EQ(ssys_read(f, buf, 8), 3); /* on-demand read of the window */
     ASSERT_STREQ(buf, "abc");
     /* seek into the window + a partial read still come from the file */
-    ASSERT_EQ(std_lseek(f, 1, SEEK_SET), 1L);
-    ASSERT_EQ(std_read(f, buf, 1, &got, &err), STD_OK);
-    ASSERT_EQ(got, 1u);
+    ASSERT_EQ(ssys_lseek(f, 1, SEEK_SET), 1);
+    ASSERT_EQ(ssys_read(f, buf, 1), 1);
     ASSERT_EQ(buf[0], 'b');
-    std_close(f);
+    ssys_close(f);
 
-    ASSERT_TRUE(std_open("ROM:missing.txt", O_RD, &err) < 0);
-    ASSERT_EQ(err, API_ENOENT);
+    ASSERT_TRUE(ssys_open("ROM:missing.txt", O_RD) < 0);
+    ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
 }
 
 UTEST_MAIN()
