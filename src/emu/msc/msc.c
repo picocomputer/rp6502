@@ -18,7 +18,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
 #include <aio.h>
 #endif
 
@@ -52,8 +52,7 @@ struct msc_file
     bool used;
     int fd;
     bool wrote;
-    bool append; /* O_APPEND: an async write reseeks to EOF on completion */
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     bool aio_active;
     struct aiocb cb;
 #endif
@@ -82,8 +81,6 @@ static int flags_to_posix(uint8_t flags)
         o |= O_EXCL;
     if ((flags & 0x20) && wr) /* TRUNC, only when opened for write */
         o |= O_TRUNC;
-    if (flags & 0x40) /* APPEND */
-        o |= O_APPEND;
     return o;
 }
 
@@ -109,7 +106,8 @@ void *msc_std_open(const char *path, uint8_t flags)
         return NULL;
     }
     f->fd = fd;
-    f->append = (flags & 0x40) != 0;
+    if (flags & 0x40) /* APPEND: one-time seek to EOF (O_TRUNC already ran) */
+        lseek(fd, 0, SEEK_END);
     return f;
 }
 
@@ -118,7 +116,7 @@ void msc_std_close(void *desc)
     struct msc_file *f = desc;
     if (!f || !f->used)
         return;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     if (f->aio_active) /* reap an in-flight transfer (a reset can close mid-op) */
     {
         const struct aiocb *l = &f->cb;
@@ -142,7 +140,7 @@ io_result msc_std_read(void *desc, void *buf, size_t n, size_t *got)
 {
     struct msc_file *f = desc;
     *got = 0;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     if (g_async)
     {
         if (!f->aio_active)
@@ -188,7 +186,7 @@ io_result msc_std_write(void *desc, const void *buf, size_t n, size_t *put)
 {
     struct msc_file *f = desc;
     *put = 0;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     if (g_async)
     {
         if (!f->aio_active)
@@ -219,7 +217,7 @@ io_result msc_std_write(void *desc, const void *buf, size_t n, size_t *put)
         }
         f->wrote = true;
         if (r > 0)
-            lseek(f->fd, f->append ? 0 : r, f->append ? SEEK_END : SEEK_CUR);
+            lseek(f->fd, r, SEEK_CUR); /* aio_write leaves the fd offset untouched */
         *put = (size_t)r;
         return IO_OK;
     }

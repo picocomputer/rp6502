@@ -68,6 +68,15 @@ void mou_host_move(float dx, float dy)
     mou_write_xram();
 }
 
+void mou_host_wheel(int dwheel, int dpan)
+{
+    if (dwheel == 0 && dpan == 0)
+        return;
+    mou_state[MOU_OFF_WHEEL] = (uint8_t)(mou_state[MOU_OFF_WHEEL] + dwheel);
+    mou_state[MOU_OFF_PAN] = (uint8_t)(mou_state[MOU_OFF_PAN] + dpan);
+    mou_write_xram();
+}
+
 void mou_host_buttons(uint8_t buttons)
 {
     if (buttons == mou_state[MOU_OFF_BUTTONS])

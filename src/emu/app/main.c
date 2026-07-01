@@ -103,8 +103,14 @@ static int run_dap(const options *o)
         emu_set_audio_enabled(false);
     if (o->phi2_khz > 0)
         emu_set_phi2_khz((uint16_t)o->phi2_khz);
-    if (o->code_page > 0 && o->code_page <= UINT16_MAX)
-        oem_set_code_page((uint16_t)o->code_page);
+    if (o->code_page > 0)
+    {
+        if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
+        {
+            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o->code_page);
+            return 1;
+        }
+    }
 
     dap_start(); /* DAP on stdin/stdout; emu_run_window pumps it each frame */
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on

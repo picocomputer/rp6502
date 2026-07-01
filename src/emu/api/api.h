@@ -36,6 +36,9 @@ extern "C"
  * may return IO_PENDING; headless they complete synchronously. */
 typedef enum { IO_OK, IO_PENDING, IO_ERROR } io_result;
 
+/* Reset per-run API state (the errno-option mapping). */
+void api_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

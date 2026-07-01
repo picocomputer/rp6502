@@ -38,6 +38,8 @@
  * bits are reserved: bit 0 = "no keys pressed", bits 1-3 = lock LEDs. */
 static uint32_t kbd_keys[8] = {1}; /* idle: no keys down */
 static uint16_t kbd_xram = 0xFFFF; /* 0xFFFF = not mapped */
+static uint8_t kbd_leds;           /* firmware LED bit order: Num=1, Caps=2, Scroll=4 */
+static bool kbd_suppress_char;     /* swallow the CHAR a numpad KEY_DOWN would double-inject */
 
 static void kbd_write_xram(void)
 {
@@ -48,7 +50,7 @@ static void kbd_write_xram(void)
             any = true;
     if (!any)
         kbd_keys[0] |= 1; /* no keys down */
-    /* lock LEDs (bits 1-3) are not modeled */
+    kbd_keys[0] |= (kbd_leds & 7) << 1;
     if (kbd_xram != 0xFFFF)
         memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
 }
@@ -287,6 +289,46 @@ static const char *utf8_encode(uint32_t cp, char dst[5])
     return dst;
 }
 
+/* US-ASCII of a printable sokol keycode honoring shift, else 0. Alt combos fire
+ * no CHAR event, so an Alt+key Meta escape is reconstructed here — a US-layout
+ * approximation, not an OEM-codepage match. */
+static char kbd_ascii_from_key(int kc, bool shift)
+{
+    if (kc >= SAPP_KEYCODE_A && kc <= SAPP_KEYCODE_Z)
+        return (char)(shift ? 'A' + (kc - SAPP_KEYCODE_A) : 'a' + (kc - SAPP_KEYCODE_A));
+    if (kc >= SAPP_KEYCODE_0 && kc <= SAPP_KEYCODE_9)
+    {
+        static const char shifted[] = ")!@#$%^&*(";
+        return shift ? shifted[kc - SAPP_KEYCODE_0] : (char)('0' + (kc - SAPP_KEYCODE_0));
+    }
+    switch (kc)
+    {
+    case SAPP_KEYCODE_SPACE: return ' ';
+    case SAPP_KEYCODE_MINUS: return shift ? '_' : '-';
+    case SAPP_KEYCODE_EQUAL: return shift ? '+' : '=';
+    case SAPP_KEYCODE_LEFT_BRACKET: return shift ? '{' : '[';
+    case SAPP_KEYCODE_RIGHT_BRACKET: return shift ? '}' : ']';
+    case SAPP_KEYCODE_BACKSLASH: return shift ? '|' : '\\';
+    case SAPP_KEYCODE_SEMICOLON: return shift ? ':' : ';';
+    case SAPP_KEYCODE_APOSTROPHE: return shift ? '"' : '\'';
+    case SAPP_KEYCODE_GRAVE_ACCENT: return shift ? '~' : '`';
+    case SAPP_KEYCODE_COMMA: return shift ? '<' : ',';
+    case SAPP_KEYCODE_PERIOD: return shift ? '>' : '.';
+    case SAPP_KEYCODE_SLASH: return shift ? '?' : '/';
+    default: return 0;
+    }
+}
+
+/* C0 promotion of a printable byte, mirroring the firmware kbd_ctrl_promote. */
+static char kbd_ctrl_promote(char ch)
+{
+    if (ch >= '`' && ch <= '~')
+        return (char)(ch - 96);
+    if (ch >= '@' && ch <= '_')
+        return (char)(ch - 64);
+    return 0;
+}
+
 /* The one entry app_sokol forwards every key/char event to. Feeds the HID
  * bitmap on press/release, emits printable CHARs as OEM bytes, and turns the
  * navigation/function/ctrl keys into their byte sequences. (Esc-releases-mouse
@@ -304,7 +346,9 @@ void kbd_event(const sapp_event *e)
     case SAPP_EVENTTYPE_CHAR:
         /* Printable input only; control codes (<32) and DEL arrive via KEY_DOWN
          * below, so skip them here to avoid double injection. */
-        if (e->char_code >= 32 && e->char_code != 127)
+        if (kbd_suppress_char)
+            kbd_suppress_char = false;
+        else if (e->char_code >= 32 && e->char_code != 127)
         {
             char u[5];
             kbd_text(utf8_encode(e->char_code, u));
@@ -315,6 +359,7 @@ void kbd_event(const sapp_event *e)
         bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
         bool shift = (e->modifiers & SAPP_MODIFIER_SHIFT) != 0;
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
+        kbd_suppress_char = false;
         switch (e->key_code)
         {
         case SAPP_KEYCODE_ESCAPE: kbd_key(KBD_KEY_ESCAPE, ctrl, shift, alt); break;
@@ -344,11 +389,44 @@ void kbd_event(const sapp_event *e)
         case SAPP_KEYCODE_F10: kbd_key(KBD_KEY_F10, ctrl, shift, alt); break;
         case SAPP_KEYCODE_F11: kbd_key(KBD_KEY_F11, ctrl, shift, alt); break;
         case SAPP_KEYCODE_F12: kbd_key(KBD_KEY_F12, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_NUM_LOCK: kbd_leds ^= 1; kbd_write_xram(); break;
+        case SAPP_KEYCODE_CAPS_LOCK: kbd_leds ^= 2; kbd_write_xram(); break;
+        case SAPP_KEYCODE_SCROLL_LOCK: kbd_leds ^= 4; kbd_write_xram(); break;
+        /* NumLock-off numpad navigation. sokol reports no NumLock modifier, so
+         * always nav and swallow the digit CHAR the host emits when NumLock is on. */
+        case SAPP_KEYCODE_KP_1: kbd_suppress_char = true; kbd_key(KBD_KEY_END, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_2: kbd_suppress_char = true; kbd_key(KBD_KEY_DOWN, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_3: kbd_suppress_char = true; kbd_key(KBD_KEY_PAGE_DOWN, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_4: kbd_suppress_char = true; kbd_key(KBD_KEY_LEFT, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_5: kbd_suppress_char = true; break;
+        case SAPP_KEYCODE_KP_6: kbd_suppress_char = true; kbd_key(KBD_KEY_RIGHT, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_7: kbd_suppress_char = true; kbd_key(KBD_KEY_HOME, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_8: kbd_suppress_char = true; kbd_key(KBD_KEY_UP, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_9: kbd_suppress_char = true; kbd_key(KBD_KEY_PAGE_UP, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_0: kbd_suppress_char = true; kbd_key(KBD_KEY_INSERT, ctrl, shift, alt); break;
+        case SAPP_KEYCODE_KP_DECIMAL: kbd_suppress_char = true; kbd_key(KBD_KEY_DELETE, ctrl, shift, alt); break;
         default:
             /* Ctrl+<letter> -> C0 control byte (Ctrl-C latches SIGINT). No CHAR
              * event fires for these, so promote here. */
             if (ctrl && !alt && e->key_code >= SAPP_KEYCODE_A && e->key_code <= SAPP_KEYCODE_Z)
                 kbd_ctrl_letter((char)('A' + (e->key_code - SAPP_KEYCODE_A)));
+            /* Alt+<printable> -> ESC<char> (Meta), ctrl-promoting first when both
+             * held, mirroring the firmware order. No CHAR fires for Alt combos. */
+            else if (alt)
+            {
+                char ch = kbd_ascii_from_key(e->key_code, shift);
+                if (ch)
+                {
+                    if (ctrl)
+                    {
+                        char c = kbd_ctrl_promote(ch);
+                        if (c)
+                            ch = c;
+                    }
+                    com_kbd_push_byte(0x1b);
+                    com_kbd_push_byte((uint8_t)ch);
+                }
+            }
             break;
         }
         break;

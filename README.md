@@ -27,7 +27,7 @@ $ git submodule update --init
 The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
 submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
 activate the toolchain into that submodule (a one-time ~270 MB download). The same
-thing from the command line (Windows: emsdk.bat) :
+thing may be done from the command line (Windows: emsdk.bat) :
 ```
 $ vendor/emsdk/emsdk install latest
 $ vendor/emsdk/emsdk activate latest

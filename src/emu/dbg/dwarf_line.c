@@ -244,6 +244,7 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
         {
             /* extended opcode */
             uint64_t len = uleb(c);
+            if (len > (uint64_t)(unit_end - c->p)) { c->ok = false; break; }
             const uint8_t *next = c->p + len;
             uint8_t sub = u8(c);
             if (sub == LNE_end_sequence)

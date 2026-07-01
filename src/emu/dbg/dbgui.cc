@@ -28,7 +28,7 @@ extern "C"
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
 
 #include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
-#include "m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
+#include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
 
 #include "sokol_app.h"
 #include "sokol_gfx.h"
@@ -41,14 +41,14 @@ extern "C"
 #include "ui/ui_chip.h"
 #include "ui/ui_memedit.h"
 #include "ui/ui_memmap.h"
-#define CHIPS_UTIL_IMPL          /* emit m6502dasm_op (the disassembler ui_dbg calls) */
-#include "emu/chips/w65c02dasm.h"  /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
-#include "emu/chips/ui_w65c02.h"   /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
-#include "emu/chips/ui_rp6502.h"   /* our RIA debug window (bespoke, not a chips fork) */
+#define CHIPS_UTIL_IMPL           /* emit m6502dasm_op (the disassembler ui_dbg calls) */
+#include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
+#include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
+#include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
 #include "ui/ui_m6522.h"
 #include "ui/ui_dbg.h"
 
-#include <cstdio>  /* snprintf, sscanf */
+#include <cstdio> /* snprintf, sscanf */
 
 static ui_dbg_t g_dbg;
 static ui_w65c02_t g_cpuwin;
@@ -58,7 +58,7 @@ static ui_memmap_t g_memmap;
 static ui_rp6502_t g_ria;
 static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
-static float g_menu_h;             /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
+static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
  * as an ImTextureID via simgui_imtextureid. Called from ui_dbg_draw on the main
@@ -156,9 +156,12 @@ static uint8_t memedit_read(int layer, uint16_t addr, void *user)
     (void)user;
     switch (layer)
     {
-    case 1: return xram[addr];
-    case 2: return addr < XSTACK_SIZE ? xstack[addr] : 0;
-    default: return mem_peek(addr);
+    case 1:
+        return xram[addr];
+    case 2:
+        return addr < XSTACK_SIZE ? xstack[addr] : 0;
+    default:
+        return mem_peek(addr);
     }
 }
 
@@ -167,9 +170,16 @@ static void memedit_write(int layer, uint16_t addr, uint8_t data, void *user)
     (void)user;
     switch (layer)
     {
-    case 1: xram[addr] = data; break;
-    case 2: if (addr < XSTACK_SIZE) xstack[addr] = data; break;
-    default: mem_poke(addr, data); break;
+    case 1:
+        xram[addr] = data;
+        break;
+    case 2:
+        if (addr < XSTACK_SIZE)
+            xstack[addr] = data;
+        break;
+    default:
+        mem_poke(addr, data);
+        break;
     }
 }
 
@@ -216,10 +226,13 @@ static void draw_control(void)
             dbg_remove_breakpoint((uint16_t)a);
 
         ImGui::TextUnformatted("Breakpoints:");
+        bool first_bp = true;
         for (int addr = 0; addr <= 0xFFFF; addr++)
             if (dbg_has_breakpoint((uint16_t)addr))
             {
-                ImGui::SameLine();
+                if (!first_bp)
+                    ImGui::SameLine();
+                first_bp = false;
                 ImGui::Text("$%04X", addr);
             }
     }
@@ -228,25 +241,71 @@ static void draw_control(void)
 
 /* Pin diagrams for the chip windows. ui_chip requires a named desc with pins. */
 static const ui_chip_pin_t pins_6502[] = {
-    {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
-    {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW}, {"SYNC", 10, M6502_SYNC}, {"RDY", 11, M6502_RDY},
-    {"IRQ", 12, M6502_IRQ}, {"NMI", 13, M6502_NMI}, {"RES", 14, M6502_RES},
-    {"A0", 16, M6502_A0}, {"A1", 17, M6502_A1}, {"A2", 18, M6502_A2}, {"A3", 19, M6502_A3},
-    {"A4", 20, M6502_A4}, {"A5", 21, M6502_A5}, {"A6", 22, M6502_A6}, {"A7", 23, M6502_A7},
-    {"A8", 24, M6502_A8}, {"A9", 25, M6502_A9}, {"A10", 26, M6502_A10}, {"A11", 27, M6502_A11},
-    {"A12", 28, M6502_A12}, {"A13", 29, M6502_A13}, {"A14", 30, M6502_A14}, {"A15", 31, M6502_A15},
+    {"D0", 0, M6502_D0},
+    {"D1", 1, M6502_D1},
+    {"D2", 2, M6502_D2},
+    {"D3", 3, M6502_D3},
+    {"D4", 4, M6502_D4},
+    {"D5", 5, M6502_D5},
+    {"D6", 6, M6502_D6},
+    {"D7", 7, M6502_D7},
+    {"RW", 9, M6502_RW},
+    {"SYNC", 10, M6502_SYNC},
+    {"RDY", 11, M6502_RDY},
+    {"IRQ", 12, M6502_IRQ},
+    {"NMI", 13, M6502_NMI},
+    {"RES", 14, M6502_RES},
+    {"A0", 16, M6502_A0},
+    {"A1", 17, M6502_A1},
+    {"A2", 18, M6502_A2},
+    {"A3", 19, M6502_A3},
+    {"A4", 20, M6502_A4},
+    {"A5", 21, M6502_A5},
+    {"A6", 22, M6502_A6},
+    {"A7", 23, M6502_A7},
+    {"A8", 24, M6502_A8},
+    {"A9", 25, M6502_A9},
+    {"A10", 26, M6502_A10},
+    {"A11", 27, M6502_A11},
+    {"A12", 28, M6502_A12},
+    {"A13", 29, M6502_A13},
+    {"A14", 30, M6502_A14},
+    {"A15", 31, M6502_A15},
 };
 
 static const ui_chip_pin_t pins_6522[] = {
-    {"D0", 0, M6522_D0}, {"D1", 1, M6522_D1}, {"D2", 2, M6522_D2}, {"D3", 3, M6522_D3},
-    {"D4", 4, M6522_D4}, {"D5", 5, M6522_D5}, {"D6", 6, M6522_D6}, {"D7", 7, M6522_D7},
-    {"RS0", 9, M6522_RS0}, {"RS1", 10, M6522_RS1}, {"RS2", 11, M6522_RS2}, {"RS3", 12, M6522_RS3},
-    {"RW", 14, M6522_RW}, {"CS1", 15, M6522_CS1}, {"CS2", 16, M6522_CS2}, {"IRQ", 17, M6522_IRQ},
-    {"PA0", 20, M6522_PA0}, {"PA1", 21, M6522_PA1}, {"PA2", 22, M6522_PA2}, {"PA3", 23, M6522_PA3},
-    {"PA4", 24, M6522_PA4}, {"PA5", 25, M6522_PA5}, {"PA6", 26, M6522_PA6}, {"PA7", 27, M6522_PA7},
-    {"PB0", 28, M6522_PB0}, {"PB1", 29, M6522_PB1}, {"PB2", 30, M6522_PB2}, {"PB3", 31, M6522_PB3},
-    {"PB4", 32, M6522_PB4}, {"PB5", 33, M6522_PB5}, {"PB6", 34, M6522_PB6}, {"PB7", 35, M6522_PB7},
+    {"D0", 0, M6522_D0},
+    {"D1", 1, M6522_D1},
+    {"D2", 2, M6522_D2},
+    {"D3", 3, M6522_D3},
+    {"D4", 4, M6522_D4},
+    {"D5", 5, M6522_D5},
+    {"D6", 6, M6522_D6},
+    {"D7", 7, M6522_D7},
+    {"RS0", 9, M6522_RS0},
+    {"RS1", 10, M6522_RS1},
+    {"RS2", 11, M6522_RS2},
+    {"RS3", 12, M6522_RS3},
+    {"RW", 14, M6522_RW},
+    {"CS1", 15, M6522_CS1},
+    {"CS2", 16, M6522_CS2},
+    {"IRQ", 17, M6522_IRQ},
+    {"PA0", 20, M6522_PA0},
+    {"PA1", 21, M6522_PA1},
+    {"PA2", 22, M6522_PA2},
+    {"PA3", 23, M6522_PA3},
+    {"PA4", 24, M6522_PA4},
+    {"PA5", 25, M6522_PA5},
+    {"PA6", 26, M6522_PA6},
+    {"PA7", 27, M6522_PA7},
+    {"PB0", 28, M6522_PB0},
+    {"PB1", 29, M6522_PB1},
+    {"PB2", 30, M6522_PB2},
+    {"PB3", 31, M6522_PB3},
+    {"PB4", 32, M6522_PB4},
+    {"PB5", 33, M6522_PB5},
+    {"PB6", 34, M6522_PB6},
+    {"PB7", 35, M6522_PB7},
 };
 
 /* ---- Layout persistence: the config file is owned by ImGui's settings system.
@@ -290,8 +349,7 @@ static int g_chips_cur_slot = -1;
 static void chips_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) { ui_settings_init(&g_settings); }
 static void *chips_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
 {
-    ui_settings_add(&g_settings, name, false);
-    g_chips_cur_slot = g_settings.num_slots - 1;
+    g_chips_cur_slot = ui_settings_add(&g_settings, name, false) ? g_settings.num_slots - 1 : -1;
     return (void *)&g_settings; /* any non-null: this section has lines to read */
 }
 static void chips_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
@@ -593,7 +651,7 @@ void dbgui_discard(void)
     if (!g_inited)
         return;
     emu_dbg_cycle_cb = nullptr; /* stop feeding ui_dbg before it is destroyed */
-    dbgui_layout_save(); /* final flush of geometry + open flags */
+    dbgui_layout_save();        /* final flush of geometry + open flags */
     ui_memmap_discard(&g_memmap);
     ui_memedit_discard(&g_memedit);
     ui_rp6502_discard(&g_ria);
@@ -747,7 +805,7 @@ void dbgui_draw(void)
     else if (ui_was_stopped && !ui_dbg_stopped(&g_dbg))
         dbg_continue(); /* Continue button / F5 */
     else if (!ui_was_stopped && ui_dbg_stopped(&g_dbg))
-        dbg_request_pause(); /* Break button / F6 */
+        dbg_request_pause();                    /* Break button / F6 */
     g_dbg.dbg.step_mode = UI_DBG_STEPMODE_NONE; /* consumed; ui_dbg's own stepper stays idle */
 
     /* Breakpoint edits the user just made in ui_dbg -> dbg.c: a removed gutter dot

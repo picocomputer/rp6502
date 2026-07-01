@@ -167,6 +167,9 @@ UTEST(dwarf_info, global_addresses)
     const dwarf_var_t *sink = find(g, n, "sink");
     ASSERT_TRUE(sink != NULL);
     ASSERT_TRUE(sink->addr_ok);
+    const dwarf_var_t *gc = find(g, n, "guchar");
+    ASSERT_TRUE(gc != NULL);
+    ASSERT_FALSE(gc->addr_ok);
     dwarf_info_free(di);
 }
 

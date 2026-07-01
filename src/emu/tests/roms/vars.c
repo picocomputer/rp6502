@@ -1,12 +1,3 @@
-/*
- * Copyright (c) 2026 Rumbledethumps
- *
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * Test fixture: built to tests/roms/vars.elf to exercise the DWARF type/line
- * readers. Not part of any distributed executable.
- */
-
 #include <stdint.h>
 
 struct point { int x; int y; char tag; };

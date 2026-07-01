@@ -550,6 +550,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
     if (d->tag == DW_TAG_typedef || d->tag == DW_TAG_const_type ||
         d->tag == DW_TAG_volatile_type || d->tag == DW_TAG_restrict_type)
     {
+        cu->memo[idx] = void_type(di); /* placeholder before recursing (cycle guard) */
         struct dtype *under = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref))
                                           : void_type(di);
         cu->memo[idx] = under;
@@ -937,13 +938,14 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (sz <= 64) { fclose(f); return NULL; }
-    uint8_t *buf = malloc((size_t)sz);
+    uint8_t *buf = malloc((size_t)sz + 1);
     if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz)
     {
         free(buf);
         fclose(f);
         return NULL;
     }
+    buf[sz] = 0; /* terminate any unterminated string at end of file */
     fclose(f);
 
     if (memcmp(buf, "\x7f""ELF", 4) != 0 || buf[4] != 1 || buf[5] != 1)
@@ -973,12 +975,18 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
     }
     const char *shstr = (const char *)(buf + shstr_off);
 
+/* Section name at shstr+SH_U32(i,0), clamped so strcmp never walks past buf. */
+#define SH_NAME(idx)                                            \
+    ((SH_U32(idx, 0) < (uint64_t)sz - shstr_off)                \
+         ? shstr + SH_U32(idx, 0)                               \
+         : "")
+
     uint32_t info_off = 0, info_size = 0, abbrev_off = 0, abbrev_size = 0;
     uint32_t str_off = 0, str_size = 0, lstr_off = 0, lstr_size = 0;
     uint32_t sym_off = 0, sym_size = 0, symstr_off = 0, symstr_size = 0;
     for (uint16_t i = 0; i < e_shnum; i++)
     {
-        const char *nm = shstr + SH_U32(i, 0);
+        const char *nm = SH_NAME(i);
         uint32_t off = SH_U32(i, 16), size = SH_U32(i, 20);
         if (strcmp(nm, ".debug_info") == 0) { info_off = off; info_size = size; }
         else if (strcmp(nm, ".debug_abbrev") == 0) { abbrev_off = off; abbrev_size = size; }

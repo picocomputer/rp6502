@@ -34,7 +34,7 @@ extern "C"
 #include "emu/dbg/cc65dbg.h"
 }
 #include "emu/chips/w65c02.h"        /* m6502_t register accessors (extern "C") */
-#include "util/m6502dasm.h"  /* m6502dasm_op declaration (impl lives in dbgui.cc) */
+#include "emu/chips/w65c02dasm.h"  /* 65C02 m6502dasm_op declaration (impl lives in dbgui.cc) */
 
 #include <atomic>
 #include <cstdint>

@@ -102,11 +102,21 @@ target_include_directories(emu_core PUBLIC
 target_compile_definitions(emu_core PUBLIC _GNU_SOURCE)
 target_link_libraries(emu_core PUBLIC m)
 
-# Non-blocking file I/O where possible
+# Non-blocking file I/O (POSIX AIO) where the platform provides it; msc/rom fall
+# back to synchronous read/write otherwise (web MEMFS, Windows).
+include(CheckSymbolExists)
 if(NOT EMSCRIPTEN)
     find_library(RT_LIBRARY rt)
     if(RT_LIBRARY)
         target_link_libraries(emu_core PUBLIC ${RT_LIBRARY})
+        set(CMAKE_REQUIRED_LIBRARIES ${RT_LIBRARY})
+    endif()
+    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+    check_symbol_exists(aio_read "aio.h" EMU_HAVE_AIO)
+    unset(CMAKE_REQUIRED_DEFINITIONS)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(EMU_HAVE_AIO)
+        target_compile_definitions(emu_core PRIVATE EMU_HAVE_AIO)
     endif()
 endif()
 
@@ -116,7 +126,14 @@ if(WIN32 OR APPLE OR EMSCRIPTEN)
     set(EMU_HAS_WINDOW ON)
 else()
     check_include_file("GL/gl.h" EMU_HAS_GL_HEADER)
-    set(EMU_HAS_WINDOW ${EMU_HAS_GL_HEADER})
+    check_include_file("X11/Xlib.h" EMU_HAS_X11_HEADER)
+    check_include_file("X11/extensions/XInput2.h" EMU_HAS_XI_HEADER)
+    check_include_file("X11/Xcursor/Xcursor.h" EMU_HAS_XCURSOR_HEADER)
+    if(EMU_HAS_GL_HEADER AND EMU_HAS_X11_HEADER AND EMU_HAS_XI_HEADER AND EMU_HAS_XCURSOR_HEADER)
+        set(EMU_HAS_WINDOW ON)
+    else()
+        set(EMU_HAS_WINDOW OFF)
+    endif()
 endif()
 
 # Determine if audio available

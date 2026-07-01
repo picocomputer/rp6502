@@ -72,7 +72,9 @@ set_tests_properties(dbg PROPERTIES TIMEOUT 60)
 
 # --- DWARF .debug_info variable/type model (dwarf_info.c). Standalone: the
 # parser only needs libc, and the fixture (vars.elf, an llvm-mos -O0 -gdwarf-4
-# build of vars.c) is committed, so this runs with no toolchain or window. ---
+# build of vars.c) is committed, so this runs with no toolchain or window.
+# vars.c is deliberately header-less so its line numbers match the committed
+# .debug_line; prepending a license header shifts them and breaks dwarf_line. ---
 add_executable(test_dwarf_info test_dwarf_info.c ${EMU}/dbg/dwarf_info.c)
 target_include_directories(test_dwarf_info PRIVATE ${UTEST_DIR} ${SRC} ${EMU} ${EMU}/dbg)
 target_compile_definitions(test_dwarf_info PRIVATE VARS_ELF="${ROMS}/vars.elf")

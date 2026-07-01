@@ -98,7 +98,7 @@ void cli_usage(const char *argv0)
             "                            as :basename; repeatable, the first one boots\n"
             "  --bgcolor RRGGBB          letterbox/pillarbox fill color (default 000000)\n"
             "  --phi2 <khz>              6502 clock in kHz (100-8000, default 8000)\n"
-            "  --cp <n>                  OEM code page (437/720/737/775/850/852/855/\n"
+            "  --cp <n>                  OEM code page (437/720/737/771/775/850/852/855/\n"
             "                            857/860-866/869, default 437)\n"
             "  --seed <n>                fixed RNG seed for reproducible runs\n"
             "                            (default: host entropy)\n"
@@ -213,6 +213,8 @@ int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
         while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
             p++;
         if (!*p)
+            break;
+        if (w >= cap)
             break;
         size_t tok = w;
         char quote = 0;

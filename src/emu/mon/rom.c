@@ -27,7 +27,7 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
 #include <aio.h>
 #endif
 
@@ -151,7 +151,7 @@ struct rom_window
     size_t base;
     size_t len;
     size_t pos;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     bool aio_active;
     struct aiocb cb; /* the single in-flight read, polled by the RIA pump */
 #endif
@@ -181,7 +181,7 @@ void *rom_window_open(const char *hostpath, size_t base, size_t len)
     w->base = base;
     w->len = len;
     w->pos = 0;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     w->aio_active = false;
 #endif
     return w;
@@ -192,7 +192,7 @@ void rom_window_close(void *desc)
     struct rom_window *w = desc;
     if (!w || !w->used)
         return;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     if (w->aio_active) /* reap an in-flight read (a reset can close mid-op) */
     {
         const struct aiocb *l = &w->cb;
@@ -215,7 +215,7 @@ io_result rom_window_read(void *desc, void *buf, size_t n, size_t *got)
     *got = 0;
     size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
     size_t want = n < avail ? n : avail;
-#ifndef __EMSCRIPTEN__
+#ifdef EMU_HAVE_AIO
     if (g_rom_async)
     {
         if (!w->aio_active)

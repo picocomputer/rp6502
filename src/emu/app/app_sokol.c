@@ -53,11 +53,15 @@ void emu_set_scale_filter(emu_scale_filter_t filter) { (void)filter; }
 #include "emu/dbg/dbgui.h"
 #include "emu/dbg/dap.h"
 #endif
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h> /* frame limiter (clock_gettime/clock_nanosleep) */
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #if defined(__linux__)
 /* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
@@ -377,9 +381,9 @@ static void init_cb(void)
 }
 
 /* Absolute monotonic nanosecond clock + a sleep-until-absolute-deadline, for the
- * frame pacer. now_ns() is portable (POSIX clock_gettime; QPC on Windows, whose
- * windows.h sokol_app already pulled in). The sleep is the no-vsync software
- * pacer; it's a no-op on the web (RAF paces) and Windows (D3D11 Present paces). */
+ * frame pacer. now_ns() is portable (POSIX clock_gettime; QPC on Windows). The
+ * sleep is the no-vsync software pacer; it's a no-op on the web (RAF paces) and
+ * Windows (D3D11 Present paces). */
 static uint64_t now_ns(void)
 {
 #if defined(_WIN32)
@@ -691,6 +695,10 @@ static void event_cb(const sapp_event *e)
                 mou_host_move(e->mouse_dx / s * EMU_MOUSE_GAIN,
                               e->mouse_dy / s * EMU_MOUSE_GAIN);
         }
+        break;
+    case SAPP_EVENTTYPE_MOUSE_SCROLL:
+        if (sapp_mouse_locked())
+            mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         break;
     default:
         break;

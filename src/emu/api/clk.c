@@ -177,8 +177,10 @@ bool clk_api_strftime(void)
     struct tm probe = tm;
     if (mktime(&probe) != (time_t)-1)
     {
+#if defined(__GLIBC__) || defined(__APPLE__) || defined(__EMSCRIPTEN__) || defined(__USE_MISC)
         tm.tm_gmtoff = probe.tm_gmtoff;
         tm.tm_zone = probe.tm_zone;
+#endif
     }
     size_t n = clk_strftime((char *)xstack, max, format, &tm);
     xstack_ptr = XSTACK_SIZE - n; /* relocate the result to the top of xstack */

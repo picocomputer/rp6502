@@ -73,6 +73,11 @@
 
 static uint8_t api_errno_opt;
 
+void api_reset(void)
+{
+    api_errno_opt = API_ERRNO_OPT_NULL;
+}
+
 uint8_t api_get_errno_opt(void)
 {
     return api_errno_opt;

@@ -114,6 +114,13 @@ static bool std_xreg(void)
         xstack_ptr = XSTACK_SIZE;
         return api_return_errno(API_EINVAL);
     }
+    /* VGA control channel ($F) is RIA-private while VGA is connected (always,
+     * in the emulator), so a write NAKs (mirrors ria/sys/pix.c). */
+    if (device == 1 && channel == 0xF)
+    {
+        xstack_ptr = XSTACK_SIZE;
+        return api_return_errno(API_EACCES);
+    }
     /* word[i] lives at xstack[SIZE-5-2i] and targets address+i. Hardware
      * dispatch order: a VGA channel-0 multi-word call starting at address 0
      * sends the canvas word (address 0) first so it can't clear later mode
@@ -354,9 +361,9 @@ static void rw_write(int which, uint8_t data)
 #define RIA_UART_TX_READY 0x80
 
 /* The emulator has no physical UART; the bare-UART RX pins read the same typed
- * input as stdin (the keyboard com source). The com ring stands in for the
- * firmware's com_rx_char upstream byte. Using the direct UART regs while a stdio
- * call is in flight is undefined per the docs, so sharing the source is faithful. */
+ * input as stdin (the keyboard com source). Using the direct UART regs while a
+ * stdio call is in flight is undefined per the docs, so sharing the source is
+ * faithful. */
 static int ria_uart_rx_next(void)
 {
     com_source_t src = COM_SOURCE_KBD;
@@ -368,7 +375,7 @@ uint8_t ria_reg_read(uint16_t addr)
     switch (addr & 0x1F)
     {
     case 0x00: /* UART flow control: bit7 TX always ok; bit6 set once a byte is
-                * pulled into the $FFE2 latch (mirrors ria/sys/ria.c $FFE0). */
+                * pulled into the $FFE2 latch. */
     {
         uint8_t flags = regs[0x00];
         if (!(flags & RIA_UART_RX_READY))
@@ -384,19 +391,21 @@ uint8_t ria_reg_read(uint16_t addr)
         regs[0x00] = flags;
         return flags;
     }
-    case 0x02: /* UART RX (mirrors ria/sys/ria.c $FFE2): pull the next byte,
-                * flag bit6 and return it, else clear bit6 and return 0. */
+    case 0x02: /* UART RX: return the latched byte, then refill it. */
     {
+        uint8_t v = regs[0x02];
         int ch = ria_uart_rx_next();
         if (ch >= 0)
         {
             regs[0x02] = (uint8_t)ch;
             regs[0x00] |= RIA_UART_RX_READY;
-            return regs[0x02];
         }
-        regs[0x00] &= ~RIA_UART_RX_READY;
-        regs[0x02] = 0;
-        return 0;
+        else
+        {
+            regs[0x02] = 0;
+            regs[0x00] &= ~RIA_UART_RX_READY;
+        }
+        return v;
     }
     case 0x04: /* RW0 */
         return rw_read(0);
@@ -517,6 +526,7 @@ void ria_reset(void)
     REGS(0xFFE5) = 1;        /* STEP0 */
     REGS(0xFFE9) = 1;        /* STEP1 */
     API_ERRNO = 0xFFFF;
+    api_reset();
     api_set_axsreg(0xFFFFFFFFu);
     api_set_regs_released();
     ria.pending_op = 0;

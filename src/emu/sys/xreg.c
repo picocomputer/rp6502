@@ -47,7 +47,7 @@ bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
                 return opl_xreg(word);
             return false;
         }
-        return true;
+        return false;
 
     case 1: /* VGA */
         if (channel == 0)
@@ -95,9 +95,9 @@ bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
             }
             return true; /* parameter register stored */
         }
-        /* channel 15 is the VGA control channel: RIA-private while VGA is
-         * connected, so a write NAKs (firmware API_EACCES). All other
-         * channels are unmodeled and rejected. */
+        /* Non-channel-0 VGA channels are unmodeled (EINVAL). Channel 15 (the
+         * RIA-private VGA control channel, EACCES) is handled up front in
+         * std_xreg before it reaches here. */
         return false;
 
     default:

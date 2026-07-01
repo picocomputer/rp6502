@@ -30,6 +30,9 @@ bool mou_is_mapped(void);
  * scales raw input to that space. Fractional motion is carried between calls. */
 void mou_host_move(float dx, float dy);
 
+/* Accumulate host scroll into the wheel/pan bytes (8-bit wrapping counters). */
+void mou_host_wheel(int dwheel, int dpan);
+
 /* Set the button byte (bit 0 left, 1 right, 2 middle), mirroring the HID order. */
 void mou_host_buttons(uint8_t buttons);
 
