@@ -98,31 +98,4 @@ static inline void com_write(char ch)
     com_tx_core0_head = next;
 }
 
-// com_tx_core1_buf is the core-1 act_loop TX ring, drained by com_tx_fanout
-// on core 0. Single producer (act_loop), single consumer (com_tx_fanout);
-// __dmb() publishes the slot before the head so the cross-core reader
-// cannot observe a new head with a stale slot.
-#define COM_TX_CORE1_BUF_SIZE 32
-extern volatile uint8_t com_tx_core1_buf[COM_TX_CORE1_BUF_SIZE];
-extern volatile size_t com_tx_core1_head;
-extern volatile size_t com_tx_core1_tail;
-
-static inline bool com_tx_core1_writable(void)
-{
-    return (((com_tx_core1_head + 1) % COM_TX_CORE1_BUF_SIZE) != com_tx_core1_tail);
-}
-
-// Caller (act_loop) must have checked com_tx_core1_writable() first.
-static inline void com_tx_core1_write(char ch)
-{
-    size_t next = (com_tx_core1_head + 1) % COM_TX_CORE1_BUF_SIZE;
-    com_tx_core1_buf[next] = (uint8_t)ch;
-    __dmb();
-    com_tx_core1_head = next;
-}
-
-// com_rx_char is the cross-core single-char handoff slot.
-// -1 => empty, else 0..255.
-extern volatile int com_rx_char;
-
 #endif /* _RIA_SYS_COM_H_ */
