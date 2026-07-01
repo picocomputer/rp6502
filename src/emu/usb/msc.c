@@ -171,7 +171,6 @@ api_errno api_errno_from_fatfs(unsigned fresult)
 /* ---- Drive lifecycle ----------------------------------------------------- */
 
 static FATFS g_ramfs;
-static BYTE g_mkfs_work[4096]; /* f_mkfs work area */
 static bool g_active;
 
 bool emu_fat_active(void) { return g_active; }
@@ -182,7 +181,8 @@ bool emu_fat_active(void) { return g_active; }
 bool emu_ramdrive_mount(void)
 {
     emu_ramdisk_reset();
-    if (f_mkfs("MSC0:", 0, g_mkfs_work, sizeof(g_mkfs_work)) != FR_OK)
+    BYTE work[FF_MAX_SS]; /* f_mkfs scratch: one sector, on the stack — mount is rare */
+    if (f_mkfs("MSC0:", 0, work, sizeof(work)) != FR_OK)
         return false;
     if (f_mount(&g_ramfs, "MSC0:", 1) != FR_OK)
         return false;

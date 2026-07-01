@@ -4,13 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * MSC0: on the native host filesystem: path addressing plus the directory +
- * file-metadata ops (stat, the opendir/readdir family, free space, unlink/
- * rename/mkdir/chmod/utime/label, the cwd). host_* fill the FatFs FILINFO the 6502
- * reads. The emu's host_dir_api_* syscall handlers (emu/api/dir.c) marshal over
- * these; the OP dispatcher installs them for the default host drive and swaps in
- * the real firmware dir_api_* (ria/api/dir.c) on --tmpdrive. "MSC0:" maps straight
- * onto the OS filesystem: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
- * Windows drive.
+ * file-metadata syscall handlers (host_dir_api_*, in emu/host/dir.c) — stat, the
+ * opendir/readdir family, free space, unlink/rename/mkdir/chmod/utime/label, the
+ * cwd — each doing the POSIX work and pushing the FatFs FILINFO the 6502 reads. The
+ * OP dispatcher installs them for the default host drive and swaps in the real
+ * firmware dir_api_* (ria/api/dir.c) on --tmpdrive. "MSC0:" maps straight onto the
+ * OS filesystem: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a Windows drive.
  */
 
 #ifndef _EMU_HOST_DIR_H_
@@ -38,7 +37,7 @@ const char *fs_strip_drive(const char *path); /* path past a recognized drive pr
  * RAM disk) or the host handlers (false). Called by the drive lifecycle. */
 void emu_dir_ops_set(bool fat);
 
-/* The emu's HOST dir syscall handlers (emu/api/dir.c), installed in the OP array. */
+/* The emu's HOST dir syscall handlers (emu/host/dir.c), installed in the OP array. */
 bool host_dir_api_stat(void);
 bool host_dir_api_opendir(void);
 bool host_dir_api_readdir(void);
@@ -58,28 +57,7 @@ bool host_dir_api_setlabel(void);
 bool host_dir_api_getlabel(void);
 bool host_dir_api_getfree(void);
 
-/* The host backend (emu/host/dir.c): the actual POSIX work the handlers marshal.
- * Every op returns 0/-1 and sets *err (an api_errno); stat/readdir fill a FILINFO
- * (fname[0]==0 marks end-of-directory). Also called directly by tests. */
-int host_stat(const char *path, FILINFO *fno, api_errno *err);
-int host_opendir(const char *path, api_errno *err); /* >=0 descriptor, or -1 */
-int host_readdir(int des, FILINFO *fno, api_errno *err);
-int host_closedir(int des, api_errno *err);
-int host_telldir(int des, int32_t *pos, api_errno *err);
-int host_seekdir(int des, int32_t offs, api_errno *err);
-int host_rewinddir(int des, api_errno *err);
-int host_unlink(const char *path, api_errno *err);
-int host_rename(const char *oldp, const char *newp, api_errno *err);
-int host_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err);
-int host_utime(const char *path, const FILINFO *fno, api_errno *err);
-int host_mkdir(const char *path, api_errno *err);
-int host_chdir(const char *path, api_errno *err);
-int host_chdrive(const char *path, api_errno *err);
-int host_getcwd(char *buf, size_t size, api_errno *err);
-int host_getlabel(const char *path, char *label, api_errno *err);
-int host_setlabel(const char *path, api_errno *err);
-int host_getfree(const char *path, uint32_t *free_sectors, uint32_t *total_sectors, api_errno *err);
-void host_dir_stop(void);
+void host_dir_stop(void); /* close open host directories (machine reset) */
 
 #ifdef __cplusplus
 }

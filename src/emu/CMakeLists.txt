@@ -41,7 +41,6 @@ add_library(emu_core STATIC
     ${EMU}/api/oem.c
     ${EMU}/host/rand.c
     ${EMU}/api/std.c
-    ${EMU}/api/dir.c
     ${EMU}/sys/com.c
     ${EMU}/hid/kbd.c
     ${EMU}/hid/pad.c

@@ -21,6 +21,7 @@
 #include "emu/host/fs.h"
 #include "emu/usb/msc.h"
 #include "fatfs/ff.h"
+#include "dirsys.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,17 +117,29 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
     ASSERT_TRUE(fs_install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
-    api_errno err;
 
-    FILINFO info;
-    ASSERT_EQ(host_stat(":adventure.rp6502", &info, &err), -1);
-    ASSERT_EQ(host_opendir(":", &err), -1);
-    ASSERT_EQ(host_chdir(":adventure.rp6502", &err), -1);
-    ASSERT_EQ(host_chdrive(":", &err), -1); /* not a cwd-able drive */
-    ASSERT_EQ(host_unlink(":adventure.rp6502", &err), -1);
-    ASSERT_EQ(host_mkdir(":sub", &err), -1);
+    dsys_path(":adventure.rp6502");
+    host_dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
+    dsys_path(":");
+    host_dir_api_opendir();
+    ASSERT_EQ(dsys_ax(), -1);
+    dsys_path(":adventure.rp6502");
+    host_dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), -1);
+    dsys_path(":"); /* not a cwd-able drive */
+    host_dir_api_chdrive();
+    ASSERT_EQ(dsys_ax(), -1);
+    dsys_path(":adventure.rp6502");
+    host_dir_api_unlink();
+    ASSERT_EQ(dsys_ax(), -1);
+    dsys_path(":sub");
+    host_dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
-    ASSERT_EQ(host_stat("MSC0::adventure.rp6502", &info, &err), -1);
+    dsys_path("MSC0::adventure.rp6502");
+    host_dir_api_stat();
+    ASSERT_EQ(dsys_ax(), -1);
 }
 
 /* MSC0: IS the native filesystem (no chroot): a relative path resolves the
@@ -134,10 +147,10 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
-    api_errno err;
 
     char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
-    host_getcwd(cwd, sizeof(cwd), &err);
+    host_dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
@@ -153,20 +166,31 @@ UTEST(drive, mount_transparent_no_chroot)
         fclose(hp);
 
     /* chdir into a subdir; getcwd tracks the native cwd. */
-    ASSERT_EQ(host_mkdir("sub", &err), 0);
-    ASSERT_EQ(host_chdir("sub", &err), 0);
-    host_getcwd(cwd, sizeof(cwd), &err);
+    dsys_path("sub");
+    host_dir_api_mkdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_path("sub");
+    host_dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    host_dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
      * old --drive-root chroot would have refused this with EACCES). */
-    ASSERT_EQ(host_chdir("..", &err), 0);
-    host_getcwd(cwd, sizeof(cwd), &err);
+    dsys_path("..");
+    host_dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    host_dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
     ASSERT_STREQ(cwd, expect);
-    ASSERT_EQ(host_chdir("..", &err), 0);
-    host_getcwd(cwd, sizeof(cwd), &err);
+    dsys_path("..");
+    host_dir_api_chdir();
+    ASSERT_EQ(dsys_ax(), 0);
+    host_dir_api_getcwd();
+    dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
 
