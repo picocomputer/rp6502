@@ -20,6 +20,9 @@
 #include "api/api.h"
 #include "api/std.h"
 
+// Convert a FatFs FRESULT to an api_errno.
+api_errno fat_fresult_to_api_errno(unsigned fresult);
+
 bool fat_std_handles(const char *path);
 int fat_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result fat_std_close(int desc, api_errno *err);

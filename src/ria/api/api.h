@@ -57,12 +57,6 @@ bool api_set_errno_opt(uint8_t opt);
 // into a cc65 or llvm-mos errno.
 uint16_t api_platform_errno(api_errno num);
 
-// Convert a FatFs FRESULT to an api_errno.
-api_errno api_errno_from_fatfs(unsigned fresult);
-
-// Convert a littlefs error code to an api_errno.
-api_errno api_errno_from_lfs(int lfs_err);
-
 // Convert a host (POSIX) errno to an api_errno.
 // Implemented and used by a host backend (the emulator).
 api_errno api_errno_from_host(int host_errno);
@@ -214,12 +208,6 @@ static inline bool api_return_errno(api_errno errnum)
     API_ERRNO = api_platform_errno(errnum);
     xstack_ptr = XSTACK_SIZE;
     return api_return_axsreg(-1);
-}
-
-// Failure returns -1 and sets errno from FatFS FRESULT
-static inline bool api_return_fresult(unsigned fresult)
-{
-    return api_return_errno(api_errno_from_fatfs(fresult));
 }
 
 #endif /* _RIA_API_API_H_ */

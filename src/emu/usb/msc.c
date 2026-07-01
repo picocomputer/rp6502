@@ -126,47 +126,6 @@ int dsk_mkfs_capture(BYTE fsty, DWORD au_sectors)
     return 0;
 }
 
-/* Map a FatFs FRESULT to an api_errno. The firmware supplies this from api.c; the
- * emulator builds its own api.c without it, so the shared fat.c gets it here. */
-api_errno api_errno_from_fatfs(unsigned fresult)
-{
-    switch ((FRESULT)fresult)
-    {
-    case FR_DISK_ERR:
-    case FR_INT_ERR:
-    case FR_MKFS_ABORTED:
-        return API_EIO;
-    case FR_NOT_READY:
-    case FR_INVALID_DRIVE:
-    case FR_NOT_ENABLED:
-    case FR_NO_FILESYSTEM:
-        return API_ENODEV;
-    case FR_NO_FILE:
-    case FR_NO_PATH:
-        return API_ENOENT;
-    case FR_INVALID_NAME:
-    case FR_INVALID_PARAMETER:
-        return API_EINVAL;
-    case FR_DENIED:
-    case FR_WRITE_PROTECTED:
-        return API_EACCES;
-    case FR_EXIST:
-        return API_EEXIST;
-    case FR_INVALID_OBJECT:
-        return API_EBADF;
-    case FR_TIMEOUT:
-        return API_EAGAIN;
-    case FR_LOCKED:
-        return API_EBUSY;
-    case FR_NOT_ENOUGH_CORE:
-        return API_ENOMEM;
-    case FR_TOO_MANY_OPEN_FILES:
-        return API_EMFILE;
-    default:
-        return API_EIO;
-    }
-}
-
 /* ---- Drive lifecycle ----------------------------------------------------- */
 
 static FATFS g_ramfs;

@@ -3,13 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The non-inline helpers that ria/api/api.h declares but does not define:
- * the errno-option machinery and the "short stack" pops. Ported from
- * ria/api/api.c (the FatFs/lfs error mappers are omitted — nothing the
- * emulator compiles calls api_return_fresult). This lets the firmware's
- * api.h, the std/dir handlers, and rln.c link against the emulator, and
- * supplies api_errno_from_host — the POSIX-errno mapper the host-backed
- * filesystem (std.c/dir.c) reports failures through.
  */
 
 #include "emu/api/api.h"

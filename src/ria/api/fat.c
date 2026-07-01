@@ -11,6 +11,7 @@
 #include "api/fat.h"
 #include "fatfs/ff.h"
 #include <assert.h>
+#include <pico.h>
 #include <stdio.h>
 
 // File descriptor pool for open files
@@ -24,6 +25,46 @@ static FIL *fat_std_validate_fil(int desc)
     if (!fat_std_fil_pool[desc].obj.fs)
         return NULL;
     return &fat_std_fil_pool[desc];
+}
+
+api_errno fat_fresult_to_api_errno(unsigned fresult)
+{
+    switch ((FRESULT)fresult)
+    {
+    case FR_DISK_ERR:
+    case FR_INT_ERR:
+    case FR_MKFS_ABORTED:
+        return API_EIO;
+    case FR_NOT_READY:
+    case FR_INVALID_DRIVE:
+    case FR_NOT_ENABLED:
+    case FR_NO_FILESYSTEM:
+        return API_ENODEV;
+    case FR_NO_FILE:
+    case FR_NO_PATH:
+        return API_ENOENT;
+    case FR_INVALID_NAME:
+    case FR_INVALID_PARAMETER:
+        return API_EINVAL;
+    case FR_DENIED:
+    case FR_WRITE_PROTECTED:
+        return API_EACCES;
+    case FR_EXIST:
+        return API_EEXIST;
+    case FR_INVALID_OBJECT:
+        return API_EBADF;
+    case FR_TIMEOUT:
+        return API_EAGAIN;
+    case FR_LOCKED:
+        return API_EBUSY;
+    case FR_NOT_ENOUGH_CORE:
+        return API_ENOMEM;
+    case FR_TOO_MANY_OPEN_FILES:
+        return API_EMFILE;
+    default:
+        assert(false); // internal error
+        return API_EIO;
+    }
 }
 
 bool fat_std_handles(const char *path)
@@ -70,7 +111,7 @@ int fat_std_open(const char *path, uint8_t flags, api_errno *err)
     FRESULT fresult = f_open(fp, path, mode);
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fatfs(fresult);
+        *err = fat_fresult_to_api_errno(fresult);
         return -1;
     }
     FRESULT post = FR_OK;
@@ -82,7 +123,7 @@ int fat_std_open(const char *path, uint8_t flags, api_errno *err)
     {
         f_close(fp);
         fp->obj.fs = NULL;
-        *err = api_errno_from_fatfs(post);
+        *err = fat_fresult_to_api_errno(post);
         return -1;
     }
 
@@ -101,7 +142,7 @@ std_rw_result fat_std_close(int desc, api_errno *err)
     fp->obj.fs = NULL;
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fatfs(fresult);
+        *err = fat_fresult_to_api_errno(fresult);
         return STD_ERROR;
     }
     return STD_OK;
@@ -121,7 +162,7 @@ std_rw_result fat_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
     *bytes_read = br;
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fatfs(fresult);
+        *err = fat_fresult_to_api_errno(fresult);
         return STD_ERROR;
     }
     return STD_OK;
@@ -141,7 +182,7 @@ std_rw_result fat_std_write(int desc, const char *buf, uint32_t count, uint32_t 
     *bytes_written = bw;
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fatfs(fresult);
+        *err = fat_fresult_to_api_errno(fresult);
         return STD_ERROR;
     }
     return STD_OK;
@@ -212,7 +253,7 @@ int fat_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_err
     FRESULT fresult = f_lseek(fp, absolute_offset);
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fatfs(fresult);
+        *err = fat_fresult_to_api_errno(fresult);
         return -1;
     }
     *pos = (int32_t)f_tell(fp);
@@ -230,7 +271,7 @@ std_rw_result fat_std_sync(int desc, api_errno *err)
     FRESULT fresult = f_sync(fp);
     if (fresult != FR_OK)
     {
-        *err = api_errno_from_fatfs(fresult);
+        *err = fat_fresult_to_api_errno(fresult);
         return STD_ERROR;
     }
     return STD_OK;
