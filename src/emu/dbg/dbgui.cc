@@ -46,7 +46,7 @@ extern "C"
 #include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
 #include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
 #include "ui/ui_m6522.h"
-#include "ui/ui_dbg.h"
+#include "emu/chips/ui_dbg.h" /* our fork of ui/ui_dbg.h: history column draws chars, not bytes */
 
 #include <cstdio> /* snprintf, sscanf */
 
