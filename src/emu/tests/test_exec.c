@@ -14,11 +14,12 @@
 #include "emu/api/pro.h"
 #include "emu/host/host.h"
 #include "emu/mon/rom.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
 #include "emu/sys/sys.h"
 #include "utest.h"
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static char cap[1 << 16];
 static size_t cap_len;
@@ -44,17 +45,17 @@ UTEST(exec, reexecs_self_with_arg)
     emu_init();
 
     /* Seed argv[0] = the ROM's own MSC0: path, exactly as main.c does, so the
-     * program can re-exec itself. Mount MSC0: at the ROM's directory (like
-     * launching `rp6502-emu exec.rp6502` from that dir) so the path is under the
-     * drive root and round-trips through the exec resolver. */
+     * program can re-exec itself. chdir into the ROM's directory (like launching
+     * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
+     * MSC0: path and round-trips through the exec resolver. */
     char abs[FS_HOST_MAX_PATH], msc[FS_HOST_MAX_PATH], dir[FS_HOST_MAX_PATH];
     ASSERT_TRUE(realpath(EXEC_ROM, abs) != NULL);
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
-    ASSERT_TRUE(fs_set_cwd(dir));
-    fs_host_to_msc(abs, msc, sizeof(msc)); /* -> "MSC0:/exec.rp6502" under the mount */
+    ASSERT_TRUE(chdir(dir) == 0);
+    fs_host_to_msc(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
     pro_set_argv0(msc);
 
     emu_set_stdout_tap(tap);

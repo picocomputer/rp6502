@@ -3,26 +3,179 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * MSC0: directory + metadata: stat, the opendir/readdir family, free space, and
- * the path mutations (unlink/rename/mkdir/chmod/utime/label). The firmware routes
- * these straight to FatFs, so there is one backing — the host filesystem — and no
- * driver table; dir.c calls in here. Paths translate through mscpath.c; host
- * timestamps and modes are mapped to the FatFs FILINFO field set the 6502 reads.
- * ROM:/overlays are not enumerable, so they never appear here.
+ * MSC0: on the native host filesystem: address translation, the current
+ * directory (the process cwd — no shadow of our own), and directory + metadata
+ * ops (stat, the opendir/readdir family, free space, unlink/rename/mkdir/chmod/
+ * utime/label). The firmware routes these straight to FatFs, so there is one
+ * backing and no driver table; dir.c calls in here. "MSC0:" maps straight onto
+ * the OS filesystem (absolute from the root, relative from the process cwd);
+ * host timestamps and modes are mapped to the FatFs FILINFO field set the 6502
+ * reads. ROM:/overlays are not enumerable, so they never appear here.
  */
 
 #include "emu/api/api.h"
-#include "emu/msc/mscdir.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <ftw.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <time.h>
 #include <unistd.h>
 #include <utime.h>
+
+/* ---- Address translation: MSC0: <-> host path ---------------------------- */
+
+/* Drop a recognized writable-drive prefix. FatFs recognizes only "0:".."9:" and
+ * "MSC0:".."MSC9:" (case-insensitive); anything else keeps its prefix and is
+ * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
+const char *fs_strip_drive(const char *path)
+{
+    const char *colon = strchr(path, ':');
+    if (!colon || colon == path)
+        return path;
+    size_t n = (size_t)(colon - path);
+    bool is_drive = (n == 1 && isdigit((unsigned char)path[0])) ||
+                    (n == 4 && strncasecmp(path, "MSC", 3) == 0 &&
+                     isdigit((unsigned char)path[3]));
+    return is_drive ? colon + 1 : path;
+}
+
+bool fs_has_drive_prefix(const char *path)
+{
+    return fs_strip_drive(path) != path;
+}
+
+/* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
+ * drive; everything else is the native path verbatim — absolute "/x" from the OS
+ * root, relative "x" from the process cwd. The OS resolves "." and "..". */
+static bool msc_to_host(const char *rest, char *host, size_t hsz)
+{
+    int w;
+    if (rest[0] == '/' && rest[1] == '/' &&
+        isalpha((unsigned char)rest[2]) && rest[3] == '/')
+        w = snprintf(host, hsz, "%c:/%s", rest[2], rest + 4);
+    else
+        w = snprintf(host, hsz, "%s", rest[0] ? rest : ".");
+    if (w < 0 || (size_t)w >= hsz)
+    {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
+}
+
+bool fs_to_host(const char *path, char *host, size_t hsz)
+{
+    const char *rest = fs_strip_drive(path);
+    /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
+     * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
+     * file; the boot/exec loader reaches installs via fs_resolve_rom instead. */
+    if (rest[0] == ':')
+    {
+        errno = ENOENT;
+        return false;
+    }
+    return msc_to_host(rest, host, hsz);
+}
+
+/* Render a host path as an MSC0: path (the inverse for absolutes): a Windows
+ * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
+ * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
+ * path — f_getcwd is full-path-or-error). Used for argv[0] and fs_getcwd. */
+size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz)
+{
+    int w;
+    if (isalpha((unsigned char)hostpath[0]) && hostpath[1] == ':')
+        w = snprintf(out, outsz, "MSC0://%c%s", hostpath[0], hostpath + 2);
+    else
+        w = snprintf(out, outsz, "MSC0:%s", hostpath);
+    if (w < 0 || (size_t)w >= outsz)
+        return 0;
+    return (size_t)w;
+}
+
+/* ---- Current directory / drive (the process cwd) ------------------------- */
+
+/* --tmpdrive's throwaway directory, removed at exit on native. Empty unless a
+ * tmpdrive is active. */
+static char g_tmpdir[FS_HOST_MAX_PATH];
+
+static int rm_entry(const char *p, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st, (void)flag, (void)ftw;
+    remove(p);
+    return 0;
+}
+static void tmpdrive_cleanup(void)
+{
+    if (g_tmpdir[0])
+        nftw(g_tmpdir, rm_entry, 8, FTW_DEPTH | FTW_PHYS);
+}
+
+/* --tmpdrive: run the ROM against a fresh throwaway directory by chdir'ing the
+ * process into it (mkdtemp gives a private dir under /tmp — a real tmpfs/dir on
+ * native, MEMFS on the web). Removed at process exit on native. */
+bool fs_use_tmpdrive(void)
+{
+    char tmpl[] = "/tmp/rp6502-XXXXXX";
+    const char *dir = mkdtemp(tmpl);
+    if (!dir || strlen(dir) >= sizeof(g_tmpdir))
+        return false;
+    if (chdir(dir) != 0)
+        return false;
+    strcpy(g_tmpdir, dir);
+    static bool registered;
+    if (!registered)
+    {
+        atexit(tmpdrive_cleanup);
+        registered = true;
+    }
+    return true;
+}
+
+int fs_chdir(const char *path)
+{
+    char host[FS_HOST_MAX_PATH];
+    if (!fs_to_host(path, host, sizeof(host)))
+        return -1;
+    return chdir(host); /* chdir validates existence/dir-ness and sets errno */
+}
+
+/* The 6502 sees MSC0: (and the bare current drive); reject anything else as a
+ * missing device. */
+int fs_chdrive(const char *drive)
+{
+    if (drive[0] == ':') /* the null drive (installs) is not a cwd-able drive */
+    {
+        errno = ENODEV;
+        return -1;
+    }
+    char name[16];
+    size_t i = 0;
+    for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
+        name[i] = (char)drive[i];
+    name[i] = 0;
+    if (name[0] == 0 || strcasecmp(name, "MSC0") == 0)
+        return 0;
+    errno = ENODEV;
+    return -1;
+}
+
+size_t fs_getcwd(char *out, size_t outsz)
+{
+    char cwd[FS_HOST_MAX_PATH];
+    if (!getcwd(cwd, sizeof(cwd)))
+        return 0;
+    return fs_host_to_msc(cwd, out, outsz);
+}
+
+/* ---- Directory enumeration + metadata ------------------------------------ */
 
 /* FAT attribute bits (FatFs AM_*), as the 6502 sees them in fs_info_t.attrib. */
 #define FS_AM_RDO 0x01
@@ -35,17 +188,17 @@
 
 /* Open directory handles: a host DIR* plus an entry-index counter (mirrors the
  * firmware tells[]) so telldir/seekdir work. */
-struct msc_dir
+struct host_dir
 {
     bool used;
     DIR *dp;
     char host[FS_HOST_MAX_PATH]; /* the opened path, to stat each entry */
     long pos;                    /* entries read so far */
 };
-static struct msc_dir dirs[MSC_MAX_DIR];
+static struct host_dir dirs[MSC_MAX_DIR];
 
 /* Close every open directory (machine reset). */
-void mscdir_reset(void)
+void host_dir_reset(void)
 {
     for (int i = 0; i < MSC_MAX_DIR; i++)
     {
@@ -133,7 +286,7 @@ int fs_opendir(const char *path)
     return des;
 }
 
-static struct msc_dir *dir_slot(int des)
+static struct host_dir *dir_slot(int des)
 {
     if (des < 0 || des >= MSC_MAX_DIR)
     {
@@ -150,7 +303,7 @@ static struct msc_dir *dir_slot(int des)
 
 int fs_readdir(int des, fs_info_t *info)
 {
-    struct msc_dir *d = dir_slot(des);
+    struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
     struct dirent *de;
@@ -183,7 +336,7 @@ int fs_readdir(int des, fs_info_t *info)
 
 int fs_closedir(int des)
 {
-    struct msc_dir *d = dir_slot(des);
+    struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
     closedir(d->dp);
@@ -194,7 +347,7 @@ int fs_closedir(int des)
 
 long fs_telldir(int des)
 {
-    struct msc_dir *d = dir_slot(des);
+    struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
     return d->pos;
@@ -202,7 +355,7 @@ long fs_telldir(int des)
 
 int fs_rewinddir(int des)
 {
-    struct msc_dir *d = dir_slot(des);
+    struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
     rewinddir(d->dp);
@@ -214,7 +367,7 @@ int fs_rewinddir(int des)
  * forward to the target. Fails (EINVAL) if the target is past the end. */
 int fs_seekdir(int des, long off)
 {
-    struct msc_dir *d = dir_slot(des);
+    struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
     if (off < 0)

@@ -23,7 +23,7 @@
 #include "emu/host/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"
@@ -75,7 +75,6 @@ static void merge_rom_args(options *o, int argc, char **argv)
      * keep it and take everything else from the merged result. */
     merged.rom = o->rom;
     merged.tmpdrive = o->tmpdrive;
-    merged.fsdir = o->fsdir;
     merged.inidir = o->inidir; /* a workstation/CLI concern, not a ROM preset */
     for (int i = 0; i < o->n_installs; i++)
         merged.installs[i] = o->installs[i];
@@ -146,22 +145,13 @@ int main(int argc, char **argv)
         dbgui_set_config_file(o.inidir);
 #endif
 
-    /* Where MSC0: is mounted: a throwaway temp dir (--tmpdrive, isolates the
-     * ROM) or a chosen host dir (--fs); with neither, MSC0: defaults to the
-     * launch dir on first use (mscpath.c). The mount persists for the whole
-     * session, exec included. These locate the drive, so they come from the
-     * command line, not the ROM's asset args. */
-    if (o.tmpdrive)
+    /* MSC0: is the native host filesystem — whatever the process cwd is.
+     * --tmpdrive instead runs the ROM against a fresh throwaway directory
+     * (isolation). This locates the drive, so it comes from the command line,
+     * not the ROM's asset args. */
+    if (o.tmpdrive && !fs_use_tmpdrive())
     {
-        if (!fs_use_tmpdrive())
-        {
-            fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
-            return 1;
-        }
-    }
-    else if (o.fsdir && !fs_set_cwd(o.fsdir))
-    {
-        fprintf(stderr, "rp6502-emu: cannot use --fs directory '%s'\n", o.fsdir);
+        fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;
     }
 

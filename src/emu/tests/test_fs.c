@@ -3,23 +3,23 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Unit tests for the host-backed filesystem: the MSC0: drive mounted on the host
- * filesystem at the launch dir (no chroot — absolute MSC0:/ is the mount, a
- * relative path resolves the cwd, ".." may walk out), plus the read-only ROM:
- * drive. Drives the backend API directly — the std_* file calls and the
- * mscpath/mscdir/rom helpers the 6502's std.c/dir.c reach from the syscalls.
+ * Unit tests for the host-backed filesystem: the MSC0: drive IS the native host
+ * filesystem (no chroot — MSC0:/ is the OS root, a relative path resolves the
+ * process cwd, ".." walks freely), plus the read-only ROM: drive. Drives the
+ * backend API directly — the std_* file calls and the host dir/path helpers the
+ * 6502's std.c/dir.c reach from the syscalls.
  */
 
 #include "emu/api/api.h"
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
-#include "emu/msc/mscdir.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
 #include "utest.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* rp6502 SDK open() flag bits (see ria/usb/msc.c). */
 #define O_RD 0x01
@@ -38,7 +38,7 @@ static bool fresh_cwd(void)
         return false;
     strcpy(g_dir, resolved);
     std_files_reset(); /* close any files a prior test left open */
-    return fs_set_cwd(g_dir);
+    return chdir(g_dir) == 0; /* MSC0: is the process cwd */
 }
 
 static bool host_exists(const char *rel)
@@ -78,8 +78,8 @@ UTEST(fs, msc0_write_read_seek)
     ASSERT_EQ(buf[0], 'e');
     std_close(f);
 
-    /* The same file by its absolute MSC0: path (rooted at the mount). */
-    f = std_open("MSC0:/hello.txt", O_RD);
+    /* The same file by its MSC0: (relative) path -> the process cwd. */
+    f = std_open("MSC0:hello.txt", O_RD);
     ASSERT_TRUE(f >= 0);
     std_close(f);
 
@@ -91,14 +91,16 @@ UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
 
-    char cwd[FS_HOST_MAX_PATH];
+    char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/"); /* the mount is the drive root */
+    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
+    ASSERT_STREQ(cwd, expect);
 
     ASSERT_EQ(fs_mkdir("saves"), 0);
     ASSERT_EQ(fs_chdir("saves"), 0);
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/saves");
+    snprintf(expect, sizeof(expect), "MSC0:%s/saves", g_dir);
+    ASSERT_STREQ(cwd, expect);
 
     /* A too-small buffer signals "did not fit" with 0 (full-path-or-error), so
      * the caller never relocates a truncated path. */
@@ -114,48 +116,46 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_EQ(fs_chdir("nope"), -1); /* missing dir fails */
 }
 
-/* No chroot: ".." walks back to the mount and then above it (the old EMUFS
- * root-clamp / --drive-root confinement is gone). */
+/* No chroot: MSC0: is the whole native filesystem, so ".." walks freely up the
+ * real tree (the old mount-root confinement is gone). */
 UTEST(fs, no_chroot_clamp)
 {
     ASSERT_TRUE(fresh_cwd());
 
     ASSERT_EQ(fs_mkdir("sub"), 0);
     ASSERT_EQ(fs_chdir("sub"), 0);
-    char cwd[FS_HOST_MAX_PATH];
+    char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/sub");
+    snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
+    ASSERT_STREQ(cwd, expect);
 
-    /* ".." climbs back to the mount root ... */
+    /* ".." climbs back to the launch dir ... */
     ASSERT_EQ(fs_chdir(".."), 0);
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/");
+    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
+    ASSERT_STREQ(cwd, expect);
 
-    /* ... and again climbs ABOVE the mount — allowed, no clamp. The cwd now
-     * sits outside the drive, shown as MSC0:<host path> rather than MSC0:/. */
+    /* ... and again climbs ABOVE it — no clamp; the cwd walks the real tree. */
     ASSERT_EQ(fs_chdir(".."), 0);
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STRNE(cwd, "MSC0:/");
+    ASSERT_STRNE(cwd, expect);
 }
 
-/* The MSC0:<->host translation: absolute MSC0:/ is rooted at the mount; the
- * Windows //C/ form names an explicit drive (tested without a Windows fs). */
+/* The MSC0:<->host translation: MSC0: maps straight onto the native filesystem
+ * (absolute from the OS root); the Windows //C/ form names an explicit drive. */
 UTEST(fs, path_translation)
 {
-    ASSERT_TRUE(fresh_cwd()); /* mount = g_dir */
-    char host[FS_HOST_MAX_PATH], msc[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
+    char host[FS_HOST_MAX_PATH], msc[FS_HOST_MAX_PATH];
 
     ASSERT_TRUE(fs_to_host("MSC0:/sub/file", host, sizeof(host)));
-    snprintf(expect, sizeof(expect), "%s/sub/file", g_dir);
-    ASSERT_STREQ(host, expect);
+    ASSERT_STREQ(host, "/sub/file");
     ASSERT_TRUE(fs_to_host("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
-    ASSERT_STREQ(host, expect);
+    ASSERT_STREQ(host, "/sub/file");
     ASSERT_TRUE(fs_to_host("MSC0://C/Users/Homey", host, sizeof(host)));
     ASSERT_STREQ(host, "C:/Users/Homey");
 
-    snprintf(host, sizeof(host), "%s/sub/file", g_dir);
-    fs_host_to_msc(host, msc, sizeof(msc));
-    ASSERT_STREQ(msc, "MSC0:/sub/file"); /* a path under the mount -> MSC0:/rel */
+    fs_host_to_msc("/sub/file", msc, sizeof(msc));
+    ASSERT_STREQ(msc, "MSC0:/sub/file");
     fs_host_to_msc("C:/Users/Homey", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0://C/Users/Homey"); /* another drive keeps //C/ */
 }

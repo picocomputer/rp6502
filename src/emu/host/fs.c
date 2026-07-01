@@ -6,13 +6,13 @@
  * The MSC0: file driver: the writable host filesystem, the catch-all in std.c's
  * driver table (it claims every path no earlier driver took, like the firmware's
  * FatFs msc driver). Open files are plain host fds; paths are translated through
- * mscpath.c. Directory and metadata ops live in mscdir.c. A write marks the file
+ * dir.c, which also owns the directory and metadata ops. A write marks the file
  * so closing it persists the drive (a no-op natively; web: Emscripten IDBFS).
  */
 
 #include "emu/api/api.h"
-#include "emu/msc/msc.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -27,27 +27,27 @@
 /* Flush the MSC0: drive (Emscripten IDBFS) to IndexedDB so writes survive a
  * reload. Async/fire-and-forget. The tmpdrive lives in MEMFS /tmp, which IDBFS
  * never wraps, so a sync there persists nothing — it expires with the session. */
-EM_JS(void, msc_persist, (void), {
+EM_JS(void, host_persist, (void), {
     if (typeof FS !== 'undefined')
         FS.syncfs(false, function (err) { if (err) console.error('syncfs(false)', err); });
 });
 #else
-static void msc_persist(void) {}
+static void host_persist(void) {}
 #endif
 
-#define MSC_MAX_OPEN 16
+#define HOST_MAX_OPEN 16
 
 /* Data transfers run as POSIX AIO under the windowed real-time loop so the 6502
  * keeps clocking while they complete (read_xram is the documented background DMA
  * into XRAM); synchronous otherwise — headless/tests stay deterministic and the
  * web build (no aio) uses the instant in-RAM MEMFS. */
 static bool g_async;
-void msc_set_async(bool on) { g_async = on; }
+void host_set_async(bool on) { g_async = on; }
 
 /* An open host file: a plain fd, flagged once it is written so the drive is
  * persisted when it closes. Under g_async a single in-flight aiocb carries the
  * current read/write, polled to completion by the per-scanline RIA pump. */
-struct msc_file
+struct host_file
 {
     bool used;
     int fd;
@@ -57,14 +57,14 @@ struct msc_file
     struct aiocb cb;
 #endif
 };
-static struct msc_file files[MSC_MAX_OPEN];
+static struct host_file files[HOST_MAX_OPEN];
 
-static struct msc_file *alloc_file(void)
+static struct host_file *alloc_file(void)
 {
-    for (int i = 0; i < MSC_MAX_OPEN; i++)
+    for (int i = 0; i < HOST_MAX_OPEN; i++)
         if (!files[i].used)
         {
-            files[i] = (struct msc_file){.used = true};
+            files[i] = (struct host_file){.used = true};
             return &files[i];
         }
     return NULL;
@@ -84,13 +84,13 @@ static int flags_to_posix(uint8_t flags)
     return o;
 }
 
-bool msc_std_handles(const char *path)
+bool host_std_handles(const char *path)
 {
     (void)path;
     return true; /* catch-all, registered last */
 }
 
-void *msc_std_open(const char *path, uint8_t flags)
+void *host_std_open(const char *path, uint8_t flags)
 {
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
@@ -98,7 +98,7 @@ void *msc_std_open(const char *path, uint8_t flags)
     int fd = open(host, flags_to_posix(flags), 0666);
     if (fd < 0)
         return NULL; /* errno set by open() */
-    struct msc_file *f = alloc_file();
+    struct host_file *f = alloc_file();
     if (!f)
     {
         close(fd);
@@ -111,9 +111,9 @@ void *msc_std_open(const char *path, uint8_t flags)
     return f;
 }
 
-void msc_std_close(void *desc)
+void host_std_close(void *desc)
 {
-    struct msc_file *f = desc;
+    struct host_file *f = desc;
     if (!f || !f->used)
         return;
 #ifdef EMU_HAVE_AIO
@@ -133,12 +133,12 @@ void msc_std_close(void *desc)
     f->used = false;
     f->fd = -1;
     if (wrote)
-        msc_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
+        host_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
 }
 
-io_result msc_std_read(void *desc, void *buf, size_t n, size_t *got)
+io_result host_std_read(void *desc, void *buf, size_t n, size_t *got)
 {
-    struct msc_file *f = desc;
+    struct host_file *f = desc;
     *got = 0;
 #ifdef EMU_HAVE_AIO
     if (g_async)
@@ -182,9 +182,9 @@ io_result msc_std_read(void *desc, void *buf, size_t n, size_t *got)
     return IO_OK;
 }
 
-io_result msc_std_write(void *desc, const void *buf, size_t n, size_t *put)
+io_result host_std_write(void *desc, const void *buf, size_t n, size_t *put)
 {
-    struct msc_file *f = desc;
+    struct host_file *f = desc;
     *put = 0;
 #ifdef EMU_HAVE_AIO
     if (g_async)
@@ -230,9 +230,9 @@ io_result msc_std_write(void *desc, const void *buf, size_t n, size_t *put)
     return IO_OK;
 }
 
-long msc_std_lseek(void *desc, long off, int whence)
+long host_std_lseek(void *desc, long off, int whence)
 {
-    struct msc_file *f = desc;
+    struct host_file *f = desc;
     /* The position is reported back as a signed 32-bit value (0xFFFFFFFF is the
      * error sentinel), so reject a target past 2GB-1 before moving the pointer,
      * leaving the file pointer where it was rather than at an unreportable spot. */
@@ -270,8 +270,8 @@ long msc_std_lseek(void *desc, long off, int whence)
     return (long)lseek(f->fd, target, SEEK_SET);
 }
 
-void msc_std_sync(void *desc)
+void host_std_sync(void *desc)
 {
     (void)desc;
-    msc_persist();
+    host_persist();
 }

@@ -11,8 +11,7 @@
  */
 
 #include "emu/api/api.h"
-#include "emu/msc/mscdir.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
 #include "api/dir.h"

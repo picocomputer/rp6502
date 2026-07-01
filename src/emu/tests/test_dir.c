@@ -15,13 +15,14 @@
 
 #include "emu/host/host.h"
 #include "emu/mon/rom.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
 #include "emu/sys/sys.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static char cap[1 << 16];
 static size_t cap_len;
@@ -56,7 +57,7 @@ UTEST(dir, lists_directory)
     snprintf(sub, sizeof(sub), "%s/subdir", d);
     ASSERT_EQ(mkdir(sub, 0777), 0);
 
-    ASSERT_TRUE(fs_set_cwd(d)); /* the program lists "" = the cwd */
+    ASSERT_TRUE(chdir(d) == 0); /* the program lists "" = the cwd */
     ASSERT_TRUE(emu_rom_load(DIR_ROM));
     emu_init();
     cap_len = 0;
@@ -69,7 +70,7 @@ UTEST(dir, lists_directory)
     ASSERT_TRUE(emu_cpu_halted); /* the program ran to completion */
 
     /* The cwd (PATH line) and all three entries are listed. The cwd shows as the
-     * mount root MSC0:/ — the host path is hidden (no chroot, but still mounted). */
+     * native MSC0:<host path>. */
     ASSERT_TRUE(strstr(cap, "PATH :") != NULL);
     ASSERT_TRUE(strstr(cap, "MSC0:/") != NULL);
     ASSERT_TRUE(strstr(cap, "alpha.txt") != NULL);

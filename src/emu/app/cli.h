@@ -25,7 +25,7 @@ extern "C"
  * the ROM's "emulator" asset first, then the real command line (last wins). */
 typedef struct
 {
-    const char *rom, *shot, *input, *fsdir;
+    const char *rom, *shot, *input;
     bool tmpdrive;
     const char *installs[16];
     int n_installs;

@@ -29,8 +29,8 @@
 #include "emu/host/host.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/msc/msc.h"
-#include "emu/msc/mscdir.h"
+#include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
 #include "api/std.h"
@@ -78,7 +78,7 @@ typedef struct
 
 static const std_driver_t std_drivers[] = {
     {rom_std_handles, rom_std_open, rom_window_close, rom_window_read, NULL, NULL, rom_window_lseek},
-    {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
+    {host_std_handles, host_std_open, host_std_close, host_std_read, host_std_write, host_std_sync, host_std_lseek},
 };
 #define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
 
@@ -567,7 +567,7 @@ void std_task(void)
 void std_reset(void)
 {
     std_files_reset(); /* close open files (driver close frees their objects) */
-    mscdir_reset();    /* close open directories */
+    host_dir_reset();  /* close open directories */
     setup_console();   /* re-establish fd 0-4 */
     rd.active = false;
     wr.active = false;

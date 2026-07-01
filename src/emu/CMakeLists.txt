@@ -29,9 +29,8 @@ add_library(emu_core STATIC
     ${EMU}/dbg/dbg.c
     ${EMU}/sys/vga.c
     ${EMU}/sys/xreg.c
-    ${EMU}/msc/mscpath.c
-    ${EMU}/msc/msc.c
-    ${EMU}/msc/mscdir.c
+    ${EMU}/host/dir.c
+    ${EMU}/host/fs.c
     ${EMU}/mon/install.c
     ${EMU}/mon/rom.c
     ${EMU}/host/png.c

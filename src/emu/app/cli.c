@@ -56,7 +56,7 @@ static bool parse_hex_color(const char *s, int *r, int *g, int *b)
 enum
 {
     OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_INPUT,
-    OPT_FS, OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
+    OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_INI, OPT_VSYNC, OPT_NO_VSYNC,
 };
 static const struct option longopts[] = {
@@ -67,7 +67,6 @@ static const struct option longopts[] = {
     {"no-vsync",     no_argument,       NULL, OPT_NO_VSYNC},
     {"filter",       required_argument, NULL, OPT_FILTER},
     {"input",        required_argument, NULL, OPT_INPUT},
-    {"fs",           required_argument, NULL, OPT_FS},
     {"tmpdrive",     no_argument,       NULL, OPT_TMPDRIVE},
     {"rom",          required_argument, NULL, OPT_ROM},
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
@@ -92,7 +91,6 @@ void cli_usage(const char *argv0)
             "  --no-vsync                present uncapped instead of syncing to the display\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --input <text>            queue keystrokes for stdin ('\\n' = Enter)\n"
-            "  --fs <dir>                MSC0: mount directory (default: the launch dir)\n"
             "  --tmpdrive                MSC0: = a fresh throwaway temp dir (isolate the ROM)\n"
             "  --rom <file>              install a .rp6502 on the null drive, reached\n"
             "                            as :basename; repeatable, the first one boots\n"
@@ -157,7 +155,6 @@ int parse_args(int argc, char **argv, options *o)
             }
             break;
         case OPT_INPUT: o->input = optarg; break;
-        case OPT_FS: o->fsdir = optarg; break;
         case OPT_TMPDRIVE: o->tmpdrive = true; break;
         case OPT_ROM:
             if (o->n_installs < (int)(sizeof(o->installs) / sizeof(o->installs[0])))

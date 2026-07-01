@@ -7,8 +7,8 @@
  *   - installed ROMs on the null drive ":" (--rom): a .rp6502 reached as ":name",
  *     open/load only — resolved for boot/exec and openable read-only, separate
  *     from MSC0:, but never the cwd and never enumerated or stat'd.
- *   - the transparent MSC0: mount (no chroot): the drive is rooted at the launch
- *     dir, absolute MSC0:/ is that mount, and ".." may walk out of it.
+ *   - the native MSC0: (no chroot): a relative path resolves the process cwd,
+ *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
  *   - the ephemeral --tmpdrive: MSC0: backed by a fresh throwaway temp dir.
  */
 
@@ -16,14 +16,14 @@
 #include "emu/api/std.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/msc/msc.h"
-#include "emu/msc/mscdir.h"
-#include "emu/msc/mscpath.h"
+#include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include "utest.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define O_RD 0x01
 #define O_WR 0x02
@@ -41,7 +41,7 @@ static bool fresh(void)
         return false;
     strcpy(g_dir, resolved);
     std_files_reset();
-    return fs_set_cwd(g_dir); /* mount MSC0: at the temp dir */
+    return chdir(g_dir) == 0; /* MSC0: is the process cwd */
 }
 
 static void make_file(const char *rel, const char *data, size_t n)
@@ -126,19 +126,19 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     ASSERT_EQ(fs_stat("MSC0::adventure.rp6502", &info), -1);
 }
 
-/* The MSC0: mount is transparent (no chroot): rooted at the launch dir, absolute
- * MSC0:/ is that mount, and ".." may walk out of it. */
+/* MSC0: IS the native filesystem (no chroot): a relative path resolves the
+ * process cwd, absolute MSC0:/ is the OS root, and ".." walks the real tree. */
 UTEST(drive, mount_transparent_no_chroot)
 {
-    ASSERT_TRUE(fresh()); /* mount = g_dir */
+    ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    /* getcwd reports the mount as MSC0:/ — not the host path. */
-    char cwd[FS_HOST_MAX_PATH];
+    char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/");
+    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
+    ASSERT_STREQ(cwd, expect);
 
-    /* An absolute MSC0:/ path lands at the mount (= g_dir), not the host root. */
-    int f = std_open("MSC0:/save.dat", O_WR | O_CREAT_ | O_TRUNC_);
+    /* A relative MSC0: path lands in the cwd (= g_dir). */
+    int f = std_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
     std_close(f);
     char hostprobe[512];
@@ -148,20 +148,22 @@ UTEST(drive, mount_transparent_no_chroot)
     if (hp)
         fclose(hp);
 
-    /* chdir into a subdir; getcwd stays in MSC0: space. */
-    ASSERT_EQ(fs_mkdir("MSC0:/sub"), 0);
-    ASSERT_EQ(fs_chdir("MSC0:/sub"), 0);
+    /* chdir into a subdir; getcwd tracks the native cwd. */
+    ASSERT_EQ(fs_mkdir("sub"), 0);
+    ASSERT_EQ(fs_chdir("sub"), 0);
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/sub");
+    snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
+    ASSERT_STREQ(cwd, expect);
 
-    /* ".." climbs back to the mount, then ABOVE it — no confinement (the old
-     * --drive-root chroot would have refused this with EACCES). */
+    /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
+     * old --drive-root chroot would have refused this with EACCES). */
     ASSERT_EQ(fs_chdir(".."), 0);
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/");
+    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
+    ASSERT_STREQ(cwd, expect);
     ASSERT_EQ(fs_chdir(".."), 0);
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STRNE(cwd, "MSC0:/"); /* now above the mount */
+    ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
 
 /* --tmpdrive backs MSC0: with a fresh throwaway dir: empty, writable, and full
@@ -171,13 +173,14 @@ UTEST(drive, tmpdrive_is_fresh_and_writable)
     std_files_reset();
     ASSERT_TRUE(fs_use_tmpdrive());
 
-    /* getcwd shows the mount as the drive root, not the host temp path. */
+    /* getcwd is the throwaway temp dir (a fresh mkdtemp under /tmp). */
     char cwd[FS_HOST_MAX_PATH];
     fs_getcwd(cwd, sizeof(cwd));
-    ASSERT_STREQ(cwd, "MSC0:/");
+    ASSERT_EQ(strncmp(cwd, "MSC0:", 5), 0);
+    ASSERT_TRUE(strstr(cwd, "rp6502-") != NULL);
 
     /* Empty to start: no entries. */
-    int des = fs_opendir("MSC0:/");
+    int des = fs_opendir("");
     ASSERT_TRUE(des >= 0);
     fs_info_t info;
     ASSERT_EQ(fs_readdir(des, &info), 0);
@@ -185,11 +188,11 @@ UTEST(drive, tmpdrive_is_fresh_and_writable)
     fs_closedir(des);
 
     /* Write, then see it via stat + readdir. */
-    make_file("MSC0:/scratch.dat", "tmp", 3);
-    ASSERT_EQ(fs_stat("MSC0:/scratch.dat", &info), 0);
+    make_file("scratch.dat", "tmp", 3);
+    ASSERT_EQ(fs_stat("scratch.dat", &info), 0);
     ASSERT_EQ(info.size, 3u);
 
-    des = fs_opendir("MSC0:/");
+    des = fs_opendir("");
     ASSERT_TRUE(des >= 0);
     bool saw = false;
     for (;;)
@@ -204,13 +207,13 @@ UTEST(drive, tmpdrive_is_fresh_and_writable)
     fs_closedir(des);
     ASSERT_TRUE(saw);
 
-    /* Re-mount a normal dir so any later test starts clean (the temp dir is
+    /* Restore a normal cwd so any later test starts clean (the temp dir is
      * removed at process exit). */
-    fs_set_cwd("/tmp");
+    ASSERT_EQ(chdir("/tmp"), 0);
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (msc_set_async): the driver submits the transfer and returns IO_PENDING until
+ * (host_set_async): the driver submits the transfer and returns IO_PENDING until
  * it completes. Drive it to completion (the per-scanline RIA pump does this in
  * the running emulator) and check the bytes, that the fd offset tracks across
  * reads, EOF, and lseek interop. Left in sync mode for the other tests. */
@@ -272,9 +275,9 @@ static void async_aio_body(int *utest_result)
 UTEST(drive, async_aio_transfer)
 {
     ASSERT_TRUE(fresh());
-    msc_set_async(true);
+    host_set_async(true);
     async_aio_body(utest_result);
-    msc_set_async(false); /* leave the suite in sync mode for the other tests */
+    host_set_async(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()
