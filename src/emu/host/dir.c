@@ -477,25 +477,3 @@ int host_getcwd(char *buf, size_t size, api_errno *err)
     }
     return 0;
 }
-
-const fs_dir_ops host_dir_ops = {
-    .stat = host_stat,
-    .opendir = host_opendir,
-    .readdir = host_readdir,
-    .closedir = host_closedir,
-    .telldir = host_telldir,
-    .seekdir = host_seekdir,
-    .rewinddir = host_rewinddir,
-    .unlink = host_unlink,
-    .rename = host_rename,
-    .chmod = host_chmod,
-    .utime = host_utime,
-    .mkdir = host_mkdir,
-    .chdir = host_chdir,
-    .chdrive = host_chdrive,
-    .getcwd = host_getcwd,
-    .getlabel = host_getlabel,
-    .setlabel = host_setlabel,
-    .getfree = host_getfree,
-    .stop = host_dir_stop,
-};

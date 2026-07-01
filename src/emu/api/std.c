@@ -34,6 +34,7 @@
 #include "emu/host/fs.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
+#include "api/dir.h"
 #include "api/std.h"
 #include "aud/bel.h"
 #include "str/rln.h"
@@ -565,7 +566,8 @@ void std_task(void)
 void std_reset(void)
 {
     std_files_reset(); /* close open files (driver close frees their objects) */
-    emu_dir_stop();    /* close open directories on the active backend */
+    dir_stop();        /* close open FatFs directories (ria/api/dir.c) */
+    host_dir_stop();   /* close open host directories */
     setup_console();   /* re-establish fd 0-4 */
     rd.active = false;
     wr.active = false;

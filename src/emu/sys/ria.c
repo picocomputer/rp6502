@@ -35,7 +35,8 @@
 #include "emu/sys/sys.h"
 #include "emu/sys/via.h"
 #include "emu/sys/xreg.h"
-#include "emu/chips/rp6502.h" /* ria_t — the RIA modeled as a bus-interface chip */
+#include "emu/chips/rp6502.h"
+#include "emu/host/dir.h"
 #include "api/api.h"
 #include "api/atr.h"
 #include "api/std.h"
@@ -43,7 +44,7 @@
 #include "api/clk.h"
 #include "str/rln.h"
 #include "sys/ria.h"
-#include "emu/chips/w65c02.h" /* M6502_* bus pin macros for ria_tick (impl is in w65c02.c) */
+#include "emu/chips/w65c02.h"
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
@@ -152,105 +153,97 @@ static bool std_xreg(void)
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
 
+/* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
+ * slots can be swapped between the emu's host handlers and the REAL firmware
+ * dir_api_* (ria/api/dir.c) when --tmpdrive mounts a RAM FatFs. The dir slots
+ * default to host below; emu_dir_ops_set() swaps them. */
+typedef bool (*api_op_fn)(void);
+static api_op_fn api_ops[0x40] = {
+    [0x01] = std_xreg,
+    [0x02] = atr_api_phi2,
+    [0x03] = atr_api_code_page,
+    [0x04] = atr_api_lrand,
+    [0x06] = atr_api_errno_opt,
+    [0x08] = pro_api_argv,
+    [0x09] = pro_api_exec,
+    [0x0A] = atr_api_get,
+    [0x0B] = atr_api_set,
+    [0x14] = std_api_open,
+    [0x15] = std_api_close,
+    [0x16] = std_api_read_xstack,
+    [0x17] = std_api_read_xram,
+    [0x18] = std_api_write_xstack,
+    [0x19] = std_api_write_xram,
+    [0x1A] = std_api_lseek_cc65,
+    [0x1B] = host_dir_api_unlink,
+    [0x1C] = host_dir_api_rename,
+    [0x1D] = std_api_lseek_llvm,
+    [0x1E] = std_api_syncfs,
+    [0x1F] = host_dir_api_stat,
+    [0x20] = host_dir_api_opendir,
+    [0x21] = host_dir_api_readdir,
+    [0x22] = host_dir_api_closedir,
+    [0x23] = host_dir_api_telldir,
+    [0x24] = host_dir_api_seekdir,
+    [0x25] = host_dir_api_rewinddir,
+    [0x26] = host_dir_api_chmod,
+    [0x27] = host_dir_api_utime,
+    [0x28] = host_dir_api_mkdir,
+    [0x29] = host_dir_api_chdir,
+    [0x2A] = host_dir_api_chdrive,
+    [0x2B] = host_dir_api_getcwd,
+    [0x2C] = host_dir_api_setlabel,
+    [0x2D] = host_dir_api_getlabel,
+    [0x2E] = host_dir_api_getfree,
+    [0x30] = rln_api_lastkey,
+    [0x31] = rln_api_peek,
+    [0x32] = rln_api_poke,
+    [0x3A] = clk_api_gmtime,
+    [0x3B] = clk_api_localtime,
+    [0x3C] = clk_api_mktime,
+    [0x3D] = clk_api_strftime,
+    [0x3E] = clk_api_time_set,
+    [0x3F] = clk_api_time_get,
+};
+
+/* Swap the dir op slots: the firmware's own dir_api_* (over the RAM FatFs) when
+ * fat, else the emu's host handlers. Called by the drive lifecycle (usb/msc.c). */
+void emu_dir_ops_set(bool fat)
+{
+    static const struct
+    {
+        uint8_t op;
+        api_op_fn host, fat;
+    } slots[] = {
+        {0x1B, host_dir_api_unlink, dir_api_unlink},
+        {0x1C, host_dir_api_rename, dir_api_rename},
+        {0x1F, host_dir_api_stat, dir_api_stat},
+        {0x20, host_dir_api_opendir, dir_api_opendir},
+        {0x21, host_dir_api_readdir, dir_api_readdir},
+        {0x22, host_dir_api_closedir, dir_api_closedir},
+        {0x23, host_dir_api_telldir, dir_api_telldir},
+        {0x24, host_dir_api_seekdir, dir_api_seekdir},
+        {0x25, host_dir_api_rewinddir, dir_api_rewinddir},
+        {0x26, host_dir_api_chmod, dir_api_chmod},
+        {0x27, host_dir_api_utime, dir_api_utime},
+        {0x28, host_dir_api_mkdir, dir_api_mkdir},
+        {0x29, host_dir_api_chdir, dir_api_chdir},
+        {0x2A, host_dir_api_chdrive, dir_api_chdrive},
+        {0x2B, host_dir_api_getcwd, dir_api_getcwd},
+        {0x2C, host_dir_api_setlabel, dir_api_setlabel},
+        {0x2D, host_dir_api_getlabel, dir_api_getlabel},
+        {0x2E, host_dir_api_getfree, dir_api_getfree},
+    };
+    for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++)
+        api_ops[slots[i].op] = fat ? slots[i].fat : slots[i].host;
+}
+
 /* Returns true if the op has more work (api_working) and should be
  * re-dispatched, false once it has returned to the 6502. */
 static bool ria_op_dispatch(uint8_t op)
 {
-    switch (op)
-    {
-    case 0x01:
-        return std_xreg();
-    case 0x02:
-        return atr_api_phi2();
-    case 0x03:
-        return atr_api_code_page();
-    case 0x04:
-        return atr_api_lrand();
-    case 0x06:
-        return atr_api_errno_opt();
-    case 0x08:
-        return pro_api_argv();
-    case 0x09:
-        return pro_api_exec();
-    case 0x0A:
-        return atr_api_get();
-    case 0x0B:
-        return atr_api_set();
-    case 0x14:
-        return std_api_open();
-    case 0x15:
-        return std_api_close();
-    case 0x16:
-        return std_api_read_xstack();
-    case 0x17:
-        return std_api_read_xram();
-    case 0x18:
-        return std_api_write_xstack();
-    case 0x19:
-        return std_api_write_xram();
-    case 0x1A:
-        return std_api_lseek_cc65();
-    case 0x1B:
-        return dir_api_unlink();
-    case 0x1C:
-        return dir_api_rename();
-    case 0x1D:
-        return std_api_lseek_llvm();
-    case 0x1E:
-        return std_api_syncfs();
-    case 0x1F:
-        return dir_api_stat();
-    case 0x20:
-        return dir_api_opendir();
-    case 0x21:
-        return dir_api_readdir();
-    case 0x22:
-        return dir_api_closedir();
-    case 0x23:
-        return dir_api_telldir();
-    case 0x24:
-        return dir_api_seekdir();
-    case 0x25:
-        return dir_api_rewinddir();
-    case 0x26:
-        return dir_api_chmod();
-    case 0x27:
-        return dir_api_utime();
-    case 0x28:
-        return dir_api_mkdir();
-    case 0x29:
-        return dir_api_chdir();
-    case 0x2A:
-        return dir_api_chdrive();
-    case 0x2B:
-        return dir_api_getcwd();
-    case 0x2C:
-        return dir_api_setlabel();
-    case 0x2D:
-        return dir_api_getlabel();
-    case 0x2E:
-        return dir_api_getfree();
-    case 0x30:
-        return rln_api_lastkey();
-    case 0x31:
-        return rln_api_peek();
-    case 0x32:
-        return rln_api_poke();
-    case 0x3A:
-        return clk_api_gmtime();
-    case 0x3B:
-        return clk_api_localtime();
-    case 0x3C:
-        return clk_api_mktime();
-    case 0x3D:
-        return clk_api_strftime();
-    case 0x3E:
-        return clk_api_time_set();
-    case 0x3F:
-        return clk_api_time_get();
-    default:
-        return api_return_errno(API_ENOSYS);
-    }
+    api_op_fn fn = op < 0x40 ? api_ops[op] : NULL;
+    return fn ? fn() : api_return_errno(API_ENOSYS);
 }
 
 /* The op currently blocked mid-flight (ria.pending_op, 0 = none). An op that

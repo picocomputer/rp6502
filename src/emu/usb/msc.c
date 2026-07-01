@@ -13,8 +13,10 @@
  */
 
 #include "emu/usb/msc.h"
-#include "emu/host/fs.h" /* host_file_driver (restored on unmount) */
-#include "api/fat.h"     /* fat_std_* / fat_* (shared driver); pulls api/api.h + api/std.h */
+#include "emu/host/dir.h" /* emu_dir_ops_set (swap the dir slots) */
+#include "emu/host/fs.h"  /* host_file_driver (restored on unmount) */
+#include "api/dir.h"      /* dir_run / dir_stop (the firmware FatFs DIR pool) */
+#include "api/fat.h"     /* fat_std_* file driver; pulls api/api.h + api/std.h */
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include <stdint.h>
@@ -174,7 +176,9 @@ static bool g_active;
 
 bool emu_fat_active(void) { return g_active; }
 
-/* --tmpdrive: format a fresh RAM FatFs and make it the active MSC0: backend. */
+/* --tmpdrive: format a fresh RAM FatFs and make it the active MSC0: backend. The
+ * 6502 dir syscalls run the REAL firmware dir_api_* (ria/api/dir.c) over this RAM
+ * FatFs; the file syscalls run the shared fat_std_* driver. */
 bool emu_ramdrive_mount(void)
 {
     emu_ramdisk_reset();
@@ -182,8 +186,8 @@ bool emu_ramdrive_mount(void)
         return false;
     if (f_mount(&g_ramfs, "MSC0:", 1) != FR_OK)
         return false;
-    fat_dir_run();                       /* fresh FatFs directory pool */
-    emu_set_dir_ops(&fat_dir_ops);       /* the 6502 dir syscalls -> FatFs */
+    dir_run();                           /* fresh FatFs directory pool (ria/api/dir.c) */
+    emu_dir_ops_set(true);               /* the 6502 dir syscalls -> firmware dir_api_* */
     emu_set_fs_driver(&fat_file_driver); /* the 6502 file syscalls -> FatFs */
     g_active = true;
     return true;
@@ -191,15 +195,14 @@ bool emu_ramdrive_mount(void)
 
 void emu_ramdrive_unmount(void)
 {
-    fat_dir_stop(); /* close open FatFs directories */
+    dir_stop(); /* close open FatFs directories (ria/api/dir.c) */
     f_unmount("MSC0:");
-    emu_set_dir_ops(&host_dir_ops);       /* back to the native host backend */
+    emu_dir_ops_set(false); /* back to the native host handlers */
     emu_set_fs_driver(&host_file_driver);
     g_active = false;
 }
 
-/* ---- The FatFs backend as the emu's runtime dir vtable + std.c file driver: the
- * shared ria/api/fat.c ops directly (int descriptors, api_errno), no adapter. */
+/* The shared ria/api/fat.c file driver, as std.c's catch-all on --tmpdrive. */
 const std_driver_t fat_file_driver = {
     .handles = fat_std_handles,
     .open = fat_std_open,
@@ -208,26 +211,4 @@ const std_driver_t fat_file_driver = {
     .write = fat_std_write,
     .sync = fat_std_sync,
     .lseek = fat_std_lseek,
-};
-
-const fs_dir_ops fat_dir_ops = {
-    .stat = fat_stat,
-    .opendir = fat_opendir,
-    .readdir = fat_readdir,
-    .closedir = fat_closedir,
-    .telldir = fat_telldir,
-    .seekdir = fat_seekdir,
-    .rewinddir = fat_rewinddir,
-    .unlink = fat_unlink,
-    .rename = fat_rename,
-    .chmod = fat_chmod,
-    .utime = fat_utime,
-    .mkdir = fat_mkdir,
-    .chdir = fat_chdir,
-    .chdrive = fat_chdrive,
-    .getcwd = fat_getcwd,
-    .getlabel = fat_getlabel,
-    .setlabel = fat_setlabel,
-    .getfree = fat_getfree,
-    .stop = fat_dir_stop,
 };

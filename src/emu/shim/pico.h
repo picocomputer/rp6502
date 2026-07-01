@@ -3,14 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Host shim for <pico.h>. The vendored FatFs ffunicode.c (compiled for its
- * ff_uni2oem code-page tables) is the only emulator unit that includes it, and
- * only for the flash-placement attribute on those tables — a no-op on the host.
+ * Host shim for <pico.h>: the flash-placement attributes (no-ops on the host) and
+ * <assert.h> (the real pico.h pulls C11 static_assert). Included by the vendored
+ * FatFs ffunicode.c and by the reused firmware ria/api/dir.c.
  */
 
 #ifndef _EMU_SHIM_PICO_H_
 #define _EMU_SHIM_PICO_H_
 
+#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 

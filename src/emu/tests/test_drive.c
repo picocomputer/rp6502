@@ -20,7 +20,7 @@
 #include "emu/host/dir.h"
 #include "emu/host/fs.h"
 #include "emu/usb/msc.h"
-#include "api/fat.h"
+#include "fatfs/ff.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -170,9 +170,10 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
 
-/* --tmpdrive backs MSC0: with a fresh RAM FatFs (the shared ria/api/fat.c driver
- * over the emulator's RAM disk): mount swaps in the FatFs dir vtable + file
- * driver, so this drives the same FatFs the firmware runs, not the host fs. */
+/* --tmpdrive backs MSC0: with a fresh RAM FatFs: mount swaps the 6502 file
+ * syscalls to the shared fat_std_* driver and the dir syscalls to the firmware's
+ * dir_api_* (via the OP array), all over the RAM disk. We inspect the volume with
+ * FatFs f_* directly and round-trip a file through the std_* file driver. */
 UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
     std_files_reset();
@@ -181,37 +182,30 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     api_errno err;
 
     /* getcwd reports the FatFs volume root, not a host path. */
-    char cwd[FS_HOST_MAX_PATH];
-    ASSERT_EQ(fat_getcwd(cwd, sizeof(cwd), &err), 0);
+    char cwd[64];
+    ASSERT_EQ(f_getcwd(cwd, sizeof(cwd)), FR_OK);
     ASSERT_EQ(strncmp(cwd, "MSC0:", 5), 0);
 
-    /* Empty to start: no entries. */
-    int des = fat_opendir("", &err);
-    ASSERT_TRUE(des >= 0);
+    /* Empty to start: the file is not there yet. */
     FILINFO info;
-    ASSERT_EQ(fat_readdir(des, &info, &err), 0);
-    ASSERT_FALSE(info.fname[0]); /* EOF immediately */
-    fat_closedir(des, &err);
+    ASSERT_EQ(f_stat("scratch.dat", &info), FR_NO_FILE);
 
-    /* Write (via the FatFs file driver), then see it via stat + readdir. */
+    /* Write via the FatFs file driver (std_* -> fat_std_* on tmpdrive) ... */
     make_file("scratch.dat", "tmp", 3);
-    ASSERT_EQ(fat_stat("scratch.dat", &info, &err), 0);
+
+    /* ... and it lands on the RAM FatFs. */
+    ASSERT_EQ(f_stat("scratch.dat", &info), FR_OK);
     ASSERT_EQ(info.fsize, 3u);
 
-    des = fat_opendir("", &err);
-    ASSERT_TRUE(des >= 0);
-    bool saw = false;
-    for (;;)
-    {
-        if (fat_readdir(des, &info, &err) != 0)
-            break;
-        if (!info.fname[0])
-            break;
-        if (!strcmp(info.fname, "scratch.dat"))
-            saw = true;
-    }
-    fat_closedir(des, &err);
-    ASSERT_TRUE(saw);
+    /* Read it back through the file driver. */
+    int f = std_open("scratch.dat", O_RD, NULL);
+    ASSERT_TRUE(f >= 0);
+    char buf[8] = {0};
+    uint32_t got = 0;
+    ASSERT_EQ(std_read(f, buf, 8, &got, &err), STD_OK);
+    ASSERT_EQ(got, 3u);
+    ASSERT_STREQ(buf, "tmp");
+    std_close(f);
 
     /* Deactivate the FatFs backend so later tests use the host filesystem. */
     emu_ramdrive_unmount();

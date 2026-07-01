@@ -5,12 +5,12 @@
  *
  * MSC0: on the native host filesystem: path addressing plus the directory +
  * file-metadata ops (stat, the opendir/readdir family, free space, unlink/
- * rename/mkdir/chmod/utime/label, the cwd). The ops fill the same FatFs FILINFO
- * the 6502 reads, so they are one interchangeable backend (host_dir_ops) the
- * emulator plugs into its runtime dir vtable — the FatFs backend (fat_dir_ops,
- * the shared ria/api/fat.c) is the other. "MSC0:" maps straight onto the OS
- * filesystem: "MSC0:/x" is native "/x", "MSC0:x" is relative to the process cwd,
- * "MSC0://C/x" is the Windows drive "C:/x".
+ * rename/mkdir/chmod/utime/label, the cwd). host_* fill the FatFs FILINFO the 6502
+ * reads. The emu's host_dir_api_* syscall handlers (emu/api/dir.c) marshal over
+ * these; the OP dispatcher installs them for the default host drive and swaps in
+ * the real firmware dir_api_* (ria/api/dir.c) on --tmpdrive. "MSC0:" maps straight
+ * onto the OS filesystem: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
+ * Windows drive.
  */
 
 #ifndef _EMU_HOST_DIR_H_
@@ -34,41 +34,35 @@ size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz); /* host ->
 bool fs_has_drive_prefix(const char *path);   /* path carries an MSC0:/N: prefix */
 const char *fs_strip_drive(const char *path); /* path past a recognized drive prefix */
 
-/* A directory/metadata backend the emulator plugs into its runtime vtable. Every
- * op returns 0/-1 and sets *err (an api_errno) on failure; stat/readdir fill a
- * FILINFO (fname[0]==0 marks end-of-directory), the same record the 6502 reads. */
-typedef struct
-{
-    int (*stat)(const char *path, FILINFO *fno, api_errno *err);
-    int (*opendir)(const char *path, api_errno *err); /* >=0 descriptor, or -1 */
-    int (*readdir)(int des, FILINFO *fno, api_errno *err);
-    int (*closedir)(int des, api_errno *err);
-    int (*telldir)(int des, int32_t *pos, api_errno *err);
-    int (*seekdir)(int des, int32_t offs, api_errno *err);
-    int (*rewinddir)(int des, api_errno *err);
-    int (*unlink)(const char *path, api_errno *err);
-    int (*rename)(const char *oldp, const char *newp, api_errno *err);
-    int (*chmod)(const char *path, uint8_t attr, uint8_t mask, api_errno *err);
-    int (*utime)(const char *path, const FILINFO *fno, api_errno *err);
-    int (*mkdir)(const char *path, api_errno *err);
-    int (*chdir)(const char *path, api_errno *err);
-    int (*chdrive)(const char *path, api_errno *err);
-    int (*getcwd)(char *buf, size_t size, api_errno *err);
-    int (*getlabel)(const char *path, char *label, api_errno *err); /* label >= 12 bytes */
-    int (*setlabel)(const char *path, api_errno *err);
-    int (*getfree)(const char *path, uint32_t *free_sectors, uint32_t *total_sectors, api_errno *err);
-    void (*stop)(void); /* close open directories (machine reset) */
-} fs_dir_ops;
+/* Point the OP dispatcher's dir slots at the FatFs firmware handlers (true, over the
+ * RAM disk) or the host handlers (false). Called by the drive lifecycle. */
+void emu_dir_ops_set(bool fat);
 
-extern const fs_dir_ops host_dir_ops; /* the native host backend */
+/* The emu's HOST dir syscall handlers (emu/api/dir.c), installed in the OP array. */
+bool host_dir_api_stat(void);
+bool host_dir_api_opendir(void);
+bool host_dir_api_readdir(void);
+bool host_dir_api_closedir(void);
+bool host_dir_api_telldir(void);
+bool host_dir_api_seekdir(void);
+bool host_dir_api_rewinddir(void);
+bool host_dir_api_unlink(void);
+bool host_dir_api_rename(void);
+bool host_dir_api_chmod(void);
+bool host_dir_api_utime(void);
+bool host_dir_api_mkdir(void);
+bool host_dir_api_chdir(void);
+bool host_dir_api_chdrive(void);
+bool host_dir_api_getcwd(void);
+bool host_dir_api_setlabel(void);
+bool host_dir_api_getlabel(void);
+bool host_dir_api_getfree(void);
 
-/* The emulator's active dir backend, swapped at runtime by the drive lifecycle. */
-void emu_set_dir_ops(const fs_dir_ops *ops);
-void emu_dir_stop(void); /* close open directories on the active backend */
-
-/* The host backend ops (host_dir_ops's members; also called directly by tests). */
+/* The host backend (emu/host/dir.c): the actual POSIX work the handlers marshal.
+ * Every op returns 0/-1 and sets *err (an api_errno); stat/readdir fill a FILINFO
+ * (fname[0]==0 marks end-of-directory). Also called directly by tests. */
 int host_stat(const char *path, FILINFO *fno, api_errno *err);
-int host_opendir(const char *path, api_errno *err);
+int host_opendir(const char *path, api_errno *err); /* >=0 descriptor, or -1 */
 int host_readdir(int des, FILINFO *fno, api_errno *err);
 int host_closedir(int des, api_errno *err);
 int host_telldir(int des, int32_t *pos, api_errno *err);

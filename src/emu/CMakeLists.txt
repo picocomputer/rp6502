@@ -58,6 +58,7 @@ add_library(emu_core STATIC
     ${VENDOR}/fatfs/ffunicode.c
     ${VENDOR}/fatfs/ff.c
     ${RP6502}/ria/api/fat.c
+    ${RP6502}/ria/api/dir.c
     ${EMU}/usb/msc.c
     ${RP6502}/vga/term/term.c
     ${RP6502}/vga/term/font.c
