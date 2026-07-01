@@ -107,8 +107,8 @@ void cli_usage(const char *argv0)
             "                            the window open on stop for inspection\n"
             "  --dap                     act as a DAP debug adapter on stdio (implies --debug)\n"
             "  --credits                 print third-party credits/licenses and exit\n"
-            "  --ini <file>              config file for the debugger UI layout (an\n"
-            "                            [EMU] section; e.g. the workspace .rp6502)\n"
+            "  --ini <file>              config file for the debugger UI layout\n"
+            "                            (ImGui format; e.g. the workspace .rp6502)\n"
             "A ROM's 'emulator' asset can preset these; the command line overrides it.\n",
             argv0);
 }

@@ -13,6 +13,7 @@
 [submodule "vendor/imgui"]
 	path = vendor/imgui
 	url = https://github.com/ocornut/imgui.git
+	branch = docking
 [submodule "vendor/cppdap"]
 	path = vendor/cppdap
 	url = https://github.com/google/cppdap.git

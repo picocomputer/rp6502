@@ -243,7 +243,7 @@ else()
         target_sources(rp6502-emu PRIVATE
             ${EMU}/dbg/imgui_impl.cc
             ${EMU}/dbg/dbgui.cc
-            ${EMU}/dbg/dbgui_layout.cc # [EMU]-section layout persistence (no CHIPS_UI_IMPL)
+            ${EMU}/dbg/dbgui_layout.cc
             ${EMU}/dbg/dap.cpp
             ${EMU}/dbg/dwarf_line.c
             ${EMU}/dbg/dwarf_info.c

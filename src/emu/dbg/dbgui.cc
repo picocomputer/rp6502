@@ -472,6 +472,8 @@ void dbgui_init(void)
      * in the final (swapchain) pass. (Setting them explicitly mismatched.) */
     simgui_desc_t sd{};
     simgui_setup(&sd);
+    /* Docking only; no multi-viewports (sokol_app is single-window). */
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     /* We drive load/save to our own config path (dbgui_layout.cc), so disable
      * ImGui's automatic ini file I/O. The custom Chips/RP6502 settings handlers
      * still ride inside the ImGui-format file via Load/SaveIniSettingsToMemory. */
@@ -665,6 +667,9 @@ void dbgui_draw(void)
         dbgui_build_memmap();
 
     dbgui_draw_menu();
+    /* Host dockspace over the main viewport; PassthruCentralNode leaves the empty
+     * center transparent so the emulator canvas shows through behind the panels. */
+    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
     draw_control();
     ui_rp6502_draw(&g_ria);
 
