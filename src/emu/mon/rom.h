@@ -44,8 +44,12 @@ long fs_read_rom_asset(const char *name, void *buf, size_t max); /* host-side; -
  * (headless/tests, for determinism). Off by default; mirrors msc_set_async. */
 void rom_set_async(bool on);
 
-/* The ROM: file driver (read-only asset windows), registered in std.c's table. */
-extern const std_driver_t rom_file_driver;
+/* The ROM: file driver (read-only asset windows), for std.c's table. */
+bool rom_std_handles(const char *path);
+int rom_std_open(const char *path, uint8_t flags, api_errno *err);
+std_rw_result rom_std_close(int desc, api_errno *err);
+std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
+int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 void rom_assets_reset(void); /* forget the asset directory (a new program replaces it) */
 
 #ifdef __cplusplus

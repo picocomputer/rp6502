@@ -81,13 +81,13 @@ static int flags_to_posix(uint8_t flags)
     return o;
 }
 
-static bool host_std_handles(const char *path)
+bool host_std_handles(const char *path)
 {
     (void)path;
     return true; /* catch-all, registered last */
 }
 
-static int host_std_open(const char *path, uint8_t flags, api_errno *err)
+int host_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
@@ -117,7 +117,7 @@ static int host_std_open(const char *path, uint8_t flags, api_errno *err)
     return des;
 }
 
-static std_rw_result host_std_close(int desc, api_errno *err)
+std_rw_result host_std_close(int desc, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -145,7 +145,7 @@ static std_rw_result host_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-static std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
+std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     *got = 0;
@@ -205,7 +205,7 @@ static std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t
     return STD_OK;
 }
 
-static std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
+std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     *put = 0;
@@ -267,7 +267,7 @@ static std_rw_result host_std_write(int desc, const char *buf, uint32_t count, u
     return STD_OK;
 }
 
-static int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
+int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -325,19 +325,9 @@ static int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, ap
     return 0;
 }
 
-static std_rw_result host_std_sync(int desc, api_errno *err)
+std_rw_result host_std_sync(int desc, api_errno *err)
 {
     (void)desc, (void)err;
     host_persist();
     return STD_OK;
 }
-
-const std_driver_t host_file_driver = {
-    .handles = host_std_handles,
-    .open = host_std_open,
-    .close = host_std_close,
-    .read = host_std_read,
-    .write = host_std_write,
-    .sync = host_std_sync,
-    .lseek = host_std_lseek,
-};

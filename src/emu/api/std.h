@@ -25,24 +25,8 @@ extern "C"
 {
 #endif
 
-/* One stdio file driver (matches the firmware ria/api/std.c std_driver_t): a path
- * is claimed by the first driver whose handles() returns true; open() hands back a
- * small int descriptor the rest act on. read/write/close/sync return std_rw_result
- * (STD_PENDING re-polls an async transfer); every op reports failure via *err. */
-typedef struct
-{
-    bool (*handles)(const char *path);
-    int (*open)(const char *path, uint8_t flags, api_errno *err); /* desc >= 0, or -1 */
-    std_rw_result (*close)(int desc, api_errno *err);
-    std_rw_result (*read)(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err);
-    std_rw_result (*write)(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err);
-    std_rw_result (*sync)(int desc, api_errno *err);
-    int (*lseek)(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
-} std_driver_t;
-
-/* The active writable-filesystem driver (std.c's catch-all), swapped at runtime by
- * the drive lifecycle: host_file_driver by default, fat_file_driver on --tmpdrive. */
-void emu_set_fs_driver(const std_driver_t *drv);
+/* The std_driver_t stdio-driver interface is shared with the firmware (api/std.h);
+ * each platform builds its own std_drivers[] table from it. */
 
 /* ---- Host-side file API over std.c's driver table (the stdio open dispatcher).
  * The 6502 reaches it through the std_api_* syscalls; main.c/tests use it here.

@@ -188,7 +188,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
     return des;
 }
 
-static std_rw_result rom_std_close(int desc, api_errno *err)
+std_rw_result rom_std_close(int desc, api_errno *err)
 {
     struct rom_window *w = rom_win(desc);
     if (!w)
@@ -213,7 +213,7 @@ static std_rw_result rom_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-static std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
+std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct rom_window *w = rom_win(desc);
     *got = 0;
@@ -271,7 +271,7 @@ static std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t 
     return STD_OK;
 }
 
-static int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
+int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct rom_window *w = rom_win(desc);
     if (!w)
@@ -295,13 +295,13 @@ static int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api
 
 /* ---- The ROM: driver (read-only asset windows), registered in std.c's table. ---- */
 
-static bool rom_std_handles(const char *path)
+bool rom_std_handles(const char *path)
 {
     const char *rest;
     return path_is_rom(path, &rest);
 }
 
-static int rom_std_open(const char *path, uint8_t flags, api_errno *err)
+int rom_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     const char *rest;
     path_is_rom(path, &rest);
@@ -318,16 +318,6 @@ static int rom_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     return rom_window_open(g_rom_src, base, len, err);
 }
-
-const std_driver_t rom_file_driver = {
-    .handles = rom_std_handles,
-    .open = rom_std_open,
-    .close = rom_std_close,
-    .read = rom_std_read,
-    .write = NULL,
-    .sync = NULL,
-    .lseek = rom_std_lseek,
-};
 
 /* A standalone CRC-32/ISO-HDLC (zlib). The firmware's CRC is littlefs's lfs_crc,
  * wrapped as ria_buf_crc32 over the fixed mbuf — neither a general (buf,len)

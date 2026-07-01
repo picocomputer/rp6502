@@ -17,8 +17,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "emu/api/std.h" /* std_driver_t */
-
 #ifdef __cplusplus
 extern "C"
 {
@@ -29,10 +27,9 @@ bool emu_ramdrive_mount(void);   /* --tmpdrive: format + mount a fresh RAM FatFs
 void emu_ramdrive_unmount(void); /* restore the native host backend (tests; the drive is session-lived otherwise) */
 bool emu_fat_active(void);       /* true once the FatFs backend is the active MSC0: drive */
 
-/* The shared ria/api/fat.c file driver, as std.c's catch-all on --tmpdrive. The
- * dir syscalls run the firmware's dir_api_* (ria/api/dir.c), swapped in via
- * emu_dir_ops_set() — not a driver object here. */
-extern const std_driver_t fat_file_driver;
+/* The FatFs backend runs the SHARED ria/api/fat.c file driver (fat_std_*), listed
+ * in std.c's table and gated on emu_fat_active(); the dir syscalls run the
+ * firmware's dir_api_* (ria/api/dir.c), swapped in via emu_dir_ops_set(). */
 
 #ifdef __cplusplus
 }

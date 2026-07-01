@@ -14,7 +14,6 @@
 
 #include "emu/usb/msc.h"
 #include "emu/host/dir.h" /* emu_dir_ops_set (swap the dir slots) */
-#include "emu/host/fs.h"  /* host_file_driver (restored on unmount) */
 #include "api/dir.h"      /* dir_run / dir_stop (the firmware FatFs DIR pool) */
 #include "api/fat.h"     /* fat_std_* file driver; pulls api/api.h + api/std.h */
 #include "fatfs/ff.h"
@@ -186,10 +185,9 @@ bool emu_ramdrive_mount(void)
         return false;
     if (f_mount(&g_ramfs, "MSC0:", 1) != FR_OK)
         return false;
-    dir_run();                           /* fresh FatFs directory pool (ria/api/dir.c) */
-    emu_dir_ops_set(true);               /* the 6502 dir syscalls -> firmware dir_api_* */
-    emu_set_fs_driver(&fat_file_driver); /* the 6502 file syscalls -> FatFs */
-    g_active = true;
+    dir_run();             /* fresh FatFs directory pool (ria/api/dir.c) */
+    emu_dir_ops_set(true); /* the 6502 dir syscalls -> firmware dir_api_* */
+    g_active = true;       /* std.c's fat driver now claims MSC0: (file syscalls -> FatFs) */
     return true;
 }
 
@@ -198,17 +196,5 @@ void emu_ramdrive_unmount(void)
     dir_stop(); /* close open FatFs directories (ria/api/dir.c) */
     f_unmount("MSC0:");
     emu_dir_ops_set(false); /* back to the native host handlers */
-    emu_set_fs_driver(&host_file_driver);
-    g_active = false;
+    g_active = false;       /* std.c's fat driver declines; host reclaims MSC0: */
 }
-
-/* The shared ria/api/fat.c file driver, as std.c's catch-all on --tmpdrive. */
-const std_driver_t fat_file_driver = {
-    .handles = fat_std_handles,
-    .open = fat_std_open,
-    .close = fat_std_close,
-    .read = fat_std_read,
-    .write = fat_std_write,
-    .sync = fat_std_sync,
-    .lseek = fat_std_lseek,
-};

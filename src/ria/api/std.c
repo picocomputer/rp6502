@@ -5,6 +5,7 @@
  */
 
 #include "api/api.h"
+#include "api/std.h"
 #include "str/rln.h"
 #include "str/str.h"
 #include "sys/com.h"
@@ -26,20 +27,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // Driver table, msc is catch-all and must be last.
-typedef struct
-{
-    // handles, open, and close are required
-    bool (*handles)(const char *);
-    int (*open)(const char *, uint8_t, api_errno *);
-    // close and sync return STD_PENDING while draining (re-dispatched on
-    // schedule), STD_OK when done, STD_ERROR on failure (check errno)
-    std_rw_result (*close)(int desc, api_errno *);
-    // everything else is optional
-    std_rw_result (*read)(int desc, char *, uint32_t, uint32_t *, api_errno *);
-    std_rw_result (*write)(int desc, const char *, uint32_t, uint32_t *, api_errno *);
-    std_rw_result (*sync)(int desc, api_errno *);
-    int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
-} std_driver_t;
 __in_flash("std_drivers") static const std_driver_t std_drivers[] = {
     {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},

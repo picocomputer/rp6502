@@ -25,7 +25,14 @@ extern "C"
  * default: headless/tests and the web build do synchronous I/O. */
 void host_set_async(bool on);
 
-extern const std_driver_t host_file_driver; /* the native host MSC0: file driver */
+/* The native host MSC0: file driver (the writable catch-all), for std.c's table. */
+bool host_std_handles(const char *path);
+int host_std_open(const char *path, uint8_t flags, api_errno *err);
+std_rw_result host_std_close(int desc, api_errno *err);
+std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err);
+std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err);
+std_rw_result host_std_sync(int desc, api_errno *err);
+int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
 
 #ifdef __cplusplus
 }
