@@ -790,7 +790,6 @@ void __in_flash("com_init") com_init(void)
 
 void com_stop(void)
 {
-    ria_uart_rx_clear();
     if (!ria_active())
     {
         printf(STR_TERM_SOFT_RESET);
@@ -833,8 +832,6 @@ void com_break(void)
 
     REGS(0xFFE0) = 0;
     REGS(0xFFE2) = 0;
-
-    ria_uart_rx_clear();
 }
 
 void com_task(void)

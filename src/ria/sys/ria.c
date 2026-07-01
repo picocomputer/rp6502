@@ -146,6 +146,7 @@ void ria_stop(void)
         REGSW(0xFFFC) = saved_reset_vec;
         saved_reset_vec = -1;
     }
+    ria_uart_rx_clear(); // discard input queued for the now-stopped 6502 UART
 }
 
 bool ria_active(void)
