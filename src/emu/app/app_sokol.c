@@ -245,6 +245,34 @@ static int top_reserved_px(void)
     return 0;
 }
 
+/* The framebuffer-pixel rect (x,y from top-left, w,h) the emulated canvas draws
+ * into: the dockspace central node when the debugger overlay is up (so docked
+ * panels take space beside the screen, not over it), else the whole window below
+ * the menu-bar strip. */
+static void canvas_region(int *x, int *y, int *w, int *h)
+{
+    int top = top_reserved_px();
+    int rx = 0, ry = top, rw = sapp_width(), rh = sapp_height() - top;
+#ifdef EMU_WITH_DEBUGGER
+    int cx, cy, cw, ch;
+    if (dbg_is_active() && dbgui_canvas_rect(&cx, &cy, &cw, &ch))
+    {
+        rx = cx;
+        ry = cy;
+        rw = cw;
+        rh = ch;
+    }
+#endif
+    if (rw < 1)
+        rw = 1;
+    if (rh < 1)
+        rh = 1;
+    *x = rx;
+    *y = ry;
+    *w = rw;
+    *h = rh;
+}
+
 /* On-screen pixels per canvas pixel (the aspect-fit scale). Host mouse motion is
  * divided by this to get canvas-space motion, so pointer speed doesn't change
  * with the window size. The canvas occupies the window below the debugger menu
@@ -253,11 +281,10 @@ static float canvas_scale(void)
 {
     int cw, ch;
     emu_canvas_size(&cw, &ch);
-    int avail_h = sapp_height() - top_reserved_px();
-    if (avail_h < 1)
-        avail_h = 1;
-    float sx = (float)sapp_width() / cw;
-    float sy = (float)avail_h / ch;
+    int rx, ry, rw, rh;
+    canvas_region(&rx, &ry, &rw, &rh);
+    float sx = (float)rw / cw;
+    float sy = (float)rh / ch;
     return (sx < sy ? sx : sy);
 }
 
@@ -500,8 +527,8 @@ static void frame_cb(void)
 
 #ifdef EMU_WITH_DEBUGGER
     /* Build the debugger windows first (between ImGui new-frame and render) so the
-     * menu-bar height is known before the canvas is laid out below it. simgui has
-     * its own sokol-gfx pipeline, separate from sgl. */
+     * dockspace central-node rect is known before the canvas is laid out into it.
+     * simgui has its own sokol-gfx pipeline, separate from sgl. */
     if (dbg_is_active())
     {
         dbgui_new_frame(sapp_width(), sapp_height(), sapp_frame_duration(), sapp_dpi_scale());
@@ -509,22 +536,20 @@ static void frame_cb(void)
     }
 #endif
 
-    /* Aspect-preserving quad fitted into the window BELOW the debugger menu bar
-     * (top_reserved_px is 0 with no overlay, so a normal run fills the window).
-     * The window tracks the canvas aspect (RP6502 square pixels -> canvas aspect =
-     * display aspect), so the quad normally fills the available region; if it is
-     * off-aspect (the WM ignored the aspect hint, or mid-resize) it
-     * letterboxes/pillarboxes against the clear so content never stretches. */
-    int aw = sapp_width(), ah = sapp_height();
-    int top = top_reserved_px(); /* menu-bar strip reserved at the top */
-    int avail_h = ah - top;      /* canvas region height (below the menu) */
-    if (avail_h < 1)
-        avail_h = 1;
+    /* Aspect-preserving quad fitted into the canvas region (the dockspace central
+     * node when the debugger is up, else the whole window; a normal run has no
+     * overlay and fills the window). The window tracks the canvas aspect (RP6502
+     * square pixels -> canvas aspect = display aspect), so the quad normally fills
+     * the region; if it is off-aspect (the WM ignored the aspect hint, or
+     * mid-resize) it letterboxes/pillarboxes against the clear so content never
+     * stretches. */
+    int vx, vy, vw, vh;
+    canvas_region(&vx, &vy, &vw, &vh); /* central node when docked, else below the menu */
     float qx = 1.0f, qy = 1.0f;
-    if ((long)aw * ch > (long)avail_h * cw)
-        qx = (float)((double)avail_h * cw / ((double)aw * ch)); /* too wide -> pillarbox */
+    if ((long)vw * ch > (long)vh * cw)
+        qx = (float)((double)vh * cw / ((double)vw * ch)); /* too wide -> pillarbox */
     else
-        qy = (float)((double)aw * ch / ((double)avail_h * cw)); /* too tall -> letterbox */
+        qy = (float)((double)vw * ch / ((double)vh * cw)); /* too tall -> letterbox */
     /* PASS 1 (sharp only): point-prescale the canvas into the offscreen target
      * at an integer multiple, filling it edge to edge (no letterbox). The final
      * pass LINEAR-downscales that — crisp pixels with smooth motion at any
@@ -534,7 +559,7 @@ static void frame_cb(void)
      * context carries the (possibly BGRA8) swapchain format. */
     if (ever_uploaded && app.filter == EMU_FILTER_SHARP)
     {
-        int f = sharp_prescale(cw, ch, aw, avail_h);
+        int f = sharp_prescale(cw, ch, vw, vh);
         int want_w = cw * f, want_h = ch * f;
         if (want_w != app.rt_w || want_h != app.rt_h)
             resize_render_target(want_w, want_h);
@@ -573,7 +598,7 @@ static void frame_cb(void)
      * emit no geometry so the swapchain pass below shows only the clear color. */
     if (ever_uploaded)
     {
-        sgl_viewport(0, top, aw, avail_h, true); /* draw the canvas below the menu bar */
+        sgl_viewport(vx, vy, vw, vh, true); /* the canvas region (central node when docked) */
         sgl_load_pipeline(app.pip);
         sgl_enable_texture();
         if (app.filter == EMU_FILTER_SHARP)

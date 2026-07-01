@@ -20,9 +20,8 @@ extern "C"
 {
 #endif
 
-/* Set the config FILE the debugger UI persists its layout into (an [EMU] section;
- * other sections, e.g. a .rp6502's [RP6502], are preserved). Pass the --ini value
- * here BEFORE dbgui_init; with no override the UI uses <os-config-dir>/dbgui.ini. */
+/* Set the config FILE the debugger UI persists its layout into. Pass the --ini
+ * value here BEFORE dbgui_init; with no override the UI uses <os-config-dir>/dbgui.ini. */
 void dbgui_set_config_file(const char *path);
 
 void dbgui_init(void);    /* create ImGui + the debugger windows (after sg_setup) */
@@ -45,6 +44,10 @@ float dbgui_menu_bar_estimate(void);
 /* Feed a host input event (const sapp_event *). Returns true if ImGui consumed
  * it (the window layer should then not forward it to the emulated machine). */
 bool dbgui_handle_event(const void *sapp_event_ptr);
+/* The framebuffer-pixel rect (x, y from top-left, w, h) the emulated canvas should
+ * fill: the dockspace central node, which shrinks as panels dock beside it. False
+ * before the first dbgui_draw; the caller then falls back to the whole window. */
+bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
 
 #ifdef __cplusplus
 }

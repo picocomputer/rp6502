@@ -25,7 +25,7 @@ extern "C"
 #include "emu/sys/via.h"
 }
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
-#include "emu/dbg/dbgui_layout.h" /* [EMU]-section layout persistence (file/INI side) */
+#include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
 
 #include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
 #include "m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
@@ -615,6 +615,22 @@ static bool ui_has_exec_bp(uint16_t addr)
     return false;
 }
 
+/* Dockspace central-node rect in framebuffer pixels, refreshed each dbgui_draw and
+ * read by the window layer to size the emulated canvas (see dbgui_canvas_rect). */
+static int g_canvas_x, g_canvas_y, g_canvas_w, g_canvas_h;
+static bool g_canvas_valid;
+
+bool dbgui_canvas_rect(int *x, int *y, int *w, int *h)
+{
+    if (!g_canvas_valid)
+        return false;
+    *x = g_canvas_x;
+    *y = g_canvas_y;
+    *w = g_canvas_w;
+    *h = g_canvas_h;
+    return true;
+}
+
 void dbgui_draw(void)
 {
     /* Persist layout changes. ImGui sets WantSaveIniSettings (after its timer) for
@@ -668,8 +684,22 @@ void dbgui_draw(void)
 
     dbgui_draw_menu();
     /* Host dockspace over the main viewport; PassthruCentralNode leaves the empty
-     * center transparent so the emulator canvas shows through behind the panels. */
-    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+     * center transparent so the emulated canvas shows through it. The window layer
+     * sizes the canvas to that central node, so docked panels take space beside the
+     * screen rather than over it. */
+    ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(
+        0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+    if (const ImGuiDockNode *central = ImGui::DockBuilderGetCentralNode(dockspace_id))
+    {
+        const float s = ImGui::GetIO().DisplayFramebufferScale.x; /* points -> fb px */
+        g_canvas_x = (int)(central->Pos.x * s);
+        g_canvas_y = (int)(central->Pos.y * s);
+        g_canvas_w = (int)(central->Size.x * s);
+        g_canvas_h = (int)(central->Size.y * s);
+        g_canvas_valid = true;
+    }
+    else
+        g_canvas_valid = false;
     draw_control();
     ui_rp6502_draw(&g_ria);
 
