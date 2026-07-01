@@ -81,6 +81,49 @@ static int flags_to_posix(uint8_t flags)
     return o;
 }
 
+/* The fs backends report failures by setting POSIX errno; translate to the 6502 set. */
+api_errno host_errno_to_api_errno(int host_errno)
+{
+    switch (host_errno)
+    {
+    case ENOENT:
+        return API_ENOENT;
+    case EACCES:
+    case EPERM:
+    case EROFS:
+        return API_EACCES;
+    case EEXIST:
+        return API_EEXIST;
+    case EINVAL:
+    case EISDIR:
+    case ENOTDIR:
+    case ENOTEMPTY:
+    case ENAMETOOLONG:
+        return API_EINVAL;
+    case ENOSPC:
+    case EFBIG:
+        return API_ENOSPC;
+    case EMFILE:
+    case ENFILE:
+        return API_EMFILE;
+    case EBADF:
+        return API_EBADF;
+    case ENODEV:
+    case ENXIO:
+        return API_ENODEV;
+    case EAGAIN:
+        return API_EAGAIN;
+    case ENOMEM:
+        return API_ENOMEM;
+    case ESPIPE:
+        return API_ESPIPE;
+    case ERANGE:
+        return API_ERANGE;
+    default:
+        return API_EIO;
+    }
+}
+
 bool host_std_handles(const char *path)
 {
     (void)path;
@@ -92,13 +135,13 @@ int host_std_open(const char *path, uint8_t flags, api_errno *err)
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
     {
-        *err = api_errno_from_host(errno);
+        *err = host_errno_to_api_errno(errno);
         return -1;
     }
     int fd = open(host, flags_to_posix(flags), 0666);
     if (fd < 0)
     {
-        *err = api_errno_from_host(errno);
+        *err = host_errno_to_api_errno(errno);
         return -1;
     }
     int des = 0;
@@ -162,7 +205,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
             off_t off = lseek(f->fd, 0, SEEK_CUR);
             if (off < 0)
             {
-                *err = api_errno_from_host(errno);
+                *err = host_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             memset(&f->cb, 0, sizeof(f->cb));
@@ -173,7 +216,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
             f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_read(&f->cb) != 0)
             {
-                *err = api_errno_from_host(errno);
+                *err = host_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             f->aio_active = true;
@@ -186,7 +229,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
         ssize_t r = aio_return(&f->cb);
         if (r < 0)
         {
-            *err = api_errno_from_host(e);
+            *err = host_errno_to_api_errno(e);
             return STD_ERROR;
         }
         if (r > 0)
@@ -198,7 +241,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
     ssize_t r = read(f->fd, buf, count);
     if (r < 0)
     {
-        *err = api_errno_from_host(errno);
+        *err = host_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     *got = (uint32_t)r;
@@ -222,7 +265,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
             off_t off = lseek(f->fd, 0, SEEK_CUR);
             if (off < 0)
             {
-                *err = api_errno_from_host(errno);
+                *err = host_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             memset(&f->cb, 0, sizeof(f->cb));
@@ -233,7 +276,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
             f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_write(&f->cb) != 0)
             {
-                *err = api_errno_from_host(errno);
+                *err = host_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             f->aio_active = true;
@@ -246,7 +289,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
         ssize_t r = aio_return(&f->cb);
         if (r < 0)
         {
-            *err = api_errno_from_host(e);
+            *err = host_errno_to_api_errno(e);
             return STD_ERROR;
         }
         f->wrote = true;
@@ -259,7 +302,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
     ssize_t r = write(f->fd, buf, count);
     if (r < 0)
     {
-        *err = api_errno_from_host(errno);
+        *err = host_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     f->wrote = true;
@@ -281,7 +324,7 @@ int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno
     off_t cur = lseek(f->fd, 0, SEEK_CUR);
     if (cur < 0)
     {
-        *err = api_errno_from_host(errno);
+        *err = host_errno_to_api_errno(errno);
         return -1;
     }
     off_t base;
@@ -295,7 +338,7 @@ int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno
         lseek(f->fd, cur, SEEK_SET);
         if (base < 0)
         {
-            *err = api_errno_from_host(errno);
+            *err = host_errno_to_api_errno(errno);
             return -1;
         }
     }
@@ -318,7 +361,7 @@ int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno
     off_t np = lseek(f->fd, target, SEEK_SET);
     if (np < 0)
     {
-        *err = api_errno_from_host(errno);
+        *err = host_errno_to_api_errno(errno);
         return -1;
     }
     *pos = (int32_t)np;

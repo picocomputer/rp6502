@@ -12,11 +12,12 @@
  * overlays are not enumerable, so they never appear.
  */
 
-#include "emu/api/api.h" /* API_A, FS_HOST_MAX_PATH */
+#include "emu/api/api.h"
 #include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include "emu/host/posixdir.h"
-#include "emu/sys/mem.h" /* xstack */
-#include "api/api.h"     /* api_push_/pop_/return_ */
+#include "emu/sys/mem.h"
+#include "api/api.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -172,7 +173,7 @@ static bool dir_push_filinfo(FILINFO *fno)
 /* Fail the syscall from the current errno (mapped to an api_errno). */
 static bool host_err(void)
 {
-    return api_return_errno(api_errno_from_host(errno));
+    return api_return_errno(host_errno_to_api_errno(errno));
 }
 
 /* ---- Directory pool ------------------------------------------------------ */
@@ -231,7 +232,7 @@ static int host_next_entry(int des, FILINFO *fno, api_errno *err)
         r = host_readdir_posix(d->dp, name, sizeof(name), &is_dir);
         if (r < 0)
         {
-            *err = api_errno_from_host(errno);
+            *err = host_errno_to_api_errno(errno);
             return -1;
         }
         if (r == 0)

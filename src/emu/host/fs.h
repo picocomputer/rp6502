@@ -25,6 +25,9 @@ extern "C"
  * default: headless/tests and the web build do synchronous I/O. */
 void host_set_async(bool on);
 
+/* Convert a host (POSIX) errno to an api_errno. */
+api_errno host_errno_to_api_errno(int host_errno);
+
 /* The native host MSC0: file driver (the writable catch-all), for std.c's table. */
 bool host_std_handles(const char *path);
 int host_std_open(const char *path, uint8_t flags, api_errno *err);

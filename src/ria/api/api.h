@@ -57,9 +57,6 @@ bool api_set_errno_opt(uint8_t opt);
 // into a cc65 or llvm-mos errno.
 uint16_t api_platform_errno(api_errno num);
 
-// Convert a host (POSIX) errno to an api_errno.
-// Implemented and used by a host backend (the emulator).
-api_errno api_errno_from_host(int host_errno);
 
 /* RIA fastcall registers
  */

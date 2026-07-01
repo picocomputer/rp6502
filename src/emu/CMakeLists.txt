@@ -31,7 +31,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/host/png.c
     ${RP6502_SRC}/emu/sys/sys.c
     ${RP6502_SRC}/emu/chips/w65c02.c
-    ${RP6502_SRC}/emu/api/api.c
     ${RP6502_SRC}/emu/api/oem.c
     ${RP6502_SRC}/emu/host/rand.c
     ${RP6502_SRC}/emu/api/std_drivers.c
