@@ -15,10 +15,10 @@
 
 #include "emu/api/api.h"
 #include "emu/host/dir.h"
+#include "emu/usb/msc.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
-#include <ftw.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,45 +102,10 @@ size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz)
 
 /* ---- Current directory / drive (the process cwd) ------------------------- */
 
-/* --tmpdrive's throwaway directory, removed at exit on native. Empty unless a
- * tmpdrive is active. */
-static char g_tmpdir[FS_HOST_MAX_PATH];
-
-static int rm_entry(const char *p, const struct stat *st, int flag, struct FTW *ftw)
-{
-    (void)st, (void)flag, (void)ftw;
-    remove(p);
-    return 0;
-}
-static void tmpdrive_cleanup(void)
-{
-    if (g_tmpdir[0])
-        nftw(g_tmpdir, rm_entry, 8, FTW_DEPTH | FTW_PHYS);
-}
-
-/* --tmpdrive: run the ROM against a fresh throwaway directory by chdir'ing the
- * process into it (mkdtemp gives a private dir under /tmp — a real tmpfs/dir on
- * native, MEMFS on the web). Removed at process exit on native. */
-bool fs_use_tmpdrive(void)
-{
-    char tmpl[] = "/tmp/rp6502-XXXXXX";
-    const char *dir = mkdtemp(tmpl);
-    if (!dir || strlen(dir) >= sizeof(g_tmpdir))
-        return false;
-    if (chdir(dir) != 0)
-        return false;
-    strcpy(g_tmpdir, dir);
-    static bool registered;
-    if (!registered)
-    {
-        atexit(tmpdrive_cleanup);
-        registered = true;
-    }
-    return true;
-}
-
 int fs_chdir(const char *path)
 {
+    if (emu_fat_active())
+        return fat_chdir(path);
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
         return -1;
@@ -151,6 +116,8 @@ int fs_chdir(const char *path)
  * missing device. */
 int fs_chdrive(const char *drive)
 {
+    if (emu_fat_active())
+        return fat_chdrive(drive);
     if (drive[0] == ':') /* the null drive (installs) is not a cwd-able drive */
     {
         errno = ENODEV;
@@ -169,6 +136,8 @@ int fs_chdrive(const char *drive)
 
 size_t fs_getcwd(char *out, size_t outsz)
 {
+    if (emu_fat_active())
+        return fat_getcwd(out, outsz);
     char cwd[FS_HOST_MAX_PATH];
     if (!getcwd(cwd, sizeof(cwd)))
         return 0;
@@ -200,6 +169,7 @@ static struct host_dir dirs[MSC_MAX_DIR];
 /* Close every open directory (machine reset). */
 void host_dir_reset(void)
 {
+    fat_dir_reset();
     for (int i = 0; i < MSC_MAX_DIR; i++)
     {
         if (dirs[i].used && dirs[i].dp)
@@ -250,6 +220,8 @@ static void info_from_stat(fs_info_t *info, const struct stat *st, const char *n
 
 int fs_stat(const char *path, fs_info_t *info)
 {
+    if (emu_fat_active())
+        return fat_stat(path, info);
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
         return -1;
@@ -264,6 +236,8 @@ int fs_stat(const char *path, fs_info_t *info)
 
 int fs_opendir(const char *path)
 {
+    if (emu_fat_active())
+        return fat_opendir(path);
     int des = 0;
     for (; des < MSC_MAX_DIR; des++)
         if (!dirs[des].used)
@@ -303,6 +277,8 @@ static struct host_dir *dir_slot(int des)
 
 int fs_readdir(int des, fs_info_t *info)
 {
+    if (emu_fat_active())
+        return fat_readdir(des, info);
     struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
@@ -336,6 +312,8 @@ int fs_readdir(int des, fs_info_t *info)
 
 int fs_closedir(int des)
 {
+    if (emu_fat_active())
+        return fat_closedir(des);
     struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
@@ -347,6 +325,8 @@ int fs_closedir(int des)
 
 long fs_telldir(int des)
 {
+    if (emu_fat_active())
+        return fat_telldir(des);
     struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
@@ -355,6 +335,8 @@ long fs_telldir(int des)
 
 int fs_rewinddir(int des)
 {
+    if (emu_fat_active())
+        return fat_rewinddir(des);
     struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
@@ -367,6 +349,8 @@ int fs_rewinddir(int des)
  * forward to the target. Fails (EINVAL) if the target is past the end. */
 int fs_seekdir(int des, long off)
 {
+    if (emu_fat_active())
+        return fat_seekdir(des, off);
     struct host_dir *d = dir_slot(des);
     if (!d)
         return -1;
@@ -396,6 +380,8 @@ int fs_seekdir(int des, long off)
 
 int fs_unlink(const char *path)
 {
+    if (emu_fat_active())
+        return fat_unlink(path);
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
         return -1;
@@ -404,6 +390,8 @@ int fs_unlink(const char *path)
 
 int fs_rename(const char *oldp, const char *newp)
 {
+    if (emu_fat_active())
+        return fat_rename(oldp, newp);
     char ho[FS_HOST_MAX_PATH], hn[FS_HOST_MAX_PATH];
     if (!fs_to_host(oldp, ho, sizeof(ho)) || !fs_to_host(newp, hn, sizeof(hn)))
         return -1;
@@ -412,6 +400,8 @@ int fs_rename(const char *oldp, const char *newp)
 
 int fs_mkdir(const char *path)
 {
+    if (emu_fat_active())
+        return fat_mkdir(path);
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
         return -1;
@@ -420,6 +410,8 @@ int fs_mkdir(const char *path)
 
 int fs_getfree(const char *path, uint32_t *free_sectors, uint32_t *total_sectors)
 {
+    if (emu_fat_active())
+        return fat_getfree(path, free_sectors, total_sectors);
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
         return -1;
@@ -438,6 +430,8 @@ int fs_getfree(const char *path, uint32_t *free_sectors, uint32_t *total_sectors
  * Hidden/system/archive have no host equivalent and are silently dropped. */
 int fs_chmod(const char *path, uint8_t attr, uint8_t mask)
 {
+    if (emu_fat_active())
+        return fat_chmod(path, attr, mask);
     if (!(mask & FS_AM_RDO))
         return 0;
     char host[FS_HOST_MAX_PATH];
@@ -458,6 +452,8 @@ int fs_chmod(const char *path, uint8_t attr, uint8_t mask)
  * time the API also carries is not settable on POSIX, so it is ignored. */
 int fs_utime(const char *path, uint16_t fdate, uint16_t ftime)
 {
+    if (emu_fat_active())
+        return fat_utime(path, fdate, ftime);
     char host[FS_HOST_MAX_PATH];
     if (!fs_to_host(path, host, sizeof(host)))
         return -1;
@@ -479,6 +475,8 @@ int fs_utime(const char *path, uint16_t fdate, uint16_t ftime)
  * (ignore) a set, so label-aware programs run rather than erroring. */
 int fs_getlabel(const char *path, char *label, size_t sz)
 {
+    if (emu_fat_active())
+        return fat_getlabel(path, label, sz);
     (void)path;
     if (sz)
         label[0] = 0;
@@ -487,6 +485,8 @@ int fs_getlabel(const char *path, char *label, size_t sz)
 
 int fs_setlabel(const char *path)
 {
+    if (emu_fat_active())
+        return fat_setlabel(path);
     (void)path;
     return 0;
 }

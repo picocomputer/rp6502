@@ -30,7 +30,6 @@ bool fs_has_drive_prefix(const char *path);   /* path carries an MSC0:/N: prefix
 const char *fs_strip_drive(const char *path); /* path past a recognized drive prefix */
 
 /* Current directory / drive, delegated to the OS (real chdir/getcwd). */
-bool fs_use_tmpdrive(void); /* --tmpdrive: chdir into a fresh throwaway temp dir */
 int fs_chdir(const char *path);
 int fs_chdrive(const char *drive);
 size_t fs_getcwd(char *out, size_t outsz); /* "MSC0:<cwd>"; returns its length (0 = did not fit) */

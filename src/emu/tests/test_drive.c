@@ -18,6 +18,7 @@
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "emu/host/fs.h"
+#include "emu/usb/msc.h"
 #include "utest.h"
 #include <errno.h>
 #include <stdio.h>
@@ -166,18 +167,19 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
 
-/* --tmpdrive backs MSC0: with a fresh throwaway dir: empty, writable, and full
- * dir+stat (it is the host driver with an ephemeral root). */
-UTEST(drive, tmpdrive_is_fresh_and_writable)
+/* --tmpdrive backs MSC0: with a fresh RAM FatFs (the shared ria/api/fat.c driver
+ * over the emulator's RAM disk), routed through the fs_* dispatch — the same
+ * FatFs the firmware runs, not the host filesystem. */
+UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
     std_files_reset();
-    ASSERT_TRUE(fs_use_tmpdrive());
+    ASSERT_TRUE(emu_ramdrive_mount());
+    ASSERT_TRUE(emu_fat_active()); /* the 6502 syscalls now route to the RAM FatFs */
 
-    /* getcwd is the throwaway temp dir (a fresh mkdtemp under /tmp). */
+    /* getcwd reports the FatFs volume root, not a host path. */
     char cwd[FS_HOST_MAX_PATH];
     fs_getcwd(cwd, sizeof(cwd));
     ASSERT_EQ(strncmp(cwd, "MSC0:", 5), 0);
-    ASSERT_TRUE(strstr(cwd, "rp6502-") != NULL);
 
     /* Empty to start: no entries. */
     int des = fs_opendir("");
@@ -207,9 +209,8 @@ UTEST(drive, tmpdrive_is_fresh_and_writable)
     fs_closedir(des);
     ASSERT_TRUE(saw);
 
-    /* Restore a normal cwd so any later test starts clean (the temp dir is
-     * removed at process exit). */
-    ASSERT_EQ(chdir("/tmp"), 0);
+    /* Deactivate the FatFs backend so later tests use the host filesystem. */
+    emu_ramdrive_unmount();
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO

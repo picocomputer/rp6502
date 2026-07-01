@@ -31,6 +31,7 @@
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "emu/host/fs.h"
+#include "emu/usb/msc.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
 #include "api/std.h"
@@ -76,9 +77,48 @@ typedef struct
     lseek_fn lseek;
 } std_driver_t;
 
+/* The catch-all filesystem driver dispatches to the host backend, or to a fresh
+ * RAM FatFs when --tmpdrive selected it (emu/usb/msc.c). The backend is fixed at
+ * startup, so every open descriptor belongs to whichever one is active. */
+static bool cat_std_handles(const char *path)
+{
+    (void)path;
+    return true;
+}
+static void *cat_std_open(const char *path, uint8_t flags)
+{
+    return emu_fat_active() ? fat_std_open_(path, flags) : host_std_open(path, flags);
+}
+static void cat_std_close(void *desc)
+{
+    if (emu_fat_active())
+        fat_std_close_(desc);
+    else
+        host_std_close(desc);
+}
+static io_result cat_std_read(void *desc, void *buf, size_t n, size_t *got)
+{
+    return emu_fat_active() ? fat_std_read_(desc, buf, n, got) : host_std_read(desc, buf, n, got);
+}
+static io_result cat_std_write(void *desc, const void *buf, size_t n, size_t *put)
+{
+    return emu_fat_active() ? fat_std_write_(desc, buf, n, put) : host_std_write(desc, buf, n, put);
+}
+static void cat_std_sync(void *desc)
+{
+    if (emu_fat_active())
+        fat_std_sync_(desc);
+    else
+        host_std_sync(desc);
+}
+static long cat_std_lseek(void *desc, long off, int whence)
+{
+    return emu_fat_active() ? fat_std_lseek_(desc, off, whence) : host_std_lseek(desc, off, whence);
+}
+
 static const std_driver_t std_drivers[] = {
     {rom_std_handles, rom_std_open, rom_window_close, rom_window_read, NULL, NULL, rom_window_lseek},
-    {host_std_handles, host_std_open, host_std_close, host_std_read, host_std_write, host_std_sync, host_std_lseek},
+    {cat_std_handles, cat_std_open, cat_std_close, cat_std_read, cat_std_write, cat_std_sync, cat_std_lseek},
 };
 #define STD_DRIVER_COUNT (sizeof(std_drivers) / sizeof(std_drivers[0]))
 
