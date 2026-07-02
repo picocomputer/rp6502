@@ -12,7 +12,7 @@
 #ifndef _EMU_TESTS_STDSYS_H_
 #define _EMU_TESTS_STDSYS_H_
 
-#include "emu/api/api.h"
+#include "api/api.h"
 #include "emu/api/std.h"
 #include "emu/sys/mem.h"
 #include "dirsys.h"

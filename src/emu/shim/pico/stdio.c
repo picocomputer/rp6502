@@ -38,12 +38,12 @@ static void stdio_out_chars_crlf(const char *buf, int len)
         last = c;
         if (n >= (int)sizeof(out) - 1)
         {
-            com_out_chars(out, n);
+            com_tx_write(out, n);
             n = 0;
         }
     }
     if (n)
-        com_out_chars(out, n);
+        com_tx_write(out, n);
 }
 
 int stdio_putchar(int c)

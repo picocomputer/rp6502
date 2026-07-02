@@ -11,7 +11,7 @@
  * and that %z reflects the host timezone offset.
  */
 
-#include "emu/api/api.h"
+#include "api/api.h"
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
 #include "emu/sys/com.h"
@@ -76,9 +76,9 @@ UTEST(rtc, prints_fixed_timestamps)
     cap[0] = 0;
     ASSERT_TRUE(emu_rom_load(RTC_ROM));
     emu_init();
-    com_set_out_tap(tap);
+    com_set_tx_tap(tap);
     run_frames(120);
-    com_set_out_tap(NULL);
+    com_set_tx_tap(NULL);
 
     ASSERT_TRUE(emu_cpu_halted); /* program runs to completion */
     ASSERT_TRUE(strstr(cap, "Jan") != NULL);

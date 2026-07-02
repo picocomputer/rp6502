@@ -19,6 +19,12 @@ extern "C"
 {
 #endif
 
+/* The app-owned framebuffer geometry: the largest canvas (the 640x480 boot
+ * console). Owners size their storage with these and register it with
+ * vga_set_framebuffer before running frames. */
+#define EMU_FB_WIDTH 640
+#define EMU_FB_HEIGHT 480
+
 /* Open a sokol window and run the machine until closed. The ROM must already be
  * loaded and emu_init() called. scale may be fractional. vsync sets the GL swap
  * interval (off = present uncapped; the driver may ignore it either way). The

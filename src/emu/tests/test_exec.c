@@ -10,7 +10,6 @@
  * loading a program by its MSC0: path, and the frame-boundary CPU restart.
  */
 
-#include "emu/api/api.h"
 #include "emu/api/pro.h"
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
@@ -58,9 +57,9 @@ UTEST(exec, reexecs_self_with_arg)
     fs_host_to_msc(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
     pro_set_argv0(msc);
 
-    com_set_out_tap(tap);
+    com_set_tx_tap(tap);
     run_frames(90); /* first run -> exec -> second run -> exit */
-    com_set_out_tap(NULL);
+    com_set_tx_tap(NULL);
 
     ASSERT_TRUE(emu_cpu_halted);
     ASSERT_EQ(emu_exit_code, 0);

@@ -13,7 +13,6 @@
  * The CLI parser itself lives in cli.c.
  */
 
-#include "emu/api/api.h"
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/app/window.h"
@@ -198,6 +197,7 @@ int main(int argc, char **argv)
     merge_rom_args(&o, argc, argv);
 
     emu_init();
+    vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
     /* argv[0] is the program's own path (in MSC0: form) so it can re-exec
      * itself; later argv paths from EXEC are resolved the same way. A drive path
@@ -255,8 +255,7 @@ int main(int argc, char **argv)
          * last one and snapshot it. */
         for (int i = 0; i < frames - 1; i++)
             emu_run_frame_norender();
-        emu_run_frame();
-        emu_render(g_fb);
+        emu_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
         emu_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!emu_write_png(o.shot, cw, ch, g_fb))

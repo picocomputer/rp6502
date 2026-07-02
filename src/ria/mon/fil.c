@@ -8,7 +8,7 @@
 #include "mon/mon.h"
 #include "str/rln.h"
 #include "str/str.h"
-#include "sys/mem_hw.h"
+#include "sys/mem.h"
 #include "sys/ria.h"
 #include <assert.h>
 #include <fatfs/ff.h>

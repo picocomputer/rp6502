@@ -11,7 +11,6 @@
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
-#include "emu/api/api.h"
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"

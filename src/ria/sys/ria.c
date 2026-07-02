@@ -9,7 +9,6 @@
 #include "mon/mon.h"
 #include "str/str.h"
 #include "sys/cpu_hw.h"
-#include "sys/mem_hw.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "ria.pio.h"

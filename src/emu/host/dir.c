@@ -12,7 +12,6 @@
  * overlays are not enumerable, so they never appear.
  */
 
-#include "emu/api/api.h"
 #include "emu/host/dir.h"
 #include "emu/host/fs.h"
 #include "emu/host/posixdir.h"

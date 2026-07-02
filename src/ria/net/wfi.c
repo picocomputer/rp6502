@@ -15,7 +15,7 @@ int wfi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #include "net/wfi.h"
 #include "str/str.h"
 #include "sys/cfg.h"
-#include "sys/mem_hw.h"
+#include "sys/mem.h"
 #include <pico/cyw43_arch.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)

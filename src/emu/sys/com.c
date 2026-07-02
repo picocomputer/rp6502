@@ -16,7 +16,7 @@
  * are returned with their true COM_SOURCE_* identity.
  *
  * Output is the console TX wire: every terminal-bound byte passes through
- * com_out_chars once — the analog of the firmware's UART TX drain, where the
+ * com_tx_write once — the analog of the firmware's UART TX drain, where the
  * tap/echo/BEL scan sit — then goes out the captured terminal driver. CRLF
  * translation happens above, in the pico stdio shim, exactly as the Pico SDK
  * does above the firmware's com.
@@ -141,18 +141,18 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
 }
 
 /* Optional tap on the terminal OUT stream (set by tests to capture output). */
-static void (*com_out_tap)(const char *buf, int len);
+static void (*com_tx_tap)(const char *buf, int len);
 
-void com_set_out_tap(void (*tap)(const char *buf, int len))
+void com_set_tx_tap(void (*tap)(const char *buf, int len))
 {
-    com_out_tap = tap;
+    com_tx_tap = tap;
 }
 
 /* The single terminal sink — the analog of the firmware's UART TX drain
  * (com_uart_drain_tx): every terminal-bound byte passes here exactly once,
  * after any CRLF translation. The tap, the EMU_ECHO mirror, and the BEL scan
  * observe the merged stream at this point, like the firmware's drain. */
-void com_out_chars(const char *buf, int len)
+void com_tx_write(const char *buf, int len)
 {
     /* Bring-up aid: EMU_ECHO mirrors the terminal stream to the host's stderr
      * so the program's text output is visible without rendering the frame. */
@@ -161,8 +161,8 @@ void com_out_chars(const char *buf, int len)
         echo = getenv("EMU_ECHO") ? 1 : 0;
     if (echo)
         fwrite(buf, 1, (size_t)len, stderr);
-    if (com_out_tap)
-        com_out_tap(buf, len);
+    if (com_tx_tap)
+        com_tx_tap(buf, len);
     if (com_get_bel())
         for (int i = 0; i < len; i++)
             if (buf[i] == '\a')
@@ -186,7 +186,7 @@ bool com_writable(void)
 
 void com_write(char ch)
 {
-    com_out_chars(&ch, 1);
+    com_tx_write(&ch, 1);
 }
 
 void com_in_write_reply(const char *s, size_t n)

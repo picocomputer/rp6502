@@ -11,6 +11,7 @@
  * and the snd.c per-frame pump feeding the native-rate ring.
  */
 
+#include "emu/app/window.h"
 #include "emu/aud/aud.h"
 #include "emu/aud/snd.h"
 #include "emu/mon/rom.h"
@@ -101,9 +102,9 @@ UTEST(furelise, umlaut_renders)
     static uint32_t fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
     ASSERT_TRUE(emu_rom_load(FURELISE_ROM));
     emu_init();
+    vga_set_framebuffer(fb);
     for (int i = 0; i < 8; i++)
         emu_run_frame(); /* prints the title; the lazy-clear render needs frames */
-    emu_render(fb);
 
     /* Count lit pixels in the 8x16 cell at (col,row0) of the 80x30 console.
      * "Für Elise": F=col0, ü=col1, r=col2. */

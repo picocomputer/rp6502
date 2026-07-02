@@ -21,11 +21,8 @@ extern "C"
 #endif
 
 /* ------------------------------------------------------------------ */
-/* Geometry                                                            */
+/* Bus geometry                                                        */
 /* ------------------------------------------------------------------ */
-
-#define EMU_FB_WIDTH 640
-#define EMU_FB_HEIGHT 480
 
 /* RIA register window ($FFE0-$FFF9). Vectors $FFFA-$FFFF stay in RAM. */
 #define RIA_WINDOW_LO 0xFFE0
@@ -44,13 +41,13 @@ extern uint8_t ram[0x10000];
 extern volatile uint8_t *const regs;
 #define REGS(addr) regs[(addr) & 0x1F]
 #define REGSW(addr) (*(uint16_t *)&REGS(addr))
+#define REGSL(addr) (*(uint32_t *)&REGS(addr))
 extern uint8_t xram[0x10000];
 
-/* xstack: 512 bytes top-down + 1 guard zero byte. Empty when ptr == SIZE.
- * volatile matches the firmware contract (core1 writes it there). */
+/* xstack: 512 bytes top-down + 1 guard zero byte. Empty when ptr == SIZE. */
 #define XSTACK_SIZE 0x200
 extern uint8_t xstack[XSTACK_SIZE + 1];
-extern volatile size_t xstack_ptr;
+extern size_t xstack_ptr;
 
 /* XRAM write-notify ring (mirrors ria/sys/mem.h). A windowed XRAM write whose
  * page matches xram_queue_page records (low byte, value) here; the active

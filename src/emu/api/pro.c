@@ -15,8 +15,8 @@
  * program's own path, so a program can re-exec itself.
  */
 
-#include "emu/api/api.h"
 #include "emu/api/pro.h"
+#include "emu/host/fs.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"

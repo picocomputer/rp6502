@@ -540,7 +540,7 @@ extern "C" void dap_start(void)
 {
     dbg_set_stopped_cb(on_stopped);
     dbg_set_line_lookup(line_lookup);
-    com_set_out_tap(stdout_tap);
+    com_set_tx_tap(stdout_tap);
 
     g_session = dap::Session::create();
 

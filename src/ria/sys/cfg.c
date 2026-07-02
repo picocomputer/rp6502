@@ -17,7 +17,7 @@
 #include "sys/com_hw.h"
 #include "sys/cpu_hw.h"
 #include "sys/lfs.h"
-#include "sys/mem_hw.h"
+#include "sys/mem.h"
 #include "sys/vga.h"
 #include "usb/nfc.h"
 #include "usb/vcp.h"

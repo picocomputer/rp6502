@@ -13,7 +13,7 @@
 #ifndef _EMU_TESTS_DIRSYS_H_
 #define _EMU_TESTS_DIRSYS_H_
 
-#include "emu/api/api.h" /* API_A, API_X, API_SREG */
+#include "api/api.h"
 #include "emu/sys/mem.h" /* xstack */
 #include "fatfs/ff.h"    /* FILINFO */
 #include <stdint.h>

@@ -11,7 +11,6 @@
  * Emscripten IDBFS).
  */
 
-#include "emu/api/api.h" /* FS_HOST_MAX_PATH */
 #include "emu/api/std.h"
 #include "emu/host/fs.h"
 #include <ctype.h>

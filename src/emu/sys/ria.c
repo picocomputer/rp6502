@@ -20,7 +20,6 @@
  * vendored rln.c.
  */
 
-#include "emu/api/api.h"
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"

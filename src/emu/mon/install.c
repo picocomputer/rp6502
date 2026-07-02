@@ -16,7 +16,6 @@
  * fetches ROMs into a MEMFS cache and installs them here; the desktop points at disk.
  */
 
-#include "emu/api/api.h"
 #include "emu/mon/install.h"
 #include "emu/host/fs.h"
 #include <errno.h>

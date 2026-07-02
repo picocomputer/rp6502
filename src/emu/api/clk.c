@@ -12,7 +12,6 @@
  * the firmware's str_utf8_to_oem (FatFs ff_uni2oem with the active code page).
  */
 
-#include "emu/api/api.h"
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
 #include "emu/sys/cpu.h"

@@ -36,7 +36,7 @@
 #include "sys/cpu_hw.h"
 #include "sys/led.h"
 #include "sys/lfs.h"
-#include "sys/mem_hw.h"
+#include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "sys/sys.h"

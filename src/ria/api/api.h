@@ -143,14 +143,14 @@ static inline bool api_push_int32(const int32_t *data) { return api_push_n(data,
 static inline void api_set_regs_blocked()
 {
     // BRA opcode + offset lands atomically.
-    *(uint16_t *)&regs[0x11] = 0xFE80;
+    REGSW(0xFFF1) = 0xFE80;
 }
 
 static inline void api_set_regs_released()
 {
     // finish writing the last two bytes
-    regs[0x13] = 0xA9;
-    regs[0x12] = 0;
+    REGS(0xFFF3) = 0xA9;
+    REGS(0xFFF2) = 0;
 }
 
 /* Sets the return value along with the LDX and RTS.
@@ -158,7 +158,7 @@ static inline void api_set_regs_released()
 
 static inline void api_set_ax(uint16_t val)
 {
-    *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
+    REGSL(0xFFF4) = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
 }
 
 static inline void api_set_axsreg(uint32_t val)

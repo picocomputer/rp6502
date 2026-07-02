@@ -42,11 +42,11 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 /* The single terminal sink (the firmware UART-drain analog): tap/echo/BEL
  * observe every terminal-bound byte here, then it goes out the wire. */
-void com_out_chars(const char *buf, int len);
+void com_tx_write(const char *buf, int len);
 
 /* Tap the terminal OUT stream (NULL to clear). Used by tests to assert
  * program output without rendering a frame. */
-void com_set_out_tap(void (*tap)(const char *buf, int len));
+void com_set_tx_tap(void (*tap)(const char *buf, int len));
 
 #ifdef __cplusplus
 }

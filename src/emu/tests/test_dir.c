@@ -62,10 +62,10 @@ UTEST(dir, lists_directory)
     emu_init();
     cap_len = 0;
     cap[0] = 0;
-    com_set_out_tap(tap);
+    com_set_tx_tap(tap);
     for (int i = 0; i < 600 && !emu_cpu_halted; i++)
         emu_run_frame();
-    com_set_out_tap(NULL);
+    com_set_tx_tap(NULL);
 
     ASSERT_TRUE(emu_cpu_halted); /* the program ran to completion */
 

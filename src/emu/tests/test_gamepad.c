@@ -99,9 +99,9 @@ UTEST(gamepad, connected_pad_renders)
     run(20); /* the ROM maps the pad block and draws four empty slots */
 
     cap_reset();
-    com_set_out_tap(tap);
+    com_set_tx_tap(tap);
     run(20);
-    com_set_out_tap(NULL);
+    com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL); /* all four unplugged */
     ASSERT_TRUE(strstr(cap, "Select") == NULL);       /* no connected button row */
 
@@ -110,9 +110,9 @@ UTEST(gamepad, connected_pad_renders)
     run(10);
 
     cap_reset();
-    com_set_out_tap(tap);
+    com_set_tx_tap(tap);
     run(20);
-    com_set_out_tap(NULL);
+    com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Select") != NULL); /* P0 now prints its button row */
     ASSERT_FALSE(emu_cpu_halted);
 }
@@ -131,9 +131,9 @@ UTEST(gamepad, disconnected_pad_ignored)
     run(20);
 
     cap_reset();
-    com_set_out_tap(tap);
+    com_set_tx_tap(tap);
     run(20);
-    com_set_out_tap(NULL);
+    com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL);
     ASSERT_TRUE(strstr(cap, "Select") == NULL); /* the press was ignored */
     ASSERT_FALSE(emu_cpu_halted);

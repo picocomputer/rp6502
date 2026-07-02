@@ -11,6 +11,7 @@
  */
 
 #include "emu/hid/kbd.h"
+#include "emu/app/window.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
@@ -43,6 +44,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
 {
     ASSERT_TRUE(emu_rom_load(MODE2_ROM));
     emu_init();
+    vga_set_framebuffer(fb);
     run_frames(20);
 
     int cw, ch;
@@ -50,7 +52,6 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
     ASSERT_EQ(cw, 320);
     ASSERT_EQ(ch, 240);
 
-    emu_render(fb);
     uint32_t fg = to_rgba(color_2[1]);
     size_t total = (size_t)cw * ch, n_fg = 0, n_bg = 0;
     for (size_t i = 0; i < total; i++)
@@ -72,6 +73,7 @@ UTEST(mode2, keyboard_presses_exit)
 {
     ASSERT_TRUE(emu_rom_load(MODE2_ROM));
     emu_init();
+    vga_set_framebuffer(fb);
     run_frames(20);
     ASSERT_FALSE(emu_cpu_halted); /* scrolling, no key down */
 

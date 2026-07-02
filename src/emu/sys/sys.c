@@ -8,7 +8,7 @@
  * the CPU and the video are paced by the same reproducible time base.
  */
 
-#include "emu/api/api.h"
+#include "emu/host/fs.h"
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
@@ -112,7 +112,7 @@ static void run_frame(bool render)
             ria_trigger_vsync(); /* latch $FFF0 bit7; raises IRQ only if the program enabled it */
             vsynced = true;
             /* The visible lines were rendered as the beam passed them (above), so
-             * g_present already holds the completed frame at this point. */
+             * the app's framebuffer already holds the completed frame here. */
         }
         line++;
     }

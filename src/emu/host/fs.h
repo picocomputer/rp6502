@@ -22,6 +22,8 @@ extern "C"
 {
 #endif
 
+#define FS_HOST_MAX_PATH 4096 /* host path buffer size for fs_to_host callers */
+
 /* Path addressing: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
  * Windows drive. */
 bool fs_to_host(const char *path, char *host, size_t hsz);            /* MSC0: -> host path */

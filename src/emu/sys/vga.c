@@ -20,9 +20,14 @@
 #include "scanvideo/scanvideo.h"
 #include <string.h>
 
+/* The largest canvas (the 640x480 boot console); registered framebuffers must
+ * hold it, and the per-scanline plane staging is sized by it. */
+#define VGA_MAX_WIDTH 640
+#define VGA_MAX_HEIGHT 480
+
 /* Current canvas geometry. The boot console is 640x480. */
-static int16_t g_canvas_w = EMU_FB_WIDTH;
-static int16_t g_canvas_h = EMU_FB_HEIGHT;
+static int16_t g_canvas_w = VGA_MAX_WIDTH;
+static int16_t g_canvas_h = VGA_MAX_HEIGHT;
 static vga_canvas_t g_canvas_code = vga_canvas_console;
 
 /* Per-scanline render programming, indexed [scanline]. Each scanline holds up
@@ -219,24 +224,15 @@ void emu_canvas_size(int *w, int *h)
     *h = g_canvas_h;
 }
 
-/* The single CPU staging framebuffer, rendered at the vsync boundary (the
- * completed frame, before the program's vblank drawing for the next one). The
- * window uploads this to a streaming texture; sokol's swapchain provides the
- * display double-buffering + the vsync-locked present, so one buffer suffices. */
-static uint32_t g_present[EMU_FB_WIDTH * EMU_FB_HEIGHT];
+/* The app-owned framebuffer the scanlines render into (the window's texture
+ * staging, main.c's screenshot buffer, a test's assertion buffer). The owner
+ * registers storage for the largest canvas before running frames; sokol's
+ * swapchain provides the display double-buffering, so one buffer suffices. */
+static uint32_t *g_framebuffer;
 
-const uint32_t *emu_present_framebuffer(void)
+void vga_set_framebuffer(uint32_t *fb)
 {
-    return g_present;
-}
-
-/* Hand back the frame captured at the last vsync boundary (what the window
- * presents), so --screenshot and the tests see the same completed frame. */
-void emu_render(uint32_t *fb)
-{
-    int w, h;
-    emu_canvas_size(&w, &h);
-    memcpy(fb, emu_present_framebuffer(), (size_t)w * h * sizeof(uint32_t));
+    g_framebuffer = fb;
 }
 
 /* Render ONE scanline y of the canvas into fb at the canvas's native stride
@@ -249,7 +245,7 @@ void emu_render(uint32_t *fb)
 static void render_scanline(int y, uint32_t *fb)
 {
     const int W = g_canvas_w;
-    uint16_t plane[SCANVIDEO_PLANE_COUNT][EMU_FB_WIDTH];
+    uint16_t plane[SCANVIDEO_PLANE_COUNT][VGA_MAX_WIDTH];
     const vga_prog_t *p = &g_prog[y];
     bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
     uint16_t *foreground = NULL;
@@ -297,10 +293,11 @@ static void render_scanline(int y, uint32_t *fb)
     }
 }
 
-/* Render scanline y of the current frame into the present buffer, interleaved
- * with the CPU by emu_run_frame so mid-frame state changes land on later lines
- * (raster effects), matching the real per-scanline VGA scanout. */
+/* Render scanline y of the current frame into the registered framebuffer,
+ * interleaved with the CPU by emu_run_frame so mid-frame state changes land on
+ * later lines (raster effects), matching the real per-scanline VGA scanout. */
 void vga_render_scanline(int y)
 {
-    render_scanline(y, g_present);
+    if (g_framebuffer)
+        render_scanline(y, g_framebuffer);
 }

@@ -14,7 +14,6 @@
  * record's CRC is verified (CRC-32/ISO-HDLC, i.e. zlib).
  */
 
-#include "emu/api/api.h"
 #include "emu/host/fs.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"

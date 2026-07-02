@@ -12,6 +12,7 @@
  * mou.c XRAM mirror. This is the emulator's only IRQ-driven test.
  */
 
+#include "emu/app/window.h"
 #include "emu/hid/mou.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
@@ -25,7 +26,6 @@ static uint32_t fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
 static uint32_t frame_crc(void)
 {
     int cw, ch;
-    emu_render(fb);
     emu_canvas_size(&cw, &ch);
     return emu_crc32(0, fb, (size_t)cw * ch * 4);
 }
@@ -40,6 +40,7 @@ UTEST(paint, via_irq_moves_pointer)
 {
     ASSERT_TRUE(emu_rom_load(PAINT_ROM));
     emu_init();
+    vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 
     ASSERT_TRUE(mou_is_mapped()); /* xreg_ria_mouse ran */
