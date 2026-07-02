@@ -23,8 +23,9 @@
 
 #include <stdio.h>
 
-int emu_run_window(double scale, bool vsync, bool exit_on_halt)
+int emu_run_window(uint32_t *fb, double scale, bool vsync, bool exit_on_halt)
 {
+    (void)fb;
     (void)scale;
     (void)vsync;
     (void)exit_on_halt;
@@ -138,11 +139,8 @@ static struct
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
     int title_variant;     /* last window-title state (running/stopped/mouse) */
     uint8_t mouse_buttons; /* host mouse button bitmap while captured */
+    uint32_t *fb;          /* caller's framebuffer: vga renders in, frame_cb uploads */
 } app;
-
-/* The window's framebuffer: vga renders scanlines into it, frame_cb uploads it
- * to the streaming texture. */
-static uint32_t win_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 /* Mouse sensitivity: host motion is converted to canvas pixels (so it's
  * window-scale independent) then multiplied by this. 2 makes paint, whose
@@ -528,7 +526,7 @@ static void frame_cb(void)
     if (behind > 0)
     {
         sg_update_image(app.img, &(sg_image_data){
-            .mip_levels[0] = {.ptr = win_fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
+            .mip_levels[0] = {.ptr = app.fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
         });
         ever_uploaded = true;
     }
@@ -724,7 +722,7 @@ static void cleanup_cb(void)
     sg_shutdown();
 }
 
-int emu_run_window(double scale, bool vsync, bool exit_on_halt)
+int emu_run_window(uint32_t *fb, double scale, bool vsync, bool exit_on_halt)
 {
     /* Clamp to a sane range; the !(>=) form also maps NaN (atof of garbage) to
      * the floor, and the upper bound keeps win_h*scale in int range. */
@@ -732,10 +730,11 @@ int emu_run_window(double scale, bool vsync, bool exit_on_halt)
         scale = 0.1;
     if (scale > 64.0)
         scale = 64.0;
+    app.fb = fb;
     app.scale = scale;
     app.vsync = vsync;
     app.exit_on_halt = exit_on_halt;
-    vga_set_framebuffer(win_fb); /* the window owns the pixels from here on */
+    vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
     /* Under the real-time window, file I/O runs as non-blocking POSIX AIO so the
      * 6502 keeps clocking while it completes (read_xram is background DMA into
      * XRAM) — both the MSC0: drive and ROM: asset reads. Headless/--screenshot
