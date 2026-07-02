@@ -103,7 +103,7 @@
   </main>
 
   <footer>
-    <span>Saves persist in your browser (per-program storage).</span>
+    <span>Saves are session-only (add ?persist=1 to keep them).</span>
     <span>&middot;</span>
     <a href="https://picocomputer.github.io" target="_blank" rel="noopener">Picocomputer</a>
   </footer>
@@ -141,7 +141,7 @@
     //                 separate. The first boots; a program can exec the rest.
     // ?db=<name>      browser save database for MSC0: (default: the boot URL,
     //                 sanitized). Same name -> shared saves; different -> isolated.
-    // ?persist=0      discard saves when leaving the page (default: keep forever).
+    // ?persist=1      keep saves in browser storage (default: discard on leaving).
     // ?bg=RRGGBB      letterbox/pillarbox fill color.
     // ?filter=<f>     canvas scaling: nearest|linear|sharp (default sharp).
     // ?credits        show third-party credits/licenses instead of running a ROM.
@@ -233,7 +233,7 @@
       // MEMFS cache, so key each cache path on its load index too.
       var cachePaths = roms.map(function (u, i) { return '/roms/' + i + '-' + baseName(u); });
       var dbname = params.get('db') || sanitize(roms[0]);
-      var persist = params.get('persist') !== '0';
+      var persist = params.get('persist') === '1';
 
       var args = [];
       cachePaths.forEach(function (p) { args.push('--rom', p); });

@@ -40,7 +40,7 @@
       bg:     '000000',                    // letterbox fill, 6 hex digits (no '#')
       filter: 'sharp',                     // pixel scaling: nearest | linear | sharp
       db:      '',    // save database name; blank = the rom filename (see README)
-      persist: true,  // false = saves are discarded when the player leaves the page
+      persist: false, // true = saves are kept in the player's browser (see README)
     };
     /* ===================== end of editable section ====================== */
 
@@ -96,7 +96,7 @@
 
       var base = baseName(CONFIG.rom);
       var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
-      var persist = CONFIG.persist !== false;
+      var persist = CONFIG.persist === true;
       var args = ['--rom', '/' + base];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);

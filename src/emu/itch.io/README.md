@@ -31,7 +31,7 @@ Everything you configure lives in one `CONFIG` object at the top of the script:
 | `bg`      | Letterbox/pillarbox fill color, six hex digits, no `#`.           |
 | `filter`  | Pixel scaling: `nearest` (blocky), `linear` (smooth), or `sharp`. |
 | `db`      | Browser save database name. (See [Saves](#saves-and-browser-storage)). |
-| `persist` | `true` keeps saves forever (default); `false` discards them when the player leaves the page. |
+| `persist` | `false` (default) don't save db; `true` keeps MSC0:/db/ forever. |
 
 ## Updating the emulator
 
@@ -51,11 +51,12 @@ upgrades trivial: pull the newer files and re-apply that block.
 
 ## Saves and browser storage
 
-Anything your program writes to MSC0:/db/ lands in an IndexedDB database in
-the player's browser. This allows players to save games or high scores.
+With `persist: true`, anything your program writes to MSC0:/db/ lands in an
+IndexedDB database in the player's browser. This allows players to save games
+or high scores.
 
 - **Database name.** `CONFIG.db`, defaults to ROM filename when blank.
-- **Session-only saves.** Set `persist: false` and saves last only until the
+- **Off by default.** Without `persist: true`, saves last only until the
   player leaves or reloads the page — nothing touches IndexedDB at all.
 - **Who can see it.** itch.io serves every HTML game from one shared origin
   (`html-classic.itch.zone`), and IndexedDB is per-origin, so the database
