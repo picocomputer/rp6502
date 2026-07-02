@@ -13,8 +13,12 @@
     Changes from upstream:
       - _ui_dbg_history_draw: the Execution History instruction column printed
         dasm_line.bytes (the raw opcode bytes) instead of dasm_line.chars (the
-        disassembled text). Tagged RP6502 at the fix. Include this INSTEAD of
-        chips/ui/ui_dbg.h (never both).
+        disassembled text). Tagged RP6502 at the fix.
+      - _ui_dbg_history_draw: the Execution History window has its own menu bar
+        with the Show > Opcode Bytes / Opcode Ticks column toggles. Upstream
+        drives these shared flags only from the Disassembler window's menu, so
+        the columns were untogglable while that window was closed.
+    Include this INSTEAD of chips/ui/ui_dbg.h (never both).
 
     CPU debugger UI.
 
@@ -633,7 +637,17 @@ static void _ui_dbg_history_draw(ui_dbg_t* win) {
     }
     ImGui::SetNextWindowPos(ImVec2(win->ui.init_x + win->ui.init_w, win->ui.init_y + 64), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(win->ui.init_w, 376), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(win->ui.history.title, &win->ui.history.open)) {
+    /* RP6502: own menu bar for the column toggles (the same shared flags the
+       Disassembler window's Show menu drives) */
+    if (ImGui::Begin(win->ui.history.title, &win->ui.history.open, ImGuiWindowFlags_MenuBar)) {
+        if (ImGui::BeginMenuBar()) {
+            if (ImGui::BeginMenu("Show")) {
+                ImGui::MenuItem("Opcode Bytes", 0, &win->ui.show_bytes);
+                ImGui::MenuItem("Opcode Ticks", 0, &win->ui.show_ticks);
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
         const float line_height = ImGui::GetTextLineHeight();
         ImGui::SetNextWindowContentSize(ImVec2(0, UI_DBG_NUM_HISTORY_ITEMS * line_height));
         ImGui::BeginChild("##main", ImGui::GetContentRegionAvail(), false);
