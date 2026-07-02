@@ -19,6 +19,7 @@
 
 extern "C"
 {
+#include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
@@ -44,8 +45,10 @@ extern "C"
 #include "ui/ui_chip.h"
 #include "ui/ui_memedit.h"
 #include "ui/ui_memmap.h"
+#include "ui/ui_audio.h"
 #define CHIPS_UTIL_IMPL           /* emit m6502dasm_op (the disassembler ui_dbg calls) */
 #include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
+#include "ui/ui_dasm.h"           /* after w65c02dasm.h: its impl calls m6502dasm_op */
 #include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
 #include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
 #include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
@@ -60,9 +63,14 @@ static ui_m6522_t g_viawin;
 static ui_memedit_t g_memedit;
 static ui_memmap_t g_memmap;
 static ui_rp6502_t g_ria;
+static ui_dasm_t g_dasm;
+static ui_audio_t g_audio;
 static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
 static bool g_credits_open = false; /* transient about-box; not persisted */
+static bool g_metrics_open = false; /* ImGui's own tool windows; not persisted */
+static bool g_debug_log_open = false;
+static bool g_id_stack_open = false;
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
@@ -343,6 +351,8 @@ static void dbgui_collect_settings(void)
     ui_memedit_save_settings(&g_memedit, &g_settings);
     ui_memmap_save_settings(&g_memmap, &g_settings);
     ui_rp6502_save_settings(&g_ria, &g_settings);
+    ui_dasm_save_settings(&g_dasm, &g_settings);
+    ui_audio_save_settings(&g_audio, &g_settings);
     ui_settings_add(&g_settings, "Debug Control", g_control_open);
 }
 
@@ -381,6 +391,8 @@ static void chips_ini_applyall(ImGuiContext *, ImGuiSettingsHandler *)
     ui_memedit_load_settings(&g_memedit, &g_settings);
     ui_memmap_load_settings(&g_memmap, &g_settings);
     ui_rp6502_load_settings(&g_ria, &g_settings);
+    ui_dasm_load_settings(&g_dasm, &g_settings);
+    ui_audio_load_settings(&g_audio, &g_settings);
     g_control_open = ui_settings_isopen(&g_settings, "Debug Control");
 }
 static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
@@ -476,6 +488,7 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("MOS 65C02 (CPU)", nullptr, &g_cpuwin.open);
             ImGui::MenuItem("MOS 65C22 (VIA)", nullptr, &g_viawin.open);
             ImGui::MenuItem("RP6502 (RIA)", nullptr, &g_ria.open);
+            ImGui::MenuItem("Audio", nullptr, &g_audio.open);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Debug"))
@@ -484,6 +497,7 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("Breakpoints", nullptr, &g_dbg.ui.breakpoints.open);
             ImGui::MenuItem("Stopwatch", nullptr, &g_dbg.ui.stopwatch.open);
             ImGui::MenuItem("Disassembler", nullptr, &g_dbg.ui.open);
+            ImGui::MenuItem("Disassembly Browser", nullptr, &g_dasm.open);
             ImGui::MenuItem("Execution History", nullptr, &g_dbg.ui.history.open);
             ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
             ImGui::MenuItem("Memory Heatmap", nullptr, &g_dbg.ui.heatmap.open);
@@ -505,9 +519,14 @@ static void dbgui_draw_menu(void)
                     emu_set_window_scale(s);
             }
             ImGui::Separator();
+            ImGui::MenuItem("ImGui Metrics", nullptr, &g_metrics_open);
+            ImGui::MenuItem("ImGui Debug Log", nullptr, &g_debug_log_open);
+            ImGui::MenuItem("ImGui ID Stack Tool", nullptr, &g_id_stack_open);
+            ImGui::Separator();
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
+        ui_util_options_menu(); /* chips "Options": UI/BG alpha + theme */
         /* Emulated VGA rate, right-aligned (e.g. "59.9 FPS"; ~60 when keeping up),
          * held a few pixels off the window edge so it isn't flush against it. */
         char fps[24];
@@ -655,6 +674,28 @@ void dbgui_init(void)
     ui_memmap_init(&g_memmap, &mmd);
     dbgui_build_memmap();
 
+    /* Free-browsing disassembler, decoupled from the CPU PC (the Disassembler
+     * window follows execution; this one navigates anywhere, following jumps). */
+    ui_dasm_desc_t dsd{};
+    dsd.title = "Disassembly Browser";
+    dsd.layers[0] = "CPU";
+    dsd.cpu_type = UI_DASM_CPUTYPE_M6502;
+    dsd.start_addr = 0x0200; /* the RP6502 program org */
+    dsd.read_cb = mem_read;
+    dsd.x = 620;
+    dsd.y = 30;
+    dsd.open = false;
+    ui_dasm_init(&g_dasm, &dsd);
+
+    /* Waveform of the produced audio (snd.c's mono viz tap). */
+    ui_audio_desc_t ad{};
+    ad.title = "Audio";
+    ad.sample_buffer = emu_audio_viz_buffer(&ad.num_samples);
+    ad.x = 620;
+    ad.y = 480;
+    ad.open = false;
+    ui_audio_init(&g_audio, &ad);
+
     /* Restore geometry + open flags from the config file (ImGui settings + our
      * Chips/RP6502 handlers). After all windows are initialized, so ApplyAll can
      * push the loaded open flags into them. */
@@ -671,6 +712,8 @@ void dbgui_discard(void)
         return;
     emu_dbg_cycle_cb = nullptr; /* stop feeding ui_dbg before it is destroyed */
     dbgui_layout_save();        /* final flush of geometry + open flags */
+    ui_audio_discard(&g_audio);
+    ui_dasm_discard(&g_dasm);
     ui_memmap_discard(&g_memmap);
     ui_memedit_discard(&g_memedit);
     ui_rp6502_discard(&g_ria);
@@ -852,6 +895,14 @@ void dbgui_draw(void)
     g_memedit.max_addr = (g_memedit.ed->CurLayer == 2) ? XSTACK_SIZE : 0x10000;
     ui_memedit_draw(&g_memedit);
     ui_memmap_draw(&g_memmap);
+    ui_dasm_draw(&g_dasm);
+    ui_audio_draw(&g_audio, emu_audio_viz_pos());
+    if (g_metrics_open)
+        ImGui::ShowMetricsWindow(&g_metrics_open);
+    if (g_debug_log_open)
+        ImGui::ShowDebugLogWindow(&g_debug_log_open);
+    if (g_id_stack_open)
+        ImGui::ShowIDStackToolWindow(&g_id_stack_open);
 }
 
 void dbgui_render(void) { simgui_render(); }

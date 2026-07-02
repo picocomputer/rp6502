@@ -34,6 +34,10 @@ bool emu_audio_enabled(void);
  * the native-rate ring. Returns the number of frames written. */
 int emu_audio_read(float *dst, int max_frames);
 
+/* Rolling mono downmix of the produced output, for waveform display. */
+const float *emu_audio_viz_buffer(int *num_samples);
+int emu_audio_viz_pos(void); /* current write position in that buffer */
+
 #ifdef __cplusplus
 }
 #endif

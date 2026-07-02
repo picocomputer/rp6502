@@ -54,6 +54,12 @@ void pwm_set_chan_level(unsigned slice, unsigned chan, uint16_t level)
 static float g_ring[SND_RING_FRAMES * 2];
 static unsigned g_head, g_tail; /* frame indices, mod SND_RING_FRAMES */
 
+/* Rolling mono downmix of everything pushed to the ring, for waveform display;
+ * the reader plots the buffer directly against the write position. */
+#define SND_VIZ_SAMPLES 4096
+static float g_viz[SND_VIZ_SAMPLES];
+static int g_viz_pos;
+
 /* Fractional sample carry so a rate that isn't a multiple of 60 (OPL's 49716)
  * stays pitch-accurate: each frame is owed rate/60 samples on average. */
 static uint32_t g_sample_acc;
@@ -66,6 +72,8 @@ static void ring_push(float l, float r)
     g_ring[g_head * 2 + 0] = l;
     g_ring[g_head * 2 + 1] = r;
     g_head = next;
+    g_viz[g_viz_pos] = (l + r) * 0.5f;
+    g_viz_pos = (g_viz_pos + 1) % SND_VIZ_SAMPLES;
 }
 
 /* --mute: when off, the synth never runs (no per-sample CPU work) and the
@@ -121,6 +129,14 @@ int emu_audio_read(float *dst, int max_frames)
     return got;
 }
 
+const float *emu_audio_viz_buffer(int *num_samples)
+{
+    *num_samples = SND_VIZ_SAMPLES;
+    return g_viz;
+}
+
+int emu_audio_viz_pos(void) { return g_viz_pos; }
+
 void snd_reset(void)
 {
     aud_stop(); /* fall back to the standing BEL device (firmware aud_stop) */
@@ -129,4 +145,6 @@ void snd_reset(void)
     xram_queue_head = xram_queue_tail = 0;
     xram_queue_page = 0;
     memset(g_pwm_level, 0, sizeof g_pwm_level);
+    memset(g_viz, 0, sizeof g_viz);
+    g_viz_pos = 0;
 }
