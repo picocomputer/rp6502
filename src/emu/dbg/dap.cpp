@@ -38,6 +38,11 @@ extern "C"
 #include "emu/chips/w65c02.h"        /* m6502_t register accessors (extern "C") */
 #include "emu/chips/w65c02dasm.h"  /* 65C02 m6502dasm_op declaration (impl lives in dbgui.cc) */
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -961,6 +966,11 @@ extern "C" void dap_start(void)
     });
 
     /* Bind to the stdio DAP channel; cppdap spawns the reader thread. */
+#ifdef _WIN32
+    /* CRLF translation would corrupt the Content-Length framing. */
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
     auto in = dap::file(stdin, false);
     auto out = dap::file(stdout, false);
     g_session->bind(in, out);

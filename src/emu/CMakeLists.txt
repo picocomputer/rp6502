@@ -8,6 +8,8 @@ endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
@@ -98,7 +100,10 @@ target_include_directories(emu_core PUBLIC
     ${RP6502_VENDOR}/sokol
 )
 target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
-target_link_libraries(emu_core PUBLIC m)
+# MSVC has no separate libm
+if(NOT MSVC)
+    target_link_libraries(emu_core PUBLIC m)
+endif()
 
 # Non-blocking file I/O (POSIX AIO) where the platform provides it; msc/rom fall
 # back to synchronous read/write otherwise (web MEMFS, Windows).

@@ -24,6 +24,12 @@ Some dependencies are submodules. Don't forget to grab them:
 $ git submodule update --init
 ```
 
+The emulator's debugger needs one nested submodule. Don't use `--recursive`,
+which downloads much more than needed:
+```
+$ git -C vendor/cppdap submodule update --init third_party/json
+```
+
 The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
 submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
 activate the toolchain into that submodule (a one-time ~270 MB download). The same
@@ -33,16 +39,16 @@ $ vendor/emsdk/emsdk install latest
 $ vendor/emsdk/emsdk activate latest
 ```
 
-## Debian/Ubuntu/Raspbian
+## Linux
 
 The Pi Pico VS Code Extension may need this additional software:
 ```
-$ sudo apt install build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
+$ sudo apt install python3 git tar build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
 ```
 
 For the emulator, install GL/X11 dev headers:
 ```
-sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
+$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
 ```
 
 ## Windows
@@ -50,14 +56,23 @@ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
 The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-The emulator doesn't have anyone working on it right now.
+Nobody is working on the emulator for Windows. Unclaimed territory — wander
+in and make it yours. The CMake platform branches (D3D11, wingetopt) are
+already in place; what remains is the host filesystem layer (`src/emu/host`,
+`src/emu/mon/rom.c`), which still speaks POSIX and needs Win32 shims. The
+CMake presets use the Ninja generator, so with MSVC configure from an x64
+Native Tools prompt.
 
 ## MacOs
 
 The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-The emulator doesn't have anyone working on it right now.
+Nobody is working on the emulator for macOS either. This one is a warm sunny
+spot waiting for a claimant: the CMake tree already selects Metal, compiles
+sokol as Objective-C, and links the Cocoa/Metal frameworks, and the host
+layer is plain POSIX. It may be one build away from working — be the first
+to find out.
 
 ## Building with CMake and VS Code
 
