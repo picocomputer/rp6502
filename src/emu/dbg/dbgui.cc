@@ -46,11 +46,11 @@ extern "C"
 #include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
 #include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
 #include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
+#include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
 #include "ui/ui_m6522.h"
 #include "emu/chips/ui_dbg.h" /* our fork of ui/ui_dbg.h: history column draws chars, not bytes */
 
-#include <cstdio>  /* snprintf, sscanf */
-#include <cstring> /* strcmp */
+#include <cstdio> /* snprintf, sscanf */
 
 static ui_dbg_t g_dbg;
 static ui_w65c02_t g_cpuwin;
@@ -313,10 +313,7 @@ static const ui_chip_pin_t pins_6522[] = {
 /* ---- Layout persistence: the config file is owned by ImGui's settings system.
  * Two custom ImGuiSettingsHandlers (registered in dbgui_init) ride in that ini:
  *   [Chips][<window title>]  IsOpen=1  — per-window open flags (chips ui_settings_t)
- *   [RP6502][Launch]  key=value        — rp6502.py's device block, round-tripped
- *                                        verbatim (the emulator never reads it)
- *   [RP6502][Window]  Size=w,h         — the host window size; the next session
- *                                        reopens at it (dbgui_window_size)
+ *   [RP6502][Launch] + [Window][Manager] entry — ui_ini.h's elements
  * Window geometry rides in ImGui's built-in [Window] handler; the menu bar (below)
  * just toggles each window's open flag. ---- */
 static ui_settings_t g_settings;
@@ -384,90 +381,27 @@ static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, Im
     }
 }
 
-/* [RP6502] handler, two sections:
- *   [Launch] — a dumb passthrough that round-trips rp6502.py's device block so
- *              ImGui's save never drops it (the emulator never interprets it).
- *   [Window] — the host window size, a dummy UI element with no window behind
- *              it: saves emit the LIVE size, loads park it in g_win_w/h for
- *              dbgui_window_size, which sizes the next session's window. */
-static ImGuiTextBuffer g_launch_block;
-static int g_win_w, g_win_h; /* [Window] Size as loaded (0 = none) */
-static void rp6502_ini_clear(ImGuiContext *, ImGuiSettingsHandler *)
-{
-    g_launch_block.clear();
-    g_win_w = g_win_h = 0;
-}
-static void *rp6502_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
-{
-    if (std::strcmp(name, "Launch") == 0)
-    {
-        g_launch_block.clear();
-        return (void *)&g_launch_block;
-    }
-    if (std::strcmp(name, "Window") == 0)
-        return (void *)&g_win_w;
-    return nullptr;
-}
-static void rp6502_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *entry, const char *line)
-{
-    if (entry == (void *)&g_win_w)
-        std::sscanf(line, "Size=%d,%d", &g_win_w, &g_win_h);
-    else
-        g_launch_block.appendf("%s\n", line);
-}
-static void rp6502_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
-{
-    if (!g_launch_block.empty()) /* rp6502.py's block leads the file */
-    {
-        buf->appendf("[%s][Launch]\n", handler->TypeName);
-        buf->append(g_launch_block.c_str());
-        buf->append("\n");
-    }
-    int w = g_win_w, h = g_win_h; /* round-trip if there is no window to measure */
-    if (sapp_isvalid())
-    {
-        w = sapp_width();
-        h = sapp_height();
-    }
-    if (w > 0 && h > 0)
-    {
-        buf->appendf("[%s][Window]\n", handler->TypeName);
-        buf->appendf("Size=%d,%d\n\n", w, h);
-    }
-}
-
-static void rp6502_add_settings_handler(void)
-{
-    ImGuiSettingsHandler rp6502_h;
-    rp6502_h.TypeName = "RP6502";
-    rp6502_h.TypeHash = ImHashStr("RP6502");
-    rp6502_h.ClearAllFn = rp6502_ini_clear;
-    rp6502_h.ReadOpenFn = rp6502_ini_readopen;
-    rp6502_h.ReadLineFn = rp6502_ini_readline;
-    rp6502_h.WriteAllFn = rp6502_ini_writeall;
-    ImGui::AddSettingsHandler(&rp6502_h);
-}
+/* The [RP6502][Launch] block and the dummy [Window][Manager] entry ride in
+ * ui_ini.h's elements. */
+static ui_ini_t g_ini;
 
 /* The last debug session's window size, wanted BEFORE the window opens (it goes
  * in sapp_desc; post-open resizes are unreliable under WSLg) — so before ImGui
  * exists. Rather than hand-parse the ini, load it through a throwaway ImGui
- * context carrying only the RP6502 handler: the element that wrote the section
- * reads it back. False if absent or implausible. */
+ * context: the built-in [Window] handler parses the Manager entry there, no
+ * custom handler needed. False if absent or implausible. */
 bool dbgui_window_size(int *w, int *h)
 {
     if (!ImGui::GetCurrentContext())
     {
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = nullptr;
-        rp6502_add_settings_handler();
         dbgui_layout_load();
+        bool have = ui_ini_window_size(w, h);
         ImGui::DestroyContext();
+        return have;
     }
-    if (g_win_w < 160 || g_win_h < 120 || g_win_w > 16384 || g_win_h > 16384)
-        return false;
-    *w = g_win_w;
-    *h = g_win_h;
-    return true;
+    return ui_ini_window_size(w, h);
 }
 
 /* Register both settings handlers; called once in dbgui_init, before the layout
@@ -484,15 +418,7 @@ static void dbgui_register_settings_handlers(void)
     chips_h.WriteAllFn = chips_ini_writeall;
     ImGui::AddSettingsHandler(&chips_h);
 
-    rp6502_add_settings_handler();
-
-    /* AddSettingsHandler appends, and ImGui's built-in [Window] handler is always
-     * first, so move ours (just appended) to the front of the handler list — that
-     * is the write order, so [RP6502][Launch] then leads the file. */
-    ImGuiContext &g = *ImGui::GetCurrentContext();
-    ImGuiSettingsHandler moved = g.SettingsHandlers.back();
-    g.SettingsHandlers.pop_back();
-    g.SettingsHandlers.insert(g.SettingsHandlers.begin(), moved);
+    ui_ini_register(&g_ini);
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
