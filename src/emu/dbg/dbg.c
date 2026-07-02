@@ -38,6 +38,7 @@ static const char *g_step_file; /* source file at the step start */
 static uint8_t g_step_sp;      /* SP at the step start (call-depth reference) */
 
 static atomic_bool g_pause_req;
+static bool g_break_req;
 
 /* 64Kbit address-breakpoint bitmap (1 bit per 6502 address). */
 static uint8_t g_bp[0x10000 / 8];
@@ -51,6 +52,7 @@ void dbg_set_active(bool on) { g_active = on; }
 bool dbg_is_active(void) { return g_active; }
 
 void dbg_request_pause(void) { atomic_store(&g_pause_req, true); }
+void dbg_request_break(void) { g_break_req = true; }
 
 static inline bool bp_test(uint16_t a) { return (g_bp[a >> 3] >> (a & 7)) & 1u; }
 
@@ -111,6 +113,7 @@ static void enter_stop(int reason, uint16_t pc)
     g_stop_sp = g_cur_sp;
     g_step = DBG_STEP_NONE;
     atomic_store(&g_pause_req, false);
+    g_break_req = false;
     if (g_stopped_cb)
         g_stopped_cb(reason, pc);
 }
@@ -183,7 +186,7 @@ bool dbg_at_instruction(uint16_t pc, uint8_t sp)
         return true;
     }
     /* Breakpoints fire even mid-step (e.g. a bp inside a stepped-over call). */
-    if (bp_test(pc))
+    if (g_break_req || bp_test(pc))
     {
         enter_stop(DBG_REASON_BREAKPOINT, pc);
         return true;

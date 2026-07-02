@@ -107,6 +107,22 @@ UTEST(dbg, pause_stops_running_cpu)
     disarm();
 }
 
+/* A break request stops the CPU at the next instruction boundary with reason
+ * BREAKPOINT, even with no address breakpoint set. */
+UTEST(dbg, break_request_stops_as_breakpoint)
+{
+    ASSERT_TRUE(load());
+    dbg_set_active(true);
+    dbg_request_break();
+
+    emu_run_frame();
+
+    ASSERT_TRUE(dbg_is_stopped());
+    ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_BREAKPOINT);
+
+    disarm();
+}
+
 /* stopOnEntry: arming the one-shot entry stop halts at the first instruction. */
 UTEST(dbg, stop_at_entry)
 {

@@ -45,6 +45,7 @@ bool dbg_is_active(void);
 
 /* Control surface (continue/step on the main thread; pause may be cross-thread). */
 void dbg_request_pause(void);   /* stop at the next instruction (thread-safe) */
+void dbg_request_break(void);   /* stop at the next instruction as a breakpoint hit (main thread) */
 void dbg_continue(void);        /* resume free-run */
 void dbg_step(dbg_step_t kind); /* resume until the step completes, then stop */
 bool dbg_is_stopped(void);

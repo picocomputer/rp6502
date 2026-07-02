@@ -9,9 +9,10 @@
  * windows (run/step/breakpoints, RIA) that drive the one engine in dbg.c. Layout
  * persistence lives in dbgui_layout.cc. The DAP adapter drives the same dbg.c, so VS Code and
  * this overlay stay consistent. We never let ui_dbg drive the CPU: ui_dbg_tick
- * still runs every cycle (for the heatmap/history/PC), but we never set its
- * step_mode, so it never self-steps. dbg.c gates the CPU and we reflect its
- * stop-state into ui_dbg for display.
+ * runs every cycle (heatmap/history/PC plus its breakpoint engine, the only
+ * evaluator of the non-EXEC types), but a trap only files a break request with
+ * dbg.c, which gates the CPU; we reflect its stop-state into ui_dbg for display.
+ * We never set ui_dbg's step_mode, so it never self-steps.
  */
 
 #include "imgui.h"
@@ -829,19 +830,25 @@ void dbgui_draw(void)
     draw_credits();
     ui_rp6502_draw(&g_ria);
 
-    /* dbg.c is the one authoritative engine + breakpoint store (shared with the
-     * DAP adapter); ui_dbg's gutter/toolbar/hotkeys are a front-end bridged to it.
-     * Mirror dbg.c's breakpoints into ui_dbg's list so the disassembly gutter shows
-     * them (and remember the set), let ui_dbg draw — during which the user may
-     * toggle a gutter dot, press F9, or click a toolbar button — then push the
-     * resulting deltas back to dbg.c after the draw. ui_dbg's list is fixed at
-     * UI_DBG_MAX_BREAKPOINTS; mirror only the breakpoints in the displayed
-     * disassembly window (line_array) so every visible dot shows even when dbg.c
-     * holds more than that across the 64K space. */
+    /* dbg.c is the authoritative run/stop engine + EXEC breakpoint store (shared
+     * with the DAP adapter); ui_dbg's gutter/toolbar/hotkeys are a front-end
+     * bridged to it. The non-EXEC types (Byte/Word/IRQ/NMI) live only in ui_dbg's
+     * list: its tick engine evaluates them and dbgui_tick bridges a trap into a
+     * dbg.c stop. Mirror dbg.c's breakpoints into ui_dbg's list so the disassembly
+     * gutter shows them (and remember the set), let ui_dbg draw — during which the
+     * user may toggle a gutter dot, press F9, or click a toolbar button — then
+     * push the resulting EXEC deltas back to dbg.c after the draw. ui_dbg's list
+     * is fixed at UI_DBG_MAX_BREAKPOINTS; mirror only the breakpoints in the
+     * displayed disassembly window (line_array) so every visible dot shows even
+     * when dbg.c holds more than that across the 64K space. */
     uint16_t before[UI_DBG_MAX_BREAKPOINTS];
     int n_before = 0;
-    g_dbg.dbg.num_breakpoints = 0; /* rebuild ui_dbg's list from dbg.c */
-    for (int li = 0; li < UI_DBG_NUM_LINES && n_before < UI_DBG_MAX_BREAKPOINTS; li++)
+    int keep = 0; /* drop last frame's EXEC mirror, keep the user's non-EXEC entries */
+    for (int i = 0; i < g_dbg.dbg.num_breakpoints; i++)
+        if (g_dbg.dbg.breakpoints[i].type != UI_DBG_BREAKTYPE_EXEC)
+            g_dbg.dbg.breakpoints[keep++] = g_dbg.dbg.breakpoints[i];
+    g_dbg.dbg.num_breakpoints = keep;
+    for (int li = 0; li < UI_DBG_NUM_LINES && g_dbg.dbg.num_breakpoints < UI_DBG_MAX_BREAKPOINTS; li++)
     {
         uint16_t a = g_dbg.ui.line_array[li].addr;
         if (dbg_has_breakpoint(a) && !ui_has_exec_bp(a)) /* line_array repeats addr in the backtrace half */
@@ -901,13 +908,19 @@ void dbgui_render(void) { simgui_render(); }
  * is the chips-native way to keep the disassembly view honest: ui_dbg_tick records
  * the execution heatmap (which the disassembler back-scans to find instruction
  * boundaries), the history, and cur_op_pc. It also runs ui_dbg's OWN breakpoint
- * engine, but that only flips ui_dbg's display flag — dbg.c gates the real CPU and
- * its breakpoints are mirrored in (dbgui_draw), so the two agree. We never set
- * ui_dbg's step_mode, so it never self-steps. */
+ * engine — the only evaluator of the non-EXEC types (Byte/Word at each opcode
+ * fetch, IRQ/NMI on a rising pin edge). A trap files a break request that dbg.c
+ * honors at the next M6502_SYNC, so dbg.c stays the one stop authority; an
+ * op-level trap lands on the very instruction that tripped it because this runs
+ * before cpu.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
+ * step_mode, so it never self-steps. */
 void dbgui_tick(uint64_t pins)
 {
-    if (g_inited)
-        ui_dbg_tick(&g_dbg, pins);
+    if (!g_inited)
+        return;
+    ui_dbg_tick(&g_dbg, pins);
+    if (g_dbg.dbg.last_trap_id >= UI_DBG_BP_BASE_TRAPID)
+        dbg_request_break();
 }
 
 /* Height (in ImGui points) of the main menu bar this overlay draws across the
