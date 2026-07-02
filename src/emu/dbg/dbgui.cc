@@ -27,6 +27,8 @@ extern "C"
 }
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
+#include "emu/app/window.h"       /* window-scale presets */
+#include "emu/app/credits.h"      /* EMU_CREDITS */
 
 #include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
 #include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
@@ -60,6 +62,7 @@ static ui_memmap_t g_memmap;
 static ui_rp6502_t g_ria;
 static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
+static bool g_credits_open = false; /* transient about-box; not persisted */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
@@ -238,6 +241,17 @@ static void draw_control(void)
                 ImGui::Text("$%04X", addr);
             }
     }
+    ImGui::End();
+}
+
+/* Third-party credits, the same text --credits prints. */
+static void draw_credits(void)
+{
+    if (!g_credits_open)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Credits", &g_credits_open))
+        ImGui::TextUnformatted(EMU_CREDITS);
     ImGui::End();
 }
 
@@ -474,6 +488,24 @@ static void dbgui_draw_menu(void)
             ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
             ImGui::MenuItem("Memory Heatmap", nullptr, &g_dbg.ui.heatmap.open);
             ImGui::MenuItem("Memory Segments", nullptr, &g_memmap.open);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("View"))
+        {
+            /* Window-size presets (the --scale values): a reset to a known size
+             * after a manual resize, so docked panels deliberately don't factor
+             * in. The check marks the preset the window currently matches. */
+            static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
+            double cur = emu_get_window_scale();
+            for (double s : scales)
+            {
+                char label[5];
+                std::snprintf(label, sizeof label, "%.1fx", s);
+                if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
+                    emu_set_window_scale(s);
+            }
+            ImGui::Separator();
+            ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
         /* Emulated VGA rate, right-aligned (e.g. "59.9 FPS"; ~60 when keeping up),
@@ -755,6 +787,7 @@ void dbgui_draw(void)
     else
         g_canvas_valid = false;
     draw_control();
+    draw_credits();
     ui_rp6502_draw(&g_ria);
 
     /* dbg.c is the one authoritative engine + breakpoint store (shared with the

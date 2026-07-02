@@ -40,6 +40,10 @@ void emu_set_bgcolor(uint8_t r, uint8_t g, uint8_t b) { (void)r, (void)g, (void)
  * filter is genuinely a no-op here. */
 void emu_set_scale_filter(emu_scale_filter_t filter) { (void)filter; }
 
+void emu_set_window_scale(double scale) { (void)scale; }
+
+double emu_get_window_scale(void) { return 0.0; }
+
 #else
 
 #include "sokol_app.h"
@@ -263,6 +267,22 @@ static int top_reserved_px(void)
     }
 #endif
     return 0;
+}
+
+void emu_set_window_scale(double scale)
+{
+    int cw, ch;
+    emu_canvas_size(&cw, &ch);
+    int h = (int)(VGA_MAX_HEIGHT * scale + 0.5);
+    int w = (int)((long)h * cw / ch);
+    resize_window(w, h + top_reserved_px());
+}
+
+double emu_get_window_scale(void)
+{
+    if (!sapp_isvalid())
+        return 0.0;
+    return (double)(sapp_height() - top_reserved_px()) / VGA_MAX_HEIGHT;
 }
 
 /* The framebuffer-pixel rect (x,y from top-left, w,h) the emulated canvas draws

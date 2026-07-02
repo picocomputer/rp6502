@@ -51,6 +51,15 @@ typedef enum
 
 void emu_set_scale_filter(emu_scale_filter_t filter);
 
+/* Resize the window to what --scale <n> opens: the canvas aspect at
+ * n x VGA_MAX_HEIGHT, plus the debugger menu strip when the overlay is up —
+ * deliberately ignoring docked panels (it is a reset to a known size after a
+ * manual resize). The WM may ignore the request. */
+void emu_set_window_scale(double scale);
+
+/* The window's current scale by the same formula; 0 when there is no window. */
+double emu_get_window_scale(void);
+
 #ifdef __cplusplus
 }
 #endif
