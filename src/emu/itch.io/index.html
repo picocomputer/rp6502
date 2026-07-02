@@ -39,6 +39,8 @@
       title:  'Colossal Cave Adventure',   // browser tab title
       bg:     '000000',                    // letterbox fill, 6 hex digits (no '#')
       filter: 'sharp',                     // pixel scaling: nearest | linear | sharp
+      db:      '',    // save database name; blank = the rom filename (see README)
+      persist: true,  // false = saves are discarded when the player leaves the page
     };
     /* ===================== end of editable section ====================== */
 
@@ -93,7 +95,8 @@
       function sanitize(s) { return s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'default'; }
 
       var base = baseName(CONFIG.rom);
-      var mount = '/msc/' + sanitize(CONFIG.rom);  // per-program save storage
+      var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
+      var persist = CONFIG.persist !== false;
       var args = ['--rom', '/' + base];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
@@ -105,13 +108,43 @@
         printErr: function (t) { console.error(t); },
         preRun: [function () {
           var M = Module;
-          // Saves live in IndexedDB (IDBFS) so they survive reloads; load any
-          // persisted data before main runs (gated by a run dependency).
-          try { M.FS.mkdirTree(mount); } catch (e) {}
-          M.FS.mount(M.IDBFS, {}, mount);
-          M.FS.chdir(mount); // MSC0: is the process cwd, so saves land here
-          M.addRunDependency('idbfs');
-          M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
+          // MSC0: is /db, made the cwd so program writes land there. With
+          // persist it's IDBFS, mirrored to an IndexedDB database named by
+          // CONFIG.db — IDBFS names databases after the mountpoint, so wrap
+          // getDB to substitute ours. Without persist it's plain memory and
+          // saves vanish when the player leaves.
+          try { M.FS.mkdirTree('/db'); } catch (e) {}
+          if (persist) {
+            var I = M.IDBFS;
+            var getDB = I.getDB;
+            I.getDB = function (name, cb) {
+              return getDB(name === '/db' ? dbname : name, cb);
+            };
+            // Store keys mount-relative ('/save.dat', not '/db/save.dat') so
+            // the database doesn't bake in the mountpoint. IDBFS uses one
+            // string as both VFS path and database key, so translate on the
+            // remote side only: prepend on the way out, strip on the way in.
+            var strip = function (p) { return p.slice('/db'.length); };
+            var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
+            var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
+            I.getRemoteSet = function (mount, cb) {
+              grs(mount, function (err, remote) {
+                if (remote && remote.entries) {
+                  var entries = {};
+                  for (var k in remote.entries) entries['/db' + k] = remote.entries[k];
+                  remote.entries = entries;
+                }
+                cb(err, remote);
+              });
+            };
+            I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
+            I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
+            I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
+            M.FS.mount(M.IDBFS, {}, '/db');
+            M.addRunDependency('idbfs');
+            M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
+          }
+          M.FS.chdir('/db');
           // Fetch the program into MEMFS (never written back to IndexedDB, so
           // storage only holds saves).
           M.addRunDependency('rom');
@@ -144,7 +177,7 @@
       // close may miss it). The guard avoids overlapping syncfs calls.
       var syncing = false;
       function flush() {
-        if (!Module.FS || syncing) return;
+        if (!persist || !Module.FS || syncing) return;
         syncing = true;
         try { Module.FS.syncfs(false, function () { syncing = false; }); }
         catch (e) { syncing = false; }

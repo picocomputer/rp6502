@@ -24,12 +24,14 @@ all paths are relative so the bundle works wherever itch.io serves it.
 
 Everything you configure lives in one `CONFIG` object at the top of the script:
 
-| Field    | What it does                                                       |
-|----------|-------------------------------------------------------------------|
-| `rom`    | Your program's filename, relative to `index.html` (e.g. `game.rp6502`). |
-| `title`  | Browser tab title.                                                 |
-| `bg`     | Letterbox/pillarbox fill color, six hex digits, no `#`.           |
-| `filter` | Pixel scaling: `nearest` (blocky), `linear` (smooth), or `sharp`. |
+| Field     | What it does                                                       |
+|-----------|-------------------------------------------------------------------|
+| `rom`     | Your program's filename, relative to `index.html` (e.g. `game.rp6502`). |
+| `title`   | Browser tab title.                                                 |
+| `bg`      | Letterbox/pillarbox fill color, six hex digits, no `#`.           |
+| `filter`  | Pixel scaling: `nearest` (blocky), `linear` (smooth), or `sharp`. |
+| `db`      | Browser save database name; blank uses the ROM filename (see [Saves](#saves-and-browser-storage)). |
+| `persist` | `true` keeps saves forever (default); `false` discards them when the player leaves the page. |
 
 ## Updating the emulator
 
@@ -47,6 +49,30 @@ this trivial: pull the newer files and re-apply that block.
 - **SharedArrayBuffer support:** leave it **off**. This emulator is single
   threaded and needs no cross-origin isolation, so it runs on every browser.
 
+## Saves and browser storage
+
+Anything your program writes to MSC0: lands in an IndexedDB database in the
+player's browser. The program starts inside it, so ordinary relative writes
+persist across visits. The `.rp6502` itself is fetched into memory on every
+visit and never stored — only your program's own files take up storage.
+
+- **Database name.** `CONFIG.db`, or the ROM filename when blank
+  (`adventure.rp6502` → a database named `adventure.rp6502`). The filename
+  beats the page URL as a key: itch.io serves each upload from a new URL, so
+  saves keyed on it would reset every time you update the game.
+- **Who can see it.** itch.io serves every HTML game from one shared origin
+  (`html-classic.itch.zone`), and IndexedDB is per-origin, so the database
+  namespace is shared with every other itch.io game the player runs. Any game
+  that opens the same name reads and writes the same saves — two unrelated
+  games that both ship `game.rp6502` will collide. A unique `db` (say,
+  `yourname-yourgame`) avoids that.
+- **Sharing on purpose.** Give several of your pages the same `db` and their
+  games share one MSC0: drive. This works *because* of the shared origin; if
+  itch.io ever isolates games onto their own origins, cross-page sharing stops
+  and existing saves effectively reset.
+- **Session-only saves.** Set `persist: false` and saves last only until the
+  player leaves or reloads the page — nothing touches IndexedDB at all.
+
 ## Please tag it `RP6502`
 
 When you publish, add the tag **`RP6502`** to your project so it shows up
@@ -55,8 +81,6 @@ under *Genre / Tags*).
 
 ## Notes
 
-- **Saves persist** in the browser's IndexedDB, keyed per program, so different
-  games on different itch.io pages never collide.
 - **Third-party license notices:** append `?credits` to the page URL to dump
   every bundled component's license (the emulator's built-in `--credits`). Keep
   that path reachable if you redistribute the bundled emulator.

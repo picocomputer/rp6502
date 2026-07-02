@@ -10,7 +10,7 @@
  * ":basename" through fs_resolve_rom (matched case-insensitively, like the ROM:
  * driver and the firmware). Like the firmware, the null drive is reachable ONLY by
  * the loader — a 6502 open/stat/opendir/chdir of ":name" goes to MSC0:, where a
- * leading ":" is refused (mscpath.c), so it is never the cwd and never enumerated
+ * leading ":" is refused (host/fs.c), so it is never the cwd and never enumerated
  * or stat'd. Installs are read-only, referenced by host PATH (no bytes copied), and
  * survive exec so an installed launcher can exec another installed ROM. The browser
  * fetches ROMs into a MEMFS cache and installs them here; the desktop points at disk.

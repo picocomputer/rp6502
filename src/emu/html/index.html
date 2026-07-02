@@ -139,8 +139,9 @@
     // ----- Configure from the URL and boot the module -----
     // ?rom=<url>      ROM(s) to install (null drive, :name); repeat or comma-
     //                 separate. The first boots; a program can exec the rest.
-    // ?container=<id> browser-storage container for MSC0: (default: the boot URL,
-    //                 sanitized). Same id -> shared saves; different -> isolated.
+    // ?db=<name>      browser save database for MSC0: (default: the boot URL,
+    //                 sanitized). Same name -> shared saves; different -> isolated.
+    // ?persist=0      discard saves when leaving the page (default: keep forever).
     // ?bg=RRGGBB      letterbox/pillarbox fill color.
     // ?filter=<f>     canvas scaling: nearest|linear|sharp (default sharp).
     // ?credits        show third-party credits/licenses instead of running a ROM.
@@ -231,8 +232,8 @@
       // Same-basename ROMs from different sources must not collide in the
       // MEMFS cache, so key each cache path on its load index too.
       var cachePaths = roms.map(function (u, i) { return '/roms/' + i + '-' + baseName(u); });
-      var container = params.get('container') || sanitize(roms[0]);
-      var mount = '/msc/' + container;
+      var dbname = params.get('db') || sanitize(roms[0]);
+      var persist = params.get('persist') !== '0';
 
       var args = [];
       cachePaths.forEach(function (p) { args.push('--rom', p); });
@@ -251,16 +252,45 @@
         printErr: function (t) { console.error(t); },
         preRun: [function () {
           var M = Module;
-          // MSC0: lives in IndexedDB (IDBFS) so saves persist. Mount it and load
-          // any persisted data before main runs (gated by a run dependency).
-          try { M.FS.mkdirTree(mount); } catch (e) {}
-          M.FS.mount(M.IDBFS, {}, mount);
-          M.FS.chdir(mount); // MSC0: is the process cwd, so saves land here
-          M.addRunDependency('idbfs-load');
-          M.FS.syncfs(true, function (err) {
-            if (err) console.error('syncfs(true)', err);
-            M.removeRunDependency('idbfs-load');
-          });
+          // MSC0: is /db, made the cwd so program writes land there. With
+          // persist it's IDBFS, mirrored to the ?db= IndexedDB database —
+          // IDBFS names databases after the mountpoint, so wrap getDB to
+          // substitute ours. Without persist it's plain memory.
+          try { M.FS.mkdirTree('/db'); } catch (e) {}
+          if (persist) {
+            var I = M.IDBFS;
+            var getDB = I.getDB;
+            I.getDB = function (name, cb) {
+              return getDB(name === '/db' ? dbname : name, cb);
+            };
+            // Store keys mount-relative ('/save.dat', not '/db/save.dat') so
+            // the database doesn't bake in the mountpoint. IDBFS uses one
+            // string as both VFS path and database key, so translate on the
+            // remote side only: prepend on the way out, strip on the way in.
+            var strip = function (p) { return p.slice('/db'.length); };
+            var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
+            var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
+            I.getRemoteSet = function (mount, cb) {
+              grs(mount, function (err, remote) {
+                if (remote && remote.entries) {
+                  var entries = {};
+                  for (var k in remote.entries) entries['/db' + k] = remote.entries[k];
+                  remote.entries = entries;
+                }
+                cb(err, remote);
+              });
+            };
+            I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
+            I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
+            I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
+            M.FS.mount(M.IDBFS, {}, '/db');
+            M.addRunDependency('idbfs-load');
+            M.FS.syncfs(true, function (err) {
+              if (err) console.error('syncfs(true)', err);
+              M.removeRunDependency('idbfs-load');
+            });
+          }
+          M.FS.chdir('/db');
           // Fetch the ROMs into a MEMFS cache (/roms) — never written back to
           // IndexedDB, so storage only holds saves, not full games.
           try { M.FS.mkdirTree('/roms'); } catch (e) {}
@@ -308,7 +338,7 @@
       // avoids overlapping flushes (emscripten warns about concurrent syncfs).
       var syncing = false;
       function flush() {
-        if (!Module.FS || syncing) return;
+        if (!persist || !Module.FS || syncing) return;
         syncing = true;
         try { Module.FS.syncfs(false, function () { syncing = false; }); }
         catch (e) { syncing = false; }
