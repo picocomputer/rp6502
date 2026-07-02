@@ -35,6 +35,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/host/rand.c
     ${RP6502_SRC}/emu/api/std_drivers.c
     ${RP6502_SRC}/emu/sys/com.c
+    ${RP6502_SRC}/emu/shim/pico/stdio.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/mou.c

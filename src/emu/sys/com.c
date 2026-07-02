@@ -15,16 +15,16 @@
  * rln tags CPR/DA tracking by source, so the two streams stay separate and
  * are returned with their true COM_SOURCE_* identity.
  *
- * Output: bytes from the stdout/console write syscall (and the reused firmware
- * putchar/printf) feed the vendored terminal via its captured stdio driver,
- * applying the firmware's CRLF translation.
+ * Output is the console TX wire: every terminal-bound byte passes through
+ * com_out_chars once — the analog of the firmware's UART TX drain, where the
+ * tap/echo/BEL scan sit — then goes out the captured terminal driver. CRLF
+ * translation happens above, in the pico stdio shim, exactly as the Pico SDK
+ * does above the firmware's com.
  */
 
 #include "sys/com.h"
 #include "sys/ria.h"
 #include "aud/bel.h"
-#include "pico/stdio/driver.h"
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -127,28 +127,32 @@ int com_peekchar(com_source_t src)
 }
 
 /* ------------------------------------------------------------------ */
-/* Console output: the terminal's captured stdio driver                 */
+/* Console output: the TX wire to the terminal                          */
 /* ------------------------------------------------------------------ */
 
-static stdio_driver_t *g_stdio;
+/* The wire to the VGA terminal (the captured stdio driver's out_chars) — the
+ * analog of the firmware's UART/PIX fanout target. The pico stdio shim
+ * registers it when term.c enables its driver. */
+static void (*com_term_out)(const char *buf, int len);
 
-void stdio_set_driver_enabled(stdio_driver_t *driver, bool enabled)
+void com_set_term_out(void (*out_chars)(const char *buf, int len))
 {
-    g_stdio = enabled ? driver : NULL;
+    com_term_out = out_chars;
 }
 
-/* Optional tap on the raw terminal stream (set by tests to capture output). */
-static void (*g_stdout_tap)(const char *buf, int len);
+/* Optional tap on the terminal OUT stream (set by tests to capture output). */
+static void (*com_out_tap)(const char *buf, int len);
 
-void com_set_stdout_tap(void (*tap)(const char *buf, int len))
+void com_set_out_tap(void (*tap)(const char *buf, int len))
 {
-    g_stdout_tap = tap;
+    com_out_tap = tap;
 }
 
-/* Echo/tap/bell processing common to the translated and raw sinks. The bell
- * rings on any BEL in the terminal stream, like the firmware's TX-drain scan
- * (ria/sys/com.c). */
-static void stdout_taps(const char *buf, int len)
+/* The single terminal sink — the analog of the firmware's UART TX drain
+ * (com_uart_drain_tx): every terminal-bound byte passes here exactly once,
+ * after any CRLF translation. The tap, the EMU_ECHO mirror, and the BEL scan
+ * observe the merged stream at this point, like the firmware's drain. */
+void com_out_chars(const char *buf, int len)
 {
     /* Bring-up aid: EMU_ECHO mirrors the terminal stream to the host's stderr
      * so the program's text output is visible without rendering the frame. */
@@ -157,75 +161,14 @@ static void stdout_taps(const char *buf, int len)
         echo = getenv("EMU_ECHO") ? 1 : 0;
     if (echo)
         fwrite(buf, 1, (size_t)len, stderr);
-    if (g_stdout_tap)
-        g_stdout_tap(buf, len);
+    if (com_out_tap)
+        com_out_tap(buf, len);
     if (com_get_bel())
         for (int i = 0; i < len; i++)
             if (buf[i] == '\a')
                 bel_add(&bel_teletype);
-}
-
-void com_stdout_write(const char *buf, int len)
-{
-    static char last;
-    stdout_taps(buf, len);
-    if (!g_stdio || !g_stdio->out_chars)
-        return;
-    /* Replicate pico stdio CRLF translation: a bare '\n' becomes "\r\n". */
-    if (!g_stdio->crlf_enabled)
-    {
-        g_stdio->out_chars(buf, len);
-        return;
-    }
-    char out[2 * 64];
-    int n = 0;
-    for (int i = 0; i < len; i++)
-    {
-        char c = buf[i];
-        if (c == '\n' && last != '\r')
-            out[n++] = '\r';
-        out[n++] = c;
-        last = c;
-        if (n >= (int)sizeof(out) - 1)
-        {
-            g_stdio->out_chars(out, n);
-            n = 0;
-        }
-    }
-    if (n)
-        g_stdio->out_chars(out, n);
-}
-
-void com_stdout_write_raw(const char *buf, int len)
-{
-    stdout_taps(buf, len);
-    if (g_stdio && g_stdio->out_chars)
-        g_stdio->out_chars(buf, len);
-}
-
-/* The reused firmware sources (rln.c) echo input and emit ANSI handshakes via
- * putchar/printf, redirected here by the pico/stdlib.h shim so they reach the
- * same terminal sink as the 6502's stdout syscall. */
-
-int com_term_putchar(int c)
-{
-    char ch = (char)c;
-    com_stdout_write(&ch, 1);
-    return (int)(unsigned char)c;
-}
-
-int com_term_printf(const char *fmt, ...)
-{
-    char buf[1024];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    if (n <= 0)
-        return n;
-    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
-    com_stdout_write(buf, w);
-    return n;
+    if (com_term_out)
+        com_term_out(buf, len);
 }
 
 /* Output side of the shared contract. The terminal sink never backpressures,
@@ -243,7 +186,7 @@ bool com_writable(void)
 
 void com_write(char ch)
 {
-    com_stdout_write_raw(&ch, 1);
+    com_out_chars(&ch, 1);
 }
 
 void com_in_write_reply(const char *s, size_t n)

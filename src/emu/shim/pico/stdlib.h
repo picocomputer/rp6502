@@ -61,31 +61,16 @@ static inline bool time_reached(absolute_time_t t)
     return emu_now_us() >= t;
 }
 
-/* Firmware stdout routing. On the Pico, putchar/printf reach the configured
- * stdio driver (the terminal). Here we send them to the same sink the 6502's
- * stdout syscall uses, so a reused firmware source's echo and ANSI handshake
- * land in term.c rather than the developer's real stdout. */
+/* Firmware stdout/stdin routing. On the Pico, putchar/printf reach the
+ * configured stdio driver (the terminal) through the pico_stdio layer; the
+ * shim's pico/stdio.c is that layer here, so a reused firmware source's echo
+ * and ANSI handshake land in term.c rather than the developer's real stdout. */
 #include <stdio.h>
-
-int com_term_putchar(int c);
-int com_term_printf(const char *fmt, ...);
+#include "pico/stdio.h"
 
 #undef putchar
 #undef printf
-#define putchar(c) com_term_putchar(c)
-#define printf com_term_printf
-
-/* Firmware stdin routing (std_tty_read). On the Pico, stdio_getchar drains
- * the com driver's merged RX; here the com module's rings are that merge. */
-#include "emu/sys/com.h"
-
-#define PICO_ERROR_TIMEOUT (-1)
-
-static inline int stdio_getchar_timeout_us(uint32_t timeout_us)
-{
-    (void)timeout_us;
-    com_source_t src = COM_SOURCE_ANY;
-    return com_getchar(&src);
-}
+#define putchar(c) stdio_putchar(c)
+#define printf stdio_printf
 
 #endif /* _EMU_SHIM_PICO_STDLIB_H_ */

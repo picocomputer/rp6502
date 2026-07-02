@@ -14,7 +14,7 @@ uint8_t xram[0x10000];
 volatile uint8_t *const regs = ram + RIA_WINDOW_LO;
 
 uint8_t xstack[XSTACK_SIZE + 1];
-size_t xstack_ptr = XSTACK_SIZE;
+volatile size_t xstack_ptr = XSTACK_SIZE;
 
 /* XRAM write-notify ring (ria/sys/mem.c): windowed writes to the active audio
  * device's page are recorded here for its sample handler to drain. */

@@ -8,7 +8,8 @@
 #define _RIA_API_API_H_
 
 /* The API driver manages function calls from the 6502.
- * This header includes helpers for API implementations.
+ * Op latching and dispatch live in main.c; this header holds the
+ * fastcall registers and helpers for API implementations.
  */
 
 #include <stddef.h>
@@ -20,9 +21,7 @@
 /* Main events
  */
 
-void api_task(void);
 void api_run(void);
-void api_stop(void);
 
 typedef enum
 {

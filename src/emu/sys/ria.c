@@ -457,12 +457,11 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     switch (addr & 0x1F)
     {
     case 0x01: /* UART TX: emit the byte; TX is always ready (bit7). */
-    {
-        char c = (char)data;
-        com_stdout_write(&c, 1);
+        /* Raw, like hardware: $FFE1 bypasses the SDK's CRLF translation, so a
+         * bare '\n' stair-steps on the terminal. */
+        com_write((char)data);
         regs[0x00] |= RIA_UART_TX_READY;
         return;
-    }
     case 0x04: /* RW0 */
         rw_write(0, data);
         return;

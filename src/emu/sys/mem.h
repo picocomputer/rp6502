@@ -46,10 +46,11 @@ extern volatile uint8_t *const regs;
 #define REGSW(addr) (*(uint16_t *)&REGS(addr))
 extern uint8_t xram[0x10000];
 
-/* xstack: 512 bytes top-down + 1 guard zero byte. Empty when ptr == SIZE. */
+/* xstack: 512 bytes top-down + 1 guard zero byte. Empty when ptr == SIZE.
+ * volatile matches the firmware contract (core1 writes it there). */
 #define XSTACK_SIZE 0x200
 extern uint8_t xstack[XSTACK_SIZE + 1];
-extern size_t xstack_ptr;
+extern volatile size_t xstack_ptr;
 
 /* XRAM write-notify ring (mirrors ria/sys/mem.h). A windowed XRAM write whose
  * page matches xram_queue_page records (low byte, value) here; the active

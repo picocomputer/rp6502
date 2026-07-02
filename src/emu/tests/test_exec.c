@@ -58,9 +58,9 @@ UTEST(exec, reexecs_self_with_arg)
     fs_host_to_msc(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
     pro_set_argv0(msc);
 
-    com_set_stdout_tap(tap);
+    com_set_out_tap(tap);
     run_frames(90); /* first run -> exec -> second run -> exit */
-    com_set_stdout_tap(NULL);
+    com_set_out_tap(NULL);
 
     ASSERT_TRUE(emu_cpu_halted);
     ASSERT_EQ(emu_exit_code, 0);
