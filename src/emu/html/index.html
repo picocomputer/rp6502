@@ -234,7 +234,7 @@
       var container = params.get('container') || sanitize(roms[0]);
       var mount = '/msc/' + container;
 
-      var args = ['--fs', mount]; // mount MSC0: on the per-game IDBFS dir (no chroot)
+      var args = [];
       cachePaths.forEach(function (p) { args.push('--rom', p); });
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
@@ -255,6 +255,7 @@
           // any persisted data before main runs (gated by a run dependency).
           try { M.FS.mkdirTree(mount); } catch (e) {}
           M.FS.mount(M.IDBFS, {}, mount);
+          M.FS.chdir(mount); // MSC0: is the process cwd, so saves land here
           M.addRunDependency('idbfs-load');
           M.FS.syncfs(true, function (err) {
             if (err) console.error('syncfs(true)', err);

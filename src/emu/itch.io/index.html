@@ -94,7 +94,7 @@
 
       var base = baseName(CONFIG.rom);
       var mount = '/msc/' + sanitize(CONFIG.rom);  // per-program save storage
-      var args = ['--fs', mount, '--rom', '/' + base];
+      var args = ['--rom', '/' + base];
       if (hasBg) args.push('--bgcolor', bg);
       if (hasFilter) args.push('--filter', filter);
 
@@ -109,6 +109,7 @@
           // persisted data before main runs (gated by a run dependency).
           try { M.FS.mkdirTree(mount); } catch (e) {}
           M.FS.mount(M.IDBFS, {}, mount);
+          M.FS.chdir(mount); // MSC0: is the process cwd, so saves land here
           M.addRunDependency('idbfs');
           M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
           // Fetch the program into MEMFS (never written back to IndexedDB, so
