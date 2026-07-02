@@ -48,7 +48,7 @@ extern "C"
 #include "ui/ui_audio.h"
 #define CHIPS_UTIL_IMPL           /* emit m6502dasm_op (the disassembler ui_dbg calls) */
 #include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
-#include "ui/ui_dasm.h"           /* after w65c02dasm.h: its impl calls m6502dasm_op */
+#include "emu/chips/ui_dasm.h"    /* our fork of ui/ui_dasm.h: 65C02 jump arrows; after w65c02dasm.h (impl calls m6502dasm_op) */
 #include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
 #include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
 #include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
@@ -674,7 +674,7 @@ void dbgui_init(void)
      * window follows execution; this one navigates anywhere, following jumps). */
     ui_dasm_desc_t dsd{};
     dsd.title = "Disassembly Browser";
-    dsd.layers[0] = "CPU";
+    dsd.layers[0] = "RAM";
     dsd.cpu_type = UI_DASM_CPUTYPE_M6502;
     dsd.start_addr = 0x0200; /* the RP6502 program org */
     dsd.read_cb = mem_read;
