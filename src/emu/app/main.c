@@ -40,7 +40,7 @@
 #include "emu/dbg/dbgui.h" /* dbgui_set_config_file (--ini) */
 #endif
 
-static uint32_t g_fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
+static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 /* Queue scripted keystrokes onto the keyboard input stream. Newlines become
  * carriage returns so the line editor treats them as Enter. Bytes wait in the

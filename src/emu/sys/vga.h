@@ -43,6 +43,11 @@ void vga_task(void);
 void vga_render_scanline(int y);
 void emu_canvas_size(int *w, int *h);
 
+/* The largest canvas (the 640x480 boot console); framebuffer owners size
+ * their storage with these. */
+#define VGA_MAX_WIDTH 640
+#define VGA_MAX_HEIGHT 480
+
 /* Register the app-owned framebuffer the scanlines render into (RGBA8, canvas
  * stride; must hold the largest canvas). NULL skips pixel work. */
 void vga_set_framebuffer(uint32_t *fb);

@@ -11,7 +11,6 @@
  * and the snd.c per-frame pump feeding the native-rate ring.
  */
 
-#include "emu/app/window.h"
 #include "emu/aud/aud.h"
 #include "emu/aud/snd.h"
 #include "emu/mon/rom.h"
@@ -99,7 +98,7 @@ UTEST(furelise, reset_silences)
  * must re-load the high half, not leave 0x80-0xFF blank ("F r Elise"). */
 UTEST(furelise, umlaut_renders)
 {
-    static uint32_t fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
+    static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
     ASSERT_TRUE(emu_rom_load(FURELISE_ROM));
     emu_init();
     vga_set_framebuffer(fb);
@@ -112,7 +111,7 @@ UTEST(furelise, umlaut_renders)
     for (int col = 0; col < 3; col++)
         for (int y = 0; y < 16; y++)
             for (int x = 0; x < 8; x++)
-                if ((fb[y * EMU_FB_WIDTH + col * 8 + x] & 0x00FFFFFFu) != 0)
+                if ((fb[y * VGA_MAX_WIDTH + col * 8 + x] & 0x00FFFFFFu) != 0)
                     lit[col]++;
 
     ASSERT_GT(lit[0], 0); /* 'F' drew (sanity: text is rendering) */

@@ -142,7 +142,7 @@ static struct
 
 /* The window's framebuffer: vga renders scanlines into it, frame_cb uploads it
  * to the streaming texture. */
-static uint32_t win_fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
+static uint32_t win_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 /* Mouse sensitivity: host motion is converted to canvas pixels (so it's
  * window-scale independent) then multiplied by this. 2 makes paint, whose
@@ -748,7 +748,7 @@ int emu_run_window(double scale, bool vsync, bool exit_on_halt)
      * — init_cb sets the aspect hint and the quad letterboxes either way. */
     int cw, ch;
     emu_canvas_size(&cw, &ch);
-    int canvas_h = (int)(EMU_FB_HEIGHT * app.scale + 0.5);
+    int canvas_h = (int)(VGA_MAX_HEIGHT * app.scale + 0.5);
     int win_w = (int)((long)canvas_h * cw / ch);
     int win_h = canvas_h;
 #ifdef EMU_WITH_DEBUGGER

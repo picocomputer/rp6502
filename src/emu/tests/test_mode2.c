@@ -11,7 +11,6 @@
  */
 
 #include "emu/hid/kbd.h"
-#include "emu/app/window.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
@@ -19,7 +18,7 @@
 #include "term/color.h"
 #include "utest.h"
 
-static uint32_t fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
+static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 /* Same RGB555(+alpha) -> RGBA8 conversion vga.c builds its LUT with. */
 static uint32_t to_rgba(uint16_t p)

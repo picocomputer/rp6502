@@ -20,11 +20,6 @@
 #include "scanvideo/scanvideo.h"
 #include <string.h>
 
-/* The largest canvas (the 640x480 boot console); registered framebuffers must
- * hold it, and the per-scanline plane staging is sized by it. */
-#define VGA_MAX_WIDTH 640
-#define VGA_MAX_HEIGHT 480
-
 /* Current canvas geometry. The boot console is 640x480. */
 static int16_t g_canvas_w = VGA_MAX_WIDTH;
 static int16_t g_canvas_h = VGA_MAX_HEIGHT;
@@ -216,7 +211,7 @@ void vga_task(void)
     term_task();
 }
 
-/* Current canvas pixel size (≤ EMU_FB_WIDTH x EMU_FB_HEIGHT). The presentation
+/* Current canvas pixel size (≤ VGA_MAX_WIDTH x VGA_MAX_HEIGHT). The presentation
  * layer reads this to size its texture and scale the canvas to the display. */
 void emu_canvas_size(int *w, int *h)
 {

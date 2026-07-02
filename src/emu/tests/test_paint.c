@@ -12,7 +12,6 @@
  * mou.c XRAM mirror. This is the emulator's only IRQ-driven test.
  */
 
-#include "emu/app/window.h"
 #include "emu/hid/mou.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
@@ -21,7 +20,7 @@
 #include "emu/sys/via.h"
 #include "utest.h"
 
-static uint32_t fb[EMU_FB_WIDTH * EMU_FB_HEIGHT];
+static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 static uint32_t frame_crc(void)
 {
