@@ -11,7 +11,7 @@ static const char EMU_CREDITS[] =
     "Picocomputer 6502 emulator - credits and third-party notices\n"
     "============================================================\n"
     "\n"
-    "  RP6502                       BSD-3   (c) 2026 Rumbledethumps;\n"
+    "  RP6502                       BSD-3   (c) 2026 Rumbledethumps\n"
     "  Pi Pico SDK                  BSD-3   (c) 2020 Raspberry Pi (Trading) Ltd.\n"
     "  floooh/chips                 zlib    (c) 2018 Andre Weissflog\n"
 #ifdef EMU_WITH_SOKOL
@@ -19,7 +19,7 @@ static const char EMU_CREDITS[] =
 #endif
     "  emu8950 (OPL audio)          MIT     (c) 2001-2020 Mitsutaka Okazaki;\n"
     "                                       (c) 2021-2022 Graham Sanderson\n"
-    "  FatFs (ffunicode.c), ChaN    FatFs   (c) 2025 ChaN\n"
+    "  FatFs, ChaN                  FatFs   (c) 2025 ChaN\n"
 #ifdef EMU_WITH_DEBUGGER
     "  Dear ImGui                   MIT     (c) 2014-2026 Omar Cornut\n"
     "  cppdap                       Apache  (c) 2019 Google LLC\n"
@@ -110,7 +110,7 @@ static const char EMU_CREDITS[] =
     "\n"
 #endif
     "------------------------------------------------------------\n"
-    "FatFs License  (ffunicode.c)\n"
+    "FatFs License\n"
     "------------------------------------------------------------\n"
     "Copyright (C) 2025, ChaN, all right reserved. FatFs is open source software.\n"
     "Redistribution and use in source and binary forms, with or without\n"
@@ -119,6 +119,3 @@ static const char EMU_CREDITS[] =
     "software is provided by the copyright holder and contributors \"AS IS\" and any\n"
     "warranties related to this software are DISCLAIMED. Binary redistribution\n"
     "needs no documentation notice.\n";
-
-#undef EMU_CREDITS_STR
-#undef EMU_CREDITS_STR2
