@@ -23,6 +23,10 @@ extern "C"
  * stopped. Call once, after emu_init(). */
 void dap_start(void);
 
+/* ROM argv[1..] used when a launch request carries no args of its own.
+ * Call before dap_start. */
+void dap_set_default_args(int argc, char **argv);
+
 /* Main-thread service: apply queued DAP requests against the dbg engine and the
  * machine, and emit the launch-sequence / termination events. Call once per
  * frame from the window loop. */

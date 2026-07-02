@@ -110,6 +110,8 @@ static int run_dap(const options *o)
         }
     }
 
+    if (o->rom_args)
+        dap_set_default_args(o->n_rom_args, o->rom_args);
     dap_start(); /* DAP on stdin/stdout; emu_run_window pumps it each frame */
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on
      * exit, the window closes on Disconnect), so the window is held (never
@@ -164,12 +166,7 @@ int main(int argc, char **argv)
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
-    {
-        if (o.rom_args)
-            fprintf(stderr, "rp6502-emu: --dap ignores ROM args after --; "
-                            "use \"args\" in the launch request\n");
         return run_dap(&o);
-    }
 #else
     if (o.dap)
     {

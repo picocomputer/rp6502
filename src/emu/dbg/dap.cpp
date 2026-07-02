@@ -188,6 +188,7 @@ bool g_stop_on_entry = false;
 bool g_stop_on_exit = true; /* present program exit as a stop, not a terminate */
 bool g_terminated = false;
 bool g_term_sent = false; /* a TerminatedEvent has gone out; don't repeat it at teardown */
+std::vector<std::string> g_default_args; /* ROM argv[1..] for launch requests that carry none */
 
 void post(std::function<void()> fn)
 {
@@ -539,6 +540,11 @@ std::vector<dap::Variable> expand_node(VarNode n)
 
 } // namespace
 
+extern "C" void dap_set_default_args(int argc, char **argv)
+{
+    g_default_args.assign(argv, argv + argc);
+}
+
 extern "C" void dap_start(void)
 {
     dbg_set_stopped_cb(on_stopped);
@@ -567,6 +573,8 @@ extern "C" void dap_start(void)
     g_session->registerHandler([](const dap::RP6502LaunchRequest &req) {
         std::string program = req.program.value("");
         std::vector<std::string> args = req.args.value({});
+        if (args.empty())
+            args = g_default_args;
         std::string elf = req.elf.value("");
         std::string dbg = req.dbg.value("");
         bool soe = req.stopOnEntry.value(false);
