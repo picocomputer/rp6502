@@ -25,7 +25,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/xreg.c
     ${RP6502_SRC}/emu/host/dir.c
     ${RP6502_SRC}/emu/host/posixdir.c
-    ${RP6502_SRC}/emu/host/fs.c
+    ${RP6502_SRC}/emu/host/msc.c
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/host/png.c
@@ -54,7 +54,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/ria/api/dir.c
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/api/api.c
-    ${RP6502_SRC}/emu/usb/msc.c
+    ${RP6502_SRC}/emu/host/fat.c
     ${RP6502_SRC}/vga/term/term.c
     ${RP6502_SRC}/vga/term/font.c
     ${RP6502_SRC}/vga/term/color.c

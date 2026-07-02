@@ -14,7 +14,7 @@
  * record's CRC is verified (CRC-32/ISO-HDLC, i.e. zlib).
  */
 
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
@@ -42,7 +42,7 @@
  * memory: a "ROM:name" open scans the directory in the file for the entry, like
  * the firmware's rom_find_asset, then reads it on demand. A new program replaces
  * these; the MSC0: drive beside them is untouched. */
-static char g_rom_src[FS_HOST_MAX_PATH];
+static char g_rom_src[HOST_MSC_MAX_PATH];
 static size_t g_rom_assets_start;
 
 /* the loader's text-line reader + hex-field parser, defined below */
@@ -171,7 +171,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
     int fd = open(hostpath, O_RDONLY);
     if (fd < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return -1;
     }
     int des = 0;
@@ -239,7 +239,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
             w->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_read(&w->cb) != 0)
             {
-                *err = host_errno_to_api_errno(errno);
+                *err = host_msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             w->aio_active = true;
@@ -252,7 +252,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         ssize_t r = aio_return(&w->cb);
         if (r < 0)
         {
-            *err = host_errno_to_api_errno(e);
+            *err = host_msc_errno_to_api_errno(e);
             return STD_ERROR;
         }
         w->pos += (size_t)r;
@@ -263,7 +263,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
     ssize_t r = pread(w->fd, buf, want, (off_t)(w->base + w->pos));
     if (r < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     w->pos += (size_t)r;
@@ -420,7 +420,7 @@ static long fgets_line(FILE *f, char *line, size_t cap)
 
 bool emu_rom_load(const char *path)
 {
-    char host[FS_HOST_MAX_PATH];
+    char host[HOST_MSC_MAX_PATH];
     if (!fs_resolve_rom(path, host, sizeof(host)))
     {
         fprintf(stderr, "rp6502-emu: cannot resolve ROM '%s'\n", path);

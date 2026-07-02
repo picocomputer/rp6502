@@ -8,7 +8,7 @@
  * the CPU and the video are paced by the same reproducible time base.
  */
 
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
@@ -30,7 +30,7 @@
  * consistent. emu_exec() captures the ROM path (resolved by emu_rom_load) and
  * stops the current program. */
 static bool exec_pending;
-static char exec_path[FS_HOST_MAX_PATH];
+static char exec_path[HOST_MSC_MAX_PATH];
 
 void emu_exec(const char *rom_path)
 {

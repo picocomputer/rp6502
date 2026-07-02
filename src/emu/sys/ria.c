@@ -205,7 +205,7 @@ static api_op_fn api_ops[0x40] = {
 };
 
 /* Swap the dir op slots: the firmware's own dir_api_* (over the RAM FatFs) when
- * fat, else the emu's host handlers. Called by the drive lifecycle (usb/msc.c). */
+ * fat, else the emu's host handlers. Called by the drive lifecycle (host/fat.c). */
 void emu_dir_ops_set(bool fat)
 {
     static const struct

@@ -8,8 +8,8 @@
  * family, free space, unlink/rename/mkdir/chmod/utime/label, the cwd — each
  * doing the POSIX work and pushing the FatFs FILINFO the 6502 reads. The OP
  * dispatcher installs them for the default host drive and swaps in the real
- * firmware dir_api_* (ria/api/dir.c) on --tmpdrive. Path addressing is fs.c's
- * (emu/host/fs.h).
+ * firmware dir_api_* (ria/api/dir.c) on --tmpdrive. Path addressing is msc.c's
+ * (emu/host/msc.h).
  */
 
 #ifndef _EMU_HOST_DIR_H_

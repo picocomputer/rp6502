@@ -22,8 +22,8 @@
 #include "emu/host/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/fs.h"
-#include "emu/usb/msc.h"
+#include "emu/host/msc.h"
+#include "emu/host/fat.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
@@ -150,7 +150,7 @@ int main(int argc, char **argv)
      * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
      * (isolation). This locates the drive, so it comes from the command line,
      * not the ROM's asset args. */
-    if (o.tmpdrive && !emu_ramdrive_mount())
+    if (o.tmpdrive && !host_fat_mount())
     {
         fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;
@@ -202,14 +202,14 @@ int main(int argc, char **argv)
     /* argv[0] is the program's own path (in MSC0: form) so it can re-exec
      * itself; later argv paths from EXEC are resolved the same way. A drive path
      * or an installed ":name" is already in 6502 form; a host path maps back. */
-    if (fs_has_drive_prefix(rom) || rom[0] == ':')
+    if (host_msc_has_drive_prefix(rom) || rom[0] == ':')
         pro_set_argv0(rom);
     else
     {
-        char abs[FS_HOST_MAX_PATH], msc[FS_HOST_MAX_PATH];
+        char abs[HOST_MSC_MAX_PATH], msc[HOST_MSC_MAX_PATH];
         if (realpath(rom, abs))
         {
-            fs_host_to_msc(abs, msc, sizeof(msc));
+            host_msc_from_host(abs, msc, sizeof(msc));
             pro_set_argv0(msc);
         }
         else

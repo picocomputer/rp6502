@@ -16,7 +16,7 @@
  */
 
 #include "emu/api/pro.h"
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"
@@ -31,8 +31,8 @@ static uint8_t pro_argv[XSTACK_SIZE];
 /* Launcher chain (firmware pro.c): pro_running_path is argv[0] of the program
  * running now; pro_launcher_path is the ROM to re-run when a program exits.
  * pro_exit_code holds the last exit code for the EXIT_CODE attribute. */
-static char pro_running_path[FS_HOST_MAX_PATH];
-static char pro_launcher_path[FS_HOST_MAX_PATH];
+static char pro_running_path[HOST_MSC_MAX_PATH];
+static char pro_launcher_path[HOST_MSC_MAX_PATH];
 static int16_t pro_exit_code;
 
 static uint16_t pro_argv_count(void)
@@ -177,7 +177,7 @@ bool pro_exit(int16_t exit_code)
     }
     /* Build the relaunch argv from a copy: pro_argv_append overwrites pro_argv,
      * and the launcher path must survive to seed pro_running_path on reload. */
-    char path[FS_HOST_MAX_PATH];
+    char path[HOST_MSC_MAX_PATH];
     snprintf(path, sizeof path, "%s", pro_launcher_path);
     pro_argv_clear();
     pro_argv_append(path);

@@ -12,7 +12,7 @@
  */
 
 #include "emu/api/std.h"
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -45,7 +45,7 @@ static void host_persist(void) {}
  * into XRAM); synchronous otherwise — headless/tests stay deterministic and the
  * web build (no aio) uses the instant in-RAM MEMFS. */
 static bool g_async;
-void host_set_async(bool on) { g_async = on; }
+void host_msc_set_async(bool on) { g_async = on; }
 
 /* An open host file: a plain fd, flagged once it is written so the drive is
  * persisted when it closes. Under g_async a single in-flight aiocb carries the
@@ -88,7 +88,7 @@ static int flags_to_posix(uint8_t flags)
 /* Drop a recognized writable-drive prefix. FatFs recognizes only "0:".."9:" and
  * "MSC0:".."MSC9:" (case-insensitive); anything else keeps its prefix and is
  * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
-const char *fs_strip_drive(const char *path)
+const char *host_msc_strip_drive(const char *path)
 {
     const char *colon = strchr(path, ':');
     if (!colon || colon == path)
@@ -100,9 +100,9 @@ const char *fs_strip_drive(const char *path)
     return is_drive ? colon + 1 : path;
 }
 
-bool fs_has_drive_prefix(const char *path)
+bool host_msc_has_drive_prefix(const char *path)
 {
-    return fs_strip_drive(path) != path;
+    return host_msc_strip_drive(path) != path;
 }
 
 /* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
@@ -124,9 +124,9 @@ static bool msc_to_host(const char *rest, char *host, size_t hsz)
     return true;
 }
 
-bool fs_to_host(const char *path, char *host, size_t hsz)
+bool host_msc_to_host(const char *path, char *host, size_t hsz)
 {
-    const char *rest = fs_strip_drive(path);
+    const char *rest = host_msc_strip_drive(path);
     /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
      * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
      * file; the boot/exec loader reaches installs via fs_resolve_rom instead. */
@@ -142,7 +142,7 @@ bool fs_to_host(const char *path, char *host, size_t hsz)
  * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
  * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
  * path — getcwd is full-path-or-error). Used for argv[0] and getcwd. */
-size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz)
+size_t host_msc_from_host(const char *hostpath, char *out, size_t outsz)
 {
     int w;
     if (isalpha((unsigned char)hostpath[0]) && hostpath[1] == ':')
@@ -155,7 +155,7 @@ size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz)
 }
 
 /* The fs backends report failures by setting POSIX errno; translate to the 6502 set. */
-api_errno host_errno_to_api_errno(int host_errno)
+api_errno host_msc_errno_to_api_errno(int host_errno)
 {
     switch (host_errno)
     {
@@ -197,24 +197,24 @@ api_errno host_errno_to_api_errno(int host_errno)
     }
 }
 
-bool host_std_handles(const char *path)
+bool host_msc_std_handles(const char *path)
 {
     (void)path;
     return true; /* catch-all, registered last */
 }
 
-int host_std_open(const char *path, uint8_t flags, api_errno *err)
+int host_msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    char host[FS_HOST_MAX_PATH];
-    if (!fs_to_host(path, host, sizeof(host)))
+    char host[HOST_MSC_MAX_PATH];
+    if (!host_msc_to_host(path, host, sizeof(host)))
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return -1;
     }
     int fd = open(host, flags_to_posix(flags), 0666);
     if (fd < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return -1;
     }
     int des = 0;
@@ -233,7 +233,7 @@ int host_std_open(const char *path, uint8_t flags, api_errno *err)
     return des;
 }
 
-std_rw_result host_std_close(int desc, api_errno *err)
+std_rw_result host_msc_std_close(int desc, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -261,7 +261,7 @@ std_rw_result host_std_close(int desc, api_errno *err)
     return STD_OK;
 }
 
-std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
+std_rw_result host_msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     *got = 0;
@@ -278,7 +278,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
             off_t off = lseek(f->fd, 0, SEEK_CUR);
             if (off < 0)
             {
-                *err = host_errno_to_api_errno(errno);
+                *err = host_msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             memset(&f->cb, 0, sizeof(f->cb));
@@ -289,7 +289,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
             f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_read(&f->cb) != 0)
             {
-                *err = host_errno_to_api_errno(errno);
+                *err = host_msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             f->aio_active = true;
@@ -302,7 +302,7 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
         ssize_t r = aio_return(&f->cb);
         if (r < 0)
         {
-            *err = host_errno_to_api_errno(e);
+            *err = host_msc_errno_to_api_errno(e);
             return STD_ERROR;
         }
         if (r > 0)
@@ -314,14 +314,14 @@ std_rw_result host_std_read(int desc, char *buf, uint32_t count, uint32_t *got, 
     ssize_t r = read(f->fd, buf, count);
     if (r < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     *got = (uint32_t)r;
     return STD_OK;
 }
 
-std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
+std_rw_result host_msc_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     *put = 0;
@@ -338,7 +338,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
             off_t off = lseek(f->fd, 0, SEEK_CUR);
             if (off < 0)
             {
-                *err = host_errno_to_api_errno(errno);
+                *err = host_msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             memset(&f->cb, 0, sizeof(f->cb));
@@ -349,7 +349,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
             f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_write(&f->cb) != 0)
             {
-                *err = host_errno_to_api_errno(errno);
+                *err = host_msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             f->aio_active = true;
@@ -362,7 +362,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
         ssize_t r = aio_return(&f->cb);
         if (r < 0)
         {
-            *err = host_errno_to_api_errno(e);
+            *err = host_msc_errno_to_api_errno(e);
             return STD_ERROR;
         }
         f->wrote = true;
@@ -375,7 +375,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
     ssize_t r = write(f->fd, buf, count);
     if (r < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     f->wrote = true;
@@ -383,7 +383,7 @@ std_rw_result host_std_write(int desc, const char *buf, uint32_t count, uint32_t
     return STD_OK;
 }
 
-int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
+int host_msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -397,7 +397,7 @@ int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno
     off_t cur = lseek(f->fd, 0, SEEK_CUR);
     if (cur < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return -1;
     }
     off_t base;
@@ -411,7 +411,7 @@ int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno
         lseek(f->fd, cur, SEEK_SET);
         if (base < 0)
         {
-            *err = host_errno_to_api_errno(errno);
+            *err = host_msc_errno_to_api_errno(errno);
             return -1;
         }
     }
@@ -434,14 +434,14 @@ int host_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno
     off_t np = lseek(f->fd, target, SEEK_SET);
     if (np < 0)
     {
-        *err = host_errno_to_api_errno(errno);
+        *err = host_msc_errno_to_api_errno(errno);
         return -1;
     }
     *pos = (int32_t)np;
     return 0;
 }
 
-std_rw_result host_std_sync(int desc, api_errno *err)
+std_rw_result host_msc_std_sync(int desc, api_errno *err)
 {
     (void)desc, (void)err;
     host_persist();

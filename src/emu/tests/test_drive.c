@@ -17,9 +17,9 @@
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include "emu/sys/mem.h"
-#include "emu/usb/msc.h"
+#include "emu/host/fat.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -40,7 +40,7 @@ static bool fresh(void)
 {
     char tmpl[] = "/tmp/drive_test_XXXXXX";
     const char *d = mkdtemp(tmpl);
-    char resolved[FS_HOST_MAX_PATH];
+    char resolved[HOST_MSC_MAX_PATH];
     if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
@@ -73,13 +73,13 @@ UTEST(drive, install_resolve_and_load)
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
-    char second[FS_HOST_MAX_PATH];
+    char second[HOST_MSC_MAX_PATH];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
     ASSERT_TRUE(fs_install_rom(second));
 
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
-    char host[FS_HOST_MAX_PATH];
+    char host[HOST_MSC_MAX_PATH];
     ASSERT_TRUE(fs_resolve_rom(":adventure.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, ADVENTURE_ROM);
     ASSERT_TRUE(fs_resolve_rom(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
@@ -145,7 +145,7 @@ UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
+    char cwd[HOST_MSC_MAX_PATH], expect[HOST_MSC_MAX_PATH];
     host_dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
@@ -198,8 +198,8 @@ UTEST(drive, mount_transparent_no_chroot)
 UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
     std_stop();
-    ASSERT_TRUE(emu_ramdrive_mount());
-    ASSERT_TRUE(emu_fat_active()); /* the 6502 syscalls now route to the RAM FatFs */
+    ASSERT_TRUE(host_fat_mount());
+    ASSERT_TRUE(host_fat_active()); /* the 6502 syscalls now route to the RAM FatFs */
 
     /* getcwd reports the FatFs volume root, not a host path. */
     char cwd[64];
@@ -226,11 +226,11 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     ssys_close(f);
 
     /* Deactivate the FatFs backend so later tests use the host filesystem. */
-    emu_ramdrive_unmount();
+    host_fat_unmount();
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (host_set_async): the driver submits the transfer and returns STD_PENDING
+ * (host_msc_set_async): the driver submits the transfer and returns STD_PENDING
  * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
  * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
  * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
@@ -267,9 +267,9 @@ static void async_aio_body(int *utest_result)
 UTEST(drive, async_aio_transfer)
 {
     ASSERT_TRUE(fresh());
-    host_set_async(true);
+    host_msc_set_async(true);
     async_aio_body(utest_result);
-    host_set_async(false); /* leave the suite in sync mode for the other tests */
+    host_msc_set_async(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()

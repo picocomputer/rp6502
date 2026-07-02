@@ -14,7 +14,7 @@
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "utest.h"
@@ -35,7 +35,7 @@ static bool fresh_cwd(void)
 {
     char tmpl[] = "/tmp/msc0_test_XXXXXX";
     const char *d = mkdtemp(tmpl);
-    char resolved[FS_HOST_MAX_PATH]; /* realpath needs a PATH_MAX buffer */
+    char resolved[HOST_MSC_MAX_PATH]; /* realpath needs a PATH_MAX buffer */
     if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
@@ -90,7 +90,7 @@ UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
 
-    char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
+    char cwd[HOST_MSC_MAX_PATH], expect[HOST_MSC_MAX_PATH];
     host_dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
@@ -130,7 +130,7 @@ UTEST(fs, no_chroot_clamp)
     dsys_path("sub");
     host_dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    char cwd[FS_HOST_MAX_PATH], expect[FS_HOST_MAX_PATH];
+    char cwd[HOST_MSC_MAX_PATH], expect[HOST_MSC_MAX_PATH];
     host_dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
@@ -158,18 +158,18 @@ UTEST(fs, no_chroot_clamp)
  * (absolute from the OS root); the Windows //C/ form names an explicit drive. */
 UTEST(fs, path_translation)
 {
-    char host[FS_HOST_MAX_PATH], msc[FS_HOST_MAX_PATH];
+    char host[HOST_MSC_MAX_PATH], msc[HOST_MSC_MAX_PATH];
 
-    ASSERT_TRUE(fs_to_host("MSC0:/sub/file", host, sizeof(host)));
+    ASSERT_TRUE(host_msc_to_host("MSC0:/sub/file", host, sizeof(host)));
     ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(fs_to_host("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
+    ASSERT_TRUE(host_msc_to_host("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
     ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(fs_to_host("MSC0://C/Users/Homey", host, sizeof(host)));
+    ASSERT_TRUE(host_msc_to_host("MSC0://C/Users/Homey", host, sizeof(host)));
     ASSERT_STREQ(host, "C:/Users/Homey");
 
-    fs_host_to_msc("/sub/file", msc, sizeof(msc));
+    host_msc_from_host("/sub/file", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0:/sub/file");
-    fs_host_to_msc("C:/Users/Homey", msc, sizeof(msc));
+    host_msc_from_host("C:/Users/Homey", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0://C/Users/Homey"); /* another drive keeps //C/ */
 }
 

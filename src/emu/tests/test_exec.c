@@ -13,7 +13,7 @@
 #include "emu/api/pro.h"
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
-#include "emu/host/fs.h"
+#include "emu/host/msc.h"
 #include "emu/sys/sys.h"
 #include "utest.h"
 #include <stdlib.h>
@@ -47,14 +47,14 @@ UTEST(exec, reexecs_self_with_arg)
      * program can re-exec itself. chdir into the ROM's directory (like launching
      * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
      * MSC0: path and round-trips through the exec resolver. */
-    char abs[FS_HOST_MAX_PATH], msc[FS_HOST_MAX_PATH], dir[FS_HOST_MAX_PATH];
+    char abs[HOST_MSC_MAX_PATH], msc[HOST_MSC_MAX_PATH], dir[HOST_MSC_MAX_PATH];
     ASSERT_TRUE(realpath(EXEC_ROM, abs) != NULL);
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
     ASSERT_TRUE(chdir(dir) == 0);
-    fs_host_to_msc(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
+    host_msc_from_host(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
     pro_set_argv0(msc);
 
     com_set_tx_tap(tap);

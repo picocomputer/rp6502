@@ -10,8 +10,8 @@
  * SHARED ria/api/fat.c driver over the RAM disk — the same code as the firmware.
  */
 
-#ifndef _EMU_USB_MSC_H_
-#define _EMU_USB_MSC_H_
+#ifndef _EMU_HOST_FAT_H_
+#define _EMU_HOST_FAT_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -22,17 +22,17 @@ extern "C"
 {
 #endif
 
-void emu_ramdisk_reset(void);    /* wipe the RAM disk to an unformatted state */
-bool emu_ramdrive_mount(void);   /* --tmpdrive: format + mount a fresh RAM FatFs, make it the backend */
-void emu_ramdrive_unmount(void); /* restore the native host backend (tests; the drive is session-lived otherwise) */
-bool emu_fat_active(void);       /* true once the FatFs backend is the active MSC0: drive */
+void host_fat_disk_reset(void);    /* wipe the RAM disk to an unformatted state */
+bool host_fat_mount(void);   /* --tmpdrive: format + mount a fresh RAM FatFs, make it the backend */
+void host_fat_unmount(void); /* restore the native host backend (tests; the drive is session-lived otherwise) */
+bool host_fat_active(void);       /* true once the FatFs backend is the active MSC0: drive */
 
 /* The FatFs backend runs the SHARED ria/api/fat.c file driver (fat_std_*), listed
- * in std.c's table and gated on emu_fat_active(); the dir syscalls run the
+ * in std.c's table and gated on host_fat_active(); the dir syscalls run the
  * firmware's dir_api_* (ria/api/dir.c), swapped in via emu_dir_ops_set(). */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_USB_MSC_H_ */
+#endif /* _EMU_HOST_FAT_H_ */
