@@ -263,18 +263,18 @@
             I.getDB = function (name, cb) {
               return getDB(name === '/db' ? dbname : name, cb);
             };
-            // Store keys mount-relative ('/save.dat', not '/db/save.dat') so
+            // Store keys mount-relative ('save.dat', not '/db/save.dat') so
             // the database doesn't bake in the mountpoint. IDBFS uses one
             // string as both VFS path and database key, so translate on the
             // remote side only: prepend on the way out, strip on the way in.
-            var strip = function (p) { return p.slice('/db'.length); };
+            var strip = function (p) { return p.slice('/db/'.length); };
             var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
             var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
             I.getRemoteSet = function (mount, cb) {
               grs(mount, function (err, remote) {
                 if (remote && remote.entries) {
                   var entries = {};
-                  for (var k in remote.entries) entries['/db' + k] = remote.entries[k];
+                  for (var k in remote.entries) entries['/db/' + k] = remote.entries[k];
                   remote.entries = entries;
                 }
                 cb(err, remote);
