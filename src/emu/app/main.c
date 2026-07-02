@@ -22,7 +22,6 @@
 #include "emu/host/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/msc.h"
 #include "emu/host/fat.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
@@ -33,7 +32,6 @@
 #include "emu/app/credits.h"
 #include "sys/com.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER
 #include "emu/dbg/dap.h"
@@ -69,7 +67,7 @@ static void merge_rom_args(options *o, int argc, char **argv)
     options merged;
     options_init(&merged);
     if (parse_args(rom_argc, rom_argv, &merged))
-        fprintf(stderr, "rp6502-emu: ignoring the rest of the ROM 'emulator' args after a bad token\n");
+        fprintf(stderr, "rp6502-emu: ignoring the rest of the ROM 'emulator' options after a bad token\n");
     parse_args(argc, argv, &merged); /* the command line wins */
 
     /* The drive/rom selection was already acted on from the command-line pass;
@@ -166,7 +164,12 @@ int main(int argc, char **argv)
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
+    {
+        if (o.rom_args)
+            fprintf(stderr, "rp6502-emu: --dap ignores ROM args after --; "
+                            "use \"args\" in the launch request\n");
         return run_dap(&o);
+    }
 #else
     if (o.dap)
     {
@@ -199,21 +202,10 @@ int main(int argc, char **argv)
     emu_init();
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
-    /* argv[0] is the program's own path (in MSC0: form) so it can re-exec
-     * itself; later argv paths from EXEC are resolved the same way. A drive path
-     * or an installed ":name" is already in 6502 form; a host path maps back. */
-    if (host_msc_has_drive_prefix(rom) || rom[0] == ':')
-        pro_set_argv0(rom);
-    else
+    if (!pro_set_argv(rom, o.n_rom_args, o.rom_args))
     {
-        char abs[HOST_MSC_MAX_PATH], msc[HOST_MSC_MAX_PATH];
-        if (realpath(rom, abs))
-        {
-            host_msc_from_host(abs, msc, sizeof(msc));
-            pro_set_argv0(msc);
-        }
-        else
-            pro_set_argv0(rom);
+        fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
+        return 1;
     }
 
     if (o.have_bg)

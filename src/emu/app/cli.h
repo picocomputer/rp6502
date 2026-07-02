@@ -45,6 +45,8 @@ typedef struct
     const char *inidir; /* --ini: config file for the debugger UI layout (else default) */
     unsigned long long seed;
     bool have_seed;
+    char **rom_args; /* words after "--", argv[1..] for the booted ROM (NULL = none given) */
+    int n_rom_args;
 } options;
 
 void options_init(options *o);
@@ -53,7 +55,9 @@ void options_init(options *o);
  * assigning only the options present so a later pass overrides an earlier one.
  * Returns 0, or 2 on a bad/unknown option (a message is printed; the caller
  * decides whether it is fatal). getopt_long accepts both "--opt value" and
- * "--opt=value", and permutes the lone positional (the ROM) to the tail. */
+ * "--opt=value", and permutes the lone positional (the ROM) to the tail.
+ * Everything after a standalone "--" lands in rom_args (the booted ROM's
+ * argv[1..]), never parsed as options. */
 int parse_args(int argc, char **argv, options *o);
 
 /* Print the option summary to stderr (argv0 names the program). */

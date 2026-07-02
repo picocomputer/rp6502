@@ -55,7 +55,7 @@ UTEST(exec, reexecs_self_with_arg)
     *slash = 0;
     ASSERT_TRUE(chdir(dir) == 0);
     host_msc_from_host(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
-    pro_set_argv0(msc);
+    pro_set_argv(msc, 0, NULL);
 
     com_set_tx_tap(tap);
     run_frames(90); /* first run -> exec -> second run -> exit */
@@ -67,6 +67,30 @@ UTEST(exec, reexecs_self_with_arg)
     ASSERT_TRUE(strstr(cap, "Executing self with arg: Foo") != NULL);
     ASSERT_TRUE(strstr(cap, "argv[1] = Foo") != NULL);
     ASSERT_TRUE(strstr(cap, "Success") != NULL);
+}
+
+UTEST(exec, boot_args_reach_program)
+{
+    cap_len = 0;
+    cap[0] = 0;
+    ASSERT_TRUE(emu_rom_load(EXEC_ROM));
+    emu_init();
+
+    /* Boot args (the CLI's `exec.rp6502 -- Foo`): pro_set_argv resolves the raw
+     * host path to MSC0: form itself. argc==2 at startup, so the program prints
+     * its argv and wins on the first run, without the re-exec. */
+    char *args[] = {"Foo"};
+    ASSERT_TRUE(pro_set_argv(EXEC_ROM, 1, args));
+
+    com_set_tx_tap(tap);
+    run_frames(90);
+    com_set_tx_tap(NULL);
+
+    ASSERT_TRUE(emu_cpu_halted);
+    ASSERT_EQ(emu_exit_code, 0);
+    ASSERT_TRUE(strstr(cap, "argv[1] = Foo") != NULL);
+    ASSERT_TRUE(strstr(cap, "Success") != NULL);
+    ASSERT_TRUE(strstr(cap, "Executing self") == NULL);
 }
 
 UTEST_MAIN()

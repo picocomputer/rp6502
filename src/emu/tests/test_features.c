@@ -15,6 +15,7 @@
 #include "emu/aud/snd.h"
 #include "emu/mon/rom.h"
 #include "emu/chips/rp6502.h"
+#include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "aud/bel.h"
 #include "sys/com.h"
@@ -65,14 +66,14 @@ UTEST(features, launcher_chain)
     emu_init();
 
     /* A shell starts and registers itself as the launcher. */
-    pro_set_argv0("MSC0:/shell.rp6502");
+    pro_set_argv("MSC0:/shell.rp6502", 0, NULL);
     ASSERT_FALSE(pro_has_launcher());
     pro_set_launcher(true);
     ASSERT_TRUE(pro_has_launcher());
     ASSERT_TRUE(pro_is_launcher());
 
     /* It execs a game (the reload calls pro_run): the game is not the launcher. */
-    pro_set_argv0("MSC0:/game.rp6502");
+    pro_set_argv("MSC0:/game.rp6502", 0, NULL);
     ASSERT_FALSE(pro_is_launcher());
     ASSERT_TRUE(pro_has_launcher());
 
@@ -89,6 +90,31 @@ UTEST(features, launcher_chain)
     /* The shell itself exits -> no relaunch, chain cleared. */
     ASSERT_FALSE(pro_exit(0));
     ASSERT_FALSE(pro_has_launcher());
+}
+
+/* Empty args are protocol elements: the seeded argv keeps them, so the
+ * emulator and the monitor's LOAD deliver the same argc. Read back through
+ * the RIA_OP_ARGV blob (offset table + {0,0} + packed strings). */
+UTEST(features, empty_args_kept)
+{
+    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
+    emu_init();
+
+    char *args[] = {"", "x", ""};
+    ASSERT_TRUE(pro_set_argv("MSC0:/a.rp6502", 3, args));
+    ASSERT_FALSE(pro_api_argv()); /* false = op complete, not still working */
+
+    const uint8_t *blob = &xstack[xstack_ptr];
+    int argc = 0;
+    while (blob[argc * 2] || blob[argc * 2 + 1])
+        argc++;
+    ASSERT_EQ(argc, 4);
+    const char *argv1 = (const char *)&blob[blob[2] | (blob[3] << 8)];
+    const char *argv2 = (const char *)&blob[blob[4] | (blob[5] << 8)];
+    const char *argv3 = (const char *)&blob[blob[6] | (blob[7] << 8)];
+    ASSERT_STREQ(argv1, "");
+    ASSERT_STREQ(argv2, "x");
+    ASSERT_STREQ(argv3, "");
 }
 
 /* Pump frames, draining audio, until a nonzero sample appears or the budget

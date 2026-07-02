@@ -19,10 +19,11 @@ extern "C"
 {
 #endif
 
-bool pro_api_argv(void);              /* op 0x08: read argv onto the xstack */
-bool pro_api_exec(void);              /* op 0x09: replace the program */
-void pro_set_argv0(const char *path); /* seed argv[0] for the initial program */
-void pro_run(void);                   /* snapshot argv[0] of the starting program */
+bool pro_api_argv(void); /* op 0x08: read argv onto the xstack */
+bool pro_api_exec(void); /* op 0x09: replace the program */
+/* Seed the initial program's argv: its own path + args. False on overflow. */
+bool pro_set_argv(const char *rom, int argc, char *const *args);
+void pro_run(void); /* snapshot argv[0] of the starting program */
 
 /* Launcher chain (firmware pro.h), reached by the vendored atr.c through the
  * LAUNCHER/EXIT_CODE attributes. A launcher re-runs after each child exits;

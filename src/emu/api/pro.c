@@ -22,6 +22,7 @@
 #include "emu/sys/sys.h"
 #include "api/api.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Survives a machine reset (it must, so EXEC's new argv reaches the new
@@ -115,12 +116,29 @@ static const char *pro_argv_index(uint16_t idx)
     return (const char *)&pro_argv[pro_argv_offset_read(idx)];
 }
 
-/* Seed argv[0] for the initially loaded program (its own path). */
-void pro_set_argv0(const char *path)
+/* Seed the initially loaded program's argv (firmware rom_load_argv/rom_exec).
+ * argv[0] is the program's own path in 6502 form so it can re-exec itself: a
+ * drive path or an installed ":name" is used verbatim; a host path maps back
+ * through realpath. Empty args are kept, like the monitor's LOAD. */
+bool pro_set_argv(const char *rom, int argc, char *const *args)
 {
+    char abs[HOST_MSC_MAX_PATH], msc[HOST_MSC_MAX_PATH];
+    const char *argv0 = rom;
+    if (!host_msc_has_drive_prefix(rom) && rom[0] != ':' && realpath(rom, abs))
+    {
+        host_msc_from_host(abs, msc, sizeof(msc));
+        argv0 = msc;
+    }
+    /* Length-guard each string: pro_argv_append's uint16 math trusts
+     * monitor-capped tokens, but host input is unbounded. */
     pro_argv_clear();
-    pro_argv_append(path);
+    bool ok = strlen(argv0) < XSTACK_SIZE && pro_argv_append(argv0);
+    for (int i = 0; ok && i < argc; i++)
+        ok = strlen(args[i]) < XSTACK_SIZE && pro_argv_append(args[i]);
+    if (!ok)
+        pro_argv_clear(); /* no partial argv; the caller decides severity */
     pro_run(); /* the initial program is now what's running */
+    return ok;
 }
 
 /* Snapshot argv[0] of the program now starting (firmware pro_run), so

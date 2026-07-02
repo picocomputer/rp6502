@@ -84,7 +84,7 @@ static const struct option longopts[] = {
 void cli_usage(const char *argv0)
 {
     fprintf(stderr,
-            "usage: %s <rom.rp6502> [options]\n"
+            "usage: %s <rom.rp6502> [options] [-- <args...>]\n"
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --frames <n>              frames to run before screenshot (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
@@ -107,6 +107,7 @@ void cli_usage(const char *argv0)
             "  --credits                 print third-party credits/licenses and exit\n"
             "  --ini <file>              config file for the debugger UI layout\n"
             "                            (ImGui format; e.g. the workspace .rp6502)\n"
+            "  -- <args...>              pass the remaining words to the ROM as argv[1..]\n"
             "A ROM's 'emulator' asset can preset these; the command line overrides it.\n",
             argv0);
 }
@@ -128,6 +129,19 @@ static void getopt_reset(void)
 
 int parse_args(int argc, char **argv, options *o)
 {
+    /* Split at the first standalone "--" before getopt sees it: the tail is the
+     * ROM's argv[1..], never parsed as options. Truncating argc also confines
+     * getopt's in-place permutation to the head, so the second pass over the
+     * already-permuted real argv finds the separator and tail untouched.
+     * (A literal "--" option value needs the --opt=-- form.) */
+    for (int i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "--"))
+        {
+            o->rom_args = &argv[i + 1];
+            o->n_rom_args = argc - i - 1;
+            argc = i;
+            break;
+        }
     getopt_reset();
     opterr = 0; /* we print our own messages (the ':' optstring reports them) */
     int c;

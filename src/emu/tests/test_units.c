@@ -3,11 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Unit tests for the pure-logic corners: CRC-32, the .rp6502 loader, and the
- * xreg device/channel dispatch.
+ * Unit tests for the pure-logic corners: CRC-32, the .rp6502 loader, the
+ * xreg device/channel dispatch, and the CLI parser.
  */
 
 #include "emu/api/oem.h"
+#include "emu/app/cli.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/pad.h"
 #include "emu/mon/rom.h"
@@ -187,6 +188,65 @@ UTEST(kbd, text_to_oem)
     kbd_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
     ASSERT_EQ(kbd_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
+}
+
+/* Everything after "--" is the ROM's argv[1..], never parsed as options. */
+UTEST(cli, rom_args_after_separator)
+{
+    options o;
+    options_init(&o);
+    char *argv[] = {"emu", "rom.rp6502", "--", "--looks-like-an-option", "b"};
+    ASSERT_EQ(parse_args(5, argv, &o), 0);
+    ASSERT_STREQ(o.rom, "rom.rp6502");
+    ASSERT_EQ(o.n_rom_args, 2);
+    ASSERT_STREQ(o.rom_args[0], "--looks-like-an-option");
+    ASSERT_STREQ(o.rom_args[1], "b");
+}
+
+UTEST(cli, rom_args_with_install_form)
+{
+    options o;
+    options_init(&o);
+    char *argv[] = {"emu", "--rom", "x.rp6502", "--", "a"};
+    ASSERT_EQ(parse_args(5, argv, &o), 0);
+    ASSERT_EQ(o.n_installs, 1);
+    ASSERT_TRUE(o.rom == NULL);
+    ASSERT_EQ(o.n_rom_args, 1);
+    ASSERT_STREQ(o.rom_args[0], "a");
+}
+
+/* A bare "--" is presence (rom_args non-NULL, zero words): a later pass can
+ * override an asset preset with "no args". */
+UTEST(cli, rom_args_bare_separator_and_passes)
+{
+    options o;
+    options_init(&o);
+    char *asset[] = {"emulator", "--mute", "--", "x"};
+    ASSERT_EQ(parse_args(4, asset, &o), 0);
+    ASSERT_EQ(o.n_rom_args, 1);
+    ASSERT_STREQ(o.rom_args[0], "x");
+
+    char *cli[] = {"emu", "rom.rp6502", "--"};
+    ASSERT_EQ(parse_args(3, cli, &o), 0);
+    ASSERT_TRUE(o.rom_args != NULL);
+    ASSERT_EQ(o.n_rom_args, 0);
+    ASSERT_STREQ(o.rom, "rom.rp6502");
+
+    char *plain[] = {"emu", "--mute"};
+    ASSERT_EQ(parse_args(2, plain, &o), 0); /* no "--": earlier pass stands */
+    ASSERT_TRUE(o.rom_args != NULL);
+    ASSERT_EQ(o.n_rom_args, 0);
+}
+
+UTEST(cli, no_separator_no_rom_args)
+{
+    options o;
+    options_init(&o);
+    char *argv[] = {"emu", "rom.rp6502"};
+    ASSERT_EQ(parse_args(2, argv, &o), 0);
+    ASSERT_TRUE(o.rom_args == NULL);
+    ASSERT_EQ(o.n_rom_args, 0);
+    ASSERT_STREQ(o.rom, "rom.rp6502");
 }
 
 UTEST_MAIN();

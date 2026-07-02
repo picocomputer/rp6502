@@ -4,11 +4,15 @@ set(UTEST_DIR ${RP6502_VENDOR}/sokol/tests/functional)
 set(ROMS ${CMAKE_CURRENT_SOURCE_DIR}/roms)
 set(ADVENTURE ${ROMS}/adventure.rp6502)
 
-# --- Unit tests (crc32, .rp6502 loader, xreg dispatch) ---
-add_executable(test_units test_units.c)
+# --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
+add_executable(test_units test_units.c ${RP6502_SRC}/emu/app/cli.c)
 target_link_libraries(test_units PRIVATE emu_core)
 target_include_directories(test_units PRIVATE ${UTEST_DIR})
 target_compile_definitions(test_units PRIVATE ADVENTURE_ROM="${ADVENTURE}")
+if(WIN32) # cli.c needs the same getopt the app uses
+    target_link_libraries(test_units PRIVATE wingetopt)
+    target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
+endif()
 add_test(NAME units COMMAND test_units)
 
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---

@@ -24,6 +24,7 @@
 
 extern "C"
 {
+#include "emu/api/pro.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
@@ -55,6 +56,7 @@ namespace dap
 struct RP6502LaunchRequest : public LaunchRequest
 {
     optional<string> program;     /* the .rp6502 to load + run */
+    optional<array<string>> args; /* the program's argv[1..] */
     optional<string> elf;         /* companion ELF carrying the DWARF line table (llvm-mos) */
     optional<string> dbg;         /* companion cc65 .dbg file (cc65 has no DWARF) */
     optional<boolean> stopOnEntry;
@@ -63,6 +65,7 @@ struct RP6502LaunchRequest : public LaunchRequest
 DAP_DECLARE_STRUCT_TYPEINFO(RP6502LaunchRequest);
 DAP_IMPLEMENT_STRUCT_TYPEINFO_EXT(RP6502LaunchRequest, LaunchRequest, "launch",
                                   DAP_FIELD(program, "program"),
+                                  DAP_FIELD(args, "args"),
                                   DAP_FIELD(elf, "elf"),
                                   DAP_FIELD(dbg, "dbg"),
                                   DAP_FIELD(stopOnEntry, "stopOnEntry"),
@@ -563,6 +566,7 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler([](const dap::RP6502LaunchRequest &req) {
         std::string program = req.program.value("");
+        std::vector<std::string> args = req.args.value({});
         std::string elf = req.elf.value("");
         std::string dbg = req.dbg.value("");
         bool soe = req.stopOnEntry.value(false);
@@ -591,7 +595,7 @@ extern "C" void dap_start(void)
         }
         push_segments(); /* feed the memory map the program's segment sizes */
 
-        post([program, soe, sox]() {
+        post([program, args, soe, sox]() {
             g_stop_on_entry = soe;
             g_stop_on_exit = sox;
             g_reached_entry = false;
@@ -602,7 +606,23 @@ extern "C" void dap_start(void)
             g_src_bps.clear();
             dbg_stop_at_entry();   /* hold at the first instruction for config */
             if (!program.empty())
+            {
+                std::vector<char *> argv;
+                for (const std::string &a : args)
+                    argv.push_back(const_cast<char *>(a.c_str()));
+                if (!pro_set_argv(program.c_str(), (int)argv.size(), argv.data()))
+                {
+                    /* Args over the 512-byte argv buffer. The response already
+                     * went out, so run anyway — but with argv[0] intact (the
+                     * re-exec invariant) and the failure in the Debug Console. */
+                    pro_set_argv(program.c_str(), 0, NULL);
+                    dap::OutputEvent ev;
+                    ev.category = "console";
+                    ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
+                    g_session->send(ev);
+                }
                 emu_exec(program.c_str());
+            }
         });
         return dap::LaunchResponse();
     });
