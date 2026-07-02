@@ -30,14 +30,14 @@ Everything you configure lives in one `CONFIG` object at the top of the script:
 | `title`   | Browser tab title.                                                 |
 | `bg`      | Letterbox/pillarbox fill color, six hex digits, no `#`.           |
 | `filter`  | Pixel scaling: `nearest` (blocky), `linear` (smooth), or `sharp`. |
-| `db`      | Browser save database name; blank uses the ROM filename (see [Saves](#saves-and-browser-storage)). |
+| `db`      | Browser save database name. (See [Saves](#saves-and-browser-storage)). |
 | `persist` | `true` keeps saves forever (default); `false` discards them when the player leaves the page. |
 
 ## Updating the emulator
 
 `index.html`, `rp6502.js`, and `rp6502.wasm` are one matched set from a single
 emulator build. The reason `CONFIG` is a single block near the top is to make
-this trivial: pull the newer files and re-apply that block.
+upgrades trivial: pull the newer files and re-apply that block.
 
 ## itch.io embed settings
 
@@ -51,15 +51,12 @@ this trivial: pull the newer files and re-apply that block.
 
 ## Saves and browser storage
 
-Anything your program writes to MSC0: lands in an IndexedDB database in the
-player's browser. The program starts inside it, so ordinary relative writes
-persist across visits. The `.rp6502` itself is fetched into memory on every
-visit and never stored — only your program's own files take up storage.
+Anything your program writes to MSC0:/db/ lands in an IndexedDB database in
+the player's browser. This allows players to save games or high scores.
 
-- **Database name.** `CONFIG.db`, or the ROM filename when blank
-  (`adventure.rp6502` → a database named `adventure.rp6502`). The filename
-  beats the page URL as a key: itch.io serves each upload from a new URL, so
-  saves keyed on it would reset every time you update the game.
+- **Database name.** `CONFIG.db`, defaults to ROM filename when blank.
+- **Session-only saves.** Set `persist: false` and saves last only until the
+  player leaves or reloads the page — nothing touches IndexedDB at all.
 - **Who can see it.** itch.io serves every HTML game from one shared origin
   (`html-classic.itch.zone`), and IndexedDB is per-origin, so the database
   namespace is shared with every other itch.io game the player runs. Any game
@@ -70,8 +67,6 @@ visit and never stored — only your program's own files take up storage.
   games share one MSC0: drive. This works *because* of the shared origin; if
   itch.io ever isolates games onto their own origins, cross-page sharing stops
   and existing saves effectively reset.
-- **Session-only saves.** Set `persist: false` and saves last only until the
-  player leaves or reloads the page — nothing touches IndexedDB at all.
 
 ## Please tag it `RP6502`
 
