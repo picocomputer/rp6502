@@ -24,6 +24,10 @@ extern "C"
  * value here BEFORE dbgui_init; with no override the UI uses <os-config-dir>/dbgui.ini. */
 void dbgui_set_config_file(const char *path);
 
+/* The last debug session's window size from the config file, readable before
+ * dbgui_init (and the window) exist. False if absent or implausible. */
+bool dbgui_window_size(int *w, int *h);
+
 void dbgui_init(void);    /* create ImGui + the debugger windows (after sg_setup) */
 void dbgui_discard(void); /* tear them down (before sg_shutdown) */
 void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale);

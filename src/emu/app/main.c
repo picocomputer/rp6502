@@ -116,7 +116,7 @@ static int run_dap(const options *o)
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on
      * exit, the window closes on Disconnect), so the window is held (never
      * auto-closed) — the final screen stays up until the client disconnects. */
-    return emu_run_window(g_fb, o->scale, o->vsync, false);
+    return emu_run_window(g_fb, o->scale, o->have_scale, o->vsync, false);
 }
 #endif
 
@@ -265,5 +265,5 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    return emu_run_window(g_fb, o.scale, o.vsync, !o.debug);
+    return emu_run_window(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
 }

@@ -137,7 +137,7 @@ int parse_args(int argc, char **argv, options *o)
         {
         case OPT_SCREENSHOT: o->shot = optarg; break;
         case OPT_FRAMES: o->frames = atoi(optarg); break;
-        case OPT_SCALE: o->scale = atof(optarg); break;
+        case OPT_SCALE: o->scale = atof(optarg); o->have_scale = true; break;
         case OPT_VSYNC: o->vsync = true; break;
         case OPT_NO_VSYNC: o->vsync = false; break;
         case OPT_FILTER:

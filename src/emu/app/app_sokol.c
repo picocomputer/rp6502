@@ -23,10 +23,11 @@
 
 #include <stdio.h>
 
-int emu_run_window(uint32_t *fb, double scale, bool vsync, bool exit_on_halt)
+int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
     (void)fb;
     (void)scale;
+    (void)have_scale;
     (void)vsync;
     (void)exit_on_halt;
     fprintf(stderr, "rp6502-emu: built without window support; use --screenshot\n");
@@ -231,6 +232,19 @@ static int sharp_prescale(int cw, int ch, int aw, int ah)
     return f;
 }
 
+/* Is the debugger overlay (menu bar + dockspace) on this window? The overlay
+ * owns the layout then: panels dock beside the canvas and the central node
+ * letterboxes it, so the window resizes freely — no WM aspect hint, no width
+ * re-fit — and its size persists per debug session instead of tracking --scale. */
+static bool overlay_active(void)
+{
+#ifdef EMU_WITH_DEBUGGER
+    return dbg_is_active();
+#else
+    return false;
+#endif
+}
+
 /* Framebuffer pixels reserved at the top of the window for the debugger's menu
  * bar, so the canvas is laid out BELOW the menu instead of under it (0 when the
  * overlay is inactive). dbgui reports the bar height in ImGui points; scale by
@@ -375,7 +389,8 @@ static void init_cb(void)
     int cw, ch;
     emu_canvas_size(&cw, &ch);
     resize_canvas_texture(cw, ch);
-    set_aspect_hint(cw, ch);
+    if (!overlay_active())
+        set_aspect_hint(cw, ch);
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init();
@@ -493,29 +508,27 @@ static void frame_cb(void)
     if (cw != app.tex_w || ch != app.tex_h)
     {
         /* Before tex_w/tex_h update, note whether the window is still within <1px
-         * of the OLD canvas aspect, i.e. the user hasn't resized it off-aspect.
-         * The canvas region excludes the debugger menu strip, so the width is
-         * matched against that region's height, not the whole window. */
+         * of the OLD canvas aspect, i.e. the user hasn't resized it off-aspect. */
         int w = sapp_width(), h = sapp_height();
-        int avail = h - top_reserved_px();
-        if (avail < 1)
-            avail = 1;
-        double off = (double)w - (double)avail * app.tex_w / app.tex_h;
+        double off = (double)w - (double)h * app.tex_w / app.tex_h;
         int at_aspect = off < 1.0 && off > -1.0;
 
         resize_canvas_texture(cw, ch);
-        /* Ask the WM to keep the new aspect on interactive resize. WSLg ignores
-         * this (the quad below letterboxes instead); native X11/other WMs honor it. */
-        set_aspect_hint(cw, ch);
+        if (!overlay_active()) /* the debug workbench never tracks the canvas aspect */
+        {
+            /* Ask the WM to keep the new aspect on interactive resize. WSLg ignores
+             * this (the quad below letterboxes instead); native X11/other WMs honor it. */
+            set_aspect_hint(cw, ch);
 
-        /* Re-fit the window width to the new aspect ONLY if it was still pristine;
-         * a window the user has resized off-aspect is left alone (and letterboxed).
-         * We don't poll-and-snap to enforce it: programmatic resizes are unreliable
-         * under WSLg (it restores geometry and drops requests). Height is left as-is
-         * (it already carries the menu strip); only the width tracks the aspect. */
-        int new_w = (int)((long)avail * cw / ch);
-        if (at_aspect && new_w != w)
-            resize_window(new_w, h);
+            /* Re-fit the window width to the new aspect ONLY if it was still pristine;
+             * a window the user has resized off-aspect is left alone (and letterboxed).
+             * We don't poll-and-snap to enforce it: programmatic resizes are unreliable
+             * under WSLg (it restores geometry and drops requests). Height is left
+             * as-is; only the width tracks the aspect. */
+            int new_w = (int)((long)h * cw / ch);
+            if (at_aspect && new_w != w)
+                resize_window(new_w, h);
+        }
     }
 
     /* Upload the new frame from the window's framebuffer (zero copy), but
@@ -722,8 +735,9 @@ static void cleanup_cb(void)
     sg_shutdown();
 }
 
-int emu_run_window(uint32_t *fb, double scale, bool vsync, bool exit_on_halt)
+int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
+    (void)have_scale;
     /* Clamp to a sane range; the !(>=) form also maps NaN (atof of garbage) to
      * the floor, and the upper bound keeps win_h*scale in int range. */
     if (!(scale >= 0.1))
@@ -751,12 +765,22 @@ int emu_run_window(uint32_t *fb, double scale, bool vsync, bool exit_on_halt)
     int win_w = (int)((long)canvas_h * cw / ch);
     int win_h = canvas_h;
 #ifdef EMU_WITH_DEBUGGER
-    /* In debug mode the menu bar sits ABOVE the canvas, so open the window taller
-     * by the bar's height; otherwise the canvas-aspect window squeezes the VGA
-     * picture under the menu. Post-open resizes are unreliable (WSLg drops them),
-     * so size it right up front with the pre-frame estimate. */
     if (dbg_is_active())
+    {
+        /* In debug mode the menu bar sits ABOVE the canvas, so open the window
+         * taller by the bar's height; otherwise the canvas-aspect window squeezes
+         * the VGA picture under the menu. Post-open resizes are unreliable (WSLg
+         * drops them), so size it right up front with the pre-frame estimate. */
         win_h += (int)(dbgui_menu_bar_estimate() + 0.5f);
+        /* Reopen at the last debug session's window size (persisted with the
+         * layout); an explicit --scale asks for a specific size and wins. */
+        int last_w, last_h;
+        if (!have_scale && dbgui_window_size(&last_w, &last_h))
+        {
+            win_w = last_w;
+            win_h = last_h;
+        }
+    }
 #endif
     sapp_run(&(sapp_desc){
         .init_cb = init_cb,
